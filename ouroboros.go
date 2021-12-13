@@ -2,7 +2,8 @@ package ouroboros
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/handshake"
+	"github.com/cloudstruct/go-ouroboros-network/muxer"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
 	"io"
 	"net"
 )
@@ -10,8 +11,9 @@ import (
 type Ouroboros struct {
 	conn              io.ReadWriteCloser
 	networkMagic      uint32
+	waitForHandshake  bool
 	handshakeComplete bool
-	muxer             *Muxer
+	muxer             *muxer.Muxer
 	ErrorChan         chan error
 	// Mini-protocols
 	Handshake *handshake.Handshake
@@ -20,13 +22,17 @@ type Ouroboros struct {
 type OuroborosOptions struct {
 	Conn         io.ReadWriteCloser
 	NetworkMagic uint32
+	// Whether to wait for the other side to initiate the handshake. This is useful
+	// for servers
+	WaitForHandshake bool
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
 	o := &Ouroboros{
-		conn:         options.Conn,
-		networkMagic: options.NetworkMagic,
-		ErrorChan:    make(chan error, 10),
+		conn:             options.Conn,
+		networkMagic:     options.NetworkMagic,
+		waitForHandshake: options.WaitForHandshake,
+		ErrorChan:        make(chan error, 10),
 	}
 	if o.conn != nil {
 		if err := o.setupConnection(); err != nil {
@@ -51,22 +57,23 @@ func (o *Ouroboros) Dial(proto string, address string) error {
 }
 
 func (o *Ouroboros) setupConnection() error {
-	o.muxer = NewMuxer(o.conn)
+	o.muxer = muxer.New(o.conn)
 	// Start Goroutine to pass along errors from the muxer
 	go func() {
-		err := <-o.muxer.errorChan
+		err := <-o.muxer.ErrorChan
 		o.ErrorChan <- err
 	}()
 	// Perform handshake
-	handshakeSendChan, handshakeRecvChan := o.muxer.registerProtocol(handshake.PROTOCOL_ID_SENDER, handshake.PROTOCOL_ID_RECEIVER)
-	o.Handshake = handshake.New(handshakeSendChan, handshakeRecvChan)
-	// TODO: create a proper version map
-	protoVersion, err := o.Handshake.Start([]uint16{1, 32778}, o.networkMagic)
-	if err != nil {
-		return err
+	o.Handshake = handshake.New(o.muxer, o.ErrorChan)
+	if !o.waitForHandshake {
+		// TODO: create a proper version map
+		err := o.Handshake.Propose([]uint16{1, 32778}, o.networkMagic)
+		if err != nil {
+			return err
+		}
 	}
-	o.handshakeComplete = true
-	fmt.Printf("negotiated protocol version %d\n", protoVersion)
+	o.handshakeComplete = <-o.Handshake.Finished
+	fmt.Printf("negotiated protocol version %d\n", o.Handshake.Version)
 	// TODO: register additional mini-protocols
 	return nil
 }
