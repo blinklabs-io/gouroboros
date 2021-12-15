@@ -5,6 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
+	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"io"
 	"net"
 	"os"
@@ -85,4 +88,23 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	// Test chain-sync
+	for {
+		resp, err := o.ChainSync.RequestNext()
+		if err != nil {
+			fmt.Printf("ERROR: %s\n", err)
+			os.Exit(1)
+		}
+		//fmt.Printf("resp = %#v, err = %#v\n", resp, err)
+		switch resp.BlockType {
+		case chainsync.BLOCK_TYPE_BYRON_EBB:
+			fmt.Printf("found Byron EBB block\n")
+		case chainsync.BLOCK_TYPE_BYRON_MAIN:
+			block := resp.Block.(common.ByronMainBlock)
+			fmt.Printf("epoch = %d, slot = %d, prevBlock = %s\n", block.Header.ConsensusData.SlotId.Epoch, block.Header.ConsensusData.SlotId.Slot, block.Header.PrevBlock)
+		default:
+			fmt.Printf("unsupported (so far) block type %d\n", resp.BlockType)
+			fmt.Printf("%s\n", utils.DumpCborStructure(resp.Block, ""))
+		}
+	}
 }

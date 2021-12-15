@@ -3,20 +3,23 @@ package ouroboros
 import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
 	"io"
 	"net"
 )
 
 type Ouroboros struct {
-	conn              io.ReadWriteCloser
-	networkMagic      uint32
-	waitForHandshake  bool
-	handshakeComplete bool
-	muxer             *muxer.Muxer
-	ErrorChan         chan error
+	conn               io.ReadWriteCloser
+	networkMagic       uint32
+	waitForHandshake   bool
+	useNodeToNodeProto bool
+	handshakeComplete  bool
+	muxer              *muxer.Muxer
+	ErrorChan          chan error
 	// Mini-protocols
 	Handshake *handshake.Handshake
+	ChainSync *chainsync.ChainSync
 }
 
 type OuroborosOptions struct {
@@ -24,7 +27,8 @@ type OuroborosOptions struct {
 	NetworkMagic uint32
 	// Whether to wait for the other side to initiate the handshake. This is useful
 	// for servers
-	WaitForHandshake bool
+	WaitForHandshake      bool
+	UseNodeToNodeProtocol bool
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
@@ -75,5 +79,6 @@ func (o *Ouroboros) setupConnection() error {
 	o.handshakeComplete = <-o.Handshake.Finished
 	fmt.Printf("negotiated protocol version %d\n", o.Handshake.Version)
 	// TODO: register additional mini-protocols
+	o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto)
 	return nil
 }
