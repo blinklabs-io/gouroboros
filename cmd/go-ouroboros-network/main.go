@@ -2,11 +2,12 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network"
+	"github.com/cloudstruct/go-ouroboros-network/block"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"io"
 	"net"
@@ -26,6 +27,12 @@ type cmdFlags struct {
 	testnet      bool
 	mainnet      bool
 }
+
+type chainSyncState struct {
+	readyForNextBlockChan chan bool
+}
+
+var syncState chainSyncState
 
 func main() {
 	f := cmdFlags{}
@@ -75,6 +82,14 @@ func main() {
 	oOpts := &ouroboros.OuroborosOptions{
 		Conn:         conn,
 		NetworkMagic: uint32(f.networkMagic),
+		ChainSyncCallbackConfig: &chainsync.ChainSyncCallbackConfig{
+			AwaitReplyFunc:        chainSyncAwaitReplyHandler,
+			RollBackwardFunc:      chainSyncRollBackwardHandler,
+			RollForwardFunc:       chainSyncRollForwardHandler,
+			IntersectFoundFunc:    chainSyncIntersectFoundHandler,
+			IntersectNotFoundFunc: chainSyncIntersectNotFoundHandler,
+			DoneFunc:              chainSyncDoneHandler,
+		},
 	}
 	o, err := ouroboros.New(oOpts)
 	if err != nil {
@@ -89,22 +104,68 @@ func main() {
 		}
 	}()
 	// Test chain-sync
+	syncState.readyForNextBlockChan = make(chan bool, 0)
+	secondToLastByronSlot := 1598398
+	//lastByronBlockHash, _ := hex.DecodeString("7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4")
+	secondToLastByronBlockHash, _ := hex.DecodeString("8542ae6166cc4affadefd44585488fef9a02aee7914e1e387ce5f7a33e6569c5")
+	if err := o.ChainSync.FindIntersect([]interface{}{[]interface{}{secondToLastByronSlot, secondToLastByronBlockHash}}); err != nil {
+		fmt.Printf("ERROR: FindIntersect: %s\n", err)
+		os.Exit(1)
+	}
+	// Wait until ready for next block
+	<-syncState.readyForNextBlockChan
 	for {
-		resp, err := o.ChainSync.RequestNext()
+		err := o.ChainSync.RequestNext()
 		if err != nil {
-			fmt.Printf("ERROR: %s\n", err)
+			fmt.Printf("ERROR: RequestNext: %s\n", err)
 			os.Exit(1)
 		}
 		//fmt.Printf("resp = %#v, err = %#v\n", resp, err)
-		switch resp.BlockType {
-		case chainsync.BLOCK_TYPE_BYRON_EBB:
-			fmt.Printf("found Byron EBB block\n")
-		case chainsync.BLOCK_TYPE_BYRON_MAIN:
-			block := resp.Block.(common.ByronMainBlock)
-			fmt.Printf("epoch = %d, slot = %d, prevBlock = %s\n", block.Header.ConsensusData.SlotId.Epoch, block.Header.ConsensusData.SlotId.Slot, block.Header.PrevBlock)
-		default:
-			fmt.Printf("unsupported (so far) block type %d\n", resp.BlockType)
-			fmt.Printf("%s\n", utils.DumpCborStructure(resp.Block, ""))
-		}
+		// Wait until ready for next block
+		<-syncState.readyForNextBlockChan
 	}
+}
+
+func chainSyncAwaitReplyHandler() error {
+	return nil
+}
+
+func chainSyncRollBackwardHandler(point interface{}, tip interface{}) error {
+	fmt.Printf("roll backward: point = %#v, tip = %#v\n", point, tip)
+	syncState.readyForNextBlockChan <- true
+	return nil
+}
+
+func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
+	switch blockType {
+	case block.BLOCK_TYPE_BYRON_EBB:
+		fmt.Printf("found Byron EBB block\n")
+	case block.BLOCK_TYPE_BYRON_MAIN:
+		b := blockData.(block.ByronMainBlock)
+		fmt.Printf("era = Byron, epoch = %d, slot = %d, prevBlock = %s\n", b.Header.ConsensusData.SlotId.Epoch, b.Header.ConsensusData.SlotId.Slot, b.Header.PrevBlock)
+	case block.BLOCK_TYPE_SHELLEY:
+		b := blockData.(block.ShelleyBlock)
+		fmt.Printf("era = Shelley, slot = %d, block_no = %d, prevHash = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Header.Body.PrevHash)
+	default:
+		fmt.Printf("unsupported (so far) block type %d\n", blockType)
+		fmt.Printf("%s\n", utils.DumpCborStructure(blockData, ""))
+	}
+	syncState.readyForNextBlockChan <- true
+	return nil
+}
+
+func chainSyncIntersectFoundHandler(point interface{}, tip interface{}) error {
+	fmt.Printf("found intersect: point = %#v, tip = %#v\n", point, tip)
+	syncState.readyForNextBlockChan <- true
+	return nil
+}
+
+func chainSyncIntersectNotFoundHandler() error {
+	fmt.Printf("ERROR: failed to find intersection\n")
+	os.Exit(1)
+	return nil
+}
+
+func chainSyncDoneHandler() error {
+	return nil
 }

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/cloudstruct/go-ouroboros-network/block"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"io"
 )
@@ -18,24 +18,39 @@ const (
 	STATE_CAN_AWAIT
 	STATE_MUST_REPLY
 	STATE_INTERSECT
-
-	BLOCK_TYPE_BYRON_EBB  = 0
-	BLOCK_TYPE_BYRON_MAIN = 1
-	// TODO: more block types
+	STATE_DONE
 )
 
 type ChainSync struct {
-	errorChan       chan error
-	sendChan        chan *muxer.Message
-	recvChan        chan *muxer.Message
-	state           uint8
-	nodeToNode      bool
-	protocolId      uint16
-	requestNextChan chan *RequestNextResult
-	recvBuffer      bytes.Buffer
+	errorChan      chan error
+	sendChan       chan *muxer.Message
+	recvChan       chan *muxer.Message
+	state          uint8
+	nodeToNode     bool
+	protocolId     uint16
+	recvBuffer     bytes.Buffer
+	callbackConfig *ChainSyncCallbackConfig
 }
 
-func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool) *ChainSync {
+type ChainSyncCallbackConfig struct {
+	AwaitReplyFunc        ChainSyncAwaitReplyFunc
+	RollBackwardFunc      ChainSyncRollBackwardFunc
+	RollForwardFunc       ChainSyncRollForwardFunc
+	IntersectFoundFunc    ChainSyncIntersectFoundFunc
+	IntersectNotFoundFunc ChainSyncIntersectNotFoundFunc
+	DoneFunc              ChainSyncDoneFunc
+}
+
+// TODO: flesh out func args
+// Callback function types
+type ChainSyncAwaitReplyFunc func() error
+type ChainSyncRollBackwardFunc func(interface{}, interface{}) error
+type ChainSyncRollForwardFunc func(uint, interface{}) error
+type ChainSyncIntersectFoundFunc func(interface{}, interface{}) error
+type ChainSyncIntersectNotFoundFunc func() error
+type ChainSyncDoneFunc func() error
+
+func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool, callbackConfig *ChainSyncCallbackConfig) *ChainSync {
 	// Use node-to-client protocol ID
 	protocolId := PROTOCOL_ID_NTC
 	if nodeToNode {
@@ -44,13 +59,13 @@ func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool) *ChainSync {
 	}
 	sendChan, recvChan := m.RegisterProtocol(protocolId)
 	c := &ChainSync{
-		errorChan:       errorChan,
-		sendChan:        sendChan,
-		recvChan:        recvChan,
-		state:           STATE_IDLE,
-		nodeToNode:      nodeToNode,
-		protocolId:      protocolId,
-		requestNextChan: make(chan *RequestNextResult, 10),
+		errorChan:      errorChan,
+		sendChan:       sendChan,
+		recvChan:       recvChan,
+		state:          STATE_IDLE,
+		nodeToNode:     nodeToNode,
+		protocolId:     protocolId,
+		callbackConfig: callbackConfig,
 	}
 	go c.recvLoop()
 	return c
@@ -59,112 +74,137 @@ func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool) *ChainSync {
 func (c *ChainSync) recvLoop() {
 	for {
 		var err error
-		// Wait for response
+		// Wait for message
 		msg := <-c.recvChan
+		// Add message payload to buffer
 		c.recvBuffer.Write(msg.Payload)
 		// Decode response into generic list until we can determine what type of response it is
 		var resp []interface{}
 		if err := utils.CborDecode(c.recvBuffer.Bytes(), &resp); err != nil {
 			if errors.Is(err, io.ErrUnexpectedEOF) {
+				// This is probably a multi-part message, so we wait until we get more of the message
+				// before trying to process it
 				continue
 			}
 			c.errorChan <- fmt.Errorf("chain-sync: decode error: %s", err)
 		}
 		switch resp[0].(uint64) {
 		case MESSAGE_TYPE_AWAIT_REPLY:
-			//err = c.handleRequest(msg)
-			fmt.Printf("MESSAGE_TYPE_AWAIT_REPLY\n")
+			err = c.handleAwaitReply()
 		case MESSAGE_TYPE_ROLL_FORWARD:
 			err = c.handleRollForward(c.recvBuffer.Bytes())
 		case MESSAGE_TYPE_ROLL_BACKWARD:
 			err = c.handleRollBackward(c.recvBuffer.Bytes())
 		case MESSAGE_TYPE_INTERSECT_FOUND:
-			// TODO
-			fmt.Printf("MESSAGE_TYPE_INTERSECT_FOUND\n")
+			err = c.handleIntersectFound(c.recvBuffer.Bytes())
 		case MESSAGE_TYPE_INTERSECT_NOT_FOUND:
-			// TODO
-			fmt.Printf("MESSAGE_TYPE_INTERSECT_NOT_FOUND\n")
+			err = c.handleIntersectNotFound(c.recvBuffer.Bytes())
 		case MESSAGE_TYPE_DONE:
-			// TODO
-			fmt.Printf("MESSAGE_TYPE_DONE\n")
+			err = c.handleDone()
 		default:
 			err = fmt.Errorf("chain-sync: received unexpected message: %#v", resp)
 		}
-		c.recvBuffer.Reset()
 		if err != nil {
 			c.errorChan <- err
 		}
+		// Empty out our buffer since we successfully processed the message
+		c.recvBuffer.Reset()
 	}
 }
 
-func (c *ChainSync) RequestNext() (*RequestNextResult, error) {
-	// TODO
-	// if c.state != STATE_IDLE {
-	// 	return nil, fmt.Errorf("protocol not in expected state")
-	// }
+func (c *ChainSync) RequestNext() error {
+	if c.state != STATE_IDLE {
+		return fmt.Errorf("protocol not in expected state")
+	}
 	// Create our request
 	data := newMsgRequestNext()
 	dataBytes, err := utils.CborEncode(data)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	msg := muxer.NewMessage(c.protocolId, dataBytes, false)
 	// Send request
 	c.sendChan <- msg
-	// Set the new state
 	c.state = STATE_CAN_AWAIT
-	resp := <-c.requestNextChan
-	return resp, nil
-}
-
-func (c *ChainSync) FindIntersect(points []string) {
-	return
-}
-
-func (c *ChainSync) handleAwaitReply(msg *muxer.Message) error {
 	return nil
 }
 
+func (c *ChainSync) FindIntersect(points []interface{}) error {
+	if c.state != STATE_IDLE {
+		return fmt.Errorf("protocol not in expected state")
+	}
+	data := newMsgFindIntersect(points)
+	dataBytes, err := utils.CborEncode(data)
+	if err != nil {
+		return err
+	}
+	msg := muxer.NewMessage(c.protocolId, dataBytes, false)
+	// Send request
+	c.sendChan <- msg
+	c.state = STATE_INTERSECT
+	return nil
+}
+
+func (c *ChainSync) handleAwaitReply() error {
+	if c.state != STATE_CAN_AWAIT {
+		return fmt.Errorf("received chain-sync AwaitReply message when protocol not in expected state")
+	}
+	if c.callbackConfig.AwaitReplyFunc == nil {
+		return fmt.Errorf("received chain-sync AwaitReply message but no callback function is defined")
+	}
+	c.state = STATE_MUST_REPLY
+	return c.callbackConfig.AwaitReplyFunc()
+}
+
 func (c *ChainSync) handleRollForward(data []byte) error {
-	// TODO
-	// if c.state != STATE_CONFIRM {
-	// 	return fmt.Errorf("received handshake accept response when protocol is in wrong state")
-	// }
+	if c.state != STATE_CAN_AWAIT && c.state != STATE_MUST_REPLY {
+		return fmt.Errorf("received chain-sync RollForward message when protocol not in expected state")
+	}
+	if c.callbackConfig.RollForwardFunc == nil {
+		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
+	}
 	var msg msgRollForward
 	if err := utils.CborDecode(data, &msg); err != nil {
 		return fmt.Errorf("chain-sync: decode error: %s", err)
 	}
-	/*
-		if len(msg.WrappedData) < 8000 {
-			for _, x := range msg.WrappedData {
-				fmt.Printf("%02x ", x)
-			}
-			fmt.Printf("\n")
-		}
-	*/
-	var block wrappedBlock
-	if err := utils.CborDecode(msg.WrappedData, &block); err != nil {
+	// Decode only enough to get the block type value
+	var wrapBlock wrappedBlock
+	if err := utils.CborDecode(msg.WrappedData, &wrapBlock); err != nil {
 		return fmt.Errorf("chain-sync: decode error: %s", err)
-		//fmt.Printf("ignoring wrapped data decode error for now...%s\n", err)
 	}
-	resp := &RequestNextResult{
-		BlockType: block.Type,
-	}
-	switch block.Type {
-	case BLOCK_TYPE_BYRON_EBB:
-		var block2 common.ByronEpochBoundaryBlock
-		if err := utils.CborDecode(block.RawBlock, &block2); err != nil {
+	var respBlock interface{}
+	switch wrapBlock.Type {
+	case block.BLOCK_TYPE_BYRON_EBB:
+		var byronEbbBlock block.ByronEpochBoundaryBlock
+		if err := utils.CborDecode(wrapBlock.RawBlock, &byronEbbBlock); err != nil {
 			return fmt.Errorf("chain-sync: decode error: %s", err)
 		}
-		resp.Block = block2
-	case BLOCK_TYPE_BYRON_MAIN:
-		var block2 common.ByronMainBlock
-		if err := utils.CborDecode(block.RawBlock, &block2); err != nil {
+		respBlock = byronEbbBlock
+	case block.BLOCK_TYPE_BYRON_MAIN:
+		var byronMainBlock block.ByronMainBlock
+		if err := utils.CborDecode(wrapBlock.RawBlock, &byronMainBlock); err != nil {
 			return fmt.Errorf("chain-sync: decode error: %s", err)
 		}
-		//fmt.Printf("epoch = %d, slot = %d, prevBlock = %s\n", block2.Header.ConsensusData.SlotId.Epoch, block2.Header.ConsensusData.SlotId.Slot, block2.Header.PrevBlock)
-		//fmt.Printf("block2 = %#v\n", block2)
-		resp.Block = block2
+		respBlock = byronMainBlock
+	case block.BLOCK_TYPE_SHELLEY:
+		var shelleyBlock block.ShelleyBlock
+		if err := utils.CborDecode(wrapBlock.RawBlock, &shelleyBlock); err != nil {
+			/*
+				var payload interface{}
+				if err := utils.CborDecode(msg.WrappedData, &payload); err != nil {
+					return fmt.Errorf("chain-sync: decode error: %s", err)
+				}
+				fmt.Printf("payload = %s\n", utils.DumpCborStructure(payload, ""))
+			*/
+			if len(msg.WrappedData) < 8000 {
+				for _, x := range msg.WrappedData {
+					fmt.Printf("%02x ", x)
+				}
+				fmt.Printf("\n")
+			}
+			return fmt.Errorf("chain-sync: decode error: %s", err)
+		}
+		respBlock = shelleyBlock
 	// TODO: support more block types
 	default:
 		var payload interface{}
@@ -172,42 +212,67 @@ func (c *ChainSync) handleRollForward(data []byte) error {
 			//return fmt.Errorf("chain-sync: decode error: %s", err)
 			//fmt.Printf("ignoring generic payload decode error for now...%s\n", err)
 		}
-		//fmt.Printf("payload = %s\n", utils.DumpCborStructure(payload, ""))
-		resp.Block = payload
+		fmt.Printf("payload = %s\n", utils.DumpCborStructure(payload, ""))
+		return fmt.Errorf("unsupported block type\n")
+		respBlock = payload
 	}
-	c.requestNextChan <- resp
-	// TODO
-	// c.state = STATE_DONE
-	return nil
+	// Set new state
+	c.state = STATE_IDLE
+	return c.callbackConfig.RollForwardFunc(wrapBlock.Type, respBlock)
 }
 
 func (c *ChainSync) handleRollBackward(data []byte) error {
-	// TODO
-	// if c.state != STATE_CONFIRM {
-	// 	return fmt.Errorf("received handshake accept response when protocol is in wrong state")
-	// }
+	if c.state != STATE_CAN_AWAIT && c.state != STATE_MUST_REPLY {
+		return fmt.Errorf("received chain-sync RollBackward message when protocol not in expected state")
+	}
+	if c.callbackConfig.RollBackwardFunc == nil {
+		return fmt.Errorf("received chain-sync RollBackward message but no callback function is defined")
+	}
 	var msg msgRollBackward
 	if err := utils.CborDecode(data, &msg); err != nil {
 		return fmt.Errorf("chain-sync: decode error: %s", err)
 	}
-	fmt.Printf("handleRollBackward: msg = %#v\n", msg)
-	resp := &RequestNextResult{
-		Rollback: true,
+	c.state = STATE_IDLE
+	return c.callbackConfig.RollBackwardFunc(msg.Point, msg.Tip)
+}
+
+func (c *ChainSync) handleIntersectFound(data []byte) error {
+	if c.state != STATE_INTERSECT {
+		return fmt.Errorf("received chain-sync IntersectFound message when protocol not in expected state")
 	}
-	c.requestNextChan <- resp
-	// TODO
-	// c.state = STATE_DONE
-	return nil
+	if c.callbackConfig.IntersectFoundFunc == nil {
+		return fmt.Errorf("received chain-sync IntersectFound message but no callback function is defined")
+	}
+	var msg msgIntersectFound
+	if err := utils.CborDecode(data, &msg); err != nil {
+		return fmt.Errorf("chain-sync: decode error: %s", err)
+	}
+	c.state = STATE_IDLE
+	return c.callbackConfig.IntersectFoundFunc(msg.Point, msg.Tip)
 }
 
-func (c *ChainSync) handleIntersectFound(msg *muxer.Message) error {
-	return nil
+func (c *ChainSync) handleIntersectNotFound(data []byte) error {
+	if c.state != STATE_INTERSECT {
+		return fmt.Errorf("received chain-sync IntersectNotFound message when protocol not in expected state")
+	}
+	if c.callbackConfig.IntersectNotFoundFunc == nil {
+		return fmt.Errorf("received chain-sync IntersectNotFound message but no callback function is defined")
+	}
+	var msg msgIntersectNotFound
+	if err := utils.CborDecode(data, &msg); err != nil {
+		return fmt.Errorf("chain-sync: decode error: %s", err)
+	}
+	c.state = STATE_IDLE
+	return c.callbackConfig.IntersectNotFoundFunc()
 }
 
-func (c *ChainSync) handleIntersectNotFound(msg *muxer.Message) error {
-	return nil
-}
-
-func (c *ChainSync) handleDone(msg *muxer.Message) error {
-	return nil
+func (c *ChainSync) handleDone() error {
+	if c.state != STATE_IDLE {
+		return fmt.Errorf("received chain-sync Done message when protocol not in expected state")
+	}
+	if c.callbackConfig.DoneFunc == nil {
+		return fmt.Errorf("received chain-sync Done message but no callback function is defined")
+	}
+	c.state = STATE_DONE
+	return c.callbackConfig.DoneFunc()
 }

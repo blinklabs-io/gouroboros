@@ -22,21 +22,25 @@ func DumpCborStructure(data interface{}, prefix string) string {
 		}
 		// Add 2 more spaces to the new prefix
 		newPrefix = fmt.Sprintf("  %s", newPrefix)
-		var lastOutput string
-		var lastOutputCount uint32
+		/*
+			var lastOutput string
+			var lastOutputCount uint32
+		*/
 		for _, val := range v {
 			tmp := DumpCborStructure(val, newPrefix)
-			if lastOutput == "" || lastOutput == tmp {
-				lastOutputCount += 1
-				if lastOutputCount == 5 {
-					ret.WriteString(fmt.Sprintf("%s...\n", newPrefix))
-					continue
-				} else if lastOutputCount > 5 {
-					lastOutput = tmp
-					continue
+			/*
+				if lastOutput == "" || lastOutput == tmp {
+					lastOutputCount += 1
+					if lastOutputCount == 5 {
+						ret.WriteString(fmt.Sprintf("%s...\n", newPrefix))
+						continue
+					} else if lastOutputCount > 5 {
+						lastOutput = tmp
+						continue
+					}
 				}
-			}
-			lastOutput = tmp
+				lastOutput = tmp
+			*/
 			ret.WriteString(tmp)
 		}
 		ret.WriteString(fmt.Sprintf("%s],\n", prefix))

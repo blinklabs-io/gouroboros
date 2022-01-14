@@ -1,7 +1,8 @@
-package common
+package block
 
-import (
-	"encoding/hex"
+const (
+	BLOCK_TYPE_BYRON_EBB  = 0
+	BLOCK_TYPE_BYRON_MAIN = 1
 )
 
 type ByronMainBlockHeader struct {
@@ -93,18 +94,6 @@ type ByronEpochBoundaryBlock struct {
 	Extra  []interface{}
 }
 
-type Blake2b256 [32]byte
-
-func (b Blake2b256) String() string {
-	return hex.EncodeToString([]byte(b[:]))
-}
-
-type Blake2b224 [28]byte
-
-func (b Blake2b224) String() string {
-	return hex.EncodeToString([]byte(b[:]))
-}
-
 /*
 blake2b-256 = bytes .size 32
 
@@ -127,6 +116,6 @@ stakeholderid = blake2b-224
 // genesisHash = [ ]
 // blockHash = [ int ]
 // blockBody = bstr
-// heade rSlot = word64
+// headerSlot = word64
 // headerBlockNo = word64
 // headerBodyHash = int

@@ -1,7 +1,6 @@
 package chainsync
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -29,6 +28,14 @@ func newMsgRequestNext() *msgRequestNext {
 	return r
 }
 
+func newMsgFindIntersect(points []interface{}) *msgFindIntersect {
+	m := &msgFindIntersect{
+		MessageType: MESSAGE_TYPE_FIND_INTERSECT,
+		Points:      points,
+	}
+	return m
+}
+
 type msgAwaitReply struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
@@ -40,37 +47,37 @@ type msgRollForward struct {
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
 	WrappedData []byte
-	Tip         interface{}
+	Tip         tip
 }
 
 type msgRollBackward struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
-	Point       common.Point
-	Tip         []interface{}
+	Point       point
+	Tip         tip
 }
 
 type msgFindIntersect struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
-	// points
+	Points      []interface{}
 }
 
 type msgIntersectFound struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
-	// point
-	// tip
+	Point       point
+	Tip         tip
 }
 
 type msgIntersectNotFound struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
-	// tip
+	Tip         tip
 }
 
 type msgDone struct {
@@ -79,18 +86,23 @@ type msgDone struct {
 	MessageType uint8
 }
 
-type Tip struct {
+type tip struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_       struct{} `cbor:",toarray"`
-	Point   common.Point
-	Unknown uint64
+	_           struct{} `cbor:",toarray"`
+	Point       point
+	BlockNumber uint64
 }
 
-// tip = [ point, uint ]
+type point struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_    struct{} `cbor:",toarray"`
+	Slot uint64
+	Hash []byte
+}
 
 type wrappedBlock struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_        struct{} `cbor:",toarray"`
-	Type     uint8
+	Type     uint
 	RawBlock cbor.RawMessage
 }

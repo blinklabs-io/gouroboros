@@ -18,8 +18,9 @@ type Ouroboros struct {
 	muxer              *muxer.Muxer
 	ErrorChan          chan error
 	// Mini-protocols
-	Handshake *handshake.Handshake
-	ChainSync *chainsync.ChainSync
+	Handshake               *handshake.Handshake
+	ChainSync               *chainsync.ChainSync
+	chainSyncCallbackConfig *chainsync.ChainSyncCallbackConfig
 }
 
 type OuroborosOptions struct {
@@ -27,16 +28,18 @@ type OuroborosOptions struct {
 	NetworkMagic uint32
 	// Whether to wait for the other side to initiate the handshake. This is useful
 	// for servers
-	WaitForHandshake      bool
-	UseNodeToNodeProtocol bool
+	WaitForHandshake        bool
+	UseNodeToNodeProtocol   bool
+	ChainSyncCallbackConfig *chainsync.ChainSyncCallbackConfig
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
 	o := &Ouroboros{
-		conn:             options.Conn,
-		networkMagic:     options.NetworkMagic,
-		waitForHandshake: options.WaitForHandshake,
-		ErrorChan:        make(chan error, 10),
+		conn:                    options.Conn,
+		networkMagic:            options.NetworkMagic,
+		waitForHandshake:        options.WaitForHandshake,
+		chainSyncCallbackConfig: options.ChainSyncCallbackConfig,
+		ErrorChan:               make(chan error, 10),
 	}
 	if o.conn != nil {
 		if err := o.setupConnection(); err != nil {
@@ -79,6 +82,6 @@ func (o *Ouroboros) setupConnection() error {
 	o.handshakeComplete = <-o.Handshake.Finished
 	fmt.Printf("negotiated protocol version %d\n", o.Handshake.Version)
 	// TODO: register additional mini-protocols
-	o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto)
+	o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
 	return nil
 }
