@@ -94,10 +94,22 @@ type tip struct {
 }
 
 type point struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_    struct{} `cbor:",toarray"`
 	Slot uint64
 	Hash []byte
+}
+
+// A "point" can sometimes be empty, but the CBOR library gets grumpy about this
+// when doing automatic decoding from an array, so we have to handle this case specially
+func (p *point) UnmarshalCBOR(data []byte) error {
+	var tmp []interface{}
+	if err := cbor.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	if len(tmp) > 0 {
+		p.Slot = tmp[0].(uint64)
+		p.Hash = tmp[1].([]byte)
+	}
+	return nil
 }
 
 type wrappedBlock struct {

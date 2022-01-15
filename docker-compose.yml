@@ -1,0 +1,25 @@
+version: '3.9'
+
+volumes:
+  cardano-node-data:
+
+services:
+  cardano-node:
+    image: inputoutput/cardano-node:1.33.0
+    environment:
+      NETWORK: ${CARDANO_NETWORK:-testnet}
+    ports:
+      - 8081:8081
+    volumes:
+      - ./tmp/cardano-node/ipc:/ipc
+      - cardano-node-data:/data
+
+  socat:
+    image: alpine/socat
+    command:
+      - TCP-LISTEN:8082,reuseaddr,fork
+      - UNIX-CONNECT:/ipc/node.socket
+    ports:
+      - 8082:8082
+    volumes:
+      - ./tmp/cardano-node/ipc:/ipc
