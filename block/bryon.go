@@ -1,5 +1,9 @@
 package block
 
+import (
+	"github.com/fxamacker/cbor/v2"
+)
+
 const (
 	BLOCK_TYPE_BYRON_EBB  = 0
 	BLOCK_TYPE_BYRON_MAIN = 1
@@ -52,9 +56,11 @@ type ByronMainBlockHeader struct {
 
 type ByronMainBlockBody struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_          struct{} `cbor:",toarray"`
-	TxPayload  []interface{}
-	SscPayload *BlockBodySscPayload
+	_         struct{} `cbor:",toarray"`
+	TxPayload []interface{}
+	// We keep this field as raw CBOR, since it contains a map with []byte
+	// keys, which Go doesn't allow
+	SscPayload cbor.RawMessage
 	DlgPayload []interface{}
 	UpdPayload []interface{}
 }
@@ -67,15 +73,6 @@ type ByronEpochBoundaryBlockHeader struct {
 	BodyProof     interface{}
 	ConsensusData interface{}
 	ExtraData     interface{}
-}
-
-// This mostly exists to override the below function
-type BlockBodySscPayload struct{}
-
-// Prevent unmarshaling of the SSC payload data, since it contains a map with
-// []byte keys, which Go doesn't allow
-func (payload *BlockBodySscPayload) UnmarshalCBOR(data []byte) error {
-	return nil
 }
 
 type ByronMainBlock struct {

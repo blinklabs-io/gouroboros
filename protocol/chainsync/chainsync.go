@@ -123,9 +123,9 @@ func (c *ChainSync) RequestNext() error {
 		return err
 	}
 	msg := muxer.NewMessage(c.protocolId, dataBytes, false)
+	c.state = STATE_CAN_AWAIT
 	// Send request
 	c.sendChan <- msg
-	c.state = STATE_CAN_AWAIT
 	return nil
 }
 
@@ -139,9 +139,9 @@ func (c *ChainSync) FindIntersect(points []interface{}) error {
 		return err
 	}
 	msg := muxer.NewMessage(c.protocolId, dataBytes, false)
+	c.state = STATE_INTERSECT
 	// Send request
 	c.sendChan <- msg
-	c.state = STATE_INTERSECT
 	return nil
 }
 
@@ -189,34 +189,39 @@ func (c *ChainSync) handleRollForward(data []byte) error {
 	case block.BLOCK_TYPE_SHELLEY:
 		var shelleyBlock block.ShelleyBlock
 		if err := utils.CborDecode(wrapBlock.RawBlock, &shelleyBlock); err != nil {
-			/*
-				var payload interface{}
-				if err := utils.CborDecode(msg.WrappedData, &payload); err != nil {
-					return fmt.Errorf("chain-sync: decode error: %s", err)
-				}
-				fmt.Printf("payload = %s\n", utils.DumpCborStructure(payload, ""))
-			*/
-			if len(msg.WrappedData) < 8000 {
-				for _, x := range msg.WrappedData {
-					fmt.Printf("%02x ", x)
-				}
-				fmt.Printf("\n")
-			}
 			return fmt.Errorf("chain-sync: decode error: %s", err)
 		}
 		respBlock = shelleyBlock
-	// TODO: support more block types
-	default:
-		var payload interface{}
-		if err := utils.CborDecode(msg.WrappedData, &payload); err != nil {
-			//return fmt.Errorf("chain-sync: decode error: %s", err)
-			//fmt.Printf("ignoring generic payload decode error for now...%s\n", err)
+	case block.BLOCK_TYPE_ALLEGRA:
+		var allegraBlock block.AllegraBlock
+		if err := utils.CborDecode(wrapBlock.RawBlock, &allegraBlock); err != nil {
+			return fmt.Errorf("chain-sync: decode error: %s", err)
 		}
-		fmt.Printf("payload = %s\n", utils.DumpCborStructure(payload, ""))
-		return fmt.Errorf("unsupported block type\n")
-		respBlock = payload
+		respBlock = allegraBlock
+	case block.BLOCK_TYPE_MARY:
+		var maryBlock block.MaryBlock
+		if err := utils.CborDecode(wrapBlock.RawBlock, &maryBlock); err != nil {
+			return fmt.Errorf("chain-sync: decode error: %s", err)
+		}
+		respBlock = maryBlock
+	case block.BLOCK_TYPE_ALONZO:
+		var alonzoBlock block.AlonzoBlock
+		if err := utils.CborDecode(wrapBlock.RawBlock, &alonzoBlock); err != nil {
+			return fmt.Errorf("chain-sync: decode error: %s", err)
+		}
+		respBlock = alonzoBlock
+	default:
+		/*
+			var payload interface{}
+			if err := utils.CborDecode(msg.WrappedData, &payload); err != nil {
+				//return fmt.Errorf("chain-sync: decode error: %s", err)
+				//fmt.Printf("ignoring generic payload decode error for now...%s\n", err)
+			}
+			fmt.Printf("payload = %s\n", utils.DumpCborStructure(payload, ""))
+		*/
+		return fmt.Errorf("unsupported block type %d\n", wrapBlock.Type)
+		//respBlock = payload
 	}
-	// Set new state
 	c.state = STATE_IDLE
 	return c.callbackConfig.RollForwardFunc(wrapBlock.Type, respBlock)
 }
