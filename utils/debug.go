@@ -55,7 +55,7 @@ func DumpCborStructure(data interface{}, prefix string) string {
 		// Add 2 more spaces to the new prefix
 		newPrefix = fmt.Sprintf("  %s", newPrefix)
 		for key, val := range v {
-			ret.WriteString(fmt.Sprintf("%s%#v => %#v,\n", prefix, key, val))
+			ret.WriteString(fmt.Sprintf("%s%#v => %#v,\n", newPrefix, key, val))
 		}
 		ret.WriteString(fmt.Sprintf("%s}\n", prefix))
 	default:
