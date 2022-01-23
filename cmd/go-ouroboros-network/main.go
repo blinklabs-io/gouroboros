@@ -136,7 +136,7 @@ func main() {
 		fmt.Printf("ERROR: unknown era '%s' specified as chain-sync start point\n", f.syncEra)
 		os.Exit(1)
 	}
-	syncState.readyForNextBlockChan = make(chan bool, 0)
+	syncState.readyForNextBlockChan = make(chan bool)
 	intersect := []interface{}{}
 	if len(eraIntersect[f.networkMagic][f.syncEra]) > 0 {
 		// Slot

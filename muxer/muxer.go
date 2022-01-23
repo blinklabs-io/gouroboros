@@ -36,7 +36,9 @@ func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Message, chan *Messag
 	go func() {
 		for {
 			msg := <-senderChan
-			m.Send(msg)
+			if err := m.Send(msg); err != nil {
+				m.ErrorChan <- err
+			}
 		}
 	}()
 	return senderChan, receiverChan

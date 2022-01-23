@@ -36,12 +36,6 @@ func newMsgFindIntersect(points []interface{}) *msgFindIntersect {
 	return m
 }
 
-type msgAwaitReply struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
-}
-
 type msgRollForward struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
@@ -78,12 +72,6 @@ type msgIntersectNotFound struct {
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
 	Tip         tip
-}
-
-type msgDone struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
 }
 
 type tip struct {
