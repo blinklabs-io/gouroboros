@@ -28,20 +28,20 @@ func newMsgRequestNext() *msgRequestNext {
 	return r
 }
 
-func newMsgFindIntersect(points []interface{}) *msgFindIntersect {
-	m := &msgFindIntersect{
-		MessageType: MESSAGE_TYPE_FIND_INTERSECT,
-		Points:      points,
-	}
-	return m
-}
-
-type msgRollForward struct {
+type msgRollForwardNtC struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
 	WrappedData []byte
 	Tip         tip
+}
+
+type msgRollForwardNtN struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_             struct{} `cbor:",toarray"`
+	MessageType   uint8
+	WrappedHeader wrappedHeader
+	Tip           tip
 }
 
 type msgRollBackward struct {
@@ -57,6 +57,14 @@ type msgFindIntersect struct {
 	_           struct{} `cbor:",toarray"`
 	MessageType uint8
 	Points      []interface{}
+}
+
+func newMsgFindIntersect(points []interface{}) *msgFindIntersect {
+	m := &msgFindIntersect{
+		MessageType: MESSAGE_TYPE_FIND_INTERSECT,
+		Points:      points,
+	}
+	return m
 }
 
 type msgIntersectFound struct {
@@ -105,4 +113,23 @@ type wrappedBlock struct {
 	_        struct{} `cbor:",toarray"`
 	Type     uint
 	RawBlock cbor.RawMessage
+}
+
+type wrappedHeader struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_       struct{} `cbor:",toarray"`
+	Type    uint
+	RawData cbor.RawMessage
+}
+
+type wrappedHeaderByron struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_       struct{} `cbor:",toarray"`
+	Unknown struct {
+		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+		_       struct{} `cbor:",toarray"`
+		Type    uint
+		Unknown uint64
+	}
+	RawHeader []byte
 }

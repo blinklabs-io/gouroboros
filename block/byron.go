@@ -7,11 +7,14 @@ import (
 const (
 	BLOCK_TYPE_BYRON_EBB  = 0
 	BLOCK_TYPE_BYRON_MAIN = 1
+
+	BLOCK_HEADER_TYPE_BYRON = 0
 )
 
 type ByronMainBlockHeader struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_             struct{} `cbor:",toarray"`
+	id            string
 	ProtocolMagic uint32
 	PrevBlock     Blake2b256
 	BodyProof     interface{}
@@ -54,6 +57,10 @@ type ByronMainBlockHeader struct {
 	}
 }
 
+func (h *ByronMainBlockHeader) Id() string {
+	return h.id
+}
+
 type ByronMainBlockBody struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_         struct{} `cbor:",toarray"`
@@ -68,11 +75,25 @@ type ByronMainBlockBody struct {
 type ByronEpochBoundaryBlockHeader struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_             struct{} `cbor:",toarray"`
+	id            string
 	ProtocolMagic uint32
 	PrevBlock     Blake2b256
 	BodyProof     interface{}
-	ConsensusData interface{}
-	ExtraData     interface{}
+	ConsensusData struct {
+		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+		_          struct{} `cbor:",toarray"`
+		Epoch      uint64
+		Difficulty struct {
+			// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+			_     struct{} `cbor:",toarray"`
+			Value uint64
+		}
+	}
+	ExtraData interface{}
+}
+
+func (h *ByronEpochBoundaryBlockHeader) Id() string {
+	return h.id
 }
 
 type ByronMainBlock struct {
@@ -83,6 +104,10 @@ type ByronMainBlock struct {
 	Extra  []interface{}
 }
 
+func (b *ByronMainBlock) Id() string {
+	return b.Header.Id()
+}
+
 type ByronEpochBoundaryBlock struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_      struct{} `cbor:",toarray"`
@@ -91,28 +116,6 @@ type ByronEpochBoundaryBlock struct {
 	Extra  []interface{}
 }
 
-/*
-blake2b-256 = bytes .size 32
-
-txid = blake2b-256
-blockid = blake2b-256
-updid = blake2b-256
-hash = blake2b-256
-
-blake2b-224 = bytes .size 28
-
-addressid = blake2b-224
-stakeholderid = blake2b-224
-*/
-
-// block = [ blockHeader, blockBody ]
-//
-// blockHeader = [ headerHash, chainHash, headerSlot, headerBlockNo, headerBodyHash ]
-// headerHash = int
-// chainHash = genesisHash / blockHash
-// genesisHash = [ ]
-// blockHash = [ int ]
-// blockBody = bstr
-// headerSlot = word64
-// headerBlockNo = word64
-// headerBodyHash = int
+func (b *ByronEpochBoundaryBlock) Id() string {
+	return b.Header.Id()
+}

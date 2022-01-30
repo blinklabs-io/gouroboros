@@ -6,6 +6,8 @@ import (
 
 const (
 	BLOCK_TYPE_ALLEGRA = 3
+
+	BLOCK_HEADER_TYPE_ALLEGRA = 2
 )
 
 type AllegraBlock struct {
@@ -18,6 +20,10 @@ type AllegraBlock struct {
 	// We use RawMessage here because the content is arbitrary and can contain data that
 	// cannot easily be represented in Go (such as maps with bytestring keys)
 	TransactionMetadataSet map[uint]cbor.RawMessage
+}
+
+func (b *AllegraBlock) Id() string {
+	return b.Header.Id()
 }
 
 type AllegraTransaction struct {

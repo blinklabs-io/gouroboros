@@ -6,6 +6,8 @@ import (
 
 const (
 	BLOCK_TYPE_ALONZO = 5
+
+	BLOCK_HEADER_TYPE_ALONZO = 4
 )
 
 type AlonzoBlock struct {
@@ -19,6 +21,10 @@ type AlonzoBlock struct {
 	// cannot easily be represented in Go (such as maps with bytestring keys)
 	TransactionMetadataSet map[uint]cbor.RawMessage
 	InvalidTransactions    []uint
+}
+
+func (b *AlonzoBlock) Id() string {
+	return b.Header.Id()
 }
 
 type AlonzoTransaction struct {
