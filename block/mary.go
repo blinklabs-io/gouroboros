@@ -1,12 +1,13 @@
 package block
 
 import (
-	//	"fmt"
 	"github.com/fxamacker/cbor/v2"
 )
 
 const (
 	BLOCK_TYPE_MARY = 4
+
+	BLOCK_HEADER_TYPE_MARY = 3
 )
 
 type MaryBlock struct {
@@ -19,6 +20,10 @@ type MaryBlock struct {
 	// We use RawMessage here because the content is arbitrary and can contain data that
 	// cannot easily be represented in Go (such as maps with bytestring keys)
 	TransactionMetadataSet map[uint]cbor.RawMessage
+}
+
+func (b *MaryBlock) Id() string {
+	return b.Header.Id()
 }
 
 type MaryTransaction struct {

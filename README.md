@@ -17,8 +17,8 @@ but the node-to-node protocols will also be implemented in time.
 | Name | Status |
 | --- | --- |
 | Handshake | Implemented |
-| Chain-Sync | In Progress |
-| Block-Fetch | Not Implemented |
+| Chain-Sync | Implemented |
+| Block-Fetch | Implemented |
 | TxSubmission | Not Implemented |
 | Local TxSubmission | Not Implemented |
 | Local State Query | Not Implemented |

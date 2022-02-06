@@ -6,6 +6,8 @@ import (
 
 const (
 	BLOCK_TYPE_SHELLEY = 2
+
+	BLOCK_HEADER_TYPE_SHELLEY = 1
 )
 
 type ShelleyBlock struct {
@@ -20,9 +22,14 @@ type ShelleyBlock struct {
 	TransactionMetadataSet map[uint]cbor.RawMessage
 }
 
+func (b *ShelleyBlock) Id() string {
+	return b.Header.Id()
+}
+
 type ShelleyBlockHeader struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_    struct{} `cbor:",toarray"`
+	id   string
 	Body struct {
 		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 		_                    struct{} `cbor:",toarray"`
@@ -43,6 +50,10 @@ type ShelleyBlockHeader struct {
 		ProtoMinorVersion    uint64
 	}
 	Signature interface{}
+}
+
+func (h *ShelleyBlockHeader) Id() string {
+	return h.id
 }
 
 type ShelleyTransaction struct {

@@ -9,7 +9,7 @@ services:
     environment:
       NETWORK: ${CARDANO_NETWORK:-testnet}
     ports:
-      - 8081:8081
+      - 8081:3001
     volumes:
       - ./tmp/cardano-node/ipc:/ipc
       - cardano-node-data:/data

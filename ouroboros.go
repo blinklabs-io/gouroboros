@@ -3,6 +3,7 @@ package ouroboros
 import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
 	"io"
@@ -18,28 +19,37 @@ type Ouroboros struct {
 	muxer              *muxer.Muxer
 	ErrorChan          chan error
 	// Mini-protocols
-	Handshake               *handshake.Handshake
-	ChainSync               *chainsync.ChainSync
-	chainSyncCallbackConfig *chainsync.ChainSyncCallbackConfig
+	Handshake                *handshake.Handshake
+	ChainSync                *chainsync.ChainSync
+	chainSyncCallbackConfig  *chainsync.ChainSyncCallbackConfig
+	BlockFetch               *blockfetch.BlockFetch
+	blockFetchCallbackConfig *blockfetch.BlockFetchCallbackConfig
 }
 
 type OuroborosOptions struct {
 	Conn         io.ReadWriteCloser
 	NetworkMagic uint32
+	ErrorChan    chan error
 	// Whether to wait for the other side to initiate the handshake. This is useful
 	// for servers
-	WaitForHandshake        bool
-	UseNodeToNodeProtocol   bool
-	ChainSyncCallbackConfig *chainsync.ChainSyncCallbackConfig
+	WaitForHandshake         bool
+	UseNodeToNodeProtocol    bool
+	ChainSyncCallbackConfig  *chainsync.ChainSyncCallbackConfig
+	BlockFetchCallbackConfig *blockfetch.BlockFetchCallbackConfig
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
 	o := &Ouroboros{
-		conn:                    options.Conn,
-		networkMagic:            options.NetworkMagic,
-		waitForHandshake:        options.WaitForHandshake,
-		chainSyncCallbackConfig: options.ChainSyncCallbackConfig,
-		ErrorChan:               make(chan error, 10),
+		conn:                     options.Conn,
+		networkMagic:             options.NetworkMagic,
+		waitForHandshake:         options.WaitForHandshake,
+		useNodeToNodeProto:       options.UseNodeToNodeProtocol,
+		chainSyncCallbackConfig:  options.ChainSyncCallbackConfig,
+		blockFetchCallbackConfig: options.BlockFetchCallbackConfig,
+		ErrorChan:                options.ErrorChan,
+	}
+	if o.ErrorChan == nil {
+		o.ErrorChan = make(chan error, 10)
 	}
 	if o.conn != nil {
 		if err := o.setupConnection(); err != nil {
@@ -71,10 +81,14 @@ func (o *Ouroboros) setupConnection() error {
 		o.ErrorChan <- err
 	}()
 	// Perform handshake
-	o.Handshake = handshake.New(o.muxer, o.ErrorChan)
+	o.Handshake = handshake.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto)
+	// TODO: create a proper version map
+	versionMap := []uint16{1, 32778}
+	if o.useNodeToNodeProto {
+		versionMap = []uint16{7}
+	}
 	if !o.waitForHandshake {
-		// TODO: create a proper version map
-		err := o.Handshake.Propose([]uint16{1, 32778}, o.networkMagic)
+		err := o.Handshake.ProposeVersions(versionMap, o.networkMagic)
 		if err != nil {
 			return err
 		}
@@ -83,5 +97,6 @@ func (o *Ouroboros) setupConnection() error {
 	fmt.Printf("negotiated protocol version %d\n", o.Handshake.Version)
 	// TODO: register additional mini-protocols
 	o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
+	o.BlockFetch = blockfetch.New(o.muxer, o.ErrorChan, o.blockFetchCallbackConfig)
 	return nil
 }

@@ -21,6 +21,7 @@ const (
 	STATE_DONE
 )
 
+// TODO: add locking around outbound calls
 type ChainSync struct {
 	errorChan      chan error
 	sendChan       chan *muxer.Message
@@ -80,7 +81,7 @@ func (c *ChainSync) recvLoop() {
 		c.recvBuffer.Write(msg.Payload)
 		// Decode response into generic list until we can determine what type of response it is
 		var resp []interface{}
-		if err := utils.CborDecode(c.recvBuffer.Bytes(), &resp); err != nil {
+		if _, err := utils.CborDecode(c.recvBuffer.Bytes(), &resp); err != nil {
 			if errors.Is(err, io.ErrUnexpectedEOF) {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
@@ -114,7 +115,7 @@ func (c *ChainSync) recvLoop() {
 
 func (c *ChainSync) RequestNext() error {
 	if c.state != STATE_IDLE {
-		return fmt.Errorf("protocol not in expected state")
+		return fmt.Errorf("chain-sync: RequestNext: protocol not in expected state")
 	}
 	// Create our request
 	data := newMsgRequestNext()
@@ -131,7 +132,7 @@ func (c *ChainSync) RequestNext() error {
 
 func (c *ChainSync) FindIntersect(points []interface{}) error {
 	if c.state != STATE_IDLE {
-		return fmt.Errorf("protocol not in expected state")
+		return fmt.Errorf("chain-sync: FindIntersect: protocol not in expected state")
 	}
 	data := newMsgFindIntersect(points)
 	dataBytes, err := utils.CborEncode(data)
@@ -163,67 +164,65 @@ func (c *ChainSync) handleRollForward(data []byte) error {
 	if c.callbackConfig.RollForwardFunc == nil {
 		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
 	}
-	var msg msgRollForward
-	if err := utils.CborDecode(data, &msg); err != nil {
-		return fmt.Errorf("chain-sync: decode error: %s", err)
-	}
-	// Decode only enough to get the block type value
-	var wrapBlock wrappedBlock
-	if err := utils.CborDecode(msg.WrappedData, &wrapBlock); err != nil {
-		return fmt.Errorf("chain-sync: decode error: %s", err)
-	}
-	var respBlock interface{}
-	switch wrapBlock.Type {
-	case block.BLOCK_TYPE_BYRON_EBB:
-		var byronEbbBlock block.ByronEpochBoundaryBlock
-		if err := utils.CborDecode(wrapBlock.RawBlock, &byronEbbBlock); err != nil {
+	if c.nodeToNode {
+		var msg msgRollForwardNtN
+		if _, err := utils.CborDecode(data, &msg); err != nil {
 			return fmt.Errorf("chain-sync: decode error: %s", err)
 		}
-		respBlock = byronEbbBlock
-	case block.BLOCK_TYPE_BYRON_MAIN:
-		var byronMainBlock block.ByronMainBlock
-		if err := utils.CborDecode(wrapBlock.RawBlock, &byronMainBlock); err != nil {
-			return fmt.Errorf("chain-sync: decode error: %s", err)
-		}
-		respBlock = byronMainBlock
-	case block.BLOCK_TYPE_SHELLEY:
-		var shelleyBlock block.ShelleyBlock
-		if err := utils.CborDecode(wrapBlock.RawBlock, &shelleyBlock); err != nil {
-			return fmt.Errorf("chain-sync: decode error: %s", err)
-		}
-		respBlock = shelleyBlock
-	case block.BLOCK_TYPE_ALLEGRA:
-		var allegraBlock block.AllegraBlock
-		if err := utils.CborDecode(wrapBlock.RawBlock, &allegraBlock); err != nil {
-			return fmt.Errorf("chain-sync: decode error: %s", err)
-		}
-		respBlock = allegraBlock
-	case block.BLOCK_TYPE_MARY:
-		var maryBlock block.MaryBlock
-		if err := utils.CborDecode(wrapBlock.RawBlock, &maryBlock); err != nil {
-			return fmt.Errorf("chain-sync: decode error: %s", err)
-		}
-		respBlock = maryBlock
-	case block.BLOCK_TYPE_ALONZO:
-		var alonzoBlock block.AlonzoBlock
-		if err := utils.CborDecode(wrapBlock.RawBlock, &alonzoBlock); err != nil {
-			return fmt.Errorf("chain-sync: decode error: %s", err)
-		}
-		respBlock = alonzoBlock
-	default:
-		/*
-			var payload interface{}
-			if err := utils.CborDecode(msg.WrappedData, &payload); err != nil {
-				//return fmt.Errorf("chain-sync: decode error: %s", err)
-				//fmt.Printf("ignoring generic payload decode error for now...%s\n", err)
+		var blockHeader interface{}
+		var blockType uint
+		blockHeaderType := msg.WrappedHeader.Type
+		switch blockHeaderType {
+		case block.BLOCK_HEADER_TYPE_BYRON:
+			var wrapHeaderByron wrappedHeaderByron
+			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &wrapHeaderByron); err != nil {
+				return fmt.Errorf("chain-sync: decode error: %s", err)
 			}
-			fmt.Printf("payload = %s\n", utils.DumpCborStructure(payload, ""))
-		*/
-		return fmt.Errorf("unsupported block type %d\n", wrapBlock.Type)
-		//respBlock = payload
+			blockType = wrapHeaderByron.Unknown.Type
+			var err error
+			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, wrapHeaderByron.RawHeader)
+			if err != nil {
+				return err
+			}
+		default:
+			// Map block header types to block types
+			blockTypeMap := map[uint]uint{
+				block.BLOCK_HEADER_TYPE_SHELLEY: block.BLOCK_TYPE_SHELLEY,
+				block.BLOCK_HEADER_TYPE_ALLEGRA: block.BLOCK_TYPE_ALLEGRA,
+				block.BLOCK_HEADER_TYPE_MARY:    block.BLOCK_TYPE_MARY,
+				block.BLOCK_HEADER_TYPE_ALONZO:  block.BLOCK_TYPE_ALONZO,
+			}
+			blockType = blockTypeMap[blockHeaderType]
+			// We decode into a byte array to implicitly unwrap the CBOR tag object
+			var payload []byte
+			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &payload); err != nil {
+				return fmt.Errorf("failed fallback decode: %s", err)
+			}
+			var err error
+			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, payload)
+			if err != nil {
+				return err
+			}
+		}
+		c.state = STATE_IDLE
+		return c.callbackConfig.RollForwardFunc(blockType, blockHeader)
+	} else {
+		var msg msgRollForwardNtC
+		if _, err := utils.CborDecode(data, &msg); err != nil {
+			return fmt.Errorf("chain-sync: decode error: %s", err)
+		}
+		// Decode only enough to get the block type value
+		var wrapBlock wrappedBlock
+		if _, err := utils.CborDecode(msg.WrappedData, &wrapBlock); err != nil {
+			return fmt.Errorf("chain-sync: decode error: %s", err)
+		}
+		blk, err := block.NewBlockFromCbor(wrapBlock.Type, wrapBlock.RawBlock)
+		if err != nil {
+			return err
+		}
+		c.state = STATE_IDLE
+		return c.callbackConfig.RollForwardFunc(wrapBlock.Type, blk)
 	}
-	c.state = STATE_IDLE
-	return c.callbackConfig.RollForwardFunc(wrapBlock.Type, respBlock)
 }
 
 func (c *ChainSync) handleRollBackward(data []byte) error {
@@ -234,7 +233,7 @@ func (c *ChainSync) handleRollBackward(data []byte) error {
 		return fmt.Errorf("received chain-sync RollBackward message but no callback function is defined")
 	}
 	var msg msgRollBackward
-	if err := utils.CborDecode(data, &msg); err != nil {
+	if _, err := utils.CborDecode(data, &msg); err != nil {
 		return fmt.Errorf("chain-sync: decode error: %s", err)
 	}
 	c.state = STATE_IDLE
@@ -249,7 +248,7 @@ func (c *ChainSync) handleIntersectFound(data []byte) error {
 		return fmt.Errorf("received chain-sync IntersectFound message but no callback function is defined")
 	}
 	var msg msgIntersectFound
-	if err := utils.CborDecode(data, &msg); err != nil {
+	if _, err := utils.CborDecode(data, &msg); err != nil {
 		return fmt.Errorf("chain-sync: decode error: %s", err)
 	}
 	c.state = STATE_IDLE
@@ -264,7 +263,7 @@ func (c *ChainSync) handleIntersectNotFound(data []byte) error {
 		return fmt.Errorf("received chain-sync IntersectNotFound message but no callback function is defined")
 	}
 	var msg msgIntersectNotFound
-	if err := utils.CborDecode(data, &msg); err != nil {
+	if _, err := utils.CborDecode(data, &msg); err != nil {
 		return fmt.Errorf("chain-sync: decode error: %s", err)
 	}
 	c.state = STATE_IDLE
