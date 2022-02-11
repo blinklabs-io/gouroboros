@@ -3,11 +3,12 @@ package handshake
 import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
+	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
 const (
-	PROTOCOL_ID = 0
+	PROTOCOL_NAME = "handshake"
+	PROTOCOL_ID   = 0
 
 	STATE_PROPOSE = iota
 	STATE_CONFIRM
@@ -18,30 +19,39 @@ const (
 )
 
 type Handshake struct {
-	errorChan  chan error
-	sendChan   chan *muxer.Message
-	recvChan   chan *muxer.Message
+	proto      *protocol.Protocol
 	nodeToNode bool
-	state      uint8
 	Version    uint16
 	Finished   chan bool
 }
 
 func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool) *Handshake {
-	sendChan, recvChan := m.RegisterProtocol(PROTOCOL_ID)
 	h := &Handshake{
-		sendChan:   sendChan,
-		recvChan:   recvChan,
 		nodeToNode: nodeToNode,
-		state:      STATE_PROPOSE,
 		Finished:   make(chan bool, 1),
 	}
-	go h.recvLoop()
+	h.proto = protocol.New(PROTOCOL_NAME, PROTOCOL_ID, m, errorChan, h.handleMessage, NewMsgFromCbor)
+	h.proto.SetState(STATE_PROPOSE)
 	return h
 }
 
+func (h *Handshake) handleMessage(msg protocol.Message) error {
+	var err error
+	switch msg.Type() {
+	case MESSAGE_TYPE_PROPOSE_VERSIONS:
+		err = h.handleProposeVersions(msg)
+	case MESSAGE_TYPE_ACCEPT_VERSION:
+		err = h.handleAcceptVersion(msg)
+	case MESSAGE_TYPE_REFUSE:
+		err = h.handleRefuse(msg)
+	default:
+		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+	}
+	return err
+}
+
 func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) error {
-	if h.state != STATE_PROPOSE {
+	if h.proto.GetState() != STATE_PROPOSE {
 		return fmt.Errorf("protocol not in expected state")
 	}
 	// Create our request
@@ -53,84 +63,46 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 			versionMap[version] = networkMagic
 		}
 	}
-	data := newMsgProposeVersions(versionMap)
-	dataBytes, err := utils.CborEncode(data)
-	if err != nil {
-		return err
-	}
-	msg := muxer.NewMessage(PROTOCOL_ID, dataBytes, false)
-	// Send request
-	h.sendChan <- msg
+	msg := newMsgProposeVersions(versionMap)
 	// Set the new state
-	h.state = STATE_CONFIRM
-	return nil
+	h.proto.SetState(STATE_CONFIRM)
+	// Send request
+	return h.proto.SendMessage(msg, false)
 }
 
-func (h *Handshake) handleProposeVersions(msg *muxer.Message) error {
-	if h.state != STATE_CONFIRM {
+func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
+	if h.proto.GetState() != STATE_CONFIRM {
 		return fmt.Errorf("received handshake request when protocol is in wrong state")
 	}
 	// TODO: implement me
 	return fmt.Errorf("handshake request handling not yet implemented")
 }
 
-func (h *Handshake) handleAcceptVersion(msg *muxer.Message) error {
-	if h.state != STATE_CONFIRM {
+func (h *Handshake) handleAcceptVersion(msgGeneric protocol.Message) error {
+	if h.proto.GetState() != STATE_CONFIRM {
 		return fmt.Errorf("received handshake accept response when protocol is in wrong state")
 	}
-	var resp msgAcceptVersion
-	if _, err := utils.CborDecode(msg.Payload, &resp); err != nil {
-		return fmt.Errorf("handshake failed: decode error: %s", err)
-	}
-	h.Version = resp.Version
+	msg := msgGeneric.(*msgAcceptVersion)
+	h.Version = msg.Version
 	h.Finished <- true
-	h.state = STATE_DONE
+	h.proto.SetState(STATE_DONE)
 	return nil
 }
 
-func (h *Handshake) handleRefuse(msg *muxer.Message) error {
-	if h.state != STATE_CONFIRM {
+func (h *Handshake) handleRefuse(msgGeneric protocol.Message) error {
+	if h.proto.GetState() != STATE_CONFIRM {
 		return fmt.Errorf("received handshake refuse response when protocol is in wrong state")
 	}
-	var resp msgRefuse
-	if _, err := utils.CborDecode(msg.Payload, &resp); err != nil {
-		return fmt.Errorf("handshake failed: decode error: %s", err)
-	}
+	msg := msgGeneric.(*msgRefuse)
 	var err error
-	switch resp.Reason[0].(uint64) {
+	switch msg.Reason[0].(uint64) {
 	case REFUSE_REASON_VERSION_MISMATCH:
 		err = fmt.Errorf("handshake failed: version mismatch")
 	case REFUSE_REASON_DECODE_ERROR:
-		err = fmt.Errorf("handshake failed: decode error: %s", resp.Reason[2].(string))
+		err = fmt.Errorf("handshake failed: decode error: %s", msg.Reason[2].(string))
 	case REFUSE_REASON_REFUSED:
-		err = fmt.Errorf("handshake failed: refused: %s", resp.Reason[2].(string))
+		err = fmt.Errorf("handshake failed: refused: %s", msg.Reason[2].(string))
 	}
-	h.state = STATE_DONE
+	h.proto.SetState(STATE_DONE)
 	return err
-}
-
-func (h *Handshake) recvLoop() {
-	for {
-		var err error
-		// Wait for response
-		msg := <-h.recvChan
-		// Decode response into generic list until we can determine what type of response it is
-		var resp []interface{}
-		if _, err := utils.CborDecode(msg.Payload, &resp); err != nil {
-			h.errorChan <- fmt.Errorf("handshake failed: decode error: %s", err)
-		}
-		switch resp[0].(uint64) {
-		case MESSAGE_TYPE_PROPOSE_VERSIONS:
-			err = h.handleProposeVersions(msg)
-		case MESSAGE_TYPE_ACCEPT_VERSION:
-			err = h.handleAcceptVersion(msg)
-		case MESSAGE_TYPE_REFUSE:
-			err = h.handleRefuse(msg)
-		default:
-			err = fmt.Errorf("handshake failed: received unexpected message: %#v", resp)
-		}
-		if err != nil {
-			h.errorChan <- err
-		}
-	}
 }

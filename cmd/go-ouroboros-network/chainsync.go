@@ -173,7 +173,7 @@ func chainSyncIntersectFoundHandler(point interface{}, tip interface{}) error {
 	return nil
 }
 
-func chainSyncIntersectNotFoundHandler() error {
+func chainSyncIntersectNotFoundHandler(tip interface{}) error {
 	fmt.Printf("ERROR: failed to find intersection\n")
 	os.Exit(1)
 	return nil

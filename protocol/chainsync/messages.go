@@ -1,6 +1,9 @@
 package chainsync
 
 import (
+	"fmt"
+	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -15,71 +18,103 @@ const (
 	MESSAGE_TYPE_DONE                = 7
 )
 
+func (c *ChainSync) NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	var ret protocol.Message
+	switch msgType {
+	case MESSAGE_TYPE_REQUEST_NEXT:
+		ret = &msgRequestNext{}
+	case MESSAGE_TYPE_AWAIT_REPLY:
+		ret = &msgAwaitReply{}
+	case MESSAGE_TYPE_ROLL_FORWARD:
+		if c.nodeToNode {
+			ret = &msgRollForwardNtN{}
+		} else {
+			ret = &msgRollForwardNtC{}
+		}
+	case MESSAGE_TYPE_ROLL_BACKWARD:
+		ret = &msgRollBackward{}
+	case MESSAGE_TYPE_FIND_INTERSECT:
+		ret = &msgFindIntersect{}
+	case MESSAGE_TYPE_INTERSECT_FOUND:
+		ret = &msgIntersectFound{}
+	case MESSAGE_TYPE_INTERSECT_NOT_FOUND:
+		ret = &msgIntersectNotFound{}
+	case MESSAGE_TYPE_DONE:
+		ret = &msgDone{}
+	}
+	if _, err := utils.CborDecode(data, ret); err != nil {
+		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+	}
+	if ret != nil {
+		// Store the raw message CBOR
+		ret.SetCbor(data)
+	}
+	return ret, nil
+}
+
 type msgRequestNext struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
+	protocol.MessageBase
 }
 
 func newMsgRequestNext() *msgRequestNext {
 	r := &msgRequestNext{
-		MessageType: MESSAGE_TYPE_REQUEST_NEXT,
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_REQUEST_NEXT,
+		},
 	}
 	return r
 }
 
+type msgAwaitReply struct {
+	protocol.MessageBase
+}
+
 type msgRollForwardNtC struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
+	protocol.MessageBase
 	WrappedData []byte
 	Tip         tip
 }
 
 type msgRollForwardNtN struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_             struct{} `cbor:",toarray"`
-	MessageType   uint8
+	protocol.MessageBase
 	WrappedHeader wrappedHeader
 	Tip           tip
 }
 
 type msgRollBackward struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
-	Point       point
-	Tip         tip
+	protocol.MessageBase
+	Point point
+	Tip   tip
 }
 
 type msgFindIntersect struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
-	Points      []interface{}
+	protocol.MessageBase
+	Points []interface{}
 }
 
 func newMsgFindIntersect(points []interface{}) *msgFindIntersect {
 	m := &msgFindIntersect{
-		MessageType: MESSAGE_TYPE_FIND_INTERSECT,
-		Points:      points,
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_FIND_INTERSECT,
+		},
+		Points: points,
 	}
 	return m
 }
 
 type msgIntersectFound struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
-	Point       point
-	Tip         tip
+	protocol.MessageBase
+	Point point
+	Tip   tip
 }
 
 type msgIntersectNotFound struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
-	Tip         tip
+	protocol.MessageBase
+	Tip tip
+}
+
+type msgDone struct {
+	protocol.MessageBase
 }
 
 type tip struct {

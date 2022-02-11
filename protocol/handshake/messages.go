@@ -1,5 +1,11 @@
 package handshake
 
+import (
+	"fmt"
+	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/utils"
+)
+
 const (
 	MESSAGE_TYPE_PROPOSE_VERSIONS = 0
 	MESSAGE_TYPE_ACCEPT_VERSION   = 1
@@ -10,20 +16,34 @@ const (
 	REFUSE_REASON_REFUSED          = 2
 )
 
-type BaseMessage struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
+func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	var ret protocol.Message
+	switch msgType {
+	case MESSAGE_TYPE_PROPOSE_VERSIONS:
+		ret = &msgProposeVersions{}
+	case MESSAGE_TYPE_ACCEPT_VERSION:
+		ret = &msgAcceptVersion{}
+	case MESSAGE_TYPE_REFUSE:
+		ret = &msgRefuse{}
+	}
+	if _, err := utils.CborDecode(data, ret); err != nil {
+		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+	}
+	if ret != nil {
+		// Store the raw message CBOR
+		ret.SetCbor(data)
+	}
+	return ret, nil
 }
 
 type msgProposeVersions struct {
-	BaseMessage
+	protocol.MessageBase
 	VersionMap map[uint16]interface{}
 }
 
 func newMsgProposeVersions(versionMap map[uint16]interface{}) *msgProposeVersions {
 	r := &msgProposeVersions{
-		BaseMessage: BaseMessage{
+		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_PROPOSE_VERSIONS,
 		},
 		VersionMap: versionMap,
@@ -32,12 +52,12 @@ func newMsgProposeVersions(versionMap map[uint16]interface{}) *msgProposeVersion
 }
 
 type msgAcceptVersion struct {
-	BaseMessage
+	protocol.MessageBase
 	Version     uint16
 	VersionData interface{}
 }
 
 type msgRefuse struct {
-	BaseMessage
+	protocol.MessageBase
 	Reason []interface{}
 }
