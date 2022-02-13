@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+
 	"github.com/cloudstruct/go-ouroboros-network/block"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"io"
 )
 
 const (
@@ -82,7 +83,7 @@ func (c *ChainSync) recvLoop() {
 		// Decode response into generic list until we can determine what type of response it is
 		var resp []interface{}
 		if _, err := utils.CborDecode(c.recvBuffer.Bytes(), &resp); err != nil {
-			if errors.Is(err, io.ErrUnexpectedEOF) {
+			if err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF) {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
 				continue
