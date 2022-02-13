@@ -6,6 +6,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"io"
+	"sync"
 )
 
 type Protocol struct {
@@ -14,10 +15,27 @@ type Protocol struct {
 	errorChan       chan error
 	sendChan        chan *muxer.Segment
 	recvChan        chan *muxer.Segment
-	state           uint
+	state           State
+	stateMutex      sync.Mutex
 	recvBuffer      *bytes.Buffer
 	msgHandlerFunc  MessageHandlerFunc
 	msgFromCborFunc MessageFromCborFunc
+}
+
+type State struct {
+	Id   uint
+	Name string
+}
+
+func NewState(id uint, name string) State {
+	return State{
+		Id:   id,
+		Name: name,
+	}
+}
+
+func (s State) String() string {
+	return s.Name
 }
 
 type MessageHandlerFunc func(Message) error
@@ -40,12 +58,33 @@ func New(name string, protocolId uint16, m *muxer.Muxer, errorChan chan error, h
 	return p
 }
 
-func (p *Protocol) GetState() uint {
+func (p *Protocol) GetState() State {
 	return p.state
 }
 
-func (p *Protocol) SetState(state uint) {
+func (p *Protocol) SetState(state State) {
 	p.state = state
+}
+
+func (p *Protocol) LockState(allowedStates []State) error {
+	p.stateMutex.Lock()
+	inAllowedState := false
+	for _, state := range allowedStates {
+		if state == p.state {
+			inAllowedState = true
+			break
+		}
+	}
+	if !inAllowedState {
+		p.stateMutex.Unlock()
+		return fmt.Errorf("protocol is not in allowed state (currently in state %s)", p.state.Name)
+	}
+	return nil
+}
+
+func (p *Protocol) UnlockState(newState State) {
+	p.state = newState
+	p.stateMutex.Unlock()
 }
 
 func (p *Protocol) SendMessage(msg interface{}, isResponse bool) error {

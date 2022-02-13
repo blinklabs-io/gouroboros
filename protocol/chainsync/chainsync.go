@@ -12,12 +12,14 @@ const (
 	PROTOCOL_NAME          = "chain-sync"
 	PROTOCOL_ID_NTN uint16 = 2
 	PROTOCOL_ID_NTC uint16 = 5
+)
 
-	STATE_IDLE = iota
-	STATE_CAN_AWAIT
-	STATE_MUST_REPLY
-	STATE_INTERSECT
-	STATE_DONE
+var (
+	STATE_IDLE       = protocol.NewState(1, "Idle")
+	STATE_CAN_AWAIT  = protocol.NewState(2, "CanAwait")
+	STATE_MUST_REPLY = protocol.NewState(3, "MustReply")
+	STATE_INTERSECT  = protocol.NewState(4, "Intersect")
+	STATE_DONE       = protocol.NewState(5, "Done")
 )
 
 type ChainSync struct {
@@ -55,6 +57,7 @@ func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool, callbackConfig *
 		callbackConfig: callbackConfig,
 	}
 	c.proto = protocol.New(PROTOCOL_NAME, protocolId, m, errorChan, c.messageHandler, c.NewMsgFromCbor)
+	// Set initial state
 	c.proto.SetState(STATE_IDLE)
 	return c
 }
@@ -81,39 +84,43 @@ func (c *ChainSync) messageHandler(msg protocol.Message) error {
 }
 
 func (c *ChainSync) RequestNext() error {
-	if c.proto.GetState() != STATE_IDLE {
-		return fmt.Errorf("chain-sync: RequestNext: protocol not in expected state")
+	if err := c.proto.LockState([]protocol.State{STATE_IDLE}); err != nil {
+		return fmt.Errorf("%s: RequestNext: protocol not in expected state", PROTOCOL_NAME)
 	}
 	// Create our request
 	msg := newMsgRequestNext()
-	c.proto.SetState(STATE_CAN_AWAIT)
+	// Unlock and change state when we're done
+	defer c.proto.UnlockState(STATE_CAN_AWAIT)
 	// Send request
 	return c.proto.SendMessage(msg, false)
 }
 
 func (c *ChainSync) FindIntersect(points []interface{}) error {
-	if c.proto.GetState() != STATE_IDLE {
-		return fmt.Errorf("chain-sync: FindIntersect: protocol not in expected state")
+	if err := c.proto.LockState([]protocol.State{STATE_IDLE}); err != nil {
+		return fmt.Errorf("%s: FindIntersect: protocol not in expected state", PROTOCOL_NAME)
 	}
 	msg := newMsgFindIntersect(points)
-	c.proto.SetState(STATE_INTERSECT)
+	// Unlock and change state when we're done
+	defer c.proto.UnlockState(STATE_INTERSECT)
 	// Send request
 	return c.proto.SendMessage(msg, false)
 }
 
 func (c *ChainSync) handleAwaitReply() error {
-	if c.proto.GetState() != STATE_CAN_AWAIT {
+	if err := c.proto.LockState([]protocol.State{STATE_CAN_AWAIT}); err != nil {
 		return fmt.Errorf("received chain-sync AwaitReply message when protocol not in expected state")
 	}
 	if c.callbackConfig.AwaitReplyFunc == nil {
 		return fmt.Errorf("received chain-sync AwaitReply message but no callback function is defined")
 	}
-	c.proto.SetState(STATE_MUST_REPLY)
+	// Unlock and change state when we're done
+	defer c.proto.UnlockState(STATE_MUST_REPLY)
+	// Call the user callback function
 	return c.callbackConfig.AwaitReplyFunc()
 }
 
 func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
-	if c.proto.GetState() != STATE_CAN_AWAIT && c.proto.GetState() != STATE_MUST_REPLY {
+	if err := c.proto.LockState([]protocol.State{STATE_CAN_AWAIT, STATE_MUST_REPLY}); err != nil {
 		return fmt.Errorf("received chain-sync RollForward message when protocol not in expected state")
 	}
 	if c.callbackConfig.RollForwardFunc == nil {
@@ -128,7 +135,7 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 		case block.BLOCK_HEADER_TYPE_BYRON:
 			var wrapHeaderByron wrappedHeaderByron
 			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &wrapHeaderByron); err != nil {
-				return fmt.Errorf("chain-sync: decode error: %s", err)
+				return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 			}
 			blockType = wrapHeaderByron.Unknown.Type
 			var err error
@@ -148,7 +155,7 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 			// We decode into a byte array to implicitly unwrap the CBOR tag object
 			var payload []byte
 			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &payload); err != nil {
-				return fmt.Errorf("failed fallback decode: %s", err)
+				return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 			}
 			var err error
 			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, payload)
@@ -156,67 +163,79 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 				return err
 			}
 		}
-		c.proto.SetState(STATE_IDLE)
+		// Unlock and change state when we're done
+		defer c.proto.UnlockState(STATE_IDLE)
+		// Call the user callback function
 		return c.callbackConfig.RollForwardFunc(blockType, blockHeader)
 	} else {
 		msg := msgGeneric.(*msgRollForwardNtC)
 		// Decode only enough to get the block type value
 		var wrapBlock wrappedBlock
 		if _, err := utils.CborDecode(msg.WrappedData, &wrapBlock); err != nil {
-			return fmt.Errorf("chain-sync: decode error: %s", err)
+			return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 		}
 		blk, err := block.NewBlockFromCbor(wrapBlock.Type, wrapBlock.RawBlock)
 		if err != nil {
 			return err
 		}
-		c.proto.SetState(STATE_IDLE)
+		// Unlock and change state when we're done
+		defer c.proto.UnlockState(STATE_IDLE)
+		// Call the user callback function
 		return c.callbackConfig.RollForwardFunc(wrapBlock.Type, blk)
 	}
 }
 
 func (c *ChainSync) handleRollBackward(msgGeneric protocol.Message) error {
-	if c.proto.GetState() != STATE_CAN_AWAIT && c.proto.GetState() != STATE_MUST_REPLY {
+	if err := c.proto.LockState([]protocol.State{STATE_CAN_AWAIT, STATE_MUST_REPLY}); err != nil {
 		return fmt.Errorf("received chain-sync RollBackward message when protocol not in expected state")
 	}
 	if c.callbackConfig.RollBackwardFunc == nil {
 		return fmt.Errorf("received chain-sync RollBackward message but no callback function is defined")
 	}
 	msg := msgGeneric.(*msgRollBackward)
-	c.proto.SetState(STATE_IDLE)
+	// Unlock and change state when we're done
+	defer c.proto.UnlockState(STATE_IDLE)
+	// Call the user callback function
 	return c.callbackConfig.RollBackwardFunc(msg.Point, msg.Tip)
 }
 
 func (c *ChainSync) handleIntersectFound(msgGeneric protocol.Message) error {
-	if c.proto.GetState() != STATE_INTERSECT {
+	if err := c.proto.LockState([]protocol.State{STATE_INTERSECT}); err != nil {
 		return fmt.Errorf("received chain-sync IntersectFound message when protocol not in expected state")
 	}
 	if c.callbackConfig.IntersectFoundFunc == nil {
 		return fmt.Errorf("received chain-sync IntersectFound message but no callback function is defined")
 	}
 	msg := msgGeneric.(*msgIntersectFound)
-	c.proto.SetState(STATE_IDLE)
+	// Unlock and change state when we're done
+	defer c.proto.UnlockState(STATE_IDLE)
+	// Call the user callback function
 	return c.callbackConfig.IntersectFoundFunc(msg.Point, msg.Tip)
 }
 
 func (c *ChainSync) handleIntersectNotFound(msgGeneric protocol.Message) error {
-	if c.proto.GetState() != STATE_INTERSECT {
+	if err := c.proto.LockState([]protocol.State{STATE_INTERSECT}); err != nil {
 		return fmt.Errorf("received chain-sync IntersectNotFound message when protocol not in expected state")
 	}
 	if c.callbackConfig.IntersectNotFoundFunc == nil {
 		return fmt.Errorf("received chain-sync IntersectNotFound message but no callback function is defined")
 	}
 	msg := msgGeneric.(*msgIntersectNotFound)
-	c.proto.SetState(STATE_IDLE)
+	// Unlock and change state when we're done
+	defer c.proto.UnlockState(STATE_IDLE)
+	// Call the user callback function
 	return c.callbackConfig.IntersectNotFoundFunc(msg.Tip)
 }
 
 func (c *ChainSync) handleDone() error {
-	if c.proto.GetState() != STATE_IDLE {
+	if err := c.proto.LockState([]protocol.State{STATE_IDLE}); err != nil {
 		return fmt.Errorf("received chain-sync Done message when protocol not in expected state")
 	}
 	if c.callbackConfig.DoneFunc == nil {
 		return fmt.Errorf("received chain-sync Done message but no callback function is defined")
 	}
-	c.proto.SetState(STATE_DONE)
+	// Unlock and change state when we're done
+	defer c.proto.UnlockState(STATE_DONE)
+	// Call the user callback function
 	return c.callbackConfig.DoneFunc()
 }
