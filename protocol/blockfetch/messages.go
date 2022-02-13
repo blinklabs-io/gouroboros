@@ -1,6 +1,9 @@
 package blockfetch
 
 import (
+	"fmt"
+	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -13,66 +16,78 @@ const (
 	MESSAGE_TYPE_BATCH_DONE    = 5
 )
 
+func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	var ret protocol.Message
+	switch msgType {
+	case MESSAGE_TYPE_REQUEST_RANGE:
+		ret = &msgRequestRange{}
+	case MESSAGE_TYPE_CLIENT_DONE:
+		ret = &msgClientDone{}
+	case MESSAGE_TYPE_START_BATCH:
+		ret = &msgStartBatch{}
+	case MESSAGE_TYPE_NO_BLOCKS:
+		ret = &msgNoBlocks{}
+	case MESSAGE_TYPE_BLOCK:
+		ret = &msgBlock{}
+	case MESSAGE_TYPE_BATCH_DONE:
+		ret = &msgBatchDone{}
+	}
+	if _, err := utils.CborDecode(data, ret); err != nil {
+		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+	}
+	if ret != nil {
+		// Store the raw message CBOR
+		ret.SetCbor(data)
+	}
+	return ret, nil
+}
+
 type msgRequestRange struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
-	Start       interface{} //point
-	End         interface{} //point
+	protocol.MessageBase
+	Start interface{} //point
+	End   interface{} //point
 }
 
 func newMsgRequestRange(start interface{}, end interface{}) *msgRequestRange {
 	m := &msgRequestRange{
-		MessageType: MESSAGE_TYPE_REQUEST_RANGE,
-		Start:       start,
-		End:         end,
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_REQUEST_RANGE,
+		},
+		Start: start,
+		End:   end,
 	}
 	return m
 }
 
 type msgClientDone struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
+	protocol.MessageBase
 }
 
 func newMsgClientDone() *msgClientDone {
 	m := &msgClientDone{
-		MessageType: MESSAGE_TYPE_CLIENT_DONE,
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_CLIENT_DONE,
+		},
 	}
 	return m
 }
 
-// TODO: uncomment these when adding support for sending them
-/*
 type msgStartBatch struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
+	protocol.MessageBase
 }
 
 type msgNoBlocks struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
+	protocol.MessageBase
 }
-*/
 
 type msgBlock struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_            struct{} `cbor:",toarray"`
-	MessageType  uint8
+	protocol.MessageBase
 	WrappedBlock []byte
 }
 
-// TODO: uncomment this when adding support for sending it
-/*
 type msgBatchDone struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	MessageType uint8
+	protocol.MessageBase
 }
-*/
 
 // TODO: use this above and expose it, or just remove it
 /*

@@ -5,30 +5,37 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
+)
+
+const (
+	// Magic number chosen to represent unknown protocols
+	PROTOCOL_UNKNOWN uint16 = 0xabcd
 )
 
 type Muxer struct {
 	conn              io.ReadWriteCloser
+	sendMutex         sync.Mutex
 	ErrorChan         chan error
-	protocolSenders   map[uint16]chan *Message
-	protocolReceivers map[uint16]chan *Message
+	protocolSenders   map[uint16]chan *Segment
+	protocolReceivers map[uint16]chan *Segment
 }
 
 func New(conn io.ReadWriteCloser) *Muxer {
 	m := &Muxer{
 		conn:              conn,
 		ErrorChan:         make(chan error, 10),
-		protocolSenders:   make(map[uint16]chan *Message),
-		protocolReceivers: make(map[uint16]chan *Message),
+		protocolSenders:   make(map[uint16]chan *Segment),
+		protocolReceivers: make(map[uint16]chan *Segment),
 	}
 	go m.readLoop()
 	return m
 }
 
-func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Message, chan *Message) {
+func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segment) {
 	// Generate channels
-	senderChan := make(chan *Message, 10)
-	receiverChan := make(chan *Message, 10)
+	senderChan := make(chan *Segment, 10)
+	receiverChan := make(chan *Segment, 10)
 	// Record channels in protocol sender/receiver maps
 	m.protocolSenders[protocolId] = senderChan
 	m.protocolReceivers[protocolId] = receiverChan
@@ -44,9 +51,12 @@ func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Message, chan *Messag
 	return senderChan, receiverChan
 }
 
-func (m *Muxer) Send(msg *Message) error {
+func (m *Muxer) Send(msg *Segment) error {
+	// We use a mutex to make sure only one protocol can send at a time
+	m.sendMutex.Lock()
+	defer m.sendMutex.Unlock()
 	buf := &bytes.Buffer{}
-	err := binary.Write(buf, binary.BigEndian, msg.MessageHeader)
+	err := binary.Write(buf, binary.BigEndian, msg.SegmentHeader)
 	if err != nil {
 		return err
 	}
@@ -60,12 +70,12 @@ func (m *Muxer) Send(msg *Message) error {
 
 func (m *Muxer) readLoop() {
 	for {
-		header := MessageHeader{}
+		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
 			m.ErrorChan <- err
 		}
-		msg := &Message{
-			MessageHeader: header,
+		msg := &Segment{
+			SegmentHeader: header,
 			Payload:       make([]byte, header.PayloadLength),
 		}
 		// We use ReadFull because it guarantees to read the expected number of bytes or
@@ -76,7 +86,11 @@ func (m *Muxer) readLoop() {
 		// Send message payload to proper receiver
 		recvChan := m.protocolReceivers[msg.GetProtocolId()]
 		if recvChan == nil {
-			m.ErrorChan <- fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId())
+			// Try the "unknown protocol" receiver if we didn't find an explicit one
+			recvChan = m.protocolReceivers[PROTOCOL_UNKNOWN]
+			if recvChan == nil {
+				m.ErrorChan <- fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId())
+			}
 		} else {
 			m.protocolReceivers[msg.GetProtocolId()] <- msg
 		}
