@@ -91,8 +91,9 @@ func (m *Muxer) readLoop() {
 			if recvChan == nil {
 				m.ErrorChan <- fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId())
 			}
-		} else {
-			m.protocolReceivers[msg.GetProtocolId()] <- msg
+		}
+		if recvChan != nil {
+			recvChan <- msg
 		}
 	}
 }
