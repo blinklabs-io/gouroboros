@@ -6,8 +6,14 @@ import (
 )
 
 func CborEncode(data interface{}) ([]byte, error) {
-	dataBytes, err := cbor.Marshal(data)
-	return dataBytes, err
+	buf := bytes.NewBuffer(nil)
+	em, err := cbor.CoreDetEncOptions().EncMode()
+	if err != nil {
+		return nil, err
+	}
+	enc := em.NewEncoder(buf)
+	err = enc.Encode(data)
+	return buf.Bytes(), err
 }
 
 func CborDecode(dataBytes []byte, dest interface{}) (int, error) {

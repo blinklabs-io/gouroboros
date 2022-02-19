@@ -1,7 +1,6 @@
 package ouroboros
 
 import (
-	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
@@ -82,21 +81,28 @@ func (o *Ouroboros) setupConnection() error {
 	}()
 	// Perform handshake
 	o.Handshake = handshake.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto)
-	// TODO: create a proper version map
-	versionMap := []uint16{1, 32778}
+	var protoVersions []uint16
 	if o.useNodeToNodeProto {
-		versionMap = []uint16{7}
+		protoVersions = GetProtocolVersionsNtN()
+	} else {
+		protoVersions = GetProtocolVersionsNtC()
 	}
+	// TODO: figure out better way to signify automatic handshaking and returning the chosen version
 	if !o.waitForHandshake {
-		err := o.Handshake.ProposeVersions(versionMap, o.networkMagic)
+		err := o.Handshake.ProposeVersions(protoVersions, o.networkMagic)
 		if err != nil {
 			return err
 		}
 	}
 	o.handshakeComplete = <-o.Handshake.Finished
-	fmt.Printf("negotiated protocol version %d\n", o.Handshake.Version)
 	// TODO: register additional mini-protocols
-	o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
-	o.BlockFetch = blockfetch.New(o.muxer, o.ErrorChan, o.blockFetchCallbackConfig)
+	if o.useNodeToNodeProto {
+		//versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
+		o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
+		o.BlockFetch = blockfetch.New(o.muxer, o.ErrorChan, o.blockFetchCallbackConfig)
+	} else {
+		//versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
+		o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
+	}
 	return nil
 }
