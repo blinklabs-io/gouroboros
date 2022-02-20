@@ -22,7 +22,7 @@ but the node-to-node protocols will also be implemented in time.
 | Chain-Sync | Implemented |
 | Block-Fetch | Implemented |
 | TxSubmission | Not Implemented |
-| Local TxSubmission | Not Implemented |
+| Local TxSubmission | Implemented |
 | Local State Query | Not Implemented |
 | Keep-Alive | Implemented |
 
@@ -65,10 +65,28 @@ Compile the test program.
 $ make
 ```
 
-Run the test program pointing to the UNIX socket from the `cardano-node` instance started above.
+Run the test program pointing to the UNIX socket (via `socat`) from the `cardano-node` instance started above.
 
 ```
-$ ./go-ouroboros-network -address localhost:8082 -testnet
+$ ./go-ouroboros-network -address localhost:8082 -testnet ...
+```
+
+Run it against the public port in node-to-node mode.
+
+```
+$ ./go-ouroboros-network -address localhost:8081 -ntn -testnet ...
+```
+
+Test chain-sync (works in node-to-node and node-to-client modes).
+
+```
+$ ./go-ouroboros-network ... chain-sync -start-era byron
+```
+
+Test local-tx-submission (only works in node-to-client mode).
+
+```
+$ ./go-ouroboros-network ... local-tx-submission ...
 ```
 
 ### Stopping the local `cardano-node` instance

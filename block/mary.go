@@ -8,6 +8,8 @@ const (
 	BLOCK_TYPE_MARY = 4
 
 	BLOCK_HEADER_TYPE_MARY = 3
+
+	TX_TYPE_MARY = 3
 )
 
 type MaryBlock struct {

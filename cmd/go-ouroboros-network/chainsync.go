@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"flag"
 	"fmt"
 	ouroboros "github.com/cloudstruct/go-ouroboros-network"
 	"github.com/cloudstruct/go-ouroboros-network/block"
@@ -20,6 +21,19 @@ type chainSyncState struct {
 }
 
 var syncState chainSyncState
+
+type chainSyncFlags struct {
+	flagset  *flag.FlagSet
+	startEra string
+}
+
+func newChainSyncFlags() *chainSyncFlags {
+	f := &chainSyncFlags{
+		flagset: flag.NewFlagSet("chain-sync", flag.ExitOnError),
+	}
+	f.flagset.StringVar(&f.startEra, "start-era", "byron", "era which to start chain-sync at")
+	return f
+}
 
 // Intersect points (last block of previous era) for each era on testnet/mainnet
 var eraIntersect = map[int]map[string][]interface{}{
@@ -67,20 +81,27 @@ func buildBlockFetchCallbackConfig() *blockfetch.BlockFetchCallbackConfig {
 	}
 }
 
-func testChainSync(o *ouroboros.Ouroboros, f cmdFlags) {
-	if _, ok := eraIntersect[f.networkMagic][f.syncEra]; !ok {
-		fmt.Printf("ERROR: unknown era '%s' specified as chain-sync start point\n", f.syncEra)
+func testChainSync(o *ouroboros.Ouroboros, f *globalFlags) {
+	chainSyncFlags := newChainSyncFlags()
+	err := chainSyncFlags.flagset.Parse(f.flagset.Args()[1:])
+	if err != nil {
+		fmt.Printf("failed to parse subcommand args: %s\n", err)
+		os.Exit(1)
+	}
+
+	if _, ok := eraIntersect[f.networkMagic][chainSyncFlags.startEra]; !ok {
+		fmt.Printf("ERROR: unknown era '%s' specified as chain-sync start point\n", chainSyncFlags.startEra)
 		os.Exit(1)
 	}
 	syncState.oConn = o
 	syncState.readyForNextBlockChan = make(chan bool)
 	syncState.nodeToNode = f.ntnProto
 	intersect := []interface{}{}
-	if len(eraIntersect[f.networkMagic][f.syncEra]) > 0 {
+	if len(eraIntersect[f.networkMagic][chainSyncFlags.startEra]) > 0 {
 		// Slot
-		intersect = append(intersect, eraIntersect[f.networkMagic][f.syncEra][0])
+		intersect = append(intersect, eraIntersect[f.networkMagic][chainSyncFlags.startEra][0])
 		// Block hash
-		hash, _ := hex.DecodeString(eraIntersect[f.networkMagic][f.syncEra][1].(string))
+		hash, _ := hex.DecodeString(eraIntersect[f.networkMagic][chainSyncFlags.startEra][1].(string))
 		intersect = append(intersect, hash)
 	}
 	if err := o.ChainSync.FindIntersect([]interface{}{intersect}); err != nil {
