@@ -79,6 +79,7 @@ func main() {
 		NetworkMagic:             uint32(f.networkMagic),
 		ErrorChan:                errorChan,
 		UseNodeToNodeProtocol:    f.ntnProto,
+		SendKeepAlives:           true,
 		ChainSyncCallbackConfig:  buildChainSyncCallbackConfig(),
 		BlockFetchCallbackConfig: buildBlockFetchCallbackConfig(),
 	}
