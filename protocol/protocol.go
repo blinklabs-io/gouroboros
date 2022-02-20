@@ -97,6 +97,10 @@ func (p *Protocol) SendMessage(msg interface{}, isResponse bool) error {
 	return nil
 }
 
+func (p *Protocol) SendError(err error) {
+	p.errorChan <- err
+}
+
 func (p *Protocol) recvLoop() {
 	leftoverData := false
 	for {

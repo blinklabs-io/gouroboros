@@ -5,6 +5,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
 	"io"
 	"net"
 )
@@ -17,12 +18,15 @@ type Ouroboros struct {
 	handshakeComplete  bool
 	muxer              *muxer.Muxer
 	ErrorChan          chan error
+	sendKeepAlives     bool
 	// Mini-protocols
 	Handshake                *handshake.Handshake
 	ChainSync                *chainsync.ChainSync
 	chainSyncCallbackConfig  *chainsync.ChainSyncCallbackConfig
 	BlockFetch               *blockfetch.BlockFetch
 	blockFetchCallbackConfig *blockfetch.BlockFetchCallbackConfig
+	KeepAlive                *keepalive.KeepAlive
+	keepAliveCallbackConfig  *keepalive.KeepAliveCallbackConfig
 }
 
 type OuroborosOptions struct {
@@ -33,8 +37,10 @@ type OuroborosOptions struct {
 	// for servers
 	WaitForHandshake         bool
 	UseNodeToNodeProtocol    bool
+	SendKeepAlives           bool
 	ChainSyncCallbackConfig  *chainsync.ChainSyncCallbackConfig
 	BlockFetchCallbackConfig *blockfetch.BlockFetchCallbackConfig
+	KeepAliveCallbackConfig  *keepalive.KeepAliveCallbackConfig
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
@@ -45,7 +51,9 @@ func New(options *OuroborosOptions) (*Ouroboros, error) {
 		useNodeToNodeProto:       options.UseNodeToNodeProtocol,
 		chainSyncCallbackConfig:  options.ChainSyncCallbackConfig,
 		blockFetchCallbackConfig: options.BlockFetchCallbackConfig,
+		keepAliveCallbackConfig:  options.KeepAliveCallbackConfig,
 		ErrorChan:                options.ErrorChan,
+		sendKeepAlives:           options.SendKeepAlives,
 	}
 	if o.ErrorChan == nil {
 		o.ErrorChan = make(chan error, 10)
@@ -97,9 +105,15 @@ func (o *Ouroboros) setupConnection() error {
 	o.handshakeComplete = <-o.Handshake.Finished
 	// TODO: register additional mini-protocols
 	if o.useNodeToNodeProto {
-		//versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
+		versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
 		o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
 		o.BlockFetch = blockfetch.New(o.muxer, o.ErrorChan, o.blockFetchCallbackConfig)
+		if versionNtN.EnableKeepAliveProtocol {
+			o.KeepAlive = keepalive.New(o.muxer, o.ErrorChan, o.keepAliveCallbackConfig)
+			if o.sendKeepAlives {
+				o.KeepAlive.Start()
+			}
+		}
 	} else {
 		//versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
 		o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)

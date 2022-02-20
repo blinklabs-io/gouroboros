@@ -22,7 +22,7 @@ but the node-to-node protocols will also be implemented in time.
 | TxSubmission | Not Implemented |
 | Local TxSubmission | Not Implemented |
 | Local State Query | Not Implemented |
-| Keep-Alive | Not Implemented |
+| Keep-Alive | Implemented |
 
 ## Testing
 
