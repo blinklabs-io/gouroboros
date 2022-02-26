@@ -10,95 +10,67 @@ import (
 )
 
 type Protocol struct {
-	protocolId      uint16
-	name            string
-	errorChan       chan error
-	sendChan        chan *muxer.Segment
-	recvChan        chan *muxer.Segment
-	state           State
-	stateMutex      sync.Mutex
-	recvBuffer      *bytes.Buffer
-	msgHandlerFunc  MessageHandlerFunc
-	msgFromCborFunc MessageFromCborFunc
+	config     ProtocolConfig
+	sendChan   chan *muxer.Segment
+	recvChan   chan *muxer.Segment
+	state      State
+	stateMutex sync.Mutex
+	recvBuffer *bytes.Buffer
 }
 
-type State struct {
-	Id   uint
-	Name string
-}
-
-func NewState(id uint, name string) State {
-	return State{
-		Id:   id,
-		Name: name,
-	}
-}
-
-func (s State) String() string {
-	return s.Name
+type ProtocolConfig struct {
+	Name                string
+	ProtocolId          uint16
+	ErrorChan           chan error
+	Muxer               *muxer.Muxer
+	MessageHandlerFunc  MessageHandlerFunc
+	MessageFromCborFunc MessageFromCborFunc
+	StateMap            StateMap
+	InitialState        State
 }
 
 type MessageHandlerFunc func(Message) error
 type MessageFromCborFunc func(uint, []byte) (Message, error)
 
-func New(name string, protocolId uint16, m *muxer.Muxer, errorChan chan error, handlerFunc MessageHandlerFunc, msgFromCborFunc MessageFromCborFunc) *Protocol {
-	sendChan, recvChan := m.RegisterProtocol(protocolId)
+func New(config ProtocolConfig) *Protocol {
+	sendChan, recvChan := config.Muxer.RegisterProtocol(config.ProtocolId)
 	p := &Protocol{
-		name:            name,
-		protocolId:      protocolId,
-		errorChan:       errorChan,
-		sendChan:        sendChan,
-		recvChan:        recvChan,
-		recvBuffer:      bytes.NewBuffer(nil),
-		msgHandlerFunc:  handlerFunc,
-		msgFromCborFunc: msgFromCborFunc,
+		config:     config,
+		sendChan:   sendChan,
+		recvChan:   recvChan,
+		recvBuffer: bytes.NewBuffer(nil),
 	}
+	// Set initial state
+	p.state = config.InitialState
 	// Start our receiver Goroutine
 	go p.recvLoop()
 	return p
 }
 
-func (p *Protocol) GetState() State {
-	return p.state
-}
-
-func (p *Protocol) SetState(state State) {
-	p.state = state
-}
-
-func (p *Protocol) LockState(allowedStates []State) error {
+func (p *Protocol) SendMessage(msg Message, isResponse bool) error {
+	// Lock the state to prevent collisions
 	p.stateMutex.Lock()
-	inAllowedState := false
-	for _, state := range allowedStates {
-		if state == p.state {
-			inAllowedState = true
-			break
-		}
+	if err := p.checkCurrentState(); err != nil {
+		return fmt.Errorf("%s: error sending message: %s", p.config.Name, err)
 	}
-	if !inAllowedState {
-		p.stateMutex.Unlock()
-		return fmt.Errorf("protocol is not in allowed state (currently in state %s)", p.state.Name)
+	newState, err := p.getNewState(msg)
+	if err != nil {
+		return fmt.Errorf("%s: error sending message: %s", p.config.Name, err)
 	}
-	return nil
-}
-
-func (p *Protocol) UnlockState(newState State) {
-	p.state = newState
-	p.stateMutex.Unlock()
-}
-
-func (p *Protocol) SendMessage(msg interface{}, isResponse bool) error {
 	data, err := utils.CborEncode(msg)
 	if err != nil {
 		return err
 	}
-	segment := muxer.NewSegment(p.protocolId, data, isResponse)
+	segment := muxer.NewSegment(p.config.ProtocolId, data, isResponse)
 	p.sendChan <- segment
+	// Set new state and unlock
+	p.state = newState
+	p.stateMutex.Unlock()
 	return nil
 }
 
 func (p *Protocol) SendError(err error) {
-	p.errorChan <- err
+	p.config.ErrorChan <- err
 }
 
 func (p *Protocol) recvLoop() {
@@ -123,18 +95,20 @@ func (p *Protocol) recvLoop() {
 				// before trying to process it
 				continue
 			}
-			p.errorChan <- fmt.Errorf("%s: decode error: %s", p.name, err)
+			p.config.ErrorChan <- fmt.Errorf("%s: decode error: %s", p.config.Name, err)
 		}
+		// Create Message object from CBOR
 		msgType := uint(tmpMsg[0].(uint64))
-		msg, err := p.msgFromCborFunc(msgType, p.recvBuffer.Bytes())
+		msg, err := p.config.MessageFromCborFunc(msgType, p.recvBuffer.Bytes())
 		if err != nil {
-			p.errorChan <- err
+			p.config.ErrorChan <- err
 		}
 		if msg == nil {
-			p.errorChan <- fmt.Errorf("%s: received unknown message type: %#v", p.name, tmpMsg)
+			p.config.ErrorChan <- fmt.Errorf("%s: received unknown message type: %#v", p.config.Name, tmpMsg)
 		}
-		if err := p.msgHandlerFunc(msg); err != nil {
-			p.errorChan <- err
+		// Handle message
+		if err := p.handleMessage(msg); err != nil {
+			p.config.ErrorChan <- err
 		}
 		if numBytesRead < p.recvBuffer.Len() {
 			// There is another message in the same muxer segment, so we reset the buffer with just
@@ -146,4 +120,49 @@ func (p *Protocol) recvLoop() {
 			p.recvBuffer.Reset()
 		}
 	}
+}
+
+func (p *Protocol) checkCurrentState() error {
+	if currentStateMapEntry, ok := p.config.StateMap[p.state]; ok {
+		if currentStateMapEntry.Agency == AGENCY_NONE {
+			return fmt.Errorf("protocol is in state with no agency")
+		}
+		// TODO: check client/server agency
+	} else {
+		return fmt.Errorf("protocol in unknown state")
+	}
+	return nil
+}
+
+func (p *Protocol) getNewState(msg Message) (State, error) {
+	var newState State
+	matchFound := false
+	for _, transition := range p.config.StateMap[p.state].Transitions {
+		if transition.MsgType == msg.Type() {
+			newState = transition.NewState
+			matchFound = true
+			break
+		}
+	}
+	if !matchFound {
+		return newState, fmt.Errorf("message not allowed in current protocol state")
+	}
+	return newState, nil
+}
+
+func (p *Protocol) handleMessage(msg Message) error {
+	// Lock the state to prevent collisions
+	p.stateMutex.Lock()
+	if err := p.checkCurrentState(); err != nil {
+		return fmt.Errorf("%s: error handling message: %s", p.config.Name, err)
+	}
+	newState, err := p.getNewState(msg)
+	if err != nil {
+		return fmt.Errorf("%s: error handling message: %s", p.config.Name, err)
+	}
+	// Set new state and unlock
+	p.state = newState
+	p.stateMutex.Unlock()
+	// Call handler function
+	return p.config.MessageHandlerFunc(msg)
 }

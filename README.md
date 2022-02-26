@@ -4,6 +4,8 @@ A Go client implementation of the Cardano Ouroboros network protocol
 
 This is loosely based on the [official Haskell implementation](https://github.com/input-output-hk/ouroboros-network)
 
+NOTE: this library is under heavily development, and the interface should not be considered stable until it reaches `v1.0.0`
+
 ## Implementation status
 
 The Ouroboros protocol consists of a simple multiplexer protocol and various mini-protocols that run on top of it.

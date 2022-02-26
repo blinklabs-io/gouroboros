@@ -21,6 +21,34 @@ var (
 	STATE_DONE   = protocol.NewState(3, "Done")
 )
 
+var stateMap = protocol.StateMap{
+	STATE_CLIENT: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_CLIENT,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MESSAGE_TYPE_KEEP_ALIVE,
+				NewState: STATE_SERVER,
+			},
+			{
+				MsgType:  MESSAGE_TYPE_DONE,
+				NewState: STATE_DONE,
+			},
+		},
+	},
+	STATE_SERVER: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_SERVER,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MESSAGE_TYPE_KEEP_ALIVE_RESPONSE,
+				NewState: STATE_CLIENT,
+			},
+		},
+	},
+	STATE_DONE: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_NONE,
+	},
+}
+
 type KeepAlive struct {
 	proto          *protocol.Protocol
 	callbackConfig *KeepAliveCallbackConfig
@@ -42,9 +70,17 @@ func New(m *muxer.Muxer, errorChan chan error, callbackConfig *KeepAliveCallback
 	k := &KeepAlive{
 		callbackConfig: callbackConfig,
 	}
-	k.proto = protocol.New(PROTOCOL_NAME, PROTOCOL_ID, m, errorChan, k.messageHandler, NewMsgFromCbor)
-	// Set initial state
-	k.proto.SetState(STATE_CLIENT)
+	protoConfig := protocol.ProtocolConfig{
+		Name:                PROTOCOL_NAME,
+		ProtocolId:          PROTOCOL_ID,
+		Muxer:               m,
+		ErrorChan:           errorChan,
+		MessageHandlerFunc:  k.messageHandler,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateMap:            stateMap,
+		InitialState:        STATE_CLIENT,
+	}
+	k.proto = protocol.New(protoConfig)
 	return k
 }
 
@@ -80,23 +116,12 @@ func (k *KeepAlive) Stop() {
 }
 
 func (k *KeepAlive) KeepAlive(cookie uint16) error {
-	if err := k.proto.LockState([]protocol.State{STATE_CLIENT}); err != nil {
-		return fmt.Errorf("%s: KeepAlive: protocol not in expected state", PROTOCOL_NAME)
-	}
 	msg := newMsgKeepAlive(cookie)
-	// Unlock and change state when we're done
-	defer k.proto.UnlockState(STATE_SERVER)
-	// Send request
 	return k.proto.SendMessage(msg, false)
 }
 
 func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
-	if err := k.proto.LockState([]protocol.State{STATE_CLIENT}); err != nil {
-		return fmt.Errorf("received keep-alive KeepAlive message when protocol not in expected state")
-	}
 	msg := msgGeneric.(*msgKeepAlive)
-	// Unlock and change state when we're done
-	defer k.proto.UnlockState(STATE_CLIENT)
 	if k.callbackConfig != nil && k.callbackConfig.KeepAliveFunc != nil {
 		// Call the user callback function
 		return k.callbackConfig.KeepAliveFunc(msg.Cookie)
@@ -108,12 +133,7 @@ func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
 }
 
 func (k *KeepAlive) handleKeepAliveResponse(msgGeneric protocol.Message) error {
-	if err := k.proto.LockState([]protocol.State{STATE_SERVER}); err != nil {
-		return fmt.Errorf("received keep-alive KeepAliveResponse message when protocol not in expected state")
-	}
 	msg := msgGeneric.(*msgKeepAliveResponse)
-	// Unlock and change state when we're done
-	defer k.proto.UnlockState(STATE_CLIENT)
 	// Start the timer again if we had one previously
 	if k.timer != nil {
 		defer k.Start()
@@ -126,11 +146,6 @@ func (k *KeepAlive) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 }
 
 func (k *KeepAlive) handleDone() error {
-	if err := k.proto.LockState([]protocol.State{STATE_CLIENT}); err != nil {
-		return fmt.Errorf("received keep-alive Done message when protocol not in expected state")
-	}
-	// Unlock and change state when we're done
-	defer k.proto.UnlockState(STATE_DONE)
 	if k.callbackConfig != nil && k.callbackConfig.DoneFunc != nil {
 		// Call the user callback function
 		return k.callbackConfig.DoneFunc()
