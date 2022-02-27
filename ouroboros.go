@@ -6,6 +6,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
 	"io"
 	"net"
 )
@@ -20,13 +21,15 @@ type Ouroboros struct {
 	ErrorChan          chan error
 	sendKeepAlives     bool
 	// Mini-protocols
-	Handshake                *handshake.Handshake
-	ChainSync                *chainsync.ChainSync
-	chainSyncCallbackConfig  *chainsync.ChainSyncCallbackConfig
-	BlockFetch               *blockfetch.BlockFetch
-	blockFetchCallbackConfig *blockfetch.BlockFetchCallbackConfig
-	KeepAlive                *keepalive.KeepAlive
-	keepAliveCallbackConfig  *keepalive.KeepAliveCallbackConfig
+	Handshake                       *handshake.Handshake
+	ChainSync                       *chainsync.ChainSync
+	chainSyncCallbackConfig         *chainsync.ChainSyncCallbackConfig
+	BlockFetch                      *blockfetch.BlockFetch
+	blockFetchCallbackConfig        *blockfetch.BlockFetchCallbackConfig
+	KeepAlive                       *keepalive.KeepAlive
+	keepAliveCallbackConfig         *keepalive.KeepAliveCallbackConfig
+	LocalTxSubmission               *localtxsubmission.LocalTxSubmission
+	localTxSubmissionCallbackConfig *localtxsubmission.CallbackConfig
 }
 
 type OuroborosOptions struct {
@@ -35,25 +38,27 @@ type OuroborosOptions struct {
 	ErrorChan    chan error
 	// Whether to wait for the other side to initiate the handshake. This is useful
 	// for servers
-	WaitForHandshake         bool
-	UseNodeToNodeProtocol    bool
-	SendKeepAlives           bool
-	ChainSyncCallbackConfig  *chainsync.ChainSyncCallbackConfig
-	BlockFetchCallbackConfig *blockfetch.BlockFetchCallbackConfig
-	KeepAliveCallbackConfig  *keepalive.KeepAliveCallbackConfig
+	WaitForHandshake                bool
+	UseNodeToNodeProtocol           bool
+	SendKeepAlives                  bool
+	ChainSyncCallbackConfig         *chainsync.ChainSyncCallbackConfig
+	BlockFetchCallbackConfig        *blockfetch.BlockFetchCallbackConfig
+	KeepAliveCallbackConfig         *keepalive.KeepAliveCallbackConfig
+	LocalTxSubmissionCallbackConfig *localtxsubmission.CallbackConfig
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
 	o := &Ouroboros{
-		conn:                     options.Conn,
-		networkMagic:             options.NetworkMagic,
-		waitForHandshake:         options.WaitForHandshake,
-		useNodeToNodeProto:       options.UseNodeToNodeProtocol,
-		chainSyncCallbackConfig:  options.ChainSyncCallbackConfig,
-		blockFetchCallbackConfig: options.BlockFetchCallbackConfig,
-		keepAliveCallbackConfig:  options.KeepAliveCallbackConfig,
-		ErrorChan:                options.ErrorChan,
-		sendKeepAlives:           options.SendKeepAlives,
+		conn:                            options.Conn,
+		networkMagic:                    options.NetworkMagic,
+		waitForHandshake:                options.WaitForHandshake,
+		useNodeToNodeProto:              options.UseNodeToNodeProtocol,
+		chainSyncCallbackConfig:         options.ChainSyncCallbackConfig,
+		blockFetchCallbackConfig:        options.BlockFetchCallbackConfig,
+		keepAliveCallbackConfig:         options.KeepAliveCallbackConfig,
+		localTxSubmissionCallbackConfig: options.LocalTxSubmissionCallbackConfig,
+		ErrorChan:                       options.ErrorChan,
+		sendKeepAlives:                  options.SendKeepAlives,
 	}
 	if o.ErrorChan == nil {
 		o.ErrorChan = make(chan error, 10)
@@ -117,6 +122,7 @@ func (o *Ouroboros) setupConnection() error {
 	} else {
 		//versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
 		o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
+		o.LocalTxSubmission = localtxsubmission.New(o.muxer, o.ErrorChan, o.localTxSubmissionCallbackConfig)
 	}
 	return nil
 }

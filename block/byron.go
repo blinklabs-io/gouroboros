@@ -9,6 +9,8 @@ const (
 	BLOCK_TYPE_BYRON_MAIN = 1
 
 	BLOCK_HEADER_TYPE_BYRON = 0
+
+	TX_TYPE_BYRON = 0
 )
 
 type ByronMainBlockHeader struct {

@@ -15,7 +15,8 @@ const (
 	MAINNET_MAGIC = 764824073
 )
 
-type cmdFlags struct {
+type globalFlags struct {
+	flagset      *flag.FlagSet
 	socket       string
 	address      string
 	useTls       bool
@@ -26,20 +27,30 @@ type cmdFlags struct {
 	syncEra      string
 }
 
+func newGlobalFlags() *globalFlags {
+	f := &globalFlags{
+		flagset: flag.NewFlagSet(os.Args[0], flag.ExitOnError),
+	}
+	f.flagset.StringVar(&f.socket, "socket", "", "UNIX socket path to connect to")
+	f.flagset.StringVar(&f.address, "address", "", "TCP address to connect to in address:port format")
+	f.flagset.BoolVar(&f.useTls, "tls", false, "enable TLS")
+	f.flagset.BoolVar(&f.ntnProto, "ntn", false, "use node-to-node protocol (defaults to node-to-client)")
+	f.flagset.IntVar(&f.networkMagic, "network-magic", 0, "network magic value")
+	f.flagset.BoolVar(&f.testnet, "testnet", false, fmt.Sprintf("alias for -network-magic=%d", TESTNET_MAGIC))
+	f.flagset.BoolVar(&f.mainnet, "mainnet", false, fmt.Sprintf("alias for -network-magic=%d", MAINNET_MAGIC))
+	f.flagset.StringVar(&f.syncEra, "sync-era", "byron", "era which to start chain-sync at")
+	return f
+}
+
 func main() {
-	f := cmdFlags{}
-	flag.StringVar(&f.socket, "socket", "", "UNIX socket path to connect to")
-	flag.StringVar(&f.address, "address", "", "TCP address to connect to in address:port format")
-	flag.BoolVar(&f.useTls, "tls", false, "enable TLS")
-	flag.BoolVar(&f.ntnProto, "ntn", false, "use node-to-node protocol (defaults to node-to-client)")
-	flag.IntVar(&f.networkMagic, "network-magic", 0, "network magic value")
-	flag.BoolVar(&f.testnet, "testnet", false, fmt.Sprintf("alias for -network-magic=%d", TESTNET_MAGIC))
-	flag.BoolVar(&f.mainnet, "mainnet", false, fmt.Sprintf("alias for -network-magic=%d", MAINNET_MAGIC))
-	flag.StringVar(&f.syncEra, "sync-era", "byron", "era which to start chain-sync at")
-	flag.Parse()
+	f := newGlobalFlags()
+	err := f.flagset.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Printf("failed to parse command args: %s\n", err)
+		os.Exit(1)
+	}
 
 	var conn io.ReadWriteCloser
-	var err error
 	var dialProto string
 	var dialAddress string
 	if f.socket != "" {
@@ -75,13 +86,14 @@ func main() {
 	}
 	errorChan := make(chan error, 10)
 	oOpts := &ouroboros.OuroborosOptions{
-		Conn:                     conn,
-		NetworkMagic:             uint32(f.networkMagic),
-		ErrorChan:                errorChan,
-		UseNodeToNodeProtocol:    f.ntnProto,
-		SendKeepAlives:           true,
-		ChainSyncCallbackConfig:  buildChainSyncCallbackConfig(),
-		BlockFetchCallbackConfig: buildBlockFetchCallbackConfig(),
+		Conn:                            conn,
+		NetworkMagic:                    uint32(f.networkMagic),
+		ErrorChan:                       errorChan,
+		UseNodeToNodeProtocol:           f.ntnProto,
+		SendKeepAlives:                  true,
+		ChainSyncCallbackConfig:         buildChainSyncCallbackConfig(),
+		BlockFetchCallbackConfig:        buildBlockFetchCallbackConfig(),
+		LocalTxSubmissionCallbackConfig: buildLocalTxSubmissionCallbackConfig(),
 	}
 	go func() {
 		for {
@@ -95,5 +107,18 @@ func main() {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	testChainSync(o, f)
+	if len(f.flagset.Args()) > 0 {
+		switch f.flagset.Arg(0) {
+		case "chain-sync":
+			testChainSync(o, f)
+		case "local-tx-submission":
+			testLocalTxSubmission(o, f)
+		default:
+			fmt.Printf("Unknown subcommand: %s\n", f.flagset.Arg(0))
+			os.Exit(1)
+		}
+	} else {
+		fmt.Printf("You must specify a subcommand (chain-sync or local-tx-submission)\n")
+		os.Exit(1)
+	}
 }

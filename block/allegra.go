@@ -8,6 +8,8 @@ const (
 	BLOCK_TYPE_ALLEGRA = 3
 
 	BLOCK_HEADER_TYPE_ALLEGRA = 2
+
+	TX_TYPE_ALLEGRA = 2
 )
 
 type AllegraBlock struct {

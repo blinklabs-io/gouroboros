@@ -8,6 +8,8 @@ const (
 	BLOCK_TYPE_ALONZO = 5
 
 	BLOCK_HEADER_TYPE_ALONZO = 4
+
+	TX_TYPE_ALONZO = 4
 )
 
 type AlonzoBlock struct {

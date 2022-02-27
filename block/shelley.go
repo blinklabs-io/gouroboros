@@ -8,6 +8,8 @@ const (
 	BLOCK_TYPE_SHELLEY = 2
 
 	BLOCK_HEADER_TYPE_SHELLEY = 1
+
+	TX_TYPE_SHELLEY = 1
 )
 
 type ShelleyBlock struct {
