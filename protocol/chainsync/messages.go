@@ -26,7 +26,7 @@ func (c *ChainSync) NewMsgFromCbor(msgType uint, data []byte) (protocol.Message,
 	case MESSAGE_TYPE_AWAIT_REPLY:
 		ret = &msgAwaitReply{}
 	case MESSAGE_TYPE_ROLL_FORWARD:
-		if c.nodeToNode {
+		if c.proto.Mode() == protocol.ProtocolModeNodeToNode {
 			ret = &msgRollForwardNtN{}
 		} else {
 			ret = &msgRollForwardNtC{}

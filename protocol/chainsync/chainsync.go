@@ -3,7 +3,6 @@ package chainsync
 import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/block"
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
@@ -90,7 +89,6 @@ var stateMap = protocol.StateMap{
 
 type ChainSync struct {
 	proto          *protocol.Protocol
-	nodeToNode     bool
 	callbackConfig *ChainSyncCallbackConfig
 }
 
@@ -111,22 +109,23 @@ type ChainSyncIntersectFoundFunc func(interface{}, interface{}) error
 type ChainSyncIntersectNotFoundFunc func(interface{}) error
 type ChainSyncDoneFunc func() error
 
-func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool, callbackConfig *ChainSyncCallbackConfig) *ChainSync {
+func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConfig) *ChainSync {
 	// Use node-to-client protocol ID
 	protocolId := PROTOCOL_ID_NTC
-	if nodeToNode {
+	if options.Mode == protocol.ProtocolModeNodeToNode {
 		// Use node-to-node protocol ID
 		protocolId = PROTOCOL_ID_NTN
 	}
 	c := &ChainSync{
-		nodeToNode:     nodeToNode,
 		callbackConfig: callbackConfig,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          protocolId,
-		Muxer:               m,
-		ErrorChan:           errorChan,
+		Muxer:               options.Muxer,
+		ErrorChan:           options.ErrorChan,
+		Mode:                options.Mode,
+		Role:                options.Role,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: c.NewMsgFromCbor,
 		StateMap:            stateMap,
@@ -179,7 +178,7 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 	if c.callbackConfig.RollForwardFunc == nil {
 		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
 	}
-	if c.nodeToNode {
+	if c.proto.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*msgRollForwardNtN)
 		var blockHeader interface{}
 		var blockType uint

@@ -2,7 +2,6 @@ package localtxsubmission
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -63,15 +62,17 @@ type AcceptTxFunc func() error
 type RejectTxFunc func(interface{}) error
 type DoneFunc func() error
 
-func New(m *muxer.Muxer, errorChan chan error, callbackConfig *CallbackConfig) *LocalTxSubmission {
+func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *LocalTxSubmission {
 	l := &LocalTxSubmission{
 		callbackConfig: callbackConfig,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
-		Muxer:               m,
-		ErrorChan:           errorChan,
+		Muxer:               options.Muxer,
+		ErrorChan:           options.ErrorChan,
+		Mode:                options.Mode,
+		Role:                options.Role,
 		MessageHandlerFunc:  l.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,

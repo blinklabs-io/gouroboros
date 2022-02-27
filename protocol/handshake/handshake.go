@@ -2,7 +2,6 @@ package handshake
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -49,22 +48,24 @@ var stateMap = protocol.StateMap{
 }
 
 type Handshake struct {
-	proto      *protocol.Protocol
-	nodeToNode bool
-	Version    uint16
-	Finished   chan bool
+	proto           *protocol.Protocol
+	allowedVersions []uint16
+	Version         uint16
+	Finished        chan bool
 }
 
-func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool) *Handshake {
+func New(options protocol.ProtocolOptions, allowedVersions []uint16) *Handshake {
 	h := &Handshake{
-		nodeToNode: nodeToNode,
-		Finished:   make(chan bool, 1),
+		allowedVersions: allowedVersions,
+		Finished:        make(chan bool, 1),
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
-		Muxer:               m,
-		ErrorChan:           errorChan,
+		Muxer:               options.Muxer,
+		ErrorChan:           options.ErrorChan,
+		Mode:                options.Mode,
+		Role:                options.Role,
 		MessageHandlerFunc:  h.handleMessage,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
@@ -93,7 +94,7 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 	// Create our request
 	versionMap := make(map[uint16]interface{})
 	for _, version := range versions {
-		if h.nodeToNode {
+		if h.proto.Mode() == protocol.ProtocolModeNodeToNode {
 			versionMap[version] = []interface{}{networkMagic, DIFFUSION_MODE_INITIATOR_ONLY}
 		} else {
 			versionMap[version] = networkMagic
@@ -104,8 +105,28 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 }
 
 func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
-	// TODO: implement me
-	return fmt.Errorf("handshake request handling not yet implemented")
+	msg := msgGeneric.(*msgProposeVersions)
+	var highestVersion uint16
+	var versionData interface{}
+	for proposedVersion := range msg.VersionMap {
+		if proposedVersion > highestVersion {
+			for _, allowedVersion := range h.allowedVersions {
+				if allowedVersion == proposedVersion {
+					highestVersion = proposedVersion
+					versionData = msg.VersionMap[proposedVersion]
+					break
+				}
+			}
+		}
+	}
+	if highestVersion > 0 {
+		resp := newMsgAcceptVersion(highestVersion, versionData)
+		return h.proto.SendMessage(resp, true)
+	} else {
+		// TODO: handle failures
+		// https://github.com/cloudstruct/go-ouroboros-network/issues/32
+		return nil
+	}
 }
 
 func (h *Handshake) handleAcceptVersion(msgGeneric protocol.Message) error {
