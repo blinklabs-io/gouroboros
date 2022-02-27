@@ -20,6 +20,51 @@ var (
 	STATE_DONE      = protocol.NewState(4, "Done")
 )
 
+var stateMap = protocol.StateMap{
+	STATE_IDLE: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_CLIENT,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MESSAGE_TYPE_REQUEST_RANGE,
+				NewState: STATE_BUSY,
+			},
+			{
+				MsgType:  MESSAGE_TYPE_CLIENT_DONE,
+				NewState: STATE_DONE,
+			},
+		},
+	},
+	STATE_BUSY: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_SERVER,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MESSAGE_TYPE_START_BATCH,
+				NewState: STATE_STREAMING,
+			},
+			{
+				MsgType:  MESSAGE_TYPE_NO_BLOCKS,
+				NewState: STATE_IDLE,
+			},
+		},
+	},
+	STATE_STREAMING: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_SERVER,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MESSAGE_TYPE_BLOCK,
+				NewState: STATE_STREAMING,
+			},
+			{
+				MsgType:  MESSAGE_TYPE_BATCH_DONE,
+				NewState: STATE_IDLE,
+			},
+		},
+	},
+	STATE_DONE: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_NONE,
+	},
+}
+
 type BlockFetch struct {
 	proto          *protocol.Protocol
 	callbackConfig *BlockFetchCallbackConfig
@@ -42,9 +87,17 @@ func New(m *muxer.Muxer, errorChan chan error, callbackConfig *BlockFetchCallbac
 	b := &BlockFetch{
 		callbackConfig: callbackConfig,
 	}
-	b.proto = protocol.New(PROTOCOL_NAME, PROTOCOL_ID, m, errorChan, b.messageHandler, NewMsgFromCbor)
-	// Set initial state
-	b.proto.SetState(STATE_IDLE)
+	protoConfig := protocol.ProtocolConfig{
+		Name:                PROTOCOL_NAME,
+		ProtocolId:          PROTOCOL_ID,
+		Muxer:               m,
+		ErrorChan:           errorChan,
+		MessageHandlerFunc:  b.messageHandler,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateMap:            stateMap,
+		InitialState:        STATE_IDLE,
+	}
+	b.proto = protocol.New(protoConfig)
 	return b
 }
 
@@ -66,57 +119,32 @@ func (b *BlockFetch) messageHandler(msg protocol.Message) error {
 }
 
 func (b *BlockFetch) RequestRange(start []interface{}, end []interface{}) error {
-	if err := b.proto.LockState([]protocol.State{STATE_IDLE}); err != nil {
-		return fmt.Errorf("%s: RequestRange: protocol not in expected state", PROTOCOL_NAME)
-	}
 	msg := newMsgRequestRange(start, end)
-	// Unlock and change state when we're done
-	defer b.proto.UnlockState(STATE_BUSY)
-	// Send request
 	return b.proto.SendMessage(msg, false)
 }
 
 func (b *BlockFetch) ClientDone() error {
-	if err := b.proto.LockState([]protocol.State{STATE_IDLE}); err != nil {
-		return fmt.Errorf("%s: ClientDone: protocol not in expected state", PROTOCOL_NAME)
-	}
 	msg := newMsgClientDone()
-	// Unlock and change state when we're done
-	defer b.proto.UnlockState(STATE_BUSY)
-	// Send request
 	return b.proto.SendMessage(msg, false)
 }
 
 func (b *BlockFetch) handleStartBatch() error {
-	if err := b.proto.LockState([]protocol.State{STATE_BUSY}); err != nil {
-		return fmt.Errorf("received block-fetch StartBatch message when protocol not in expected state")
-	}
 	if b.callbackConfig.StartBatchFunc == nil {
 		return fmt.Errorf("received block-fetch StartBatch message but no callback function is defined")
 	}
-	// Unlock and change state when we're done
-	defer b.proto.UnlockState(STATE_STREAMING)
 	// Call the user callback function
 	return b.callbackConfig.StartBatchFunc()
 }
 
 func (b *BlockFetch) handleNoBlocks() error {
-	if err := b.proto.LockState([]protocol.State{STATE_BUSY}); err != nil {
-		return fmt.Errorf("received block-fetch NoBlocks message when protocol not in expected state")
-	}
 	if b.callbackConfig.NoBlocksFunc == nil {
 		return fmt.Errorf("received block-fetch NoBlocks message but no callback function is defined")
 	}
-	// Unlock and change state when we're done
-	defer b.proto.UnlockState(STATE_IDLE)
 	// Call the user callback function
 	return b.callbackConfig.NoBlocksFunc()
 }
 
 func (b *BlockFetch) handleBlock(msgGeneric protocol.Message) error {
-	if err := b.proto.LockState([]protocol.State{STATE_STREAMING}); err != nil {
-		return fmt.Errorf("received block-fetch Block message when protocol not in expected state")
-	}
 	if b.callbackConfig.BlockFunc == nil {
 		return fmt.Errorf("received block-fetch Block message but no callback function is defined")
 	}
@@ -130,21 +158,14 @@ func (b *BlockFetch) handleBlock(msgGeneric protocol.Message) error {
 	if err != nil {
 		return err
 	}
-	// Unlock and change state when we're done
-	defer b.proto.UnlockState(STATE_STREAMING)
 	// Call the user callback function
 	return b.callbackConfig.BlockFunc(wrapBlock.Type, blk)
 }
 
 func (b *BlockFetch) handleBatchDone() error {
-	if err := b.proto.LockState([]protocol.State{STATE_STREAMING}); err != nil {
-		return fmt.Errorf("received block-fetch BatchDone message when protocol not in expected state")
-	}
 	if b.callbackConfig.BatchDoneFunc == nil {
 		return fmt.Errorf("received block-fetch BatchDone message but no callback function is defined")
 	}
-	// Unlock and change state when we're done
-	defer b.proto.UnlockState(STATE_IDLE)
 	// Call the user callback function
 	return b.callbackConfig.BatchDoneFunc()
 }

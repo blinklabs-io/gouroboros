@@ -20,6 +20,34 @@ var (
 	STATE_DONE    = protocol.NewState(3, "Done")
 )
 
+var stateMap = protocol.StateMap{
+	STATE_PROPOSE: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_CLIENT,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MESSAGE_TYPE_PROPOSE_VERSIONS,
+				NewState: STATE_CONFIRM,
+			},
+		},
+	},
+	STATE_CONFIRM: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_SERVER,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType:  MESSAGE_TYPE_ACCEPT_VERSION,
+				NewState: STATE_DONE,
+			},
+			{
+				MsgType:  MESSAGE_TYPE_REFUSE,
+				NewState: STATE_DONE,
+			},
+		},
+	},
+	STATE_DONE: protocol.StateMapEntry{
+		Agency: protocol.AGENCY_NONE,
+	},
+}
+
 type Handshake struct {
 	proto      *protocol.Protocol
 	nodeToNode bool
@@ -32,9 +60,17 @@ func New(m *muxer.Muxer, errorChan chan error, nodeToNode bool) *Handshake {
 		nodeToNode: nodeToNode,
 		Finished:   make(chan bool, 1),
 	}
-	h.proto = protocol.New(PROTOCOL_NAME, PROTOCOL_ID, m, errorChan, h.handleMessage, NewMsgFromCbor)
-	// Set initial state
-	h.proto.SetState(STATE_PROPOSE)
+	protoConfig := protocol.ProtocolConfig{
+		Name:                PROTOCOL_NAME,
+		ProtocolId:          PROTOCOL_ID,
+		Muxer:               m,
+		ErrorChan:           errorChan,
+		MessageHandlerFunc:  h.handleMessage,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateMap:            stateMap,
+		InitialState:        STATE_PROPOSE,
+	}
+	h.proto = protocol.New(protoConfig)
 	return h
 }
 
@@ -54,9 +90,6 @@ func (h *Handshake) handleMessage(msg protocol.Message) error {
 }
 
 func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) error {
-	if err := h.proto.LockState([]protocol.State{STATE_PROPOSE}); err != nil {
-		return fmt.Errorf("protocol not in expected state")
-	}
 	// Create our request
 	versionMap := make(map[uint16]interface{})
 	for _, version := range versions {
@@ -67,36 +100,22 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 		}
 	}
 	msg := newMsgProposeVersions(versionMap)
-	// Unlock and change state when we're done
-	defer h.proto.UnlockState(STATE_CONFIRM)
-	// Send request
 	return h.proto.SendMessage(msg, false)
 }
 
 func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
-	if err := h.proto.LockState([]protocol.State{STATE_CONFIRM}); err != nil {
-		return fmt.Errorf("received handshake request when protocol is in wrong state")
-	}
 	// TODO: implement me
 	return fmt.Errorf("handshake request handling not yet implemented")
 }
 
 func (h *Handshake) handleAcceptVersion(msgGeneric protocol.Message) error {
-	if err := h.proto.LockState([]protocol.State{STATE_CONFIRM}); err != nil {
-		return fmt.Errorf("received handshake accept response when protocol is in wrong state")
-	}
 	msg := msgGeneric.(*msgAcceptVersion)
 	h.Version = msg.Version
 	h.Finished <- true
-	// Unlock and change state when we're done
-	defer h.proto.UnlockState(STATE_DONE)
 	return nil
 }
 
 func (h *Handshake) handleRefuse(msgGeneric protocol.Message) error {
-	if err := h.proto.LockState([]protocol.State{STATE_CONFIRM}); err != nil {
-		return fmt.Errorf("received handshake refuse response when protocol is in wrong state")
-	}
 	msg := msgGeneric.(*msgRefuse)
 	var err error
 	switch msg.Reason[0].(uint64) {
@@ -107,7 +126,5 @@ func (h *Handshake) handleRefuse(msgGeneric protocol.Message) error {
 	case REFUSE_REASON_REFUSED:
 		err = fmt.Errorf("%s: refused: %s", PROTOCOL_NAME, msg.Reason[2].(string))
 	}
-	// Unlock and change state when we're done
-	defer h.proto.UnlockState(STATE_DONE)
 	return err
 }
