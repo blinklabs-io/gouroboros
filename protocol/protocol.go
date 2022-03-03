@@ -23,10 +23,35 @@ type ProtocolConfig struct {
 	ProtocolId          uint16
 	ErrorChan           chan error
 	Muxer               *muxer.Muxer
+	Mode                ProtocolMode
+	Role                ProtocolRole
 	MessageHandlerFunc  MessageHandlerFunc
 	MessageFromCborFunc MessageFromCborFunc
 	StateMap            StateMap
 	InitialState        State
+}
+
+type ProtocolMode uint
+
+const (
+	ProtocolModeNone         ProtocolMode = 0
+	ProtocolModeNodeToClient ProtocolMode = 1
+	ProtocolModeNodeToNode   ProtocolMode = 2
+)
+
+type ProtocolRole uint
+
+const (
+	ProtocolRoleNone   ProtocolRole = 0
+	ProtocolRoleClient ProtocolRole = 1
+	ProtocolRoleServer ProtocolRole = 2
+)
+
+type ProtocolOptions struct {
+	Muxer     *muxer.Muxer
+	ErrorChan chan error
+	Mode      ProtocolMode
+	Role      ProtocolRole
 }
 
 type MessageHandlerFunc func(Message) error
@@ -45,6 +70,14 @@ func New(config ProtocolConfig) *Protocol {
 	// Start our receiver Goroutine
 	go p.recvLoop()
 	return p
+}
+
+func (p *Protocol) Mode() ProtocolMode {
+	return p.config.Mode
+}
+
+func (p *Protocol) Role() ProtocolRole {
+	return p.config.Role
 }
 
 func (p *Protocol) SendMessage(msg Message, isResponse bool) error {

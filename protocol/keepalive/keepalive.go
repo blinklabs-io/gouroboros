@@ -2,7 +2,6 @@ package keepalive
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"time"
 )
@@ -66,15 +65,17 @@ type KeepAliveFunc func(uint16) error
 type KeepAliveResponseFunc func(uint16) error
 type DoneFunc func() error
 
-func New(m *muxer.Muxer, errorChan chan error, callbackConfig *KeepAliveCallbackConfig) *KeepAlive {
+func New(options protocol.ProtocolOptions, callbackConfig *KeepAliveCallbackConfig) *KeepAlive {
 	k := &KeepAlive{
 		callbackConfig: callbackConfig,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
-		Muxer:               m,
-		ErrorChan:           errorChan,
+		Muxer:               options.Muxer,
+		ErrorChan:           options.ErrorChan,
+		Mode:                options.Mode,
+		Role:                options.Role,
 		MessageHandlerFunc:  k.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,

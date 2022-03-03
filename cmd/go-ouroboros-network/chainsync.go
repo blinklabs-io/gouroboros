@@ -81,7 +81,7 @@ func buildBlockFetchCallbackConfig() *blockfetch.BlockFetchCallbackConfig {
 	}
 }
 
-func testChainSync(o *ouroboros.Ouroboros, f *globalFlags) {
+func testChainSync(f *globalFlags) {
 	chainSyncFlags := newChainSyncFlags()
 	err := chainSyncFlags.flagset.Parse(f.flagset.Args()[1:])
 	if err != nil {
@@ -93,6 +93,31 @@ func testChainSync(o *ouroboros.Ouroboros, f *globalFlags) {
 		fmt.Printf("ERROR: unknown era '%s' specified as chain-sync start point\n", chainSyncFlags.startEra)
 		os.Exit(1)
 	}
+
+	conn := createClientConnection(f)
+	errorChan := make(chan error)
+	oOpts := &ouroboros.OuroborosOptions{
+		Conn:                     conn,
+		NetworkMagic:             uint32(f.networkMagic),
+		ErrorChan:                errorChan,
+		UseNodeToNodeProtocol:    f.ntnProto,
+		SendKeepAlives:           true,
+		ChainSyncCallbackConfig:  buildChainSyncCallbackConfig(),
+		BlockFetchCallbackConfig: buildBlockFetchCallbackConfig(),
+	}
+	go func() {
+		for {
+			err := <-errorChan
+			fmt.Printf("ERROR: %s\n", err)
+			os.Exit(1)
+		}
+	}()
+	o, err := ouroboros.New(oOpts)
+	if err != nil {
+		fmt.Printf("ERROR: %s\n", err)
+		os.Exit(1)
+	}
+
 	syncState.oConn = o
 	syncState.readyForNextBlockChan = make(chan bool)
 	syncState.nodeToNode = f.ntnProto

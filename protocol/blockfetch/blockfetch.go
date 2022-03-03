@@ -3,7 +3,6 @@ package blockfetch
 import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/block"
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
@@ -83,15 +82,17 @@ type BlockFetchNoBlocksFunc func() error
 type BlockFetchBlockFunc func(uint, interface{}) error
 type BlockFetchBatchDoneFunc func() error
 
-func New(m *muxer.Muxer, errorChan chan error, callbackConfig *BlockFetchCallbackConfig) *BlockFetch {
+func New(options protocol.ProtocolOptions, callbackConfig *BlockFetchCallbackConfig) *BlockFetch {
 	b := &BlockFetch{
 		callbackConfig: callbackConfig,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
-		Muxer:               m,
-		ErrorChan:           errorChan,
+		Muxer:               options.Muxer,
+		ErrorChan:           options.ErrorChan,
+		Mode:                options.Mode,
+		Role:                options.Role,
 		MessageHandlerFunc:  b.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,

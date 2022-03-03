@@ -2,19 +2,19 @@ package ouroboros
 
 import (
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
+	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
-	"io"
 	"net"
 )
 
 type Ouroboros struct {
-	conn               io.ReadWriteCloser
+	conn               net.Conn
 	networkMagic       uint32
-	waitForHandshake   bool
+	server             bool
 	useNodeToNodeProto bool
 	handshakeComplete  bool
 	muxer              *muxer.Muxer
@@ -33,12 +33,10 @@ type Ouroboros struct {
 }
 
 type OuroborosOptions struct {
-	Conn         io.ReadWriteCloser
-	NetworkMagic uint32
-	ErrorChan    chan error
-	// Whether to wait for the other side to initiate the handshake. This is useful
-	// for servers
-	WaitForHandshake                bool
+	Conn                            net.Conn
+	NetworkMagic                    uint32
+	ErrorChan                       chan error
+	Server                          bool
 	UseNodeToNodeProtocol           bool
 	SendKeepAlives                  bool
 	ChainSyncCallbackConfig         *chainsync.ChainSyncCallbackConfig
@@ -51,7 +49,7 @@ func New(options *OuroborosOptions) (*Ouroboros, error) {
 	o := &Ouroboros{
 		conn:                            options.Conn,
 		networkMagic:                    options.NetworkMagic,
-		waitForHandshake:                options.WaitForHandshake,
+		server:                          options.Server,
 		useNodeToNodeProto:              options.UseNodeToNodeProtocol,
 		chainSyncCallbackConfig:         options.ChainSyncCallbackConfig,
 		blockFetchCallbackConfig:        options.BlockFetchCallbackConfig,
@@ -92,37 +90,49 @@ func (o *Ouroboros) setupConnection() error {
 		err := <-o.muxer.ErrorChan
 		o.ErrorChan <- err
 	}()
-	// Perform handshake
-	o.Handshake = handshake.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto)
+	protoOptions := protocol.ProtocolOptions{
+		Muxer:     o.muxer,
+		ErrorChan: o.ErrorChan,
+	}
 	var protoVersions []uint16
 	if o.useNodeToNodeProto {
 		protoVersions = GetProtocolVersionsNtN()
+		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 	} else {
 		protoVersions = GetProtocolVersionsNtC()
+		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 	}
+	if o.server {
+		protoOptions.Role = protocol.ProtocolRoleServer
+	} else {
+		protoOptions.Role = protocol.ProtocolRoleClient
+	}
+	// Perform handshake
+	o.Handshake = handshake.New(protoOptions, protoVersions)
 	// TODO: figure out better way to signify automatic handshaking and returning the chosen version
-	if !o.waitForHandshake {
+	if !o.server {
 		err := o.Handshake.ProposeVersions(protoVersions, o.networkMagic)
 		if err != nil {
 			return err
 		}
 	}
 	o.handshakeComplete = <-o.Handshake.Finished
-	// TODO: register additional mini-protocols
 	if o.useNodeToNodeProto {
 		versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
-		o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
-		o.BlockFetch = blockfetch.New(o.muxer, o.ErrorChan, o.blockFetchCallbackConfig)
+		protoOptions.Mode = protocol.ProtocolModeNodeToNode
+		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
+		o.BlockFetch = blockfetch.New(protoOptions, o.blockFetchCallbackConfig)
 		if versionNtN.EnableKeepAliveProtocol {
-			o.KeepAlive = keepalive.New(o.muxer, o.ErrorChan, o.keepAliveCallbackConfig)
+			o.KeepAlive = keepalive.New(protoOptions, o.keepAliveCallbackConfig)
 			if o.sendKeepAlives {
 				o.KeepAlive.Start()
 			}
 		}
 	} else {
 		//versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
-		o.ChainSync = chainsync.New(o.muxer, o.ErrorChan, o.useNodeToNodeProto, o.chainSyncCallbackConfig)
-		o.LocalTxSubmission = localtxsubmission.New(o.muxer, o.ErrorChan, o.localTxSubmissionCallbackConfig)
+		protoOptions.Mode = protocol.ProtocolModeNodeToClient
+		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
+		o.LocalTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionCallbackConfig)
 	}
 	return nil
 }
