@@ -21,7 +21,7 @@ var (
 	STATE_DONE       = protocol.NewState(5, "Done")
 )
 
-var stateMap = protocol.StateMap{
+var StateMap = protocol.StateMap{
 	STATE_IDLE: protocol.StateMapEntry{
 		Agency: protocol.AGENCY_CLIENT,
 		Transitions: []protocol.StateTransition{
@@ -112,9 +112,11 @@ type ChainSyncDoneFunc func() error
 func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConfig) *ChainSync {
 	// Use node-to-client protocol ID
 	protocolId := PROTOCOL_ID_NTC
+	msgFromCborFunc := NewMsgFromCborNtC
 	if options.Mode == protocol.ProtocolModeNodeToNode {
 		// Use node-to-node protocol ID
 		protocolId = PROTOCOL_ID_NTN
+		msgFromCborFunc = NewMsgFromCborNtN
 	}
 	c := &ChainSync{
 		callbackConfig: callbackConfig,
@@ -127,8 +129,8 @@ func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConf
 		Mode:                options.Mode,
 		Role:                options.Role,
 		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: c.NewMsgFromCbor,
-		StateMap:            stateMap,
+		MessageFromCborFunc: msgFromCborFunc,
+		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
 	}
 	c.proto = protocol.New(protoConfig)
@@ -157,12 +159,12 @@ func (c *ChainSync) messageHandler(msg protocol.Message) error {
 }
 
 func (c *ChainSync) RequestNext() error {
-	msg := newMsgRequestNext()
+	msg := NewMsgRequestNext()
 	return c.proto.SendMessage(msg, false)
 }
 
 func (c *ChainSync) FindIntersect(points []interface{}) error {
-	msg := newMsgFindIntersect(points)
+	msg := NewMsgFindIntersect(points)
 	return c.proto.SendMessage(msg, false)
 }
 
@@ -179,19 +181,19 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
 	}
 	if c.proto.Mode() == protocol.ProtocolModeNodeToNode {
-		msg := msgGeneric.(*msgRollForwardNtN)
+		msg := msgGeneric.(*MsgRollForwardNtN)
 		var blockHeader interface{}
 		var blockType uint
 		blockHeaderType := msg.WrappedHeader.Type
 		switch blockHeaderType {
 		case block.BLOCK_HEADER_TYPE_BYRON:
-			var wrapHeaderByron wrappedHeaderByron
-			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &wrapHeaderByron); err != nil {
+			var wrappedHeaderByron WrappedHeaderByron
+			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &wrappedHeaderByron); err != nil {
 				return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 			}
-			blockType = wrapHeaderByron.Unknown.Type
+			blockType = wrappedHeaderByron.Unknown.Type
 			var err error
-			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, wrapHeaderByron.RawHeader)
+			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, wrappedHeaderByron.RawHeader)
 			if err != nil {
 				return err
 			}
@@ -218,18 +220,18 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 		// Call the user callback function
 		return c.callbackConfig.RollForwardFunc(blockType, blockHeader)
 	} else {
-		msg := msgGeneric.(*msgRollForwardNtC)
+		msg := msgGeneric.(*MsgRollForwardNtC)
 		// Decode only enough to get the block type value
-		var wrapBlock wrappedBlock
-		if _, err := utils.CborDecode(msg.WrappedData, &wrapBlock); err != nil {
+		var wrappedBlock WrappedBlock
+		if _, err := utils.CborDecode(msg.WrappedData, &wrappedBlock); err != nil {
 			return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 		}
-		blk, err := block.NewBlockFromCbor(wrapBlock.Type, wrapBlock.RawBlock)
+		blk, err := block.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
 		if err != nil {
 			return err
 		}
 		// Call the user callback function
-		return c.callbackConfig.RollForwardFunc(wrapBlock.Type, blk)
+		return c.callbackConfig.RollForwardFunc(wrappedBlock.Type, blk)
 	}
 }
 
@@ -237,7 +239,7 @@ func (c *ChainSync) handleRollBackward(msgGeneric protocol.Message) error {
 	if c.callbackConfig.RollBackwardFunc == nil {
 		return fmt.Errorf("received chain-sync RollBackward message but no callback function is defined")
 	}
-	msg := msgGeneric.(*msgRollBackward)
+	msg := msgGeneric.(*MsgRollBackward)
 	// Call the user callback function
 	return c.callbackConfig.RollBackwardFunc(msg.Point, msg.Tip)
 }
@@ -246,7 +248,7 @@ func (c *ChainSync) handleIntersectFound(msgGeneric protocol.Message) error {
 	if c.callbackConfig.IntersectFoundFunc == nil {
 		return fmt.Errorf("received chain-sync IntersectFound message but no callback function is defined")
 	}
-	msg := msgGeneric.(*msgIntersectFound)
+	msg := msgGeneric.(*MsgIntersectFound)
 	// Call the user callback function
 	return c.callbackConfig.IntersectFoundFunc(msg.Point, msg.Tip)
 }
@@ -255,7 +257,7 @@ func (c *ChainSync) handleIntersectNotFound(msgGeneric protocol.Message) error {
 	if c.callbackConfig.IntersectNotFoundFunc == nil {
 		return fmt.Errorf("received chain-sync IntersectNotFound message but no callback function is defined")
 	}
-	msg := msgGeneric.(*msgIntersectNotFound)
+	msg := msgGeneric.(*MsgIntersectNotFound)
 	// Call the user callback function
 	return c.callbackConfig.IntersectNotFoundFunc(msg.Tip)
 }

@@ -18,13 +18,13 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
 	case MESSAGE_TYPE_SUBMIT_TX:
-		ret = &msgSubmitTx{}
+		ret = &MsgSubmitTx{}
 	case MESSAGE_TYPE_ACCEPT_TX:
-		ret = &msgAcceptTx{}
+		ret = &MsgAcceptTx{}
 	case MESSAGE_TYPE_REJECT_TX:
-		ret = &msgRejectTx{}
+		ret = &MsgRejectTx{}
 	case MESSAGE_TYPE_DONE:
-		ret = &msgDone{}
+		ret = &MsgDone{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
@@ -36,24 +36,24 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	return ret, nil
 }
 
-type msgSubmitTx struct {
+type MsgSubmitTx struct {
 	protocol.MessageBase
-	Transaction msgSubmitTxTransaction
+	Transaction MsgSubmitTxTransaction
 }
 
-type msgSubmitTxTransaction struct {
+type MsgSubmitTxTransaction struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_     struct{} `cbor:",toarray"`
 	EraId uint16
 	Raw   cbor.Tag
 }
 
-func newMsgSubmitTx(eraId uint16, tx []byte) *msgSubmitTx {
-	m := &msgSubmitTx{
+func NewMsgSubmitTx(eraId uint16, tx []byte) *MsgSubmitTx {
+	m := &MsgSubmitTx{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_SUBMIT_TX,
 		},
-		Transaction: msgSubmitTxTransaction{
+		Transaction: MsgSubmitTxTransaction{
 			EraId: eraId,
 			Raw: cbor.Tag{
 				// Wrapped CBOR
@@ -65,21 +65,21 @@ func newMsgSubmitTx(eraId uint16, tx []byte) *msgSubmitTx {
 	return m
 }
 
-type msgAcceptTx struct {
+type MsgAcceptTx struct {
 	protocol.MessageBase
 }
 
-type msgRejectTx struct {
+type MsgRejectTx struct {
 	protocol.MessageBase
 	Reason interface{}
 }
 
-type msgDone struct {
+type MsgDone struct {
 	protocol.MessageBase
 }
 
-func newMsgDone() *msgDone {
-	m := &msgDone{
+func NewMsgDone() *MsgDone {
+	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_DONE,
 		},

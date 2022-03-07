@@ -16,7 +16,7 @@ var (
 	STATE_DONE = protocol.NewState(3, "Done")
 )
 
-var stateMap = protocol.StateMap{
+var StateMap = protocol.StateMap{
 	STATE_IDLE: protocol.StateMapEntry{
 		Agency: protocol.AGENCY_CLIENT,
 		Transitions: []protocol.StateTransition{
@@ -75,7 +75,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *Loca
 		Role:                options.Role,
 		MessageHandlerFunc:  l.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
+		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
 	}
 	l.proto = protocol.New(protoConfig)
@@ -100,12 +100,12 @@ func (l *LocalTxSubmission) messageHandler(msg protocol.Message) error {
 }
 
 func (l *LocalTxSubmission) SubmitTx(eraId uint16, tx []byte) error {
-	msg := newMsgSubmitTx(eraId, tx)
+	msg := NewMsgSubmitTx(eraId, tx)
 	return l.proto.SendMessage(msg, false)
 }
 
 func (l *LocalTxSubmission) Done(tx interface{}) error {
-	msg := newMsgDone()
+	msg := NewMsgDone()
 	return l.proto.SendMessage(msg, false)
 }
 
@@ -113,7 +113,7 @@ func (l *LocalTxSubmission) handleSubmitTx(msgGeneric protocol.Message) error {
 	if l.callbackConfig.SubmitTxFunc == nil {
 		return fmt.Errorf("received local-tx-submission SubmitTx message but no callback function is defined")
 	}
-	msg := msgGeneric.(*msgSubmitTx)
+	msg := msgGeneric.(*MsgSubmitTx)
 	// Call the user callback function
 	return l.callbackConfig.SubmitTxFunc(msg.Transaction)
 }
@@ -130,7 +130,7 @@ func (l *LocalTxSubmission) handleRejectTx(msgGeneric protocol.Message) error {
 	if l.callbackConfig.RejectTxFunc == nil {
 		return fmt.Errorf("received local-tx-submission RejectTx message but no callback function is defined")
 	}
-	msg := msgGeneric.(*msgRejectTx)
+	msg := msgGeneric.(*MsgRejectTx)
 	// Call the user callback function
 	return l.callbackConfig.RejectTxFunc(msg.Reason)
 }
