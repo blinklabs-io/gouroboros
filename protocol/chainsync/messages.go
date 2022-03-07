@@ -18,29 +18,37 @@ const (
 	MESSAGE_TYPE_DONE                = 7
 )
 
-func (c *ChainSync) NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+func NewMsgFromCborNtN(msgType uint, data []byte) (protocol.Message, error) {
+	return NewMsgFromCbor(protocol.ProtocolModeNodeToNode, msgType, data)
+}
+
+func NewMsgFromCborNtC(msgType uint, data []byte) (protocol.Message, error) {
+	return NewMsgFromCbor(protocol.ProtocolModeNodeToClient, msgType, data)
+}
+
+func NewMsgFromCbor(protoMode protocol.ProtocolMode, msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
 	case MESSAGE_TYPE_REQUEST_NEXT:
-		ret = &msgRequestNext{}
+		ret = &MsgRequestNext{}
 	case MESSAGE_TYPE_AWAIT_REPLY:
-		ret = &msgAwaitReply{}
+		ret = &MsgAwaitReply{}
 	case MESSAGE_TYPE_ROLL_FORWARD:
-		if c.proto.Mode() == protocol.ProtocolModeNodeToNode {
-			ret = &msgRollForwardNtN{}
+		if protoMode == protocol.ProtocolModeNodeToNode {
+			ret = &MsgRollForwardNtN{}
 		} else {
-			ret = &msgRollForwardNtC{}
+			ret = &MsgRollForwardNtC{}
 		}
 	case MESSAGE_TYPE_ROLL_BACKWARD:
-		ret = &msgRollBackward{}
+		ret = &MsgRollBackward{}
 	case MESSAGE_TYPE_FIND_INTERSECT:
-		ret = &msgFindIntersect{}
+		ret = &MsgFindIntersect{}
 	case MESSAGE_TYPE_INTERSECT_FOUND:
-		ret = &msgIntersectFound{}
+		ret = &MsgIntersectFound{}
 	case MESSAGE_TYPE_INTERSECT_NOT_FOUND:
-		ret = &msgIntersectNotFound{}
+		ret = &MsgIntersectNotFound{}
 	case MESSAGE_TYPE_DONE:
-		ret = &msgDone{}
+		ret = &MsgDone{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
@@ -52,12 +60,12 @@ func (c *ChainSync) NewMsgFromCbor(msgType uint, data []byte) (protocol.Message,
 	return ret, nil
 }
 
-type msgRequestNext struct {
+type MsgRequestNext struct {
 	protocol.MessageBase
 }
 
-func newMsgRequestNext() *msgRequestNext {
-	r := &msgRequestNext{
+func NewMsgRequestNext() *MsgRequestNext {
+	r := &MsgRequestNext{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REQUEST_NEXT,
 		},
@@ -65,35 +73,35 @@ func newMsgRequestNext() *msgRequestNext {
 	return r
 }
 
-type msgAwaitReply struct {
+type MsgAwaitReply struct {
 	protocol.MessageBase
 }
 
-type msgRollForwardNtC struct {
+type MsgRollForwardNtC struct {
 	protocol.MessageBase
 	WrappedData []byte
-	Tip         tip
+	Tip         Tip
 }
 
-type msgRollForwardNtN struct {
+type MsgRollForwardNtN struct {
 	protocol.MessageBase
-	WrappedHeader wrappedHeader
-	Tip           tip
+	WrappedHeader WrappedHeader
+	Tip           Tip
 }
 
-type msgRollBackward struct {
+type MsgRollBackward struct {
 	protocol.MessageBase
-	Point point
-	Tip   tip
+	Point Point
+	Tip   Tip
 }
 
-type msgFindIntersect struct {
+type MsgFindIntersect struct {
 	protocol.MessageBase
 	Points []interface{}
 }
 
-func newMsgFindIntersect(points []interface{}) *msgFindIntersect {
-	m := &msgFindIntersect{
+func NewMsgFindIntersect(points []interface{}) *MsgFindIntersect {
+	m := &MsgFindIntersect{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_FIND_INTERSECT,
 		},
@@ -102,36 +110,36 @@ func newMsgFindIntersect(points []interface{}) *msgFindIntersect {
 	return m
 }
 
-type msgIntersectFound struct {
+type MsgIntersectFound struct {
 	protocol.MessageBase
-	Point point
-	Tip   tip
+	Point Point
+	Tip   Tip
 }
 
-type msgIntersectNotFound struct {
+type MsgIntersectNotFound struct {
 	protocol.MessageBase
-	Tip tip
+	Tip Tip
 }
 
-type msgDone struct {
+type MsgDone struct {
 	protocol.MessageBase
 }
 
-type tip struct {
+type Tip struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
-	Point       point
+	Point       Point
 	BlockNumber uint64
 }
 
-type point struct {
+type Point struct {
 	Slot uint64
 	Hash []byte
 }
 
 // A "point" can sometimes be empty, but the CBOR library gets grumpy about this
 // when doing automatic decoding from an array, so we have to handle this case specially
-func (p *point) UnmarshalCBOR(data []byte) error {
+func (p *Point) UnmarshalCBOR(data []byte) error {
 	var tmp []interface{}
 	if err := cbor.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -143,21 +151,21 @@ func (p *point) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-type wrappedBlock struct {
+type WrappedBlock struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_        struct{} `cbor:",toarray"`
 	Type     uint
 	RawBlock cbor.RawMessage
 }
 
-type wrappedHeader struct {
+type WrappedHeader struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_       struct{} `cbor:",toarray"`
 	Type    uint
 	RawData cbor.RawMessage
 }
 
-type wrappedHeaderByron struct {
+type WrappedHeaderByron struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_       struct{} `cbor:",toarray"`
 	Unknown struct {

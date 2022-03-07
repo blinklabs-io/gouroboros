@@ -20,17 +20,17 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
 	case MESSAGE_TYPE_REQUEST_RANGE:
-		ret = &msgRequestRange{}
+		ret = &MsgRequestRange{}
 	case MESSAGE_TYPE_CLIENT_DONE:
-		ret = &msgClientDone{}
+		ret = &MsgClientDone{}
 	case MESSAGE_TYPE_START_BATCH:
-		ret = &msgStartBatch{}
+		ret = &MsgStartBatch{}
 	case MESSAGE_TYPE_NO_BLOCKS:
-		ret = &msgNoBlocks{}
+		ret = &MsgNoBlocks{}
 	case MESSAGE_TYPE_BLOCK:
-		ret = &msgBlock{}
+		ret = &MsgBlock{}
 	case MESSAGE_TYPE_BATCH_DONE:
-		ret = &msgBatchDone{}
+		ret = &MsgBatchDone{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
@@ -42,14 +42,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	return ret, nil
 }
 
-type msgRequestRange struct {
+type MsgRequestRange struct {
 	protocol.MessageBase
 	Start interface{} //point
 	End   interface{} //point
 }
 
-func newMsgRequestRange(start interface{}, end interface{}) *msgRequestRange {
-	m := &msgRequestRange{
+func NewMsgRequestRange(start interface{}, end interface{}) *MsgRequestRange {
+	m := &MsgRequestRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REQUEST_RANGE,
 		},
@@ -59,12 +59,12 @@ func newMsgRequestRange(start interface{}, end interface{}) *msgRequestRange {
 	return m
 }
 
-type msgClientDone struct {
+type MsgClientDone struct {
 	protocol.MessageBase
 }
 
-func newMsgClientDone() *msgClientDone {
-	m := &msgClientDone{
+func NewMsgClientDone() *MsgClientDone {
+	m := &MsgClientDone{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_CLIENT_DONE,
 		},
@@ -72,20 +72,20 @@ func newMsgClientDone() *msgClientDone {
 	return m
 }
 
-type msgStartBatch struct {
+type MsgStartBatch struct {
 	protocol.MessageBase
 }
 
-type msgNoBlocks struct {
+type MsgNoBlocks struct {
 	protocol.MessageBase
 }
 
-type msgBlock struct {
+type MsgBlock struct {
 	protocol.MessageBase
 	WrappedBlock []byte
 }
 
-type msgBatchDone struct {
+type MsgBatchDone struct {
 	protocol.MessageBase
 }
 
@@ -97,7 +97,7 @@ type point struct {
 }
 */
 
-type wrappedBlock struct {
+type WrappedBlock struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_        struct{} `cbor:",toarray"`
 	Type     uint

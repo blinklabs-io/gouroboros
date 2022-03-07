@@ -20,7 +20,7 @@ var (
 	STATE_DONE   = protocol.NewState(3, "Done")
 )
 
-var stateMap = protocol.StateMap{
+var StateMap = protocol.StateMap{
 	STATE_CLIENT: protocol.StateMapEntry{
 		Agency: protocol.AGENCY_CLIENT,
 		Transitions: []protocol.StateTransition{
@@ -78,7 +78,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *KeepAliveCallbackConf
 		Role:                options.Role,
 		MessageHandlerFunc:  k.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
+		StateMap:            StateMap,
 		InitialState:        STATE_CLIENT,
 	}
 	k.proto = protocol.New(protoConfig)
@@ -117,24 +117,24 @@ func (k *KeepAlive) Stop() {
 }
 
 func (k *KeepAlive) KeepAlive(cookie uint16) error {
-	msg := newMsgKeepAlive(cookie)
+	msg := NewMsgKeepAlive(cookie)
 	return k.proto.SendMessage(msg, false)
 }
 
 func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
-	msg := msgGeneric.(*msgKeepAlive)
+	msg := msgGeneric.(*MsgKeepAlive)
 	if k.callbackConfig != nil && k.callbackConfig.KeepAliveFunc != nil {
 		// Call the user callback function
 		return k.callbackConfig.KeepAliveFunc(msg.Cookie)
 	} else {
 		// Send the keep-alive response
-		resp := newMsgKeepAliveResponse(msg.Cookie)
+		resp := NewMsgKeepAliveResponse(msg.Cookie)
 		return k.proto.SendMessage(resp, true)
 	}
 }
 
 func (k *KeepAlive) handleKeepAliveResponse(msgGeneric protocol.Message) error {
-	msg := msgGeneric.(*msgKeepAliveResponse)
+	msg := msgGeneric.(*MsgKeepAliveResponse)
 	// Start the timer again if we had one previously
 	if k.timer != nil {
 		defer k.Start()

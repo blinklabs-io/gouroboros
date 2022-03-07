@@ -19,7 +19,7 @@ var (
 	STATE_DONE    = protocol.NewState(3, "Done")
 )
 
-var stateMap = protocol.StateMap{
+var StateMap = protocol.StateMap{
 	STATE_PROPOSE: protocol.StateMapEntry{
 		Agency: protocol.AGENCY_CLIENT,
 		Transitions: []protocol.StateTransition{
@@ -68,7 +68,7 @@ func New(options protocol.ProtocolOptions, allowedVersions []uint16) *Handshake 
 		Role:                options.Role,
 		MessageHandlerFunc:  h.handleMessage,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
+		StateMap:            StateMap,
 		InitialState:        STATE_PROPOSE,
 	}
 	h.proto = protocol.New(protoConfig)
@@ -100,12 +100,12 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 			versionMap[version] = networkMagic
 		}
 	}
-	msg := newMsgProposeVersions(versionMap)
+	msg := NewMsgProposeVersions(versionMap)
 	return h.proto.SendMessage(msg, false)
 }
 
 func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
-	msg := msgGeneric.(*msgProposeVersions)
+	msg := msgGeneric.(*MsgProposeVersions)
 	var highestVersion uint16
 	var versionData interface{}
 	for proposedVersion := range msg.VersionMap {
@@ -120,7 +120,7 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 		}
 	}
 	if highestVersion > 0 {
-		resp := newMsgAcceptVersion(highestVersion, versionData)
+		resp := NewMsgAcceptVersion(highestVersion, versionData)
 		return h.proto.SendMessage(resp, true)
 	} else {
 		// TODO: handle failures
@@ -130,14 +130,14 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 }
 
 func (h *Handshake) handleAcceptVersion(msgGeneric protocol.Message) error {
-	msg := msgGeneric.(*msgAcceptVersion)
+	msg := msgGeneric.(*MsgAcceptVersion)
 	h.Version = msg.Version
 	h.Finished <- true
 	return nil
 }
 
 func (h *Handshake) handleRefuse(msgGeneric protocol.Message) error {
-	msg := msgGeneric.(*msgRefuse)
+	msg := msgGeneric.(*MsgRefuse)
 	var err error
 	switch msg.Reason[0].(uint64) {
 	case REFUSE_REASON_VERSION_MISMATCH:

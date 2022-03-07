@@ -19,7 +19,7 @@ var (
 	STATE_DONE      = protocol.NewState(4, "Done")
 )
 
-var stateMap = protocol.StateMap{
+var StateMap = protocol.StateMap{
 	STATE_IDLE: protocol.StateMapEntry{
 		Agency: protocol.AGENCY_CLIENT,
 		Transitions: []protocol.StateTransition{
@@ -95,7 +95,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *BlockFetchCallbackCon
 		Role:                options.Role,
 		MessageHandlerFunc:  b.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
+		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
 	}
 	b.proto = protocol.New(protoConfig)
@@ -120,12 +120,12 @@ func (b *BlockFetch) messageHandler(msg protocol.Message) error {
 }
 
 func (b *BlockFetch) RequestRange(start []interface{}, end []interface{}) error {
-	msg := newMsgRequestRange(start, end)
+	msg := NewMsgRequestRange(start, end)
 	return b.proto.SendMessage(msg, false)
 }
 
 func (b *BlockFetch) ClientDone() error {
-	msg := newMsgClientDone()
+	msg := NewMsgClientDone()
 	return b.proto.SendMessage(msg, false)
 }
 
@@ -149,18 +149,18 @@ func (b *BlockFetch) handleBlock(msgGeneric protocol.Message) error {
 	if b.callbackConfig.BlockFunc == nil {
 		return fmt.Errorf("received block-fetch Block message but no callback function is defined")
 	}
-	msg := msgGeneric.(*msgBlock)
+	msg := msgGeneric.(*MsgBlock)
 	// Decode only enough to get the block type value
-	var wrapBlock wrappedBlock
-	if _, err := utils.CborDecode(msg.WrappedBlock, &wrapBlock); err != nil {
+	var wrappedBlock WrappedBlock
+	if _, err := utils.CborDecode(msg.WrappedBlock, &wrappedBlock); err != nil {
 		return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 	}
-	blk, err := block.NewBlockFromCbor(wrapBlock.Type, wrapBlock.RawBlock)
+	blk, err := block.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
 	if err != nil {
 		return err
 	}
 	// Call the user callback function
-	return b.callbackConfig.BlockFunc(wrapBlock.Type, blk)
+	return b.callbackConfig.BlockFunc(wrappedBlock.Type, blk)
 }
 
 func (b *BlockFetch) handleBatchDone() error {

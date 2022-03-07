@@ -20,11 +20,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
 	case MESSAGE_TYPE_PROPOSE_VERSIONS:
-		ret = &msgProposeVersions{}
+		ret = &MsgProposeVersions{}
 	case MESSAGE_TYPE_ACCEPT_VERSION:
-		ret = &msgAcceptVersion{}
+		ret = &MsgAcceptVersion{}
 	case MESSAGE_TYPE_REFUSE:
-		ret = &msgRefuse{}
+		ret = &MsgRefuse{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
@@ -36,13 +36,13 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	return ret, nil
 }
 
-type msgProposeVersions struct {
+type MsgProposeVersions struct {
 	protocol.MessageBase
 	VersionMap map[uint16]interface{}
 }
 
-func newMsgProposeVersions(versionMap map[uint16]interface{}) *msgProposeVersions {
-	m := &msgProposeVersions{
+func NewMsgProposeVersions(versionMap map[uint16]interface{}) *MsgProposeVersions {
+	m := &MsgProposeVersions{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_PROPOSE_VERSIONS,
 		},
@@ -51,14 +51,14 @@ func newMsgProposeVersions(versionMap map[uint16]interface{}) *msgProposeVersion
 	return m
 }
 
-type msgAcceptVersion struct {
+type MsgAcceptVersion struct {
 	protocol.MessageBase
 	Version     uint16
 	VersionData interface{}
 }
 
-func newMsgAcceptVersion(version uint16, versionData interface{}) *msgAcceptVersion {
-	m := &msgAcceptVersion{
+func NewMsgAcceptVersion(version uint16, versionData interface{}) *MsgAcceptVersion {
+	m := &MsgAcceptVersion{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_ACCEPT_VERSION,
 		},
@@ -68,7 +68,7 @@ func newMsgAcceptVersion(version uint16, versionData interface{}) *msgAcceptVers
 	return m
 }
 
-type msgRefuse struct {
+type MsgRefuse struct {
 	protocol.MessageBase
 	Reason []interface{}
 }
