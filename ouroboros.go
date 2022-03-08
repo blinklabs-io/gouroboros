@@ -20,6 +20,7 @@ type Ouroboros struct {
 	muxer              *muxer.Muxer
 	ErrorChan          chan error
 	sendKeepAlives     bool
+	delayMuxerStart    bool
 	// Mini-protocols
 	Handshake                       *handshake.Handshake
 	ChainSync                       *chainsync.ChainSync
@@ -39,6 +40,7 @@ type OuroborosOptions struct {
 	Server                          bool
 	UseNodeToNodeProtocol           bool
 	SendKeepAlives                  bool
+	DelayMuxerStart                 bool
 	ChainSyncCallbackConfig         *chainsync.ChainSyncCallbackConfig
 	BlockFetchCallbackConfig        *blockfetch.BlockFetchCallbackConfig
 	KeepAliveCallbackConfig         *keepalive.KeepAliveCallbackConfig
@@ -57,6 +59,7 @@ func New(options *OuroborosOptions) (*Ouroboros, error) {
 		localTxSubmissionCallbackConfig: options.LocalTxSubmissionCallbackConfig,
 		ErrorChan:                       options.ErrorChan,
 		sendKeepAlives:                  options.SendKeepAlives,
+		delayMuxerStart:                 options.DelayMuxerStart,
 	}
 	if o.ErrorChan == nil {
 		o.ErrorChan = make(chan error, 10)
@@ -67,6 +70,10 @@ func New(options *OuroborosOptions) (*Ouroboros, error) {
 		}
 	}
 	return o, nil
+}
+
+func (o *Ouroboros) Muxer() *muxer.Muxer {
+	return o.muxer
 }
 
 // Convenience function for creating a connection if you didn't provide one when
@@ -133,6 +140,9 @@ func (o *Ouroboros) setupConnection() error {
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
 		o.LocalTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionCallbackConfig)
+	}
+	if !o.delayMuxerStart {
+		o.muxer.Start()
 	}
 	return nil
 }
