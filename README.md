@@ -19,12 +19,13 @@ but the node-to-node protocols will also be implemented in time.
 | Name | Status |
 | --- | --- |
 | Handshake | Implemented |
-| Chain-Sync | Implemented |
-| Block-Fetch | Implemented |
-| TxSubmission | Not Implemented |
-| Local TxSubmission | Implemented |
-| Local State Query | Not Implemented |
-| Keep-Alive | Implemented |
+| ChainSync | Implemented |
+| BlockFetch | Implemented |
+| TxSubmission2 | Not Implemented |
+| LocalTxSubmission | Implemented |
+| LocalStateQuery | Partly Implemented |
+| KeepAlive | Implemented |
+| LocalTxMonitor | Not Implemented |
 
 ## Testing
 
