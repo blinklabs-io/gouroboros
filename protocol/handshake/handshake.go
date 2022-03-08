@@ -121,11 +121,16 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 	}
 	if highestVersion > 0 {
 		resp := NewMsgAcceptVersion(highestVersion, versionData)
-		return h.proto.SendMessage(resp, true)
+		if err := h.proto.SendMessage(resp, true); err != nil {
+			return err
+		}
+		h.Version = highestVersion
+		h.Finished <- true
+		return nil
 	} else {
 		// TODO: handle failures
 		// https://github.com/cloudstruct/go-ouroboros-network/issues/32
-		return nil
+		return fmt.Errorf("handshake failed, but we don't yet support this")
 	}
 }
 

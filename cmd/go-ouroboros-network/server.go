@@ -79,5 +79,7 @@ func testServer(f *globalFlags) {
 		if err != nil {
 			fmt.Printf("ERROR: %s\n", err)
 		}
+		fmt.Printf("handshake completed...disconnecting\n")
+		conn.Close()
 	}
 }
