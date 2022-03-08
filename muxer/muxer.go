@@ -5,31 +5,41 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 )
 
 const (
 	// Magic number chosen to represent unknown protocols
 	PROTOCOL_UNKNOWN uint16 = 0xabcd
+
+	// Handshake protocol ID
+	PROTOCOL_HANDSHAKE = 0
 )
 
 type Muxer struct {
-	conn              io.ReadWriteCloser
+	conn              net.Conn
 	sendMutex         sync.Mutex
+	startChan         chan bool
 	ErrorChan         chan error
 	protocolSenders   map[uint16]chan *Segment
 	protocolReceivers map[uint16]chan *Segment
 }
 
-func New(conn io.ReadWriteCloser) *Muxer {
+func New(conn net.Conn) *Muxer {
 	m := &Muxer{
 		conn:              conn,
+		startChan:         make(chan bool, 1),
 		ErrorChan:         make(chan error, 10),
 		protocolSenders:   make(map[uint16]chan *Segment),
 		protocolReceivers: make(map[uint16]chan *Segment),
 	}
 	go m.readLoop()
 	return m
+}
+
+func (m *Muxer) Start() {
+	m.startChan <- true
 }
 
 func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segment) {
@@ -69,6 +79,7 @@ func (m *Muxer) Send(msg *Segment) error {
 }
 
 func (m *Muxer) readLoop() {
+	started := false
 	for {
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
@@ -82,6 +93,11 @@ func (m *Muxer) readLoop() {
 		// return an error
 		if _, err := io.ReadFull(m.conn, msg.Payload); err != nil {
 			m.ErrorChan <- err
+		}
+		// Wait until the muxer is started to process anything other than handshake messages
+		if !started && msg.GetProtocolId() != PROTOCOL_HANDSHAKE {
+			<-m.startChan
+			started = true
 		}
 		// Send message payload to proper receiver
 		recvChan := m.protocolReceivers[msg.GetProtocolId()]
