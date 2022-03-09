@@ -85,7 +85,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *KeepAliveCallbackConf
 	return k
 }
 
-func (k *KeepAlive) messageHandler(msg protocol.Message) error {
+func (k *KeepAlive) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
 	case MESSAGE_TYPE_KEEP_ALIVE:
