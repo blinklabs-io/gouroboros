@@ -54,7 +54,7 @@ type ProtocolOptions struct {
 	Role      ProtocolRole
 }
 
-type MessageHandlerFunc func(Message) error
+type MessageHandlerFunc func(Message, bool) error
 type MessageFromCborFunc func(uint, []byte) (Message, error)
 
 func New(config ProtocolConfig) *Protocol {
@@ -108,6 +108,7 @@ func (p *Protocol) SendError(err error) {
 
 func (p *Protocol) recvLoop() {
 	leftoverData := false
+	isResponse := false
 	for {
 		var err error
 		// Don't grab the next segment from the muxer if we still have data in the buffer
@@ -116,6 +117,8 @@ func (p *Protocol) recvLoop() {
 			segment := <-p.recvChan
 			// Add segment payload to buffer
 			p.recvBuffer.Write(segment.Payload)
+			// Save whether it's a response
+			isResponse = segment.IsResponse()
 		}
 		leftoverData = false
 		// Decode message into generic list until we can determine what type of message it is
@@ -140,7 +143,7 @@ func (p *Protocol) recvLoop() {
 			p.config.ErrorChan <- fmt.Errorf("%s: received unknown message type: %#v", p.config.Name, tmpMsg)
 		}
 		// Handle message
-		if err := p.handleMessage(msg); err != nil {
+		if err := p.handleMessage(msg, isResponse); err != nil {
 			p.config.ErrorChan <- err
 		}
 		if numBytesRead < p.recvBuffer.Len() {
@@ -183,7 +186,7 @@ func (p *Protocol) getNewState(msg Message) (State, error) {
 	return newState, nil
 }
 
-func (p *Protocol) handleMessage(msg Message) error {
+func (p *Protocol) handleMessage(msg Message, isResponse bool) error {
 	// Lock the state to prevent collisions
 	p.stateMutex.Lock()
 	if err := p.checkCurrentState(); err != nil {
@@ -197,5 +200,5 @@ func (p *Protocol) handleMessage(msg Message) error {
 	p.state = newState
 	p.stateMutex.Unlock()
 	// Call handler function
-	return p.config.MessageHandlerFunc(msg)
+	return p.config.MessageHandlerFunc(msg, isResponse)
 }

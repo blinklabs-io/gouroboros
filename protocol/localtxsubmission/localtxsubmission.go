@@ -82,7 +82,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *Loca
 	return l
 }
 
-func (l *LocalTxSubmission) messageHandler(msg protocol.Message) error {
+func (l *LocalTxSubmission) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
 	case MESSAGE_TYPE_SUBMIT_TX:

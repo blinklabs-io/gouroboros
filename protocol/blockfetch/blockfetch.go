@@ -102,7 +102,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *BlockFetchCallbackCon
 	return b
 }
 
-func (b *BlockFetch) messageHandler(msg protocol.Message) error {
+func (b *BlockFetch) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
 	case MESSAGE_TYPE_START_BATCH:

@@ -137,7 +137,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConf
 	return c
 }
 
-func (c *ChainSync) messageHandler(msg protocol.Message) error {
+func (c *ChainSync) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
 	case MESSAGE_TYPE_AWAIT_REPLY:
