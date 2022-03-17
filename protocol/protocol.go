@@ -207,6 +207,12 @@ func (p *Protocol) getNewState(msg Message) (State, error) {
 	matchFound := false
 	for _, transition := range p.config.StateMap[p.state].Transitions {
 		if transition.MsgType == msg.Type() {
+			if transition.MatchFunc != nil {
+				// Skip item if match function returns false
+				if !transition.MatchFunc(msg) {
+					continue
+				}
+			}
 			newState = transition.NewState
 			matchFound = true
 			break

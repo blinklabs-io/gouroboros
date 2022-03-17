@@ -23,9 +23,12 @@ func (s State) String() string {
 }
 
 type StateTransition struct {
-	MsgType  uint8
-	NewState State
+	MsgType   uint8
+	NewState  State
+	MatchFunc StateTransitionMatchFunc
 }
+
+type StateTransitionMatchFunc func(Message) bool
 
 type StateMapEntry struct {
 	Agency      uint

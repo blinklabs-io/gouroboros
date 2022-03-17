@@ -9,6 +9,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localstatequery"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/txsubmission"
 	"net"
 )
 
@@ -34,6 +35,8 @@ type Ouroboros struct {
 	localTxSubmissionCallbackConfig *localtxsubmission.CallbackConfig
 	LocalStateQuery                 *localstatequery.LocalStateQuery
 	localStateQueryCallbackConfig   *localstatequery.CallbackConfig
+	TxSubmission                    *txsubmission.TxSubmission
+	txSubmissionCallbackConfig      *txsubmission.CallbackConfig
 }
 
 type OuroborosOptions struct {
@@ -134,6 +137,7 @@ func (o *Ouroboros) setupConnection() error {
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
 		o.BlockFetch = blockfetch.New(protoOptions, o.blockFetchCallbackConfig)
+		o.TxSubmission = txsubmission.New(protoOptions, o.txSubmissionCallbackConfig)
 		if versionNtN.EnableKeepAliveProtocol {
 			o.KeepAlive = keepalive.New(protoOptions, o.keepAliveCallbackConfig)
 			if o.sendKeepAlives {
