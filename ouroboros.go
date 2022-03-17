@@ -7,6 +7,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/localstatequery"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
 	"net"
 )
@@ -31,6 +32,8 @@ type Ouroboros struct {
 	keepAliveCallbackConfig         *keepalive.KeepAliveCallbackConfig
 	LocalTxSubmission               *localtxsubmission.LocalTxSubmission
 	localTxSubmissionCallbackConfig *localtxsubmission.CallbackConfig
+	LocalStateQuery                 *localstatequery.LocalStateQuery
+	localStateQueryCallbackConfig   *localstatequery.CallbackConfig
 }
 
 type OuroborosOptions struct {
@@ -45,6 +48,7 @@ type OuroborosOptions struct {
 	BlockFetchCallbackConfig        *blockfetch.BlockFetchCallbackConfig
 	KeepAliveCallbackConfig         *keepalive.KeepAliveCallbackConfig
 	LocalTxSubmissionCallbackConfig *localtxsubmission.CallbackConfig
+	LocalStateQueryCallbackConfig   *localstatequery.CallbackConfig
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
@@ -57,6 +61,7 @@ func New(options *OuroborosOptions) (*Ouroboros, error) {
 		blockFetchCallbackConfig:        options.BlockFetchCallbackConfig,
 		keepAliveCallbackConfig:         options.KeepAliveCallbackConfig,
 		localTxSubmissionCallbackConfig: options.LocalTxSubmissionCallbackConfig,
+		localStateQueryCallbackConfig:   options.LocalStateQueryCallbackConfig,
 		ErrorChan:                       options.ErrorChan,
 		sendKeepAlives:                  options.SendKeepAlives,
 		delayMuxerStart:                 options.DelayMuxerStart,
@@ -140,6 +145,7 @@ func (o *Ouroboros) setupConnection() error {
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
 		o.LocalTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionCallbackConfig)
+		o.LocalStateQuery = localstatequery.New(protoOptions, o.localStateQueryCallbackConfig)
 	}
 	if !o.delayMuxerStart {
 		o.muxer.Start()
