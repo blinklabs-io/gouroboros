@@ -10,12 +10,14 @@ import (
 )
 
 type Protocol struct {
-	config     ProtocolConfig
-	sendChan   chan *muxer.Segment
-	recvChan   chan *muxer.Segment
-	state      State
-	stateMutex sync.Mutex
-	recvBuffer *bytes.Buffer
+	config        ProtocolConfig
+	sendChan      chan *muxer.Segment
+	recvChan      chan *muxer.Segment
+	state         State
+	stateMutex    sync.Mutex
+	recvBuffer    *bytes.Buffer
+	recvReadyChan chan bool
+	sendReadyChan chan bool
 }
 
 type ProtocolConfig struct {
@@ -60,13 +62,15 @@ type MessageFromCborFunc func(uint, []byte) (Message, error)
 func New(config ProtocolConfig) *Protocol {
 	sendChan, recvChan := config.Muxer.RegisterProtocol(config.ProtocolId)
 	p := &Protocol{
-		config:     config,
-		sendChan:   sendChan,
-		recvChan:   recvChan,
-		recvBuffer: bytes.NewBuffer(nil),
+		config:        config,
+		sendChan:      sendChan,
+		recvChan:      recvChan,
+		recvBuffer:    bytes.NewBuffer(nil),
+		recvReadyChan: make(chan bool, 1),
+		sendReadyChan: make(chan bool, 1),
 	}
 	// Set initial state
-	p.state = config.InitialState
+	p.setState(config.InitialState)
 	// Start our receiver Goroutine
 	go p.recvLoop()
 	return p
@@ -81,6 +85,8 @@ func (p *Protocol) Role() ProtocolRole {
 }
 
 func (p *Protocol) SendMessage(msg Message, isResponse bool) error {
+	// Wait until ready to send based on state map
+	<-p.sendReadyChan
 	// Lock the state to prevent collisions
 	p.stateMutex.Lock()
 	if err := p.checkCurrentState(); err != nil {
@@ -103,7 +109,7 @@ func (p *Protocol) SendMessage(msg Message, isResponse bool) error {
 	segment := muxer.NewSegment(p.config.ProtocolId, data, isResponse)
 	p.sendChan <- segment
 	// Set new state and unlock
-	p.state = newState
+	p.setState(newState)
 	p.stateMutex.Unlock()
 	return nil
 }
@@ -127,6 +133,8 @@ func (p *Protocol) recvLoop() {
 			isResponse = segment.IsResponse()
 		}
 		leftoverData = false
+		// Wait until ready to receive based on state map
+		<-p.recvReadyChan
 		// Decode message into generic list until we can determine what type of message it is
 		// This also lets us determine how many bytes the message is
 		var tmpMsg []interface{}
@@ -135,13 +143,15 @@ func (p *Protocol) recvLoop() {
 			if err == io.EOF && p.recvBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
+				p.recvReadyChan <- true
 				continue
 			}
 			p.config.ErrorChan <- fmt.Errorf("%s: decode error: %s", p.config.Name, err)
 		}
 		// Create Message object from CBOR
 		msgType := uint(tmpMsg[0].(uint64))
-		msg, err := p.config.MessageFromCborFunc(msgType, p.recvBuffer.Bytes())
+		msgData := p.recvBuffer.Bytes()[:numBytesRead]
+		msg, err := p.config.MessageFromCborFunc(msgType, msgData)
 		if err != nil {
 			p.config.ErrorChan <- err
 		}
@@ -192,6 +202,28 @@ func (p *Protocol) getNewState(msg Message) (State, error) {
 	return newState, nil
 }
 
+func (p *Protocol) setState(state State) {
+	// Set the new state
+	p.state = state
+	// Mark protocol as ready to send/receive based on role and agency of the new state
+	switch p.config.StateMap[p.state].Agency {
+	case AGENCY_CLIENT:
+		switch p.config.Role {
+		case ProtocolRoleClient:
+			p.sendReadyChan <- true
+		case ProtocolRoleServer:
+			p.recvReadyChan <- true
+		}
+	case AGENCY_SERVER:
+		switch p.config.Role {
+		case ProtocolRoleServer:
+			p.sendReadyChan <- true
+		case ProtocolRoleClient:
+			p.recvReadyChan <- true
+		}
+	}
+}
+
 func (p *Protocol) handleMessage(msg Message, isResponse bool) error {
 	// Lock the state to prevent collisions
 	p.stateMutex.Lock()
@@ -203,7 +235,7 @@ func (p *Protocol) handleMessage(msg Message, isResponse bool) error {
 		return fmt.Errorf("%s: error handling message: %s", p.config.Name, err)
 	}
 	// Set new state and unlock
-	p.state = newState
+	p.setState(newState)
 	p.stateMutex.Unlock()
 	// Call handler function
 	return p.config.MessageHandlerFunc(msg, isResponse)
