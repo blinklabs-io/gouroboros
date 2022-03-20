@@ -90,9 +90,15 @@ func (p *Protocol) SendMessage(msg Message, isResponse bool) error {
 	if err != nil {
 		return fmt.Errorf("%s: error sending message: %s", p.config.Name, err)
 	}
-	data, err := utils.CborEncode(msg)
-	if err != nil {
-		return err
+	// Get raw CBOR from message
+	data := msg.Cbor()
+	// If message has no raw CBOR, encode the message
+	if data == nil {
+		var err error
+		data, err = utils.CborEncode(msg)
+		if err != nil {
+			return err
+		}
 	}
 	segment := muxer.NewSegment(p.config.ProtocolId, data, isResponse)
 	p.sendChan <- segment
