@@ -106,8 +106,24 @@ func (p *Protocol) SendMessage(msg Message, isResponse bool) error {
 			return err
 		}
 	}
-	segment := muxer.NewSegment(p.config.ProtocolId, data, isResponse)
-	p.sendChan <- segment
+	// Send message in multiple segments (if needed)
+	for {
+		// Determine segment payload length
+		segmentPayloadLength := len(data)
+		if segmentPayloadLength > muxer.SEGMENT_MAX_PAYLOAD_LENGTH {
+			segmentPayloadLength = muxer.SEGMENT_MAX_PAYLOAD_LENGTH
+		}
+		// Send current segment
+		segmentPayload := data[:segmentPayloadLength]
+		segment := muxer.NewSegment(p.config.ProtocolId, segmentPayload, isResponse)
+		p.sendChan <- segment
+		// Remove current segment's data from buffer
+		if len(data) > segmentPayloadLength {
+			data = data[segmentPayloadLength:]
+		} else {
+			break
+		}
+	}
 	// Set new state and unlock
 	p.setState(newState)
 	p.stateMutex.Unlock()

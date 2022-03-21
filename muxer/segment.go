@@ -6,6 +6,7 @@ import (
 
 const (
 	SEGMENT_PROTOCOL_ID_RESPONSE_FLAG = 0x8000
+	SEGMENT_MAX_PAYLOAD_LENGTH        = 65535
 )
 
 type SegmentHeader struct {
