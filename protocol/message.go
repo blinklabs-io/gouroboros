@@ -15,7 +15,8 @@ type MessageBase struct {
 }
 
 func (m *MessageBase) SetCbor(data []byte) {
-	m.rawCbor = data
+	m.rawCbor = make([]byte, len(data))
+	copy(m.rawCbor, data)
 }
 
 func (m *MessageBase) Cbor() []byte {
