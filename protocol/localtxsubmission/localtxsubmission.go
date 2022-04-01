@@ -45,7 +45,7 @@ var StateMap = protocol.StateMap{
 }
 
 type LocalTxSubmission struct {
-	proto          *protocol.Protocol
+	*protocol.Protocol
 	callbackConfig *CallbackConfig
 }
 
@@ -78,7 +78,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *Loca
 		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
 	}
-	l.proto = protocol.New(protoConfig)
+	l.Protocol = protocol.New(protoConfig)
 	return l
 }
 
@@ -101,12 +101,12 @@ func (l *LocalTxSubmission) messageHandler(msg protocol.Message, isResponse bool
 
 func (l *LocalTxSubmission) SubmitTx(eraId uint16, tx []byte) error {
 	msg := NewMsgSubmitTx(eraId, tx)
-	return l.proto.SendMessage(msg, false)
+	return l.SendMessage(msg, false)
 }
 
 func (l *LocalTxSubmission) Done(tx interface{}) error {
 	msg := NewMsgDone()
-	return l.proto.SendMessage(msg, false)
+	return l.SendMessage(msg, false)
 }
 
 func (l *LocalTxSubmission) handleSubmitTx(msgGeneric protocol.Message) error {

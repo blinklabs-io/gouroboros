@@ -48,7 +48,7 @@ var StateMap = protocol.StateMap{
 }
 
 type Handshake struct {
-	proto           *protocol.Protocol
+	*protocol.Protocol
 	allowedVersions []uint16
 	Version         uint16
 	Finished        chan bool
@@ -71,7 +71,7 @@ func New(options protocol.ProtocolOptions, allowedVersions []uint16) *Handshake 
 		StateMap:            StateMap,
 		InitialState:        STATE_PROPOSE,
 	}
-	h.proto = protocol.New(protoConfig)
+	h.Protocol = protocol.New(protoConfig)
 	return h
 }
 
@@ -94,14 +94,14 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 	// Create our request
 	versionMap := make(map[uint16]interface{})
 	for _, version := range versions {
-		if h.proto.Mode() == protocol.ProtocolModeNodeToNode {
+		if h.Mode() == protocol.ProtocolModeNodeToNode {
 			versionMap[version] = []interface{}{networkMagic, DIFFUSION_MODE_INITIATOR_ONLY}
 		} else {
 			versionMap[version] = networkMagic
 		}
 	}
 	msg := NewMsgProposeVersions(versionMap)
-	return h.proto.SendMessage(msg, false)
+	return h.SendMessage(msg, false)
 }
 
 func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
@@ -121,7 +121,7 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 	}
 	if highestVersion > 0 {
 		resp := NewMsgAcceptVersion(highestVersion, versionData)
-		if err := h.proto.SendMessage(resp, true); err != nil {
+		if err := h.SendMessage(resp, true); err != nil {
 			return err
 		}
 		h.Version = highestVersion

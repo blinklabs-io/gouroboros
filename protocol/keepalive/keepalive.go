@@ -49,7 +49,7 @@ var StateMap = protocol.StateMap{
 }
 
 type KeepAlive struct {
-	proto          *protocol.Protocol
+	*protocol.Protocol
 	callbackConfig *KeepAliveCallbackConfig
 	timer          *time.Timer
 }
@@ -81,7 +81,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *KeepAliveCallbackConf
 		StateMap:            StateMap,
 		InitialState:        STATE_CLIENT,
 	}
-	k.proto = protocol.New(protoConfig)
+	k.Protocol = protocol.New(protoConfig)
 	return k
 }
 
@@ -103,7 +103,7 @@ func (k *KeepAlive) messageHandler(msg protocol.Message, isResponse bool) error 
 func (k *KeepAlive) Start() {
 	k.timer = time.AfterFunc(KEEP_ALIVE_PERIOD*time.Second, func() {
 		if err := k.KeepAlive(0); err != nil {
-			k.proto.SendError(err)
+			k.SendError(err)
 		}
 	})
 }
@@ -118,7 +118,7 @@ func (k *KeepAlive) Stop() {
 
 func (k *KeepAlive) KeepAlive(cookie uint16) error {
 	msg := NewMsgKeepAlive(cookie)
-	return k.proto.SendMessage(msg, false)
+	return k.SendMessage(msg, false)
 }
 
 func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
@@ -129,7 +129,7 @@ func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
 	} else {
 		// Send the keep-alive response
 		resp := NewMsgKeepAliveResponse(msg.Cookie)
-		return k.proto.SendMessage(resp, true)
+		return k.SendMessage(resp, true)
 	}
 }
 
