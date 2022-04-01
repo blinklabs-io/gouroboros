@@ -88,7 +88,7 @@ var StateMap = protocol.StateMap{
 }
 
 type ChainSync struct {
-	proto          *protocol.Protocol
+	*protocol.Protocol
 	callbackConfig *ChainSyncCallbackConfig
 }
 
@@ -133,7 +133,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConf
 		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
 	}
-	c.proto = protocol.New(protoConfig)
+	c.Protocol = protocol.New(protoConfig)
 	return c
 }
 
@@ -160,12 +160,12 @@ func (c *ChainSync) messageHandler(msg protocol.Message, isResponse bool) error 
 
 func (c *ChainSync) RequestNext() error {
 	msg := NewMsgRequestNext()
-	return c.proto.SendMessage(msg, false)
+	return c.SendMessage(msg, false)
 }
 
 func (c *ChainSync) FindIntersect(points []interface{}) error {
 	msg := NewMsgFindIntersect(points)
-	return c.proto.SendMessage(msg, false)
+	return c.SendMessage(msg, false)
 }
 
 func (c *ChainSync) handleAwaitReply() error {
@@ -180,7 +180,7 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 	if c.callbackConfig.RollForwardFunc == nil {
 		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
 	}
-	if c.proto.Mode() == protocol.ProtocolModeNodeToNode {
+	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*MsgRollForwardNtN)
 		var blockHeader interface{}
 		var blockType uint

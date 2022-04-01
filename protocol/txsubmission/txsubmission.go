@@ -89,7 +89,7 @@ var StateMap = protocol.StateMap{
 }
 
 type TxSubmission struct {
-	proto          *protocol.Protocol
+	*protocol.Protocol
 	callbackConfig *CallbackConfig
 }
 
@@ -126,7 +126,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *TxSu
 		StateMap:            StateMap,
 		InitialState:        STATE_HELLO,
 	}
-	t.proto = protocol.New(protoConfig)
+	t.Protocol = protocol.New(protoConfig)
 	return t
 }
 

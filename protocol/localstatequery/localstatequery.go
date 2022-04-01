@@ -85,7 +85,7 @@ var StateMap = protocol.StateMap{
 }
 
 type LocalStateQuery struct {
-	proto          *protocol.Protocol
+	*protocol.Protocol
 	callbackConfig *CallbackConfig
 }
 
@@ -127,7 +127,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *Loca
 		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
 	}
-	l.proto = protocol.New(protoConfig)
+	l.Protocol = protocol.New(protoConfig)
 	return l
 }
 

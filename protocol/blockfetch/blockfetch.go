@@ -65,7 +65,7 @@ var StateMap = protocol.StateMap{
 }
 
 type BlockFetch struct {
-	proto          *protocol.Protocol
+	*protocol.Protocol
 	callbackConfig *BlockFetchCallbackConfig
 }
 
@@ -98,7 +98,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *BlockFetchCallbackCon
 		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
 	}
-	b.proto = protocol.New(protoConfig)
+	b.Protocol = protocol.New(protoConfig)
 	return b
 }
 
@@ -121,12 +121,12 @@ func (b *BlockFetch) messageHandler(msg protocol.Message, isResponse bool) error
 
 func (b *BlockFetch) RequestRange(start []interface{}, end []interface{}) error {
 	msg := NewMsgRequestRange(start, end)
-	return b.proto.SendMessage(msg, false)
+	return b.SendMessage(msg, false)
 }
 
 func (b *BlockFetch) ClientDone() error {
 	msg := NewMsgClientDone()
-	return b.proto.SendMessage(msg, false)
+	return b.SendMessage(msg, false)
 }
 
 func (b *BlockFetch) handleStartBatch() error {
