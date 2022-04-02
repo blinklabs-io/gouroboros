@@ -69,9 +69,28 @@ type MsgAcceptTx struct {
 	protocol.MessageBase
 }
 
+func NewMsgAcceptTx() *MsgAcceptTx {
+	m := &MsgAcceptTx{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_ACCEPT_TX,
+		},
+	}
+	return m
+}
+
 type MsgRejectTx struct {
 	protocol.MessageBase
 	Reason interface{}
+}
+
+func NewMsgRejectTx(reason interface{}) *MsgRejectTx {
+	m := &MsgRejectTx{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_REJECT_TX,
+		},
+		Reason: reason,
+	}
+	return m
 }
 
 type MsgDone struct {

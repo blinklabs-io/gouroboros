@@ -72,3 +72,13 @@ type MsgRefuse struct {
 	protocol.MessageBase
 	Reason []interface{}
 }
+
+func NewMsgRefuse(reason []interface{}) *MsgRefuse {
+	m := &MsgRefuse{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_REFUSE,
+		},
+		Reason: reason,
+	}
+	return m
+}

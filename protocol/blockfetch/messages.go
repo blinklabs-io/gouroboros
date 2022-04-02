@@ -76,8 +76,26 @@ type MsgStartBatch struct {
 	protocol.MessageBase
 }
 
+func NewMsgStartBatch() *MsgStartBatch {
+	m := &MsgStartBatch{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_START_BATCH,
+		},
+	}
+	return m
+}
+
 type MsgNoBlocks struct {
 	protocol.MessageBase
+}
+
+func NewMsgNoBlocks() *MsgNoBlocks {
+	m := &MsgNoBlocks{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_NO_BLOCKS,
+		},
+	}
+	return m
 }
 
 type MsgBlock struct {
@@ -85,8 +103,27 @@ type MsgBlock struct {
 	WrappedBlock []byte
 }
 
+func NewMsgBlock(wrappedBlock []byte) *MsgBlock {
+	m := &MsgBlock{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_BLOCK,
+		},
+		WrappedBlock: wrappedBlock,
+	}
+	return m
+}
+
 type MsgBatchDone struct {
 	protocol.MessageBase
+}
+
+func NewMsgBatchDone() *MsgBatchDone {
+	m := &MsgBatchDone{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_BATCH_DONE,
+		},
+	}
+	return m
 }
 
 // TODO: use this above and expose it, or just remove it

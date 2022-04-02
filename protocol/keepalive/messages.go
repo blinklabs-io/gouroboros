@@ -65,3 +65,12 @@ func NewMsgKeepAliveResponse(cookie uint16) *MsgKeepAliveResponse {
 type MsgDone struct {
 	protocol.MessageBase
 }
+
+func NewMsgDone() *MsgDone {
+	m := &MsgDone{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_DONE,
+		},
+	}
+	return m
+}

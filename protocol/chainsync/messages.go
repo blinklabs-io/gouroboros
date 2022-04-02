@@ -65,16 +65,25 @@ type MsgRequestNext struct {
 }
 
 func NewMsgRequestNext() *MsgRequestNext {
-	r := &MsgRequestNext{
+	m := &MsgRequestNext{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REQUEST_NEXT,
 		},
 	}
-	return r
+	return m
 }
 
 type MsgAwaitReply struct {
 	protocol.MessageBase
+}
+
+func NewMsgAwaitReply() *MsgAwaitReply {
+	m := &MsgAwaitReply{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_AWAIT_REPLY,
+		},
+	}
+	return m
 }
 
 type MsgRollForwardNtC struct {
@@ -83,16 +92,49 @@ type MsgRollForwardNtC struct {
 	Tip         Tip
 }
 
+func NewMsgRollForwardNtC(wrappedData []byte, tip Tip) *MsgRollForwardNtC {
+	m := &MsgRollForwardNtC{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_ROLL_FORWARD,
+		},
+		WrappedData: wrappedData,
+		Tip:         tip,
+	}
+	return m
+}
+
 type MsgRollForwardNtN struct {
 	protocol.MessageBase
 	WrappedHeader WrappedHeader
 	Tip           Tip
 }
 
+func NewMsgRollForwardNtN(wrappedHeader WrappedHeader, tip Tip) *MsgRollForwardNtN {
+	m := &MsgRollForwardNtN{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_ROLL_FORWARD,
+		},
+		WrappedHeader: wrappedHeader,
+		Tip:           tip,
+	}
+	return m
+}
+
 type MsgRollBackward struct {
 	protocol.MessageBase
 	Point Point
 	Tip   Tip
+}
+
+func NewMsgRollBackward(point Point, tip Tip) *MsgRollBackward {
+	m := &MsgRollBackward{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_ROLL_BACKWARD,
+		},
+		Point: point,
+		Tip:   tip,
+	}
+	return m
 }
 
 type MsgFindIntersect struct {
@@ -116,13 +158,43 @@ type MsgIntersectFound struct {
 	Tip   Tip
 }
 
+func NewMsgIntersectFound(point Point, tip Tip) *MsgIntersectFound {
+	m := &MsgIntersectFound{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_INTERSECT_FOUND,
+		},
+		Point: point,
+		Tip:   tip,
+	}
+	return m
+}
+
 type MsgIntersectNotFound struct {
 	protocol.MessageBase
 	Tip Tip
 }
 
+func NewMsgIntersectNotFound(tip Tip) *MsgIntersectNotFound {
+	m := &MsgIntersectNotFound{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_INTERSECT_NOT_FOUND,
+		},
+		Tip: tip,
+	}
+	return m
+}
+
 type MsgDone struct {
 	protocol.MessageBase
+}
+
+func NewMsgDone() *MsgDone {
+	m := &MsgDone{
+		MessageBase: protocol.MessageBase{
+			MessageType: MESSAGE_TYPE_DONE,
+		},
+	}
+	return m
 }
 
 type Tip struct {

@@ -62,42 +62,45 @@ func NewMsgRequestTxIds(blocking bool, ack uint16, req uint16) *MsgRequestTxIds 
 
 type MsgReplyTxIds struct {
 	protocol.MessageBase
-	TxIds []txIdAndSize
+	TxIds []TxIdAndSize
 }
 
-func NewMsgReplyTxIds() *MsgReplyTxIds {
+func NewMsgReplyTxIds(txIds []TxIdAndSize) *MsgReplyTxIds {
 	m := &MsgReplyTxIds{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REPLY_TX_IDS,
 		},
+		TxIds: txIds,
 	}
 	return m
 }
 
 type MsgRequestTxs struct {
 	protocol.MessageBase
-	TxIds []txId
+	TxIds []TxId
 }
 
-func NewMsgRequestTxs() *MsgRequestTxs {
+func NewMsgRequestTxs(txIds []TxId) *MsgRequestTxs {
 	m := &MsgRequestTxs{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REQUEST_TXS,
 		},
+		TxIds: txIds,
 	}
 	return m
 }
 
 type MsgReplyTxs struct {
 	protocol.MessageBase
-	Txs []txBody
+	Txs []TxBody
 }
 
-func NewMsgReplyTxs() *MsgReplyTxs {
+func NewMsgReplyTxs(txs []TxBody) *MsgReplyTxs {
 	m := &MsgReplyTxs{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REPLY_TXS,
 		},
+		Txs: txs,
 	}
 	return m
 }
@@ -128,17 +131,17 @@ func NewMsgHello() *MsgHello {
 	return m
 }
 
-type txId struct {
+type TxId struct {
 	EraId uint16
 	TxId  [32]byte
 }
 
-type txBody struct {
+type TxBody struct {
 	EraId  uint16
 	TxBody []byte
 }
 
-type txIdAndSize struct {
-	TxId txId
+type TxIdAndSize struct {
+	TxId TxId
 	Size uint32
 }
