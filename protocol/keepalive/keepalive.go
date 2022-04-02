@@ -118,7 +118,7 @@ func (k *KeepAlive) Stop() {
 
 func (k *KeepAlive) KeepAlive(cookie uint16) error {
 	msg := NewMsgKeepAlive(cookie)
-	return k.SendMessage(msg, false)
+	return k.SendMessage(msg)
 }
 
 func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
@@ -129,7 +129,7 @@ func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
 	} else {
 		// Send the keep-alive response
 		resp := NewMsgKeepAliveResponse(msg.Cookie)
-		return k.SendMessage(resp, true)
+		return k.SendMessage(resp)
 	}
 }
 

@@ -135,6 +135,15 @@ func testChainSync(f *globalFlags) {
 	}
 	// Wait until ready for next block
 	<-syncState.readyForNextBlockChan
+	// Pipeline the initial block requests to speed things up a bit
+	// Using a value higher than 10 seems to cause problems with NtN
+	for i := 0; i < 10; i++ {
+		err := o.ChainSync.RequestNext()
+		if err != nil {
+			fmt.Printf("ERROR: RequestNext: %s\n", err)
+			os.Exit(1)
+		}
+	}
 	for {
 		err := o.ChainSync.RequestNext()
 		if err != nil {
@@ -208,8 +217,8 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
 			fmt.Printf("unsupported (so far) block type %d\n", blockType)
 			fmt.Printf("%s\n", utils.DumpCborStructure(blockData, ""))
 		}
-		syncState.readyForNextBlockChan <- true
 	}
+	syncState.readyForNextBlockChan <- true
 	return nil
 }
 
@@ -266,6 +275,5 @@ func blockFetchBlockHandler(blockType uint, blockData interface{}) error {
 }
 
 func blockFetchBatchDoneHandler() error {
-	syncState.readyForNextBlockChan <- true
 	return nil
 }

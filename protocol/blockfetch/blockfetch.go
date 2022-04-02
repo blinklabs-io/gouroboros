@@ -121,12 +121,12 @@ func (b *BlockFetch) messageHandler(msg protocol.Message, isResponse bool) error
 
 func (b *BlockFetch) RequestRange(start []interface{}, end []interface{}) error {
 	msg := NewMsgRequestRange(start, end)
-	return b.SendMessage(msg, false)
+	return b.SendMessage(msg)
 }
 
 func (b *BlockFetch) ClientDone() error {
 	msg := NewMsgClientDone()
-	return b.SendMessage(msg, false)
+	return b.SendMessage(msg)
 }
 
 func (b *BlockFetch) handleStartBatch() error {
