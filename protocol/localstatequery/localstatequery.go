@@ -86,7 +86,10 @@ var StateMap = protocol.StateMap{
 
 type LocalStateQuery struct {
 	*protocol.Protocol
-	callbackConfig *CallbackConfig
+	callbackConfig                *CallbackConfig
+	enableGetChainBlockNo         bool
+	enableGetChainPoint           bool
+	enableGetRewardInfoPoolsBlock bool
 }
 
 type CallbackConfig struct {
@@ -126,6 +129,14 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *Loca
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
 		InitialState:        STATE_IDLE,
+	}
+	// Enable version-dependent features
+	if options.Version >= 10 {
+		l.enableGetChainBlockNo = true
+		l.enableGetChainPoint = true
+	}
+	if options.Version >= 11 {
+		l.enableGetRewardInfoPoolsBlock = true
 	}
 	l.Protocol = protocol.New(protoConfig)
 	return l
