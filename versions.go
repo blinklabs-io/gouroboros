@@ -25,8 +25,6 @@ var ProtocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 		EnableMaryEra:            true,
 		EnableAlonzoEra:          true,
 	},
-	// This version also adds the GetChainBlockNo and GetChainPoint queries, but we don't
-	// currently have a flag for this
 	10: ProtocolVersionNtC{
 		EnableLocalQueryProtocol: true,
 		EnableShelleyEra:         true,
@@ -34,8 +32,6 @@ var ProtocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 		EnableMaryEra:            true,
 		EnableAlonzoEra:          true,
 	},
-	// This version also adds the GetRewardInfoPools Block query, but we don't currently
-	// have a flag for this
 	11: ProtocolVersionNtC{
 		EnableLocalQueryProtocol: true,
 		EnableShelleyEra:         true,
@@ -56,33 +52,30 @@ var ProtocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 type ProtocolVersionNtN struct {
 	// Most of these are enabled in all of the protocol versions that we support, but
 	// they are here for completeness
-	EnableShelleyEra            bool
-	EnableKeepAliveProtocol     bool
-	EnableAllegraEra            bool
-	EnableMaryEra               bool
-	EnableTxSubmission2Protocol bool
-	EnableAlonzoEra             bool
-	EnableFullDuplex            bool
+	EnableShelleyEra        bool
+	EnableKeepAliveProtocol bool
+	EnableAllegraEra        bool
+	EnableMaryEra           bool
+	EnableAlonzoEra         bool
+	EnableFullDuplex        bool
 }
 
 // We don't bother supporting NtN protocol versions before 7 (when Alonzo was enabled)
 var ProtocolVersionMapNtN = map[uint16]ProtocolVersionNtN{
 	7: ProtocolVersionNtN{
-		EnableShelleyEra:            true,
-		EnableKeepAliveProtocol:     true,
-		EnableAllegraEra:            true,
-		EnableMaryEra:               true,
-		EnableTxSubmission2Protocol: true,
-		EnableAlonzoEra:             true,
+		EnableShelleyEra:        true,
+		EnableKeepAliveProtocol: true,
+		EnableAllegraEra:        true,
+		EnableMaryEra:           true,
+		EnableAlonzoEra:         true,
 	},
 	8: ProtocolVersionNtN{
-		EnableShelleyEra:            true,
-		EnableKeepAliveProtocol:     true,
-		EnableAllegraEra:            true,
-		EnableMaryEra:               true,
-		EnableTxSubmission2Protocol: true,
-		EnableAlonzoEra:             true,
-		EnableFullDuplex:            true,
+		EnableShelleyEra:        true,
+		EnableKeepAliveProtocol: true,
+		EnableAllegraEra:        true,
+		EnableMaryEra:           true,
+		EnableAlonzoEra:         true,
+		EnableFullDuplex:        true,
 	},
 }
 

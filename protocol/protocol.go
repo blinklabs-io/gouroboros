@@ -49,11 +49,13 @@ const (
 	ProtocolRoleServer ProtocolRole = 2
 )
 
+// Common arguments for individual mini-protocols
 type ProtocolOptions struct {
 	Muxer     *muxer.Muxer
 	ErrorChan chan error
 	Mode      ProtocolMode
 	Role      ProtocolRole
+	Version   uint16
 }
 
 type MessageHandlerFunc func(Message, bool) error

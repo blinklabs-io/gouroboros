@@ -132,6 +132,13 @@ func (o *Ouroboros) setupConnection() error {
 		}
 	}
 	o.handshakeComplete = <-o.Handshake.Finished
+	// Provide the negotiated protocol version to the various mini-protocols
+	protoOptions.Version = o.Handshake.Version
+	// Drop bit used to signify NtC protocol versions
+	if protoOptions.Version > PROTOCOL_VERSION_NTC_FLAG {
+		protoOptions.Version = protoOptions.Version - PROTOCOL_VERSION_NTC_FLAG
+	}
+	// Configure the relevant mini-protocols
 	if o.useNodeToNodeProto {
 		versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
@@ -145,11 +152,13 @@ func (o *Ouroboros) setupConnection() error {
 			}
 		}
 	} else {
-		//versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
+		versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
 		o.LocalTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionCallbackConfig)
-		o.LocalStateQuery = localstatequery.New(protoOptions, o.localStateQueryCallbackConfig)
+		if versionNtC.EnableLocalQueryProtocol {
+			o.LocalStateQuery = localstatequery.New(protoOptions, o.localStateQueryCallbackConfig)
+		}
 	}
 	if !o.delayMuxerStart {
 		o.muxer.Start()
