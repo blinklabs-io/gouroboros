@@ -9,15 +9,22 @@ import (
 	"sync"
 )
 
+const (
+	// This is completely arbitrary, but the line had to be drawn somewhere
+	MAX_MESSAGES_PER_SEGMENT = 20
+)
+
 type Protocol struct {
-	config        ProtocolConfig
-	sendChan      chan *muxer.Segment
-	recvChan      chan *muxer.Segment
-	state         State
-	stateMutex    sync.Mutex
-	recvBuffer    *bytes.Buffer
-	recvReadyChan chan bool
-	sendReadyChan chan bool
+	config             ProtocolConfig
+	muxerSendChan      chan *muxer.Segment
+	muxerRecvChan      chan *muxer.Segment
+	state              State
+	stateMutex         sync.Mutex
+	recvBuffer         *bytes.Buffer
+	sendQueueChan      chan Message
+	sendStateQueueChan chan Message
+	recvReadyChan      chan bool
+	sendReadyChan      chan bool
 }
 
 type ProtocolConfig struct {
@@ -62,19 +69,22 @@ type MessageHandlerFunc func(Message, bool) error
 type MessageFromCborFunc func(uint, []byte) (Message, error)
 
 func New(config ProtocolConfig) *Protocol {
-	sendChan, recvChan := config.Muxer.RegisterProtocol(config.ProtocolId)
+	muxerSendChan, muxerRecvChan := config.Muxer.RegisterProtocol(config.ProtocolId)
 	p := &Protocol{
-		config:        config,
-		sendChan:      sendChan,
-		recvChan:      recvChan,
-		recvBuffer:    bytes.NewBuffer(nil),
-		recvReadyChan: make(chan bool, 1),
-		sendReadyChan: make(chan bool, 1),
+		config:             config,
+		muxerSendChan:      muxerSendChan,
+		muxerRecvChan:      muxerRecvChan,
+		recvBuffer:         bytes.NewBuffer(nil),
+		sendQueueChan:      make(chan Message, 50),
+		sendStateQueueChan: make(chan Message, 50),
+		recvReadyChan:      make(chan bool, 1),
+		sendReadyChan:      make(chan bool, 1),
 	}
 	// Set initial state
 	p.setState(config.InitialState)
-	// Start our receiver Goroutine
+	// Start our send and receive Goroutines
 	go p.recvLoop()
+	go p.sendLoop()
 	return p
 }
 
@@ -86,54 +96,112 @@ func (p *Protocol) Role() ProtocolRole {
 	return p.config.Role
 }
 
-func (p *Protocol) SendMessage(msg Message, isResponse bool) error {
-	// Wait until ready to send based on state map
-	<-p.sendReadyChan
-	// Lock the state to prevent collisions
-	p.stateMutex.Lock()
-	if err := p.checkCurrentState(); err != nil {
-		return fmt.Errorf("%s: error sending message: %s", p.config.Name, err)
-	}
-	newState, err := p.getNewState(msg)
-	if err != nil {
-		return fmt.Errorf("%s: error sending message: %s", p.config.Name, err)
-	}
-	// Get raw CBOR from message
-	data := msg.Cbor()
-	// If message has no raw CBOR, encode the message
-	if data == nil {
-		var err error
-		data, err = utils.CborEncode(msg)
-		if err != nil {
-			return err
-		}
-	}
-	// Send message in multiple segments (if needed)
-	for {
-		// Determine segment payload length
-		segmentPayloadLength := len(data)
-		if segmentPayloadLength > muxer.SEGMENT_MAX_PAYLOAD_LENGTH {
-			segmentPayloadLength = muxer.SEGMENT_MAX_PAYLOAD_LENGTH
-		}
-		// Send current segment
-		segmentPayload := data[:segmentPayloadLength]
-		segment := muxer.NewSegment(p.config.ProtocolId, segmentPayload, isResponse)
-		p.sendChan <- segment
-		// Remove current segment's data from buffer
-		if len(data) > segmentPayloadLength {
-			data = data[segmentPayloadLength:]
-		} else {
-			break
-		}
-	}
-	// Set new state and unlock
-	p.setState(newState)
-	p.stateMutex.Unlock()
+func (p *Protocol) SendMessage(msg Message) error {
+	p.sendQueueChan <- msg
 	return nil
 }
 
 func (p *Protocol) SendError(err error) {
 	p.config.ErrorChan <- err
+}
+
+func (p *Protocol) sendLoop() {
+	var setNewState bool
+	var newState State
+	var err error
+	for {
+		// Wait until ready to send based on state map
+		<-p.sendReadyChan
+		// Lock the state to prevent collisions
+		p.stateMutex.Lock()
+		// Check for queued state changes from previous pipelined sends
+		setNewState = false
+		if len(p.sendStateQueueChan) > 0 {
+			msg := <-p.sendStateQueueChan
+			newState, err = p.getNewState(msg)
+			if err != nil {
+				p.SendError(fmt.Errorf("%s: error sending message: %s", p.config.Name, err))
+			}
+			setNewState = true
+			// If there are no queued messages, set the new state now
+			if len(p.sendQueueChan) == 0 {
+				p.setState(newState)
+				p.stateMutex.Unlock()
+				continue
+			}
+		}
+		// Read queued messages and write into buffer
+		payloadBuf := bytes.NewBuffer(nil)
+		msgCount := 0
+		for {
+			// Get next message from send queue
+			msg := <-p.sendQueueChan
+			msgCount = msgCount + 1
+			// Write the message into the send state queue if we already have a new state
+			if setNewState {
+				p.sendStateQueueChan <- msg
+			}
+			// Get raw CBOR from message
+			data := msg.Cbor()
+			// If message has no raw CBOR, encode the message
+			if data == nil {
+				var err error
+				data, err = utils.CborEncode(msg)
+				if err != nil {
+					p.SendError(err)
+				}
+			}
+			payloadBuf.Write(data)
+			if !setNewState {
+				newState, err = p.getNewState(msg)
+				if err != nil {
+					p.SendError(fmt.Errorf("%s: error sending message: %s", p.config.Name, err))
+				}
+				setNewState = true
+			}
+			// We don't want more than MAX_MESSAGES_PER_SEGMENT messages in a segment
+			if msgCount >= MAX_MESSAGES_PER_SEGMENT {
+				break
+			}
+			// We don't want to add more messages once we spill over into a second segment
+			if payloadBuf.Len() > muxer.SEGMENT_MAX_PAYLOAD_LENGTH {
+				break
+			}
+			// Check if there are any more queued messages
+			if len(p.sendQueueChan) == 0 {
+				break
+			}
+			// We don't want to block on writes to the send state queue
+			if len(p.sendStateQueueChan) == cap(p.sendStateQueueChan) {
+				break
+			}
+		}
+		// Send messages in multiple segments (if needed)
+		for {
+			// Determine segment payload length
+			segmentPayloadLength := payloadBuf.Len()
+			if segmentPayloadLength > muxer.SEGMENT_MAX_PAYLOAD_LENGTH {
+				segmentPayloadLength = muxer.SEGMENT_MAX_PAYLOAD_LENGTH
+			}
+			// Send current segment
+			segmentPayload := payloadBuf.Bytes()[:segmentPayloadLength]
+			isResponse := false
+			if p.Role() == ProtocolRoleServer {
+				isResponse = true
+			}
+			segment := muxer.NewSegment(p.config.ProtocolId, segmentPayload, isResponse)
+			p.muxerSendChan <- segment
+			// Remove current segment's data from buffer
+			if payloadBuf.Len() > segmentPayloadLength {
+				payloadBuf = bytes.NewBuffer(payloadBuf.Bytes()[segmentPayloadLength:])
+			} else {
+				break
+			}
+		}
+		// Set new state and unlock
+		p.setState(newState)
+		p.stateMutex.Unlock()
+	}
 }
 
 func (p *Protocol) recvLoop() {
@@ -144,7 +212,7 @@ func (p *Protocol) recvLoop() {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
 		if !leftoverData {
 			// Wait for segment
-			segment := <-p.recvChan
+			segment := <-p.muxerRecvChan
 			// Add segment payload to buffer
 			p.recvBuffer.Write(segment.Payload)
 			// Save whether it's a response
@@ -190,18 +258,6 @@ func (p *Protocol) recvLoop() {
 			p.recvBuffer.Reset()
 		}
 	}
-}
-
-func (p *Protocol) checkCurrentState() error {
-	if currentStateMapEntry, ok := p.config.StateMap[p.state]; ok {
-		if currentStateMapEntry.Agency == AGENCY_NONE {
-			return fmt.Errorf("protocol is in state with no agency")
-		}
-		// TODO: check client/server agency
-	} else {
-		return fmt.Errorf("protocol in unknown state")
-	}
-	return nil
 }
 
 func (p *Protocol) getNewState(msg Message) (State, error) {
@@ -251,9 +307,6 @@ func (p *Protocol) setState(state State) {
 func (p *Protocol) handleMessage(msg Message, isResponse bool) error {
 	// Lock the state to prevent collisions
 	p.stateMutex.Lock()
-	if err := p.checkCurrentState(); err != nil {
-		return fmt.Errorf("%s: error handling message: %s", p.config.Name, err)
-	}
 	newState, err := p.getNewState(msg)
 	if err != nil {
 		return fmt.Errorf("%s: error handling message: %s", p.config.Name, err)

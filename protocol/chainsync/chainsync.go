@@ -160,12 +160,12 @@ func (c *ChainSync) messageHandler(msg protocol.Message, isResponse bool) error 
 
 func (c *ChainSync) RequestNext() error {
 	msg := NewMsgRequestNext()
-	return c.SendMessage(msg, false)
+	return c.SendMessage(msg)
 }
 
 func (c *ChainSync) FindIntersect(points []interface{}) error {
 	msg := NewMsgFindIntersect(points)
-	return c.SendMessage(msg, false)
+	return c.SendMessage(msg)
 }
 
 func (c *ChainSync) handleAwaitReply() error {

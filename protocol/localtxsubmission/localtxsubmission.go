@@ -101,12 +101,12 @@ func (l *LocalTxSubmission) messageHandler(msg protocol.Message, isResponse bool
 
 func (l *LocalTxSubmission) SubmitTx(eraId uint16, tx []byte) error {
 	msg := NewMsgSubmitTx(eraId, tx)
-	return l.SendMessage(msg, false)
+	return l.SendMessage(msg)
 }
 
 func (l *LocalTxSubmission) Done(tx interface{}) error {
 	msg := NewMsgDone()
-	return l.SendMessage(msg, false)
+	return l.SendMessage(msg)
 }
 
 func (l *LocalTxSubmission) handleSubmitTx(msgGeneric protocol.Message) error {

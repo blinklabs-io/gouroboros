@@ -101,7 +101,7 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 		}
 	}
 	msg := NewMsgProposeVersions(versionMap)
-	return h.SendMessage(msg, false)
+	return h.SendMessage(msg)
 }
 
 func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
@@ -121,7 +121,7 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 	}
 	if highestVersion > 0 {
 		resp := NewMsgAcceptVersion(highestVersion, versionData)
-		if err := h.SendMessage(resp, true); err != nil {
+		if err := h.SendMessage(resp); err != nil {
 			return err
 		}
 		h.Version = highestVersion
