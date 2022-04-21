@@ -1,0 +1,16 @@
+# The below is pulled from upstream and slightly modified
+# https://github.com/webiny/action-conventional-commits/blob/master/README.md#usage
+
+name: Conventional Commits
+
+on:
+  pull_request:
+
+jobs:
+  build:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: webiny/action-conventional-commits@v1.0.3
