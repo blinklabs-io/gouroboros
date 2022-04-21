@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/block"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
 
 const (
@@ -163,7 +162,7 @@ func (c *ChainSync) RequestNext() error {
 	return c.SendMessage(msg)
 }
 
-func (c *ChainSync) FindIntersect(points []interface{}) error {
+func (c *ChainSync) FindIntersect(points []Point) error {
 	msg := NewMsgFindIntersect(points)
 	return c.SendMessage(msg)
 }
@@ -184,16 +183,12 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 		msg := msgGeneric.(*MsgRollForwardNtN)
 		var blockHeader interface{}
 		var blockType uint
-		blockHeaderType := msg.WrappedHeader.Type
-		switch blockHeaderType {
+		blockEra := msg.WrappedHeader.Era
+		switch blockEra {
 		case block.BLOCK_HEADER_TYPE_BYRON:
-			var wrappedHeaderByron WrappedHeaderByron
-			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &wrappedHeaderByron); err != nil {
-				return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
-			}
-			blockType = wrappedHeaderByron.Unknown.Type
+			blockType = msg.WrappedHeader.ByronType()
 			var err error
-			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, wrappedHeaderByron.RawHeader)
+			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
 			if err != nil {
 				return err
 			}
@@ -205,14 +200,9 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 				block.BLOCK_HEADER_TYPE_MARY:    block.BLOCK_TYPE_MARY,
 				block.BLOCK_HEADER_TYPE_ALONZO:  block.BLOCK_TYPE_ALONZO,
 			}
-			blockType = blockTypeMap[blockHeaderType]
-			// We decode into a byte array to implicitly unwrap the CBOR tag object
-			var payload []byte
-			if _, err := utils.CborDecode(msg.WrappedHeader.RawData, &payload); err != nil {
-				return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
-			}
+			blockType = blockTypeMap[blockEra]
 			var err error
-			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, payload)
+			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
 			if err != nil {
 				return err
 			}
@@ -221,17 +211,12 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 		return c.callbackConfig.RollForwardFunc(blockType, blockHeader)
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
-		// Decode only enough to get the block type value
-		var wrappedBlock WrappedBlock
-		if _, err := utils.CborDecode(msg.WrappedData, &wrappedBlock); err != nil {
-			return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
-		}
-		blk, err := block.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
+		blk, err := block.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
 		if err != nil {
 			return err
 		}
 		// Call the user callback function
-		return c.callbackConfig.RollForwardFunc(wrappedBlock.Type, blk)
+		return c.callbackConfig.RollForwardFunc(msg.BlockType(), blk)
 	}
 }
 

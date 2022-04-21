@@ -88,19 +88,35 @@ func NewMsgAwaitReply() *MsgAwaitReply {
 
 type MsgRollForwardNtC struct {
 	protocol.MessageBase
-	WrappedData []byte
-	Tip         Tip
+	WrappedBlock cbor.Tag
+	Tip          Tip
+	blockType    uint
+	blockCbor    []byte
 }
 
-func NewMsgRollForwardNtC(wrappedData []byte, tip Tip) *MsgRollForwardNtC {
+func NewMsgRollForwardNtC(blockType uint, blockCbor []byte, tip Tip) *MsgRollForwardNtC {
 	m := &MsgRollForwardNtC{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_ROLL_FORWARD,
 		},
-		WrappedData: wrappedData,
-		Tip:         tip,
+		Tip: tip,
 	}
+	wb := NewWrappedBlock(blockType, blockCbor)
+	content, err := cbor.Marshal(wb)
+	// TODO: figure out better way to handle error
+	if err != nil {
+		return nil
+	}
+	m.WrappedBlock = cbor.Tag{Number: 24, Content: content}
 	return m
+}
+
+func (m *MsgRollForwardNtC) BlockType() uint {
+	return m.blockType
+}
+
+func (m *MsgRollForwardNtC) BlockCbor() []byte {
+	return m.blockCbor
 }
 
 type MsgRollForwardNtN struct {
@@ -109,14 +125,15 @@ type MsgRollForwardNtN struct {
 	Tip           Tip
 }
 
-func NewMsgRollForwardNtN(wrappedHeader WrappedHeader, tip Tip) *MsgRollForwardNtN {
+func NewMsgRollForwardNtN(era uint, byronType uint, blockCbor []byte, tip Tip) *MsgRollForwardNtN {
 	m := &MsgRollForwardNtN{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_ROLL_FORWARD,
 		},
-		WrappedHeader: wrappedHeader,
-		Tip:           tip,
+		Tip: tip,
 	}
+	wrappedHeader := NewWrappedHeader(era, byronType, blockCbor)
+	m.WrappedHeader = *wrappedHeader
 	return m
 }
 
@@ -139,10 +156,10 @@ func NewMsgRollBackward(point Point, tip Tip) *MsgRollBackward {
 
 type MsgFindIntersect struct {
 	protocol.MessageBase
-	Points []interface{}
+	Points []Point
 }
 
-func NewMsgFindIntersect(points []interface{}) *MsgFindIntersect {
+func NewMsgFindIntersect(points []Point) *MsgFindIntersect {
 	m := &MsgFindIntersect{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_FIND_INTERSECT,
@@ -205,6 +222,8 @@ type Tip struct {
 }
 
 type Point struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_    struct{} `cbor:",toarray"`
 	Slot uint64
 	Hash []byte
 }
@@ -223,28 +242,13 @@ func (p *Point) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-type WrappedBlock struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_        struct{} `cbor:",toarray"`
-	Type     uint
-	RawBlock cbor.RawMessage
-}
-
-type WrappedHeader struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_       struct{} `cbor:",toarray"`
-	Type    uint
-	RawData cbor.RawMessage
-}
-
-type WrappedHeaderByron struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_       struct{} `cbor:",toarray"`
-	Unknown struct {
-		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-		_       struct{} `cbor:",toarray"`
-		Type    uint
-		Unknown uint64
+func (p *Point) MarshalCBOR() ([]byte, error) {
+	var data []interface{}
+	if p.Slot == 0 && p.Hash == nil {
+		// Return an empty list if values are zero
+		data = make([]interface{}, 0)
+	} else {
+		data = []interface{}{p.Slot, p.Hash}
 	}
-	RawHeader []byte
+	return utils.CborEncode(data)
 }

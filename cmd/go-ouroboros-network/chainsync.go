@@ -121,15 +121,15 @@ func testChainSync(f *globalFlags) {
 	syncState.oConn = o
 	syncState.readyForNextBlockChan = make(chan bool)
 	syncState.nodeToNode = f.ntnProto
-	intersect := []interface{}{}
+	var point chainsync.Point
 	if len(eraIntersect[f.networkMagic][chainSyncFlags.startEra]) > 0 {
 		// Slot
-		intersect = append(intersect, eraIntersect[f.networkMagic][chainSyncFlags.startEra][0])
+		point.Slot = uint64(eraIntersect[f.networkMagic][chainSyncFlags.startEra][0].(int))
 		// Block hash
 		hash, _ := hex.DecodeString(eraIntersect[f.networkMagic][chainSyncFlags.startEra][1].(string))
-		intersect = append(intersect, hash)
+		point.Hash = hash
 	}
-	if err := o.ChainSync.FindIntersect([]interface{}{intersect}); err != nil {
+	if err := o.ChainSync.FindIntersect([]chainsync.Point{point}); err != nil {
 		fmt.Printf("ERROR: FindIntersect: %s\n", err)
 		os.Exit(1)
 	}
