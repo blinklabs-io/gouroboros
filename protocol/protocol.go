@@ -25,6 +25,7 @@ type Protocol struct {
 	sendStateQueueChan chan Message
 	recvReadyChan      chan bool
 	sendReadyChan      chan bool
+	doneChan           chan bool
 }
 
 type ProtocolConfig struct {
@@ -79,6 +80,7 @@ func New(config ProtocolConfig) *Protocol {
 		sendStateQueueChan: make(chan Message, 50),
 		recvReadyChan:      make(chan bool, 1),
 		sendReadyChan:      make(chan bool, 1),
+		doneChan:           make(chan bool),
 	}
 	// Set initial state
 	p.setState(config.InitialState)
@@ -110,8 +112,16 @@ func (p *Protocol) sendLoop() {
 	var newState State
 	var err error
 	for {
-		// Wait until ready to send based on state map
-		<-p.sendReadyChan
+		select {
+		case <-p.sendReadyChan:
+			// We are ready to send based on state map
+		case <-p.doneChan:
+			// We are responsible for closing this channel as the sender, even through it
+			// was created by the muxer
+			close(p.muxerSendChan)
+			// Break out of send loop if we're shutting down
+			return
+		}
 		// Lock the state to prevent collisions
 		p.stateMutex.Lock()
 		// Check for queued state changes from previous pipelined sends
@@ -212,7 +222,12 @@ func (p *Protocol) recvLoop() {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
 		if !leftoverData {
 			// Wait for segment
-			segment := <-p.muxerRecvChan
+			segment, ok := <-p.muxerRecvChan
+			// Break out of receive loop if channel is closed
+			if !ok {
+				close(p.doneChan)
+				return
+			}
 			// Add segment payload to buffer
 			p.recvBuffer.Write(segment.Payload)
 			// Save whether it's a response
