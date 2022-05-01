@@ -1,6 +1,7 @@
 package ouroboros
 
 import (
+	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
@@ -21,6 +22,7 @@ type Ouroboros struct {
 	handshakeComplete  bool
 	muxer              *muxer.Muxer
 	ErrorChan          chan error
+	protoErrorChan     chan error
 	sendKeepAlives     bool
 	delayMuxerStart    bool
 	// Mini-protocols
@@ -68,6 +70,7 @@ func New(options *OuroborosOptions) (*Ouroboros, error) {
 		ErrorChan:                       options.ErrorChan,
 		sendKeepAlives:                  options.SendKeepAlives,
 		delayMuxerStart:                 options.DelayMuxerStart,
+		protoErrorChan:                  make(chan error, 10),
 	}
 	if o.ErrorChan == nil {
 		o.ErrorChan = make(chan error, 10)
@@ -98,16 +101,32 @@ func (o *Ouroboros) Dial(proto string, address string) error {
 	return nil
 }
 
+func (o *Ouroboros) Close() error {
+	// Gracefully stop the muxer
+	o.muxer.Stop()
+	// Close the underlying connection
+	if err := o.conn.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (o *Ouroboros) setupConnection() error {
 	o.muxer = muxer.New(o.conn)
 	// Start Goroutine to pass along errors from the muxer
 	go func() {
-		err := <-o.muxer.ErrorChan
-		o.ErrorChan <- err
+		err, ok := <-o.muxer.ErrorChan
+		// Break out of goroutine if muxer's error channel is closed
+		if !ok {
+			return
+		}
+		o.ErrorChan <- fmt.Errorf("muxer error: %s", err)
+		// Close connection on muxer errors
+		o.Close()
 	}()
 	protoOptions := protocol.ProtocolOptions{
 		Muxer:     o.muxer,
-		ErrorChan: o.ErrorChan,
+		ErrorChan: o.protoErrorChan,
 	}
 	var protoVersions []uint16
 	if o.useNodeToNodeProto {
@@ -131,13 +150,26 @@ func (o *Ouroboros) setupConnection() error {
 			return err
 		}
 	}
-	o.handshakeComplete = <-o.Handshake.Finished
+	// Wait for handshake completion or error
+	select {
+	case err := <-o.protoErrorChan:
+		return err
+	case finished := <-o.Handshake.Finished:
+		o.handshakeComplete = finished
+	}
 	// Provide the negotiated protocol version to the various mini-protocols
 	protoOptions.Version = o.Handshake.Version
 	// Drop bit used to signify NtC protocol versions
 	if protoOptions.Version > PROTOCOL_VERSION_NTC_FLAG {
 		protoOptions.Version = protoOptions.Version - PROTOCOL_VERSION_NTC_FLAG
 	}
+	// Start Goroutine to pass along errors from the mini-protocols
+	go func() {
+		err := <-o.protoErrorChan
+		o.ErrorChan <- fmt.Errorf("protocol error: %s", err)
+		// Close connection on mini-protocol errors
+		o.Close()
+	}()
 	// Configure the relevant mini-protocols
 	if o.useNodeToNodeProto {
 		versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
@@ -160,6 +192,7 @@ func (o *Ouroboros) setupConnection() error {
 			o.LocalStateQuery = localstatequery.New(protoOptions, o.localStateQueryCallbackConfig)
 		}
 	}
+	// Start muxer
 	if !o.delayMuxerStart {
 		o.muxer.Start()
 	}
