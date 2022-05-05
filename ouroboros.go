@@ -103,10 +103,14 @@ func (o *Ouroboros) Dial(proto string, address string) error {
 
 func (o *Ouroboros) Close() error {
 	// Gracefully stop the muxer
-	o.muxer.Stop()
+	if o.muxer != nil {
+		o.muxer.Stop()
+	}
 	// Close the underlying connection
-	if err := o.conn.Close(); err != nil {
-		return err
+	if o.conn != nil {
+		if err := o.conn.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
