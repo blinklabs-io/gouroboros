@@ -131,6 +131,7 @@ func (p *Protocol) sendLoop() {
 			newState, err = p.getNewState(msg)
 			if err != nil {
 				p.SendError(fmt.Errorf("%s: error sending message: %s", p.config.Name, err))
+				return
 			}
 			setNewState = true
 			// If there are no queued messages, set the new state now
@@ -159,6 +160,7 @@ func (p *Protocol) sendLoop() {
 				data, err = utils.CborEncode(msg)
 				if err != nil {
 					p.SendError(err)
+					return
 				}
 			}
 			payloadBuf.Write(data)
@@ -166,6 +168,7 @@ func (p *Protocol) sendLoop() {
 				newState, err = p.getNewState(msg)
 				if err != nil {
 					p.SendError(fmt.Errorf("%s: error sending message: %s", p.config.Name, err))
+					return
 				}
 				setNewState = true
 			}
@@ -247,21 +250,25 @@ func (p *Protocol) recvLoop() {
 				p.recvReadyChan <- true
 				continue
 			}
-			p.config.ErrorChan <- fmt.Errorf("%s: decode error: %s", p.config.Name, err)
+			p.SendError(fmt.Errorf("%s: decode error: %s", p.config.Name, err))
+			return
 		}
 		// Create Message object from CBOR
 		msgType := uint(tmpMsg[0].(uint64))
 		msgData := p.recvBuffer.Bytes()[:numBytesRead]
 		msg, err := p.config.MessageFromCborFunc(msgType, msgData)
 		if err != nil {
-			p.config.ErrorChan <- err
+			p.SendError(err)
+			return
 		}
 		if msg == nil {
-			p.config.ErrorChan <- fmt.Errorf("%s: received unknown message type: %#v", p.config.Name, tmpMsg)
+			p.SendError(fmt.Errorf("%s: received unknown message type: %#v", p.config.Name, tmpMsg))
+			return
 		}
 		// Handle message
 		if err := p.handleMessage(msg, isResponse); err != nil {
-			p.config.ErrorChan <- err
+			p.SendError(err)
+			return
 		}
 		if numBytesRead < p.recvBuffer.Len() {
 			// There is another message in the same muxer segment, so we reset the buffer with just
