@@ -110,10 +110,8 @@ type ReplyTxsFunc func(interface{}) error
 type DoneFunc func() error
 type HelloFunc func() error
 
-func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *TxSubmission {
-	t := &TxSubmission{
-		callbackConfig: callbackConfig,
-	}
+func New(options protocol.ProtocolOptions) *TxSubmission {
+	t := &TxSubmission{}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -128,6 +126,11 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *TxSu
 	}
 	t.Protocol = protocol.New(protoConfig)
 	return t
+}
+
+func (t *TxSubmission) Start(callbackConfig *CallbackConfig) {
+	t.callbackConfig = callbackConfig
+	t.Protocol.Start()
 }
 
 func (t *TxSubmission) messageHandler(msg protocol.Message, isResponse bool) error {

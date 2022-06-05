@@ -97,13 +97,11 @@ func testChainSync(f *globalFlags) {
 	conn := createClientConnection(f)
 	errorChan := make(chan error)
 	oOpts := &ouroboros.OuroborosOptions{
-		Conn:                     conn,
-		NetworkMagic:             uint32(f.networkMagic),
-		ErrorChan:                errorChan,
-		UseNodeToNodeProtocol:    f.ntnProto,
-		SendKeepAlives:           true,
-		ChainSyncCallbackConfig:  buildChainSyncCallbackConfig(),
-		BlockFetchCallbackConfig: buildBlockFetchCallbackConfig(),
+		Conn:                  conn,
+		NetworkMagic:          uint32(f.networkMagic),
+		ErrorChan:             errorChan,
+		UseNodeToNodeProtocol: f.ntnProto,
+		SendKeepAlives:        true,
 	}
 	go func() {
 		for {
@@ -117,6 +115,8 @@ func testChainSync(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
+	o.ChainSync.Start(buildChainSyncCallbackConfig())
+	o.BlockFetch.Start(buildBlockFetchCallbackConfig())
 
 	syncState.oConn = o
 	syncState.readyForNextBlockChan = make(chan bool)

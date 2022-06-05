@@ -114,10 +114,8 @@ type ReleaseFunc func() error
 type ReAcquireFunc func(interface{}) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *LocalStateQuery {
-	l := &LocalStateQuery{
-		callbackConfig: callbackConfig,
-	}
+func New(options protocol.ProtocolOptions) *LocalStateQuery {
+	l := &LocalStateQuery{}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -140,6 +138,11 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *Loca
 	}
 	l.Protocol = protocol.New(protoConfig)
 	return l
+}
+
+func (l *LocalStateQuery) Start(callbackConfig *CallbackConfig) {
+	l.callbackConfig = callbackConfig
+	l.Protocol.Start()
 }
 
 func (l *LocalStateQuery) messageHandler(msg protocol.Message, isResponse bool) error {

@@ -51,12 +51,11 @@ func testLocalTxSubmission(f *globalFlags) {
 	conn := createClientConnection(f)
 	errorChan := make(chan error)
 	oOpts := &ouroboros.OuroborosOptions{
-		Conn:                            conn,
-		NetworkMagic:                    uint32(f.networkMagic),
-		ErrorChan:                       errorChan,
-		UseNodeToNodeProtocol:           f.ntnProto,
-		SendKeepAlives:                  true,
-		LocalTxSubmissionCallbackConfig: buildLocalTxSubmissionCallbackConfig(),
+		Conn:                  conn,
+		NetworkMagic:          uint32(f.networkMagic),
+		ErrorChan:             errorChan,
+		UseNodeToNodeProtocol: f.ntnProto,
+		SendKeepAlives:        true,
 	}
 	go func() {
 		for {
@@ -70,6 +69,7 @@ func testLocalTxSubmission(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
+	o.LocalTxSubmission.Start(buildLocalTxSubmissionCallbackConfig())
 
 	txData, err := ioutil.ReadFile(localTxSubmissionFlags.txFile)
 	if err != nil {

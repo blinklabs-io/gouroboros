@@ -108,7 +108,7 @@ type ChainSyncIntersectFoundFunc func(interface{}, interface{}) error
 type ChainSyncIntersectNotFoundFunc func(interface{}) error
 type ChainSyncDoneFunc func() error
 
-func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConfig) *ChainSync {
+func New(options protocol.ProtocolOptions) *ChainSync {
 	// Use node-to-client protocol ID
 	protocolId := PROTOCOL_ID_NTC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -117,9 +117,7 @@ func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConf
 		protocolId = PROTOCOL_ID_NTN
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
-	c := &ChainSync{
-		callbackConfig: callbackConfig,
-	}
+	c := &ChainSync{}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          protocolId,
@@ -134,6 +132,11 @@ func New(options protocol.ProtocolOptions, callbackConfig *ChainSyncCallbackConf
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+func (c *ChainSync) Start(callbackConfig *ChainSyncCallbackConfig) {
+	c.callbackConfig = callbackConfig
+	c.Protocol.Start()
 }
 
 func (c *ChainSync) messageHandler(msg protocol.Message, isResponse bool) error {
