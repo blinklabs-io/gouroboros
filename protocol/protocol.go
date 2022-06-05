@@ -70,24 +70,27 @@ type MessageHandlerFunc func(Message, bool) error
 type MessageFromCborFunc func(uint, []byte) (Message, error)
 
 func New(config ProtocolConfig) *Protocol {
-	muxerSendChan, muxerRecvChan := config.Muxer.RegisterProtocol(config.ProtocolId)
 	p := &Protocol{
-		config:             config,
-		muxerSendChan:      muxerSendChan,
-		muxerRecvChan:      muxerRecvChan,
-		recvBuffer:         bytes.NewBuffer(nil),
-		sendQueueChan:      make(chan Message, 50),
-		sendStateQueueChan: make(chan Message, 50),
-		recvReadyChan:      make(chan bool, 1),
-		sendReadyChan:      make(chan bool, 1),
-		doneChan:           make(chan bool),
+		config: config,
 	}
+	return p
+}
+
+func (p *Protocol) Start() {
+	// Register protocol with muxer
+	p.muxerSendChan, p.muxerRecvChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
+	// Create buffers and channels
+	p.recvBuffer = bytes.NewBuffer(nil)
+	p.sendQueueChan = make(chan Message, 50)
+	p.sendStateQueueChan = make(chan Message, 50)
+	p.recvReadyChan = make(chan bool, 1)
+	p.sendReadyChan = make(chan bool, 1)
+	p.doneChan = make(chan bool)
 	// Set initial state
-	p.setState(config.InitialState)
+	p.setState(p.config.InitialState)
 	// Start our send and receive Goroutines
 	go p.recvLoop()
 	go p.sendLoop()
-	return p
 }
 
 func (p *Protocol) Mode() ProtocolMode {

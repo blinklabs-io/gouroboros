@@ -65,10 +65,8 @@ type KeepAliveFunc func(uint16) error
 type KeepAliveResponseFunc func(uint16) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions, callbackConfig *KeepAliveCallbackConfig) *KeepAlive {
-	k := &KeepAlive{
-		callbackConfig: callbackConfig,
-	}
+func New(options protocol.ProtocolOptions) *KeepAlive {
+	k := &KeepAlive{}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -83,6 +81,12 @@ func New(options protocol.ProtocolOptions, callbackConfig *KeepAliveCallbackConf
 	}
 	k.Protocol = protocol.New(protoConfig)
 	return k
+}
+
+func (k *KeepAlive) Start(callbackConfig *KeepAliveCallbackConfig) {
+	k.callbackConfig = callbackConfig
+	k.Protocol.Start()
+	k.startTimer()
 }
 
 func (k *KeepAlive) messageHandler(msg protocol.Message, isResponse bool) error {
@@ -100,20 +104,12 @@ func (k *KeepAlive) messageHandler(msg protocol.Message, isResponse bool) error 
 	return err
 }
 
-func (k *KeepAlive) Start() {
+func (k *KeepAlive) startTimer() {
 	k.timer = time.AfterFunc(KEEP_ALIVE_PERIOD*time.Second, func() {
 		if err := k.KeepAlive(0); err != nil {
 			k.SendError(err)
 		}
 	})
-}
-
-func (k *KeepAlive) Stop() {
-	if k.timer != nil {
-		k.timer.Stop()
-	}
-	// Remove timer, since we check for its presence elsewhere
-	k.timer = nil
 }
 
 func (k *KeepAlive) KeepAlive(cookie uint16) error {
@@ -137,7 +133,7 @@ func (k *KeepAlive) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgKeepAliveResponse)
 	// Start the timer again if we had one previously
 	if k.timer != nil {
-		defer k.Start()
+		defer k.startTimer()
 	}
 	if k.callbackConfig != nil && k.callbackConfig.KeepAliveResponseFunc != nil {
 		// Call the user callback function

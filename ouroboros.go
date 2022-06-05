@@ -26,51 +26,35 @@ type Ouroboros struct {
 	sendKeepAlives     bool
 	delayMuxerStart    bool
 	// Mini-protocols
-	Handshake                       *handshake.Handshake
-	ChainSync                       *chainsync.ChainSync
-	chainSyncCallbackConfig         *chainsync.ChainSyncCallbackConfig
-	BlockFetch                      *blockfetch.BlockFetch
-	blockFetchCallbackConfig        *blockfetch.BlockFetchCallbackConfig
-	KeepAlive                       *keepalive.KeepAlive
-	keepAliveCallbackConfig         *keepalive.KeepAliveCallbackConfig
-	LocalTxSubmission               *localtxsubmission.LocalTxSubmission
-	localTxSubmissionCallbackConfig *localtxsubmission.CallbackConfig
-	LocalStateQuery                 *localstatequery.LocalStateQuery
-	localStateQueryCallbackConfig   *localstatequery.CallbackConfig
-	TxSubmission                    *txsubmission.TxSubmission
-	txSubmissionCallbackConfig      *txsubmission.CallbackConfig
+	Handshake         *handshake.Handshake
+	ChainSync         *chainsync.ChainSync
+	BlockFetch        *blockfetch.BlockFetch
+	KeepAlive         *keepalive.KeepAlive
+	LocalTxSubmission *localtxsubmission.LocalTxSubmission
+	LocalStateQuery   *localstatequery.LocalStateQuery
+	TxSubmission      *txsubmission.TxSubmission
 }
 
 type OuroborosOptions struct {
-	Conn                            net.Conn
-	NetworkMagic                    uint32
-	ErrorChan                       chan error
-	Server                          bool
-	UseNodeToNodeProtocol           bool
-	SendKeepAlives                  bool
-	DelayMuxerStart                 bool
-	ChainSyncCallbackConfig         *chainsync.ChainSyncCallbackConfig
-	BlockFetchCallbackConfig        *blockfetch.BlockFetchCallbackConfig
-	KeepAliveCallbackConfig         *keepalive.KeepAliveCallbackConfig
-	LocalTxSubmissionCallbackConfig *localtxsubmission.CallbackConfig
-	LocalStateQueryCallbackConfig   *localstatequery.CallbackConfig
+	Conn                  net.Conn
+	NetworkMagic          uint32
+	ErrorChan             chan error
+	Server                bool
+	UseNodeToNodeProtocol bool
+	SendKeepAlives        bool
+	DelayMuxerStart       bool
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
 	o := &Ouroboros{
-		conn:                            options.Conn,
-		networkMagic:                    options.NetworkMagic,
-		server:                          options.Server,
-		useNodeToNodeProto:              options.UseNodeToNodeProtocol,
-		chainSyncCallbackConfig:         options.ChainSyncCallbackConfig,
-		blockFetchCallbackConfig:        options.BlockFetchCallbackConfig,
-		keepAliveCallbackConfig:         options.KeepAliveCallbackConfig,
-		localTxSubmissionCallbackConfig: options.LocalTxSubmissionCallbackConfig,
-		localStateQueryCallbackConfig:   options.LocalStateQueryCallbackConfig,
-		ErrorChan:                       options.ErrorChan,
-		sendKeepAlives:                  options.SendKeepAlives,
-		delayMuxerStart:                 options.DelayMuxerStart,
-		protoErrorChan:                  make(chan error, 10),
+		conn:               options.Conn,
+		networkMagic:       options.NetworkMagic,
+		server:             options.Server,
+		useNodeToNodeProto: options.UseNodeToNodeProtocol,
+		ErrorChan:          options.ErrorChan,
+		sendKeepAlives:     options.SendKeepAlives,
+		delayMuxerStart:    options.DelayMuxerStart,
+		protoErrorChan:     make(chan error, 10),
 	}
 	if o.ErrorChan == nil {
 		o.ErrorChan = make(chan error, 10)
@@ -147,6 +131,7 @@ func (o *Ouroboros) setupConnection() error {
 	}
 	// Perform handshake
 	o.Handshake = handshake.New(protoOptions, protoVersions)
+	o.Handshake.Start()
 	// TODO: figure out better way to signify automatic handshaking and returning the chosen version
 	if !o.server {
 		err := o.Handshake.ProposeVersions(protoVersions, o.networkMagic)
@@ -178,22 +163,22 @@ func (o *Ouroboros) setupConnection() error {
 	if o.useNodeToNodeProto {
 		versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
-		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
-		o.BlockFetch = blockfetch.New(protoOptions, o.blockFetchCallbackConfig)
-		o.TxSubmission = txsubmission.New(protoOptions, o.txSubmissionCallbackConfig)
+		o.ChainSync = chainsync.New(protoOptions)
+		o.BlockFetch = blockfetch.New(protoOptions)
+		o.TxSubmission = txsubmission.New(protoOptions)
 		if versionNtN.EnableKeepAliveProtocol {
-			o.KeepAlive = keepalive.New(protoOptions, o.keepAliveCallbackConfig)
+			o.KeepAlive = keepalive.New(protoOptions)
 			if o.sendKeepAlives {
-				o.KeepAlive.Start()
+				o.KeepAlive.Start(nil)
 			}
 		}
 	} else {
 		versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		o.ChainSync = chainsync.New(protoOptions, o.chainSyncCallbackConfig)
-		o.LocalTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionCallbackConfig)
+		o.ChainSync = chainsync.New(protoOptions)
+		o.LocalTxSubmission = localtxsubmission.New(protoOptions)
 		if versionNtC.EnableLocalQueryProtocol {
-			o.LocalStateQuery = localstatequery.New(protoOptions, o.localStateQueryCallbackConfig)
+			o.LocalStateQuery = localstatequery.New(protoOptions)
 		}
 	}
 	// Start muxer

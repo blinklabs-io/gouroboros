@@ -82,10 +82,8 @@ type BlockFetchNoBlocksFunc func() error
 type BlockFetchBlockFunc func(uint, interface{}) error
 type BlockFetchBatchDoneFunc func() error
 
-func New(options protocol.ProtocolOptions, callbackConfig *BlockFetchCallbackConfig) *BlockFetch {
-	b := &BlockFetch{
-		callbackConfig: callbackConfig,
-	}
+func New(options protocol.ProtocolOptions) *BlockFetch {
+	b := &BlockFetch{}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -100,6 +98,11 @@ func New(options protocol.ProtocolOptions, callbackConfig *BlockFetchCallbackCon
 	}
 	b.Protocol = protocol.New(protoConfig)
 	return b
+}
+
+func (b *BlockFetch) Start(callbackConfig *BlockFetchCallbackConfig) {
+	b.callbackConfig = callbackConfig
+	b.Protocol.Start()
 }
 
 func (b *BlockFetch) messageHandler(msg protocol.Message, isResponse bool) error {

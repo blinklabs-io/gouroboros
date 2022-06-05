@@ -75,6 +75,10 @@ func New(options protocol.ProtocolOptions, allowedVersions []uint16) *Handshake 
 	return h
 }
 
+func (h *Handshake) Start() {
+	h.Protocol.Start()
+}
+
 func (h *Handshake) handleMessage(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {

@@ -62,10 +62,8 @@ type AcceptTxFunc func() error
 type RejectTxFunc func(interface{}) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *LocalTxSubmission {
-	l := &LocalTxSubmission{
-		callbackConfig: callbackConfig,
-	}
+func New(options protocol.ProtocolOptions) *LocalTxSubmission {
+	l := &LocalTxSubmission{}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -80,6 +78,11 @@ func New(options protocol.ProtocolOptions, callbackConfig *CallbackConfig) *Loca
 	}
 	l.Protocol = protocol.New(protoConfig)
 	return l
+}
+
+func (l *LocalTxSubmission) Start(callbackConfig *CallbackConfig) {
+	l.callbackConfig = callbackConfig
+	l.Protocol.Start()
 }
 
 func (l *LocalTxSubmission) messageHandler(msg protocol.Message, isResponse bool) error {
