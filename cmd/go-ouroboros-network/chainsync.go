@@ -47,6 +47,8 @@ var eraIntersect = map[int]map[string][]interface{}{
 		"mary": []interface{}{18014387, "9914c8da22a833a777d8fc1f735d2dbba70b99f15d765b6c6ee45fe322d92d93"},
 		// Last block of epoch 153 (Mary era)
 		"alonzo": []interface{}{36158304, "2b95ce628d36c3f8f37a32c2942b48e4f9295ccfe8190bcbc1f012e1e97c79eb"},
+		// Last block of epoch 214 (Alonzo era)
+		"babbage": []interface{}{62510369, "d931221f9bc4cae34de422d9f4281a2b0344e86aac6b31eb54e2ee90f44a09b9"},
 	},
 	MAINNET_MAGIC: map[string][]interface{}{
 		"byron": []interface{}{},
@@ -58,6 +60,7 @@ var eraIntersect = map[int]map[string][]interface{}{
 		"mary": []interface{}{23068793, "69c44ac1dda2ec74646e4223bc804d9126f719b1c245dadc2ad65e8de1b276d7"},
 		// Last block of epoch 289 (Mary era)
 		"alonzo": []interface{}{39916796, "e72579ff89dc9ed325b723a33624b596c08141c7bd573ecfff56a1f7229e4d09"},
+		// TODO: add Babbage starting point after mainnet hard fork
 	},
 }
 
@@ -184,8 +187,12 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
 			syncState.byronEpochSlot = uint64(h.ConsensusData.SlotId.Slot)
 			blockSlot = syncState.byronEpochBaseSlot + syncState.byronEpochSlot
 			blockHash, _ = hex.DecodeString(h.Id())
-		default:
+		case block.BLOCK_TYPE_SHELLEY, block.BLOCK_TYPE_ALLEGRA, block.BLOCK_TYPE_MARY, block.BLOCK_TYPE_ALONZO:
 			h := blockData.(*block.ShelleyBlockHeader)
+			blockSlot = h.Body.Slot
+			blockHash, _ = hex.DecodeString(h.Id())
+		case block.BLOCK_TYPE_BABBAGE:
+			h := blockData.(*block.BabbageBlockHeader)
 			blockSlot = h.Body.Slot
 			blockHash, _ = hex.DecodeString(h.Id())
 		}
@@ -213,6 +220,9 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
 		case block.BLOCK_TYPE_ALONZO:
 			b := blockData.(*block.AlonzoBlock)
 			fmt.Printf("era = Alonzo, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
+		case block.BLOCK_TYPE_BABBAGE:
+			b := blockData.(*block.BabbageBlock)
+			fmt.Printf("era = Babbage, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
 		default:
 			fmt.Printf("unsupported (so far) block type %d\n", blockType)
 			fmt.Printf("%s\n", utils.DumpCborStructure(blockData, ""))
@@ -267,6 +277,9 @@ func blockFetchBlockHandler(blockType uint, blockData interface{}) error {
 	case block.BLOCK_TYPE_ALONZO:
 		b := blockData.(*block.AlonzoBlock)
 		fmt.Printf("era = Alonzo, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
+	case block.BLOCK_TYPE_BABBAGE:
+		b := blockData.(*block.BabbageBlock)
+		fmt.Printf("era = Babbage, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
 	default:
 		fmt.Printf("unsupported (so far) block type %d\n", blockType)
 		fmt.Printf("%s\n", utils.DumpCborStructure(blockData, ""))

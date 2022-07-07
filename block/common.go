@@ -75,8 +75,15 @@ func NewBlockFromCbor(blockType uint, data []byte) (interface{}, error) {
 		}
 		alonzoBlock.Header.id, err = generateBlockHeaderHash(rawBlock[0], nil)
 		return &alonzoBlock, err
+	case BLOCK_TYPE_BABBAGE:
+		var babbageBlock BabbageBlock
+		if err := cbor.Unmarshal(data, &babbageBlock); err != nil {
+			return nil, fmt.Errorf("chain-sync: decode error: %s", err)
+		}
+		babbageBlock.Header.id, err = generateBlockHeaderHash(rawBlock[0], nil)
+		return &babbageBlock, err
 	}
-	return nil, nil
+	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
 }
 
 func NewBlockHeaderFromCbor(blockType uint, data []byte) (interface{}, error) {
@@ -102,14 +109,22 @@ func NewBlockHeaderFromCbor(blockType uint, data []byte) (interface{}, error) {
 		// get the correct value
 		byronMainBlockHeader.id, err = generateBlockHeaderHash(data, []byte{0x82, BLOCK_TYPE_BYRON_MAIN})
 		return &byronMainBlockHeader, err
-	default:
+	case BLOCK_TYPE_SHELLEY, BLOCK_TYPE_ALLEGRA, BLOCK_TYPE_MARY, BLOCK_TYPE_ALONZO:
 		var shelleyBlockHeader ShelleyBlockHeader
 		if err := cbor.Unmarshal(data, &shelleyBlockHeader); err != nil {
 			return nil, fmt.Errorf("chain-sync: decode error: %s", err)
 		}
 		shelleyBlockHeader.id, err = generateBlockHeaderHash(data, nil)
 		return &shelleyBlockHeader, err
+	case BLOCK_TYPE_BABBAGE:
+		var babbageBlockHeader BabbageBlockHeader
+		if err := cbor.Unmarshal(data, &babbageBlockHeader); err != nil {
+			return nil, fmt.Errorf("chain-sync: decode error: %s", err)
+		}
+		babbageBlockHeader.id, err = generateBlockHeaderHash(data, nil)
+		return &babbageBlockHeader, err
 	}
+	return nil, fmt.Errorf("unknown node-to-node block type: %d", blockType)
 }
 
 func generateBlockHeaderHash(data []byte, prefix []byte) (string, error) {
