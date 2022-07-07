@@ -202,6 +202,7 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 				block.BLOCK_HEADER_TYPE_ALLEGRA: block.BLOCK_TYPE_ALLEGRA,
 				block.BLOCK_HEADER_TYPE_MARY:    block.BLOCK_TYPE_MARY,
 				block.BLOCK_HEADER_TYPE_ALONZO:  block.BLOCK_TYPE_ALONZO,
+				block.BLOCK_HEADER_TYPE_BABBAGE: block.BLOCK_TYPE_BABBAGE,
 			}
 			blockType = blockTypeMap[blockEra]
 			var err error

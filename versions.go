@@ -13,6 +13,7 @@ type ProtocolVersionNtC struct {
 	EnableAllegraEra             bool
 	EnableMaryEra                bool
 	EnableAlonzoEra              bool
+	EnableBabbageEra             bool
 	EnableLocalTxMonitorProtocol bool
 }
 
@@ -47,6 +48,15 @@ var ProtocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 		EnableAlonzoEra:              true,
 		EnableLocalTxMonitorProtocol: true,
 	},
+	13: ProtocolVersionNtC{
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableLocalTxMonitorProtocol: true,
+	},
 }
 
 type ProtocolVersionNtN struct {
@@ -57,6 +67,7 @@ type ProtocolVersionNtN struct {
 	EnableAllegraEra        bool
 	EnableMaryEra           bool
 	EnableAlonzoEra         bool
+	EnableBabbageEra        bool
 	EnableFullDuplex        bool
 }
 
@@ -75,6 +86,15 @@ var ProtocolVersionMapNtN = map[uint16]ProtocolVersionNtN{
 		EnableAllegraEra:        true,
 		EnableMaryEra:           true,
 		EnableAlonzoEra:         true,
+		EnableFullDuplex:        true,
+	},
+	9: ProtocolVersionNtN{
+		EnableShelleyEra:        true,
+		EnableKeepAliveProtocol: true,
+		EnableAllegraEra:        true,
+		EnableMaryEra:           true,
+		EnableAlonzoEra:         true,
+		EnableBabbageEra:        true,
 		EnableFullDuplex:        true,
 	},
 }
