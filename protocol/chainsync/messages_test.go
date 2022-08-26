@@ -3,7 +3,7 @@ package chainsync
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/block"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"io/ioutil"
@@ -108,7 +108,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 		{
 			CborHex: string(readFile("testdata/rollforward_ntn_byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex")),
 			Message: NewMsgRollForwardNtN(
-				block.BLOCK_HEADER_TYPE_BYRON,
+				ledger.BLOCK_HEADER_TYPE_BYRON,
 				0,
 				hexDecode(string(readFile("testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex"))),
 				Tip{
@@ -128,7 +128,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 			{
 				CborHex: string(readFile("testdata/rollforward_ntn_byron_main_block_testnet_388a82f053603f3552717d61644a353188f2d5500f4c6354cc1ad27a36a7ea91.hex")),
 				Message: NewMsgRollForwardNtN(
-					block.BLOCK_HEADER_TYPE_BYRON,
+					ledger.BLOCK_HEADER_TYPE_BYRON,
 					1,
 					hexDecode(string(readFile("testdata/byron_main_block_testnet_xxxx.hex"))),
 					Tip{
@@ -147,7 +147,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 		{
 			CborHex: string(readFile("testdata/rollforward_ntn_shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex")),
 			Message: NewMsgRollForwardNtN(
-				block.BLOCK_HEADER_TYPE_SHELLEY,
+				ledger.BLOCK_HEADER_TYPE_SHELLEY,
 				0,
 				hexDecode(string(readFile("testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex"))),
 				Tip{

@@ -2,7 +2,7 @@ package blockfetch
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/block"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
@@ -158,7 +158,7 @@ func (b *BlockFetch) handleBlock(msgGeneric protocol.Message) error {
 	if _, err := utils.CborDecode(msg.WrappedBlock, &wrappedBlock); err != nil {
 		return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 	}
-	blk, err := block.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
+	blk, err := ledger.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,7 @@ package chainsync
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/block"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -188,25 +188,25 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 		var blockType uint
 		blockEra := msg.WrappedHeader.Era
 		switch blockEra {
-		case block.BLOCK_HEADER_TYPE_BYRON:
+		case ledger.BLOCK_HEADER_TYPE_BYRON:
 			blockType = msg.WrappedHeader.ByronType()
 			var err error
-			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
+			blockHeader, err = ledger.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
 			if err != nil {
 				return err
 			}
 		default:
 			// Map block header types to block types
 			blockTypeMap := map[uint]uint{
-				block.BLOCK_HEADER_TYPE_SHELLEY: block.BLOCK_TYPE_SHELLEY,
-				block.BLOCK_HEADER_TYPE_ALLEGRA: block.BLOCK_TYPE_ALLEGRA,
-				block.BLOCK_HEADER_TYPE_MARY:    block.BLOCK_TYPE_MARY,
-				block.BLOCK_HEADER_TYPE_ALONZO:  block.BLOCK_TYPE_ALONZO,
-				block.BLOCK_HEADER_TYPE_BABBAGE: block.BLOCK_TYPE_BABBAGE,
+				ledger.BLOCK_HEADER_TYPE_SHELLEY: ledger.BLOCK_TYPE_SHELLEY,
+				ledger.BLOCK_HEADER_TYPE_ALLEGRA: ledger.BLOCK_TYPE_ALLEGRA,
+				ledger.BLOCK_HEADER_TYPE_MARY:    ledger.BLOCK_TYPE_MARY,
+				ledger.BLOCK_HEADER_TYPE_ALONZO:  ledger.BLOCK_TYPE_ALONZO,
+				ledger.BLOCK_HEADER_TYPE_BABBAGE: ledger.BLOCK_TYPE_BABBAGE,
 			}
 			blockType = blockTypeMap[blockEra]
 			var err error
-			blockHeader, err = block.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
+			blockHeader, err = ledger.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
 			if err != nil {
 				return err
 			}
@@ -215,7 +215,7 @@ func (c *ChainSync) handleRollForward(msgGeneric protocol.Message) error {
 		return c.callbackConfig.RollForwardFunc(blockType, blockHeader)
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
-		blk, err := block.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
+		blk, err := ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
 		if err != nil {
 			return err
 		}

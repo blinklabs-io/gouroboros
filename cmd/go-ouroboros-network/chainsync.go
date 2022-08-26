@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	ouroboros "github.com/cloudstruct/go-ouroboros-network"
-	"github.com/cloudstruct/go-ouroboros-network/block"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
@@ -173,26 +173,26 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
 		var blockSlot uint64
 		var blockHash []byte
 		switch blockType {
-		case block.BLOCK_TYPE_BYRON_EBB:
-			h := blockData.(*block.ByronEpochBoundaryBlockHeader)
+		case ledger.BLOCK_TYPE_BYRON_EBB:
+			h := blockData.(*ledger.ByronEpochBoundaryBlockHeader)
 			//fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", h.ConsensusData.Epoch, h.Id())
 			if syncState.byronEpochSlot > 0 {
 				syncState.byronEpochBaseSlot += syncState.byronEpochSlot + 1
 			}
 			blockSlot = syncState.byronEpochBaseSlot
 			blockHash, _ = hex.DecodeString(h.Id())
-		case block.BLOCK_TYPE_BYRON_MAIN:
-			h := blockData.(*block.ByronMainBlockHeader)
+		case ledger.BLOCK_TYPE_BYRON_MAIN:
+			h := blockData.(*ledger.ByronMainBlockHeader)
 			//fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", h.ConsensusData.SlotId.Epoch, h.ConsensusData.SlotId.Slot, h.Id())
 			syncState.byronEpochSlot = uint64(h.ConsensusData.SlotId.Slot)
 			blockSlot = syncState.byronEpochBaseSlot + syncState.byronEpochSlot
 			blockHash, _ = hex.DecodeString(h.Id())
-		case block.BLOCK_TYPE_SHELLEY, block.BLOCK_TYPE_ALLEGRA, block.BLOCK_TYPE_MARY, block.BLOCK_TYPE_ALONZO:
-			h := blockData.(*block.ShelleyBlockHeader)
+		case ledger.BLOCK_TYPE_SHELLEY, ledger.BLOCK_TYPE_ALLEGRA, ledger.BLOCK_TYPE_MARY, ledger.BLOCK_TYPE_ALONZO:
+			h := blockData.(*ledger.ShelleyBlockHeader)
 			blockSlot = h.Body.Slot
 			blockHash, _ = hex.DecodeString(h.Id())
-		case block.BLOCK_TYPE_BABBAGE:
-			h := blockData.(*block.BabbageBlockHeader)
+		case ledger.BLOCK_TYPE_BABBAGE:
+			h := blockData.(*ledger.BabbageBlockHeader)
 			blockSlot = h.Body.Slot
 			blockHash, _ = hex.DecodeString(h.Id())
 		}
@@ -202,26 +202,26 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
 		}
 	} else {
 		switch blockType {
-		case block.BLOCK_TYPE_BYRON_EBB:
-			b := blockData.(*block.ByronEpochBoundaryBlock)
+		case ledger.BLOCK_TYPE_BYRON_EBB:
+			b := blockData.(*ledger.ByronEpochBoundaryBlock)
 			fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", b.Header.ConsensusData.Epoch, b.Id())
-		case block.BLOCK_TYPE_BYRON_MAIN:
-			b := blockData.(*block.ByronMainBlock)
+		case ledger.BLOCK_TYPE_BYRON_MAIN:
+			b := blockData.(*ledger.ByronMainBlock)
 			fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", b.Header.ConsensusData.SlotId.Epoch, b.Header.ConsensusData.SlotId.Slot, b.Id())
-		case block.BLOCK_TYPE_SHELLEY:
-			b := blockData.(*block.ShelleyBlock)
+		case ledger.BLOCK_TYPE_SHELLEY:
+			b := blockData.(*ledger.ShelleyBlock)
 			fmt.Printf("era = Shelley, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-		case block.BLOCK_TYPE_ALLEGRA:
-			b := blockData.(*block.AllegraBlock)
+		case ledger.BLOCK_TYPE_ALLEGRA:
+			b := blockData.(*ledger.AllegraBlock)
 			fmt.Printf("era = Allegra, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-		case block.BLOCK_TYPE_MARY:
-			b := blockData.(*block.MaryBlock)
+		case ledger.BLOCK_TYPE_MARY:
+			b := blockData.(*ledger.MaryBlock)
 			fmt.Printf("era = Mary, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-		case block.BLOCK_TYPE_ALONZO:
-			b := blockData.(*block.AlonzoBlock)
+		case ledger.BLOCK_TYPE_ALONZO:
+			b := blockData.(*ledger.AlonzoBlock)
 			fmt.Printf("era = Alonzo, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-		case block.BLOCK_TYPE_BABBAGE:
-			b := blockData.(*block.BabbageBlock)
+		case ledger.BLOCK_TYPE_BABBAGE:
+			b := blockData.(*ledger.BabbageBlock)
 			fmt.Printf("era = Babbage, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
 		default:
 			fmt.Printf("unsupported (so far) block type %d\n", blockType)
@@ -259,26 +259,26 @@ func blockFetchNoBlocksHandler() error {
 
 func blockFetchBlockHandler(blockType uint, blockData interface{}) error {
 	switch blockType {
-	case block.BLOCK_TYPE_BYRON_EBB:
-		b := blockData.(*block.ByronEpochBoundaryBlock)
+	case ledger.BLOCK_TYPE_BYRON_EBB:
+		b := blockData.(*ledger.ByronEpochBoundaryBlock)
 		fmt.Printf("era = Byron (EBB), id = %s\n", b.Id())
-	case block.BLOCK_TYPE_BYRON_MAIN:
-		b := blockData.(*block.ByronMainBlock)
+	case ledger.BLOCK_TYPE_BYRON_MAIN:
+		b := blockData.(*ledger.ByronMainBlock)
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", b.Header.ConsensusData.SlotId.Epoch, b.Header.ConsensusData.SlotId.Slot, b.Id())
-	case block.BLOCK_TYPE_SHELLEY:
-		b := blockData.(*block.ShelleyBlock)
+	case ledger.BLOCK_TYPE_SHELLEY:
+		b := blockData.(*ledger.ShelleyBlock)
 		fmt.Printf("era = Shelley, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-	case block.BLOCK_TYPE_ALLEGRA:
-		b := blockData.(*block.AllegraBlock)
+	case ledger.BLOCK_TYPE_ALLEGRA:
+		b := blockData.(*ledger.AllegraBlock)
 		fmt.Printf("era = Allegra, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-	case block.BLOCK_TYPE_MARY:
-		b := blockData.(*block.MaryBlock)
+	case ledger.BLOCK_TYPE_MARY:
+		b := blockData.(*ledger.MaryBlock)
 		fmt.Printf("era = Mary, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-	case block.BLOCK_TYPE_ALONZO:
-		b := blockData.(*block.AlonzoBlock)
+	case ledger.BLOCK_TYPE_ALONZO:
+		b := blockData.(*ledger.AlonzoBlock)
 		fmt.Printf("era = Alonzo, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
-	case block.BLOCK_TYPE_BABBAGE:
-		b := blockData.(*block.BabbageBlock)
+	case ledger.BLOCK_TYPE_BABBAGE:
+		b := blockData.(*ledger.BabbageBlock)
 		fmt.Printf("era = Babbage, slot = %d, block_no = %d, id = %s\n", b.Header.Body.Slot, b.Header.Body.BlockNumber, b.Id())
 	default:
 		fmt.Printf("unsupported (so far) block type %d\n", blockType)
