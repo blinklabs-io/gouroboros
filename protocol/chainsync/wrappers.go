@@ -1,7 +1,7 @@
 package chainsync
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/block"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"github.com/fxamacker/cbor/v2"
 )
@@ -36,7 +36,7 @@ func NewWrappedHeader(era uint, byronType uint, blockCbor []byte) *WrappedHeader
 		byronType: byronType,
 	}
 	// Record the original block size for Byron blocks
-	if era == block.BLOCK_HEADER_TYPE_BYRON {
+	if era == ledger.BLOCK_HEADER_TYPE_BYRON {
 		// TODO: figure out why we have to add 2 to the length to match official message CBOR
 		w.byronSize = uint(len(blockCbor)) + 2
 	}
@@ -62,7 +62,7 @@ func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
 	}
 	w.Era = tmpHeader.Era
 	switch w.Era {
-	case block.BLOCK_HEADER_TYPE_BYRON:
+	case ledger.BLOCK_HEADER_TYPE_BYRON:
 		var wrappedHeaderByron wrappedHeaderByron
 		if _, err := utils.CborDecode(tmpHeader.HeaderRaw, &wrappedHeaderByron); err != nil {
 			return err
@@ -85,7 +85,7 @@ func (w *WrappedHeader) MarshalCBOR() ([]byte, error) {
 		w.Era,
 	}
 	switch w.Era {
-	case block.BLOCK_HEADER_TYPE_BYRON:
+	case ledger.BLOCK_HEADER_TYPE_BYRON:
 		tmp := []interface{}{
 			[]interface{}{
 				w.byronType,

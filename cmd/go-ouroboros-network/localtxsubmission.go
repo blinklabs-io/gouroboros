@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	ouroboros "github.com/cloudstruct/go-ouroboros-network"
-	"github.com/cloudstruct/go-ouroboros-network/block"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
 	"io/ioutil"
 	"os"
@@ -90,7 +90,7 @@ func testLocalTxSubmission(f *globalFlags) {
 		os.Exit(1)
 	}
 
-	if err = o.LocalTxSubmission.SubmitTx(block.TX_TYPE_ALONZO, txBytes); err != nil {
+	if err = o.LocalTxSubmission.SubmitTx(ledger.TX_TYPE_ALONZO, txBytes); err != nil {
 		fmt.Printf("Error submitting transaction: %s\n", err)
 		os.Exit(1)
 	}
