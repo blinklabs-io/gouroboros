@@ -80,15 +80,18 @@ func NewMsgAcceptTx() *MsgAcceptTx {
 
 type MsgRejectTx struct {
 	protocol.MessageBase
-	Reason interface{}
+	// TODO: find a better way to handle this
+	// We use RawMessage here because the failure reason can often contain
+	// structures that we can't currently parse, such as maps with []uint8 keys
+	Reason cbor.RawMessage
 }
 
-func NewMsgRejectTx(reason interface{}) *MsgRejectTx {
+func NewMsgRejectTx(reasonCbor []byte) *MsgRejectTx {
 	m := &MsgRejectTx{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REJECT_TX,
 		},
-		Reason: reason,
+		Reason: cbor.RawMessage(reasonCbor),
 	}
 	return m
 }
