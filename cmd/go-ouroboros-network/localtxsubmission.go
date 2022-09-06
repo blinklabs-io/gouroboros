@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	ouroboros "github.com/cloudstruct/go-ouroboros-network"
 	"github.com/cloudstruct/go-cardano-ledger"
+	ouroboros "github.com/cloudstruct/go-ouroboros-network"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
 	"io/ioutil"
 	"os"
@@ -105,8 +105,8 @@ func localTxSubmissionAcceptTxHandler() error {
 	return nil
 }
 
-func localTxSubmissionRejectTxHandler(reason interface{}) error {
-	fmt.Printf("The transaction was rejected: %#v\n", reason)
+func localTxSubmissionRejectTxHandler(reasonCbor []byte) error {
+	fmt.Printf("The transaction was rejected (reason in hex-encoded CBOR): %#v\n", reasonCbor)
 	os.Exit(1)
 	return nil
 }

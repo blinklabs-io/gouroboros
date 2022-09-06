@@ -59,7 +59,7 @@ type CallbackConfig struct {
 // Callback function types
 type SubmitTxFunc func(interface{}) error
 type AcceptTxFunc func() error
-type RejectTxFunc func(interface{}) error
+type RejectTxFunc func([]byte) error
 type DoneFunc func() error
 
 func New(options protocol.ProtocolOptions) *LocalTxSubmission {
@@ -135,7 +135,7 @@ func (l *LocalTxSubmission) handleRejectTx(msgGeneric protocol.Message) error {
 	}
 	msg := msgGeneric.(*MsgRejectTx)
 	// Call the user callback function
-	return l.callbackConfig.RejectTxFunc(msg.Reason)
+	return l.callbackConfig.RejectTxFunc([]byte(msg.Reason))
 }
 
 func (l *LocalTxSubmission) handleDone() error {
