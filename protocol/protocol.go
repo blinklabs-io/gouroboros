@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
+	"github.com/fxamacker/cbor/v2"
 	"io"
 	"sync"
 )
@@ -242,9 +243,10 @@ func (p *Protocol) recvLoop() {
 		leftoverData = false
 		// Wait until ready to receive based on state map
 		<-p.recvReadyChan
-		// Decode message into generic list until we can determine what type of message it is
-		// This also lets us determine how many bytes the message is
-		var tmpMsg []interface{}
+		// Decode message into generic list until we can determine what type of message it is.
+		// This also lets us determine how many bytes the message is. We use RawMessage here to
+		// avoid parsing things that we may not be able to parse
+		var tmpMsg []cbor.RawMessage
 		numBytesRead, err := utils.CborDecode(p.recvBuffer.Bytes(), &tmpMsg)
 		if err != nil {
 			if err == io.EOF && p.recvBuffer.Len() > 0 {
@@ -256,8 +258,12 @@ func (p *Protocol) recvLoop() {
 			p.SendError(fmt.Errorf("%s: decode error: %s", p.config.Name, err))
 			return
 		}
+		// Decode first list item to determine message type
+		var msgType uint
+		if _, err := utils.CborDecode(tmpMsg[0], &msgType); err != nil {
+			p.SendError(fmt.Errorf("%s: decode error: %s", p.config.Name, err))
+		}
 		// Create Message object from CBOR
-		msgType := uint(tmpMsg[0].(uint64))
 		msgData := p.recvBuffer.Bytes()[:numBytesRead]
 		msg, err := p.config.MessageFromCborFunc(msgType, msgData)
 		if err != nil {
