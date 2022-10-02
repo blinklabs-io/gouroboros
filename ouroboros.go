@@ -25,6 +25,7 @@ type Ouroboros struct {
 	protoErrorChan     chan error
 	sendKeepAlives     bool
 	delayMuxerStart    bool
+	fullDuplex         bool
 	// Mini-protocols
 	Handshake         *handshake.Handshake
 	ChainSync         *chainsync.ChainSync
@@ -43,6 +44,7 @@ type OuroborosOptions struct {
 	UseNodeToNodeProtocol bool
 	SendKeepAlives        bool
 	DelayMuxerStart       bool
+	FullDuplex            bool
 }
 
 func New(options *OuroborosOptions) (*Ouroboros, error) {
@@ -54,6 +56,7 @@ func New(options *OuroborosOptions) (*Ouroboros, error) {
 		ErrorChan:          options.ErrorChan,
 		sendKeepAlives:     options.SendKeepAlives,
 		delayMuxerStart:    options.DelayMuxerStart,
+		fullDuplex:         options.FullDuplex,
 		protoErrorChan:     make(chan error, 10),
 	}
 	if o.ErrorChan == nil {
@@ -134,7 +137,7 @@ func (o *Ouroboros) setupConnection() error {
 	o.Handshake.Start()
 	// TODO: figure out better way to signify automatic handshaking and returning the chosen version
 	if !o.server {
-		err := o.Handshake.ProposeVersions(protoVersions, o.networkMagic)
+		err := o.Handshake.ProposeVersions(protoVersions, o.networkMagic, o.fullDuplex)
 		if err != nil {
 			return err
 		}
@@ -182,6 +185,13 @@ func (o *Ouroboros) setupConnection() error {
 		}
 	}
 	// Start muxer
+	diffusionMode := muxer.DiffusionModeInitiator
+	if o.Handshake.FullDuplex {
+		diffusionMode = muxer.DiffusionModeInitiatorAndResponder
+	} else if o.server {
+		diffusionMode = muxer.DiffusionModeResponder
+	}
+	o.muxer.SetDiffusionMode(diffusionMode)
 	if !o.delayMuxerStart {
 		o.muxer.Start()
 	}

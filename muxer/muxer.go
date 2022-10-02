@@ -17,6 +17,15 @@ const (
 	PROTOCOL_HANDSHAKE = 0
 )
 
+type DiffusionMode int
+
+var (
+	DiffusionModeNone                  DiffusionMode = 0
+	DiffusionModeInitiator             DiffusionMode = 1
+	DiffusionModeResponder             DiffusionMode = 2
+	DiffusionModeInitiatorAndResponder DiffusionMode = 3
+)
+
 type Muxer struct {
 	conn              net.Conn
 	sendMutex         sync.Mutex
@@ -26,6 +35,7 @@ type Muxer struct {
 	ErrorChan         chan error
 	protocolSenders   map[uint16]chan *Segment
 	protocolReceivers map[uint16]chan *Segment
+	diffusionMode     DiffusionMode
 }
 
 func New(conn net.Conn) *Muxer {
@@ -65,6 +75,10 @@ func (m *Muxer) Stop() {
 	}
 	// Close ErrorChan to signify to consumer that we're shutting down
 	close(m.ErrorChan)
+}
+
+func (m *Muxer) SetDiffusionMode(diffusionMode DiffusionMode) {
+	m.diffusionMode = diffusionMode
 }
 
 func (m *Muxer) sendError(err error) {
@@ -146,6 +160,16 @@ func (m *Muxer) readLoop() {
 		// return an error
 		if _, err := io.ReadFull(m.conn, msg.Payload); err != nil {
 			m.sendError(err)
+			return
+		}
+		// Check for message from initiator when we're not configured as a responder
+		if m.diffusionMode == DiffusionModeInitiator && !msg.IsResponse() {
+			m.sendError(fmt.Errorf("received message from initiator when not configured as a responder"))
+			return
+		}
+		// Check for message from responder when we're not configured as an initiator
+		if m.diffusionMode == DiffusionModeResponder && msg.IsResponse() {
+			m.sendError(fmt.Errorf("received message from responder when not configured as an initiator"))
 			return
 		}
 		// Send message payload to proper receiver
