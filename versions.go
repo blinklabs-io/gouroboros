@@ -26,6 +26,7 @@ var ProtocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 		EnableMaryEra:            true,
 		EnableAlonzoEra:          true,
 	},
+	// added GetChainBlockNo and GetChainPoint queries
 	10: ProtocolVersionNtC{
 		EnableLocalQueryProtocol: true,
 		EnableShelleyEra:         true,
@@ -33,6 +34,7 @@ var ProtocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 		EnableMaryEra:            true,
 		EnableAlonzoEra:          true,
 	},
+	// added GetRewardInfoPools Block query
 	11: ProtocolVersionNtC{
 		EnableLocalQueryProtocol: true,
 		EnableShelleyEra:         true,
@@ -49,6 +51,16 @@ var ProtocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 		EnableLocalTxMonitorProtocol: true,
 	},
 	13: ProtocolVersionNtC{
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableLocalTxMonitorProtocol: true,
+	},
+	// added GetPoolDistr, GetPoolState, @GetSnapshots
+	14: ProtocolVersionNtC{
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
 		EnableAllegraEra:             true,
@@ -86,9 +98,16 @@ var ProtocolVersionMapNtN = map[uint16]ProtocolVersionNtN{
 		EnableAllegraEra:        true,
 		EnableMaryEra:           true,
 		EnableAlonzoEra:         true,
-		EnableFullDuplex:        true,
 	},
 	9: ProtocolVersionNtN{
+		EnableShelleyEra:        true,
+		EnableKeepAliveProtocol: true,
+		EnableAllegraEra:        true,
+		EnableMaryEra:           true,
+		EnableAlonzoEra:         true,
+		EnableBabbageEra:        true,
+	},
+	10: ProtocolVersionNtN{
 		EnableShelleyEra:        true,
 		EnableKeepAliveProtocol: true,
 		EnableAllegraEra:        true,
