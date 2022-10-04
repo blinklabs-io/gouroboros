@@ -4,8 +4,8 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	ouroboros "github.com/cloudstruct/go-ouroboros-network"
 	"github.com/cloudstruct/go-cardano-ledger"
+	ouroboros "github.com/cloudstruct/go-ouroboros-network"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
@@ -31,14 +31,15 @@ func newChainSyncFlags() *chainSyncFlags {
 	f := &chainSyncFlags{
 		flagset: flag.NewFlagSet("chain-sync", flag.ExitOnError),
 	}
-	f.flagset.StringVar(&f.startEra, "start-era", "byron", "era which to start chain-sync at")
+	f.flagset.StringVar(&f.startEra, "start-era", "genesis", "era which to start chain-sync at")
 	return f
 }
 
 // Intersect points (last block of previous era) for each era on testnet/mainnet
 var eraIntersect = map[int]map[string][]interface{}{
 	TESTNET_MAGIC: map[string][]interface{}{
-		"byron": []interface{}{},
+		"genesis": []interface{}{},
+		"byron":   []interface{}{},
 		// Last block of epoch 73 (Byron era)
 		"shelley": []interface{}{1598399, "7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4"},
 		// Last block of epoch 101 (Shelley era)
@@ -51,7 +52,8 @@ var eraIntersect = map[int]map[string][]interface{}{
 		"babbage": []interface{}{62510369, "d931221f9bc4cae34de422d9f4281a2b0344e86aac6b31eb54e2ee90f44a09b9"},
 	},
 	MAINNET_MAGIC: map[string][]interface{}{
-		"byron": []interface{}{},
+		"genesis": []interface{}{},
+		"byron":   []interface{}{},
 		// Last block of epoch 207 (Byron era)
 		"shelley": []interface{}{4492799, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457"},
 		// Last block of epoch 235 (Shelley era)
@@ -61,6 +63,16 @@ var eraIntersect = map[int]map[string][]interface{}{
 		// Last block of epoch 289 (Mary era)
 		"alonzo": []interface{}{39916796, "e72579ff89dc9ed325b723a33624b596c08141c7bd573ecfff56a1f7229e4d09"},
 		// TODO: add Babbage starting point after mainnet hard fork
+	},
+	PREPROD_MAGIC: map[string][]interface{}{
+		"genesis": []interface{}{},
+		"alonzo":  []interface{}{},
+	},
+	PREVIEW_MAGIC: map[string][]interface{}{
+		"genesis": []interface{}{},
+		"alonzo":  []interface{}{},
+		// Last block of epoch 3 (Alonzo era)
+		"babbage": []interface{}{345599, "6e4de9c9b2dcc2436488aa8a6ce584250a45b42583c5d3d0749597bcf59dc0b5"},
 	},
 }
 

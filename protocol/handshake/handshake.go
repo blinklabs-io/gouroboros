@@ -9,8 +9,8 @@ const (
 	PROTOCOL_NAME = "handshake"
 	PROTOCOL_ID   = 0
 
-	DIFFUSION_MODE_INITIATOR_ONLY          = true
-	DIFFUSION_MODE_INITIATOR_AND_RESPONDER = false
+	DIFFUSION_MODE_INITIATOR_ONLY          = false
+	DIFFUSION_MODE_INITIATOR_AND_RESPONDER = true
 )
 
 var (
@@ -51,6 +51,7 @@ type Handshake struct {
 	*protocol.Protocol
 	allowedVersions []uint16
 	Version         uint16
+	FullDuplex      bool
 	Finished        chan bool
 }
 
@@ -94,12 +95,16 @@ func (h *Handshake) handleMessage(msg protocol.Message, isResponse bool) error {
 	return err
 }
 
-func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) error {
+func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32, fullDuplex bool) error {
 	// Create our request
 	versionMap := make(map[uint16]interface{})
+	diffusionMode := DIFFUSION_MODE_INITIATOR_ONLY
+	if fullDuplex {
+		diffusionMode = DIFFUSION_MODE_INITIATOR_AND_RESPONDER
+	}
 	for _, version := range versions {
 		if h.Mode() == protocol.ProtocolModeNodeToNode {
-			versionMap[version] = []interface{}{networkMagic, DIFFUSION_MODE_INITIATOR_ONLY}
+			versionMap[version] = []interface{}{networkMagic, diffusionMode}
 		} else {
 			versionMap[version] = networkMagic
 		}
@@ -111,13 +116,20 @@ func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32) erro
 func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgProposeVersions)
 	var highestVersion uint16
-	var versionData interface{}
+	var fullDuplex bool
+	var versionData []interface{}
 	for proposedVersion := range msg.VersionMap {
 		if proposedVersion > highestVersion {
 			for _, allowedVersion := range h.allowedVersions {
 				if allowedVersion == proposedVersion {
 					highestVersion = proposedVersion
-					versionData = msg.VersionMap[proposedVersion]
+					versionData = msg.VersionMap[proposedVersion].([]interface{})
+					//nolint:gosimple
+					if versionData[1].(bool) == DIFFUSION_MODE_INITIATOR_AND_RESPONDER {
+						fullDuplex = true
+					} else {
+						fullDuplex = false
+					}
 					break
 				}
 			}
@@ -129,6 +141,7 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 			return err
 		}
 		h.Version = highestVersion
+		h.FullDuplex = fullDuplex
 		h.Finished <- true
 		return nil
 	} else {
@@ -141,6 +154,11 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 func (h *Handshake) handleAcceptVersion(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgAcceptVersion)
 	h.Version = msg.Version
+	versionData := msg.VersionData.([]interface{})
+	//nolint:gosimple
+	if versionData[1].(bool) == DIFFUSION_MODE_INITIATOR_AND_RESPONDER {
+		h.FullDuplex = true
+	}
 	h.Finished <- true
 	return nil
 }

@@ -11,6 +11,8 @@ import (
 const (
 	TESTNET_MAGIC = 1097911063
 	MAINNET_MAGIC = 764824073
+	PREPROD_MAGIC = 1
+	PREVIEW_MAGIC = 2
 )
 
 type globalFlags struct {
@@ -22,7 +24,8 @@ type globalFlags struct {
 	networkMagic int
 	testnet      bool
 	mainnet      bool
-	syncEra      string
+	preprod      bool
+	preview      bool
 }
 
 func newGlobalFlags() *globalFlags {
@@ -36,7 +39,8 @@ func newGlobalFlags() *globalFlags {
 	f.flagset.IntVar(&f.networkMagic, "network-magic", 0, "network magic value")
 	f.flagset.BoolVar(&f.testnet, "testnet", false, fmt.Sprintf("alias for -network-magic=%d", TESTNET_MAGIC))
 	f.flagset.BoolVar(&f.mainnet, "mainnet", false, fmt.Sprintf("alias for -network-magic=%d", MAINNET_MAGIC))
-	f.flagset.StringVar(&f.syncEra, "sync-era", "byron", "era which to start chain-sync at")
+	f.flagset.BoolVar(&f.preprod, "preprod", false, fmt.Sprintf("alias for -network-magic=%d", PREPROD_MAGIC))
+	f.flagset.BoolVar(&f.preview, "preview", false, fmt.Sprintf("alias for -network-magic=%d", PREVIEW_MAGIC))
 	return f
 }
 
@@ -53,8 +57,12 @@ func main() {
 			f.networkMagic = TESTNET_MAGIC
 		} else if f.mainnet {
 			f.networkMagic = MAINNET_MAGIC
+		} else if f.preprod {
+			f.networkMagic = PREPROD_MAGIC
+		} else if f.preview {
+			f.networkMagic = PREVIEW_MAGIC
 		} else {
-			fmt.Printf("You must specify one of -testnet, -mainnet, or -network-magic\n\n")
+			fmt.Printf("You must specify one of -testnet, -mainnet, -preprod, -preview, or -network-magic\n\n")
 			flag.PrintDefaults()
 			os.Exit(1)
 		}
