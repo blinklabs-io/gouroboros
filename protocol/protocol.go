@@ -63,8 +63,9 @@ type ProtocolOptions struct {
 	Muxer     *muxer.Muxer
 	ErrorChan chan error
 	Mode      ProtocolMode
-	Role      ProtocolRole
-	Version   uint16
+	// TODO: remove me
+	Role    ProtocolRole
+	Version uint16
 }
 
 type MessageHandlerFunc func(Message, bool) error
