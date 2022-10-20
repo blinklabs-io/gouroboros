@@ -62,20 +62,19 @@ func testServer(f *globalFlags) {
 			continue
 		}
 		errorChan := make(chan error)
-		oOpts := &ouroboros.OuroborosOptions{
-			Conn:                  conn,
-			NetworkMagic:          uint32(f.networkMagic),
-			ErrorChan:             errorChan,
-			UseNodeToNodeProtocol: f.ntnProto,
-			Server:                true,
-		}
 		go func() {
 			for {
 				err := <-errorChan
 				fmt.Printf("ERROR: %s\n", err)
 			}
 		}()
-		_, err = ouroboros.New(oOpts)
+		_, err = ouroboros.New(
+			ouroboros.WithConnection(conn),
+			ouroboros.WithNetworkMagic(uint32(f.networkMagic)),
+			ouroboros.WithErrorChan(errorChan),
+			ouroboros.WithNodeToNode(f.ntnProto),
+			ouroboros.WithServer(true),
+		)
 		if err != nil {
 			fmt.Printf("ERROR: %s\n", err)
 		}

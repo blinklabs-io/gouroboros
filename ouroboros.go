@@ -36,28 +36,13 @@ type Ouroboros struct {
 	TxSubmission      *txsubmission.TxSubmission
 }
 
-type OuroborosOptions struct {
-	Conn                  net.Conn
-	NetworkMagic          uint32
-	ErrorChan             chan error
-	Server                bool
-	UseNodeToNodeProtocol bool
-	SendKeepAlives        bool
-	DelayMuxerStart       bool
-	FullDuplex            bool
-}
-
-func New(options *OuroborosOptions) (*Ouroboros, error) {
+func New(options ...OuroborosOptionFunc) (*Ouroboros, error) {
 	o := &Ouroboros{
-		conn:               options.Conn,
-		networkMagic:       options.NetworkMagic,
-		server:             options.Server,
-		useNodeToNodeProto: options.UseNodeToNodeProtocol,
-		ErrorChan:          options.ErrorChan,
-		sendKeepAlives:     options.SendKeepAlives,
-		delayMuxerStart:    options.DelayMuxerStart,
-		fullDuplex:         options.FullDuplex,
-		protoErrorChan:     make(chan error, 10),
+		protoErrorChan: make(chan error, 10),
+	}
+	// Apply provided options functions
+	for _, option := range options {
+		option(o)
 	}
 	if o.ErrorChan == nil {
 		o.ErrorChan = make(chan error, 10)
