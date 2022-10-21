@@ -7,8 +7,7 @@ import (
 
 // Ensure that we don't panic when closing the Ouroboros object after a failed Dial() call
 func TestDialFailClose(t *testing.T) {
-	oOpts := &ouroboros.OuroborosOptions{}
-	oConn, err := ouroboros.New(oOpts)
+	oConn, err := ouroboros.New()
 	if err != nil {
 		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 	}
