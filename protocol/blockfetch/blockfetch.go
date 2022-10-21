@@ -66,24 +66,26 @@ var StateMap = protocol.StateMap{
 
 type BlockFetch struct {
 	*protocol.Protocol
-	callbackConfig *BlockFetchCallbackConfig
+	config *Config
 }
 
-type BlockFetchCallbackConfig struct {
-	StartBatchFunc BlockFetchStartBatchFunc
-	NoBlocksFunc   BlockFetchNoBlocksFunc
-	BlockFunc      BlockFetchBlockFunc
-	BatchDoneFunc  BlockFetchBatchDoneFunc
+type Config struct {
+	StartBatchFunc StartBatchFunc
+	NoBlocksFunc   NoBlocksFunc
+	BlockFunc      BlockFunc
+	BatchDoneFunc  BatchDoneFunc
 }
 
 // Callback function types
-type BlockFetchStartBatchFunc func() error
-type BlockFetchNoBlocksFunc func() error
-type BlockFetchBlockFunc func(uint, interface{}) error
-type BlockFetchBatchDoneFunc func() error
+type StartBatchFunc func() error
+type NoBlocksFunc func() error
+type BlockFunc func(uint, interface{}) error
+type BatchDoneFunc func() error
 
-func New(options protocol.ProtocolOptions) *BlockFetch {
-	b := &BlockFetch{}
+func New(options protocol.ProtocolOptions, cfg *Config) *BlockFetch {
+	b := &BlockFetch{
+		config: cfg,
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -100,8 +102,7 @@ func New(options protocol.ProtocolOptions) *BlockFetch {
 	return b
 }
 
-func (b *BlockFetch) Start(callbackConfig *BlockFetchCallbackConfig) {
-	b.callbackConfig = callbackConfig
+func (b *BlockFetch) Start() {
 	b.Protocol.Start()
 }
 
@@ -133,23 +134,23 @@ func (b *BlockFetch) ClientDone() error {
 }
 
 func (b *BlockFetch) handleStartBatch() error {
-	if b.callbackConfig.StartBatchFunc == nil {
+	if b.config.StartBatchFunc == nil {
 		return fmt.Errorf("received block-fetch StartBatch message but no callback function is defined")
 	}
 	// Call the user callback function
-	return b.callbackConfig.StartBatchFunc()
+	return b.config.StartBatchFunc()
 }
 
 func (b *BlockFetch) handleNoBlocks() error {
-	if b.callbackConfig.NoBlocksFunc == nil {
+	if b.config.NoBlocksFunc == nil {
 		return fmt.Errorf("received block-fetch NoBlocks message but no callback function is defined")
 	}
 	// Call the user callback function
-	return b.callbackConfig.NoBlocksFunc()
+	return b.config.NoBlocksFunc()
 }
 
 func (b *BlockFetch) handleBlock(msgGeneric protocol.Message) error {
-	if b.callbackConfig.BlockFunc == nil {
+	if b.config.BlockFunc == nil {
 		return fmt.Errorf("received block-fetch Block message but no callback function is defined")
 	}
 	msg := msgGeneric.(*MsgBlock)
@@ -163,13 +164,13 @@ func (b *BlockFetch) handleBlock(msgGeneric protocol.Message) error {
 		return err
 	}
 	// Call the user callback function
-	return b.callbackConfig.BlockFunc(wrappedBlock.Type, blk)
+	return b.config.BlockFunc(wrappedBlock.Type, blk)
 }
 
 func (b *BlockFetch) handleBatchDone() error {
-	if b.callbackConfig.BatchDoneFunc == nil {
+	if b.config.BatchDoneFunc == nil {
 		return fmt.Errorf("received block-fetch BatchDone message but no callback function is defined")
 	}
 	// Call the user callback function
-	return b.callbackConfig.BatchDoneFunc()
+	return b.config.BatchDoneFunc()
 }

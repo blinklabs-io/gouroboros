@@ -76,8 +76,8 @@ var eraIntersect = map[int]map[string][]interface{}{
 	},
 }
 
-func buildChainSyncCallbackConfig() *chainsync.ChainSyncCallbackConfig {
-	return &chainsync.ChainSyncCallbackConfig{
+func buildChainSyncConfig() chainsync.Config {
+	return chainsync.Config{
 		AwaitReplyFunc:        chainSyncAwaitReplyHandler,
 		RollBackwardFunc:      chainSyncRollBackwardHandler,
 		RollForwardFunc:       chainSyncRollForwardHandler,
@@ -87,8 +87,8 @@ func buildChainSyncCallbackConfig() *chainsync.ChainSyncCallbackConfig {
 	}
 }
 
-func buildBlockFetchCallbackConfig() *blockfetch.BlockFetchCallbackConfig {
-	return &blockfetch.BlockFetchCallbackConfig{
+func buildBlockFetchConfig() blockfetch.Config {
+	return blockfetch.Config{
 		StartBatchFunc: blockFetchStartBatchHandler,
 		NoBlocksFunc:   blockFetchNoBlocksHandler,
 		BlockFunc:      blockFetchBlockHandler,
@@ -124,13 +124,15 @@ func testChainSync(f *globalFlags) {
 		ouroboros.WithErrorChan(errorChan),
 		ouroboros.WithNodeToNode(f.ntnProto),
 		ouroboros.WithKeepAlive(true),
+		ouroboros.WithBlockFetchConfig(buildBlockFetchConfig()),
+		ouroboros.WithChainSyncConfig(buildChainSyncConfig()),
 	)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.ChainSync.Start(buildChainSyncCallbackConfig())
-	o.BlockFetch.Start(buildBlockFetchCallbackConfig())
+	o.ChainSync.Start()
+	o.BlockFetch.Start()
 
 	syncState.oConn = o
 	syncState.readyForNextBlockChan = make(chan bool)

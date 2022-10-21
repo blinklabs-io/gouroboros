@@ -1,6 +1,12 @@
 package ouroboros
 
 import (
+	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/localstatequery"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/txsubmission"
 	"net"
 )
 
@@ -51,5 +57,41 @@ func WithDelayMuxerStart(delayMuxerStart bool) OuroborosOptionFunc {
 func WithFullDuplex(fullDuplex bool) OuroborosOptionFunc {
 	return func(o *Ouroboros) {
 		o.fullDuplex = fullDuplex
+	}
+}
+
+func WithBlockFetchConfig(cfg blockfetch.Config) OuroborosOptionFunc {
+	return func(o *Ouroboros) {
+		o.blockFetchConfig = &cfg
+	}
+}
+
+func WithChainSyncConfig(cfg chainsync.Config) OuroborosOptionFunc {
+	return func(o *Ouroboros) {
+		o.chainSyncConfig = &cfg
+	}
+}
+
+func WithKeepAliveConfig(cfg keepalive.Config) OuroborosOptionFunc {
+	return func(o *Ouroboros) {
+		o.keepAliveConfig = &cfg
+	}
+}
+
+func WithLocalStateQueryConfig(cfg localstatequery.Config) OuroborosOptionFunc {
+	return func(o *Ouroboros) {
+		o.localStateQueryConfig = &cfg
+	}
+}
+
+func WithLocalTxSubmissionConfig(cfg localtxsubmission.Config) OuroborosOptionFunc {
+	return func(o *Ouroboros) {
+		o.localTxSubmissionConfig = &cfg
+	}
+}
+
+func WithTxSubmissionConfig(cfg txsubmission.Config) OuroborosOptionFunc {
+	return func(o *Ouroboros) {
+		o.txSubmissionConfig = &cfg
 	}
 }

@@ -90,10 +90,10 @@ var StateMap = protocol.StateMap{
 
 type TxSubmission struct {
 	*protocol.Protocol
-	callbackConfig *CallbackConfig
+	config *Config
 }
 
-type CallbackConfig struct {
+type Config struct {
 	RequestTxIdsFunc RequestTxIdsFunc
 	ReplyTxIdsFunc   ReplyTxIdsFunc
 	RequestTxsFunc   RequestTxsFunc
@@ -110,8 +110,10 @@ type ReplyTxsFunc func(interface{}) error
 type DoneFunc func() error
 type HelloFunc func() error
 
-func New(options protocol.ProtocolOptions) *TxSubmission {
-	t := &TxSubmission{}
+func New(options protocol.ProtocolOptions, cfg *Config) *TxSubmission {
+	t := &TxSubmission{
+		config: cfg,
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -128,8 +130,7 @@ func New(options protocol.ProtocolOptions) *TxSubmission {
 	return t
 }
 
-func (t *TxSubmission) Start(callbackConfig *CallbackConfig) {
-	t.callbackConfig = callbackConfig
+func (t *TxSubmission) Start() {
 	t.Protocol.Start()
 }
 
@@ -155,53 +156,53 @@ func (t *TxSubmission) messageHandler(msg protocol.Message, isResponse bool) err
 }
 
 func (t *TxSubmission) handleRequestTxIds(msg protocol.Message) error {
-	if t.callbackConfig.RequestTxIdsFunc == nil {
+	if t.config.RequestTxIdsFunc == nil {
 		return fmt.Errorf("received tx-submission RequestTxIds message but no callback function is defined")
 	}
 	msgRequestTxIds := msg.(*MsgRequestTxIds)
 	// Call the user callback function
-	return t.callbackConfig.RequestTxIdsFunc(msgRequestTxIds.Blocking, msgRequestTxIds.Ack, msgRequestTxIds.Req)
+	return t.config.RequestTxIdsFunc(msgRequestTxIds.Blocking, msgRequestTxIds.Ack, msgRequestTxIds.Req)
 }
 
 func (t *TxSubmission) handleReplyTxIds(msg protocol.Message) error {
-	if t.callbackConfig.ReplyTxIdsFunc == nil {
+	if t.config.ReplyTxIdsFunc == nil {
 		return fmt.Errorf("received tx-submission ReplyTxIds message but no callback function is defined")
 	}
 	msgReplyTxIds := msg.(*MsgReplyTxIds)
 	// Call the user callback function
-	return t.callbackConfig.ReplyTxIdsFunc(msgReplyTxIds.TxIds)
+	return t.config.ReplyTxIdsFunc(msgReplyTxIds.TxIds)
 }
 
 func (t *TxSubmission) handleRequestTxs(msg protocol.Message) error {
-	if t.callbackConfig.RequestTxsFunc == nil {
+	if t.config.RequestTxsFunc == nil {
 		return fmt.Errorf("received tx-submission RequestTxs message but no callback function is defined")
 	}
 	msgRequestTxs := msg.(*MsgRequestTxs)
 	// Call the user callback function
-	return t.callbackConfig.RequestTxsFunc(msgRequestTxs.TxIds)
+	return t.config.RequestTxsFunc(msgRequestTxs.TxIds)
 }
 
 func (t *TxSubmission) handleReplyTxs(msg protocol.Message) error {
-	if t.callbackConfig.ReplyTxsFunc == nil {
+	if t.config.ReplyTxsFunc == nil {
 		return fmt.Errorf("received tx-submission ReplyTxs message but no callback function is defined")
 	}
 	msgReplyTxs := msg.(*MsgReplyTxs)
 	// Call the user callback function
-	return t.callbackConfig.ReplyTxsFunc(msgReplyTxs.Txs)
+	return t.config.ReplyTxsFunc(msgReplyTxs.Txs)
 }
 
 func (t *TxSubmission) handleDone() error {
-	if t.callbackConfig.DoneFunc == nil {
+	if t.config.DoneFunc == nil {
 		return fmt.Errorf("received tx-submission Done message but no callback function is defined")
 	}
 	// Call the user callback function
-	return t.callbackConfig.DoneFunc()
+	return t.config.DoneFunc()
 }
 
 func (t *TxSubmission) handleHello() error {
-	if t.callbackConfig.HelloFunc == nil {
+	if t.config.HelloFunc == nil {
 		return fmt.Errorf("received tx-submission Hello message but no callback function is defined")
 	}
 	// Call the user callback function
-	return t.callbackConfig.HelloFunc()
+	return t.config.HelloFunc()
 }

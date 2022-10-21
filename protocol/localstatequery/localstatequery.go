@@ -86,13 +86,13 @@ var StateMap = protocol.StateMap{
 
 type LocalStateQuery struct {
 	*protocol.Protocol
-	callbackConfig                *CallbackConfig
+	config                        *Config
 	enableGetChainBlockNo         bool
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
 }
 
-type CallbackConfig struct {
+type Config struct {
 	AcquireFunc   AcquireFunc
 	AcquiredFunc  AcquiredFunc
 	FailureFunc   FailureFunc
@@ -114,8 +114,10 @@ type ReleaseFunc func() error
 type ReAcquireFunc func(interface{}) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions) *LocalStateQuery {
-	l := &LocalStateQuery{}
+func New(options protocol.ProtocolOptions, cfg *Config) *LocalStateQuery {
+	l := &LocalStateQuery{
+		config: cfg,
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -140,8 +142,7 @@ func New(options protocol.ProtocolOptions) *LocalStateQuery {
 	return l
 }
 
-func (l *LocalStateQuery) Start(callbackConfig *CallbackConfig) {
-	l.callbackConfig = callbackConfig
+func (l *LocalStateQuery) Start() {
 	l.Protocol.Start()
 }
 
@@ -175,82 +176,82 @@ func (l *LocalStateQuery) messageHandler(msg protocol.Message, isResponse bool) 
 }
 
 func (l *LocalStateQuery) handleAcquire(msg protocol.Message) error {
-	if l.callbackConfig.AcquireFunc == nil {
+	if l.config.AcquireFunc == nil {
 		return fmt.Errorf("received local-state-query Acquire message but no callback function is defined")
 	}
 	switch msgAcquire := msg.(type) {
 	case *MsgAcquire:
 		// Call the user callback function
-		return l.callbackConfig.AcquireFunc(msgAcquire.Point)
+		return l.config.AcquireFunc(msgAcquire.Point)
 	case *MsgAcquireNoPoint:
 		// Call the user callback function
-		return l.callbackConfig.AcquireFunc(nil)
+		return l.config.AcquireFunc(nil)
 	}
 	return nil
 }
 
 func (l *LocalStateQuery) handleAcquired() error {
-	if l.callbackConfig.AcquiredFunc == nil {
+	if l.config.AcquiredFunc == nil {
 		return fmt.Errorf("received local-state-query Acquired message but no callback function is defined")
 	}
 	// Call the user callback function
-	return l.callbackConfig.AcquiredFunc()
+	return l.config.AcquiredFunc()
 }
 
 func (l *LocalStateQuery) handleFailure(msg protocol.Message) error {
-	if l.callbackConfig.FailureFunc == nil {
+	if l.config.FailureFunc == nil {
 		return fmt.Errorf("received local-state-query Failure message but no callback function is defined")
 	}
 	msgFailure := msg.(*MsgFailure)
 	// Call the user callback function
-	return l.callbackConfig.FailureFunc(msgFailure.Failure)
+	return l.config.FailureFunc(msgFailure.Failure)
 }
 
 func (l *LocalStateQuery) handleQuery(msg protocol.Message) error {
-	if l.callbackConfig.QueryFunc == nil {
+	if l.config.QueryFunc == nil {
 		return fmt.Errorf("received local-state-query Query message but no callback function is defined")
 	}
 	msgQuery := msg.(*MsgQuery)
 	// Call the user callback function
-	return l.callbackConfig.QueryFunc(msgQuery.Query)
+	return l.config.QueryFunc(msgQuery.Query)
 }
 
 func (l *LocalStateQuery) handleResult(msg protocol.Message) error {
-	if l.callbackConfig.ResultFunc == nil {
+	if l.config.ResultFunc == nil {
 		return fmt.Errorf("received local-state-query Result message but no callback function is defined")
 	}
 	msgResult := msg.(*MsgResult)
 	// Call the user callback function
-	return l.callbackConfig.ResultFunc(msgResult.Result)
+	return l.config.ResultFunc(msgResult.Result)
 }
 
 func (l *LocalStateQuery) handleRelease() error {
-	if l.callbackConfig.ReleaseFunc == nil {
+	if l.config.ReleaseFunc == nil {
 		return fmt.Errorf("received local-state-query Release message but no callback function is defined")
 	}
 	// Call the user callback function
-	return l.callbackConfig.ReleaseFunc()
+	return l.config.ReleaseFunc()
 }
 
 func (l *LocalStateQuery) handleReAcquire(msg protocol.Message) error {
-	if l.callbackConfig.ReAcquireFunc == nil {
+	if l.config.ReAcquireFunc == nil {
 		return fmt.Errorf("received local-state-query ReAcquire message but no callback function is defined")
 	}
 	switch msgReAcquire := msg.(type) {
 	case *MsgReAcquire:
 		// Call the user callback function
-		return l.callbackConfig.ReAcquireFunc(msgReAcquire.Point)
+		return l.config.ReAcquireFunc(msgReAcquire.Point)
 	case *MsgReAcquireNoPoint:
 		// Call the user callback function
-		return l.callbackConfig.ReAcquireFunc(nil)
+		return l.config.ReAcquireFunc(nil)
 	}
 	return nil
 }
 
 func (l *LocalStateQuery) handleDone() error {
-	if l.callbackConfig.DoneFunc == nil {
+	if l.config.DoneFunc == nil {
 		return fmt.Errorf("received local-state-query Done message but no callback function is defined")
 	}
 	// Call the user callback function
-	return l.callbackConfig.DoneFunc()
+	return l.config.DoneFunc()
 }

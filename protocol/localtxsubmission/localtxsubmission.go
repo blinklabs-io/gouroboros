@@ -46,10 +46,10 @@ var StateMap = protocol.StateMap{
 
 type LocalTxSubmission struct {
 	*protocol.Protocol
-	callbackConfig *CallbackConfig
+	config *Config
 }
 
-type CallbackConfig struct {
+type Config struct {
 	SubmitTxFunc SubmitTxFunc
 	AcceptTxFunc AcceptTxFunc
 	RejectTxFunc RejectTxFunc
@@ -62,8 +62,10 @@ type AcceptTxFunc func() error
 type RejectTxFunc func([]byte) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions) *LocalTxSubmission {
-	l := &LocalTxSubmission{}
+func New(options protocol.ProtocolOptions, cfg *Config) *LocalTxSubmission {
+	l := &LocalTxSubmission{
+		config: cfg,
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -80,8 +82,7 @@ func New(options protocol.ProtocolOptions) *LocalTxSubmission {
 	return l
 }
 
-func (l *LocalTxSubmission) Start(callbackConfig *CallbackConfig) {
-	l.callbackConfig = callbackConfig
+func (l *LocalTxSubmission) Start() {
 	l.Protocol.Start()
 }
 
@@ -113,35 +114,35 @@ func (l *LocalTxSubmission) Done(tx interface{}) error {
 }
 
 func (l *LocalTxSubmission) handleSubmitTx(msgGeneric protocol.Message) error {
-	if l.callbackConfig.SubmitTxFunc == nil {
+	if l.config.SubmitTxFunc == nil {
 		return fmt.Errorf("received local-tx-submission SubmitTx message but no callback function is defined")
 	}
 	msg := msgGeneric.(*MsgSubmitTx)
 	// Call the user callback function
-	return l.callbackConfig.SubmitTxFunc(msg.Transaction)
+	return l.config.SubmitTxFunc(msg.Transaction)
 }
 
 func (l *LocalTxSubmission) handleAcceptTx() error {
-	if l.callbackConfig.AcceptTxFunc == nil {
+	if l.config.AcceptTxFunc == nil {
 		return fmt.Errorf("received local-tx-submission AcceptTx message but no callback function is defined")
 	}
 	// Call the user callback function
-	return l.callbackConfig.AcceptTxFunc()
+	return l.config.AcceptTxFunc()
 }
 
 func (l *LocalTxSubmission) handleRejectTx(msgGeneric protocol.Message) error {
-	if l.callbackConfig.RejectTxFunc == nil {
+	if l.config.RejectTxFunc == nil {
 		return fmt.Errorf("received local-tx-submission RejectTx message but no callback function is defined")
 	}
 	msg := msgGeneric.(*MsgRejectTx)
 	// Call the user callback function
-	return l.callbackConfig.RejectTxFunc([]byte(msg.Reason))
+	return l.config.RejectTxFunc([]byte(msg.Reason))
 }
 
 func (l *LocalTxSubmission) handleDone() error {
-	if l.callbackConfig.DoneFunc == nil {
+	if l.config.DoneFunc == nil {
 		return fmt.Errorf("received local-tx-submission Done message but no callback function is defined")
 	}
 	// Call the user callback function
-	return l.callbackConfig.DoneFunc()
+	return l.config.DoneFunc()
 }
