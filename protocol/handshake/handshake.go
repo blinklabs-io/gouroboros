@@ -49,16 +49,22 @@ var StateMap = protocol.StateMap{
 
 type Handshake struct {
 	*protocol.Protocol
-	allowedVersions []uint16
-	Version         uint16
-	FullDuplex      bool
-	Finished        chan bool
+	config     *Config
+	Version    uint16
+	FullDuplex bool
+	Finished   chan bool
 }
 
-func New(options protocol.ProtocolOptions, allowedVersions []uint16) *Handshake {
+type Config struct {
+	ProtocolVersions []uint16
+	NetworkMagic     uint32
+	ClientFullDuplex bool
+}
+
+func New(options protocol.ProtocolOptions, config *Config) *Handshake {
 	h := &Handshake{
-		allowedVersions: allowedVersions,
-		Finished:        make(chan bool, 1),
+		config:   config,
+		Finished: make(chan bool, 1),
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
@@ -95,18 +101,18 @@ func (h *Handshake) handleMessage(msg protocol.Message, isResponse bool) error {
 	return err
 }
 
-func (h *Handshake) ProposeVersions(versions []uint16, networkMagic uint32, fullDuplex bool) error {
+func (h *Handshake) ProposeVersions() error {
 	// Create our request
 	versionMap := make(map[uint16]interface{})
 	diffusionMode := DIFFUSION_MODE_INITIATOR_ONLY
-	if fullDuplex {
+	if h.config.ClientFullDuplex {
 		diffusionMode = DIFFUSION_MODE_INITIATOR_AND_RESPONDER
 	}
-	for _, version := range versions {
+	for _, version := range h.config.ProtocolVersions {
 		if h.Mode() == protocol.ProtocolModeNodeToNode {
-			versionMap[version] = []interface{}{networkMagic, diffusionMode}
+			versionMap[version] = []interface{}{h.config.NetworkMagic, diffusionMode}
 		} else {
-			versionMap[version] = networkMagic
+			versionMap[version] = h.config.NetworkMagic
 		}
 	}
 	msg := NewMsgProposeVersions(versionMap)
@@ -120,7 +126,7 @@ func (h *Handshake) handleProposeVersions(msgGeneric protocol.Message) error {
 	var versionData []interface{}
 	for proposedVersion := range msg.VersionMap {
 		if proposedVersion > highestVersion {
-			for _, allowedVersion := range h.allowedVersions {
+			for _, allowedVersion := range h.config.ProtocolVersions {
 				if allowedVersion == proposedVersion {
 					highestVersion = proposedVersion
 					versionData = msg.VersionMap[proposedVersion].([]interface{})

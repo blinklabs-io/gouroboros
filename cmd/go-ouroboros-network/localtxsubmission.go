@@ -31,8 +31,8 @@ func newLocalTxSubmissionFlags() *localTxSubmissionFlags {
 	return f
 }
 
-func buildLocalTxSubmissionCallbackConfig() *localtxsubmission.CallbackConfig {
-	return &localtxsubmission.CallbackConfig{
+func buildLocalTxSubmissionConfig() localtxsubmission.Config {
+	return localtxsubmission.Config{
 		AcceptTxFunc: localTxSubmissionAcceptTxHandler,
 		RejectTxFunc: localTxSubmissionRejectTxHandler,
 	}
@@ -63,12 +63,13 @@ func testLocalTxSubmission(f *globalFlags) {
 		ouroboros.WithErrorChan(errorChan),
 		ouroboros.WithNodeToNode(f.ntnProto),
 		ouroboros.WithKeepAlive(true),
+		ouroboros.WithLocalTxSubmissionConfig(buildLocalTxSubmissionConfig()),
 	)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.LocalTxSubmission.Start(buildLocalTxSubmissionCallbackConfig())
+	o.LocalTxSubmission.Start()
 
 	txData, err := ioutil.ReadFile(localTxSubmissionFlags.txFile)
 	if err != nil {

@@ -50,11 +50,11 @@ var StateMap = protocol.StateMap{
 
 type KeepAlive struct {
 	*protocol.Protocol
-	callbackConfig *KeepAliveCallbackConfig
-	timer          *time.Timer
+	config *Config
+	timer  *time.Timer
 }
 
-type KeepAliveCallbackConfig struct {
+type Config struct {
 	KeepAliveFunc         KeepAliveFunc
 	KeepAliveResponseFunc KeepAliveResponseFunc
 	DoneFunc              DoneFunc
@@ -65,8 +65,10 @@ type KeepAliveFunc func(uint16) error
 type KeepAliveResponseFunc func(uint16) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions) *KeepAlive {
-	k := &KeepAlive{}
+func New(options protocol.ProtocolOptions, cfg *Config) *KeepAlive {
+	k := &KeepAlive{
+		config: cfg,
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -83,8 +85,7 @@ func New(options protocol.ProtocolOptions) *KeepAlive {
 	return k
 }
 
-func (k *KeepAlive) Start(callbackConfig *KeepAliveCallbackConfig) {
-	k.callbackConfig = callbackConfig
+func (k *KeepAlive) Start() {
 	k.Protocol.Start()
 	k.startTimer()
 }
@@ -119,9 +120,9 @@ func (k *KeepAlive) KeepAlive(cookie uint16) error {
 
 func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgKeepAlive)
-	if k.callbackConfig != nil && k.callbackConfig.KeepAliveFunc != nil {
+	if k.config != nil && k.config.KeepAliveFunc != nil {
 		// Call the user callback function
-		return k.callbackConfig.KeepAliveFunc(msg.Cookie)
+		return k.config.KeepAliveFunc(msg.Cookie)
 	} else {
 		// Send the keep-alive response
 		resp := NewMsgKeepAliveResponse(msg.Cookie)
@@ -135,17 +136,17 @@ func (k *KeepAlive) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	if k.timer != nil {
 		defer k.startTimer()
 	}
-	if k.callbackConfig != nil && k.callbackConfig.KeepAliveResponseFunc != nil {
+	if k.config != nil && k.config.KeepAliveResponseFunc != nil {
 		// Call the user callback function
-		return k.callbackConfig.KeepAliveResponseFunc(msg.Cookie)
+		return k.config.KeepAliveResponseFunc(msg.Cookie)
 	}
 	return nil
 }
 
 func (k *KeepAlive) handleDone() error {
-	if k.callbackConfig != nil && k.callbackConfig.DoneFunc != nil {
+	if k.config != nil && k.config.DoneFunc != nil {
 		// Call the user callback function
-		return k.callbackConfig.DoneFunc()
+		return k.config.DoneFunc()
 	}
 	return nil
 }
