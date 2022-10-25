@@ -19,7 +19,6 @@ type Ouroboros struct {
 	networkMagic       uint32
 	server             bool
 	useNodeToNodeProto bool
-	handshakeComplete  bool
 	muxer              *muxer.Muxer
 	ErrorChan          chan error
 	protoErrorChan     chan error
@@ -124,29 +123,34 @@ func (o *Ouroboros) setupConnection() error {
 		protoOptions.Role = protocol.ProtocolRoleClient
 	}
 	// Perform handshake
+	handshakeFinishedChan := make(chan interface{})
+	var handshakeVersion uint16
+	var handshakeFullDuplex bool
 	handshakeConfig := &handshake.Config{
 		ProtocolVersions: protoVersions,
 		NetworkMagic:     o.networkMagic,
 		ClientFullDuplex: o.fullDuplex,
+		FinishedFunc: func(version uint16, fullDuplex bool) error {
+			handshakeVersion = version
+			handshakeFullDuplex = fullDuplex
+			close(handshakeFinishedChan)
+			return nil
+		},
 	}
 	o.Handshake = handshake.New(protoOptions, handshakeConfig)
-	o.Handshake.Start()
-	// TODO: figure out better way to signify automatic handshaking and returning the chosen version
-	if !o.server {
-		err := o.Handshake.ProposeVersions()
-		if err != nil {
-			return err
-		}
+	if o.server {
+		o.Handshake.Server.Start()
+	} else {
+		o.Handshake.Client.Start()
 	}
 	// Wait for handshake completion or error
 	select {
 	case err := <-o.protoErrorChan:
 		return err
-	case finished := <-o.Handshake.Finished:
-		o.handshakeComplete = finished
+	case <-handshakeFinishedChan:
 	}
 	// Provide the negotiated protocol version to the various mini-protocols
-	protoOptions.Version = o.Handshake.Version
+	protoOptions.Version = handshakeVersion
 	// Drop bit used to signify NtC protocol versions
 	if protoOptions.Version > PROTOCOL_VERSION_NTC_FLAG {
 		protoOptions.Version = protoOptions.Version - PROTOCOL_VERSION_NTC_FLAG
@@ -160,7 +164,7 @@ func (o *Ouroboros) setupConnection() error {
 	}()
 	// Configure the relevant mini-protocols
 	if o.useNodeToNodeProto {
-		versionNtN := GetProtocolVersionNtN(o.Handshake.Version)
+		versionNtN := GetProtocolVersionNtN(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 		o.ChainSync = chainsync.New(protoOptions, o.chainSyncConfig)
 		o.BlockFetch = blockfetch.New(protoOptions, o.blockFetchConfig)
@@ -172,7 +176,7 @@ func (o *Ouroboros) setupConnection() error {
 			}
 		}
 	} else {
-		versionNtC := GetProtocolVersionNtC(o.Handshake.Version)
+		versionNtC := GetProtocolVersionNtC(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 		o.ChainSync = chainsync.New(protoOptions, o.chainSyncConfig)
 		o.LocalTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionConfig)
@@ -182,7 +186,7 @@ func (o *Ouroboros) setupConnection() error {
 	}
 	// Start muxer
 	diffusionMode := muxer.DiffusionModeInitiator
-	if o.Handshake.FullDuplex {
+	if handshakeFullDuplex {
 		diffusionMode = muxer.DiffusionModeInitiatorAndResponder
 	} else if o.server {
 		diffusionMode = muxer.DiffusionModeResponder
