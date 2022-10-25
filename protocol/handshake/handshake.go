@@ -67,27 +67,3 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {
 	}
 	return h
 }
-
-/*
-func (h *Handshake) Start() {
-	h.Protocol.Start()
-}
-
-func (h *Handshake) ProposeVersions() error {
-	// Create our request
-	versionMap := make(map[uint16]interface{})
-	diffusionMode := DIFFUSION_MODE_INITIATOR_ONLY
-	if h.config.ClientFullDuplex {
-		diffusionMode = DIFFUSION_MODE_INITIATOR_AND_RESPONDER
-	}
-	for _, version := range h.config.ProtocolVersions {
-		if h.Mode() == protocol.ProtocolModeNodeToNode {
-			versionMap[version] = []interface{}{h.config.NetworkMagic, diffusionMode}
-		} else {
-			versionMap[version] = h.config.NetworkMagic
-		}
-	}
-	msg := NewMsgProposeVersions(versionMap)
-	return h.SendMessage(msg)
-}
-*/
