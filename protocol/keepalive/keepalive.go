@@ -1,9 +1,7 @@
 package keepalive
 
 import (
-	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"time"
 )
 
 const (
@@ -49,9 +47,8 @@ var StateMap = protocol.StateMap{
 }
 
 type KeepAlive struct {
-	*protocol.Protocol
-	config *Config
-	timer  *time.Timer
+	Client *Client
+	Server *Server
 }
 
 type Config struct {
@@ -65,88 +62,10 @@ type KeepAliveFunc func(uint16) error
 type KeepAliveResponseFunc func(uint16) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions, cfg *Config) *KeepAlive {
+func New(protoOptions protocol.ProtocolOptions, cfg *Config) *KeepAlive {
 	k := &KeepAlive{
-		config: cfg,
+		Client: NewClient(protoOptions, cfg),
+		Server: NewServer(protoOptions, cfg),
 	}
-	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
-		Muxer:               options.Muxer,
-		ErrorChan:           options.ErrorChan,
-		Mode:                options.Mode,
-		Role:                options.Role,
-		MessageHandlerFunc:  k.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
-		InitialState:        STATE_CLIENT,
-	}
-	k.Protocol = protocol.New(protoConfig)
 	return k
-}
-
-func (k *KeepAlive) Start() {
-	k.Protocol.Start()
-	k.startTimer()
-}
-
-func (k *KeepAlive) messageHandler(msg protocol.Message, isResponse bool) error {
-	var err error
-	switch msg.Type() {
-	case MESSAGE_TYPE_KEEP_ALIVE:
-		err = k.handleKeepAlive(msg)
-	case MESSAGE_TYPE_KEEP_ALIVE_RESPONSE:
-		err = k.handleKeepAliveResponse(msg)
-	case MESSAGE_TYPE_DONE:
-		err = k.handleDone()
-	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
-	}
-	return err
-}
-
-func (k *KeepAlive) startTimer() {
-	k.timer = time.AfterFunc(KEEP_ALIVE_PERIOD*time.Second, func() {
-		if err := k.KeepAlive(0); err != nil {
-			k.SendError(err)
-		}
-	})
-}
-
-func (k *KeepAlive) KeepAlive(cookie uint16) error {
-	msg := NewMsgKeepAlive(cookie)
-	return k.SendMessage(msg)
-}
-
-func (k *KeepAlive) handleKeepAlive(msgGeneric protocol.Message) error {
-	msg := msgGeneric.(*MsgKeepAlive)
-	if k.config != nil && k.config.KeepAliveFunc != nil {
-		// Call the user callback function
-		return k.config.KeepAliveFunc(msg.Cookie)
-	} else {
-		// Send the keep-alive response
-		resp := NewMsgKeepAliveResponse(msg.Cookie)
-		return k.SendMessage(resp)
-	}
-}
-
-func (k *KeepAlive) handleKeepAliveResponse(msgGeneric protocol.Message) error {
-	msg := msgGeneric.(*MsgKeepAliveResponse)
-	// Start the timer again if we had one previously
-	if k.timer != nil {
-		defer k.startTimer()
-	}
-	if k.config != nil && k.config.KeepAliveResponseFunc != nil {
-		// Call the user callback function
-		return k.config.KeepAliveResponseFunc(msg.Cookie)
-	}
-	return nil
-}
-
-func (k *KeepAlive) handleDone() error {
-	if k.config != nil && k.config.DoneFunc != nil {
-		// Call the user callback function
-		return k.config.DoneFunc()
-	}
-	return nil
 }

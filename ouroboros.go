@@ -171,8 +171,8 @@ func (o *Ouroboros) setupConnection() error {
 		o.TxSubmission = txsubmission.New(protoOptions, o.txSubmissionConfig)
 		if versionNtN.EnableKeepAliveProtocol {
 			o.KeepAlive = keepalive.New(protoOptions, o.keepAliveConfig)
-			if o.sendKeepAlives {
-				o.KeepAlive.Start()
+			if !o.server && o.sendKeepAlives {
+				o.KeepAlive.Client.Start()
 			}
 		}
 	} else {
