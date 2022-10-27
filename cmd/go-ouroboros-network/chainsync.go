@@ -131,7 +131,7 @@ func testChainSync(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.ChainSync.Start()
+	o.ChainSync.Client.Start()
 	o.BlockFetch.Client.Start()
 
 	syncState.oConn = o
@@ -145,7 +145,7 @@ func testChainSync(f *globalFlags) {
 		hash, _ := hex.DecodeString(eraIntersect[f.networkMagic][chainSyncFlags.startEra][1].(string))
 		point.Hash = hash
 	}
-	if err := o.ChainSync.FindIntersect([]chainsync.Point{point}); err != nil {
+	if err := o.ChainSync.Client.FindIntersect([]chainsync.Point{point}); err != nil {
 		fmt.Printf("ERROR: FindIntersect: %s\n", err)
 		os.Exit(1)
 	}
@@ -154,14 +154,14 @@ func testChainSync(f *globalFlags) {
 	// Pipeline the initial block requests to speed things up a bit
 	// Using a value higher than 10 seems to cause problems with NtN
 	for i := 0; i < 10; i++ {
-		err := o.ChainSync.RequestNext()
+		err := o.ChainSync.Client.RequestNext()
 		if err != nil {
 			fmt.Printf("ERROR: RequestNext: %s\n", err)
 			os.Exit(1)
 		}
 	}
 	for {
-		err := o.ChainSync.RequestNext()
+		err := o.ChainSync.Client.RequestNext()
 		if err != nil {
 			fmt.Printf("ERROR: RequestNext: %s\n", err)
 			os.Exit(1)
