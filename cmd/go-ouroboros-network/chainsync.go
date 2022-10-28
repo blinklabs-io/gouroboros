@@ -132,7 +132,7 @@ func testChainSync(f *globalFlags) {
 		os.Exit(1)
 	}
 	o.ChainSync.Start()
-	o.BlockFetch.Start()
+	o.BlockFetch.Client.Start()
 
 	syncState.oConn = o
 	syncState.readyForNextBlockChan = make(chan bool)
@@ -209,7 +209,7 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
 			blockSlot = h.Body.Slot
 			blockHash, _ = hex.DecodeString(h.Id())
 		}
-		if err := syncState.oConn.BlockFetch.RequestRange([]interface{}{blockSlot, blockHash}, []interface{}{blockSlot, blockHash}); err != nil {
+		if err := syncState.oConn.BlockFetch.Client.RequestRange([]interface{}{blockSlot, blockHash}, []interface{}{blockSlot, blockHash}); err != nil {
 			fmt.Printf("error calling RequestRange: %s\n", err)
 			return err
 		}

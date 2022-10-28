@@ -1,10 +1,7 @@
 package blockfetch
 
 import (
-	"fmt"
-	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
 
 const (
@@ -65,8 +62,8 @@ var StateMap = protocol.StateMap{
 }
 
 type BlockFetch struct {
-	*protocol.Protocol
-	config *Config
+	Client *Client
+	Server *Server
 }
 
 type Config struct {
@@ -82,95 +79,10 @@ type NoBlocksFunc func() error
 type BlockFunc func(uint, interface{}) error
 type BatchDoneFunc func() error
 
-func New(options protocol.ProtocolOptions, cfg *Config) *BlockFetch {
+func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	b := &BlockFetch{
-		config: cfg,
+		Client: NewClient(protoOptions, cfg),
+		Server: NewServer(protoOptions, cfg),
 	}
-	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
-		Muxer:               options.Muxer,
-		ErrorChan:           options.ErrorChan,
-		Mode:                options.Mode,
-		Role:                options.Role,
-		MessageHandlerFunc:  b.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
-		InitialState:        STATE_IDLE,
-	}
-	b.Protocol = protocol.New(protoConfig)
 	return b
-}
-
-func (b *BlockFetch) Start() {
-	b.Protocol.Start()
-}
-
-func (b *BlockFetch) messageHandler(msg protocol.Message, isResponse bool) error {
-	var err error
-	switch msg.Type() {
-	case MESSAGE_TYPE_START_BATCH:
-		err = b.handleStartBatch()
-	case MESSAGE_TYPE_NO_BLOCKS:
-		err = b.handleNoBlocks()
-	case MESSAGE_TYPE_BLOCK:
-		err = b.handleBlock(msg)
-	case MESSAGE_TYPE_BATCH_DONE:
-		err = b.handleBatchDone()
-	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
-	}
-	return err
-}
-
-func (b *BlockFetch) RequestRange(start []interface{}, end []interface{}) error {
-	msg := NewMsgRequestRange(start, end)
-	return b.SendMessage(msg)
-}
-
-func (b *BlockFetch) ClientDone() error {
-	msg := NewMsgClientDone()
-	return b.SendMessage(msg)
-}
-
-func (b *BlockFetch) handleStartBatch() error {
-	if b.config.StartBatchFunc == nil {
-		return fmt.Errorf("received block-fetch StartBatch message but no callback function is defined")
-	}
-	// Call the user callback function
-	return b.config.StartBatchFunc()
-}
-
-func (b *BlockFetch) handleNoBlocks() error {
-	if b.config.NoBlocksFunc == nil {
-		return fmt.Errorf("received block-fetch NoBlocks message but no callback function is defined")
-	}
-	// Call the user callback function
-	return b.config.NoBlocksFunc()
-}
-
-func (b *BlockFetch) handleBlock(msgGeneric protocol.Message) error {
-	if b.config.BlockFunc == nil {
-		return fmt.Errorf("received block-fetch Block message but no callback function is defined")
-	}
-	msg := msgGeneric.(*MsgBlock)
-	// Decode only enough to get the block type value
-	var wrappedBlock WrappedBlock
-	if _, err := utils.CborDecode(msg.WrappedBlock, &wrappedBlock); err != nil {
-		return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
-	}
-	blk, err := ledger.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
-	if err != nil {
-		return err
-	}
-	// Call the user callback function
-	return b.config.BlockFunc(wrappedBlock.Type, blk)
-}
-
-func (b *BlockFetch) handleBatchDone() error {
-	if b.config.BatchDoneFunc == nil {
-		return fmt.Errorf("received block-fetch BatchDone message but no callback function is defined")
-	}
-	// Call the user callback function
-	return b.config.BatchDoneFunc()
 }
