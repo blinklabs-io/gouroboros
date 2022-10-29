@@ -1,7 +1,6 @@
 package txsubmission
 
 import (
-	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -11,7 +10,7 @@ const (
 )
 
 var (
-	STATE_HELLO              = protocol.NewState(1, "Hello")
+	STATE_INIT               = protocol.NewState(1, "Init")
 	STATE_IDLE               = protocol.NewState(2, "Idle")
 	STATE_TX_IDS_BLOCKING    = protocol.NewState(3, "TxIdsBlocking")
 	STATE_TX_IDS_NONBLOCKING = protocol.NewState(4, "TxIdsNonBlocking")
@@ -20,11 +19,11 @@ var (
 )
 
 var StateMap = protocol.StateMap{
-	STATE_HELLO: protocol.StateMapEntry{
+	STATE_INIT: protocol.StateMapEntry{
 		Agency: protocol.AGENCY_CLIENT,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_HELLO,
+				MsgType:  MESSAGE_TYPE_INIT,
 				NewState: STATE_IDLE,
 			},
 		},
@@ -63,6 +62,10 @@ var StateMap = protocol.StateMap{
 				MsgType:  MESSAGE_TYPE_REPLY_TX_IDS,
 				NewState: STATE_IDLE,
 			},
+			{
+				MsgType:  MESSAGE_TYPE_DONE,
+				NewState: STATE_DONE,
+			},
 		},
 	},
 	STATE_TX_IDS_NONBLOCKING: protocol.StateMapEntry{
@@ -89,8 +92,8 @@ var StateMap = protocol.StateMap{
 }
 
 type TxSubmission struct {
-	*protocol.Protocol
-	config *Config
+	Client *Client
+	Server *Server
 }
 
 type Config struct {
@@ -99,7 +102,7 @@ type Config struct {
 	RequestTxsFunc   RequestTxsFunc
 	ReplyTxsFunc     ReplyTxsFunc
 	DoneFunc         DoneFunc
-	HelloFunc        HelloFunc
+	InitFunc         InitFunc
 }
 
 // Callback function types
@@ -108,101 +111,12 @@ type ReplyTxIdsFunc func(interface{}) error
 type RequestTxsFunc func(interface{}) error
 type ReplyTxsFunc func(interface{}) error
 type DoneFunc func() error
-type HelloFunc func() error
+type InitFunc func() error
 
-func New(options protocol.ProtocolOptions, cfg *Config) *TxSubmission {
+func New(protoOptions protocol.ProtocolOptions, cfg *Config) *TxSubmission {
 	t := &TxSubmission{
-		config: cfg,
+		Client: NewClient(protoOptions, cfg),
+		Server: NewServer(protoOptions, cfg),
 	}
-	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
-		Muxer:               options.Muxer,
-		ErrorChan:           options.ErrorChan,
-		Mode:                options.Mode,
-		Role:                options.Role,
-		MessageHandlerFunc:  t.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
-		InitialState:        STATE_HELLO,
-	}
-	t.Protocol = protocol.New(protoConfig)
 	return t
-}
-
-func (t *TxSubmission) Start() {
-	t.Protocol.Start()
-}
-
-func (t *TxSubmission) messageHandler(msg protocol.Message, isResponse bool) error {
-	var err error
-	switch msg.Type() {
-	case MESSAGE_TYPE_REQUEST_TX_IDS:
-		err = t.handleRequestTxIds(msg)
-	case MESSAGE_TYPE_REPLY_TX_IDS:
-		err = t.handleReplyTxIds(msg)
-	case MESSAGE_TYPE_REQUEST_TXS:
-		err = t.handleRequestTxs(msg)
-	case MESSAGE_TYPE_REPLY_TXS:
-		err = t.handleReplyTxs(msg)
-	case MESSAGE_TYPE_DONE:
-		err = t.handleDone()
-	case MESSAGE_TYPE_HELLO:
-		err = t.handleHello()
-	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
-	}
-	return err
-}
-
-func (t *TxSubmission) handleRequestTxIds(msg protocol.Message) error {
-	if t.config.RequestTxIdsFunc == nil {
-		return fmt.Errorf("received tx-submission RequestTxIds message but no callback function is defined")
-	}
-	msgRequestTxIds := msg.(*MsgRequestTxIds)
-	// Call the user callback function
-	return t.config.RequestTxIdsFunc(msgRequestTxIds.Blocking, msgRequestTxIds.Ack, msgRequestTxIds.Req)
-}
-
-func (t *TxSubmission) handleReplyTxIds(msg protocol.Message) error {
-	if t.config.ReplyTxIdsFunc == nil {
-		return fmt.Errorf("received tx-submission ReplyTxIds message but no callback function is defined")
-	}
-	msgReplyTxIds := msg.(*MsgReplyTxIds)
-	// Call the user callback function
-	return t.config.ReplyTxIdsFunc(msgReplyTxIds.TxIds)
-}
-
-func (t *TxSubmission) handleRequestTxs(msg protocol.Message) error {
-	if t.config.RequestTxsFunc == nil {
-		return fmt.Errorf("received tx-submission RequestTxs message but no callback function is defined")
-	}
-	msgRequestTxs := msg.(*MsgRequestTxs)
-	// Call the user callback function
-	return t.config.RequestTxsFunc(msgRequestTxs.TxIds)
-}
-
-func (t *TxSubmission) handleReplyTxs(msg protocol.Message) error {
-	if t.config.ReplyTxsFunc == nil {
-		return fmt.Errorf("received tx-submission ReplyTxs message but no callback function is defined")
-	}
-	msgReplyTxs := msg.(*MsgReplyTxs)
-	// Call the user callback function
-	return t.config.ReplyTxsFunc(msgReplyTxs.Txs)
-}
-
-func (t *TxSubmission) handleDone() error {
-	if t.config.DoneFunc == nil {
-		return fmt.Errorf("received tx-submission Done message but no callback function is defined")
-	}
-	// Call the user callback function
-	return t.config.DoneFunc()
-}
-
-func (t *TxSubmission) handleHello() error {
-	if t.config.HelloFunc == nil {
-		return fmt.Errorf("received tx-submission Hello message but no callback function is defined")
-	}
-	// Call the user callback function
-	return t.config.HelloFunc()
 }
