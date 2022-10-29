@@ -69,7 +69,7 @@ func testLocalTxSubmission(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.LocalTxSubmission.Start()
+	o.LocalTxSubmission.Client.Start()
 
 	txData, err := ioutil.ReadFile(localTxSubmissionFlags.txFile)
 	if err != nil {
@@ -90,7 +90,7 @@ func testLocalTxSubmission(f *globalFlags) {
 		os.Exit(1)
 	}
 
-	if err = o.LocalTxSubmission.SubmitTx(ledger.TX_TYPE_ALONZO, txBytes); err != nil {
+	if err = o.LocalTxSubmission.Client.SubmitTx(ledger.TX_TYPE_ALONZO, txBytes); err != nil {
 		fmt.Printf("Error submitting transaction: %s\n", err)
 		os.Exit(1)
 	}

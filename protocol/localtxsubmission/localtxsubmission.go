@@ -1,7 +1,6 @@
 package localtxsubmission
 
 import (
-	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -45,8 +44,8 @@ var StateMap = protocol.StateMap{
 }
 
 type LocalTxSubmission struct {
-	*protocol.Protocol
-	config *Config
+	Client *Client
+	Server *Server
 }
 
 type Config struct {
@@ -62,87 +61,10 @@ type AcceptTxFunc func() error
 type RejectTxFunc func([]byte) error
 type DoneFunc func() error
 
-func New(options protocol.ProtocolOptions, cfg *Config) *LocalTxSubmission {
+func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxSubmission {
 	l := &LocalTxSubmission{
-		config: cfg,
+		Client: NewClient(protoOptions, cfg),
+		Server: NewServer(protoOptions, cfg),
 	}
-	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
-		Muxer:               options.Muxer,
-		ErrorChan:           options.ErrorChan,
-		Mode:                options.Mode,
-		Role:                options.Role,
-		MessageHandlerFunc:  l.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
-		InitialState:        STATE_IDLE,
-	}
-	l.Protocol = protocol.New(protoConfig)
 	return l
-}
-
-func (l *LocalTxSubmission) Start() {
-	l.Protocol.Start()
-}
-
-func (l *LocalTxSubmission) messageHandler(msg protocol.Message, isResponse bool) error {
-	var err error
-	switch msg.Type() {
-	case MESSAGE_TYPE_SUBMIT_TX:
-		err = l.handleSubmitTx(msg)
-	case MESSAGE_TYPE_ACCEPT_TX:
-		err = l.handleAcceptTx()
-	case MESSAGE_TYPE_REJECT_TX:
-		err = l.handleRejectTx(msg)
-	case MESSAGE_TYPE_DONE:
-		err = l.handleDone()
-	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
-	}
-	return err
-}
-
-func (l *LocalTxSubmission) SubmitTx(eraId uint16, tx []byte) error {
-	msg := NewMsgSubmitTx(eraId, tx)
-	return l.SendMessage(msg)
-}
-
-func (l *LocalTxSubmission) Done(tx interface{}) error {
-	msg := NewMsgDone()
-	return l.SendMessage(msg)
-}
-
-func (l *LocalTxSubmission) handleSubmitTx(msgGeneric protocol.Message) error {
-	if l.config.SubmitTxFunc == nil {
-		return fmt.Errorf("received local-tx-submission SubmitTx message but no callback function is defined")
-	}
-	msg := msgGeneric.(*MsgSubmitTx)
-	// Call the user callback function
-	return l.config.SubmitTxFunc(msg.Transaction)
-}
-
-func (l *LocalTxSubmission) handleAcceptTx() error {
-	if l.config.AcceptTxFunc == nil {
-		return fmt.Errorf("received local-tx-submission AcceptTx message but no callback function is defined")
-	}
-	// Call the user callback function
-	return l.config.AcceptTxFunc()
-}
-
-func (l *LocalTxSubmission) handleRejectTx(msgGeneric protocol.Message) error {
-	if l.config.RejectTxFunc == nil {
-		return fmt.Errorf("received local-tx-submission RejectTx message but no callback function is defined")
-	}
-	msg := msgGeneric.(*MsgRejectTx)
-	// Call the user callback function
-	return l.config.RejectTxFunc([]byte(msg.Reason))
-}
-
-func (l *LocalTxSubmission) handleDone() error {
-	if l.config.DoneFunc == nil {
-		return fmt.Errorf("received local-tx-submission Done message but no callback function is defined")
-	}
-	// Call the user callback function
-	return l.config.DoneFunc()
 }
