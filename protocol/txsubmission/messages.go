@@ -12,7 +12,7 @@ const (
 	MESSAGE_TYPE_REQUEST_TXS    = 2
 	MESSAGE_TYPE_REPLY_TXS      = 3
 	MESSAGE_TYPE_DONE           = 4
-	MESSAGE_TYPE_HELLO          = 6
+	MESSAGE_TYPE_INIT           = 6
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
@@ -28,8 +28,8 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgReplyTxs{}
 	case MESSAGE_TYPE_DONE:
 		ret = &MsgDone{}
-	case MESSAGE_TYPE_HELLO:
-		ret = &MsgHello{}
+	case MESSAGE_TYPE_INIT:
+		ret = &MsgInit{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
@@ -118,14 +118,14 @@ func NewMsgDone() *MsgDone {
 	return m
 }
 
-type MsgHello struct {
+type MsgInit struct {
 	protocol.MessageBase
 }
 
-func NewMsgHello() *MsgHello {
-	m := &MsgHello{
+func NewMsgInit() *MsgInit {
+	m := &MsgInit{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_HELLO,
+			MessageType: MESSAGE_TYPE_INIT,
 		},
 	}
 	return m

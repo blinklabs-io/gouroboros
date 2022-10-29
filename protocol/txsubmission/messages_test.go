@@ -23,8 +23,8 @@ var tests = []testDefinition{
 	},
 	{
 		CborHex:     "8106",
-		Message:     NewMsgHello(),
-		MessageType: MESSAGE_TYPE_HELLO,
+		Message:     NewMsgInit(),
+		MessageType: MESSAGE_TYPE_INIT,
 	},
 }
 
