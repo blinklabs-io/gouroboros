@@ -7,6 +7,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"github.com/fxamacker/cbor/v2"
 	"io"
+	"reflect"
 	"sync"
 )
 
@@ -309,7 +310,7 @@ func (p *Protocol) getNewState(msg Message) (State, error) {
 		}
 	}
 	if !matchFound {
-		return newState, fmt.Errorf("message not allowed in current protocol state")
+		return newState, fmt.Errorf("message %s not allowed in current protocol state %s", reflect.TypeOf(msg).Name(), p.state)
 	}
 	return newState, nil
 }
