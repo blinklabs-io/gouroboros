@@ -53,9 +53,5 @@ func (s *Server) handleSubmitTx(msgGeneric protocol.Message) error {
 }
 
 func (s *Server) handleDone() error {
-	if s.config.DoneFunc == nil {
-		return fmt.Errorf("received local-tx-submission Done message but no callback function is defined")
-	}
-	// Call the user callback function
-	return s.config.DoneFunc()
+	return nil
 }

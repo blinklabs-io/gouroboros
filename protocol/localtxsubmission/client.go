@@ -3,16 +3,20 @@ package localtxsubmission
 import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"sync"
 )
 
 type Client struct {
 	*protocol.Protocol
-	config *Config
+	config           *Config
+	busyMutex        sync.Mutex
+	submitResultChan chan error
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	c := &Client{
-		config: cfg,
+		config:           cfg,
+		submitResultChan: make(chan error),
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
@@ -44,28 +48,36 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 }
 
 func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
 	msg := NewMsgSubmitTx(eraId, tx)
-	return c.SendMessage(msg)
+	if err := c.SendMessage(msg); err != nil {
+		return err
+	}
+	err := <-c.submitResultChan
+	return err
 }
 
-func (c *Client) Done(tx interface{}) error {
+func (c *Client) Stop() error {
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
 	msg := NewMsgDone()
-	return c.SendMessage(msg)
+	if err := c.SendMessage(msg); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Client) handleAcceptTx() error {
-	if c.config.AcceptTxFunc == nil {
-		return fmt.Errorf("received local-tx-submission AcceptTx message but no callback function is defined")
-	}
-	// Call the user callback function
-	return c.config.AcceptTxFunc()
+	c.submitResultChan <- nil
+	return nil
 }
 
-func (c *Client) handleRejectTx(msgGeneric protocol.Message) error {
-	if c.config.RejectTxFunc == nil {
-		return fmt.Errorf("received local-tx-submission RejectTx message but no callback function is defined")
+func (c *Client) handleRejectTx(msg protocol.Message) error {
+	msgRejectTx := msg.(*MsgRejectTx)
+	err := TransactionRejectedError{
+		ReasonCbor: []byte(msgRejectTx.Reason),
 	}
-	msg := msgGeneric.(*MsgRejectTx)
-	// Call the user callback function
-	return c.config.RejectTxFunc([]byte(msg.Reason))
+	c.submitResultChan <- err
+	return nil
 }
