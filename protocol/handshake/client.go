@@ -68,10 +68,12 @@ func (c *Client) handleAcceptVersion(msgGeneric protocol.Message) error {
 	}
 	msg := msgGeneric.(*MsgAcceptVersion)
 	fullDuplex := false
-	versionData := msg.VersionData.([]interface{})
-	//nolint:gosimple
-	if versionData[1].(bool) == DIFFUSION_MODE_INITIATOR_AND_RESPONDER {
-		fullDuplex = true
+	if c.Mode() == protocol.ProtocolModeNodeToNode {
+		versionData := msg.VersionData.([]interface{})
+		//nolint:gosimple
+		if versionData[1].(bool) == DIFFUSION_MODE_INITIATOR_AND_RESPONDER {
+			fullDuplex = true
+		}
 	}
 	return c.config.FinishedFunc(msg.Version, fullDuplex)
 }
