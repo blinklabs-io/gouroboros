@@ -5,9 +5,9 @@ volumes:
 
 services:
   cardano-node:
-    image: inputoutput/cardano-node:1.33.0
+    image: ghcr.io/cloudstruct/cardano-node:1.35.4
     environment:
-      NETWORK: ${CARDANO_NETWORK:-testnet}
+      NETWORK: ${CARDANO_NETWORK:-preview}
     ports:
       - 8081:3001
     volumes:

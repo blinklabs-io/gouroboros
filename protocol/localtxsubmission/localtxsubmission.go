@@ -50,16 +50,10 @@ type LocalTxSubmission struct {
 
 type Config struct {
 	SubmitTxFunc SubmitTxFunc
-	AcceptTxFunc AcceptTxFunc
-	RejectTxFunc RejectTxFunc
-	DoneFunc     DoneFunc
 }
 
 // Callback function types
 type SubmitTxFunc func(interface{}) error
-type AcceptTxFunc func() error
-type RejectTxFunc func([]byte) error
-type DoneFunc func() error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxSubmission {
 	l := &LocalTxSubmission{

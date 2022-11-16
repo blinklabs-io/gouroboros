@@ -12,12 +12,6 @@ import (
 	"os"
 )
 
-type localTxSubmissionState struct {
-	submitResponse chan bool
-}
-
-var localTxSubmitState localTxSubmissionState
-
 type localTxSubmissionFlags struct {
 	flagset *flag.FlagSet
 	txFile  string
@@ -27,15 +21,12 @@ func newLocalTxSubmissionFlags() *localTxSubmissionFlags {
 	f := &localTxSubmissionFlags{
 		flagset: flag.NewFlagSet("local-tx-submission", flag.ExitOnError),
 	}
-	f.flagset.StringVar(&f.txFile, "tx-file", "", "path to the transaction file to submit")
+	f.flagset.StringVar(&f.txFile, "tx-file", "", "path to the JSON transaction file to submit")
 	return f
 }
 
 func buildLocalTxSubmissionConfig() localtxsubmission.Config {
-	return localtxsubmission.Config{
-		AcceptTxFunc: localTxSubmissionAcceptTxHandler,
-		RejectTxFunc: localTxSubmissionRejectTxHandler,
-	}
+	return localtxsubmission.Config{}
 }
 
 func testLocalTxSubmission(f *globalFlags) {
@@ -45,8 +36,6 @@ func testLocalTxSubmission(f *globalFlags) {
 		fmt.Printf("failed to parse subcommand args: %s\n", err)
 		os.Exit(1)
 	}
-
-	localTxSubmitState.submitResponse = make(chan bool)
 
 	conn := createClientConnection(f)
 	errorChan := make(chan error)
@@ -94,19 +83,5 @@ func testLocalTxSubmission(f *globalFlags) {
 		fmt.Printf("Error submitting transaction: %s\n", err)
 		os.Exit(1)
 	}
-
-	// Wait for response
-	<-localTxSubmitState.submitResponse
-}
-
-func localTxSubmissionAcceptTxHandler() error {
 	fmt.Print("The transaction was accepted\n")
-	localTxSubmitState.submitResponse <- true
-	return nil
-}
-
-func localTxSubmissionRejectTxHandler(reasonCbor []byte) error {
-	fmt.Printf("The transaction was rejected (reason in hex-encoded CBOR): %#v\n", reasonCbor)
-	os.Exit(1)
-	return nil
 }
