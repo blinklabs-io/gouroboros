@@ -40,10 +40,29 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 
 func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
-	// TODO: add cases for messages from client
 	switch msg.Type() {
+	case MESSAGE_TYPE_REQUEST_NEXT:
+		err = s.handleRequestNext(msg)
+	case MESSAGE_TYPE_FIND_INTERSECT:
+		err = s.handleFindIntersect(msg)
+	case MESSAGE_TYPE_DONE:
+		err = s.handleDone()
 	default:
 		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
 	}
 	return err
+}
+
+func (s *Server) handleRequestNext(msg protocol.Message) error {
+	// TODO
+	return nil
+}
+
+func (s *Server) handleFindIntersect(msg protocol.Message) error {
+	// TODO
+	return nil
+}
+
+func (s *Server) handleDone() error {
+	return nil
 }

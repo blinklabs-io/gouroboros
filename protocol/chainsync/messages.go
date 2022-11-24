@@ -228,6 +228,17 @@ type Point struct {
 	Hash []byte
 }
 
+func NewPoint(slot uint64, blockHash []byte) Point {
+	return Point{
+		Slot: slot,
+		Hash: blockHash,
+	}
+}
+
+func NewPointOrigin() Point {
+	return Point{}
+}
+
 // A "point" can sometimes be empty, but the CBOR library gets grumpy about this
 // when doing automatic decoding from an array, so we have to handle this case specially
 func (p *Point) UnmarshalCBOR(data []byte) error {
