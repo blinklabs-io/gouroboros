@@ -90,21 +90,13 @@ type ChainSync struct {
 }
 
 type Config struct {
-	AwaitReplyFunc        AwaitReplyFunc
-	RollBackwardFunc      RollBackwardFunc
-	RollForwardFunc       RollForwardFunc
-	IntersectFoundFunc    IntersectFoundFunc
-	IntersectNotFoundFunc IntersectNotFoundFunc
-	DoneFunc              DoneFunc
+	RollBackwardFunc RollBackwardFunc
+	RollForwardFunc  RollForwardFunc
 }
 
 // Callback function types
-type AwaitReplyFunc func() error
-type RollBackwardFunc func(interface{}, interface{}) error
-type RollForwardFunc func(uint, interface{}) error
-type IntersectFoundFunc func(interface{}, interface{}) error
-type IntersectNotFoundFunc func(interface{}) error
-type DoneFunc func() error
+type RollBackwardFunc func(Point, Tip) error
+type RollForwardFunc func(uint, interface{}, Tip) error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
 	c := &ChainSync{

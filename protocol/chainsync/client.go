@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"sync"
 )
 
 type Client struct {
 	*protocol.Protocol
-	config *Config
+	config                *Config
+	busyMutex             sync.Mutex
+	intersectResultChan   chan error
+	readyForNextBlockChan chan bool
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -21,7 +25,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
 	c := &Client{
-		config: cfg,
+		config:                cfg,
+		intersectResultChan:   make(chan error),
+		readyForNextBlockChan: make(chan bool),
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
@@ -52,36 +58,73 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 		err = c.handleIntersectFound(msg)
 	case MESSAGE_TYPE_INTERSECT_NOT_FOUND:
 		err = c.handleIntersectNotFound(msg)
-	case MESSAGE_TYPE_DONE:
-		err = c.handleDone()
 	default:
 		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
 	}
 	return err
 }
 
-func (c *Client) RequestNext() error {
-	msg := NewMsgRequestNext()
-	return c.SendMessage(msg)
+func (c *Client) Stop() error {
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	msg := NewMsgDone()
+	if err := c.SendMessage(msg); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (c *Client) FindIntersect(points []Point) error {
-	msg := NewMsgFindIntersect(points)
-	return c.SendMessage(msg)
+func (c *Client) Sync(intersectPoints []Point) error {
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	msg := NewMsgFindIntersect(intersectPoints)
+	if err := c.SendMessage(msg); err != nil {
+		return err
+	}
+	if err := <-c.intersectResultChan; err != nil {
+		return err
+	}
+	// Pipeline the initial block requests to speed things up a bit
+	// Using a value higher than 10 seems to cause problems with NtN
+	for i := 0; i < 10; i++ {
+		msg := NewMsgRequestNext()
+		if err := c.SendMessage(msg); err != nil {
+			return err
+		}
+	}
+	go c.syncLoop()
+	return nil
+}
+
+func (c *Client) syncLoop() {
+	for {
+		// Wait for a block to be received
+		<-c.readyForNextBlockChan
+		c.busyMutex.Lock()
+		// Request the next block
+		// In practice we already have multiple block requests pipelined
+		// and this just adds another one to the pile
+		msg := NewMsgRequestNext()
+		if err := c.SendMessage(msg); err != nil {
+			c.SendError(err)
+			return
+		}
+		c.busyMutex.Unlock()
+	}
 }
 
 func (c *Client) handleAwaitReply() error {
-	if c.config.AwaitReplyFunc == nil {
-		return fmt.Errorf("received chain-sync AwaitReply message but no callback function is defined")
-	}
-	// Call the user callback function
-	return c.config.AwaitReplyFunc()
+	return nil
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if c.config.RollForwardFunc == nil {
 		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
 	}
+	// Signal that we're ready for the next block after we finish handling this one
+	defer func() {
+		c.readyForNextBlockChan <- true
+	}()
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*MsgRollForwardNtN)
 		var blockHeader interface{}
@@ -112,7 +155,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			}
 		}
 		// Call the user callback function
-		return c.config.RollForwardFunc(blockType, blockHeader)
+		return c.config.RollForwardFunc(blockType, blockHeader, msg.Tip)
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		blk, err := ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
@@ -120,7 +163,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			return err
 		}
 		// Call the user callback function
-		return c.config.RollForwardFunc(msg.BlockType(), blk)
+		return c.config.RollForwardFunc(msg.BlockType(), blk, msg.Tip)
 	}
 }
 
@@ -134,27 +177,11 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 }
 
 func (c *Client) handleIntersectFound(msgGeneric protocol.Message) error {
-	if c.config.IntersectFoundFunc == nil {
-		return fmt.Errorf("received chain-sync IntersectFound message but no callback function is defined")
-	}
-	msg := msgGeneric.(*MsgIntersectFound)
-	// Call the user callback function
-	return c.config.IntersectFoundFunc(msg.Point, msg.Tip)
+	c.intersectResultChan <- nil
+	return nil
 }
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
-	if c.config.IntersectNotFoundFunc == nil {
-		return fmt.Errorf("received chain-sync IntersectNotFound message but no callback function is defined")
-	}
-	msg := msgGeneric.(*MsgIntersectNotFound)
-	// Call the user callback function
-	return c.config.IntersectNotFoundFunc(msg.Tip)
-}
-
-func (c *Client) handleDone() error {
-	if c.config.DoneFunc == nil {
-		return fmt.Errorf("received chain-sync Done message but no callback function is defined")
-	}
-	// Call the user callback function
-	return c.config.DoneFunc()
+	c.intersectResultChan <- IntersectNotFoundError{}
+	return nil
 }

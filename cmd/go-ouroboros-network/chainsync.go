@@ -13,11 +13,10 @@ import (
 )
 
 type chainSyncState struct {
-	oConn                 *ouroboros.Ouroboros
-	nodeToNode            bool
-	readyForNextBlockChan chan bool
-	byronEpochBaseSlot    uint64
-	byronEpochSlot        uint64
+	oConn              *ouroboros.Ouroboros
+	nodeToNode         bool
+	byronEpochBaseSlot uint64
+	byronEpochSlot     uint64
 }
 
 var syncState chainSyncState
@@ -78,12 +77,8 @@ var eraIntersect = map[int]map[string][]interface{}{
 
 func buildChainSyncConfig() chainsync.Config {
 	return chainsync.Config{
-		AwaitReplyFunc:        chainSyncAwaitReplyHandler,
-		RollBackwardFunc:      chainSyncRollBackwardHandler,
-		RollForwardFunc:       chainSyncRollForwardHandler,
-		IntersectFoundFunc:    chainSyncIntersectFoundHandler,
-		IntersectNotFoundFunc: chainSyncIntersectNotFoundHandler,
-		DoneFunc:              chainSyncDoneHandler,
+		RollBackwardFunc: chainSyncRollBackwardHandler,
+		RollForwardFunc:  chainSyncRollForwardHandler,
 	}
 }
 
@@ -132,56 +127,36 @@ func testChainSync(f *globalFlags) {
 		os.Exit(1)
 	}
 	o.ChainSync.Client.Start()
-	o.BlockFetch.Client.Start()
+	if f.ntnProto {
+		o.BlockFetch.Client.Start()
+	}
 
 	syncState.oConn = o
-	syncState.readyForNextBlockChan = make(chan bool)
 	syncState.nodeToNode = f.ntnProto
 	var point chainsync.Point
 	if len(eraIntersect[f.networkMagic][chainSyncFlags.startEra]) > 0 {
 		// Slot
-		point.Slot = uint64(eraIntersect[f.networkMagic][chainSyncFlags.startEra][0].(int))
+		slot := uint64(eraIntersect[f.networkMagic][chainSyncFlags.startEra][0].(int))
 		// Block hash
 		hash, _ := hex.DecodeString(eraIntersect[f.networkMagic][chainSyncFlags.startEra][1].(string))
-		point.Hash = hash
+		point = chainsync.NewPoint(slot, hash)
+	} else {
+		point = chainsync.NewPointOrigin()
 	}
-	if err := o.ChainSync.Client.FindIntersect([]chainsync.Point{point}); err != nil {
-		fmt.Printf("ERROR: FindIntersect: %s\n", err)
+	if err := o.ChainSync.Client.Sync([]chainsync.Point{point}); err != nil {
+		fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
 		os.Exit(1)
 	}
-	// Wait until ready for next block
-	<-syncState.readyForNextBlockChan
-	// Pipeline the initial block requests to speed things up a bit
-	// Using a value higher than 10 seems to cause problems with NtN
-	for i := 0; i < 10; i++ {
-		err := o.ChainSync.Client.RequestNext()
-		if err != nil {
-			fmt.Printf("ERROR: RequestNext: %s\n", err)
-			os.Exit(1)
-		}
-	}
-	for {
-		err := o.ChainSync.Client.RequestNext()
-		if err != nil {
-			fmt.Printf("ERROR: RequestNext: %s\n", err)
-			os.Exit(1)
-		}
-		// Wait until ready for next block
-		<-syncState.readyForNextBlockChan
-	}
+	// Wait forever...the rest of the sync operations are async
+	select {}
 }
 
-func chainSyncAwaitReplyHandler() error {
-	return nil
-}
-
-func chainSyncRollBackwardHandler(point interface{}, tip interface{}) error {
+func chainSyncRollBackwardHandler(point chainsync.Point, tip chainsync.Tip) error {
 	fmt.Printf("roll backward: point = %#v, tip = %#v\n", point, tip)
-	syncState.readyForNextBlockChan <- true
 	return nil
 }
 
-func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
+func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chainsync.Tip) error {
 	if syncState.nodeToNode {
 		var blockSlot uint64
 		var blockHash []byte
@@ -241,23 +216,6 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}) error {
 			fmt.Printf("%s\n", utils.DumpCborStructure(blockData, ""))
 		}
 	}
-	syncState.readyForNextBlockChan <- true
-	return nil
-}
-
-func chainSyncIntersectFoundHandler(point interface{}, tip interface{}) error {
-	fmt.Printf("found intersect: point = %#v, tip = %#v\n", point, tip)
-	syncState.readyForNextBlockChan <- true
-	return nil
-}
-
-func chainSyncIntersectNotFoundHandler(tip interface{}) error {
-	fmt.Printf("ERROR: failed to find intersection\n")
-	os.Exit(1)
-	return nil
-}
-
-func chainSyncDoneHandler() error {
 	return nil
 }
 
