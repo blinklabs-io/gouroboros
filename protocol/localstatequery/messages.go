@@ -3,6 +3,7 @@ package localstatequery
 import (
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"github.com/fxamacker/cbor/v2"
 )
@@ -59,10 +60,10 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 
 type MsgAcquire struct {
 	protocol.MessageBase
-	Point Point
+	Point common.Point
 }
 
-func NewMsgAcquire(point Point) *MsgAcquire {
+func NewMsgAcquire(point common.Point) *MsgAcquire {
 	m := &MsgAcquire{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_ACQUIRE,
@@ -130,15 +131,15 @@ func NewMsgQuery(query interface{}) *MsgQuery {
 
 type MsgResult struct {
 	protocol.MessageBase
-	Result interface{}
+	Result cbor.RawMessage
 }
 
-func NewMsgResult(result interface{}) *MsgResult {
+func NewMsgResult(resultCbor []byte) *MsgResult {
 	m := &MsgResult{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_RESULT,
 		},
-		Result: result,
+		Result: cbor.RawMessage(resultCbor),
 	}
 	return m
 }
@@ -158,10 +159,10 @@ func NewMsgRelease() *MsgRelease {
 
 type MsgReAcquire struct {
 	protocol.MessageBase
-	Point Point
+	Point common.Point
 }
 
-func NewMsgReAcquire(point Point) *MsgReAcquire {
+func NewMsgReAcquire(point common.Point) *MsgReAcquire {
 	m := &MsgReAcquire{
 		MessageBase: protocol.MessageBase{
 			MessageType: MESSAGE_TYPE_REACQUIRE,
@@ -195,23 +196,4 @@ func NewMsgDone() *MsgDone {
 		},
 	}
 	return m
-}
-
-type Point struct {
-	Slot uint64
-	Hash []byte
-}
-
-// A "point" can sometimes be empty, but the CBOR library gets grumpy about this
-// when doing automatic decoding from an array, so we have to handle this case specially
-func (p *Point) UnmarshalCBOR(data []byte) error {
-	var tmp []interface{}
-	if err := cbor.Unmarshal(data, &tmp); err != nil {
-		return err
-	}
-	if len(tmp) > 0 {
-		p.Slot = tmp[0].(uint64)
-		p.Hash = tmp[1].([]byte)
-	}
-	return nil
 }

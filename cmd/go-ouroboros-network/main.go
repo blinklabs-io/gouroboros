@@ -76,6 +76,8 @@ func main() {
 			testLocalTxSubmission(f)
 		case "server":
 			testServer(f)
+		case "query":
+			testQuery(f)
 		default:
 			fmt.Printf("Unknown subcommand: %s\n", f.flagset.Arg(0))
 			os.Exit(1)

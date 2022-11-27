@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"sync"
 )
 
@@ -74,7 +75,7 @@ func (c *Client) Stop() error {
 	return nil
 }
 
-func (c *Client) Sync(intersectPoints []Point) error {
+func (c *Client) Sync(intersectPoints []common.Point) error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	msg := NewMsgFindIntersect(intersectPoints)
