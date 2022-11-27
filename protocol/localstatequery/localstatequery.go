@@ -90,10 +90,7 @@ type LocalStateQuery struct {
 
 type Config struct {
 	AcquireFunc   AcquireFunc
-	AcquiredFunc  AcquiredFunc
-	FailureFunc   FailureFunc
 	QueryFunc     QueryFunc
-	ResultFunc    ResultFunc
 	ReleaseFunc   ReleaseFunc
 	ReAcquireFunc ReAcquireFunc
 	DoneFunc      DoneFunc
@@ -102,10 +99,7 @@ type Config struct {
 // Callback function types
 // TODO: update callbacks
 type AcquireFunc func(interface{}) error
-type AcquiredFunc func() error
-type FailureFunc func(interface{}) error
 type QueryFunc func(interface{}) error
-type ResultFunc func(interface{}) error
 type ReleaseFunc func() error
 type ReAcquireFunc func(interface{}) error
 type DoneFunc func() error

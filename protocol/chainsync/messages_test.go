@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"io/ioutil"
 	"reflect"
@@ -112,7 +113,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 				0,
 				hexDecode(string(readFile("testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex"))),
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 55740899,
 						Hash: hexDecode("C89E652408EC269379751C8B2BF0137297BF9F5D0FB2E76E19ACF63D783C3A66"),
 					},
@@ -132,7 +133,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 					1,
 					hexDecode(string(readFile("testdata/byron_main_block_testnet_xxxx.hex"))),
 					Tip{
-						Point: Point{
+						Point: common.Point{
 							Slot: 55740899,
 							Hash: hexDecode("C89E652408EC269379751C8B2BF0137297BF9F5D0FB2E76E19ACF63D783C3A66"),
 						},
@@ -151,7 +152,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 				0,
 				hexDecode(string(readFile("testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex"))),
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 55770176,
 						Hash: hexDecode("EA90218C8606AAD58B90C2AD51E37FC35ED6D4C40D8944DF0BC60D22F1E6DD65"),
 					},
@@ -174,7 +175,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 				0,
 				hexDecode(string(readFile("testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex"))),
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 49055,
 						Hash: hexDecode("7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321"),
 					},
@@ -191,7 +192,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 				1,
 				hexDecode(string(readFile("testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex"))),
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 49055,
 						Hash: hexDecode("7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321"),
 					},
@@ -208,7 +209,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 				2,
 				hexDecode(string(readFile("testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex"))),
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 55829927,
 						Hash: hexDecode("2809888408DD6F499ECDC868E10F635FA550AF3EBC3B5165C9DACC023D1F52C5"),
 					},
@@ -227,9 +228,9 @@ func TestMsgRollBackward(t *testing.T) {
 		{
 			CborHex: "83038082821a03520ff458201979d7dd2c7211cb7ce393c83aceca09675ec7786741620676e16c3ad3ac81031a00351333",
 			Message: NewMsgRollBackward(
-				Point{},
+				common.Point{},
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 55709684,
 						Hash: hexDecode("1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103"),
 					},
@@ -248,8 +249,8 @@ func TestMsgFindIntersect(t *testing.T) {
 		{
 			CborHex: "82048180",
 			Message: NewMsgFindIntersect(
-				[]Point{
-					Point{},
+				[]common.Point{
+					common.Point{},
 				},
 			),
 			MessageType: MESSAGE_TYPE_FIND_INTERSECT,
@@ -258,8 +259,8 @@ func TestMsgFindIntersect(t *testing.T) {
 		{
 			CborHex: "820481821a001863bf58207e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
 			Message: NewMsgFindIntersect(
-				[]Point{
-					Point{
+				[]common.Point{
+					common.Point{
 						Slot: 1598399,
 						Hash: hexDecode("7E16781B40EBF8B6DA18F7B5E8ADE855D6738095EF2F1C58C77E88B6E45997A4"),
 					},
@@ -276,9 +277,9 @@ func TestMsgIntersectFound(t *testing.T) {
 		{
 			CborHex: "83058082821a03520ff458201979d7dd2c7211cb7ce393c83aceca09675ec7786741620676e16c3ad3ac81031a00351333",
 			Message: NewMsgIntersectFound(
-				Point{},
+				common.Point{},
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 55709684,
 						Hash: hexDecode("1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103"),
 					},
@@ -297,7 +298,7 @@ func TestMsgIntersectNotFound(t *testing.T) {
 			CborHex: "820682821a03520ff458201979d7dd2c7211cb7ce393c83aceca09675ec7786741620676e16c3ad3ac81031a00351333",
 			Message: NewMsgIntersectNotFound(
 				Tip{
-					Point: Point{
+					Point: common.Point{
 						Slot: 55709684,
 						Hash: hexDecode("1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103"),
 					},

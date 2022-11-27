@@ -8,6 +8,7 @@ import (
 	ouroboros "github.com/cloudstruct/go-ouroboros-network"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"os"
 )
@@ -133,17 +134,17 @@ func testChainSync(f *globalFlags) {
 
 	syncState.oConn = o
 	syncState.nodeToNode = f.ntnProto
-	var point chainsync.Point
+	var point common.Point
 	if len(eraIntersect[f.networkMagic][chainSyncFlags.startEra]) > 0 {
 		// Slot
 		slot := uint64(eraIntersect[f.networkMagic][chainSyncFlags.startEra][0].(int))
 		// Block hash
 		hash, _ := hex.DecodeString(eraIntersect[f.networkMagic][chainSyncFlags.startEra][1].(string))
-		point = chainsync.NewPoint(slot, hash)
+		point = common.NewPoint(slot, hash)
 	} else {
-		point = chainsync.NewPointOrigin()
+		point = common.NewPointOrigin()
 	}
-	if err := o.ChainSync.Client.Sync([]chainsync.Point{point}); err != nil {
+	if err := o.ChainSync.Client.Sync([]common.Point{point}); err != nil {
 		fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
 		os.Exit(1)
 	}
@@ -151,7 +152,7 @@ func testChainSync(f *globalFlags) {
 	select {}
 }
 
-func chainSyncRollBackwardHandler(point chainsync.Point, tip chainsync.Tip) error {
+func chainSyncRollBackwardHandler(point common.Point, tip chainsync.Tip) error {
 	fmt.Printf("roll backward: point = %#v, tip = %#v\n", point, tip)
 	return nil
 }

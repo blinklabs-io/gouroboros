@@ -2,6 +2,7 @@ package chainsync
 
 import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 )
 
 const (
@@ -95,7 +96,7 @@ type Config struct {
 }
 
 // Callback function types
-type RollBackwardFunc func(Point, Tip) error
+type RollBackwardFunc func(common.Point, Tip) error
 type RollForwardFunc func(uint, interface{}, Tip) error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
