@@ -1,5 +1,9 @@
 package localstatequery
 
+import (
+	"github.com/fxamacker/cbor/v2"
+)
+
 const (
 	QUERY_TYPE_BLOCK          = 0
 	QUERY_TYPE_SYSTEM_START   = 1
@@ -86,17 +90,120 @@ type SystemStartResult struct {
 	Picoseconds uint64
 }
 
-// TODO: populate me
-type EraHistoryResult interface{}
+type EraHistoryResult struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_      struct{} `cbor:",toarray"`
+	Begin  eraHistoryResultBeginEnd
+	End    eraHistoryResultBeginEnd
+	Params eraHistoryResultParams
+}
+
+type eraHistoryResultBeginEnd struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_        struct{} `cbor:",toarray"`
+	Timespan interface{}
+	SlotNo   int
+	EpochNo  int
+}
+
+type eraHistoryResultParams struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_                 struct{} `cbor:",toarray"`
+	EpochLength       int
+	SlotLength        int
+	SlotsPerKESPeriod struct {
+		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+		_      struct{} `cbor:",toarray"`
+		Dummy1 interface{}
+		Value  int
+		Dummy2 interface{}
+	}
+}
+
+// TODO
 type NonMyopicMemberRewardsResult interface{}
-type CurrentProtocolParamsResult interface{}
+
+type CurrentProtocolParamsResult struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_                  struct{} `cbor:",toarray"`
+	MinFeeA            int
+	MinFeeB            int
+	MaxBlockBodySize   int
+	MaxTxSize          int
+	MaxBlockHeaderSize int
+	KeyDeposit         int
+	PoolDeposit        int
+	EMax               int
+	NOpt               int
+	A0                 []int
+	Rho                []int
+	Tau                []int
+	// This field no longer exists in Babbage, but we're keeping this here for reference
+	// unless we need to support querying a node still on an older era
+	//DecentralizationParam  []int
+	ProtocolVersionMajor   int
+	ProtocolVersionMinor   int
+	MinPoolCost            int
+	Unknown                interface{}
+	CostModels             interface{}
+	ExecutionUnitPrices    interface{} // [priceMemory priceSteps]	both elements are fractions
+	MaxTxExecutionUnits    []uint
+	MaxBlockExecutionUnits []uint
+	MaxValueSize           int
+	CollateralPercentage   int
+}
+
+// TODO
 type ProposedProtocolParamsUpdatesResult interface{}
 type StakeDistributionResult interface{}
 type UTxOByAddressResult interface{}
 type UTxOWholeResult interface{}
 type DebugEpochStateResult interface{}
 type FilteredDelegationsAndRewardAccountsResult interface{}
-type GenesisConfigResult interface{}
+
+type GenesisConfigResult struct {
+	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+	_                 struct{} `cbor:",toarray"`
+	Start             SystemStartResult
+	NetworkMagic      int
+	NetworkId         uint8
+	ActiveSlotsCoeff  []interface{}
+	SecurityParam     int
+	EpochLength       int
+	SlotsPerKESPeriod int
+	MaxKESEvolutions  int
+	SlotLength        int
+	UpdateQuorum      int
+	MaxLovelaceSupply int64
+	ProtocolParams    struct {
+		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+		_                     struct{} `cbor:",toarray"`
+		MinFeeA               int
+		MinFeeB               int
+		MaxBlockBodySize      int
+		MaxTxSize             int
+		MaxBlockHeaderSize    int
+		KeyDeposit            int
+		PoolDeposit           int
+		EMax                  int
+		NOpt                  int
+		A0                    []int
+		Rho                   []int
+		Tau                   []int
+		DecentralizationParam []int
+		ExtraEntropy          interface{}
+		ProtocolVersionMajor  int
+		ProtocolVersionMinor  int
+		MinUTxOValue          int
+		MinPoolCost           int
+	}
+	// This value contains maps with bytestring keys, which we can't parse yet
+	GenDelegs cbor.RawMessage
+	Unknown1  interface{}
+	Unknown2  interface{}
+}
+
+// TODO
 type DebugNewEpochStateResult interface{}
 type DebugChainDepStateResult interface{}
 type RewardProvenanceResult interface{}

@@ -215,15 +215,15 @@ func (c *Client) GetChainPoint() (*common.Point, error) {
 	return &result, nil
 }
 
-func (c *Client) GetEraHistory() (*EraHistoryResult, error) {
+func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildHardForkQuery(QUERY_TYPE_HARD_FORK_ERA_HISTORY)
-	var result EraHistoryResult
+	var result []EraHistoryResult
 	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
+		return []EraHistoryResult{}, err
 	}
-	return &result, nil
+	return result, nil
 }
 
 func (c *Client) GetEpochNo() (int, error) {
@@ -244,6 +244,7 @@ func (c *Client) GetEpochNo() (int, error) {
 	return result[0], nil
 }
 
+// TODO
 func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -273,14 +274,15 @@ func (c *Client) GetCurrentProtocolParams() (*CurrentProtocolParamsResult, error
 		currentEra,
 		QUERY_TYPE_SHELLEY_CURRENT_PROTOCOL_PARAMS,
 	)
-	var result CurrentProtocolParamsResult
+	var result []CurrentProtocolParamsResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result[0], nil
 
 }
 
+// TODO
 func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpdatesResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -316,9 +318,9 @@ func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetUTxOByAddress(addrs []interface{}) (*UTxOByAddressResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -335,9 +337,9 @@ func (c *Client) GetUTxOByAddress(addrs []interface{}) (*UTxOByAddressResult, er
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -354,9 +356,9 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -373,9 +375,9 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetFilteredDelegationsAndRewardAccounts(creds []interface{}) (*FilteredDelegationsAndRewardAccountsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -392,9 +394,9 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(creds []interface{}) (*
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -406,14 +408,14 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 		currentEra,
 		QUERY_TYPE_SHELLEY_GENESIS_CONFIG,
 	)
-	var result GenesisConfigResult
+	var result []GenesisConfigResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
-
+	return &result[0], nil
 }
 
+// TODO
 func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -430,9 +432,9 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -449,9 +451,9 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -468,9 +470,9 @@ func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetUTxOByTxIn(txins []interface{}) (*UTxOByTxInResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -487,9 +489,9 @@ func (c *Client) GetUTxOByTxIn(txins []interface{}) (*UTxOByTxInResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -506,9 +508,9 @@ func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetStakePoolParams(poolIds []interface{}) (*StakePoolParamsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -525,9 +527,9 @@ func (c *Client) GetStakePoolParams(poolIds []interface{}) (*StakePoolParamsResu
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -544,9 +546,9 @@ func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -563,9 +565,9 @@ func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetStakeSnapshots(poolId interface{}) (*StakeSnapshotsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -582,9 +584,9 @@ func (c *Client) GetStakeSnapshots(poolId interface{}) (*StakeSnapshotsResult, e
 		return nil, err
 	}
 	return &result, nil
-
 }
 
+// TODO
 func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -601,5 +603,4 @@ func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
 		return nil, err
 	}
 	return &result, nil
-
 }
