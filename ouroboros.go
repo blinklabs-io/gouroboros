@@ -1,6 +1,7 @@
 package ouroboros
 
 import (
+	"errors"
 	"fmt"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
@@ -11,6 +12,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localstatequery"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/txsubmission"
+	"io"
 	"net"
 )
 
@@ -101,7 +103,13 @@ func (o *Ouroboros) setupConnection() error {
 		if !ok {
 			return
 		}
-		o.ErrorChan <- fmt.Errorf("muxer error: %s", err)
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			// Return a bare io.EOF error if error is EOF/ErrUnexpectedEOF
+			o.ErrorChan <- io.EOF
+		} else {
+			// Wrap error message to denote it comes from the muxer
+			o.ErrorChan <- fmt.Errorf("muxer error: %s", err)
+		}
 		// Close connection on muxer errors
 		o.Close()
 	}()
