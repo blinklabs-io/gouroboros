@@ -25,6 +25,7 @@ var syncState chainSyncState
 type chainSyncFlags struct {
 	flagset  *flag.FlagSet
 	startEra string
+	tip      bool
 }
 
 func newChainSyncFlags() *chainSyncFlags {
@@ -32,6 +33,7 @@ func newChainSyncFlags() *chainSyncFlags {
 		flagset: flag.NewFlagSet("chain-sync", flag.ExitOnError),
 	}
 	f.flagset.StringVar(&f.startEra, "start-era", "genesis", "era which to start chain-sync at")
+	f.flagset.BoolVar(&f.tip, "tip", false, "start chain-sync at current chain tip")
 	return f
 }
 
@@ -135,7 +137,14 @@ func testChainSync(f *globalFlags) {
 	syncState.oConn = o
 	syncState.nodeToNode = f.ntnProto
 	var point common.Point
-	if len(eraIntersect[f.networkMagic][chainSyncFlags.startEra]) > 0 {
+	if chainSyncFlags.tip {
+		tip, err := o.ChainSync.Client.GetCurrentTip()
+		if err != nil {
+			fmt.Printf("ERROR: failed to get current tip: %s\n", err)
+			os.Exit(1)
+		}
+		point = tip.Point
+	} else if len(eraIntersect[f.networkMagic][chainSyncFlags.startEra]) > 0 {
 		// Slot
 		slot := uint64(eraIntersect[f.networkMagic][chainSyncFlags.startEra][0].(int))
 		// Block hash

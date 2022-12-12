@@ -14,6 +14,8 @@ type Client struct {
 	busyMutex             sync.Mutex
 	intersectResultChan   chan error
 	readyForNextBlockChan chan bool
+	wantCurrentTip        bool
+	currentTipChan        chan Tip
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -29,6 +31,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		config:                cfg,
 		intersectResultChan:   make(chan error),
 		readyForNextBlockChan: make(chan bool),
+		currentTipChan:        make(chan Tip),
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
@@ -73,6 +76,19 @@ func (c *Client) Stop() error {
 		return err
 	}
 	return nil
+}
+
+func (c *Client) GetCurrentTip() (*Tip, error) {
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	c.wantCurrentTip = true
+	msg := NewMsgFindIntersect([]common.Point{})
+	if err := c.SendMessage(msg); err != nil {
+		return nil, err
+	}
+	tip := <-c.currentTipChan
+	c.wantCurrentTip = false
+	return &tip, nil
 }
 
 func (c *Client) Sync(intersectPoints []common.Point) error {
@@ -178,11 +194,21 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 }
 
 func (c *Client) handleIntersectFound(msgGeneric protocol.Message) error {
-	c.intersectResultChan <- nil
+	if c.wantCurrentTip {
+		msgIntersectFound := msgGeneric.(*MsgIntersectFound)
+		c.currentTipChan <- msgIntersectFound.Tip
+	} else {
+		c.intersectResultChan <- nil
+	}
 	return nil
 }
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
-	c.intersectResultChan <- IntersectNotFoundError{}
+	if c.wantCurrentTip {
+		msgIntersectNotFound := msgGeneric.(*MsgIntersectNotFound)
+		c.currentTipChan <- msgIntersectNotFound.Tip
+	} else {
+		c.intersectResultChan <- IntersectNotFoundError{}
+	}
 	return nil
 }
