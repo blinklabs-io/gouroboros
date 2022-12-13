@@ -129,16 +129,16 @@ func testChainSync(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.ChainSync.Client.Start()
+	o.ChainSync().Client.Start()
 	if f.ntnProto {
-		o.BlockFetch.Client.Start()
+		o.BlockFetch().Client.Start()
 	}
 
 	syncState.oConn = o
 	syncState.nodeToNode = f.ntnProto
 	var point common.Point
 	if chainSyncFlags.tip {
-		tip, err := o.ChainSync.Client.GetCurrentTip()
+		tip, err := o.ChainSync().Client.GetCurrentTip()
 		if err != nil {
 			fmt.Printf("ERROR: failed to get current tip: %s\n", err)
 			os.Exit(1)
@@ -153,7 +153,7 @@ func testChainSync(f *globalFlags) {
 	} else {
 		point = common.NewPointOrigin()
 	}
-	if err := o.ChainSync.Client.Sync([]common.Point{point}); err != nil {
+	if err := o.ChainSync().Client.Sync([]common.Point{point}); err != nil {
 		fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
 		os.Exit(1)
 	}
@@ -194,7 +194,7 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 			blockSlot = h.Body.Slot
 			blockHash, _ = hex.DecodeString(h.Id())
 		}
-		if err := syncState.oConn.BlockFetch.Client.RequestRange([]interface{}{blockSlot, blockHash}, []interface{}{blockSlot, blockHash}); err != nil {
+		if err := syncState.oConn.BlockFetch().Client.RequestRange([]interface{}{blockSlot, blockHash}, []interface{}{blockSlot, blockHash}); err != nil {
 			fmt.Printf("error calling RequestRange: %s\n", err)
 			return err
 		}
