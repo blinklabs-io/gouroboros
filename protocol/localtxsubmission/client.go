@@ -2,6 +2,7 @@ package localtxsubmission
 
 import (
 	"fmt"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"sync"
 )
@@ -75,7 +76,12 @@ func (c *Client) handleAcceptTx() error {
 
 func (c *Client) handleRejectTx(msg protocol.Message) error {
 	msgRejectTx := msg.(*MsgRejectTx)
-	err := TransactionRejectedError{
+	rejectErr, err := ledger.NewTxSubmitErrorFromCbor(msgRejectTx.Reason)
+	if err != nil {
+		return err
+	}
+	err = TransactionRejectedError{
+		Reason:     rejectErr,
 		ReasonCbor: []byte(msgRejectTx.Reason),
 	}
 	c.submitResultChan <- err

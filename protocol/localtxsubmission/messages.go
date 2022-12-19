@@ -80,9 +80,8 @@ func NewMsgAcceptTx() *MsgAcceptTx {
 
 type MsgRejectTx struct {
 	protocol.MessageBase
-	// TODO: find a better way to handle this
-	// We use RawMessage here because the failure reason can often contain
-	// structures that we can't currently parse, such as maps with []uint8 keys
+	// We use RawMessage here because the failure reason can be numerous different
+	// structures, and we'll need to do further processing
 	Reason cbor.RawMessage
 }
 

@@ -3,7 +3,7 @@ module github.com/cloudstruct/go-ouroboros-network
 go 1.17
 
 require (
-	github.com/cloudstruct/go-cardano-ledger v0.1.0
+	github.com/cloudstruct/go-cardano-ledger v0.4.0
 	github.com/fxamacker/cbor/v2 v2.4.0
 )
 
