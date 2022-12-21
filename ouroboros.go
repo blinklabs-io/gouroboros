@@ -91,6 +91,8 @@ func (o *Ouroboros) Close() error {
 			return err
 		}
 	}
+	// Close the error channel
+	close(o.ErrorChan)
 	return nil
 }
 
