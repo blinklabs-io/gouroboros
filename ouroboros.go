@@ -14,19 +14,23 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/txsubmission"
 	"io"
 	"net"
+	"sync"
 )
 
 type Ouroboros struct {
-	conn               net.Conn
-	networkMagic       uint32
-	server             bool
-	useNodeToNodeProto bool
-	muxer              *muxer.Muxer
-	ErrorChan          chan error
-	protoErrorChan     chan error
-	sendKeepAlives     bool
-	delayMuxerStart    bool
-	fullDuplex         bool
+	conn                  net.Conn
+	networkMagic          uint32
+	server                bool
+	useNodeToNodeProto    bool
+	muxer                 *muxer.Muxer
+	ErrorChan             chan error
+	protoErrorChan        chan error
+	handshakeFinishedChan chan interface{}
+	doneChan              chan interface{}
+	closeMutex            sync.Mutex
+	sendKeepAlives        bool
+	delayMuxerStart       bool
+	fullDuplex            bool
 	// Mini-protocols
 	Handshake               *handshake.Handshake
 	ChainSync               *chainsync.ChainSync
@@ -45,7 +49,9 @@ type Ouroboros struct {
 
 func New(options ...OuroborosOptionFunc) (*Ouroboros, error) {
 	o := &Ouroboros{
-		protoErrorChan: make(chan error, 10),
+		protoErrorChan:        make(chan error, 10),
+		handshakeFinishedChan: make(chan interface{}),
+		doneChan:              make(chan interface{}),
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -81,6 +87,18 @@ func (o *Ouroboros) Dial(proto string, address string) error {
 }
 
 func (o *Ouroboros) Close() error {
+	// We use a mutex to prevent this function from being called multiple times
+	// concurrently, which would cause a race condition
+	o.closeMutex.Lock()
+	defer o.closeMutex.Unlock()
+	// Immediately return if we're already shutting down
+	select {
+	case <-o.doneChan:
+		return nil
+	default:
+	}
+	// Close doneChan to signify that we're shutting down
+	close(o.doneChan)
 	// Gracefully stop the muxer
 	if o.muxer != nil {
 		o.muxer.Stop()
@@ -90,6 +108,22 @@ func (o *Ouroboros) Close() error {
 		if err := o.conn.Close(); err != nil {
 			return err
 		}
+	}
+	// Close channels
+	close(o.ErrorChan)
+	close(o.protoErrorChan)
+	// We can only close a channel once, so we have to jump through a few hoops
+	select {
+	// The channel is either closed or has an item pending
+	case _, ok := <-o.handshakeFinishedChan:
+		// We successfully retrieved an item
+		// This will probably never happen, but it doesn't hurt to cover this case
+		if ok {
+			close(o.handshakeFinishedChan)
+		}
+	// The channel is open and has no pending items
+	default:
+		close(o.handshakeFinishedChan)
 	}
 	return nil
 }
@@ -131,7 +165,6 @@ func (o *Ouroboros) setupConnection() error {
 		protoOptions.Role = protocol.ProtocolRoleClient
 	}
 	// Perform handshake
-	handshakeFinishedChan := make(chan interface{})
 	var handshakeVersion uint16
 	var handshakeFullDuplex bool
 	handshakeConfig := &handshake.Config{
@@ -141,7 +174,7 @@ func (o *Ouroboros) setupConnection() error {
 		FinishedFunc: func(version uint16, fullDuplex bool) error {
 			handshakeVersion = version
 			handshakeFullDuplex = fullDuplex
-			close(handshakeFinishedChan)
+			close(o.handshakeFinishedChan)
 			return nil
 		},
 	}
@@ -153,9 +186,13 @@ func (o *Ouroboros) setupConnection() error {
 	}
 	// Wait for handshake completion or error
 	select {
+	case <-o.doneChan:
+		// Return an error if we're shutting down
+		return io.EOF
 	case err := <-o.protoErrorChan:
 		return err
-	case <-handshakeFinishedChan:
+	case <-o.handshakeFinishedChan:
+		// This is purposely empty, but we need this case to break out when this channel is closed
 	}
 	// Provide the negotiated protocol version to the various mini-protocols
 	protoOptions.Version = handshakeVersion
@@ -165,7 +202,11 @@ func (o *Ouroboros) setupConnection() error {
 	}
 	// Start Goroutine to pass along errors from the mini-protocols
 	go func() {
-		err := <-o.protoErrorChan
+		err, ok := <-o.protoErrorChan
+		// The channel is closed, which means we're already shutting down
+		if !ok {
+			return
+		}
 		o.ErrorChan <- fmt.Errorf("protocol error: %s", err)
 		// Close connection on mini-protocol errors
 		o.Close()

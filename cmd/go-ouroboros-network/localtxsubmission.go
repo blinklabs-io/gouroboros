@@ -42,7 +42,7 @@ func testLocalTxSubmission(f *globalFlags) {
 	go func() {
 		for {
 			err := <-errorChan
-			fmt.Printf("ERROR: %s\n", err)
+			fmt.Printf("ERROR(async): %s\n", err)
 			os.Exit(1)
 		}
 	}()
