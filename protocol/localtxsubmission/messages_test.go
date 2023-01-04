@@ -2,9 +2,12 @@ package localtxsubmission
 
 import (
 	"encoding/hex"
+	"fmt"
+	"github.com/cloudstruct/go-cardano-ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -14,8 +17,41 @@ type testDefinition struct {
 	MessageType uint
 }
 
-// TODO: implement tests for more messages
+// Helper function to allow inline hex decoding without capturing the error
+func hexDecode(data string) []byte {
+	// Strip off any leading/trailing whitespace in hex string
+	data = strings.TrimSpace(data)
+	decoded, err := hex.DecodeString(data)
+	if err != nil {
+		panic(fmt.Sprintf("error decoding hex: %s", err))
+	}
+	return decoded
+}
+
+// Valid CBOR that serves as a placeholder for real TX content in the tests
+// [h'DEADBEEF']
+var placeholderTx = hexDecode("8144DEADBEEF")
+
+// Valid CBOR that serves as a placeholder for TX rejection errors
+// [2, 4]
+var placeholderRejectError = hexDecode("820204")
+
 var tests = []testDefinition{
+	{
+		CborHex:     fmt.Sprintf("82008204d81846%x", placeholderTx),
+		MessageType: MESSAGE_TYPE_SUBMIT_TX,
+		Message:     NewMsgSubmitTx(ledger.TX_TYPE_ALONZO, placeholderTx),
+	},
+	{
+		CborHex:     "8101",
+		Message:     NewMsgAcceptTx(),
+		MessageType: MESSAGE_TYPE_ACCEPT_TX,
+	},
+	{
+		CborHex:     fmt.Sprintf("8202%x", placeholderRejectError),
+		MessageType: MESSAGE_TYPE_REJECT_TX,
+		Message:     NewMsgRejectTx(placeholderRejectError),
+	},
 	{
 		CborHex:     "8103",
 		Message:     NewMsgDone(),
