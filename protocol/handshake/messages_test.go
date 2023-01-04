@@ -14,8 +14,41 @@ type testDefinition struct {
 	MessageType uint
 }
 
-// TODO: implement tests for more messages
-var tests = []testDefinition{}
+var tests = []testDefinition{
+	{
+		CborHex:     "8200a4078202f4088202f4098202f40a8202f4",
+		MessageType: MESSAGE_TYPE_PROPOSE_VERSIONS,
+		Message: NewMsgProposeVersions(
+			map[uint16]interface{}{
+				7:  []interface{}{uint64(2), false},
+				8:  []interface{}{uint64(2), false},
+				9:  []interface{}{uint64(2), false},
+				10: []interface{}{uint64(2), false},
+			},
+		),
+	},
+	{
+		CborHex:     "83010a8202f4",
+		MessageType: MESSAGE_TYPE_ACCEPT_VERSION,
+		Message:     NewMsgAcceptVersion(10, []interface{}{uint64(2), false}),
+	},
+	{
+		CborHex:     "82028200840708090a",
+		MessageType: MESSAGE_TYPE_REFUSE,
+		Message: NewMsgRefuse(
+			[]interface{}{
+				uint64(REFUSE_REASON_VERSION_MISMATCH),
+				[]interface{}{
+					uint64(7),
+					uint64(8),
+					uint64(9),
+					uint64(10),
+				},
+			},
+		),
+	},
+	// TODO: add more tests for other refusal types
+}
 
 func TestDecode(t *testing.T) {
 	for _, test := range tests {
@@ -30,7 +63,7 @@ func TestDecode(t *testing.T) {
 		// Set the raw CBOR so the comparison should succeed
 		test.Message.SetCbor(cborData)
 		if !reflect.DeepEqual(msg, test.Message) {
-			t.Fatalf("CBOR did not decode to expected message object\n  got: %#v\n  wanted: %#v", msg, test.Message)
+			t.Fatalf("CBOR did not decode to expected message object\n  got:    %#v\n  wanted: %#v", msg, test.Message)
 		}
 	}
 }
@@ -43,7 +76,7 @@ func TestEncode(t *testing.T) {
 		}
 		cborHex := hex.EncodeToString(cborData)
 		if cborHex != test.CborHex {
-			t.Fatalf("message did not encode to expected CBOR\n  got: %s\n  wanted: %s", cborHex, test.CborHex)
+			t.Fatalf("message did not encode to expected CBOR\n  got:    %s\n  wanted: %s", cborHex, test.CborHex)
 		}
 	}
 }
