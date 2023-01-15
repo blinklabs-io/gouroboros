@@ -1,3 +1,4 @@
+// The common package contains types used by multiple mini-protocols
 package common
 
 import (
@@ -5,6 +6,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+// The Point type represents a point on the blockchain. It consists of a slot number and block hash
 type Point struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_    struct{} `cbor:",toarray"`
@@ -12,6 +14,7 @@ type Point struct {
 	Hash []byte
 }
 
+// NewPoint returns a Point object with the specified slot number and block hash
 func NewPoint(slot uint64, blockHash []byte) Point {
 	return Point{
 		Slot: slot,
@@ -19,12 +22,13 @@ func NewPoint(slot uint64, blockHash []byte) Point {
 	}
 }
 
+// NewPointOrigin returns an "empty" Point object which represents the origin of the blockchain
 func NewPointOrigin() Point {
 	return Point{}
 }
 
-// A "point" can sometimes be empty, but the CBOR library gets grumpy about this
-// when doing automatic decoding from an array, so we have to handle this case specially
+// UnmarshalCBOR is a helper function for decoding a Point object from CBOR. The object content can vary,
+// so we need to do some special handling when decoding. It is not intended to be called directly.
 func (p *Point) UnmarshalCBOR(data []byte) error {
 	var tmp []interface{}
 	if err := cbor.Unmarshal(data, &tmp); err != nil {
@@ -37,6 +41,8 @@ func (p *Point) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// MarshalCBOR is a helper function for encoding a Point object to CBOR. The object content can vary, so we
+// need to do some special handling when encoding. It is not intended to be called directly.
 func (p *Point) MarshalCBOR() ([]byte, error) {
 	var data []interface{}
 	if p.Slot == 0 && p.Hash == nil {
