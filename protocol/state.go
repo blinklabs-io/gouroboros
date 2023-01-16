@@ -1,5 +1,9 @@
 package protocol
 
+import (
+	"time"
+)
+
 const (
 	AGENCY_NONE   uint = 0
 	AGENCY_CLIENT uint = 1
@@ -33,6 +37,7 @@ type StateTransitionMatchFunc func(Message) bool
 type StateMapEntry struct {
 	Agency      uint
 	Transitions []StateTransition
+	Timeout     time.Duration
 }
 
 type StateMap map[State]StateMapEntry
