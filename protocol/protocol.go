@@ -3,12 +3,14 @@ package protocol
 import (
 	"bytes"
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"github.com/fxamacker/cbor/v2"
 	"io"
 	"reflect"
 	"sync"
+	"time"
+
+	"github.com/cloudstruct/go-ouroboros-network/muxer"
+	"github.com/cloudstruct/go-ouroboros-network/utils"
+	"github.com/fxamacker/cbor/v2"
 )
 
 const (
@@ -17,17 +19,18 @@ const (
 )
 
 type Protocol struct {
-	config             ProtocolConfig
-	muxerSendChan      chan *muxer.Segment
-	muxerRecvChan      chan *muxer.Segment
-	state              State
-	stateMutex         sync.Mutex
-	recvBuffer         *bytes.Buffer
-	sendQueueChan      chan Message
-	sendStateQueueChan chan Message
-	recvReadyChan      chan bool
-	sendReadyChan      chan bool
-	doneChan           chan bool
+	config               ProtocolConfig
+	muxerSendChan        chan *muxer.Segment
+	muxerRecvChan        chan *muxer.Segment
+	state                State
+	stateMutex           sync.Mutex
+	recvBuffer           *bytes.Buffer
+	sendQueueChan        chan Message
+	sendStateQueueChan   chan Message
+	recvReadyChan        chan bool
+	sendReadyChan        chan bool
+	doneChan             chan bool
+	stateTransitionTimer *time.Timer
 }
 
 type ProtocolConfig struct {
@@ -316,6 +319,13 @@ func (p *Protocol) getNewState(msg Message) (State, error) {
 }
 
 func (p *Protocol) setState(state State) {
+	// Disable any previous state transition timer
+	if p.stateTransitionTimer != nil {
+		if !p.stateTransitionTimer.Stop() {
+			<-p.stateTransitionTimer.C
+		}
+		p.stateTransitionTimer = nil
+	}
 	// Set the new state
 	p.state = state
 	// Mark protocol as ready to send/receive based on role and agency of the new state
@@ -334,6 +344,15 @@ func (p *Protocol) setState(state State) {
 		case ProtocolRoleClient:
 			p.recvReadyChan <- true
 		}
+	}
+	// Set timeout for state transition
+	if p.config.StateMap[p.state].Timeout > 0 {
+		p.stateTransitionTimer = time.AfterFunc(
+			p.config.StateMap[p.state].Timeout,
+			func() {
+				p.SendError(fmt.Errorf("%s: timeout waiting on transition from protocol state %s", p.config.Name, p.state))
+			},
+		)
 	}
 }
 

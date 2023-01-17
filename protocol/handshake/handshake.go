@@ -1,6 +1,8 @@
 package handshake
 
 import (
+	"time"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -29,7 +31,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_CONFIRM: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency:  protocol.AGENCY_SERVER,
+		Timeout: 5 * time.Second,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_ACCEPT_VERSION,
