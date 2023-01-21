@@ -1,6 +1,8 @@
 package keepalive
 
 import (
+	"time"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -9,7 +11,10 @@ const (
 	PROTOCOL_ID   uint16 = 8
 
 	// Time between keep-alive probes, in seconds
-	KEEP_ALIVE_PERIOD = 60
+	DEFAULT_KEEP_ALIVE_PERIOD = 60
+
+	// Timeout for keep-alive responses, in seconds
+	DEFAULT_KEEP_ALIVE_TIMEOUT = 10
 )
 
 var (
@@ -55,6 +60,8 @@ type Config struct {
 	KeepAliveFunc         KeepAliveFunc
 	KeepAliveResponseFunc KeepAliveResponseFunc
 	DoneFunc              DoneFunc
+	Timeout               time.Duration
+	Period                time.Duration
 }
 
 // Callback function types
@@ -73,7 +80,10 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *KeepAlive {
 type KeepAliveOptionFunc func(*Config)
 
 func NewConfig(options ...KeepAliveOptionFunc) Config {
-	c := Config{}
+	c := Config{
+		Period:  DEFAULT_KEEP_ALIVE_PERIOD * time.Second,
+		Timeout: DEFAULT_KEEP_ALIVE_TIMEOUT * time.Second,
+	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -96,5 +106,17 @@ func WithKeepAliveResponseFunc(keepAliveResponseFunc KeepAliveResponseFunc) Keep
 func WithDoneFunc(doneFunc DoneFunc) KeepAliveOptionFunc {
 	return func(c *Config) {
 		c.DoneFunc = doneFunc
+	}
+}
+
+func WithTimeout(timeout time.Duration) KeepAliveOptionFunc {
+	return func(c *Config) {
+		c.Timeout = timeout
+	}
+}
+
+func WithPeriod(period time.Duration) KeepAliveOptionFunc {
+	return func(c *Config) {
+		c.Period = period
 	}
 }
