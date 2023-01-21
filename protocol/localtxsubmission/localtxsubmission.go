@@ -62,3 +62,20 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxSubmission 
 	}
 	return l
 }
+
+type LocalTxSubmissionOptionFunc func(*Config)
+
+func NewConfig(options ...LocalTxSubmissionOptionFunc) Config {
+	c := Config{}
+	// Apply provided options functions
+	for _, option := range options {
+		option(&c)
+	}
+	return c
+}
+
+func WithSubmitTxFunc(submitTxFunc SubmitTxFunc) LocalTxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.SubmitTxFunc = submitTxFunc
+	}
+}

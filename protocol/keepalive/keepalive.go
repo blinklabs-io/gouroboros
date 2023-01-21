@@ -69,3 +69,32 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *KeepAlive {
 	}
 	return k
 }
+
+type KeepAliveOptionFunc func(*Config)
+
+func NewConfig(options ...KeepAliveOptionFunc) Config {
+	c := Config{}
+	// Apply provided options functions
+	for _, option := range options {
+		option(&c)
+	}
+	return c
+}
+
+func WithKeepAliveFunc(keepAliveFunc KeepAliveFunc) KeepAliveOptionFunc {
+	return func(c *Config) {
+		c.KeepAliveFunc = keepAliveFunc
+	}
+}
+
+func WithKeepAliveResponseFunc(keepAliveResponseFunc KeepAliveResponseFunc) KeepAliveOptionFunc {
+	return func(c *Config) {
+		c.KeepAliveResponseFunc = keepAliveResponseFunc
+	}
+}
+
+func WithDoneFunc(doneFunc DoneFunc) KeepAliveOptionFunc {
+	return func(c *Config) {
+		c.DoneFunc = doneFunc
+	}
+}

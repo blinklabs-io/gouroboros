@@ -86,3 +86,38 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	}
 	return b
 }
+
+type BlockFetchOptionFunc func(*Config)
+
+func NewConfig(options ...BlockFetchOptionFunc) Config {
+	c := Config{}
+	// Apply provided options functions
+	for _, option := range options {
+		option(&c)
+	}
+	return c
+}
+
+func WithStartBatchFunc(startBatchFunc StartBatchFunc) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.StartBatchFunc = startBatchFunc
+	}
+}
+
+func WithNoBlocksFunc(noBlocksFunc NoBlocksFunc) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.NoBlocksFunc = noBlocksFunc
+	}
+}
+
+func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.BlockFunc = blockFunc
+	}
+}
+
+func WithBatchDoneFunc(BatchDoneFunc BatchDoneFunc) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.BatchDoneFunc = BatchDoneFunc
+	}
+}

@@ -20,7 +20,7 @@ func newQueryFlags() *queryFlags {
 }
 
 func buildLocalStateQueryConfig() localstatequery.Config {
-	return localstatequery.Config{}
+	return localstatequery.NewConfig()
 }
 
 func testQuery(f *globalFlags) {

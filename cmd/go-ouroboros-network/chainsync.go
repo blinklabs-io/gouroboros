@@ -79,19 +79,19 @@ var eraIntersect = map[int]map[string][]interface{}{
 }
 
 func buildChainSyncConfig() chainsync.Config {
-	return chainsync.Config{
-		RollBackwardFunc: chainSyncRollBackwardHandler,
-		RollForwardFunc:  chainSyncRollForwardHandler,
-	}
+	return chainsync.NewConfig(
+		chainsync.WithRollBackwardFunc(chainSyncRollBackwardHandler),
+		chainsync.WithRollForwardFunc(chainSyncRollForwardHandler),
+	)
 }
 
 func buildBlockFetchConfig() blockfetch.Config {
-	return blockfetch.Config{
-		StartBatchFunc: blockFetchStartBatchHandler,
-		NoBlocksFunc:   blockFetchNoBlocksHandler,
-		BlockFunc:      blockFetchBlockHandler,
-		BatchDoneFunc:  blockFetchBatchDoneHandler,
-	}
+	return blockfetch.NewConfig(
+		blockfetch.WithStartBatchFunc(blockFetchStartBatchHandler),
+		blockfetch.WithNoBlocksFunc(blockFetchNoBlocksHandler),
+		blockfetch.WithBlockFunc(blockFetchBlockHandler),
+		blockfetch.WithBatchDoneFunc(blockFetchBatchDoneHandler),
+	)
 }
 
 func testChainSync(f *globalFlags) {

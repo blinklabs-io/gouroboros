@@ -106,3 +106,26 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
 	}
 	return c
 }
+
+type ChainSyncOptionFunc func(*Config)
+
+func NewConfig(options ...ChainSyncOptionFunc) Config {
+	c := Config{}
+	// Apply provided options functions
+	for _, option := range options {
+		option(&c)
+	}
+	return c
+}
+
+func WithRollBackwardFunc(rollBackwardFunc RollBackwardFunc) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.RollBackwardFunc = rollBackwardFunc
+	}
+}
+
+func WithRollForwardFunc(rollForwardFunc RollForwardFunc) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.RollForwardFunc = rollForwardFunc
+	}
+}
