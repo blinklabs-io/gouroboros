@@ -13,9 +13,20 @@ type Client struct {
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
 	c := &Client{
 		config: cfg,
 	}
+	// Update state map with timeout
+	stateMap := StateMap
+	if entry, ok := stateMap[STATE_SERVER]; ok {
+		entry.Timeout = c.config.Timeout
+		stateMap[STATE_SERVER] = entry
+	}
+	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -25,7 +36,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        STATE_CLIENT,
 	}
 	c.Protocol = protocol.New(protoConfig)
@@ -38,7 +49,7 @@ func (c *Client) Start() {
 }
 
 func (c *Client) startTimer() {
-	c.timer = time.AfterFunc(KEEP_ALIVE_PERIOD*time.Second, func() {
+	c.timer = time.AfterFunc(c.config.Period, func() {
 		msg := NewMsgKeepAlive(0)
 		if err := c.SendMessage(msg); err != nil {
 			c.SendError(err)
