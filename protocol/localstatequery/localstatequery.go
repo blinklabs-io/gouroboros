@@ -111,3 +111,44 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalStateQuery {
 	}
 	return l
 }
+
+type LocalStateQueryOptionFunc func(*Config)
+
+func NewConfig(options ...LocalStateQueryOptionFunc) Config {
+	c := Config{}
+	// Apply provided options functions
+	for _, option := range options {
+		option(&c)
+	}
+	return c
+}
+
+func WithAcquireFunc(acquireFunc AcquireFunc) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.AcquireFunc = acquireFunc
+	}
+}
+
+func WithQueryFunc(queryFunc QueryFunc) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.QueryFunc = queryFunc
+	}
+}
+
+func WithReleaseFunc(releaseFunc ReleaseFunc) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.ReleaseFunc = releaseFunc
+	}
+}
+
+func WithReAcquireFunc(reAcquireFunc ReAcquireFunc) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.ReAcquireFunc = reAcquireFunc
+	}
+}
+
+func WithDoneFunc(doneFunc DoneFunc) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.DoneFunc = doneFunc
+	}
+}

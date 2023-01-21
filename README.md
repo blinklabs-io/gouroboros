@@ -90,6 +90,12 @@ Test local-tx-submission (only works in node-to-client mode).
 $ ./go-ouroboros-network ... local-tx-submission ...
 ```
 
+Test following the chain tip in the `preview` network.
+
+```
+$ ./go-ouroboros-network -preview -address preview-node.world.dev.cardano.org:30002 -ntn chain-sync -tip
+```
+
 ### Stopping the local `cardano-node` instance
 
 ```

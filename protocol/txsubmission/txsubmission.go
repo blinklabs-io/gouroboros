@@ -120,3 +120,50 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *TxSubmission {
 	}
 	return t
 }
+
+type TxSubmissionOptionFunc func(*Config)
+
+func NewConfig(options ...TxSubmissionOptionFunc) Config {
+	c := Config{}
+	// Apply provided options functions
+	for _, option := range options {
+		option(&c)
+	}
+	return c
+}
+
+func WithRequestTxIdsFunc(requestTxIdsFunc RequestTxIdsFunc) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.RequestTxIdsFunc = requestTxIdsFunc
+	}
+}
+
+func WithReplyTxIdsFunc(replyTxIdsFunc ReplyTxIdsFunc) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.ReplyTxIdsFunc = replyTxIdsFunc
+	}
+}
+
+func WithRequestTxsFunc(requestTxsFunc RequestTxsFunc) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.RequestTxsFunc = requestTxsFunc
+	}
+}
+
+func WithReplyTxsFunc(replyTxsFunc ReplyTxsFunc) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.ReplyTxsFunc = replyTxsFunc
+	}
+}
+
+func WithDoneFunc(doneFunc DoneFunc) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.DoneFunc = doneFunc
+	}
+}
+
+func WithInitFunc(initFunc InitFunc) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.InitFunc = initFunc
+	}
+}

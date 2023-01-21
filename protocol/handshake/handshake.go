@@ -70,3 +70,38 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {
 	}
 	return h
 }
+
+type HandshakeOptionFunc func(*Config)
+
+func NewConfig(options ...HandshakeOptionFunc) Config {
+	c := Config{}
+	// Apply provided options functions
+	for _, option := range options {
+		option(&c)
+	}
+	return c
+}
+
+func WithProtocolVersions(versions []uint16) HandshakeOptionFunc {
+	return func(c *Config) {
+		c.ProtocolVersions = versions
+	}
+}
+
+func WithNetworkMagic(networkMagic uint32) HandshakeOptionFunc {
+	return func(c *Config) {
+		c.NetworkMagic = networkMagic
+	}
+}
+
+func WithClientFullDuplex(fullDuplex bool) HandshakeOptionFunc {
+	return func(c *Config) {
+		c.ClientFullDuplex = fullDuplex
+	}
+}
+
+func WithFinishedFunc(finishedFunc FinishedFunc) HandshakeOptionFunc {
+	return func(c *Config) {
+		c.FinishedFunc = finishedFunc
+	}
+}

@@ -167,18 +167,18 @@ func (o *Ouroboros) setupConnection() error {
 	// Perform handshake
 	var handshakeVersion uint16
 	var handshakeFullDuplex bool
-	handshakeConfig := &handshake.Config{
-		ProtocolVersions: protoVersions,
-		NetworkMagic:     o.networkMagic,
-		ClientFullDuplex: o.fullDuplex,
-		FinishedFunc: func(version uint16, fullDuplex bool) error {
+	handshakeConfig := handshake.NewConfig(
+		handshake.WithProtocolVersions(protoVersions),
+		handshake.WithNetworkMagic(o.networkMagic),
+		handshake.WithClientFullDuplex(o.fullDuplex),
+		handshake.WithFinishedFunc(func(version uint16, fullDuplex bool) error {
 			handshakeVersion = version
 			handshakeFullDuplex = fullDuplex
 			close(o.handshakeFinishedChan)
 			return nil
-		},
-	}
-	o.Handshake = handshake.New(protoOptions, handshakeConfig)
+		}),
+	)
+	o.Handshake = handshake.New(protoOptions, &handshakeConfig)
 	if o.server {
 		o.Handshake.Server.Start()
 	} else {

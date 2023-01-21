@@ -28,7 +28,7 @@ func newLocalTxSubmissionFlags() *localTxSubmissionFlags {
 }
 
 func buildLocalTxSubmissionConfig() localtxsubmission.Config {
-	return localtxsubmission.Config{}
+	return localtxsubmission.NewConfig()
 }
 
 func testLocalTxSubmission(f *globalFlags) {
