@@ -31,8 +31,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_CONFIRM: protocol.StateMapEntry{
-		Agency:  protocol.AGENCY_SERVER,
-		Timeout: 5 * time.Second,
+		Agency: protocol.AGENCY_SERVER,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_ACCEPT_VERSION,
@@ -59,6 +58,7 @@ type Config struct {
 	NetworkMagic     uint32
 	ClientFullDuplex bool
 	FinishedFunc     FinishedFunc
+	Timeout          time.Duration
 }
 
 type FinishedFunc func(uint16, bool) error
@@ -74,7 +74,9 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {
 type HandshakeOptionFunc func(*Config)
 
 func NewConfig(options ...HandshakeOptionFunc) Config {
-	c := Config{}
+	c := Config{
+		Timeout: 5 * time.Second,
+	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -103,5 +105,11 @@ func WithClientFullDuplex(fullDuplex bool) HandshakeOptionFunc {
 func WithFinishedFunc(finishedFunc FinishedFunc) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.FinishedFunc = finishedFunc
+	}
+}
+
+func WithTimeout(timeout time.Duration) HandshakeOptionFunc {
+	return func(c *Config) {
+		c.Timeout = timeout
 	}
 }
