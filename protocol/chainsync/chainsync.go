@@ -1,6 +1,8 @@
 package chainsync
 
 import (
+	"time"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 )
@@ -93,6 +95,8 @@ type ChainSync struct {
 type Config struct {
 	RollBackwardFunc RollBackwardFunc
 	RollForwardFunc  RollForwardFunc
+	IntersectTimeout time.Duration
+	BlockTimeout     time.Duration
 }
 
 // Callback function types
@@ -110,7 +114,14 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
 type ChainSyncOptionFunc func(*Config)
 
 func NewConfig(options ...ChainSyncOptionFunc) Config {
-	c := Config{}
+	c := Config{
+		IntersectTimeout: 5 * time.Second,
+		// We should really use something more useful like 30-60s, but we've seen 55s between blocks
+		// in the preview network
+		// https://preview.cexplorer.io/block/cb08a386363a946d2606e912fcd81ffed2bf326cdbc4058297b14471af4f67e9
+		// https://preview.cexplorer.io/block/86806dca4ba735b233cbeee6da713bdece36fd41fb5c568f9ef5a3f5cbf572a3
+		BlockTimeout: 180 * time.Second,
+	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -127,5 +138,17 @@ func WithRollBackwardFunc(rollBackwardFunc RollBackwardFunc) ChainSyncOptionFunc
 func WithRollForwardFunc(rollForwardFunc RollForwardFunc) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RollForwardFunc = rollForwardFunc
+	}
+}
+
+func WithIntersectTimeout(timeout time.Duration) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.IntersectTimeout = timeout
+	}
+}
+
+func WithBlockTimeout(timeout time.Duration) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.BlockTimeout = timeout
 	}
 }
