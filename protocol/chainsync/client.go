@@ -27,12 +27,29 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		protocolId = PROTOCOL_ID_NTN
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
 	c := &Client{
 		config:                cfg,
 		intersectResultChan:   make(chan error),
 		readyForNextBlockChan: make(chan bool),
 		currentTipChan:        make(chan Tip),
 	}
+	// Update state map with timeouts
+	stateMap := StateMap
+	if entry, ok := stateMap[STATE_INTERSECT]; ok {
+		entry.Timeout = c.config.IntersectTimeout
+		stateMap[STATE_INTERSECT] = entry
+	}
+	for _, state := range []protocol.State{STATE_CAN_AWAIT, STATE_MUST_REPLY} {
+		if entry, ok := stateMap[state]; ok {
+			entry.Timeout = c.config.BlockTimeout
+			stateMap[state] = entry
+		}
+	}
+	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          protocolId,
