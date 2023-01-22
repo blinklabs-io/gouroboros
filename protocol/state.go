@@ -41,3 +41,13 @@ type StateMapEntry struct {
 }
 
 type StateMap map[State]StateMapEntry
+
+// Copy returns a copy of the state map. This is mostly for convenience,
+// since we need to copy the state map in various places
+func (s StateMap) Copy() StateMap {
+	ret := StateMap{}
+	for k, v := range s {
+		ret[k] = v
+	}
+	return ret
+}

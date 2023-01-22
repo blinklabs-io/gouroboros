@@ -21,7 +21,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		config: cfg,
 	}
 	// Update state map with timeout
-	stateMap := StateMap
+	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[STATE_SERVER]; ok {
 		entry.Timeout = c.config.Timeout
 		stateMap[STATE_SERVER] = entry

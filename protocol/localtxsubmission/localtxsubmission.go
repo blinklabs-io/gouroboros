@@ -1,6 +1,8 @@
 package localtxsubmission
 
 import (
+	"time"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -50,6 +52,7 @@ type LocalTxSubmission struct {
 
 type Config struct {
 	SubmitTxFunc SubmitTxFunc
+	Timeout      time.Duration
 }
 
 // Callback function types
@@ -66,7 +69,9 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxSubmission 
 type LocalTxSubmissionOptionFunc func(*Config)
 
 func NewConfig(options ...LocalTxSubmissionOptionFunc) Config {
-	c := Config{}
+	c := Config{
+		Timeout: 30 * time.Second,
+	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -77,5 +82,11 @@ func NewConfig(options ...LocalTxSubmissionOptionFunc) Config {
 func WithSubmitTxFunc(submitTxFunc SubmitTxFunc) LocalTxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.SubmitTxFunc = submitTxFunc
+	}
+}
+
+func WithTimeout(timeout time.Duration) LocalTxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.Timeout = timeout
 	}
 }
