@@ -1,6 +1,8 @@
 package localstatequery
 
 import (
+	"time"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -89,11 +91,13 @@ type LocalStateQuery struct {
 }
 
 type Config struct {
-	AcquireFunc   AcquireFunc
-	QueryFunc     QueryFunc
-	ReleaseFunc   ReleaseFunc
-	ReAcquireFunc ReAcquireFunc
-	DoneFunc      DoneFunc
+	AcquireFunc    AcquireFunc
+	QueryFunc      QueryFunc
+	ReleaseFunc    ReleaseFunc
+	ReAcquireFunc  ReAcquireFunc
+	DoneFunc       DoneFunc
+	AcquireTimeout time.Duration
+	QueryTimeout   time.Duration
 }
 
 // Callback function types
@@ -115,7 +119,10 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalStateQuery {
 type LocalStateQueryOptionFunc func(*Config)
 
 func NewConfig(options ...LocalStateQueryOptionFunc) Config {
-	c := Config{}
+	c := Config{
+		AcquireTimeout: 5 * time.Second,
+		QueryTimeout:   180 * time.Second,
+	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -150,5 +157,17 @@ func WithReAcquireFunc(reAcquireFunc ReAcquireFunc) LocalStateQueryOptionFunc {
 func WithDoneFunc(doneFunc DoneFunc) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.DoneFunc = doneFunc
+	}
+}
+
+func WithAcquireTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.AcquireTimeout = timeout
+	}
+}
+
+func WithQueryTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
+	return func(c *Config) {
+		c.QueryTimeout = timeout
 	}
 }

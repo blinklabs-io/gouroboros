@@ -22,6 +22,10 @@ type Client struct {
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
 	c := &Client{
 		config:            cfg,
 		queryResultChan:   make(chan []byte),
@@ -29,6 +33,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		acquired:          false,
 		currentEra:        -1,
 	}
+	// Update state map with timeouts
+	stateMap := StateMap.Copy()
+	if entry, ok := stateMap[STATE_ACQUIRING]; ok {
+		entry.Timeout = c.config.AcquireTimeout
+		stateMap[STATE_ACQUIRING] = entry
+	}
+	if entry, ok := stateMap[STATE_QUERYING]; ok {
+		entry.Timeout = c.config.QueryTimeout
+		stateMap[STATE_QUERYING] = entry
+	}
+	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -38,7 +53,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        STATE_IDLE,
 	}
 	// Enable version-dependent features
