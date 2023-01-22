@@ -11,9 +11,20 @@ type Client struct {
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
 	c := &Client{
 		config: cfg,
 	}
+	// Update state map with timeout
+	stateMap := StateMap.Copy()
+	if entry, ok := stateMap[STATE_IDLE]; ok {
+		entry.Timeout = c.config.IdleTimeout
+		stateMap[STATE_IDLE] = entry
+	}
+	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
@@ -23,7 +34,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        STATE_INIT,
 	}
 	c.Protocol = protocol.New(protoConfig)

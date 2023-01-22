@@ -1,6 +1,8 @@
 package txsubmission
 
 import (
+	"time"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -103,6 +105,7 @@ type Config struct {
 	ReplyTxsFunc     ReplyTxsFunc
 	DoneFunc         DoneFunc
 	InitFunc         InitFunc
+	IdleTimeout      time.Duration
 }
 
 // Callback function types
@@ -124,7 +127,9 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *TxSubmission {
 type TxSubmissionOptionFunc func(*Config)
 
 func NewConfig(options ...TxSubmissionOptionFunc) Config {
-	c := Config{}
+	c := Config{
+		IdleTimeout: 300 * time.Second,
+	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -165,5 +170,11 @@ func WithDoneFunc(doneFunc DoneFunc) TxSubmissionOptionFunc {
 func WithInitFunc(initFunc InitFunc) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.InitFunc = initFunc
+	}
+}
+
+func WithIdleTimeout(timeout time.Duration) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.IdleTimeout = timeout
 	}
 }
