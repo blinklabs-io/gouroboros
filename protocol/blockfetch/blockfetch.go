@@ -1,6 +1,8 @@
 package blockfetch
 
 import (
+	"time"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
@@ -67,10 +69,12 @@ type BlockFetch struct {
 }
 
 type Config struct {
-	StartBatchFunc StartBatchFunc
-	NoBlocksFunc   NoBlocksFunc
-	BlockFunc      BlockFunc
-	BatchDoneFunc  BatchDoneFunc
+	StartBatchFunc    StartBatchFunc
+	NoBlocksFunc      NoBlocksFunc
+	BlockFunc         BlockFunc
+	BatchDoneFunc     BatchDoneFunc
+	BatchStartTimeout time.Duration
+	BlockTimeout      time.Duration
 }
 
 // Callback function types
@@ -90,7 +94,10 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 type BlockFetchOptionFunc func(*Config)
 
 func NewConfig(options ...BlockFetchOptionFunc) Config {
-	c := Config{}
+	c := Config{
+		BatchStartTimeout: 5 * time.Second,
+		BlockTimeout:      5 * time.Second,
+	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -119,5 +126,17 @@ func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
 func WithBatchDoneFunc(BatchDoneFunc BatchDoneFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BatchDoneFunc = BatchDoneFunc
+	}
+}
+
+func WithBatchStartTimeout(timeout time.Duration) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.BatchStartTimeout = timeout
+	}
+}
+
+func WithBlockTimeout(timeout time.Duration) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.BlockTimeout = timeout
 	}
 }
