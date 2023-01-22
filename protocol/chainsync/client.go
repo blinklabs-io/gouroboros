@@ -38,7 +38,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		currentTipChan:        make(chan Tip),
 	}
 	// Update state map with timeouts
-	stateMap := StateMap
+	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[STATE_INTERSECT]; ok {
 		entry.Timeout = c.config.IntersectTimeout
 		stateMap[STATE_INTERSECT] = entry
@@ -59,7 +59,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        STATE_IDLE,
 	}
 	c.Protocol = protocol.New(protoConfig)

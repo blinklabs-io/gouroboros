@@ -21,7 +21,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		config: cfg,
 	}
 	// Update state map with timeouts
-	stateMap := StateMap
+	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[STATE_BUSY]; ok {
 		entry.Timeout = c.config.BatchStartTimeout
 		stateMap[STATE_BUSY] = entry
@@ -40,7 +40,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        STATE_IDLE,
 	}
 	c.Protocol = protocol.New(protoConfig)
