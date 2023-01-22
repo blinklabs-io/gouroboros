@@ -13,9 +13,24 @@ type Client struct {
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
 	c := &Client{
 		config: cfg,
 	}
+	// Update state map with timeouts
+	stateMap := StateMap
+	if entry, ok := stateMap[STATE_BUSY]; ok {
+		entry.Timeout = c.config.BatchStartTimeout
+		stateMap[STATE_BUSY] = entry
+	}
+	if entry, ok := stateMap[STATE_STREAMING]; ok {
+		entry.Timeout = c.config.BlockTimeout
+		stateMap[STATE_STREAMING] = entry
+	}
+	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                PROTOCOL_NAME,
 		ProtocolId:          PROTOCOL_ID,
