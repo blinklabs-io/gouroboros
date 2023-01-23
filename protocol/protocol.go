@@ -22,6 +22,7 @@ type Protocol struct {
 	config               ProtocolConfig
 	muxerSendChan        chan *muxer.Segment
 	muxerRecvChan        chan *muxer.Segment
+	muxerDoneChan        chan bool
 	state                State
 	stateMutex           sync.Mutex
 	recvBuffer           *bytes.Buffer
@@ -77,21 +78,29 @@ type MessageFromCborFunc func(uint, []byte) (Message, error)
 
 func New(config ProtocolConfig) *Protocol {
 	p := &Protocol{
-		config: config,
+		config:   config,
+		doneChan: make(chan bool),
 	}
 	return p
 }
 
 func (p *Protocol) Start() {
 	// Register protocol with muxer
-	p.muxerSendChan, p.muxerRecvChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
+	p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
 	// Create buffers and channels
 	p.recvBuffer = bytes.NewBuffer(nil)
 	p.sendQueueChan = make(chan Message, 50)
 	p.sendStateQueueChan = make(chan Message, 50)
 	p.recvReadyChan = make(chan bool, 1)
 	p.sendReadyChan = make(chan bool, 1)
-	p.doneChan = make(chan bool)
+	// Start goroutine to cleanup when shutting down
+	go func() {
+		<-p.doneChan
+		close(p.sendQueueChan)
+		close(p.sendStateQueueChan)
+		close(p.recvReadyChan)
+		close(p.sendReadyChan)
+	}()
 	// Set initial state
 	p.setState(p.config.InitialState)
 	// Start our send and receive Goroutines
@@ -105,6 +114,10 @@ func (p *Protocol) Mode() ProtocolMode {
 
 func (p *Protocol) Role() ProtocolRole {
 	return p.config.Role
+}
+
+func (p *Protocol) DoneChan() chan bool {
+	return p.doneChan
 }
 
 func (p *Protocol) SendMessage(msg Message) error {
@@ -122,14 +135,14 @@ func (p *Protocol) sendLoop() {
 	var err error
 	for {
 		select {
-		case <-p.sendReadyChan:
-			// We are ready to send based on state map
 		case <-p.doneChan:
 			// We are responsible for closing this channel as the sender, even through it
 			// was created by the muxer
 			close(p.muxerSendChan)
 			// Break out of send loop if we're shutting down
 			return
+		case <-p.sendReadyChan:
+			// We are ready to send based on state map
 		}
 		// Lock the state to prevent collisions
 		p.stateMutex.Lock()
@@ -155,7 +168,11 @@ func (p *Protocol) sendLoop() {
 		msgCount := 0
 		for {
 			// Get next message from send queue
-			msg := <-p.sendQueueChan
+			msg, ok := <-p.sendQueueChan
+			if !ok {
+				// We're shutting down
+				return
+			}
 			msgCount = msgCount + 1
 			// Write the message into the send state queue if we already have a new state
 			if setNewState {
@@ -234,20 +251,29 @@ func (p *Protocol) recvLoop() {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
 		if !leftoverData {
 			// Wait for segment
-			segment, ok := <-p.muxerRecvChan
-			// Break out of receive loop if channel is closed
-			if !ok {
+			select {
+			case <-p.muxerDoneChan:
 				close(p.doneChan)
 				return
+			case segment, ok := <-p.muxerRecvChan:
+				if !ok {
+					close(p.doneChan)
+					return
+				}
+				// Add segment payload to buffer
+				p.recvBuffer.Write(segment.Payload)
+				// Save whether it's a response
+				isResponse = segment.IsResponse()
 			}
-			// Add segment payload to buffer
-			p.recvBuffer.Write(segment.Payload)
-			// Save whether it's a response
-			isResponse = segment.IsResponse()
 		}
 		leftoverData = false
 		// Wait until ready to receive based on state map
-		<-p.recvReadyChan
+		select {
+		case <-p.muxerDoneChan:
+			close(p.doneChan)
+			return
+		case <-p.recvReadyChan:
+		}
 		// Decode message into generic list until we can determine what type of message it is.
 		// This also lets us determine how many bytes the message is. We use RawMessage here to
 		// avoid parsing things that we may not be able to parse
@@ -321,6 +347,7 @@ func (p *Protocol) getNewState(msg Message) (State, error) {
 func (p *Protocol) setState(state State) {
 	// Disable any previous state transition timer
 	if p.stateTransitionTimer != nil {
+		// Stop timer and drain channel
 		if !p.stateTransitionTimer.Stop() {
 			<-p.stateTransitionTimer.C
 		}
