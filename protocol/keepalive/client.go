@@ -40,6 +40,16 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        STATE_CLIENT,
 	}
 	c.Protocol = protocol.New(protoConfig)
+	// Start goroutine to cleanup resources on protocol shutdown
+	go func() {
+		<-c.Protocol.DoneChan()
+		if c.timer != nil {
+			// Stop timer and drain channel
+			if ok := c.timer.Stop(); !ok {
+				<-c.timer.C
+			}
+		}
+	}()
 	return c
 }
 

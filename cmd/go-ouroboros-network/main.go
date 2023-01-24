@@ -78,6 +78,8 @@ func main() {
 			testServer(f)
 		case "query":
 			testQuery(f)
+		case "mem-usage":
+			testMemUsage(f)
 		default:
 			fmt.Printf("Unknown subcommand: %s\n", f.flagset.Arg(0))
 			os.Exit(1)

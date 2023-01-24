@@ -94,7 +94,7 @@ func (m *Muxer) sendError(err error) {
 	m.Stop()
 }
 
-func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segment) {
+func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segment, chan bool) {
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
 	receiverChan := make(chan *Segment, 10)
@@ -118,7 +118,7 @@ func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segmen
 			}
 		}
 	}()
-	return senderChan, receiverChan
+	return senderChan, receiverChan, m.doneChan
 }
 
 func (m *Muxer) Send(msg *Segment) error {

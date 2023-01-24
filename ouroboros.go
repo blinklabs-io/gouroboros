@@ -132,20 +132,24 @@ func (o *Ouroboros) setupConnection() error {
 	o.muxer = muxer.New(o.conn)
 	// Start Goroutine to pass along errors from the muxer
 	go func() {
-		err, ok := <-o.muxer.ErrorChan
-		// Break out of goroutine if muxer's error channel is closed
-		if !ok {
+		select {
+		case <-o.doneChan:
 			return
+		case err, ok := <-o.muxer.ErrorChan:
+			// Break out of goroutine if muxer's error channel is closed
+			if !ok {
+				return
+			}
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				// Return a bare io.EOF error if error is EOF/ErrUnexpectedEOF
+				o.ErrorChan <- io.EOF
+			} else {
+				// Wrap error message to denote it comes from the muxer
+				o.ErrorChan <- fmt.Errorf("muxer error: %s", err)
+			}
+			// Close connection on muxer errors
+			o.Close()
 		}
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			// Return a bare io.EOF error if error is EOF/ErrUnexpectedEOF
-			o.ErrorChan <- io.EOF
-		} else {
-			// Wrap error message to denote it comes from the muxer
-			o.ErrorChan <- fmt.Errorf("muxer error: %s", err)
-		}
-		// Close connection on muxer errors
-		o.Close()
 	}()
 	protoOptions := protocol.ProtocolOptions{
 		Muxer:     o.muxer,
