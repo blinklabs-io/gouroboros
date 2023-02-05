@@ -135,7 +135,7 @@ func (o *Ouroboros) setupConnection() error {
 		select {
 		case <-o.doneChan:
 			return
-		case err, ok := <-o.muxer.ErrorChan:
+		case err, ok := <-o.muxer.ErrorChan():
 			// Break out of goroutine if muxer's error channel is closed
 			if !ok {
 				return

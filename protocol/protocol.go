@@ -203,7 +203,7 @@ func (p *Protocol) sendLoop() {
 				break
 			}
 			// We don't want to add more messages once we spill over into a second segment
-			if payloadBuf.Len() > muxer.SEGMENT_MAX_PAYLOAD_LENGTH {
+			if payloadBuf.Len() > muxer.SegmentMaxPayloadLength {
 				break
 			}
 			// Check if there are any more queued messages
@@ -219,8 +219,8 @@ func (p *Protocol) sendLoop() {
 		for {
 			// Determine segment payload length
 			segmentPayloadLength := payloadBuf.Len()
-			if segmentPayloadLength > muxer.SEGMENT_MAX_PAYLOAD_LENGTH {
-				segmentPayloadLength = muxer.SEGMENT_MAX_PAYLOAD_LENGTH
+			if segmentPayloadLength > muxer.SegmentMaxPayloadLength {
+				segmentPayloadLength = muxer.SegmentMaxPayloadLength
 			}
 			// Send current segment
 			segmentPayload := payloadBuf.Bytes()[:segmentPayloadLength]

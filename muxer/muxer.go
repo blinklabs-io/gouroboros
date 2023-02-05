@@ -1,3 +1,8 @@
+// Package muxer implements the muxer/demuxer that allows multiple mini-protocols to run
+// over a single connection.
+//
+// It's not generally intended for this package to be used outside of this library, but it's
+// possible to use it to do more advanced things than the library interface allows for.
 package muxer
 
 import (
@@ -9,41 +14,40 @@ import (
 	"sync"
 )
 
-const (
-	// Magic number chosen to represent unknown protocols
-	PROTOCOL_UNKNOWN uint16 = 0xabcd
+// Magic number chosen to represent unknown protocols
+const ProtocolUnknown uint16 = 0xabcd
 
-	// Handshake protocol ID
-	PROTOCOL_HANDSHAKE = 0
-)
-
+// DiffusionMode is an enum for the valid muxer difficusion modes
 type DiffusionMode int
 
-var (
-	DiffusionModeNone                  DiffusionMode = 0
-	DiffusionModeInitiator             DiffusionMode = 1
-	DiffusionModeResponder             DiffusionMode = 2
-	DiffusionModeInitiatorAndResponder DiffusionMode = 3
+// Diffusion modes
+const (
+	DiffusionModeNone                  DiffusionMode = 0 // Default (invalid) diffusion mode
+	DiffusionModeInitiator             DiffusionMode = 1 // Initiator-only (client) diffusion mode
+	DiffusionModeResponder             DiffusionMode = 2 // Responder-only (server) diffusion mode
+	DiffusionModeInitiatorAndResponder DiffusionMode = 3 // Initiator and responder (full duplex) mode
 )
 
+// Muxer wraps a connection to allow running multiple mini-protocols over a single connection
 type Muxer struct {
+	errorChan         chan error
 	conn              net.Conn
 	sendMutex         sync.Mutex
 	startChan         chan bool
 	doneChan          chan bool
 	stopMutex         sync.Mutex
-	ErrorChan         chan error
 	protocolSenders   map[uint16]chan *Segment
 	protocolReceivers map[uint16]chan *Segment
 	diffusionMode     DiffusionMode
 }
 
+// New creates a new Muxer object and starts the read loop
 func New(conn net.Conn) *Muxer {
 	m := &Muxer{
 		conn:              conn,
 		startChan:         make(chan bool, 1),
 		doneChan:          make(chan bool),
-		ErrorChan:         make(chan error, 10),
+		errorChan:         make(chan error, 10),
 		protocolSenders:   make(map[uint16]chan *Segment),
 		protocolReceivers: make(map[uint16]chan *Segment),
 	}
@@ -51,10 +55,16 @@ func New(conn net.Conn) *Muxer {
 	return m
 }
 
+func (m *Muxer) ErrorChan() chan error {
+	return m.errorChan
+}
+
+// Start unblocks the read loop after the initial handshake to allow it to start processing messages
 func (m *Muxer) Start() {
 	m.startChan <- true
 }
 
+// Stop shuts down the muxer
 func (m *Muxer) Stop() {
 	// We use a mutex to prevent this function from being called multiple times
 	// concurrently, which would cause a race condition
@@ -74,13 +84,15 @@ func (m *Muxer) Stop() {
 		close(recvChan)
 	}
 	// Close ErrorChan to signify to consumer that we're shutting down
-	close(m.ErrorChan)
+	close(m.errorChan)
 }
 
+// SetDiffusionMode sets the muxer diffusion mode after the handshake completes
 func (m *Muxer) SetDiffusionMode(diffusionMode DiffusionMode) {
 	m.diffusionMode = diffusionMode
 }
 
+// sendError sends the specified error to the error channel and stops the muxer
 func (m *Muxer) sendError(err error) {
 	// Immediately return if we're already shutting down
 	select {
@@ -89,11 +101,13 @@ func (m *Muxer) sendError(err error) {
 	default:
 	}
 	// Send error to consumer
-	m.ErrorChan <- err
+	m.errorChan <- err
 	// Stop the muxer on any error
 	m.Stop()
 }
 
+// RegisterProtocol registers the provided protocol ID with the muxer. It returns a channel for sending,
+// a channel for receiving, and a channel to know when the muxer is shutting down
 func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segment, chan bool) {
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
@@ -121,6 +135,8 @@ func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segmen
 	return senderChan, receiverChan, m.doneChan
 }
 
+// Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
+// one protocol from sending at once
 func (m *Muxer) Send(msg *Segment) error {
 	// We use a mutex to make sure only one protocol can send at a time
 	m.sendMutex.Lock()
@@ -138,6 +154,8 @@ func (m *Muxer) Send(msg *Segment) error {
 	return nil
 }
 
+// readLoop waits for incoming data on the connection, parses the segment, and passes it to the appropriate
+// protocol
 func (m *Muxer) readLoop() {
 	started := false
 	for {
@@ -176,7 +194,7 @@ func (m *Muxer) readLoop() {
 		recvChan := m.protocolReceivers[msg.GetProtocolId()]
 		if recvChan == nil {
 			// Try the "unknown protocol" receiver if we didn't find an explicit one
-			recvChan = m.protocolReceivers[PROTOCOL_UNKNOWN]
+			recvChan = m.protocolReceivers[ProtocolUnknown]
 			if recvChan == nil {
 				m.sendError(fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId()))
 				return
