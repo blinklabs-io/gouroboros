@@ -1,3 +1,4 @@
+// Package protocol provides the common functionality for mini-protocols
 package protocol
 
 import (
@@ -13,11 +14,10 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-const (
-	// This is completely arbitrary, but the line had to be drawn somewhere
-	MAX_MESSAGES_PER_SEGMENT = 20
-)
+// This is completely arbitrary, but the line had to be drawn somewhere
+const maxMessagesPerSegment = 20
 
+// Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
 	config               ProtocolConfig
 	muxerSendChan        chan *muxer.Segment
@@ -34,6 +34,7 @@ type Protocol struct {
 	stateTransitionTimer *time.Timer
 }
 
+// ProtocolConfig provides the configuration for Protocol
 type ProtocolConfig struct {
 	Name                string
 	ProtocolId          uint16
@@ -47,23 +48,25 @@ type ProtocolConfig struct {
 	InitialState        State
 }
 
+// ProtocolMode is an enum of the protocol modes
 type ProtocolMode uint
 
 const (
-	ProtocolModeNone         ProtocolMode = 0
-	ProtocolModeNodeToClient ProtocolMode = 1
-	ProtocolModeNodeToNode   ProtocolMode = 2
+	ProtocolModeNone         ProtocolMode = 0 // Default (invalid) protocol mode
+	ProtocolModeNodeToClient ProtocolMode = 1 // Node-to-client protocol mode
+	ProtocolModeNodeToNode   ProtocolMode = 2 // Node-to-node protocol mode
 )
 
+// ProtocolRole is an enum of the protocol roles
 type ProtocolRole uint
 
 const (
-	ProtocolRoleNone   ProtocolRole = 0
-	ProtocolRoleClient ProtocolRole = 1
-	ProtocolRoleServer ProtocolRole = 2
+	ProtocolRoleNone   ProtocolRole = 0 // Default (invalid) protocol role
+	ProtocolRoleClient ProtocolRole = 1 // Client protocol role
+	ProtocolRoleServer ProtocolRole = 2 // Server protocol role
 )
 
-// Common arguments for individual mini-protocols
+// ProtocolOptions provides common arguments for all mini-protocols
 type ProtocolOptions struct {
 	Muxer     *muxer.Muxer
 	ErrorChan chan error
@@ -73,9 +76,13 @@ type ProtocolOptions struct {
 	Version uint16
 }
 
+// MessageHandlerFunc represents a function that handles an incoming message
 type MessageHandlerFunc func(Message, bool) error
+
+// MessageFromCborFunc represents a function that parses a mini-protocol message
 type MessageFromCborFunc func(uint, []byte) (Message, error)
 
+// New returns a new Protocol object
 func New(config ProtocolConfig) *Protocol {
 	p := &Protocol{
 		config:   config,
@@ -84,6 +91,7 @@ func New(config ProtocolConfig) *Protocol {
 	return p
 }
 
+// Start initializes the mini-protocol
 func (p *Protocol) Start() {
 	// Register protocol with muxer
 	p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
@@ -108,23 +116,28 @@ func (p *Protocol) Start() {
 	go p.sendLoop()
 }
 
+// Mode returns the protocol mode
 func (p *Protocol) Mode() ProtocolMode {
 	return p.config.Mode
 }
 
+// Role understands the protocol role
 func (p *Protocol) Role() ProtocolRole {
 	return p.config.Role
 }
 
+// DoneChan returns the channel used to signal protocol shutdown
 func (p *Protocol) DoneChan() chan bool {
 	return p.doneChan
 }
 
+// SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
 	p.sendQueueChan <- msg
 	return nil
 }
 
+// SendError sends an error to the handler in the Ouroboros object
 func (p *Protocol) SendError(err error) {
 	p.config.ErrorChan <- err
 }
@@ -198,8 +211,8 @@ func (p *Protocol) sendLoop() {
 				}
 				setNewState = true
 			}
-			// We don't want more than MAX_MESSAGES_PER_SEGMENT messages in a segment
-			if msgCount >= MAX_MESSAGES_PER_SEGMENT {
+			// We don't want more than maxMessagesPerSegment messages in a segment
+			if msgCount >= maxMessagesPerSegment {
 				break
 			}
 			// We don't want to add more messages once we spill over into a second segment
@@ -357,14 +370,14 @@ func (p *Protocol) setState(state State) {
 	p.state = state
 	// Mark protocol as ready to send/receive based on role and agency of the new state
 	switch p.config.StateMap[p.state].Agency {
-	case AGENCY_CLIENT:
+	case AgencyClient:
 		switch p.config.Role {
 		case ProtocolRoleClient:
 			p.sendReadyChan <- true
 		case ProtocolRoleServer:
 			p.recvReadyChan <- true
 		}
-	case AGENCY_SERVER:
+	case AgencyServer:
 		switch p.config.Role {
 		case ProtocolRoleServer:
 			p.sendReadyChan <- true

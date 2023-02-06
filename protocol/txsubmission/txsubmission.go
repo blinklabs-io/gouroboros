@@ -22,7 +22,7 @@ var (
 
 var StateMap = protocol.StateMap{
 	STATE_INIT: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_INIT,
@@ -31,7 +31,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_IDLE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_REQUEST_TX_IDS,
@@ -58,7 +58,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_TX_IDS_BLOCKING: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_REPLY_TX_IDS,
@@ -71,7 +71,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_TX_IDS_NONBLOCKING: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_REPLY_TX_IDS,
@@ -80,7 +80,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_TXS: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_REPLY_TXS,
@@ -89,7 +89,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_DONE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_NONE,
+		Agency: protocol.AgencyNone,
 	},
 }
 

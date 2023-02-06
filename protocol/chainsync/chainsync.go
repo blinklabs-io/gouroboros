@@ -23,7 +23,7 @@ var (
 
 var StateMap = protocol.StateMap{
 	STATE_IDLE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_REQUEST_NEXT,
@@ -40,7 +40,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_CAN_AWAIT: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_AWAIT_REPLY,
@@ -57,7 +57,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_INTERSECT: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_INTERSECT_FOUND,
@@ -70,7 +70,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_MUST_REPLY: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_ROLL_FORWARD,
@@ -83,7 +83,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_DONE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_NONE,
+		Agency: protocol.AgencyNone,
 	},
 }
 

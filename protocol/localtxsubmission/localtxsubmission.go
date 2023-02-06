@@ -19,7 +19,7 @@ var (
 
 var StateMap = protocol.StateMap{
 	STATE_IDLE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_SUBMIT_TX,
@@ -28,7 +28,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_BUSY: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_ACCEPT_TX,
@@ -41,7 +41,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_DONE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_NONE,
+		Agency: protocol.AgencyNone,
 	},
 }
 
