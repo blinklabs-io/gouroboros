@@ -71,9 +71,9 @@ func testMemUsage(f *globalFlags) {
 			fmt.Printf("ERROR: %s\n", err)
 			os.Exit(1)
 		}
-		o.ChainSync.Client.Start()
+		o.ChainSync().Client.Start()
 
-		tip, err := o.ChainSync.Client.GetCurrentTip()
+		tip, err := o.ChainSync().Client.GetCurrentTip()
 		if err != nil {
 			fmt.Printf("ERROR: %s\n", err)
 			os.Exit(1)

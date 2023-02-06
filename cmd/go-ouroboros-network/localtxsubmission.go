@@ -64,7 +64,7 @@ func testLocalTxSubmission(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.LocalTxSubmission.Client.Start()
+	o.LocalTxSubmission().Client.Start()
 
 	var txBytes []byte
 	if localTxSubmissionFlags.txFile != "" {
@@ -94,7 +94,7 @@ func testLocalTxSubmission(f *globalFlags) {
 		}
 	}
 
-	if err = o.LocalTxSubmission.Client.SubmitTx(ledger.TX_TYPE_ALONZO, txBytes); err != nil {
+	if err = o.LocalTxSubmission().Client.SubmitTx(ledger.TX_TYPE_ALONZO, txBytes); err != nil {
 		fmt.Printf("Error submitting transaction: %s\n", err)
 		os.Exit(1)
 	}

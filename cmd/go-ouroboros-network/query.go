@@ -56,47 +56,47 @@ func testQuery(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.LocalStateQuery.Client.Start()
+	o.LocalStateQuery().Client.Start()
 
 	switch queryFlags.flagset.Args()[0] {
 	case "current-era":
-		era, err := o.LocalStateQuery.Client.GetCurrentEra()
+		era, err := o.LocalStateQuery().Client.GetCurrentEra()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying current era: %s\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("current-era: %d\n", era)
 	case "tip":
-		era, err := o.LocalStateQuery.Client.GetCurrentEra()
+		era, err := o.LocalStateQuery().Client.GetCurrentEra()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying current era: %s\n", err)
 			os.Exit(1)
 		}
-		epochNo, err := o.LocalStateQuery.Client.GetEpochNo()
+		epochNo, err := o.LocalStateQuery().Client.GetEpochNo()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying current epoch: %s\n", err)
 			os.Exit(1)
 		}
-		blockNo, err := o.LocalStateQuery.Client.GetChainBlockNo()
+		blockNo, err := o.LocalStateQuery().Client.GetChainBlockNo()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying current chain block number: %s\n", err)
 			os.Exit(1)
 		}
-		point, err := o.LocalStateQuery.Client.GetChainPoint()
+		point, err := o.LocalStateQuery().Client.GetChainPoint()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying current chain point: %s\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("tip: era = %d, epoch = %d, blockNo = %d, slot = %d, hash = %x\n", era, epochNo, blockNo, point.Slot, point.Hash)
 	case "system-start":
-		systemStart, err := o.LocalStateQuery.Client.GetSystemStart()
+		systemStart, err := o.LocalStateQuery().Client.GetSystemStart()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying system start: %s\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("system-start: year = %d, day = %d, picoseconds = %d\n", systemStart.Year, systemStart.Day, systemStart.Picoseconds)
 	case "era-history":
-		eraHistory, err := o.LocalStateQuery.Client.GetEraHistory()
+		eraHistory, err := o.LocalStateQuery().Client.GetEraHistory()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying era history: %s\n", err)
 			os.Exit(1)
@@ -106,21 +106,21 @@ func testQuery(f *globalFlags) {
 			fmt.Printf("id = %d, begin slot/epoch = %d/%d, end slot/epoch = %d/%d, epoch length = %d, slot length (ms) = %d, slots per KES period = %d\n", eraId, era.Begin.SlotNo, era.Begin.EpochNo, era.End.SlotNo, era.End.EpochNo, era.Params.EpochLength, era.Params.SlotLength, era.Params.SlotsPerKESPeriod.Value)
 		}
 	case "protocol-params":
-		protoParams, err := o.LocalStateQuery.Client.GetCurrentProtocolParams()
+		protoParams, err := o.LocalStateQuery().Client.GetCurrentProtocolParams()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying protocol params: %s\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("protocol-params: %#v\n", *protoParams)
 	case "stake-distribution":
-		stakeDistribution, err := o.LocalStateQuery.Client.GetStakeDistribution()
+		stakeDistribution, err := o.LocalStateQuery().Client.GetStakeDistribution()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying stake distribution: %s\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("stake-distribution: %#v\n", *stakeDistribution)
 	case "genesis-config":
-		genesisConfig, err := o.LocalStateQuery.Client.GetGenesisConfig()
+		genesisConfig, err := o.LocalStateQuery().Client.GetGenesisConfig()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying genesis config: %s\n", err)
 			os.Exit(1)
