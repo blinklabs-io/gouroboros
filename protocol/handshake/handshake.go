@@ -22,7 +22,7 @@ var (
 
 var StateMap = protocol.StateMap{
 	STATE_PROPOSE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_PROPOSE_VERSIONS,
@@ -31,7 +31,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_CONFIRM: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_ACCEPT_VERSION,
@@ -44,7 +44,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_DONE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_NONE,
+		Agency: protocol.AgencyNone,
 	},
 }
 

@@ -21,7 +21,7 @@ var (
 
 var StateMap = protocol.StateMap{
 	STATE_IDLE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_ACQUIRE,
@@ -38,7 +38,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_ACQUIRING: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_FAILURE,
@@ -51,7 +51,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_ACQUIRED: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_QUERY,
@@ -72,7 +72,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_QUERYING: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_RESULT,
@@ -81,7 +81,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_DONE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_NONE,
+		Agency: protocol.AgencyNone,
 	},
 }
 

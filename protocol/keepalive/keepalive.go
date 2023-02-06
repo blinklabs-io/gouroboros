@@ -25,7 +25,7 @@ var (
 
 var StateMap = protocol.StateMap{
 	STATE_CLIENT: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_CLIENT,
+		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_KEEP_ALIVE,
@@ -38,7 +38,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_SERVER: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_SERVER,
+		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MESSAGE_TYPE_KEEP_ALIVE_RESPONSE,
@@ -47,7 +47,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	STATE_DONE: protocol.StateMapEntry{
-		Agency: protocol.AGENCY_NONE,
+		Agency: protocol.AgencyNone,
 	},
 }
 
