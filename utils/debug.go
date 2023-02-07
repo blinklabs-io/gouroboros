@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// DumpCborStructure generates an indented string representing an arbitrary data structure for debugging purposes
 func DumpCborStructure(data interface{}, prefix string) string {
 	var ret bytes.Buffer
 	switch v := data.(type) {
