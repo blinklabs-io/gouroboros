@@ -8,6 +8,7 @@ import (
 	"sync"
 )
 
+// Client implements the ChainSync client
 type Client struct {
 	*protocol.Protocol
 	config                *Config
@@ -18,13 +19,14 @@ type Client struct {
 	currentTipChan        chan Tip
 }
 
+// NewClient returns a new ChainSync client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	// Use node-to-client protocol ID
-	protocolId := PROTOCOL_ID_NTC
+	protocolId := protocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
 	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
 		// Use node-to-node protocol ID
-		protocolId = PROTOCOL_ID_NTN
+		protocolId = protocolIdNtN
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
 	if cfg == nil {
@@ -39,11 +41,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[STATE_INTERSECT]; ok {
+	if entry, ok := stateMap[stateIntersect]; ok {
 		entry.Timeout = c.config.IntersectTimeout
-		stateMap[STATE_INTERSECT] = entry
+		stateMap[stateIntersect] = entry
 	}
-	for _, state := range []protocol.State{STATE_CAN_AWAIT, STATE_MUST_REPLY} {
+	for _, state := range []protocol.State{stateCanAwait, stateMustReply} {
 		if entry, ok := stateMap[state]; ok {
 			entry.Timeout = c.config.BlockTimeout
 			stateMap[state] = entry
@@ -51,7 +53,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
+		Name:                protocolName,
 		ProtocolId:          protocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
@@ -60,7 +62,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            stateMap,
-		InitialState:        STATE_IDLE,
+		InitialState:        stateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	// Start goroutine to cleanup resources on protocol shutdown
@@ -76,22 +78,23 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_AWAIT_REPLY:
+	case MessageTypeAwaitReply:
 		err = c.handleAwaitReply()
-	case MESSAGE_TYPE_ROLL_FORWARD:
+	case MessageTypeRollForward:
 		err = c.handleRollForward(msg)
-	case MESSAGE_TYPE_ROLL_BACKWARD:
+	case MessageTypeRollBackward:
 		err = c.handleRollBackward(msg)
-	case MESSAGE_TYPE_INTERSECT_FOUND:
+	case MessageTypeIntersectFound:
 		err = c.handleIntersectFound(msg)
-	case MESSAGE_TYPE_INTERSECT_NOT_FOUND:
+	case MessageTypeIntersectNotFound:
 		err = c.handleIntersectNotFound(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
 	}
 	return err
 }
 
+// Stop transitions the protocol to the Done state. No more protocol operations will be possible afterward
 func (c *Client) Stop() error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -102,6 +105,7 @@ func (c *Client) Stop() error {
 	return nil
 }
 
+// GetCurrentTip returns the current chain tip
 func (c *Client) GetCurrentTip() (*Tip, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -115,6 +119,8 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 	return &tip, nil
 }
 
+// Sync begins a chain-sync operation using the provided intersect point(s). Incoming blocks will be delivered
+// via the RollForward callback function specified in the protocol config
 func (c *Client) Sync(intersectPoints []common.Point) error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()

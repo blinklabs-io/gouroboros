@@ -1,3 +1,4 @@
+// Package chainsync implements the Ouroboros chain-sync protocol
 package chainsync
 
 import (
@@ -7,91 +8,95 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 )
 
+// Protocol identifiers
 const (
-	PROTOCOL_NAME          = "chain-sync"
-	PROTOCOL_ID_NTN uint16 = 2
-	PROTOCOL_ID_NTC uint16 = 5
+	protocolName         = "chain-sync"
+	protocolIdNtN uint16 = 2
+	protocolIdNtC uint16 = 5
 )
 
 var (
-	STATE_IDLE       = protocol.NewState(1, "Idle")
-	STATE_CAN_AWAIT  = protocol.NewState(2, "CanAwait")
-	STATE_MUST_REPLY = protocol.NewState(3, "MustReply")
-	STATE_INTERSECT  = protocol.NewState(4, "Intersect")
-	STATE_DONE       = protocol.NewState(5, "Done")
+	stateIdle      = protocol.NewState(1, "Idle")
+	stateCanAwait  = protocol.NewState(2, "CanAwait")
+	stateMustReply = protocol.NewState(3, "MustReply")
+	stateIntersect = protocol.NewState(4, "Intersect")
+	stateDone      = protocol.NewState(5, "Done")
 )
 
+// ChainSync protocol state machine
 var StateMap = protocol.StateMap{
-	STATE_IDLE: protocol.StateMapEntry{
+	stateIdle: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_REQUEST_NEXT,
-				NewState: STATE_CAN_AWAIT,
+				MsgType:  MessageTypeRequestNext,
+				NewState: stateCanAwait,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_FIND_INTERSECT,
-				NewState: STATE_INTERSECT,
+				MsgType:  MessageTypeFindIntersect,
+				NewState: stateIntersect,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_DONE,
-				NewState: STATE_DONE,
+				MsgType:  MessageTypeDone,
+				NewState: stateDone,
 			},
 		},
 	},
-	STATE_CAN_AWAIT: protocol.StateMapEntry{
+	stateCanAwait: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_AWAIT_REPLY,
-				NewState: STATE_MUST_REPLY,
+				MsgType:  MessageTypeAwaitReply,
+				NewState: stateMustReply,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_ROLL_FORWARD,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeRollForward,
+				NewState: stateIdle,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_ROLL_BACKWARD,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeRollBackward,
+				NewState: stateIdle,
 			},
 		},
 	},
-	STATE_INTERSECT: protocol.StateMapEntry{
+	stateIntersect: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_INTERSECT_FOUND,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeIntersectFound,
+				NewState: stateIdle,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_INTERSECT_NOT_FOUND,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeIntersectNotFound,
+				NewState: stateIdle,
 			},
 		},
 	},
-	STATE_MUST_REPLY: protocol.StateMapEntry{
+	stateMustReply: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_ROLL_FORWARD,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeRollForward,
+				NewState: stateIdle,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_ROLL_BACKWARD,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeRollBackward,
+				NewState: stateIdle,
 			},
 		},
 	},
-	STATE_DONE: protocol.StateMapEntry{
+	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
 }
 
+// ChainSync is a wrapper object that holds the client and server instances
 type ChainSync struct {
 	Client *Client
 	Server *Server
 }
 
+// Config is used to configure the ChainSync protocol instance
 type Config struct {
 	RollBackwardFunc RollBackwardFunc
 	RollForwardFunc  RollForwardFunc
@@ -103,6 +108,7 @@ type Config struct {
 type RollBackwardFunc func(common.Point, Tip) error
 type RollForwardFunc func(uint, interface{}, Tip) error
 
+// New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
 	c := &ChainSync{
 		Client: NewClient(protoOptions, cfg),
@@ -111,8 +117,10 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
 	return c
 }
 
+// ChainSyncOptionFunc represents a function used to modify the ChainSync protocol config
 type ChainSyncOptionFunc func(*Config)
 
+// NewConfig returns a new ChainSync config object with the provided options
 func NewConfig(options ...ChainSyncOptionFunc) Config {
 	c := Config{
 		IntersectTimeout: 5 * time.Second,
@@ -129,24 +137,28 @@ func NewConfig(options ...ChainSyncOptionFunc) Config {
 	return c
 }
 
+// WithRollBackwardFunc specifies the RollBackward callback function
 func WithRollBackwardFunc(rollBackwardFunc RollBackwardFunc) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RollBackwardFunc = rollBackwardFunc
 	}
 }
 
+// WithRollForwardFunc specifies the RollForward callback function
 func WithRollForwardFunc(rollForwardFunc RollForwardFunc) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RollForwardFunc = rollForwardFunc
 	}
 }
 
+// WithIntersectTimeout specifies the timeout for intersect operations
 func WithIntersectTimeout(timeout time.Duration) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.IntersectTimeout = timeout
 	}
 }
 
+// WithBlockTimeout specifies the timeout for block fetch operations
 func WithBlockTimeout(timeout time.Duration) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.BlockTimeout = timeout
