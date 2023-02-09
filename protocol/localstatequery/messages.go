@@ -2,54 +2,61 @@ package localstatequery
 
 import (
 	"fmt"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
+
 	"github.com/fxamacker/cbor/v2"
 )
 
+// Message types
 const (
-	MESSAGE_TYPE_ACQUIRE            = 0
-	MESSAGE_TYPE_ACQUIRED           = 1
-	MESSAGE_TYPE_FAILURE            = 2
-	MESSAGE_TYPE_QUERY              = 3
-	MESSAGE_TYPE_RESULT             = 4
-	MESSAGE_TYPE_RELEASE            = 5
-	MESSAGE_TYPE_REACQUIRE          = 6
-	MESSAGE_TYPE_DONE               = 7
-	MESSAGE_TYPE_ACQUIRE_NO_POINT   = 8
-	MESSAGE_TYPE_REACQUIRE_NO_POINT = 9
-
-	ACQUIRE_FAILURE_POINT_TOO_OLD      = 0
-	ACQUIRE_FAILURE_POINT_NOT_ON_CHAIN = 1
+	MessageTypeAcquire          = 0
+	MessageTypeAcquired         = 1
+	MessageTypeFailure          = 2
+	MessageTypeQuery            = 3
+	MessageTypeResult           = 4
+	MessageTypeRelease          = 5
+	MessageTypeReacquire        = 6
+	MessageTypeDone             = 7
+	MessageTypeAcquireNoPoint   = 8
+	MessageTypeReacquireNoPoint = 9
 )
 
+// Acquire failure reasons
+const (
+	AcquireFailurePointTooOld     = 0
+	AcquireFailurePointNotOnChain = 1
+)
+
+// NewMsgFromCbor parses a LocalStateQuery message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
-	case MESSAGE_TYPE_ACQUIRE:
+	case MessageTypeAcquire:
 		ret = &MsgAcquire{}
-	case MESSAGE_TYPE_ACQUIRED:
+	case MessageTypeAcquired:
 		ret = &MsgAcquired{}
-	case MESSAGE_TYPE_FAILURE:
+	case MessageTypeFailure:
 		ret = &MsgFailure{}
-	case MESSAGE_TYPE_QUERY:
+	case MessageTypeQuery:
 		ret = &MsgQuery{}
-	case MESSAGE_TYPE_RESULT:
+	case MessageTypeResult:
 		ret = &MsgResult{}
-	case MESSAGE_TYPE_RELEASE:
+	case MessageTypeRelease:
 		ret = &MsgRelease{}
-	case MESSAGE_TYPE_REACQUIRE:
+	case MessageTypeReacquire:
 		ret = &MsgReAcquire{}
-	case MESSAGE_TYPE_ACQUIRE_NO_POINT:
+	case MessageTypeAcquireNoPoint:
 		ret = &MsgAcquireNoPoint{}
-	case MESSAGE_TYPE_REACQUIRE_NO_POINT:
+	case MessageTypeReacquireNoPoint:
 		ret = &MsgReAcquireNoPoint{}
-	case MESSAGE_TYPE_DONE:
+	case MessageTypeDone:
 		ret = &MsgDone{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return nil, fmt.Errorf("%s: decode error: %s", protocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -66,7 +73,7 @@ type MsgAcquire struct {
 func NewMsgAcquire(point common.Point) *MsgAcquire {
 	m := &MsgAcquire{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ACQUIRE,
+			MessageType: MessageTypeAcquire,
 		},
 		Point: point,
 	}
@@ -80,7 +87,7 @@ type MsgAcquireNoPoint struct {
 func NewMsgAcquireNoPoint() *MsgAcquireNoPoint {
 	m := &MsgAcquireNoPoint{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ACQUIRE_NO_POINT,
+			MessageType: MessageTypeAcquireNoPoint,
 		},
 	}
 	return m
@@ -93,7 +100,7 @@ type MsgAcquired struct {
 func NewMsgAcquired() *MsgAcquired {
 	m := &MsgAcquired{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ACQUIRED,
+			MessageType: MessageTypeAcquired,
 		},
 	}
 	return m
@@ -107,7 +114,7 @@ type MsgFailure struct {
 func NewMsgFailure(failure uint8) *MsgFailure {
 	m := &MsgFailure{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_FAILURE,
+			MessageType: MessageTypeFailure,
 		},
 		Failure: failure,
 	}
@@ -122,7 +129,7 @@ type MsgQuery struct {
 func NewMsgQuery(query interface{}) *MsgQuery {
 	m := &MsgQuery{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_QUERY,
+			MessageType: MessageTypeQuery,
 		},
 		Query: query,
 	}
@@ -137,7 +144,7 @@ type MsgResult struct {
 func NewMsgResult(resultCbor []byte) *MsgResult {
 	m := &MsgResult{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_RESULT,
+			MessageType: MessageTypeResult,
 		},
 		Result: cbor.RawMessage(resultCbor),
 	}
@@ -151,7 +158,7 @@ type MsgRelease struct {
 func NewMsgRelease() *MsgRelease {
 	m := &MsgRelease{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_RELEASE,
+			MessageType: MessageTypeRelease,
 		},
 	}
 	return m
@@ -165,7 +172,7 @@ type MsgReAcquire struct {
 func NewMsgReAcquire(point common.Point) *MsgReAcquire {
 	m := &MsgReAcquire{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REACQUIRE,
+			MessageType: MessageTypeReacquire,
 		},
 		Point: point,
 	}
@@ -179,7 +186,7 @@ type MsgReAcquireNoPoint struct {
 func NewMsgReAcquireNoPoint() *MsgReAcquireNoPoint {
 	m := &MsgReAcquireNoPoint{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REACQUIRE_NO_POINT,
+			MessageType: MessageTypeReacquireNoPoint,
 		},
 	}
 	return m
@@ -192,7 +199,7 @@ type MsgDone struct {
 func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_DONE,
+			MessageType: MessageTypeDone,
 		},
 	}
 	return m

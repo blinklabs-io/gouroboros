@@ -2,12 +2,14 @@ package localstatequery
 
 import (
 	"fmt"
+	"sync"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"sync"
 )
 
+// Client implements the LocalStateQuery client
 type Client struct {
 	*protocol.Protocol
 	config                        *Config
@@ -21,6 +23,7 @@ type Client struct {
 	currentEra                    int
 }
 
+// NewClient returns a new LocalStateQuery client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
 		tmpCfg := NewConfig()
@@ -35,18 +38,18 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[STATE_ACQUIRING]; ok {
+	if entry, ok := stateMap[stateAcquiring]; ok {
 		entry.Timeout = c.config.AcquireTimeout
-		stateMap[STATE_ACQUIRING] = entry
+		stateMap[stateAcquiring] = entry
 	}
-	if entry, ok := stateMap[STATE_QUERYING]; ok {
+	if entry, ok := stateMap[stateQuerying]; ok {
 		entry.Timeout = c.config.QueryTimeout
-		stateMap[STATE_QUERYING] = entry
+		stateMap[stateQuerying] = entry
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                protocolName,
+		ProtocolId:          protocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -54,7 +57,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
-		InitialState:        STATE_IDLE,
+		InitialState:        stateIdle,
 	}
 	// Enable version-dependent features
 	if protoOptions.Version >= 10 {
@@ -77,14 +80,14 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_ACQUIRED:
+	case MessageTypeAcquired:
 		err = c.handleAcquired()
-	case MESSAGE_TYPE_FAILURE:
+	case MessageTypeFailure:
 		err = c.handleFailure(msg)
-	case MESSAGE_TYPE_RESULT:
+	case MessageTypeResult:
 		err = c.handleResult(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
 	}
 	return err
 }
@@ -99,9 +102,9 @@ func (c *Client) handleAcquired() error {
 func (c *Client) handleFailure(msg protocol.Message) error {
 	msgFailure := msg.(*MsgFailure)
 	switch msgFailure.Failure {
-	case ACQUIRE_FAILURE_POINT_TOO_OLD:
+	case AcquireFailurePointTooOld:
 		c.acquireResultChan <- AcquireFailurePointTooOldError{}
-	case ACQUIRE_FAILURE_POINT_NOT_ON_CHAIN:
+	case AcquireFailurePointNotOnChain:
 		c.acquireResultChan <- AcquireFailurePointNotOnChainError{}
 	default:
 		return fmt.Errorf("unknown failure type: %d", msgFailure.Failure)
@@ -171,7 +174,7 @@ func (c *Client) getCurrentEra() (int, error) {
 	if c.currentEra > -1 {
 		return c.currentEra, nil
 	}
-	query := buildHardForkQuery(QUERY_TYPE_HARD_FORK_CURRENT_ERA)
+	query := buildHardForkQuery(QueryTypeHardForkCurrentEra)
 	var result int
 	if err := c.runQuery(query, &result); err != nil {
 		return -1, err
@@ -179,29 +182,33 @@ func (c *Client) getCurrentEra() (int, error) {
 	return result, nil
 }
 
+// Acquire starts the acquire process for the specified chain point
 func (c *Client) Acquire(point *common.Point) error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.acquire(point)
 }
 
+// Release releases the previously acquired chain point
 func (c *Client) Release() error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.release()
 }
 
+// GetCurrentEra returns the current era ID
 func (c *Client) GetCurrentEra() (int, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.getCurrentEra()
 }
 
+// GetSystemStart returns the SystemStart value
 func (c *Client) GetSystemStart() (*SystemStartResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildQuery(
-		QUERY_TYPE_SYSTEM_START,
+		QueryTypeSystemStart,
 	)
 	var result SystemStartResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -210,11 +217,12 @@ func (c *Client) GetSystemStart() (*SystemStartResult, error) {
 	return &result, nil
 }
 
+// GetChainBlockNo returns the latest block number
 func (c *Client) GetChainBlockNo() (int64, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildQuery(
-		QUERY_TYPE_CHAIN_BLOCK_NO,
+		QueryTypeChainBlockNo,
 	)
 	var result []int64
 	if err := c.runQuery(query, &result); err != nil {
@@ -223,11 +231,12 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 	return result[1], nil
 }
 
+// GetChainPoint returns the current chain tip
 func (c *Client) GetChainPoint() (*common.Point, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildQuery(
-		QUERY_TYPE_CHAIN_POINT,
+		QueryTypeChainPoint,
 	)
 	var result common.Point
 	if err := c.runQuery(query, &result); err != nil {
@@ -236,10 +245,11 @@ func (c *Client) GetChainPoint() (*common.Point, error) {
 	return &result, nil
 }
 
+// GetEraHistory returns the era history
 func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	query := buildHardForkQuery(QUERY_TYPE_HARD_FORK_ERA_HISTORY)
+	query := buildHardForkQuery(QueryTypeHardForkEraHistory)
 	var result []EraHistoryResult
 	if err := c.runQuery(query, &result); err != nil {
 		return []EraHistoryResult{}, err
@@ -247,6 +257,7 @@ func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
 	return result, nil
 }
 
+// GetEpochNo returns the current epoch number
 func (c *Client) GetEpochNo() (int, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -256,7 +267,7 @@ func (c *Client) GetEpochNo() (int, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_EPOCH_NO,
+		QueryTypeShelleyEpochNo,
 	)
 	var result []int
 	if err := c.runQuery(query, &result); err != nil {
@@ -275,7 +286,7 @@ func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, err
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_NON_MYOPIC_MEMBER_REWARDS,
+		QueryTypeShelleyNonMyopicMemberRewards,
 	)
 	var result NonMyopicMemberRewardsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -284,6 +295,7 @@ func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, err
 	return &result, nil
 }
 
+// GetCurrentProtocolParams returns the set of protocol params that are currently in effect
 func (c *Client) GetCurrentProtocolParams() (*CurrentProtocolParamsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -293,7 +305,7 @@ func (c *Client) GetCurrentProtocolParams() (*CurrentProtocolParamsResult, error
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_CURRENT_PROTOCOL_PARAMS,
+		QueryTypeShelleyCurrentProtocolParams,
 	)
 	var result []CurrentProtocolParamsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -313,7 +325,7 @@ func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpda
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_PROPOSED_PROTOCOL_PARAMS_UPDATES,
+		QueryTypeShelleyProposedProtocolParamsUpdates,
 	)
 	var result ProposedProtocolParamsUpdatesResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -323,6 +335,7 @@ func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpda
 
 }
 
+// GetStakeDistribution returns the stake distribution
 func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -332,7 +345,7 @@ func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_STAKE_DISTRIBUTION,
+		QueryTypeShelleyStakeDistribution,
 	)
 	var result StakeDistributionResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -351,7 +364,7 @@ func (c *Client) GetUTxOByAddress(addrs []interface{}) (*UTxOByAddressResult, er
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_UTXO_BY_ADDRESS,
+		QueryTypeShelleyUtxoByAddress,
 	)
 	var result UTxOByAddressResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -370,7 +383,7 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_UTXO_WHOLE,
+		QueryTypeShelleyUtxoWhole,
 	)
 	var result UTxOWholeResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -389,7 +402,7 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_DEBUG_EPOCH_STATE,
+		QueryTypeShelleyDebugEpochState,
 	)
 	var result DebugEpochStateResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -408,7 +421,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(creds []interface{}) (*
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_FILTERED_DELEGATION_AND_REWARD_ACCOUNTS,
+		QueryTypeShelleyFilteredDelegationAndRewardAccounts,
 	)
 	var result FilteredDelegationsAndRewardAccountsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -427,7 +440,7 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_GENESIS_CONFIG,
+		QueryTypeShelleyGenesisConfig,
 	)
 	var result []GenesisConfigResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -446,7 +459,7 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_DEBUG_NEW_EPOCH_STATE,
+		QueryTypeShelleyDebugNewEpochState,
 	)
 	var result DebugNewEpochStateResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -465,7 +478,7 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_DEBUG_CHAIN_DEP_STATE,
+		QueryTypeShelleyDebugChainDepState,
 	)
 	var result DebugChainDepStateResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -484,7 +497,7 @@ func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_REWARD_PROVENANCE,
+		QueryTypeShelleyRewardProvenance,
 	)
 	var result RewardProvenanceResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -503,7 +516,7 @@ func (c *Client) GetUTxOByTxIn(txins []interface{}) (*UTxOByTxInResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_UTXO_BY_TXIN,
+		QueryTypeShelleyUtxoByTxin,
 	)
 	var result UTxOByTxInResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -522,7 +535,7 @@ func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_STAKE_POOLS,
+		QueryTypeShelleyStakePools,
 	)
 	var result StakePoolsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -541,7 +554,7 @@ func (c *Client) GetStakePoolParams(poolIds []interface{}) (*StakePoolParamsResu
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_STAKE_POOL_PARAMS,
+		QueryTypeShelleyStakePoolParams,
 	)
 	var result StakePoolParamsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -560,7 +573,7 @@ func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_REWARD_INFO_POOLS,
+		QueryTypeShelleyRewardInfoPools,
 	)
 	var result RewardInfoPoolsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -579,7 +592,7 @@ func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_POOL_STATE,
+		QueryTypeShelleyPoolState,
 	)
 	var result PoolStateResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -598,7 +611,7 @@ func (c *Client) GetStakeSnapshots(poolId interface{}) (*StakeSnapshotsResult, e
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_STAKE_SNAPSHOTS,
+		QueryTypeShelleyStakeSnapshots,
 	)
 	var result StakeSnapshotsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -617,7 +630,7 @@ func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
 	}
 	query := buildShelleyQuery(
 		currentEra,
-		QUERY_TYPE_SHELLEY_POOL_DISTR,
+		QueryTypeShelleyPoolDistr,
 	)
 	var result PoolDistrResult
 	if err := c.runQuery(query, &result); err != nil {

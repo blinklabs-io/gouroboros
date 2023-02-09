@@ -4,43 +4,44 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+// Query types
 const (
-	QUERY_TYPE_BLOCK          = 0
-	QUERY_TYPE_SYSTEM_START   = 1
-	QUERY_TYPE_CHAIN_BLOCK_NO = 2
-	QUERY_TYPE_CHAIN_POINT    = 3
+	QueryTypeBlock        = 0
+	QueryTypeSystemStart  = 1
+	QueryTypeChainBlockNo = 2
+	QueryTypeChainPoint   = 3
 
 	// Block query sub-types
-	QUERY_TYPE_SHELLEY   = 0
-	QUERY_TYPE_HARD_FORK = 2
+	QueryTypeShelley  = 0
+	QueryTypeHardFork = 2
 
 	// Hard fork query sub-types
-	QUERY_TYPE_HARD_FORK_ERA_HISTORY = 0
-	QUERY_TYPE_HARD_FORK_CURRENT_ERA = 1
+	QueryTypeHardForkEraHistory = 0
+	QueryTypeHardForkCurrentEra = 1
 
 	// Shelley query sub-types
-	QUERY_TYPE_SHELLEY_LEDGER_TIP                              = 0
-	QUERY_TYPE_SHELLEY_EPOCH_NO                                = 1
-	QUERY_TYPE_SHELLEY_NON_MYOPIC_MEMBER_REWARDS               = 2
-	QUERY_TYPE_SHELLEY_CURRENT_PROTOCOL_PARAMS                 = 3
-	QUERY_TYPE_SHELLEY_PROPOSED_PROTOCOL_PARAMS_UPDATES        = 4
-	QUERY_TYPE_SHELLEY_STAKE_DISTRIBUTION                      = 5
-	QUERY_TYPE_SHELLEY_UTXO_BY_ADDRESS                         = 6
-	QUERY_TYPE_SHELLEY_UTXO_WHOLE                              = 7
-	QUERY_TYPE_SHELLEY_DEBUG_EPOCH_STATE                       = 8
-	QUERY_TYPE_SHELLEY_CBOR                                    = 9
-	QUERY_TYPE_SHELLEY_FILTERED_DELEGATION_AND_REWARD_ACCOUNTS = 10
-	QUERY_TYPE_SHELLEY_GENESIS_CONFIG                          = 11
-	QUERY_TYPE_SHELLEY_DEBUG_NEW_EPOCH_STATE                   = 12
-	QUERY_TYPE_SHELLEY_DEBUG_CHAIN_DEP_STATE                   = 13
-	QUERY_TYPE_SHELLEY_REWARD_PROVENANCE                       = 14
-	QUERY_TYPE_SHELLEY_UTXO_BY_TXIN                            = 15
-	QUERY_TYPE_SHELLEY_STAKE_POOLS                             = 16
-	QUERY_TYPE_SHELLEY_STAKE_POOL_PARAMS                       = 17
-	QUERY_TYPE_SHELLEY_REWARD_INFO_POOLS                       = 18
-	QUERY_TYPE_SHELLEY_POOL_STATE                              = 19
-	QUERY_TYPE_SHELLEY_STAKE_SNAPSHOTS                         = 20
-	QUERY_TYPE_SHELLEY_POOL_DISTR                              = 21
+	QueryTypeShelleyLedgerTip                           = 0
+	QueryTypeShelleyEpochNo                             = 1
+	QueryTypeShelleyNonMyopicMemberRewards              = 2
+	QueryTypeShelleyCurrentProtocolParams               = 3
+	QueryTypeShelleyProposedProtocolParamsUpdates       = 4
+	QueryTypeShelleyStakeDistribution                   = 5
+	QueryTypeShelleyUtxoByAddress                       = 6
+	QueryTypeShelleyUtxoWhole                           = 7
+	QueryTypeShelleyDebugEpochState                     = 8
+	QueryTypeShelleyCbor                                = 9
+	QueryTypeShelleyFilteredDelegationAndRewardAccounts = 10
+	QueryTypeShelleyGenesisConfig                       = 11
+	QueryTypeShelleyDebugNewEpochState                  = 12
+	QueryTypeShelleyDebugChainDepState                  = 13
+	QueryTypeShelleyRewardProvenance                    = 14
+	QueryTypeShelleyUtxoByTxin                          = 15
+	QueryTypeShelleyStakePools                          = 16
+	QueryTypeShelleyStakePoolParams                     = 17
+	QueryTypeShelleyRewardInfoPools                     = 18
+	QueryTypeShelleyPoolState                           = 19
+	QueryTypeShelleyStakeSnapshots                      = 20
+	QueryTypeShelleyPoolDistr                           = 21
 )
 
 func buildQuery(queryType int, params ...interface{}) []interface{} {
@@ -53,9 +54,9 @@ func buildQuery(queryType int, params ...interface{}) []interface{} {
 
 func buildHardForkQuery(queryType int, params ...interface{}) []interface{} {
 	ret := buildQuery(
-		QUERY_TYPE_BLOCK,
+		QueryTypeBlock,
 		buildQuery(
-			QUERY_TYPE_HARD_FORK,
+			QueryTypeHardFork,
 			buildQuery(
 				queryType,
 				params...,
@@ -67,9 +68,9 @@ func buildHardForkQuery(queryType int, params ...interface{}) []interface{} {
 
 func buildShelleyQuery(era int, queryType int, params ...interface{}) []interface{} {
 	ret := buildQuery(
-		QUERY_TYPE_BLOCK,
+		QueryTypeBlock,
 		buildQuery(
-			QUERY_TYPE_SHELLEY,
+			QueryTypeShelley,
 			buildQuery(
 				era,
 				buildQuery(

@@ -1,3 +1,4 @@
+// Package localstatequery implements the Ouroboros local-state-query protocol
 package localstatequery
 
 import (
@@ -6,90 +7,94 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
+// Protocol identifiers
 const (
-	PROTOCOL_NAME        = "local-state-query"
-	PROTOCOL_ID   uint16 = 7
+	protocolName        = "local-state-query"
+	protocolId   uint16 = 7
 )
 
 var (
-	STATE_IDLE      = protocol.NewState(1, "Idle")
-	STATE_ACQUIRING = protocol.NewState(2, "Acquiring")
-	STATE_ACQUIRED  = protocol.NewState(3, "Acquired")
-	STATE_QUERYING  = protocol.NewState(4, "Querying")
-	STATE_DONE      = protocol.NewState(5, "Done")
+	stateIdle      = protocol.NewState(1, "Idle")
+	stateAcquiring = protocol.NewState(2, "Acquiring")
+	stateAcquired  = protocol.NewState(3, "Acquired")
+	stateQuerying  = protocol.NewState(4, "Querying")
+	stateDone      = protocol.NewState(5, "Done")
 )
 
+// LocalStateQuery protocol state machine
 var StateMap = protocol.StateMap{
-	STATE_IDLE: protocol.StateMapEntry{
+	stateIdle: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_ACQUIRE,
-				NewState: STATE_ACQUIRING,
+				MsgType:  MessageTypeAcquire,
+				NewState: stateAcquiring,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_ACQUIRE_NO_POINT,
-				NewState: STATE_ACQUIRING,
+				MsgType:  MessageTypeAcquireNoPoint,
+				NewState: stateAcquiring,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_DONE,
-				NewState: STATE_DONE,
+				MsgType:  MessageTypeDone,
+				NewState: stateDone,
 			},
 		},
 	},
-	STATE_ACQUIRING: protocol.StateMapEntry{
+	stateAcquiring: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_FAILURE,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeFailure,
+				NewState: stateIdle,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_ACQUIRED,
-				NewState: STATE_ACQUIRED,
+				MsgType:  MessageTypeAcquired,
+				NewState: stateAcquired,
 			},
 		},
 	},
-	STATE_ACQUIRED: protocol.StateMapEntry{
+	stateAcquired: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_QUERY,
-				NewState: STATE_QUERYING,
+				MsgType:  MessageTypeQuery,
+				NewState: stateQuerying,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_REACQUIRE,
-				NewState: STATE_ACQUIRING,
+				MsgType:  MessageTypeReacquire,
+				NewState: stateAcquiring,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_REACQUIRE_NO_POINT,
-				NewState: STATE_ACQUIRING,
+				MsgType:  MessageTypeReacquireNoPoint,
+				NewState: stateAcquiring,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_RELEASE,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeRelease,
+				NewState: stateIdle,
 			},
 		},
 	},
-	STATE_QUERYING: protocol.StateMapEntry{
+	stateQuerying: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_RESULT,
-				NewState: STATE_ACQUIRED,
+				MsgType:  MessageTypeResult,
+				NewState: stateAcquired,
 			},
 		},
 	},
-	STATE_DONE: protocol.StateMapEntry{
+	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
 }
 
+// LocalStateQuery is a wrapper object that holds the client and server instances
 type LocalStateQuery struct {
 	Client *Client
 	Server *Server
 }
 
+// Config is used to configure the LocalStateQuery protocol instance
 type Config struct {
 	AcquireFunc    AcquireFunc
 	QueryFunc      QueryFunc
@@ -108,6 +113,7 @@ type ReleaseFunc func() error
 type ReAcquireFunc func(interface{}) error
 type DoneFunc func() error
 
+// New returns a new LocalStateQuery object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalStateQuery {
 	l := &LocalStateQuery{
 		Client: NewClient(protoOptions, cfg),
@@ -116,8 +122,10 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalStateQuery {
 	return l
 }
 
+// LocalStateQueryOptionFunc represents a function used to modify the LocalStateQuery protocol config
 type LocalStateQueryOptionFunc func(*Config)
 
+// NewConfig returns a new LocalStateQuery config object with the provided options
 func NewConfig(options ...LocalStateQueryOptionFunc) Config {
 	c := Config{
 		AcquireTimeout: 5 * time.Second,
@@ -130,42 +138,49 @@ func NewConfig(options ...LocalStateQueryOptionFunc) Config {
 	return c
 }
 
+// WithAcquireFunc specifies the Acquire callback function when acting as a server
 func WithAcquireFunc(acquireFunc AcquireFunc) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.AcquireFunc = acquireFunc
 	}
 }
 
+// WithQueryFunc specifies the Query callback function when acting as a server
 func WithQueryFunc(queryFunc QueryFunc) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.QueryFunc = queryFunc
 	}
 }
 
+// WithReleaseFunc specifies the Release callback function when acting as a server
 func WithReleaseFunc(releaseFunc ReleaseFunc) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.ReleaseFunc = releaseFunc
 	}
 }
 
+// WithReAcquireFunc specifies the ReAcquire callback function when acting as a server
 func WithReAcquireFunc(reAcquireFunc ReAcquireFunc) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.ReAcquireFunc = reAcquireFunc
 	}
 }
 
+// WithDoneFunc specifies the Done callback function when acting as a server
 func WithDoneFunc(doneFunc DoneFunc) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.DoneFunc = doneFunc
 	}
 }
 
+// WithAcquireTimeout specifies the timeout for the Acquire operation when acting as a client
 func WithAcquireTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.AcquireTimeout = timeout
 	}
 }
 
+// WithQueryTimeout specifies the timeout for the Query operation when acting as a client
 func WithQueryTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.QueryTimeout = timeout
