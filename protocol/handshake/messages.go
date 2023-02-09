@@ -2,32 +2,38 @@ package handshake
 
 import (
 	"fmt"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
 
+// Message types
 const (
-	MESSAGE_TYPE_PROPOSE_VERSIONS = 0
-	MESSAGE_TYPE_ACCEPT_VERSION   = 1
-	MESSAGE_TYPE_REFUSE           = 2
-
-	REFUSE_REASON_VERSION_MISMATCH = 0
-	REFUSE_REASON_DECODE_ERROR     = 1
-	REFUSE_REASON_REFUSED          = 2
+	MessageTypeProposeVersions = 0
+	MessageTypeAcceptVersion   = 1
+	MessageTypeRefuse          = 2
 )
 
+// Refusal reasons
+const (
+	RefuseReasonVersionMismatch = 0
+	RefuseReasonDecodeError     = 1
+	RefuseReasonRefused         = 2
+)
+
+// NewMsgFromCbor parses a Handshake message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
-	case MESSAGE_TYPE_PROPOSE_VERSIONS:
+	case MessageTypeProposeVersions:
 		ret = &MsgProposeVersions{}
-	case MESSAGE_TYPE_ACCEPT_VERSION:
+	case MessageTypeAcceptVersion:
 		ret = &MsgAcceptVersion{}
-	case MESSAGE_TYPE_REFUSE:
+	case MessageTypeRefuse:
 		ret = &MsgRefuse{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return nil, fmt.Errorf("%s: decode error: %s", protocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -44,7 +50,7 @@ type MsgProposeVersions struct {
 func NewMsgProposeVersions(versionMap map[uint16]interface{}) *MsgProposeVersions {
 	m := &MsgProposeVersions{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_PROPOSE_VERSIONS,
+			MessageType: MessageTypeProposeVersions,
 		},
 		VersionMap: versionMap,
 	}
@@ -60,7 +66,7 @@ type MsgAcceptVersion struct {
 func NewMsgAcceptVersion(version uint16, versionData interface{}) *MsgAcceptVersion {
 	m := &MsgAcceptVersion{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ACCEPT_VERSION,
+			MessageType: MessageTypeAcceptVersion,
 		},
 		Version:     version,
 		VersionData: versionData,
@@ -76,7 +82,7 @@ type MsgRefuse struct {
 func NewMsgRefuse(reason []interface{}) *MsgRefuse {
 	m := &MsgRefuse{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REFUSE,
+			MessageType: MessageTypeRefuse,
 		},
 		Reason: reason,
 	}
