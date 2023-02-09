@@ -2,9 +2,11 @@ package localstatequery
 
 import (
 	"fmt"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
+// Server implements the LocalStateQuery server
 type Server struct {
 	*protocol.Protocol
 	config                        *Config
@@ -13,13 +15,14 @@ type Server struct {
 	enableGetRewardInfoPoolsBlock bool
 }
 
+// NewServer returns a new LocalStateQuery server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
 	}
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                protocolName,
+		ProtocolId:          protocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -27,7 +30,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
-		InitialState:        STATE_IDLE,
+		InitialState:        stateIdle,
 	}
 	// Enable version-dependent features
 	if protoOptions.Version >= 10 {
@@ -44,22 +47,22 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_ACQUIRE:
+	case MessageTypeAcquire:
 		err = s.handleAcquire(msg)
-	case MESSAGE_TYPE_QUERY:
+	case MessageTypeQuery:
 		err = s.handleQuery(msg)
-	case MESSAGE_TYPE_RELEASE:
+	case MessageTypeRelease:
 		err = s.handleRelease()
-	case MESSAGE_TYPE_REACQUIRE:
+	case MessageTypeReacquire:
 		err = s.handleReAcquire(msg)
-	case MESSAGE_TYPE_ACQUIRE_NO_POINT:
+	case MessageTypeAcquireNoPoint:
 		err = s.handleAcquire(msg)
-	case MESSAGE_TYPE_REACQUIRE_NO_POINT:
+	case MessageTypeReacquireNoPoint:
 		err = s.handleReAcquire(msg)
-	case MESSAGE_TYPE_DONE:
+	case MessageTypeDone:
 		err = s.handleDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
 	}
 	return err
 }

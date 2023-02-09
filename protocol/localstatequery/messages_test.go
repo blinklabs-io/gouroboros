@@ -19,17 +19,17 @@ var tests = []testDefinition{
 	{
 		CborHex:     "820080",
 		Message:     NewMsgAcquire(common.Point{}),
-		MessageType: MESSAGE_TYPE_ACQUIRE,
+		MessageType: MessageTypeAcquire,
 	},
 	{
 		CborHex:     "8101",
 		Message:     NewMsgAcquired(),
-		MessageType: MESSAGE_TYPE_ACQUIRED,
+		MessageType: MessageTypeAcquired,
 	},
 	{
 		CborHex:     "820201",
-		Message:     NewMsgFailure(ACQUIRE_FAILURE_POINT_NOT_ON_CHAIN),
-		MessageType: MESSAGE_TYPE_FAILURE,
+		Message:     NewMsgFailure(AcquireFailurePointNotOnChain),
+		MessageType: MessageTypeFailure,
 	},
 	{
 		CborHex: "8203820082028101",
@@ -45,37 +45,37 @@ var tests = []testDefinition{
 				},
 			},
 		),
-		MessageType: MESSAGE_TYPE_QUERY,
+		MessageType: MessageTypeQuery,
 	},
 	{
 		CborHex:     "820405",
 		Message:     NewMsgResult([]byte{5}),
-		MessageType: MESSAGE_TYPE_RESULT,
+		MessageType: MessageTypeResult,
 	},
 	{
 		CborHex:     "8105",
 		Message:     NewMsgRelease(),
-		MessageType: MESSAGE_TYPE_RELEASE,
+		MessageType: MessageTypeRelease,
 	},
 	{
 		CborHex:     "820680",
 		Message:     NewMsgReAcquire(common.Point{}),
-		MessageType: MESSAGE_TYPE_REACQUIRE,
+		MessageType: MessageTypeReacquire,
 	},
 	{
 		CborHex:     "8107",
 		Message:     NewMsgDone(),
-		MessageType: MESSAGE_TYPE_DONE,
+		MessageType: MessageTypeDone,
 	},
 	{
 		CborHex:     "8108",
 		Message:     NewMsgAcquireNoPoint(),
-		MessageType: MESSAGE_TYPE_ACQUIRE_NO_POINT,
+		MessageType: MessageTypeAcquireNoPoint,
 	},
 	{
 		CborHex:     "8109",
 		Message:     NewMsgReAcquireNoPoint(),
-		MessageType: MESSAGE_TYPE_REACQUIRE_NO_POINT,
+		MessageType: MessageTypeReacquireNoPoint,
 	},
 }
 
