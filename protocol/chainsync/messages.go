@@ -8,6 +8,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+// Message types
 const (
 	MessageTypeRequestNext       = 0
 	MessageTypeAwaitReply        = 1

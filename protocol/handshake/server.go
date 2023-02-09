@@ -2,21 +2,24 @@ package handshake
 
 import (
 	"fmt"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
+// Server implements the Handshake server
 type Server struct {
 	*protocol.Protocol
 	config *Config
 }
 
+// NewServer returns a new Handshake server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
 	}
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                protocolName,
+		ProtocolId:          protocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -24,7 +27,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageHandlerFunc:  s.handleMessage,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
-		InitialState:        STATE_PROPOSE,
+		InitialState:        statePropose,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
@@ -33,10 +36,10 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 func (s *Server) handleMessage(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_PROPOSE_VERSIONS:
+	case MessageTypeProposeVersions:
 		err = s.handleProposeVersions(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
 	}
 	return err
 }
@@ -56,7 +59,7 @@ func (s *Server) handleProposeVersions(msgGeneric protocol.Message) error {
 					highestVersion = proposedVersion
 					versionData = msg.VersionMap[proposedVersion].([]interface{})
 					//nolint:gosimple
-					if versionData[1].(bool) == DIFFUSION_MODE_INITIATOR_AND_RESPONDER {
+					if versionData[1].(bool) == DiffusionModeInitiatorAndResponder {
 						fullDuplex = true
 					} else {
 						fullDuplex = false

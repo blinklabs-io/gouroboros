@@ -1,3 +1,4 @@
+// Package handshake implements the Ouroboros handshake protocol
 package handshake
 
 import (
@@ -6,53 +7,60 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
+// Protocol identifiers
 const (
-	PROTOCOL_NAME = "handshake"
-	PROTOCOL_ID   = 0
+	protocolName = "handshake"
+	protocolId   = 0
+)
 
-	DIFFUSION_MODE_INITIATOR_ONLY          = false
-	DIFFUSION_MODE_INITIATOR_AND_RESPONDER = true
+// Diffusion modes
+const (
+	DiffusionModeInitiatorOnly         = false
+	DiffusionModeInitiatorAndResponder = true
 )
 
 var (
-	STATE_PROPOSE = protocol.NewState(1, "Propose")
-	STATE_CONFIRM = protocol.NewState(2, "Confirm")
-	STATE_DONE    = protocol.NewState(3, "Done")
+	statePropose = protocol.NewState(1, "Propose")
+	stateConfirm = protocol.NewState(2, "Confirm")
+	stateDone    = protocol.NewState(3, "Done")
 )
 
+// Handshake protocol state machine
 var StateMap = protocol.StateMap{
-	STATE_PROPOSE: protocol.StateMapEntry{
+	statePropose: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_PROPOSE_VERSIONS,
-				NewState: STATE_CONFIRM,
+				MsgType:  MessageTypeProposeVersions,
+				NewState: stateConfirm,
 			},
 		},
 	},
-	STATE_CONFIRM: protocol.StateMapEntry{
+	stateConfirm: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_ACCEPT_VERSION,
-				NewState: STATE_DONE,
+				MsgType:  MessageTypeAcceptVersion,
+				NewState: stateDone,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_REFUSE,
-				NewState: STATE_DONE,
+				MsgType:  MessageTypeRefuse,
+				NewState: stateDone,
 			},
 		},
 	},
-	STATE_DONE: protocol.StateMapEntry{
+	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
 }
 
+// Handshake is a wrapper object that holds the client and server instances
 type Handshake struct {
 	Client *Client
 	Server *Server
 }
 
+// Config is used to configure the Handshake protocol instance
 type Config struct {
 	ProtocolVersions []uint16
 	NetworkMagic     uint32
@@ -61,8 +69,10 @@ type Config struct {
 	Timeout          time.Duration
 }
 
+// Callback function types
 type FinishedFunc func(uint16, bool) error
 
+// New returns a new Handshake object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {
 	h := &Handshake{
 		Client: NewClient(protoOptions, cfg),
@@ -71,8 +81,10 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {
 	return h
 }
 
+// HandshakeOptionFunc represents a function used to modify the Handshake protocol config
 type HandshakeOptionFunc func(*Config)
 
+// NewConfig returns a new Handshake config object with the provided options
 func NewConfig(options ...HandshakeOptionFunc) Config {
 	c := Config{
 		Timeout: 5 * time.Second,
@@ -84,30 +96,35 @@ func NewConfig(options ...HandshakeOptionFunc) Config {
 	return c
 }
 
+// WithProtocolVersions specifies the supported protocol versions
 func WithProtocolVersions(versions []uint16) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.ProtocolVersions = versions
 	}
 }
 
+// WithNetworkMagic specifies the network magic value
 func WithNetworkMagic(networkMagic uint32) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.NetworkMagic = networkMagic
 	}
 }
 
+// WithClientFullDuplex specifies whether to request full duplex mode when acting as a client
 func WithClientFullDuplex(fullDuplex bool) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.ClientFullDuplex = fullDuplex
 	}
 }
 
+// WithFinishedFunc specifies the Finished callback function
 func WithFinishedFunc(finishedFunc FinishedFunc) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.FinishedFunc = finishedFunc
 	}
 }
 
+// WithTimeout specifies the timeout for the handshake operation
 func WithTimeout(timeout time.Duration) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout

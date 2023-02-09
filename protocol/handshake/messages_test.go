@@ -2,10 +2,11 @@ package handshake
 
 import (
 	"encoding/hex"
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"reflect"
 	"testing"
+
+	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
 
 type testDefinition struct {
@@ -17,7 +18,7 @@ type testDefinition struct {
 var tests = []testDefinition{
 	{
 		CborHex:     "8200a4078202f4088202f4098202f40a8202f4",
-		MessageType: MESSAGE_TYPE_PROPOSE_VERSIONS,
+		MessageType: MessageTypeProposeVersions,
 		Message: NewMsgProposeVersions(
 			map[uint16]interface{}{
 				7:  []interface{}{uint64(2), false},
@@ -29,15 +30,15 @@ var tests = []testDefinition{
 	},
 	{
 		CborHex:     "83010a8202f4",
-		MessageType: MESSAGE_TYPE_ACCEPT_VERSION,
+		MessageType: MessageTypeAcceptVersion,
 		Message:     NewMsgAcceptVersion(10, []interface{}{uint64(2), false}),
 	},
 	{
 		CborHex:     "82028200840708090a",
-		MessageType: MESSAGE_TYPE_REFUSE,
+		MessageType: MessageTypeRefuse,
 		Message: NewMsgRefuse(
 			[]interface{}{
-				uint64(REFUSE_REASON_VERSION_MISMATCH),
+				uint64(RefuseReasonVersionMismatch),
 				[]interface{}{
 					uint64(7),
 					uint64(8),

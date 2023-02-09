@@ -2,14 +2,17 @@ package handshake
 
 import (
 	"fmt"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 )
 
+// Client implements the Handshake client
 type Client struct {
 	*protocol.Protocol
 	config *Config
 }
 
+// NewClient returns a new Handshake client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
 		tmpCfg := NewConfig()
@@ -20,14 +23,14 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[STATE_CONFIRM]; ok {
+	if entry, ok := stateMap[stateConfirm]; ok {
 		entry.Timeout = c.config.Timeout
-		stateMap[STATE_CONFIRM] = entry
+		stateMap[stateConfirm] = entry
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                protocolName,
+		ProtocolId:          protocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -35,19 +38,20 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.handleMessage,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
-		InitialState:        STATE_PROPOSE,
+		InitialState:        statePropose,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
 }
 
+// Start begins the handshake process
 func (c *Client) Start() {
 	c.Protocol.Start()
 	// Send our ProposeVersions message
 	versionMap := make(map[uint16]interface{})
-	diffusionMode := DIFFUSION_MODE_INITIATOR_ONLY
+	diffusionMode := DiffusionModeInitiatorOnly
 	if c.config.ClientFullDuplex {
-		diffusionMode = DIFFUSION_MODE_INITIATOR_AND_RESPONDER
+		diffusionMode = DiffusionModeInitiatorAndResponder
 	}
 	for _, version := range c.config.ProtocolVersions {
 		if c.Mode() == protocol.ProtocolModeNodeToNode {
@@ -63,12 +67,12 @@ func (c *Client) Start() {
 func (c *Client) handleMessage(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_ACCEPT_VERSION:
+	case MessageTypeAcceptVersion:
 		err = c.handleAcceptVersion(msg)
-	case MESSAGE_TYPE_REFUSE:
+	case MessageTypeRefuse:
 		err = c.handleRefuse(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
 	}
 	return err
 }
@@ -82,7 +86,7 @@ func (c *Client) handleAcceptVersion(msgGeneric protocol.Message) error {
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		versionData := msg.VersionData.([]interface{})
 		//nolint:gosimple
-		if versionData[1].(bool) == DIFFUSION_MODE_INITIATOR_AND_RESPONDER {
+		if versionData[1].(bool) == DiffusionModeInitiatorAndResponder {
 			fullDuplex = true
 		}
 	}
@@ -93,12 +97,12 @@ func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgRefuse)
 	var err error
 	switch msg.Reason[0].(uint64) {
-	case REFUSE_REASON_VERSION_MISMATCH:
-		err = fmt.Errorf("%s: version mismatch", PROTOCOL_NAME)
-	case REFUSE_REASON_DECODE_ERROR:
-		err = fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, msg.Reason[2].(string))
-	case REFUSE_REASON_REFUSED:
-		err = fmt.Errorf("%s: refused: %s", PROTOCOL_NAME, msg.Reason[2].(string))
+	case RefuseReasonVersionMismatch:
+		err = fmt.Errorf("%s: version mismatch", protocolName)
+	case RefuseReasonDecodeError:
+		err = fmt.Errorf("%s: decode error: %s", protocolName, msg.Reason[2].(string))
+	case RefuseReasonRefused:
+		err = fmt.Errorf("%s: refused: %s", protocolName, msg.Reason[2].(string))
 	}
 	return err
 }
