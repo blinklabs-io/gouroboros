@@ -86,7 +86,7 @@ func TestMsgRequestNext(t *testing.T) {
 		{
 			CborHex:     "8100",
 			Message:     NewMsgRequestNext(),
-			MessageType: MESSAGE_TYPE_REQUEST_NEXT,
+			MessageType: MessageTypeRequestNext,
 		},
 	}
 	runTests(tests, t)
@@ -97,7 +97,7 @@ func TestMsgAwaitReply(t *testing.T) {
 		{
 			CborHex:     "8101",
 			Message:     NewMsgAwaitReply(),
-			MessageType: MESSAGE_TYPE_AWAIT_REPLY,
+			MessageType: MessageTypeAwaitReply,
 		},
 	}
 	runTests(tests, t)
@@ -120,7 +120,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 					BlockNumber: 3479284,
 				},
 			),
-			MessageType:  MESSAGE_TYPE_ROLL_FORWARD,
+			MessageType:  MessageTypeRollForward,
 			ProtocolMode: protocol.ProtocolModeNodeToNode,
 		},
 		// TODO: fetch full block content and enable test
@@ -140,7 +140,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 						BlockNumber: 3479284,
 					},
 				),
-				MessageType:  MESSAGE_TYPE_ROLL_FORWARD,
+				MessageType:  MessageTypeRollForward,
 				ProtocolMode: protocol.ProtocolModeNodeToNode,
 			},
 		*/
@@ -159,7 +159,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 					BlockNumber: 3480174,
 				},
 			),
-			MessageType:  MESSAGE_TYPE_ROLL_FORWARD,
+			MessageType:  MessageTypeRollForward,
 			ProtocolMode: protocol.ProtocolModeNodeToNode,
 		},
 	}
@@ -182,7 +182,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 					BlockNumber: 48025,
 				},
 			),
-			MessageType:  MESSAGE_TYPE_ROLL_FORWARD,
+			MessageType:  MessageTypeRollForward,
 			ProtocolMode: protocol.ProtocolModeNodeToClient,
 		},
 		// Byron main block (NtC)
@@ -199,7 +199,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 					BlockNumber: 48025,
 				},
 			),
-			MessageType:  MESSAGE_TYPE_ROLL_FORWARD,
+			MessageType:  MessageTypeRollForward,
 			ProtocolMode: protocol.ProtocolModeNodeToClient,
 		},
 		// Shelley block (NtC)
@@ -216,7 +216,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 					BlockNumber: 3481987,
 				},
 			),
-			MessageType:  MESSAGE_TYPE_ROLL_FORWARD,
+			MessageType:  MessageTypeRollForward,
 			ProtocolMode: protocol.ProtocolModeNodeToClient,
 		},
 	}
@@ -237,7 +237,7 @@ func TestMsgRollBackward(t *testing.T) {
 					BlockNumber: 3478323,
 				},
 			),
-			MessageType: MESSAGE_TYPE_ROLL_BACKWARD,
+			MessageType: MessageTypeRollBackward,
 		},
 	}
 	runTests(tests, t)
@@ -253,7 +253,7 @@ func TestMsgFindIntersect(t *testing.T) {
 					common.Point{},
 				},
 			),
-			MessageType: MESSAGE_TYPE_FIND_INTERSECT,
+			MessageType: MessageTypeFindIntersect,
 		},
 		// Beginning of Shelley era
 		{
@@ -266,7 +266,7 @@ func TestMsgFindIntersect(t *testing.T) {
 					},
 				},
 			),
-			MessageType: MESSAGE_TYPE_FIND_INTERSECT,
+			MessageType: MessageTypeFindIntersect,
 		},
 	}
 	runTests(tests, t)
@@ -286,7 +286,7 @@ func TestMsgIntersectFound(t *testing.T) {
 					BlockNumber: 3478323,
 				},
 			),
-			MessageType: MESSAGE_TYPE_INTERSECT_FOUND,
+			MessageType: MessageTypeIntersectFound,
 		},
 	}
 	runTests(tests, t)
@@ -305,7 +305,7 @@ func TestMsgIntersectNotFound(t *testing.T) {
 					BlockNumber: 3478323,
 				},
 			),
-			MessageType: MESSAGE_TYPE_INTERSECT_NOT_FOUND,
+			MessageType: MessageTypeIntersectNotFound,
 		},
 	}
 	runTests(tests, t)
@@ -316,7 +316,7 @@ func TestMsgDone(t *testing.T) {
 		{
 			CborHex:     "8107",
 			Message:     NewMsgDone(),
-			MessageType: MESSAGE_TYPE_DONE,
+			MessageType: MessageTypeDone,
 		},
 	}
 	runTests(tests, t)

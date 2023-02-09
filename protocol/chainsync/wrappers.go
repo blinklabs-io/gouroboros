@@ -6,6 +6,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+// WrappedBlock represents a block returned via a NtC RollForward message
 type WrappedBlock struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_         struct{} `cbor:",toarray"`
@@ -13,6 +14,7 @@ type WrappedBlock struct {
 	BlockCbor cbor.RawMessage
 }
 
+// NewWrappedBlock returns a new WrappedBlock
 func NewWrappedBlock(blockType uint, blockCbor []byte) *WrappedBlock {
 	return &WrappedBlock{
 		BlockType: blockType,
@@ -20,6 +22,7 @@ func NewWrappedBlock(blockType uint, blockCbor []byte) *WrappedBlock {
 	}
 }
 
+// WrappedHeader represents a block header returned via NtN RollForward message
 type WrappedHeader struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_          struct{} `cbor:",toarray"`
@@ -30,6 +33,7 @@ type WrappedHeader struct {
 	headerCbor []byte
 }
 
+// NewWrappedHeader returns a new WrappedHeader
 func NewWrappedHeader(era uint, byronType uint, blockCbor []byte) *WrappedHeader {
 	w := &WrappedHeader{
 		Era:       era,
@@ -111,10 +115,12 @@ func (w *WrappedHeader) MarshalCBOR() ([]byte, error) {
 	return cborData, nil
 }
 
+// HeaderCbor returns the header CBOR
 func (w *WrappedHeader) HeaderCbor() []byte {
 	return w.headerCbor
 }
 
+// ByronType returns the block type for Byron blocks
 func (w *WrappedHeader) ByronType() uint {
 	return w.byronType
 }

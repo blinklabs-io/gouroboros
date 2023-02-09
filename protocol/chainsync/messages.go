@@ -9,50 +9,53 @@ import (
 )
 
 const (
-	MESSAGE_TYPE_REQUEST_NEXT        = 0
-	MESSAGE_TYPE_AWAIT_REPLY         = 1
-	MESSAGE_TYPE_ROLL_FORWARD        = 2
-	MESSAGE_TYPE_ROLL_BACKWARD       = 3
-	MESSAGE_TYPE_FIND_INTERSECT      = 4
-	MESSAGE_TYPE_INTERSECT_FOUND     = 5
-	MESSAGE_TYPE_INTERSECT_NOT_FOUND = 6
-	MESSAGE_TYPE_DONE                = 7
+	MessageTypeRequestNext       = 0
+	MessageTypeAwaitReply        = 1
+	MessageTypeRollForward       = 2
+	MessageTypeRollBackward      = 3
+	MessageTypeFindIntersect     = 4
+	MessageTypeIntersectFound    = 5
+	MessageTypeIntersectNotFound = 6
+	MessageTypeDone              = 7
 )
 
+// NewMsgFromCborNtN parses a NtC ChainSync message from CBOR
 func NewMsgFromCborNtN(msgType uint, data []byte) (protocol.Message, error) {
 	return NewMsgFromCbor(protocol.ProtocolModeNodeToNode, msgType, data)
 }
 
+// NewMsgFromCborNtC parses a NtC ChainSync message from CBOR
 func NewMsgFromCborNtC(msgType uint, data []byte) (protocol.Message, error) {
 	return NewMsgFromCbor(protocol.ProtocolModeNodeToClient, msgType, data)
 }
 
+// NewMsgFromCbor parses a ChainSync message from CBOR
 func NewMsgFromCbor(protoMode protocol.ProtocolMode, msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
-	case MESSAGE_TYPE_REQUEST_NEXT:
+	case MessageTypeRequestNext:
 		ret = &MsgRequestNext{}
-	case MESSAGE_TYPE_AWAIT_REPLY:
+	case MessageTypeAwaitReply:
 		ret = &MsgAwaitReply{}
-	case MESSAGE_TYPE_ROLL_FORWARD:
+	case MessageTypeRollForward:
 		if protoMode == protocol.ProtocolModeNodeToNode {
 			ret = &MsgRollForwardNtN{}
 		} else {
 			ret = &MsgRollForwardNtC{}
 		}
-	case MESSAGE_TYPE_ROLL_BACKWARD:
+	case MessageTypeRollBackward:
 		ret = &MsgRollBackward{}
-	case MESSAGE_TYPE_FIND_INTERSECT:
+	case MessageTypeFindIntersect:
 		ret = &MsgFindIntersect{}
-	case MESSAGE_TYPE_INTERSECT_FOUND:
+	case MessageTypeIntersectFound:
 		ret = &MsgIntersectFound{}
-	case MESSAGE_TYPE_INTERSECT_NOT_FOUND:
+	case MessageTypeIntersectNotFound:
 		ret = &MsgIntersectNotFound{}
-	case MESSAGE_TYPE_DONE:
+	case MessageTypeDone:
 		ret = &MsgDone{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return nil, fmt.Errorf("%s: decode error: %s", protocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -68,7 +71,7 @@ type MsgRequestNext struct {
 func NewMsgRequestNext() *MsgRequestNext {
 	m := &MsgRequestNext{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REQUEST_NEXT,
+			MessageType: MessageTypeRequestNext,
 		},
 	}
 	return m
@@ -81,12 +84,13 @@ type MsgAwaitReply struct {
 func NewMsgAwaitReply() *MsgAwaitReply {
 	m := &MsgAwaitReply{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_AWAIT_REPLY,
+			MessageType: MessageTypeAwaitReply,
 		},
 	}
 	return m
 }
 
+// MsgRollForwardNtC is the NtC version of the RollForward message
 type MsgRollForwardNtC struct {
 	protocol.MessageBase
 	WrappedBlock cbor.Tag
@@ -95,10 +99,11 @@ type MsgRollForwardNtC struct {
 	blockCbor    []byte
 }
 
+// NewMsgRollForwardNtC returns a MsgRollForwardNtC with the provided parameters
 func NewMsgRollForwardNtC(blockType uint, blockCbor []byte, tip Tip) *MsgRollForwardNtC {
 	m := &MsgRollForwardNtC{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ROLL_FORWARD,
+			MessageType: MessageTypeRollForward,
 		},
 		Tip: tip,
 	}
@@ -112,24 +117,28 @@ func NewMsgRollForwardNtC(blockType uint, blockCbor []byte, tip Tip) *MsgRollFor
 	return m
 }
 
+// BlockType returns the block type
 func (m *MsgRollForwardNtC) BlockType() uint {
 	return m.blockType
 }
 
+// BlockCbor returns the block CBOR
 func (m *MsgRollForwardNtC) BlockCbor() []byte {
 	return m.blockCbor
 }
 
+// MsgRollForwardNtN is the NtN version of the RollForward message
 type MsgRollForwardNtN struct {
 	protocol.MessageBase
 	WrappedHeader WrappedHeader
 	Tip           Tip
 }
 
+// NewMsgRollForwardNtN returns a MsgRollForwardNtN with the provided parameters
 func NewMsgRollForwardNtN(era uint, byronType uint, blockCbor []byte, tip Tip) *MsgRollForwardNtN {
 	m := &MsgRollForwardNtN{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ROLL_FORWARD,
+			MessageType: MessageTypeRollForward,
 		},
 		Tip: tip,
 	}
@@ -147,7 +156,7 @@ type MsgRollBackward struct {
 func NewMsgRollBackward(point common.Point, tip Tip) *MsgRollBackward {
 	m := &MsgRollBackward{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ROLL_BACKWARD,
+			MessageType: MessageTypeRollBackward,
 		},
 		Point: point,
 		Tip:   tip,
@@ -163,7 +172,7 @@ type MsgFindIntersect struct {
 func NewMsgFindIntersect(points []common.Point) *MsgFindIntersect {
 	m := &MsgFindIntersect{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_FIND_INTERSECT,
+			MessageType: MessageTypeFindIntersect,
 		},
 		Points: points,
 	}
@@ -179,7 +188,7 @@ type MsgIntersectFound struct {
 func NewMsgIntersectFound(point common.Point, tip Tip) *MsgIntersectFound {
 	m := &MsgIntersectFound{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_INTERSECT_FOUND,
+			MessageType: MessageTypeIntersectFound,
 		},
 		Point: point,
 		Tip:   tip,
@@ -195,7 +204,7 @@ type MsgIntersectNotFound struct {
 func NewMsgIntersectNotFound(tip Tip) *MsgIntersectNotFound {
 	m := &MsgIntersectNotFound{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_INTERSECT_NOT_FOUND,
+			MessageType: MessageTypeIntersectNotFound,
 		},
 		Tip: tip,
 	}
@@ -209,7 +218,7 @@ type MsgDone struct {
 func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_DONE,
+			MessageType: MessageTypeDone,
 		},
 	}
 	return m
