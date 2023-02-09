@@ -7,6 +7,7 @@ import (
 	"sync"
 )
 
+// Client implements the LocalTxSubmission client
 type Client struct {
 	*protocol.Protocol
 	config           *Config
@@ -14,6 +15,7 @@ type Client struct {
 	submitResultChan chan error
 }
 
+// NewClient returns a new LocalTxSubmission client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
 		tmpCfg := NewConfig()
@@ -25,14 +27,14 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[STATE_BUSY]; ok {
+	if entry, ok := stateMap[stateBusy]; ok {
 		entry.Timeout = c.config.Timeout
-		stateMap[STATE_BUSY] = entry
+		stateMap[stateBusy] = entry
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                protocolName,
+		ProtocolId:          protocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -40,7 +42,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
-		InitialState:        STATE_IDLE,
+		InitialState:        stateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	// Start goroutine to cleanup resources on protocol shutdown
@@ -54,16 +56,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_ACCEPT_TX:
+	case MessageTypeAcceptTx:
 		err = c.handleAcceptTx()
-	case MESSAGE_TYPE_REJECT_TX:
+	case MessageTypeRejectTx:
 		err = c.handleRejectTx(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
 	}
 	return err
 }
 
+// SubmitTx submits a transaction using the specified transaction era ID and TX payload
 func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -75,6 +78,7 @@ func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 	return err
 }
 
+// Stop transations the protocol to the Done state. No more operations will be possible
 func (c *Client) Stop() error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()

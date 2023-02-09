@@ -39,23 +39,23 @@ var placeholderRejectError = hexDecode("820204")
 var tests = []testDefinition{
 	{
 		CborHex:     fmt.Sprintf("82008204d81846%x", placeholderTx),
-		MessageType: MESSAGE_TYPE_SUBMIT_TX,
+		MessageType: MessageTypeSubmitTx,
 		Message:     NewMsgSubmitTx(ledger.TX_TYPE_ALONZO, placeholderTx),
 	},
 	{
 		CborHex:     "8101",
 		Message:     NewMsgAcceptTx(),
-		MessageType: MESSAGE_TYPE_ACCEPT_TX,
+		MessageType: MessageTypeAcceptTx,
 	},
 	{
 		CborHex:     fmt.Sprintf("8202%x", placeholderRejectError),
-		MessageType: MESSAGE_TYPE_REJECT_TX,
+		MessageType: MessageTypeRejectTx,
 		Message:     NewMsgRejectTx(placeholderRejectError),
 	},
 	{
 		CborHex:     "8103",
 		Message:     NewMsgDone(),
-		MessageType: MESSAGE_TYPE_DONE,
+		MessageType: MessageTypeDone,
 	},
 }
 
