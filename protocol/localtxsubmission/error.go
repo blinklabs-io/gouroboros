@@ -4,6 +4,7 @@ import (
 	"fmt"
 )
 
+// TransactionRejectedError represents an explicit transaction rejection
 type TransactionRejectedError struct {
 	ReasonCbor []byte
 	Reason     error

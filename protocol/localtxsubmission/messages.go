@@ -2,32 +2,35 @@ package localtxsubmission
 
 import (
 	"fmt"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"github.com/fxamacker/cbor/v2"
 )
 
+// Message types
 const (
-	MESSAGE_TYPE_SUBMIT_TX = 0
-	MESSAGE_TYPE_ACCEPT_TX = 1
-	MESSAGE_TYPE_REJECT_TX = 2
-	MESSAGE_TYPE_DONE      = 3
+	MessageTypeSubmitTx = 0
+	MessageTypeAcceptTx = 1
+	MessageTypeRejectTx = 2
+	MessageTypeDone     = 3
 )
 
+// NewMsgFromCbor parses a LocalTxSubmission message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
-	case MESSAGE_TYPE_SUBMIT_TX:
+	case MessageTypeSubmitTx:
 		ret = &MsgSubmitTx{}
-	case MESSAGE_TYPE_ACCEPT_TX:
+	case MessageTypeAcceptTx:
 		ret = &MsgAcceptTx{}
-	case MESSAGE_TYPE_REJECT_TX:
+	case MessageTypeRejectTx:
 		ret = &MsgRejectTx{}
-	case MESSAGE_TYPE_DONE:
+	case MessageTypeDone:
 		ret = &MsgDone{}
 	}
 	if _, err := utils.CborDecode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return nil, fmt.Errorf("%s: decode error: %s", protocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -51,7 +54,7 @@ type MsgSubmitTxTransaction struct {
 func NewMsgSubmitTx(eraId uint16, tx []byte) *MsgSubmitTx {
 	m := &MsgSubmitTx{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_SUBMIT_TX,
+			MessageType: MessageTypeSubmitTx,
 		},
 		Transaction: MsgSubmitTxTransaction{
 			EraId: eraId,
@@ -72,7 +75,7 @@ type MsgAcceptTx struct {
 func NewMsgAcceptTx() *MsgAcceptTx {
 	m := &MsgAcceptTx{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_ACCEPT_TX,
+			MessageType: MessageTypeAcceptTx,
 		},
 	}
 	return m
@@ -88,7 +91,7 @@ type MsgRejectTx struct {
 func NewMsgRejectTx(reasonCbor []byte) *MsgRejectTx {
 	m := &MsgRejectTx{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REJECT_TX,
+			MessageType: MessageTypeRejectTx,
 		},
 		Reason: cbor.RawMessage(reasonCbor),
 	}
@@ -102,7 +105,7 @@ type MsgDone struct {
 func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_DONE,
+			MessageType: MessageTypeDone,
 		},
 	}
 	return m
