@@ -78,7 +78,7 @@ func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 	return err
 }
 
-// Stop transations the protocol to the Done state. No more operations will be possible
+// Stop transitions the protocol to the Done state. No more operations will be possible
 func (c *Client) Stop() error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
