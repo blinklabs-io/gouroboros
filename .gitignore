@@ -5,6 +5,7 @@
 *.so
 *.dylib
 /go-ouroboros-network
+/tx-monitor
 
 # Test binary, built with `go test -c`
 *.test

@@ -23,6 +23,7 @@ import (
 	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localstatequery"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxmonitor"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/txsubmission"
 )
@@ -50,6 +51,8 @@ type Ouroboros struct {
 	blockFetchConfig        *blockfetch.Config
 	keepAlive               *keepalive.KeepAlive
 	keepAliveConfig         *keepalive.Config
+	localTxMonitor          *localtxmonitor.LocalTxMonitor
+	localTxMonitorConfig    *localtxmonitor.Config
 	localTxSubmission       *localtxsubmission.LocalTxSubmission
 	localTxSubmissionConfig *localtxsubmission.Config
 	localStateQuery         *localstatequery.LocalStateQuery
@@ -166,6 +169,11 @@ func (o *Ouroboros) BlockFetch() *blockfetch.BlockFetch {
 // KeepAlive returns the keep-alive protocol handler
 func (o *Ouroboros) KeepAlive() *keepalive.KeepAlive {
 	return o.keepAlive
+}
+
+// LocalTxMonitor returns the local-tx-monitor protocol handler
+func (o *Ouroboros) LocalTxMonitor() *localtxmonitor.LocalTxMonitor {
+	return o.localTxMonitor
 }
 
 // LocalTxSubmission returns the local-tx-submission protocol handler
@@ -296,6 +304,9 @@ func (o *Ouroboros) setupConnection() error {
 		o.localTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionConfig)
 		if versionNtC.EnableLocalQueryProtocol {
 			o.localStateQuery = localstatequery.New(protoOptions, o.localStateQueryConfig)
+		}
+		if versionNtC.EnableLocalTxMonitorProtocol {
+			o.localTxMonitor = localtxmonitor.New(protoOptions, o.localTxMonitorConfig)
 		}
 	}
 	// Start muxer
