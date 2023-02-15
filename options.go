@@ -21,6 +21,13 @@ func WithConnection(conn net.Conn) OuroborosOptionFunc {
 	}
 }
 
+// WithNetwork specifies the network
+func WithNetwork(network Network) OuroborosOptionFunc {
+	return func(o *Ouroboros) {
+		o.networkMagic = network.NetworkMagic
+	}
+}
+
 // WithNetworkMagic specifies the network magic value
 func WithNetworkMagic(networkMagic uint32) OuroborosOptionFunc {
 	return func(o *Ouroboros) {

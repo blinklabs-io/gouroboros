@@ -38,8 +38,11 @@ func newChainSyncFlags() *chainSyncFlags {
 }
 
 // Intersect points (last block of previous era) for each era on testnet/mainnet
-var eraIntersect = map[int]map[string][]interface{}{
-	TESTNET_MAGIC: map[string][]interface{}{
+var eraIntersect = map[string]map[string][]interface{}{
+	"unknown": map[string][]interface{}{
+		"genesis": []interface{}{},
+	},
+	"testnet": map[string][]interface{}{
 		"genesis": []interface{}{},
 		"byron":   []interface{}{},
 		// Last block of epoch 73 (Byron era)
@@ -53,7 +56,7 @@ var eraIntersect = map[int]map[string][]interface{}{
 		// Last block of epoch 214 (Alonzo era)
 		"babbage": []interface{}{62510369, "d931221f9bc4cae34de422d9f4281a2b0344e86aac6b31eb54e2ee90f44a09b9"},
 	},
-	MAINNET_MAGIC: map[string][]interface{}{
+	"mainnet": map[string][]interface{}{
 		"genesis": []interface{}{},
 		"byron":   []interface{}{},
 		// Last block of epoch 207 (Byron era)
@@ -66,11 +69,11 @@ var eraIntersect = map[int]map[string][]interface{}{
 		"alonzo": []interface{}{39916796, "e72579ff89dc9ed325b723a33624b596c08141c7bd573ecfff56a1f7229e4d09"},
 		// TODO: add Babbage starting point after mainnet hard fork
 	},
-	PREPROD_MAGIC: map[string][]interface{}{
+	"preprod": map[string][]interface{}{
 		"genesis": []interface{}{},
 		"alonzo":  []interface{}{},
 	},
-	PREVIEW_MAGIC: map[string][]interface{}{
+	"preview": map[string][]interface{}{
 		"genesis": []interface{}{},
 		"alonzo":  []interface{}{},
 		// Last block of epoch 3 (Alonzo era)
@@ -102,9 +105,19 @@ func testChainSync(f *globalFlags) {
 		os.Exit(1)
 	}
 
-	if _, ok := eraIntersect[f.networkMagic][chainSyncFlags.startEra]; !ok {
-		fmt.Printf("ERROR: unknown era '%s' specified as chain-sync start point\n", chainSyncFlags.startEra)
-		os.Exit(1)
+	var intersectPoint []interface{}
+	if _, ok := eraIntersect[f.network]; !ok {
+		if chainSyncFlags.startEra != "genesis" {
+			fmt.Printf("ERROR: only 'genesis' is supported for -start-era for unknown networks\n")
+			os.Exit(1)
+		}
+		intersectPoint = eraIntersect["unknown"]["genesis"]
+	} else {
+		if _, ok := eraIntersect[f.network][chainSyncFlags.startEra]; !ok {
+			fmt.Printf("ERROR: unknown era '%s' specified as chain-sync start point\n", chainSyncFlags.startEra)
+			os.Exit(1)
+		}
+		intersectPoint = eraIntersect[f.network][chainSyncFlags.startEra]
 	}
 
 	conn := createClientConnection(f)
@@ -144,11 +157,11 @@ func testChainSync(f *globalFlags) {
 			os.Exit(1)
 		}
 		point = tip.Point
-	} else if len(eraIntersect[f.networkMagic][chainSyncFlags.startEra]) > 0 {
+	} else if len(intersectPoint) > 0 {
 		// Slot
-		slot := uint64(eraIntersect[f.networkMagic][chainSyncFlags.startEra][0].(int))
+		slot := uint64(intersectPoint[0].(int))
 		// Block hash
-		hash, _ := hex.DecodeString(eraIntersect[f.networkMagic][chainSyncFlags.startEra][1].(string))
+		hash, _ := hex.DecodeString(intersectPoint[1].(string))
 		point = common.NewPoint(slot, hash)
 	} else {
 		point = common.NewPointOrigin()
