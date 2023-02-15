@@ -69,13 +69,13 @@ $ make
 Run the test program pointing to the UNIX socket (via `socat`) from the `cardano-node` instance started above.
 
 ```
-$ ./go-ouroboros-network -address localhost:8082 -testnet ...
+$ ./go-ouroboros-network -address localhost:8082 -network testnet ...
 ```
 
 Run it against the public port in node-to-node mode.
 
 ```
-$ ./go-ouroboros-network -address localhost:8081 -ntn -testnet ...
+$ ./go-ouroboros-network -address localhost:8081 -ntn -network testnet ...
 ```
 
 Test chain-sync (works in node-to-node and node-to-client modes).
@@ -93,7 +93,7 @@ $ ./go-ouroboros-network ... local-tx-submission ...
 Test following the chain tip in the `preview` network.
 
 ```
-$ ./go-ouroboros-network -preview -address preview-node.world.dev.cardano.org:30002 -ntn chain-sync -tip
+$ ./go-ouroboros-network -network preview -address preview-node.world.dev.cardano.org:30002 -ntn chain-sync -tip
 ```
 
 ### Stopping the local `cardano-node` instance

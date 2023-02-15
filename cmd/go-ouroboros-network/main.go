@@ -6,13 +6,8 @@ import (
 	"fmt"
 	"net"
 	"os"
-)
 
-const (
-	TESTNET_MAGIC = 1097911063
-	MAINNET_MAGIC = 764824073
-	PREPROD_MAGIC = 1
-	PREVIEW_MAGIC = 2
+	"github.com/cloudstruct/go-ouroboros-network"
 )
 
 type globalFlags struct {
@@ -21,11 +16,8 @@ type globalFlags struct {
 	address      string
 	useTls       bool
 	ntnProto     bool
+	network      string
 	networkMagic int
-	testnet      bool
-	mainnet      bool
-	preprod      bool
-	preview      bool
 }
 
 func newGlobalFlags() *globalFlags {
@@ -36,11 +28,8 @@ func newGlobalFlags() *globalFlags {
 	f.flagset.StringVar(&f.address, "address", "", "TCP address to connect to in address:port format")
 	f.flagset.BoolVar(&f.useTls, "tls", false, "enable TLS")
 	f.flagset.BoolVar(&f.ntnProto, "ntn", false, "use node-to-node protocol (defaults to node-to-client)")
-	f.flagset.IntVar(&f.networkMagic, "network-magic", 0, "network magic value")
-	f.flagset.BoolVar(&f.testnet, "testnet", false, fmt.Sprintf("alias for -network-magic=%d", TESTNET_MAGIC))
-	f.flagset.BoolVar(&f.mainnet, "mainnet", false, fmt.Sprintf("alias for -network-magic=%d", MAINNET_MAGIC))
-	f.flagset.BoolVar(&f.preprod, "preprod", false, fmt.Sprintf("alias for -network-magic=%d", PREPROD_MAGIC))
-	f.flagset.BoolVar(&f.preview, "preview", false, fmt.Sprintf("alias for -network-magic=%d", PREVIEW_MAGIC))
+	f.flagset.StringVar(&f.network, "network", "preview", "specifies network that node is participating in")
+	f.flagset.IntVar(&f.networkMagic, "network-magic", 0, "specifies network magic value. this overrides the -network option")
 	return f
 }
 
@@ -53,19 +42,12 @@ func main() {
 	}
 
 	if f.networkMagic == 0 {
-		if f.testnet {
-			f.networkMagic = TESTNET_MAGIC
-		} else if f.mainnet {
-			f.networkMagic = MAINNET_MAGIC
-		} else if f.preprod {
-			f.networkMagic = PREPROD_MAGIC
-		} else if f.preview {
-			f.networkMagic = PREVIEW_MAGIC
-		} else {
-			fmt.Printf("You must specify one of -testnet, -mainnet, -preprod, -preview, or -network-magic\n\n")
-			flag.PrintDefaults()
+		network := ouroboros.NetworkByName(f.network)
+		if network == ouroboros.NetworkInvalid {
+			fmt.Printf("Invalid network specified: %s\n", f.network)
 			os.Exit(1)
 		}
+		f.networkMagic = int(network.NetworkMagic)
 	}
 
 	if len(f.flagset.Args()) > 0 {
