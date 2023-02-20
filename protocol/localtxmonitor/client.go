@@ -143,7 +143,7 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 	}
 	result, ok := <-c.hasTxResultChan
 	if !ok {
-		return false, fmt.Errorf("protocol is shutting down")
+		return false, protocol.ProtocolShuttingDownError
 	}
 	return result, nil
 }
@@ -163,7 +163,7 @@ func (c *Client) NextTx() ([]byte, error) {
 	}
 	tx, ok := <-c.nextTxResultChan
 	if !ok {
-		return nil, fmt.Errorf("protocol is shutting down")
+		return nil, protocol.ProtocolShuttingDownError
 	}
 	return tx, nil
 }
@@ -183,7 +183,7 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 	}
 	result, ok := <-c.getSizesResultChan
 	if !ok {
-		return 0, 0, 0, fmt.Errorf("protocol is shutting down")
+		return 0, 0, 0, protocol.ProtocolShuttingDownError
 	}
 	return result.Capacity, result.Size, result.NumberOfTxs, nil
 }

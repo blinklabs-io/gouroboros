@@ -2,14 +2,22 @@ package blockfetch
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-cardano-ledger"
+	"sync"
+
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"github.com/cloudstruct/go-ouroboros-network/utils"
+
+	"github.com/cloudstruct/go-cardano-ledger"
 )
 
 type Client struct {
 	*protocol.Protocol
-	config *Config
+	config               *Config
+	blockChan            chan ledger.Block
+	startBatchResultChan chan error
+	busyMutex            sync.Mutex
+	blockUseCallback     bool
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -18,7 +26,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config: cfg,
+		config:               cfg,
+		blockChan:            make(chan ledger.Block),
+		startBatchResultChan: make(chan error),
 	}
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
@@ -44,17 +54,55 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        STATE_IDLE,
 	}
 	c.Protocol = protocol.New(protoConfig)
+	// Start goroutine to cleanup resources on protocol shutdown
+	go func() {
+		<-c.Protocol.DoneChan()
+		close(c.blockChan)
+	}()
 	return c
 }
 
-func (c *Client) RequestRange(start []interface{}, end []interface{}) error {
-	msg := NewMsgRequestRange(start, end)
+func (c *Client) Stop() error {
+	msg := NewMsgClientDone()
 	return c.SendMessage(msg)
 }
 
-func (c *Client) ClientDone() error {
-	msg := NewMsgClientDone()
-	return c.SendMessage(msg)
+// GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive)
+func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
+	c.busyMutex.Lock()
+	c.blockUseCallback = true
+	msg := NewMsgRequestRange(start, end)
+	if err := c.SendMessage(msg); err != nil {
+		c.busyMutex.Unlock()
+		return err
+	}
+	err := <-c.startBatchResultChan
+	if err != nil {
+		c.busyMutex.Unlock()
+		return err
+	}
+	return nil
+}
+
+// GetBlock requests and returns a single block specified by the provided point
+func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
+	c.busyMutex.Lock()
+	c.blockUseCallback = false
+	msg := NewMsgRequestRange(point, point)
+	if err := c.SendMessage(msg); err != nil {
+		c.busyMutex.Unlock()
+		return nil, err
+	}
+	err := <-c.startBatchResultChan
+	if err != nil {
+		c.busyMutex.Unlock()
+		return nil, err
+	}
+	block, ok := <-c.blockChan
+	if !ok {
+		return nil, protocol.ProtocolShuttingDownError
+	}
+	return block, nil
 }
 
 func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
@@ -75,25 +123,17 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 }
 
 func (c *Client) handleStartBatch() error {
-	if c.config.StartBatchFunc == nil {
-		return fmt.Errorf("received block-fetch StartBatch message but no callback function is defined")
-	}
-	// Call the user callback function
-	return c.config.StartBatchFunc()
+	c.startBatchResultChan <- nil
+	return nil
 }
 
 func (c *Client) handleNoBlocks() error {
-	if c.config.NoBlocksFunc == nil {
-		return fmt.Errorf("received block-fetch NoBlocks message but no callback function is defined")
-	}
-	// Call the user callback function
-	return c.config.NoBlocksFunc()
+	err := fmt.Errorf("block(s) not found")
+	c.startBatchResultChan <- err
+	return nil
 }
 
 func (c *Client) handleBlock(msgGeneric protocol.Message) error {
-	if c.config.BlockFunc == nil {
-		return fmt.Errorf("received block-fetch Block message but no callback function is defined")
-	}
 	msg := msgGeneric.(*MsgBlock)
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
@@ -104,14 +144,18 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if err != nil {
 		return err
 	}
-	// Call the user callback function
-	return c.config.BlockFunc(wrappedBlock.Type, blk)
+	// We use the callback when requesting ranges and the internal channel for a single block
+	if c.blockUseCallback {
+		if err := c.config.BlockFunc(blk); err != nil {
+			return err
+		}
+	} else {
+		c.blockChan <- blk
+	}
+	return nil
 }
 
 func (c *Client) handleBatchDone() error {
-	if c.config.BatchDoneFunc == nil {
-		return fmt.Errorf("received block-fetch BatchDone message but no callback function is defined")
-	}
-	// Call the user callback function
-	return c.config.BatchDoneFunc()
+	c.busyMutex.Unlock()
+	return nil
 }
