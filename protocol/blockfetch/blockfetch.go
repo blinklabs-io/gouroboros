@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
+
+	"github.com/cloudstruct/go-cardano-ledger"
 )
 
 const (
@@ -69,19 +71,13 @@ type BlockFetch struct {
 }
 
 type Config struct {
-	StartBatchFunc    StartBatchFunc
-	NoBlocksFunc      NoBlocksFunc
 	BlockFunc         BlockFunc
-	BatchDoneFunc     BatchDoneFunc
 	BatchStartTimeout time.Duration
 	BlockTimeout      time.Duration
 }
 
 // Callback function types
-type StartBatchFunc func() error
-type NoBlocksFunc func() error
-type BlockFunc func(uint, interface{}) error
-type BatchDoneFunc func() error
+type BlockFunc func(ledger.Block) error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	b := &BlockFetch{
@@ -105,27 +101,9 @@ func NewConfig(options ...BlockFetchOptionFunc) Config {
 	return c
 }
 
-func WithStartBatchFunc(startBatchFunc StartBatchFunc) BlockFetchOptionFunc {
-	return func(c *Config) {
-		c.StartBatchFunc = startBatchFunc
-	}
-}
-
-func WithNoBlocksFunc(noBlocksFunc NoBlocksFunc) BlockFetchOptionFunc {
-	return func(c *Config) {
-		c.NoBlocksFunc = noBlocksFunc
-	}
-}
-
 func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockFunc = blockFunc
-	}
-}
-
-func WithBatchDoneFunc(BatchDoneFunc BatchDoneFunc) BlockFetchOptionFunc {
-	return func(c *Config) {
-		c.BatchDoneFunc = BatchDoneFunc
 	}
 }
 

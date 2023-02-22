@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/cloudstruct/go-cardano-ledger"
 	ouroboros "github.com/cloudstruct/go-ouroboros-network"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
 	"os"
@@ -86,15 +85,6 @@ func buildChainSyncConfig() chainsync.Config {
 	)
 }
 
-func buildBlockFetchConfig() blockfetch.Config {
-	return blockfetch.NewConfig(
-		blockfetch.WithStartBatchFunc(blockFetchStartBatchHandler),
-		blockfetch.WithNoBlocksFunc(blockFetchNoBlocksHandler),
-		blockfetch.WithBlockFunc(blockFetchBlockHandler),
-		blockfetch.WithBatchDoneFunc(blockFetchBatchDoneHandler),
-	)
-}
-
 func testChainSync(f *globalFlags) {
 	chainSyncFlags := newChainSyncFlags()
 	err := chainSyncFlags.flagset.Parse(f.flagset.Args()[1:])
@@ -133,7 +123,6 @@ func testChainSync(f *globalFlags) {
 		ouroboros.WithErrorChan(errorChan),
 		ouroboros.WithNodeToNode(f.ntnProto),
 		ouroboros.WithKeepAlive(true),
-		ouroboros.WithBlockFetchConfig(buildBlockFetchConfig()),
 		ouroboros.WithChainSyncConfig(buildChainSyncConfig()),
 	)
 	if err != nil {
@@ -177,25 +166,16 @@ func chainSyncRollBackwardHandler(point common.Point, tip chainsync.Tip) error {
 }
 
 func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chainsync.Tip) error {
+	var block ledger.Block
 	switch v := blockData.(type) {
 	case ledger.Block:
-		switch blockType {
-		case ledger.BLOCK_TYPE_BYRON_EBB:
-			byronEbbBlock := v.(*ledger.ByronEpochBoundaryBlock)
-			fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", byronEbbBlock.Header.ConsensusData.Epoch, byronEbbBlock.Hash())
-		case ledger.BLOCK_TYPE_BYRON_MAIN:
-			byronBlock := v.(*ledger.ByronMainBlock)
-			fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", byronBlock.Header.ConsensusData.SlotId.Epoch, byronBlock.SlotNumber(), byronBlock.Hash())
-		default:
-			fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", v.Era().Name, v.SlotNumber(), v.BlockNumber(), v.Hash())
-		}
+		block = v
 	case ledger.BlockHeader:
 		var blockSlot uint64
 		var blockHash []byte
 		switch blockType {
 		case ledger.BLOCK_TYPE_BYRON_EBB:
 			byronEbbHeader := v.(*ledger.ByronEpochBoundaryBlockHeader)
-			//fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", h.ConsensusData.Epoch, h.Hash())
 			if syncState.byronEpochSlot > 0 {
 				syncState.byronEpochBaseSlot += syncState.byronEpochSlot + 1
 			}
@@ -203,7 +183,6 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 			blockHash, _ = hex.DecodeString(byronEbbHeader.Hash())
 		case ledger.BLOCK_TYPE_BYRON_MAIN:
 			byronHeader := v.(*ledger.ByronMainBlockHeader)
-			//fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", h.ConsensusData.SlotId.Epoch, h.ConsensusData.SlotId.Slot, h.Hash())
 			syncState.byronEpochSlot = uint64(byronHeader.ConsensusData.SlotId.Slot)
 			blockSlot = syncState.byronEpochBaseSlot + syncState.byronEpochSlot
 			blockHash, _ = hex.DecodeString(byronHeader.Hash())
@@ -211,38 +190,22 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 			blockSlot = v.SlotNumber()
 			blockHash, _ = hex.DecodeString(v.Hash())
 		}
-		if err := syncState.oConn.BlockFetch().Client.RequestRange([]interface{}{blockSlot, blockHash}, []interface{}{blockSlot, blockHash}); err != nil {
-			fmt.Printf("error calling RequestRange: %s\n", err)
+		var err error
+		block, err = syncState.oConn.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
+		if err != nil {
 			return err
 		}
 	}
-	return nil
-}
-
-func blockFetchStartBatchHandler() error {
-	return nil
-}
-
-func blockFetchNoBlocksHandler() error {
-	fmt.Printf("blockFetchNoBlocksHandler()\n")
-	return nil
-}
-
-func blockFetchBlockHandler(blockType uint, blockData interface{}) error {
+	// Display block info
 	switch blockType {
 	case ledger.BLOCK_TYPE_BYRON_EBB:
-		b := blockData.(*ledger.ByronEpochBoundaryBlock)
-		fmt.Printf("era = Byron (EBB), id = %s\n", b.Hash())
+		byronEbbBlock := block.(*ledger.ByronEpochBoundaryBlock)
+		fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", byronEbbBlock.Header.ConsensusData.Epoch, byronEbbBlock.Hash())
 	case ledger.BLOCK_TYPE_BYRON_MAIN:
-		b := blockData.(*ledger.ByronMainBlock)
-		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", b.Header.ConsensusData.SlotId.Epoch, b.SlotNumber(), b.Hash())
+		byronBlock := block.(*ledger.ByronMainBlock)
+		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", byronBlock.Header.ConsensusData.SlotId.Epoch, byronBlock.SlotNumber(), byronBlock.Hash())
 	default:
-		b := blockData.(ledger.Block)
-		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", b.Era().Name, b.SlotNumber(), b.BlockNumber(), b.Hash())
+		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", block.Era().Name, block.SlotNumber(), block.BlockNumber(), block.Hash())
 	}
-	return nil
-}
-
-func blockFetchBatchDoneHandler() error {
 	return nil
 }
