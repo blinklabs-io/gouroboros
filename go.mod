@@ -10,5 +10,5 @@ require (
 
 require (
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1 // indirect
+	golang.org/x/sys v0.1.0 // indirect
 )
