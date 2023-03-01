@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 
-	"github.com/cloudstruct/go-cardano-ledger"
+	"github.com/cloudstruct/go-ouroboros-network/ledger"
 )
 
 type Client struct {
@@ -137,7 +137,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgBlock)
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
-	if _, err := utils.CborDecode(msg.WrappedBlock, &wrappedBlock); err != nil {
+	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
 		return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 	}
 	blk, err := ledger.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)

@@ -3,10 +3,10 @@ package chainsync
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/cloudstruct/go-cardano-ledger"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
+	"github.com/cloudstruct/go-ouroboros-network/ledger"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"io/ioutil"
 	"reflect"
 	"strings"
@@ -61,7 +61,7 @@ func testDecode(test testDefinition, t *testing.T) {
 
 // Encode object to CBOR and compare to expected CBOR
 func testEncode(test testDefinition, t *testing.T) {
-	cborData, err := utils.CborEncode(test.Message)
+	cborData, err := cbor.Encode(test.Message)
 	if err != nil {
 		t.Fatalf("failed to encode message to CBOR: %s", err)
 	}

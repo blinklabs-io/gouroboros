@@ -2,8 +2,7 @@
 package common
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"github.com/fxamacker/cbor/v2"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 )
 
 // The Point type represents a point on the blockchain. It consists of a slot number and block hash
@@ -31,7 +30,7 @@ func NewPointOrigin() Point {
 // so we need to do some special handling when decoding. It is not intended to be called directly.
 func (p *Point) UnmarshalCBOR(data []byte) error {
 	var tmp []interface{}
-	if err := cbor.Unmarshal(data, &tmp); err != nil {
+	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
 	if len(tmp) > 0 {
@@ -51,5 +50,5 @@ func (p *Point) MarshalCBOR() ([]byte, error) {
 	} else {
 		data = []interface{}{p.Slot, p.Hash}
 	}
-	return utils.CborEncode(data)
+	return cbor.Encode(data)
 }

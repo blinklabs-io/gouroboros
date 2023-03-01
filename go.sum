@@ -1,5 +1,3 @@
-github.com/cloudstruct/go-cardano-ledger v0.6.0 h1:H+LDggNTO+CMo6CAXJS9XsbuSzmRZ8IkPYwkS1lmirs=
-github.com/cloudstruct/go-cardano-ledger v0.6.0/go.mod h1:NATxA/Yjby+JJWhJ0k69F6Kev8+lfB1ANFxzfEn8wrE=
 github.com/fxamacker/cbor/v2 v2.4.0 h1:ri0ArlOR+5XunOP8CRUowT0pSJOwhW098ZCUyskZD88=
 github.com/fxamacker/cbor/v2 v2.4.0/go.mod h1:TA1xS00nchWmaBnEIxPSE5oHLuJBAVvqrtAnWBwBCVo=
 github.com/jinzhu/copier v0.3.5 h1:GlvfUwHk62RokgqVNvYsku0TATCF7bAHVwEXoBh3iJg=

@@ -5,7 +5,7 @@ import (
 
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 
-	"github.com/cloudstruct/go-cardano-ledger"
+	"github.com/cloudstruct/go-ouroboros-network/ledger"
 )
 
 const (

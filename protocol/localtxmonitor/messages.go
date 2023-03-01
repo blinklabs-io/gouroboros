@@ -3,9 +3,8 @@ package localtxmonitor
 import (
 	"fmt"
 
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"github.com/fxamacker/cbor/v2"
 )
 
 // Message types
@@ -47,7 +46,7 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	case MessageTypeReplyGetSizes:
 		ret = &MsgReplyGetSizes{}
 	}
-	if _, err := utils.CborDecode(data, ret); err != nil {
+	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", protocolName, err)
 	}
 	if ret != nil {
@@ -151,7 +150,7 @@ func NewMsgReplyNextTx(eraId uint8, tx []byte) *MsgReplyNextTx {
 
 func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 	var tmp []interface{}
-	if err := cbor.Unmarshal(data, &tmp); err != nil {
+	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
 	// We know what the value will be, but it doesn't hurt to use the actual value from the message
@@ -186,7 +185,7 @@ func (m *MsgReplyNextTx) MarshalCBOR() ([]byte, error) {
 		}
 		tmp = append(tmp, tmpTx)
 	}
-	data, err := cbor.Marshal(tmp)
+	data, err := cbor.Encode(tmp)
 	if err != nil {
 		return nil, err
 	}

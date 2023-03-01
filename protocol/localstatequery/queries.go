@@ -1,7 +1,7 @@
 package localstatequery
 
 import (
-	"github.com/fxamacker/cbor/v2"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 )
 
 // Query types
