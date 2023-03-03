@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"github.com/cloudstruct/go-ouroboros-network"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/cmd/common"
 
-	"github.com/fxamacker/cbor/v2"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -58,7 +58,7 @@ func main() {
 		}
 		// Unwrap raw transaction bytes into a CBOR array
 		var txUnwrap []cbor.RawMessage
-		if err := cbor.Unmarshal(tx, &txUnwrap); err != nil {
+		if _, err := cbor.Decode(tx, &txUnwrap); err != nil {
 			fmt.Printf("ERROR(unwrap): %s\n", err)
 			os.Exit(1)
 		}

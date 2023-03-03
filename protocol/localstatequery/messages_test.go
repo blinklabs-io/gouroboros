@@ -2,9 +2,9 @@ package localstatequery
 
 import (
 	"encoding/hex"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 	"reflect"
 	"testing"
 )
@@ -99,7 +99,7 @@ func TestDecode(t *testing.T) {
 
 func TestEncode(t *testing.T) {
 	for _, test := range tests {
-		cborData, err := utils.CborEncode(test.Message)
+		cborData, err := cbor.Encode(test.Message)
 		if err != nil {
 			t.Fatalf("failed to encode message to CBOR: %s", err)
 		}

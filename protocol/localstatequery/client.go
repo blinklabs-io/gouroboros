@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
 
 // Client implements the LocalStateQuery client
@@ -161,7 +161,7 @@ func (c *Client) runQuery(query interface{}, result interface{}) error {
 		return err
 	}
 	resultCbor := <-c.queryResultChan
-	if _, err := utils.CborDecode(resultCbor, result); err != nil {
+	if _, err := cbor.Decode(resultCbor, result); err != nil {
 		return err
 	}
 	return nil

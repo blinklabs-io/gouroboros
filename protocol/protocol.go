@@ -9,9 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/muxer"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"github.com/fxamacker/cbor/v2"
 )
 
 // This is completely arbitrary, but the line had to be drawn somewhere
@@ -196,7 +195,7 @@ func (p *Protocol) sendLoop() {
 			// If message has no raw CBOR, encode the message
 			if data == nil {
 				var err error
-				data, err = utils.CborEncode(msg)
+				data, err = cbor.Encode(msg)
 				if err != nil {
 					p.SendError(err)
 					return
@@ -291,7 +290,7 @@ func (p *Protocol) recvLoop() {
 		// This also lets us determine how many bytes the message is. We use RawMessage here to
 		// avoid parsing things that we may not be able to parse
 		var tmpMsg []cbor.RawMessage
-		numBytesRead, err := utils.CborDecode(p.recvBuffer.Bytes(), &tmpMsg)
+		numBytesRead, err := cbor.Decode(p.recvBuffer.Bytes(), &tmpMsg)
 		if err != nil {
 			if err == io.EOF && p.recvBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
@@ -304,7 +303,7 @@ func (p *Protocol) recvLoop() {
 		}
 		// Decode first list item to determine message type
 		var msgType uint
-		if _, err := utils.CborDecode(tmpMsg[0], &msgType); err != nil {
+		if _, err := cbor.Decode(tmpMsg[0], &msgType); err != nil {
 			p.SendError(fmt.Errorf("%s: decode error: %s", p.config.Name, err))
 		}
 		// Create Message object from CBOR

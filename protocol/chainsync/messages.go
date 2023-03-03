@@ -2,10 +2,9 @@ package chainsync
 
 import (
 	"fmt"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
 	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"github.com/fxamacker/cbor/v2"
 )
 
 // Message types
@@ -55,7 +54,7 @@ func NewMsgFromCbor(protoMode protocol.ProtocolMode, msgType uint, data []byte) 
 	case MessageTypeDone:
 		ret = &MsgDone{}
 	}
-	if _, err := utils.CborDecode(data, ret); err != nil {
+	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", protocolName, err)
 	}
 	if ret != nil {
@@ -109,7 +108,7 @@ func NewMsgRollForwardNtC(blockType uint, blockCbor []byte, tip Tip) *MsgRollFor
 		Tip: tip,
 	}
 	wb := NewWrappedBlock(blockType, blockCbor)
-	content, err := cbor.Marshal(wb)
+	content, err := cbor.Encode(wb)
 	// TODO: figure out better way to handle error
 	if err != nil {
 		return nil

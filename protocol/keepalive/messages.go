@@ -2,8 +2,8 @@ package keepalive
 
 import (
 	"fmt"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
 	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
 )
 
 const (
@@ -22,7 +22,7 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	case MESSAGE_TYPE_DONE:
 		ret = &MsgDone{}
 	}
-	if _, err := utils.CborDecode(data, ret); err != nil {
+	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
 	}
 	if ret != nil {

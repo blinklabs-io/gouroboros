@@ -1,9 +1,8 @@
 package chainsync
 
 import (
-	"github.com/cloudstruct/go-cardano-ledger"
-	"github.com/cloudstruct/go-ouroboros-network/utils"
-	"github.com/fxamacker/cbor/v2"
+	"github.com/cloudstruct/go-ouroboros-network/cbor"
+	"github.com/cloudstruct/go-ouroboros-network/ledger"
 )
 
 // WrappedBlock represents a block returned via a NtC RollForward message
@@ -47,7 +46,7 @@ func NewWrappedHeader(era uint, byronType uint, blockCbor []byte) *WrappedHeader
 	// Parse block and extract header
 	tmp := []cbor.RawMessage{}
 	// TODO: figure out a better way to handle an error
-	if err := cbor.Unmarshal(blockCbor, &tmp); err != nil {
+	if _, err := cbor.Decode(blockCbor, &tmp); err != nil {
 		return nil
 	}
 	w.headerCbor = tmp[0]
@@ -61,14 +60,14 @@ func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
 		Era       uint
 		HeaderRaw cbor.RawMessage
 	}
-	if err := cbor.Unmarshal(data, &tmpHeader); err != nil {
+	if _, err := cbor.Decode(data, &tmpHeader); err != nil {
 		return err
 	}
 	w.Era = tmpHeader.Era
 	switch w.Era {
 	case ledger.BLOCK_HEADER_TYPE_BYRON:
 		var wrappedHeaderByron wrappedHeaderByron
-		if _, err := utils.CborDecode(tmpHeader.HeaderRaw, &wrappedHeaderByron); err != nil {
+		if _, err := cbor.Decode(tmpHeader.HeaderRaw, &wrappedHeaderByron); err != nil {
 			return err
 		}
 		w.byronType = wrappedHeaderByron.Metadata.Type
@@ -76,7 +75,7 @@ func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
 		w.headerCbor = wrappedHeaderByron.RawHeader.Content.([]byte)
 	default:
 		var tag cbor.Tag
-		if _, err := utils.CborDecode(tmpHeader.HeaderRaw, &tag); err != nil {
+		if _, err := cbor.Decode(tmpHeader.HeaderRaw, &tag); err != nil {
 			return err
 		}
 		w.headerCbor = tag.Content.([]byte)
@@ -108,7 +107,7 @@ func (w *WrappedHeader) MarshalCBOR() ([]byte, error) {
 		}
 		ret = append(ret, tag)
 	}
-	cborData, err := utils.CborEncode(ret)
+	cborData, err := cbor.Encode(ret)
 	if err != nil {
 		return nil, err
 	}
