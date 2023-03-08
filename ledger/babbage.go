@@ -21,7 +21,7 @@ type BabbageBlock struct {
 	cbor.DecodeStoreCbor
 	Header                 *BabbageBlockHeader
 	TransactionBodies      []BabbageTransactionBody
-	TransactionWitnessSets []AlonzoTransactionWitnessSet
+	TransactionWitnessSets []BabbageTransactionWitnessSet
 	TransactionMetadataSet map[uint]cbor.Value
 	InvalidTransactions    []uint
 }
@@ -109,19 +109,48 @@ func (h *BabbageBlockHeader) Era() Era {
 
 type BabbageTransactionBody struct {
 	AlonzoTransactionBody
-	CollateralReturn ShelleyTransactionOutput  `cbor:"16,keyasint,omitempty"`
-	TotalCollateral  uint64                    `cbor:"17,keyasint,omitempty"`
-	ReferenceInputs  []ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
+	Outputs          []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
+	CollateralReturn BabbageTransactionOutput   `cbor:"16,keyasint,omitempty"`
+	TotalCollateral  uint64                     `cbor:"17,keyasint,omitempty"`
+	ReferenceInputs  []ShelleyTransactionInput  `cbor:"18,keyasint,omitempty"`
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCborGeneric(cborData, b)
 }
 
+type BabbageTransactionOutput struct {
+	cbor.DecodeStoreCbor
+	Address      Blake2b256        `cbor:"0,keyasint,omitempty"`
+	Amount       cbor.Value        `cbor:"1,keyasint,omitempty"`
+	DatumOption  []cbor.RawMessage `cbor:"2,keyasint,omitempty"`
+	ScriptRef    []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
+	legacyOutput bool
+}
+
+func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	// Try to parse as legacy output first
+	var tmpOutput AlonzoTransactionOutput
+	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
+		// Copy from temp legacy object to Babbage format
+		o.Address = tmpOutput.Address
+		o.Amount = tmpOutput.Amount
+		o.legacyOutput = true
+	} else {
+		return o.UnmarshalCborGeneric(cborData, o)
+	}
+	return nil
+}
+
+type BabbageTransactionWitnessSet struct {
+	AlonzoTransactionWitnessSet
+	PlutusV2Scripts []cbor.RawMessage `cbor:"6,keyasint,omitempty"`
+}
+
 type BabbageTransaction struct {
 	cbor.StructAsArray
 	Body       BabbageTransactionBody
-	WitnessSet AlonzoTransactionWitnessSet
+	WitnessSet BabbageTransactionWitnessSet
 	IsValid    bool
 	Metadata   cbor.Value
 }
