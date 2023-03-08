@@ -74,7 +74,7 @@ var eraIntersect = map[string]map[string][]interface{}{
 		"genesis": []interface{}{},
 		"alonzo":  []interface{}{},
 		// Last block of epoch 3 (Alonzo era)
-		"babbage": []interface{}{345599, "6e4de9c9b2dcc2436488aa8a6ce584250a45b42583c5d3d0749597bcf59dc0b5"},
+		"babbage": []interface{}{345594, "e47ac07272e95d6c3dc8279def7b88ded00e310f99ac3dfbae48ed9ff55e6001"},
 	},
 }
 

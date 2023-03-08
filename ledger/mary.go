@@ -63,8 +63,7 @@ func (h *MaryBlockHeader) Era() Era {
 
 type MaryTransactionBody struct {
 	AllegraTransactionBody
-	//Outputs []MaryTransactionOutput `cbor:"1,keyasint,omitempty"`
-	Outputs []cbor.Value `cbor:"1,keyasint,omitempty"`
+	Outputs []MaryTransactionOutput `cbor:"1,keyasint,omitempty"`
 	// TODO: further parsing of this field
 	Mint cbor.Value `cbor:"9,keyasint,omitempty"`
 }
@@ -85,9 +84,12 @@ type MaryTransaction struct {
 transaction_output = [address, amount : value]
 value = coin / [coin,multiasset<uint>]
 */
-//type MaryTransactionOutput interface{}
 
-type MaryTransactionOutput cbor.Value
+type MaryTransactionOutput struct {
+	cbor.StructAsArray
+	Address Blake2b256
+	Amount  cbor.Value
+}
 
 func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
 	var maryBlock MaryBlock

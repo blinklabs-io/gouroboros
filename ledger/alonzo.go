@@ -64,6 +64,7 @@ func (h *AlonzoBlockHeader) Era() Era {
 
 type AlonzoTransactionBody struct {
 	MaryTransactionBody
+	Outputs         []AlonzoTransactionOutput `cbor:"1,keyasint,omitempty"`
 	ScriptDataHash  Blake2b256                `cbor:"11,keyasint,omitempty"`
 	Collateral      []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
 	RequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
@@ -74,11 +75,32 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCborGeneric(cborData, b)
 }
 
+type AlonzoTransactionOutput struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	Address   Blake2b256
+	Amount    cbor.Value
+	DatumHash Blake2b256
+}
+
+func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	// Try to parse as Mary output first
+	var tmpOutput MaryTransactionOutput
+	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
+		// Copy from temp Shelley output to Alonzo format
+		o.Address = tmpOutput.Address
+		o.Amount = tmpOutput.Amount
+	} else {
+		return o.UnmarshalCborGeneric(cborData, o)
+	}
+	return nil
+}
+
 type AlonzoTransactionWitnessSet struct {
 	ShelleyTransactionWitnessSet
-	PlutusScripts interface{}  `cbor:"3,keyasint,omitempty"`
-	PlutusData    []cbor.Value `cbor:"4,keyasint,omitempty"`
-	Redeemers     []cbor.Value `cbor:"5,keyasint,omitempty"`
+	PlutusScripts []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
+	PlutusData    []cbor.RawMessage `cbor:"4,keyasint,omitempty"`
+	Redeemers     []cbor.Value      `cbor:"5,keyasint,omitempty"`
 }
 
 type AlonzoTransaction struct {
