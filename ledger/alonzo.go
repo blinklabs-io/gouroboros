@@ -49,7 +49,9 @@ func (b *AlonzoBlock) Era() Era {
 func (b *AlonzoBlock) Transactions() []TransactionBody {
 	ret := []TransactionBody{}
 	for _, v := range b.TransactionBodies {
-		ret = append(ret, &v)
+		// Create temp var since we take the address and the loop var gets reused
+		tmpVal := v
+		ret = append(ret, &tmpVal)
 	}
 	return ret
 }
