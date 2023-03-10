@@ -6,6 +6,7 @@
 *.dylib
 /go-ouroboros-network
 /tx-monitor
+/block-fetch
 
 # Test binary, built with `go test -c`
 *.test
