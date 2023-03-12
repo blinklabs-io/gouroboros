@@ -126,7 +126,7 @@ type BabbageTransactionOutput struct {
 	Address      Blake2b256        `cbor:"0,keyasint,omitempty"`
 	Amount       cbor.Value        `cbor:"1,keyasint,omitempty"`
 	DatumOption  []cbor.RawMessage `cbor:"2,keyasint,omitempty"`
-	ScriptRef    []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
+	ScriptRef    cbor.Tag          `cbor:"3,keyasint,omitempty"`
 	legacyOutput bool
 }
 
