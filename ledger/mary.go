@@ -26,7 +26,7 @@ type MaryBlock struct {
 }
 
 func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *MaryBlock) Hash() string {
@@ -71,7 +71,7 @@ type MaryTransactionBody struct {
 }
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 type MaryTransaction struct {
@@ -96,7 +96,7 @@ type MaryTransactionOutput struct {
 func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
 	var maryBlock MaryBlock
 	if _, err := cbor.Decode(data, &maryBlock); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Mary block decode error: %s", err)
 	}
 	return &maryBlock, nil
 }
@@ -104,7 +104,7 @@ func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
 func NewMaryTransactionBodyFromCbor(data []byte) (*MaryTransactionBody, error) {
 	var maryTx MaryTransactionBody
 	if _, err := cbor.Decode(data, &maryTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Mary transaction body decode error: %s", err)
 	}
 	return &maryTx, nil
 }
@@ -112,7 +112,7 @@ func NewMaryTransactionBodyFromCbor(data []byte) (*MaryTransactionBody, error) {
 func NewMaryTransactionFromCbor(data []byte) (*MaryTransaction, error) {
 	var maryTx MaryTransaction
 	if _, err := cbor.Decode(data, &maryTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Mary transaction decode error: %s", err)
 	}
 	return &maryTx, nil
 }

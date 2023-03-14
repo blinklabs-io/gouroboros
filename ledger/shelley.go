@@ -26,7 +26,7 @@ type ShelleyBlock struct {
 }
 
 func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *ShelleyBlock) Hash() string {
@@ -81,7 +81,7 @@ type ShelleyBlockHeader struct {
 }
 
 func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	return h.UnmarshalCborGeneric(cborData, h)
+	return h.UnmarshalCbor(cborData, h)
 }
 
 func (h *ShelleyBlockHeader) Hash() string {
@@ -125,7 +125,7 @@ type ShelleyTransactionBody struct {
 }
 
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *ShelleyTransactionBody) Hash() string {
@@ -163,7 +163,7 @@ type ShelleyTransaction struct {
 func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {
 	var shelleyBlock ShelleyBlock
 	if _, err := cbor.Decode(data, &shelleyBlock); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Shelley block decode error: %s", err)
 	}
 	return &shelleyBlock, nil
 }
@@ -171,7 +171,7 @@ func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {
 func NewShelleyBlockHeaderFromCbor(data []byte) (*ShelleyBlockHeader, error) {
 	var shelleyBlockHeader ShelleyBlockHeader
 	if _, err := cbor.Decode(data, &shelleyBlockHeader); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Shelley block header decode error: %s", err)
 	}
 	return &shelleyBlockHeader, nil
 }
@@ -179,7 +179,7 @@ func NewShelleyBlockHeaderFromCbor(data []byte) (*ShelleyBlockHeader, error) {
 func NewShelleyTransactionBodyFromCbor(data []byte) (*ShelleyTransactionBody, error) {
 	var shelleyTx ShelleyTransactionBody
 	if _, err := cbor.Decode(data, &shelleyTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Shelley transaction body decode error: %s", err)
 	}
 	return &shelleyTx, nil
 }
@@ -187,7 +187,7 @@ func NewShelleyTransactionBodyFromCbor(data []byte) (*ShelleyTransactionBody, er
 func NewShelleyTransactionFromCbor(data []byte) (*ShelleyTransaction, error) {
 	var shelleyTx ShelleyTransaction
 	if _, err := cbor.Decode(data, &shelleyTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Shelley transaction decode error: %s", err)
 	}
 	return &shelleyTx, nil
 }

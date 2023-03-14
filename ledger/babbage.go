@@ -27,7 +27,7 @@ type BabbageBlock struct {
 }
 
 func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *BabbageBlock) Hash() string {
@@ -87,7 +87,7 @@ type BabbageBlockHeader struct {
 }
 
 func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	return h.UnmarshalCborGeneric(cborData, h)
+	return h.UnmarshalCbor(cborData, h)
 }
 
 func (h *BabbageBlockHeader) Hash() string {
@@ -118,11 +118,10 @@ type BabbageTransactionBody struct {
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 type BabbageTransactionOutput struct {
-	cbor.DecodeStoreCbor
 	Address      Blake2b256        `cbor:"0,keyasint,omitempty"`
 	Amount       cbor.Value        `cbor:"1,keyasint,omitempty"`
 	DatumOption  []cbor.RawMessage `cbor:"2,keyasint,omitempty"`
@@ -139,7 +138,7 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.Amount = tmpOutput.Amount
 		o.legacyOutput = true
 	} else {
-		return o.UnmarshalCborGeneric(cborData, o)
+		return cbor.DecodeGeneric(cborData, o)
 	}
 	return nil
 }
@@ -160,7 +159,7 @@ type BabbageTransaction struct {
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {
 	var babbageBlock BabbageBlock
 	if _, err := cbor.Decode(data, &babbageBlock); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Babbage block decode error: %s", err)
 	}
 	return &babbageBlock, nil
 }
@@ -168,7 +167,7 @@ func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {
 func NewBabbageBlockHeaderFromCbor(data []byte) (*BabbageBlockHeader, error) {
 	var babbageBlockHeader BabbageBlockHeader
 	if _, err := cbor.Decode(data, &babbageBlockHeader); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Babbage block header decode error: %s", err)
 	}
 	return &babbageBlockHeader, nil
 }
@@ -176,7 +175,7 @@ func NewBabbageBlockHeaderFromCbor(data []byte) (*BabbageBlockHeader, error) {
 func NewBabbageTransactionBodyFromCbor(data []byte) (*BabbageTransactionBody, error) {
 	var babbageTx BabbageTransactionBody
 	if _, err := cbor.Decode(data, &babbageTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Babbage transaction body decode error: %s", err)
 	}
 	return &babbageTx, nil
 }
@@ -184,7 +183,7 @@ func NewBabbageTransactionBodyFromCbor(data []byte) (*BabbageTransactionBody, er
 func NewBabbageTransactionFromCbor(data []byte) (*BabbageTransaction, error) {
 	var babbageTx BabbageTransaction
 	if _, err := cbor.Decode(data, &babbageTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Babbage transaction decode error: %s", err)
 	}
 	return &babbageTx, nil
 }
