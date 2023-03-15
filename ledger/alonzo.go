@@ -27,7 +27,7 @@ type AlonzoBlock struct {
 }
 
 func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *AlonzoBlock) Hash() string {
@@ -74,7 +74,7 @@ type AlonzoTransactionBody struct {
 }
 
 func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 type AlonzoTransactionOutput struct {
@@ -93,7 +93,7 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.Address = tmpOutput.Address
 		o.Amount = tmpOutput.Amount
 	} else {
-		return o.UnmarshalCborGeneric(cborData, o)
+		return o.UnmarshalCbor(cborData, o)
 	}
 	return nil
 }
@@ -116,7 +116,7 @@ type AlonzoTransaction struct {
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 	var alonzoBlock AlonzoBlock
 	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Alonzo block decode error: %s", err)
 	}
 	return &alonzoBlock, nil
 }
@@ -124,7 +124,7 @@ func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 func NewAlonzoTransactionBodyFromCbor(data []byte) (*AlonzoTransactionBody, error) {
 	var alonzoTx AlonzoTransactionBody
 	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Alonzo transaction body decode error: %s", err)
 	}
 	return &alonzoTx, nil
 }
@@ -132,7 +132,7 @@ func NewAlonzoTransactionBodyFromCbor(data []byte) (*AlonzoTransactionBody, erro
 func NewAlonzoTransactionFromCbor(data []byte) (*AlonzoTransaction, error) {
 	var alonzoTx AlonzoTransaction
 	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Alonzo transaction decode error: %s", err)
 	}
 	return &alonzoTx, nil
 }

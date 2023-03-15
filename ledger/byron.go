@@ -58,7 +58,7 @@ type ByronMainBlockHeader struct {
 }
 
 func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	return h.UnmarshalCborGeneric(cborData, h)
+	return h.UnmarshalCbor(cborData, h)
 }
 
 func (h *ByronMainBlockHeader) Hash() string {
@@ -117,7 +117,7 @@ type ByronEpochBoundaryBlockHeader struct {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	return h.UnmarshalCborGeneric(cborData, h)
+	return h.UnmarshalCbor(cborData, h)
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Hash() string {
@@ -153,7 +153,7 @@ type ByronMainBlock struct {
 }
 
 func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *ByronMainBlock) Hash() string {
@@ -186,7 +186,7 @@ type ByronEpochBoundaryBlock struct {
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *ByronEpochBoundaryBlock) Hash() string {
@@ -213,7 +213,7 @@ func (b *ByronEpochBoundaryBlock) Transactions() []TransactionBody {
 func NewByronEpochBoundaryBlockFromCbor(data []byte) (*ByronEpochBoundaryBlock, error) {
 	var byronEbbBlock ByronEpochBoundaryBlock
 	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Byron EBB block decode error: %s", err)
 	}
 	return &byronEbbBlock, nil
 }
@@ -221,7 +221,7 @@ func NewByronEpochBoundaryBlockFromCbor(data []byte) (*ByronEpochBoundaryBlock, 
 func NewByronEpochBoundaryBlockHeaderFromCbor(data []byte) (*ByronEpochBoundaryBlockHeader, error) {
 	var byronEbbBlockHeader ByronEpochBoundaryBlockHeader
 	if _, err := cbor.Decode(data, &byronEbbBlockHeader); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Byron EBB block header decode error: %s", err)
 	}
 	return &byronEbbBlockHeader, nil
 }
@@ -229,7 +229,7 @@ func NewByronEpochBoundaryBlockHeaderFromCbor(data []byte) (*ByronEpochBoundaryB
 func NewByronMainBlockFromCbor(data []byte) (*ByronMainBlock, error) {
 	var byronMainBlock ByronMainBlock
 	if _, err := cbor.Decode(data, &byronMainBlock); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Byron main block decode error: %s", err)
 	}
 	return &byronMainBlock, nil
 }
@@ -237,7 +237,7 @@ func NewByronMainBlockFromCbor(data []byte) (*ByronMainBlock, error) {
 func NewByronMainBlockHeaderFromCbor(data []byte) (*ByronMainBlockHeader, error) {
 	var byronMainBlockHeader ByronMainBlockHeader
 	if _, err := cbor.Decode(data, &byronMainBlockHeader); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Byron main block header decode error: %s", err)
 	}
 	return &byronMainBlockHeader, nil
 }
@@ -245,7 +245,7 @@ func NewByronMainBlockHeaderFromCbor(data []byte) (*ByronMainBlockHeader, error)
 func NewByronTransactionBodyFromCbor(data []byte) (*ByronTransactionBody, error) {
 	var byronTx ByronTransactionBody
 	if _, err := cbor.Decode(data, &byronTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Byron transaction body decode error: %s", err)
 	}
 	return &byronTx, nil
 }
@@ -253,7 +253,7 @@ func NewByronTransactionBodyFromCbor(data []byte) (*ByronTransactionBody, error)
 func NewByronTransactionFromCbor(data []byte) (*ByronTransaction, error) {
 	var byronTx ByronTransaction
 	if _, err := cbor.Decode(data, &byronTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Byron transaction decode error: %s", err)
 	}
 	return &byronTx, nil
 }

@@ -26,7 +26,7 @@ type AllegraBlock struct {
 }
 
 func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 func (b *AllegraBlock) Hash() string {
@@ -69,7 +69,7 @@ type AllegraTransactionBody struct {
 }
 
 func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCborGeneric(cborData, b)
+	return b.UnmarshalCbor(cborData, b)
 }
 
 type AllegraTransaction struct {
@@ -82,7 +82,7 @@ type AllegraTransaction struct {
 func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {
 	var allegraBlock AllegraBlock
 	if _, err := cbor.Decode(data, &allegraBlock); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Allegra block decode error: %s", err)
 	}
 	return &allegraBlock, nil
 }
@@ -90,7 +90,7 @@ func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {
 func NewAllegraTransactionBodyFromCbor(data []byte) (*AllegraTransactionBody, error) {
 	var allegraTx AllegraTransactionBody
 	if _, err := cbor.Decode(data, &allegraTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Allegra transaction body decode error: %s", err)
 	}
 	return &allegraTx, nil
 }
@@ -98,7 +98,7 @@ func NewAllegraTransactionBodyFromCbor(data []byte) (*AllegraTransactionBody, er
 func NewAllegraTransactionFromCbor(data []byte) (*AllegraTransaction, error) {
 	var allegraTx AllegraTransaction
 	if _, err := cbor.Decode(data, &allegraTx); err != nil {
-		return nil, fmt.Errorf("decode error: %s", err)
+		return nil, fmt.Errorf("Allegra transaction decode error: %s", err)
 	}
 	return &allegraTx, nil
 }

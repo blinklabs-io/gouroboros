@@ -3,8 +3,10 @@ package cbor
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 
 	_cbor "github.com/fxamacker/cbor/v2"
+	"github.com/jinzhu/copier"
 )
 
 func Decode(dataBytes []byte, dest interface{}) (int, error) {
@@ -77,4 +79,35 @@ func DecodeById(cborData []byte, idMap map[int]interface{}) (interface{}, error)
 		return nil, err
 	}
 	return ret, nil
+}
+
+// DecodeGeneric decodes the specified CBOR into the destination object without using the
+// destination object's UnmarshalCBOR() function
+func DecodeGeneric(cborData []byte, dest interface{}) error {
+	// Create a duplicate(-ish) struct from the destination
+	// We do this so that we can bypass any custom UnmarshalCBOR() function on the
+	// destination object
+	valueDest := reflect.ValueOf(dest)
+	if valueDest.Kind() != reflect.Pointer || valueDest.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("destination must be a pointer to a struct")
+	}
+	typeDestElem := valueDest.Elem().Type()
+	destTypeFields := []reflect.StructField{}
+	for i := 0; i < typeDestElem.NumField(); i++ {
+		tmpField := typeDestElem.Field(i)
+		if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
+			destTypeFields = append(destTypeFields, tmpField)
+		}
+	}
+	// Create temporary object with the type created above
+	tmpDest := reflect.New(reflect.StructOf(destTypeFields))
+	// Decode CBOR into temporary object
+	if _, err := Decode(cborData, tmpDest.Interface()); err != nil {
+		return err
+	}
+	// Copy values from temporary object into destination object
+	if err := copier.Copy(dest, tmpDest.Interface()); err != nil {
+		return err
+	}
+	return nil
 }
