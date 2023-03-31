@@ -4,7 +4,7 @@ package localtxsubmission
 import (
 	"time"
 
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 // Protocol identifiers

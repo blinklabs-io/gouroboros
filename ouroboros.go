@@ -16,16 +16,16 @@ import (
 	"net"
 	"sync"
 
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/handshake"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/localstatequery"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxmonitor"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/txsubmission"
+	"github.com/blinklabs-io/gouroboros/muxer"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
+	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/blinklabs-io/gouroboros/protocol/handshake"
+	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
+	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
+	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 )
 
 // The Ouroboros type is a wrapper around a net.Conn object that handles communication using the Ouroboros network protocol over that connection

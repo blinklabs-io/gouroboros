@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cloudstruct/go-ouroboros-network"
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
-	"github.com/cloudstruct/go-ouroboros-network/cmd/common"
+	"github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/cmd/common"
 
 	"golang.org/x/crypto/blake2b"
 )

@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 type encodeTestDefinition struct {

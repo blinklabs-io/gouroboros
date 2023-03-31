@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cloudstruct/go-ouroboros-network"
-	"github.com/cloudstruct/go-ouroboros-network/cmd/common"
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
-	ocommon "github.com/cloudstruct/go-ouroboros-network/protocol/common"
+	"github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/cmd/common"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 type blockFetchFlags struct {

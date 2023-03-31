@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cloudstruct/go-ouroboros-network"
+	"github.com/blinklabs-io/gouroboros"
 )
 
 type GlobalFlags struct {

@@ -2,7 +2,7 @@ package keepalive
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type Server struct {

@@ -1,4 +1,4 @@
-module github.com/cloudstruct/go-ouroboros-network
+module github.com/blinklabs-io/gouroboros
 
 go 1.18
 

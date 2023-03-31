@@ -2,7 +2,7 @@ package chainsync
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 // Server implements the ChainSync server

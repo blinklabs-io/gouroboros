@@ -1,4 +1,4 @@
-# go-ouroboros-network
+# gouroboros
 
 A Go client implementation of the Cardano Ouroboros network protocol
 
@@ -25,7 +25,7 @@ but the node-to-node protocols will also be implemented in time.
 | LocalTxSubmission | Implemented |
 | LocalStateQuery | Partly Implemented |
 | KeepAlive | Implemented |
-| LocalTxMonitor | Not Implemented |
+| LocalTxMonitor | Implemented |
 
 ## Testing
 
@@ -55,7 +55,7 @@ and `0755` permissions, which doesn't allow a non-root use to write to it by def
 ### Running `cardano-cli` against local `cardano-node` instance
 
 ```
-$ docker exec -ti go-ouroboros-network_cardano-node_1 sh -c 'CARDANO_NODE_SOCKET_PATH=/ipc/node.socket cardano-cli query tip --testnet-magic 1097911063'
+$ docker exec -ti gouroboros_cardano-node_1 sh -c 'CARDANO_NODE_SOCKET_PATH=/ipc/node.socket cardano-cli query tip --testnet-magic 1097911063'
 ```
 
 ### Building and running the test program
@@ -69,31 +69,31 @@ $ make
 Run the test program pointing to the UNIX socket (via `socat`) from the `cardano-node` instance started above.
 
 ```
-$ ./go-ouroboros-network -address localhost:8082 -network testnet ...
+$ ./gouroboros -address localhost:8082 -network testnet ...
 ```
 
 Run it against the public port in node-to-node mode.
 
 ```
-$ ./go-ouroboros-network -address localhost:8081 -ntn -network testnet ...
+$ ./gouroboros -address localhost:8081 -ntn -network testnet ...
 ```
 
 Test chain-sync (works in node-to-node and node-to-client modes).
 
 ```
-$ ./go-ouroboros-network ... chain-sync -start-era byron
+$ ./gouroboros ... chain-sync -start-era byron
 ```
 
 Test local-tx-submission (only works in node-to-client mode).
 
 ```
-$ ./go-ouroboros-network ... local-tx-submission ...
+$ ./gouroboros ... local-tx-submission ...
 ```
 
 Test following the chain tip in the `preview` network.
 
 ```
-$ ./go-ouroboros-network -network preview -address preview-node.world.dev.cardano.org:30002 -ntn chain-sync -tip
+$ ./gouroboros -network preview -address preview-node.world.dev.cardano.org:30002 -ntn chain-sync -tip
 ```
 
 ### Stopping the local `cardano-node` instance

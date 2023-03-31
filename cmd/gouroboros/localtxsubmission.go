@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	ouroboros "github.com/cloudstruct/go-ouroboros-network"
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
+	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"io/ioutil"
 	"os"
 )

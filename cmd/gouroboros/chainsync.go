@@ -4,10 +4,10 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	ouroboros "github.com/cloudstruct/go-ouroboros-network"
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
+	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 	"os"
 )
 

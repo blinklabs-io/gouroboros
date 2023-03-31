@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	ouroboros "github.com/cloudstruct/go-ouroboros-network"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"net"
 	"os"
 )

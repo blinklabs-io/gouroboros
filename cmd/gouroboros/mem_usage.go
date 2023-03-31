@@ -11,7 +11,7 @@ import (
 	"runtime/pprof"
 	"time"
 
-	ouroboros "github.com/cloudstruct/go-ouroboros-network"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 )
 
 type memUsageFlags struct {
