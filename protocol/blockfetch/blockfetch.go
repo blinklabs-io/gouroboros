@@ -3,9 +3,9 @@ package blockfetch
 import (
 	"time"
 
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol"
 
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger"
 )
 
 const (

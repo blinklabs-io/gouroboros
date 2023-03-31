@@ -4,8 +4,8 @@ package chainsync
 import (
 	"time"
 
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Protocol identifiers

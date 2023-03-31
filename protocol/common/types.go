@@ -2,7 +2,7 @@
 package common
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 // The Point type represents a point on the blockchain. It consists of a slot number and block hash

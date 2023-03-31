@@ -2,8 +2,8 @@ package txsubmission
 
 import (
 	"encoding/hex"
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"reflect"
 	"testing"
 )

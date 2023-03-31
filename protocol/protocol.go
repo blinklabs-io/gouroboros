@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
-	"github.com/cloudstruct/go-ouroboros-network/muxer"
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/muxer"
 )
 
 // This is completely arbitrary, but the line had to be drawn somewhere

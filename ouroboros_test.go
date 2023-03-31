@@ -1,7 +1,7 @@
 package ouroboros_test
 
 import (
-	ouroboros "github.com/cloudstruct/go-ouroboros-network"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"testing"
 )
 

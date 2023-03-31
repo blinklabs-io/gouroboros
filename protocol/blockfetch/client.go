@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/common"
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger"
 )
 
 type Client struct {

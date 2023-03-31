@@ -1,8 +1,8 @@
 package chainsync
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 )
 
 // WrappedBlock represents a block returned via a NtC RollForward message

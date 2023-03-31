@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-/go-ouroboros-network
+/gouroboros
 /tx-monitor
 /block-fetch
 

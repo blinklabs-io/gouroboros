@@ -1,12 +1,12 @@
 package ouroboros
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/protocol/blockfetch"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/chainsync"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/keepalive"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/localstatequery"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/localtxsubmission"
-	"github.com/cloudstruct/go-ouroboros-network/protocol/txsubmission"
+	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
+	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
+	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
+	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 	"net"
 )
 

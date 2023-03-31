@@ -2,8 +2,8 @@ package localtxsubmission
 
 import (
 	"fmt"
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"sync"
 )
 

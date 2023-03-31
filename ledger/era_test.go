@@ -1,7 +1,7 @@
 package ledger_test
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"testing"
 )
 

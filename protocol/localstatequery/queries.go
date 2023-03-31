@@ -1,7 +1,7 @@
 package localstatequery
 
 import (
-	"github.com/cloudstruct/go-ouroboros-network/cbor"
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 // Query types

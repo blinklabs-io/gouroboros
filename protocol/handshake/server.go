@@ -3,7 +3,7 @@ package handshake
 import (
 	"fmt"
 
-	"github.com/cloudstruct/go-ouroboros-network/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 // Server implements the Handshake server
@@ -77,7 +77,7 @@ func (s *Server) handleProposeVersions(msgGeneric protocol.Message) error {
 		return s.config.FinishedFunc(highestVersion, fullDuplex)
 	} else {
 		// TODO: handle failures
-		// https://github.com/cloudstruct/go-ouroboros-network/issues/32
+		// https://github.com/blinklabs-io/gouroboros/issues/32
 		return fmt.Errorf("handshake failed, but we don't yet support this")
 	}
 }
