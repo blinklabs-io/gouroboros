@@ -102,7 +102,7 @@ type AlonzoTransactionWitnessSet struct {
 	ShelleyTransactionWitnessSet
 	PlutusScripts []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
 	PlutusData    []cbor.RawMessage `cbor:"4,keyasint,omitempty"`
-	Redeemers     []cbor.Value      `cbor:"5,keyasint,omitempty"`
+	Redeemers     []cbor.RawMessage `cbor:"5,keyasint,omitempty"`
 }
 
 type AlonzoTransaction struct {
