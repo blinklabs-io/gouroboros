@@ -146,7 +146,10 @@ func (c *Client) Sync(intersectPoints []common.Point) error {
 func (c *Client) syncLoop() {
 	for {
 		// Wait for a block to be received
-		<-c.readyForNextBlockChan
+		if _, ok := <-c.readyForNextBlockChan; !ok {
+			// Channel is closed, which means we're shutting down
+			return
+		}
 		c.busyMutex.Lock()
 		// Request the next block
 		// In practice we already have multiple block requests pipelined
