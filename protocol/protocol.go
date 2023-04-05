@@ -107,6 +107,13 @@ func (p *Protocol) Start() {
 		close(p.sendStateQueueChan)
 		close(p.recvReadyChan)
 		close(p.sendReadyChan)
+		if p.stateTransitionTimer != nil {
+			// Stop timer and drain channel
+			if !p.stateTransitionTimer.Stop() {
+				<-p.stateTransitionTimer.C
+			}
+			p.stateTransitionTimer = nil
+		}
 	}()
 	// Set initial state
 	p.setState(p.config.InitialState)
