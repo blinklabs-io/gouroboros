@@ -44,6 +44,23 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 			return err
 		}
 		v.Value = tmpValue
+	case CBOR_TYPE_TAG:
+		// Parse as a raw tag to get number and nested CBOR data
+		tmpTag := RawTag{}
+		if _, err := Decode(data, &tmpTag); err != nil {
+			return err
+		}
+		// Parse the tag value via our custom Value object to handle problem types
+		tmpValue := Value{}
+		if _, err := Decode(tmpTag.Content, &tmpValue); err != nil {
+			return err
+		}
+		// Create new tag object with decoded value
+		newValue := Tag{
+			Number:  tmpTag.Number,
+			Content: tmpValue.Value,
+		}
+		v.Value = newValue
 	default:
 		var tmpValue interface{}
 		if _, err := Decode(data, &tmpValue); err != nil {
