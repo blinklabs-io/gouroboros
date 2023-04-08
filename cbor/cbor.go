@@ -9,6 +9,7 @@ const (
 	CBOR_TYPE_TEXT_STRING uint8 = 0x60
 	CBOR_TYPE_ARRAY       uint8 = 0x80
 	CBOR_TYPE_MAP         uint8 = 0xa0
+	CBOR_TYPE_TAG         uint8 = 0xc0
 
 	// Only the top 3 bytes are used to specify the type
 	CBOR_TYPE_MASK uint8 = 0xe0
@@ -22,6 +23,7 @@ type RawMessage = _cbor.RawMessage
 
 // Alias for Tag for convenience
 type Tag = _cbor.Tag
+type RawTag = _cbor.RawTag
 
 // Useful for embedding and easier to remember
 type StructAsArray struct {
