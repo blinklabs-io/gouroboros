@@ -111,7 +111,7 @@ type ShelleyTransactionBody struct {
 	Fee     uint64                     `cbor:"2,keyasint,omitempty"`
 	Ttl     uint64                     `cbor:"3,keyasint,omitempty"`
 	// TODO: figure out how to parse properly
-	Certificates []cbor.Value `cbor:"4,keyasint,omitempty"`
+	Certificates cbor.RawMessage `cbor:"4,keyasint,omitempty"`
 	// TODO: figure out how to parse this correctly
 	// We keep the raw CBOR because it can contain a map with []byte keys, which
 	// Go does not allow
