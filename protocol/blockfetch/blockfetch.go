@@ -92,7 +92,7 @@ type BlockFetchOptionFunc func(*Config)
 func NewConfig(options ...BlockFetchOptionFunc) Config {
 	c := Config{
 		BatchStartTimeout: 5 * time.Second,
-		BlockTimeout:      5 * time.Second,
+		BlockTimeout:      60 * time.Second,
 	}
 	// Apply provided options functions
 	for _, option := range options {
