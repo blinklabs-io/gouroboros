@@ -66,7 +66,7 @@ func (h *ByronMainBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BLOCK_TYPE_BYRON_EBB})
+		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BLOCK_TYPE_BYRON_MAIN})
 	}
 	return h.hash
 }
@@ -125,7 +125,7 @@ func (h *ByronEpochBoundaryBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BLOCK_TYPE_BYRON_MAIN})
+		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BLOCK_TYPE_BYRON_EBB})
 	}
 	return h.hash
 }
