@@ -4,11 +4,13 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"os"
+
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
-	"os"
 )
 
 type chainSyncState struct {
@@ -23,6 +25,7 @@ type chainSyncFlags struct {
 	flagset  *flag.FlagSet
 	startEra string
 	tip      bool
+	bulk     bool
 }
 
 func newChainSyncFlags() *chainSyncFlags {
@@ -31,6 +34,7 @@ func newChainSyncFlags() *chainSyncFlags {
 	}
 	f.flagset.StringVar(&f.startEra, "start-era", "genesis", "era which to start chain-sync at")
 	f.flagset.BoolVar(&f.tip, "tip", false, "start chain-sync at current chain tip")
+	f.flagset.BoolVar(&f.bulk, "bulk", false, "use bulk chain-sync mode with NtN")
 	return f
 }
 
@@ -55,7 +59,8 @@ var eraIntersect = map[string]map[string][]interface{}{
 	},
 	"mainnet": map[string][]interface{}{
 		"genesis": []interface{}{},
-		"byron":   []interface{}{},
+		// Chain genesis, but explicit
+		"byron": []interface{}{0, "89d9b5a5b8ddc8d7e5a6795e9774d97faf1efea59b2caf7eaf9f8c5b32059df4"},
 		// Last block of epoch 207 (Byron era)
 		"shelley": []interface{}{4492799, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457"},
 		// Last block of epoch 235 (Shelley era)
@@ -82,6 +87,12 @@ func buildChainSyncConfig() chainsync.Config {
 	return chainsync.NewConfig(
 		chainsync.WithRollBackwardFunc(chainSyncRollBackwardHandler),
 		chainsync.WithRollForwardFunc(chainSyncRollForwardHandler),
+	)
+}
+
+func buildBlockFetchConfig() blockfetch.Config {
+	return blockfetch.NewConfig(
+		blockfetch.WithBlockFunc(blockFetchBlockHandler),
 	)
 }
 
@@ -124,6 +135,7 @@ func testChainSync(f *globalFlags) {
 		ouroboros.WithNodeToNode(f.ntnProto),
 		ouroboros.WithKeepAlive(true),
 		ouroboros.WithChainSyncConfig(buildChainSyncConfig()),
+		ouroboros.WithBlockFetchConfig(buildBlockFetchConfig()),
 	)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err)
@@ -135,6 +147,7 @@ func testChainSync(f *globalFlags) {
 	}
 
 	syncState.oConn = o
+
 	var point common.Point
 	if chainSyncFlags.tip {
 		tip, err := o.ChainSync().Client.GetCurrentTip()
@@ -152,9 +165,21 @@ func testChainSync(f *globalFlags) {
 	} else {
 		point = common.NewPointOrigin()
 	}
-	if err := o.ChainSync().Client.Sync([]common.Point{point}); err != nil {
-		fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
-		os.Exit(1)
+	if !f.ntnProto || !chainSyncFlags.bulk {
+		if err := o.ChainSync().Client.Sync([]common.Point{point}); err != nil {
+			fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
+			os.Exit(1)
+		}
+	} else {
+		tip, err := o.ChainSync().Client.GetCurrentTip()
+		if err != nil {
+			fmt.Printf("ERROR: failed to get chain tip: %s\n", err)
+			os.Exit(1)
+		}
+		if err := o.BlockFetch().Client.GetBlockRange(point, tip.Point); err != nil {
+			fmt.Printf("ERROR: failed to request block range: %s\n", err)
+			os.Exit(1)
+		}
 	}
 	// Wait forever...the rest of the sync operations are async
 	select {}
@@ -205,6 +230,22 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 		byronBlock := block.(*ledger.ByronMainBlock)
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", byronBlock.Header.ConsensusData.SlotId.Epoch, byronBlock.SlotNumber(), byronBlock.Hash())
 	default:
+		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", block.Era().Name, block.SlotNumber(), block.BlockNumber(), block.Hash())
+	}
+	return nil
+}
+
+func blockFetchBlockHandler(blockData ledger.Block) error {
+	switch block := blockData.(type) {
+	case *ledger.ByronEpochBoundaryBlock:
+		if syncState.byronEpochSlot > 0 {
+			syncState.byronEpochBaseSlot += syncState.byronEpochSlot + 1
+		}
+		fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", block.Header.ConsensusData.Epoch, block.Hash())
+	case *ledger.ByronMainBlock:
+		syncState.byronEpochSlot = uint64(block.Header.ConsensusData.SlotId.Slot)
+		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.SlotId.Epoch, block.SlotNumber(), block.Hash())
+	case ledger.Block:
 		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", block.Era().Name, block.SlotNumber(), block.BlockNumber(), block.Hash())
 	}
 	return nil
