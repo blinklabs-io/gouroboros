@@ -102,6 +102,7 @@ type Config struct {
 	RollForwardFunc  RollForwardFunc
 	IntersectTimeout time.Duration
 	BlockTimeout     time.Duration
+	PipelineLimit    int
 }
 
 // Callback function types
@@ -123,6 +124,7 @@ type ChainSyncOptionFunc func(*Config)
 // NewConfig returns a new ChainSync config object with the provided options
 func NewConfig(options ...ChainSyncOptionFunc) Config {
 	c := Config{
+		PipelineLimit:    0,
 		IntersectTimeout: 5 * time.Second,
 		// We should really use something more useful like 30-60s, but we've seen 55s between blocks
 		// in the preview network
@@ -162,5 +164,12 @@ func WithIntersectTimeout(timeout time.Duration) ChainSyncOptionFunc {
 func WithBlockTimeout(timeout time.Duration) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.BlockTimeout = timeout
+	}
+}
+
+// WithPipelineLimit specifies the maximum number of block requests to pipeline
+func WithPipelineLimit(limit int) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.PipelineLimit = limit
 	}
 }
