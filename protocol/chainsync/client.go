@@ -147,8 +147,11 @@ func (c *Client) Sync(intersectPoints []common.Point) error {
 func (c *Client) syncLoop() {
 	for {
 		// Wait for a block to be received
-		if _, ok := <-c.readyForNextBlockChan; !ok {
+		if ready, ok := <-c.readyForNextBlockChan; !ok {
 			// Channel is closed, which means we're shutting down
+			return
+		} else if !ready {
+			// Sync was cancelled
 			return
 		}
 		c.busyMutex.Lock()
@@ -172,10 +175,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if c.config.RollForwardFunc == nil {
 		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
 	}
-	// Signal that we're ready for the next block after we finish handling this one
-	defer func() {
-		c.readyForNextBlockChan <- true
-	}()
+	var callbackErr error
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*MsgRollForwardNtN)
 		var blockHeader interface{}
@@ -206,7 +206,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			}
 		}
 		// Call the user callback function
-		return c.config.RollForwardFunc(blockType, blockHeader, msg.Tip)
+		callbackErr = c.config.RollForwardFunc(blockType, blockHeader, msg.Tip)
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		blk, err := ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
@@ -214,8 +214,15 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			return err
 		}
 		// Call the user callback function
-		return c.config.RollForwardFunc(msg.BlockType(), blk, msg.Tip)
+		callbackErr = c.config.RollForwardFunc(msg.BlockType(), blk, msg.Tip)
 	}
+	if callbackErr == StopSyncProcessError {
+		// Signal that we're cancelling the sync
+		c.readyForNextBlockChan <- false
+	}
+	// Signal that we're ready for the next block
+	c.readyForNextBlockChan <- true
+	return nil
 }
 
 func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
@@ -228,7 +235,14 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		c.readyForNextBlockChan <- true
 	}()
 	// Call the user callback function
-	return c.config.RollBackwardFunc(msg.Point, msg.Tip)
+	callbackErr := c.config.RollBackwardFunc(msg.Point, msg.Tip)
+	if callbackErr == StopSyncProcessError {
+		// Signal that we're cancelling the sync
+		c.readyForNextBlockChan <- false
+	}
+	// Signal that we're ready for the next block
+	c.readyForNextBlockChan <- true
+	return nil
 }
 
 func (c *Client) handleIntersectFound(msgGeneric protocol.Message) error {
