@@ -2,10 +2,11 @@ package chainsync
 
 import (
 	"fmt"
+	"sync"
+
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
-	"sync"
 )
 
 // Client implements the ChainSync client
@@ -133,7 +134,7 @@ func (c *Client) Sync(intersectPoints []common.Point) error {
 	}
 	// Pipeline the initial block requests to speed things up a bit
 	// Using a value higher than 10 seems to cause problems with NtN
-	for i := 0; i < 10; i++ {
+	for i := 0; i <= c.config.PipelineLimit; i++ {
 		msg := NewMsgRequestNext()
 		if err := c.SendMessage(msg); err != nil {
 			return err
@@ -222,6 +223,10 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		return fmt.Errorf("received chain-sync RollBackward message but no callback function is defined")
 	}
 	msg := msgGeneric.(*MsgRollBackward)
+	// Signal that we're ready for the next block after we finish handling the rollback
+	defer func() {
+		c.readyForNextBlockChan <- true
+	}()
 	// Call the user callback function
 	return c.config.RollBackwardFunc(msg.Point, msg.Tip)
 }
