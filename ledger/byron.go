@@ -15,6 +15,8 @@ const (
 	BLOCK_HEADER_TYPE_BYRON = 0
 
 	TX_TYPE_BYRON = 0
+
+	BYRON_SLOTS_PER_EPOCH = 21600
 )
 
 type ByronMainBlockHeader struct {
@@ -77,7 +79,7 @@ func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
-	return uint64(h.ConsensusData.SlotId.Slot)
+	return uint64((h.ConsensusData.SlotId.Epoch * BYRON_SLOTS_PER_EPOCH) + uint64(h.ConsensusData.SlotId.Slot))
 }
 
 func (h *ByronMainBlockHeader) Era() Era {
@@ -136,8 +138,7 @@ func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
-	// There is no slot on boundary blocks
-	return 0
+	return uint64(h.ConsensusData.Epoch * BYRON_SLOTS_PER_EPOCH)
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Era() Era {

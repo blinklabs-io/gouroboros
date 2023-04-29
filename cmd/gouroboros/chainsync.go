@@ -13,13 +13,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-type chainSyncState struct {
-	oConn              *ouroboros.Ouroboros
-	byronEpochBaseSlot uint64
-	byronEpochSlot     uint64
-}
-
-var syncState chainSyncState
+var oConn *ouroboros.Ouroboros
 
 type chainSyncFlags struct {
 	flagset  *flag.FlagSet
@@ -128,7 +122,7 @@ func testChainSync(f *globalFlags) {
 			os.Exit(1)
 		}
 	}()
-	o, err := ouroboros.New(
+	oConn, err = ouroboros.New(
 		ouroboros.WithConnection(conn),
 		ouroboros.WithNetworkMagic(uint32(f.networkMagic)),
 		ouroboros.WithErrorChan(errorChan),
@@ -141,16 +135,14 @@ func testChainSync(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.ChainSync().Client.Start()
+	oConn.ChainSync().Client.Start()
 	if f.ntnProto {
-		o.BlockFetch().Client.Start()
+		oConn.BlockFetch().Client.Start()
 	}
-
-	syncState.oConn = o
 
 	var point common.Point
 	if chainSyncFlags.tip {
-		tip, err := o.ChainSync().Client.GetCurrentTip()
+		tip, err := oConn.ChainSync().Client.GetCurrentTip()
 		if err != nil {
 			fmt.Printf("ERROR: failed to get current tip: %s\n", err)
 			os.Exit(1)
@@ -166,17 +158,17 @@ func testChainSync(f *globalFlags) {
 		point = common.NewPointOrigin()
 	}
 	if !f.ntnProto || !chainSyncFlags.bulk {
-		if err := o.ChainSync().Client.Sync([]common.Point{point}); err != nil {
+		if err := oConn.ChainSync().Client.Sync([]common.Point{point}); err != nil {
 			fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
 			os.Exit(1)
 		}
 	} else {
-		tip, err := o.ChainSync().Client.GetCurrentTip()
+		tip, err := oConn.ChainSync().Client.GetCurrentTip()
 		if err != nil {
 			fmt.Printf("ERROR: failed to get chain tip: %s\n", err)
 			os.Exit(1)
 		}
-		if err := o.BlockFetch().Client.GetBlockRange(point, tip.Point); err != nil {
+		if err := oConn.BlockFetch().Client.GetBlockRange(point, tip.Point); err != nil {
 			fmt.Printf("ERROR: failed to request block range: %s\n", err)
 			os.Exit(1)
 		}
@@ -196,27 +188,10 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 	case ledger.Block:
 		block = v
 	case ledger.BlockHeader:
-		var blockSlot uint64
-		var blockHash []byte
-		switch blockType {
-		case ledger.BLOCK_TYPE_BYRON_EBB:
-			byronEbbHeader := v.(*ledger.ByronEpochBoundaryBlockHeader)
-			if syncState.byronEpochSlot > 0 {
-				syncState.byronEpochBaseSlot += syncState.byronEpochSlot + 1
-			}
-			blockSlot = syncState.byronEpochBaseSlot
-			blockHash, _ = hex.DecodeString(byronEbbHeader.Hash())
-		case ledger.BLOCK_TYPE_BYRON_MAIN:
-			byronHeader := v.(*ledger.ByronMainBlockHeader)
-			syncState.byronEpochSlot = uint64(byronHeader.ConsensusData.SlotId.Slot)
-			blockSlot = syncState.byronEpochBaseSlot + syncState.byronEpochSlot
-			blockHash, _ = hex.DecodeString(byronHeader.Hash())
-		default:
-			blockSlot = v.SlotNumber()
-			blockHash, _ = hex.DecodeString(v.Hash())
-		}
+		blockSlot := v.SlotNumber()
+		blockHash, _ := hex.DecodeString(v.Hash())
 		var err error
-		block, err = syncState.oConn.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
+		block, err = oConn.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
 		if err != nil {
 			return err
 		}
@@ -225,7 +200,7 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 	switch blockType {
 	case ledger.BLOCK_TYPE_BYRON_EBB:
 		byronEbbBlock := block.(*ledger.ByronEpochBoundaryBlock)
-		fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", byronEbbBlock.Header.ConsensusData.Epoch, byronEbbBlock.Hash())
+		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", byronEbbBlock.Header.ConsensusData.Epoch, byronEbbBlock.SlotNumber(), byronEbbBlock.Hash())
 	case ledger.BLOCK_TYPE_BYRON_MAIN:
 		byronBlock := block.(*ledger.ByronMainBlock)
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", byronBlock.Header.ConsensusData.SlotId.Epoch, byronBlock.SlotNumber(), byronBlock.Hash())
@@ -238,12 +213,8 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 func blockFetchBlockHandler(blockData ledger.Block) error {
 	switch block := blockData.(type) {
 	case *ledger.ByronEpochBoundaryBlock:
-		if syncState.byronEpochSlot > 0 {
-			syncState.byronEpochBaseSlot += syncState.byronEpochSlot + 1
-		}
-		fmt.Printf("era = Byron (EBB), epoch = %d, id = %s\n", block.Header.ConsensusData.Epoch, block.Hash())
+		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.Epoch, block.SlotNumber(), block.Hash())
 	case *ledger.ByronMainBlock:
-		syncState.byronEpochSlot = uint64(block.Header.ConsensusData.SlotId.Slot)
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.SlotId.Epoch, block.SlotNumber(), block.Hash())
 	case ledger.Block:
 		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", block.Era().Name, block.SlotNumber(), block.BlockNumber(), block.Hash())
