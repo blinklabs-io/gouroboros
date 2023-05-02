@@ -16,10 +16,11 @@ import (
 var oConn *ouroboros.Ouroboros
 
 type chainSyncFlags struct {
-	flagset  *flag.FlagSet
-	startEra string
-	tip      bool
-	bulk     bool
+	flagset    *flag.FlagSet
+	startEra   string
+	tip        bool
+	bulk       bool
+	blockRange bool
 }
 
 func newChainSyncFlags() *chainSyncFlags {
@@ -29,6 +30,7 @@ func newChainSyncFlags() *chainSyncFlags {
 	f.flagset.StringVar(&f.startEra, "start-era", "genesis", "era which to start chain-sync at")
 	f.flagset.BoolVar(&f.tip, "tip", false, "start chain-sync at current chain tip")
 	f.flagset.BoolVar(&f.bulk, "bulk", false, "use bulk chain-sync mode with NtN")
+	f.flagset.BoolVar(&f.blockRange, "range", false, "show start/end block of range")
 	return f
 }
 
@@ -54,7 +56,7 @@ var eraIntersect = map[string]map[string][]interface{}{
 	"mainnet": map[string][]interface{}{
 		"genesis": []interface{}{},
 		// Chain genesis, but explicit
-		"byron": []interface{}{0, "89d9b5a5b8ddc8d7e5a6795e9774d97faf1efea59b2caf7eaf9f8c5b32059df4"},
+		"byron": []interface{}{},
 		// Last block of epoch 207 (Byron era)
 		"shelley": []interface{}{4492799, "f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457"},
 		// Last block of epoch 235 (Shelley era)
@@ -157,18 +159,27 @@ func testChainSync(f *globalFlags) {
 	} else {
 		point = common.NewPointOrigin()
 	}
-	if !f.ntnProto || !chainSyncFlags.bulk {
+	if chainSyncFlags.blockRange {
+		start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange([]common.Point{point})
+		if err != nil {
+			fmt.Printf("ERROR: failed to get available block range: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Start:     slot %d, hash %x\n", start.Slot, start.Hash)
+		fmt.Printf("End (tip): slot %d, hash %x\n", end.Slot, end.Hash)
+		return
+	} else if !f.ntnProto || !chainSyncFlags.bulk {
 		if err := oConn.ChainSync().Client.Sync([]common.Point{point}); err != nil {
 			fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
 			os.Exit(1)
 		}
 	} else {
-		tip, err := oConn.ChainSync().Client.GetCurrentTip()
+		start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange([]common.Point{point})
 		if err != nil {
-			fmt.Printf("ERROR: failed to get chain tip: %s\n", err)
+			fmt.Printf("ERROR: failed to get available block range: %s\n", err)
 			os.Exit(1)
 		}
-		if err := oConn.BlockFetch().Client.GetBlockRange(point, tip.Point); err != nil {
+		if err := oConn.BlockFetch().Client.GetBlockRange(start, end); err != nil {
 			fmt.Printf("ERROR: failed to request block range: %s\n", err)
 			os.Exit(1)
 		}
