@@ -5,7 +5,7 @@ volumes:
 
 services:
   cardano-node:
-    image: ghcr.io/cloudstruct/cardano-node:1.35.4
+    image: ghcr.io/blinklabs-io/cardano-node:1.35.7
     environment:
       NETWORK: ${CARDANO_NETWORK:-preview}
     ports:
