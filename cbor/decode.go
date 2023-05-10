@@ -11,8 +11,16 @@ import (
 
 func Decode(dataBytes []byte, dest interface{}) (int, error) {
 	data := bytes.NewReader(dataBytes)
-	dec := _cbor.NewDecoder(data)
-	err := dec.Decode(dest)
+	// Create a custom decoder that returns an error on unknown fields
+	decOptions := _cbor.DecOptions{
+		ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+	}
+	decMode, err := decOptions.DecMode()
+	if err != nil {
+		return 0, err
+	}
+	dec := decMode.NewDecoder(data)
+	err = dec.Decode(dest)
 	return dec.NumBytesRead(), err
 }
 
