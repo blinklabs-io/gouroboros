@@ -55,7 +55,7 @@ and `0755` permissions, which doesn't allow a non-root use to write to it by def
 ### Running `cardano-cli` against local `cardano-node` instance
 
 ```
-$ docker exec -ti gouroboros_cardano-node_1 sh -c 'CARDANO_NODE_SOCKET_PATH=/ipc/node.socket cardano-cli query tip --testnet-magic 1097911063'
+$ docker exec -ti gouroboros-cardano-node-1 sh -c 'CARDANO_NODE_SOCKET_PATH=/ipc/node.socket cardano-cli query tip --testnet-magic 1097911063'
 ```
 
 ### Building and running the test program
