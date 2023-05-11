@@ -39,6 +39,7 @@ type Ouroboros struct {
 	protoErrorChan        chan error
 	handshakeFinishedChan chan interface{}
 	doneChan              chan interface{}
+	waitGroup             sync.WaitGroup
 	closeMutex            sync.Mutex
 	sendKeepAlives        bool
 	delayMuxerStart       bool
@@ -137,6 +138,8 @@ func (o *Ouroboros) Close() error {
 			return err
 		}
 	}
+	// Wait for other goroutines to finish
+	o.waitGroup.Wait()
 	// Close channels
 	close(o.errorChan)
 	close(o.protoErrorChan)
@@ -196,7 +199,9 @@ func (o *Ouroboros) TxSubmission() *txsubmission.TxSubmission {
 func (o *Ouroboros) setupConnection() error {
 	o.muxer = muxer.New(o.conn)
 	// Start Goroutine to pass along errors from the muxer
+	o.waitGroup.Add(1)
 	go func() {
+		defer o.waitGroup.Done()
 		select {
 		case <-o.doneChan:
 			return
@@ -274,7 +279,9 @@ func (o *Ouroboros) setupConnection() error {
 		protoOptions.Version = protoOptions.Version - protocolVersionNtCFlag
 	}
 	// Start Goroutine to pass along errors from the mini-protocols
+	o.waitGroup.Add(1)
 	go func() {
+		defer o.waitGroup.Done()
 		err, ok := <-o.protoErrorChan
 		// The channel is closed, which means we're already shutting down
 		if !ok {

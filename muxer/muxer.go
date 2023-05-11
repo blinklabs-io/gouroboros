@@ -35,6 +35,7 @@ type Muxer struct {
 	sendMutex         sync.Mutex
 	startChan         chan bool
 	doneChan          chan bool
+	waitGroup         sync.WaitGroup
 	stopMutex         sync.Mutex
 	protocolSenders   map[uint16]chan *Segment
 	protocolReceivers map[uint16]chan *Segment
@@ -51,6 +52,7 @@ func New(conn net.Conn) *Muxer {
 		protocolSenders:   make(map[uint16]chan *Segment),
 		protocolReceivers: make(map[uint16]chan *Segment),
 	}
+	m.waitGroup.Add(1)
 	go m.readLoop()
 	return m
 }
@@ -78,6 +80,8 @@ func (m *Muxer) Stop() {
 	}
 	// Close doneChan to signify that we're shutting down
 	close(m.doneChan)
+	// Wait for other goroutines to shutdown
+	m.waitGroup.Wait()
 	// Close protocol receive channels
 	// We rely on the individual mini-protocols to close the sender channel
 	for _, recvChan := range m.protocolReceivers {
@@ -116,7 +120,9 @@ func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segmen
 	m.protocolSenders[protocolId] = senderChan
 	m.protocolReceivers[protocolId] = receiverChan
 	// Start Goroutine to handle outbound messages
+	m.waitGroup.Add(1)
 	go func() {
+		defer m.waitGroup.Done()
 		for {
 			select {
 			case _, ok := <-m.doneChan:
@@ -157,6 +163,7 @@ func (m *Muxer) Send(msg *Segment) error {
 // readLoop waits for incoming data on the connection, parses the segment, and passes it to the appropriate
 // protocol
 func (m *Muxer) readLoop() {
+	defer m.waitGroup.Done()
 	started := false
 	for {
 		// Break out of read loop if we're shutting down
