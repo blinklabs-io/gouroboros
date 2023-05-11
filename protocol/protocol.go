@@ -30,6 +30,7 @@ type Protocol struct {
 	recvReadyChan        chan bool
 	sendReadyChan        chan bool
 	doneChan             chan bool
+	waitGroup            sync.WaitGroup
 	stateTransitionTimer *time.Timer
 }
 
@@ -102,11 +103,16 @@ func (p *Protocol) Start() {
 	p.sendReadyChan = make(chan bool, 1)
 	// Start goroutine to cleanup when shutting down
 	go func() {
+		// Wait for doneChan to be closed
 		<-p.doneChan
+		// Wait for all other goroutines to finish
+		p.waitGroup.Wait()
+		// Close channels
 		close(p.sendQueueChan)
 		close(p.sendStateQueueChan)
 		close(p.recvReadyChan)
 		close(p.sendReadyChan)
+		// Cancel any timer
 		if p.stateTransitionTimer != nil {
 			// Stop timer and drain channel
 			if !p.stateTransitionTimer.Stop() {
@@ -118,6 +124,7 @@ func (p *Protocol) Start() {
 	// Set initial state
 	p.setState(p.config.InitialState)
 	// Start our send and receive Goroutines
+	p.waitGroup.Add(2)
 	go p.recvLoop()
 	go p.sendLoop()
 }
@@ -149,6 +156,7 @@ func (p *Protocol) SendError(err error) {
 }
 
 func (p *Protocol) sendLoop() {
+	defer p.waitGroup.Done()
 	var setNewState bool
 	var newState State
 	var err error
@@ -263,6 +271,7 @@ func (p *Protocol) sendLoop() {
 }
 
 func (p *Protocol) recvLoop() {
+	defer p.waitGroup.Done()
 	leftoverData := false
 	isResponse := false
 	for {
