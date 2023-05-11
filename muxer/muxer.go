@@ -35,6 +35,7 @@ type Muxer struct {
 	sendMutex         sync.Mutex
 	startChan         chan bool
 	doneChan          chan bool
+	loopDone          chan struct{}
 	stopMutex         sync.Mutex
 	protocolSenders   map[uint16]chan *Segment
 	protocolReceivers map[uint16]chan *Segment
@@ -47,6 +48,7 @@ func New(conn net.Conn) *Muxer {
 		conn:              conn,
 		startChan:         make(chan bool, 1),
 		doneChan:          make(chan bool),
+		loopDone:          make(chan struct{}),
 		errorChan:         make(chan error, 10),
 		protocolSenders:   make(map[uint16]chan *Segment),
 		protocolReceivers: make(map[uint16]chan *Segment),
@@ -78,6 +80,8 @@ func (m *Muxer) Stop() {
 	}
 	// Close doneChan to signify that we're shutting down
 	close(m.doneChan)
+	// wait for loop that eventually is writing to receiviers
+	<-m.loopDone
 	// Close protocol receive channels
 	// We rely on the individual mini-protocols to close the sender channel
 	for _, recvChan := range m.protocolReceivers {
@@ -158,6 +162,7 @@ func (m *Muxer) Send(msg *Segment) error {
 // protocol
 func (m *Muxer) readLoop() {
 	started := false
+	defer close(m.loopDone)
 	for {
 		// Break out of read loop if we're shutting down
 		select {

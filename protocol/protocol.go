@@ -30,6 +30,8 @@ type Protocol struct {
 	recvReadyChan        chan bool
 	sendReadyChan        chan bool
 	doneChan             chan bool
+	sendLoopDone         chan struct{}
+	recvLoopDone         chan struct{}
 	stateTransitionTimer *time.Timer
 }
 
@@ -103,6 +105,8 @@ func (p *Protocol) Start() {
 	// Start goroutine to cleanup when shutting down
 	go func() {
 		<-p.doneChan
+		<-p.sendLoopDone
+		<-p.recvLoopDone
 		close(p.sendQueueChan)
 		close(p.sendStateQueueChan)
 		close(p.recvReadyChan)
@@ -152,6 +156,7 @@ func (p *Protocol) sendLoop() {
 	var setNewState bool
 	var newState State
 	var err error
+	defer close(p.sendLoopDone)
 	for {
 		select {
 		case <-p.doneChan:
@@ -265,6 +270,7 @@ func (p *Protocol) sendLoop() {
 func (p *Protocol) recvLoop() {
 	leftoverData := false
 	isResponse := false
+	defer close(p.recvLoopDone)
 	for {
 		var err error
 		// Don't grab the next segment from the muxer if we still have data in the buffer
