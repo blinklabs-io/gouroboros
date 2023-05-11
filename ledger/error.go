@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
@@ -222,7 +223,7 @@ func (e *UtxowFailure) Error() string {
 type UtxoFailure struct {
 	cbor.StructAsArray
 	Era uint8
-	Err UtxoFailureError
+	Err error
 }
 
 func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
@@ -267,7 +268,7 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 			return fmt.Errorf("failed to parse UtxoFailure: %s", err)
 		}
 	}
-	e.Err = newErr.(UtxoFailureError)
+	e.Err = newErr.(error)
 	return nil
 }
 
@@ -276,17 +277,10 @@ func (e *UtxoFailure) Error() string {
 	return fmt.Sprintf("UtxoFailure (FromAlonzoUtxoFail (%s))", e.Err)
 }
 
-type UtxoFailureError interface {
-	error
-	isUtxoFailureError()
-}
-
 type UtxoFailureErrorBase struct {
 	cbor.StructAsArray
 	Type uint8
 }
-
-func (e *UtxoFailureErrorBase) isUtxoFailureError() {}
 
 type BadInputsUtxo struct {
 	UtxoFailureErrorBase
