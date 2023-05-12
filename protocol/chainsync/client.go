@@ -290,6 +290,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		if callbackErr == StopSyncProcessError {
 			// Signal that we're cancelling the sync
 			c.readyForNextBlockChan <- false
+			return nil
 		} else {
 			return callbackErr
 		}
@@ -310,6 +311,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 			if callbackErr == StopSyncProcessError {
 				// Signal that we're cancelling the sync
 				c.readyForNextBlockChan <- false
+				return nil
 			} else {
 				return callbackErr
 			}
