@@ -121,6 +121,8 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 		return nil, err
 	}
 	tip := <-c.currentTipChan
+	// Clear out intersect result channel to prevent blocking
+	<-c.intersectResultChan
 	c.wantCurrentTip = false
 	return &tip, nil
 }
