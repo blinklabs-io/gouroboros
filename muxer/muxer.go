@@ -137,7 +137,7 @@ func (m *Muxer) sendError(err error) {
 	// Send error to consumer
 	m.errorChan <- err
 	// Stop the muxer on any error
-	m.Stop()
+	_ = m.Stop()
 }
 
 // RegisterProtocol registers the provided protocol ID with the muxer. It returns a channel for sending,
