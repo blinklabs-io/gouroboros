@@ -46,6 +46,7 @@ type Protocol struct {
 	doneChan             chan bool
 	waitGroup            sync.WaitGroup
 	stateTransitionTimer *time.Timer
+	started              bool
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -107,6 +108,9 @@ func New(config ProtocolConfig) *Protocol {
 
 // Start initializes the mini-protocol
 func (p *Protocol) Start() {
+	if p.started {
+		return
+	}
 	// Register protocol with muxer
 	p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
 	// Create buffers and channels
@@ -141,6 +145,7 @@ func (p *Protocol) Start() {
 	p.waitGroup.Add(2)
 	go p.recvLoop()
 	go p.sendLoop()
+	p.started = true
 }
 
 // Mode returns the protocol mode
