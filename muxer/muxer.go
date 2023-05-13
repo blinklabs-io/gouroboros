@@ -46,6 +46,7 @@ const (
 type Muxer struct {
 	errorChan         chan error
 	conn              net.Conn
+	connp             *net.Conn
 	sendMutex         sync.Mutex
 	startChan         chan bool
 	doneChan          chan bool
@@ -57,9 +58,10 @@ type Muxer struct {
 }
 
 // New creates a new Muxer object and starts the read loop
-func New(conn net.Conn) *Muxer {
+func New(connp *net.Conn) *Muxer {
 	m := &Muxer{
-		conn:              conn,
+		conn:              *connp,
+		connp:             connp,
 		startChan:         make(chan bool, 1),
 		doneChan:          make(chan bool),
 		errorChan:         make(chan error, 10),
@@ -81,7 +83,7 @@ func (m *Muxer) Start() {
 }
 
 // Stop shuts down the muxer
-func (m *Muxer) Stop() {
+func (m *Muxer) Stop() error {
 	// We use a mutex to prevent this function from being called multiple times
 	// concurrently, which would cause a race condition
 	m.stopMutex.Lock()
@@ -89,11 +91,24 @@ func (m *Muxer) Stop() {
 	// Immediately return if we're already shutting down
 	select {
 	case <-m.doneChan:
-		return
+		return nil
 	default:
 	}
 	// Close doneChan to signify that we're shutting down
 	close(m.doneChan)
+	// Close connection an set it to nil
+	if m.conn != nil {
+		if err := m.conn.Close(); err != nil {
+			// the muxer Stop is called only by ouroborus Close,
+			// we cannot use the muxer error chan b/c would call ouroborus Close.
+			// ouroborus Close will forward this error to the errorChan
+			return err
+		}
+		if m.connp != nil {
+			// this prevents double close of connection
+			*m.connp = nil
+		}
+	}
 	// Wait for other goroutines to shutdown
 	m.waitGroup.Wait()
 	// Close protocol receive channels
@@ -103,6 +118,7 @@ func (m *Muxer) Stop() {
 	}
 	// Close ErrorChan to signify to consumer that we're shutting down
 	close(m.errorChan)
+	return nil
 }
 
 // SetDiffusionMode sets the muxer diffusion mode after the handshake completes

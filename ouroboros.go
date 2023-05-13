@@ -144,19 +144,23 @@ func (o *Ouroboros) Close() error {
 	close(o.doneChan)
 	// Gracefully stop the muxer
 	if o.muxer != nil {
-		o.muxer.Stop()
+		if err := o.muxer.Stop(); err != nil {
+			o.errorChan <- err
+		}
 	}
-	// Close the underlying connection
+	// Close the underlying connection,
+	// the muxer already closed it
 	if o.conn != nil {
 		if err := o.conn.Close(); err != nil {
 			return err
 		}
 	}
+	// Terminate mini-protocols error forwarder goroutine
+	close(o.protoErrorChan)
 	// Wait for other goroutines to finish
 	o.waitGroup.Wait()
-	// Close channels
+	// Close error channel
 	close(o.errorChan)
-	close(o.protoErrorChan)
 	// We can only close a channel once, so we have to jump through a few hoops
 	select {
 	// The channel is either closed or has an item pending
@@ -211,7 +215,7 @@ func (o *Ouroboros) TxSubmission() *txsubmission.TxSubmission {
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
 func (o *Ouroboros) setupConnection() error {
-	o.muxer = muxer.New(o.conn)
+	o.muxer = muxer.New(&o.conn)
 	// Start Goroutine to pass along errors from the muxer
 	o.waitGroup.Add(1)
 	go func() {
