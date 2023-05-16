@@ -19,7 +19,7 @@ const protocolVersionNtCFlag = 0x8000
 
 // Most of these are enabled in all of the protocol versions that we support, but
 // they are here for completeness
-type protocolVersionNtC struct {
+type ProtocolVersionNtC struct {
 	EnableLocalQueryProtocol     bool
 	EnableShelleyEra             bool
 	EnableAllegraEra             bool
@@ -32,8 +32,8 @@ type protocolVersionNtC struct {
 // Map of NtC protocol versions to protocol features
 //
 // We don't bother supporting NtC protocol versions before 9 (when Alonzo was enabled)
-var protocolVersionMapNtC = map[uint16]protocolVersionNtC{
-	9: protocolVersionNtC{
+var protocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
+	9: ProtocolVersionNtC{
 		EnableLocalQueryProtocol: true,
 		EnableShelleyEra:         true,
 		EnableAllegraEra:         true,
@@ -41,7 +41,7 @@ var protocolVersionMapNtC = map[uint16]protocolVersionNtC{
 		EnableAlonzoEra:          true,
 	},
 	// added GetChainBlockNo and GetChainPoint queries
-	10: protocolVersionNtC{
+	10: ProtocolVersionNtC{
 		EnableLocalQueryProtocol: true,
 		EnableShelleyEra:         true,
 		EnableAllegraEra:         true,
@@ -49,14 +49,14 @@ var protocolVersionMapNtC = map[uint16]protocolVersionNtC{
 		EnableAlonzoEra:          true,
 	},
 	// added GetRewardInfoPools Block query
-	11: protocolVersionNtC{
+	11: ProtocolVersionNtC{
 		EnableLocalQueryProtocol: true,
 		EnableShelleyEra:         true,
 		EnableAllegraEra:         true,
 		EnableMaryEra:            true,
 		EnableAlonzoEra:          true,
 	},
-	12: protocolVersionNtC{
+	12: ProtocolVersionNtC{
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
 		EnableAllegraEra:             true,
@@ -64,7 +64,7 @@ var protocolVersionMapNtC = map[uint16]protocolVersionNtC{
 		EnableAlonzoEra:              true,
 		EnableLocalTxMonitorProtocol: true,
 	},
-	13: protocolVersionNtC{
+	13: ProtocolVersionNtC{
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
 		EnableAllegraEra:             true,
@@ -74,7 +74,7 @@ var protocolVersionMapNtC = map[uint16]protocolVersionNtC{
 		EnableLocalTxMonitorProtocol: true,
 	},
 	// added GetPoolDistr, GetPoolState, @GetSnapshots
-	14: protocolVersionNtC{
+	14: ProtocolVersionNtC{
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
 		EnableAllegraEra:             true,
@@ -85,7 +85,7 @@ var protocolVersionMapNtC = map[uint16]protocolVersionNtC{
 	},
 }
 
-type protocolVersionNtN struct {
+type ProtocolVersionNtN struct {
 	// Most of these are enabled in all of the protocol versions that we support, but
 	// they are here for completeness
 	EnableShelleyEra        bool
@@ -100,22 +100,22 @@ type protocolVersionNtN struct {
 // Map of NtN protocol versions to protocol features
 //
 // We don't bother supporting NtN protocol versions before 7 (when Alonzo was enabled)
-var protocolVersionMapNtN = map[uint16]protocolVersionNtN{
-	7: protocolVersionNtN{
+var protocolVersionMapNtN = map[uint16]ProtocolVersionNtN{
+	7: ProtocolVersionNtN{
 		EnableShelleyEra:        true,
 		EnableKeepAliveProtocol: true,
 		EnableAllegraEra:        true,
 		EnableMaryEra:           true,
 		EnableAlonzoEra:         true,
 	},
-	8: protocolVersionNtN{
+	8: ProtocolVersionNtN{
 		EnableShelleyEra:        true,
 		EnableKeepAliveProtocol: true,
 		EnableAllegraEra:        true,
 		EnableMaryEra:           true,
 		EnableAlonzoEra:         true,
 	},
-	9: protocolVersionNtN{
+	9: ProtocolVersionNtN{
 		EnableShelleyEra:        true,
 		EnableKeepAliveProtocol: true,
 		EnableAllegraEra:        true,
@@ -123,7 +123,7 @@ var protocolVersionMapNtN = map[uint16]protocolVersionNtN{
 		EnableAlonzoEra:         true,
 		EnableBabbageEra:        true,
 	},
-	10: protocolVersionNtN{
+	10: ProtocolVersionNtN{
 		EnableShelleyEra:        true,
 		EnableKeepAliveProtocol: true,
 		EnableAllegraEra:        true,
@@ -134,8 +134,8 @@ var protocolVersionMapNtN = map[uint16]protocolVersionNtN{
 	},
 }
 
-// getProtocolVersionNtC returns a list of supported NtC protocol versions
-func getProtocolVersionsNtC() []uint16 {
+// GetProtocolVersionNtC returns a list of supported NtC protocol versions
+func GetProtocolVersionsNtC() []uint16 {
 	versions := []uint16{}
 	for key := range protocolVersionMapNtC {
 		versions = append(versions, key+protocolVersionNtCFlag)
@@ -143,16 +143,16 @@ func getProtocolVersionsNtC() []uint16 {
 	return versions
 }
 
-// getProtocolVersionNtC returns the protocol version config for the specified NtC protocol version
-func getProtocolVersionNtC(version uint16) protocolVersionNtC {
+// GetProtocolVersionNtC returns the protocol version config for the specified NtC protocol version
+func GetProtocolVersionNtC(version uint16) ProtocolVersionNtC {
 	if version > protocolVersionNtCFlag {
 		version = version - protocolVersionNtCFlag
 	}
 	return protocolVersionMapNtC[version]
 }
 
-// getProtocolVersionNtN returns a list of supported NtN protocol versions
-func getProtocolVersionsNtN() []uint16 {
+// GetProtocolVersionNtN returns a list of supported NtN protocol versions
+func GetProtocolVersionsNtN() []uint16 {
 	versions := []uint16{}
 	for key := range protocolVersionMapNtN {
 		versions = append(versions, key)
@@ -160,7 +160,7 @@ func getProtocolVersionsNtN() []uint16 {
 	return versions
 }
 
-// getProtocolVersionNtN returns the protocol version config for the specified NtN protocol version
-func getProtocolVersionNtN(version uint16) protocolVersionNtN {
+// GetProtocolVersionNtN returns the protocol version config for the specified NtN protocol version
+func GetProtocolVersionNtN(version uint16) ProtocolVersionNtN {
 	return protocolVersionMapNtN[version]
 }

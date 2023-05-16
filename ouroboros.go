@@ -241,10 +241,10 @@ func (o *Ouroboros) setupConnection() error {
 	}
 	var protoVersions []uint16
 	if o.useNodeToNodeProto {
-		protoVersions = getProtocolVersionsNtN()
+		protoVersions = GetProtocolVersionsNtN()
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 	} else {
-		protoVersions = getProtocolVersionsNtC()
+		protoVersions = GetProtocolVersionsNtC()
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 	}
 	if o.server {
@@ -312,7 +312,7 @@ func (o *Ouroboros) setupConnection() error {
 	}()
 	// Configure the relevant mini-protocols
 	if o.useNodeToNodeProto {
-		versionNtN := getProtocolVersionNtN(handshakeVersion)
+		versionNtN := GetProtocolVersionNtN(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 		o.chainSync = chainsync.New(protoOptions, o.chainSyncConfig)
 		o.blockFetch = blockfetch.New(protoOptions, o.blockFetchConfig)
@@ -324,7 +324,7 @@ func (o *Ouroboros) setupConnection() error {
 			}
 		}
 	} else {
-		versionNtC := getProtocolVersionNtC(handshakeVersion)
+		versionNtC := GetProtocolVersionNtC(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 		o.chainSync = chainsync.New(protoOptions, o.chainSyncConfig)
 		o.localTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionConfig)
