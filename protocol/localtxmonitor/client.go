@@ -16,8 +16,9 @@ package localtxmonitor
 
 import (
 	"fmt"
-	"github.com/blinklabs-io/gouroboros/protocol"
 	"sync"
+
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 // Client implements the LocalTxMonitor client
@@ -31,6 +32,7 @@ type Client struct {
 	hasTxResultChan    chan bool
 	nextTxResultChan   chan []byte
 	getSizesResultChan chan MsgReplyGetSizesResult
+	onceStop           sync.Once
 }
 
 // NewClient returns a new LocalTxMonitor client object
@@ -133,13 +135,16 @@ func (c *Client) Release() error {
 
 // Stop transitions the protocol to the Done state. No more operations will be possible
 func (c *Client) Stop() error {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	msg := NewMsgDone()
-	if err := c.SendMessage(msg); err != nil {
-		return err
-	}
-	return nil
+	var err error
+	c.onceStop.Do(func() {
+		c.busyMutex.Lock()
+		defer c.busyMutex.Unlock()
+		msg := NewMsgDone()
+		if err = c.SendMessage(msg); err != nil {
+			return
+		}
+	})
+	return err
 }
 
 // HasTx returns whether or not the specified transaction ID exists in the mempool snapshot

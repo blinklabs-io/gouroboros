@@ -16,9 +16,10 @@ package localtxsubmission
 
 import (
 	"fmt"
+	"sync"
+
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"sync"
 )
 
 // Client implements the LocalTxSubmission client
@@ -27,6 +28,7 @@ type Client struct {
 	config           *Config
 	busyMutex        sync.Mutex
 	submitResultChan chan error
+	onceStop         sync.Once
 }
 
 // NewClient returns a new LocalTxSubmission client object
@@ -94,13 +96,16 @@ func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 
 // Stop transitions the protocol to the Done state. No more operations will be possible
 func (c *Client) Stop() error {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	msg := NewMsgDone()
-	if err := c.SendMessage(msg); err != nil {
-		return err
-	}
-	return nil
+	var err error
+	c.onceStop.Do(func() {
+		c.busyMutex.Lock()
+		defer c.busyMutex.Unlock()
+		msg := NewMsgDone()
+		if err = c.SendMessage(msg); err != nil {
+			return
+		}
+	})
+	return err
 }
 
 func (c *Client) handleAcceptTx() error {
