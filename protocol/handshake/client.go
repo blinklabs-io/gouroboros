@@ -43,8 +43,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                protocolName,
-		ProtocolId:          protocolId,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -86,7 +86,7 @@ func (c *Client) handleMessage(msg protocol.Message, isResponse bool) error {
 	case MessageTypeRefuse:
 		err = c.handleRefuse(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }
@@ -112,11 +112,11 @@ func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 	var err error
 	switch msg.Reason[0].(uint64) {
 	case RefuseReasonVersionMismatch:
-		err = fmt.Errorf("%s: version mismatch", protocolName)
+		err = fmt.Errorf("%s: version mismatch", ProtocolName)
 	case RefuseReasonDecodeError:
-		err = fmt.Errorf("%s: decode error: %s", protocolName, msg.Reason[2].(string))
+		err = fmt.Errorf("%s: decode error: %s", ProtocolName, msg.Reason[2].(string))
 	case RefuseReasonRefused:
-		err = fmt.Errorf("%s: refused: %s", protocolName, msg.Reason[2].(string))
+		err = fmt.Errorf("%s: refused: %s", ProtocolName, msg.Reason[2].(string))
 	}
 	return err
 }

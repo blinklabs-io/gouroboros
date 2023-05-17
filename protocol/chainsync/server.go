@@ -28,19 +28,19 @@ type Server struct {
 // NewServer returns a new ChainSync server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	// Use node-to-client protocol ID
-	protocolId := protocolIdNtC
+	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
 	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
 		// Use node-to-node protocol ID
-		protocolId = protocolIdNtN
+		ProtocolId = ProtocolIdNtN
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
 	s := &Server{
 		config: cfg,
 	}
 	protoConfig := protocol.ProtocolConfig{
-		Name:                protocolName,
-		ProtocolId:          protocolId,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -64,7 +64,7 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeDone:
 		err = s.handleDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }

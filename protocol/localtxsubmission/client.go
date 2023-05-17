@@ -47,8 +47,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                protocolName,
-		ProtocolId:          protocolId,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -75,7 +75,7 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeRejectTx:
 		err = c.handleRejectTx(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }

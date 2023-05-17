@@ -35,8 +35,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config: cfg,
 	}
 	protoConfig := protocol.ProtocolConfig{
-		Name:                protocolName,
-		ProtocolId:          protocolId,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -76,7 +76,7 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeDone:
 		err = s.handleDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }

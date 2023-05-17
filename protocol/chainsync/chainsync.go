@@ -24,9 +24,9 @@ import (
 
 // Protocol identifiers
 const (
-	protocolName         = "chain-sync"
-	protocolIdNtN uint16 = 2
-	protocolIdNtC uint16 = 5
+	ProtocolName         = "chain-sync"
+	ProtocolIdNtN uint16 = 2
+	ProtocolIdNtC uint16 = 5
 )
 
 var (

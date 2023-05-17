@@ -23,8 +23,8 @@ import (
 
 // Protocol identifiers
 const (
-	protocolName        = "local-tx-submission"
-	protocolId   uint16 = 6
+	ProtocolName        = "local-tx-submission"
+	ProtocolId   uint16 = 6
 )
 
 var (

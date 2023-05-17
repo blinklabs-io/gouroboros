@@ -40,11 +40,11 @@ type Client struct {
 // NewClient returns a new ChainSync client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	// Use node-to-client protocol ID
-	protocolId := protocolIdNtC
+	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
 	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
 		// Use node-to-node protocol ID
-		protocolId = protocolIdNtN
+		ProtocolId = ProtocolIdNtN
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
 	if cfg == nil {
@@ -72,8 +72,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                protocolName,
-		ProtocolId:          protocolId,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -109,7 +109,7 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeIntersectNotFound:
 		err = c.handleIntersectNotFound(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", protocolName, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }

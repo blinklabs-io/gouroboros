@@ -23,8 +23,8 @@ import (
 
 // Protocol identifiers
 const (
-	protocolName        = "local-tx-monitor"
-	protocolId   uint16 = 9
+	ProtocolName        = "local-tx-monitor"
+	ProtocolId   uint16 = 9
 )
 
 var (
