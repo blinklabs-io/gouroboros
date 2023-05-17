@@ -170,6 +170,11 @@ func (o *Ouroboros) BlockFetch() *blockfetch.BlockFetch {
 	return o.blockFetch
 }
 
+// Handshake returns the handshake protocol handler
+func (o *Ouroboros) Handshake() *handshake.Handshake {
+	return o.handshake
+}
+
 // KeepAlive returns the keep-alive protocol handler
 func (o *Ouroboros) KeepAlive() *keepalive.KeepAlive {
 	return o.keepAlive
