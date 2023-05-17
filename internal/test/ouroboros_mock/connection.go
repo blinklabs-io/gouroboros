@@ -70,6 +70,7 @@ func (c *Connection) Write(b []byte) (n int, err error) {
 
 // Close closes both sides of the connection. This is needed to satisfy the net.Conn interface
 func (c *Connection) Close() error {
+	c.muxer.Stop()
 	if err := c.conn.Close(); err != nil {
 		return err
 	}

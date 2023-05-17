@@ -138,12 +138,6 @@ func (o *Ouroboros) Close() error {
 		if o.muxer != nil {
 			o.muxer.Stop()
 		}
-		// Close the underlying connection
-		if o.conn != nil {
-			if err = o.conn.Close(); err != nil {
-				return
-			}
-		}
 		// Wait for other goroutines to finish
 		o.waitGroup.Wait()
 		// Close channels
