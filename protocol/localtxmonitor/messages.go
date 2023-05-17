@@ -61,7 +61,7 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgReplyGetSizes{}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", protocolName, err)
+		return nil, fmt.Errorf("%s: decode error: %s", ProtocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR

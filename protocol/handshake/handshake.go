@@ -23,8 +23,8 @@ import (
 
 // Protocol identifiers
 const (
-	protocolName = "handshake"
-	protocolId   = 0
+	ProtocolName = "handshake"
+	ProtocolId   = 0
 )
 
 // Diffusion modes

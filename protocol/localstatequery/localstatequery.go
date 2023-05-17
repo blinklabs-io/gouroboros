@@ -23,8 +23,8 @@ import (
 
 // Protocol identifiers
 const (
-	protocolName        = "local-state-query"
-	protocolId   uint16 = 7
+	ProtocolName        = "local-state-query"
+	ProtocolId   uint16 = 7
 )
 
 var (
