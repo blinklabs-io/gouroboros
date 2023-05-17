@@ -88,6 +88,9 @@ func (m *Muxer) Stop() {
 	m.onceStop.Do(func() {
 		// Close doneChan to signify that we're shutting down
 		close(m.doneChan)
+		// Close underlying connection
+		// We must do this to break out of pending Read() calls to shut down cleanly
+		_ = m.conn.Close()
 		// Wait for other goroutines to shutdown
 		m.waitGroup.Wait()
 		// Close protocol receive channels
