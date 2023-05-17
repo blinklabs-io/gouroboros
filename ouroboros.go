@@ -296,14 +296,19 @@ func (o *Ouroboros) setupConnection() error {
 	o.waitGroup.Add(1)
 	go func() {
 		defer o.waitGroup.Done()
-		err, ok := <-o.protoErrorChan
-		// The channel is closed, which means we're already shutting down
-		if !ok {
+		select {
+		case <-o.doneChan:
+			// Return if we're shutting down
 			return
+		case err, ok := <-o.protoErrorChan:
+			// The channel is closed, which means we're already shutting down
+			if !ok {
+				return
+			}
+			o.errorChan <- fmt.Errorf("protocol error: %s", err)
+			// Close connection on mini-protocol errors
+			o.Close()
 		}
-		o.errorChan <- fmt.Errorf("protocol error: %s", err)
-		// Close connection on mini-protocol errors
-		o.Close()
 	}()
 	// Configure the relevant mini-protocols
 	if o.useNodeToNodeProto {
