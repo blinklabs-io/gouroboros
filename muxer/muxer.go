@@ -50,10 +50,11 @@ type Muxer struct {
 	startChan         chan bool
 	doneChan          chan bool
 	waitGroup         sync.WaitGroup
-	stopMutex         sync.Mutex
 	protocolSenders   map[uint16]chan *Segment
 	protocolReceivers map[uint16]chan *Segment
 	diffusionMode     DiffusionMode
+	onceStart         sync.Once
+	onceStop          sync.Once
 }
 
 // New creates a new Muxer object and starts the read loop
@@ -77,32 +78,26 @@ func (m *Muxer) ErrorChan() chan error {
 
 // Start unblocks the read loop after the initial handshake to allow it to start processing messages
 func (m *Muxer) Start() {
-	m.startChan <- true
+	m.onceStart.Do(func() {
+		m.startChan <- true
+	})
 }
 
 // Stop shuts down the muxer
 func (m *Muxer) Stop() {
-	// We use a mutex to prevent this function from being called multiple times
-	// concurrently, which would cause a race condition
-	m.stopMutex.Lock()
-	defer m.stopMutex.Unlock()
-	// Immediately return if we're already shutting down
-	select {
-	case <-m.doneChan:
-		return
-	default:
-	}
-	// Close doneChan to signify that we're shutting down
-	close(m.doneChan)
-	// Wait for other goroutines to shutdown
-	m.waitGroup.Wait()
-	// Close protocol receive channels
-	// We rely on the individual mini-protocols to close the sender channel
-	for _, recvChan := range m.protocolReceivers {
-		close(recvChan)
-	}
-	// Close ErrorChan to signify to consumer that we're shutting down
-	close(m.errorChan)
+	m.onceStop.Do(func() {
+		// Close doneChan to signify that we're shutting down
+		close(m.doneChan)
+		// Wait for other goroutines to shutdown
+		m.waitGroup.Wait()
+		// Close protocol receive channels
+		// We rely on the individual mini-protocols to close the sender channel
+		for _, recvChan := range m.protocolReceivers {
+			close(recvChan)
+		}
+		// Close ErrorChan to signify to consumer that we're shutting down
+		close(m.errorChan)
+	})
 }
 
 // SetDiffusionMode sets the muxer diffusion mode after the handshake completes
@@ -158,6 +153,12 @@ func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segmen
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
 // one protocol from sending at once
 func (m *Muxer) Send(msg *Segment) error {
+	// Immediately return if we're already shutting down
+	select {
+	case <-m.doneChan:
+		return fmt.Errorf("shutting down")
+	default:
+	}
 	// We use a mutex to make sure only one protocol can send at a time
 	m.sendMutex.Lock()
 	defer m.sendMutex.Unlock()

@@ -54,7 +54,7 @@ type Ouroboros struct {
 	handshakeFinishedChan chan interface{}
 	doneChan              chan interface{}
 	waitGroup             sync.WaitGroup
-	closeMutex            sync.Mutex
+	onceClose             sync.Once
 	sendKeepAlives        bool
 	delayMuxerStart       bool
 	fullDuplex            bool
@@ -130,47 +130,40 @@ func (o *Ouroboros) Dial(proto string, address string) error {
 
 // Close will shutdown the Ouroboros connection
 func (o *Ouroboros) Close() error {
-	// We use a mutex to prevent this function from being called multiple times
-	// concurrently, which would cause a race condition
-	o.closeMutex.Lock()
-	defer o.closeMutex.Unlock()
-	// Immediately return if we're already shutting down
-	select {
-	case <-o.doneChan:
-		return nil
-	default:
-	}
-	// Close doneChan to signify that we're shutting down
-	close(o.doneChan)
-	// Gracefully stop the muxer
-	if o.muxer != nil {
-		o.muxer.Stop()
-	}
-	// Close the underlying connection
-	if o.conn != nil {
-		if err := o.conn.Close(); err != nil {
-			return err
+	var err error
+	o.onceClose.Do(func() {
+		// Close doneChan to signify that we're shutting down
+		close(o.doneChan)
+		// Gracefully stop the muxer
+		if o.muxer != nil {
+			o.muxer.Stop()
 		}
-	}
-	// Wait for other goroutines to finish
-	o.waitGroup.Wait()
-	// Close channels
-	close(o.errorChan)
-	close(o.protoErrorChan)
-	// We can only close a channel once, so we have to jump through a few hoops
-	select {
-	// The channel is either closed or has an item pending
-	case _, ok := <-o.handshakeFinishedChan:
-		// We successfully retrieved an item
-		// This will probably never happen, but it doesn't hurt to cover this case
-		if ok {
+		// Close the underlying connection
+		if o.conn != nil {
+			if err = o.conn.Close(); err != nil {
+				return
+			}
+		}
+		// Wait for other goroutines to finish
+		o.waitGroup.Wait()
+		// Close channels
+		close(o.errorChan)
+		close(o.protoErrorChan)
+		// We can only close a channel once, so we have to jump through a few hoops
+		select {
+		// The channel is either closed or has an item pending
+		case _, ok := <-o.handshakeFinishedChan:
+			// We successfully retrieved an item
+			// This will probably never happen, but it doesn't hurt to cover this case
+			if ok {
+				close(o.handshakeFinishedChan)
+			}
+		// The channel is open and has no pending items
+		default:
 			close(o.handshakeFinishedChan)
 		}
-	// The channel is open and has no pending items
-	default:
-		close(o.handshakeFinishedChan)
-	}
-	return nil
+	})
+	return err
 }
 
 // ChainSync returns the chain-sync protocol handler

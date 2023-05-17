@@ -16,14 +16,17 @@ package keepalive
 
 import (
 	"fmt"
-	"github.com/blinklabs-io/gouroboros/protocol"
+	"sync"
 	"time"
+
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type Client struct {
 	*protocol.Protocol
-	config *Config
-	timer  *time.Timer
+	config    *Config
+	timer     *time.Timer
+	onceStart sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -68,8 +71,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 }
 
 func (c *Client) Start() {
-	c.Protocol.Start()
-	c.startTimer()
+	c.onceStart.Do(func() {
+		c.Protocol.Start()
+		c.startTimer()
+	})
 }
 
 func (c *Client) startTimer() {

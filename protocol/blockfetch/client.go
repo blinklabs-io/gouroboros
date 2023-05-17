@@ -32,6 +32,7 @@ type Client struct {
 	startBatchResultChan chan error
 	busyMutex            sync.Mutex
 	blockUseCallback     bool
+	onceStop             sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -77,8 +78,12 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 }
 
 func (c *Client) Stop() error {
-	msg := NewMsgClientDone()
-	return c.SendMessage(msg)
+	var err error
+	c.onceStop.Do(func() {
+		msg := NewMsgClientDone()
+		err = c.SendMessage(msg)
+	})
+	return err
 }
 
 // GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive)

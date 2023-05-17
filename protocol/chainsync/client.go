@@ -35,6 +35,7 @@ type Client struct {
 	currentTipChan        chan Tip
 	wantFirstBlock        bool
 	firstBlockChan        chan common.Point
+	onceStop              sync.Once
 }
 
 // NewClient returns a new ChainSync client object
@@ -116,13 +117,16 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 
 // Stop transitions the protocol to the Done state. No more protocol operations will be possible afterward
 func (c *Client) Stop() error {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	msg := NewMsgDone()
-	if err := c.SendMessage(msg); err != nil {
-		return err
-	}
-	return nil
+	var err error
+	c.onceStop.Do(func() {
+		c.busyMutex.Lock()
+		defer c.busyMutex.Unlock()
+		msg := NewMsgDone()
+		if err = c.SendMessage(msg); err != nil {
+			return
+		}
+	})
+	return err
 }
 
 // GetCurrentTip returns the current chain tip

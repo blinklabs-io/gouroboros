@@ -46,6 +46,7 @@ type Protocol struct {
 	doneChan             chan bool
 	waitGroup            sync.WaitGroup
 	stateTransitionTimer *time.Timer
+	onceStart            sync.Once
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -107,40 +108,42 @@ func New(config ProtocolConfig) *Protocol {
 
 // Start initializes the mini-protocol
 func (p *Protocol) Start() {
-	// Register protocol with muxer
-	p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
-	// Create buffers and channels
-	p.recvBuffer = bytes.NewBuffer(nil)
-	p.sendQueueChan = make(chan Message, 50)
-	p.sendStateQueueChan = make(chan Message, 50)
-	p.recvReadyChan = make(chan bool, 1)
-	p.sendReadyChan = make(chan bool, 1)
-	// Start goroutine to cleanup when shutting down
-	go func() {
-		// Wait for doneChan to be closed
-		<-p.doneChan
-		// Wait for all other goroutines to finish
-		p.waitGroup.Wait()
-		// Close channels
-		close(p.sendQueueChan)
-		close(p.sendStateQueueChan)
-		close(p.recvReadyChan)
-		close(p.sendReadyChan)
-		// Cancel any timer
-		if p.stateTransitionTimer != nil {
-			// Stop timer and drain channel
-			if !p.stateTransitionTimer.Stop() {
-				<-p.stateTransitionTimer.C
+	p.onceStart.Do(func() {
+		// Register protocol with muxer
+		p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
+		// Create buffers and channels
+		p.recvBuffer = bytes.NewBuffer(nil)
+		p.sendQueueChan = make(chan Message, 50)
+		p.sendStateQueueChan = make(chan Message, 50)
+		p.recvReadyChan = make(chan bool, 1)
+		p.sendReadyChan = make(chan bool, 1)
+		// Start goroutine to cleanup when shutting down
+		go func() {
+			// Wait for doneChan to be closed
+			<-p.doneChan
+			// Wait for all other goroutines to finish
+			p.waitGroup.Wait()
+			// Close channels
+			close(p.sendQueueChan)
+			close(p.sendStateQueueChan)
+			close(p.recvReadyChan)
+			close(p.sendReadyChan)
+			// Cancel any timer
+			if p.stateTransitionTimer != nil {
+				// Stop timer and drain channel
+				if !p.stateTransitionTimer.Stop() {
+					<-p.stateTransitionTimer.C
+				}
+				p.stateTransitionTimer = nil
 			}
-			p.stateTransitionTimer = nil
-		}
-	}()
-	// Set initial state
-	p.setState(p.config.InitialState)
-	// Start our send and receive Goroutines
-	p.waitGroup.Add(2)
-	go p.recvLoop()
-	go p.sendLoop()
+		}()
+		// Set initial state
+		p.setState(p.config.InitialState)
+		// Start our send and receive Goroutines
+		p.waitGroup.Add(2)
+		go p.recvLoop()
+		go p.sendLoop()
+	})
 }
 
 // Mode returns the protocol mode

@@ -16,6 +16,7 @@ package handshake
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -23,7 +24,8 @@ import (
 // Client implements the Handshake client
 type Client struct {
 	*protocol.Protocol
-	config *Config
+	config    *Config
+	onceStart sync.Once
 }
 
 // NewClient returns a new Handshake client object
@@ -60,22 +62,24 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 // Start begins the handshake process
 func (c *Client) Start() {
-	c.Protocol.Start()
-	// Send our ProposeVersions message
-	versionMap := make(map[uint16]interface{})
-	diffusionMode := DiffusionModeInitiatorOnly
-	if c.config.ClientFullDuplex {
-		diffusionMode = DiffusionModeInitiatorAndResponder
-	}
-	for _, version := range c.config.ProtocolVersions {
-		if c.Mode() == protocol.ProtocolModeNodeToNode {
-			versionMap[version] = []interface{}{c.config.NetworkMagic, diffusionMode}
-		} else {
-			versionMap[version] = c.config.NetworkMagic
+	c.onceStart.Do(func() {
+		c.Protocol.Start()
+		// Send our ProposeVersions message
+		versionMap := make(map[uint16]interface{})
+		diffusionMode := DiffusionModeInitiatorOnly
+		if c.config.ClientFullDuplex {
+			diffusionMode = DiffusionModeInitiatorAndResponder
 		}
-	}
-	msg := NewMsgProposeVersions(versionMap)
-	_ = c.SendMessage(msg)
+		for _, version := range c.config.ProtocolVersions {
+			if c.Mode() == protocol.ProtocolModeNodeToNode {
+				versionMap[version] = []interface{}{c.config.NetworkMagic, diffusionMode}
+			} else {
+				versionMap[version] = c.config.NetworkMagic
+			}
+		}
+		msg := NewMsgProposeVersions(versionMap)
+		_ = c.SendMessage(msg)
+	})
 }
 
 func (c *Client) handleMessage(msg protocol.Message, isResponse bool) error {
