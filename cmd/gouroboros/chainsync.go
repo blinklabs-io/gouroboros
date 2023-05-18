@@ -27,7 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-var oConn *ouroboros.Ouroboros
+var oConn *ouroboros.Connection
 
 type chainSyncFlags struct {
 	flagset    *flag.FlagSet

@@ -22,17 +22,17 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
 )
 
-// Ensure that we don't panic when closing the Ouroboros object after a failed Dial() call
+// Ensure that we don't panic when closing the Connection object after a failed Dial() call
 func TestDialFailClose(t *testing.T) {
 	oConn, err := ouroboros.New()
 	if err != nil {
-		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+		t.Fatalf("unexpected error when creating Connection object: %s", err)
 	}
 	err = oConn.Dial("unix", "/path/does/not/exist")
 	if err == nil {
 		t.Fatalf("did not get expected failure on Dial()")
 	}
-	// Close Ouroboros connection
+	// Close connection
 	oConn.Close()
 }
 
@@ -48,7 +48,7 @@ func TestDoubleClose(t *testing.T) {
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 	)
 	if err != nil {
-		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+		t.Fatalf("unexpected error when creating Connection object: %s", err)
 	}
 	// Async error handler
 	go func() {
@@ -59,12 +59,12 @@ func TestDoubleClose(t *testing.T) {
 		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
 		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
 	}()
-	// Close Ouroboros connection
+	// Close connection
 	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+		t.Fatalf("unexpected error when closing Connection object: %s", err)
 	}
-	// Close Ouroboros connection again
+	// Close connection again
 	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing Ouroboros object again: %s", err)
+		t.Fatalf("unexpected error when closing Connection object again: %s", err)
 	}
 }

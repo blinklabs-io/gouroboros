@@ -42,8 +42,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 )
 
-// The Ouroboros type is a wrapper around a net.Conn object that handles communication using the Ouroboros network protocol over that connection
-type Ouroboros struct {
+// The Connection type is a wrapper around a net.Conn object that handles communication using the Ouroboros network protocol over that connection
+type Connection struct {
 	conn                  net.Conn
 	networkMagic          uint32
 	server                bool
@@ -76,206 +76,211 @@ type Ouroboros struct {
 	txSubmissionConfig      *txsubmission.Config
 }
 
-// New returns a new Ouroboros object with the specified options. If a connection is provided, the
+// NewConnection returns a new Connection object with the specified options. If a connection is provided, the
 // handshake will be started. An error will be returned if the handshake fails
-func New(options ...OuroborosOptionFunc) (*Ouroboros, error) {
-	o := &Ouroboros{
+func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
+	c := &Connection{
 		protoErrorChan:        make(chan error, 10),
 		handshakeFinishedChan: make(chan interface{}),
 		doneChan:              make(chan interface{}),
 	}
 	// Apply provided options functions
 	for _, option := range options {
-		option(o)
+		option(c)
 	}
-	if o.errorChan == nil {
-		o.errorChan = make(chan error, 10)
+	if c.errorChan == nil {
+		c.errorChan = make(chan error, 10)
 	}
-	if o.conn != nil {
-		if err := o.setupConnection(); err != nil {
+	if c.conn != nil {
+		if err := c.setupConnection(); err != nil {
 			return nil, err
 		}
 	}
-	return o, nil
+	return c, nil
+}
+
+// New is an alias to NewConnection for backward compatibility
+func New(options ...ConnectionOptionFunc) (*Connection, error) {
+	return NewConnection(options...)
 }
 
 // Muxer returns the muxer object for the Ouroboros connection
-func (o *Ouroboros) Muxer() *muxer.Muxer {
-	return o.muxer
+func (c *Connection) Muxer() *muxer.Muxer {
+	return c.muxer
 }
 
 // ErrorChan returns the channel for asynchronous errors
-func (o *Ouroboros) ErrorChan() chan error {
-	return o.errorChan
+func (c *Connection) ErrorChan() chan error {
+	return c.errorChan
 }
 
 // Dial will establish a connection using the specified protocol and address. These parameters are
 // passed to the [net.Dial] func. The handshake will be started when a connection is established.
 // An error will be returned if the connection fails, a connection was already established, or the
 // handshake fails
-func (o *Ouroboros) Dial(proto string, address string) error {
-	if o.conn != nil {
+func (c *Connection) Dial(proto string, address string) error {
+	if c.conn != nil {
 		return fmt.Errorf("a connection was already established")
 	}
 	conn, err := net.Dial(proto, address)
 	if err != nil {
 		return err
 	}
-	o.conn = conn
-	if err := o.setupConnection(); err != nil {
+	c.conn = conn
+	if err := c.setupConnection(); err != nil {
 		return err
 	}
 	return nil
 }
 
 // Close will shutdown the Ouroboros connection
-func (o *Ouroboros) Close() error {
+func (c *Connection) Close() error {
 	var err error
-	o.onceClose.Do(func() {
+	c.onceClose.Do(func() {
 		// Close doneChan to signify that we're shutting down
-		close(o.doneChan)
+		close(c.doneChan)
 		// Gracefully stop the muxer
-		if o.muxer != nil {
-			o.muxer.Stop()
+		if c.muxer != nil {
+			c.muxer.Stop()
 		}
 		// Wait for other goroutines to finish
-		o.waitGroup.Wait()
+		c.waitGroup.Wait()
 		// Close channels
-		close(o.errorChan)
-		close(o.protoErrorChan)
+		close(c.errorChan)
+		close(c.protoErrorChan)
 		// We can only close a channel once, so we have to jump through a few hoops
 		select {
 		// The channel is either closed or has an item pending
-		case _, ok := <-o.handshakeFinishedChan:
+		case _, ok := <-c.handshakeFinishedChan:
 			// We successfully retrieved an item
 			// This will probably never happen, but it doesn't hurt to cover this case
 			if ok {
-				close(o.handshakeFinishedChan)
+				close(c.handshakeFinishedChan)
 			}
 		// The channel is open and has no pending items
 		default:
-			close(o.handshakeFinishedChan)
+			close(c.handshakeFinishedChan)
 		}
 	})
 	return err
 }
 
 // ChainSync returns the chain-sync protocol handler
-func (o *Ouroboros) ChainSync() *chainsync.ChainSync {
-	return o.chainSync
+func (c *Connection) ChainSync() *chainsync.ChainSync {
+	return c.chainSync
 }
 
 // BlockFetch returns the block-fetch protocol handler
-func (o *Ouroboros) BlockFetch() *blockfetch.BlockFetch {
-	return o.blockFetch
+func (c *Connection) BlockFetch() *blockfetch.BlockFetch {
+	return c.blockFetch
 }
 
 // Handshake returns the handshake protocol handler
-func (o *Ouroboros) Handshake() *handshake.Handshake {
-	return o.handshake
+func (c *Connection) Handshake() *handshake.Handshake {
+	return c.handshake
 }
 
 // KeepAlive returns the keep-alive protocol handler
-func (o *Ouroboros) KeepAlive() *keepalive.KeepAlive {
-	return o.keepAlive
+func (c *Connection) KeepAlive() *keepalive.KeepAlive {
+	return c.keepAlive
 }
 
 // LocalTxMonitor returns the local-tx-monitor protocol handler
-func (o *Ouroboros) LocalTxMonitor() *localtxmonitor.LocalTxMonitor {
-	return o.localTxMonitor
+func (c *Connection) LocalTxMonitor() *localtxmonitor.LocalTxMonitor {
+	return c.localTxMonitor
 }
 
 // LocalTxSubmission returns the local-tx-submission protocol handler
-func (o *Ouroboros) LocalTxSubmission() *localtxsubmission.LocalTxSubmission {
-	return o.localTxSubmission
+func (c *Connection) LocalTxSubmission() *localtxsubmission.LocalTxSubmission {
+	return c.localTxSubmission
 }
 
 // LocalStateQuery returns the local-state-query protocol handler
-func (o *Ouroboros) LocalStateQuery() *localstatequery.LocalStateQuery {
-	return o.localStateQuery
+func (c *Connection) LocalStateQuery() *localstatequery.LocalStateQuery {
+	return c.localStateQuery
 }
 
 // TxSubmission returns the tx-submission protocol handler
-func (o *Ouroboros) TxSubmission() *txsubmission.TxSubmission {
-	return o.txSubmission
+func (c *Connection) TxSubmission() *txsubmission.TxSubmission {
+	return c.txSubmission
 }
 
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
-func (o *Ouroboros) setupConnection() error {
-	o.muxer = muxer.New(o.conn)
+func (c *Connection) setupConnection() error {
+	c.muxer = muxer.New(c.conn)
 	// Start Goroutine to pass along errors from the muxer
-	o.waitGroup.Add(1)
+	c.waitGroup.Add(1)
 	go func() {
-		defer o.waitGroup.Done()
+		defer c.waitGroup.Done()
 		select {
-		case <-o.doneChan:
+		case <-c.doneChan:
 			return
-		case err, ok := <-o.muxer.ErrorChan():
+		case err, ok := <-c.muxer.ErrorChan():
 			// Break out of goroutine if muxer's error channel is closed
 			if !ok {
 				return
 			}
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// Return a bare io.EOF error if error is EOF/ErrUnexpectedEOF
-				o.errorChan <- io.EOF
+				c.errorChan <- io.EOF
 			} else {
 				// Wrap error message to denote it comes from the muxer
-				o.errorChan <- fmt.Errorf("muxer error: %s", err)
+				c.errorChan <- fmt.Errorf("muxer error: %s", err)
 			}
 			// Close connection on muxer errors
-			o.Close()
+			c.Close()
 		}
 	}()
 	protoOptions := protocol.ProtocolOptions{
-		Muxer:     o.muxer,
-		ErrorChan: o.protoErrorChan,
+		Muxer:     c.muxer,
+		ErrorChan: c.protoErrorChan,
 	}
 	var protoVersions []uint16
-	if o.useNodeToNodeProto {
+	if c.useNodeToNodeProto {
 		protoVersions = GetProtocolVersionsNtN()
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 	} else {
 		protoVersions = GetProtocolVersionsNtC()
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 	}
-	if o.server {
+	if c.server {
 		protoOptions.Role = protocol.ProtocolRoleServer
 	} else {
 		protoOptions.Role = protocol.ProtocolRoleClient
 	}
 	// Check network magic value
-	if o.networkMagic == 0 {
-		return fmt.Errorf("invalid network magic value provided: %d\n", o.networkMagic)
+	if c.networkMagic == 0 {
+		return fmt.Errorf("invalid network magic value provided: %d\n", c.networkMagic)
 	}
 	// Perform handshake
 	var handshakeVersion uint16
 	var handshakeFullDuplex bool
 	handshakeConfig := handshake.NewConfig(
 		handshake.WithProtocolVersions(protoVersions),
-		handshake.WithNetworkMagic(o.networkMagic),
-		handshake.WithClientFullDuplex(o.fullDuplex),
+		handshake.WithNetworkMagic(c.networkMagic),
+		handshake.WithClientFullDuplex(c.fullDuplex),
 		handshake.WithFinishedFunc(func(version uint16, fullDuplex bool) error {
 			handshakeVersion = version
 			handshakeFullDuplex = fullDuplex
-			close(o.handshakeFinishedChan)
+			close(c.handshakeFinishedChan)
 			return nil
 		}),
 	)
-	o.handshake = handshake.New(protoOptions, &handshakeConfig)
-	if o.server {
-		o.handshake.Server.Start()
+	c.handshake = handshake.New(protoOptions, &handshakeConfig)
+	if c.server {
+		c.handshake.Server.Start()
 	} else {
-		o.handshake.Client.Start()
+		c.handshake.Client.Start()
 	}
 	// Wait for handshake completion or error
 	select {
-	case <-o.doneChan:
+	case <-c.doneChan:
 		// Return an error if we're shutting down
 		return io.EOF
-	case err := <-o.protoErrorChan:
+	case err := <-c.protoErrorChan:
 		return err
-	case <-o.handshakeFinishedChan:
+	case <-c.handshakeFinishedChan:
 		// This is purposely empty, but we need this case to break out when this channel is closed
 	}
 	// Provide the negotiated protocol version to the various mini-protocols
@@ -285,58 +290,58 @@ func (o *Ouroboros) setupConnection() error {
 		protoOptions.Version = protoOptions.Version - protocolVersionNtCFlag
 	}
 	// Start Goroutine to pass along errors from the mini-protocols
-	o.waitGroup.Add(1)
+	c.waitGroup.Add(1)
 	go func() {
-		defer o.waitGroup.Done()
+		defer c.waitGroup.Done()
 		select {
-		case <-o.doneChan:
+		case <-c.doneChan:
 			// Return if we're shutting down
 			return
-		case err, ok := <-o.protoErrorChan:
+		case err, ok := <-c.protoErrorChan:
 			// The channel is closed, which means we're already shutting down
 			if !ok {
 				return
 			}
-			o.errorChan <- fmt.Errorf("protocol error: %s", err)
+			c.errorChan <- fmt.Errorf("protocol error: %s", err)
 			// Close connection on mini-protocol errors
-			o.Close()
+			c.Close()
 		}
 	}()
 	// Configure the relevant mini-protocols
-	if o.useNodeToNodeProto {
+	if c.useNodeToNodeProto {
 		versionNtN := GetProtocolVersionNtN(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
-		o.chainSync = chainsync.New(protoOptions, o.chainSyncConfig)
-		o.blockFetch = blockfetch.New(protoOptions, o.blockFetchConfig)
-		o.txSubmission = txsubmission.New(protoOptions, o.txSubmissionConfig)
+		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
+		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
+		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
 		if versionNtN.EnableKeepAliveProtocol {
-			o.keepAlive = keepalive.New(protoOptions, o.keepAliveConfig)
-			if !o.server && o.sendKeepAlives {
-				o.keepAlive.Client.Start()
+			c.keepAlive = keepalive.New(protoOptions, c.keepAliveConfig)
+			if !c.server && c.sendKeepAlives {
+				c.keepAlive.Client.Start()
 			}
 		}
 	} else {
 		versionNtC := GetProtocolVersionNtC(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
-		o.chainSync = chainsync.New(protoOptions, o.chainSyncConfig)
-		o.localTxSubmission = localtxsubmission.New(protoOptions, o.localTxSubmissionConfig)
+		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
+		c.localTxSubmission = localtxsubmission.New(protoOptions, c.localTxSubmissionConfig)
 		if versionNtC.EnableLocalQueryProtocol {
-			o.localStateQuery = localstatequery.New(protoOptions, o.localStateQueryConfig)
+			c.localStateQuery = localstatequery.New(protoOptions, c.localStateQueryConfig)
 		}
 		if versionNtC.EnableLocalTxMonitorProtocol {
-			o.localTxMonitor = localtxmonitor.New(protoOptions, o.localTxMonitorConfig)
+			c.localTxMonitor = localtxmonitor.New(protoOptions, c.localTxMonitorConfig)
 		}
 	}
 	// Start muxer
 	diffusionMode := muxer.DiffusionModeInitiator
 	if handshakeFullDuplex {
 		diffusionMode = muxer.DiffusionModeInitiatorAndResponder
-	} else if o.server {
+	} else if c.server {
 		diffusionMode = muxer.DiffusionModeResponder
 	}
-	o.muxer.SetDiffusionMode(diffusionMode)
-	if !o.delayMuxerStart {
-		o.muxer.Start()
+	c.muxer.SetDiffusionMode(diffusionMode)
+	if !c.delayMuxerStart {
+		c.muxer.Start()
 	}
 	return nil
 }
