@@ -15,121 +15,122 @@
 package ouroboros
 
 import (
+	"net"
+
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
-	"net"
 )
 
-// OuroborosOptionFunc is a type that represents functions that modify the Ouroboros config
-type OuroborosOptionFunc func(*Ouroboros)
+// ConnectionOptionFunc is a type that represents functions that modify the Connection config
+type ConnectionOptionFunc func(*Connection)
 
 // WithConnection specifies an existing connection to use. If none is provided, the Dial() function can be
 // used to create one later
-func WithConnection(conn net.Conn) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.conn = conn
+func WithConnection(conn net.Conn) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.conn = conn
 	}
 }
 
 // WithNetwork specifies the network
-func WithNetwork(network Network) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.networkMagic = network.NetworkMagic
+func WithNetwork(network Network) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.networkMagic = network.NetworkMagic
 	}
 }
 
 // WithNetworkMagic specifies the network magic value
-func WithNetworkMagic(networkMagic uint32) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.networkMagic = networkMagic
+func WithNetworkMagic(networkMagic uint32) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.networkMagic = networkMagic
 	}
 }
 
 // WithErrorChan specifies the error channel to use. If none is provided, one will be created
-func WithErrorChan(errorChan chan error) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.errorChan = errorChan
+func WithErrorChan(errorChan chan error) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.errorChan = errorChan
 	}
 }
 
 // WithServer specifies whether to act as a server
-func WithServer(server bool) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.server = server
+func WithServer(server bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.server = server
 	}
 }
 
 // WithNodeToNode specifies whether to use the node-to-node protocol. The default is to use node-to-client
-func WithNodeToNode(nodeToNode bool) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.useNodeToNodeProto = nodeToNode
+func WithNodeToNode(nodeToNode bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.useNodeToNodeProto = nodeToNode
 	}
 }
 
 // WithKeepAlives specifies whether to use keep-alives. This is disabled by default
-func WithKeepAlive(keepAlive bool) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.sendKeepAlives = keepAlive
+func WithKeepAlive(keepAlive bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.sendKeepAlives = keepAlive
 	}
 }
 
 // WithDelayMuxerStart specifies whether to delay the muxer start. This is useful if you need to take some
 // custom actions before the muxer starts processing messages, generally when acting as a server
-func WithDelayMuxerStart(delayMuxerStart bool) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.delayMuxerStart = delayMuxerStart
+func WithDelayMuxerStart(delayMuxerStart bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.delayMuxerStart = delayMuxerStart
 	}
 }
 
 // WithFullDuplex specifies whether to enable full-duplex mode when acting as a client
-func WithFullDuplex(fullDuplex bool) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.fullDuplex = fullDuplex
+func WithFullDuplex(fullDuplex bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.fullDuplex = fullDuplex
 	}
 }
 
 // WithBlockFetchConfig specifies BlockFetch protocol config
-func WithBlockFetchConfig(cfg blockfetch.Config) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.blockFetchConfig = &cfg
+func WithBlockFetchConfig(cfg blockfetch.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.blockFetchConfig = &cfg
 	}
 }
 
 // WithChainSyncConfig secifies ChainSync protocol config
-func WithChainSyncConfig(cfg chainsync.Config) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.chainSyncConfig = &cfg
+func WithChainSyncConfig(cfg chainsync.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.chainSyncConfig = &cfg
 	}
 }
 
 // WithKeepAliveConfig specifies KeepAlive protocol config
-func WithKeepAliveConfig(cfg keepalive.Config) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.keepAliveConfig = &cfg
+func WithKeepAliveConfig(cfg keepalive.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.keepAliveConfig = &cfg
 	}
 }
 
 // WithLocalStateQueryConfig specifies LocalStateQuery protocol config
-func WithLocalStateQueryConfig(cfg localstatequery.Config) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.localStateQueryConfig = &cfg
+func WithLocalStateQueryConfig(cfg localstatequery.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.localStateQueryConfig = &cfg
 	}
 }
 
 // WithLocalTxSubmissionConfig specifies LocalTxSubmission protocol config
-func WithLocalTxSubmissionConfig(cfg localtxsubmission.Config) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.localTxSubmissionConfig = &cfg
+func WithLocalTxSubmissionConfig(cfg localtxsubmission.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.localTxSubmissionConfig = &cfg
 	}
 }
 
 // WithTxSubmissionConfig specifies TxSubmission protocol config
-func WithTxSubmissionConfig(cfg txsubmission.Config) OuroborosOptionFunc {
-	return func(o *Ouroboros) {
-		o.txSubmissionConfig = &cfg
+func WithTxSubmissionConfig(cfg txsubmission.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.txSubmissionConfig = &cfg
 	}
 }
