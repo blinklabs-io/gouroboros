@@ -88,13 +88,14 @@ var protocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 type ProtocolVersionNtN struct {
 	// Most of these are enabled in all of the protocol versions that we support, but
 	// they are here for completeness
-	EnableShelleyEra        bool
-	EnableKeepAliveProtocol bool
-	EnableAllegraEra        bool
-	EnableMaryEra           bool
-	EnableAlonzoEra         bool
-	EnableBabbageEra        bool
-	EnableFullDuplex        bool
+	EnableShelleyEra          bool
+	EnableKeepAliveProtocol   bool
+	EnableAllegraEra          bool
+	EnableMaryEra             bool
+	EnableAlonzoEra           bool
+	EnableBabbageEra          bool
+	EnableFullDuplex          bool
+	EnablePeerSharingProtocol bool
 }
 
 // Map of NtN protocol versions to protocol features
@@ -132,6 +133,19 @@ var protocolVersionMapNtN = map[uint16]ProtocolVersionNtN{
 		EnableBabbageEra:        true,
 		EnableFullDuplex:        true,
 	},
+	// NOTE: this protocol version seems to still be in flux, so it's disabled for now
+	/*
+		11: ProtocolVersionNtN{
+			EnableShelleyEra:          true,
+			EnableKeepAliveProtocol:   true,
+			EnableAllegraEra:          true,
+			EnableMaryEra:             true,
+			EnableAlonzoEra:           true,
+			EnableBabbageEra:          true,
+			EnableFullDuplex:          true,
+			EnablePeerSharingProtocol: true,
+		},
+	*/
 }
 
 // GetProtocolVersionNtC returns a list of supported NtC protocol versions

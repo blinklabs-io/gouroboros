@@ -33,6 +33,13 @@ const (
 	DiffusionModeInitiatorAndResponder = true
 )
 
+// Peer sharing modes
+const (
+	PeerSharingModeNoPeerSharing      = 0
+	PeerSharingModePeerSharingPublic  = 1
+	PeerSharingModePeerSharingPrivate = 2
+)
+
 var (
 	statePropose = protocol.NewState(1, "Propose")
 	stateConfirm = protocol.NewState(2, "Confirm")

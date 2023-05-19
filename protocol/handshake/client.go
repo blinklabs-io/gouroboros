@@ -72,6 +72,13 @@ func (c *Client) Start() {
 		}
 		for _, version := range c.config.ProtocolVersions {
 			if c.Mode() == protocol.ProtocolModeNodeToNode {
+				// NOTE: it seems that protocol version 11 is still in flux, so we disable for now
+				/*
+					if version >= 11 {
+						// TODO: make peer sharing mode configurable
+						versionMap[version] = []interface{}{c.config.NetworkMagic, diffusionMode, PeerSharingModePeerSharingPrivate}
+					} else {
+				*/
 				versionMap[version] = []interface{}{c.config.NetworkMagic, diffusionMode}
 			} else {
 				versionMap[version] = c.config.NetworkMagic
