@@ -28,6 +28,8 @@ func Decode(dataBytes []byte, dest interface{}) (int, error) {
 	// Create a custom decoder that returns an error on unknown fields
 	decOptions := _cbor.DecOptions{
 		ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+		// This defaults to 32, but there are blocks in the wild using >64 nested levels
+		MaxNestedLevels: 256,
 	}
 	decMode, err := decOptions.DecMode()
 	if err != nil {
