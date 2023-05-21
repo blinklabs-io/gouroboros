@@ -156,16 +156,21 @@ type CurrentProtocolParamsResult struct {
 	// This field no longer exists in Babbage, but we're keeping this here for reference
 	// unless we need to support querying a node still on an older era
 	//DecentralizationParam  []int
-	ProtocolVersionMajor   int
-	ProtocolVersionMinor   int
+	ProtocolVersion struct {
+		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
+		_     struct{} `cbor:",toarray"`
+		Major int
+		Minor int
+	}
 	MinPoolCost            int
-	Unknown                interface{}
+	MinUtxoValue           int
 	CostModels             interface{}
 	ExecutionUnitPrices    interface{} // [priceMemory priceSteps]	both elements are fractions
 	MaxTxExecutionUnits    []uint
 	MaxBlockExecutionUnits []uint
 	MaxValueSize           int
 	CollateralPercentage   int
+	MaxCollateralInputs    int
 }
 
 // TODO
