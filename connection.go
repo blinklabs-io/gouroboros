@@ -39,6 +39,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
+	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 )
 
@@ -59,19 +60,21 @@ type Connection struct {
 	delayMuxerStart       bool
 	fullDuplex            bool
 	// Mini-protocols
-	handshake               *handshake.Handshake
-	chainSync               *chainsync.ChainSync
-	chainSyncConfig         *chainsync.Config
 	blockFetch              *blockfetch.BlockFetch
 	blockFetchConfig        *blockfetch.Config
+	chainSync               *chainsync.ChainSync
+	chainSyncConfig         *chainsync.Config
+	handshake               *handshake.Handshake
 	keepAlive               *keepalive.KeepAlive
 	keepAliveConfig         *keepalive.Config
+	localStateQuery         *localstatequery.LocalStateQuery
+	localStateQueryConfig   *localstatequery.Config
 	localTxMonitor          *localtxmonitor.LocalTxMonitor
 	localTxMonitorConfig    *localtxmonitor.Config
 	localTxSubmission       *localtxsubmission.LocalTxSubmission
 	localTxSubmissionConfig *localtxsubmission.Config
-	localStateQuery         *localstatequery.LocalStateQuery
-	localStateQueryConfig   *localstatequery.Config
+	peerSharing             *peersharing.PeerSharing
+	peerSharingConfig       *peersharing.Config
 	txSubmission            *txsubmission.TxSubmission
 	txSubmissionConfig      *txsubmission.Config
 }
@@ -165,14 +168,14 @@ func (c *Connection) Close() error {
 	return err
 }
 
-// ChainSync returns the chain-sync protocol handler
-func (c *Connection) ChainSync() *chainsync.ChainSync {
-	return c.chainSync
-}
-
 // BlockFetch returns the block-fetch protocol handler
 func (c *Connection) BlockFetch() *blockfetch.BlockFetch {
 	return c.blockFetch
+}
+
+// ChainSync returns the chain-sync protocol handler
+func (c *Connection) ChainSync() *chainsync.ChainSync {
+	return c.chainSync
 }
 
 // Handshake returns the handshake protocol handler
@@ -185,6 +188,11 @@ func (c *Connection) KeepAlive() *keepalive.KeepAlive {
 	return c.keepAlive
 }
 
+// LocalStateQuery returns the local-state-query protocol handler
+func (c *Connection) LocalStateQuery() *localstatequery.LocalStateQuery {
+	return c.localStateQuery
+}
+
 // LocalTxMonitor returns the local-tx-monitor protocol handler
 func (c *Connection) LocalTxMonitor() *localtxmonitor.LocalTxMonitor {
 	return c.localTxMonitor
@@ -195,9 +203,9 @@ func (c *Connection) LocalTxSubmission() *localtxsubmission.LocalTxSubmission {
 	return c.localTxSubmission
 }
 
-// LocalStateQuery returns the local-state-query protocol handler
-func (c *Connection) LocalStateQuery() *localstatequery.LocalStateQuery {
-	return c.localStateQuery
+// PeerSharing returns the peer-sharing protocol handler
+func (c *Connection) PeerSharing() *peersharing.PeerSharing {
+	return c.peerSharing
 }
 
 // TxSubmission returns the tx-submission protocol handler
@@ -319,6 +327,9 @@ func (c *Connection) setupConnection() error {
 			if !c.server && c.sendKeepAlives {
 				c.keepAlive.Client.Start()
 			}
+		}
+		if versionNtN.EnablePeerSharingProtocol {
+			c.peerSharing = peersharing.New(protoOptions, c.peerSharingConfig)
 		}
 	} else {
 		versionNtC := GetProtocolVersionNtC(handshakeVersion)

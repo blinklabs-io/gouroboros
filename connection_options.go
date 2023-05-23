@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
+	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 )
 
@@ -125,6 +126,13 @@ func WithLocalStateQueryConfig(cfg localstatequery.Config) ConnectionOptionFunc 
 func WithLocalTxSubmissionConfig(cfg localtxsubmission.Config) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.localTxSubmissionConfig = &cfg
+	}
+}
+
+// WithPeerSharingConfig specifies PeerSharing protocol config
+func WithPeerSharingConfig(cfg peersharing.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.peerSharingConfig = &cfg
 	}
 }
 
