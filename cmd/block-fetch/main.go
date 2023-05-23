@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/blinklabs-io/gouroboros"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cmd/common"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -60,7 +60,6 @@ func main() {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.BlockFetch().Client.Start()
 
 	blockHash, err := hex.DecodeString(f.hash)
 	if err != nil {

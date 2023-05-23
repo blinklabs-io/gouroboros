@@ -151,10 +151,6 @@ func testChainSync(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	oConn.ChainSync().Client.Start()
-	if f.ntnProto {
-		oConn.BlockFetch().Client.Start()
-	}
 
 	var point common.Point
 	if chainSyncFlags.tip {

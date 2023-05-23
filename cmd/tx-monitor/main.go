@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/blinklabs-io/gouroboros"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/cmd/common"
 
@@ -51,7 +51,6 @@ func main() {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.LocalTxMonitor().Client.Start()
 
 	capacity, size, numberOfTxs, err := o.LocalTxMonitor().Client.GetSizes()
 	if err != nil {

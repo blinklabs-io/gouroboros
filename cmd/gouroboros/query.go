@@ -17,9 +17,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
-	"os"
 )
 
 type queryFlags struct {
@@ -70,7 +71,6 @@ func testQuery(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.LocalStateQuery().Client.Start()
 
 	switch queryFlags.flagset.Args()[0] {
 	case "current-era":

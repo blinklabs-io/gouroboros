@@ -47,7 +47,6 @@ func main() {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.PeerSharing().Client.Start()
 
 	peers, err := o.PeerSharing().Client.GetPeers(10)
 	if err != nil {
