@@ -19,11 +19,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"os"
+
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
-	"io/ioutil"
-	"os"
 )
 
 type localTxSubmissionFlags struct {
@@ -78,7 +79,6 @@ func testLocalTxSubmission(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
-	o.LocalTxSubmission().Client.Start()
 
 	var txBytes []byte
 	if localTxSubmissionFlags.txFile != "" {

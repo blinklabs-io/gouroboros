@@ -58,6 +58,7 @@ type Connection struct {
 	onceClose             sync.Once
 	sendKeepAlives        bool
 	delayMuxerStart       bool
+	delayProtocolStart    bool
 	fullDuplex            bool
 	// Mini-protocols
 	blockFetch              *blockfetch.BlockFetch
@@ -331,6 +332,25 @@ func (c *Connection) setupConnection() error {
 		if versionNtN.EnablePeerSharingProtocol {
 			c.peerSharing = peersharing.New(protoOptions, c.peerSharingConfig)
 		}
+		// Start protocols
+		if !c.delayProtocolStart {
+			if handshakeFullDuplex || !c.server {
+				c.blockFetch.Client.Start()
+				c.chainSync.Client.Start()
+				c.txSubmission.Client.Start()
+				if c.peerSharing != nil {
+					c.peerSharing.Client.Start()
+				}
+			}
+			if handshakeFullDuplex || c.server {
+				c.blockFetch.Server.Start()
+				c.chainSync.Server.Start()
+				c.txSubmission.Server.Start()
+				if c.peerSharing != nil {
+					c.peerSharing.Server.Start()
+				}
+			}
+		}
 	} else {
 		versionNtC := GetProtocolVersionNtC(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
@@ -341,6 +361,29 @@ func (c *Connection) setupConnection() error {
 		}
 		if versionNtC.EnableLocalTxMonitorProtocol {
 			c.localTxMonitor = localtxmonitor.New(protoOptions, c.localTxMonitorConfig)
+		}
+		// Start protocols
+		if !c.delayProtocolStart {
+			if handshakeFullDuplex || !c.server {
+				c.chainSync.Client.Start()
+				c.localTxSubmission.Client.Start()
+				if c.localStateQuery != nil {
+					c.localStateQuery.Client.Start()
+				}
+				if c.localTxMonitor != nil {
+					c.localTxMonitor.Client.Start()
+				}
+			}
+			if handshakeFullDuplex || c.server {
+				c.chainSync.Server.Start()
+				c.localTxSubmission.Server.Start()
+				if c.localStateQuery != nil {
+					c.localStateQuery.Server.Start()
+				}
+				if c.localTxMonitor != nil {
+					c.localTxMonitor.Server.Start()
+				}
+			}
 		}
 	}
 	// Start muxer

@@ -87,6 +87,15 @@ func WithDelayMuxerStart(delayMuxerStart bool) ConnectionOptionFunc {
 	}
 }
 
+// WithDelayProtocolStart specifies whether to delay the start of the relevant mini-protocols. This is useful
+// if you are maintaining lots of connections and want to reduce resource overhead by only starting particular
+// protocols
+func WithDelayProtocolStart(delayProtocolStart bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.delayProtocolStart = delayProtocolStart
+	}
+}
+
 // WithFullDuplex specifies whether to enable full-duplex mode when acting as a client
 func WithFullDuplex(fullDuplex bool) ConnectionOptionFunc {
 	return func(c *Connection) {
