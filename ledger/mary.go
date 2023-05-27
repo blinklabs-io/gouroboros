@@ -95,16 +95,34 @@ type MaryTransaction struct {
 	Metadata   cbor.Value
 }
 
-// TODO: support both forms
-/*
-transaction_output = [address, amount : value]
-value = coin / [coin,multiasset<uint>]
-*/
-
 type MaryTransactionOutput struct {
 	cbor.StructAsArray
 	Address Blake2b256
-	Amount  cbor.Value
+	Amount  MaryTransactionOutputValue
+}
+
+type MaryTransactionOutputValue struct {
+	cbor.StructAsArray
+	Amount uint64
+	Assets map[Blake2b224]map[cbor.ByteString]uint64
+}
+
+func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
+	if _, err := cbor.Decode(data, &(v.Amount)); err == nil {
+		return nil
+	}
+	if err := cbor.DecodeGeneric(data, v); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
+	if v.Assets == nil {
+		return cbor.Encode(v.Amount)
+	} else {
+		return cbor.EncodeGeneric(v)
+	}
 }
 
 func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
