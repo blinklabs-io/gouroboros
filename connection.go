@@ -334,7 +334,7 @@ func (c *Connection) setupConnection() error {
 		}
 		// Start protocols
 		if !c.delayProtocolStart {
-			if handshakeFullDuplex || !c.server {
+			if (c.fullDuplex && handshakeFullDuplex) || !c.server {
 				c.blockFetch.Client.Start()
 				c.chainSync.Client.Start()
 				c.txSubmission.Client.Start()
@@ -342,7 +342,7 @@ func (c *Connection) setupConnection() error {
 					c.peerSharing.Client.Start()
 				}
 			}
-			if handshakeFullDuplex || c.server {
+			if (c.fullDuplex && handshakeFullDuplex) || c.server {
 				c.blockFetch.Server.Start()
 				c.chainSync.Server.Start()
 				c.txSubmission.Server.Start()
@@ -364,7 +364,7 @@ func (c *Connection) setupConnection() error {
 		}
 		// Start protocols
 		if !c.delayProtocolStart {
-			if handshakeFullDuplex || !c.server {
+			if (c.fullDuplex && handshakeFullDuplex) || !c.server {
 				c.chainSync.Client.Start()
 				c.localTxSubmission.Client.Start()
 				if c.localStateQuery != nil {
@@ -374,7 +374,7 @@ func (c *Connection) setupConnection() error {
 					c.localTxMonitor.Client.Start()
 				}
 			}
-			if handshakeFullDuplex || c.server {
+			if (c.fullDuplex && handshakeFullDuplex) || c.server {
 				c.chainSync.Server.Start()
 				c.localTxSubmission.Server.Start()
 				if c.localStateQuery != nil {
