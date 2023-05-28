@@ -95,7 +95,7 @@ type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	Address   Blake2b256
-	Amount    cbor.Value
+	Amount    MaryTransactionOutputValue
 	DatumHash Blake2b256
 }
 

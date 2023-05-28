@@ -53,7 +53,7 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 		v.Value = tmpValue
 	case CBOR_TYPE_BYTE_STRING:
 		// Use our custom type which stores the bytestring in a way that allows it to be used as a map key
-		tmpValue := ByteString{}
+		var tmpValue ByteString
 		if _, err := Decode(data, &tmpValue); err != nil {
 			return err
 		}
