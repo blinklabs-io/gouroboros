@@ -38,6 +38,7 @@ func TestDialFailClose(t *testing.T) {
 
 func TestDoubleClose(t *testing.T) {
 	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
 			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
 			ouroboros_mock.ConversationEntryHandshakeResponse,

@@ -75,6 +75,7 @@ const (
 // ProtocolRole is an enum of the protocol roles
 type ProtocolRole uint
 
+// Protocol roles
 const (
 	ProtocolRoleNone   ProtocolRole = 0 // Default (invalid) protocol role
 	ProtocolRoleClient ProtocolRole = 1 // Client protocol role
@@ -110,7 +111,11 @@ func New(config ProtocolConfig) *Protocol {
 func (p *Protocol) Start() {
 	p.onceStart.Do(func() {
 		// Register protocol with muxer
-		p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId)
+		muxerProtocolRole := muxer.ProtocolRoleInitiator
+		if p.config.Role == ProtocolRoleServer {
+			muxerProtocolRole = muxer.ProtocolRoleResponder
+		}
+		p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId, muxerProtocolRole)
 		// Create buffers and channels
 		p.recvBuffer = bytes.NewBuffer(nil)
 		p.sendQueueChan = make(chan Message, 50)
