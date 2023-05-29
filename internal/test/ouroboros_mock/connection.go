@@ -25,6 +25,16 @@ import (
 	"github.com/blinklabs-io/gouroboros/muxer"
 )
 
+// ProtocolRole is an enum of the protocol roles
+type ProtocolRole uint
+
+// Protocol roles
+const (
+	ProtocolRoleNone   ProtocolRole = 0 // Default (invalid) protocol role
+	ProtocolRoleClient ProtocolRole = 1 // Client protocol role
+	ProtocolRoleServer ProtocolRole = 2 // Server protocol role
+)
+
 // Connection mocks an Ouroboros connection
 type Connection struct {
 	mockConn      net.Conn
@@ -35,15 +45,20 @@ type Connection struct {
 }
 
 // NewConnection returns a new Connection with the provided conversation entries
-func NewConnection(conversation []ConversationEntry) net.Conn {
+func NewConnection(protocolRole ProtocolRole, conversation []ConversationEntry) net.Conn {
 	c := &Connection{
 		conversation: conversation,
 	}
 	c.conn, c.mockConn = net.Pipe()
 	// Start a muxer on the mocked side of the connection
 	c.muxer = muxer.New(c.mockConn)
+	// The muxer is for the opposite end of the connection, so we flip the protocol role
+	muxerProtocolRole := muxer.ProtocolRoleResponder
+	if protocolRole == ProtocolRoleServer {
+		muxerProtocolRole = muxer.ProtocolRoleInitiator
+	}
 	// We use ProtocolUnknown to catch all inbound messages when no other protocols are registered
-	_, c.muxerRecvChan, _ = c.muxer.RegisterProtocol(muxer.ProtocolUnknown)
+	_, c.muxerRecvChan, _ = c.muxer.RegisterProtocol(muxer.ProtocolUnknown, muxerProtocolRole)
 	c.muxer.Start()
 	// Start async muxer error handler
 	go func() {

@@ -42,6 +42,16 @@ const (
 	DiffusionModeInitiatorAndResponder DiffusionMode = 3 // Initiator and responder (full duplex) mode
 )
 
+// ProtocolRole is an enum of the protocol roles
+type ProtocolRole uint
+
+// Protocol roles
+const (
+	ProtocolRoleNone      ProtocolRole = 0 // Default (invalid) protocol role
+	ProtocolRoleInitiator ProtocolRole = 1 // Initiator (client) protocol role
+	ProtocolRoleResponder ProtocolRole = 2 // Responder (server) protocol role
+)
+
 // Muxer wraps a connection to allow running multiple mini-protocols over a single connection
 type Muxer struct {
 	errorChan         chan error
@@ -50,8 +60,8 @@ type Muxer struct {
 	startChan         chan bool
 	doneChan          chan bool
 	waitGroup         sync.WaitGroup
-	protocolSenders   map[uint16]chan *Segment
-	protocolReceivers map[uint16]chan *Segment
+	protocolSenders   map[uint16]map[ProtocolRole]chan *Segment
+	protocolReceivers map[uint16]map[ProtocolRole]chan *Segment
 	diffusionMode     DiffusionMode
 	onceStart         sync.Once
 	onceStop          sync.Once
@@ -64,8 +74,8 @@ func New(conn net.Conn) *Muxer {
 		startChan:         make(chan bool, 1),
 		doneChan:          make(chan bool),
 		errorChan:         make(chan error, 10),
-		protocolSenders:   make(map[uint16]chan *Segment),
-		protocolReceivers: make(map[uint16]chan *Segment),
+		protocolSenders:   make(map[uint16]map[ProtocolRole]chan *Segment),
+		protocolReceivers: make(map[uint16]map[ProtocolRole]chan *Segment),
 	}
 	m.waitGroup.Add(1)
 	go m.readLoop()
@@ -95,8 +105,10 @@ func (m *Muxer) Stop() {
 		m.waitGroup.Wait()
 		// Close protocol receive channels
 		// We rely on the individual mini-protocols to close the sender channel
-		for _, recvChan := range m.protocolReceivers {
-			close(recvChan)
+		for _, protocolRoles := range m.protocolReceivers {
+			for _, recvChan := range protocolRoles {
+				close(recvChan)
+			}
 		}
 		// Close ErrorChan to signify to consumer that we're shutting down
 		close(m.errorChan)
@@ -124,13 +136,17 @@ func (m *Muxer) sendError(err error) {
 
 // RegisterProtocol registers the provided protocol ID with the muxer. It returns a channel for sending,
 // a channel for receiving, and a channel to know when the muxer is shutting down
-func (m *Muxer) RegisterProtocol(protocolId uint16) (chan *Segment, chan *Segment, chan bool) {
+func (m *Muxer) RegisterProtocol(protocolId uint16, protocolRole ProtocolRole) (chan *Segment, chan *Segment, chan bool) {
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
 	receiverChan := make(chan *Segment, 10)
 	// Record channels in protocol sender/receiver maps
-	m.protocolSenders[protocolId] = senderChan
-	m.protocolReceivers[protocolId] = receiverChan
+	if _, ok := m.protocolSenders[protocolId]; !ok {
+		m.protocolSenders[protocolId] = make(map[ProtocolRole]chan *Segment)
+		m.protocolReceivers[protocolId] = make(map[ProtocolRole]chan *Segment)
+	}
+	m.protocolSenders[protocolId][protocolRole] = senderChan
+	m.protocolReceivers[protocolId][protocolRole] = receiverChan
 	// Start Goroutine to handle outbound messages
 	m.waitGroup.Add(1)
 	go func() {
@@ -216,14 +232,23 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Send message payload to proper receiver
-		recvChan := m.protocolReceivers[msg.GetProtocolId()]
-		if recvChan == nil {
+		protocolRole := ProtocolRoleResponder
+		if msg.IsResponse() {
+			protocolRole = ProtocolRoleInitiator
+		}
+		protocolRoles, ok := m.protocolReceivers[msg.GetProtocolId()]
+		if !ok {
 			// Try the "unknown protocol" receiver if we didn't find an explicit one
-			recvChan = m.protocolReceivers[ProtocolUnknown]
-			if recvChan == nil {
+			protocolRoles, ok = m.protocolReceivers[ProtocolUnknown]
+			if !ok {
 				m.sendError(fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId()))
 				return
 			}
+		}
+		recvChan := protocolRoles[protocolRole]
+		if recvChan == nil {
+			m.sendError(fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId()))
+			return
 		}
 		if recvChan != nil {
 			recvChan <- msg

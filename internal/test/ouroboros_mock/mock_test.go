@@ -23,6 +23,7 @@ import (
 // Basic test of conversation mock functionality
 func TestBasic(t *testing.T) {
 	mockConn := NewConnection(
+		ProtocolRoleClient,
 		[]ConversationEntry{
 			ConversationEntryHandshakeRequestGeneric,
 			ConversationEntryHandshakeResponse,
