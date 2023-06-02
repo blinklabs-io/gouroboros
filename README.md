@@ -1,6 +1,10 @@
 # gouroboros
 
-A Go client implementation of the Cardano Ouroboros network protocol
+<div align="center">
+    <img src="./assets/gOuroboros-logo-with-text-horizontal.png" alt="gOurobros Logo" width="640">
+</div>
+
+Go implementation of the Cardano Ouroboros network protocol
 
 This is loosely based on the [official Haskell implementation](https://github.com/input-output-hk/ouroboros-network)
 
