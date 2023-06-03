@@ -80,7 +80,7 @@ func (h *AlonzoBlockHeader) Era() Era {
 
 type AlonzoTransactionBody struct {
 	MaryTransactionBody
-	Outputs         []AlonzoTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxOutputs       []AlonzoTransactionOutput `cbor:"1,keyasint,omitempty"`
 	ScriptDataHash  Blake2b256                `cbor:"11,keyasint,omitempty"`
 	Collateral      []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
 	RequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
@@ -91,12 +91,20 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
+	ret := []TransactionOutput{}
+	for _, output := range b.TxOutputs {
+		ret = append(ret, output)
+	}
+	return ret
+}
+
 type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Address   Blake2b256
-	Amount    MaryTransactionOutputValue
-	DatumHash Blake2b256
+	OutputAddress []byte
+	OutputAmount  MaryTransactionOutputValue
+	DatumHash     Blake2b256
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
@@ -104,12 +112,24 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	var tmpOutput MaryTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
 		// Copy from temp Shelley output to Alonzo format
-		o.Address = tmpOutput.Address
-		o.Amount = tmpOutput.Amount
+		o.OutputAddress = tmpOutput.OutputAddress
+		o.OutputAmount = tmpOutput.OutputAmount
 	} else {
 		return o.UnmarshalCbor(cborData, o)
 	}
 	return nil
+}
+
+func (o AlonzoTransactionOutput) Address() []byte {
+	return o.OutputAddress
+}
+
+func (o AlonzoTransactionOutput) Amount() uint64 {
+	return o.OutputAmount.Amount
+}
+
+func (o AlonzoTransactionOutput) Assets() interface{} {
+	return o.OutputAmount.Assets
 }
 
 type AlonzoTransactionWitnessSet struct {

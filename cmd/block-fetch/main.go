@@ -29,6 +29,7 @@ type blockFetchFlags struct {
 	*common.GlobalFlags
 	slot uint64
 	hash string
+	all  bool
 }
 
 func main() {
@@ -38,6 +39,7 @@ func main() {
 	}
 	f.Flagset.Uint64Var(&f.slot, "slot", 0, "slot for single block to fetch")
 	f.Flagset.StringVar(&f.hash, "hash", "", "hash for single block to fetch")
+	f.Flagset.BoolVar(&f.all, "all", false, "show all available detail for block")
 	f.Parse()
 	// Create connection
 	conn := common.CreateClientConnection(f.GlobalFlags)
@@ -80,5 +82,25 @@ func main() {
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", v.Header.ConsensusData.SlotId.Epoch, v.SlotNumber(), v.Hash())
 	case ledger.Block:
 		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", v.Era().Name, v.SlotNumber(), v.BlockNumber(), v.Hash())
+	}
+	if f.all {
+		// Display transaction info
+		fmt.Printf("\nTransactions:\n")
+		for _, tx := range block.Transactions() {
+			fmt.Printf("  Hash: %s\n", tx.Hash())
+			fmt.Printf("  Inputs:\n")
+			for _, input := range tx.Inputs() {
+				fmt.Printf("    Id: %s\n", input.Id())
+				fmt.Printf("    Index: %d\n", input.Index())
+				fmt.Println("")
+			}
+			fmt.Printf("  Outputs:\n")
+			for _, output := range tx.Outputs() {
+				fmt.Printf("    Address: %x\n", output.Address())
+				fmt.Printf("    Amount: %d\n", output.Amount())
+				fmt.Printf("    Assets: %#v\n", output.Assets())
+				fmt.Println("")
+			}
+		}
 	}
 }

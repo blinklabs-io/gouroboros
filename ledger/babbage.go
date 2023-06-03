@@ -125,7 +125,7 @@ func (h *BabbageBlockHeader) Era() Era {
 
 type BabbageTransactionBody struct {
 	AlonzoTransactionBody
-	Outputs          []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxOutputs        []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
 	CollateralReturn BabbageTransactionOutput   `cbor:"16,keyasint,omitempty"`
 	TotalCollateral  uint64                     `cbor:"17,keyasint,omitempty"`
 	ReferenceInputs  []ShelleyTransactionInput  `cbor:"18,keyasint,omitempty"`
@@ -135,12 +135,20 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
+	ret := []TransactionOutput{}
+	for _, output := range b.TxOutputs {
+		ret = append(ret, output)
+	}
+	return ret
+}
+
 type BabbageTransactionOutput struct {
-	Address      Blake2b256                 `cbor:"0,keyasint,omitempty"`
-	Amount       MaryTransactionOutputValue `cbor:"1,keyasint,omitempty"`
-	DatumOption  []cbor.RawMessage          `cbor:"2,keyasint,omitempty"`
-	ScriptRef    cbor.Tag                   `cbor:"3,keyasint,omitempty"`
-	legacyOutput bool
+	OutputAddress []byte                     `cbor:"0,keyasint,omitempty"`
+	OutputAmount  MaryTransactionOutputValue `cbor:"1,keyasint,omitempty"`
+	DatumOption   []cbor.RawMessage          `cbor:"2,keyasint,omitempty"`
+	ScriptRef     cbor.Tag                   `cbor:"3,keyasint,omitempty"`
+	legacyOutput  bool
 }
 
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
@@ -148,13 +156,25 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	var tmpOutput AlonzoTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
 		// Copy from temp legacy object to Babbage format
-		o.Address = tmpOutput.Address
-		o.Amount = tmpOutput.Amount
+		o.OutputAddress = tmpOutput.OutputAddress
+		o.OutputAmount = tmpOutput.OutputAmount
 		o.legacyOutput = true
 	} else {
 		return cbor.DecodeGeneric(cborData, o)
 	}
 	return nil
+}
+
+func (o BabbageTransactionOutput) Address() []byte {
+	return o.OutputAddress
+}
+
+func (o BabbageTransactionOutput) Amount() uint64 {
+	return o.OutputAmount.Amount
+}
+
+func (o BabbageTransactionOutput) Assets() interface{} {
+	return o.OutputAmount.Assets
 }
 
 type BabbageTransactionWitnessSet struct {
