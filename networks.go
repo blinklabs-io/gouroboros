@@ -38,7 +38,7 @@ func NetworkByName(name string) Network {
 }
 
 // NetworkById returns a predefined network by ID
-func NetworkById(id uint) Network {
+func NetworkById(id uint8) Network {
 	for _, network := range networks {
 		if network.Id == id {
 			return network
@@ -59,7 +59,7 @@ func NetworkByNetworkMagic(networkMagic uint32) Network {
 
 // Network represents a Cardano network
 type Network struct {
-	Id                uint
+	Id                uint8
 	Name              string
 	NetworkMagic      uint32
 	PublicRootAddress string

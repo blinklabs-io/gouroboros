@@ -104,11 +104,11 @@ type MaryTransaction struct {
 
 type MaryTransactionOutput struct {
 	cbor.StructAsArray
-	OutputAddress []byte
+	OutputAddress Address
 	OutputAmount  MaryTransactionOutputValue
 }
 
-func (o MaryTransactionOutput) Address() []byte {
+func (o MaryTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
 

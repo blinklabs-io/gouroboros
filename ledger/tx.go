@@ -34,7 +34,7 @@ type TransactionInput interface {
 }
 
 type TransactionOutput interface {
-	Address() []byte
+	Address() Address
 	Amount() uint64
 	Assets() *MultiAsset[uint64]
 }

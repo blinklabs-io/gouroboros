@@ -181,11 +181,11 @@ func (i ShelleyTransactionInput) Index() uint32 {
 
 type ShelleyTransactionOutput struct {
 	cbor.StructAsArray
-	OutputAddress []byte
+	OutputAddress Address
 	OutputAmount  uint64
 }
 
-func (o ShelleyTransactionOutput) Address() []byte {
+func (o ShelleyTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
 
