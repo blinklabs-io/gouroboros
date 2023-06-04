@@ -24,7 +24,20 @@ import (
 type TransactionBody interface {
 	Hash() string
 	Cbor() []byte
-	// TODO: add additional functions for things like inputs, outputs, etc.
+	Inputs() []TransactionInput
+	Outputs() []TransactionOutput
+}
+
+type TransactionInput interface {
+	Id() Blake2b256
+	Index() uint32
+}
+
+type TransactionOutput interface {
+	Address() []byte
+	Amount() uint64
+	// TODO: create more specific type/interface for assets
+	Assets() interface{}
 }
 
 func NewTransactionFromCbor(txType uint, data []byte) (interface{}, error) {

@@ -79,13 +79,21 @@ func (h *MaryBlockHeader) Era() Era {
 
 type MaryTransactionBody struct {
 	AllegraTransactionBody
-	Outputs []MaryTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxOutputs []MaryTransactionOutput `cbor:"1,keyasint,omitempty"`
 	// TODO: further parsing of this field
 	Mint cbor.Value `cbor:"9,keyasint,omitempty"`
 }
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
+}
+
+func (b *MaryTransactionBody) Outputs() []TransactionOutput {
+	ret := []TransactionOutput{}
+	for _, output := range b.TxOutputs {
+		ret = append(ret, output)
+	}
+	return ret
 }
 
 type MaryTransaction struct {
@@ -97,8 +105,20 @@ type MaryTransaction struct {
 
 type MaryTransactionOutput struct {
 	cbor.StructAsArray
-	Address Blake2b256
-	Amount  MaryTransactionOutputValue
+	OutputAddress []byte
+	OutputAmount  MaryTransactionOutputValue
+}
+
+func (o MaryTransactionOutput) Address() []byte {
+	return o.OutputAddress
+}
+
+func (o MaryTransactionOutput) Amount() uint64 {
+	return o.OutputAmount.Amount
+}
+
+func (o MaryTransactionOutput) Assets() interface{} {
+	return o.OutputAmount.Assets
 }
 
 type MaryTransactionOutputValue struct {

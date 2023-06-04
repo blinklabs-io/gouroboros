@@ -119,11 +119,11 @@ func (h *ShelleyBlockHeader) Era() Era {
 
 type ShelleyTransactionBody struct {
 	cbor.DecodeStoreCbor
-	hash    string
-	Inputs  []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
-	Outputs []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
-	Fee     uint64                     `cbor:"2,keyasint,omitempty"`
-	Ttl     uint64                     `cbor:"3,keyasint,omitempty"`
+	hash      string
+	TxInputs  []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
+	TxOutputs []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
+	Fee       uint64                     `cbor:"2,keyasint,omitempty"`
+	Ttl       uint64                     `cbor:"3,keyasint,omitempty"`
 	// TODO: figure out how to parse properly
 	Certificates cbor.RawMessage `cbor:"4,keyasint,omitempty"`
 	// TODO: figure out how to parse this correctly
@@ -149,16 +149,52 @@ func (b *ShelleyTransactionBody) Hash() string {
 	return b.hash
 }
 
+func (b *ShelleyTransactionBody) Inputs() []TransactionInput {
+	ret := []TransactionInput{}
+	for _, input := range b.TxInputs {
+		ret = append(ret, input)
+	}
+	return ret
+}
+
+func (b *ShelleyTransactionBody) Outputs() []TransactionOutput {
+	ret := []TransactionOutput{}
+	for _, output := range b.TxOutputs {
+		ret = append(ret, output)
+	}
+	return ret
+}
+
 type ShelleyTransactionInput struct {
 	cbor.StructAsArray
-	Id    Blake2b256
-	Index uint32
+	TxId        Blake2b256
+	OutputIndex uint32
+}
+
+func (i ShelleyTransactionInput) Id() Blake2b256 {
+	return i.TxId
+}
+
+func (i ShelleyTransactionInput) Index() uint32 {
+	return i.OutputIndex
 }
 
 type ShelleyTransactionOutput struct {
 	cbor.StructAsArray
-	Address Blake2b256
-	Amount  uint64
+	OutputAddress []byte
+	OutputAmount  uint64
+}
+
+func (o ShelleyTransactionOutput) Address() []byte {
+	return o.OutputAddress
+}
+
+func (o ShelleyTransactionOutput) Amount() uint64 {
+	return o.OutputAmount
+}
+
+func (o ShelleyTransactionOutput) Assets() interface{} {
+	return nil
 }
 
 type ShelleyTransactionWitnessSet struct {
