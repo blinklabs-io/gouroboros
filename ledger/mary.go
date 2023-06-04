@@ -80,8 +80,7 @@ func (h *MaryBlockHeader) Era() Era {
 type MaryTransactionBody struct {
 	AllegraTransactionBody
 	TxOutputs []MaryTransactionOutput `cbor:"1,keyasint,omitempty"`
-	// TODO: further parsing of this field
-	Mint cbor.Value `cbor:"9,keyasint,omitempty"`
+	Mint      MultiAsset[int64]       `cbor:"9,keyasint,omitempty"`
 }
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -117,14 +116,15 @@ func (o MaryTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o MaryTransactionOutput) Assets() interface{} {
+func (o MaryTransactionOutput) Assets() *MultiAsset[uint64] {
 	return o.OutputAmount.Assets
 }
 
 type MaryTransactionOutputValue struct {
 	cbor.StructAsArray
 	Amount uint64
-	Assets map[Blake2b224]map[cbor.ByteString]uint64
+	// We use a pointer here to allow it to be nil
+	Assets *MultiAsset[uint64]
 }
 
 func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {

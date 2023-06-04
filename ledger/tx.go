@@ -36,8 +36,7 @@ type TransactionInput interface {
 type TransactionOutput interface {
 	Address() []byte
 	Amount() uint64
-	// TODO: create more specific type/interface for assets
-	Assets() interface{}
+	Assets() *MultiAsset[uint64]
 }
 
 func NewTransactionFromCbor(txType uint, data []byte) (interface{}, error) {

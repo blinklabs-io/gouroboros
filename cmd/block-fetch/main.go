@@ -98,7 +98,19 @@ func main() {
 			for _, output := range tx.Outputs() {
 				fmt.Printf("    Address: %x\n", output.Address())
 				fmt.Printf("    Amount: %d\n", output.Amount())
-				fmt.Printf("    Assets: %#v\n", output.Assets())
+				assets := output.Assets()
+				if assets != nil {
+					fmt.Printf("    Assets:\n")
+					for _, policyId := range assets.Policies() {
+						fmt.Printf("      Policy Id: %s\n", policyId)
+						fmt.Printf("      Policy assets:\n")
+						for _, assetName := range assets.Assets(policyId) {
+							fmt.Printf("        Asset name: %s\n", assetName)
+							fmt.Printf("        Amount: %d\n", assets.Asset(policyId, assetName))
+							fmt.Println("")
+						}
+					}
+				}
 				fmt.Println("")
 			}
 		}

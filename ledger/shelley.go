@@ -193,7 +193,7 @@ func (o ShelleyTransactionOutput) Amount() uint64 {
 	return o.OutputAmount
 }
 
-func (o ShelleyTransactionOutput) Assets() interface{} {
+func (o ShelleyTransactionOutput) Assets() *MultiAsset[uint64] {
 	return nil
 }
 

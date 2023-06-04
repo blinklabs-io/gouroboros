@@ -173,7 +173,7 @@ func (o BabbageTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o BabbageTransactionOutput) Assets() interface{} {
+func (o BabbageTransactionOutput) Assets() *MultiAsset[uint64] {
 	return o.OutputAmount.Assets
 }
 

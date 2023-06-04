@@ -128,7 +128,7 @@ func (o AlonzoTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o AlonzoTransactionOutput) Assets() interface{} {
+func (o AlonzoTransactionOutput) Assets() *MultiAsset[uint64] {
 	return o.OutputAmount.Assets
 }
 
