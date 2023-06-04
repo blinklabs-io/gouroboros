@@ -102,7 +102,7 @@ func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
 type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OutputAddress []byte
+	OutputAddress Address
 	OutputAmount  MaryTransactionOutputValue
 	DatumHash     Blake2b256
 }
@@ -120,7 +120,7 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (o AlonzoTransactionOutput) Address() []byte {
+func (o AlonzoTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
 

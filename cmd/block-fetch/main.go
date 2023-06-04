@@ -96,7 +96,7 @@ func main() {
 			}
 			fmt.Printf("  Outputs:\n")
 			for _, output := range tx.Outputs() {
-				fmt.Printf("    Address: %x\n", output.Address())
+				fmt.Printf("    Address: %s\n", output.Address())
 				fmt.Printf("    Amount: %d\n", output.Amount())
 				assets := output.Assets()
 				if assets != nil {

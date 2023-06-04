@@ -144,7 +144,7 @@ func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
 }
 
 type BabbageTransactionOutput struct {
-	OutputAddress []byte                     `cbor:"0,keyasint,omitempty"`
+	OutputAddress Address                    `cbor:"0,keyasint,omitempty"`
 	OutputAmount  MaryTransactionOutputValue `cbor:"1,keyasint,omitempty"`
 	DatumOption   []cbor.RawMessage          `cbor:"2,keyasint,omitempty"`
 	ScriptRef     cbor.Tag                   `cbor:"3,keyasint,omitempty"`
@@ -165,7 +165,7 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (o BabbageTransactionOutput) Address() []byte {
+func (o BabbageTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
 
