@@ -36,7 +36,7 @@ type TransactionInput interface {
 type TransactionOutput interface {
 	Address() Address
 	Amount() uint64
-	Assets() *MultiAsset[uint64]
+	Assets() *MultiAsset[MultiAssetTypeOutput]
 }
 
 func NewTransactionFromCbor(txType uint, data []byte) (interface{}, error) {

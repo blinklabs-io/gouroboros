@@ -179,10 +179,18 @@ func (i ShelleyTransactionInput) Index() uint32 {
 	return i.OutputIndex
 }
 
+func (i ShelleyTransactionInput) String() string {
+	return fmt.Sprintf("%s#%d", i.TxId, i.OutputIndex)
+}
+
+func (i ShelleyTransactionInput) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + i.String() + "\""), nil
+}
+
 type ShelleyTransactionOutput struct {
 	cbor.StructAsArray
-	OutputAddress Address
-	OutputAmount  uint64
+	OutputAddress Address `json:"address"`
+	OutputAmount  uint64  `json:"amount"`
 }
 
 func (o ShelleyTransactionOutput) Address() Address {
@@ -193,7 +201,7 @@ func (o ShelleyTransactionOutput) Amount() uint64 {
 	return o.OutputAmount
 }
 
-func (o ShelleyTransactionOutput) Assets() *MultiAsset[uint64] {
+func (o ShelleyTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
 	return nil
 }
 
