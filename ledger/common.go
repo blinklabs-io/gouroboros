@@ -202,7 +202,38 @@ type Address struct {
 	networkId      uint8
 	paymentAddress []byte
 	stakingAddress []byte
-	hrp            string
+}
+
+// NewAddress returns an Address based on the provided bech32 address string
+func NewAddress(addr string) (Address, error) {
+	_, data, err := bech32.DecodeNoLimit(addr)
+	if err != nil {
+		return Address{}, err
+	}
+	decoded, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return Address{}, err
+	}
+	a := Address{}
+	a.populateFromBytes(decoded)
+	return a, nil
+}
+
+func (a *Address) populateFromBytes(data []byte) {
+	// Extract header info
+	header := data[0]
+	a.addressType = (header & addressHeaderTypeMask) >> 4
+	a.networkId = header & addressHeaderNetworkMask
+	// Extract payload
+	// NOTE: this is probably incorrect for Byron
+	payload := data[1:]
+	a.paymentAddress = payload[:addressHashSize]
+	a.stakingAddress = payload[addressHashSize:]
+	// Adjust stake addresses
+	if a.addressType == addressTypeNoneKey || a.addressType == addressTypeNoneScript {
+		a.stakingAddress = a.paymentAddress[:]
+		a.paymentAddress = make([]byte, 0)
+	}
 }
 
 func (a *Address) UnmarshalCBOR(data []byte) error {
@@ -211,17 +242,7 @@ func (a *Address) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
-	// Extract header info
-	header := tmpData[0]
-	a.addressType = (header & addressHeaderTypeMask) >> 4
-	a.networkId = header & addressHeaderNetworkMask
-	// Extract payload
-	// NOTE: this is probably incorrect for Byron
-	payload := tmpData[1:]
-	a.paymentAddress = payload[:addressHashSize]
-	a.stakingAddress = payload[addressHashSize:]
-	// Generate human readable part of address for output
-	a.hrp = a.generateHRP()
+	a.populateFromBytes(tmpData)
 	return nil
 }
 
@@ -229,7 +250,20 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(a.Bytes())
 }
 
-func (a *Address) generateHRP() string {
+// StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
+func (a *Address) StakeAddress() *Address {
+	if a.addressType != addressTypeKeyKey {
+		return nil
+	}
+	newAddr := &Address{
+		addressType:    addressTypeNoneKey,
+		networkId:      a.networkId,
+		stakingAddress: a.stakingAddress[:],
+	}
+	return newAddr
+}
+
+func (a Address) generateHRP() string {
 	var ret string
 	if a.addressType == addressTypeNoneKey || a.addressType == addressTypeNoneScript {
 		ret = "stake"
@@ -243,7 +277,8 @@ func (a *Address) generateHRP() string {
 	return ret
 }
 
-func (a *Address) Bytes() []byte {
+// Bytes returns the underlying bytes for the address
+func (a Address) Bytes() []byte {
 	ret := []byte{}
 	ret = append(ret, (byte(a.addressType)<<4)|(byte(a.networkId)&addressHeaderNetworkMask))
 	ret = append(ret, a.paymentAddress...)
@@ -251,6 +286,7 @@ func (a *Address) Bytes() []byte {
 	return ret
 }
 
+// String returns the bech32-encoded version of the address
 func (a Address) String() string {
 	data := a.Bytes()
 	if a.addressType == addressTypeByron {
@@ -263,7 +299,9 @@ func (a Address) String() string {
 		if err != nil {
 			panic(fmt.Sprintf("unexpected error converting data to base32: %s", err))
 		}
-		encoded, err := bech32.Encode(a.hrp, convData)
+		// Generate human readable part of address for output
+		hrp := a.generateHRP()
+		encoded, err := bech32.Encode(hrp, convData)
 		if err != nil {
 			panic(fmt.Sprintf("unexpected error encoding data as bech32: %s", err))
 		}

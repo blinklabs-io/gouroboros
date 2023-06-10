@@ -103,3 +103,63 @@ func TestMultiAssetJson(t *testing.T) {
 		}
 	}
 }
+
+func TestAddressFromBytes(t *testing.T) {
+	testDefs := []struct {
+		addressBytesHex string
+		expectedAddress string
+	}{
+		{
+			addressBytesHex: "11e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec1330952563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2",
+			expectedAddress: "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha",
+		},
+		{
+			addressBytesHex: "013f35615835258addded1c2e169f3a2ab4ae94d606bde030e7947f5184ff5f8e3d43ce6b19ec4197e331e86d0f5e58b02d7a75b5e74cff95d",
+			expectedAddress: "addr1qyln2c2cx5jc4hw768pwz60n5245462dvp4auqcw09rl2xz07huw84puu6cea3qe0ce3apks7hjckqkh5ad4uax0l9ws0q9xty",
+		},
+		{
+			addressBytesHex: "7121bd8c2e0df2fbe92137f78dbaba48f62308e52303049f0d628b6c4c",
+			expectedAddress: "addr1wysmmrpwphe0h6fpxlmcmw46frmzxz89yvpsf8cdv29kcnqsw3vw6",
+		},
+		{
+			addressBytesHex: "61cfe224295a282d69edda5fa8de4f131e2b9cd21a6c9235597fa4ff6b",
+			expectedAddress: "addr1v887yfpftg5z660dmf063hj0zv0zh8xjrfkfyd2e07j076cecha5k",
+		},
+	}
+	for _, testDef := range testDefs {
+		addr := Address{}
+		addr.populateFromBytes(test.DecodeHexString(testDef.addressBytesHex))
+		if addr.String() != testDef.expectedAddress {
+			t.Fatalf("address did not match expected value, got: %s, wanted: %s", addr.String(), testDef.expectedAddress)
+		}
+	}
+}
+
+func TestAddressStakeAddress(t *testing.T) {
+	testDefs := []struct {
+		address              string
+		expectedStakeAddress string
+	}{
+		{
+			address:              "addr1q8fv95d4g2599v3gzq7wnva34ykt4d2zerl0wyke36zml0neqj84x95mgp694rv8gfqy6u67ms38lx30texma843yd5qmvkqcz",
+			expectedStakeAddress: "stake1u9usfr6nz6d5qaz63kr5yszdwd0dcgnlngh4und7n6cjx6qh02h9m",
+		},
+		{
+			address:              "addr1q8uas4shlrnxhd8dnqxesk9hlgmtx65xlmkq9c7acfa2ksvjn4k4w8d7lwnzkf3dkq26kxz3re50h89adduskx08rr6qq2g0f2",
+			expectedStakeAddress: "stake1uxff6m2hrkl0hf3tyckmq9dtrpg3u68mnj7kk7gtr8n33aq5fqskz",
+		},
+		{
+			address:              "addr1q9h4f2vhh5vnqgnsejan3psw6mj3a504fxlqm2eh3262qufesdvfs83ulr22vprsv9mwnt0vgkfwxlflxkns32twqzdqjpq2na",
+			expectedStakeAddress: "stake1uyucxkycrc70349xq3cxzahf4hkytyhr05lntfcg49hqpxsqlrayk",
+		},
+	}
+	for _, testDef := range testDefs {
+		addr, err := NewAddress(testDef.address)
+		if err != nil {
+			t.Fatalf("failed to decode address: %s", err)
+		}
+		if addr.StakeAddress().String() != testDef.expectedStakeAddress {
+			t.Fatalf("stake address did not match expected value, got: %s, wanted: %s", addr.StakeAddress().String(), testDef.expectedStakeAddress)
+		}
+	}
+}
