@@ -15,12 +15,63 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/base58"
 	"github.com/blinklabs-io/gouroboros/internal/bech32"
+
+	"golang.org/x/crypto/blake2b"
 )
+
+type Blake2b256 [32]byte
+
+func NewBlake2b256(data []byte) Blake2b256 {
+	b := Blake2b256{}
+	copy(b[:], data)
+	return b
+}
+
+func (b Blake2b256) String() string {
+	return hex.EncodeToString([]byte(b[:]))
+}
+
+func (b Blake2b256) Bytes() []byte {
+	return b[:]
+}
+
+type Blake2b224 [28]byte
+
+func NewBlake2b224(data []byte) Blake2b224 {
+	b := Blake2b224{}
+	copy(b[:], data)
+	return b
+}
+
+func (b Blake2b224) String() string {
+	return hex.EncodeToString([]byte(b[:]))
+}
+
+func (b Blake2b224) Bytes() []byte {
+	return b[:]
+}
+
+type Blake2b160 [20]byte
+
+func NewBlake2b160(data []byte) Blake2b160 {
+	b := Blake2b160{}
+	copy(b[:], data)
+	return b
+}
+
+func (b Blake2b160) String() string {
+	return hex.EncodeToString([]byte(b[:]))
+}
+
+func (b Blake2b160) Bytes() []byte {
+	return b[:]
+}
 
 // MultiAsset represents a collection of policies, assets, and quantities. It's used for
 // TX outputs (uint64) and TX asset minting (int64 to allow for negative values for burning)
@@ -63,6 +114,40 @@ func (m *MultiAsset[T]) Asset(policyId Blake2b224, assetName []byte) T {
 		return 0
 	}
 	return policy[cbor.ByteString(assetName)]
+}
+
+type AssetFingerprint struct {
+	policyId  []byte
+	assetName []byte
+}
+
+func NewAssetFingerprint(policyId []byte, assetName []byte) AssetFingerprint {
+	return AssetFingerprint{
+		policyId:  policyId,
+		assetName: assetName,
+	}
+}
+
+func (a AssetFingerprint) Hash() Blake2b160 {
+	// We can ignore the error return here because our fixed size/key arguments will
+	// never trigger an error
+	tmpHash, _ := blake2b.New(20, nil)
+	tmpHash.Write(a.policyId)
+	tmpHash.Write(a.assetName)
+	return NewBlake2b160(tmpHash.Sum(nil))
+}
+
+func (a AssetFingerprint) String() string {
+	// Convert data to base32 and encode as bech32
+	convData, err := bech32.ConvertBits(a.Hash().Bytes(), 8, 5, true)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error converting data to base32: %s", err))
+	}
+	encoded, err := bech32.Encode("asset", convData)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error encoding data as bech32: %s", err))
+	}
+	return encoded
 }
 
 const (
