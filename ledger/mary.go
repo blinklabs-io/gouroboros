@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -79,8 +80,8 @@ func (h *MaryBlockHeader) Era() Era {
 
 type MaryTransactionBody struct {
 	AllegraTransactionBody
-	TxOutputs []MaryTransactionOutput `cbor:"1,keyasint,omitempty"`
-	Mint      MultiAsset[int64]       `cbor:"9,keyasint,omitempty"`
+	TxOutputs []MaryTransactionOutput        `cbor:"1,keyasint,omitempty"`
+	Mint      MultiAsset[MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
 }
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -108,6 +109,19 @@ type MaryTransactionOutput struct {
 	OutputAmount  MaryTransactionOutputValue
 }
 
+func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
+	tmpObj := struct {
+		Address Address                           `json:"address"`
+		Amount  uint64                            `json:"amount"`
+		Assets  *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
+	}{
+		Address: o.OutputAddress,
+		Amount:  o.OutputAmount.Amount,
+		Assets:  o.OutputAmount.Assets,
+	}
+	return json.Marshal(&tmpObj)
+}
+
 func (o MaryTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
@@ -116,7 +130,7 @@ func (o MaryTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o MaryTransactionOutput) Assets() *MultiAsset[uint64] {
+func (o MaryTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
@@ -124,7 +138,7 @@ type MaryTransactionOutputValue struct {
 	cbor.StructAsArray
 	Amount uint64
 	// We use a pointer here to allow it to be nil
-	Assets *MultiAsset[uint64]
+	Assets *MultiAsset[MultiAssetTypeOutput]
 }
 
 func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {

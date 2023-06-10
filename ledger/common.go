@@ -16,6 +16,7 @@ package ledger
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -73,10 +74,21 @@ func (b Blake2b160) Bytes() []byte {
 	return b[:]
 }
 
+type MultiAssetTypeOutput = uint64
+type MultiAssetTypeMint = int64
+
 // MultiAsset represents a collection of policies, assets, and quantities. It's used for
 // TX outputs (uint64) and TX asset minting (int64 to allow for negative values for burning)
-type MultiAsset[T int64 | uint64] struct {
+type MultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
 	data map[Blake2b224]map[cbor.ByteString]T
+}
+
+type multiAssetJson[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
+	Name        string `json:"name"`
+	NameHex     string `json:"nameHex"`
+	PolicyId    string `json:"policyId"`
+	Fingerprint string `json:"fingerprint"`
+	Amount      T      `json:"amount"`
 }
 
 func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
@@ -86,6 +98,23 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 
 func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(&(m.data))
+}
+
+func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
+	tmpAssets := []multiAssetJson[T]{}
+	for policyId, policyData := range m.data {
+		for assetName, amount := range policyData {
+			tmpObj := multiAssetJson[T]{
+				Name:        string(assetName),
+				NameHex:     hex.EncodeToString(assetName.Bytes()),
+				Amount:      amount,
+				PolicyId:    policyId.String(),
+				Fingerprint: NewAssetFingerprint(policyId.Bytes(), assetName.Bytes()).String(),
+			}
+			tmpAssets = append(tmpAssets, tmpObj)
+		}
+	}
+	return json.Marshal(&tmpAssets)
 }
 
 func (m *MultiAsset[T]) Policies() []Blake2b224 {
@@ -240,4 +269,8 @@ func (a Address) String() string {
 		}
 		return encoded
 	}
+}
+
+func (a Address) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + a.String() + `"`), nil
 }

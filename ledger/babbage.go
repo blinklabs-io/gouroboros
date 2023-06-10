@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -165,6 +166,19 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
+	tmpObj := struct {
+		Address Address                           `json:"address"`
+		Amount  uint64                            `json:"amount"`
+		Assets  *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
+	}{
+		Address: o.OutputAddress,
+		Amount:  o.OutputAmount.Amount,
+		Assets:  o.OutputAmount.Assets,
+	}
+	return json.Marshal(&tmpObj)
+}
+
 func (o BabbageTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
@@ -173,7 +187,7 @@ func (o BabbageTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o BabbageTransactionOutput) Assets() *MultiAsset[uint64] {
+func (o BabbageTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
