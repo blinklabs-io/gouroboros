@@ -34,18 +34,6 @@ type BlockHeader interface {
 	Cbor() []byte
 }
 
-type Blake2b256 [32]byte
-
-func (b Blake2b256) String() string {
-	return hex.EncodeToString([]byte(b[:]))
-}
-
-type Blake2b224 [28]byte
-
-func (b Blake2b224) String() string {
-	return hex.EncodeToString([]byte(b[:]))
-}
-
 func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 	switch blockType {
 	case BLOCK_TYPE_BYRON_EBB:
