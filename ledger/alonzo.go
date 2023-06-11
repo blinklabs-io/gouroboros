@@ -61,12 +61,23 @@ func (b *AlonzoBlock) Era() Era {
 	return eras[ERA_ID_ALONZO]
 }
 
-func (b *AlonzoBlock) Transactions() []TransactionBody {
-	ret := []TransactionBody{}
-	for _, v := range b.TransactionBodies {
-		// Create temp var since we take the address and the loop var gets reused
-		tmpVal := v
-		ret = append(ret, &tmpVal)
+func (b *AlonzoBlock) Transactions() []Transaction {
+	ret := []Transaction{}
+	for idx := range b.TransactionBodies {
+		tmpTransaction := AlonzoTransaction{
+			Body:       b.TransactionBodies[idx],
+			WitnessSet: b.TransactionWitnessSets[idx],
+			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+		}
+		isValid := true
+		for _, invalidTxIdx := range b.InvalidTransactions {
+			if invalidTxIdx == uint(idx) {
+				isValid = false
+				break
+			}
+		}
+		tmpTransaction.IsValid = isValid
+		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }
@@ -155,10 +166,27 @@ type AlonzoTransactionWitnessSet struct {
 
 type AlonzoTransaction struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	IsValid    bool
-	Metadata   cbor.Value
+	TxMetadata cbor.Value
+}
+
+func (t AlonzoTransaction) Hash() string {
+	return t.Body.Hash()
+}
+
+func (t AlonzoTransaction) Inputs() []TransactionInput {
+	return t.Body.Inputs()
+}
+
+func (t AlonzoTransaction) Outputs() []TransactionOutput {
+	return t.Body.Outputs()
+}
+
+func (t AlonzoTransaction) Metadata() cbor.Value {
+	return t.TxMetadata
 }
 
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {

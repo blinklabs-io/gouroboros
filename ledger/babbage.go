@@ -61,12 +61,23 @@ func (b *BabbageBlock) Era() Era {
 	return eras[ERA_ID_BABBAGE]
 }
 
-func (b *BabbageBlock) Transactions() []TransactionBody {
-	ret := []TransactionBody{}
-	for _, v := range b.TransactionBodies {
-		// Create temp var since we take the address and the loop var gets reused
-		tmpVal := v
-		ret = append(ret, &tmpVal)
+func (b *BabbageBlock) Transactions() []Transaction {
+	ret := []Transaction{}
+	for idx := range b.TransactionBodies {
+		tmpTransaction := BabbageTransaction{
+			Body:       b.TransactionBodies[idx],
+			WitnessSet: b.TransactionWitnessSets[idx],
+			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+		}
+		isValid := true
+		for _, invalidTxIdx := range b.InvalidTransactions {
+			if invalidTxIdx == uint(idx) {
+				isValid = false
+				break
+			}
+		}
+		tmpTransaction.IsValid = isValid
+		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }
@@ -198,10 +209,27 @@ type BabbageTransactionWitnessSet struct {
 
 type BabbageTransaction struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	IsValid    bool
-	Metadata   cbor.Value
+	TxMetadata cbor.Value
+}
+
+func (t BabbageTransaction) Hash() string {
+	return t.Body.Hash()
+}
+
+func (t BabbageTransaction) Inputs() []TransactionInput {
+	return t.Body.Inputs()
+}
+
+func (t BabbageTransaction) Outputs() []TransactionOutput {
+	return t.Body.Outputs()
+}
+
+func (t BabbageTransaction) Metadata() cbor.Value {
+	return t.TxMetadata
 }
 
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {

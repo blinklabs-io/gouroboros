@@ -59,12 +59,15 @@ func (b *ShelleyBlock) Era() Era {
 	return eras[ERA_ID_SHELLEY]
 }
 
-func (b *ShelleyBlock) Transactions() []TransactionBody {
-	ret := []TransactionBody{}
-	for _, v := range b.TransactionBodies {
-		// Create temp var since we take the address and the loop var gets reused
-		tmpVal := v
-		ret = append(ret, &tmpVal)
+func (b *ShelleyBlock) Transactions() []Transaction {
+	ret := []Transaction{}
+	for idx := range b.TransactionBodies {
+		tmpTransaction := ShelleyTransaction{
+			Body:       b.TransactionBodies[idx],
+			WitnessSet: b.TransactionWitnessSets[idx],
+			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+		}
+		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }
@@ -213,9 +216,26 @@ type ShelleyTransactionWitnessSet struct {
 
 type ShelleyTransaction struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
-	Metadata   cbor.Value
+	TxMetadata cbor.Value
+}
+
+func (t ShelleyTransaction) Hash() string {
+	return t.Body.Hash()
+}
+
+func (t ShelleyTransaction) Inputs() []TransactionInput {
+	return t.Body.Inputs()
+}
+
+func (t ShelleyTransaction) Outputs() []TransactionOutput {
+	return t.Body.Outputs()
+}
+
+func (t ShelleyTransaction) Metadata() cbor.Value {
+	return t.TxMetadata
 }
 
 func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {

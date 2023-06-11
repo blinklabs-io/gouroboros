@@ -60,12 +60,15 @@ func (b *MaryBlock) Era() Era {
 	return eras[ERA_ID_MARY]
 }
 
-func (b *MaryBlock) Transactions() []TransactionBody {
-	ret := []TransactionBody{}
-	for _, v := range b.TransactionBodies {
-		// Create temp var since we take the address and the loop var gets reused
-		tmpVal := v
-		ret = append(ret, &tmpVal)
+func (b *MaryBlock) Transactions() []Transaction {
+	ret := []Transaction{}
+	for idx := range b.TransactionBodies {
+		tmpTransaction := MaryTransaction{
+			Body:       b.TransactionBodies[idx],
+			WitnessSet: b.TransactionWitnessSets[idx],
+			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+		}
+		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }
@@ -98,9 +101,26 @@ func (b *MaryTransactionBody) Outputs() []TransactionOutput {
 
 type MaryTransaction struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	Body       MaryTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
-	Metadata   cbor.Value
+	TxMetadata cbor.Value
+}
+
+func (t MaryTransaction) Hash() string {
+	return t.Body.Hash()
+}
+
+func (t MaryTransaction) Inputs() []TransactionInput {
+	return t.Body.Inputs()
+}
+
+func (t MaryTransaction) Outputs() []TransactionOutput {
+	return t.Body.Outputs()
+}
+
+func (t MaryTransaction) Metadata() cbor.Value {
+	return t.TxMetadata
 }
 
 type MaryTransactionOutput struct {
