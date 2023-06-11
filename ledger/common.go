@@ -251,8 +251,8 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 }
 
 // StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
-func (a *Address) StakeAddress() *Address {
-	if a.addressType != addressTypeKeyKey {
+func (a Address) StakeAddress() *Address {
+	if a.addressType != addressTypeKeyKey && a.addressType != addressTypeScriptKey {
 		return nil
 	}
 	newAddr := &Address{
