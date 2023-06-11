@@ -59,12 +59,15 @@ func (b *AllegraBlock) Era() Era {
 	return eras[ERA_ID_ALLEGRA]
 }
 
-func (b *AllegraBlock) Transactions() []TransactionBody {
-	ret := []TransactionBody{}
-	for _, v := range b.TransactionBodies {
-		// Create temp var since we take the address and the loop var gets reused
-		tmpVal := v
-		ret = append(ret, &tmpVal)
+func (b *AllegraBlock) Transactions() []Transaction {
+	ret := []Transaction{}
+	for idx := range b.TransactionBodies {
+		tmpTransaction := AllegraTransaction{
+			Body:       b.TransactionBodies[idx],
+			WitnessSet: b.TransactionWitnessSets[idx],
+			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+		}
+		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }
@@ -88,9 +91,26 @@ func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 type AllegraTransaction struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	Body       AllegraTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
-	Metadata   cbor.Value
+	TxMetadata cbor.Value
+}
+
+func (t AllegraTransaction) Hash() string {
+	return t.Body.Hash()
+}
+
+func (t AllegraTransaction) Inputs() []TransactionInput {
+	return t.Body.Inputs()
+}
+
+func (t AllegraTransaction) Outputs() []TransactionOutput {
+	return t.Body.Outputs()
+}
+
+func (t AllegraTransaction) Metadata() cbor.Value {
+	return t.TxMetadata
 }
 
 func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {

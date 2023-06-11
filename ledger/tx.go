@@ -18,8 +18,14 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"golang.org/x/crypto/blake2b"
 )
+
+type Transaction interface {
+	TransactionBody
+	Metadata() cbor.Value
+}
 
 type TransactionBody interface {
 	Hash() string

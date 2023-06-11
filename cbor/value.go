@@ -18,9 +18,13 @@ package cbor
 // cannot be easily represented in Go (such as maps with bytestring keys)
 type Value struct {
 	Value interface{}
+	// We store this as a string so that the type is still hashable for use as map keys
+	cborData string
 }
 
 func (v *Value) UnmarshalCBOR(data []byte) error {
+	// Save the original CBOR
+	v.cborData = string(data[:])
 	cborType := data[0] & CBOR_TYPE_MASK
 	switch cborType {
 	case CBOR_TYPE_MAP:
@@ -83,4 +87,8 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 		v.Value = tmpValue
 	}
 	return nil
+}
+
+func (v Value) Cbor() []byte {
+	return []byte(v.cborData)
 }
