@@ -71,7 +71,7 @@ func (e *GenericError) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpValue); err != nil {
 		return err
 	}
-	e.Value = tmpValue.Value
+	e.Value = tmpValue.Value()
 	e.Cbor = data
 	return nil
 }
@@ -330,7 +330,7 @@ type OutsideValidityIntervalUtxo struct {
 }
 
 func (e *OutsideValidityIntervalUtxo) Error() string {
-	validityInterval := e.ValidityInterval.Value.([]interface{})
+	validityInterval := e.ValidityInterval.Value().([]interface{})
 	return fmt.Sprintf("OutsideValidityIntervalUtxo (ValidityInterval { invalidBefore = %v, invalidHereafter = %v }, Slot %d)", validityInterval[0], validityInterval[1], e.Slot)
 }
 
@@ -389,10 +389,12 @@ func (e *OutputTooSmallUtxo) Error() string {
 	return ret
 }
 
-type TxOut cbor.Value
+type TxOut struct {
+	cbor.Value
+}
 
 func (t *TxOut) String() string {
-	return fmt.Sprintf("TxOut (%v)", t.Value)
+	return fmt.Sprintf("TxOut (%v)", t.Value.Value())
 }
 
 type UtxosFailure struct {
@@ -411,7 +413,7 @@ type WrongNetwork struct {
 }
 
 func (e *WrongNetwork) Error() string {
-	return fmt.Sprintf("WrongNetwork (ExpectedNetworkId %d, Addresses (%v))", e.ExpectedNetworkId, e.Addresses.Value)
+	return fmt.Sprintf("WrongNetwork (ExpectedNetworkId %d, Addresses (%v))", e.ExpectedNetworkId, e.Addresses.Value())
 }
 
 type WrongNetworkWithdrawal struct {
@@ -421,7 +423,7 @@ type WrongNetworkWithdrawal struct {
 }
 
 func (e *WrongNetworkWithdrawal) Error() string {
-	return fmt.Sprintf("WrongNetworkWithdrawal (ExpectedNetworkId %d, RewardAccounts (%v))", e.ExpectedNetworkId, e.RewardAccounts.Value)
+	return fmt.Sprintf("WrongNetworkWithdrawal (ExpectedNetworkId %d, RewardAccounts (%v))", e.ExpectedNetworkId, e.RewardAccounts.Value())
 }
 
 type OutputBootAddrAttrsTooBig struct {
@@ -488,7 +490,7 @@ type ScriptsNotPaidUtxo struct {
 }
 
 func (e *ScriptsNotPaidUtxo) Error() string {
-	return fmt.Sprintf("ScriptsNotPaidUtxo (%v)", e.Value.Value)
+	return fmt.Sprintf("ScriptsNotPaidUtxo (%v)", e.Value.Value())
 }
 
 type ExUnitsTooBigUtxo struct {
@@ -508,7 +510,7 @@ type CollateralContainsNonADA struct {
 }
 
 func (e *CollateralContainsNonADA) Error() string {
-	return fmt.Sprintf("CollateralContainsNonADA (%v)", e.Value.Value)
+	return fmt.Sprintf("CollateralContainsNonADA (%v)", e.Value.Value())
 }
 
 type WrongNetworkInTxBody struct {

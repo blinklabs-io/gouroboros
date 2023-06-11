@@ -30,6 +30,10 @@ const (
 
 	// Max value able to be stored in a single byte without type prefix
 	CBOR_MAX_UINT_SIMPLE uint8 = 0x17
+
+	// Useful tag numbers
+	CborTagSet = 258
+	CborTagMap = 259
 )
 
 // Create an alias for RawMessage for convenience
