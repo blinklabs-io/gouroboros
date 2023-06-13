@@ -1,35 +1,144 @@
-# gouroboros
-
 <div align="center">
-    <img src="./assets/gOuroboros-logo-with-text-horizontal.png" alt="gOurobros Logo" width="640">
+  <img src="./assets/gOuroboros-logo-with-text-horizontal.png" alt="gOurobros Logo" width="640">
+  <br>
+  <img alt="GitHub" src="https://img.shields.io/github/license/blinklabs-io/gouroboros">
+  <a href="https://pkg.go.dev/github.com/blinklabs-io/gouroboros"><img src="https://pkg.go.dev/badge/github.com/blinklabs-io/gouroboros.svg" alt="Go Reference"></a>
+  <a href="https://discord.gg/5fPRZnX4qW"><img src="https://img.shields.io/badge/Discord-7289DA?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
 </div>
 
-Go implementation of the Cardano Ouroboros network protocol
+## Introduction
 
-This is loosely based on the [official Haskell implementation](https://github.com/input-output-hk/ouroboros-network)
+gOuroboros is a powerful and versatile framework for building Go apps that interact with the Cardano blockchain. Quickly and easily
+write Go apps that communicate with Cardano nodes or manage blocks/transactions. Sync the blockchain from a local or remote node,
+query a local node for protocol parameters or UTxOs by address, and much more.
 
-NOTE: this library is under heavily development, and the interface should not be considered stable until it reaches `v1.0.0`
+## Features
 
-## Implementation status
+This is not an exhaustive list of existing and planned features, but it covers the bulk of it.
 
-The Ouroboros protocol consists of a simple multiplexer protocol and various mini-protocols that run on top of it.
-This makes it easy to implement only parts of the protocol without negatively affecting usability of this library.
-
-The multiplexer and handshake mini-protocol are "fully" working. The focus will be on the node-to-client (local) protocols,
-but the node-to-node protocols will also be implemented in time.
-
-### Mini-protocols
-
-| Name | Status |
-| --- | --- |
-| Handshake | Implemented |
-| ChainSync | Implemented |
-| BlockFetch | Implemented |
-| TxSubmission2 | Not Implemented |
-| LocalTxSubmission | Implemented |
-| LocalStateQuery | Partly Implemented |
-| KeepAlive | Implemented |
-| LocalTxMonitor | Implemented |
+- [ ] Ouroboros support
+  - [ ] Muxer
+    - [X] support for multiple mini-protocols over single connection
+    - [X] support for separate initiator and responder instance for each protocol
+    - [ ] support for buffer limits for each mini-protocol
+  - [ ] Protocols
+    - [ ] Handshake
+      - [X] Client support
+      - [ ] Server support
+    - [X] Keepalive
+      - [X] Client support
+      - [X] Server support
+    - [ ] ChainSync
+      - [X] Client support
+      - [ ] Server support
+    - [ ] BlockFetch
+      - [X] Client support
+      - [ ] Server support
+    - [ ] TxSubmission
+      - [ ] Client support
+      - [ ] Server support
+    - [ ] PeerSharing
+      - [ ] Client support
+      - [ ] Server support
+    - [ ] LocalTxSubmission
+      - [X] Client support
+      - [ ] Server support
+    - LocalTxMonitor
+      - [X] Client support
+      - [ ] Server support
+    - LocalStateQuery
+      - [X] Client support
+      - [ ] Server support
+      - [ ] Queries
+        - [X] System start
+        - [X] Current era
+        - [X] Chain tip
+        - [X] Era history
+        - [X] Current protocol parameters
+        - [X] Stake distribution
+        - [ ] Non-myopic member rewards
+        - [ ] Proposed protocol parameter updates
+        - [ ] UTxOs by address
+        - [ ] UTxO whole
+        - [ ] UTxO by TxIn
+        - [ ] Debug epoch state
+        - [ ] Filtered delegations and reward accounts
+        - [ ] Genesis config
+        - [ ] Reward provenance
+        - [ ] Stake pools
+        - [ ] Stake pool params
+        - [ ] Reward info pools
+        - [ ] Pool state
+        - [ ] Stake snapshots
+        - [ ] Pool distribution
+- [ ] Ledger
+  - [ ] Eras
+    - [ ] Byron
+      - [X] Blocks
+      - [X] Transactions
+      - [ ] TX inputs
+      - [ ] TX outputs
+    - [ ] Shelley
+      - [X] Blocks
+      - [X] Transactions
+      - [X] TX inputs
+      - [X] TX outputs
+    - [ ] Allegra
+      - [X] Blocks
+      - [X] Transactions
+      - [X] TX inputs
+      - [X] TX outputs
+    - [ ] Mary
+      - [X] Blocks
+      - [X] Transactions
+      - [X] TX inputs
+      - [X] TX outputs
+    - [ ] Alonzo
+      - [X] Blocks
+      - [X] Transactions
+      - [X] TX inputs
+      - [X] TX outputs
+    - [ ] Babbage
+      - [X] Blocks
+      - [X] Transactions
+      - [X] TX inputs
+      - [X] TX outputs
+    - [ ] Conway
+      - [ ] Blocks
+      - [ ] Transactions
+      - [ ] TX inputs
+      - [ ] TX outputs
+  - [ ] Transaction attributes
+    - [X] Inputs
+    - [X] Outputs
+    - [X] Metadata
+    - [ ] Fees
+    - [ ] TTL
+    - [ ] Certificates
+    - [ ] Staking reward withdrawls
+    - [ ] Protocol parameter updates
+    - [ ] Auxiliary data hash
+    - [ ] Validity interval start
+    - [ ] Mint operations
+    - [ ] Script data hash
+    - [ ] Collateral inputs
+    - [ ] Required signers
+    - [ ] Collateral return
+    - [ ] Total collateral
+    - [ ] Reference inputs
+- [ ] Testing
+  - [X] Test framework for mocking Ouroboros conversations
+  - [ ] CBOR deserialization and serialization
+    - [X] Protocol messages
+    - [ ] Ledger
+      - [ ] Block parsing
+      - [ ] Transaction parsing
+- [ ] Misc
+  - [X] Address handling
+    - [X] Decode from bech32
+    - [X] Encode as bech32
+    - [X] Deserialize from CBOR
+    - [X] Retrieve staking key
 
 ## Testing
 
