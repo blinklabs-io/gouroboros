@@ -114,6 +114,14 @@ func main() {
 						}
 					}
 				}
+				if output.Datum() != nil {
+					datumValue, err := output.Datum().Decode()
+					if err != nil {
+						fmt.Printf("    Datum (hex): %x\n", output.Datum().Cbor())
+					} else {
+						fmt.Printf("    Datum: %#v\n", datumValue.Value)
+					}
+				}
 				fmt.Println("")
 			}
 		}

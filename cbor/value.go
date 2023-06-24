@@ -92,3 +92,20 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 func (v Value) Cbor() []byte {
 	return []byte(v.cborData)
 }
+
+type LazyValue struct {
+	*Value
+}
+
+func (l *LazyValue) UnmarshalCBOR(data []byte) error {
+	if l.Value == nil {
+		l.Value = &Value{}
+	}
+	l.cborData = string(data[:])
+	return nil
+}
+
+func (l *LazyValue) Decode() (*Value, error) {
+	err := l.Value.UnmarshalCBOR([]byte(l.cborData))
+	return l.Value, err
+}

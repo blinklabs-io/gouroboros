@@ -154,6 +154,14 @@ func (o MaryTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
+func (o MaryTransactionOutput) DatumHash() *Blake2b256 {
+	return nil
+}
+
+func (o MaryTransactionOutput) Datum() *cbor.LazyValue {
+	return nil
+}
+
 type MaryTransactionOutputValue struct {
 	cbor.StructAsArray
 	Amount uint64

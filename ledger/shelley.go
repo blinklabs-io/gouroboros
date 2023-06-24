@@ -208,6 +208,14 @@ func (o ShelleyTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
 	return nil
 }
 
+func (o ShelleyTransactionOutput) DatumHash() *Blake2b256 {
+	return nil
+}
+
+func (o ShelleyTransactionOutput) Datum() *cbor.LazyValue {
+	return nil
+}
+
 type ShelleyTransactionWitnessSet struct {
 	VkeyWitnesses      []interface{} `cbor:"0,keyasint,omitempty"`
 	MultisigScripts    []interface{} `cbor:"1,keyasint,omitempty"`

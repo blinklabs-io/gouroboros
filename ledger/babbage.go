@@ -155,11 +155,69 @@ func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
 	return ret
 }
 
+const (
+	DatumOptionTypeHash = 0
+	DatumOptionTypeData = 1
+)
+
+type BabbageTransactionOutputDatumOption struct {
+	hash *Blake2b256
+	data *cbor.LazyValue
+}
+
+func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(data []byte) error {
+	datumOptionType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	switch datumOptionType {
+	case DatumOptionTypeHash:
+		var tmpDatumHash struct {
+			cbor.StructAsArray
+			Type int
+			Hash Blake2b256
+		}
+		if _, err := cbor.Decode(data, &tmpDatumHash); err != nil {
+			return err
+		}
+		d.hash = &(tmpDatumHash.Hash)
+	case DatumOptionTypeData:
+		var tmpDatumData struct {
+			cbor.StructAsArray
+			Type     int
+			DataCbor []byte
+		}
+		if _, err := cbor.Decode(data, &tmpDatumData); err != nil {
+			return err
+		}
+		var datumValue cbor.LazyValue
+		if _, err := cbor.Decode(tmpDatumData.DataCbor, &datumValue); err != nil {
+			return err
+		}
+		d.data = &(datumValue)
+	default:
+		return fmt.Errorf("unsupported datum option type: %d", datumOptionType)
+	}
+	return nil
+}
+
+func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
+	var tmpObj []interface{}
+	if d.hash != nil {
+		tmpObj = []interface{}{DatumOptionTypeHash, d.hash}
+	} else if d.data != nil {
+		tmpObj = []interface{}{DatumOptionTypeData, cbor.Tag{Number: 24, Content: d.data.Cbor()}}
+	} else {
+		return nil, fmt.Errorf("unknown datum option type")
+	}
+	return cbor.Encode(&tmpObj)
+}
+
 type BabbageTransactionOutput struct {
-	OutputAddress Address                    `cbor:"0,keyasint,omitempty"`
-	OutputAmount  MaryTransactionOutputValue `cbor:"1,keyasint,omitempty"`
-	DatumOption   []cbor.RawMessage          `cbor:"2,keyasint,omitempty"`
-	ScriptRef     cbor.Tag                   `cbor:"3,keyasint,omitempty"`
+	OutputAddress Address                              `cbor:"0,keyasint,omitempty"`
+	OutputAmount  MaryTransactionOutputValue           `cbor:"1,keyasint,omitempty"`
+	DatumOption   *BabbageTransactionOutputDatumOption `cbor:"2,keyasint,omitempty"`
+	ScriptRef     *cbor.Tag                            `cbor:"3,keyasint,omitempty"`
 	legacyOutput  bool
 }
 
@@ -200,6 +258,20 @@ func (o BabbageTransactionOutput) Amount() uint64 {
 
 func (o BabbageTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
+}
+
+func (o BabbageTransactionOutput) DatumHash() *Blake2b256 {
+	if o.DatumOption != nil {
+		return o.DatumOption.hash
+	}
+	return nil
+}
+
+func (o BabbageTransactionOutput) Datum() *cbor.LazyValue {
+	if o.DatumOption != nil {
+		return o.DatumOption.data
+	}
+	return nil
 }
 
 type BabbageTransactionWitnessSet struct {
