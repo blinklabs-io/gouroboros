@@ -114,9 +114,9 @@ func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
 type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OutputAddress Address
-	OutputAmount  MaryTransactionOutputValue
-	DatumHash     Blake2b256
+	OutputAddress     Address
+	OutputAmount      MaryTransactionOutputValue
+	TxOutputDatumHash *Blake2b256
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
@@ -155,6 +155,14 @@ func (o AlonzoTransactionOutput) Amount() uint64 {
 
 func (o AlonzoTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
+}
+
+func (o AlonzoTransactionOutput) DatumHash() *Blake2b256 {
+	return o.TxOutputDatumHash
+}
+
+func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
+	return nil
 }
 
 type AlonzoTransactionWitnessSet struct {
