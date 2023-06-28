@@ -43,10 +43,10 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [ ] LocalTxSubmission
       - [X] Client support
       - [ ] Server support
-    - LocalTxMonitor
+    - [ ] LocalTxMonitor
       - [X] Client support
       - [ ] Server support
-    - LocalStateQuery
+    - [ ] LocalStateQuery
       - [X] Client support
       - [ ] Server support
       - [ ] Queries
