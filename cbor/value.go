@@ -14,6 +14,10 @@
 
 package cbor
 
+import (
+	"fmt"
+)
+
 // Helpful wrapper for parsing arbitrary CBOR data which may contain types that
 // cannot be easily represented in Go (such as maps with bytestring keys)
 type Value struct {
@@ -22,12 +26,20 @@ type Value struct {
 	cborData string
 }
 
-func (v *Value) UnmarshalCBOR(data []byte) error {
+func (v *Value) UnmarshalCBOR(data []byte) (err error) {
 	// Save the original CBOR
 	v.cborData = string(data[:])
 	cborType := data[0] & CBOR_TYPE_MASK
 	switch cborType {
 	case CBOR_TYPE_MAP:
+		// There are certain types that cannot be used as map keys in Go but are valid in CBOR. Trying to
+		// parse CBOR containing a map with keys of one of those types will cause a panic. We setup this
+		// deferred function to recover from a possible panic and return an error
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("decode failure, probably due to type unsupported by Go: %v", r)
+			}
+		}()
 		tmpValue := map[Value]Value{}
 		if _, err := Decode(data, &tmpValue); err != nil {
 			return err
