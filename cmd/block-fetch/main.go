@@ -16,6 +16,7 @@ package main
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -88,8 +89,8 @@ func main() {
 		fmt.Printf("\nTransactions:\n")
 		for _, tx := range block.Transactions() {
 			fmt.Printf("  Hash: %s\n", tx.Hash())
-			if tx.Metadata().Value != nil {
-				fmt.Printf("  Metadata:\n    %#v (%x)\n", tx.Metadata().Value, tx.Metadata().Cbor())
+			if tx.Metadata().Value() != nil {
+				fmt.Printf("  Metadata:\n    %#v (%x)\n", tx.Metadata().Value(), tx.Metadata().Cbor())
 			}
 			fmt.Printf("  Inputs:\n")
 			for _, input := range tx.Inputs() {
@@ -115,11 +116,11 @@ func main() {
 					}
 				}
 				if output.Datum() != nil {
-					datumValue, err := output.Datum().Decode()
+					jsonData, err := json.Marshal(output.Datum())
 					if err != nil {
 						fmt.Printf("    Datum (hex): %x\n", output.Datum().Cbor())
 					} else {
-						fmt.Printf("    Datum: %#v\n", datumValue.Value)
+						fmt.Printf("    Datum: %s\n", jsonData)
 					}
 				}
 				fmt.Println("")

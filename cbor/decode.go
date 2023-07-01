@@ -64,7 +64,7 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 		return 0, err
 	}
 	// Make sure that the value is actually numeric
-	switch v := tmp.Value.([]interface{})[0].(type) {
+	switch v := tmp.Value().([]interface{})[0].(type) {
 	// The upstream CBOR library uses uint64 by default for numeric values
 	case uint64:
 		return int(v), nil
