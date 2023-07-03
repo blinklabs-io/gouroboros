@@ -100,15 +100,42 @@ func (h *ByronMainBlockHeader) Era() Era {
 	return eras[ERA_ID_BYRON]
 }
 
-// TODO: flesh this out
-type ByronTransactionBody interface{}
+type ByronTransaction struct {
+	cbor.DecodeStoreCbor
+	// TODO: flesh these out
+	TxInputs   []any
+	TxOutputs  []any
+	Attributes cbor.Value
+}
 
-// TODO: flesh this out
-type ByronTransaction interface{}
+func (t *ByronTransaction) Hash() string {
+	// TODO
+	return ""
+}
+
+func (t *ByronTransaction) Inputs() []TransactionInput {
+	// TODO
+	return nil
+}
+
+func (t *ByronTransaction) Outputs() []TransactionOutput {
+	// TODO
+	return nil
+}
+
+func (t *ByronTransaction) Metadata() cbor.Value {
+	return t.Attributes
+}
 
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
-	TxPayload  []ByronTransactionBody
+	// TODO: split this to its own type
+	TxPayload []struct {
+		cbor.StructAsArray
+		Transaction ByronTransaction
+		// TODO: figure out what this field actually is
+		Twit []cbor.Value
+	}
 	SscPayload cbor.Value
 	DlgPayload []interface{}
 	UpdPayload []interface{}
@@ -255,14 +282,6 @@ func NewByronMainBlockHeaderFromCbor(data []byte) (*ByronMainBlockHeader, error)
 		return nil, fmt.Errorf("Byron main block header decode error: %s", err)
 	}
 	return &byronMainBlockHeader, nil
-}
-
-func NewByronTransactionBodyFromCbor(data []byte) (*ByronTransactionBody, error) {
-	var byronTx ByronTransactionBody
-	if _, err := cbor.Decode(data, &byronTx); err != nil {
-		return nil, fmt.Errorf("Byron transaction body decode error: %s", err)
-	}
-	return &byronTx, nil
 }
 
 func NewByronTransactionFromCbor(data []byte) (*ByronTransaction, error) {

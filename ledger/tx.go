@@ -47,7 +47,7 @@ type TransactionOutput interface {
 	DatumHash() *Blake2b256
 }
 
-func NewTransactionFromCbor(txType uint, data []byte) (interface{}, error) {
+func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 	switch txType {
 	case TX_TYPE_BYRON:
 		return NewByronTransactionFromCbor(data)
@@ -65,10 +65,10 @@ func NewTransactionFromCbor(txType uint, data []byte) (interface{}, error) {
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
 
-func NewTransactionBodyFromCbor(txType uint, data []byte) (interface{}, error) {
+func NewTransactionBodyFromCbor(txType uint, data []byte) (TransactionBody, error) {
 	switch txType {
 	case TX_TYPE_BYRON:
-		return NewByronTransactionBodyFromCbor(data)
+		return nil, fmt.Errorf("Byron transactions do not contain a body")
 	case TX_TYPE_SHELLEY:
 		return NewShelleyTransactionBodyFromCbor(data)
 	case TX_TYPE_ALLEGRA:
