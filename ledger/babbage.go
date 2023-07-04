@@ -237,13 +237,23 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 
 func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address Address                           `json:"address"`
-		Amount  uint64                            `json:"amount"`
-		Assets  *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
+		Address   Address                           `json:"address"`
+		Amount    uint64                            `json:"amount"`
+		Assets    *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
+		Datum     *cbor.LazyValue                   `json:"datum,omitempty"`
+		DatumHash string                            `json:"datumHash,omitempty"`
 	}{
 		Address: o.OutputAddress,
 		Amount:  o.OutputAmount.Amount,
 		Assets:  o.OutputAmount.Assets,
+	}
+	if o.DatumOption != nil {
+		if o.DatumOption.hash != nil {
+			tmpObj.DatumHash = o.DatumOption.hash.String()
+		}
+		if o.DatumOption.data != nil {
+			tmpObj.Datum = o.DatumOption.data
+		}
 	}
 	return json.Marshal(&tmpObj)
 }

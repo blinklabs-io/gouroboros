@@ -134,13 +134,17 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 
 func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address Address                           `json:"address"`
-		Amount  uint64                            `json:"amount"`
-		Assets  *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
+		Address   Address                           `json:"address"`
+		Amount    uint64                            `json:"amount"`
+		Assets    *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
+		DatumHash string                            `json:"datumHash,omitempty"`
 	}{
 		Address: o.OutputAddress,
 		Amount:  o.OutputAmount.Amount,
 		Assets:  o.OutputAmount.Assets,
+	}
+	if o.TxOutputDatumHash != nil {
+		tmpObj.DatumHash = o.TxOutputDatumHash.String()
 	}
 	return json.Marshal(&tmpObj)
 }
