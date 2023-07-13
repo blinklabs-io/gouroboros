@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"sort"
 	"strings"
 )
@@ -94,7 +95,17 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 					value:       &newValue,
 				}
 			} else {
-				return fmt.Errorf("unsupported CBOR tag: %d", tmpTag.Number)
+				// Fall back to standard CBOR tag parsing for our supported types
+				var tmpTagDecode interface{}
+				if _, err := Decode(data, &tmpTagDecode); err != nil {
+					return err
+				}
+				switch tmpTagDecode.(type) {
+				case int, uint, int64, uint64, bool, big.Int:
+					v.value = tmpTagDecode
+				default:
+					return fmt.Errorf("unsupported CBOR tag number: %d", tmpTag.Number)
+				}
 			}
 		}
 	default:
@@ -218,6 +229,12 @@ func generateAstJson(obj interface{}) ([]byte, error) {
 		return []byte(tmpJson), nil
 	case Constructor:
 		return json.Marshal(obj)
+	case big.Int:
+		tmpJson := fmt.Sprintf(
+			`{"int":%s}`,
+			v.String(),
+		)
+		return []byte(tmpJson), nil
 	case int, uint, uint64, int64:
 		tmpJsonObj["int"] = v
 	case bool:
