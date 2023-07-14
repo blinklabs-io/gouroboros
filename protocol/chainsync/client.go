@@ -195,6 +195,10 @@ func (c *Client) GetAvailableBlockRange(intersectPoints []common.Point) (common.
 func (c *Client) Sync(intersectPoints []common.Point) error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	// Use origin if no intersect points were specified
+	if len(intersectPoints) == 0 {
+		intersectPoints = []common.Point{common.NewPointOrigin()}
+	}
 	msg := NewMsgFindIntersect(intersectPoints)
 	if err := c.SendMessage(msg); err != nil {
 		return err
