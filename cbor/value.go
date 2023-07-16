@@ -252,6 +252,14 @@ type Constructor struct {
 	value       *Value
 }
 
+func (v Constructor) Constructor() uint {
+	return v.constructor
+}
+
+func (v Constructor) Fields() []any {
+	return v.value.Value().([]any)
+}
+
 func (v Constructor) MarshalJSON() ([]byte, error) {
 	tmpJson := fmt.Sprintf(`{"constructor":%d,"fields":[`, v.constructor)
 	tmpList := [][]byte{}
