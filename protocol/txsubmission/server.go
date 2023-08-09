@@ -16,6 +16,7 @@ package txsubmission
 
 import (
 	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -29,8 +30,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config: cfg,
 	}
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -38,7 +39,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
-		InitialState:        STATE_INIT,
+		InitialState:        stateInit,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
@@ -47,16 +48,16 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_REPLY_TX_IDS:
+	case MessageTypeReplyTxIds:
 		err = s.handleReplyTxIds(msg)
-	case MESSAGE_TYPE_REPLY_TXS:
+	case MessageTypeReplyTxs:
 		err = s.handleReplyTxs(msg)
-	case MESSAGE_TYPE_DONE:
+	case MessageTypeDone:
 		err = s.handleDone()
-	case MESSAGE_TYPE_INIT:
+	case MessageTypeInit:
 		err = s.handleInit()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }

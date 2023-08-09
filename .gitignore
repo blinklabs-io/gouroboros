@@ -8,6 +8,7 @@
 /tx-monitor
 /block-fetch
 /peer-sharing
+/tx-submission
 
 # Test binary, built with `go test -c`
 *.test

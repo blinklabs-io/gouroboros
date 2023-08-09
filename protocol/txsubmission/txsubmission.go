@@ -21,35 +21,35 @@ import (
 )
 
 const (
-	PROTOCOL_NAME        = "tx-submission"
-	PROTOCOL_ID   uint16 = 4
+	ProtocolName        = "tx-submission"
+	ProtocolId   uint16 = 4
 )
 
 var (
-	STATE_INIT               = protocol.NewState(1, "Init")
-	STATE_IDLE               = protocol.NewState(2, "Idle")
-	STATE_TX_IDS_BLOCKING    = protocol.NewState(3, "TxIdsBlocking")
-	STATE_TX_IDS_NONBLOCKING = protocol.NewState(4, "TxIdsNonBlocking")
-	STATE_TXS                = protocol.NewState(5, "Txs")
-	STATE_DONE               = protocol.NewState(6, "Done")
+	stateInit             = protocol.NewState(1, "Init")
+	stateIdle             = protocol.NewState(2, "Idle")
+	stateTxIdsBlocking    = protocol.NewState(3, "TxIdsBlocking")
+	stateTxIdsNonblocking = protocol.NewState(4, "TxIdsNonBlocking")
+	stateTxs              = protocol.NewState(5, "Txs")
+	stateDone             = protocol.NewState(6, "Done")
 )
 
 var StateMap = protocol.StateMap{
-	STATE_INIT: protocol.StateMapEntry{
+	stateInit: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_INIT,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeInit,
+				NewState: stateIdle,
 			},
 		},
 	},
-	STATE_IDLE: protocol.StateMapEntry{
+	stateIdle: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_REQUEST_TX_IDS,
-				NewState: STATE_TX_IDS_BLOCKING,
+				MsgType:  MessageTypeRequestTxIds,
+				NewState: stateTxIdsBlocking,
 				// Match if blocking
 				MatchFunc: func(msg protocol.Message) bool {
 					msgRequestTxIds := msg.(*MsgRequestTxIds)
@@ -57,8 +57,8 @@ var StateMap = protocol.StateMap{
 				},
 			},
 			{
-				MsgType:  MESSAGE_TYPE_REQUEST_TX_IDS,
-				NewState: STATE_TX_IDS_NONBLOCKING,
+				MsgType:  MessageTypeRequestTxIds,
+				NewState: stateTxIdsNonblocking,
 				// Metch if non-blocking
 				MatchFunc: func(msg protocol.Message) bool {
 					msgRequestTxIds := msg.(*MsgRequestTxIds)
@@ -66,43 +66,43 @@ var StateMap = protocol.StateMap{
 				},
 			},
 			{
-				MsgType:  MESSAGE_TYPE_REQUEST_TXS,
-				NewState: STATE_TXS,
+				MsgType:  MessageTypeRequestTxs,
+				NewState: stateTxs,
 			},
 		},
 	},
-	STATE_TX_IDS_BLOCKING: protocol.StateMapEntry{
+	stateTxIdsBlocking: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_REPLY_TX_IDS,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeReplyTxIds,
+				NewState: stateIdle,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_DONE,
-				NewState: STATE_DONE,
+				MsgType:  MessageTypeDone,
+				NewState: stateDone,
 			},
 		},
 	},
-	STATE_TX_IDS_NONBLOCKING: protocol.StateMapEntry{
+	stateTxIdsNonblocking: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_REPLY_TX_IDS,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeReplyTxIds,
+				NewState: stateIdle,
 			},
 		},
 	},
-	STATE_TXS: protocol.StateMapEntry{
+	stateTxs: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_REPLY_TXS,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeReplyTxs,
+				NewState: stateIdle,
 			},
 		},
 	},
-	STATE_DONE: protocol.StateMapEntry{
+	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
 }
@@ -123,9 +123,9 @@ type Config struct {
 }
 
 // Callback function types
-type RequestTxIdsFunc func(bool, uint16, uint16) error
+type RequestTxIdsFunc func(bool, uint16, uint16) ([]TxIdAndSize, error)
 type ReplyTxIdsFunc func(interface{}) error
-type RequestTxsFunc func(interface{}) error
+type RequestTxsFunc func([]TxId) ([]TxBody, error)
 type ReplyTxsFunc func(interface{}) error
 type DoneFunc func() error
 type InitFunc func() error
