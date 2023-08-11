@@ -180,21 +180,21 @@ func (a AssetFingerprint) String() string {
 }
 
 const (
-	addressHeaderTypeMask    = 0xF0
-	addressHeaderNetworkMask = 0x0F
-	addressHashSize          = 28
+	AddressHeaderTypeMask    = 0xF0
+	AddressHeaderNetworkMask = 0x0F
+	AddressHashSize          = 28
 
-	addressTypeKeyKey        = 0b0000
-	addressTypeScriptKey     = 0b0001
-	addressTypeKeyScript     = 0b0010
-	addressTypeScriptScript  = 0b0011
-	addressTypeKeyPointer    = 0b0100
-	addressTypeScriptPointer = 0b0101
-	addressTypeKeyNone       = 0b0110
-	addressTypeScriptNone    = 0b0111
-	addressTypeByron         = 0b1000
-	addressTypeNoneKey       = 0b1110
-	addressTypeNoneScript    = 0b1111
+	AddressTypeKeyKey        = 0b0000
+	AddressTypeScriptKey     = 0b0001
+	AddressTypeKeyScript     = 0b0010
+	AddressTypeScriptScript  = 0b0011
+	AddressTypeKeyPointer    = 0b0100
+	AddressTypeScriptPointer = 0b0101
+	AddressTypeKeyNone       = 0b0110
+	AddressTypeScriptNone    = 0b0111
+	AddressTypeByron         = 0b1000
+	AddressTypeNoneKey       = 0b1110
+	AddressTypeNoneScript    = 0b1111
 )
 
 type Address struct {
@@ -219,18 +219,28 @@ func NewAddress(addr string) (Address, error) {
 	return a, nil
 }
 
+// NewAddressFromParts returns an Address based on the individual parts of the address that are provided
+func NewAddressFromParts(addrType uint8, networkId uint8, paymentAddr []byte, stakingAddr []byte) Address {
+	return Address{
+		addressType:    addrType,
+		networkId:      networkId,
+		paymentAddress: paymentAddr,
+		stakingAddress: stakingAddr,
+	}
+}
+
 func (a *Address) populateFromBytes(data []byte) {
 	// Extract header info
 	header := data[0]
-	a.addressType = (header & addressHeaderTypeMask) >> 4
-	a.networkId = header & addressHeaderNetworkMask
+	a.addressType = (header & AddressHeaderTypeMask) >> 4
+	a.networkId = header & AddressHeaderNetworkMask
 	// Extract payload
 	// NOTE: this is probably incorrect for Byron
 	payload := data[1:]
-	a.paymentAddress = payload[:addressHashSize]
-	a.stakingAddress = payload[addressHashSize:]
+	a.paymentAddress = payload[:AddressHashSize]
+	a.stakingAddress = payload[AddressHashSize:]
 	// Adjust stake addresses
-	if a.addressType == addressTypeNoneKey || a.addressType == addressTypeNoneScript {
+	if a.addressType == AddressTypeNoneKey || a.addressType == AddressTypeNoneScript {
 		a.stakingAddress = a.paymentAddress[:]
 		a.paymentAddress = make([]byte, 0)
 	}
@@ -252,11 +262,11 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 
 // StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
 func (a Address) StakeAddress() *Address {
-	if a.addressType != addressTypeKeyKey && a.addressType != addressTypeScriptKey {
+	if a.addressType != AddressTypeKeyKey && a.addressType != AddressTypeScriptKey {
 		return nil
 	}
 	newAddr := &Address{
-		addressType:    addressTypeNoneKey,
+		addressType:    AddressTypeNoneKey,
 		networkId:      a.networkId,
 		stakingAddress: a.stakingAddress[:],
 	}
@@ -265,7 +275,7 @@ func (a Address) StakeAddress() *Address {
 
 func (a Address) generateHRP() string {
 	var ret string
-	if a.addressType == addressTypeNoneKey || a.addressType == addressTypeNoneScript {
+	if a.addressType == AddressTypeNoneKey || a.addressType == AddressTypeNoneScript {
 		ret = "stake"
 	} else {
 		ret = "addr"
@@ -280,7 +290,7 @@ func (a Address) generateHRP() string {
 // Bytes returns the underlying bytes for the address
 func (a Address) Bytes() []byte {
 	ret := []byte{}
-	ret = append(ret, (byte(a.addressType)<<4)|(byte(a.networkId)&addressHeaderNetworkMask))
+	ret = append(ret, (byte(a.addressType)<<4)|(byte(a.networkId)&AddressHeaderNetworkMask))
 	ret = append(ret, a.paymentAddress...)
 	ret = append(ret, a.stakingAddress...)
 	return ret
@@ -289,7 +299,7 @@ func (a Address) Bytes() []byte {
 // String returns the bech32-encoded version of the address
 func (a Address) String() string {
 	data := a.Bytes()
-	if a.addressType == addressTypeByron {
+	if a.addressType == AddressTypeByron {
 		// Encode data to base58
 		encoded := base58.Encode(data)
 		return encoded
