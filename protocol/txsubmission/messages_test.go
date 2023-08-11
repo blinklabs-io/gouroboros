@@ -16,10 +16,11 @@ package txsubmission
 
 import (
 	"encoding/hex"
-	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/protocol"
 	"reflect"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type testDefinition struct {
@@ -33,12 +34,12 @@ var tests = []testDefinition{
 	{
 		CborHex:     "8104",
 		Message:     NewMsgDone(),
-		MessageType: MESSAGE_TYPE_DONE,
+		MessageType: MessageTypeDone,
 	},
 	{
 		CborHex:     "8106",
 		Message:     NewMsgInit(),
-		MessageType: MESSAGE_TYPE_INIT,
+		MessageType: MessageTypeInit,
 	},
 }
 

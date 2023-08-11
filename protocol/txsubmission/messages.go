@@ -16,37 +16,38 @@ package txsubmission
 
 import (
 	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 const (
-	MESSAGE_TYPE_REQUEST_TX_IDS = 0
-	MESSAGE_TYPE_REPLY_TX_IDS   = 1
-	MESSAGE_TYPE_REQUEST_TXS    = 2
-	MESSAGE_TYPE_REPLY_TXS      = 3
-	MESSAGE_TYPE_DONE           = 4
-	MESSAGE_TYPE_INIT           = 6
+	MessageTypeRequestTxIds = 0
+	MessageTypeReplyTxIds   = 1
+	MessageTypeRequestTxs   = 2
+	MessageTypeReplyTxs     = 3
+	MessageTypeDone         = 4
+	MessageTypeInit         = 6
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
-	case MESSAGE_TYPE_REQUEST_TX_IDS:
+	case MessageTypeRequestTxIds:
 		ret = &MsgRequestTxIds{}
-	case MESSAGE_TYPE_REPLY_TX_IDS:
+	case MessageTypeReplyTxIds:
 		ret = &MsgReplyTxIds{}
-	case MESSAGE_TYPE_REQUEST_TXS:
+	case MessageTypeRequestTxs:
 		ret = &MsgRequestTxs{}
-	case MESSAGE_TYPE_REPLY_TXS:
+	case MessageTypeReplyTxs:
 		ret = &MsgReplyTxs{}
-	case MESSAGE_TYPE_DONE:
+	case MessageTypeDone:
 		ret = &MsgDone{}
-	case MESSAGE_TYPE_INIT:
+	case MessageTypeInit:
 		ret = &MsgInit{}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return nil, fmt.Errorf("%s: decode error: %s", ProtocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -65,7 +66,7 @@ type MsgRequestTxIds struct {
 func NewMsgRequestTxIds(blocking bool, ack uint16, req uint16) *MsgRequestTxIds {
 	m := &MsgRequestTxIds{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REQUEST_TX_IDS,
+			MessageType: MessageTypeRequestTxIds,
 		},
 		Blocking: blocking,
 		Ack:      ack,
@@ -82,7 +83,7 @@ type MsgReplyTxIds struct {
 func NewMsgReplyTxIds(txIds []TxIdAndSize) *MsgReplyTxIds {
 	m := &MsgReplyTxIds{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REPLY_TX_IDS,
+			MessageType: MessageTypeReplyTxIds,
 		},
 		TxIds: txIds,
 	}
@@ -97,7 +98,7 @@ type MsgRequestTxs struct {
 func NewMsgRequestTxs(txIds []TxId) *MsgRequestTxs {
 	m := &MsgRequestTxs{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REQUEST_TXS,
+			MessageType: MessageTypeRequestTxs,
 		},
 		TxIds: txIds,
 	}
@@ -112,7 +113,7 @@ type MsgReplyTxs struct {
 func NewMsgReplyTxs(txs []TxBody) *MsgReplyTxs {
 	m := &MsgReplyTxs{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REPLY_TXS,
+			MessageType: MessageTypeReplyTxs,
 		},
 		Txs: txs,
 	}
@@ -126,7 +127,7 @@ type MsgDone struct {
 func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_DONE,
+			MessageType: MessageTypeDone,
 		},
 	}
 	return m
@@ -139,7 +140,7 @@ type MsgInit struct {
 func NewMsgInit() *MsgInit {
 	m := &MsgInit{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_INIT,
+			MessageType: MessageTypeInit,
 		},
 	}
 	return m

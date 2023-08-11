@@ -16,12 +16,15 @@ package txsubmission
 
 import (
 	"fmt"
+	"sync"
+
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type Client struct {
 	*protocol.Protocol
-	config *Config
+	config   *Config
+	onceInit sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -34,14 +37,14 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[STATE_IDLE]; ok {
+	if entry, ok := stateMap[stateIdle]; ok {
 		entry.Timeout = c.config.IdleTimeout
-		stateMap[STATE_IDLE] = entry
+		stateMap[stateIdle] = entry
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -49,21 +52,30 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
-		InitialState:        STATE_INIT,
+		InitialState:        stateInit,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
 }
 
+// Init tells the server to begin asking us for transactions
+func (c *Client) Init() {
+	c.onceInit.Do(func() {
+		// Send our Init message
+		msg := NewMsgInit()
+		_ = c.SendMessage(msg)
+	})
+}
+
 func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_REQUEST_TX_IDS:
+	case MessageTypeRequestTxIds:
 		err = c.handleRequestTxIds(msg)
-	case MESSAGE_TYPE_REQUEST_TXS:
+	case MessageTypeRequestTxs:
 		err = c.handleRequestTxs(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }
@@ -74,7 +86,15 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	}
 	msgRequestTxIds := msg.(*MsgRequestTxIds)
 	// Call the user callback function
-	return c.config.RequestTxIdsFunc(msgRequestTxIds.Blocking, msgRequestTxIds.Ack, msgRequestTxIds.Req)
+	txIds, err := c.config.RequestTxIdsFunc(msgRequestTxIds.Blocking, msgRequestTxIds.Ack, msgRequestTxIds.Req)
+	if err != nil {
+		return err
+	}
+	resp := NewMsgReplyTxIds(txIds)
+	if err := c.SendMessage(resp); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Client) handleRequestTxs(msg protocol.Message) error {
@@ -83,5 +103,13 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 	}
 	msgRequestTxs := msg.(*MsgRequestTxs)
 	// Call the user callback function
-	return c.config.RequestTxsFunc(msgRequestTxs.TxIds)
+	txs, err := c.config.RequestTxsFunc(msgRequestTxs.TxIds)
+	if err != nil {
+		return err
+	}
+	resp := NewMsgReplyTxs(txs)
+	if err := c.SendMessage(resp); err != nil {
+		return err
+	}
+	return nil
 }
