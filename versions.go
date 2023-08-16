@@ -26,6 +26,7 @@ type ProtocolVersionNtC struct {
 	EnableMaryEra                bool
 	EnableAlonzoEra              bool
 	EnableBabbageEra             bool
+	EnableConwayEra              bool
 	EnableLocalTxMonitorProtocol bool
 }
 
@@ -83,6 +84,26 @@ var protocolVersionMapNtC = map[uint16]ProtocolVersionNtC{
 		EnableBabbageEra:             true,
 		EnableLocalTxMonitorProtocol: true,
 	},
+	// added query param to handshake
+	15: ProtocolVersionNtC{
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableLocalTxMonitorProtocol: true,
+	},
+	16: ProtocolVersionNtC{
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableLocalTxMonitorProtocol: true,
+	},
 }
 
 type ProtocolVersionNtN struct {
@@ -94,6 +115,7 @@ type ProtocolVersionNtN struct {
 	EnableMaryEra             bool
 	EnableAlonzoEra           bool
 	EnableBabbageEra          bool
+	EnableConwayEra           bool
 	EnableFullDuplex          bool
 	EnablePeerSharingProtocol bool
 }
@@ -133,19 +155,27 @@ var protocolVersionMapNtN = map[uint16]ProtocolVersionNtN{
 		EnableBabbageEra:        true,
 		EnableFullDuplex:        true,
 	},
-	// NOTE: this protocol version seems to still be in flux, so it's disabled for now
-	/*
-		11: ProtocolVersionNtN{
-			EnableShelleyEra:          true,
-			EnableKeepAliveProtocol:   true,
-			EnableAllegraEra:          true,
-			EnableMaryEra:             true,
-			EnableAlonzoEra:           true,
-			EnableBabbageEra:          true,
-			EnableFullDuplex:          true,
-			EnablePeerSharingProtocol: true,
-		},
-	*/
+	11: ProtocolVersionNtN{
+		EnableShelleyEra:          true,
+		EnableKeepAliveProtocol:   true,
+		EnableAllegraEra:          true,
+		EnableMaryEra:             true,
+		EnableAlonzoEra:           true,
+		EnableBabbageEra:          true,
+		EnableFullDuplex:          true,
+		EnablePeerSharingProtocol: true,
+	},
+	12: ProtocolVersionNtN{
+		EnableShelleyEra:          true,
+		EnableKeepAliveProtocol:   true,
+		EnableAllegraEra:          true,
+		EnableMaryEra:             true,
+		EnableAlonzoEra:           true,
+		EnableBabbageEra:          true,
+		EnableConwayEra:           true,
+		EnableFullDuplex:          true,
+		EnablePeerSharingProtocol: true,
+	},
 }
 
 // GetProtocolVersionNtC returns a list of supported NtC protocol versions

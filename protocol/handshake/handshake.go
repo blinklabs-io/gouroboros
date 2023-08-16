@@ -29,16 +29,25 @@ const (
 
 // Diffusion modes
 const (
-	DiffusionModeInitiatorOnly         = false
-	DiffusionModeInitiatorAndResponder = true
+	DiffusionModeInitiatorOnly         = true
+	DiffusionModeInitiatorAndResponder = false
 )
 
 // Peer sharing modes
 const (
 	PeerSharingModeNoPeerSharing      = 0
-	PeerSharingModePeerSharingPublic  = 1
-	PeerSharingModePeerSharingPrivate = 2
+	PeerSharingModePeerSharingPrivate = 1
+	PeerSharingModePeerSharingPublic  = 2
 )
+
+// Query modes
+const (
+	QueryModeDisabled = false
+	QueryModeEnabled  = true
+)
+
+// NtC version numbers have the 15th bit set
+const NodeToClientVersionOffset = 0x8000
 
 var (
 	statePropose = protocol.NewState(1, "Propose")
