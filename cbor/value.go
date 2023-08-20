@@ -138,11 +138,13 @@ func (v Value) MarshalJSON() ([]byte, error) {
 			hex.EncodeToString([]byte(v.cborData)),
 			astJson,
 		)
-	} else {
+	} else if v.cborData != "" {
 		tmpJson = fmt.Sprintf(
 			`{"cbor":"%s"}`,
 			hex.EncodeToString([]byte(v.cborData)),
 		)
+	} else {
+		tmpJson = `{}`
 	}
 	return []byte(tmpJson), nil
 }
