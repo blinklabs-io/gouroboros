@@ -37,7 +37,7 @@ type BabbageBlock struct {
 	Header                 *BabbageBlockHeader
 	TransactionBodies      []BabbageTransactionBody
 	TransactionWitnessSets []BabbageTransactionWitnessSet
-	TransactionMetadataSet map[uint]cbor.Value
+	TransactionMetadataSet map[uint]*cbor.Value
 	InvalidTransactions    []uint
 }
 
@@ -295,7 +295,7 @@ type BabbageTransaction struct {
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	IsValid    bool
-	TxMetadata cbor.Value
+	TxMetadata *cbor.Value
 }
 
 func (t BabbageTransaction) Hash() string {
@@ -310,7 +310,7 @@ func (t BabbageTransaction) Outputs() []TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t BabbageTransaction) Metadata() cbor.Value {
+func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
 

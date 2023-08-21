@@ -105,7 +105,7 @@ type ByronTransaction struct {
 	// TODO: flesh these out
 	TxInputs   []any
 	TxOutputs  []any
-	Attributes cbor.Value
+	Attributes *cbor.Value
 }
 
 func (t *ByronTransaction) Hash() string {
@@ -123,7 +123,7 @@ func (t *ByronTransaction) Outputs() []TransactionOutput {
 	return nil
 }
 
-func (t *ByronTransaction) Metadata() cbor.Value {
+func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }
 

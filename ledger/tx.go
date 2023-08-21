@@ -24,7 +24,7 @@ import (
 
 type Transaction interface {
 	TransactionBody
-	Metadata() cbor.Value
+	Metadata() *cbor.Value
 }
 
 type TransactionBody interface {

@@ -89,7 +89,7 @@ func main() {
 		fmt.Printf("\nTransactions:\n")
 		for _, tx := range block.Transactions() {
 			fmt.Printf("  Hash: %s\n", tx.Hash())
-			if tx.Metadata().Value() != nil {
+			if tx.Metadata() != nil {
 				fmt.Printf("  Metadata:\n    %#v (%x)\n", tx.Metadata().Value(), tx.Metadata().Cbor())
 			}
 			fmt.Printf("  Inputs:\n")
