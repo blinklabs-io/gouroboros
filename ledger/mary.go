@@ -37,7 +37,7 @@ type MaryBlock struct {
 	Header                 *MaryBlockHeader
 	TransactionBodies      []MaryTransactionBody
 	TransactionWitnessSets []ShelleyTransactionWitnessSet
-	TransactionMetadataSet map[uint]cbor.Value
+	TransactionMetadataSet map[uint]*cbor.Value
 }
 
 func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
@@ -104,7 +104,7 @@ type MaryTransaction struct {
 	cbor.DecodeStoreCbor
 	Body       MaryTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
-	TxMetadata cbor.Value
+	TxMetadata *cbor.Value
 }
 
 func (t MaryTransaction) Hash() string {
@@ -119,7 +119,7 @@ func (t MaryTransaction) Outputs() []TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t MaryTransaction) Metadata() cbor.Value {
+func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
 
