@@ -1,0 +1,40 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency: ${{ github.ref }}
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      RELEASE_ID: ${{ steps.create-release.outputs.result }}
+    steps:
+      - run: "echo \"RELEASE_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
+      - uses: actions/github-script@v6
+        id: create-release
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            try {
+              const response = await github.rest.repos.createRelease({
+                generate_release_notes: true,
+                name: process.env.RELEASE_TAG,
+                owner: context.repo.owner,
+                prerelease: false,
+                repo: context.repo.repo,
+                tag_name: process.env.RELEASE_TAG,
+              });
+
+              return response.data.id;
+            } catch (error) {
+              core.setFailed(error.message);
+            }
+
+      # This updates the documentation on pkg.go.dev and the latest version available via the Go module proxy
+      - name: Pull new module version
+        uses: andrewslotin/go-proxy-pull-action@v1.0.3
