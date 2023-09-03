@@ -65,3 +65,27 @@ func EncodeGeneric(src interface{}) ([]byte, error) {
 	}
 	return cborData, nil
 }
+
+type IndefLengthList struct {
+	Items []any
+}
+
+func (i *IndefLengthList) MarshalCBOR() ([]byte, error) {
+	ret := []byte{
+		// Start indefinite-length list
+		0x9f,
+	}
+	for _, item := range i.Items {
+		data, err := Encode(&item)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, data...)
+	}
+	ret = append(
+		ret,
+		// End indefinite length array
+		byte(0xff),
+	)
+	return ret, nil
+}

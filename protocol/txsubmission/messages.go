@@ -80,6 +80,20 @@ type MsgReplyTxIds struct {
 	TxIds []TxIdAndSize
 }
 
+func (m *MsgReplyTxIds) MarshalCBOR() ([]byte, error) {
+	items := []any{}
+	for _, txId := range m.TxIds {
+		items = append(items, txId)
+	}
+	tmp := []any{
+		MessageTypeReplyTxIds,
+		cbor.IndefLengthList{
+			Items: items,
+		},
+	}
+	return cbor.Encode(tmp)
+}
+
 func NewMsgReplyTxIds(txIds []TxIdAndSize) *MsgReplyTxIds {
 	m := &MsgReplyTxIds{
 		MessageBase: protocol.MessageBase{
@@ -108,6 +122,20 @@ func NewMsgRequestTxs(txIds []TxId) *MsgRequestTxs {
 type MsgReplyTxs struct {
 	protocol.MessageBase
 	Txs []TxBody
+}
+
+func (m *MsgReplyTxs) MarshalCBOR() ([]byte, error) {
+	items := []any{}
+	for _, tx := range m.Txs {
+		items = append(items, tx)
+	}
+	tmp := []any{
+		MessageTypeReplyTxs,
+		cbor.IndefLengthList{
+			Items: items,
+		},
+	}
+	return cbor.Encode(tmp)
 }
 
 func NewMsgReplyTxs(txs []TxBody) *MsgReplyTxs {
@@ -147,16 +175,31 @@ func NewMsgInit() *MsgInit {
 }
 
 type TxId struct {
+	cbor.StructAsArray
 	EraId uint16
 	TxId  [32]byte
 }
 
 type TxBody struct {
+	cbor.StructAsArray
 	EraId  uint16
 	TxBody []byte
 }
 
+func (t *TxBody) MarshalCBOR() ([]byte, error) {
+	tmp := []any{
+		t.EraId,
+		cbor.Tag{
+			// Wrapped CBOR
+			Number:  24,
+			Content: t.TxBody,
+		},
+	}
+	return cbor.Encode(&tmp)
+}
+
 type TxIdAndSize struct {
+	cbor.StructAsArray
 	TxId TxId
 	Size uint32
 }
