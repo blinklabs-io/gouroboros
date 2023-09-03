@@ -45,6 +45,7 @@ type TransactionOutput interface {
 	Assets() *MultiAsset[MultiAssetTypeOutput]
 	Datum() *cbor.LazyValue
 	DatumHash() *Blake2b256
+	Cbor() []byte
 }
 
 func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {

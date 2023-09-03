@@ -106,20 +106,23 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
 	ret := []TransactionOutput{}
 	for _, output := range b.TxOutputs {
-		ret = append(ret, output)
+		output := output
+		ret = append(ret, &output)
 	}
 	return ret
 }
 
 type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
-	cbor.DecodeStoreCbor
+	cborData          []byte
 	OutputAddress     Address
 	OutputAmount      MaryTransactionOutputValue
 	TxOutputDatumHash *Blake2b256
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	// Save original CBOR
+	o.cborData = cborData[:]
 	// Try to parse as Mary output first
 	var tmpOutput MaryTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -127,7 +130,7 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.OutputAddress = tmpOutput.OutputAddress
 		o.OutputAmount = tmpOutput.OutputAmount
 	} else {
-		return o.UnmarshalCbor(cborData, o)
+		return cbor.DecodeGeneric(cborData, o)
 	}
 	return nil
 }
@@ -147,6 +150,10 @@ func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 		tmpObj.DatumHash = o.TxOutputDatumHash.String()
 	}
 	return json.Marshal(&tmpObj)
+}
+
+func (o *AlonzoTransactionOutput) Cbor() []byte {
+	return o.cborData
 }
 
 func (o AlonzoTransactionOutput) Address() Address {

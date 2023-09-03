@@ -163,7 +163,8 @@ func (b *ShelleyTransactionBody) Inputs() []TransactionInput {
 func (b *ShelleyTransactionBody) Outputs() []TransactionOutput {
 	ret := []TransactionOutput{}
 	for _, output := range b.TxOutputs {
-		ret = append(ret, output)
+		output := output
+		ret = append(ret, &output)
 	}
 	return ret
 }
@@ -192,6 +193,7 @@ func (i ShelleyTransactionInput) MarshalJSON() ([]byte, error) {
 
 type ShelleyTransactionOutput struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	OutputAddress Address `json:"address"`
 	OutputAmount  uint64  `json:"amount"`
 }

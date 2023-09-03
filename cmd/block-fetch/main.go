@@ -100,6 +100,7 @@ func main() {
 			}
 			fmt.Printf("  Outputs:\n")
 			for _, output := range tx.Outputs() {
+				fmt.Printf("    Cbor (hex): %x\n", output.Cbor())
 				fmt.Printf("    Address: %s\n", output.Address())
 				fmt.Printf("    Amount: %d\n", output.Amount())
 				assets := output.Assets()

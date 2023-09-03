@@ -150,7 +150,8 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
 	ret := []TransactionOutput{}
 	for _, output := range b.TxOutputs {
-		ret = append(ret, output)
+		output := output
+		ret = append(ret, &output)
 	}
 	return ret
 }
@@ -214,6 +215,7 @@ func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
 }
 
 type BabbageTransactionOutput struct {
+	cborData      []byte
 	OutputAddress Address                              `cbor:"0,keyasint,omitempty"`
 	OutputAmount  MaryTransactionOutputValue           `cbor:"1,keyasint,omitempty"`
 	DatumOption   *BabbageTransactionOutputDatumOption `cbor:"2,keyasint,omitempty"`
@@ -222,6 +224,8 @@ type BabbageTransactionOutput struct {
 }
 
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	// Save original CBOR
+	o.cborData = cborData[:]
 	// Try to parse as legacy output first
 	var tmpOutput AlonzoTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -256,6 +260,10 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(&tmpObj)
+}
+
+func (o *BabbageTransactionOutput) Cbor() []byte {
+	return o.cborData
 }
 
 func (o BabbageTransactionOutput) Address() Address {

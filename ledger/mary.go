@@ -94,7 +94,8 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b *MaryTransactionBody) Outputs() []TransactionOutput {
 	ret := []TransactionOutput{}
 	for _, output := range b.TxOutputs {
-		ret = append(ret, output)
+		output := output
+		ret = append(ret, &output)
 	}
 	return ret
 }
@@ -125,6 +126,7 @@ func (t MaryTransaction) Metadata() *cbor.Value {
 
 type MaryTransactionOutput struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	OutputAddress Address
 	OutputAmount  MaryTransactionOutputValue
 }
