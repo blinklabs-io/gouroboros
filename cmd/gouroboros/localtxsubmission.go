@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
@@ -82,7 +81,7 @@ func testLocalTxSubmission(f *globalFlags) {
 
 	var txBytes []byte
 	if localTxSubmissionFlags.txFile != "" {
-		txData, err := ioutil.ReadFile(localTxSubmissionFlags.txFile)
+		txData, err := os.ReadFile(localTxSubmissionFlags.txFile)
 		if err != nil {
 			fmt.Printf("Failed to load transaction file: %s\n", err)
 			os.Exit(1)
@@ -101,7 +100,7 @@ func testLocalTxSubmission(f *globalFlags) {
 			os.Exit(1)
 		}
 	} else {
-		txBytes, err = ioutil.ReadFile(localTxSubmissionFlags.rawTxFile)
+		txBytes, err = os.ReadFile(localTxSubmissionFlags.rawTxFile)
 		if err != nil {
 			fmt.Printf("Failed to load transaction file: %s\n", err)
 			os.Exit(1)

@@ -21,7 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
-	"io/ioutil"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -47,7 +47,7 @@ func hexDecode(data string) []byte {
 
 // Helper function to allow inline reading of a file without capturing the error
 func readFile(path string) []byte {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		panic(fmt.Sprintf("error reading file: %s", err))
 	}

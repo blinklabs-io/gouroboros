@@ -18,7 +18,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -79,7 +78,7 @@ func main() {
 
 	// Read the transaction file
 	if f.txFile != "" {
-		txData, err := ioutil.ReadFile(f.txFile)
+		txData, err := os.ReadFile(f.txFile)
 		if err != nil {
 			fmt.Printf("Failed to load transaction file: %s\n", err)
 			os.Exit(1)
@@ -98,7 +97,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else if f.rawTxFile != "" {
-		txBytes, err = ioutil.ReadFile(f.rawTxFile)
+		txBytes, err = os.ReadFile(f.rawTxFile)
 		if err != nil {
 			fmt.Printf("Failed to load transaction file: %s\n", err)
 			os.Exit(1)
