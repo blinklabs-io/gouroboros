@@ -16,34 +16,23 @@ package cbor
 
 import (
 	"encoding/hex"
+
+	_cbor "github.com/fxamacker/cbor/v2"
 )
 
 // Wrapper for bytestrings that allows them to be used as keys for a map
-// We use a string because []byte isn't comparable, which means it can't be used as a map key
-type ByteString string
+// This was originally a full implementation, but now it just extends the upstream
+// type
+type ByteString struct {
+	_cbor.ByteString
+}
 
 func NewByteString(data []byte) ByteString {
-	bs := ByteString(data)
+	bs := ByteString{ByteString: _cbor.ByteString(data)}
 	return bs
 }
 
-func (bs *ByteString) UnmarshalCBOR(data []byte) error {
-	tmpValue := []byte{}
-	if _, err := Decode(data, &tmpValue); err != nil {
-		return err
-	}
-	*bs = ByteString(tmpValue)
-	return nil
-}
-
-func (bs ByteString) MarshalCBOR() ([]byte, error) {
-	return Encode([]byte(bs))
-}
-
-func (bs ByteString) Bytes() []byte {
-	return []byte(bs)
-}
-
+// String returns a hex-encoded representation of the bytestring
 func (bs ByteString) String() string {
-	return hex.EncodeToString([]byte(bs))
+	return hex.EncodeToString(bs.Bytes())
 }

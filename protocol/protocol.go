@@ -330,7 +330,7 @@ func (p *Protocol) recvLoop() {
 		var tmpMsg []cbor.RawMessage
 		numBytesRead, err := cbor.Decode(p.recvBuffer.Bytes(), &tmpMsg)
 		if err != nil {
-			if err == io.EOF && p.recvBuffer.Len() > 0 {
+			if err == io.ErrUnexpectedEOF && p.recvBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
 				p.recvReadyChan <- true
