@@ -27,7 +27,7 @@ func createMaryTransactionOutputValueAssets(policyId []byte, assetName []byte, a
 	data := map[Blake2b224]map[cbor.ByteString]uint64{}
 	policyIdKey := Blake2b224{}
 	copy(policyIdKey[:], policyId)
-	assetKey := cbor.ByteString(assetName)
+	assetKey := cbor.NewByteString(assetName)
 	data[policyIdKey] = map[cbor.ByteString]uint64{
 		assetKey: amount,
 	}

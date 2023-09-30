@@ -105,7 +105,7 @@ func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
 	for policyId, policyData := range m.data {
 		for assetName, amount := range policyData {
 			tmpObj := multiAssetJson[T]{
-				Name:        string(assetName),
+				Name:        string(assetName.Bytes()),
 				NameHex:     hex.EncodeToString(assetName.Bytes()),
 				Amount:      amount,
 				PolicyId:    policyId.String(),
@@ -142,7 +142,7 @@ func (m *MultiAsset[T]) Asset(policyId Blake2b224, assetName []byte) T {
 	if !ok {
 		return 0
 	}
-	return policy[cbor.ByteString(assetName)]
+	return policy[cbor.NewByteString(assetName)]
 }
 
 type AssetFingerprint struct {

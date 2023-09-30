@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"reflect"
 	"strings"
@@ -43,7 +44,7 @@ var testDefs = []struct {
 	{
 		cborHex:             "81",
 		expectedObject:      nil,
-		expectedDecodeError: fmt.Errorf("EOF"),
+		expectedDecodeError: io.ErrUnexpectedEOF,
 	},
 	// Invalid map key type
 	{

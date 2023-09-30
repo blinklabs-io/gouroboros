@@ -3,7 +3,7 @@ module github.com/blinklabs-io/gouroboros
 go 1.20
 
 require (
-	github.com/fxamacker/cbor/v2 v2.4.0
+	github.com/fxamacker/cbor/v2 v2.5.0
 	github.com/jinzhu/copier v0.4.0
 	golang.org/x/crypto v0.13.0
 )
