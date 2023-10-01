@@ -60,6 +60,12 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 			return err
 		}
 		switch tmpTag.Number {
+		case CborTagRational:
+			var tmpRat []int64
+			if _, err := Decode(tmpTag.Content, &tmpRat); err != nil {
+				return err
+			}
+			v.value = big.NewRat(tmpRat[0], tmpRat[1])
 		case CborTagSet:
 			return v.processArray(tmpTag.Content)
 		case CborTagMap:
