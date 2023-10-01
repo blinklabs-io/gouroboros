@@ -4,6 +4,8 @@ on:
   schedule:
     # Run on Monday at 1am UTC
     - cron: '0 1 * * 1'
+  # Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   mainnet:
