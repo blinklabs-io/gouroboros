@@ -60,6 +60,8 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 			return err
 		}
 		switch tmpTag.Number {
+		case CborTagCbor:
+			v.value = tmpTag.Content
 		case CborTagRational:
 			var tmpRat []int64
 			if _, err := Decode(tmpTag.Content, &tmpRat); err != nil {
