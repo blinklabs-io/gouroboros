@@ -32,6 +32,7 @@ const (
 	CBOR_MAX_UINT_SIMPLE uint8 = 0x17
 
 	// Useful tag numbers
+	CborTagCbor     = 24
 	CborTagRational = 30
 	CborTagSet      = 258
 	CborTagMap      = 259
