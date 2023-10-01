@@ -101,6 +101,7 @@ func (h *ByronMainBlockHeader) Era() Era {
 }
 
 type ByronTransaction struct {
+	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	// TODO: flesh these out
 	TxInputs   []any
