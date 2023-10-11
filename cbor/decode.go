@@ -53,8 +53,8 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	if listLen == 0 {
 		return 0, fmt.Errorf("cannot return first item from empty list")
 	}
-	if listLen < int(CBOR_MAX_UINT_SIMPLE) {
-		if cborData[1] <= CBOR_MAX_UINT_SIMPLE {
+	if listLen < int(CborMaxUintSimple) {
+		if cborData[1] <= CborMaxUintSimple {
 			return int(cborData[1]), nil
 		}
 	}
@@ -77,8 +77,8 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 func ListLength(cborData []byte) (int, error) {
 	// If the list length is <= the max simple uint, then we can extract the length
 	// value straight from the byte slice (with a little math)
-	if cborData[0] >= CBOR_TYPE_ARRAY && cborData[0] <= (CBOR_TYPE_ARRAY+CBOR_MAX_UINT_SIMPLE) {
-		return int(cborData[0]) - int(CBOR_TYPE_ARRAY), nil
+	if cborData[0] >= CborTypeArray && cborData[0] <= (CborTypeArray+CborMaxUintSimple) {
+		return int(cborData[0]) - int(CborTypeArray), nil
 	}
 	// If we couldn't use the shortcut above, actually decode the list
 	var tmp []RawMessage

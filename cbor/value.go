@@ -34,26 +34,26 @@ type Value struct {
 func (v *Value) UnmarshalCBOR(data []byte) error {
 	// Save the original CBOR
 	v.cborData = string(data[:])
-	cborType := data[0] & CBOR_TYPE_MASK
+	cborType := data[0] & CborTypeMask
 	switch cborType {
-	case CBOR_TYPE_MAP:
+	case CborTypeMap:
 		return v.processMap(data)
-	case CBOR_TYPE_ARRAY:
+	case CborTypeArray:
 		return v.processArray(data)
-	case CBOR_TYPE_TEXT_STRING:
+	case CborTypeTextString:
 		var tmpValue string
 		if _, err := Decode(data, &tmpValue); err != nil {
 			return err
 		}
 		v.value = tmpValue
-	case CBOR_TYPE_BYTE_STRING:
+	case CborTypeByteString:
 		// Use our custom type which stores the bytestring in a way that allows it to be used as a map key
 		var tmpValue ByteString
 		if _, err := Decode(data, &tmpValue); err != nil {
 			return err
 		}
 		v.value = tmpValue
-	case CBOR_TYPE_TAG:
+	case CborTypeTag:
 		// Parse as a raw tag to get number and nested CBOR data
 		tmpTag := RawTag{}
 		if _, err := Decode(data, &tmpTag); err != nil {
