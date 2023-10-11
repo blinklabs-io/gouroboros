@@ -33,7 +33,7 @@ var tests = []testDefinition{
 	{
 		CborHex:     "8105",
 		Message:     NewMsgBatchDone(),
-		MessageType: MESSAGE_TYPE_BATCH_DONE,
+		MessageType: MessageTypeBatchDone,
 	},
 }
 

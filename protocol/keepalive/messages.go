@@ -21,23 +21,23 @@ import (
 )
 
 const (
-	MESSAGE_TYPE_KEEP_ALIVE          = 0
-	MESSAGE_TYPE_KEEP_ALIVE_RESPONSE = 1
-	MESSAGE_TYPE_DONE                = 2
+	MessageTypeKeepAlive         = 0
+	MessageTypeKeepAliveResponse = 1
+	MessageTypeDone              = 2
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
-	case MESSAGE_TYPE_KEEP_ALIVE:
+	case MessageTypeKeepAlive:
 		ret = &MsgKeepAlive{}
-	case MESSAGE_TYPE_KEEP_ALIVE_RESPONSE:
+	case MessageTypeKeepAliveResponse:
 		ret = &MsgKeepAliveResponse{}
-	case MESSAGE_TYPE_DONE:
+	case MessageTypeDone:
 		ret = &MsgDone{}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return nil, fmt.Errorf("%s: decode error: %s", ProtocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -54,7 +54,7 @@ type MsgKeepAlive struct {
 func NewMsgKeepAlive(cookie uint16) *MsgKeepAlive {
 	msg := &MsgKeepAlive{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_KEEP_ALIVE,
+			MessageType: MessageTypeKeepAlive,
 		},
 		Cookie: cookie,
 	}
@@ -69,7 +69,7 @@ type MsgKeepAliveResponse struct {
 func NewMsgKeepAliveResponse(cookie uint16) *MsgKeepAliveResponse {
 	msg := &MsgKeepAliveResponse{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_KEEP_ALIVE_RESPONSE,
+			MessageType: MessageTypeKeepAliveResponse,
 		},
 		Cookie: cookie,
 	}
@@ -83,7 +83,7 @@ type MsgDone struct {
 func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_DONE,
+			MessageType: MessageTypeDone,
 		},
 	}
 	return m

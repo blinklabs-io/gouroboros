@@ -21,46 +21,46 @@ import (
 )
 
 const (
-	PROTOCOL_NAME        = "keep-alive"
-	PROTOCOL_ID   uint16 = 8
+	ProtocolName        = "keep-alive"
+	ProtocolId   uint16 = 8
 
 	// Time between keep-alive probes, in seconds
-	DEFAULT_KEEP_ALIVE_PERIOD = 60
+	DefaultKeepAlivePeroid = 60
 
 	// Timeout for keep-alive responses, in seconds
-	DEFAULT_KEEP_ALIVE_TIMEOUT = 10
+	DefaultKeepAliveTimeout = 10
 )
 
 var (
-	STATE_CLIENT = protocol.NewState(1, "Client")
-	STATE_SERVER = protocol.NewState(2, "Server")
-	STATE_DONE   = protocol.NewState(3, "Done")
+	StateClient = protocol.NewState(1, "Client")
+	StateServer = protocol.NewState(2, "Server")
+	StateDone   = protocol.NewState(3, "Done")
 )
 
 var StateMap = protocol.StateMap{
-	STATE_CLIENT: protocol.StateMapEntry{
+	StateClient: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_KEEP_ALIVE,
-				NewState: STATE_SERVER,
+				MsgType:  MessageTypeKeepAlive,
+				NewState: StateServer,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_DONE,
-				NewState: STATE_DONE,
+				MsgType:  MessageTypeDone,
+				NewState: StateDone,
 			},
 		},
 	},
-	STATE_SERVER: protocol.StateMapEntry{
+	StateServer: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_KEEP_ALIVE_RESPONSE,
-				NewState: STATE_CLIENT,
+				MsgType:  MessageTypeKeepAliveResponse,
+				NewState: StateClient,
 			},
 		},
 	},
-	STATE_DONE: protocol.StateMapEntry{
+	StateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
 }
@@ -95,8 +95,8 @@ type KeepAliveOptionFunc func(*Config)
 
 func NewConfig(options ...KeepAliveOptionFunc) Config {
 	c := Config{
-		Period:  DEFAULT_KEEP_ALIVE_PERIOD * time.Second,
-		Timeout: DEFAULT_KEEP_ALIVE_TIMEOUT * time.Second,
+		Period:  DefaultKeepAlivePeroid * time.Second,
+		Timeout: DefaultKeepAliveTimeout * time.Second,
 	}
 	// Apply provided options functions
 	for _, option := range options {

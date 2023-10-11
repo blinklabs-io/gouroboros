@@ -23,58 +23,58 @@ import (
 )
 
 const (
-	PROTOCOL_NAME        = "block-fetch"
-	PROTOCOL_ID   uint16 = 3
+	ProtocolName        = "block-fetch"
+	ProtocolId   uint16 = 3
 )
 
 var (
-	STATE_IDLE      = protocol.NewState(1, "Idle")
-	STATE_BUSY      = protocol.NewState(2, "Busy")
-	STATE_STREAMING = protocol.NewState(3, "Streaming")
-	STATE_DONE      = protocol.NewState(4, "Done")
+	StateIdle      = protocol.NewState(1, "Idle")
+	StateBusy      = protocol.NewState(2, "Busy")
+	StateStreaming = protocol.NewState(3, "Streaming")
+	StateDone      = protocol.NewState(4, "Done")
 )
 
 var StateMap = protocol.StateMap{
-	STATE_IDLE: protocol.StateMapEntry{
+	StateIdle: protocol.StateMapEntry{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_REQUEST_RANGE,
-				NewState: STATE_BUSY,
+				MsgType:  MessageTypeRequestRange,
+				NewState: StateBusy,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_CLIENT_DONE,
-				NewState: STATE_DONE,
+				MsgType:  MessageTypeClientDone,
+				NewState: StateDone,
 			},
 		},
 	},
-	STATE_BUSY: protocol.StateMapEntry{
+	StateBusy: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_START_BATCH,
-				NewState: STATE_STREAMING,
+				MsgType:  MessageTypeStartBatch,
+				NewState: StateStreaming,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_NO_BLOCKS,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeNoBlocks,
+				NewState: StateIdle,
 			},
 		},
 	},
-	STATE_STREAMING: protocol.StateMapEntry{
+	StateStreaming: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MESSAGE_TYPE_BLOCK,
-				NewState: STATE_STREAMING,
+				MsgType:  MessageTypeBlock,
+				NewState: StateStreaming,
 			},
 			{
-				MsgType:  MESSAGE_TYPE_BATCH_DONE,
-				NewState: STATE_IDLE,
+				MsgType:  MessageTypeBatchDone,
+				NewState: StateIdle,
 			},
 		},
 	},
-	STATE_DONE: protocol.StateMapEntry{
+	StateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
 }
