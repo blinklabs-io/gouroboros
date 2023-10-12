@@ -219,10 +219,10 @@ func chainSyncRollForwardHandler(blockType uint, blockData interface{}, tip chai
 	}
 	// Display block info
 	switch blockType {
-	case ledger.BLOCK_TYPE_BYRON_EBB:
+	case ledger.BlockTypeByronEbb:
 		byronEbbBlock := block.(*ledger.ByronEpochBoundaryBlock)
 		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", byronEbbBlock.Header.ConsensusData.Epoch, byronEbbBlock.SlotNumber(), byronEbbBlock.Hash())
-	case ledger.BLOCK_TYPE_BYRON_MAIN:
+	case ledger.BlockTypeByronMain:
 		byronBlock := block.(*ledger.ByronMainBlock)
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", byronBlock.Header.ConsensusData.SlotId.Epoch, byronBlock.SlotNumber(), byronBlock.Hash())
 	default:

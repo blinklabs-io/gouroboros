@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	ERA_ID_BABBAGE = 5
+	EraIdBabbage = 5
 
-	BLOCK_TYPE_BABBAGE = 6
+	BlockTypeBabbage = 6
 
-	BLOCK_HEADER_TYPE_BABBAGE = 5
+	BlockHeaderTypeBabbage = 5
 
-	TX_TYPE_BABBAGE = 5
+	TxTypeBabbage = 5
 )
 
 type BabbageBlock struct {
@@ -58,7 +58,7 @@ func (b *BabbageBlock) SlotNumber() uint64 {
 }
 
 func (b *BabbageBlock) Era() Era {
-	return eras[ERA_ID_BABBAGE]
+	return eras[EraIdBabbage]
 }
 
 func (b *BabbageBlock) Transactions() []Transaction {
@@ -132,7 +132,7 @@ func (h *BabbageBlockHeader) SlotNumber() uint64 {
 }
 
 func (h *BabbageBlockHeader) Era() Era {
-	return eras[ERA_ID_BABBAGE]
+	return eras[EraIdBabbage]
 }
 
 type BabbageTransactionBody struct {

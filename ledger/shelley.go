@@ -21,13 +21,13 @@ import (
 )
 
 const (
-	ERA_ID_SHELLEY = 1
+	EraIdShelley = 1
 
-	BLOCK_TYPE_SHELLEY = 2
+	BlockTypeShelley = 2
 
-	BLOCK_HEADER_TYPE_SHELLEY = 1
+	BlockHeaderTypeShelley = 1
 
-	TX_TYPE_SHELLEY = 1
+	TxTypeShelley = 1
 )
 
 type ShelleyBlock struct {
@@ -56,7 +56,7 @@ func (b *ShelleyBlock) SlotNumber() uint64 {
 }
 
 func (b *ShelleyBlock) Era() Era {
-	return eras[ERA_ID_SHELLEY]
+	return eras[EraIdShelley]
 }
 
 func (b *ShelleyBlock) Transactions() []Transaction {
@@ -117,7 +117,7 @@ func (h *ShelleyBlockHeader) SlotNumber() uint64 {
 }
 
 func (h *ShelleyBlockHeader) Era() Era {
-	return eras[ERA_ID_SHELLEY]
+	return eras[EraIdShelley]
 }
 
 type ShelleyTransactionBody struct {

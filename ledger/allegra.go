@@ -21,13 +21,13 @@ import (
 )
 
 const (
-	ERA_ID_ALLEGRA = 2
+	EraIdAllegra = 2
 
-	BLOCK_TYPE_ALLEGRA = 3
+	BlockTypeAllegra = 3
 
-	BLOCK_HEADER_TYPE_ALLEGRA = 2
+	BlockHeaderTypeAllegra = 2
 
-	TX_TYPE_ALLEGRA = 2
+	TxTypeAllegra = 2
 )
 
 type AllegraBlock struct {
@@ -56,7 +56,7 @@ func (b *AllegraBlock) SlotNumber() uint64 {
 }
 
 func (b *AllegraBlock) Era() Era {
-	return eras[ERA_ID_ALLEGRA]
+	return eras[EraIdAllegra]
 }
 
 func (b *AllegraBlock) Transactions() []Transaction {
@@ -77,7 +77,7 @@ type AllegraBlockHeader struct {
 }
 
 func (h *AllegraBlockHeader) Era() Era {
-	return eras[ERA_ID_ALLEGRA]
+	return eras[EraIdAllegra]
 }
 
 type AllegraTransactionBody struct {

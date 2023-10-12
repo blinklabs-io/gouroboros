@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	ERA_ID_MARY = 3
+	EraIdMary = 3
 
-	BLOCK_TYPE_MARY = 4
+	BlockTypeMary = 4
 
-	BLOCK_HEADER_TYPE_MARY = 3
+	BlockHeaderTypeMary = 3
 
-	TX_TYPE_MARY = 3
+	TxTypeMary = 3
 )
 
 type MaryBlock struct {
@@ -57,7 +57,7 @@ func (b *MaryBlock) SlotNumber() uint64 {
 }
 
 func (b *MaryBlock) Era() Era {
-	return eras[ERA_ID_MARY]
+	return eras[EraIdMary]
 }
 
 func (b *MaryBlock) Transactions() []Transaction {
@@ -78,7 +78,7 @@ type MaryBlockHeader struct {
 }
 
 func (h *MaryBlockHeader) Era() Era {
-	return eras[ERA_ID_MARY]
+	return eras[EraIdMary]
 }
 
 type MaryTransactionBody struct {

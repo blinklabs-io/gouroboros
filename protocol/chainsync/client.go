@@ -256,7 +256,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		var blockType uint
 		blockEra := msg.WrappedHeader.Era
 		switch blockEra {
-		case ledger.BLOCK_HEADER_TYPE_BYRON:
+		case ledger.BlockHeaderTypeByron:
 			blockType = msg.WrappedHeader.ByronType()
 			var err error
 			blockHeader, err = ledger.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
@@ -266,11 +266,11 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		default:
 			// Map block header types to block types
 			blockTypeMap := map[uint]uint{
-				ledger.BLOCK_HEADER_TYPE_SHELLEY: ledger.BLOCK_TYPE_SHELLEY,
-				ledger.BLOCK_HEADER_TYPE_ALLEGRA: ledger.BLOCK_TYPE_ALLEGRA,
-				ledger.BLOCK_HEADER_TYPE_MARY:    ledger.BLOCK_TYPE_MARY,
-				ledger.BLOCK_HEADER_TYPE_ALONZO:  ledger.BLOCK_TYPE_ALONZO,
-				ledger.BLOCK_HEADER_TYPE_BABBAGE: ledger.BLOCK_TYPE_BABBAGE,
+				ledger.BlockHeaderTypeShelley: ledger.BlockTypeShelley,
+				ledger.BlockHeaderTypeAllegra: ledger.BlockTypeAllegra,
+				ledger.BlockHeaderTypeMary:    ledger.BlockTypeMary,
+				ledger.BlockHeaderTypeAlonzo:  ledger.BlockTypeAlonzo,
+				ledger.BlockHeaderTypeBabbage: ledger.BlockTypeBabbage,
 			}
 			blockType = blockTypeMap[blockEra]
 			var err error

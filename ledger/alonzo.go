@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	ERA_ID_ALONZO = 4
+	EraIdAlonzo = 4
 
-	BLOCK_TYPE_ALONZO = 5
+	BlockTypeAlonzo = 5
 
-	BLOCK_HEADER_TYPE_ALONZO = 4
+	BlockHeaderTypeAlonzo = 4
 
-	TX_TYPE_ALONZO = 4
+	TxTypeAlonzo = 4
 )
 
 type AlonzoBlock struct {
@@ -58,7 +58,7 @@ func (b *AlonzoBlock) SlotNumber() uint64 {
 }
 
 func (b *AlonzoBlock) Era() Era {
-	return eras[ERA_ID_ALONZO]
+	return eras[EraIdAlonzo]
 }
 
 func (b *AlonzoBlock) Transactions() []Transaction {
@@ -87,7 +87,7 @@ type AlonzoBlockHeader struct {
 }
 
 func (h *AlonzoBlockHeader) Era() Era {
-	return eras[ERA_ID_ALONZO]
+	return eras[EraIdAlonzo]
 }
 
 type AlonzoTransactionBody struct {

@@ -36,19 +36,19 @@ type BlockHeader interface {
 
 func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 	switch blockType {
-	case BLOCK_TYPE_BYRON_EBB:
+	case BlockTypeByronEbb:
 		return NewByronEpochBoundaryBlockFromCbor(data)
-	case BLOCK_TYPE_BYRON_MAIN:
+	case BlockTypeByronMain:
 		return NewByronMainBlockFromCbor(data)
-	case BLOCK_TYPE_SHELLEY:
+	case BlockTypeShelley:
 		return NewShelleyBlockFromCbor(data)
-	case BLOCK_TYPE_ALLEGRA:
+	case BlockTypeAllegra:
 		return NewAllegraBlockFromCbor(data)
-	case BLOCK_TYPE_MARY:
+	case BlockTypeMary:
 		return NewMaryBlockFromCbor(data)
-	case BLOCK_TYPE_ALONZO:
+	case BlockTypeAlonzo:
 		return NewAlonzoBlockFromCbor(data)
-	case BLOCK_TYPE_BABBAGE:
+	case BlockTypeBabbage:
 		return NewBabbageBlockFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
@@ -57,14 +57,14 @@ func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 // XXX: should this take the block header type instead?
 func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {
 	switch blockType {
-	case BLOCK_TYPE_BYRON_EBB:
+	case BlockTypeByronEbb:
 		return NewByronEpochBoundaryBlockHeaderFromCbor(data)
-	case BLOCK_TYPE_BYRON_MAIN:
+	case BlockTypeByronMain:
 		return NewByronMainBlockHeaderFromCbor(data)
 	// TODO: break into separate cases and parse as specific block header types
-	case BLOCK_TYPE_SHELLEY, BLOCK_TYPE_ALLEGRA, BLOCK_TYPE_MARY, BLOCK_TYPE_ALONZO:
+	case BlockTypeShelley, BlockTypeAllegra, BlockTypeMary, BlockTypeAlonzo:
 		return NewShelleyBlockHeaderFromCbor(data)
-	case BLOCK_TYPE_BABBAGE:
+	case BlockTypeBabbage:
 		return NewBabbageBlockHeaderFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown node-to-node block type: %d", blockType)
