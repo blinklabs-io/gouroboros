@@ -84,6 +84,32 @@ func NewTransactionBodyFromCbor(txType uint, data []byte) (TransactionBody, erro
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
 
+func DetermineTransactionType(data []byte) (uint, error) {
+	// TODO: uncomment this once the following issue is resolved:
+	// https://github.com/blinklabs-io/gouroboros/issues/206
+	/*
+		if _, err := NewByronTransactionFromCbor(data); err == nil {
+			return TxTypeByron, nil
+		}
+	*/
+	if _, err := NewShelleyTransactionFromCbor(data); err == nil {
+		return TxTypeShelley, nil
+	}
+	if _, err := NewAllegraTransactionFromCbor(data); err == nil {
+		return TxTypeAllegra, nil
+	}
+	if _, err := NewMaryTransactionFromCbor(data); err == nil {
+		return TxTypeMary, nil
+	}
+	if _, err := NewAlonzoTransactionFromCbor(data); err == nil {
+		return TxTypeAlonzo, nil
+	}
+	if _, err := NewBabbageTransactionFromCbor(data); err == nil {
+		return TxTypeBabbage, nil
+	}
+	return 0, fmt.Errorf("unknown transaction type")
+}
+
 func generateTransactionHash(data []byte, prefix []byte) string {
 	// We can ignore the error return here because our fixed size/key arguments will
 	// never trigger an error
