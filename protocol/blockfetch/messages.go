@@ -21,32 +21,32 @@ import (
 )
 
 const (
-	MESSAGE_TYPE_REQUEST_RANGE = 0
-	MESSAGE_TYPE_CLIENT_DONE   = 1
-	MESSAGE_TYPE_START_BATCH   = 2
-	MESSAGE_TYPE_NO_BLOCKS     = 3
-	MESSAGE_TYPE_BLOCK         = 4
-	MESSAGE_TYPE_BATCH_DONE    = 5
+	MessageTypeRequestRange = 0
+	MessageTypeClientDone   = 1
+	MessageTypeStartBatch   = 2
+	MessageTypeNoBlocks     = 3
+	MessageTypeBlock        = 4
+	MessageTypeBatchDone    = 5
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
-	case MESSAGE_TYPE_REQUEST_RANGE:
+	case MessageTypeRequestRange:
 		ret = &MsgRequestRange{}
-	case MESSAGE_TYPE_CLIENT_DONE:
+	case MessageTypeClientDone:
 		ret = &MsgClientDone{}
-	case MESSAGE_TYPE_START_BATCH:
+	case MessageTypeStartBatch:
 		ret = &MsgStartBatch{}
-	case MESSAGE_TYPE_NO_BLOCKS:
+	case MessageTypeNoBlocks:
 		ret = &MsgNoBlocks{}
-	case MESSAGE_TYPE_BLOCK:
+	case MessageTypeBlock:
 		ret = &MsgBlock{}
-	case MESSAGE_TYPE_BATCH_DONE:
+	case MessageTypeBatchDone:
 		ret = &MsgBatchDone{}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
-		return nil, fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return nil, fmt.Errorf("%s: decode error: %s", ProtocolName, err)
 	}
 	if ret != nil {
 		// Store the raw message CBOR
@@ -64,7 +64,7 @@ type MsgRequestRange struct {
 func NewMsgRequestRange(start interface{}, end interface{}) *MsgRequestRange {
 	m := &MsgRequestRange{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_REQUEST_RANGE,
+			MessageType: MessageTypeRequestRange,
 		},
 		Start: start,
 		End:   end,
@@ -79,7 +79,7 @@ type MsgClientDone struct {
 func NewMsgClientDone() *MsgClientDone {
 	m := &MsgClientDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_CLIENT_DONE,
+			MessageType: MessageTypeClientDone,
 		},
 	}
 	return m
@@ -92,7 +92,7 @@ type MsgStartBatch struct {
 func NewMsgStartBatch() *MsgStartBatch {
 	m := &MsgStartBatch{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_START_BATCH,
+			MessageType: MessageTypeStartBatch,
 		},
 	}
 	return m
@@ -105,7 +105,7 @@ type MsgNoBlocks struct {
 func NewMsgNoBlocks() *MsgNoBlocks {
 	m := &MsgNoBlocks{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_NO_BLOCKS,
+			MessageType: MessageTypeNoBlocks,
 		},
 	}
 	return m
@@ -119,7 +119,7 @@ type MsgBlock struct {
 func NewMsgBlock(wrappedBlock []byte) *MsgBlock {
 	m := &MsgBlock{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_BLOCK,
+			MessageType: MessageTypeBlock,
 		},
 		WrappedBlock: wrappedBlock,
 	}
@@ -133,7 +133,7 @@ type MsgBatchDone struct {
 func NewMsgBatchDone() *MsgBatchDone {
 	m := &MsgBatchDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MESSAGE_TYPE_BATCH_DONE,
+			MessageType: MessageTypeBatchDone,
 		},
 	}
 	return m

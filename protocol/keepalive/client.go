@@ -39,14 +39,14 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[STATE_SERVER]; ok {
+	if entry, ok := stateMap[StateServer]; ok {
 		entry.Timeout = c.config.Timeout
-		stateMap[STATE_SERVER] = entry
+		stateMap[StateServer] = entry
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -54,7 +54,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
-		InitialState:        STATE_CLIENT,
+		InitialState:        StateClient,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	// Start goroutine to cleanup resources on protocol shutdown
@@ -89,10 +89,10 @@ func (c *Client) startTimer() {
 func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_KEEP_ALIVE_RESPONSE:
+	case MessageTypeKeepAliveResponse:
 		err = c.handleKeepAliveResponse(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }

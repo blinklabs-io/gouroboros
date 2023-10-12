@@ -32,17 +32,17 @@ var tests = []testDefinition{
 	{
 		CborHex:     "8200193039",
 		Message:     NewMsgKeepAlive(12345),
-		MessageType: MESSAGE_TYPE_KEEP_ALIVE,
+		MessageType: MessageTypeKeepAlive,
 	},
 	{
 		CborHex:     "8201193039",
 		Message:     NewMsgKeepAliveResponse(12345),
-		MessageType: MESSAGE_TYPE_KEEP_ALIVE_RESPONSE,
+		MessageType: MessageTypeKeepAliveResponse,
 	},
 	{
 		CborHex:     "8102",
 		Message:     NewMsgDone(),
-		MessageType: MESSAGE_TYPE_DONE,
+		MessageType: MessageTypeDone,
 	},
 }
 

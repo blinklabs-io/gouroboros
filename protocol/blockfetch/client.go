@@ -47,18 +47,18 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[STATE_BUSY]; ok {
+	if entry, ok := stateMap[StateBusy]; ok {
 		entry.Timeout = c.config.BatchStartTimeout
-		stateMap[STATE_BUSY] = entry
+		stateMap[StateBusy] = entry
 	}
-	if entry, ok := stateMap[STATE_STREAMING]; ok {
+	if entry, ok := stateMap[StateStreaming]; ok {
 		entry.Timeout = c.config.BlockTimeout
-		stateMap[STATE_STREAMING] = entry
+		stateMap[StateStreaming] = entry
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                PROTOCOL_NAME,
-		ProtocolId:          PROTOCOL_ID,
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
@@ -66,7 +66,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
-		InitialState:        STATE_IDLE,
+		InitialState:        StateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	// Start goroutine to cleanup resources on protocol shutdown
@@ -127,16 +127,16 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	var err error
 	switch msg.Type() {
-	case MESSAGE_TYPE_START_BATCH:
+	case MessageTypeStartBatch:
 		err = c.handleStartBatch()
-	case MESSAGE_TYPE_NO_BLOCKS:
+	case MessageTypeNoBlocks:
 		err = c.handleNoBlocks()
-	case MESSAGE_TYPE_BLOCK:
+	case MessageTypeBlock:
 		err = c.handleBlock(msg)
-	case MESSAGE_TYPE_BATCH_DONE:
+	case MessageTypeBatchDone:
 		err = c.handleBatchDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", PROTOCOL_NAME, msg.Type())
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }
@@ -157,7 +157,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
-		return fmt.Errorf("%s: decode error: %s", PROTOCOL_NAME, err)
+		return fmt.Errorf("%s: decode error: %s", ProtocolName, err)
 	}
 	blk, err := ledger.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
 	if err != nil {
