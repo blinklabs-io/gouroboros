@@ -17,12 +17,13 @@ package localtxsubmission
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger"
-	"github.com/blinklabs-io/gouroboros/protocol"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type testDefinition struct {
@@ -54,7 +55,7 @@ var tests = []testDefinition{
 	{
 		CborHex:     fmt.Sprintf("82008204d81846%x", placeholderTx),
 		MessageType: MessageTypeSubmitTx,
-		Message:     NewMsgSubmitTx(ledger.TX_TYPE_ALONZO, placeholderTx),
+		Message:     NewMsgSubmitTx(ledger.TxTypeAlonzo, placeholderTx),
 	},
 	{
 		CborHex:     "8101",

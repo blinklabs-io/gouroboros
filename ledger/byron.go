@@ -21,16 +21,16 @@ import (
 )
 
 const (
-	ERA_ID_BYRON = 0
+	EraIdByron = 0
 
-	BLOCK_TYPE_BYRON_EBB  = 0
-	BLOCK_TYPE_BYRON_MAIN = 1
+	BlockTypeByronEbb  = 0
+	BlockTypeByronMain = 1
 
-	BLOCK_HEADER_TYPE_BYRON = 0
+	BlockHeaderTypeByron = 0
 
-	TX_TYPE_BYRON = 0
+	TxTypeByron = 0
 
-	BYRON_SLOTS_PER_EPOCH = 21600
+	ByronSlotsPerEpoch = 21600
 )
 
 type ByronMainBlockHeader struct {
@@ -82,7 +82,7 @@ func (h *ByronMainBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BLOCK_TYPE_BYRON_MAIN})
+		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BlockTypeByronMain})
 	}
 	return h.hash
 }
@@ -93,11 +93,11 @@ func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
-	return uint64((h.ConsensusData.SlotId.Epoch * BYRON_SLOTS_PER_EPOCH) + uint64(h.ConsensusData.SlotId.Slot))
+	return uint64((h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) + uint64(h.ConsensusData.SlotId.Slot))
 }
 
 func (h *ByronMainBlockHeader) Era() Era {
-	return eras[ERA_ID_BYRON]
+	return eras[EraIdByron]
 }
 
 type ByronTransaction struct {
@@ -169,7 +169,7 @@ func (h *ByronEpochBoundaryBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BLOCK_TYPE_BYRON_EBB})
+		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BlockTypeByronEbb})
 	}
 	return h.hash
 }
@@ -180,11 +180,11 @@ func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
-	return uint64(h.ConsensusData.Epoch * BYRON_SLOTS_PER_EPOCH)
+	return uint64(h.ConsensusData.Epoch * ByronSlotsPerEpoch)
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Era() Era {
-	return eras[ERA_ID_BYRON]
+	return eras[EraIdByron]
 }
 
 type ByronMainBlock struct {

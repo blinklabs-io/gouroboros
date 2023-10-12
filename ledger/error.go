@@ -21,33 +21,33 @@ import (
 )
 
 const (
-	APPLY_TX_ERROR_UTXOW_FAILURE = 0
+	ApplyTxErrorUtxowFailure = 0
 
-	UTXOW_FAILURE_UTXO_FAILURE = 2
+	UTXOWFailureUtxoFailure = 2
 
-	UTXO_FAILURE_FROM_ALONZO = 1
+	UtxoFailureFromAlonzo = 1
 
-	UTXO_FAILURE_BAD_INPUTS_UTXO                = 0
-	UTXO_FAILURE_OUTSIDE_VALIDITY_INTERVAL_UTXO = 1
-	UTXO_FAILURE_MAX_TX_SIZE_UTXO               = 2
-	UTXO_FAILURE_INPUT_SET_EMPTY                = 3
-	UTXO_FAILURE_FEE_TOO_SMALL_UTXO             = 4
-	UTXO_FAILURE_VALUE_NOT_CONSERVED_UTXO       = 5
-	UTXO_FAILURE_OUTPUT_TOO_SMALL_UTXO          = 6
-	UTXO_FAILURE_UTXOS_FAILURE                  = 7
-	UTXO_FAILURE_WRONG_NETWORK                  = 8
-	UTXO_FAILURE_WRONG_NETWORK_WITHDRAWAL       = 9
-	UTXO_FAILURE_OUTPUT_BOOT_ADDR_ATTRS_TOO_BIG = 10
-	UTXO_FAILURE_TRIES_TO_FORGE_ADA             = 11
-	UTXO_FAILURE_OUTPUT_TOO_BIG_UTXO            = 12
-	UTXO_FAILURE_INSUFFICIENT_COLLATERAL        = 13
-	UTXO_FAILURE_SCRIPTS_NOT_PAID_UTXO          = 14
-	UTXO_FAILURE_EX_UNITS_TOO_BIG_UTXO          = 15
-	UTXO_FAILURE_COLLATERAL_CONTAINS_NON_ADA    = 16
-	UTXO_FAILURE_WRONG_NETWORK_IN_TX_BODY       = 17
-	UTXO_FAILURE_OUTSIDE_FORECAST               = 18
-	UTXO_FAILURE_TOO_MANY_COLLATERAL_INPUTS     = 19
-	UTXO_FAILURE_NO_COLLATERAL_INPUTS           = 20
+	UtxoFailureBadInputsUtxo               = 0
+	UtxoFailureOutsideValidityIntervalUtxo = 1
+	UtxoFailureMaxTxSizeUtxo               = 2
+	UtxoFailureInputSetEmpty               = 3
+	UtxoFailureFeeTooSmallUtxo             = 4
+	UtxoFailureValueNotConservedUtxo       = 5
+	UtxoFailureOutputTooSmallUtxo          = 6
+	UtxoFailureUtxosFailure                = 7
+	UtxoFailureWrongNetwork                = 8
+	UtxoFailureWrongNetworkWithdrawal      = 9
+	UtxoFailureOutputBootAddrAttrsTooBig   = 10
+	UtxoFailureTriesToForgeAda             = 11
+	UtxoFailureOutputTooBigUtxo            = 12
+	UtxoFailureInsufficientCollateral      = 13
+	UtxoFailureScriptsNotPaidUtxo          = 14
+	UtxoFailureExUnitsTooBigUtxo           = 15
+	UtxoFailureCollateralContainsNonAda    = 16
+	UtxoFailureWrongNetworkInTxBody        = 17
+	UtxoFailureOutsideForecast             = 18
+	UtxoFailureTooManyCollateralInputs     = 19
+	UtxoFailureNoCollateralInputs          = 20
 )
 
 // Helper type to make the code a little cleaner
@@ -169,7 +169,7 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		}
 		var newErr error
 		switch failureType {
-		case APPLY_TX_ERROR_UTXOW_FAILURE:
+		case ApplyTxErrorUtxowFailure:
 			newErr = &UtxowFailure{}
 		default:
 			if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
@@ -214,7 +214,7 @@ func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
 	}
 	var newErr error
 	switch failureType {
-	case UTXOW_FAILURE_UTXO_FAILURE:
+	case UTXOWFailureUtxoFailure:
 		newErr = &UtxoFailure{}
 	default:
 		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
@@ -253,27 +253,27 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 	newErr, err := cbor.DecodeById(
 		tmpData.Err,
 		map[int]interface{}{
-			UTXO_FAILURE_BAD_INPUTS_UTXO:                &BadInputsUtxo{},
-			UTXO_FAILURE_OUTSIDE_VALIDITY_INTERVAL_UTXO: &OutsideValidityIntervalUtxo{},
-			UTXO_FAILURE_MAX_TX_SIZE_UTXO:               &MaxTxSizeUtxo{},
-			UTXO_FAILURE_INPUT_SET_EMPTY:                &InputSetEmptyUtxo{},
-			UTXO_FAILURE_FEE_TOO_SMALL_UTXO:             &FeeTooSmallUtxo{},
-			UTXO_FAILURE_VALUE_NOT_CONSERVED_UTXO:       &ValueNotConservedUtxo{},
-			UTXO_FAILURE_OUTPUT_TOO_SMALL_UTXO:          &OutputTooSmallUtxo{},
-			UTXO_FAILURE_UTXOS_FAILURE:                  &UtxosFailure{},
-			UTXO_FAILURE_WRONG_NETWORK:                  &WrongNetwork{},
-			UTXO_FAILURE_WRONG_NETWORK_WITHDRAWAL:       &WrongNetworkWithdrawal{},
-			UTXO_FAILURE_OUTPUT_BOOT_ADDR_ATTRS_TOO_BIG: &OutputBootAddrAttrsTooBig{},
-			UTXO_FAILURE_TRIES_TO_FORGE_ADA:             &TriesToForgeADA{},
-			UTXO_FAILURE_OUTPUT_TOO_BIG_UTXO:            &OutputTooBigUtxo{},
-			UTXO_FAILURE_INSUFFICIENT_COLLATERAL:        &InsufficientCollateral{},
-			UTXO_FAILURE_SCRIPTS_NOT_PAID_UTXO:          &ScriptsNotPaidUtxo{},
-			UTXO_FAILURE_EX_UNITS_TOO_BIG_UTXO:          &ExUnitsTooBigUtxo{},
-			UTXO_FAILURE_COLLATERAL_CONTAINS_NON_ADA:    &CollateralContainsNonADA{},
-			UTXO_FAILURE_WRONG_NETWORK_IN_TX_BODY:       &WrongNetworkInTxBody{},
-			UTXO_FAILURE_OUTSIDE_FORECAST:               &OutsideForecast{},
-			UTXO_FAILURE_TOO_MANY_COLLATERAL_INPUTS:     &TooManyCollateralInputs{},
-			UTXO_FAILURE_NO_COLLATERAL_INPUTS:           &NoCollateralInputs{},
+			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
+			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
+			UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
+			UtxoFailureInputSetEmpty:               &InputSetEmptyUtxo{},
+			UtxoFailureFeeTooSmallUtxo:             &FeeTooSmallUtxo{},
+			UtxoFailureValueNotConservedUtxo:       &ValueNotConservedUtxo{},
+			UtxoFailureOutputTooSmallUtxo:          &OutputTooSmallUtxo{},
+			UtxoFailureUtxosFailure:                &UtxosFailure{},
+			UtxoFailureWrongNetwork:                &WrongNetwork{},
+			UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+			UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
+			UtxoFailureTriesToForgeAda:             &TriesToForgeADA{},
+			UtxoFailureOutputTooBigUtxo:            &OutputTooBigUtxo{},
+			UtxoFailureInsufficientCollateral:      &InsufficientCollateral{},
+			UtxoFailureScriptsNotPaidUtxo:          &ScriptsNotPaidUtxo{},
+			UtxoFailureExUnitsTooBigUtxo:           &ExUnitsTooBigUtxo{},
+			UtxoFailureCollateralContainsNonAda:    &CollateralContainsNonADA{},
+			UtxoFailureWrongNetworkInTxBody:        &WrongNetworkInTxBody{},
+			UtxoFailureOutsideForecast:             &OutsideForecast{},
+			UtxoFailureTooManyCollateralInputs:     &TooManyCollateralInputs{},
+			UtxoFailureNoCollateralInputs:          &NoCollateralInputs{},
 		},
 	)
 	if err != nil {

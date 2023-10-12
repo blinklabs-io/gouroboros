@@ -107,7 +107,7 @@ func testLocalTxSubmission(f *globalFlags) {
 		}
 	}
 
-	if err = o.LocalTxSubmission().Client.SubmitTx(ledger.TX_TYPE_ALONZO, txBytes); err != nil {
+	if err = o.LocalTxSubmission().Client.SubmitTx(ledger.TxTypeAlonzo, txBytes); err != nil {
 		fmt.Printf("Error submitting transaction: %s\n", err)
 		os.Exit(1)
 	}

@@ -20,28 +20,28 @@ type Era struct {
 }
 
 var eras = map[uint8]Era{
-	ERA_ID_BYRON: Era{
-		Id:   ERA_ID_BYRON,
+	EraIdByron: Era{
+		Id:   EraIdByron,
 		Name: "Byron",
 	},
-	ERA_ID_SHELLEY: Era{
-		Id:   ERA_ID_SHELLEY,
+	EraIdShelley: Era{
+		Id:   EraIdShelley,
 		Name: "Shelley",
 	},
-	ERA_ID_ALLEGRA: Era{
-		Id:   ERA_ID_ALLEGRA,
+	EraIdAllegra: Era{
+		Id:   EraIdAllegra,
 		Name: "Allegra",
 	},
-	ERA_ID_MARY: Era{
-		Id:   ERA_ID_MARY,
+	EraIdMary: Era{
+		Id:   EraIdMary,
 		Name: "Mary",
 	},
-	ERA_ID_ALONZO: Era{
-		Id:   ERA_ID_ALONZO,
+	EraIdAlonzo: Era{
+		Id:   EraIdAlonzo,
 		Name: "Alonzo",
 	},
-	ERA_ID_BABBAGE: Era{
-		Id:   ERA_ID_BABBAGE,
+	EraIdBabbage: Era{
+		Id:   EraIdBabbage,
 		Name: "Babbage",
 	},
 }

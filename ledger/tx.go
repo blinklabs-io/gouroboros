@@ -50,17 +50,17 @@ type TransactionOutput interface {
 
 func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 	switch txType {
-	case TX_TYPE_BYRON:
+	case TxTypeByron:
 		return NewByronTransactionFromCbor(data)
-	case TX_TYPE_SHELLEY:
+	case TxTypeShelley:
 		return NewShelleyTransactionFromCbor(data)
-	case TX_TYPE_ALLEGRA:
+	case TxTypeAllegra:
 		return NewAllegraTransactionFromCbor(data)
-	case TX_TYPE_MARY:
+	case TxTypeMary:
 		return NewMaryTransactionFromCbor(data)
-	case TX_TYPE_ALONZO:
+	case TxTypeAlonzo:
 		return NewAlonzoTransactionFromCbor(data)
-	case TX_TYPE_BABBAGE:
+	case TxTypeBabbage:
 		return NewBabbageTransactionFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
@@ -68,17 +68,17 @@ func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 
 func NewTransactionBodyFromCbor(txType uint, data []byte) (TransactionBody, error) {
 	switch txType {
-	case TX_TYPE_BYRON:
+	case TxTypeByron:
 		return nil, fmt.Errorf("Byron transactions do not contain a body")
-	case TX_TYPE_SHELLEY:
+	case TxTypeShelley:
 		return NewShelleyTransactionBodyFromCbor(data)
-	case TX_TYPE_ALLEGRA:
+	case TxTypeAllegra:
 		return NewAllegraTransactionBodyFromCbor(data)
-	case TX_TYPE_MARY:
+	case TxTypeMary:
 		return NewMaryTransactionBodyFromCbor(data)
-	case TX_TYPE_ALONZO:
+	case TxTypeAlonzo:
 		return NewAlonzoTransactionBodyFromCbor(data)
-	case TX_TYPE_BABBAGE:
+	case TxTypeBabbage:
 		return NewBabbageTransactionBodyFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
