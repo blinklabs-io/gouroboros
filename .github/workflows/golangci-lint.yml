@@ -9,23 +9,25 @@ on:
     branches:
       - main
   pull_request:
+
 permissions:
   contents: read
-  # Optional: allow read access to pull request. Use with `only-new-issues` option.
-  # pull-requests: read
+  pull-requests: read
+
 jobs:
   golangci:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v4
         with:
           go-version: 1.20.x
+          cache: false
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          # Optional: version of golangci-lint to use in form of v1.2 or v1.2.3 or `latest` to use the latest version
-          version: v1.53.3 # current version at time of commit
-          args: --timeout 10m
-          only-new-issues: true
+          version: v1.54 # current version at time of commit
+          args: --timeout=10m
+          # Only show new issues in a PR but show all issues for pushes
+          only-new-issues: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
