@@ -53,10 +53,16 @@ type StructAsArray struct {
 
 type DecodeStoreCborInterface interface {
 	Cbor() []byte
+	SetCbor([]byte)
 }
 
 type DecodeStoreCbor struct {
 	cborData []byte
+}
+
+func (d *DecodeStoreCbor) SetCbor(cborData []byte) {
+	d.cborData = make([]byte, len(cborData))
+	copy(d.cborData, cborData)
 }
 
 // Cbor returns the original CBOR for the object
@@ -72,7 +78,6 @@ func (d *DecodeStoreCbor) UnmarshalCbor(cborData []byte, dest DecodeStoreCborInt
 	// Store a copy of the original CBOR data
 	// This must be done after we copy from the temp object above, or it gets wiped out
 	// when using struct embedding and the DecodeStoreCbor struct is embedded at a deeper level
-	d.cborData = make([]byte, len(cborData))
-	copy(d.cborData, cborData)
+	d.SetCbor(cborData)
 	return nil
 }

@@ -114,7 +114,7 @@ func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
 
 type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
-	cborData          []byte
+	cbor.DecodeStoreCbor
 	OutputAddress     Address
 	OutputAmount      MaryTransactionOutputValue
 	TxOutputDatumHash *Blake2b256
@@ -122,7 +122,7 @@ type AlonzoTransactionOutput struct {
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	// Save original CBOR
-	o.cborData = cborData[:]
+	o.SetCbor(cborData)
 	// Try to parse as Mary output first
 	var tmpOutput MaryTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -152,10 +152,6 @@ func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o *AlonzoTransactionOutput) Cbor() []byte {
-	return o.cborData
-}
-
 func (o AlonzoTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
@@ -183,6 +179,10 @@ type AlonzoTransactionWitnessSet struct {
 	Redeemers     []cbor.RawMessage `cbor:"5,keyasint,omitempty"`
 }
 
+func (t *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	return t.UnmarshalCbor(cborData, t)
+}
+
 type AlonzoTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -206,6 +206,33 @@ func (t AlonzoTransaction) Outputs() []TransactionOutput {
 
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t *AlonzoTransaction) Cbor() []byte {
+	// Return stored CBOR if we have any
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData[:]
+	}
+	// Return immediately if the body CBOR is also empty, which implies an empty TX object
+	if t.Body.Cbor() == nil {
+		return nil
+	}
+	// Generate our own CBOR
+	// This is necessary when a transaction is put together from pieces stored separately in a block
+	tmpObj := []any{
+		cbor.RawMessage(t.Body.Cbor()),
+		cbor.RawMessage(t.WitnessSet.Cbor()),
+		t.IsValid,
+	}
+	if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	// This should never fail, since we're only encoding a list and a bool value
+	cborData, _ = cbor.Encode(&tmpObj)
+	return cborData
 }
 
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
