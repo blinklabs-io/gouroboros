@@ -215,7 +215,7 @@ func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
 }
 
 type BabbageTransactionOutput struct {
-	cborData      []byte
+	cbor.DecodeStoreCbor
 	OutputAddress Address                              `cbor:"0,keyasint,omitempty"`
 	OutputAmount  MaryTransactionOutputValue           `cbor:"1,keyasint,omitempty"`
 	DatumOption   *BabbageTransactionOutputDatumOption `cbor:"2,keyasint,omitempty"`
@@ -225,7 +225,7 @@ type BabbageTransactionOutput struct {
 
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	// Save original CBOR
-	o.cborData = cborData[:]
+	o.SetCbor(cborData)
 	// Try to parse as legacy output first
 	var tmpOutput AlonzoTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -262,10 +262,6 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o *BabbageTransactionOutput) Cbor() []byte {
-	return o.cborData
-}
-
 func (o BabbageTransactionOutput) Address() Address {
 	return o.OutputAddress
 }
@@ -297,6 +293,10 @@ type BabbageTransactionWitnessSet struct {
 	PlutusV2Scripts []cbor.RawMessage `cbor:"6,keyasint,omitempty"`
 }
 
+func (t *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	return t.UnmarshalCbor(cborData, t)
+}
+
 type BabbageTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -320,6 +320,33 @@ func (t BabbageTransaction) Outputs() []TransactionOutput {
 
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t *BabbageTransaction) Cbor() []byte {
+	// Return stored CBOR if we have any
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData[:]
+	}
+	// Return immediately if the body CBOR is also empty, which implies an empty TX object
+	if t.Body.Cbor() == nil {
+		return nil
+	}
+	// Generate our own CBOR
+	// This is necessary when a transaction is put together from pieces stored separately in a block
+	tmpObj := []any{
+		cbor.RawMessage(t.Body.Cbor()),
+		cbor.RawMessage(t.WitnessSet.Cbor()),
+		t.IsValid,
+	}
+	if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	// This should never fail, since we're only encoding a list and a bool value
+	cborData, _ = cbor.Encode(&tmpObj)
+	return cborData
 }
 
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {

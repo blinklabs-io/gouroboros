@@ -219,9 +219,14 @@ func (o ShelleyTransactionOutput) Datum() *cbor.LazyValue {
 }
 
 type ShelleyTransactionWitnessSet struct {
+	cbor.DecodeStoreCbor
 	VkeyWitnesses      []interface{} `cbor:"0,keyasint,omitempty"`
 	MultisigScripts    []interface{} `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []interface{} `cbor:"2,keyasint,omitempty"`
+}
+
+func (t *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	return t.UnmarshalCbor(cborData, t)
 }
 
 type ShelleyTransaction struct {
@@ -246,6 +251,32 @@ func (t ShelleyTransaction) Outputs() []TransactionOutput {
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t *ShelleyTransaction) Cbor() []byte {
+	// Return stored CBOR if we have any
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData[:]
+	}
+	// Return immediately if the body CBOR is also empty, which implies an empty TX object
+	if t.Body.Cbor() == nil {
+		return nil
+	}
+	// Generate our own CBOR
+	// This is necessary when a transaction is put together from pieces stored separately in a block
+	tmpObj := []any{
+		cbor.RawMessage(t.Body.Cbor()),
+		cbor.RawMessage(t.WitnessSet.Cbor()),
+	}
+	if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	// This should never fail, since we're only encoding a list and a bool value
+	cborData, _ = cbor.Encode(&tmpObj)
+	return cborData
 }
 
 func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {

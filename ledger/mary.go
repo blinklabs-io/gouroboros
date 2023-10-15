@@ -124,6 +124,32 @@ func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
 
+func (t *MaryTransaction) Cbor() []byte {
+	// Return stored CBOR if we have any
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData[:]
+	}
+	// Return immediately if the body CBOR is also empty, which implies an empty TX object
+	if t.Body.Cbor() == nil {
+		return nil
+	}
+	// Generate our own CBOR
+	// This is necessary when a transaction is put together from pieces stored separately in a block
+	tmpObj := []any{
+		cbor.RawMessage(t.Body.Cbor()),
+		cbor.RawMessage(t.WitnessSet.Cbor()),
+	}
+	if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	// This should never fail, since we're only encoding a list and a bool value
+	cborData, _ = cbor.Encode(&tmpObj)
+	return cborData
+}
+
 type MaryTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
