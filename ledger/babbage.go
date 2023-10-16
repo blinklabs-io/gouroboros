@@ -57,6 +57,14 @@ func (b *BabbageBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
+func (b *BabbageBlock) IssuerVkey() []byte {
+	return b.Header.IssuerVkey()
+}
+
+func (b *BabbageBlock) BlockBodySize() uint64 {
+	return b.Header.BlockBodySize()
+}
+
 func (b *BabbageBlock) Era() Era {
 	return eras[EraIdBabbage]
 }
@@ -91,17 +99,17 @@ type BabbageBlockHeader struct {
 		BlockNumber   uint64
 		Slot          uint64
 		PrevHash      Blake2b256
-		IssuerVkey    interface{}
-		VrfKey        interface{}
+		IssuerVkey    []byte
+		VrfKey        []byte
 		VrfResult     interface{}
-		BlockBodySize uint32
+		BlockBodySize uint64
 		BlockBodyHash Blake2b256
 		OpCert        struct {
 			cbor.StructAsArray
-			HotVkey        interface{}
+			HotVkey        []byte
 			SequenceNumber uint32
 			KesPeriod      uint32
-			Signature      interface{}
+			Signature      []byte
 		}
 		ProtoVersion struct {
 			cbor.StructAsArray
@@ -129,6 +137,14 @@ func (h *BabbageBlockHeader) BlockNumber() uint64 {
 
 func (h *BabbageBlockHeader) SlotNumber() uint64 {
 	return h.Body.Slot
+}
+
+func (h *BabbageBlockHeader) IssuerVkey() []byte {
+	return h.Body.IssuerVkey
+}
+
+func (h *BabbageBlockHeader) BlockBodySize() uint64 {
+	return h.Body.BlockBodySize
 }
 
 func (h *BabbageBlockHeader) Era() Era {

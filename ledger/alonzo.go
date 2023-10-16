@@ -57,6 +57,14 @@ func (b *AlonzoBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
+func (b *AlonzoBlock) IssuerVkey() []byte {
+	return b.Header.IssuerVkey()
+}
+
+func (b *AlonzoBlock) BlockBodySize() uint64 {
+	return b.Header.BlockBodySize()
+}
+
 func (b *AlonzoBlock) Era() Era {
 	return eras[EraIdAlonzo]
 }

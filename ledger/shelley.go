@@ -55,6 +55,14 @@ func (b *ShelleyBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
+func (b *ShelleyBlock) IssuerVkey() []byte {
+	return b.Header.IssuerVkey()
+}
+
+func (b *ShelleyBlock) BlockBodySize() uint64 {
+	return b.Header.BlockBodySize()
+}
+
 func (b *ShelleyBlock) Era() Era {
 	return eras[EraIdShelley]
 }
@@ -81,16 +89,16 @@ type ShelleyBlockHeader struct {
 		BlockNumber          uint64
 		Slot                 uint64
 		PrevHash             Blake2b256
-		IssuerVkey           interface{}
-		VrfKey               interface{}
+		IssuerVkey           []byte
+		VrfKey               []byte
 		NonceVrf             interface{}
 		LeaderVrf            interface{}
-		BlockBodySize        uint32
+		BlockBodySize        uint64
 		BlockBodyHash        Blake2b256
-		OpCertHotVkey        interface{}
+		OpCertHotVkey        []byte
 		OpCertSequenceNumber uint32
 		OpCertKesPeriod      uint32
-		OpCertSignature      interface{}
+		OpCertSignature      []byte
 		ProtoMajorVersion    uint64
 		ProtoMinorVersion    uint64
 	}
@@ -114,6 +122,14 @@ func (h *ShelleyBlockHeader) BlockNumber() uint64 {
 
 func (h *ShelleyBlockHeader) SlotNumber() uint64 {
 	return h.Body.Slot
+}
+
+func (h *ShelleyBlockHeader) IssuerVkey() []byte {
+	return h.Body.IssuerVkey
+}
+
+func (h *ShelleyBlockHeader) BlockBodySize() uint64 {
+	return h.Body.BlockBodySize
 }
 
 func (h *ShelleyBlockHeader) Era() Era {
