@@ -125,7 +125,7 @@ type ShelleyTransactionBody struct {
 	hash      string
 	TxInputs  []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
 	TxOutputs []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
-	Fee       uint64                     `cbor:"2,keyasint,omitempty"`
+	TxFee     uint64                     `cbor:"2,keyasint,omitempty"`
 	Ttl       uint64                     `cbor:"3,keyasint,omitempty"`
 	// TODO: figure out how to parse properly
 	Certificates cbor.RawMessage `cbor:"4,keyasint,omitempty"`
@@ -167,6 +167,10 @@ func (b *ShelleyTransactionBody) Outputs() []TransactionOutput {
 		ret = append(ret, &output)
 	}
 	return ret
+}
+
+func (b *ShelleyTransactionBody) Fee() uint64 {
+	return b.TxFee
 }
 
 type ShelleyTransactionInput struct {
@@ -247,6 +251,10 @@ func (t ShelleyTransaction) Inputs() []TransactionInput {
 
 func (t ShelleyTransaction) Outputs() []TransactionOutput {
 	return t.Body.Outputs()
+}
+
+func (t ShelleyTransaction) Fee() uint64 {
+	return t.Body.Fee()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {

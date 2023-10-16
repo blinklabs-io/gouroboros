@@ -204,6 +204,10 @@ func (t AlonzoTransaction) Outputs() []TransactionOutput {
 	return t.Body.Outputs()
 }
 
+func (t AlonzoTransaction) Fee() uint64 {
+	return t.Body.Fee()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

@@ -120,6 +120,10 @@ func (t MaryTransaction) Outputs() []TransactionOutput {
 	return t.Body.Outputs()
 }
 
+func (t MaryTransaction) Fee() uint64 {
+	return t.Body.Fee()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

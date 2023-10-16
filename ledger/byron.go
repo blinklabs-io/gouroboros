@@ -124,6 +124,11 @@ func (t *ByronTransaction) Outputs() []TransactionOutput {
 	return nil
 }
 
+func (t *ByronTransaction) Fee() uint64 {
+	// TODO
+	return 0
+}
+
 func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }
