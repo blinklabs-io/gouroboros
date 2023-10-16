@@ -56,6 +56,14 @@ func (b *MaryBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
+func (b *MaryBlock) IssuerVkey() []byte {
+	return b.Header.IssuerVkey()
+}
+
+func (b *MaryBlock) BlockBodySize() uint64 {
+	return b.Header.BlockBodySize()
+}
+
 func (b *MaryBlock) Era() Era {
 	return eras[EraIdMary]
 }

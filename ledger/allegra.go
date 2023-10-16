@@ -55,6 +55,14 @@ func (b *AllegraBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
+func (b *AllegraBlock) IssuerVkey() []byte {
+	return b.Header.IssuerVkey()
+}
+
+func (b *AllegraBlock) BlockBodySize() uint64 {
+	return b.Header.BlockBodySize()
+}
+
 func (b *AllegraBlock) Era() Era {
 	return eras[EraIdAllegra]
 }

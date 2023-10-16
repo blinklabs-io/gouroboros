@@ -96,6 +96,16 @@ func (h *ByronMainBlockHeader) SlotNumber() uint64 {
 	return uint64((h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) + uint64(h.ConsensusData.SlotId.Slot))
 }
 
+func (h *ByronMainBlockHeader) IssuerVkey() []byte {
+	// Byron blocks don't have an issuer
+	return nil
+}
+
+func (h *ByronMainBlockHeader) BlockBodySize() uint64 {
+	// TODO: calculate this
+	return 0
+}
+
 func (h *ByronMainBlockHeader) Era() Era {
 	return eras[EraIdByron]
 }
@@ -183,6 +193,16 @@ func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
 	return uint64(h.ConsensusData.Epoch * ByronSlotsPerEpoch)
 }
 
+func (h *ByronEpochBoundaryBlockHeader) IssuerVkey() []byte {
+	// Byron blocks don't have an issuer
+	return nil
+}
+
+func (h *ByronEpochBoundaryBlockHeader) BlockBodySize() uint64 {
+	// TODO: calculate this
+	return 0
+}
+
 func (h *ByronEpochBoundaryBlockHeader) Era() Era {
 	return eras[EraIdByron]
 }
@@ -209,6 +229,14 @@ func (b *ByronMainBlock) BlockNumber() uint64 {
 
 func (b *ByronMainBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
+}
+
+func (b *ByronMainBlock) IssuerVkey() []byte {
+	return b.Header.IssuerVkey()
+}
+
+func (b *ByronMainBlock) BlockBodySize() uint64 {
+	return b.Header.BlockBodySize()
 }
 
 func (b *ByronMainBlock) Era() Era {
@@ -242,6 +270,14 @@ func (b *ByronEpochBoundaryBlock) BlockNumber() uint64 {
 
 func (b *ByronEpochBoundaryBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
+}
+
+func (b *ByronEpochBoundaryBlock) IssuerVkey() []byte {
+	return b.Header.IssuerVkey()
+}
+
+func (b *ByronEpochBoundaryBlock) BlockBodySize() uint64 {
+	return b.Header.BlockBodySize()
 }
 
 func (b *ByronEpochBoundaryBlock) Era() Era {
