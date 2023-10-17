@@ -33,6 +33,7 @@ type TransactionBody interface {
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	Fee() uint64
+	TTL() uint64
 }
 
 type TransactionInput interface {
