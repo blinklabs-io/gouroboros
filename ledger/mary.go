@@ -132,6 +132,10 @@ func (t MaryTransaction) Fee() uint64 {
 	return t.Body.Fee()
 }
 
+func (t MaryTransaction) TTL() uint64 {
+	return t.Body.TTL()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

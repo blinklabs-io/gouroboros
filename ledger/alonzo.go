@@ -216,6 +216,10 @@ func (t AlonzoTransaction) Fee() uint64 {
 	return t.Body.Fee()
 }
 
+func (t AlonzoTransaction) TTL() uint64 {
+	return t.Body.TTL()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

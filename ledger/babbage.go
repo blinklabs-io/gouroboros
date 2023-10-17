@@ -338,6 +338,10 @@ func (t BabbageTransaction) Fee() uint64 {
 	return t.Body.Fee()
 }
 
+func (t BabbageTransaction) TTL() uint64 {
+	return t.Body.TTL()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

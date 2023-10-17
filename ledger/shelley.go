@@ -189,6 +189,10 @@ func (b *ShelleyTransactionBody) Fee() uint64 {
 	return b.TxFee
 }
 
+func (b *ShelleyTransactionBody) TTL() uint64 {
+	return b.Ttl
+}
+
 type ShelleyTransactionInput struct {
 	cbor.StructAsArray
 	TxId        Blake2b256
@@ -271,6 +275,10 @@ func (t ShelleyTransaction) Outputs() []TransactionOutput {
 
 func (t ShelleyTransaction) Fee() uint64 {
 	return t.Body.Fee()
+}
+
+func (t ShelleyTransaction) TTL() uint64 {
+	return t.Body.TTL()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {
