@@ -32,6 +32,7 @@ type TransactionBody interface {
 	Cbor() []byte
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
+	Fee() uint64
 }
 
 type TransactionInput interface {

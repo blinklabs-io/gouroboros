@@ -334,6 +334,10 @@ func (t BabbageTransaction) Outputs() []TransactionOutput {
 	return t.Body.Outputs()
 }
 
+func (t BabbageTransaction) Fee() uint64 {
+	return t.Body.Fee()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

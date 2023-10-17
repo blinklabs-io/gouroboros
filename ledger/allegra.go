@@ -117,6 +117,10 @@ func (t AllegraTransaction) Outputs() []TransactionOutput {
 	return t.Body.Outputs()
 }
 
+func (t AllegraTransaction) Fee() uint64 {
+	return t.Body.Fee()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
