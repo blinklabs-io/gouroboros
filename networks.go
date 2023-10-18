@@ -20,7 +20,7 @@ var (
 	NetworkMainnet = Network{Id: 1, Name: "mainnet", NetworkMagic: 764824073, PublicRootAddress: "relays-new.cardano-mainnet.iohk.io", PublicRootPort: 3001}
 	NetworkPreprod = Network{Id: 2, Name: "preprod", NetworkMagic: 1, PublicRootAddress: "preprod-node.world.dev.cardano.org", PublicRootPort: 30000}
 	NetworkPreview = Network{Id: 3, Name: "preview", NetworkMagic: 2, PublicRootAddress: "preview-node.world.dev.cardano.org", PublicRootPort: 30002}
-	NetworkSancho  = Network{Id: 4, Name: "sancho", NetworkMagic: 4, PublicRootAddress: "sanchonet-node.world.dev.cardano.org", PublicRootPort: 30004}
+	NetworkSancho  = Network{Id: 4, Name: "sanchonet", NetworkMagic: 4, PublicRootAddress: "sanchonet-node.world.dev.cardano.org", PublicRootPort: 30004}
 
 	NetworkInvalid = Network{Id: 0, Name: "invalid", NetworkMagic: 0} // NetworkInvalid is used as a return value for lookup functions when a network isn't found
 )
