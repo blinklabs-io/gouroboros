@@ -85,6 +85,8 @@ func main() {
 		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", v.Era().Name, v.SlotNumber(), v.BlockNumber(), v.Hash())
 	}
 	if f.all {
+		issuerVkey := block.IssuerVkey()
+		fmt.Printf("\nMinted by: %s (%s)\n", issuerVkey.PoolId(), issuerVkey.Hash())
 		// Display transaction info
 		fmt.Printf("\nTransactions:\n")
 		for _, tx := range block.Transactions() {

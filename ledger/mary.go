@@ -56,7 +56,7 @@ func (b *MaryBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *MaryBlock) IssuerVkey() []byte {
+func (b *MaryBlock) IssuerVkey() IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 

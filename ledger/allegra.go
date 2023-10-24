@@ -55,7 +55,7 @@ func (b *AllegraBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *AllegraBlock) IssuerVkey() []byte {
+func (b *AllegraBlock) IssuerVkey() IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
