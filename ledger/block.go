@@ -30,7 +30,7 @@ type BlockHeader interface {
 	Hash() string
 	BlockNumber() uint64
 	SlotNumber() uint64
-	IssuerVkey() []byte
+	IssuerVkey() IssuerVkey
 	BlockBodySize() uint64
 	Era() Era
 	Cbor() []byte

@@ -322,3 +322,25 @@ func (a Address) String() string {
 func (a Address) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
 }
+
+// IssuerVkey represents the verification key for the stake pool that minted a block
+type IssuerVkey [32]byte
+
+func (i IssuerVkey) Hash() Blake2b224 {
+	hash, _ := blake2b.New(28, nil)
+	hash.Write(i[:])
+	return Blake2b224(hash.Sum(nil))
+}
+
+func (i IssuerVkey) PoolId() string {
+	// Convert data to base32 and encode as bech32
+	convData, err := bech32.ConvertBits(i.Hash().Bytes(), 8, 5, true)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error converting data to base32: %s", err))
+	}
+	encoded, err := bech32.Encode("pool", convData)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error encoding data as bech32: %s", err))
+	}
+	return encoded
+}

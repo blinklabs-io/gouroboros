@@ -55,7 +55,7 @@ func (b *ShelleyBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *ShelleyBlock) IssuerVkey() []byte {
+func (b *ShelleyBlock) IssuerVkey() IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -89,7 +89,7 @@ type ShelleyBlockHeader struct {
 		BlockNumber          uint64
 		Slot                 uint64
 		PrevHash             Blake2b256
-		IssuerVkey           []byte
+		IssuerVkey           IssuerVkey
 		VrfKey               []byte
 		NonceVrf             interface{}
 		LeaderVrf            interface{}
@@ -124,7 +124,7 @@ func (h *ShelleyBlockHeader) SlotNumber() uint64 {
 	return h.Body.Slot
 }
 
-func (h *ShelleyBlockHeader) IssuerVkey() []byte {
+func (h *ShelleyBlockHeader) IssuerVkey() IssuerVkey {
 	return h.Body.IssuerVkey
 }
 

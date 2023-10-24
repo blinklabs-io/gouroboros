@@ -57,7 +57,7 @@ func (b *AlonzoBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *AlonzoBlock) IssuerVkey() []byte {
+func (b *AlonzoBlock) IssuerVkey() IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 

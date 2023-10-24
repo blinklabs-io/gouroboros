@@ -57,7 +57,7 @@ func (b *BabbageBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *BabbageBlock) IssuerVkey() []byte {
+func (b *BabbageBlock) IssuerVkey() IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -99,7 +99,7 @@ type BabbageBlockHeader struct {
 		BlockNumber   uint64
 		Slot          uint64
 		PrevHash      Blake2b256
-		IssuerVkey    []byte
+		IssuerVkey    IssuerVkey
 		VrfKey        []byte
 		VrfResult     interface{}
 		BlockBodySize uint64
@@ -139,7 +139,7 @@ func (h *BabbageBlockHeader) SlotNumber() uint64 {
 	return h.Body.Slot
 }
 
-func (h *BabbageBlockHeader) IssuerVkey() []byte {
+func (h *BabbageBlockHeader) IssuerVkey() IssuerVkey {
 	return h.Body.IssuerVkey
 }
 
