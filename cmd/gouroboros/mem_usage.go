@@ -39,8 +39,18 @@ func newMemUsageFlags() *memUsageFlags {
 	f := &memUsageFlags{
 		flagset: flag.NewFlagSet("mem-usage", flag.ExitOnError),
 	}
-	f.flagset.StringVar(&f.startEra, "start-era", "genesis", "era which to start chain-sync at")
-	f.flagset.BoolVar(&f.tip, "tip", false, "start chain-sync at current chain tip")
+	f.flagset.StringVar(
+		&f.startEra,
+		"start-era",
+		"genesis",
+		"era which to start chain-sync at",
+	)
+	f.flagset.BoolVar(
+		&f.tip,
+		"tip",
+		false,
+		"start chain-sync at current chain tip",
+	)
 	f.flagset.IntVar(&f.debugPort, "debug-port", 8080, "pprof port")
 	return f
 }
@@ -54,9 +64,17 @@ func testMemUsage(f *globalFlags) {
 	}
 
 	// Start pprof listener
-	log.Printf("Starting pprof listener on http://0.0.0.0:%d/debug/pprof\n", memUsageFlags.debugPort)
+	log.Printf(
+		"Starting pprof listener on http://0.0.0.0:%d/debug/pprof\n",
+		memUsageFlags.debugPort,
+	)
 	go func() {
-		log.Println(http.ListenAndServe(fmt.Sprintf(":%d", memUsageFlags.debugPort), nil))
+		log.Println(
+			http.ListenAndServe(
+				fmt.Sprintf(":%d", memUsageFlags.debugPort),
+				nil,
+			),
+		)
 	}()
 
 	for i := 0; i < 10; i++ {
@@ -92,7 +110,11 @@ func testMemUsage(f *globalFlags) {
 			os.Exit(1)
 		}
 
-		log.Printf("tip: slot = %d, hash = %x\n", tip.Point.Slot, tip.Point.Hash)
+		log.Printf(
+			"tip: slot = %d, hash = %x\n",
+			tip.Point.Slot,
+			tip.Point.Hash,
+		)
 
 		if err := o.Close(); err != nil {
 			fmt.Printf("ERROR: %s\n", err)

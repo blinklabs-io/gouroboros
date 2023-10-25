@@ -82,7 +82,10 @@ func (h *ByronMainBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BlockTypeByronMain})
+		h.hash = generateBlockHeaderHash(
+			h.Cbor(),
+			[]byte{0x82, BlockTypeByronMain},
+		)
 	}
 	return h.hash
 }
@@ -93,7 +96,11 @@ func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
-	return uint64((h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) + uint64(h.ConsensusData.SlotId.Slot))
+	return uint64(
+		(h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) + uint64(
+			h.ConsensusData.SlotId.Slot,
+		),
+	)
 }
 
 func (h *ByronMainBlockHeader) IssuerVkey() IssuerVkey {
@@ -189,7 +196,10 @@ func (h *ByronEpochBoundaryBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(h.Cbor(), []byte{0x82, BlockTypeByronEbb})
+		h.hash = generateBlockHeaderHash(
+			h.Cbor(),
+			[]byte{0x82, BlockTypeByronEbb},
+		)
 	}
 	return h.hash
 }
@@ -299,7 +309,9 @@ func (b *ByronEpochBoundaryBlock) Transactions() []Transaction {
 	return nil
 }
 
-func NewByronEpochBoundaryBlockFromCbor(data []byte) (*ByronEpochBoundaryBlock, error) {
+func NewByronEpochBoundaryBlockFromCbor(
+	data []byte,
+) (*ByronEpochBoundaryBlock, error) {
 	var byronEbbBlock ByronEpochBoundaryBlock
 	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
 		return nil, fmt.Errorf("Byron EBB block decode error: %s", err)
@@ -307,7 +319,9 @@ func NewByronEpochBoundaryBlockFromCbor(data []byte) (*ByronEpochBoundaryBlock, 
 	return &byronEbbBlock, nil
 }
 
-func NewByronEpochBoundaryBlockHeaderFromCbor(data []byte) (*ByronEpochBoundaryBlockHeader, error) {
+func NewByronEpochBoundaryBlockHeaderFromCbor(
+	data []byte,
+) (*ByronEpochBoundaryBlockHeader, error) {
 	var byronEbbBlockHeader ByronEpochBoundaryBlockHeader
 	if _, err := cbor.Decode(data, &byronEbbBlockHeader); err != nil {
 		return nil, fmt.Errorf("Byron EBB block header decode error: %s", err)
@@ -323,7 +337,9 @@ func NewByronMainBlockFromCbor(data []byte) (*ByronMainBlock, error) {
 	return &byronMainBlock, nil
 }
 
-func NewByronMainBlockHeaderFromCbor(data []byte) (*ByronMainBlockHeader, error) {
+func NewByronMainBlockHeaderFromCbor(
+	data []byte,
+) (*ByronMainBlockHeader, error) {
 	var byronMainBlockHeader ByronMainBlockHeader
 	if _, err := cbor.Decode(data, &byronMainBlockHeader); err != nil {
 		return nil, fmt.Errorf("Byron main block header decode error: %s", err)

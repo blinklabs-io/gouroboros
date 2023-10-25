@@ -106,7 +106,11 @@ func TestDecode(t *testing.T) {
 		// Set the raw CBOR so the comparison should succeed
 		test.Message.SetCbor(cborData)
 		if !reflect.DeepEqual(msg, test.Message) {
-			t.Fatalf("CBOR did not decode to expected message object\n  got:    %#v\n  wanted: %#v", msg, test.Message)
+			t.Fatalf(
+				"CBOR did not decode to expected message object\n  got:    %#v\n  wanted: %#v",
+				msg,
+				test.Message,
+			)
 		}
 	}
 }
@@ -119,7 +123,11 @@ func TestEncode(t *testing.T) {
 		}
 		cborHex := hex.EncodeToString(cborData)
 		if cborHex != test.CborHex {
-			t.Fatalf("message did not encode to expected CBOR\n  got:    %s\n  wanted: %s", cborHex, test.CborHex)
+			t.Fatalf(
+				"message did not encode to expected CBOR\n  got:    %s\n  wanted: %s",
+				cborHex,
+				test.CborHex,
+			)
 		}
 	}
 }

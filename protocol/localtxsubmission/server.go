@@ -54,14 +54,20 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeDone:
 		err = s.handleDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
 
 func (s *Server) handleSubmitTx(msgGeneric protocol.Message) error {
 	if s.config.SubmitTxFunc == nil {
-		return fmt.Errorf("received local-tx-submission SubmitTx message but no callback function is defined")
+		return fmt.Errorf(
+			"received local-tx-submission SubmitTx message but no callback function is defined",
+		)
 	}
 	msg := msgGeneric.(*MsgSubmitTx)
 	// Call the user callback function

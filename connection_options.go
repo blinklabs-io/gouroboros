@@ -125,14 +125,18 @@ func WithKeepAliveConfig(cfg keepalive.Config) ConnectionOptionFunc {
 }
 
 // WithLocalStateQueryConfig specifies LocalStateQuery protocol config
-func WithLocalStateQueryConfig(cfg localstatequery.Config) ConnectionOptionFunc {
+func WithLocalStateQueryConfig(
+	cfg localstatequery.Config,
+) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.localStateQueryConfig = &cfg
 	}
 }
 
 // WithLocalTxSubmissionConfig specifies LocalTxSubmission protocol config
-func WithLocalTxSubmissionConfig(cfg localtxsubmission.Config) ConnectionOptionFunc {
+func WithLocalTxSubmissionConfig(
+	cfg localtxsubmission.Config,
+) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.localTxSubmissionConfig = &cfg
 	}

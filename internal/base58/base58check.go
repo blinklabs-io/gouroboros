@@ -17,7 +17,9 @@ import (
 var ErrChecksum = errors.New("checksum error")
 
 // ErrInvalidFormat indicates that the check-encoded string has an invalid format.
-var ErrInvalidFormat = errors.New("invalid format: version and/or checksum bytes missing")
+var ErrInvalidFormat = errors.New(
+	"invalid format: version and/or checksum bytes missing",
+)
 
 // checksum: first four bytes of sha256^2
 func checksum(input []byte) (cksum [4]byte) {

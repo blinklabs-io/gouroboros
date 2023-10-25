@@ -136,7 +136,11 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeBatchDone:
 		err = c.handleBatchDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
@@ -159,7 +163,10 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
 		return fmt.Errorf("%s: decode error: %s", ProtocolName, err)
 	}
-	blk, err := ledger.NewBlockFromCbor(wrappedBlock.Type, wrappedBlock.RawBlock)
+	blk, err := ledger.NewBlockFromCbor(
+		wrappedBlock.Type,
+		wrappedBlock.RawBlock,
+	)
 	if err != nil {
 		return err
 	}

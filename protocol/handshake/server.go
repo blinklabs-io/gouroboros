@@ -53,14 +53,20 @@ func (s *Server) handleMessage(msg protocol.Message, isResponse bool) error {
 	case MessageTypeProposeVersions:
 		err = s.handleProposeVersions(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
 
 func (s *Server) handleProposeVersions(msgGeneric protocol.Message) error {
 	if s.config.FinishedFunc == nil {
-		return fmt.Errorf("received handshake ProposeVersions message but no callback function is defined")
+		return fmt.Errorf(
+			"received handshake ProposeVersions message but no callback function is defined",
+		)
 	}
 	msg := msgGeneric.(*MsgProposeVersions)
 	var highestVersion uint16

@@ -78,7 +78,10 @@ type Config struct {
 type SubmitTxFunc func(interface{}) error
 
 // New returns a new LocalTxSubmission object
-func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxSubmission {
+func New(
+	protoOptions protocol.ProtocolOptions,
+	cfg *Config,
+) *LocalTxSubmission {
 	l := &LocalTxSubmission{
 		Client: NewClient(protoOptions, cfg),
 		Server: NewServer(protoOptions, cfg),

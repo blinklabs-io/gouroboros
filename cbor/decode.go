@@ -77,7 +77,8 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 func ListLength(cborData []byte) (int, error) {
 	// If the list length is <= the max simple uint, then we can extract the length
 	// value straight from the byte slice (with a little math)
-	if cborData[0] >= CborTypeArray && cborData[0] <= (CborTypeArray+CborMaxUintSimple) {
+	if cborData[0] >= CborTypeArray &&
+		cborData[0] <= (CborTypeArray+CborMaxUintSimple) {
 		return int(cborData[0]) - int(CborTypeArray), nil
 	}
 	// If we couldn't use the shortcut above, actually decode the list
@@ -90,7 +91,10 @@ func ListLength(cborData []byte) (int, error) {
 
 // Decode CBOR list data by the leading value of each list item. It expects CBOR data and
 // a map of numbers to object pointers to decode into
-func DecodeById(cborData []byte, idMap map[int]interface{}) (interface{}, error) {
+func DecodeById(
+	cborData []byte,
+	idMap map[int]interface{},
+) (interface{}, error) {
 	id, err := DecodeIdFromList(cborData)
 	if err != nil {
 		return nil, err
@@ -112,7 +116,8 @@ func DecodeGeneric(cborData []byte, dest interface{}) error {
 	// We do this so that we can bypass any custom UnmarshalCBOR() function on the
 	// destination object
 	valueDest := reflect.ValueOf(dest)
-	if valueDest.Kind() != reflect.Pointer || valueDest.Elem().Kind() != reflect.Struct {
+	if valueDest.Kind() != reflect.Pointer ||
+		valueDest.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("destination must be a pointer to a struct")
 	}
 	typeDestElem := valueDest.Elem().Type()

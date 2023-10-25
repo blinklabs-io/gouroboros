@@ -45,8 +45,18 @@ func main() {
 	f := txSubmissionFlags{
 		GlobalFlags: common.NewGlobalFlags(),
 	}
-	f.Flagset.StringVar(&f.txFile, "tx-file", "", "path to the JSON transaction file to submit")
-	f.Flagset.StringVar(&f.rawTxFile, "raw-tx-file", "", "path to the raw transaction file to submit")
+	f.Flagset.StringVar(
+		&f.txFile,
+		"tx-file",
+		"",
+		"path to the JSON transaction file to submit",
+	)
+	f.Flagset.StringVar(
+		&f.rawTxFile,
+		"raw-tx-file",
+		"",
+		"path to the raw transaction file to submit",
+	)
 	f.Parse()
 	// Create connection
 	conn := common.CreateClientConnection(f.GlobalFlags)
@@ -138,7 +148,11 @@ func main() {
 	}
 }
 
-func handleRequestTxIds(blocking bool, ack uint16, req uint16) ([]txsubmission.TxIdAndSize, error) {
+func handleRequestTxIds(
+	blocking bool,
+	ack uint16,
+	req uint16,
+) ([]txsubmission.TxIdAndSize, error) {
 	if sentTx {
 		// Terrible syncronization hack for shutdown
 		close(doneChan)
@@ -156,7 +170,9 @@ func handleRequestTxIds(blocking bool, ack uint16, req uint16) ([]txsubmission.T
 	return ret, nil
 }
 
-func handleRequestTxs(txIds []txsubmission.TxId) ([]txsubmission.TxBody, error) {
+func handleRequestTxs(
+	txIds []txsubmission.TxId,
+) ([]txsubmission.TxBody, error) {
 	ret := []txsubmission.TxBody{
 		{
 			EraId:  5,

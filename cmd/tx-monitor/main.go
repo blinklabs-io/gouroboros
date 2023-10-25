@@ -57,7 +57,12 @@ func main() {
 		fmt.Printf("ERROR(GetSizes): %s\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Mempool size/capacity (bytes): %d / %d, TXs: %d\n", size, capacity, numberOfTxs)
+	fmt.Printf(
+		"Mempool size/capacity (bytes): %d / %d, TXs: %d\n",
+		size,
+		capacity,
+		numberOfTxs,
+	)
 
 	fmt.Printf("Transactions:\n\n")
 	for {

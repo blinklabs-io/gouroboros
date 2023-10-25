@@ -48,8 +48,10 @@ var testDefs = []struct {
 	},
 	// Invalid map key type
 	{
-		cborHex:             "A1810000",
-		expectedDecodeError: fmt.Errorf("decode failure, probably due to type unsupported by Go: runtime error: hash of unhashable type []interface {}"),
+		cborHex: "A1810000",
+		expectedDecodeError: fmt.Errorf(
+			"decode failure, probably due to type unsupported by Go: runtime error: hash of unhashable type []interface {}",
+		),
 	},
 	// [1, 2, 3]
 	{
@@ -59,8 +61,11 @@ var testDefs = []struct {
 	},
 	// {1: 2, 3: 4}
 	{
-		cborHex:         "A201020304",
-		expectedObject:  map[any]any{uint64(1): uint64(2), uint64(3): uint64(4)},
+		cborHex: "A201020304",
+		expectedObject: map[any]any{
+			uint64(1): uint64(2),
+			uint64(3): uint64(4),
+		},
 		expectedAstJson: `{"map":[{"k":{"int":1},"v":{"int":2}},{"k":{"int":3},"v":{"int":4}}]}`,
 	},
 	// {1: [2], 3: [4]}
@@ -93,7 +98,11 @@ func TestValueDecode(t *testing.T) {
 		if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
 			if testDef.expectedDecodeError != nil {
 				if err.Error() != testDef.expectedDecodeError.Error() {
-					t.Fatalf("did not receive expected decode error, got: %s, wanted: %s", err, testDef.expectedDecodeError)
+					t.Fatalf(
+						"did not receive expected decode error, got: %s, wanted: %s",
+						err,
+						testDef.expectedDecodeError,
+					)
 				}
 				continue
 			} else {
@@ -106,7 +115,11 @@ func TestValueDecode(t *testing.T) {
 		}
 		newObj := tmpValue.Value()
 		if !reflect.DeepEqual(newObj, testDef.expectedObject) {
-			t.Fatalf("CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v", newObj, testDef.expectedObject)
+			t.Fatalf(
+				"CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v",
+				newObj,
+				testDef.expectedObject,
+			)
 		}
 	}
 }
@@ -142,7 +155,11 @@ func TestValueMarshalJSON(t *testing.T) {
 			)
 		}
 		if !test.JsonStringsEqual(jsonData, []byte(fullExpectedJson)) {
-			t.Fatalf("CBOR did not marshal to expected JSON\n  got: %s\n  wanted: %s", jsonData, fullExpectedJson)
+			t.Fatalf(
+				"CBOR did not marshal to expected JSON\n  got: %s\n  wanted: %s",
+				jsonData,
+				fullExpectedJson,
+			)
 		}
 	}
 }
@@ -157,7 +174,11 @@ func TestLazyValueDecode(t *testing.T) {
 		if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
 			if testDef.expectedDecodeError != nil {
 				if err.Error() != testDef.expectedDecodeError.Error() {
-					t.Fatalf("did not receive expected decode error, got: %s, wanted: %s", err, testDef.expectedDecodeError)
+					t.Fatalf(
+						"did not receive expected decode error, got: %s, wanted: %s",
+						err,
+						testDef.expectedDecodeError,
+					)
 				}
 				continue
 			} else {
@@ -168,7 +189,11 @@ func TestLazyValueDecode(t *testing.T) {
 		if err != nil {
 			if testDef.expectedDecodeError != nil {
 				if err.Error() != testDef.expectedDecodeError.Error() {
-					t.Fatalf("did not receive expected decode error, got: %s, wanted: %s", err, testDef.expectedDecodeError)
+					t.Fatalf(
+						"did not receive expected decode error, got: %s, wanted: %s",
+						err,
+						testDef.expectedDecodeError,
+					)
 				}
 				continue
 			} else {
@@ -180,7 +205,11 @@ func TestLazyValueDecode(t *testing.T) {
 			}
 		}
 		if !reflect.DeepEqual(newObj, testDef.expectedObject) {
-			t.Fatalf("CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v", newObj, testDef.expectedObject)
+			t.Fatalf(
+				"CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v",
+				newObj,
+				testDef.expectedObject,
+			)
 		}
 	}
 }
@@ -216,7 +245,11 @@ func TestLazyValueMarshalJSON(t *testing.T) {
 			)
 		}
 		if !test.JsonStringsEqual(jsonData, []byte(fullExpectedJson)) {
-			t.Fatalf("CBOR did not marshal to expected JSON\n  got: %s\n  wanted: %s", jsonData, fullExpectedJson)
+			t.Fatalf(
+				"CBOR did not marshal to expected JSON\n  got: %s\n  wanted: %s",
+				jsonData,
+				fullExpectedJson,
+			)
 		}
 	}
 }

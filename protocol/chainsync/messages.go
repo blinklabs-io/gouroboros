@@ -44,7 +44,11 @@ func NewMsgFromCborNtC(msgType uint, data []byte) (protocol.Message, error) {
 }
 
 // NewMsgFromCbor parses a ChainSync message from CBOR
-func NewMsgFromCbor(protoMode protocol.ProtocolMode, msgType uint, data []byte) (protocol.Message, error) {
+func NewMsgFromCbor(
+	protoMode protocol.ProtocolMode,
+	msgType uint,
+	data []byte,
+) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
 	case MessageTypeRequestNext:
@@ -114,7 +118,11 @@ type MsgRollForwardNtC struct {
 }
 
 // NewMsgRollForwardNtC returns a MsgRollForwardNtC with the provided parameters
-func NewMsgRollForwardNtC(blockType uint, blockCbor []byte, tip Tip) *MsgRollForwardNtC {
+func NewMsgRollForwardNtC(
+	blockType uint,
+	blockCbor []byte,
+	tip Tip,
+) *MsgRollForwardNtC {
 	m := &MsgRollForwardNtC{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRollForward,
@@ -165,7 +173,12 @@ type MsgRollForwardNtN struct {
 }
 
 // NewMsgRollForwardNtN returns a MsgRollForwardNtN with the provided parameters
-func NewMsgRollForwardNtN(era uint, byronType uint, blockCbor []byte, tip Tip) *MsgRollForwardNtN {
+func NewMsgRollForwardNtN(
+	era uint,
+	byronType uint,
+	blockCbor []byte,
+	tip Tip,
+) *MsgRollForwardNtN {
 	m := &MsgRollForwardNtN{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRollForward,

@@ -95,7 +95,11 @@ type EraMismatch struct {
 }
 
 func (e *EraMismatch) Error() string {
-	return fmt.Sprintf("The era of the node and the tx do not match. The node is running in the %s era, but the transaction is for the %s era.", GetEraById(e.LedgerEra).Name, GetEraById(e.OtherEra).Name)
+	return fmt.Sprintf(
+		"The era of the node and the tx do not match. The node is running in the %s era, but the transaction is for the %s era.",
+		GetEraById(e.LedgerEra).Name,
+		GetEraById(e.OtherEra).Name,
+	)
 }
 
 // Helper function to try to parse CBOR as various error types
@@ -145,7 +149,11 @@ func (e *ShelleyTxValidationError) UnmarshalCBOR(data []byte) error {
 }
 
 func (e *ShelleyTxValidationError) Error() string {
-	return fmt.Sprintf("ShelleyTxValidationError ShelleyBasedEra%s (%s)", GetEraById(e.Era).Name, e.Err.Error())
+	return fmt.Sprintf(
+		"ShelleyTxValidationError ShelleyBasedEra%s (%s)",
+		GetEraById(e.Era).Name,
+		e.Err.Error(),
+	)
 }
 
 type ApplyTxError struct {
@@ -331,7 +339,12 @@ type OutsideValidityIntervalUtxo struct {
 
 func (e *OutsideValidityIntervalUtxo) Error() string {
 	validityInterval := e.ValidityInterval.Value().([]interface{})
-	return fmt.Sprintf("OutsideValidityIntervalUtxo (ValidityInterval { invalidBefore = %v, invalidHereafter = %v }, Slot %d)", validityInterval[0], validityInterval[1], e.Slot)
+	return fmt.Sprintf(
+		"OutsideValidityIntervalUtxo (ValidityInterval { invalidBefore = %v, invalidHereafter = %v }, Slot %d)",
+		validityInterval[0],
+		validityInterval[1],
+		e.Slot,
+	)
 }
 
 type MaxTxSizeUtxo struct {
@@ -341,7 +354,11 @@ type MaxTxSizeUtxo struct {
 }
 
 func (e *MaxTxSizeUtxo) Error() string {
-	return fmt.Sprintf("MaxTxSizeUtxo (ActualSize %d, MaxSize %d)", e.ActualSize, e.MaxSize)
+	return fmt.Sprintf(
+		"MaxTxSizeUtxo (ActualSize %d, MaxSize %d)",
+		e.ActualSize,
+		e.MaxSize,
+	)
 }
 
 type InputSetEmptyUtxo struct {
@@ -359,7 +376,11 @@ type FeeTooSmallUtxo struct {
 }
 
 func (e *FeeTooSmallUtxo) Error() string {
-	return fmt.Sprintf("FeeTooSmallUtxo (MinimumFee %d, SuppliedFee %d)", e.MinimumFee, e.SuppliedFee)
+	return fmt.Sprintf(
+		"FeeTooSmallUtxo (MinimumFee %d, SuppliedFee %d)",
+		e.MinimumFee,
+		e.SuppliedFee,
+	)
 }
 
 type ValueNotConservedUtxo struct {
@@ -369,7 +390,11 @@ type ValueNotConservedUtxo struct {
 }
 
 func (e *ValueNotConservedUtxo) Error() string {
-	return fmt.Sprintf("ValueNotConservedUtxo (Consumed %d, Produced %d)", e.Consumed, e.Produced)
+	return fmt.Sprintf(
+		"ValueNotConservedUtxo (Consumed %d, Produced %d)",
+		e.Consumed,
+		e.Produced,
+	)
 }
 
 type OutputTooSmallUtxo struct {
@@ -413,7 +438,11 @@ type WrongNetwork struct {
 }
 
 func (e *WrongNetwork) Error() string {
-	return fmt.Sprintf("WrongNetwork (ExpectedNetworkId %d, Addresses (%v))", e.ExpectedNetworkId, e.Addresses.Value())
+	return fmt.Sprintf(
+		"WrongNetwork (ExpectedNetworkId %d, Addresses (%v))",
+		e.ExpectedNetworkId,
+		e.Addresses.Value(),
+	)
 }
 
 type WrongNetworkWithdrawal struct {
@@ -423,7 +452,11 @@ type WrongNetworkWithdrawal struct {
 }
 
 func (e *WrongNetworkWithdrawal) Error() string {
-	return fmt.Sprintf("WrongNetworkWithdrawal (ExpectedNetworkId %d, RewardAccounts (%v))", e.ExpectedNetworkId, e.RewardAccounts.Value())
+	return fmt.Sprintf(
+		"WrongNetworkWithdrawal (ExpectedNetworkId %d, RewardAccounts (%v))",
+		e.ExpectedNetworkId,
+		e.RewardAccounts.Value(),
+	)
 }
 
 type OutputBootAddrAttrsTooBig struct {
@@ -463,7 +496,13 @@ type OutputTooBigUtxo struct {
 func (e *OutputTooBigUtxo) Error() string {
 	ret := "OutputTooBigUtxo (["
 	for idx, output := range e.Outputs {
-		ret = fmt.Sprintf("%s(ActualSize %d, MaxSize %d, Output (%s))", ret, output.ActualSize, output.MaxSize, output.Output.String())
+		ret = fmt.Sprintf(
+			"%s(ActualSize %d, MaxSize %d, Output (%s))",
+			ret,
+			output.ActualSize,
+			output.MaxSize,
+			output.Output.String(),
+		)
 		if idx < (len(e.Outputs) - 1) {
 			ret = fmt.Sprintf("%s, ", ret)
 		}
@@ -480,7 +519,11 @@ type InsufficientCollateral struct {
 }
 
 func (e *InsufficientCollateral) Error() string {
-	return fmt.Sprintf("InsufficientCollateral (BalanceComputed %d, RequiredCollateral %d)", e.BalanceComputed, e.RequiredCollateral)
+	return fmt.Sprintf(
+		"InsufficientCollateral (BalanceComputed %d, RequiredCollateral %d)",
+		e.BalanceComputed,
+		e.RequiredCollateral,
+	)
 }
 
 type ScriptsNotPaidUtxo struct {
@@ -500,7 +543,11 @@ type ExUnitsTooBigUtxo struct {
 }
 
 func (e *ExUnitsTooBigUtxo) Error() string {
-	return fmt.Sprintf("ExUnitsTooBigUtxo (MaxAllowed %d, Supplied %d)", e.MaxAllowed, e.Supplied)
+	return fmt.Sprintf(
+		"ExUnitsTooBigUtxo (MaxAllowed %d, Supplied %d)",
+		e.MaxAllowed,
+		e.Supplied,
+	)
 }
 
 type CollateralContainsNonADA struct {
@@ -520,7 +567,11 @@ type WrongNetworkInTxBody struct {
 }
 
 func (e *WrongNetworkInTxBody) Error() string {
-	return fmt.Sprintf("WrongNetworkInTxBody (ActualNetworkId %d, TransactionNetworkId %d)", e.ActualNetworkId, e.TransactionNetworkId)
+	return fmt.Sprintf(
+		"WrongNetworkInTxBody (ActualNetworkId %d, TransactionNetworkId %d)",
+		e.ActualNetworkId,
+		e.TransactionNetworkId,
+	)
 }
 
 type OutsideForecast struct {
@@ -539,7 +590,11 @@ type TooManyCollateralInputs struct {
 }
 
 func (e *TooManyCollateralInputs) Error() string {
-	return fmt.Sprintf("TooManyCollateralInputs (MaxAllowed %d, Supplied %d)", e.MaxAllowed, e.Supplied)
+	return fmt.Sprintf(
+		"TooManyCollateralInputs (MaxAllowed %d, Supplied %d)",
+		e.MaxAllowed,
+		e.Supplied,
+	)
 }
 
 type NoCollateralInputs struct {

@@ -259,7 +259,9 @@ func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 	return &alonzoBlock, nil
 }
 
-func NewAlonzoTransactionBodyFromCbor(data []byte) (*AlonzoTransactionBody, error) {
+func NewAlonzoTransactionBodyFromCbor(
+	data []byte,
+) (*AlonzoTransactionBody, error) {
 	var alonzoTx AlonzoTransactionBody
 	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
 		return nil, fmt.Errorf("Alonzo transaction body decode error: %s", err)

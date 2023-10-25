@@ -260,7 +260,10 @@ func (c *Connection) setupConnection() error {
 	}
 	// Check network magic value
 	if c.networkMagic == 0 {
-		return fmt.Errorf("invalid network magic value provided: %d\n", c.networkMagic)
+		return fmt.Errorf(
+			"invalid network magic value provided: %d\n",
+			c.networkMagic,
+		)
 	}
 	// Perform handshake
 	var handshakeVersion uint16

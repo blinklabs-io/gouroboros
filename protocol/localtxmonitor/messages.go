@@ -262,7 +262,11 @@ type MsgReplyGetSizesResult struct {
 	NumberOfTxs uint32
 }
 
-func NewMsgReplyGetSizes(capacity uint32, size uint32, numberOfTxs uint32) *MsgReplyGetSizes {
+func NewMsgReplyGetSizes(
+	capacity uint32,
+	size uint32,
+	numberOfTxs uint32,
+) *MsgReplyGetSizes {
 	m := &MsgReplyGetSizes{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeReplyGetSizes,

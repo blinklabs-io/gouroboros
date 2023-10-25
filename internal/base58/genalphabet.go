@@ -38,12 +38,14 @@ var b58 = [256]byte{`)
 
 	end = []byte(`}`)
 
-	alphabet = []byte("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
-	tab      = []byte("\t")
-	invalid  = []byte("255")
-	comma    = []byte(",")
-	space    = []byte(" ")
-	nl       = []byte("\n")
+	alphabet = []byte(
+		"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",
+	)
+	tab     = []byte("\t")
+	invalid = []byte("255")
+	comma   = []byte(",")
+	space   = []byte(" ")
+	nl      = []byte("\n")
 )
 
 func write(w io.Writer, b []byte) {

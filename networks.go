@@ -17,16 +17,50 @@ package ouroboros
 // Network definitions
 var (
 	NetworkTestnet = Network{Id: 0, Name: "testnet", NetworkMagic: 1097911063}
-	NetworkMainnet = Network{Id: 1, Name: "mainnet", NetworkMagic: 764824073, PublicRootAddress: "relays-new.cardano-mainnet.iohk.io", PublicRootPort: 3001}
-	NetworkPreprod = Network{Id: 2, Name: "preprod", NetworkMagic: 1, PublicRootAddress: "preprod-node.world.dev.cardano.org", PublicRootPort: 30000}
-	NetworkPreview = Network{Id: 3, Name: "preview", NetworkMagic: 2, PublicRootAddress: "preview-node.world.dev.cardano.org", PublicRootPort: 30002}
-	NetworkSancho  = Network{Id: 4, Name: "sanchonet", NetworkMagic: 4, PublicRootAddress: "sanchonet-node.world.dev.cardano.org", PublicRootPort: 30004}
+	NetworkMainnet = Network{
+		Id:                1,
+		Name:              "mainnet",
+		NetworkMagic:      764824073,
+		PublicRootAddress: "relays-new.cardano-mainnet.iohk.io",
+		PublicRootPort:    3001,
+	}
+	NetworkPreprod = Network{
+		Id:                2,
+		Name:              "preprod",
+		NetworkMagic:      1,
+		PublicRootAddress: "preprod-node.world.dev.cardano.org",
+		PublicRootPort:    30000,
+	}
+	NetworkPreview = Network{
+		Id:                3,
+		Name:              "preview",
+		NetworkMagic:      2,
+		PublicRootAddress: "preview-node.world.dev.cardano.org",
+		PublicRootPort:    30002,
+	}
+	NetworkSancho = Network{
+		Id:                4,
+		Name:              "sanchonet",
+		NetworkMagic:      4,
+		PublicRootAddress: "sanchonet-node.world.dev.cardano.org",
+		PublicRootPort:    30004,
+	}
 
-	NetworkInvalid = Network{Id: 0, Name: "invalid", NetworkMagic: 0} // NetworkInvalid is used as a return value for lookup functions when a network isn't found
+	NetworkInvalid = Network{
+		Id:           0,
+		Name:         "invalid",
+		NetworkMagic: 0,
+	} // NetworkInvalid is used as a return value for lookup functions when a network isn't found
 )
 
 // List of valid networks for use in lookup functions
-var networks = []Network{NetworkTestnet, NetworkMainnet, NetworkPreprod, NetworkPreview, NetworkSancho}
+var networks = []Network{
+	NetworkTestnet,
+	NetworkMainnet,
+	NetworkPreprod,
+	NetworkPreview,
+	NetworkSancho,
+}
 
 // NetworkByName returns a predefined network by name
 func NetworkByName(name string) Network {

@@ -49,7 +49,11 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	// TODO: add cases for messages from client
 	switch msg.Type() {
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
