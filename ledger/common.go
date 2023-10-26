@@ -19,9 +19,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/blinklabs-io/gouroboros/base58"
+	"github.com/blinklabs-io/gouroboros/bech32"
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/internal/base58"
-	"github.com/blinklabs-io/gouroboros/internal/bech32"
 
 	"golang.org/x/crypto/blake2b"
 )
