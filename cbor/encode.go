@@ -41,7 +41,8 @@ func EncodeGeneric(src interface{}) ([]byte, error) {
 	// We do this so that we can bypass any custom UnmarshalCBOR() function on the
 	// destination object
 	valueSrc := reflect.ValueOf(src)
-	if valueSrc.Kind() != reflect.Pointer || valueSrc.Elem().Kind() != reflect.Struct {
+	if valueSrc.Kind() != reflect.Pointer ||
+		valueSrc.Elem().Kind() != reflect.Struct {
 		return nil, fmt.Errorf("source must be a pointer to a struct")
 	}
 	typeSrcElem := valueSrc.Elem().Type()

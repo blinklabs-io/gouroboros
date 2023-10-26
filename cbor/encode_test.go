@@ -42,7 +42,11 @@ func TestEncode(t *testing.T) {
 		}
 		cborHex := hex.EncodeToString(cborData)
 		if cborHex != test.CborHex {
-			t.Fatalf("object did not encode to expected CBOR\n  got: %s\n  wanted: %s", cborHex, test.CborHex)
+			t.Fatalf(
+				"object did not encode to expected CBOR\n  got: %s\n  wanted: %s",
+				cborHex,
+				test.CborHex,
+			)
 		}
 	}
 }

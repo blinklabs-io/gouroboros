@@ -105,11 +105,14 @@ func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
 	for policyId, policyData := range m.data {
 		for assetName, amount := range policyData {
 			tmpObj := multiAssetJson[T]{
-				Name:        string(assetName.Bytes()),
-				NameHex:     hex.EncodeToString(assetName.Bytes()),
-				Amount:      amount,
-				PolicyId:    policyId.String(),
-				Fingerprint: NewAssetFingerprint(policyId.Bytes(), assetName.Bytes()).String(),
+				Name:     string(assetName.Bytes()),
+				NameHex:  hex.EncodeToString(assetName.Bytes()),
+				Amount:   amount,
+				PolicyId: policyId.String(),
+				Fingerprint: NewAssetFingerprint(
+					policyId.Bytes(),
+					assetName.Bytes(),
+				).String(),
 			}
 			tmpAssets = append(tmpAssets, tmpObj)
 		}
@@ -170,7 +173,9 @@ func (a AssetFingerprint) String() string {
 	// Convert data to base32 and encode as bech32
 	convData, err := bech32.ConvertBits(a.Hash().Bytes(), 8, 5, true)
 	if err != nil {
-		panic(fmt.Sprintf("unexpected error converting data to base32: %s", err))
+		panic(
+			fmt.Sprintf("unexpected error converting data to base32: %s", err),
+		)
 	}
 	encoded, err := bech32.Encode("asset", convData)
 	if err != nil {
@@ -220,7 +225,12 @@ func NewAddress(addr string) (Address, error) {
 }
 
 // NewAddressFromParts returns an Address based on the individual parts of the address that are provided
-func NewAddressFromParts(addrType uint8, networkId uint8, paymentAddr []byte, stakingAddr []byte) Address {
+func NewAddressFromParts(
+	addrType uint8,
+	networkId uint8,
+	paymentAddr []byte,
+	stakingAddr []byte,
+) Address {
 	return Address{
 		addressType:    addrType,
 		networkId:      networkId,
@@ -240,7 +250,8 @@ func (a *Address) populateFromBytes(data []byte) {
 	a.paymentAddress = payload[:AddressHashSize]
 	a.stakingAddress = payload[AddressHashSize:]
 	// Adjust stake addresses
-	if a.addressType == AddressTypeNoneKey || a.addressType == AddressTypeNoneScript {
+	if a.addressType == AddressTypeNoneKey ||
+		a.addressType == AddressTypeNoneScript {
 		a.stakingAddress = a.paymentAddress[:]
 		a.paymentAddress = make([]byte, 0)
 	}
@@ -262,7 +273,8 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 
 // StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
 func (a Address) StakeAddress() *Address {
-	if a.addressType != AddressTypeKeyKey && a.addressType != AddressTypeScriptKey {
+	if a.addressType != AddressTypeKeyKey &&
+		a.addressType != AddressTypeScriptKey {
 		return nil
 	}
 	newAddr := &Address{
@@ -275,7 +287,8 @@ func (a Address) StakeAddress() *Address {
 
 func (a Address) generateHRP() string {
 	var ret string
-	if a.addressType == AddressTypeNoneKey || a.addressType == AddressTypeNoneScript {
+	if a.addressType == AddressTypeNoneKey ||
+		a.addressType == AddressTypeNoneScript {
 		ret = "stake"
 	} else {
 		ret = "addr"
@@ -290,7 +303,10 @@ func (a Address) generateHRP() string {
 // Bytes returns the underlying bytes for the address
 func (a Address) Bytes() []byte {
 	ret := []byte{}
-	ret = append(ret, (byte(a.addressType)<<4)|(byte(a.networkId)&AddressHeaderNetworkMask))
+	ret = append(
+		ret,
+		(byte(a.addressType)<<4)|(byte(a.networkId)&AddressHeaderNetworkMask),
+	)
 	ret = append(ret, a.paymentAddress...)
 	ret = append(ret, a.stakingAddress...)
 	return ret
@@ -336,7 +352,9 @@ func (i IssuerVkey) PoolId() string {
 	// Convert data to base32 and encode as bech32
 	convData, err := bech32.ConvertBits(i.Hash().Bytes(), 8, 5, true)
 	if err != nil {
-		panic(fmt.Sprintf("unexpected error converting data to base32: %s", err))
+		panic(
+			fmt.Sprintf("unexpected error converting data to base32: %s", err),
+		)
 	}
 	encoded, err := bech32.Encode("pool", convData)
 	if err != nil {

@@ -61,7 +61,9 @@ type MsgProposeVersions struct {
 	VersionMap map[uint16]interface{}
 }
 
-func NewMsgProposeVersions(versionMap map[uint16]interface{}) *MsgProposeVersions {
+func NewMsgProposeVersions(
+	versionMap map[uint16]interface{},
+) *MsgProposeVersions {
 	m := &MsgProposeVersions{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeProposeVersions,
@@ -77,7 +79,10 @@ type MsgAcceptVersion struct {
 	VersionData interface{}
 }
 
-func NewMsgAcceptVersion(version uint16, versionData interface{}) *MsgAcceptVersion {
+func NewMsgAcceptVersion(
+	version uint16,
+	versionData interface{},
+) *MsgAcceptVersion {
 	m := &MsgAcceptVersion{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeAcceptVersion,

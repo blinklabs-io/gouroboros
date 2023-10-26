@@ -136,7 +136,10 @@ func (m *Muxer) sendError(err error) {
 
 // RegisterProtocol registers the provided protocol ID with the muxer. It returns a channel for sending,
 // a channel for receiving, and a channel to know when the muxer is shutting down
-func (m *Muxer) RegisterProtocol(protocolId uint16, protocolRole ProtocolRole) (chan *Segment, chan *Segment, chan bool) {
+func (m *Muxer) RegisterProtocol(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+) (chan *Segment, chan *Segment, chan bool) {
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
 	receiverChan := make(chan *Segment, 10)
@@ -223,12 +226,20 @@ func (m *Muxer) readLoop() {
 		}
 		// Check for message from initiator when we're not configured as a responder
 		if m.diffusionMode == DiffusionModeInitiator && !msg.IsResponse() {
-			m.sendError(fmt.Errorf("received message from initiator when not configured as a responder"))
+			m.sendError(
+				fmt.Errorf(
+					"received message from initiator when not configured as a responder",
+				),
+			)
 			return
 		}
 		// Check for message from responder when we're not configured as an initiator
 		if m.diffusionMode == DiffusionModeResponder && msg.IsResponse() {
-			m.sendError(fmt.Errorf("received message from responder when not configured as an initiator"))
+			m.sendError(
+				fmt.Errorf(
+					"received message from responder when not configured as an initiator",
+				),
+			)
 			return
 		}
 		// Send message payload to proper receiver
@@ -241,13 +252,23 @@ func (m *Muxer) readLoop() {
 			// Try the "unknown protocol" receiver if we didn't find an explicit one
 			protocolRoles, ok = m.protocolReceivers[ProtocolUnknown]
 			if !ok {
-				m.sendError(fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId()))
+				m.sendError(
+					fmt.Errorf(
+						"received message for unknown protocol ID %d",
+						msg.GetProtocolId(),
+					),
+				)
 				return
 			}
 		}
 		recvChan := protocolRoles[protocolRole]
 		if recvChan == nil {
-			m.sendError(fmt.Errorf("received message for unknown protocol ID %d", msg.GetProtocolId()))
+			m.sendError(
+				fmt.Errorf(
+					"received message for unknown protocol ID %d",
+					msg.GetProtocolId(),
+				),
+			)
 			return
 		}
 		if recvChan != nil {

@@ -75,18 +75,28 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeRequestTxs:
 		err = c.handleRequestTxs(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
 
 func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	if c.config.RequestTxIdsFunc == nil {
-		return fmt.Errorf("received tx-submission RequestTxIds message but no callback function is defined")
+		return fmt.Errorf(
+			"received tx-submission RequestTxIds message but no callback function is defined",
+		)
 	}
 	msgRequestTxIds := msg.(*MsgRequestTxIds)
 	// Call the user callback function
-	txIds, err := c.config.RequestTxIdsFunc(msgRequestTxIds.Blocking, msgRequestTxIds.Ack, msgRequestTxIds.Req)
+	txIds, err := c.config.RequestTxIdsFunc(
+		msgRequestTxIds.Blocking,
+		msgRequestTxIds.Ack,
+		msgRequestTxIds.Req,
+	)
 	if err != nil {
 		return err
 	}
@@ -99,7 +109,9 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 
 func (c *Client) handleRequestTxs(msg protocol.Message) error {
 	if c.config.RequestTxsFunc == nil {
-		return fmt.Errorf("received tx-submission RequestTxs message but no callback function is defined")
+		return fmt.Errorf(
+			"received tx-submission RequestTxs message but no callback function is defined",
+		)
 	}
 	msgRequestTxs := msg.(*MsgRequestTxs)
 	// Call the user callback function

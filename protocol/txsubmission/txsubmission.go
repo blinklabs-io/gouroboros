@@ -151,7 +151,9 @@ func NewConfig(options ...TxSubmissionOptionFunc) Config {
 	return c
 }
 
-func WithRequestTxIdsFunc(requestTxIdsFunc RequestTxIdsFunc) TxSubmissionOptionFunc {
+func WithRequestTxIdsFunc(
+	requestTxIdsFunc RequestTxIdsFunc,
+) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.RequestTxIdsFunc = requestTxIdsFunc
 	}

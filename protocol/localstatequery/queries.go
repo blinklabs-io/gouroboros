@@ -80,7 +80,11 @@ func buildHardForkQuery(queryType int, params ...interface{}) []interface{} {
 	return ret
 }
 
-func buildShelleyQuery(era int, queryType int, params ...interface{}) []interface{} {
+func buildShelleyQuery(
+	era int,
+	queryType int,
+	params ...interface{},
+) []interface{} {
 	ret := buildQuery(
 		QueryTypeBlock,
 		buildQuery(

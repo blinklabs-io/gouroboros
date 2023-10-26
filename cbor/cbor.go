@@ -71,7 +71,10 @@ func (d *DecodeStoreCbor) Cbor() []byte {
 }
 
 // UnmarshalCbor decodes the specified CBOR into the destination object and saves the original CBOR
-func (d *DecodeStoreCbor) UnmarshalCbor(cborData []byte, dest DecodeStoreCborInterface) error {
+func (d *DecodeStoreCbor) UnmarshalCbor(
+	cborData []byte,
+	dest DecodeStoreCborInterface,
+) error {
 	if err := DecodeGeneric(cborData, dest); err != nil {
 		return err
 	}

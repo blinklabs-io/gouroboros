@@ -74,7 +74,12 @@ func (c *Client) Start() {
 			if c.Mode() == protocol.ProtocolModeNodeToNode {
 				if version >= 11 {
 					// TODO: make peer sharing mode configurable once it actually works
-					versionMap[version] = []interface{}{c.config.NetworkMagic, diffusionMode, PeerSharingModeNoPeerSharing, QueryModeDisabled}
+					versionMap[version] = []interface{}{
+						c.config.NetworkMagic,
+						diffusionMode,
+						PeerSharingModeNoPeerSharing,
+						QueryModeDisabled,
+					}
 				} else {
 					versionMap[version] = []interface{}{c.config.NetworkMagic, diffusionMode}
 				}
@@ -99,14 +104,20 @@ func (c *Client) handleMessage(msg protocol.Message, isResponse bool) error {
 	case MessageTypeRefuse:
 		err = c.handleRefuse(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
 
 func (c *Client) handleAcceptVersion(msgGeneric protocol.Message) error {
 	if c.config.FinishedFunc == nil {
-		return fmt.Errorf("received handshake AcceptVersion message but no callback function is defined")
+		return fmt.Errorf(
+			"received handshake AcceptVersion message but no callback function is defined",
+		)
 	}
 	msg := msgGeneric.(*MsgAcceptVersion)
 	fullDuplex := false
@@ -127,9 +138,17 @@ func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 	case RefuseReasonVersionMismatch:
 		err = fmt.Errorf("%s: version mismatch", ProtocolName)
 	case RefuseReasonDecodeError:
-		err = fmt.Errorf("%s: decode error: %s", ProtocolName, msg.Reason[2].(string))
+		err = fmt.Errorf(
+			"%s: decode error: %s",
+			ProtocolName,
+			msg.Reason[2].(string),
+		)
 	case RefuseReasonRefused:
-		err = fmt.Errorf("%s: refused: %s", ProtocolName, msg.Reason[2].(string))
+		err = fmt.Errorf(
+			"%s: refused: %s",
+			ProtocolName,
+			msg.Reason[2].(string),
+		)
 	}
 	return err
 }

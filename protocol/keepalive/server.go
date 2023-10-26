@@ -52,7 +52,11 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeDone:
 		err = s.handleDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }

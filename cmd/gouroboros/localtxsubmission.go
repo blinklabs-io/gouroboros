@@ -36,8 +36,18 @@ func newLocalTxSubmissionFlags() *localTxSubmissionFlags {
 	f := &localTxSubmissionFlags{
 		flagset: flag.NewFlagSet("local-tx-submission", flag.ExitOnError),
 	}
-	f.flagset.StringVar(&f.txFile, "tx-file", "", "path to the JSON transaction file to submit")
-	f.flagset.StringVar(&f.rawTxFile, "raw-tx-file", "", "path to the raw transaction file to submit")
+	f.flagset.StringVar(
+		&f.txFile,
+		"tx-file",
+		"",
+		"path to the JSON transaction file to submit",
+	)
+	f.flagset.StringVar(
+		&f.rawTxFile,
+		"raw-tx-file",
+		"",
+		"path to the raw transaction file to submit",
+	)
 	return f
 }
 
@@ -52,7 +62,8 @@ func testLocalTxSubmission(f *globalFlags) {
 		fmt.Printf("failed to parse subcommand args: %s\n", err)
 		os.Exit(1)
 	}
-	if localTxSubmissionFlags.txFile == "" && localTxSubmissionFlags.rawTxFile == "" {
+	if localTxSubmissionFlags.txFile == "" &&
+		localTxSubmissionFlags.rawTxFile == "" {
 		fmt.Printf("you must specify -tx-file or -raw-tx-file\n")
 		os.Exit(1)
 	}

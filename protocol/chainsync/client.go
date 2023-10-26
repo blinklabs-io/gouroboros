@@ -110,7 +110,11 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeIntersectNotFound:
 		err = c.handleIntersectNotFound(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
@@ -147,7 +151,9 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 
 // GetAvailableBlockRange returns the start and end of the range of available blocks given the provided intersect
 // point(s).
-func (c *Client) GetAvailableBlockRange(intersectPoints []common.Point) (common.Point, common.Point, error) {
+func (c *Client) GetAvailableBlockRange(
+	intersectPoints []common.Point,
+) (common.Point, common.Point, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	c.wantCurrentTip = true
@@ -247,7 +253,9 @@ func (c *Client) handleAwaitReply() error {
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if c.config.RollForwardFunc == nil && !c.wantFirstBlock {
-		return fmt.Errorf("received chain-sync RollForward message but no callback function is defined")
+		return fmt.Errorf(
+			"received chain-sync RollForward message but no callback function is defined",
+		)
 	}
 	var callbackErr error
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
@@ -259,7 +267,10 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		case ledger.BlockHeaderTypeByron:
 			blockType = msg.WrappedHeader.ByronType()
 			var err error
-			blockHeader, err = ledger.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
+			blockHeader, err = ledger.NewBlockHeaderFromCbor(
+				blockType,
+				msg.WrappedHeader.HeaderCbor(),
+			)
 			if err != nil {
 				return err
 			}
@@ -274,7 +285,10 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			}
 			blockType = blockTypeMap[blockEra]
 			var err error
-			blockHeader, err = ledger.NewBlockHeaderFromCbor(blockType, msg.WrappedHeader.HeaderCbor())
+			blockHeader, err = ledger.NewBlockHeaderFromCbor(
+				blockType,
+				msg.WrappedHeader.HeaderCbor(),
+			)
 			if err != nil {
 				return err
 			}
@@ -325,7 +339,9 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	if !c.wantFirstBlock {
 		if c.config.RollBackwardFunc == nil {
-			return fmt.Errorf("received chain-sync RollBackward message but no callback function is defined")
+			return fmt.Errorf(
+				"received chain-sync RollBackward message but no callback function is defined",
+			)
 		}
 		msg := msgGeneric.(*MsgRollBackward)
 		// Call the user callback function

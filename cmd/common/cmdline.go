@@ -36,12 +36,37 @@ func NewGlobalFlags() *GlobalFlags {
 	f := &GlobalFlags{
 		Flagset: flag.NewFlagSet(os.Args[0], flag.ExitOnError),
 	}
-	f.Flagset.StringVar(&f.Socket, "socket", "", "UNIX socket path to connect to")
-	f.Flagset.StringVar(&f.Address, "address", "", "TCP address to connect to in address:port format")
+	f.Flagset.StringVar(
+		&f.Socket,
+		"socket",
+		"",
+		"UNIX socket path to connect to",
+	)
+	f.Flagset.StringVar(
+		&f.Address,
+		"address",
+		"",
+		"TCP address to connect to in address:port format",
+	)
 	f.Flagset.BoolVar(&f.UseTls, "tls", false, "enable TLS")
-	f.Flagset.BoolVar(&f.NtnProto, "ntn", false, "use node-to-node protocol (defaults to node-to-client)")
-	f.Flagset.StringVar(&f.Network, "network", "preview", "specifies network that node is participating in")
-	f.Flagset.IntVar(&f.NetworkMagic, "network-magic", 0, "specifies network magic value. this overrides the -network option")
+	f.Flagset.BoolVar(
+		&f.NtnProto,
+		"ntn",
+		false,
+		"use node-to-node protocol (defaults to node-to-client)",
+	)
+	f.Flagset.StringVar(
+		&f.Network,
+		"network",
+		"preview",
+		"specifies network that node is participating in",
+	)
+	f.Flagset.IntVar(
+		&f.NetworkMagic,
+		"network-magic",
+		0,
+		"specifies network magic value. this overrides the -network option",
+	)
 	return f
 }
 

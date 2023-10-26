@@ -57,14 +57,20 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeInit:
 		err = s.handleInit()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
 
 func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 	if s.config.ReplyTxIdsFunc == nil {
-		return fmt.Errorf("received tx-submission ReplyTxIds message but no callback function is defined")
+		return fmt.Errorf(
+			"received tx-submission ReplyTxIds message but no callback function is defined",
+		)
 	}
 	msgReplyTxIds := msg.(*MsgReplyTxIds)
 	// Call the user callback function
@@ -73,7 +79,9 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 
 func (s *Server) handleReplyTxs(msg protocol.Message) error {
 	if s.config.ReplyTxsFunc == nil {
-		return fmt.Errorf("received tx-submission ReplyTxs message but no callback function is defined")
+		return fmt.Errorf(
+			"received tx-submission ReplyTxs message but no callback function is defined",
+		)
 	}
 	msgReplyTxs := msg.(*MsgReplyTxs)
 	// Call the user callback function
@@ -82,7 +90,9 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 
 func (s *Server) handleDone() error {
 	if s.config.DoneFunc == nil {
-		return fmt.Errorf("received tx-submission Done message but no callback function is defined")
+		return fmt.Errorf(
+			"received tx-submission Done message but no callback function is defined",
+		)
 	}
 	// Call the user callback function
 	return s.config.DoneFunc()
@@ -90,7 +100,9 @@ func (s *Server) handleDone() error {
 
 func (s *Server) handleInit() error {
 	if s.config.InitFunc == nil {
-		return fmt.Errorf("received tx-submission Init message but no callback function is defined")
+		return fmt.Errorf(
+			"received tx-submission Init message but no callback function is defined",
+		)
 	}
 	// Call the user callback function
 	return s.config.InitFunc()

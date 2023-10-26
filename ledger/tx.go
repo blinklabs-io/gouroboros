@@ -68,7 +68,10 @@ func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
 
-func NewTransactionBodyFromCbor(txType uint, data []byte) (TransactionBody, error) {
+func NewTransactionBodyFromCbor(
+	txType uint,
+	data []byte,
+) (TransactionBody, error) {
 	switch txType {
 	case TxTypeByron:
 		return nil, fmt.Errorf("Byron transactions do not contain a body")

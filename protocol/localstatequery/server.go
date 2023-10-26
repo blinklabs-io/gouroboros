@@ -76,14 +76,20 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeDone:
 		err = s.handleDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
 
 func (s *Server) handleAcquire(msg protocol.Message) error {
 	if s.config.AcquireFunc == nil {
-		return fmt.Errorf("received local-state-query Acquire message but no callback function is defined")
+		return fmt.Errorf(
+			"received local-state-query Acquire message but no callback function is defined",
+		)
 	}
 	switch msgAcquire := msg.(type) {
 	case *MsgAcquire:
@@ -98,7 +104,9 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 
 func (s *Server) handleQuery(msg protocol.Message) error {
 	if s.config.QueryFunc == nil {
-		return fmt.Errorf("received local-state-query Query message but no callback function is defined")
+		return fmt.Errorf(
+			"received local-state-query Query message but no callback function is defined",
+		)
 	}
 	msgQuery := msg.(*MsgQuery)
 	// Call the user callback function
@@ -107,7 +115,9 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 
 func (s *Server) handleRelease() error {
 	if s.config.ReleaseFunc == nil {
-		return fmt.Errorf("received local-state-query Release message but no callback function is defined")
+		return fmt.Errorf(
+			"received local-state-query Release message but no callback function is defined",
+		)
 	}
 	// Call the user callback function
 	return s.config.ReleaseFunc()
@@ -115,7 +125,9 @@ func (s *Server) handleRelease() error {
 
 func (s *Server) handleReAcquire(msg protocol.Message) error {
 	if s.config.ReAcquireFunc == nil {
-		return fmt.Errorf("received local-state-query ReAcquire message but no callback function is defined")
+		return fmt.Errorf(
+			"received local-state-query ReAcquire message but no callback function is defined",
+		)
 	}
 	switch msgReAcquire := msg.(type) {
 	case *MsgReAcquire:
@@ -130,7 +142,9 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 
 func (s *Server) handleDone() error {
 	if s.config.DoneFunc == nil {
-		return fmt.Errorf("received local-state-query Done message but no callback function is defined")
+		return fmt.Errorf(
+			"received local-state-query Done message but no callback function is defined",
+		)
 	}
 	// Call the user callback function
 	return s.config.DoneFunc()

@@ -161,7 +161,10 @@ func (v *Value) processMap(data []byte) (err error) {
 	// deferred function to recover from a possible panic and return an error
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("decode failure, probably due to type unsupported by Go: %v", r)
+			err = fmt.Errorf(
+				"decode failure, probably due to type unsupported by Go: %v",
+				r,
+			)
 		}
 	}()
 	tmpValue := map[Value]Value{}

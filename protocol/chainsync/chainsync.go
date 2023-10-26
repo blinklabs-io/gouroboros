@@ -154,7 +154,9 @@ func NewConfig(options ...ChainSyncOptionFunc) Config {
 }
 
 // WithRollBackwardFunc specifies the RollBackward callback function
-func WithRollBackwardFunc(rollBackwardFunc RollBackwardFunc) ChainSyncOptionFunc {
+func WithRollBackwardFunc(
+	rollBackwardFunc RollBackwardFunc,
+) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RollBackwardFunc = rollBackwardFunc
 	}

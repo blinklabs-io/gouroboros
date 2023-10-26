@@ -66,6 +66,9 @@ func TestDoubleClose(t *testing.T) {
 	}
 	// Close connection again
 	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing Connection object again: %s", err)
+		t.Fatalf(
+			"unexpected error when closing Connection object again: %s",
+			err,
+		)
 	}
 }

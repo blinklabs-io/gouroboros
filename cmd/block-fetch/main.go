@@ -40,7 +40,12 @@ func main() {
 	}
 	f.Flagset.Uint64Var(&f.slot, "slot", 0, "slot for single block to fetch")
 	f.Flagset.StringVar(&f.hash, "hash", "", "hash for single block to fetch")
-	f.Flagset.BoolVar(&f.all, "all", false, "show all available detail for block")
+	f.Flagset.BoolVar(
+		&f.all,
+		"all",
+		false,
+		"show all available detail for block",
+	)
 	f.Parse()
 	// Create connection
 	conn := common.CreateClientConnection(f.GlobalFlags)
@@ -69,7 +74,9 @@ func main() {
 		fmt.Printf("ERROR: failed to decode block hash: %s\n", err)
 		os.Exit(1)
 	}
-	block, err := o.BlockFetch().Client.GetBlock(ocommon.NewPoint(f.slot, blockHash))
+	block, err := o.BlockFetch().Client.GetBlock(
+		ocommon.NewPoint(f.slot, blockHash),
+	)
 	if err != nil {
 		fmt.Printf("ERROR: failed to fetch block: %s\n", err)
 		os.Exit(1)
@@ -86,13 +93,21 @@ func main() {
 	}
 	if f.all {
 		issuerVkey := block.IssuerVkey()
-		fmt.Printf("\nMinted by: %s (%s)\n", issuerVkey.PoolId(), issuerVkey.Hash())
+		fmt.Printf(
+			"\nMinted by: %s (%s)\n",
+			issuerVkey.PoolId(),
+			issuerVkey.Hash(),
+		)
 		// Display transaction info
 		fmt.Printf("\nTransactions:\n")
 		for _, tx := range block.Transactions() {
 			fmt.Printf("  Hash: %s\n", tx.Hash())
 			if tx.Metadata() != nil {
-				fmt.Printf("  Metadata:\n    %#v (%x)\n", tx.Metadata().Value(), tx.Metadata().Cbor())
+				fmt.Printf(
+					"  Metadata:\n    %#v (%x)\n",
+					tx.Metadata().Value(),
+					tx.Metadata().Cbor(),
+				)
 			}
 			fmt.Printf("  Inputs:\n")
 			for _, input := range tx.Inputs() {
@@ -113,7 +128,10 @@ func main() {
 						fmt.Printf("      Policy assets:\n")
 						for _, assetName := range assets.Assets(policyId) {
 							fmt.Printf("        Asset name: %s\n", assetName)
-							fmt.Printf("        Amount: %d\n", assets.Asset(policyId, assetName))
+							fmt.Printf(
+								"        Amount: %d\n",
+								assets.Asset(policyId, assetName),
+							)
 							fmt.Println("")
 						}
 					}
@@ -121,7 +139,10 @@ func main() {
 				if output.Datum() != nil {
 					jsonData, err := json.Marshal(output.Datum())
 					if err != nil {
-						fmt.Printf("    Datum (hex): %x\n", output.Datum().Cbor())
+						fmt.Printf(
+							"    Datum (hex): %x\n",
+							output.Datum().Cbor(),
+						)
 					} else {
 						fmt.Printf("    Datum: %s\n", jsonData)
 					}

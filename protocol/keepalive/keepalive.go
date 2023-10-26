@@ -111,7 +111,9 @@ func WithKeepAliveFunc(keepAliveFunc KeepAliveFunc) KeepAliveOptionFunc {
 	}
 }
 
-func WithKeepAliveResponseFunc(keepAliveResponseFunc KeepAliveResponseFunc) KeepAliveOptionFunc {
+func WithKeepAliveResponseFunc(
+	keepAliveResponseFunc KeepAliveResponseFunc,
+) KeepAliveOptionFunc {
 	return func(c *Config) {
 		c.KeepAliveResponseFunc = keepAliveResponseFunc
 	}

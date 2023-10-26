@@ -115,7 +115,10 @@ func (p *Protocol) Start() {
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
 		}
-		p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(p.config.ProtocolId, muxerProtocolRole)
+		p.muxerSendChan, p.muxerRecvChan, p.muxerDoneChan = p.config.Muxer.RegisterProtocol(
+			p.config.ProtocolId,
+			muxerProtocolRole,
+		)
 		// Create buffers and channels
 		p.recvBuffer = bytes.NewBuffer(nil)
 		p.sendQueueChan = make(chan Message, 50)
@@ -201,7 +204,13 @@ func (p *Protocol) sendLoop() {
 			msg := <-p.sendStateQueueChan
 			newState, err = p.getNewState(msg)
 			if err != nil {
-				p.SendError(fmt.Errorf("%s: error sending message: %s", p.config.Name, err))
+				p.SendError(
+					fmt.Errorf(
+						"%s: error sending message: %s",
+						p.config.Name,
+						err,
+					),
+				)
 				return
 			}
 			setNewState = true
@@ -242,7 +251,13 @@ func (p *Protocol) sendLoop() {
 			if !setNewState {
 				newState, err = p.getNewState(msg)
 				if err != nil {
-					p.SendError(fmt.Errorf("%s: error sending message: %s", p.config.Name, err))
+					p.SendError(
+						fmt.Errorf(
+							"%s: error sending message: %s",
+							p.config.Name,
+							err,
+						),
+					)
 					return
 				}
 				setNewState = true
@@ -277,11 +292,17 @@ func (p *Protocol) sendLoop() {
 			if p.Role() == ProtocolRoleServer {
 				isResponse = true
 			}
-			segment := muxer.NewSegment(p.config.ProtocolId, segmentPayload, isResponse)
+			segment := muxer.NewSegment(
+				p.config.ProtocolId,
+				segmentPayload,
+				isResponse,
+			)
 			p.muxerSendChan <- segment
 			// Remove current segment's data from buffer
 			if payloadBuf.Len() > segmentPayloadLength {
-				payloadBuf = bytes.NewBuffer(payloadBuf.Bytes()[segmentPayloadLength:])
+				payloadBuf = bytes.NewBuffer(
+					payloadBuf.Bytes()[segmentPayloadLength:],
+				)
 			} else {
 				break
 			}
@@ -352,7 +373,13 @@ func (p *Protocol) recvLoop() {
 			return
 		}
 		if msg == nil {
-			p.SendError(fmt.Errorf("%s: received unknown message type: %#v", p.config.Name, tmpMsg))
+			p.SendError(
+				fmt.Errorf(
+					"%s: received unknown message type: %#v",
+					p.config.Name,
+					tmpMsg,
+				),
+			)
 			return
 		}
 		// Handle message
@@ -389,7 +416,11 @@ func (p *Protocol) getNewState(msg Message) (State, error) {
 		}
 	}
 	if !matchFound {
-		return newState, fmt.Errorf("message %s not allowed in current protocol state %s", reflect.TypeOf(msg).Name(), p.state)
+		return newState, fmt.Errorf(
+			"message %s not allowed in current protocol state %s",
+			reflect.TypeOf(msg).Name(),
+			p.state,
+		)
 	}
 	return newState, nil
 }
@@ -427,7 +458,13 @@ func (p *Protocol) setState(state State) {
 		p.stateTransitionTimer = time.AfterFunc(
 			p.config.StateMap[p.state].Timeout,
 			func() {
-				p.SendError(fmt.Errorf("%s: timeout waiting on transition from protocol state %s", p.config.Name, p.state))
+				p.SendError(
+					fmt.Errorf(
+						"%s: timeout waiting on transition from protocol state %s",
+						p.config.Name,
+						p.state,
+					),
+				)
 			},
 		)
 	}

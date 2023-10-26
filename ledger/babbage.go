@@ -389,7 +389,9 @@ func NewBabbageBlockHeaderFromCbor(data []byte) (*BabbageBlockHeader, error) {
 	return &babbageBlockHeader, nil
 }
 
-func NewBabbageTransactionBodyFromCbor(data []byte) (*BabbageTransactionBody, error) {
+func NewBabbageTransactionBodyFromCbor(
+	data []byte,
+) (*BabbageTransactionBody, error) {
 	var babbageTx BabbageTransactionBody
 	if _, err := cbor.Decode(data, &babbageTx); err != nil {
 		return nil, fmt.Errorf("Babbage transaction body decode error: %s", err)

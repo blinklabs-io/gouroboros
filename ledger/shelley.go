@@ -327,7 +327,9 @@ func NewShelleyBlockHeaderFromCbor(data []byte) (*ShelleyBlockHeader, error) {
 	return &shelleyBlockHeader, nil
 }
 
-func NewShelleyTransactionBodyFromCbor(data []byte) (*ShelleyTransactionBody, error) {
+func NewShelleyTransactionBodyFromCbor(
+	data []byte,
+) (*ShelleyTransactionBody, error) {
 	var shelleyTx ShelleyTransactionBody
 	if _, err := cbor.Decode(data, &shelleyTx); err != nil {
 		return nil, fmt.Errorf("Shelley transaction body decode error: %s", err)

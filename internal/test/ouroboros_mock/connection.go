@@ -45,7 +45,10 @@ type Connection struct {
 }
 
 // NewConnection returns a new Connection with the provided conversation entries
-func NewConnection(protocolRole ProtocolRole, conversation []ConversationEntry) net.Conn {
+func NewConnection(
+	protocolRole ProtocolRole,
+	conversation []ConversationEntry,
+) net.Conn {
 	c := &Connection{
 		conversation: conversation,
 	}
@@ -58,7 +61,10 @@ func NewConnection(protocolRole ProtocolRole, conversation []ConversationEntry) 
 		muxerProtocolRole = muxer.ProtocolRoleInitiator
 	}
 	// We use ProtocolUnknown to catch all inbound messages when no other protocols are registered
-	_, c.muxerRecvChan, _ = c.muxer.RegisterProtocol(muxer.ProtocolUnknown, muxerProtocolRole)
+	_, c.muxerRecvChan, _ = c.muxer.RegisterProtocol(
+		muxer.ProtocolUnknown,
+		muxerProtocolRole,
+	)
 	c.muxer.Start()
 	// Start async muxer error handler
 	go func() {
@@ -134,7 +140,13 @@ func (c *Connection) asyncLoop() {
 		case EntryTypeClose:
 			c.Close()
 		default:
-			panic(fmt.Sprintf("unknown conversation entry type: %d: %#v", entry.Type, entry))
+			panic(
+				fmt.Sprintf(
+					"unknown conversation entry type: %d: %#v",
+					entry.Type,
+					entry,
+				),
+			)
 		}
 	}
 }
@@ -146,10 +158,18 @@ func (c *Connection) processInputEntry(entry ConversationEntry) error {
 		return nil
 	}
 	if segment.GetProtocolId() != entry.ProtocolId {
-		return fmt.Errorf("input message protocol ID did not match expected value: expected %d, got %d", entry.ProtocolId, segment.GetProtocolId())
+		return fmt.Errorf(
+			"input message protocol ID did not match expected value: expected %d, got %d",
+			entry.ProtocolId,
+			segment.GetProtocolId(),
+		)
 	}
 	if segment.IsResponse() != entry.IsResponse {
-		return fmt.Errorf("input message response flag did not match expected value: expected %v, got %v", entry.IsResponse, segment.IsResponse())
+		return fmt.Errorf(
+			"input message response flag did not match expected value: expected %v, got %v",
+			entry.IsResponse,
+			segment.IsResponse(),
+		)
 	}
 	// Determine message type
 	msgType, err := cbor.DecodeIdFromList(segment.Payload)
@@ -166,7 +186,11 @@ func (c *Connection) processInputEntry(entry ConversationEntry) error {
 			return fmt.Errorf("received unknown message type: %d", msgType)
 		}
 		if !reflect.DeepEqual(msg, entry.InputMessage) {
-			return fmt.Errorf("parsed message does not match expected value: got %#v, expected %#v", msg, entry.InputMessage)
+			return fmt.Errorf(
+				"parsed message does not match expected value: got %#v, expected %#v",
+				msg,
+				entry.InputMessage,
+			)
 		}
 	} else {
 		if entry.InputMessageType == uint(msgType) {
@@ -192,7 +216,11 @@ func (c *Connection) processOutputEntry(entry ConversationEntry) error {
 		}
 		payloadBuf.Write(data)
 	}
-	segment := muxer.NewSegment(entry.ProtocolId, payloadBuf.Bytes(), entry.IsResponse)
+	segment := muxer.NewSegment(
+		entry.ProtocolId,
+		payloadBuf.Bytes(),
+		entry.IsResponse,
+	)
 	if err := c.muxer.Send(segment); err != nil {
 		return err
 	}

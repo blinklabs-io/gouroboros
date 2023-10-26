@@ -23,7 +23,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 )
 
-func createMaryTransactionOutputValueAssets(policyId []byte, assetName []byte, amount uint64) *MultiAsset[MultiAssetTypeOutput] {
+func createMaryTransactionOutputValueAssets(
+	policyId []byte,
+	assetName []byte,
+	amount uint64,
+) *MultiAsset[MultiAssetTypeOutput] {
 	data := map[Blake2b224]map[cbor.ByteString]uint64{}
 	policyIdKey := Blake2b224{}
 	copy(policyIdKey[:], policyId)
@@ -53,7 +57,9 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 			Object: MaryTransactionOutputValue{
 				Amount: 4000000,
 				Assets: createMaryTransactionOutputValueAssets(
-					test.DecodeHexString("00000002DF633853F6A47465C9496721D2D5B1291B8398016C0E87AE"),
+					test.DecodeHexString(
+						"00000002DF633853F6A47465C9496721D2D5B1291B8398016C0E87AE",
+					),
 					test.DecodeHexString("6E7574636F696E"),
 					1,
 				),
@@ -65,7 +71,9 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 			Object: MaryTransactionOutputValue{
 				Amount: 4818659,
 				Assets: createMaryTransactionOutputValueAssets(
-					test.DecodeHexString("3A9241CD79895E3A8D65261B40077D4437CE71E9D7C8C6C00E3F658E"),
+					test.DecodeHexString(
+						"3A9241CD79895E3A8D65261B40077D4437CE71E9D7C8C6C00E3F658E",
+					),
 					test.DecodeHexString("4669727374636F696E"),
 					1,
 				),
@@ -84,7 +92,11 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 			t.Fatalf("failed to decode CBOR: %s", err)
 		}
 		if !reflect.DeepEqual(tmpObj, test.Object) {
-			t.Fatalf("CBOR did not decode to expected object\n  got:    %#v\n  wanted: %#v", tmpObj, test.Object)
+			t.Fatalf(
+				"CBOR did not decode to expected object\n  got:    %#v\n  wanted: %#v",
+				tmpObj,
+				test.Object,
+			)
 		}
 		// Test encode
 		cborData, err = cbor.Encode(test.Object)
@@ -93,7 +105,11 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 		}
 		cborHex := hex.EncodeToString(cborData)
 		if cborHex != test.CborHex {
-			t.Fatalf("object did not encode to expected CBOR\n  got:    %s\n  wanted: %s", cborHex, test.CborHex)
+			t.Fatalf(
+				"object did not encode to expected CBOR\n  got:    %s\n  wanted: %s",
+				cborHex,
+				test.CborHex,
+			)
 		}
 	}
 }

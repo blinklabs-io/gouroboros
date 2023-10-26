@@ -93,7 +93,10 @@ func testQuery(f *globalFlags) {
 		}
 		blockNo, err := o.LocalStateQuery().Client.GetChainBlockNo()
 		if err != nil {
-			fmt.Printf("ERROR: failure querying current chain block number: %s\n", err)
+			fmt.Printf(
+				"ERROR: failure querying current chain block number: %s\n",
+				err,
+			)
 			os.Exit(1)
 		}
 		point, err := o.LocalStateQuery().Client.GetChainPoint()
@@ -101,14 +104,26 @@ func testQuery(f *globalFlags) {
 			fmt.Printf("ERROR: failure querying current chain point: %s\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("tip: era = %d, epoch = %d, blockNo = %d, slot = %d, hash = %x\n", era, epochNo, blockNo, point.Slot, point.Hash)
+		fmt.Printf(
+			"tip: era = %d, epoch = %d, blockNo = %d, slot = %d, hash = %x\n",
+			era,
+			epochNo,
+			blockNo,
+			point.Slot,
+			point.Hash,
+		)
 	case "system-start":
 		systemStart, err := o.LocalStateQuery().Client.GetSystemStart()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying system start: %s\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("system-start: year = %d, day = %d, picoseconds = %d\n", systemStart.Year, systemStart.Day, systemStart.Picoseconds)
+		fmt.Printf(
+			"system-start: year = %d, day = %d, picoseconds = %d\n",
+			systemStart.Year,
+			systemStart.Day,
+			systemStart.Picoseconds,
+		)
 	case "era-history":
 		eraHistory, err := o.LocalStateQuery().Client.GetEraHistory()
 		if err != nil {
@@ -117,7 +132,17 @@ func testQuery(f *globalFlags) {
 		}
 		fmt.Printf("era-history:\n")
 		for eraId, era := range eraHistory {
-			fmt.Printf("id = %d, begin slot/epoch = %d/%d, end slot/epoch = %d/%d, epoch length = %d, slot length (ms) = %d, slots per KES period = %d\n", eraId, era.Begin.SlotNo, era.Begin.EpochNo, era.End.SlotNo, era.End.EpochNo, era.Params.EpochLength, era.Params.SlotLength, era.Params.SlotsPerKESPeriod.Value)
+			fmt.Printf(
+				"id = %d, begin slot/epoch = %d/%d, end slot/epoch = %d/%d, epoch length = %d, slot length (ms) = %d, slots per KES period = %d\n",
+				eraId,
+				era.Begin.SlotNo,
+				era.Begin.EpochNo,
+				era.End.SlotNo,
+				era.End.EpochNo,
+				era.Params.EpochLength,
+				era.Params.SlotLength,
+				era.Params.SlotsPerKESPeriod.Value,
+			)
 		}
 	case "protocol-params":
 		protoParams, err := o.LocalStateQuery().Client.GetCurrentProtocolParams()

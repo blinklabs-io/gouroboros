@@ -163,7 +163,9 @@ func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {
 	return &allegraBlock, nil
 }
 
-func NewAllegraTransactionBodyFromCbor(data []byte) (*AllegraTransactionBody, error) {
+func NewAllegraTransactionBodyFromCbor(
+	data []byte,
+) (*AllegraTransactionBody, error) {
 	var allegraTx AllegraTransactionBody
 	if _, err := cbor.Decode(data, &allegraTx); err != nil {
 		return nil, fmt.Errorf("Allegra transaction body decode error: %s", err)

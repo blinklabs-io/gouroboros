@@ -69,7 +69,11 @@ func testDecode(test testDefinition, t *testing.T) {
 		test.Message.SetCbor(cborData)
 	}
 	if !reflect.DeepEqual(msg, test.Message) {
-		t.Fatalf("CBOR did not decode to expected message object\n  got: %#v\n  wanted: %#v", msg, test.Message)
+		t.Fatalf(
+			"CBOR did not decode to expected message object\n  got: %#v\n  wanted: %#v",
+			msg,
+			test.Message,
+		)
 	}
 }
 
@@ -81,7 +85,11 @@ func testEncode(test testDefinition, t *testing.T) {
 	}
 	cborHex := hex.EncodeToString(cborData)
 	if cborHex != test.CborHex {
-		t.Fatalf("message did not encode to expected CBOR\n  got: %s\n  wanted: %s", cborHex, test.CborHex)
+		t.Fatalf(
+			"message did not encode to expected CBOR\n  got: %s\n  wanted: %s",
+			cborHex,
+			test.CborHex,
+		)
 	}
 }
 
@@ -121,15 +129,27 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 	tests := []testDefinition{
 		// Byron EBB (NtN)
 		{
-			CborHex: string(readFile("testdata/rollforward_ntn_byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex")),
+			CborHex: string(
+				readFile(
+					"testdata/rollforward_ntn_byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+				),
+			),
 			Message: NewMsgRollForwardNtN(
 				ledger.BlockHeaderTypeByron,
 				0,
-				hexDecode(string(readFile("testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex"))),
+				hexDecode(
+					string(
+						readFile(
+							"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+						),
+					),
+				),
 				Tip{
 					Point: common.Point{
 						Slot: 55740899,
-						Hash: hexDecode("C89E652408EC269379751C8B2BF0137297BF9F5D0FB2E76E19ACF63D783C3A66"),
+						Hash: hexDecode(
+							"C89E652408EC269379751C8B2BF0137297BF9F5D0FB2E76E19ACF63D783C3A66",
+						),
 					},
 					BlockNumber: 3479284,
 				},
@@ -160,15 +180,27 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 		*/
 		// Shelley block (NtN)
 		{
-			CborHex: string(readFile("testdata/rollforward_ntn_shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex")),
+			CborHex: string(
+				readFile(
+					"testdata/rollforward_ntn_shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
+				),
+			),
 			Message: NewMsgRollForwardNtN(
 				ledger.BlockHeaderTypeShelley,
 				0,
-				hexDecode(string(readFile("testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex"))),
+				hexDecode(
+					string(
+						readFile(
+							"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
+						),
+					),
+				),
 				Tip{
 					Point: common.Point{
 						Slot: 55770176,
-						Hash: hexDecode("EA90218C8606AAD58B90C2AD51E37FC35ED6D4C40D8944DF0BC60D22F1E6DD65"),
+						Hash: hexDecode(
+							"EA90218C8606AAD58B90C2AD51E37FC35ED6D4C40D8944DF0BC60D22F1E6DD65",
+						),
 					},
 					BlockNumber: 3480174,
 				},
@@ -184,14 +216,26 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 	tests := []testDefinition{
 		// Byron EBB (NtC)
 		{
-			CborHex: string(readFile("testdata/rollforward_ntc_byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex")),
+			CborHex: string(
+				readFile(
+					"testdata/rollforward_ntc_byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+				),
+			),
 			Message: NewMsgRollForwardNtC(
 				0,
-				hexDecode(string(readFile("testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex"))),
+				hexDecode(
+					string(
+						readFile(
+							"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+						),
+					),
+				),
 				Tip{
 					Point: common.Point{
 						Slot: 49055,
-						Hash: hexDecode("7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321"),
+						Hash: hexDecode(
+							"7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321",
+						),
 					},
 					BlockNumber: 48025,
 				},
@@ -201,14 +245,26 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 		},
 		// Byron main block (NtC)
 		{
-			CborHex: string(readFile("testdata/rollforward_ntc_byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex")),
+			CborHex: string(
+				readFile(
+					"testdata/rollforward_ntc_byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
+				),
+			),
 			Message: NewMsgRollForwardNtC(
 				1,
-				hexDecode(string(readFile("testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex"))),
+				hexDecode(
+					string(
+						readFile(
+							"testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
+						),
+					),
+				),
 				Tip{
 					Point: common.Point{
 						Slot: 49055,
-						Hash: hexDecode("7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321"),
+						Hash: hexDecode(
+							"7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321",
+						),
 					},
 					BlockNumber: 48025,
 				},
@@ -218,14 +274,26 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 		},
 		// Shelley block (NtC)
 		{
-			CborHex: string(readFile("testdata/rollforward_ntc_shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex")),
+			CborHex: string(
+				readFile(
+					"testdata/rollforward_ntc_shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
+				),
+			),
 			Message: NewMsgRollForwardNtC(
 				2,
-				hexDecode(string(readFile("testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex"))),
+				hexDecode(
+					string(
+						readFile(
+							"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
+						),
+					),
+				),
 				Tip{
 					Point: common.Point{
 						Slot: 55829927,
-						Hash: hexDecode("2809888408DD6F499ECDC868E10F635FA550AF3EBC3B5165C9DACC023D1F52C5"),
+						Hash: hexDecode(
+							"2809888408DD6F499ECDC868E10F635FA550AF3EBC3B5165C9DACC023D1F52C5",
+						),
 					},
 					BlockNumber: 3481987,
 				},
@@ -246,7 +314,9 @@ func TestMsgRollBackward(t *testing.T) {
 				Tip{
 					Point: common.Point{
 						Slot: 55709684,
-						Hash: hexDecode("1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103"),
+						Hash: hexDecode(
+							"1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103",
+						),
 					},
 					BlockNumber: 3478323,
 				},
@@ -276,7 +346,9 @@ func TestMsgFindIntersect(t *testing.T) {
 				[]common.Point{
 					common.Point{
 						Slot: 1598399,
-						Hash: hexDecode("7E16781B40EBF8B6DA18F7B5E8ADE855D6738095EF2F1C58C77E88B6E45997A4"),
+						Hash: hexDecode(
+							"7E16781B40EBF8B6DA18F7B5E8ADE855D6738095EF2F1C58C77E88B6E45997A4",
+						),
 					},
 				},
 			),
@@ -295,7 +367,9 @@ func TestMsgIntersectFound(t *testing.T) {
 				Tip{
 					Point: common.Point{
 						Slot: 55709684,
-						Hash: hexDecode("1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103"),
+						Hash: hexDecode(
+							"1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103",
+						),
 					},
 					BlockNumber: 3478323,
 				},
@@ -314,7 +388,9 @@ func TestMsgIntersectNotFound(t *testing.T) {
 				Tip{
 					Point: common.Point{
 						Slot: 55709684,
-						Hash: hexDecode("1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103"),
+						Hash: hexDecode(
+							"1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103",
+						),
 					},
 					BlockNumber: 3478323,
 				},

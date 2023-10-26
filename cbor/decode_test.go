@@ -56,11 +56,19 @@ func TestDecode(t *testing.T) {
 		}
 		if test.BytesRead > 0 {
 			if bytesRead != test.BytesRead {
-				t.Fatalf("expected to read %d bytes, read %d instead", test.BytesRead, bytesRead)
+				t.Fatalf(
+					"expected to read %d bytes, read %d instead",
+					test.BytesRead,
+					bytesRead,
+				)
 			}
 		}
 		if !reflect.DeepEqual(dest, test.Object) {
-			t.Fatalf("CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v", dest, test.Object)
+			t.Fatalf(
+				"CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v",
+				dest,
+				test.Object,
+			)
 		}
 	}
 }
@@ -102,10 +110,18 @@ func TestListLen(t *testing.T) {
 		}
 		listLen, err := cbor.ListLength(cborData)
 		if !reflect.DeepEqual(err, test.Error) {
-			t.Fatalf("did not find expected error\n  got: %#v\n  wanted:  %#v", err, test.Error)
+			t.Fatalf(
+				"did not find expected error\n  got: %#v\n  wanted:  %#v",
+				err,
+				test.Error,
+			)
 		}
 		if listLen != test.Length {
-			t.Fatalf("did not get expected length, got: %d, wanted: %d", listLen, test.Length)
+			t.Fatalf(
+				"did not get expected length, got: %d, wanted: %d",
+				listLen,
+				test.Length,
+			)
 		}
 	}
 }
@@ -152,10 +168,18 @@ func TestDecodeIdFromList(t *testing.T) {
 		}
 		id, err := cbor.DecodeIdFromList(cborData)
 		if !reflect.DeepEqual(err, test.Error) {
-			t.Fatalf("did not find expected error\n  got: %#v\n  wanted:  %#v", err, test.Error)
+			t.Fatalf(
+				"did not find expected error\n  got: %#v\n  wanted:  %#v",
+				err,
+				test.Error,
+			)
 		}
 		if id != test.Id {
-			t.Fatalf("did not get expected ID, got: %d, wanted: %d", id, test.Id)
+			t.Fatalf(
+				"did not get expected ID, got: %d, wanted: %d",
+				id,
+				test.Id,
+			)
 		}
 	}
 }
@@ -232,10 +256,18 @@ func TestDecodeById(t *testing.T) {
 		}
 		obj, err := cbor.DecodeById(cborData, decodeByIdObjectMap)
 		if !reflect.DeepEqual(err, test.Error) {
-			t.Fatalf("did not find expected error\n  got: %#v\n  wanted:  %#v", err, test.Error)
+			t.Fatalf(
+				"did not find expected error\n  got: %#v\n  wanted:  %#v",
+				err,
+				test.Error,
+			)
 		}
 		if !reflect.DeepEqual(obj, test.Object) {
-			t.Fatalf("CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v", obj, test.Object)
+			t.Fatalf(
+				"CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v",
+				obj,
+				test.Object,
+			)
 		}
 	}
 }

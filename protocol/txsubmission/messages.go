@@ -63,7 +63,11 @@ type MsgRequestTxIds struct {
 	Req      uint16
 }
 
-func NewMsgRequestTxIds(blocking bool, ack uint16, req uint16) *MsgRequestTxIds {
+func NewMsgRequestTxIds(
+	blocking bool,
+	ack uint16,
+	req uint16,
+) *MsgRequestTxIds {
 	m := &MsgRequestTxIds{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRequestTxIds,

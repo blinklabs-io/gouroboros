@@ -101,7 +101,11 @@ func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
 	case MessageTypeResult:
 		err = c.handleResult(msg)
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }
@@ -369,7 +373,9 @@ func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 }
 
 // TODO
-func (c *Client) GetUTxOByAddress(addrs []interface{}) (*UTxOByAddressResult, error) {
+func (c *Client) GetUTxOByAddress(
+	addrs []interface{},
+) (*UTxOByAddressResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -426,7 +432,9 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 }
 
 // TODO
-func (c *Client) GetFilteredDelegationsAndRewardAccounts(creds []interface{}) (*FilteredDelegationsAndRewardAccountsResult, error) {
+func (c *Client) GetFilteredDelegationsAndRewardAccounts(
+	creds []interface{},
+) (*FilteredDelegationsAndRewardAccountsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -559,7 +567,9 @@ func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 }
 
 // TODO
-func (c *Client) GetStakePoolParams(poolIds []interface{}) (*StakePoolParamsResult, error) {
+func (c *Client) GetStakePoolParams(
+	poolIds []interface{},
+) (*StakePoolParamsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -616,7 +626,9 @@ func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 }
 
 // TODO
-func (c *Client) GetStakeSnapshots(poolId interface{}) (*StakeSnapshotsResult, error) {
+func (c *Client) GetStakeSnapshots(
+	poolId interface{},
+) (*StakeSnapshotsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()

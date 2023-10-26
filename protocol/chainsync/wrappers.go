@@ -47,7 +47,11 @@ type WrappedHeader struct {
 }
 
 // NewWrappedHeader returns a new WrappedHeader
-func NewWrappedHeader(era uint, byronType uint, blockCbor []byte) *WrappedHeader {
+func NewWrappedHeader(
+	era uint,
+	byronType uint,
+	blockCbor []byte,
+) *WrappedHeader {
 	w := &WrappedHeader{
 		Era:       era,
 		byronType: byronType,
