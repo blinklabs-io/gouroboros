@@ -18,6 +18,7 @@ package localtxmonitor
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -114,9 +115,20 @@ type LocalTxMonitor struct {
 
 // Config is used to configure the LocalTxMonitor protocol instance
 type Config struct {
+	GetMempoolFunc GetMempoolFunc
 	AcquireTimeout time.Duration
 	QueryTimeout   time.Duration
 }
+
+// Helper types
+type TxAndEraId struct {
+	EraId uint
+	Tx    []byte
+	txObj ledger.Transaction
+}
+
+// Callback function types
+type GetMempoolFunc func() (uint64, uint32, []TxAndEraId, error)
 
 // New returns a new LocalTxMonitor object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxMonitor {
@@ -141,6 +153,13 @@ func NewConfig(options ...LocalTxMonitorOptionFunc) Config {
 		option(&c)
 	}
 	return c
+}
+
+// WithGetMempoolFunc specifies the callback function for retrieving the mempool
+func WithGetMempoolFunc(getMempoolFunc GetMempoolFunc) LocalTxMonitorOptionFunc {
+	return func(c *Config) {
+		c.GetMempoolFunc = getMempoolFunc
+	}
 }
 
 // WithAcquireTimeout specifies the timeout for acquire operations when acting as a client

@@ -15,14 +15,20 @@
 package localtxmonitor
 
 import (
+	"encoding/hex"
 	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 // Server implements the LocalTxMonitor server
 type Server struct {
 	*protocol.Protocol
-	config *Config
+	config           *Config
+	mempoolCapacity  uint32
+	mempoolTxs       []TxAndEraId
+	mempoolNextTxIdx int
 }
 
 // NewServer returns a new Server object
@@ -72,6 +78,36 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 }
 
 func (s *Server) handleAcquire() error {
+	if s.config.GetMempoolFunc == nil {
+		return fmt.Errorf(
+			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
+		)
+	}
+	// Call the user callback function to get mempool information
+	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc()
+	if err != nil {
+		return err
+	}
+	s.mempoolCapacity = mempoolCapacity
+	s.mempoolNextTxIdx = 0
+	s.mempoolTxs = make([]TxAndEraId, 0)
+	for _, mempoolTx := range mempoolTxs {
+		newTx := TxAndEraId{
+			EraId: mempoolTx.EraId,
+			Tx:    mempoolTx.Tx[:],
+		}
+		// Pre-parse TX for convenience
+		tmpTxObj, err := ledger.NewTransactionFromCbor(mempoolTx.EraId, mempoolTx.Tx)
+		if err != nil {
+			return err
+		}
+		newTx.txObj = tmpTxObj
+		s.mempoolTxs = append(s.mempoolTxs, newTx)
+	}
+	newMsg := NewMsgAcquired(mempoolSlotNumber)
+	if err := s.SendMessage(newMsg); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -80,17 +116,57 @@ func (s *Server) handleDone() error {
 }
 
 func (s *Server) handleRelease() error {
+	s.mempoolCapacity = 0
+	s.mempoolTxs = nil
 	return nil
 }
 
 func (s *Server) handleHasTx(msg protocol.Message) error {
+	msgHasTx := msg.(*MsgHasTx)
+	txId := hex.EncodeToString(msgHasTx.TxId)
+	hasTx := false
+	for _, tx := range s.mempoolTxs {
+		if tx.txObj.Hash() == txId {
+			hasTx = true
+			break
+		}
+	}
+	newMsg := NewMsgReplyHasTx(hasTx)
+	if err := s.SendMessage(newMsg); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (s *Server) handleNextTx() error {
+	if s.mempoolNextTxIdx > len(s.mempoolTxs) {
+		newMsg := NewMsgReplyNextTx(0, nil)
+		if err := s.SendMessage(newMsg); err != nil {
+			return err
+		}
+		return nil
+	}
+	mempoolTx := s.mempoolTxs[s.mempoolNextTxIdx]
+	newMsg := NewMsgReplyNextTx(uint8(mempoolTx.EraId), mempoolTx.Tx)
+	if err := s.SendMessage(newMsg); err != nil {
+		return err
+	}
+	s.mempoolNextTxIdx++
 	return nil
 }
 
 func (s *Server) handleGetSizes() error {
+	totalTxSize := 0
+	for _, tx := range s.mempoolTxs {
+		totalTxSize += len(tx.Tx)
+	}
+	newMsg := NewMsgReplyGetSizes(
+		s.mempoolCapacity,
+		uint32(totalTxSize),
+		uint32(len(s.mempoolTxs)),
+	)
+	if err := s.SendMessage(newMsg); err != nil {
+		return err
+	}
 	return nil
 }
