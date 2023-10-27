@@ -16,6 +16,8 @@ package localtxsubmission
 
 import (
 	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -63,15 +65,31 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	return err
 }
 
-func (s *Server) handleSubmitTx(msgGeneric protocol.Message) error {
+func (s *Server) handleSubmitTx(msg protocol.Message) error {
 	if s.config.SubmitTxFunc == nil {
 		return fmt.Errorf(
 			"received local-tx-submission SubmitTx message but no callback function is defined",
 		)
 	}
-	msg := msgGeneric.(*MsgSubmitTx)
-	// Call the user callback function
-	return s.config.SubmitTxFunc(msg.Transaction)
+	msgSubmitTx := msg.(*MsgSubmitTx)
+	// Call the user callback function and send Accept/RejectTx based on result
+	err := s.config.SubmitTxFunc(msgSubmitTx.Transaction)
+	if err == nil {
+		newMsg := NewMsgAcceptTx()
+		if err := s.SendMessage(newMsg); err != nil {
+			return err
+		}
+	} else {
+		errCbor, err := cbor.Encode(err.Error())
+		if err != nil {
+			return err
+		}
+		newMsg := NewMsgRejectTx(errCbor)
+		if err := s.SendMessage(newMsg); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleDone() error {
