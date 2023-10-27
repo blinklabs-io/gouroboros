@@ -114,20 +114,14 @@ type TxSubmission struct {
 
 type Config struct {
 	RequestTxIdsFunc RequestTxIdsFunc
-	ReplyTxIdsFunc   ReplyTxIdsFunc
 	RequestTxsFunc   RequestTxsFunc
-	ReplyTxsFunc     ReplyTxsFunc
-	DoneFunc         DoneFunc
 	InitFunc         InitFunc
 	IdleTimeout      time.Duration
 }
 
 // Callback function types
 type RequestTxIdsFunc func(bool, uint16, uint16) ([]TxIdAndSize, error)
-type ReplyTxIdsFunc func(interface{}) error
 type RequestTxsFunc func([]TxId) ([]TxBody, error)
-type ReplyTxsFunc func(interface{}) error
-type DoneFunc func() error
 type InitFunc func() error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *TxSubmission {
@@ -159,27 +153,9 @@ func WithRequestTxIdsFunc(
 	}
 }
 
-func WithReplyTxIdsFunc(replyTxIdsFunc ReplyTxIdsFunc) TxSubmissionOptionFunc {
-	return func(c *Config) {
-		c.ReplyTxIdsFunc = replyTxIdsFunc
-	}
-}
-
 func WithRequestTxsFunc(requestTxsFunc RequestTxsFunc) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.RequestTxsFunc = requestTxsFunc
-	}
-}
-
-func WithReplyTxsFunc(replyTxsFunc ReplyTxsFunc) TxSubmissionOptionFunc {
-	return func(c *Config) {
-		c.ReplyTxsFunc = replyTxsFunc
-	}
-}
-
-func WithDoneFunc(doneFunc DoneFunc) TxSubmissionOptionFunc {
-	return func(c *Config) {
-		c.DoneFunc = doneFunc
 	}
 }
 
