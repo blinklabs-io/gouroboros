@@ -52,6 +52,8 @@ func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 		return NewAlonzoBlockFromCbor(data)
 	case BlockTypeBabbage:
 		return NewBabbageBlockFromCbor(data)
+	case BlockTypeConway:
+		return NewConwayBlockFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
 }
@@ -66,7 +68,7 @@ func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {
 	// TODO: break into separate cases and parse as specific block header types
 	case BlockTypeShelley, BlockTypeAllegra, BlockTypeMary, BlockTypeAlonzo:
 		return NewShelleyBlockHeaderFromCbor(data)
-	case BlockTypeBabbage:
+	case BlockTypeBabbage, BlockTypeConway:
 		return NewBabbageBlockHeaderFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown node-to-node block type: %d", blockType)
