@@ -44,6 +44,10 @@ var eras = map[uint8]Era{
 		Id:   EraIdBabbage,
 		Name: "Babbage",
 	},
+	EraIdConway: Era{
+		Id:   EraIdConway,
+		Name: "Conway",
+	},
 }
 
 func GetEraById(eraId uint8) *Era {

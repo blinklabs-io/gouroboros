@@ -282,6 +282,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				ledger.BlockHeaderTypeMary:    ledger.BlockTypeMary,
 				ledger.BlockHeaderTypeAlonzo:  ledger.BlockTypeAlonzo,
 				ledger.BlockHeaderTypeBabbage: ledger.BlockTypeBabbage,
+				ledger.BlockHeaderTypeConway:  ledger.BlockTypeConway,
 			}
 			blockType = blockTypeMap[blockEra]
 			var err error
