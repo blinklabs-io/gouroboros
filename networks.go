@@ -21,7 +21,7 @@ var (
 		Id:                1,
 		Name:              "mainnet",
 		NetworkMagic:      764824073,
-		PublicRootAddress: "relays-new.cardano-mainnet.iohk.io",
+		PublicRootAddress: "backbone.cardano-mainnet.iohk.io",
 		PublicRootPort:    3001,
 	}
 	NetworkPreprod = Network{
@@ -35,15 +35,15 @@ var (
 		Id:                3,
 		Name:              "preview",
 		NetworkMagic:      2,
-		PublicRootAddress: "preview-node.world.dev.cardano.org",
-		PublicRootPort:    30002,
+		PublicRootAddress: "preview-node.play.dev.cardano.org",
+		PublicRootPort:    3001,
 	}
 	NetworkSancho = Network{
 		Id:                4,
 		Name:              "sanchonet",
 		NetworkMagic:      4,
-		PublicRootAddress: "sanchonet-node.world.dev.cardano.org",
-		PublicRootPort:    30004,
+		PublicRootAddress: "sanchonet-node.play.dev.cardano.org",
+		PublicRootPort:    3001,
 	}
 
 	NetworkInvalid = Network{
