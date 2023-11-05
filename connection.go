@@ -143,28 +143,6 @@ func (c *Connection) Close() error {
 	c.onceClose.Do(func() {
 		// Close doneChan to signify that we're shutting down
 		close(c.doneChan)
-		// Gracefully stop the muxer
-		if c.muxer != nil {
-			c.muxer.Stop()
-		}
-		// Wait for other goroutines to finish
-		c.waitGroup.Wait()
-		// Close channels
-		close(c.errorChan)
-		close(c.protoErrorChan)
-		// We can only close a channel once, so we have to jump through a few hoops
-		select {
-		// The channel is either closed or has an item pending
-		case _, ok := <-c.handshakeFinishedChan:
-			// We successfully retrieved an item
-			// This will probably never happen, but it doesn't hurt to cover this case
-			if ok {
-				close(c.handshakeFinishedChan)
-			}
-		// The channel is open and has no pending items
-		default:
-			close(c.handshakeFinishedChan)
-		}
 	})
 	return err
 }
@@ -214,9 +192,41 @@ func (c *Connection) TxSubmission() *txsubmission.TxSubmission {
 	return c.txSubmission
 }
 
+// shutdown performs cleanup operations when the connection is shutdown, either due to explicit Close() or an error
+func (c *Connection) shutdown() {
+	// Gracefully stop the muxer
+	if c.muxer != nil {
+		c.muxer.Stop()
+	}
+	// Wait for other goroutines to finish
+	c.waitGroup.Wait()
+	// Close channels
+	close(c.errorChan)
+	close(c.protoErrorChan)
+	// We can only close a channel once, so we have to jump through a few hoops
+	select {
+	// The channel is either closed or has an item pending
+	case _, ok := <-c.handshakeFinishedChan:
+		// We successfully retrieved an item
+		// This will probably never happen, but it doesn't hurt to cover this case
+		if ok {
+			close(c.handshakeFinishedChan)
+		}
+	// The channel is open and has no pending items
+	default:
+		close(c.handshakeFinishedChan)
+	}
+}
+
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
 func (c *Connection) setupConnection() error {
+	// Start Goroutine to shutdown when doneChan is closed
+	go func() {
+		<-c.doneChan
+		c.shutdown()
+	}()
+	// Create muxer instance
 	c.muxer = muxer.New(c.conn)
 	// Start Goroutine to pass along errors from the muxer
 	c.waitGroup.Add(1)
