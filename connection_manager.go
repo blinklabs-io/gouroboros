@@ -1,0 +1,169 @@
+// Copyright 2023 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package ouroboros
+
+// ConnectionManagerErrorFunc is a function that takes a connection ID and an error
+type ConnectionManagerErrorFunc func(int, error)
+
+// ConnectionManagerTag represents the various tags that can be associated with a host or connection
+type ConnectionManagerTag uint16
+
+const (
+	ConnectionManagerTagNone ConnectionManagerTag = iota
+
+	ConnectionManagerTagHostProducer
+	ConnectionManagerTagHostLocalRoot
+	ConnectionManagerTagHostPublicRoot
+	ConnectionManagerTagHostP2PLedger
+	ConnectionManagerTagHostP2PGossip
+
+	ConnectionManagerTagRoleInitiator
+	ConnectionManagerTagRoleResponder
+	// TODO: add more tags
+)
+
+func (c ConnectionManagerTag) String() string {
+	tmp := map[ConnectionManagerTag]string{
+		ConnectionManagerTagHostProducer:   "HostProducer",
+		ConnectionManagerTagHostLocalRoot:  "HostLocalRoot",
+		ConnectionManagerTagHostPublicRoot: "HostPublicRoot",
+		ConnectionManagerTagHostP2PLedger:  "HostP2PLedger",
+		ConnectionManagerTagHostP2PGossip:  "HostP2PGossip",
+		ConnectionManagerTagRoleInitiator:  "RoleInitiator",
+		ConnectionManagerTagRoleResponder:  "RoleResponder",
+		// TODO: add more tags to match those added above
+	}
+	ret, ok := tmp[c]
+	if !ok {
+		return "Unknown"
+	}
+	return ret
+}
+
+type ConnectionManager struct {
+	config      ConnectionManagerConfig
+	hosts       []ConnectionManagerHost
+	connections []*ConnectionManagerConnection
+}
+
+type ConnectionManagerConfig struct {
+	ErrorFunc ConnectionManagerErrorFunc
+}
+
+type ConnectionManagerHost struct {
+	Address string
+	Port    uint
+	Tags    map[ConnectionManagerTag]bool
+}
+
+func NewConnectionManager(cfg ConnectionManagerConfig) *ConnectionManager {
+	return &ConnectionManager{
+		config: cfg,
+	}
+}
+
+func (c *ConnectionManager) AddHost(address string, port uint, tags ...ConnectionManagerTag) {
+	tmpTags := map[ConnectionManagerTag]bool{}
+	for _, tag := range tags {
+		tmpTags[tag] = true
+	}
+	c.hosts = append(
+		c.hosts,
+		ConnectionManagerHost{
+			Address: address,
+			Port:    port,
+			Tags:    tmpTags,
+		},
+	)
+}
+
+func (c *ConnectionManager) AddHostsFromTopology(topology *TopologyConfig) {
+	for _, host := range topology.Producers {
+		c.AddHost(host.Address, host.Port, ConnectionManagerTagHostProducer)
+	}
+	for _, localRoot := range topology.LocalRoots {
+		for _, host := range localRoot.AccessPoints {
+			c.AddHost(host.Address, host.Port, ConnectionManagerTagHostLocalRoot)
+		}
+	}
+	for _, publicRoot := range topology.PublicRoots {
+		for _, host := range publicRoot.AccessPoints {
+			c.AddHost(host.Address, host.Port, ConnectionManagerTagHostPublicRoot)
+		}
+	}
+}
+
+func (c *ConnectionManager) AddConnection(connId int, conn *Connection) {
+	c.connections = append(
+		c.connections,
+		&ConnectionManagerConnection{
+			Id:   connId,
+			Conn: conn,
+		},
+	)
+	go func() {
+		err, ok := <-conn.ErrorChan()
+		if !ok {
+			// Connection has closed normally
+			return
+		}
+		// Call configured error callback func
+		c.config.ErrorFunc(connId, err)
+	}()
+}
+
+func (c *ConnectionManager) GetConnectionById(id int) *ConnectionManagerConnection {
+	for _, conn := range c.connections {
+		if conn.Id == id {
+			return conn
+		}
+	}
+	return nil
+}
+
+func (c *ConnectionManager) GetConnectionsByTags(tags ...ConnectionManagerTag) []*ConnectionManagerConnection {
+	var ret []*ConnectionManagerConnection
+	for _, conn := range c.connections {
+		skipConn := false
+		for _, tag := range tags {
+			if _, ok := conn.Tags[tag]; !ok {
+				skipConn = true
+				break
+			}
+		}
+		if !skipConn {
+			ret = append(ret, conn)
+		}
+	}
+	return ret
+}
+
+type ConnectionManagerConnection struct {
+	Id   int
+	Conn *Connection
+	Tags map[ConnectionManagerTag]bool
+}
+
+func (c *ConnectionManagerConnection) AddTags(tags ...ConnectionManagerTag) {
+	for _, tag := range tags {
+		c.Tags[tag] = true
+	}
+}
+
+func (c *ConnectionManagerConnection) RemoveTags(tags ...ConnectionManagerTag) {
+	for _, tag := range tags {
+		delete(c.Tags, tag)
+	}
+}

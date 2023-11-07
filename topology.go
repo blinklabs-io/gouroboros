@@ -30,7 +30,7 @@ type TopologyConfig struct {
 
 type TopologyConfigLegacyProducer struct {
 	Address   string `json:"addr"`
-	Port      uint16 `json:"port"`
+	Port      uint   `json:"port"`
 	Valency   uint   `json:"valency"`
 	Continent string `json:"continent"`
 	State     string `json:"state"`
@@ -38,7 +38,7 @@ type TopologyConfigLegacyProducer struct {
 
 type TopologyConfigP2PAccessPoint struct {
 	Address string `json:"address"`
-	Port    uint16 `json:"port"`
+	Port    uint   `json:"port"`
 }
 
 type TopologyConfigP2PLocalRoot struct {

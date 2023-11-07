@@ -26,7 +26,7 @@ func TestBasic(t *testing.T) {
 		ProtocolRoleClient,
 		[]ConversationEntry{
 			ConversationEntryHandshakeRequestGeneric,
-			ConversationEntryHandshakeResponse,
+			ConversationEntryHandshakeNtCResponse,
 		},
 	)
 	oConn, err := ouroboros.New(

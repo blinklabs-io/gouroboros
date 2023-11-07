@@ -79,7 +79,7 @@ func (c *Client) Start() {
 
 func (c *Client) startTimer() {
 	c.timer = time.AfterFunc(c.config.Period, func() {
-		msg := NewMsgKeepAlive(0)
+		msg := NewMsgKeepAlive(c.config.Cookie)
 		if err := c.SendMessage(msg); err != nil {
 			c.SendError(err)
 		}
