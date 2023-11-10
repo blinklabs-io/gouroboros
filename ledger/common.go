@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,10 +19,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/blinklabs-io/gouroboros/bech32"
-	"github.com/blinklabs-io/gouroboros/cbor"
-
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"golang.org/x/crypto/blake2b"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 type Blake2b256 [32]byte
