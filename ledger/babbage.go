@@ -378,6 +378,10 @@ func (t BabbageTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t BabbageTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

@@ -163,6 +163,10 @@ func (t ConwayTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t ConwayTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t ConwayTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

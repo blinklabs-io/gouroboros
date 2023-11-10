@@ -161,6 +161,10 @@ func (t MaryTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t MaryTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

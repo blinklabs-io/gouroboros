@@ -254,6 +254,10 @@ func (t AlonzoTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t AlonzoTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

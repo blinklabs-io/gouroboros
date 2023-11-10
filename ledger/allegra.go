@@ -150,6 +150,10 @@ func (t AllegraTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t AllegraTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
