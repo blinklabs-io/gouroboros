@@ -9,6 +9,7 @@ require (
 )
 
 require (
+	github.com/btcsuite/btcd/btcutil v1.1.3 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 )
