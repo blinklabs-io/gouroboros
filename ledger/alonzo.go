@@ -255,6 +255,10 @@ func (t AlonzoTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t AlonzoTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

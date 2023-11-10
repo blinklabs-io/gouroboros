@@ -158,6 +158,10 @@ func (t AllegraTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t AllegraTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

@@ -175,6 +175,11 @@ func (t *ByronTransaction) ReferenceInputs() []TransactionInput {
 	return nil
 }
 
+func (t *ByronTransaction) Certificates() []Certificate {
+	// TODO
+	return nil
+}
+
 func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }

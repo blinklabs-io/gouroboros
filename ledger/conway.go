@@ -164,6 +164,10 @@ func (t ConwayTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t ConwayTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t ConwayTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

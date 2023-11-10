@@ -162,13 +162,12 @@ func (h *ShelleyBlockHeader) Era() Era {
 
 type ShelleyTransactionBody struct {
 	cbor.DecodeStoreCbor
-	hash      string
-	TxInputs  []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
-	TxOutputs []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
-	TxFee     uint64                     `cbor:"2,keyasint,omitempty"`
-	Ttl       uint64                     `cbor:"3,keyasint,omitempty"`
-	// TODO: figure out how to parse properly
-	Certificates cbor.RawMessage `cbor:"4,keyasint,omitempty"`
+	hash           string
+	TxInputs       []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
+	TxOutputs      []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxFee          uint64                     `cbor:"2,keyasint,omitempty"`
+	Ttl            uint64                     `cbor:"3,keyasint,omitempty"`
+	TxCertificates []Certificate              `cbor:"4,keyasint,omitempty"`
 	// TODO: figure out how to parse this correctly
 	// We keep the raw CBOR because it can contain a map with []byte keys, which
 	// Go does not allow
@@ -219,6 +218,10 @@ func (b *ShelleyTransactionBody) TTL() uint64 {
 
 func (b *ShelleyTransactionBody) ReferenceInputs() []TransactionInput {
 	return []TransactionInput{}
+}
+
+func (b *ShelleyTransactionBody) Certificates() []Certificate {
+	return b.TxCertificates
 }
 
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
@@ -357,6 +360,10 @@ func (t ShelleyTransaction) TTL() uint64 {
 
 func (t ShelleyTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
+}
+
+func (t ShelleyTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {

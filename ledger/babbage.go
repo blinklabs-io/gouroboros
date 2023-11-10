@@ -430,6 +430,10 @@ func (t BabbageTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t BabbageTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

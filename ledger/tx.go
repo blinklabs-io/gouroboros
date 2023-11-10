@@ -38,6 +38,7 @@ type TransactionBody interface {
 	Outputs() []TransactionOutput
 	TTL() uint64
 	ReferenceInputs() []TransactionInput
+	Certificates() []Certificate
 	Utxorpc() *utxorpc.Tx
 }
 
