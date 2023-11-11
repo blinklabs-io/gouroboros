@@ -74,18 +74,24 @@ func (c *Client) Start() {
 			if c.Mode() == protocol.ProtocolModeNodeToNode {
 				if version >= 11 {
 					// TODO: make peer sharing mode configurable once it actually works
-					versionMap[version] = []interface{}{
-						c.config.NetworkMagic,
-						diffusionMode,
-						PeerSharingModeNoPeerSharing,
-						QueryModeDisabled,
+					versionMap[version] = NtNVersionDataPeerSharingQuery{
+						NetworkMagic:                       c.config.NetworkMagic,
+						InitiatorAndResponderDiffusionMode: diffusionMode,
+						PeerSharing:                        PeerSharingModeNoPeerSharing,
+						Query:                              QueryModeDisabled,
 					}
 				} else {
-					versionMap[version] = []interface{}{c.config.NetworkMagic, diffusionMode}
+					versionMap[version] = NtNVersionDataLegacy{
+						NetworkMagic:                       c.config.NetworkMagic,
+						InitiatorAndResponderDiffusionMode: diffusionMode,
+					}
 				}
 			} else {
 				if (version - NodeToClientVersionOffset) >= 15 {
-					versionMap[version] = []any{c.config.NetworkMagic, QueryModeDisabled}
+					versionMap[version] = NtCVersionData{
+						NetworkMagic: c.config.NetworkMagic,
+						Query:        QueryModeDisabled,
+					}
 				} else {
 					versionMap[version] = c.config.NetworkMagic
 				}
@@ -122,6 +128,8 @@ func (c *Client) handleAcceptVersion(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgAcceptVersion)
 	fullDuplex := false
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
+		// TODO: switch to using the VersionData types
+		// this is more annoying than it would seem until we fix some other things
 		versionData := msg.VersionData.([]interface{})
 		//nolint:gosimple
 		if versionData[1].(bool) == DiffusionModeInitiatorAndResponder {
