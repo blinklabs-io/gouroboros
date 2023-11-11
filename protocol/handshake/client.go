@@ -65,39 +65,7 @@ func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Start()
 		// Send our ProposeVersions message
-		versionMap := make(map[uint16]interface{})
-		diffusionMode := DiffusionModeInitiatorOnly
-		if c.config.ClientFullDuplex {
-			diffusionMode = DiffusionModeInitiatorAndResponder
-		}
-		for _, version := range c.config.ProtocolVersions {
-			if c.Mode() == protocol.ProtocolModeNodeToNode {
-				if version >= 11 {
-					// TODO: make peer sharing mode configurable once it actually works
-					versionMap[version] = NtNVersionDataPeerSharingQuery{
-						NetworkMagic:                       c.config.NetworkMagic,
-						InitiatorAndResponderDiffusionMode: diffusionMode,
-						PeerSharing:                        PeerSharingModeNoPeerSharing,
-						Query:                              QueryModeDisabled,
-					}
-				} else {
-					versionMap[version] = NtNVersionDataLegacy{
-						NetworkMagic:                       c.config.NetworkMagic,
-						InitiatorAndResponderDiffusionMode: diffusionMode,
-					}
-				}
-			} else {
-				if (version - NodeToClientVersionOffset) >= 15 {
-					versionMap[version] = NtCVersionData{
-						NetworkMagic: c.config.NetworkMagic,
-						Query:        QueryModeDisabled,
-					}
-				} else {
-					versionMap[version] = c.config.NetworkMagic
-				}
-			}
-		}
-		msg := NewMsgProposeVersions(versionMap)
+		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)
 		_ = c.SendMessage(msg)
 	})
 }
@@ -119,24 +87,19 @@ func (c *Client) handleMessage(msg protocol.Message, isResponse bool) error {
 	return err
 }
 
-func (c *Client) handleAcceptVersion(msgGeneric protocol.Message) error {
+func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 	if c.config.FinishedFunc == nil {
 		return fmt.Errorf(
 			"received handshake AcceptVersion message but no callback function is defined",
 		)
 	}
-	msg := msgGeneric.(*MsgAcceptVersion)
-	fullDuplex := false
-	if c.Mode() == protocol.ProtocolModeNodeToNode {
-		// TODO: switch to using the VersionData types
-		// this is more annoying than it would seem until we fix some other things
-		versionData := msg.VersionData.([]interface{})
-		//nolint:gosimple
-		if versionData[1].(bool) == DiffusionModeInitiatorAndResponder {
-			fullDuplex = true
-		}
+	msgAcceptVersion := msg.(*MsgAcceptVersion)
+	protoVersion := protocol.GetProtocolVersion(msgAcceptVersion.Version)
+	versionData, err := protoVersion.NewVersionDataFromCborFunc(msgAcceptVersion.VersionData)
+	if err != nil {
+		return err
 	}
-	return c.config.FinishedFunc(msg.Version, fullDuplex)
+	return c.config.FinishedFunc(msgAcceptVersion.Version, versionData)
 }
 
 func (c *Client) handleRefuse(msgGeneric protocol.Message) error {

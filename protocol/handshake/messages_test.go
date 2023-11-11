@@ -34,18 +34,36 @@ var tests = []testDefinition{
 		CborHex:     "8200a4078202f4088202f4098202f40a8202f4",
 		MessageType: MessageTypeProposeVersions,
 		Message: NewMsgProposeVersions(
-			map[uint16]interface{}{
-				7:  []interface{}{uint64(2), false},
-				8:  []interface{}{uint64(2), false},
-				9:  []interface{}{uint64(2), false},
-				10: []interface{}{uint64(2), false},
+			map[uint16]protocol.VersionData{
+				7: protocol.VersionDataNtN7to10{
+					CborNetworkMagic:                       2,
+					CborInitiatorAndResponderDiffusionMode: false,
+				},
+				8: protocol.VersionDataNtN7to10{
+					CborNetworkMagic:                       2,
+					CborInitiatorAndResponderDiffusionMode: false,
+				},
+				9: protocol.VersionDataNtN7to10{
+					CborNetworkMagic:                       2,
+					CborInitiatorAndResponderDiffusionMode: false,
+				},
+				10: protocol.VersionDataNtN7to10{
+					CborNetworkMagic:                       2,
+					CborInitiatorAndResponderDiffusionMode: false,
+				},
 			},
 		),
 	},
 	{
 		CborHex:     "83010a8202f4",
 		MessageType: MessageTypeAcceptVersion,
-		Message:     NewMsgAcceptVersion(10, []interface{}{uint64(2), false}),
+		Message: NewMsgAcceptVersion(
+			10,
+			protocol.VersionDataNtN7to10{
+				CborNetworkMagic:                       2,
+				CborInitiatorAndResponderDiffusionMode: false,
+			},
+		),
 	},
 	{
 		CborHex:     "82028200840708090a",

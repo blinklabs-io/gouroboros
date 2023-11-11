@@ -21,7 +21,7 @@ import (
 
 const (
 	MockNetworkMagic       uint32 = 999999
-	MockProtocolVersionNtC uint16 = 14
+	MockProtocolVersionNtC uint16 = (14 + protocol.ProtocolVersionNtCOffset)
 )
 
 type EntryType int
@@ -57,6 +57,9 @@ var ConversationEntryHandshakeResponse = ConversationEntry{
 	ProtocolId: handshake.ProtocolId,
 	IsResponse: true,
 	OutputMessages: []protocol.Message{
-		handshake.NewMsgAcceptVersion(MockProtocolVersionNtC, MockNetworkMagic),
+		handshake.NewMsgAcceptVersion(
+			MockProtocolVersionNtC,
+			protocol.VersionDataNtC9to14(MockNetworkMagic),
+		),
 	},
 }

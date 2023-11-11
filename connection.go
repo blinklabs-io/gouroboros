@@ -221,6 +221,13 @@ func (c *Connection) shutdown() {
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
 func (c *Connection) setupConnection() error {
+	// Check network magic value
+	if c.networkMagic == 0 {
+		return fmt.Errorf(
+			"invalid network magic value provided: %d\n",
+			c.networkMagic,
+		)
+	}
 	// Start Goroutine to shutdown when doneChan is closed
 	go func() {
 		<-c.doneChan
@@ -255,12 +262,9 @@ func (c *Connection) setupConnection() error {
 		Muxer:     c.muxer,
 		ErrorChan: c.protoErrorChan,
 	}
-	var protoVersions []uint16
 	if c.useNodeToNodeProto {
-		protoVersions = GetProtocolVersionsNtN()
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 	} else {
-		protoVersions = GetProtocolVersionsNtC()
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 	}
 	if c.server {
@@ -268,23 +272,31 @@ func (c *Connection) setupConnection() error {
 	} else {
 		protoOptions.Role = protocol.ProtocolRoleClient
 	}
-	// Check network magic value
-	if c.networkMagic == 0 {
-		return fmt.Errorf(
-			"invalid network magic value provided: %d\n",
-			c.networkMagic,
-		)
+	// Generate protocol version map for handshake
+	handshakeDiffusionMode := protocol.DiffusionModeInitiatorOnly
+	if c.fullDuplex {
+		handshakeDiffusionMode = protocol.DiffusionModeInitiatorAndResponder
 	}
+	protoVersions := protocol.GetProtocolVersionMap(
+		protoOptions.Mode,
+		c.networkMagic,
+		handshakeDiffusionMode,
+		// TODO: make these configurable
+		protocol.PeerSharingModeNoPeerSharing,
+		protocol.QueryModeDisabled,
+	)
 	// Perform handshake
 	var handshakeVersion uint16
 	var handshakeFullDuplex bool
 	handshakeConfig := handshake.NewConfig(
-		handshake.WithProtocolVersions(protoVersions),
-		handshake.WithNetworkMagic(c.networkMagic),
-		handshake.WithClientFullDuplex(c.fullDuplex),
-		handshake.WithFinishedFunc(func(version uint16, fullDuplex bool) error {
+		handshake.WithProtocolVersionMap(protoVersions),
+		handshake.WithFinishedFunc(func(version uint16, versionData protocol.VersionData) error {
 			handshakeVersion = version
-			handshakeFullDuplex = fullDuplex
+			if c.useNodeToNodeProto {
+				if versionData.DiffusionMode() == protocol.DiffusionModeInitiatorAndResponder {
+					handshakeFullDuplex = true
+				}
+			}
 			close(c.handshakeFinishedChan)
 			return nil
 		}),
@@ -307,10 +319,6 @@ func (c *Connection) setupConnection() error {
 	}
 	// Provide the negotiated protocol version to the various mini-protocols
 	protoOptions.Version = handshakeVersion
-	// Drop bit used to signify NtC protocol versions
-	if protoOptions.Version > protocolVersionNtCFlag {
-		protoOptions.Version = protoOptions.Version - protocolVersionNtCFlag
-	}
 	// Start Goroutine to pass along errors from the mini-protocols
 	c.waitGroup.Add(1)
 	go func() {
@@ -331,7 +339,7 @@ func (c *Connection) setupConnection() error {
 	}()
 	// Configure the relevant mini-protocols
 	if c.useNodeToNodeProto {
-		versionNtN := GetProtocolVersionNtN(handshakeVersion)
+		versionNtN := protocol.GetProtocolVersion(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
@@ -365,7 +373,7 @@ func (c *Connection) setupConnection() error {
 			}
 		}
 	} else {
-		versionNtC := GetProtocolVersionNtC(handshakeVersion)
+		versionNtC := protocol.GetProtocolVersion(handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.localTxSubmission = localtxsubmission.New(protoOptions, c.localTxSubmissionConfig)

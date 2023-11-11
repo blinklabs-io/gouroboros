@@ -74,11 +74,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        stateIdle,
 	}
 	// Enable version-dependent features
-	if protoOptions.Version >= 10 {
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
 		c.enableGetChainBlockNo = true
 		c.enableGetChainPoint = true
 	}
-	if protoOptions.Version >= 11 {
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 11 {
 		c.enableGetRewardInfoPoolsBlock = true
 	}
 	c.Protocol = protocol.New(protoConfig)
