@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs, LLC.
+// Copyright 2023 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -78,7 +78,10 @@ func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
 	return err
 }
 
-func (s *Server) RequestTxIds(blocking bool, reqCount int) ([]TxIdAndSize, error) {
+func (s *Server) RequestTxIds(
+	blocking bool,
+	reqCount int,
+) ([]TxIdAndSize, error) {
 	if s.stateDone {
 		return nil, protocol.ProtocolShuttingDownError
 	}
