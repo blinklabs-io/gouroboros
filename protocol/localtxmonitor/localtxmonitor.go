@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs, LLC.
+// Copyright 2023 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -156,7 +156,9 @@ func NewConfig(options ...LocalTxMonitorOptionFunc) Config {
 }
 
 // WithGetMempoolFunc specifies the callback function for retrieving the mempool
-func WithGetMempoolFunc(getMempoolFunc GetMempoolFunc) LocalTxMonitorOptionFunc {
+func WithGetMempoolFunc(
+	getMempoolFunc GetMempoolFunc,
+) LocalTxMonitorOptionFunc {
 	return func(c *Config) {
 		c.GetMempoolFunc = getMempoolFunc
 	}

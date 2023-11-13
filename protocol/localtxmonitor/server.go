@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs, LLC.
+// Copyright 2023 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -97,7 +97,10 @@ func (s *Server) handleAcquire() error {
 			Tx:    mempoolTx.Tx[:],
 		}
 		// Pre-parse TX for convenience
-		tmpTxObj, err := ledger.NewTransactionFromCbor(mempoolTx.EraId, mempoolTx.Tx)
+		tmpTxObj, err := ledger.NewTransactionFromCbor(
+			mempoolTx.EraId,
+			mempoolTx.Tx,
+		)
 		if err != nil {
 			return err
 		}
