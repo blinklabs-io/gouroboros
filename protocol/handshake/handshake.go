@@ -27,28 +27,6 @@ const (
 	ProtocolId   = 0
 )
 
-// Diffusion modes
-const (
-	DiffusionModeInitiatorOnly         = true
-	DiffusionModeInitiatorAndResponder = false
-)
-
-// Peer sharing modes
-const (
-	PeerSharingModeNoPeerSharing      = 0
-	PeerSharingModePeerSharingPrivate = 1
-	PeerSharingModePeerSharingPublic  = 2
-)
-
-// Query modes
-const (
-	QueryModeDisabled = false
-	QueryModeEnabled  = true
-)
-
-// NtC version numbers have the 15th bit set
-const NodeToClientVersionOffset = 0x8000
-
 var (
 	statePropose = protocol.NewState(1, "Propose")
 	stateConfirm = protocol.NewState(2, "Confirm")
@@ -92,15 +70,13 @@ type Handshake struct {
 
 // Config is used to configure the Handshake protocol instance
 type Config struct {
-	ProtocolVersions []uint16
-	NetworkMagic     uint32
-	ClientFullDuplex bool
-	FinishedFunc     FinishedFunc
-	Timeout          time.Duration
+	ProtocolVersionMap protocol.ProtocolVersionMap
+	FinishedFunc       FinishedFunc
+	Timeout            time.Duration
 }
 
 // Callback function types
-type FinishedFunc func(uint16, bool) error
+type FinishedFunc func(uint16, protocol.VersionData) error
 
 // New returns a new Handshake object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {
@@ -126,24 +102,10 @@ func NewConfig(options ...HandshakeOptionFunc) Config {
 	return c
 }
 
-// WithProtocolVersions specifies the supported protocol versions
-func WithProtocolVersions(versions []uint16) HandshakeOptionFunc {
+// WithProtocolVersionMap specifies the supported protocol versions
+func WithProtocolVersionMap(versionMap protocol.ProtocolVersionMap) HandshakeOptionFunc {
 	return func(c *Config) {
-		c.ProtocolVersions = versions
-	}
-}
-
-// WithNetworkMagic specifies the network magic value
-func WithNetworkMagic(networkMagic uint32) HandshakeOptionFunc {
-	return func(c *Config) {
-		c.NetworkMagic = networkMagic
-	}
-}
-
-// WithClientFullDuplex specifies whether to request full duplex mode when acting as a client
-func WithClientFullDuplex(fullDuplex bool) HandshakeOptionFunc {
-	return func(c *Config) {
-		c.ClientFullDuplex = fullDuplex
+		c.ProtocolVersionMap = versionMap
 	}
 }
 

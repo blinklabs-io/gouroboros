@@ -70,19 +70,17 @@ func (s *Server) handleProposeVersions(msgGeneric protocol.Message) error {
 	}
 	msg := msgGeneric.(*MsgProposeVersions)
 	var highestVersion uint16
-	var fullDuplex bool
-	var versionData []interface{}
+	var versionData protocol.VersionData
 	for proposedVersion := range msg.VersionMap {
 		if proposedVersion > highestVersion {
-			for _, allowedVersion := range s.config.ProtocolVersions {
+			for allowedVersion := range s.config.ProtocolVersionMap {
 				if allowedVersion == proposedVersion {
 					highestVersion = proposedVersion
-					versionData = msg.VersionMap[proposedVersion].([]interface{})
-					//nolint:gosimple
-					if versionData[1].(bool) == DiffusionModeInitiatorAndResponder {
-						fullDuplex = true
-					} else {
-						fullDuplex = false
+					versionConfig := protocol.GetProtocolVersion(proposedVersion)
+					tmpVersionData, err := versionConfig.NewVersionDataFromCborFunc(msg.VersionMap[proposedVersion])
+					versionData = tmpVersionData
+					if err != nil {
+						return err
 					}
 					break
 				}
@@ -94,7 +92,7 @@ func (s *Server) handleProposeVersions(msgGeneric protocol.Message) error {
 		if err := s.SendMessage(resp); err != nil {
 			return err
 		}
-		return s.config.FinishedFunc(highestVersion, fullDuplex)
+		return s.config.FinishedFunc(highestVersion, versionData)
 	} else {
 		// TODO: handle failures
 		// https://github.com/blinklabs-io/gouroboros/issues/32

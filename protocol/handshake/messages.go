@@ -58,17 +58,23 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 
 type MsgProposeVersions struct {
 	protocol.MessageBase
-	VersionMap map[uint16]interface{}
+	VersionMap map[uint16]cbor.RawMessage
 }
 
 func NewMsgProposeVersions(
-	versionMap map[uint16]interface{},
+	versionMap protocol.ProtocolVersionMap,
 ) *MsgProposeVersions {
+	rawVersionMap := map[uint16]cbor.RawMessage{}
+	for version, versionData := range versionMap {
+		// This should never fail with our known VersionData types
+		cborData, _ := cbor.Encode(&versionData)
+		rawVersionMap[version] = cbor.RawMessage(cborData)
+	}
 	m := &MsgProposeVersions{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeProposeVersions,
 		},
-		VersionMap: versionMap,
+		VersionMap: rawVersionMap,
 	}
 	return m
 }
@@ -76,19 +82,21 @@ func NewMsgProposeVersions(
 type MsgAcceptVersion struct {
 	protocol.MessageBase
 	Version     uint16
-	VersionData interface{}
+	VersionData cbor.RawMessage
 }
 
 func NewMsgAcceptVersion(
 	version uint16,
-	versionData interface{},
+	versionData protocol.VersionData,
 ) *MsgAcceptVersion {
+	// This should never fail with our known VersionData types
+	cborData, _ := cbor.Encode(&versionData)
 	m := &MsgAcceptVersion{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeAcceptVersion,
 		},
 		Version:     version,
-		VersionData: versionData,
+		VersionData: cbor.RawMessage(cborData),
 	}
 	return m
 }

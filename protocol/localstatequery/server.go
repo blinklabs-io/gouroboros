@@ -47,11 +47,11 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		InitialState:        stateIdle,
 	}
 	// Enable version-dependent features
-	if protoOptions.Version >= 10 {
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 10 {
 		s.enableGetChainBlockNo = true
 		s.enableGetChainPoint = true
 	}
-	if protoOptions.Version >= 11 {
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 11 {
 		s.enableGetRewardInfoPoolsBlock = true
 	}
 	s.Protocol = protocol.New(protoConfig)
