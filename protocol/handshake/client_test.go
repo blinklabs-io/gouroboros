@@ -22,7 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
 )
 
-func TestBasicHandshake(t *testing.T) {
+func TestClientBasicHandshake(t *testing.T) {
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -52,7 +52,7 @@ func TestBasicHandshake(t *testing.T) {
 	}
 }
 
-func TestDoubleStart(t *testing.T) {
+func TestClientDoubleStart(t *testing.T) {
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{

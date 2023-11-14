@@ -62,40 +62,89 @@ func (s *Server) handleMessage(msg protocol.Message, isResponse bool) error {
 	return err
 }
 
-func (s *Server) handleProposeVersions(msgGeneric protocol.Message) error {
+func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	if s.config.FinishedFunc == nil {
 		return fmt.Errorf(
 			"received handshake ProposeVersions message but no callback function is defined",
 		)
 	}
-	msg := msgGeneric.(*MsgProposeVersions)
-	var highestVersion uint16
-	var versionData protocol.VersionData
-	for proposedVersion := range msg.VersionMap {
-		if proposedVersion > highestVersion {
-			for allowedVersion := range s.config.ProtocolVersionMap {
-				if allowedVersion == proposedVersion {
-					highestVersion = proposedVersion
-					versionConfig := protocol.GetProtocolVersion(proposedVersion)
-					tmpVersionData, err := versionConfig.NewVersionDataFromCborFunc(msg.VersionMap[proposedVersion])
-					versionData = tmpVersionData
-					if err != nil {
-						return err
-					}
-					break
-				}
-			}
+	msgProposeVersions := msg.(*MsgProposeVersions)
+	// Compute intersection of supported and proposed protocol versions
+	var versionIntersect []uint16
+	for proposedVersion := range msgProposeVersions.VersionMap {
+		if _, ok := s.config.ProtocolVersionMap[proposedVersion]; ok {
+			versionIntersect = append(versionIntersect, proposedVersion)
 		}
 	}
-	if highestVersion > 0 {
-		resp := NewMsgAcceptVersion(highestVersion, versionData)
-		if err := s.SendMessage(resp); err != nil {
+	// Send refusal if there are no matching versions
+	if len(versionIntersect) == 0 {
+		var supportedVersions []uint16
+		for supportedVersion := range s.config.ProtocolVersionMap {
+			supportedVersions = append(supportedVersions, supportedVersion)
+		}
+		msgRefuse := NewMsgRefuse(
+			[]any{
+				RefuseReasonVersionMismatch,
+				supportedVersions,
+			},
+		)
+		if err := s.SendMessage(msgRefuse); err != nil {
 			return err
 		}
-		return s.config.FinishedFunc(highestVersion, versionData)
-	} else {
-		// TODO: handle failures
-		// https://github.com/blinklabs-io/gouroboros/issues/32
-		return fmt.Errorf("handshake failed, but we don't yet support this")
+		return fmt.Errorf("handshake failed: refused due to version mismatch")
 	}
+	// Compute highest version from intersection
+	var proposedVersion uint16
+	for _, version := range versionIntersect {
+		if version > proposedVersion {
+			proposedVersion = version
+		}
+	}
+	// Decode protocol parameters for selected version
+	versionInfo := protocol.GetProtocolVersion(proposedVersion)
+	versionData := s.config.ProtocolVersionMap[proposedVersion]
+	proposedVersionData, err := versionInfo.NewVersionDataFromCborFunc(
+		msgProposeVersions.VersionMap[proposedVersion],
+	)
+	if err != nil {
+		msgRefuse := NewMsgRefuse(
+			[]any{
+				RefuseReasonDecodeError,
+				proposedVersion,
+				err.Error(),
+			},
+		)
+		if err := s.SendMessage(msgRefuse); err != nil {
+			return err
+		}
+		return fmt.Errorf(
+			"handshake failed: refused due to protocol parameters decode failure: %s",
+			err,
+		)
+	}
+	// Check network magic
+	if proposedVersionData.NetworkMagic() != versionData.NetworkMagic() {
+		errMsg := fmt.Sprintf("network magic mismatch: %#v /= %#v", versionData, proposedVersionData)
+		msgRefuse := NewMsgRefuse(
+			[]any{
+				RefuseReasonRefused,
+				proposedVersion,
+				errMsg,
+			},
+		)
+		if err := s.SendMessage(msgRefuse); err != nil {
+			return err
+		}
+		return fmt.Errorf(
+			"handshake failed: refused due to protocol parameters mismatch: %s",
+			errMsg,
+		)
+	}
+	// Accept the proposed version
+	// We send our version data in the response and the proposed version data in the callback
+	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, versionData)
+	if err := s.SendMessage(msgAcceptVersion); err != nil {
+		return err
+	}
+	return s.config.FinishedFunc(proposedVersion, proposedVersionData)
 }
