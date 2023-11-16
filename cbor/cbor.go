@@ -36,6 +36,14 @@ const (
 	CborTagRational = 30
 	CborTagSet      = 258
 	CborTagMap      = 259
+
+	// Tag ranges for "alternatives"
+	// https://www.ietf.org/archive/id/draft-bormann-cbor-notable-tags-07.html#name-enumerated-alternative-data
+	CborTagAlternative1Min = 121
+	CborTagAlternative1Max = 127
+	CborTagAlternative2Min = 1280
+	CborTagAlternative2Max = 1400
+	CborTagAlternative3    = 101
 )
 
 // Create an alias for RawMessage for convenience
