@@ -253,3 +253,77 @@ func TestLazyValueMarshalJSON(t *testing.T) {
 		}
 	}
 }
+
+var constructorTestDefs = []struct {
+	cborHex     string
+	expectedObj cbor.Constructor
+}{
+	{
+		// 122([1, 2, 3])
+		cborHex: "D87A83010203",
+		expectedObj: cbor.NewConstructor(
+			1,
+			[]any{uint64(1), uint64(2), uint64(3)},
+		),
+	},
+	{
+		// 1288([3, 4, 5])
+		cborHex: "D9050883030405",
+		expectedObj: cbor.NewConstructor(
+			15,
+			[]any{uint64(3), uint64(4), uint64(5)},
+		),
+	},
+	{
+		// 101([999, [6, 7]])
+		cborHex: "D865821903E7820607",
+		expectedObj: cbor.NewConstructor(
+			999,
+			[]any{uint64(6), uint64(7)},
+		),
+	},
+}
+
+func TestConstructorDecode(t *testing.T) {
+	for _, testDef := range constructorTestDefs {
+		cborData, err := hex.DecodeString(testDef.cborHex)
+		if err != nil {
+			t.Fatalf("failed to decode CBOR hex: %s", err)
+		}
+		var tmpConstr cbor.Constructor
+		if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
+			t.Fatalf("failed to decode CBOR data: %s", err)
+		}
+		if tmpConstr.Constructor() != testDef.expectedObj.Constructor() {
+			t.Fatalf(
+				"did not get expected constructor number, got %d, wanted %d",
+				tmpConstr.Constructor(),
+				testDef.expectedObj.Constructor(),
+			)
+		}
+		if !reflect.DeepEqual(tmpConstr.Fields(), testDef.expectedObj.Fields()) {
+			t.Fatalf(
+				"did not decode to expected fields\n  got: %#v\n  wanted: %#v",
+				tmpConstr.Fields(),
+				testDef.expectedObj.Fields(),
+			)
+		}
+	}
+}
+
+func TestConstructorEncode(t *testing.T) {
+	for _, testDef := range constructorTestDefs {
+		cborData, err := cbor.Encode(&testDef.expectedObj)
+		if err != nil {
+			t.Fatalf("failed to encode object to CBOR: %s", err)
+		}
+		cborDataHex := hex.EncodeToString(cborData)
+		if cborDataHex != strings.ToLower(testDef.cborHex) {
+			t.Fatalf(
+				"did not encode to expected CBOR\n  got: %s\n  wanted: %s",
+				cborDataHex,
+				strings.ToLower(testDef.cborHex),
+			)
+		}
+	}
+}
