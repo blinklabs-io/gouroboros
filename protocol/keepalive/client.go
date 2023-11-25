@@ -86,7 +86,7 @@ func (c *Client) startTimer() {
 	})
 }
 
-func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
+func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeKeepAliveResponse:

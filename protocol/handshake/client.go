@@ -70,7 +70,7 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) handleMessage(msg protocol.Message, isResponse bool) error {
+func (c *Client) handleMessage(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcceptVersion:

@@ -47,7 +47,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) handleMessage(msg protocol.Message, isResponse bool) error {
+func (s *Server) handleMessage(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeShareRequest:

@@ -69,7 +69,7 @@ func (c *Client) GetPeers(amount uint8) ([]interface{}, error) {
 	return peers, nil
 }
 
-func (c *Client) handleMessage(msg protocol.Message, isResponse bool) error {
+func (c *Client) handleMessage(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeSharePeers:
