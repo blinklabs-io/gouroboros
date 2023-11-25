@@ -124,7 +124,7 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	return block, nil
 }
 
-func (c *Client) messageHandler(msg protocol.Message, isResponse bool) error {
+func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeStartBatch:

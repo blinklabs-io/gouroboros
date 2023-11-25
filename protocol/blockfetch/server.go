@@ -44,7 +44,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) messageHandler(msg protocol.Message, isResponse bool) error {
+func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	// TODO: add cases for messages from client
 	switch msg.Type() {

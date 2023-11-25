@@ -93,7 +93,7 @@ type ProtocolOptions struct {
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
-type MessageHandlerFunc func(Message, bool) error
+type MessageHandlerFunc func(Message) error
 
 // MessageFromCborFunc represents a function that parses a mini-protocol message
 type MessageFromCborFunc func(uint, []byte) (Message, error)
@@ -316,7 +316,6 @@ func (p *Protocol) sendLoop() {
 func (p *Protocol) recvLoop() {
 	defer p.waitGroup.Done()
 	leftoverData := false
-	isResponse := false
 	for {
 		var err error
 		// Don't grab the next segment from the muxer if we still have data in the buffer
@@ -333,8 +332,6 @@ func (p *Protocol) recvLoop() {
 				}
 				// Add segment payload to buffer
 				p.recvBuffer.Write(segment.Payload)
-				// Save whether it's a response
-				isResponse = segment.IsResponse()
 			}
 		}
 		leftoverData = false
@@ -383,7 +380,7 @@ func (p *Protocol) recvLoop() {
 			return
 		}
 		// Handle message
-		if err := p.handleMessage(msg, isResponse); err != nil {
+		if err := p.handleMessage(msg); err != nil {
 			p.SendError(err)
 			return
 		}
@@ -470,7 +467,7 @@ func (p *Protocol) setState(state State) {
 	}
 }
 
-func (p *Protocol) handleMessage(msg Message, isResponse bool) error {
+func (p *Protocol) handleMessage(msg Message) error {
 	// Lock the state to prevent collisions
 	p.stateMutex.Lock()
 	newState, err := p.getNewState(msg)
@@ -481,5 +478,5 @@ func (p *Protocol) handleMessage(msg Message, isResponse bool) error {
 	p.setState(newState)
 	p.stateMutex.Unlock()
 	// Call handler function
-	return p.config.MessageHandlerFunc(msg, isResponse)
+	return p.config.MessageHandlerFunc(msg)
 }
