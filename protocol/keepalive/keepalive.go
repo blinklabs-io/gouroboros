@@ -25,7 +25,7 @@ const (
 	ProtocolId   uint16 = 8
 
 	// Time between keep-alive probes, in seconds
-	DefaultKeepAlivePeroid = 60
+	DefaultKeepAlivePeriod = 60
 
 	// Timeout for keep-alive responses, in seconds
 	DefaultKeepAliveTimeout = 10
@@ -95,7 +95,7 @@ type KeepAliveOptionFunc func(*Config)
 
 func NewConfig(options ...KeepAliveOptionFunc) Config {
 	c := Config{
-		Period:  DefaultKeepAlivePeroid * time.Second,
+		Period:  DefaultKeepAlivePeriod * time.Second,
 		Timeout: DefaultKeepAliveTimeout * time.Second,
 	}
 	// Apply provided options functions
