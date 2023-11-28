@@ -44,11 +44,10 @@ func TestServerBasicHandshake(t *testing.T) {
 			},
 			// MsgAcceptVersion from server
 			{
-				Type:             ouroboros_mock.EntryTypeInput,
-				IsResponse:       true,
-				ProtocolId:       handshake.ProtocolId,
-				MsgFromCborFunc:  handshake.NewMsgFromCbor,
-				InputMessageType: handshake.MessageTypeAcceptVersion,
+				Type:            ouroboros_mock.EntryTypeInput,
+				IsResponse:      true,
+				ProtocolId:      handshake.ProtocolId,
+				MsgFromCborFunc: handshake.NewMsgFromCbor,
 				InputMessage: handshake.NewMsgAcceptVersion(
 					(12 + protocol.ProtocolVersionNtCOffset),
 					protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),

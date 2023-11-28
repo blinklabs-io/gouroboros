@@ -27,7 +27,7 @@ func TestClientBasicHandshake(t *testing.T) {
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
 			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-			ouroboros_mock.ConversationEntryHandshakeResponse,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
 		},
 	)
 	oConn, err := ouroboros.New(
@@ -57,7 +57,7 @@ func TestClientDoubleStart(t *testing.T) {
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
 			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-			ouroboros_mock.ConversationEntryHandshakeResponse,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
 		},
 	)
 	oConn, err := ouroboros.New(

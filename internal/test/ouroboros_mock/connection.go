@@ -139,6 +139,8 @@ func (c *Connection) asyncLoop() {
 			}
 		case EntryTypeClose:
 			c.Close()
+		case EntryTypeSleep:
+			time.Sleep(entry.Duration)
 		default:
 			panic(
 				fmt.Sprintf(

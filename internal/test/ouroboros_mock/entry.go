@@ -15,13 +15,18 @@
 package ouroboros_mock
 
 import (
+	"time"
+
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
+	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 )
 
 const (
 	MockNetworkMagic       uint32 = 999999
 	MockProtocolVersionNtC uint16 = (14 + protocol.ProtocolVersionNtCOffset)
+	MockProtocolVersionNtN uint16 = 13
+	MockKeepAliveCookie    uint16 = 999
 )
 
 type EntryType int
@@ -31,6 +36,7 @@ const (
 	EntryTypeInput  EntryType = 1
 	EntryTypeOutput EntryType = 2
 	EntryTypeClose  EntryType = 3
+	EntryTypeSleep  EntryType = 4
 )
 
 type ConversationEntry struct {
@@ -41,6 +47,7 @@ type ConversationEntry struct {
 	InputMessage     protocol.Message
 	InputMessageType uint
 	MsgFromCborFunc  protocol.MessageFromCborFunc
+	Duration         time.Duration
 }
 
 // ConversationEntryHandshakeRequestGeneric is a pre-defined conversation event that matches a generic
@@ -51,8 +58,8 @@ var ConversationEntryHandshakeRequestGeneric = ConversationEntry{
 	InputMessageType: handshake.MessageTypeProposeVersions,
 }
 
-// ConversationEntryHandshakeResponse is a pre-defined conversation entry for a server NtC handshake response
-var ConversationEntryHandshakeResponse = ConversationEntry{
+// ConversationEntryHandshakeNtCResponse is a pre-defined conversation entry for a server NtC handshake response
+var ConversationEntryHandshakeNtCResponse = ConversationEntry{
 	Type:       EntryTypeOutput,
 	ProtocolId: handshake.ProtocolId,
 	IsResponse: true,
@@ -61,5 +68,69 @@ var ConversationEntryHandshakeResponse = ConversationEntry{
 			MockProtocolVersionNtC,
 			protocol.VersionDataNtC9to14(MockNetworkMagic),
 		),
+	},
+}
+
+// ConversationEntryHandshakeNtNResponse is a pre-defined conversation entry for a server NtN handshake response
+var ConversationEntryHandshakeNtNResponse = ConversationEntry{
+	Type:       EntryTypeOutput,
+	ProtocolId: handshake.ProtocolId,
+	IsResponse: true,
+	OutputMessages: []protocol.Message{
+		handshake.NewMsgAcceptVersion(
+			MockProtocolVersionNtN,
+			protocol.VersionDataNtN13andUp{
+				VersionDataNtN11to12: protocol.VersionDataNtN11to12{
+					CborNetworkMagic:                       MockNetworkMagic,
+					CborInitiatorAndResponderDiffusionMode: protocol.DiffusionModeInitiatorOnly,
+					CborPeerSharing:                        protocol.PeerSharingModeNoPeerSharing,
+					CborQuery:                              protocol.QueryModeDisabled,
+				},
+			},
+		),
+	},
+}
+
+// ConversationEntryKeepAliveRequest is a pre-defined conversation entry for a keep-alive request
+var ConversationEntryKeepAliveRequest = ConversationEntry{
+	Type:            EntryTypeInput,
+	ProtocolId:      keepalive.ProtocolId,
+	InputMessage:    keepalive.NewMsgKeepAlive(MockKeepAliveCookie),
+	MsgFromCborFunc: keepalive.NewMsgFromCbor,
+}
+
+// ConversationEntryKeepAliveResponse is a pre-defined conversation entry for a keep-alive response
+var ConversationEntryKeepAliveResponse = ConversationEntry{
+	Type:       EntryTypeOutput,
+	ProtocolId: keepalive.ProtocolId,
+	IsResponse: true,
+	OutputMessages: []protocol.Message{
+		keepalive.NewMsgKeepAliveResponse(MockKeepAliveCookie),
+	},
+}
+
+// ConversationKeepAlive is a pre-defined conversation with a NtN handshake and repeated keep-alive requests
+// and responses
+var ConversationKeepAlive = []ConversationEntry{
+	ConversationEntryHandshakeRequestGeneric,
+	ConversationEntryHandshakeNtNResponse,
+	ConversationEntryKeepAliveRequest,
+	ConversationEntryKeepAliveResponse,
+	ConversationEntryKeepAliveRequest,
+	ConversationEntryKeepAliveResponse,
+	ConversationEntryKeepAliveRequest,
+	ConversationEntryKeepAliveResponse,
+	ConversationEntryKeepAliveRequest,
+	ConversationEntryKeepAliveResponse,
+}
+
+// ConversationKeepAliveClose is a pre-defined conversation with a NtN handshake that will close the connection
+// after receiving a keep-alive request
+var ConversationKeepAliveClose = []ConversationEntry{
+	ConversationEntryHandshakeRequestGeneric,
+	ConversationEntryHandshakeNtNResponse,
+	ConversationEntryKeepAliveRequest,
+	ConversationEntry{
+		Type: EntryTypeClose,
 	},
 }

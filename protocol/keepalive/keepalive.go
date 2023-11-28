@@ -76,6 +76,7 @@ type Config struct {
 	DoneFunc              DoneFunc
 	Timeout               time.Duration
 	Period                time.Duration
+	Cookie                uint16
 }
 
 // Callback function types
@@ -134,5 +135,11 @@ func WithTimeout(timeout time.Duration) KeepAliveOptionFunc {
 func WithPeriod(period time.Duration) KeepAliveOptionFunc {
 	return func(c *Config) {
 		c.Period = period
+	}
+}
+
+func WithCookie(cookie uint16) KeepAliveOptionFunc {
+	return func(c *Config) {
+		c.Cookie = cookie
 	}
 }
