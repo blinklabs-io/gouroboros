@@ -346,9 +346,6 @@ func (c *Connection) setupConnection() error {
 		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
 		if versionNtN.EnableKeepAliveProtocol {
 			c.keepAlive = keepalive.New(protoOptions, c.keepAliveConfig)
-			if !c.server && c.sendKeepAlives {
-				c.keepAlive.Client.Start()
-			}
 		}
 		if versionNtN.EnablePeerSharingProtocol {
 			c.peerSharing = peersharing.New(protoOptions, c.peerSharingConfig)
@@ -359,6 +356,9 @@ func (c *Connection) setupConnection() error {
 				c.blockFetch.Client.Start()
 				c.chainSync.Client.Start()
 				c.txSubmission.Client.Start()
+				if c.keepAlive != nil && c.sendKeepAlives {
+					c.keepAlive.Client.Start()
+				}
 				if c.peerSharing != nil {
 					c.peerSharing.Client.Start()
 				}
@@ -367,6 +367,9 @@ func (c *Connection) setupConnection() error {
 				c.blockFetch.Server.Start()
 				c.chainSync.Server.Start()
 				c.txSubmission.Server.Start()
+				if c.keepAlive != nil {
+					c.keepAlive.Server.Start()
+				}
 				if c.peerSharing != nil {
 					c.peerSharing.Server.Start()
 				}
