@@ -135,7 +135,7 @@ func (s *Server) handleDone() error {
 }
 
 func (s *Server) handleInit() error {
-	if s.config.InitFunc == nil {
+	if s.config == nil || s.config.InitFunc == nil {
 		return fmt.Errorf(
 			"received tx-submission Init message but no callback function is defined",
 		)
