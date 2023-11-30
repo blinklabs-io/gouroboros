@@ -252,7 +252,7 @@ func (c *Client) handleAwaitReply() error {
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
-	if c.config.RollForwardFunc == nil && !c.wantFirstBlock {
+	if (c.config == nil || c.config.RollForwardFunc == nil) && !c.wantFirstBlock {
 		return fmt.Errorf(
 			"received chain-sync RollForward message but no callback function is defined",
 		)
@@ -371,10 +371,10 @@ func (c *Client) handleIntersectFound(msgGeneric protocol.Message) error {
 }
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
+	msgIntersectNotFound := msgGeneric.(*MsgIntersectNotFound)
 	if c.wantCurrentTip {
-		msgIntersectNotFound := msgGeneric.(*MsgIntersectNotFound)
 		c.currentTipChan <- msgIntersectNotFound.Tip
 	}
-	c.intersectResultChan <- IntersectNotFoundError{}
+	c.intersectResultChan <- IntersectNotFoundError
 	return nil
 }
