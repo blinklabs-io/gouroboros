@@ -16,7 +16,10 @@ package chainsync
 
 import (
 	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Server implements the ChainSync server
@@ -54,6 +57,31 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
+func (s *Server) RollBackward(point common.Point, tip Tip) error {
+	msg := NewMsgRollBackward(point, tip)
+	return s.SendMessage(msg)
+}
+
+func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
+	if s.Mode() == protocol.ProtocolModeNodeToNode {
+		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
+		msg := NewMsgRollForwardNtN(
+			eraId,
+			0,
+			blockData,
+			tip,
+		)
+		return s.SendMessage(msg)
+	} else {
+		msg := NewMsgRollForwardNtC(
+			blockType,
+			blockData,
+			tip,
+		)
+		return s.SendMessage(msg)
+	}
+}
+
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -74,12 +102,34 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleRequestNext(msg protocol.Message) error {
-	// TODO
-	return nil
+	if s.config == nil || s.config.RequestNextFunc == nil {
+		return fmt.Errorf(
+			"received chain-sync RequestNext message but no callback function is defined",
+		)
+	}
+	return s.config.RequestNextFunc()
 }
 
 func (s *Server) handleFindIntersect(msg protocol.Message) error {
-	// TODO
+	if s.config == nil || s.config.FindIntersectFunc == nil {
+		return fmt.Errorf(
+			"received chain-sync FindIntersect message but no callback function is defined",
+		)
+	}
+	msgFindIntersect := msg.(*MsgFindIntersect)
+	point, tip, err := s.config.FindIntersectFunc(msgFindIntersect.Points)
+	if err != nil {
+		if err == IntersectNotFoundError {
+			msgResp := NewMsgIntersectNotFound(tip)
+			if err := s.SendMessage(msgResp); err != nil {
+				return err
+			}
+		}
+	}
+	msgResp := NewMsgIntersectFound(point, tip)
+	if err := s.SendMessage(msgResp); err != nil {
+		return err
+	}
 	return nil
 }
 
