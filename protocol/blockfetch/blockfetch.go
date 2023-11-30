@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 )
@@ -86,12 +87,14 @@ type BlockFetch struct {
 
 type Config struct {
 	BlockFunc         BlockFunc
+	RequestRangeFunc  RequestRangeFunc
 	BatchStartTimeout time.Duration
 	BlockTimeout      time.Duration
 }
 
 // Callback function types
 type BlockFunc func(ledger.Block) error
+type RequestRangeFunc func(common.Point, common.Point) error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	b := &BlockFetch{
@@ -118,6 +121,12 @@ func NewConfig(options ...BlockFetchOptionFunc) Config {
 func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockFunc = blockFunc
+	}
+}
+
+func WithRequestRangeFunc(requestRangeFunc RequestRangeFunc) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.RequestRangeFunc = requestRangeFunc
 	}
 }
 

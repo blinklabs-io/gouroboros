@@ -16,6 +16,8 @@ package blockfetch
 
 import (
 	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -44,10 +46,41 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
+func (s *Server) NoBlocks() error {
+	msg := NewMsgNoBlocks()
+	return s.SendMessage(msg)
+}
+
+func (s *Server) StartBatch() error {
+	msg := NewMsgStartBatch()
+	return s.SendMessage(msg)
+}
+
+func (s *Server) Block(blockType uint, blockData []byte) error {
+	wrappedBlock := WrappedBlock{
+		Type:     blockType,
+		RawBlock: blockData,
+	}
+	wrappedBlockData, err := cbor.Encode(&wrappedBlock)
+	if err != nil {
+		return err
+	}
+	msg := NewMsgBlock(wrappedBlockData)
+	return s.SendMessage(msg)
+}
+
+func (s *Server) BatchDone() error {
+	msg := NewMsgBatchDone()
+	return s.SendMessage(msg)
+}
+
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
-	// TODO: add cases for messages from client
 	switch msg.Type() {
+	case MessageTypeRequestRange:
+		err = s.handleRequestRange(msg)
+	case MessageTypeClientDone:
+		err = s.handleClientDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -56,4 +89,18 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 		)
 	}
 	return err
+}
+
+func (s *Server) handleRequestRange(msg protocol.Message) error {
+	if s.config == nil || s.config.RequestRangeFunc == nil {
+		return fmt.Errorf(
+			"received block-fetch RequestRange message but no callback function is defined",
+		)
+	}
+	msgRequestRange := msg.(*MsgRequestRange)
+	return s.config.RequestRangeFunc(msgRequestRange.Start, msgRequestRange.End)
+}
+
+func (s *Server) handleClientDone() error {
+	return nil
 }
