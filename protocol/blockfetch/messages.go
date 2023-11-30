@@ -16,8 +16,10 @@ package blockfetch
 
 import (
 	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 const (
@@ -57,11 +59,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 
 type MsgRequestRange struct {
 	protocol.MessageBase
-	Start interface{} //point
-	End   interface{} //point
+	Start common.Point
+	End   common.Point
 }
 
-func NewMsgRequestRange(start interface{}, end interface{}) *MsgRequestRange {
+func NewMsgRequestRange(start common.Point, end common.Point) *MsgRequestRange {
 	m := &MsgRequestRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRequestRange,
@@ -139,17 +141,8 @@ func NewMsgBatchDone() *MsgBatchDone {
 	return m
 }
 
-// TODO: use this above and expose it, or just remove it
-/*
-type point struct {
-	Slot uint64
-	Hash []byte
-}
-*/
-
 type WrappedBlock struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_        struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Type     uint
 	RawBlock cbor.RawMessage
 }
