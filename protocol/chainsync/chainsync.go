@@ -112,16 +112,20 @@ type ChainSync struct {
 
 // Config is used to configure the ChainSync protocol instance
 type Config struct {
-	RollBackwardFunc RollBackwardFunc
-	RollForwardFunc  RollForwardFunc
-	IntersectTimeout time.Duration
-	BlockTimeout     time.Duration
-	PipelineLimit    int
+	RollBackwardFunc  RollBackwardFunc
+	RollForwardFunc   RollForwardFunc
+	FindIntersectFunc FindIntersectFunc
+	RequestNextFunc   RequestNextFunc
+	IntersectTimeout  time.Duration
+	BlockTimeout      time.Duration
+	PipelineLimit     int
 }
 
 // Callback function types
 type RollBackwardFunc func(common.Point, Tip) error
 type RollForwardFunc func(uint, interface{}, Tip) error
+type FindIntersectFunc func([]common.Point) (common.Point, Tip, error)
+type RequestNextFunc func() error
 
 // New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
@@ -166,6 +170,20 @@ func WithRollBackwardFunc(
 func WithRollForwardFunc(rollForwardFunc RollForwardFunc) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RollForwardFunc = rollForwardFunc
+	}
+}
+
+// WithFindIntersectFunc specifies the FindIntersect callback function
+func WithFindIntersectFunc(findIntersectFunc FindIntersectFunc) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.FindIntersectFunc = findIntersectFunc
+	}
+}
+
+// WithRequestNextFunc specifies the RequestNext callback function
+func WithRequestNextFunc(requestNextFunc RequestNextFunc) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.RequestNextFunc = requestNextFunc
 	}
 }
 
