@@ -275,16 +275,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				return err
 			}
 		default:
-			// Map block header types to block types
-			blockTypeMap := map[uint]uint{
-				ledger.BlockHeaderTypeShelley: ledger.BlockTypeShelley,
-				ledger.BlockHeaderTypeAllegra: ledger.BlockTypeAllegra,
-				ledger.BlockHeaderTypeMary:    ledger.BlockTypeMary,
-				ledger.BlockHeaderTypeAlonzo:  ledger.BlockTypeAlonzo,
-				ledger.BlockHeaderTypeBabbage: ledger.BlockTypeBabbage,
-				ledger.BlockHeaderTypeConway:  ledger.BlockTypeConway,
-			}
-			blockType = blockTypeMap[blockEra]
+			// Map block header type to block type
+			blockType = ledger.BlockHeaderToBlockTypeMap[blockEra]
 			var err error
 			blockHeader, err = ledger.NewBlockHeaderFromCbor(
 				blockType,

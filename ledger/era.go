@@ -57,3 +57,25 @@ func GetEraById(eraId uint8) *Era {
 	}
 	return &era
 }
+
+// BlockHeaderToBlockTypeMap is a mapping of NtC chainsync block header types
+// to NtN block types (era ID)
+var BlockHeaderToBlockTypeMap = map[uint]uint{
+	BlockHeaderTypeShelley: BlockTypeShelley,
+	BlockHeaderTypeAllegra: BlockTypeAllegra,
+	BlockHeaderTypeMary:    BlockTypeMary,
+	BlockHeaderTypeAlonzo:  BlockTypeAlonzo,
+	BlockHeaderTypeBabbage: BlockTypeBabbage,
+	BlockHeaderTypeConway:  BlockTypeConway,
+}
+
+// BlockToBlockHeaderTypeMap is a mapping of NtN chainsync block types (era ID)
+// to NtC block header types
+var BlockToBlockHeaderTypeMap = map[uint]uint{
+	BlockTypeShelley: BlockHeaderTypeShelley,
+	BlockTypeAllegra: BlockHeaderTypeAllegra,
+	BlockTypeMary:    BlockHeaderTypeMary,
+	BlockTypeAlonzo:  BlockHeaderTypeAlonzo,
+	BlockTypeBabbage: BlockHeaderTypeBabbage,
+	BlockTypeConway:  BlockHeaderTypeConway,
+}
