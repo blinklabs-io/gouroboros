@@ -55,7 +55,7 @@ func (c ConnectionManagerTag) String() string {
 type ConnectionManager struct {
 	config      ConnectionManagerConfig
 	hosts       []ConnectionManagerHost
-	connections []*ConnectionManagerConnection
+	connections map[int]*ConnectionManagerConnection
 }
 
 type ConnectionManagerConfig struct {
@@ -70,7 +70,8 @@ type ConnectionManagerHost struct {
 
 func NewConnectionManager(cfg ConnectionManagerConfig) *ConnectionManager {
 	return &ConnectionManager{
-		config: cfg,
+		config:      cfg,
+		connections: make(map[int]*ConnectionManagerConnection),
 	}
 }
 
@@ -106,13 +107,10 @@ func (c *ConnectionManager) AddHostsFromTopology(topology *TopologyConfig) {
 }
 
 func (c *ConnectionManager) AddConnection(connId int, conn *Connection) {
-	c.connections = append(
-		c.connections,
-		&ConnectionManagerConnection{
-			Id:   connId,
-			Conn: conn,
-		},
-	)
+	c.connections[connId] = &ConnectionManagerConnection{
+		Id:   connId,
+		Conn: conn,
+	}
 	go func() {
 		err, ok := <-conn.ErrorChan()
 		if !ok {
@@ -124,13 +122,12 @@ func (c *ConnectionManager) AddConnection(connId int, conn *Connection) {
 	}()
 }
 
-func (c *ConnectionManager) GetConnectionById(id int) *ConnectionManagerConnection {
-	for _, conn := range c.connections {
-		if conn.Id == id {
-			return conn
-		}
-	}
-	return nil
+func (c *ConnectionManager) RemoveConnection(connId int) {
+	delete(c.connections, connId)
+}
+
+func (c *ConnectionManager) GetConnectionById(connId int) *ConnectionManagerConnection {
+	return c.connections[connId]
 }
 
 func (c *ConnectionManager) GetConnectionsByTags(tags ...ConnectionManagerTag) []*ConnectionManagerConnection {
