@@ -128,6 +128,17 @@ func NewMsgBlock(wrappedBlock []byte) *MsgBlock {
 	return m
 }
 
+func (m MsgBlock) MarshalCBOR() ([]byte, error) {
+	tmp := []any{
+		m.MessageType,
+		cbor.Tag{
+			Number:  cbor.CborTagCbor,
+			Content: m.WrappedBlock,
+		},
+	}
+	return cbor.Encode(&tmp)
+}
+
 type MsgBatchDone struct {
 	protocol.MessageBase
 }
