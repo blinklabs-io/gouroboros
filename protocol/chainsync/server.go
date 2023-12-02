@@ -62,6 +62,11 @@ func (s *Server) RollBackward(point common.Point, tip Tip) error {
 	return s.SendMessage(msg)
 }
 
+func (s *Server) AwaitReply() error {
+	msg := NewMsgAwaitReply()
+	return s.SendMessage(msg)
+}
+
 func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 	if s.Mode() == protocol.ProtocolModeNodeToNode {
 		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
