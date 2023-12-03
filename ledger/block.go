@@ -74,6 +74,34 @@ func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {
 	return nil, fmt.Errorf("unknown node-to-node block type: %d", blockType)
 }
 
+func DetermineBlockType(data []byte) (uint, error) {
+	if _, err := NewByronEpochBoundaryBlockFromCbor(data); err == nil {
+		return BlockTypeByronEbb, nil
+	}
+	if _, err := NewByronMainBlockFromCbor(data); err == nil {
+		return BlockTypeByronMain, nil
+	}
+	if _, err := NewShelleyBlockFromCbor(data); err == nil {
+		return BlockTypeShelley, nil
+	}
+	if _, err := NewAllegraBlockFromCbor(data); err == nil {
+		return BlockTypeAllegra, nil
+	}
+	if _, err := NewMaryBlockFromCbor(data); err == nil {
+		return BlockTypeMary, nil
+	}
+	if _, err := NewAlonzoBlockFromCbor(data); err == nil {
+		return BlockTypeAlonzo, nil
+	}
+	if _, err := NewBabbageBlockFromCbor(data); err == nil {
+		return BlockTypeBabbage, nil
+	}
+	if _, err := NewConwayBlockFromCbor(data); err == nil {
+		return BlockTypeConway, nil
+	}
+	return 0, fmt.Errorf("unknown block type")
+}
+
 func generateBlockHeaderHash(data []byte, prefix []byte) string {
 	// We can ignore the error return here because our fixed size/key arguments will
 	// never trigger an error
