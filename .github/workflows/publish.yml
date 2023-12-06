@@ -37,4 +37,4 @@ jobs:
 
       # This updates the documentation on pkg.go.dev and the latest version available via the Go module proxy
       - name: Pull new module version
-        uses: andrewslotin/go-proxy-pull-action@v1.0.3
+        uses: andrewslotin/go-proxy-pull-action@v1.1.0
