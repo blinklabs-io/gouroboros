@@ -113,6 +113,20 @@ type MsgRequestTxs struct {
 	TxIds []TxId
 }
 
+func (m *MsgRequestTxs) MarshalCBOR() ([]byte, error) {
+	items := []any{}
+	for _, txId := range m.TxIds {
+		items = append(items, txId)
+	}
+	tmp := []any{
+		MessageTypeRequestTxs,
+		cbor.IndefLengthList{
+			Items: items,
+		},
+	}
+	return cbor.Encode(tmp)
+}
+
 func NewMsgRequestTxs(txIds []TxId) *MsgRequestTxs {
 	m := &MsgRequestTxs{
 		MessageBase: protocol.MessageBase{
