@@ -73,17 +73,21 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Start()
-		c.startTimer()
+		c.sendKeepAlive()
 	})
 }
 
+func (c *Client) sendKeepAlive() {
+	msg := NewMsgKeepAlive(c.config.Cookie)
+	if err := c.SendMessage(msg); err != nil {
+		c.SendError(err)
+	}
+	// Reschedule timer
+	c.startTimer()
+}
+
 func (c *Client) startTimer() {
-	c.timer = time.AfterFunc(c.config.Period, func() {
-		msg := NewMsgKeepAlive(c.config.Cookie)
-		if err := c.SendMessage(msg); err != nil {
-			c.SendError(err)
-		}
-	})
+	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
