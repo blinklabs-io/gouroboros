@@ -29,6 +29,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -41,6 +42,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
+)
+
+const (
+	// Default connection timeout
+	DefaultConnectTimeout = 30 * time.Second
 )
 
 // The Connection type is a wrapper around a net.Conn object that handles communication using the Ouroboros network protocol over that connection
@@ -118,15 +124,21 @@ func (c *Connection) ErrorChan() chan error {
 	return c.errorChan
 }
 
-// Dial will establish a connection using the specified protocol and address. These parameters are
-// passed to the [net.Dial] func. The handshake will be started when a connection is established.
+// Dial will establish a connection using the specified protocol and address. It works the same as [DialTimeout],
+// except that it provides a default connect timeout
+func (c *Connection) Dial(proto string, address string) error {
+	return c.DialTimeout(proto, address, DefaultConnectTimeout)
+}
+
+// DialTimeout will establish a connection using the specified protocol, address, and timeout. These parameters are
+// passed to the [net.DialTimeout] func. The handshake will be started when a connection is established.
 // An error will be returned if the connection fails, a connection was already established, or the
 // handshake fails
-func (c *Connection) Dial(proto string, address string) error {
+func (c *Connection) DialTimeout(proto string, address string, timeout time.Duration) error {
 	if c.conn != nil {
 		return fmt.Errorf("a connection was already established")
 	}
-	conn, err := net.Dial(proto, address)
+	conn, err := net.DialTimeout(proto, address, timeout)
 	if err != nil {
 		return err
 	}
