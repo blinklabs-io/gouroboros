@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/fxamacker/cbor/v2 v2.5.0
 	github.com/jinzhu/copier v0.4.0
-	golang.org/x/crypto v0.16.0
+	golang.org/x/crypto v0.17.0
 )
 
 require (
