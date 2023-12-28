@@ -213,6 +213,40 @@ func TestAddressFromParts(t *testing.T) {
 	}
 }
 
+func TestAddressPaymentAddress(t *testing.T) {
+	testDefs := []struct {
+		address                string
+		expectedPaymentAddress string
+	}{
+		{
+			address:                "addr_test1qqawz5hm2tchtmarkfn2tamzvd2spatl89gtutgra6zwc3ktqj7p944ckc9lq7u36jrq99znwhzlq6jfv2j4ql92m4rq07hp8t",
+			expectedPaymentAddress: "addr_test1vqawz5hm2tchtmarkfn2tamzvd2spatl89gtutgra6zwc3s5t5a7q",
+		},
+		{
+			address:                "addr_test1vpmwd5tk8quxnzxq46h8vztf00xtphrd7zd0al5ur5jsylg3r9v4l",
+			expectedPaymentAddress: "addr_test1vpmwd5tk8quxnzxq46h8vztf00xtphrd7zd0al5ur5jsylg3r9v4l",
+		},
+		// Script address with script staking key
+		{
+			address:                "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta",
+			expectedPaymentAddress: "addr1w8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0cm9703s",
+		},
+	}
+	for _, testDef := range testDefs {
+		addr, err := NewAddress(testDef.address)
+		if err != nil {
+			t.Fatalf("failed to decode address: %s", err)
+		}
+		if addr.PaymentAddress().String() != testDef.expectedPaymentAddress {
+			t.Fatalf(
+				"payment address did not match expected value, got: %s, wanted: %s",
+				addr.PaymentAddress().String(),
+				testDef.expectedPaymentAddress,
+			)
+		}
+	}
+}
+
 func TestAddressStakeAddress(t *testing.T) {
 	testDefs := []struct {
 		address              string
