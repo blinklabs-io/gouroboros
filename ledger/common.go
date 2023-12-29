@@ -271,14 +271,43 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(a.Bytes())
 }
 
-// StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
-func (a Address) StakeAddress() *Address {
-	if a.addressType != AddressTypeKeyKey &&
-		a.addressType != AddressTypeScriptKey {
+// PaymentAddress returns a new Address with only the payment address portion. This will return nil for anything other than payment and script addresses
+func (a Address) PaymentAddress() *Address {
+	var addrType uint8
+	if a.addressType == AddressTypeKeyKey ||
+		a.addressType == AddressTypeKeyNone {
+		addrType = AddressTypeKeyNone
+	} else if a.addressType == AddressTypeScriptKey ||
+		a.addressType == AddressTypeScriptNone ||
+		a.addressType == AddressTypeScriptScript {
+		addrType = AddressTypeScriptNone
+	} else {
+		// Unsupported address type
 		return nil
 	}
 	newAddr := &Address{
-		addressType:    AddressTypeNoneKey,
+		addressType:    addrType,
+		networkId:      a.networkId,
+		paymentAddress: a.paymentAddress[:],
+	}
+	return newAddr
+}
+
+// StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
+func (a Address) StakeAddress() *Address {
+	var addrType uint8
+	if a.addressType == AddressTypeKeyKey ||
+		a.addressType == AddressTypeScriptKey {
+		addrType = AddressTypeNoneKey
+	} else if a.addressType == AddressTypeScriptScript ||
+		a.addressType == AddressTypeNoneScript {
+		addrType = AddressTypeNoneScript
+	} else {
+		// Unsupported address type
+		return nil
+	}
+	newAddr := &Address{
+		addressType:    addrType,
 		networkId:      a.networkId,
 		stakingAddress: a.stakingAddress[:],
 	}
