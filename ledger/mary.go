@@ -254,3 +254,11 @@ func NewMaryTransactionFromCbor(data []byte) (*MaryTransaction, error) {
 	}
 	return &maryTx, nil
 }
+
+func NewMaryTransactionOutputFromCbor(data []byte) (*MaryTransactionOutput, error) {
+	var maryTxOutput MaryTransactionOutput
+	if _, err := cbor.Decode(data, &maryTxOutput); err != nil {
+		return nil, fmt.Errorf("Mary transaction output decode error: %s", err)
+	}
+	return &maryTxOutput, nil
+}
