@@ -63,7 +63,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		if c.timer != nil {
 			// Stop timer and drain channel
 			if ok := c.timer.Stop(); !ok {
-				<-c.timer.C
+				// Read item from channel, if available
+				select {
+				case <-c.timer.C:
+				default:
+				}
 			}
 		}
 	}()
@@ -82,11 +86,22 @@ func (c *Client) sendKeepAlive() {
 	if err := c.SendMessage(msg); err != nil {
 		c.SendError(err)
 	}
-	// Reschedule timer
+	// Schedule timer
 	c.startTimer()
 }
 
 func (c *Client) startTimer() {
+	// Stop any existing timer
+	if c.timer != nil {
+		if ok := c.timer.Stop(); !ok {
+			// Read item from channel, if available
+			select {
+			case <-c.timer.C:
+			default:
+			}
+		}
+	}
+	// Create new timer
 	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)
 }
 
@@ -107,10 +122,6 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgKeepAliveResponse)
-	// Start the timer again if we had one previously
-	if c.timer != nil {
-		defer c.startTimer()
-	}
 	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
 		// Call the user callback function
 		return c.config.KeepAliveResponseFunc(msg.Cookie)
