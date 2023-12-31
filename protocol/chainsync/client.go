@@ -156,22 +156,19 @@ func (c *Client) GetAvailableBlockRange(
 ) (common.Point, common.Point, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	c.wantCurrentTip = true
-	c.wantFirstBlock = true
 	var start, end common.Point
 	msgFindIntersect := NewMsgFindIntersect(intersectPoints)
 	if err := c.SendMessage(msgFindIntersect); err != nil {
 		return start, end, err
 	}
 	select {
-	case tip := <-c.currentTipChan:
-		end = tip.Point
-		// Clear out intersect result channel to prevent blocking
-		<-c.intersectResultChan
 	case err := <-c.intersectResultChan:
-		return start, end, err
+		if err != nil {
+			return start, end, err
+		}
 	}
-	c.wantCurrentTip = false
+	c.wantCurrentTip = true
+	c.wantFirstBlock = true
 	// Request the next block. This should result in a rollback
 	msgRequestNext := NewMsgRequestNext()
 	if err := c.SendMessage(msgRequestNext); err != nil {
@@ -179,6 +176,9 @@ func (c *Client) GetAvailableBlockRange(
 	}
 	for {
 		select {
+		case tip := <-c.currentTipChan:
+			end = tip.Point
+			c.wantCurrentTip = false
 		case point := <-c.firstBlockChan:
 			start = point
 			c.wantFirstBlock = false
@@ -189,7 +189,7 @@ func (c *Client) GetAvailableBlockRange(
 				return start, end, err
 			}
 		}
-		if !c.wantFirstBlock {
+		if !c.wantFirstBlock && !c.wantCurrentTip {
 			break
 		}
 	}
@@ -329,16 +329,19 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	return nil
 }
 
-func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
+func (c *Client) handleRollBackward(msg protocol.Message) error {
+	msgRollBackward := msg.(*MsgRollBackward)
+	if c.wantCurrentTip {
+		c.currentTipChan <- msgRollBackward.Tip
+	}
 	if !c.wantFirstBlock {
 		if c.config.RollBackwardFunc == nil {
 			return fmt.Errorf(
 				"received chain-sync RollBackward message but no callback function is defined",
 			)
 		}
-		msg := msgGeneric.(*MsgRollBackward)
 		// Call the user callback function
-		if callbackErr := c.config.RollBackwardFunc(msg.Point, msg.Tip); callbackErr != nil {
+		if callbackErr := c.config.RollBackwardFunc(msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if callbackErr == StopSyncProcessError {
 				// Signal that we're cancelling the sync
 				c.readyForNextBlockChan <- false
