@@ -35,6 +35,8 @@ type Client struct {
 	currentTipChan        chan Tip
 	wantFirstBlock        bool
 	firstBlockChan        chan common.Point
+	wantIntersectPoint    bool
+	intersectPointChan    chan common.Point
 	onceStop              sync.Once
 }
 
@@ -58,6 +60,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		readyForNextBlockChan: make(chan bool),
 		currentTipChan:        make(chan Tip),
 		firstBlockChan:        make(chan common.Point),
+		intersectPointChan:    make(chan common.Point),
 	}
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
@@ -92,6 +95,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		close(c.readyForNextBlockChan)
 		close(c.currentTipChan)
 		close(c.firstBlockChan)
+		close(c.intersectPointChan)
 	}()
 	return c
 }
@@ -150,26 +154,46 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 }
 
 // GetAvailableBlockRange returns the start and end of the range of available blocks given the provided intersect
-// point(s).
+// point(s). Empty start/end points will be returned if there are no additional blocks available.
 func (c *Client) GetAvailableBlockRange(
 	intersectPoints []common.Point,
 ) (common.Point, common.Point, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	var start, end common.Point
+	// Find our chain intersection
+	c.wantCurrentTip = true
+	c.wantIntersectPoint = true
 	msgFindIntersect := NewMsgFindIntersect(intersectPoints)
 	if err := c.SendMessage(msgFindIntersect); err != nil {
 		return start, end, err
 	}
-	select {
-	case err := <-c.intersectResultChan:
-		if err != nil {
-			return start, end, err
+	gotIntersectResult := false
+	for {
+		select {
+		case tip := <-c.currentTipChan:
+			end = tip.Point
+			c.wantCurrentTip = false
+		case point := <-c.intersectPointChan:
+			start = point
+			c.wantIntersectPoint = false
+		case err := <-c.intersectResultChan:
+			if err != nil {
+				return start, end, err
+			}
+			gotIntersectResult = true
+		}
+		if !c.wantIntersectPoint && !c.wantCurrentTip && gotIntersectResult {
+			break
 		}
 	}
+	// If we're already at the chain tip, return an empty range
+	if start.Slot >= end.Slot {
+		return common.Point{}, common.Point{}, nil
+	}
+	// Request the next block to get the first block after the intersect point. This should result in a rollback
 	c.wantCurrentTip = true
 	c.wantFirstBlock = true
-	// Request the next block. This should result in a rollback
 	msgRequestNext := NewMsgRequestNext()
 	if err := c.SendMessage(msgRequestNext); err != nil {
 		return start, end, err
@@ -192,6 +216,10 @@ func (c *Client) GetAvailableBlockRange(
 		if !c.wantFirstBlock && !c.wantCurrentTip {
 			break
 		}
+	}
+	// If we're already at the chain tip, return an empty range
+	if start.Slot >= end.Slot {
+		return common.Point{}, common.Point{}, nil
 	}
 	return start, end, nil
 }
@@ -356,10 +384,13 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 	return nil
 }
 
-func (c *Client) handleIntersectFound(msgGeneric protocol.Message) error {
+func (c *Client) handleIntersectFound(msg protocol.Message) error {
+	msgIntersectFound := msg.(*MsgIntersectFound)
 	if c.wantCurrentTip {
-		msgIntersectFound := msgGeneric.(*MsgIntersectFound)
 		c.currentTipChan <- msgIntersectFound.Tip
+	}
+	if c.wantIntersectPoint {
+		c.intersectPointChan <- msgIntersectFound.Point
 	}
 	c.intersectResultChan <- nil
 	return nil
