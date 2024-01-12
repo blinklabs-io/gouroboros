@@ -189,6 +189,9 @@ const (
 	AddressHeaderNetworkMask = 0x0F
 	AddressHashSize          = 28
 
+	AddressNetworkTestnet = 0
+	AddressNetworkMainnet = 1
+
 	AddressTypeKeyKey        = 0b0000
 	AddressTypeScriptKey     = 0b0001
 	AddressTypeKeyScript     = 0b0010
@@ -323,7 +326,7 @@ func (a Address) generateHRP() string {
 		ret = "addr"
 	}
 	// Add test_ suffix if not mainnet
-	if a.networkId != 1 {
+	if a.networkId != AddressNetworkMainnet {
 		ret += "_test"
 	}
 	return ret

@@ -14,32 +14,40 @@
 
 package ouroboros
 
+import (
+	"github.com/blinklabs-io/gouroboros/ledger"
+)
+
 // Network definitions
 var (
-	NetworkTestnet = Network{Id: 0, Name: "testnet", NetworkMagic: 1097911063}
+	NetworkTestnet = Network{
+		Id:           ledger.AddressNetworkTestnet,
+		Name:         "testnet",
+		NetworkMagic: 1097911063,
+	}
 	NetworkMainnet = Network{
-		Id:                1,
+		Id:                ledger.AddressNetworkMainnet,
 		Name:              "mainnet",
 		NetworkMagic:      764824073,
 		PublicRootAddress: "backbone.cardano-mainnet.iohk.io",
 		PublicRootPort:    3001,
 	}
 	NetworkPreprod = Network{
-		Id:                2,
+		Id:                ledger.AddressNetworkTestnet,
 		Name:              "preprod",
 		NetworkMagic:      1,
 		PublicRootAddress: "preprod-node.world.dev.cardano.org",
 		PublicRootPort:    30000,
 	}
 	NetworkPreview = Network{
-		Id:                3,
+		Id:                ledger.AddressNetworkTestnet,
 		Name:              "preview",
 		NetworkMagic:      2,
 		PublicRootAddress: "preview-node.play.dev.cardano.org",
 		PublicRootPort:    3001,
 	}
 	NetworkSancho = Network{
-		Id:                4,
+		Id:                ledger.AddressNetworkTestnet,
 		Name:              "sanchonet",
 		NetworkMagic:      4,
 		PublicRootAddress: "sanchonet-node.play.dev.cardano.org",
@@ -94,7 +102,7 @@ func NetworkByNetworkMagic(networkMagic uint32) Network {
 
 // Network represents a Cardano network
 type Network struct {
-	Id                uint8
+	Id                uint8 // network ID used for addresses
 	Name              string
 	NetworkMagic      uint32
 	PublicRootAddress string
