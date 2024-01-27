@@ -65,7 +65,10 @@ func (c *Client) GetPeers(amount uint8) ([]interface{}, error) {
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}
-	peers := <-c.sharePeersChan
+	peers, ok := <-c.sharePeersChan
+	if !ok {
+		return nil, protocol.ProtocolShuttingDownError
+	}
 	return peers, nil
 }
 

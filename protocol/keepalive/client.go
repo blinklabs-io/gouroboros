@@ -60,15 +60,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	// Start goroutine to cleanup resources on protocol shutdown
 	go func() {
 		<-c.Protocol.DoneChan()
+		// Stop any existing timer
 		if c.timer != nil {
-			// Stop timer and drain channel
-			if ok := c.timer.Stop(); !ok {
-				// Read item from channel, if available
-				select {
-				case <-c.timer.C:
-				default:
-				}
-			}
+			c.timer.Stop()
 		}
 	}()
 	return c
@@ -93,13 +87,7 @@ func (c *Client) sendKeepAlive() {
 func (c *Client) startTimer() {
 	// Stop any existing timer
 	if c.timer != nil {
-		if ok := c.timer.Stop(); !ok {
-			// Read item from channel, if available
-			select {
-			case <-c.timer.C:
-			default:
-			}
-		}
+		c.timer.Stop()
 	}
 	// Create new timer
 	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)

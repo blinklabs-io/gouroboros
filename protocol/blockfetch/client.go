@@ -73,6 +73,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	go func() {
 		<-c.Protocol.DoneChan()
 		close(c.blockChan)
+		close(c.startBatchResultChan)
 	}()
 	return c
 }
@@ -95,7 +96,10 @@ func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 		c.busyMutex.Unlock()
 		return err
 	}
-	err := <-c.startBatchResultChan
+	err, ok := <-c.startBatchResultChan
+	if !ok {
+		return protocol.ProtocolShuttingDownError
+	}
 	if err != nil {
 		c.busyMutex.Unlock()
 		return err
@@ -112,7 +116,10 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 		c.busyMutex.Unlock()
 		return nil, err
 	}
-	err := <-c.startBatchResultChan
+	err, ok := <-c.startBatchResultChan
+	if !ok {
+		return nil, protocol.ProtocolShuttingDownError
+	}
 	if err != nil {
 		c.busyMutex.Unlock()
 		return nil, err

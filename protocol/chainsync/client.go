@@ -146,9 +146,15 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}
-	tip := <-c.currentTipChan
+	tip, ok := <-c.currentTipChan
+	if !ok {
+		return nil, protocol.ProtocolShuttingDownError
+	}
 	// Clear out intersect result channel to prevent blocking
-	<-c.intersectResultChan
+	_, ok = <-c.intersectResultChan
+	if !ok {
+		return nil, protocol.ProtocolShuttingDownError
+	}
 	c.wantCurrentTip = false
 	return &tip, nil
 }
@@ -171,6 +177,8 @@ func (c *Client) GetAvailableBlockRange(
 	gotIntersectResult := false
 	for {
 		select {
+		case <-c.DoneChan():
+			return start, end, protocol.ProtocolShuttingDownError
 		case tip := <-c.currentTipChan:
 			end = tip.Point
 			c.wantCurrentTip = false
@@ -200,6 +208,8 @@ func (c *Client) GetAvailableBlockRange(
 	}
 	for {
 		select {
+		case <-c.DoneChan():
+			return start, end, protocol.ProtocolShuttingDownError
 		case tip := <-c.currentTipChan:
 			end = tip.Point
 			c.wantCurrentTip = false
@@ -237,7 +247,9 @@ func (c *Client) Sync(intersectPoints []common.Point) error {
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
-	if err := <-c.intersectResultChan; err != nil {
+	if err, ok := <-c.intersectResultChan; !ok {
+		return protocol.ProtocolShuttingDownError
+	} else if err != nil {
 		return err
 	}
 	// Pipeline the initial block requests to speed things up a bit
