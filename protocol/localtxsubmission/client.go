@@ -94,7 +94,10 @@ func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
-	err := <-c.submitResultChan
+	err, ok := <-c.submitResultChan
+	if !ok {
+		return protocol.ProtocolShuttingDownError
+	}
 	return err
 }
 

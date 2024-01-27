@@ -110,7 +110,10 @@ func (c *Client) acquire() error {
 		return err
 	}
 	// Wait for reply
-	<-c.acquireResultChan
+	_, ok := <-c.acquireResultChan
+	if !ok {
+		return protocol.ProtocolShuttingDownError
+	}
 	return nil
 }
 

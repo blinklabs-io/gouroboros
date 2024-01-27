@@ -154,7 +154,10 @@ func (c *Client) acquire(point *common.Point) error {
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
-	err := <-c.acquireResultChan
+	err, ok := <-c.acquireResultChan
+	if !ok {
+		return protocol.ProtocolShuttingDownError
+	}
 	return err
 }
 
@@ -178,7 +181,10 @@ func (c *Client) runQuery(query interface{}, result interface{}) error {
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
-	resultCbor := <-c.queryResultChan
+	resultCbor, ok := <-c.queryResultChan
+	if !ok {
+		return protocol.ProtocolShuttingDownError
+	}
 	if _, err := cbor.Decode(resultCbor, result); err != nil {
 		return err
 	}
