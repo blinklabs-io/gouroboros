@@ -325,6 +325,8 @@ func (c *Connection) setupConnection() error {
 		// Return an error if we're shutting down
 		return io.EOF
 	case err := <-c.protoErrorChan:
+		// Shutdown the connection and return the error
+		c.Close()
 		return err
 	case <-c.handshakeFinishedChan:
 		// This is purposely empty, but we need this case to break out when this channel is closed
