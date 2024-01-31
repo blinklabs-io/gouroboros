@@ -239,6 +239,7 @@ func generateAstJson(obj interface{}) ([]byte, error) {
 }
 
 type Constructor struct {
+	DecodeStoreCbor
 	constructor uint
 	value       *Value
 }
@@ -268,6 +269,8 @@ func (c Constructor) FieldsCbor() []byte {
 }
 
 func (c *Constructor) UnmarshalCBOR(data []byte) error {
+	// Save original CBOR
+	c.SetCbor(data)
 	// Parse as a raw tag to get number and nested CBOR data
 	tmpTag := RawTag{}
 	if _, err := Decode(data, &tmpTag); err != nil {
