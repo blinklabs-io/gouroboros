@@ -131,11 +131,6 @@ func (p *Protocol) Start() {
 			<-p.doneChan
 			// Wait for all other goroutines to finish
 			p.waitGroup.Wait()
-			// Close channels
-			close(p.sendQueueChan)
-			close(p.sendStateQueueChan)
-			close(p.recvReadyChan)
-			close(p.sendReadyChan)
 			// Cancel any timer
 			if p.stateTransitionTimer != nil {
 				p.stateTransitionTimer.Stop()
@@ -174,20 +169,30 @@ func (p *Protocol) SendMessage(msg Message) error {
 
 // SendError sends an error to the handler in the Ouroboros object
 func (p *Protocol) SendError(err error) {
-	p.config.ErrorChan <- err
+	select {
+	case p.config.ErrorChan <- err:
+	default:
+		// Discard error if the buffer is full
+		// The connection will get closed on the first error, so any
+		// additional errors are unnecessary
+		return
+	}
 }
 
 func (p *Protocol) sendLoop() {
-	defer p.waitGroup.Done()
+	defer func() {
+		p.waitGroup.Done()
+		// Close muxer send channel
+		// We are responsible for closing this channel as the sender, even through it
+		// was created by the muxer
+		close(p.muxerSendChan)
+	}()
 	var setNewState bool
 	var newState State
 	var err error
 	for {
 		select {
 		case <-p.doneChan:
-			// We are responsible for closing this channel as the sender, even through it
-			// was created by the muxer
-			close(p.muxerSendChan)
 			// Break out of send loop if we're shutting down
 			return
 		case <-p.sendReadyChan:

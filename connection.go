@@ -212,9 +212,8 @@ func (c *Connection) shutdown() {
 	}
 	// Wait for other goroutines to finish
 	c.waitGroup.Wait()
-	// Close channels
+	// Close consumer error channel to signify connection shutdown
 	close(c.errorChan)
-	close(c.protoErrorChan)
 	// We can only close a channel once, so we have to jump through a few hoops
 	select {
 	// The channel is either closed or has an item pending
