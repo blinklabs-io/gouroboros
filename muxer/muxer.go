@@ -103,13 +103,6 @@ func (m *Muxer) Stop() {
 		_ = m.conn.Close()
 		// Wait for other goroutines to shutdown
 		m.waitGroup.Wait()
-		// Close protocol receive channels
-		// We rely on the individual mini-protocols to close the sender channel
-		for _, protocolRoles := range m.protocolReceivers {
-			for _, recvChan := range protocolRoles {
-				close(recvChan)
-			}
-		}
 		// Close ErrorChan to signify to consumer that we're shutting down
 		close(m.errorChan)
 	})
@@ -161,7 +154,10 @@ func (m *Muxer) RegisterProtocol(
 				if !ok {
 					return
 				}
-			case msg := <-senderChan:
+			case msg, ok := <-senderChan:
+				if !ok {
+					return
+				}
 				if err := m.Send(msg); err != nil {
 					m.sendError(err)
 					return
@@ -200,7 +196,15 @@ func (m *Muxer) Send(msg *Segment) error {
 // readLoop waits for incoming data on the connection, parses the segment, and passes it to the appropriate
 // protocol
 func (m *Muxer) readLoop() {
-	defer m.waitGroup.Done()
+	defer func() {
+		m.waitGroup.Done()
+		// Close receiver channels
+		for _, protocolRoles := range m.protocolReceivers {
+			for _, recvChan := range protocolRoles {
+				close(recvChan)
+			}
+		}
+	}()
 	started := false
 	for {
 		// Break out of read loop if we're shutting down
