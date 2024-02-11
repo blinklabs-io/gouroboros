@@ -54,17 +54,18 @@ const (
 
 // Muxer wraps a connection to allow running multiple mini-protocols over a single connection
 type Muxer struct {
-	errorChan         chan error
-	conn              net.Conn
-	sendMutex         sync.Mutex
-	startChan         chan bool
-	doneChan          chan bool
-	waitGroup         sync.WaitGroup
-	protocolSenders   map[uint16]map[ProtocolRole]chan *Segment
-	protocolReceivers map[uint16]map[ProtocolRole]chan *Segment
-	diffusionMode     DiffusionMode
-	onceStart         sync.Once
-	onceStop          sync.Once
+	errorChan              chan error
+	conn                   net.Conn
+	sendMutex              sync.Mutex
+	startChan              chan bool
+	doneChan               chan bool
+	waitGroup              sync.WaitGroup
+	protocolSenders        map[uint16]map[ProtocolRole]chan *Segment
+	protocolReceivers      map[uint16]map[ProtocolRole]chan *Segment
+	protocolReceiversMutex sync.Mutex
+	diffusionMode          DiffusionMode
+	onceStart              sync.Once
+	onceStop               sync.Once
 }
 
 // New creates a new Muxer object and starts the read loop
@@ -137,12 +138,14 @@ func (m *Muxer) RegisterProtocol(
 	senderChan := make(chan *Segment, 10)
 	receiverChan := make(chan *Segment, 10)
 	// Record channels in protocol sender/receiver maps
+	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
 		m.protocolSenders[protocolId] = make(map[ProtocolRole]chan *Segment)
 		m.protocolReceivers[protocolId] = make(map[ProtocolRole]chan *Segment)
 	}
 	m.protocolSenders[protocolId][protocolRole] = senderChan
 	m.protocolReceivers[protocolId][protocolRole] = receiverChan
+	m.protocolReceiversMutex.Unlock()
 	// Start Goroutine to handle outbound messages
 	m.waitGroup.Add(1)
 	go func() {
@@ -199,11 +202,13 @@ func (m *Muxer) readLoop() {
 	defer func() {
 		m.waitGroup.Done()
 		// Close receiver channels
+		m.protocolReceiversMutex.Lock()
 		for _, protocolRoles := range m.protocolReceivers {
 			for _, recvChan := range protocolRoles {
 				close(recvChan)
 			}
 		}
+		m.protocolReceiversMutex.Unlock()
 	}()
 	started := false
 	for {
@@ -251,11 +256,13 @@ func (m *Muxer) readLoop() {
 		if msg.IsResponse() {
 			protocolRole = ProtocolRoleInitiator
 		}
+		m.protocolReceiversMutex.Lock()
 		protocolRoles, ok := m.protocolReceivers[msg.GetProtocolId()]
 		if !ok {
 			// Try the "unknown protocol" receiver if we didn't find an explicit one
 			protocolRoles, ok = m.protocolReceivers[ProtocolUnknown]
 			if !ok {
+				m.protocolReceiversMutex.Unlock()
 				m.sendError(
 					fmt.Errorf(
 						"received message for unknown protocol ID %d",
@@ -266,6 +273,7 @@ func (m *Muxer) readLoop() {
 			}
 		}
 		recvChan := protocolRoles[protocolRole]
+		m.protocolReceiversMutex.Unlock()
 		if recvChan == nil {
 			m.sendError(
 				fmt.Errorf(
