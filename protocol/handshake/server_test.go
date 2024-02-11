@@ -122,13 +122,8 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 		if err.Error() != expectedErr.Error() {
 			t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 		}
+	} else {
+		oConn.Close()
+		t.Fatalf("did not receive expected error")
 	}
-	// Async error handler
-	go func() {
-		err, ok := <-oConn.ErrorChan()
-		if !ok {
-			return
-		}
-		panic(fmt.Sprintf("unexpected Ouroboros error: %s", err))
-	}()
 }
