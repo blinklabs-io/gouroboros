@@ -26,7 +26,7 @@ golines:
 	golines -w --ignore-generated --chain-split-dots --max-len=80 --reformat-tags .
 
 test:
-	go test -v ./...
+	go test -v -race ./...
 
 # Build our program binaries
 # Depends on GO_FILES to determine when rebuild is needed
