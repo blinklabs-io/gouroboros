@@ -214,19 +214,6 @@ func (c *Connection) shutdown() {
 	c.waitGroup.Wait()
 	// Close consumer error channel to signify connection shutdown
 	close(c.errorChan)
-	// We can only close a channel once, so we have to jump through a few hoops
-	select {
-	// The channel is either closed or has an item pending
-	case _, ok := <-c.handshakeFinishedChan:
-		// We successfully retrieved an item
-		// This will probably never happen, but it doesn't hurt to cover this case
-		if ok {
-			close(c.handshakeFinishedChan)
-		}
-	// The channel is open and has no pending items
-	default:
-		close(c.handshakeFinishedChan)
-	}
 }
 
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
