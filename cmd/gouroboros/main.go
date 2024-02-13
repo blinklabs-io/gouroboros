@@ -21,7 +21,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/blinklabs-io/gouroboros"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 )
 
 type globalFlags struct {
@@ -89,26 +89,38 @@ func main() {
 		f.networkMagic = int(network.NetworkMagic)
 	}
 
-	if len(f.flagset.Args()) > 0 {
-		switch f.flagset.Arg(0) {
-		case "chain-sync":
-			testChainSync(f)
-		case "local-tx-submission":
-			testLocalTxSubmission(f)
-		case "server":
-			testServer(f)
-		case "query":
-			testQuery(f)
-		case "mem-usage":
-			testMemUsage(f)
-		default:
-			fmt.Printf("Unknown subcommand: %s\n", f.flagset.Arg(0))
-			os.Exit(1)
+	subcommands := map[string]func(*globalFlags){
+		"chain-sync":          testChainSync,
+		"local-tx-submission": testLocalTxSubmission,
+		"server":              testServer,
+		"query":               testQuery,
+		"mem-usage":           testMemUsage,
+	}
+
+	if len(f.flagset.Args()) == 0 {
+		fmt.Printf("\n")
+		fmt.Printf("Usage of gouroboros:\n")
+		fmt.Printf("\n")
+		fmt.Printf("Commands:\n")
+
+		for k := range subcommands {
+			fmt.Printf("  %s\n", k)
 		}
-	} else {
-		fmt.Printf("You must specify a subcommand (chain-sync or local-tx-submission)\n")
+
+		fmt.Printf("\n")
+		fmt.Printf("Global flags:\n")
+		f.flagset.PrintDefaults()
+
 		os.Exit(1)
 	}
+
+	fn, ok := subcommands[f.flagset.Arg(0)]
+	if !ok {
+		fmt.Printf("Unknown subcommand: %s\n", f.flagset.Arg(0))
+		os.Exit(1)
+	}
+
+	fn(f)
 }
 
 func createClientConnection(f *globalFlags) net.Conn {
