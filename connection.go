@@ -60,7 +60,7 @@ type Connection struct {
 	protoErrorChan        chan error
 	handshakeFinishedChan chan interface{}
 	doneChan              chan interface{}
-	shutdownFinishedChan  chan struct{}
+	shutdownFinishedChan  chan interface{}
 	waitGroup             sync.WaitGroup
 	onceClose             sync.Once
 	sendKeepAlives        bool
@@ -94,7 +94,7 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 		protoErrorChan:        make(chan error, 10),
 		handshakeFinishedChan: make(chan interface{}),
 		doneChan:              make(chan interface{}),
-		shutdownFinishedChan:  make(chan struct{}),
+		shutdownFinishedChan:  make(chan interface{}),
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -126,7 +126,7 @@ func (c *Connection) ErrorChan() chan error {
 	return c.errorChan
 }
 
-func (c *Connection) ShutdownFinishedChan() <-chan struct{} {
+func (c *Connection) ShutdownFinishedChan() <-chan interface{} {
 	return c.shutdownFinishedChan
 }
 
