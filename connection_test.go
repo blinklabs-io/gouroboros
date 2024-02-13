@@ -17,6 +17,7 @@ package ouroboros_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
@@ -70,5 +71,15 @@ func TestDoubleClose(t *testing.T) {
 			"unexpected error when closing Connection object again: %s",
 			err,
 		)
+	}
+
+	// after shutdown is completed oConn.ShutdownCh() should be closed
+	timeout := time.NewTimer(time.Second * 10)
+	defer timeout.Stop()
+
+	select {
+	case <-oConn.ShutdownFinishedChan():
+	case <-timeout.C:
+		t.Fatalf("timeout for shutdown")
 	}
 }

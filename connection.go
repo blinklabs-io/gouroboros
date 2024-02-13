@@ -60,6 +60,7 @@ type Connection struct {
 	protoErrorChan        chan error
 	handshakeFinishedChan chan interface{}
 	doneChan              chan interface{}
+	shutdownFinishedChan  chan struct{}
 	waitGroup             sync.WaitGroup
 	onceClose             sync.Once
 	sendKeepAlives        bool
@@ -93,6 +94,7 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 		protoErrorChan:        make(chan error, 10),
 		handshakeFinishedChan: make(chan interface{}),
 		doneChan:              make(chan interface{}),
+		shutdownFinishedChan:  make(chan struct{}),
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -122,6 +124,10 @@ func (c *Connection) Muxer() *muxer.Muxer {
 // ErrorChan returns the channel for asynchronous errors
 func (c *Connection) ErrorChan() chan error {
 	return c.errorChan
+}
+
+func (c *Connection) ShutdownFinishedChan() <-chan struct{} {
+	return c.shutdownFinishedChan
 }
 
 // Dial will establish a connection using the specified protocol and address. It works the same as [DialTimeout],
@@ -230,6 +236,7 @@ func (c *Connection) setupConnection() error {
 	go func() {
 		<-c.doneChan
 		c.shutdown()
+		close(c.shutdownFinishedChan)
 	}()
 	// Create muxer instance
 	c.muxer = muxer.New(c.conn)
