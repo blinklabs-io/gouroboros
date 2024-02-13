@@ -17,9 +17,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	ouroboros "github.com/blinklabs-io/gouroboros"
 	"net"
 	"os"
+
+	ouroboros "github.com/blinklabs-io/gouroboros"
 )
 
 type serverFlags struct {
@@ -38,20 +39,25 @@ func newServerFlags() *serverFlags {
 func createListenerSocket(f *globalFlags) (net.Listener, error) {
 	var err error
 	var listen net.Listener
-	if f.socket != "" {
-		if err := os.RemoveAll(f.socket); err != nil {
+
+	switch {
+	case f.socket != "":
+		if err := os.Remove(f.socket); err != nil {
 			return nil, fmt.Errorf("failed to remove existing socket: %s", err)
 		}
 		listen, err = net.Listen("unix", f.socket)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open listening socket: %s", err)
 		}
-	} else if f.address != "" {
+	case f.address != "":
 		listen, err = net.Listen("tcp", f.address)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open listening socket: %s", err)
 		}
+	default:
+		return nil, fmt.Errorf("no listening address or socket specified")
 	}
+
 	return listen, nil
 }
 
