@@ -16,8 +16,8 @@ package ouroboros
 
 import "sync"
 
-// ConnectionManagerErrorFunc is a function that takes a connection ID and an error
-type ConnectionManagerErrorFunc func(int, error)
+// ConnectionManagerConnClosedFunc is a function that takes a connection ID and an optional error
+type ConnectionManagerConnClosedFunc func(int, error)
 
 // ConnectionManagerTag represents the various tags that can be associated with a host or connection
 type ConnectionManagerTag uint16
@@ -62,7 +62,7 @@ type ConnectionManager struct {
 }
 
 type ConnectionManagerConfig struct {
-	ErrorFunc ConnectionManagerErrorFunc
+	ConnClosedFunc ConnectionManagerConnClosedFunc
 }
 
 type ConnectionManagerHost struct {
@@ -117,13 +117,9 @@ func (c *ConnectionManager) AddConnection(connId int, conn *Connection) {
 	}
 	c.connectionsMutex.Unlock()
 	go func() {
-		err, ok := <-conn.ErrorChan()
-		if !ok {
-			// Connection has closed normally
-			return
-		}
-		// Call configured error callback func
-		c.config.ErrorFunc(connId, err)
+		err := <-conn.ErrorChan()
+		// Call configured connection closed callback func
+		c.config.ConnClosedFunc(connId, err)
 	}()
 }
 
