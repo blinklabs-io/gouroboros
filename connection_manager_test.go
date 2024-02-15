@@ -51,7 +51,7 @@ func TestConnectionManagerConnError(t *testing.T) {
 	doneChan := make(chan any)
 	connManager := ouroboros.NewConnectionManager(
 		ouroboros.ConnectionManagerConfig{
-			ErrorFunc: func(connId int, err error) {
+			ConnClosedFunc: func(connId int, err error) {
 				if connId != expectedConnId {
 					t.Fatalf("did not receive error from expected connection: got %d, wanted %d", connId, expectedConnId)
 				}
@@ -89,6 +89,53 @@ func TestConnectionManagerConnError(t *testing.T) {
 		}
 		connManager.AddConnection(i, oConn)
 	}
+	select {
+	case <-doneChan:
+		return
+	case <-time.After(10 * time.Second):
+		t.Fatalf("did not receive error within timeout")
+	}
+}
+
+func TestConnectionManagerConnClosed(t *testing.T) {
+	expectedConnId := 42
+	doneChan := make(chan any)
+	connManager := ouroboros.NewConnectionManager(
+		ouroboros.ConnectionManagerConfig{
+			ConnClosedFunc: func(connId int, err error) {
+				if connId != expectedConnId {
+					t.Fatalf("did not receive closed signal from expected connection: got %d, wanted %d", connId, expectedConnId)
+				}
+				if err != nil {
+					t.Fatalf("received unexpected error: %s", err)
+				}
+				close(doneChan)
+			},
+		},
+	)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+		ouroboros.WithKeepAlive(false),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	connManager.AddConnection(expectedConnId, oConn)
+	time.AfterFunc(
+		1*time.Second,
+		func() {
+			oConn.Close()
+		},
+	)
 	select {
 	case <-doneChan:
 		return
