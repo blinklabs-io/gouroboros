@@ -31,6 +31,10 @@ type MessageBase struct {
 
 // SetCbor stores the original CBOR that was parsed
 func (m *MessageBase) SetCbor(data []byte) {
+	if data == nil {
+		m.rawCbor = nil
+		return
+	}
 	m.rawCbor = make([]byte, len(data))
 	copy(m.rawCbor, data)
 }

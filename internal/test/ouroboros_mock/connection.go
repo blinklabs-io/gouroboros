@@ -187,9 +187,12 @@ func (c *Connection) processInputEntry(entry ConversationEntry) error {
 		if msg == nil {
 			return fmt.Errorf("received unknown message type: %d", msgType)
 		}
-		// Set CBOR for expected message to match received to make comparison easier
-		entry.InputMessage.SetCbor(msg.Cbor())
-		// Compare received message to expected message
+
+		// Compare received message to expected message, excluding the cbor content
+		//
+		// As changing the CBOR of the expected message is not thread-safe, we instead clear the
+		// CBOR of the received message
+		msg.SetCbor(nil)
 		if !reflect.DeepEqual(msg, entry.InputMessage) {
 			return fmt.Errorf(
 				"parsed message does not match expected value: got %#v, expected %#v",
