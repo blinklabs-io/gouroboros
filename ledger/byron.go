@@ -17,6 +17,8 @@ package ledger
 import (
 	"fmt"
 
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
@@ -155,6 +157,10 @@ func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }
 
+func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
+	return &utxorpc.Tx{}
+}
+
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
 	// TODO: split this to its own type
@@ -268,6 +274,10 @@ func (b *ByronMainBlock) Transactions() []Transaction {
 	return nil
 }
 
+func (b *ByronMainBlock) Utxorpc() *utxorpc.Block {
+	return &utxorpc.Block{}
+}
+
 type ByronEpochBoundaryBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -307,6 +317,10 @@ func (b *ByronEpochBoundaryBlock) Era() Era {
 func (b *ByronEpochBoundaryBlock) Transactions() []Transaction {
 	// Boundary blocks don't have transactions
 	return nil
+}
+
+func (b *ByronEpochBoundaryBlock) Utxorpc() *utxorpc.Block {
+	return &utxorpc.Block{}
 }
 
 func NewByronEpochBoundaryBlockFromCbor(

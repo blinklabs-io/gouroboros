@@ -15,8 +15,11 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -88,6 +91,25 @@ func (b *AlonzoBlock) Transactions() []Transaction {
 		ret = append(ret, &tmpTransaction)
 	}
 	return ret
+}
+
+func (b *AlonzoBlock) Utxorpc() *utxorpc.Block {
+	var block *utxorpc.Block
+	var body *utxorpc.BlockBody
+	var header *utxorpc.BlockHeader
+	var txs []*utxorpc.Tx
+	header.Slot = b.SlotNumber()
+	tmpHash, _ := hex.DecodeString(b.Hash())
+	header.Hash = tmpHash
+	header.Height = b.BlockNumber()
+	for _, t := range b.Transactions() {
+		tx := t.Utxorpc()
+		txs = append(txs, tx)
+	}
+	body.Tx = txs
+	block.Body = body
+	block.Header = header
+	return block
 }
 
 type AlonzoBlockHeader struct {
@@ -180,6 +202,15 @@ func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
 }
 
+func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+	return &utxorpc.TxOutput{
+		Address: o.OutputAddress.Bytes(),
+		Coin:    o.Amount(),
+		// Assets: o.Assets,
+		DatumHash: o.TxOutputDatumHash.Bytes(),
+	}
+}
+
 type AlonzoTransactionWitnessSet struct {
 	ShelleyTransactionWitnessSet
 	PlutusScripts []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
@@ -249,6 +280,10 @@ func (t *AlonzoTransaction) Cbor() []byte {
 	// This should never fail, since we're only encoding a list and a bool value
 	cborData, _ = cbor.Encode(&tmpObj)
 	return cborData
+}
+
+func (t *AlonzoTransaction) Utxorpc() *utxorpc.Tx {
+	return t.Body.Utxorpc()
 }
 
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {

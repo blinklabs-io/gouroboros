@@ -18,12 +18,14 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 	"golang.org/x/crypto/blake2b"
 )
 
 type Block interface {
 	BlockHeader
 	Transactions() []Transaction
+	Utxorpc() *utxorpc.Block
 }
 
 type BlockHeader interface {
