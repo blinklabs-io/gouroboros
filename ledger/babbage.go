@@ -15,8 +15,11 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -88,6 +91,25 @@ func (b *BabbageBlock) Transactions() []Transaction {
 		ret = append(ret, &tmpTransaction)
 	}
 	return ret
+}
+
+func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
+	var block *utxorpc.Block
+	var body *utxorpc.BlockBody
+	var header *utxorpc.BlockHeader
+	var txs []*utxorpc.Tx
+	header.Slot = b.SlotNumber()
+	tmpHash, _ := hex.DecodeString(b.Hash())
+	header.Hash = tmpHash
+	header.Height = b.BlockNumber()
+	for _, t := range b.Transactions() {
+		tx := t.Utxorpc()
+		txs = append(txs, tx)
+	}
+	body.Tx = txs
+	block.Body = body
+	block.Header = header
+	return block
 }
 
 type BabbageBlockHeader struct {
@@ -304,6 +326,17 @@ func (o BabbageTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
 }
 
+func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+	return &utxorpc.TxOutput{
+		Address: o.OutputAddress.Bytes(),
+		Coin:    o.Amount(),
+		// Assets: o.Assets(),
+		// Datum:     o.Datum(),
+		DatumHash: o.DatumHash().Bytes(),
+		// Script:    o.ScriptRef,
+	}
+}
+
 type BabbageTransactionWitnessSet struct {
 	AlonzoTransactionWitnessSet
 	PlutusV2Scripts []cbor.RawMessage `cbor:"6,keyasint,omitempty"`
@@ -371,6 +404,10 @@ func (t *BabbageTransaction) Cbor() []byte {
 	// This should never fail, since we're only encoding a list and a bool value
 	cborData, _ = cbor.Encode(&tmpObj)
 	return cborData
+}
+
+func (t *BabbageTransaction) Utxorpc() *utxorpc.Tx {
+	return t.Body.Utxorpc()
 }
 
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {

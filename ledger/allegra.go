@@ -15,7 +15,10 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"fmt"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -80,6 +83,25 @@ func (b *AllegraBlock) Transactions() []Transaction {
 	return ret
 }
 
+func (b *AllegraBlock) Utxorpc() *utxorpc.Block {
+	var block *utxorpc.Block
+	var body *utxorpc.BlockBody
+	var header *utxorpc.BlockHeader
+	var txs []*utxorpc.Tx
+	header.Slot = b.SlotNumber()
+	tmpHash, _ := hex.DecodeString(b.Hash())
+	header.Hash = tmpHash
+	header.Height = b.BlockNumber()
+	for _, t := range b.Transactions() {
+		tx := t.Utxorpc()
+		txs = append(txs, tx)
+	}
+	body.Tx = txs
+	block.Body = body
+	block.Header = header
+	return block
+}
+
 type AllegraBlockHeader struct {
 	ShelleyBlockHeader
 }
@@ -127,6 +149,10 @@ func (t AllegraTransaction) TTL() uint64 {
 
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t AllegraTransaction) Utxorpc() *utxorpc.Tx {
+	return t.Body.Utxorpc()
 }
 
 func (t *AllegraTransaction) Cbor() []byte {

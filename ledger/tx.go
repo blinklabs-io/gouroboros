@@ -18,8 +18,10 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 	"golang.org/x/crypto/blake2b"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 type Transaction interface {
@@ -28,17 +30,19 @@ type Transaction interface {
 }
 
 type TransactionBody interface {
-	Hash() string
 	Cbor() []byte
+	Fee() uint64
+	Hash() string
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
-	Fee() uint64
 	TTL() uint64
+	Utxorpc() *utxorpc.Tx
 }
 
 type TransactionInput interface {
 	Id() Blake2b256
 	Index() uint32
+	Utxorpc() *utxorpc.TxInput
 }
 
 type TransactionOutput interface {
@@ -48,6 +52,7 @@ type TransactionOutput interface {
 	Datum() *cbor.LazyValue
 	DatumHash() *Blake2b256
 	Cbor() []byte
+	Utxorpc() *utxorpc.TxOutput
 }
 
 func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {

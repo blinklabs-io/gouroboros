@@ -15,7 +15,10 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"fmt"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -78,6 +81,25 @@ func (b *ShelleyBlock) Transactions() []Transaction {
 		ret = append(ret, &tmpTransaction)
 	}
 	return ret
+}
+
+func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
+	var block *utxorpc.Block
+	var body *utxorpc.BlockBody
+	var header *utxorpc.BlockHeader
+	var txs []*utxorpc.Tx
+	header.Slot = b.SlotNumber()
+	tmpHash, _ := hex.DecodeString(b.Hash())
+	header.Hash = tmpHash
+	header.Height = b.BlockNumber()
+	for _, t := range b.Transactions() {
+		tx := t.Utxorpc()
+		txs = append(txs, tx)
+	}
+	body.Tx = txs
+	block.Body = body
+	block.Header = header
+	return block
 }
 
 type ShelleyBlockHeader struct {
@@ -193,6 +215,32 @@ func (b *ShelleyTransactionBody) TTL() uint64 {
 	return b.Ttl
 }
 
+func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
+	var tx *utxorpc.Tx
+	var txi []*utxorpc.TxInput
+	for _, i := range b.Inputs() {
+		input := i.Utxorpc()
+		txi = append(txi, input)
+	}
+	tx.Inputs = txi
+	var txo []*utxorpc.TxOutput
+	for _, o := range b.Outputs() {
+		output := o.Utxorpc()
+		txo = append(txo, output)
+	}
+	tx.Outputs = txo
+	tx.Fee = b.Fee()
+	// tx.Validity = b.Validity()
+	// tx.Certificates = b.Certificates()
+	// tx.Withdrawals = b.Withdrawals()
+	// tx.Witnesses = b.Witnesses()
+	// tx.Successful = b.Successful()
+	// tx.Auxiliary = b.AuxData()
+	tmpHash, _ := hex.DecodeString(b.Hash())
+	tx.Hash = tmpHash
+	return tx
+}
+
 type ShelleyTransactionInput struct {
 	cbor.StructAsArray
 	TxId        Blake2b256
@@ -205,6 +253,15 @@ func (i ShelleyTransactionInput) Id() Blake2b256 {
 
 func (i ShelleyTransactionInput) Index() uint32 {
 	return i.OutputIndex
+}
+
+func (i ShelleyTransactionInput) Utxorpc() *utxorpc.TxInput {
+	return &utxorpc.TxInput{
+		TxHash:      i.TxId.Bytes(),
+		OutputIndex: i.OutputIndex,
+		// AsOutput: i.AsOutput,
+		// Redeemer: i.Redeemer,
+	}
 }
 
 func (i ShelleyTransactionInput) String() string {
@@ -240,6 +297,13 @@ func (o ShelleyTransactionOutput) DatumHash() *Blake2b256 {
 
 func (o ShelleyTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
+}
+
+func (o ShelleyTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+	return &utxorpc.TxOutput{
+		Address: o.OutputAddress.Bytes(),
+		Coin:    o.Amount(),
+	}
 }
 
 type ShelleyTransactionWitnessSet struct {
@@ -283,6 +347,10 @@ func (t ShelleyTransaction) TTL() uint64 {
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
+	return t.Body.Utxorpc()
 }
 
 func (t *ShelleyTransaction) Cbor() []byte {

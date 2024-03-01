@@ -15,8 +15,11 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -79,6 +82,25 @@ func (b *MaryBlock) Transactions() []Transaction {
 		ret = append(ret, &tmpTransaction)
 	}
 	return ret
+}
+
+func (b *MaryBlock) Utxorpc() *utxorpc.Block {
+	var block *utxorpc.Block
+	var body *utxorpc.BlockBody
+	var header *utxorpc.BlockHeader
+	var txs []*utxorpc.Tx
+	header.Slot = b.SlotNumber()
+	tmpHash, _ := hex.DecodeString(b.Hash())
+	header.Hash = tmpHash
+	header.Height = b.BlockNumber()
+	for _, t := range b.Transactions() {
+		tx := t.Utxorpc()
+		txs = append(txs, tx)
+	}
+	body.Tx = txs
+	block.Body = body
+	block.Header = header
+	return block
 }
 
 type MaryBlockHeader struct {
@@ -166,6 +188,10 @@ func (t *MaryTransaction) Cbor() []byte {
 	return cborData
 }
 
+func (t *MaryTransaction) Utxorpc() *utxorpc.Tx {
+	return t.Body.Utxorpc()
+}
+
 type MaryTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -204,6 +230,14 @@ func (o MaryTransactionOutput) DatumHash() *Blake2b256 {
 
 func (o MaryTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
+}
+
+func (o MaryTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+	return &utxorpc.TxOutput{
+		Address: o.OutputAddress.Bytes(),
+		Coin:    o.Amount(),
+		// Assets: o.Assets,
+	}
 }
 
 type MaryTransactionOutputValue struct {
