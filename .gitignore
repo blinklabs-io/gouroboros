@@ -5,7 +5,6 @@
 *.so
 *.dylib
 /gouroboros
-/tx-monitor
 /block-fetch
 /peer-sharing
 /tx-submission
