@@ -8,7 +8,6 @@
 /block-fetch
 /peer-sharing
 /tx-submission
-/chain-tip
 
 # Test binary, built with `go test -c`
 *.test
