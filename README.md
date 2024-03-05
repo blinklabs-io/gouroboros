@@ -22,27 +22,27 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] support for separate initiator and responder instance for each protocol
     - [ ] support for buffer limits for each mini-protocol
   - [ ] Protocols
-    - [ ] Handshake
+    - [X] Handshake
       - [X] Client support
-      - [ ] Server support
+      - [X] Server support
     - [X] Keepalive
       - [X] Client support
       - [X] Server support
-    - [ ] ChainSync
+    - [X] ChainSync
       - [X] Client support
-      - [ ] Server support
-    - [ ] BlockFetch
+      - [X] Server support
+    - [X] BlockFetch
       - [X] Client support
-      - [ ] Server support
-    - [ ] TxSubmission
-      - [ ] Client support
-      - [ ] Server support
+      - [X] Server support
+    - [X] TxSubmission
+      - [X] Client support
+      - [X] Server support
     - [ ] PeerSharing
       - [ ] Client support
       - [ ] Server support
-    - [ ] LocalTxSubmission
+    - [X] LocalTxSubmission
       - [X] Client support
-      - [ ] Server support
+      - [X] Server support
     - [ ] LocalTxMonitor
       - [X] Client support
       - [ ] Server support
@@ -78,42 +78,42 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] Transactions
       - [ ] TX inputs
       - [ ] TX outputs
-    - [ ] Shelley
+    - [X] Shelley
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
-    - [ ] Allegra
+    - [X] Allegra
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
-    - [ ] Mary
+    - [X] Mary
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
-    - [ ] Alonzo
+    - [X] Alonzo
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
-    - [ ] Babbage
+    - [X] Babbage
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
-    - [ ] Conway
-      - [ ] Blocks
-      - [ ] Transactions
-      - [ ] TX inputs
-      - [ ] TX outputs
+    - [X] Conway
+      - [X] Blocks
+      - [X] Transactions
+      - [X] TX inputs
+      - [X] TX outputs
   - [ ] Transaction attributes
     - [X] Inputs
     - [X] Outputs
     - [X] Metadata
-    - [ ] Fees
-    - [ ] TTL
+    - [X] Fees
+    - [X] TTL
     - [ ] Certificates
     - [ ] Staking reward withdrawls
     - [ ] Protocol parameter updates
