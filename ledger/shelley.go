@@ -84,21 +84,24 @@ func (b *ShelleyBlock) Transactions() []Transaction {
 }
 
 func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
-	var block *utxorpc.Block
-	var body *utxorpc.BlockBody
-	var header *utxorpc.BlockHeader
 	var txs []*utxorpc.Tx
-	header.Slot = b.SlotNumber()
 	tmpHash, _ := hex.DecodeString(b.Hash())
-	header.Hash = tmpHash
-	header.Height = b.BlockNumber()
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
 		txs = append(txs, tx)
 	}
-	body.Tx = txs
-	block.Body = body
-	block.Header = header
+	body := &utxorpc.BlockBody{
+		Tx: txs,
+	}
+	header := &utxorpc.BlockHeader{
+		Hash:   tmpHash,
+		Height: b.BlockNumber(),
+		Slot:   b.SlotNumber(),
+	}
+	block := &utxorpc.Block{
+		Body:   body,
+		Header: header,
+	}
 	return block
 }
 
@@ -216,28 +219,32 @@ func (b *ShelleyTransactionBody) TTL() uint64 {
 }
 
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
-	var tx *utxorpc.Tx
 	var txi []*utxorpc.TxInput
+	var txo []*utxorpc.TxOutput
 	for _, i := range b.Inputs() {
 		input := i.Utxorpc()
 		txi = append(txi, input)
 	}
-	tx.Inputs = txi
-	var txo []*utxorpc.TxOutput
 	for _, o := range b.Outputs() {
 		output := o.Utxorpc()
 		txo = append(txo, output)
 	}
-	tx.Outputs = txo
-	tx.Fee = b.Fee()
-	// tx.Validity = b.Validity()
-	// tx.Certificates = b.Certificates()
-	// tx.Withdrawals = b.Withdrawals()
-	// tx.Witnesses = b.Witnesses()
-	// tx.Successful = b.Successful()
-	// tx.Auxiliary = b.AuxData()
-	tmpHash, _ := hex.DecodeString(b.Hash())
-	tx.Hash = tmpHash
+	tmpHash, err := hex.DecodeString(b.Hash())
+	if err != nil {
+		return &utxorpc.Tx{}
+	}
+	tx := &utxorpc.Tx {
+		Inputs:  txi,
+		Outputs: txo,
+		Fee:     b.Fee(),
+		Hash:    tmpHash,
+		// Certificates: b.Certificates(),
+		// Validity:     b.Validity(),
+		// Withdrawals:  b.Withdrawals(),
+		// Witnesses:    b.Witnesses(),
+		// Successful:   b.Successful(),
+		// Auxiliary:    b.AuxData(),
+	}
 	return tx
 }
 

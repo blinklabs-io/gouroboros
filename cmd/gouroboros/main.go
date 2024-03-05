@@ -35,8 +35,14 @@ type globalFlags struct {
 }
 
 func newGlobalFlags() *globalFlags {
+	var name string
+	if os.Args == nil {
+		name = "gouroboros"
+	} else {
+		name = os.Args[0]
+	}
 	f := &globalFlags{
-		flagset: flag.NewFlagSet(os.Args[0], flag.ExitOnError),
+		flagset: flag.NewFlagSet(name, flag.ExitOnError),
 	}
 	f.flagset.StringVar(
 		&f.socket,
@@ -73,6 +79,10 @@ func newGlobalFlags() *globalFlags {
 }
 
 func main() {
+	if os.Args == nil {
+		fmt.Printf("failed parsing command line\n")
+		os.Exit(1)
+	}
 	f := newGlobalFlags()
 	err := f.flagset.Parse(os.Args[1:])
 	if err != nil {

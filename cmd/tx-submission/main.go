@@ -22,11 +22,9 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/cmd/common"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
-
-	"golang.org/x/crypto/blake2b"
 )
 
 type txSubmissionFlags struct {
@@ -117,19 +115,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Generate TX hash
-	// Unwrap raw transaction bytes into a CBOR array
-	var txUnwrap []cbor.RawMessage
-	if _, err := cbor.Decode(txBytes, &txUnwrap); err != nil {
-		fmt.Printf("ERROR: failed to unwrap transaction CBOR: %s", err)
+	// convert to tx
+	txType, err := ledger.DetermineTransactionType(txBytes)
+	if err != nil {
+		fmt.Printf("ERROR: could not parse transaction to determine type: %s", err)
 		os.Exit(1)
 	}
-	// index 0 is the transaction body
-	// Store index 0 (transaction body) as byte array
-	txBody := txUnwrap[0]
-
-	// Convert the body into a blake2b256 hash string
-	txHash = blake2b.Sum256(txBody)
+	tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
+	if err != nil {
+		fmt.Printf("failed to parse transaction CBOR: %s", err)
+		os.Exit(1)
+	}
 
 	// Create our "done" channel
 	doneChan = make(chan any)
@@ -140,7 +136,7 @@ func main() {
 	// Wait until we're done
 	<-doneChan
 
-	fmt.Printf("Successfully sent transaction %x\n", txHash)
+	fmt.Printf("Successfully sent transaction %x\n", tx.Hash())
 
 	if err := o.Close(); err != nil {
 		fmt.Printf("ERROR: failed to close connection: %s\n", err)

@@ -237,6 +237,9 @@ func TestAddressPaymentAddress(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to decode address: %s", err)
 		}
+		if addr.PaymentAddress() == nil {
+			t.Fatalf("payment address is nil")
+		}
 		if addr.PaymentAddress().String() != testDef.expectedPaymentAddress {
 			t.Fatalf(
 				"payment address did not match expected value, got: %s, wanted: %s",
@@ -274,6 +277,9 @@ func TestAddressStakeAddress(t *testing.T) {
 		addr, err := NewAddress(testDef.address)
 		if err != nil {
 			t.Fatalf("failed to decode address: %s", err)
+		}
+		if addr.StakeAddress() == nil {
+			t.Fatalf("stake address is nil")
 		}
 		if addr.StakeAddress().String() != testDef.expectedStakeAddress {
 			t.Fatalf(
