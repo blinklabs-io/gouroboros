@@ -27,7 +27,8 @@ func toBytes(chars string) ([]byte, error) {
 	for i := 0; i < len(chars); i++ {
 		index := strings.IndexByte(charset, chars[i])
 		if index < 0 {
-			return nil, ErrNonCharsetChar(chars[i])
+			// In the original code, this returns nil instead
+			return []byte{}, ErrNonCharsetChar(chars[i])
 		}
 		decoded = append(decoded, byte(index))
 	}

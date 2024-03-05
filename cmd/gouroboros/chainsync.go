@@ -294,6 +294,9 @@ func chainSyncRollForwardHandler(
 			byronBlock.Hash(),
 		)
 	default:
+		if block == nil {
+			return fmt.Errorf("block is nil")
+		}
 		fmt.Printf(
 			"era = %s, slot = %d, block_no = %d, id = %s\n",
 			block.Era().Name,

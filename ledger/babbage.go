@@ -94,21 +94,24 @@ func (b *BabbageBlock) Transactions() []Transaction {
 }
 
 func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
-	var block *utxorpc.Block
-	var body *utxorpc.BlockBody
-	var header *utxorpc.BlockHeader
 	var txs []*utxorpc.Tx
-	header.Slot = b.SlotNumber()
 	tmpHash, _ := hex.DecodeString(b.Hash())
-	header.Hash = tmpHash
-	header.Height = b.BlockNumber()
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
 		txs = append(txs, tx)
 	}
-	body.Tx = txs
-	block.Body = body
-	block.Header = header
+	body := &utxorpc.BlockBody{
+		Tx: txs,
+	}
+	header := &utxorpc.BlockHeader{
+		Hash:   tmpHash,
+		Height: b.BlockNumber(),
+		Slot:   b.SlotNumber(),
+	}
+	block := &utxorpc.Block{
+		Body:   body,
+		Header: header,
+	}
 	return block
 }
 
@@ -316,7 +319,7 @@ func (o BabbageTransactionOutput) DatumHash() *Blake2b256 {
 	if o.DatumOption != nil {
 		return o.DatumOption.hash
 	}
-	return nil
+	return &Blake2b256{}
 }
 
 func (o BabbageTransactionOutput) Datum() *cbor.LazyValue {

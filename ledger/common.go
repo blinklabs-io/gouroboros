@@ -375,6 +375,8 @@ func (a Address) MarshalJSON() ([]byte, error) {
 type IssuerVkey [32]byte
 
 func (i IssuerVkey) Hash() Blake2b224 {
+	// We can ignore the error return here because our fixed size/key arguments will
+	// never trigger an error
 	hash, _ := blake2b.New(28, nil)
 	hash.Write(i[:])
 	return Blake2b224(hash.Sum(nil))
