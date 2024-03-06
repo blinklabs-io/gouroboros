@@ -126,7 +126,11 @@ var eraIntersect = map[string]map[string][]interface{}{
 			39916796,
 			"e72579ff89dc9ed325b723a33624b596c08141c7bd573ecfff56a1f7229e4d09",
 		},
-		// TODO: add Babbage starting point after mainnet hard fork
+		// Last block of epoch 364 (Alonzo era)
+		"babbage": []interface{}{
+			72316796,
+			"c58a24ba8203e7629422a24d9dc68ce2ed495420bf40d9dab124373655161a20",
+		},
 	},
 	"preprod": map[string][]interface{}{
 		"genesis": []interface{}{},
