@@ -322,7 +322,7 @@ func (p *Protocol) recvLoop() {
 		// Decode message into generic list until we can determine what type of message it is.
 		// This also lets us determine how many bytes the message is. We use RawMessage here to
 		// avoid parsing things that we may not be able to parse
-		var tmpMsg []cbor.RawMessage
+		tmpMsg := []cbor.RawMessage{}
 		numBytesRead, err := cbor.Decode(recvBuffer.Bytes(), &tmpMsg)
 		if err != nil {
 			if err == io.ErrUnexpectedEOF && recvBuffer.Len() > 0 {

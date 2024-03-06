@@ -233,7 +233,7 @@ func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 	if err != nil {
 		return &utxorpc.Tx{}
 	}
-	tx := &utxorpc.Tx {
+	tx := &utxorpc.Tx{
 		Inputs:  txi,
 		Outputs: txo,
 		Fee:     b.Fee(),

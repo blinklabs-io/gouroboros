@@ -167,7 +167,7 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	for _, failure := range tmpData {
-		var tmpFailure []cbor.RawMessage
+		tmpFailure := []cbor.RawMessage{}
 		if _, err := cbor.Decode(failure, &tmpFailure); err != nil {
 			return err
 		}
@@ -212,7 +212,7 @@ type UtxowFailure struct {
 }
 
 func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
-	var tmpFailure []cbor.RawMessage
+	tmpFailure := []cbor.RawMessage{}
 	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
 		return err
 	}
