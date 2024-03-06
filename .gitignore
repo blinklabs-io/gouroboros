@@ -5,7 +5,6 @@
 *.so
 *.dylib
 /gouroboros
-/peer-sharing
 /tx-submission
 
 # Test binary, built with `go test -c`
