@@ -50,12 +50,17 @@ var eras = map[uint8]Era{
 	},
 }
 
-func GetEraById(eraId uint8) *Era {
+var EraInvalid = Era{
+	Id:   0,
+	Name: "invalid",
+}
+
+func GetEraById(eraId uint8) Era {
 	era, ok := eras[eraId]
 	if !ok {
-		return nil
+		return EraInvalid
 	}
-	return &era
+	return era
 }
 
 // BlockHeaderToBlockTypeMap is a mapping of NtN chainsync block header types

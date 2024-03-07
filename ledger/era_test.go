@@ -20,9 +20,8 @@ import (
 )
 
 type getEraByIdTestDefinition struct {
-	Id        uint8
-	Name      string
-	ExpectNil bool
+	Id   uint8
+	Name string
 }
 
 var getEraByIdTests = []getEraByIdTestDefinition{
@@ -51,17 +50,17 @@ var getEraByIdTests = []getEraByIdTestDefinition{
 		Name: "Babbage",
 	},
 	{
-		Id:        99,
-		ExpectNil: true,
+		Id:   99,
+		Name: "invalid",
 	},
 }
 
 func TestGetEraById(t *testing.T) {
 	for _, test := range getEraByIdTests {
 		era := ledger.GetEraById(test.Id)
-		if era == nil {
-			if !test.ExpectNil {
-				t.Fatalf("got unexpected nil, wanted %s", test.Name)
+		if era == ledger.EraInvalid {
+			if test.Name != "invalid" {
+				t.Fatalf("got unexpected EraInvalid, wanted %s", test.Name)
 			}
 		} else {
 			if era.Name != test.Name {

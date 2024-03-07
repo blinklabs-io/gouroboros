@@ -248,7 +248,7 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 	query := buildQuery(
 		QueryTypeChainBlockNo,
 	)
-	var result []int64
+	result := []int64{}
 	if err := c.runQuery(query, &result); err != nil {
 		return 0, err
 	}
@@ -293,7 +293,7 @@ func (c *Client) GetEpochNo() (int, error) {
 		currentEra,
 		QueryTypeShelleyEpochNo,
 	)
-	var result []int
+	result := []int{}
 	if err := c.runQuery(query, &result); err != nil {
 		return 0, err
 	}
@@ -331,7 +331,7 @@ func (c *Client) GetCurrentProtocolParams() (*CurrentProtocolParamsResult, error
 		currentEra,
 		QueryTypeShelleyCurrentProtocolParams,
 	)
-	var result []CurrentProtocolParamsResult
+	result := []CurrentProtocolParamsResult{}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
@@ -470,7 +470,7 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 		currentEra,
 		QueryTypeShelleyGenesisConfig,
 	)
-	var result []GenesisConfigResult
+	result := []GenesisConfigResult{}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}

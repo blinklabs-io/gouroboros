@@ -147,9 +147,12 @@ func DetermineTransactionType(data []byte) (uint, error) {
 }
 
 func generateTransactionHash(data []byte, prefix []byte) string {
-	// We can ignore the error return here because our fixed size/key arguments will
-	// never trigger an error
-	tmpHash, _ := blake2b.New256(nil)
+	tmpHash, err := blake2b.New256(nil)
+	if err != nil {
+		panic(
+			fmt.Sprintf("unexpected error generating empty blake2b hash: %s", err),
+		)
+	}
 	if prefix != nil {
 		tmpHash.Write(prefix)
 	}

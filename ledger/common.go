@@ -161,9 +161,12 @@ func NewAssetFingerprint(policyId []byte, assetName []byte) AssetFingerprint {
 }
 
 func (a AssetFingerprint) Hash() Blake2b160 {
-	// We can ignore the error return here because our fixed size/key arguments will
-	// never trigger an error
-	tmpHash, _ := blake2b.New(20, nil)
+	tmpHash, err := blake2b.New(20, nil)
+	if err != nil {
+		panic(
+			fmt.Sprintf("unexpected error creating empty blake2b hash: %s", err),
+		)
+	}
 	tmpHash.Write(a.policyId)
 	tmpHash.Write(a.assetName)
 	return NewBlake2b160(tmpHash.Sum(nil))
@@ -375,9 +378,12 @@ func (a Address) MarshalJSON() ([]byte, error) {
 type IssuerVkey [32]byte
 
 func (i IssuerVkey) Hash() Blake2b224 {
-	// We can ignore the error return here because our fixed size/key arguments will
-	// never trigger an error
-	hash, _ := blake2b.New(28, nil)
+	hash, err := blake2b.New(28, nil)
+	if err != nil {
+		panic(
+			fmt.Sprintf("unexpected error creating empty blake2b hash: %s", err),
+		)
+	}
 	hash.Write(i[:])
 	return Blake2b224(hash.Sum(nil))
 }
