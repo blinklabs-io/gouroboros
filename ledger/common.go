@@ -213,6 +213,7 @@ type Address struct {
 	networkId      uint8
 	paymentAddress []byte
 	stakingAddress []byte
+	extraData      []byte
 }
 
 // NewAddress returns an Address based on the provided bech32 address string
@@ -236,16 +237,32 @@ func NewAddressFromParts(
 	networkId uint8,
 	paymentAddr []byte,
 	stakingAddr []byte,
-) Address {
+) (Address, error) {
+	if len(paymentAddr) != AddressHashSize {
+		return Address{}, fmt.Errorf("invalid payment address hash length: %d", len(paymentAddr))
+	}
+	if len(stakingAddr) > 0 && len(stakingAddr) != AddressHashSize {
+		return Address{}, fmt.Errorf("invalid staking address hash length: %d", len(stakingAddr))
+	}
 	return Address{
 		addressType:    addrType,
 		networkId:      networkId,
-		paymentAddress: paymentAddr,
-		stakingAddress: stakingAddr,
-	}
+		paymentAddress: paymentAddr[:],
+		stakingAddress: stakingAddr[:],
+	}, nil
 }
 
-func (a *Address) populateFromBytes(data []byte) {
+func (a *Address) populateFromBytes(data []byte) error {
+	// Check length
+	dataLen := len(data)
+	if dataLen < (AddressHashSize + 1) {
+		return fmt.Errorf("invalid address length: %d", dataLen)
+	}
+	if dataLen > (AddressHashSize + 1) {
+		if dataLen < (AddressHashSize + AddressHashSize + 1) {
+			return fmt.Errorf("invalid address length: %d", dataLen)
+		}
+	}
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
@@ -254,13 +271,22 @@ func (a *Address) populateFromBytes(data []byte) {
 	// NOTE: this is probably incorrect for Byron
 	payload := data[1:]
 	a.paymentAddress = payload[:AddressHashSize]
-	a.stakingAddress = payload[AddressHashSize:]
+	if len(payload) > AddressHashSize {
+		a.stakingAddress = payload[AddressHashSize : AddressHashSize+AddressHashSize]
+	}
+	// Store any extra address data
+	// This is needed to handle the case describe in:
+	// https://github.com/IntersectMBO/cardano-ledger/issues/2729
+	if len(payload) > (AddressHashSize + AddressHashSize) {
+		a.extraData = payload[AddressHashSize+AddressHashSize:]
+	}
 	// Adjust stake addresses
 	if a.addressType == AddressTypeNoneKey ||
 		a.addressType == AddressTypeNoneScript {
 		a.stakingAddress = a.paymentAddress[:]
 		a.paymentAddress = make([]byte, 0)
 	}
+	return nil
 }
 
 func (a *Address) UnmarshalCBOR(data []byte) error {
@@ -344,6 +370,7 @@ func (a Address) Bytes() []byte {
 	)
 	ret = append(ret, a.paymentAddress...)
 	ret = append(ret, a.stakingAddress...)
+	ret = append(ret, a.extraData...)
 	return ret
 }
 
