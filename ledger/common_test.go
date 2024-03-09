@@ -133,6 +133,12 @@ func TestAddressFromBytes(t *testing.T) {
 			addressBytesHex: "61cfe224295a282d69edda5fa8de4f131e2b9cd21a6c9235597fa4ff6b",
 			expectedAddress: "addr1v887yfpftg5z660dmf063hj0zv0zh8xjrfkfyd2e07j076cecha5k",
 		},
+		// Long (but apparently valid) address from:
+		// https://github.com/IntersectMBO/cardano-ledger/issues/2729
+		{
+			addressBytesHex: "015bad085057ac10ecc7060f7ac41edd6f63068d8963ef7d86ca58669e5ecf2d283418a60be5a848a2380eb721000da1e0bbf39733134beca4cb57afb0b35fc89c63061c9914e055001a518c7516",
+			expectedAddress: "addr1q9d66zzs27kppmx8qc8h43q7m4hkxp5d39377lvxefvxd8j7eukjsdqc5c97t2zg5guqadepqqx6rc9m7wtnxy6tajjvk4a0kze4ljyuvvrpexg5up2sqxj33363v35gtew",
+		},
 	}
 	for _, testDef := range testDefs {
 		addr := Address{}
@@ -197,12 +203,15 @@ func TestAddressFromParts(t *testing.T) {
 		},
 	}
 	for _, testDef := range testDefs {
-		addr := NewAddressFromParts(
+		addr, err := NewAddressFromParts(
 			testDef.addressType,
 			testDef.networkId,
 			testDef.paymentAddr,
 			testDef.stakingAddr,
 		)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
 		if addr.String() != testDef.expectedAddress {
 			t.Fatalf(
 				"address did not match expected value, got: %s, wanted: %s",
