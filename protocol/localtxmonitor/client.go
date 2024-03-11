@@ -32,6 +32,7 @@ type Client struct {
 	hasTxResultChan    chan bool
 	nextTxResultChan   chan []byte
 	getSizesResultChan chan MsgReplyGetSizesResult
+	onceStart          sync.Once
 	onceStop           sync.Once
 }
 
@@ -72,15 +73,21 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        stateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
-	// Start goroutine to cleanup resources on protocol shutdown
-	go func() {
-		<-c.Protocol.DoneChan()
-		close(c.acquireResultChan)
-		close(c.hasTxResultChan)
-		close(c.nextTxResultChan)
-		close(c.getSizesResultChan)
-	}()
 	return c
+}
+
+func (c *Client) Start() {
+	c.onceStart.Do(func() {
+		c.Protocol.Start()
+		// Start goroutine to cleanup resources on protocol shutdown
+		go func() {
+			<-c.Protocol.DoneChan()
+			close(c.acquireResultChan)
+			close(c.hasTxResultChan)
+			close(c.nextTxResultChan)
+			close(c.getSizesResultChan)
+		}()
+	})
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {

@@ -35,6 +35,7 @@ type Client struct {
 	queryResultChan               chan []byte
 	acquireResultChan             chan error
 	currentEra                    int
+	onceStart                     sync.Once
 }
 
 // NewClient returns a new LocalStateQuery client object
@@ -82,13 +83,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		c.enableGetRewardInfoPoolsBlock = true
 	}
 	c.Protocol = protocol.New(protoConfig)
-	// Start goroutine to cleanup resources on protocol shutdown
-	go func() {
-		<-c.Protocol.DoneChan()
-		close(c.queryResultChan)
-		close(c.acquireResultChan)
-	}()
 	return c
+}
+
+func (c *Client) Start() {
+	c.onceStart.Do(func() {
+		c.Protocol.Start()
+		// Start goroutine to cleanup resources on protocol shutdown
+		go func() {
+			<-c.Protocol.DoneChan()
+			close(c.queryResultChan)
+			close(c.acquireResultChan)
+		}()
+	})
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
