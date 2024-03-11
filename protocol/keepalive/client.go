@@ -24,9 +24,10 @@ import (
 
 type Client struct {
 	*protocol.Protocol
-	config    *Config
-	timer     *time.Timer
-	onceStart sync.Once
+	config     *Config
+	timer      *time.Timer
+	timerMutex sync.Mutex
+	onceStart  sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -61,9 +62,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	go func() {
 		<-c.Protocol.DoneChan()
 		// Stop any existing timer
+		c.timerMutex.Lock()
 		if c.timer != nil {
 			c.timer.Stop()
 		}
+		c.timerMutex.Unlock()
 	}()
 	return c
 }
@@ -85,6 +88,8 @@ func (c *Client) sendKeepAlive() {
 }
 
 func (c *Client) startTimer() {
+	c.timerMutex.Lock()
+	defer c.timerMutex.Unlock()
 	// Stop any existing timer
 	if c.timer != nil {
 		c.timer.Stop()
