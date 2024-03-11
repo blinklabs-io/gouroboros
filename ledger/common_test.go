@@ -142,7 +142,13 @@ func TestAddressFromBytes(t *testing.T) {
 	}
 	for _, testDef := range testDefs {
 		addr := Address{}
-		addr.populateFromBytes(test.DecodeHexString(testDef.addressBytesHex))
+		err := addr.populateFromBytes(test.DecodeHexString(testDef.addressBytesHex))
+		if err != nil {
+			t.Fatalf(
+				"failure populating address from bytes: %s",
+				err,
+			)
+		}
 		if addr.String() != testDef.expectedAddress {
 			t.Fatalf(
 				"address did not match expected value, got: %s, wanted: %s",

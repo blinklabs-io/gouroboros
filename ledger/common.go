@@ -227,7 +227,10 @@ func NewAddress(addr string) (Address, error) {
 		return Address{}, err
 	}
 	a := Address{}
-	a.populateFromBytes(decoded)
+	err = a.populateFromBytes(decoded)
+	if err != nil {
+		return Address{}, err
+	}
 	return a, nil
 }
 
@@ -295,7 +298,10 @@ func (a *Address) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
-	a.populateFromBytes(tmpData)
+	err := a.populateFromBytes(tmpData)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
