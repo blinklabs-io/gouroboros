@@ -28,6 +28,7 @@ type Client struct {
 	config           *Config
 	busyMutex        sync.Mutex
 	submitResultChan chan error
+	onceStart        sync.Once
 	onceStop         sync.Once
 }
 
@@ -61,12 +62,18 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        stateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
-	// Start goroutine to cleanup resources on protocol shutdown
-	go func() {
-		<-c.Protocol.DoneChan()
-		close(c.submitResultChan)
-	}()
 	return c
+}
+
+func (c *Client) Start() {
+	c.onceStart.Do(func() {
+		c.Protocol.Start()
+		// Start goroutine to cleanup resources on protocol shutdown
+		go func() {
+			<-c.Protocol.DoneChan()
+			close(c.submitResultChan)
+		}()
+	})
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {

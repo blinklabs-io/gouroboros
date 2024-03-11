@@ -58,22 +58,22 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        StateClient,
 	}
 	c.Protocol = protocol.New(protoConfig)
-	// Start goroutine to cleanup resources on protocol shutdown
-	go func() {
-		<-c.Protocol.DoneChan()
-		// Stop any existing timer
-		c.timerMutex.Lock()
-		if c.timer != nil {
-			c.timer.Stop()
-		}
-		c.timerMutex.Unlock()
-	}()
 	return c
 }
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Start()
+		// Start goroutine to cleanup resources on protocol shutdown
+		go func() {
+			<-c.Protocol.DoneChan()
+			// Stop any existing timer
+			c.timerMutex.Lock()
+			if c.timer != nil {
+				c.timer.Stop()
+			}
+			c.timerMutex.Unlock()
+		}()
 		c.sendKeepAlive()
 	})
 }

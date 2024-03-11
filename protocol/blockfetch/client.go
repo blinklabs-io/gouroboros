@@ -32,6 +32,7 @@ type Client struct {
 	startBatchResultChan chan error
 	busyMutex            sync.Mutex
 	blockUseCallback     bool
+	onceStart            sync.Once
 	onceStop             sync.Once
 }
 
@@ -69,13 +70,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        StateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
-	// Start goroutine to cleanup resources on protocol shutdown
-	go func() {
-		<-c.Protocol.DoneChan()
-		close(c.blockChan)
-		close(c.startBatchResultChan)
-	}()
 	return c
+}
+
+func (c *Client) Start() {
+	c.onceStart.Do(func() {
+		c.Protocol.Start()
+		// Start goroutine to cleanup resources on protocol shutdown
+		go func() {
+			<-c.Protocol.DoneChan()
+			close(c.blockChan)
+			close(c.startBatchResultChan)
+		}()
+	})
 }
 
 func (c *Client) Stop() error {

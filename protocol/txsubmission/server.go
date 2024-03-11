@@ -16,6 +16,7 @@ package txsubmission
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -27,6 +28,7 @@ type Server struct {
 	stateDone              bool
 	requestTxIdsResultChan chan []TxIdAndSize
 	requestTxsResultChan   chan []TxBody
+	onceStart              sync.Once
 }
 
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
@@ -48,13 +50,19 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		InitialState:        stateInit,
 	}
 	s.Protocol = protocol.New(protoConfig)
-	// Start goroutine to cleanup resources on protocol shutdown
-	go func() {
-		<-s.Protocol.DoneChan()
-		close(s.requestTxIdsResultChan)
-		close(s.requestTxsResultChan)
-	}()
 	return s
+}
+
+func (s *Server) Start() {
+	s.onceStart.Do(func() {
+		s.Protocol.Start()
+		// Start goroutine to cleanup resources on protocol shutdown
+		go func() {
+			<-s.Protocol.DoneChan()
+			close(s.requestTxIdsResultChan)
+			close(s.requestTxsResultChan)
+		}()
+	})
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
