@@ -73,22 +73,19 @@ func (b *BabbageBlock) Era() Era {
 }
 
 func (b *BabbageBlock) Transactions() []Transaction {
-	ret := []Transaction{}
+	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
+	for _, invalidTxIdx := range b.InvalidTransactions {
+		invalidTxMap[invalidTxIdx] = true
+	}
+
+	ret := make([]Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
-		tmpTransaction := BabbageTransaction{
+		ret[idx] = &BabbageTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+			IsValid:    !invalidTxMap[uint(idx)],
 		}
-		isValid := true
-		for _, invalidTxIdx := range b.InvalidTransactions {
-			if invalidTxIdx == uint(idx) {
-				isValid = false
-				break
-			}
-		}
-		tmpTransaction.IsValid = isValid
-		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }

@@ -71,14 +71,13 @@ func (b *ShelleyBlock) Era() Era {
 }
 
 func (b *ShelleyBlock) Transactions() []Transaction {
-	ret := []Transaction{}
+	ret := make([]Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
-		tmpTransaction := ShelleyTransaction{
+		ret[idx] = &ShelleyTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
 		}
-		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }

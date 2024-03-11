@@ -73,22 +73,19 @@ func (b *AlonzoBlock) Era() Era {
 }
 
 func (b *AlonzoBlock) Transactions() []Transaction {
-	ret := []Transaction{}
+	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
+	for _, invalidTxIdx := range b.InvalidTransactions {
+		invalidTxMap[invalidTxIdx] = true
+	}
+
+	ret := make([]Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
-		tmpTransaction := AlonzoTransaction{
+		ret[idx] = &AlonzoTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+			IsValid:    !invalidTxMap[uint(idx)],
 		}
-		isValid := true
-		for _, invalidTxIdx := range b.InvalidTransactions {
-			if invalidTxIdx == uint(idx) {
-				isValid = false
-				break
-			}
-		}
-		tmpTransaction.IsValid = isValid
-		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }
