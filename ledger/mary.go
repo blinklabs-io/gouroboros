@@ -72,14 +72,13 @@ func (b *MaryBlock) Era() Era {
 }
 
 func (b *MaryBlock) Transactions() []Transaction {
-	ret := []Transaction{}
+	ret := make([]Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
-		tmpTransaction := MaryTransaction{
+		ret[idx] = &MaryTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
 		}
-		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }

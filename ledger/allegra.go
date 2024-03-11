@@ -71,14 +71,13 @@ func (b *AllegraBlock) Era() Era {
 }
 
 func (b *AllegraBlock) Transactions() []Transaction {
-	ret := []Transaction{}
+	ret := make([]Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
-		tmpTransaction := AllegraTransaction{
+		ret[idx] = &AllegraTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
 		}
-		ret = append(ret, &tmpTransaction)
 	}
 	return ret
 }
