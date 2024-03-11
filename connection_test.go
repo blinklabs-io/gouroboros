@@ -17,13 +17,16 @@ package ouroboros_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
+	"go.uber.org/goleak"
 )
 
 // Ensure that we don't panic when closing the Connection object after a failed Dial() call
 func TestDialFailClose(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	oConn, err := ouroboros.New()
 	if err != nil {
 		t.Fatalf("unexpected error when creating Connection object: %s", err)
@@ -37,6 +40,7 @@ func TestDialFailClose(t *testing.T) {
 }
 
 func TestDoubleClose(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -70,5 +74,11 @@ func TestDoubleClose(t *testing.T) {
 			"unexpected error when closing Connection object again: %s",
 			err,
 		)
+	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
 	}
 }

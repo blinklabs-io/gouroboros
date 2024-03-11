@@ -16,12 +16,15 @@ package ouroboros_mock
 
 import (
 	"testing"
+	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"go.uber.org/goleak"
 )
 
 // Basic test of conversation mock functionality
 func TestBasic(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	mockConn := NewConnection(
 		ProtocolRoleClient,
 		[]ConversationEntry{
@@ -39,5 +42,11 @@ func TestBasic(t *testing.T) {
 	// Close Ouroboros connection
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
 	}
 }

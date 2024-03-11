@@ -22,6 +22,7 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
+	"go.uber.org/goleak"
 )
 
 func TestConnectionManagerTagString(t *testing.T) {
@@ -46,19 +47,22 @@ func TestConnectionManagerTagString(t *testing.T) {
 }
 
 func TestConnectionManagerConnError(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	expectedConnId := 2
 	expectedErr := io.EOF
 	doneChan := make(chan any)
 	connManager := ouroboros.NewConnectionManager(
 		ouroboros.ConnectionManagerConfig{
 			ConnClosedFunc: func(connId int, err error) {
-				if connId != expectedConnId {
-					t.Fatalf("did not receive error from expected connection: got %d, wanted %d", connId, expectedConnId)
+				if err != nil {
+					if connId != expectedConnId {
+						t.Fatalf("did not receive error from expected connection: got %d, wanted %d", connId, expectedConnId)
+					}
+					if err != expectedErr {
+						t.Fatalf("did not receive expected error: got: %s, expected: %s", err, expectedErr)
+					}
+					close(doneChan)
 				}
-				if err != expectedErr {
-					t.Fatalf("did not receive expected error: got: %s, expected: %s", err, expectedErr)
-				}
-				close(doneChan)
 			},
 		},
 	)
@@ -91,6 +95,14 @@ func TestConnectionManagerConnError(t *testing.T) {
 	}
 	select {
 	case <-doneChan:
+		// Shutdown other connections
+		for _, tmpConn := range connManager.GetConnectionsByTags() {
+			if tmpConn.Id != expectedConnId {
+				tmpConn.Conn.Close()
+			}
+		}
+		// TODO: actually wait for shutdown
+		time.Sleep(5 * time.Second)
 		return
 	case <-time.After(10 * time.Second):
 		t.Fatalf("did not receive error within timeout")
@@ -98,6 +110,7 @@ func TestConnectionManagerConnError(t *testing.T) {
 }
 
 func TestConnectionManagerConnClosed(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	expectedConnId := 42
 	doneChan := make(chan any)
 	connManager := ouroboros.NewConnectionManager(
@@ -138,6 +151,8 @@ func TestConnectionManagerConnClosed(t *testing.T) {
 	)
 	select {
 	case <-doneChan:
+		// TODO: actually wait for shutdown
+		time.Sleep(5 * time.Second)
 		return
 	case <-time.After(10 * time.Second):
 		t.Fatalf("did not receive error within timeout")

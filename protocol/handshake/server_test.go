@@ -17,14 +17,17 @@ package handshake_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
+	"go.uber.org/goleak"
 )
 
 func TestServerBasicHandshake(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleServer,
 		[]ouroboros_mock.ConversationEntry{
@@ -76,9 +79,17 @@ func TestServerBasicHandshake(t *testing.T) {
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
 }
 
 func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
+	// TODO: fix leaking goroutines
+	//defer goleak.VerifyNone(t)
 	expectedErr := fmt.Errorf("handshake failed: refused due to version mismatch")
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleServer,
@@ -131,6 +142,12 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 		}
 	} else {
 		oConn.Close()
+		// Wait for connection shutdown
+		select {
+		case <-oConn.ErrorChan():
+		case <-time.After(10 * time.Second):
+			t.Errorf("did not shutdown within timeout")
+		}
 		t.Fatalf("did not receive expected error")
 	}
 }
