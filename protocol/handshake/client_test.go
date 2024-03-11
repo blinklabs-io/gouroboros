@@ -17,12 +17,15 @@ package handshake_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
+	"go.uber.org/goleak"
 )
 
 func TestClientBasicHandshake(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -50,9 +53,16 @@ func TestClientBasicHandshake(t *testing.T) {
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
 }
 
 func TestClientDoubleStart(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -81,5 +91,11 @@ func TestClientDoubleStart(t *testing.T) {
 	// Close Ouroboros connection
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
 	}
 }
