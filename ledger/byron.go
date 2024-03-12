@@ -157,6 +157,10 @@ func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }
 
+func (t *ByronTransaction) IsValid() bool {
+	return true
+}
+
 func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
 	return &utxorpc.Tx{}
 }

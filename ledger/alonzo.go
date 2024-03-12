@@ -84,7 +84,7 @@ func (b *AlonzoBlock) Transactions() []Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
-			IsValid:    !invalidTxMap[uint(idx)],
+			IsTxValid:  !invalidTxMap[uint(idx)],
 		}
 	}
 	return ret
@@ -227,7 +227,7 @@ type AlonzoTransaction struct {
 	cbor.DecodeStoreCbor
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
-	IsValid    bool
+	IsTxValid  bool
 	TxMetadata *cbor.Value
 }
 
@@ -253,6 +253,10 @@ func (t AlonzoTransaction) TTL() uint64 {
 
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t AlonzoTransaction) IsValid() bool {
+	return t.IsTxValid
 }
 
 func (t *AlonzoTransaction) Cbor() []byte {

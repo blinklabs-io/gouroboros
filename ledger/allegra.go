@@ -157,6 +157,10 @@ func (t AllegraTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
 }
 
+func (t AllegraTransaction) IsValid() bool {
+	return true
+}
+
 func (t *AllegraTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
