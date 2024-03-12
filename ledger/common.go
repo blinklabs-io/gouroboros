@@ -256,26 +256,35 @@ func NewAddressFromParts(
 }
 
 func (a *Address) populateFromBytes(data []byte) error {
-	// Check length
-	dataLen := len(data)
-	if dataLen < (AddressHashSize + 1) {
-		return fmt.Errorf("invalid address length: %d", dataLen)
-	}
-	if dataLen > (AddressHashSize + 1) {
-		if dataLen < (AddressHashSize + AddressHashSize + 1) {
-			return fmt.Errorf("invalid address length: %d", dataLen)
-		}
-	}
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
 	a.networkId = header & AddressHeaderNetworkMask
+	// Check length
+	// We exclude a few address types without fixed sizes that we don't properly support yet
+	if a.addressType != AddressTypeByron &&
+		a.addressType != AddressTypeKeyPointer &&
+		a.addressType != AddressTypeScriptPointer {
+		dataLen := len(data)
+		if dataLen < (AddressHashSize + 1) {
+			return fmt.Errorf("invalid address length: %d", dataLen)
+		}
+		if dataLen > (AddressHashSize + 1) {
+			if dataLen < (AddressHashSize + AddressHashSize + 1) {
+				return fmt.Errorf("invalid address length: %d", dataLen)
+			}
+		}
+	}
 	// Extract payload
-	// NOTE: this is probably incorrect for Byron
+	// NOTE: this is definitely incorrect for Byron
 	payload := data[1:]
 	a.paymentAddress = payload[:AddressHashSize]
 	if len(payload) > AddressHashSize {
-		a.stakingAddress = payload[AddressHashSize : AddressHashSize+AddressHashSize]
+		stakingPayloadSize := len(payload) - AddressHashSize
+		if stakingPayloadSize > AddressHashSize {
+			stakingPayloadSize = AddressHashSize
+		}
+		a.stakingAddress = payload[AddressHashSize : AddressHashSize+stakingPayloadSize]
 	}
 	// Store any extra address data
 	// This is needed to handle the case describe in:
