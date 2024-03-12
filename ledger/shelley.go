@@ -355,6 +355,10 @@ func (t ShelleyTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
 
+func (t ShelleyTransaction) IsValid() bool {
+	return true
+}
+
 func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
 }

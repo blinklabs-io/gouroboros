@@ -164,6 +164,10 @@ func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
 
+func (t MaryTransaction) IsValid() bool {
+	return true
+}
+
 func (t *MaryTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()

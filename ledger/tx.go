@@ -27,6 +27,7 @@ import (
 type Transaction interface {
 	TransactionBody
 	Metadata() *cbor.Value
+	IsValid() bool
 }
 
 type TransactionBody interface {

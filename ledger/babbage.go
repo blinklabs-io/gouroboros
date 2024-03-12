@@ -84,7 +84,7 @@ func (b *BabbageBlock) Transactions() []Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
-			IsValid:    !invalidTxMap[uint(idx)],
+			IsTxValid:  !invalidTxMap[uint(idx)],
 		}
 	}
 	return ret
@@ -351,7 +351,7 @@ type BabbageTransaction struct {
 	cbor.DecodeStoreCbor
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
-	IsValid    bool
+	IsTxValid  bool
 	TxMetadata *cbor.Value
 }
 
@@ -377,6 +377,10 @@ func (t BabbageTransaction) TTL() uint64 {
 
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t BabbageTransaction) IsValid() bool {
+	return t.IsTxValid
 }
 
 func (t *BabbageTransaction) Cbor() []byte {

@@ -83,7 +83,7 @@ func (b *ConwayBlock) Transactions() []Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
-			IsValid:    !invalidTxMap[uint(idx)],
+			IsTxValid:  !invalidTxMap[uint(idx)],
 		}
 	}
 	return ret
@@ -136,7 +136,7 @@ type ConwayTransaction struct {
 	cbor.DecodeStoreCbor
 	Body       ConwayTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
-	IsValid    bool
+	IsTxValid  bool
 	TxMetadata *cbor.Value
 }
 
@@ -162,6 +162,10 @@ func (t ConwayTransaction) TTL() uint64 {
 
 func (t ConwayTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
+}
+
+func (t ConwayTransaction) IsValid() bool {
+	return t.IsTxValid
 }
 
 func (t *ConwayTransaction) Cbor() []byte {

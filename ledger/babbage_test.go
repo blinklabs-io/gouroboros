@@ -40,8 +40,8 @@ func TestBabbageBlockTransactions(t *testing.T) {
 		}
 
 		for i, tx := range txs {
-			if btx := tx.(*BabbageTransaction); !btx.IsValid {
-				t.Fatalf("expected transaction number %d IsValid is %v but is was %v", i, true, btx.IsValid)
+			if btx := tx.(*BabbageTransaction); !btx.IsValid() {
+				t.Fatalf("expected transaction number %d IsValid is %v but is was %v", i, true, btx.IsValid())
 			}
 		}
 	})
@@ -56,8 +56,8 @@ func TestBabbageBlockTransactions(t *testing.T) {
 
 		for i, tx := range txs {
 			expected := i != 2 && i != 4 && i != 5
-			if btx := tx.(*BabbageTransaction); btx.IsValid != expected {
-				t.Fatalf("expected transaction number %d IsValid is %v but is was %v", i, expected, btx.IsValid)
+			if btx := tx.(*BabbageTransaction); btx.IsValid() != expected {
+				t.Fatalf("expected transaction number %d IsValid is %v but is was %v", i, expected, btx.IsValid())
 			}
 		}
 	})
