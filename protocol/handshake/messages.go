@@ -30,9 +30,9 @@ const (
 
 // Refusal reasons
 const (
-	RefuseReasonVersionMismatch = 0
-	RefuseReasonDecodeError     = 1
-	RefuseReasonRefused         = 2
+	RefuseReasonVersionMismatch uint64 = 0
+	RefuseReasonDecodeError     uint64 = 1
+	RefuseReasonRefused         uint64 = 2
 )
 
 // NewMsgFromCbor parses a Handshake message from CBOR

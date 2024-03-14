@@ -117,12 +117,12 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 				InputMessageType: handshake.MessageTypeRefuse,
 				InputMessage: handshake.NewMsgRefuse(
 					[]any{
-						uint64(handshake.RefuseReasonVersionMismatch),
+						handshake.RefuseReasonVersionMismatch,
 						// Convert []uint16 to []any
 						func(in []uint16) []any {
 							var ret []any
 							for _, item := range in {
-								ret = append(ret, item)
+								ret = append(ret, uint64(item))
 							}
 							return ret
 						}(protocol.GetProtocolVersionsNtC()),

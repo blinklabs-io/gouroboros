@@ -16,6 +16,7 @@ package handshake
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -82,6 +83,12 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 		for supportedVersion := range s.config.ProtocolVersionMap {
 			supportedVersions = append(supportedVersions, supportedVersion)
 		}
+
+		// sort asending - iterating over map is not deterministic
+		sort.Slice(supportedVersions, func(i, j int) bool {
+			return supportedVersions[i] < supportedVersions[j]
+		})
+
 		msgRefuse := NewMsgRefuse(
 			[]any{
 				RefuseReasonVersionMismatch,

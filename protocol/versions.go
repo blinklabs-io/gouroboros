@@ -14,6 +14,8 @@
 
 package protocol
 
+import "sort"
+
 // The NtC protocol versions have the 15th bit set in the handshake
 const ProtocolVersionNtCOffset = 0x8000
 
@@ -258,6 +260,12 @@ func GetProtocolVersionsNtC() []uint16 {
 			versions = append(versions, key)
 		}
 	}
+
+	// sort asending - iterating over map is not deterministic
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i] < versions[j]
+	})
+
 	return versions
 }
 
@@ -269,6 +277,12 @@ func GetProtocolVersionsNtN() []uint16 {
 			versions = append(versions, key)
 		}
 	}
+
+	// sort asending - iterating over map is not deterministic
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i] < versions[j]
+	})
+
 	return versions
 }
 
