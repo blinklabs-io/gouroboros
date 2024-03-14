@@ -25,6 +25,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/muxer"
+	"github.com/blinklabs-io/gouroboros/utils"
 )
 
 // This is completely arbitrary, but the line had to be drawn somewhere
@@ -40,7 +41,7 @@ type Protocol struct {
 	recvReadyChan       chan bool
 	sendReadyChan       chan bool
 	stateTransitionChan chan<- protocolStateTransition
-	doneChan            chan bool
+	doneSignal          *utils.DoneSignal
 	waitGroup           sync.WaitGroup
 	onceStart           sync.Once
 }
@@ -102,8 +103,8 @@ type MessageFromCborFunc func(uint, []byte) (Message, error)
 // New returns a new Protocol object
 func New(config ProtocolConfig) *Protocol {
 	p := &Protocol{
-		config:   config,
-		doneChan: make(chan bool),
+		config:     config,
+		doneSignal: utils.NewDoneSignal(),
 	}
 	return p
 }
@@ -149,8 +150,8 @@ func (p *Protocol) Role() ProtocolRole {
 }
 
 // DoneChan returns the channel used to signal protocol shutdown
-func (p *Protocol) DoneChan() chan bool {
-	return p.doneChan
+func (p *Protocol) DoneChan() <-chan struct{} {
+	return p.doneSignal.GetCh()
 }
 
 // SendMessage appends a message to the send queue
@@ -178,11 +179,12 @@ func (p *Protocol) sendLoop() {
 		// We are responsible for closing this channel as the sender, even through it
 		// was created by the muxer
 		close(p.muxerSendChan)
+		p.doneSignal.Close()
 	}()
 
 	for {
 		select {
-		case <-p.doneChan:
+		case <-p.doneSignal.GetCh():
 			// Break out of send loop if we're shutting down
 			return
 		case <-p.sendReadyChan:
@@ -196,7 +198,7 @@ func (p *Protocol) sendLoop() {
 		for {
 			// Get next message from send queue
 			select {
-			case <-p.doneChan:
+			case <-p.doneSignal.GetCh():
 				// Break out of send loop if we're shutting down
 				return
 			case msg, ok := <-p.sendQueueChan:
@@ -260,10 +262,7 @@ func (p *Protocol) sendLoop() {
 			}
 			// Send current segment
 			segmentPayload := payloadBuf.Bytes()[:segmentPayloadLength]
-			isResponse := false
-			if p.Role() == ProtocolRoleServer {
-				isResponse = true
-			}
+			isResponse := p.Role() == ProtocolRoleServer
 			segment := muxer.NewSegment(
 				p.config.ProtocolId,
 				segmentPayload,
@@ -283,7 +282,11 @@ func (p *Protocol) sendLoop() {
 }
 
 func (p *Protocol) recvLoop() {
-	defer p.waitGroup.Done()
+	defer func() {
+		p.waitGroup.Done()
+		p.doneSignal.Close()
+	}()
+
 	leftoverData := false
 	recvBuffer := bytes.NewBuffer(nil)
 
@@ -293,15 +296,13 @@ func (p *Protocol) recvLoop() {
 		if !leftoverData {
 			// Wait for segment
 			select {
-			case <-p.doneChan:
+			case <-p.doneSignal.GetCh():
 				// Break out of receive loop if we're shutting down
 				return
 			case <-p.muxerDoneChan:
-				close(p.doneChan)
 				return
 			case segment, ok := <-p.muxerRecvChan:
 				if !ok {
-					close(p.doneChan)
 					return
 				}
 				// Add segment payload to buffer
@@ -311,11 +312,10 @@ func (p *Protocol) recvLoop() {
 		leftoverData = false
 		// Wait until ready to receive based on state map
 		select {
-		case <-p.doneChan:
+		case <-p.doneSignal.GetCh():
 			// Break out of receive loop if we're shutting down
 			return
 		case <-p.muxerDoneChan:
-			close(p.doneChan)
 			return
 		case <-p.recvReadyChan:
 		}
@@ -429,7 +429,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		return transitionTimer.C
 	}
 
-	protocolDoneChan := p.doneChan
+	protocolDoneChan := p.doneSignal.GetCh()
 	stateDoneChan := make(chan struct{})
 
 	setState(p.config.InitialState)

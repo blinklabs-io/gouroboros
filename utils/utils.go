@@ -14,3 +14,29 @@
 
 // Package utils provides random utility functions
 package utils
+
+import (
+	"sync"
+)
+
+// DoneSignal provides a thread-safe way to close a channel and allows other routines to listen to the channel
+type DoneSignal struct {
+	closeCh chan struct{}
+	once    sync.Once
+}
+
+func NewDoneSignal() *DoneSignal {
+	return &DoneSignal{
+		closeCh: make(chan struct{}),
+	}
+}
+
+func (cn *DoneSignal) Close() {
+	cn.once.Do(func() {
+		close(cn.closeCh)
+	})
+}
+
+func (cn *DoneSignal) GetCh() <-chan struct{} {
+	return cn.closeCh
+}
