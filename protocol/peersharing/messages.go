@@ -15,7 +15,9 @@
 package peersharing
 
 import (
+	"encoding/binary"
 	"fmt"
+	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -66,21 +68,10 @@ func NewMsgShareRequest(amount uint8) *MsgShareRequest {
 
 type MsgSharePeers struct {
 	protocol.MessageBase
-	// TODO: parse peer addresses
-	/*
-		peerAddress = [0, word32, portNumber]
-		      ; ipv6 + portNumber
-		    / [1, word32, word32, word32, word32, flowInfo, scopeId, portNumber]
-
-		portNumber = word16
-
-		flowInfo = word32
-		scopeId = word32
-	*/
-	PeerAddresses []interface{}
+	PeerAddresses []PeerAddress
 }
 
-func NewMsgSharePeers(peerAddresses []interface{}) *MsgSharePeers {
+func NewMsgSharePeers(peerAddresses []PeerAddress) *MsgSharePeers {
 	m := &MsgSharePeers{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeSharePeers,
@@ -101,4 +92,86 @@ func NewMsgDone() *MsgDone {
 		},
 	}
 	return m
+}
+
+type PeerAddress struct {
+	IP   net.IP
+	Port uint16
+}
+
+func (p *PeerAddress) UnmarshalCBOR(cborData []byte) error {
+	peerType, err := cbor.DecodeIdFromList(cborData)
+	if err != nil {
+		return err
+	}
+	switch peerType {
+	case 0:
+		// IPv4
+		tmpPeer := struct {
+			cbor.StructAsArray
+			PeerType int
+			Address  uint32
+			Port     uint16
+		}{}
+		if _, err := cbor.Decode(cborData, &tmpPeer); err != nil {
+			return err
+		}
+		p.IP = make(net.IP, net.IPv4len)
+		binary.LittleEndian.PutUint32(p.IP, tmpPeer.Address)
+		p.Port = tmpPeer.Port
+	case 1:
+		// IPv6
+		cborListLen, err := cbor.ListLength(cborData)
+		if err != nil {
+			return err
+		}
+		if cborListLen == 8 {
+			// V11-12
+			tmpPeer := struct {
+				cbor.StructAsArray
+				PeerType int
+				Address1 uint32
+				Address2 uint32
+				Address3 uint32
+				Address4 uint32
+				FlowInfo uint32 // ignored
+				ScopeId  uint32 // ignored
+				Port     uint16
+			}{}
+			if _, err := cbor.Decode(cborData, &tmpPeer); err != nil {
+				return err
+			}
+			p.IP = make(net.IP, net.IPv6len)
+			binary.LittleEndian.PutUint32(p.IP[0:], tmpPeer.Address1)
+			binary.LittleEndian.PutUint32(p.IP[4:], tmpPeer.Address2)
+			binary.LittleEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
+			binary.LittleEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
+			p.Port = tmpPeer.Port
+		} else if cborListLen == 6 {
+			// V13+
+			tmpPeer := struct {
+				cbor.StructAsArray
+				PeerType int
+				Address1 uint32
+				Address2 uint32
+				Address3 uint32
+				Address4 uint32
+				Port     uint16
+			}{}
+			if _, err := cbor.Decode(cborData, &tmpPeer); err != nil {
+				return err
+			}
+			p.IP = make(net.IP, net.IPv6len)
+			binary.LittleEndian.PutUint32(p.IP[0:], tmpPeer.Address1)
+			binary.LittleEndian.PutUint32(p.IP[4:], tmpPeer.Address2)
+			binary.LittleEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
+			binary.LittleEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
+			p.Port = tmpPeer.Port
+		} else {
+			return fmt.Errorf("invalid peer address length: %d", cborListLen)
+		}
+	default:
+		return fmt.Errorf("unknown peer type: %d\n", peerType)
+	}
+	return nil
 }

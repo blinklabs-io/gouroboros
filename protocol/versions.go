@@ -38,6 +38,7 @@ type ProtocolVersion struct {
 	EnableKeepAliveProtocol   bool
 	EnableFullDuplex          bool
 	EnablePeerSharingProtocol bool
+	PeerSharingUseV11         bool
 }
 
 var protocolVersions = map[uint16]ProtocolVersion{
@@ -173,6 +174,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableBabbageEra:           true,
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
+		PeerSharingUseV11:          true,
 	},
 	12: ProtocolVersion{
 		NewVersionDataFromCborFunc: NewVersionDataNtN11to12FromCbor,
@@ -185,6 +187,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableConwayEra:            true,
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
+		PeerSharingUseV11:          true,
 	},
 	13: ProtocolVersion{
 		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
@@ -205,7 +208,7 @@ func GetProtocolVersionMap(
 	protocolMode ProtocolMode,
 	networkMagic uint32,
 	diffusionMode bool,
-	peerSharing uint,
+	peerSharing bool,
 	queryMode bool,
 ) ProtocolVersionMap {
 	ret := ProtocolVersionMap{}
@@ -224,19 +227,27 @@ func GetProtocolVersionMap(
 		} else {
 			if version < ProtocolVersionNtCOffset {
 				if version >= 13 {
+					var tmpPeerSharing uint = PeerSharingModeNoPeerSharing
+					if peerSharing {
+						tmpPeerSharing = PeerSharingModePeerSharingPublic
+					}
 					ret[version] = VersionDataNtN13andUp{
 						VersionDataNtN11to12{
 							CborNetworkMagic:                       networkMagic,
 							CborInitiatorAndResponderDiffusionMode: diffusionMode,
-							CborPeerSharing:                        peerSharing,
+							CborPeerSharing:                        tmpPeerSharing,
 							CborQuery:                              queryMode,
 						},
 					}
 				} else if version >= 11 {
+					var tmpPeerSharing uint = PeerSharingModeV11NoPeerSharing
+					if peerSharing {
+						tmpPeerSharing = PeerSharingModeV11PeerSharingPublic
+					}
 					ret[version] = VersionDataNtN11to12{
 						CborNetworkMagic:                       networkMagic,
 						CborInitiatorAndResponderDiffusionMode: diffusionMode,
-						CborPeerSharing:                        peerSharing,
+						CborPeerSharing:                        tmpPeerSharing,
 						CborQuery:                              queryMode,
 					}
 				} else {

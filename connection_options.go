@@ -104,6 +104,14 @@ func WithFullDuplex(fullDuplex bool) ConnectionOptionFunc {
 	}
 }
 
+// WithPeerSharing specifies whether to enable peer sharing. This affects both the protocol handshake and
+// whether the PeerSharing protocol is enabled
+func WithPeerSharing(peerSharing bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.peerSharingEnabled = peerSharing
+	}
+}
+
 // WithBlockFetchConfig specifies BlockFetch protocol config
 func WithBlockFetchConfig(cfg blockfetch.Config) ConnectionOptionFunc {
 	return func(c *Connection) {

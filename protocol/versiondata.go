@@ -22,12 +22,13 @@ const (
 	DiffusionModeInitiatorAndResponder = false
 )
 
-// TODO: update this for NtN v13+
 // Peer sharing modes
 const (
-	PeerSharingModeNoPeerSharing      = 0
-	PeerSharingModePeerSharingPrivate = 1
-	PeerSharingModePeerSharingPublic  = 2
+	PeerSharingModeNoPeerSharing         = 0
+	PeerSharingModePeerSharingPublic     = 1
+	PeerSharingModeV11NoPeerSharing      = 0
+	PeerSharingModeV11PeerSharingPrivate = 1
+	PeerSharingModeV11PeerSharingPublic  = 2
 )
 
 // Query modes
@@ -41,7 +42,7 @@ type VersionData interface {
 	//Query() bool
 	// NtN only
 	DiffusionMode() bool
-	//PeerSharing() uint
+	PeerSharing() bool
 }
 
 type VersionDataNtC9to14 uint32
@@ -58,6 +59,10 @@ func (v VersionDataNtC9to14) NetworkMagic() uint32 {
 
 func (v VersionDataNtC9to14) DiffusionMode() bool {
 	return DiffusionModeInitiatorOnly
+}
+
+func (v VersionDataNtC9to14) PeerSharing() bool {
+	return false
 }
 
 type VersionDataNtC15andUp struct {
@@ -80,6 +85,10 @@ func (v VersionDataNtC15andUp) DiffusionMode() bool {
 	return DiffusionModeInitiatorOnly
 }
 
+func (v VersionDataNtC15andUp) PeerSharing() bool {
+	return false
+}
+
 type VersionDataNtN7to10 struct {
 	cbor.StructAsArray
 	CborNetworkMagic                       uint32
@@ -98,6 +107,10 @@ func (v VersionDataNtN7to10) NetworkMagic() uint32 {
 
 func (v VersionDataNtN7to10) DiffusionMode() bool {
 	return v.CborInitiatorAndResponderDiffusionMode
+}
+
+func (v VersionDataNtN7to10) PeerSharing() bool {
+	return false
 }
 
 type VersionDataNtN11to12 struct {
@@ -122,6 +135,10 @@ func (v VersionDataNtN11to12) DiffusionMode() bool {
 	return v.CborInitiatorAndResponderDiffusionMode
 }
 
+func (v VersionDataNtN11to12) PeerSharing() bool {
+	return v.CborPeerSharing >= PeerSharingModeV11PeerSharingPublic
+}
+
 // NOTE: the format stays the same, but the values for PeerSharing change
 type VersionDataNtN13andUp struct {
 	VersionDataNtN11to12
@@ -131,4 +148,8 @@ func NewVersionDataNtN13andUpFromCbor(cborData []byte) (VersionData, error) {
 	var v VersionDataNtN13andUp
 	_, err := cbor.Decode(cborData, &v)
 	return v, err
+}
+
+func (v VersionDataNtN13andUp) PeerSharing() bool {
+	return v.CborPeerSharing >= PeerSharingModePeerSharingPublic
 }
