@@ -24,7 +24,7 @@ import (
 type Client struct {
 	*protocol.Protocol
 	config         *Config
-	sharePeersChan chan []interface{}
+	sharePeersChan chan []PeerAddress
 }
 
 // NewClient returns a new PeerSharing client object
@@ -35,7 +35,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config:         cfg,
-		sharePeersChan: make(chan []interface{}),
+		sharePeersChan: make(chan []PeerAddress),
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
@@ -60,7 +60,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
-func (c *Client) GetPeers(amount uint8) ([]interface{}, error) {
+func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 	msg := NewMsgShareRequest(amount)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err

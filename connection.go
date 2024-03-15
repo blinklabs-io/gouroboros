@@ -66,6 +66,7 @@ type Connection struct {
 	delayMuxerStart       bool
 	delayProtocolStart    bool
 	fullDuplex            bool
+	peerSharingEnabled    bool
 	// Mini-protocols
 	blockFetch              *blockfetch.BlockFetch
 	blockFetchConfig        *blockfetch.Config
@@ -279,8 +280,8 @@ func (c *Connection) setupConnection() error {
 		protoOptions.Mode,
 		c.networkMagic,
 		handshakeDiffusionMode,
-		// TODO: make these configurable
-		protocol.PeerSharingModeNoPeerSharing,
+		c.peerSharingEnabled,
+		// TODO: make this configurable
 		protocol.QueryModeDisabled,
 	)
 	// Perform handshake
