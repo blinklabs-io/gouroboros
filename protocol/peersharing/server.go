@@ -64,12 +64,24 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 	return err
 }
 
-// TODO
 func (s *Server) handleShareRequest(msg protocol.Message) error {
+	if s.config == nil || s.config.ShareRequestFunc == nil {
+		return fmt.Errorf(
+			"received peer-sharing ShareRequest message but no callback function is defined",
+		)
+	}
+	msgShareRequest := msg.(*MsgShareRequest)
+	peers, err := s.config.ShareRequestFunc(int(msgShareRequest.Amount))
+	if err != nil {
+		return err
+	}
+	msgResp := NewMsgSharePeers(peers)
+	if err := s.SendMessage(msgResp); err != nil {
+		return err
+	}
 	return nil
 }
 
-// TODO
 func (s *Server) handleDone(msg protocol.Message) error {
 	return nil
 }
