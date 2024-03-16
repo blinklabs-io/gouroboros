@@ -70,8 +70,12 @@ type PeerSharing struct {
 
 // Config is used to configure the PeerSharing protocol instance
 type Config struct {
-	Timeout time.Duration
+	ShareRequestFunc ShareRequestFunc
+	Timeout          time.Duration
 }
+
+// Callback function types
+type ShareRequestFunc func(int) ([]PeerAddress, error)
 
 // New returns a new PeerSharing object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *PeerSharing {
@@ -95,6 +99,13 @@ func NewConfig(options ...PeerSharingOptionFunc) Config {
 		option(&c)
 	}
 	return c
+}
+
+// WithShareRequestFunc specifies the ShareRequest callback function
+func WithShareRequestFunc(shareRequestFunc ShareRequestFunc) PeerSharingOptionFunc {
+	return func(c *Config) {
+		c.ShareRequestFunc = shareRequestFunc
+	}
 }
 
 // WithTimeout specifies the timeout for the handshake operation
