@@ -175,10 +175,10 @@ func (h *BabbageBlockHeader) Era() Era {
 
 type BabbageTransactionBody struct {
 	AlonzoTransactionBody
-	TxOutputs        []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
-	CollateralReturn BabbageTransactionOutput   `cbor:"16,keyasint,omitempty"`
-	TotalCollateral  uint64                     `cbor:"17,keyasint,omitempty"`
-	ReferenceInputs  []ShelleyTransactionInput  `cbor:"18,keyasint,omitempty"`
+	TxOutputs         []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
+	CollateralReturn  BabbageTransactionOutput   `cbor:"16,keyasint,omitempty"`
+	TotalCollateral   uint64                     `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs []ShelleyTransactionInput  `cbor:"18,keyasint,omitempty"`
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -190,6 +190,15 @@ func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
 	for _, output := range b.TxOutputs {
 		output := output
 		ret = append(ret, &output)
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) ReferenceInputs() []TransactionInput {
+	ret := []TransactionInput{}
+	for _, input := range b.TxReferenceInputs {
+		input := input
+		ret = append(ret, &input)
 	}
 	return ret
 }
@@ -373,6 +382,10 @@ func (t BabbageTransaction) Fee() uint64 {
 
 func (t BabbageTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t BabbageTransaction) ReferenceInputs() []TransactionInput {
+	return t.Body.ReferenceInputs()
 }
 
 func (t BabbageTransaction) Metadata() *cbor.Value {
