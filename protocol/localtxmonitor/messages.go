@@ -174,7 +174,7 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 		txWrapper := tmp[1].([]interface{})
 		m.Transaction = MsgReplyNextTxTransaction{
 			EraId: uint8(txWrapper[0].(uint64)),
-			Tx:    txWrapper[1].(cbor.Tag).Content.([]byte),
+			Tx:    txWrapper[1].(cbor.WrappedCbor).Bytes(),
 		}
 	}
 	return nil

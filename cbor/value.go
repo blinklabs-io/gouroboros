@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -59,41 +59,26 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 		if _, err := Decode(data, &tmpTag); err != nil {
 			return err
 		}
-		switch tmpTag.Number {
-		case CborTagCbor:
-			v.value = tmpTag.Content
-		case CborTagRational:
-			tmpRat := []int64{}
-			if _, err := Decode(tmpTag.Content, &tmpRat); err != nil {
+		if (tmpTag.Number >= CborTagAlternative1Min && tmpTag.Number <= CborTagAlternative1Max) ||
+			(tmpTag.Number >= CborTagAlternative2Min && tmpTag.Number <= CborTagAlternative2Max) ||
+			tmpTag.Number == CborTagAlternative3 {
+			// Constructors/alternatives
+			var tmpConstr Constructor
+			if _, err := Decode(data, &tmpConstr); err != nil {
 				return err
 			}
-			v.value = big.NewRat(tmpRat[0], tmpRat[1])
-		case CborTagSet:
-			return v.processArray(tmpTag.Content)
-		case CborTagMap:
-			return v.processMap(tmpTag.Content)
-		default:
-			if (tmpTag.Number >= CborTagAlternative1Min && tmpTag.Number <= CborTagAlternative1Max) ||
-				(tmpTag.Number >= CborTagAlternative2Min && tmpTag.Number <= CborTagAlternative2Max) ||
-				tmpTag.Number == CborTagAlternative3 {
-				// Constructors/alternatives
-				var tmpConstr Constructor
-				if _, err := Decode(data, &tmpConstr); err != nil {
-					return err
-				}
-				v.value = tmpConstr
-			} else {
-				// Fall back to standard CBOR tag parsing for our supported types
-				var tmpTagDecode interface{}
-				if _, err := Decode(data, &tmpTagDecode); err != nil {
-					return err
-				}
-				switch tmpTagDecode.(type) {
-				case int, uint, int64, uint64, bool, big.Int:
-					v.value = tmpTagDecode
-				default:
-					return fmt.Errorf("unsupported CBOR tag number: %d", tmpTag.Number)
-				}
+			v.value = tmpConstr
+		} else {
+			// Fall back to standard CBOR tag parsing for our supported types
+			var tmpTagDecode interface{}
+			if _, err := Decode(data, &tmpTagDecode); err != nil {
+				return err
+			}
+			switch tmpTagDecode.(type) {
+			case int, uint, int64, uint64, bool, big.Int, WrappedCbor, Rat, Set, Map:
+				v.value = tmpTagDecode
+			default:
+				return fmt.Errorf("unsupported CBOR tag number: %d", tmpTag.Number)
 			}
 		}
 	default:
@@ -179,45 +164,16 @@ func generateAstJson(obj interface{}) ([]byte, error) {
 	switch v := obj.(type) {
 	case ByteString:
 		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
+	case WrappedCbor:
+		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
 	case []interface{}:
-		tmpJson := `{"list":[`
-		for idx, val := range v {
-			tmpVal, err := generateAstJson(val)
-			if err != nil {
-				return nil, err
-			}
-			tmpJson += string(tmpVal)
-			if idx != (len(v) - 1) {
-				tmpJson += `,`
-			}
-		}
-		tmpJson += `]}`
-		return []byte(tmpJson), nil
+		return generateAstJsonList[[]any](v)
+	case Set:
+		return generateAstJsonList[Set](v)
 	case map[interface{}]interface{}:
-		tmpItems := []string{}
-		for key, val := range v {
-			keyAstJson, err := generateAstJson(key)
-			if err != nil {
-				return nil, err
-			}
-			valAstJson, err := generateAstJson(val)
-			if err != nil {
-				return nil, err
-			}
-			tmpJson := fmt.Sprintf(
-				`{"k":%s,"v":%s}`,
-				keyAstJson,
-				valAstJson,
-			)
-			tmpItems = append(tmpItems, string(tmpJson))
-		}
-		// We naively sort the rendered map items to give consistent ordering
-		sort.Strings(tmpItems)
-		tmpJson := fmt.Sprintf(
-			`{"map":[%s]}`,
-			strings.Join(tmpItems, ","),
-		)
-		return []byte(tmpJson), nil
+		return generateAstJsonMap[map[any]any](v)
+	case Map:
+		return generateAstJsonMap[Map](v)
 	case Constructor:
 		return json.Marshal(obj)
 	case big.Int:
@@ -226,6 +182,13 @@ func generateAstJson(obj interface{}) ([]byte, error) {
 			v.String(),
 		)
 		return []byte(tmpJson), nil
+	case Rat:
+		return generateAstJson(
+			[]any{
+				v.Num().Uint64(),
+				v.Denom().Uint64(),
+			},
+		)
 	case int, uint, uint64, int64:
 		tmpJsonObj["int"] = v
 	case bool:
@@ -236,6 +199,52 @@ func generateAstJson(obj interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("unknown data type (%T) for value: %#v", obj, obj)
 	}
 	return json.Marshal(&tmpJsonObj)
+}
+
+func generateAstJsonList[T []any | Set](v T) ([]byte, error) {
+	tmpJson := `{"list":[`
+	for idx, val := range v {
+		tmpVal, err := generateAstJson(val)
+		if err != nil {
+			return nil, err
+		}
+		tmpJson += string(tmpVal)
+		if idx != (len(v) - 1) {
+			tmpJson += `,`
+		}
+	}
+	tmpJson += `]}`
+	return []byte(tmpJson), nil
+}
+
+func generateAstJsonMap[T map[any]any | Map](v T) ([]byte, error) {
+	tmpItems := []string{}
+	for key, val := range v {
+		keyAstJson, err := generateAstJson(key)
+		if err != nil {
+			return nil, err
+		}
+		valAstJson, err := generateAstJson(val)
+		if err != nil {
+			return nil, err
+		}
+		// NOTE: Github CodeQL hates this due to "potentially unsafe quoting", but it
+		// won't happen in practice since both values injected are auto-generated
+		tmpJson := fmt.Sprintf(
+			`{"k":%s,"v":%s}`,
+			keyAstJson,
+			valAstJson,
+		)
+		tmpItems = append(tmpItems, string(tmpJson))
+	}
+	// We naively sort the rendered map items to give consistent ordering
+	sort.Strings(tmpItems)
+	tmpJson := fmt.Sprintf(
+		`{"map":[%s]}`,
+		strings.Join(tmpItems, ","),
+	)
+	return []byte(tmpJson), nil
+
 }
 
 type Constructor struct {

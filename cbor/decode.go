@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ func Decode(dataBytes []byte, dest interface{}) (int, error) {
 		// This defaults to 32, but there are blocks in the wild using >64 nested levels
 		MaxNestedLevels: 256,
 	}
-	decMode, err := decOptions.DecMode()
+	decMode, err := decOptions.DecModeWithTags(customTagSet)
 	if err != nil {
 		return 0, err
 	}

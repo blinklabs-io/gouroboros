@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,20 +30,6 @@ const (
 
 	// Max value able to be stored in a single byte without type prefix
 	CborMaxUintSimple uint8 = 0x17
-
-	// Useful tag numbers
-	CborTagCbor     = 24
-	CborTagRational = 30
-	CborTagSet      = 258
-	CborTagMap      = 259
-
-	// Tag ranges for "alternatives"
-	// https://www.ietf.org/archive/id/draft-bormann-cbor-notable-tags-07.html#name-enumerated-alternative-data
-	CborTagAlternative1Min = 121
-	CborTagAlternative1Max = 127
-	CborTagAlternative2Min = 1280
-	CborTagAlternative2Max = 1400
-	CborTagAlternative3    = 101
 )
 
 // Create an alias for RawMessage for convenience
