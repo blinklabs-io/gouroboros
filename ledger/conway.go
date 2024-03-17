@@ -160,6 +160,10 @@ func (t ConwayTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t ConwayTransaction) ReferenceInputs() []TransactionInput {
+	return t.Body.ReferenceInputs()
+}
+
 func (t ConwayTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

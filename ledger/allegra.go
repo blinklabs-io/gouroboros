@@ -149,6 +149,10 @@ func (t AllegraTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t AllegraTransaction) ReferenceInputs() []TransactionInput {
+	return t.Body.ReferenceInputs()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

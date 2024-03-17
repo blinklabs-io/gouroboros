@@ -153,6 +153,11 @@ func (t *ByronTransaction) TTL() uint64 {
 	return 0
 }
 
+func (t *ByronTransaction) ReferenceInputs() []TransactionInput {
+	// TODO
+	return nil
+}
+
 func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }

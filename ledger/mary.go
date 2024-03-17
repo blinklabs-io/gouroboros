@@ -160,6 +160,10 @@ func (t MaryTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t MaryTransaction) ReferenceInputs() []TransactionInput {
+	return t.Body.ReferenceInputs()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

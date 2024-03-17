@@ -217,6 +217,10 @@ func (b *ShelleyTransactionBody) TTL() uint64 {
 	return b.Ttl
 }
 
+func (b *ShelleyTransactionBody) ReferenceInputs() []TransactionInput {
+	return []TransactionInput{}
+}
+
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 	var txi []*utxorpc.TxInput
 	var txo []*utxorpc.TxOutput
@@ -349,6 +353,10 @@ func (t ShelleyTransaction) Fee() uint64 {
 
 func (t ShelleyTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t ShelleyTransaction) ReferenceInputs() []TransactionInput {
+	return t.Body.ReferenceInputs()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {
