@@ -21,12 +21,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
+// Client implements the TxSubmission client
 type Client struct {
 	*protocol.Protocol
 	config   *Config
 	onceInit sync.Once
 }
 
+// NewClient returns a new TxSubmission client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
 		tmpCfg := NewConfig()

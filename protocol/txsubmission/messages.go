@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
+// Message types
 const (
 	MessageTypeRequestTxIds = 0
 	MessageTypeReplyTxIds   = 1
@@ -30,6 +31,7 @@ const (
 	MessageTypeInit         = 6
 )
 
+// NewMsgFromCbor parses a TxSubmission message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {

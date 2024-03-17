@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
+// Server implements the TxSubmission server
 type Server struct {
 	*protocol.Protocol
 	config                 *Config
@@ -31,6 +32,7 @@ type Server struct {
 	onceStart              sync.Once
 }
 
+// NewServer returns a new TxSubmission server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config:                 cfg,
@@ -86,6 +88,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	return err
 }
 
+// RequestTxIds requests the next set of TX identifiers from the remote node's mempool
 func (s *Server) RequestTxIds(
 	blocking bool,
 	reqCount int,
@@ -107,6 +110,7 @@ func (s *Server) RequestTxIds(
 	return txIds, nil
 }
 
+// RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 	if s.stateDone {
 		return nil, protocol.ProtocolShuttingDownError
