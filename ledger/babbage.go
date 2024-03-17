@@ -175,10 +175,15 @@ func (h *BabbageBlockHeader) Era() Era {
 
 type BabbageTransactionBody struct {
 	AlonzoTransactionBody
-	TxOutputs         []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
-	CollateralReturn  BabbageTransactionOutput   `cbor:"16,keyasint,omitempty"`
-	TotalCollateral   uint64                     `cbor:"17,keyasint,omitempty"`
-	TxReferenceInputs []ShelleyTransactionInput  `cbor:"18,keyasint,omitempty"`
+	TxOutputs []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
+	Update    struct {
+		cbor.StructAsArray
+		ProtocolParamUpdates map[Blake2b224]BabbageProtocolParameterUpdate
+		Epoch                uint64
+	} `cbor:"6,keyasint,omitempty"`
+	CollateralReturn  BabbageTransactionOutput  `cbor:"16,keyasint,omitempty"`
+	TotalCollateral   uint64                    `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs []ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -425,6 +430,63 @@ func (t *BabbageTransaction) Cbor() []byte {
 
 func (t *BabbageTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
+}
+
+// BabbageProtocolParameters represents the current Babbage protocol parameters as seen in local-state-query
+type BabbageProtocolParameters struct {
+	cbor.StructAsArray
+	MinFeeA                uint
+	MinFeeB                uint
+	MaxBlockBodySize       uint
+	MaxTxSize              uint
+	MaxBlockHeaderSize     uint
+	KeyDeposit             uint
+	PoolDeposit            uint
+	MaxEpoch               uint
+	NOpt                   uint
+	A0                     *cbor.Rat
+	Rho                    *cbor.Rat
+	Tau                    *cbor.Rat
+	ProtocolMajor          uint
+	ProtocolMinor          uint
+	MinPoolCost            uint
+	AdaPerUtxoByte         uint
+	CostModels             map[uint][]int
+	ExecutionUnitPrices    []*cbor.Rat // [priceMemory priceSteps]
+	MaxTxExecutionUnits    []uint
+	MaxBlockExecutionUnits []uint
+	MaxValueSize           uint
+	CollateralPercentage   uint
+	MaxCollateralInputs    uint
+}
+
+type BabbageProtocolParameterUpdate struct {
+	MinFeeA            uint      `cbor:"0,keyasint"`
+	MinFeeB            uint      `cbor:"1,keyasint"`
+	MaxBlockBodySize   uint      `cbor:"2,keyasint"`
+	MaxTxSize          uint      `cbor:"3,keyasint"`
+	MaxBlockHeaderSize uint      `cbor:"4,keyasint"`
+	KeyDeposit         uint      `cbor:"5,keyasint"`
+	PoolDeposit        uint      `cbor:"6,keyasint"`
+	MaxEpoch           uint      `cbor:"7,keyasint"`
+	NOpt               uint      `cbor:"8,keyasint"`
+	A0                 *cbor.Rat `cbor:"9,keyasint"`
+	Rho                *cbor.Rat `cbor:"10,keyasint"`
+	Tau                *cbor.Rat `cbor:"11,keyasint"`
+	ProtocolVersion    struct {
+		cbor.StructAsArray
+		Major uint
+		Minor uint
+	} `cbor:"14,keyasint"`
+	MinPoolCost            uint           `cbor:"16,keyasint"`
+	AdaPerUtxoByte         uint           `cbor:"17,keyasint"`
+	CostModels             map[uint][]int `cbor:"18,keyasint"`
+	ExecutionUnitPrices    []*cbor.Rat    `cbor:"19,keyasint"`
+	MaxTxExecutionUnits    []uint         `cbor:"20,keyasint"`
+	MaxBlockExecutionUnits []uint         `cbor:"21,keyasint"`
+	MaxValueSize           uint           `cbor:"22,keyasint"`
+	CollateralPercentage   uint           `cbor:"23,keyasint"`
+	MaxCollateralInputs    uint           `cbor:"24,keyasint"`
 }
 
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {
