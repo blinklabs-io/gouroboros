@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -86,6 +86,41 @@ var testDefs = []struct {
 		},
 		expectedAstJson: `{"list":[{"int":22318265904693663008365},{"int":8535038193994223137511702528}]}`,
 	},
+	// 24('abcdef')
+	{
+		cborHex:         "d81843abcdef",
+		expectedObject:  cbor.WrappedCbor([]byte{0xab, 0xcd, 0xef}),
+		expectedAstJson: `{"bytes":"abcdef"}`,
+	},
+	// 30([3, 1000])
+	{
+		cborHex: "d81e82031903e8",
+		expectedObject: cbor.Rat{
+			Rat: big.NewRat(3, 1000),
+		},
+		expectedAstJson: `{"list":[{"int":3},{"int":1000}]}`,
+	},
+	// 258([1, 2, 3])
+	{
+		cborHex: "d9010283010203",
+		expectedObject: cbor.Set(
+			[]any{
+				uint64(1), uint64(2), uint64(3),
+			},
+		),
+		expectedAstJson: `{"list":[{"int":1},{"int":2},{"int":3}]}`,
+	},
+	// 259({1: 2, 3: 4})
+	{
+		cborHex: "d90103a201020304",
+		expectedObject: cbor.Map(
+			map[any]any{
+				uint64(1): uint64(2),
+				uint64(3): uint64(4),
+			},
+		),
+		expectedAstJson: `{"map":[{"k":{"int":1},"v":{"int":2}},{"k":{"int":3},"v":{"int":4}}]}`,
+	},
 }
 
 func TestValueDecode(t *testing.T) {
@@ -99,7 +134,7 @@ func TestValueDecode(t *testing.T) {
 			if testDef.expectedDecodeError != nil {
 				if err.Error() != testDef.expectedDecodeError.Error() {
 					t.Fatalf(
-						"did not receive expected decode error, got: %s, wanted: %s",
+						"did not receive expected decode error, got:    %s, wanted: %s",
 						err,
 						testDef.expectedDecodeError,
 					)
@@ -116,7 +151,7 @@ func TestValueDecode(t *testing.T) {
 		newObj := tmpValue.Value()
 		if !reflect.DeepEqual(newObj, testDef.expectedObject) {
 			t.Fatalf(
-				"CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v",
+				"CBOR did not decode to expected object\n  got:    %#v\n  wanted: %#v",
 				newObj,
 				testDef.expectedObject,
 			)
@@ -156,7 +191,7 @@ func TestValueMarshalJSON(t *testing.T) {
 		}
 		if !test.JsonStringsEqual(jsonData, []byte(fullExpectedJson)) {
 			t.Fatalf(
-				"CBOR did not marshal to expected JSON\n  got: %s\n  wanted: %s",
+				"CBOR did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
 				jsonData,
 				fullExpectedJson,
 			)
@@ -175,7 +210,7 @@ func TestLazyValueDecode(t *testing.T) {
 			if testDef.expectedDecodeError != nil {
 				if err.Error() != testDef.expectedDecodeError.Error() {
 					t.Fatalf(
-						"did not receive expected decode error, got: %s, wanted: %s",
+						"did not receive expected decode error, got:    %s, wanted: %s",
 						err,
 						testDef.expectedDecodeError,
 					)
@@ -190,7 +225,7 @@ func TestLazyValueDecode(t *testing.T) {
 			if testDef.expectedDecodeError != nil {
 				if err.Error() != testDef.expectedDecodeError.Error() {
 					t.Fatalf(
-						"did not receive expected decode error, got: %s, wanted: %s",
+						"did not receive expected decode error, got:    %s, wanted: %s",
 						err,
 						testDef.expectedDecodeError,
 					)
@@ -206,7 +241,7 @@ func TestLazyValueDecode(t *testing.T) {
 		}
 		if !reflect.DeepEqual(newObj, testDef.expectedObject) {
 			t.Fatalf(
-				"CBOR did not decode to expected object\n  got: %#v\n  wanted: %#v",
+				"CBOR did not decode to expected object\n  got:    %#v\n  wanted: %#v",
 				newObj,
 				testDef.expectedObject,
 			)
@@ -246,7 +281,7 @@ func TestLazyValueMarshalJSON(t *testing.T) {
 		}
 		if !test.JsonStringsEqual(jsonData, []byte(fullExpectedJson)) {
 			t.Fatalf(
-				"CBOR did not marshal to expected JSON\n  got: %s\n  wanted: %s",
+				"CBOR did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
 				jsonData,
 				fullExpectedJson,
 			)
@@ -303,7 +338,7 @@ func TestConstructorDecode(t *testing.T) {
 		}
 		if !reflect.DeepEqual(tmpConstr.Fields(), testDef.expectedObj.Fields()) {
 			t.Fatalf(
-				"did not decode to expected fields\n  got: %#v\n  wanted: %#v",
+				"did not decode to expected fields\n  got:    %#v\n  wanted: %#v",
 				tmpConstr.Fields(),
 				testDef.expectedObj.Fields(),
 			)
@@ -320,7 +355,7 @@ func TestConstructorEncode(t *testing.T) {
 		cborDataHex := hex.EncodeToString(cborData)
 		if cborDataHex != strings.ToLower(testDef.cborHex) {
 			t.Fatalf(
-				"did not encode to expected CBOR\n  got: %s\n  wanted: %s",
+				"did not encode to expected CBOR\n  got:    %s\n  wanted: %s",
 				cborDataHex,
 				strings.ToLower(testDef.cborHex),
 			)

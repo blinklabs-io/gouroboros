@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 
 func Encode(data interface{}) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
-	em, err := _cbor.CoreDetEncOptions().EncMode()
+	em, err := _cbor.CoreDetEncOptions().EncModeWithTags(customTagSet)
 	if err != nil {
 		return nil, err
 	}
