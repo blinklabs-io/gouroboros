@@ -150,7 +150,7 @@ func testQuery(f *globalFlags) {
 			fmt.Printf("ERROR: failure querying protocol params: %s\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("protocol-params: %#v\n", *protoParams)
+		fmt.Printf("protocol-params: %#v\n", protoParams)
 	case "stake-distribution":
 		stakeDistribution, err := o.LocalStateQuery().Client.GetStakeDistribution()
 		if err != nil {

@@ -16,6 +16,7 @@ package localstatequery
 
 import (
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 )
 
 // Query types
@@ -142,39 +143,8 @@ type eraHistoryResultParams struct {
 // TODO
 type NonMyopicMemberRewardsResult interface{}
 
-type CurrentProtocolParamsResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_                  struct{} `cbor:",toarray"`
-	MinFeeA            int
-	MinFeeB            int
-	MaxBlockBodySize   int
-	MaxTxSize          int
-	MaxBlockHeaderSize int
-	KeyDeposit         int
-	PoolDeposit        int
-	EMax               int
-	NOpt               int
-	A0                 []int
-	Rho                []int
-	Tau                []int
-	// This field no longer exists in Babbage, but we're keeping this here for reference
-	// unless we need to support querying a node still on an older era
-	//DecentralizationParam  []int
-	ProtocolVersion struct {
-		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-		_     struct{} `cbor:",toarray"`
-		Major int
-		Minor int
-	}
-	MinPoolCost            int
-	MinUtxoValue           int
-	CostModels             interface{}
-	ExecutionUnitPrices    interface{} // [priceMemory priceSteps]	both elements are fractions
-	MaxTxExecutionUnits    []uint
-	MaxBlockExecutionUnits []uint
-	MaxValueSize           int
-	CollateralPercentage   int
-	MaxCollateralInputs    int
+type CurrentProtocolParamsResult interface {
+	ledger.BabbageProtocolParameters | any // TODO: add more per-era types
 }
 
 // TODO
