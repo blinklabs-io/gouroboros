@@ -187,6 +187,40 @@ func (a AssetFingerprint) String() string {
 	return encoded
 }
 
+type PoolId [28]byte
+
+func NewPoolIdFromBech32(poolId string) (PoolId, error) {
+	var p PoolId
+	_, data, err := bech32.DecodeNoLimit(poolId)
+	if err != nil {
+		return p, err
+	}
+	decoded, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return p, err
+	}
+	if len(decoded) != len(p) {
+		return p, fmt.Errorf("invalid pool ID length: %d", len(decoded))
+	}
+	p = PoolId(decoded)
+	return p, err
+}
+
+func (p PoolId) String() string {
+	// Convert data to base32 and encode as bech32
+	convData, err := bech32.ConvertBits(p[:], 8, 5, true)
+	if err != nil {
+		panic(
+			fmt.Sprintf("unexpected error converting data to base32: %s", err),
+		)
+	}
+	encoded, err := bech32.Encode("pool", convData)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error encoding data as bech32: %s", err))
+	}
+	return encoded
+}
+
 const (
 	AddressHeaderTypeMask    = 0xF0
 	AddressHeaderNetworkMask = 0x0F

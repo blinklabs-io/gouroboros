@@ -590,12 +590,8 @@ func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 	return &result, nil
 }
 
-// TODO
-/*
-query	[17 #6.258([*poolid])
-*/
 func (c *Client) GetStakePoolParams(
-	poolIds []interface{},
+	poolIds []ledger.PoolId,
 ) (*StakePoolParamsResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
@@ -606,7 +602,10 @@ func (c *Client) GetStakePoolParams(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyStakePoolParams,
-		// TODO: add params
+		cbor.Tag{
+			Number:  cbor.CborTagSet,
+			Content: poolIds,
+		},
 	)
 	var result StakePoolParamsResult
 	if err := c.runQuery(query, &result); err != nil {

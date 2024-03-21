@@ -163,6 +163,13 @@ func testQuery(f *globalFlags) {
 			os.Exit(1)
 		}
 		fmt.Printf("stake-distribution: %#v\n", *stakeDistribution)
+	case "stake-pools":
+		stakePools, err := o.LocalStateQuery().Client.GetStakePools()
+		if err != nil {
+			fmt.Printf("ERROR: failure querying stake pools: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("stake-pools: %#v\n", *stakePools)
 	case "genesis-config":
 		genesisConfig, err := o.LocalStateQuery().Client.GetGenesisConfig()
 		if err != nil {
@@ -170,6 +177,26 @@ func testQuery(f *globalFlags) {
 			os.Exit(1)
 		}
 		fmt.Printf("genesis-config: %#v\n", *genesisConfig)
+	case "pool-params":
+		var tmpPools []ledger.PoolId
+		if len(queryFlags.flagset.Args()) <= 1 {
+			fmt.Println("No pools specified")
+			os.Exit(1)
+		}
+		for _, pool := range queryFlags.flagset.Args()[1:] {
+			tmpPoolId, err := ledger.NewPoolIdFromBech32(pool)
+			if err != nil {
+				fmt.Printf("Invalid bech32 pool ID %q: %s", pool, err)
+				os.Exit(1)
+			}
+			tmpPools = append(tmpPools, tmpPoolId)
+		}
+		poolParams, err := o.LocalStateQuery().Client.GetStakePoolParams(tmpPools)
+		if err != nil {
+			fmt.Printf("ERROR: failure querying stake pool params: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("pool-params: %#v\n", *poolParams)
 	case "utxos-by-address":
 		var tmpAddrs []ledger.Address
 		if len(queryFlags.flagset.Args()) <= 1 {
