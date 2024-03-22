@@ -115,6 +115,14 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgKeepAliveResponse)
+	if msg.Cookie != c.config.Cookie {
+		return fmt.Errorf(
+			"%s: unexpected cookie in response, expected %d but received %d",
+			ProtocolName,
+			c.config.Cookie,
+			msg.Cookie,
+		)
+	}
 	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
 		// Call the user callback function
 		return c.config.KeepAliveResponseFunc(msg.Cookie)
