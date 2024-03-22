@@ -15,6 +15,8 @@
 package localstatequery
 
 import (
+	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 )
@@ -141,6 +143,10 @@ type eraHistoryResultParams struct {
 }
 
 // TODO
+/*
+result	[{ *[0 int] => non_myopic_rewards }]	for each stake display reward
+non_myopic_rewards	{ *poolid => int }	int is the amount of lovelaces each pool would reward
+*/
 type NonMyopicMemberRewardsResult interface{}
 
 type CurrentProtocolParamsResult interface {
@@ -149,10 +155,68 @@ type CurrentProtocolParamsResult interface {
 
 // TODO
 type ProposedProtocolParamsUpdatesResult interface{}
+
+// TODO
+/*
+result	[{ *poolid => [[num den] vrf-hash]}]	num/den is the quotient representing the stake fractions
+*/
 type StakeDistributionResult interface{}
-type UTxOByAddressResult interface{}
+
+type UTxOByAddressResult struct {
+	cbor.StructAsArray
+	Results map[UtxoId]ledger.BabbageTransactionOutput
+}
+
+type UtxoId struct {
+	cbor.StructAsArray
+	Hash      ledger.Blake2b256
+	Idx       int
+	DatumHash ledger.Blake2b256
+}
+
+func (u *UtxoId) UnmarshalCBOR(data []byte) error {
+	listLen, err := cbor.ListLength(data)
+	if err != nil {
+		return err
+	}
+	switch listLen {
+	case 2:
+		var tmpData struct {
+			cbor.StructAsArray
+			Hash ledger.Blake2b256
+			Idx  int
+		}
+		if _, err := cbor.Decode(data, &tmpData); err != nil {
+			return err
+		}
+		u.Hash = tmpData.Hash
+		u.Idx = tmpData.Idx
+	case 3:
+		return cbor.DecodeGeneric(data, u)
+	default:
+		return fmt.Errorf("invalid list length: %d", listLen)
+	}
+	return nil
+}
+
+// TODO
+/*
+result	[{* utxo => value }]
+*/
 type UTxOWholeResult interface{}
+
+// TODO
 type DebugEpochStateResult interface{}
+
+// TODO
+/*
+rwdr	[flag bytestring]	bytestring is the keyhash of the staking vkey
+flag	0/1	0=keyhash 1=scripthash
+result	[[ delegation rewards] ]
+delegation	{ * rwdr => poolid }	poolid is a bytestring
+rewards	{ * rwdr => int }
+It seems to be a requirement to sort the reward addresses on the query. Scripthash addresses come first, then within a group the bytestring being a network order integer sort ascending.
+*/
 type FilteredDelegationsAndRewardAccountsResult interface{}
 
 type GenesisConfigResult struct {
@@ -199,12 +263,78 @@ type GenesisConfigResult struct {
 
 // TODO
 type DebugNewEpochStateResult interface{}
+
+// TODO
 type DebugChainDepStateResult interface{}
+
+// TODO
+/*
+result	[ *Element ]	Expanded in order on the next rows.
+Element	CDDL	Comment
+epochLength
+poolMints	{ *poolid => block-count }
+maxLovelaceSupply
+NA
+NA
+NA
+?circulatingsupply?
+total-blocks
+?decentralization?	[num den]
+?available block entries
+success-rate	[num den]
+NA
+NA		??treasuryCut
+activeStakeGo
+nil
+nil
+*/
 type RewardProvenanceResult interface{}
-type UTxOByTxInResult interface{}
+
+type UTxOByTxInResult struct {
+	cbor.StructAsArray
+	Results map[UtxoId]ledger.BabbageTransactionOutput
+}
+
+// TODO
+/*
+result	[#6.258([ *poolid ])]
+*/
 type StakePoolsResult interface{}
+
+// TODO
+/*
+result	[{ *poolid => [ *pool_param ] }]
+pool_param	CDDL	Comment
+operator	keyhash
+vrf_keyhash	keyhash
+pledge	coin
+margin	#6.30([num den])
+reward_account
+pool_owners	set<addr_keyhash>
+relays	[ *relay ]
+pool_metadata	pool_metadata/null
+relay	CDDL	Comment
+single_host_addr	[0 port/null ipv4/null ipv6/null]
+single_host_name	[1 port/null dns_name]	An A or AAAA DNS
+multi_host_name	[2 dns_name]	A SRV DNS record
+Type	CDDL	Comment
+port	uint .le 65535
+ipv4	bytes .size 4
+ipv6	bytes .size 16
+dns_name	tstr .size (0..64)
+pool_metadata	[url metadata_hash]
+url	tstr .size (0..64)
+*/
 type StakePoolParamsResult interface{}
+
+// TODO
 type RewardInfoPoolsResult interface{}
+
+// TODO
 type PoolStateResult interface{}
+
+// TODO
 type StakeSnapshotsResult interface{}
+
+// TODO
 type PoolDistrResult interface{}
