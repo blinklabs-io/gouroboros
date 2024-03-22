@@ -16,6 +16,7 @@ package localstatequery
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -156,11 +157,14 @@ type CurrentProtocolParamsResult interface {
 // TODO
 type ProposedProtocolParamsUpdatesResult interface{}
 
-// TODO
-/*
-result	[{ *poolid => [[num den] vrf-hash]}]	num/den is the quotient representing the stake fractions
-*/
-type StakeDistributionResult interface{}
+type StakeDistributionResult struct {
+	cbor.StructAsArray
+	Results map[ledger.PoolId]struct {
+		cbor.StructAsArray
+		StakeFraction *cbor.Rat
+		VrfHash       ledger.Blake2b256
+	}
+}
 
 type UTxOByAddressResult struct {
 	cbor.StructAsArray
@@ -295,37 +299,87 @@ type UTxOByTxInResult struct {
 	Results map[UtxoId]ledger.BabbageTransactionOutput
 }
 
-// TODO
-/*
-result	[#6.258([ *poolid ])]
-*/
-type StakePoolsResult interface{}
+type StakePoolsResult struct {
+	cbor.StructAsArray
+	Results []ledger.PoolId
+}
 
-// TODO
-/*
-result	[{ *poolid => [ *pool_param ] }]
-pool_param	CDDL	Comment
-operator	keyhash
-vrf_keyhash	keyhash
-pledge	coin
-margin	#6.30([num den])
-reward_account
-pool_owners	set<addr_keyhash>
-relays	[ *relay ]
-pool_metadata	pool_metadata/null
-relay	CDDL	Comment
-single_host_addr	[0 port/null ipv4/null ipv6/null]
-single_host_name	[1 port/null dns_name]	An A or AAAA DNS
-multi_host_name	[2 dns_name]	A SRV DNS record
-Type	CDDL	Comment
-port	uint .le 65535
-ipv4	bytes .size 4
-ipv6	bytes .size 16
-dns_name	tstr .size (0..64)
-pool_metadata	[url metadata_hash]
-url	tstr .size (0..64)
-*/
-type StakePoolParamsResult interface{}
+type StakePoolParamsResult struct {
+	cbor.StructAsArray
+	Results map[ledger.PoolId]struct {
+		cbor.StructAsArray
+		Operator      ledger.Blake2b224
+		VrfKeyHash    ledger.Blake2b256
+		Pledge        uint
+		FixedCost     uint
+		Margin        *cbor.Rat
+		RewardAccount ledger.Address
+		PoolOwners    []ledger.Blake2b224
+		Relays        []StakePoolParamsResultRelay
+		PoolMetadata  *struct {
+			cbor.StructAsArray
+			Url          string
+			MetadataHash ledger.Blake2b256
+		}
+	}
+}
+
+type StakePoolParamsResultRelay struct {
+	Type     int
+	Port     *uint
+	Ipv4     *net.IP
+	Ipv6     *net.IP
+	Hostname *string
+}
+
+func (s *StakePoolParamsResultRelay) UnmarshalCBOR(data []byte) error {
+	tmpId, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	s.Type = tmpId
+	switch tmpId {
+	case 0:
+		var tmpData struct {
+			cbor.StructAsArray
+			Type uint
+			Port *uint
+			Ipv4 *net.IP
+			Ipv6 *net.IP
+		}
+		if _, err := cbor.Decode(data, &tmpData); err != nil {
+			return err
+		}
+		s.Port = tmpData.Port
+		s.Ipv4 = tmpData.Ipv4
+		s.Ipv6 = tmpData.Ipv6
+	case 1:
+		var tmpData struct {
+			cbor.StructAsArray
+			Type     uint
+			Port     *uint
+			Hostname *string
+		}
+		if _, err := cbor.Decode(data, &tmpData); err != nil {
+			return err
+		}
+		s.Port = tmpData.Port
+		s.Hostname = tmpData.Hostname
+	case 2:
+		var tmpData struct {
+			cbor.StructAsArray
+			Type     uint
+			Hostname *string
+		}
+		if _, err := cbor.Decode(data, &tmpData); err != nil {
+			return err
+		}
+		s.Hostname = tmpData.Hostname
+	default:
+		return fmt.Errorf("invalid relay type: %d", tmpId)
+	}
+	return nil
+}
 
 // TODO
 type RewardInfoPoolsResult interface{}
