@@ -1,8 +1,11 @@
 module github.com/blinklabs-io/gouroboros
 
-go 1.20
+go 1.21
+
+toolchain go1.21.5
 
 require (
+	github.com/blinklabs-io/ouroboros-mock v0.1.0
 	github.com/fxamacker/cbor/v2 v2.6.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/utxorpc/go-codegen v0.4.4
