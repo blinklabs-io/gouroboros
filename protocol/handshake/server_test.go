@@ -20,7 +20,7 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
-	"github.com/blinklabs-io/gouroboros/internal/test/ouroboros_mock"
+	"github.com/blinklabs-io/ouroboros-mock"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	"go.uber.org/goleak"
