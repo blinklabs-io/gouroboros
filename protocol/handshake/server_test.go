@@ -20,9 +20,9 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
-	"github.com/blinklabs-io/ouroboros-mock"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
+	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
 
@@ -32,10 +32,9 @@ func TestServerBasicHandshake(t *testing.T) {
 		ouroboros_mock.ProtocolRoleServer,
 		[]ouroboros_mock.ConversationEntry{
 			// MsgProposeVersions from mock client
-			{
-				Type:       ouroboros_mock.EntryTypeOutput,
+			ouroboros_mock.ConversationEntryOutput{
 				ProtocolId: handshake.ProtocolId,
-				OutputMessages: []protocol.Message{
+				Messages: []protocol.Message{
 					handshake.NewMsgProposeVersions(
 						protocol.ProtocolVersionMap{
 							(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
@@ -46,12 +45,11 @@ func TestServerBasicHandshake(t *testing.T) {
 				},
 			},
 			// MsgAcceptVersion from server
-			{
-				Type:            ouroboros_mock.EntryTypeInput,
-				IsResponse:      true,
+			ouroboros_mock.ConversationEntryInput{
 				ProtocolId:      handshake.ProtocolId,
+				IsResponse:      true,
 				MsgFromCborFunc: handshake.NewMsgFromCbor,
-				InputMessage: handshake.NewMsgAcceptVersion(
+				Message: handshake.NewMsgAcceptVersion(
 					(12 + protocol.ProtocolVersionNtCOffset),
 					protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
 				),
@@ -96,10 +94,9 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 		ouroboros_mock.ProtocolRoleServer,
 		[]ouroboros_mock.ConversationEntry{
 			// MsgProposeVersions from mock client
-			{
-				Type:       ouroboros_mock.EntryTypeOutput,
+			ouroboros_mock.ConversationEntryOutput{
 				ProtocolId: handshake.ProtocolId,
-				OutputMessages: []protocol.Message{
+				Messages: []protocol.Message{
 					handshake.NewMsgProposeVersions(
 						protocol.ProtocolVersionMap{
 							(100 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
@@ -110,13 +107,12 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 				},
 			},
 			// MsgRefuse from server
-			{
-				Type:             ouroboros_mock.EntryTypeInput,
-				IsResponse:       true,
-				ProtocolId:       handshake.ProtocolId,
-				MsgFromCborFunc:  handshake.NewMsgFromCbor,
-				InputMessageType: handshake.MessageTypeRefuse,
-				InputMessage: handshake.NewMsgRefuse(
+			ouroboros_mock.ConversationEntryInput{
+				IsResponse:      true,
+				ProtocolId:      handshake.ProtocolId,
+				MsgFromCborFunc: handshake.NewMsgFromCbor,
+				MessageType:     handshake.MessageTypeRefuse,
+				Message: handshake.NewMsgRefuse(
 					[]any{
 						handshake.RefuseReasonVersionMismatch,
 						// Convert []uint16 to []any
