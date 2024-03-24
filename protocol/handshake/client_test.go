@@ -23,7 +23,7 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
-	"github.com/blinklabs-io/ouroboros-mock"
+	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
 
@@ -33,11 +33,10 @@ const (
 	mockProtocolVersionNtNV11 uint16 = 11
 )
 
-var conversationEntryNtCResponse = ouroboros_mock.ConversationEntry{
-	Type:       ouroboros_mock.EntryTypeOutput,
+var conversationEntryNtCResponse = ouroboros_mock.ConversationEntryOutput{
 	ProtocolId: handshake.ProtocolId,
 	IsResponse: true,
-	OutputMessages: []protocol.Message{
+	Messages: []protocol.Message{
 		handshake.NewMsgAcceptVersion(
 			mockProtocolVersionNtC,
 			mockNtCVersionData(),
@@ -45,11 +44,10 @@ var conversationEntryNtCResponse = ouroboros_mock.ConversationEntry{
 	},
 }
 
-var conversationEntryNtNResponse = ouroboros_mock.ConversationEntry{
-	Type:       ouroboros_mock.EntryTypeOutput,
+var conversationEntryNtNResponse = ouroboros_mock.ConversationEntryOutput{
 	ProtocolId: handshake.ProtocolId,
 	IsResponse: true,
-	OutputMessages: []protocol.Message{
+	Messages: []protocol.Message{
 		handshake.NewMsgAcceptVersion(
 			mockProtocolVersionNtN,
 			mockNtNVersionData(),
@@ -57,11 +55,10 @@ var conversationEntryNtNResponse = ouroboros_mock.ConversationEntry{
 	},
 }
 
-var conversationEntryNtNResponseV11 = ouroboros_mock.ConversationEntry{
-	Type:       ouroboros_mock.EntryTypeOutput,
+var conversationEntryNtNResponseV11 = ouroboros_mock.ConversationEntryOutput{
 	ProtocolId: handshake.ProtocolId,
 	IsResponse: true,
-	OutputMessages: []protocol.Message{
+	Messages: []protocol.Message{
 		handshake.NewMsgAcceptVersion(
 			mockProtocolVersionNtNV11,
 			mockNtNVersionDataV11(),
@@ -232,11 +229,10 @@ func TestClientNtCRefuseVersionMismatch(t *testing.T) {
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
 			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-			ouroboros_mock.ConversationEntry{
-				Type:       ouroboros_mock.EntryTypeOutput,
+			ouroboros_mock.ConversationEntryOutput{
 				ProtocolId: handshake.ProtocolId,
 				IsResponse: true,
-				OutputMessages: []protocol.Message{
+				Messages: []protocol.Message{
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonVersionMismatch,
@@ -267,11 +263,10 @@ func TestClientNtCRefuseDecodeError(t *testing.T) {
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
 			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-			ouroboros_mock.ConversationEntry{
-				Type:       ouroboros_mock.EntryTypeOutput,
+			ouroboros_mock.ConversationEntryOutput{
 				ProtocolId: handshake.ProtocolId,
 				IsResponse: true,
-				OutputMessages: []protocol.Message{
+				Messages: []protocol.Message{
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonDecodeError,
@@ -303,11 +298,10 @@ func TestClientNtCRefuseRefused(t *testing.T) {
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
 			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-			ouroboros_mock.ConversationEntry{
-				Type:       ouroboros_mock.EntryTypeOutput,
+			ouroboros_mock.ConversationEntryOutput{
 				ProtocolId: handshake.ProtocolId,
 				IsResponse: true,
-				OutputMessages: []protocol.Message{
+				Messages: []protocol.Message{
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonRefused,

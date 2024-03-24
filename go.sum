@@ -1,5 +1,5 @@
-github.com/blinklabs-io/ouroboros-mock v0.1.0 h1:CvRnJAUMzzZVaY4CoqDedbRXyNXtZpzIkxK9KXNjdVI=
-github.com/blinklabs-io/ouroboros-mock v0.1.0/go.mod h1:t9eIDjmj339GJtfV7jandJnCqmj8WkZsFg2N1TR68io=
+github.com/blinklabs-io/ouroboros-mock v0.2.0 h1:Wff7mJiFUzktQ5tuWRN9vXNk38wR0ij2Q4bYHwJXaV4=
+github.com/blinklabs-io/ouroboros-mock v0.2.0/go.mod h1:t9eIDjmj339GJtfV7jandJnCqmj8WkZsFg2N1TR68io=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/fxamacker/cbor/v2 v2.6.0 h1:sU6J2usfADwWlYDAFhZBQ6TnLFBHxgesMrQfQgk1tWA=
