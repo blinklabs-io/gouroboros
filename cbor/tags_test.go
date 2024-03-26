@@ -54,6 +54,24 @@ var tagsTestDefs = []struct {
 			},
 		),
 	},
+	/*
+		// 121([1, 2, 3])
+		{
+			cborHex: "d87983010203",
+			object: cbor.NewConstructor(
+				0,
+				[]any{0x1, 0x2, 0x3},
+			),
+		},
+	*/
+	// 122(1, 2, 3])
+	{
+		cborHex: "d87a83010203",
+		object: cbor.NewConstructor(
+			1,
+			[]any{uint64(1), uint64(2), uint64(3)},
+		),
+	},
 }
 
 func TestTagsDecode(t *testing.T) {
@@ -65,6 +83,17 @@ func TestTagsDecode(t *testing.T) {
 		var dest any
 		if _, err := cbor.Decode(cborData, &dest); err != nil {
 			t.Fatalf("failed to decode CBOR: %s", err)
+		}
+		// Set stored CBOR for supported types to make comparison easier
+		switch v := dest.(type) {
+		case cbor.Constructor:
+			v.SetFieldsCbor(nil)
+			dest = v
+		}
+		switch v := testDef.object.(type) {
+		case cbor.DecodeStoreCborInterface:
+			v.SetCbor(cborData)
+			testDef.object = v
 		}
 		if !reflect.DeepEqual(dest, testDef.object) {
 			t.Fatalf(

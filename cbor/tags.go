@@ -15,6 +15,7 @@
 package cbor
 
 import (
+	"fmt"
 	"math/big"
 	"reflect"
 
@@ -75,6 +76,16 @@ func init() {
 	); err != nil {
 		panic(err)
 	}
+	// Plutus constructors (CBOR alternatives)
+	//for i := CborTagAlternative1Min; i <= CborTagAlternative1Max; i++ {
+	if err := customTagSet.Add(
+		tagOpts,
+		reflect.TypeOf(Constructor{}),
+		CborTagAlternative1Min+1,
+	); err != nil {
+		panic(err)
+	}
+	//}
 }
 
 // WrappedCbor corresponds to CBOR tag 24 and is used to encode nested CBOR data
@@ -118,3 +129,120 @@ type Set []any
 
 // Map corresponds to CBOR tag 259 and is used to represent a map with key/value operations
 type Map map[any]any
+
+// TODO: docs
+type Constructor struct {
+	DecodeStoreCbor
+	fieldsCbor  []byte
+	constructor uint
+	value       any
+}
+
+func NewConstructor(constructor uint, value any) Constructor {
+	c := Constructor{
+		constructor: constructor,
+	}
+	if value != nil {
+		c.value = value
+	}
+	fmt.Printf("NewConstructor(): value = %#v\n", value)
+	return c
+}
+
+func (v Constructor) Constructor() uint {
+	return v.constructor
+}
+
+func (v Constructor) Fields() []any {
+	return v.value.([]any)
+}
+
+func (c *Constructor) SetFieldsCbor(data []byte) {
+	c.fieldsCbor = data[:]
+}
+
+func (c Constructor) FieldsCbor() []byte {
+	return c.fieldsCbor[:]
+}
+
+func (c *Constructor) UnmarshalCBOR(data []byte) error {
+	// Save original CBOR
+	c.SetCbor(data)
+	// Parse as a raw tag to get number and nested CBOR data
+	tmpTag := RawTag{}
+	if _, err := Decode(data, &tmpTag); err != nil {
+		return err
+	}
+	fmt.Printf("tmpTag = %#v\n", tmpTag)
+	c.SetFieldsCbor([]byte(tmpTag.Content))
+	// Parse the tag value via our custom Value object to handle problem types
+	//tmpValue := Value{}
+	var tmpValue any
+	if _, err := Decode(tmpTag.Content, &tmpValue); err != nil {
+		return err
+	}
+	if tmpTag.Number >= CborTagAlternative1Min && tmpTag.Number <= CborTagAlternative1Max {
+		// Alternatives 0-6
+		c.constructor = uint(tmpTag.Number - CborTagAlternative1Min)
+		c.value = tmpValue
+	} else if tmpTag.Number >= CborTagAlternative2Min && tmpTag.Number <= CborTagAlternative2Max {
+		// Alternatives 7-127
+		c.constructor = uint(tmpTag.Number - CborTagAlternative2Min + 7)
+		c.value = tmpValue
+	} else if tmpTag.Number == CborTagAlternative3 {
+		// Alternatives 128+
+		tmpValues := tmpValue.([]any)
+		c.constructor = uint(tmpValues[0].(uint64))
+		/*
+			newValue := Value{
+				value: tmpValues[1],
+			}
+			c.value = newValue
+		*/
+		c.value = tmpValues[1]
+	} else {
+		return fmt.Errorf("unsupported tag: %d", tmpTag.Number)
+	}
+	fmt.Printf("UnmarshalCBOR(): c.value = %#v\n", c.value)
+	return nil
+}
+
+func (c Constructor) MarshalCBOR() ([]byte, error) {
+	var tmpTag Tag
+	if c.constructor <= 6 {
+		// Alternatives 0-6
+		tmpTag.Number = uint64(c.constructor + CborTagAlternative1Min)
+		tmpTag.Content = c.value
+	} else if c.constructor >= 7 && c.constructor <= 127 {
+		// Alternatives 7-127
+		tmpTag.Number = uint64(c.constructor + CborTagAlternative2Min - 7)
+		tmpTag.Content = c.value
+	} else if c.constructor >= 128 {
+		tmpTag.Number = CborTagAlternative3
+		tmpTag.Content = []any{
+			c.constructor,
+			c.value,
+		}
+	}
+	return Encode(&tmpTag)
+}
+
+func (v Constructor) MarshalJSON() ([]byte, error) {
+	tmpJson := fmt.Sprintf(`{"constructor":%d,"fields":[`, v.constructor)
+	tmpList := [][]byte{}
+	for _, val := range v.value.([]any) {
+		tmpVal, err := generateAstJson(val)
+		if err != nil {
+			return nil, err
+		}
+		tmpList = append(tmpList, tmpVal)
+	}
+	for idx, val := range tmpList {
+		tmpJson += string(val)
+		if idx != (len(tmpList) - 1) {
+			tmpJson += `,`
+		}
+	}
+	tmpJson += `]}`
+	return []byte(tmpJson), nil
+}
