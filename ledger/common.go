@@ -336,14 +336,18 @@ func (a *Address) populateFromBytes(data []byte) error {
 }
 
 func (a *Address) UnmarshalCBOR(data []byte) error {
-	// Decode bytes from CBOR
+	// Try to unwrap as bytestring (Shelley and forward)
 	tmpData := []byte{}
-	if _, err := cbor.Decode(data, &tmpData); err != nil {
-		return err
-	}
-	err := a.populateFromBytes(tmpData)
-	if err != nil {
-		return err
+	if _, err := cbor.Decode(data, &tmpData); err == nil {
+		err := a.populateFromBytes(tmpData)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Probably a Byron address
+		if err := a.populateFromBytes(data); err != nil {
+			return err
+		}
 	}
 	return nil
 }

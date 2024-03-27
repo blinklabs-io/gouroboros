@@ -107,7 +107,7 @@ func (h *ByronMainBlockHeader) SlotNumber() uint64 {
 
 func (h *ByronMainBlockHeader) IssuerVkey() IssuerVkey {
 	// Byron blocks don't have an issuer
-	return IssuerVkey([]byte{})
+	return IssuerVkey{}
 }
 
 func (h *ByronMainBlockHeader) BlockBodySize() uint64 {
@@ -123,8 +123,8 @@ type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	// TODO: flesh these out
-	TxInputs   []any
-	TxOutputs  []any
+	TxInputs   []ByronTransactionInput
+	TxOutputs  []ByronTransactionOutput
 	Attributes *cbor.Value
 }
 
@@ -134,13 +134,20 @@ func (t *ByronTransaction) Hash() string {
 }
 
 func (t *ByronTransaction) Inputs() []TransactionInput {
-	// TODO
-	return nil
+	ret := []TransactionInput{}
+	for _, input := range t.TxInputs {
+		ret = append(ret, input)
+	}
+	return ret
 }
 
 func (t *ByronTransaction) Outputs() []TransactionOutput {
-	// TODO
-	return nil
+	ret := []TransactionOutput{}
+	for _, output := range t.TxOutputs {
+		output := output
+		ret = append(ret, &output)
+	}
+	return ret
 }
 
 func (t *ByronTransaction) Fee() uint64 {
@@ -168,6 +175,114 @@ func (t *ByronTransaction) IsValid() bool {
 
 func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
 	return &utxorpc.Tx{}
+}
+
+type ByronTransactionInput struct {
+	cbor.StructAsArray
+	TxId        Blake2b256
+	OutputIndex uint32
+}
+
+func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
+	id, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	switch id {
+	case 0:
+		var tmpData struct {
+			cbor.StructAsArray
+			Id   int
+			Cbor []byte
+		}
+		if _, err := cbor.Decode(data, &tmpData); err != nil {
+			return err
+		}
+		if err := cbor.DecodeGeneric(tmpData.Cbor, i); err != nil {
+			return err
+		}
+	default:
+		// [u8 .ne 0, encoded-cbor]
+		return fmt.Errorf("can't parse yet")
+	}
+	return nil
+}
+
+func (i ByronTransactionInput) Id() Blake2b256 {
+	return i.TxId
+}
+
+func (i ByronTransactionInput) Index() uint32 {
+	return i.OutputIndex
+}
+
+func (i ByronTransactionInput) Utxorpc() *utxorpc.TxInput {
+	return &utxorpc.TxInput{
+		TxHash:      i.TxId.Bytes(),
+		OutputIndex: i.OutputIndex,
+		// AsOutput: i.AsOutput,
+		// Redeemer: i.Redeemer,
+	}
+}
+
+func (i ByronTransactionInput) String() string {
+	return fmt.Sprintf("%s#%d", i.TxId, i.OutputIndex)
+}
+
+func (i ByronTransactionInput) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + i.String() + "\""), nil
+}
+
+type ByronTransactionOutput struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	OutputAddress Address `json:"address"`
+	OutputAmount  uint64  `json:"amount"`
+}
+
+func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
+	// Save original CBOR
+	o.SetCbor(data)
+	var tmpData struct {
+		cbor.StructAsArray
+		WrappedAddress cbor.RawMessage
+		Amount         uint64
+	}
+	if _, err := cbor.Decode(data, &tmpData); err != nil {
+		return err
+	}
+	o.OutputAmount = tmpData.Amount
+	if _, err := cbor.Decode(tmpData.WrappedAddress, &o.OutputAddress); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o ByronTransactionOutput) Address() Address {
+	return o.OutputAddress
+}
+
+func (o ByronTransactionOutput) Amount() uint64 {
+	return o.OutputAmount
+}
+
+func (o ByronTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
+	return nil
+}
+
+func (o ByronTransactionOutput) DatumHash() *Blake2b256 {
+	return nil
+}
+
+func (o ByronTransactionOutput) Datum() *cbor.LazyValue {
+	return nil
+}
+
+func (o ByronTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+	return &utxorpc.TxOutput{
+		Address: o.OutputAddress.Bytes(),
+		Coin:    o.Amount(),
+	}
 }
 
 type ByronMainBlockBody struct {
@@ -279,8 +394,12 @@ func (b *ByronMainBlock) Era() Era {
 }
 
 func (b *ByronMainBlock) Transactions() []Transaction {
-	// TODO
-	return nil
+	ret := make([]Transaction, len(b.Body.TxPayload))
+	for idx, payload := range b.Body.TxPayload {
+		payload := payload
+		ret[idx] = &payload.Transaction
+	}
+	return ret
 }
 
 func (b *ByronMainBlock) Utxorpc() *utxorpc.Block {
