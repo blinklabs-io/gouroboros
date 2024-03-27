@@ -55,6 +55,10 @@ type DecodeStoreCbor struct {
 }
 
 func (d *DecodeStoreCbor) SetCbor(cborData []byte) {
+	if cborData == nil {
+		d.cborData = nil
+		return
+	}
 	d.cborData = make([]byte, len(cborData))
 	copy(d.cborData, cborData)
 }
