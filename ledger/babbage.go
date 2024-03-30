@@ -208,6 +208,43 @@ func (b *BabbageTransactionBody) ReferenceInputs() []TransactionInput {
 	return ret
 }
 
+func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
+	var txi, txri []*utxorpc.TxInput
+	var txo []*utxorpc.TxOutput
+	for _, i := range b.Inputs() {
+		input := i.Utxorpc()
+		txi = append(txi, input)
+	}
+	for _, o := range b.Outputs() {
+		output := o.Utxorpc()
+		txo = append(txo, output)
+	}
+	for _, ri := range b.ReferenceInputs() {
+		input := ri.Utxorpc()
+		txri = append(txri, input)
+	}
+	tmpHash, err := hex.DecodeString(b.Hash())
+	if err != nil {
+		return &utxorpc.Tx{}
+	}
+	tx := &utxorpc.Tx{
+		Inputs:  txi,
+		Outputs: txo,
+		// Certificates: b.Certificates(),
+		// Withdrawals:  b.Withdrawals(),
+		// Mint:         b.Mint(),
+		ReferenceInputs: txri,
+		// Witnesses:    b.Witnesses(),
+		// Collateral:   b.Collateral(),
+		Fee: b.Fee(),
+		// Successful:   b.Successful(),
+		// Auxiliary:    b.AuxData(),
+		// Validity:     b.Validity(),
+		Hash: tmpHash,
+	}
+	return tx
+}
+
 const (
 	DatumOptionTypeHash = 0
 	DatumOptionTypeData = 1

@@ -239,14 +239,14 @@ func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 	tx := &utxorpc.Tx{
 		Inputs:  txi,
 		Outputs: txo,
-		Fee:     b.Fee(),
-		Hash:    tmpHash,
 		// Certificates: b.Certificates(),
-		// Validity:     b.Validity(),
 		// Withdrawals:  b.Withdrawals(),
 		// Witnesses:    b.Witnesses(),
+		Fee: b.Fee(),
+		// Validity:     b.Validity(),
 		// Successful:   b.Successful(),
 		// Auxiliary:    b.AuxData(),
+		Hash: tmpHash,
 	}
 	return tx
 }
