@@ -142,75 +142,45 @@ This is not an exhaustive list of existing and planned features, but it covers t
 
 ## Testing
 
-Testing is currently a mostly manual process. There's an included test program that use the library
-and a Docker Compose file to launch a local `cardano-node` instance.
+gOuroboros includes automated tests that cover various aspects of its functionality, but not all. For more than the basics,
+manual testing is required.
 
-### Starting the local `cardano-node` instance
-
-```
-$ docker-compose up -d
-```
-
-If you want to use `mainnet`, set the `CARDANO_NETWORK` environment variable.
+### Running the automated tests
 
 ```
-$ export CARDANO_NETWORK=mainnet
-$ docker-compose up -d
+make test
 ```
 
-You can communicate with the `cardano-node` instance on port `8081` (for "public" node-to-node protocol), port `8082` (for "private" node-to-client protocol), or
-the `./tmp/cardano-node/ipc/node.socket` UNIX socket file (also for "private" node-to-client protocol).
+### Manual testing
 
-NOTE: if using the UNIX socket file, you may need to adjust the permissions/ownership to allow your user to access it.
-The `cardano-node` Docker image runs as `root` by default and the UNIX socket ends up with `root:root` ownership
-and `0755` permissions, which doesn't allow a non-root use to write to it by default.
+Various small test programs can be found in `cmd/` in this repo or in the [gOuroboros Starter Kit](https://github.com/blinklabs-io/gouroboros-starter-kit) repo.
+Some of them can be run against public nodes via NtN protocols, but some may require access to the UNIX socket of a local node for NtC protocols.
 
-### Running `cardano-cli` against local `cardano-node` instance
+#### Run chain-sync from the start of a particular era
 
-```
-$ docker exec -ti gouroboros-cardano-node-1 sh -c 'CARDANO_NODE_SOCKET_PATH=/ipc/node.socket cardano-cli query tip --testnet-magic 1097911063'
-```
+This is useful for testing changes to the handling of ledger types for a particular era. It will decode each block and either print
+a summary line for the block or an error.
 
-### Building and running the test program
-
-Compile the test program.
+Start by building the test programs:
 
 ```
-$ make
+make
 ```
 
-Run the test program pointing to the UNIX socket (via `socat`) from the `cardano-node` instance started above.
+Run the chain-sync test program against a public mainnet node, starting at the beginning of the Shelley era:
 
 ```
-$ ./gouroboros -address localhost:8082 -network testnet ...
+./gouroboros -address backbone.cardano-mainnet.iohk.io:3001 -network mainnet -ntn chain-sync -bulk -start-era shelley
 ```
 
-Run it against the public port in node-to-node mode.
+This will produce a LOT of output and take quite a few hours to reach chain tip. You're mostly looking for it to get through
+all blocks of the chosen start era before hitting the next era or chain tip
+
+#### Dump details of a particular block
+
+You can use the `block-fetch` program from `gouroboros-starter-kit` to fetch a particular block and dump its details. You must provide at least
+the block slot and hash. This is useful for debugging decoding problems, since it allows fetching a specific block and decoding it over and over.
 
 ```
-$ ./gouroboros -address localhost:8081 -ntn -network testnet ...
-```
-
-Test chain-sync (works in node-to-node and node-to-client modes).
-
-```
-$ ./gouroboros ... chain-sync -start-era byron
-```
-
-Test local-tx-submission (only works in node-to-client mode).
-
-```
-$ ./gouroboros ... local-tx-submission ...
-```
-
-Test following the chain tip in the `preview` network.
-
-```
-$ ./gouroboros -network preview -address preview-node.world.dev.cardano.org:30002 -ntn chain-sync -tip
-```
-
-### Stopping the local `cardano-node` instance
-
-```
-$ docker-compose down --volumes
+BLOCK_FETCH_SLOT=120521627 BLOCK_FETCH_HASH=afd4c97e32003d9803a305011cbd8796e6b36bf61576567206887e35795b6e09 ./block-fetch
 ```
