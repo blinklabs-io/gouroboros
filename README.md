@@ -37,15 +37,15 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] TxSubmission
       - [X] Client support
       - [X] Server support
-    - [ ] PeerSharing
-      - [ ] Client support
-      - [ ] Server support
+    - [X] PeerSharing
+      - [X] Client support
+      - [X] Server support
     - [X] LocalTxSubmission
       - [X] Client support
       - [X] Server support
-    - [ ] LocalTxMonitor
+    - [X] LocalTxMonitor
       - [X] Client support
-      - [ ] Server support
+      - [X] Server support
     - [ ] LocalStateQuery
       - [X] Client support
       - [ ] Server support
@@ -58,15 +58,15 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [X] Stake distribution
         - [ ] Non-myopic member rewards
         - [ ] Proposed protocol parameter updates
-        - [ ] UTxOs by address
+        - [X] UTxOs by address
         - [ ] UTxO whole
-        - [ ] UTxO by TxIn
+        - [X] UTxO by TxIn
         - [ ] Debug epoch state
         - [ ] Filtered delegations and reward accounts
-        - [ ] Genesis config
+        - [X] Genesis config
         - [ ] Reward provenance
-        - [ ] Stake pools
-        - [ ] Stake pool params
+        - [X] Stake pools
+        - [X] Stake pool params
         - [ ] Reward info pools
         - [ ] Pool state
         - [ ] Stake snapshots
@@ -76,8 +76,8 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [ ] Byron
       - [X] Blocks
       - [X] Transactions
-      - [ ] TX inputs
-      - [ ] TX outputs
+      - [X] TX inputs
+      - [X] TX outputs
     - [X] Shelley
       - [X] Blocks
       - [X] Transactions
