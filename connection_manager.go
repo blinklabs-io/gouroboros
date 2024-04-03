@@ -17,7 +17,7 @@ package ouroboros
 import "sync"
 
 // ConnectionManagerConnClosedFunc is a function that takes a connection ID and an optional error
-type ConnectionManagerConnClosedFunc func(int, error)
+type ConnectionManagerConnClosedFunc func(ConnectionId, error)
 
 // ConnectionManagerTag represents the various tags that can be associated with a host or connection
 type ConnectionManagerTag uint16
@@ -57,7 +57,7 @@ func (c ConnectionManagerTag) String() string {
 type ConnectionManager struct {
 	config           ConnectionManagerConfig
 	hosts            []ConnectionManagerHost
-	connections      map[int]*ConnectionManagerConnection
+	connections      map[ConnectionId]*ConnectionManagerConnection
 	connectionsMutex sync.Mutex
 }
 
@@ -74,7 +74,7 @@ type ConnectionManagerHost struct {
 func NewConnectionManager(cfg ConnectionManagerConfig) *ConnectionManager {
 	return &ConnectionManager{
 		config:      cfg,
-		connections: make(map[int]*ConnectionManagerConnection),
+		connections: make(map[ConnectionId]*ConnectionManagerConnection),
 	}
 }
 
@@ -109,10 +109,10 @@ func (c *ConnectionManager) AddHostsFromTopology(topology *TopologyConfig) {
 	}
 }
 
-func (c *ConnectionManager) AddConnection(connId int, conn *Connection) {
+func (c *ConnectionManager) AddConnection(conn *Connection) {
+	connId := conn.Id()
 	c.connectionsMutex.Lock()
 	c.connections[connId] = &ConnectionManagerConnection{
-		Id:   connId,
 		Conn: conn,
 	}
 	c.connectionsMutex.Unlock()
@@ -123,13 +123,13 @@ func (c *ConnectionManager) AddConnection(connId int, conn *Connection) {
 	}()
 }
 
-func (c *ConnectionManager) RemoveConnection(connId int) {
+func (c *ConnectionManager) RemoveConnection(connId ConnectionId) {
 	c.connectionsMutex.Lock()
 	delete(c.connections, connId)
 	c.connectionsMutex.Unlock()
 }
 
-func (c *ConnectionManager) GetConnectionById(connId int) *ConnectionManagerConnection {
+func (c *ConnectionManager) GetConnectionById(connId ConnectionId) *ConnectionManagerConnection {
 	c.connectionsMutex.Lock()
 	defer c.connectionsMutex.Unlock()
 	return c.connections[connId]
@@ -155,7 +155,6 @@ func (c *ConnectionManager) GetConnectionsByTags(tags ...ConnectionManagerTag) [
 }
 
 type ConnectionManagerConnection struct {
-	Id   int
 	Conn *Connection
 	Tags map[ConnectionManagerTag]bool
 }
