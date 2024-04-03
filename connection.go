@@ -51,6 +51,7 @@ const (
 
 // The Connection type is a wrapper around a net.Conn object that handles communication using the Ouroboros network protocol over that connection
 type Connection struct {
+	id                    ConnectionId
 	conn                  net.Conn
 	networkMagic          uint32
 	server                bool
@@ -89,6 +90,19 @@ type Connection struct {
 	txSubmissionConfig      *txsubmission.Config
 }
 
+type ConnectionId struct {
+	LocalAddr  net.Addr
+	RemoteAddr net.Addr
+}
+
+func (c ConnectionId) String() string {
+	return fmt.Sprintf(
+		"%s<->%s",
+		c.LocalAddr.String(),
+		c.RemoteAddr.String(),
+	)
+}
+
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
 // handshake will be started. An error will be returned if the handshake fails
 func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
@@ -115,6 +129,11 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 // New is an alias to NewConnection for backward compatibility
 func New(options ...ConnectionOptionFunc) (*Connection, error) {
 	return NewConnection(options...)
+}
+
+// Id returns the connection ID
+func (c *Connection) Id() ConnectionId {
+	return c.id
 }
 
 // Muxer returns the muxer object for the Ouroboros connection
@@ -239,6 +258,11 @@ func (c *Connection) setupConnection() error {
 		<-c.doneChan
 		c.shutdown()
 	}()
+	// Populate connection ID
+	c.id = ConnectionId{
+		LocalAddr:  c.conn.LocalAddr(),
+		RemoteAddr: c.conn.RemoteAddr(),
+	}
 	// Create muxer instance
 	c.muxer = muxer.New(c.conn)
 	// Start Goroutine to pass along errors from the muxer
