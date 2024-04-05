@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import (
 type Client struct {
 	*protocol.Protocol
 	config                        *Config
+	callbackContext               CallbackContext
 	enableGetChainBlockNo         bool
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
@@ -51,6 +52,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		acquireResultChan: make(chan error),
 		acquired:          false,
 		currentEra:        -1,
+	}
+	c.callbackContext = CallbackContext{
+		Client:       c,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()

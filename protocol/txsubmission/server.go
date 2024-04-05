@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import (
 type Server struct {
 	*protocol.Protocol
 	config                 *Config
+	callbackContext        CallbackContext
 	ackCount               int
 	stateDone              bool
 	requestTxIdsResultChan chan []TxIdAndSize
@@ -38,6 +39,10 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config:                 cfg,
 		requestTxIdsResultChan: make(chan []TxIdAndSize),
 		requestTxsResultChan:   make(chan []TxBody),
+	}
+	s.callbackContext = CallbackContext{
+		Server:       s,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -153,5 +158,5 @@ func (s *Server) handleInit() error {
 		)
 	}
 	// Call the user callback function
-	return s.config.InitFunc()
+	return s.config.InitFunc(s.callbackContext)
 }

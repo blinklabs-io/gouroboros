@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package txsubmission
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -124,10 +125,17 @@ type Config struct {
 	IdleTimeout      time.Duration
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
-type RequestTxIdsFunc func(bool, uint16, uint16) ([]TxIdAndSize, error)
-type RequestTxsFunc func([]TxId) ([]TxBody, error)
-type InitFunc func() error
+type RequestTxIdsFunc func(CallbackContext, bool, uint16, uint16) ([]TxIdAndSize, error)
+type RequestTxsFunc func(CallbackContext, []TxId) ([]TxBody, error)
+type InitFunc func(CallbackContext) error
 
 // New returns a new TxSubmission object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *TxSubmission {

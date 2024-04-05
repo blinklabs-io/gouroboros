@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
@@ -48,6 +49,8 @@ const (
 	// Default connection timeout
 	DefaultConnectTimeout = 30 * time.Second
 )
+
+type ConnectionId = connection.ConnectionId
 
 // The Connection type is a wrapper around a net.Conn object that handles communication using the Ouroboros network protocol over that connection
 type Connection struct {
@@ -88,19 +91,6 @@ type Connection struct {
 	peerSharingConfig       *peersharing.Config
 	txSubmission            *txsubmission.TxSubmission
 	txSubmissionConfig      *txsubmission.Config
-}
-
-type ConnectionId struct {
-	LocalAddr  net.Addr
-	RemoteAddr net.Addr
-}
-
-func (c ConnectionId) String() string {
-	return fmt.Sprintf(
-		"%s<->%s",
-		c.LocalAddr.String(),
-		c.RemoteAddr.String(),
-	)
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -289,8 +279,9 @@ func (c *Connection) setupConnection() error {
 		}
 	}()
 	protoOptions := protocol.ProtocolOptions{
-		Muxer:     c.muxer,
-		ErrorChan: c.protoErrorChan,
+		ConnectionId: c.id,
+		Muxer:        c.muxer,
+		ErrorChan:    c.protoErrorChan,
 	}
 	if c.useNodeToNodeProto {
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
@@ -319,7 +310,7 @@ func (c *Connection) setupConnection() error {
 	var handshakeFullDuplex bool
 	handshakeConfig := handshake.NewConfig(
 		handshake.WithProtocolVersionMap(protoVersions),
-		handshake.WithFinishedFunc(func(version uint16, versionData protocol.VersionData) error {
+		handshake.WithFinishedFunc(func(ctx handshake.CallbackContext, version uint16, versionData protocol.VersionData) error {
 			c.handshakeVersion = version
 			c.handshakeVersionData = versionData
 			if c.useNodeToNodeProto {

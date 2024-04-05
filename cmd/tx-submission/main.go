@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -145,6 +145,7 @@ func main() {
 }
 
 func handleRequestTxIds(
+	ctx txsubmission.CallbackContext,
 	blocking bool,
 	ack uint16,
 	req uint16,
@@ -167,6 +168,7 @@ func handleRequestTxIds(
 }
 
 func handleRequestTxs(
+	ctx txsubmission.CallbackContext,
 	txIds []txsubmission.TxId,
 ) ([]txsubmission.TxBody, error) {
 	ret := []txsubmission.TxBody{

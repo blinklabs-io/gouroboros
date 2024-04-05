@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package peersharing
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -74,8 +75,15 @@ type Config struct {
 	Timeout          time.Duration
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
-type ShareRequestFunc func(int) ([]PeerAddress, error)
+type ShareRequestFunc func(CallbackContext, int) ([]PeerAddress, error)
 
 // New returns a new PeerSharing object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *PeerSharing {
