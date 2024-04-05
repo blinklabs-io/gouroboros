@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,12 +23,17 @@ import (
 
 type Server struct {
 	*protocol.Protocol
-	config *Config
+	config          *Config
+	callbackContext CallbackContext
 }
 
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
+	}
+	s.callbackContext = CallbackContext{
+		Server:       s,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -98,7 +103,7 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 		)
 	}
 	msgRequestRange := msg.(*MsgRequestRange)
-	return s.config.RequestRangeFunc(msgRequestRange.Start, msgRequestRange.End)
+	return s.config.RequestRangeFunc(s.callbackContext, msgRequestRange.Start, msgRequestRange.End)
 }
 
 func (s *Server) handleClientDone() error {

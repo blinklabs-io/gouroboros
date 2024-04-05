@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package blockfetch
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 
@@ -92,9 +93,16 @@ type Config struct {
 	BlockTimeout      time.Duration
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
-type BlockFunc func(ledger.Block) error
-type RequestRangeFunc func(common.Point, common.Point) error
+type BlockFunc func(CallbackContext, ledger.Block) error
+type RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	b := &BlockFetch{

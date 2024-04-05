@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/utils"
 )
@@ -81,9 +82,10 @@ const (
 
 // ProtocolOptions provides common arguments for all mini-protocols
 type ProtocolOptions struct {
-	Muxer     *muxer.Muxer
-	ErrorChan chan error
-	Mode      ProtocolMode
+	ConnectionId connection.ConnectionId
+	Muxer        *muxer.Muxer
+	ErrorChan    chan error
+	Mode         ProtocolMode
 	// TODO: remove me
 	Role    ProtocolRole
 	Version uint16

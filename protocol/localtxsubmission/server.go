@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,13 +24,18 @@ import (
 // Server implements the LocalTxSubmission server
 type Server struct {
 	*protocol.Protocol
-	config *Config
+	config          *Config
+	callbackContext CallbackContext
 }
 
 // NewServer returns a new Server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
+	}
+	s.callbackContext = CallbackContext{
+		Server:       s,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -73,7 +78,7 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 	}
 	msgSubmitTx := msg.(*MsgSubmitTx)
 	// Call the user callback function and send Accept/RejectTx based on result
-	err := s.config.SubmitTxFunc(msgSubmitTx.Transaction)
+	err := s.config.SubmitTxFunc(s.callbackContext, msgSubmitTx.Transaction)
 	if err == nil {
 		newMsg := NewMsgAcceptTx()
 		if err := s.SendMessage(newMsg); err != nil {

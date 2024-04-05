@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,17 +16,23 @@ package keepalive
 
 import (
 	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type Server struct {
 	*protocol.Protocol
-	config *Config
+	config          *Config
+	callbackContext CallbackContext
 }
 
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
+	}
+	s.callbackContext = CallbackContext{
+		Server:       s,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -65,7 +71,7 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 	msg := msgGeneric.(*MsgKeepAlive)
 	if s.config != nil && s.config.KeepAliveFunc != nil {
 		// Call the user callback function
-		return s.config.KeepAliveFunc(msg.Cookie)
+		return s.config.KeepAliveFunc(s.callbackContext, msg.Cookie)
 	} else {
 		// Send the keep-alive response
 		resp := NewMsgKeepAliveResponse(msg.Cookie)
@@ -76,7 +82,7 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 func (s *Server) handleDone() error {
 	if s.config != nil && s.config.DoneFunc != nil {
 		// Call the user callback function
-		return s.config.DoneFunc()
+		return s.config.DoneFunc(s.callbackContext)
 	}
 	return nil
 }

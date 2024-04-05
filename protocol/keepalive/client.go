@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,10 +24,11 @@ import (
 
 type Client struct {
 	*protocol.Protocol
-	config     *Config
-	timer      *time.Timer
-	timerMutex sync.Mutex
-	onceStart  sync.Once
+	config          *Config
+	callbackContext CallbackContext
+	timer           *time.Timer
+	timerMutex      sync.Mutex
+	onceStart       sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -37,6 +38,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config: cfg,
+	}
+	c.callbackContext = CallbackContext{
+		Client:       c,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
@@ -125,7 +130,7 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	}
 	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
 		// Call the user callback function
-		return c.config.KeepAliveResponseFunc(msg.Cookie)
+		return c.config.KeepAliveResponseFunc(c.callbackContext, msg.Cookie)
 	}
 	return nil
 }

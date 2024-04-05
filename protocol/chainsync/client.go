@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import (
 type Client struct {
 	*protocol.Protocol
 	config                *Config
+	callbackContext       CallbackContext
 	busyMutex             sync.Mutex
 	intersectResultChan   chan error
 	readyForNextBlockChan chan bool
@@ -62,6 +63,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		currentTipChan:        make(chan Tip),
 		firstBlockChan:        make(chan common.Point),
 		intersectPointChan:    make(chan common.Point),
+	}
+	c.callbackContext = CallbackContext{
+		Client:       c,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
@@ -343,7 +348,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			return nil
 		}
 		// Call the user callback function
-		callbackErr = c.config.RollForwardFunc(blockType, blockHeader, msg.Tip)
+		callbackErr = c.config.RollForwardFunc(c.callbackContext, blockType, blockHeader, msg.Tip)
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		blk, err := ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
@@ -360,7 +365,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			return nil
 		}
 		// Call the user callback function
-		callbackErr = c.config.RollForwardFunc(msg.BlockType(), blk, msg.Tip)
+		callbackErr = c.config.RollForwardFunc(c.callbackContext, msg.BlockType(), blk, msg.Tip)
 	}
 	if callbackErr != nil {
 		if callbackErr == StopSyncProcessError {
@@ -388,7 +393,7 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 			)
 		}
 		// Call the user callback function
-		if callbackErr := c.config.RollBackwardFunc(msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
+		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if callbackErr == StopSyncProcessError {
 				// Signal that we're cancelling the sync
 				c.readyForNextBlockChan <- false

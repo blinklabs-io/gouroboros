@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package localstatequery
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -119,13 +120,20 @@ type Config struct {
 	QueryTimeout   time.Duration
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
 // TODO: update callbacks
-type AcquireFunc func(interface{}) error
-type QueryFunc func(interface{}) error
-type ReleaseFunc func() error
-type ReAcquireFunc func(interface{}) error
-type DoneFunc func() error
+type AcquireFunc func(CallbackContext, interface{}) error
+type QueryFunc func(CallbackContext, interface{}) error
+type ReleaseFunc func(CallbackContext) error
+type ReAcquireFunc func(CallbackContext, interface{}) error
+type DoneFunc func(CallbackContext) error
 
 // New returns a new LocalStateQuery object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalStateQuery {

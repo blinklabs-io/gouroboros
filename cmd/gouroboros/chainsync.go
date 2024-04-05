@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -256,12 +256,13 @@ func testChainSync(f *globalFlags) {
 	select {}
 }
 
-func chainSyncRollBackwardHandler(point common.Point, tip chainsync.Tip) error {
+func chainSyncRollBackwardHandler(ctx chainsync.CallbackContext, point common.Point, tip chainsync.Tip) error {
 	fmt.Printf("roll backward: point = %#v, tip = %#v\n", point, tip)
 	return nil
 }
 
 func chainSyncRollForwardHandler(
+	ctx chainsync.CallbackContext,
 	blockType uint,
 	blockData interface{},
 	tip chainsync.Tip,
@@ -312,7 +313,7 @@ func chainSyncRollForwardHandler(
 	return nil
 }
 
-func blockFetchBlockHandler(blockData ledger.Block) error {
+func blockFetchBlockHandler(ctx blockfetch.CallbackContext, blockData ledger.Block) error {
 	switch block := blockData.(type) {
 	case *ledger.ByronEpochBoundaryBlock:
 		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.Epoch, block.SlotNumber(), block.Hash())

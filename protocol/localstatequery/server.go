@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import (
 type Server struct {
 	*protocol.Protocol
 	config                        *Config
+	callbackContext               CallbackContext
 	enableGetChainBlockNo         bool
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
@@ -33,6 +34,10 @@ type Server struct {
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
+	}
+	s.callbackContext = CallbackContext{
+		Server:       s,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -94,10 +99,10 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 	switch msgAcquire := msg.(type) {
 	case *MsgAcquire:
 		// Call the user callback function
-		return s.config.AcquireFunc(msgAcquire.Point)
+		return s.config.AcquireFunc(s.callbackContext, msgAcquire.Point)
 	case *MsgAcquireNoPoint:
 		// Call the user callback function
-		return s.config.AcquireFunc(nil)
+		return s.config.AcquireFunc(s.callbackContext, nil)
 	}
 	return nil
 }
@@ -110,7 +115,7 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 	}
 	msgQuery := msg.(*MsgQuery)
 	// Call the user callback function
-	return s.config.QueryFunc(msgQuery.Query)
+	return s.config.QueryFunc(s.callbackContext, msgQuery.Query)
 }
 
 func (s *Server) handleRelease() error {
@@ -120,7 +125,7 @@ func (s *Server) handleRelease() error {
 		)
 	}
 	// Call the user callback function
-	return s.config.ReleaseFunc()
+	return s.config.ReleaseFunc(s.callbackContext)
 }
 
 func (s *Server) handleReAcquire(msg protocol.Message) error {
@@ -132,10 +137,10 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 	switch msgReAcquire := msg.(type) {
 	case *MsgReAcquire:
 		// Call the user callback function
-		return s.config.ReAcquireFunc(msgReAcquire.Point)
+		return s.config.ReAcquireFunc(s.callbackContext, msgReAcquire.Point)
 	case *MsgReAcquireNoPoint:
 		// Call the user callback function
-		return s.config.ReAcquireFunc(nil)
+		return s.config.ReAcquireFunc(s.callbackContext, nil)
 	}
 	return nil
 }
@@ -147,5 +152,5 @@ func (s *Server) handleDone() error {
 		)
 	}
 	// Call the user callback function
-	return s.config.DoneFunc()
+	return s.config.DoneFunc(s.callbackContext)
 }

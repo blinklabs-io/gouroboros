@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ import (
 // Server implements the ChainSync server
 type Server struct {
 	*protocol.Protocol
-	config *Config
+	config          *Config
+	callbackContext CallbackContext
 }
 
 // NewServer returns a new ChainSync server object
@@ -40,6 +41,10 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 	s := &Server{
 		config: cfg,
+	}
+	s.callbackContext = CallbackContext{
+		Server:       s,
+		ConnectionId: protoOptions.ConnectionId,
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -112,7 +117,7 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 			"received chain-sync RequestNext message but no callback function is defined",
 		)
 	}
-	return s.config.RequestNextFunc()
+	return s.config.RequestNextFunc(s.callbackContext)
 }
 
 func (s *Server) handleFindIntersect(msg protocol.Message) error {
@@ -122,7 +127,7 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 		)
 	}
 	msgFindIntersect := msg.(*MsgFindIntersect)
-	point, tip, err := s.config.FindIntersectFunc(msgFindIntersect.Points)
+	point, tip, err := s.config.FindIntersectFunc(s.callbackContext, msgFindIntersect.Points)
 	if err != nil {
 		if err == IntersectNotFoundError {
 			msgResp := NewMsgIntersectNotFound(tip)

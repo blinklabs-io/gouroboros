@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package localtxmonitor
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -127,8 +128,15 @@ type TxAndEraId struct {
 	txObj ledger.Transaction
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
-type GetMempoolFunc func() (uint64, uint32, []TxAndEraId, error)
+type GetMempoolFunc func(CallbackContext) (uint64, uint32, []TxAndEraId, error)
 
 // New returns a new LocalTxMonitor object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxMonitor {

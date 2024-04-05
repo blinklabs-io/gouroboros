@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package handshake
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -75,8 +76,15 @@ type Config struct {
 	Timeout            time.Duration
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
-type FinishedFunc func(uint16, protocol.VersionData) error
+type FinishedFunc func(CallbackContext, uint16, protocol.VersionData) error
 
 // New returns a new Handshake object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {

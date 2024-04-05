@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package chainsync
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -121,11 +122,18 @@ type Config struct {
 	PipelineLimit     int
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
-type RollBackwardFunc func(common.Point, Tip) error
-type RollForwardFunc func(uint, interface{}, Tip) error
-type FindIntersectFunc func([]common.Point) (common.Point, Tip, error)
-type RequestNextFunc func() error
+type RollBackwardFunc func(CallbackContext, common.Point, Tip) error
+type RollForwardFunc func(CallbackContext, uint, interface{}, Tip) error
+type FindIntersectFunc func(CallbackContext, []common.Point) (common.Point, Tip, error)
+type RequestNextFunc func(CallbackContext) error
 
 // New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {

@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package keepalive
 import (
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -79,10 +80,17 @@ type Config struct {
 	Cookie                uint16
 }
 
+// Callback context
+type CallbackContext struct {
+	ConnectionId connection.ConnectionId
+	Client       *Client
+	Server       *Server
+}
+
 // Callback function types
-type KeepAliveFunc func(uint16) error
-type KeepAliveResponseFunc func(uint16) error
-type DoneFunc func() error
+type KeepAliveFunc func(CallbackContext, uint16) error
+type KeepAliveResponseFunc func(CallbackContext, uint16) error
+type DoneFunc func(CallbackContext) error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *KeepAlive {
 	k := &KeepAlive{
