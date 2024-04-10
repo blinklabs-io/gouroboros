@@ -37,6 +37,12 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	// Update state map with timeout
+	stateMap := StateMap.Copy()
+	if entry, ok := stateMap[statePropose]; ok {
+		entry.Timeout = s.config.Timeout
+		stateMap[statePropose] = entry
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -46,7 +52,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.handleMessage,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        statePropose,
 	}
 	s.Protocol = protocol.New(protoConfig)
