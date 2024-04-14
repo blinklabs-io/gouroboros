@@ -175,7 +175,7 @@ type ShelleyTransactionBody struct {
 	Withdrawals cbor.Value `cbor:"5,keyasint,omitempty"`
 	Update      struct {
 		cbor.StructAsArray
-		ProtocolParamUpdates cbor.Value
+		ProtocolParamUpdates map[Blake2b224]ShelleyProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
 	MetadataHash Blake2b256 `cbor:"7,keyasint,omitempty"`
@@ -395,6 +395,50 @@ func (t *ShelleyTransaction) Cbor() []byte {
 	// This should never fail, since we're only encoding a list and a bool value
 	cborData, _ = cbor.Encode(&tmpObj)
 	return cborData
+}
+
+type ShelleyProtocolParameters struct {
+	cbor.StructAsArray
+	MinFeeA            uint
+	MinFeeB            uint
+	MaxBlockBodySize   uint
+	MaxTxSize          uint
+	MaxBlockHeaderSize uint
+	KeyDeposit         uint
+	PoolDeposit        uint
+	MaxEpoch           uint
+	NOpt               uint
+	A0                 *cbor.Rat
+	Rho                *cbor.Rat
+	Tau                *cbor.Rat
+	Decentralization   *cbor.Rat
+	Nonce              *cbor.Rat
+	ProtocolMajor      uint
+	ProtocolMinor      uint
+	MinUtxoValue       uint
+}
+
+type ShelleyProtocolParameterUpdate struct {
+	MinFeeA            uint      `cbor:"0,keyasint"`
+	MinFeeB            uint      `cbor:"1,keyasint"`
+	MaxBlockBodySize   uint      `cbor:"2,keyasint"`
+	MaxTxSize          uint      `cbor:"3,keyasint"`
+	MaxBlockHeaderSize uint      `cbor:"4,keyasint"`
+	KeyDeposit         uint      `cbor:"5,keyasint"`
+	PoolDeposit        uint      `cbor:"6,keyasint"`
+	MaxEpoch           uint      `cbor:"7,keyasint"`
+	NOpt               uint      `cbor:"8,keyasint"`
+	A0                 *cbor.Rat `cbor:"9,keyasint"`
+	Rho                *cbor.Rat `cbor:"10,keyasint"`
+	Tau                *cbor.Rat `cbor:"11,keyasint"`
+	Decentralization   *cbor.Rat `cbor:"12,keyasint"`
+	Nonce              *cbor.Rat `cbor:"13,keyasint"`
+	ProtocolVersion    struct {
+		cbor.StructAsArray
+		Major uint
+		Minor uint
+	} `cbor:"14,keyasint"`
+	MinUtxoValue uint `cbor:"15,keyasint"`
 }
 
 func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {
