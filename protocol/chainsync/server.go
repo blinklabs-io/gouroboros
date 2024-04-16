@@ -30,7 +30,7 @@ type Server struct {
 }
 
 // NewServer returns a new ChainSync server object
-func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
+func NewServer(stateContext interface{}, protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -56,6 +56,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            StateMap,
+		StateContext:        stateContext,
 		InitialState:        stateIdle,
 	}
 	s.Protocol = protocol.New(protoConfig)

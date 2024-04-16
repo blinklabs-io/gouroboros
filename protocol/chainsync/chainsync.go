@@ -16,6 +16,7 @@
 package chainsync
 
 import (
+	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -44,8 +45,9 @@ var StateMap = protocol.StateMap{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeRequestNext,
-				NewState: stateCanAwait,
+				MsgType:   MessageTypeRequestNext,
+				NewState:  stateCanAwait,
+				MatchFunc: IncrementPipelineCount,
 			},
 			{
 				MsgType:  MessageTypeFindIntersect,
@@ -61,16 +63,33 @@ var StateMap = protocol.StateMap{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
+				MsgType:   MessageTypeRequestNext,
+				NewState:  stateCanAwait,
+				MatchFunc: IncrementPipelineCount,
+			},
+			{
 				MsgType:  MessageTypeAwaitReply,
 				NewState: stateMustReply,
 			},
 			{
-				MsgType:  MessageTypeRollForward,
-				NewState: stateIdle,
+				MsgType:   MessageTypeRollForward,
+				NewState:  stateIdle,
+				MatchFunc: DecrementPipelineCountAndIsEmpty,
 			},
 			{
-				MsgType:  MessageTypeRollBackward,
-				NewState: stateIdle,
+				MsgType:   MessageTypeRollForward,
+				NewState:  stateCanAwait,
+				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
+			},
+			{
+				MsgType:   MessageTypeRollBackward,
+				NewState:  stateIdle,
+				MatchFunc: DecrementPipelineCountAndIsEmpty,
+			},
+			{
+				MsgType:   MessageTypeRollBackward,
+				NewState:  stateCanAwait,
+				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
 			},
 		},
 	},
@@ -91,18 +110,84 @@ var StateMap = protocol.StateMap{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeRollForward,
-				NewState: stateIdle,
+				MsgType:   MessageTypeRollForward,
+				NewState:  stateIdle,
+				MatchFunc: DecrementPipelineCountAndIsEmpty,
 			},
 			{
-				MsgType:  MessageTypeRollBackward,
-				NewState: stateIdle,
+				MsgType:   MessageTypeRollForward,
+				NewState:  stateCanAwait,
+				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
+			},
+			{
+				MsgType:   MessageTypeRollBackward,
+				NewState:  stateIdle,
+				MatchFunc: DecrementPipelineCountAndIsEmpty,
+			},
+			{
+				MsgType:   MessageTypeRollBackward,
+				NewState:  stateCanAwait,
+				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
 			},
 		},
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
+}
+
+type StateContext struct {
+	mu            sync.Mutex
+	pipelineCount int
+}
+
+var IncrementPipelineCount = func(context interface{}, msg protocol.Message) bool {
+	s := context.(*StateContext)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.pipelineCount++
+	return true
+}
+
+var DecrementPipelineCountAndIsEmpty = func(context interface{}, msg protocol.Message) bool {
+	s := context.(*StateContext)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.pipelineCount == 1 {
+		s.pipelineCount--
+		return true
+	}
+	return false
+}
+
+var DecrementPipelineCountAndIsNotEmpty = func(context interface{}, msg protocol.Message) bool {
+	s := context.(*StateContext)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.pipelineCount > 1 {
+		s.pipelineCount--
+		return true
+	}
+	return false
+}
+
+var PipelineIsEmtpy = func(context interface{}, msg protocol.Message) bool {
+	s := context.(*StateContext)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.pipelineCount == 0
+}
+
+var PipelineIsNotEmpty = func(context interface{}, msg protocol.Message) bool {
+	s := context.(*StateContext)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.pipelineCount > 0
 }
 
 // ChainSync is a wrapper object that holds the client and server instances
@@ -137,9 +222,11 @@ type RequestNextFunc func(CallbackContext) error
 
 // New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
+	stateContext := &StateContext{}
+
 	c := &ChainSync{
-		Client: NewClient(protoOptions, cfg),
-		Server: NewServer(protoOptions, cfg),
+		Client: NewClient(stateContext, protoOptions, cfg),
+		Server: NewServer(stateContext, protoOptions, cfg),
 	}
 	return c
 }

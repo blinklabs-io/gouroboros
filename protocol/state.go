@@ -55,7 +55,7 @@ type StateTransition struct {
 
 // StateTransitionMatchFunc represents a function that will take a Message and return a bool
 // that indicates whether the message is a match for the state transition rule
-type StateTransitionMatchFunc func(Message) bool
+type StateTransitionMatchFunc func(interface{}, Message) bool
 
 // StateMapEntry represents a protocol state, it's possible state transitions, and an optional timeout
 type StateMapEntry struct {
