@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"reflect"
 	"sync"
 	"time"
 
@@ -58,6 +57,7 @@ type ProtocolConfig struct {
 	MessageHandlerFunc  MessageHandlerFunc
 	MessageFromCborFunc MessageFromCborFunc
 	StateMap            StateMap
+	StateContext        interface{}
 	InitialState        State
 }
 
@@ -495,7 +495,7 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 		if transition.MsgType == msg.Type() {
 			if transition.MatchFunc != nil {
 				// Skip item if match function returns false
-				if !transition.MatchFunc(msg) {
+				if !transition.MatchFunc(p.config.StateContext, msg) {
 					continue
 				}
 			}
@@ -504,8 +504,8 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 	}
 
 	return State{}, fmt.Errorf(
-		"message %s not allowed in current protocol state %s",
-		reflect.TypeOf(msg).Name(),
+		"message %T not allowed in current protocol state %s",
+		msg,
 		currentState,
 	)
 }

@@ -55,7 +55,7 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeRequestTxIds,
 				NewState: stateTxIdsBlocking,
 				// Match if blocking
-				MatchFunc: func(msg protocol.Message) bool {
+				MatchFunc: func(context interface{}, msg protocol.Message) bool {
 					msgRequestTxIds := msg.(*MsgRequestTxIds)
 					return msgRequestTxIds.Blocking
 				},
@@ -64,7 +64,7 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeRequestTxIds,
 				NewState: stateTxIdsNonblocking,
 				// Metch if non-blocking
-				MatchFunc: func(msg protocol.Message) bool {
+				MatchFunc: func(context interface{}, msg protocol.Message) bool {
 					msgRequestTxIds := msg.(*MsgRequestTxIds)
 					return !msgRequestTxIds.Blocking
 				},

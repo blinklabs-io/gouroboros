@@ -43,7 +43,7 @@ type Client struct {
 }
 
 // NewClient returns a new ChainSync client object
-func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
+func NewClient(stateContext interface{}, protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -91,6 +91,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            stateMap,
+		StateContext:        stateContext,
 		InitialState:        stateIdle,
 	}
 	c.Protocol = protocol.New(protoConfig)
