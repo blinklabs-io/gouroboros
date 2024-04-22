@@ -8,7 +8,7 @@ require (
 	github.com/blinklabs-io/ouroboros-mock v0.3.0
 	github.com/fxamacker/cbor/v2 v2.6.0
 	github.com/jinzhu/copier v0.4.0
-	github.com/utxorpc/go-codegen v0.4.4
+	github.com/utxorpc/go-codegen v0.5.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.22.0
 )
