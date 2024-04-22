@@ -354,6 +354,12 @@ func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error)
 			return nil, err
 		}
 		return result[0], nil
+	case ledger.EraIdMary:
+		result := []ledger.MaryProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
 	case ledger.EraIdAllegra:
 		result := []ledger.AllegraProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
