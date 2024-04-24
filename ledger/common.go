@@ -300,12 +300,16 @@ func (a *Address) populateFromBytes(data []byte) error {
 		a.addressType != AddressTypeKeyPointer &&
 		a.addressType != AddressTypeScriptPointer {
 		dataLen := len(data)
+		// Addresses must be at least the address hash size plus header byte
 		if dataLen < (AddressHashSize + 1) {
 			return fmt.Errorf("invalid address length: %d", dataLen)
 		}
-		if dataLen > (AddressHashSize + 1) {
-			if dataLen < (AddressHashSize + AddressHashSize + 1) {
-				return fmt.Errorf("invalid address length: %d", dataLen)
+		// Check bounds of second part if the address type is supposed to have one
+		if a.addressType != AddressTypeKeyNone && a.addressType != AddressTypeScriptNone {
+			if dataLen > (AddressHashSize + 1) {
+				if dataLen < (AddressHashSize + AddressHashSize + 1) {
+					return fmt.Errorf("invalid address length: %d", dataLen)
+				}
 			}
 		}
 	}
@@ -313,18 +317,18 @@ func (a *Address) populateFromBytes(data []byte) error {
 	// NOTE: this is definitely incorrect for Byron
 	payload := data[1:]
 	a.paymentAddress = payload[:AddressHashSize]
-	if len(payload) > AddressHashSize {
-		stakingPayloadSize := len(payload) - AddressHashSize
-		if stakingPayloadSize > AddressHashSize {
-			stakingPayloadSize = AddressHashSize
+	payload = payload[AddressHashSize:]
+	if a.addressType != AddressTypeKeyNone && a.addressType != AddressTypeScriptNone {
+		if len(payload) >= AddressHashSize {
+			a.stakingAddress = payload[:AddressHashSize]
+			payload = payload[AddressHashSize:]
 		}
-		a.stakingAddress = payload[AddressHashSize : AddressHashSize+stakingPayloadSize]
 	}
 	// Store any extra address data
 	// This is needed to handle the case describe in:
 	// https://github.com/IntersectMBO/cardano-ledger/issues/2729
-	if len(payload) > (AddressHashSize + AddressHashSize) {
-		a.extraData = payload[AddressHashSize+AddressHashSize:]
+	if len(payload) > 0 {
+		a.extraData = payload[:]
 	}
 	// Adjust stake addresses
 	if a.addressType == AddressTypeNoneKey ||
