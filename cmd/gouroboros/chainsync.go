@@ -247,6 +247,11 @@ func testChainSync(f *globalFlags) {
 			fmt.Printf("ERROR: failed to get available block range: %s\n", err)
 			os.Exit(1)
 		}
+		// Stop the chain-sync client to prevent the connection getting closed due to chain-sync idle timeout
+		if err := oConn.ChainSync().Client.Stop(); err != nil {
+			fmt.Printf("ERROR: failed to shutdown chain-sync: %s\n", err)
+			os.Exit(1)
+		}
 		if err := oConn.BlockFetch().Client.GetBlockRange(start, end); err != nil {
 			fmt.Printf("ERROR: failed to request block range: %s\n", err)
 			os.Exit(1)
