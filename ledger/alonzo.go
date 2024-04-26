@@ -122,7 +122,12 @@ func (h *AlonzoBlockHeader) Era() Era {
 
 type AlonzoTransactionBody struct {
 	MaryTransactionBody
-	TxOutputs       []AlonzoTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxOutputs []AlonzoTransactionOutput `cbor:"1,keyasint,omitempty"`
+	Update    struct {
+		cbor.StructAsArray
+		ProtocolParamUpdates map[Blake2b224]AlonzoProtocolParameterUpdate
+		Epoch                uint64
+	} `cbor:"6,keyasint,omitempty"`
 	ScriptDataHash  Blake2b256                `cbor:"11,keyasint,omitempty"`
 	Collateral      []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
 	RequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
@@ -292,6 +297,44 @@ func (t *AlonzoTransaction) Cbor() []byte {
 
 func (t *AlonzoTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
+}
+
+type ExUnit struct {
+	cbor.StructAsArray
+	Mem   uint
+	Steps uint
+}
+
+type ExUnitPrice struct {
+	cbor.StructAsArray
+	MemPrice  uint
+	StepPrice uint
+}
+
+type AlonzoProtocolParameters struct {
+	MaryProtocolParameters
+	MinPoolCost          uint
+	AdaPerUtxoByte       uint
+	CostModels           uint
+	ExecutionCosts       uint
+	MaxTxExUnits         uint
+	MaxBlockExUnits      uint
+	MaxValueSize         uint
+	CollateralPercentage uint
+	MaxCollateralInputs  uint
+}
+
+type AlonzoProtocolParameterUpdate struct {
+	MaryProtocolParameterUpdate
+	MinPoolCost          uint              `cbor:"16,keyasint"`
+	AdaPerUtxoByte       uint              `cbor:"17,keyasint"`
+	CostModels           map[string][]uint `cbor:"18,keyasint"`
+	ExecutionCosts       *ExUnitPrice      `cbor:"19,keyasint"`
+	MaxTxExUnits         *ExUnit           `cbor:"20,keyasint"`
+	MaxBlockExUnits      *ExUnit           `cbor:"21,keyasint"`
+	MaxValueSize         uint              `cbor:"22,keyasint"`
+	CollateralPercentage uint              `cbor:"23,keyasint"`
+	MaxCollateralInputs  uint              `cbor:"24,keyasint"`
 }
 
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
