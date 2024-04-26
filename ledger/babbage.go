@@ -438,6 +438,14 @@ func (t BabbageTransaction) IsValid() bool {
 	return t.IsTxValid
 }
 
+func (t *BabbageTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+	updateMap := make(map[Blake2b224]any)
+	for k, v := range t.Body.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return updateMap
+}
+
 func (t *BabbageTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()

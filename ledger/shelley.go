@@ -371,6 +371,14 @@ func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
 }
 
+func (t *ShelleyTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+	updateMap := make(map[Blake2b224]any)
+	for k, v := range t.Body.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return updateMap
+}
+
 func (t *ShelleyTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()

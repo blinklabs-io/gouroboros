@@ -28,6 +28,7 @@ type Transaction interface {
 	TransactionBody
 	Metadata() *cbor.Value
 	IsValid() bool
+	ProtocolParametersUpdate() map[Blake2b224]any
 }
 
 type TransactionBody interface {
