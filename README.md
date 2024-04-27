@@ -83,31 +83,37 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
+      - [X] Parameter updates
     - [X] Allegra
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
+      - [X] Parameter updates
     - [X] Mary
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
+      - [X] Parameter updates
     - [X] Alonzo
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
+      - [X] Parameter updates
     - [X] Babbage
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
+      - [X] Parameter updates
     - [X] Conway
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
+      - [ ] Parameter updates
   - [ ] Transaction attributes
     - [X] Inputs
     - [X] Outputs
@@ -116,7 +122,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] TTL
     - [ ] Certificates
     - [ ] Staking reward withdrawls
-    - [ ] Protocol parameter updates
+    - [X] Protocol parameter updates
     - [ ] Auxiliary data hash
     - [ ] Validity interval start
     - [ ] Mint operations
