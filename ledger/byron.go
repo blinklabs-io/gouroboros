@@ -187,6 +187,15 @@ func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
 	return &utxorpc.Tx{}
 }
 
+func (t *ByronTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+	// TODO: Implement this add missing Body TransactionBody
+	updateMap := make(map[Blake2b224]any)
+	// for k, v := range t.Body.Update.ProtocolParamUpdates {
+	// 	updateMap[k] = v
+	// }
+	return updateMap
+}
+
 type ByronTransactionInput struct {
 	cbor.StructAsArray
 	TxId        Blake2b256
