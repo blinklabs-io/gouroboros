@@ -129,7 +129,7 @@ type AlonzoTransactionBody struct {
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
 	ScriptDataHash  Blake2b256                `cbor:"11,keyasint,omitempty"`
-	Collateral      []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
+	TxCollateral    []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
 	RequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
 	NetworkId       uint8                     `cbor:"15,keyasint,omitempty"`
 }
@@ -143,6 +143,14 @@ func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
 	for _, output := range b.TxOutputs {
 		output := output
 		ret = append(ret, &output)
+	}
+	return ret
+}
+
+func (b *AlonzoTransactionBody) Collateral() []TransactionInput {
+	ret := []TransactionInput{}
+	for _, collateral := range b.TxCollateral {
+		ret = append(ret, collateral)
 	}
 	return ret
 }
@@ -258,6 +266,10 @@ func (t AlonzoTransaction) TTL() uint64 {
 
 func (t AlonzoTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
+}
+
+func (t AlonzoTransaction) Collateral() []TransactionInput {
+	return t.Body.Collateral()
 }
 
 func (t AlonzoTransaction) CollateralReturn() TransactionOutput {

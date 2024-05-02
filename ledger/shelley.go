@@ -221,6 +221,11 @@ func (b *ShelleyTransactionBody) ReferenceInputs() []TransactionInput {
 	return []TransactionInput{}
 }
 
+func (b *ShelleyTransactionBody) Collateral() []TransactionInput {
+	// No collateral in Shelley
+	return nil
+}
+
 func (b *ShelleyTransactionBody) CollateralReturn() TransactionOutput {
 	// No collateral in Shelley
 	return nil
@@ -362,6 +367,10 @@ func (t ShelleyTransaction) TTL() uint64 {
 
 func (t ShelleyTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
+}
+
+func (t ShelleyTransaction) Collateral() []TransactionInput {
+	return t.Body.Collateral()
 }
 
 func (t ShelleyTransaction) CollateralReturn() TransactionOutput {
