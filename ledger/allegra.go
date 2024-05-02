@@ -158,6 +158,10 @@ func (t AllegraTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t AllegraTransaction) Collateral() []TransactionInput {
+	return t.Body.Collateral()
+}
+
 func (t AllegraTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }

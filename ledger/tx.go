@@ -39,8 +39,9 @@ type TransactionBody interface {
 	Outputs() []TransactionOutput
 	TTL() uint64
 	ReferenceInputs() []TransactionInput
-	Utxorpc() *utxorpc.Tx
+	Collateral() []TransactionInput
 	CollateralReturn() TransactionOutput
+	Utxorpc() *utxorpc.Tx
 }
 
 type TransactionInput interface {

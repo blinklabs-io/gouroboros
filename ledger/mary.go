@@ -175,6 +175,10 @@ func (t MaryTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t MaryTransaction) Collateral() []TransactionInput {
+	return t.Body.Collateral()
+}
+
 func (t MaryTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }

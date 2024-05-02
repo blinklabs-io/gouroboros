@@ -434,6 +434,10 @@ func (t BabbageTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t BabbageTransaction) Collateral() []TransactionInput {
+	return t.Body.Collateral()
+}
+
 func (t BabbageTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
