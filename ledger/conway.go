@@ -164,6 +164,10 @@ func (t ConwayTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t ConwayTransaction) CollateralReturn() TransactionOutput {
+	return t.Body.CollateralReturn()
+}
+
 func (t ConwayTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

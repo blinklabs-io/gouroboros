@@ -221,6 +221,11 @@ func (b *ShelleyTransactionBody) ReferenceInputs() []TransactionInput {
 	return []TransactionInput{}
 }
 
+func (b *ShelleyTransactionBody) CollateralReturn() TransactionOutput {
+	// No collateral in Shelley
+	return nil
+}
+
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 	var txi []*utxorpc.TxInput
 	var txo []*utxorpc.TxOutput
@@ -357,6 +362,10 @@ func (t ShelleyTransaction) TTL() uint64 {
 
 func (t ShelleyTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
+}
+
+func (t ShelleyTransaction) CollateralReturn() TransactionOutput {
+	return t.Body.CollateralReturn()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {
