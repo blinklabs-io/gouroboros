@@ -284,6 +284,23 @@ func (t AlonzoTransaction) IsValid() bool {
 	return t.IsTxValid
 }
 
+func (t AlonzoTransaction) Consumed() []TransactionInput {
+	if t.IsValid() {
+		return t.Inputs()
+	} else {
+		return t.Collateral()
+	}
+}
+
+func (t AlonzoTransaction) Produced() []TransactionOutput {
+	if t.IsValid() {
+		return t.Outputs()
+	} else {
+		// No collateral return in Alonzo
+		return []TransactionOutput{}
+	}
+}
+
 func (t *AlonzoTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
 	updateMap := make(map[Blake2b224]any)
 	for k, v := range t.Body.Update.ProtocolParamUpdates {
