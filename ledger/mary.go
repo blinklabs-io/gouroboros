@@ -175,6 +175,10 @@ func (t MaryTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t MaryTransaction) CollateralReturn() TransactionOutput {
+	return t.Body.CollateralReturn()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

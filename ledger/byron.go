@@ -175,6 +175,11 @@ func (t *ByronTransaction) ReferenceInputs() []TransactionInput {
 	return nil
 }
 
+func (t *ByronTransaction) CollateralReturn() TransactionOutput {
+	// No collateral in Byron
+	return nil
+}
+
 func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }

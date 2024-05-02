@@ -260,6 +260,10 @@ func (t AlonzoTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
+func (t AlonzoTransaction) CollateralReturn() TransactionOutput {
+	return t.Body.CollateralReturn()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

@@ -181,9 +181,9 @@ type BabbageTransactionBody struct {
 		ProtocolParamUpdates map[Blake2b224]BabbageProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	CollateralReturn  BabbageTransactionOutput  `cbor:"16,keyasint,omitempty"`
-	TotalCollateral   uint64                    `cbor:"17,keyasint,omitempty"`
-	TxReferenceInputs []ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
+	TxCollateralReturn *BabbageTransactionOutput `cbor:"16,keyasint,omitempty"`
+	TotalCollateral    uint64                    `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs  []ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -206,6 +206,10 @@ func (b *BabbageTransactionBody) ReferenceInputs() []TransactionInput {
 		ret = append(ret, &input)
 	}
 	return ret
+}
+
+func (b *BabbageTransactionBody) CollateralReturn() TransactionOutput {
+	return b.TxCollateralReturn
 }
 
 func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
@@ -428,6 +432,10 @@ func (t BabbageTransaction) TTL() uint64 {
 
 func (t BabbageTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
+}
+
+func (t BabbageTransaction) CollateralReturn() TransactionOutput {
+	return t.Body.CollateralReturn()
 }
 
 func (t BabbageTransaction) Metadata() *cbor.Value {
