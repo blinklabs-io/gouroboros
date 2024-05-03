@@ -180,6 +180,25 @@ func (t ConwayTransaction) IsValid() bool {
 	return t.IsTxValid
 }
 
+func (t ConwayTransaction) Consumed() []TransactionInput {
+	if t.IsValid() {
+		return t.Inputs()
+	} else {
+		return t.Collateral()
+	}
+}
+
+func (t ConwayTransaction) Produced() []TransactionOutput {
+	if t.IsValid() {
+		return t.Outputs()
+	} else {
+		if t.CollateralReturn() == nil {
+			return []TransactionOutput{}
+		}
+		return []TransactionOutput{t.CollateralReturn()}
+	}
+}
+
 func (t *ConwayTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
 	updateMap := make(map[Blake2b224]any)
 	for k, v := range t.Body.Update.ProtocolParamUpdates {

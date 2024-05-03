@@ -28,6 +28,8 @@ type Transaction interface {
 	TransactionBody
 	Metadata() *cbor.Value
 	IsValid() bool
+	Consumed() []TransactionInput
+	Produced() []TransactionOutput
 	ProtocolParametersUpdate() map[Blake2b224]any
 }
 

@@ -178,6 +178,14 @@ func (t AllegraTransaction) IsValid() bool {
 	return true
 }
 
+func (t AllegraTransaction) Consumed() []TransactionInput {
+	return t.Inputs()
+}
+
+func (t AllegraTransaction) Produced() []TransactionOutput {
+	return t.Outputs()
+}
+
 func (t *AllegraTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
 	updateMap := make(map[Blake2b224]any)
 	for k, v := range t.Body.Update.ProtocolParamUpdates {

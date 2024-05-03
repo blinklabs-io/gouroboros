@@ -209,6 +209,12 @@ func (b *BabbageTransactionBody) ReferenceInputs() []TransactionInput {
 }
 
 func (b *BabbageTransactionBody) CollateralReturn() TransactionOutput {
+	// Return an actual nil if we have no value. If we return our nil pointer,
+	// we get a non-nil interface containing a nil value, which is harder to
+	// compare against
+	if b.TxCollateralReturn == nil {
+		return nil
+	}
 	return b.TxCollateralReturn
 }
 
@@ -448,6 +454,25 @@ func (t BabbageTransaction) Metadata() *cbor.Value {
 
 func (t BabbageTransaction) IsValid() bool {
 	return t.IsTxValid
+}
+
+func (t BabbageTransaction) Consumed() []TransactionInput {
+	if t.IsValid() {
+		return t.Inputs()
+	} else {
+		return t.Collateral()
+	}
+}
+
+func (t BabbageTransaction) Produced() []TransactionOutput {
+	if t.IsValid() {
+		return t.Outputs()
+	} else {
+		if t.CollateralReturn() == nil {
+			return []TransactionOutput{}
+		}
+		return []TransactionOutput{t.CollateralReturn()}
+	}
 }
 
 func (t *BabbageTransaction) ProtocolParametersUpdate() map[Blake2b224]any {

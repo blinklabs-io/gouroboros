@@ -193,6 +193,14 @@ func (t *ByronTransaction) IsValid() bool {
 	return true
 }
 
+func (t *ByronTransaction) Consumed() []TransactionInput {
+	return t.Inputs()
+}
+
+func (t *ByronTransaction) Produced() []TransactionOutput {
+	return t.Outputs()
+}
+
 func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
 	return &utxorpc.Tx{}
 }

@@ -385,6 +385,14 @@ func (t ShelleyTransaction) IsValid() bool {
 	return true
 }
 
+func (t ShelleyTransaction) Consumed() []TransactionInput {
+	return t.Inputs()
+}
+
+func (t ShelleyTransaction) Produced() []TransactionOutput {
+	return t.Outputs()
+}
+
 func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
 }
