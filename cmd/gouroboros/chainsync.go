@@ -208,6 +208,37 @@ func testChainSync(f *globalFlags) {
 		os.Exit(1)
 	}
 
+	// REMOVE: Test GetCurrentTip during chain sync.
+	// for i := 0; i < 10; i++ {
+	// 	go func() {
+	// 		last := uint64(0)
+	// 		count := 0
+
+	// 		// REMOVE.
+	// 		time.Sleep(3 * time.Second)
+
+	// 		fmt.Printf("Starting GetCurrentTip test\n")
+
+	// 		for {
+	// 			count++
+
+	// 			tip, err := oConn.ChainSync().Client.GetCurrentTip()
+	// 			if err != nil {
+	// 				fmt.Printf("ERROR: GetCurrentTip: %v\n", err)
+	// 				return
+	// 			}
+
+	// 			if tip.BlockNumber != last {
+	// 				fmt.Printf("tip: block:%d count:%d\n", tip.BlockNumber, count)
+	// 				last = tip.BlockNumber
+	// 				count = 0
+	// 			}
+
+	// 			time.Sleep(10 * time.Millisecond)
+	// 		}
+	// 	}()
+	// }
+
 	var point common.Point
 	if chainSyncFlags.tip {
 		tip, err := oConn.ChainSync().Client.GetCurrentTip()
@@ -226,9 +257,12 @@ func testChainSync(f *globalFlags) {
 		point = common.NewPointOrigin()
 	}
 	if chainSyncFlags.blockRange {
+		fmt.Printf("client: requesting block range\n")
+
 		start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange(
 			[]common.Point{point},
 		)
+		fmt.Printf("client: block range: %d -> %d\n", start, end)
 		if err != nil {
 			fmt.Printf("ERROR: failed to get available block range: %s\n", err)
 			os.Exit(1)
