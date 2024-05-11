@@ -167,6 +167,9 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
+	if tmp == nil {
+		return nil
+	}
 	// We know what the value will be, but it doesn't hurt to use the actual value from the message
 	m.MessageType = uint8(tmp[0].(uint64))
 	// The ReplyNextTx message has a variable number of arguments
