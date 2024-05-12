@@ -27,40 +27,49 @@ type Server struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
+	protoOptions    protocol.ProtocolOptions
+	stateContext    any
 }
 
 // NewServer returns a new ChainSync server object
 func NewServer(stateContext interface{}, protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
-	// Use node-to-client protocol ID
-	ProtocolId := ProtocolIdNtC
-	msgFromCborFunc := NewMsgFromCborNtC
-	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
-		// Use node-to-node protocol ID
-		ProtocolId = ProtocolIdNtN
-		msgFromCborFunc = NewMsgFromCborNtN
-	}
 	s := &Server{
 		config: cfg,
+		// Save these for re-use later
+		protoOptions: protoOptions,
+		stateContext: stateContext,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.initProtocol()
+	return s
+}
+
+func (s *Server) initProtocol() {
+	// Use node-to-client protocol ID
+	ProtocolId := ProtocolIdNtC
+	msgFromCborFunc := NewMsgFromCborNtC
+	if s.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		// Use node-to-node protocol ID
+		ProtocolId = ProtocolIdNtN
+		msgFromCborFunc = NewMsgFromCborNtN
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            StateMap,
-		StateContext:        stateContext,
+		StateContext:        s.stateContext,
 		InitialState:        stateIdle,
 	}
 	s.Protocol = protocol.New(protoConfig)
-	return s
 }
 
 func (s *Server) RollBackward(point common.Point, tip Tip) error {
@@ -147,5 +156,9 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() error {
+	// Restart protocol
+	s.Protocol.Stop()
+	s.initProtocol()
+	s.Protocol.Start()
 	return nil
 }

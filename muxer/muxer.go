@@ -178,6 +178,26 @@ func (m *Muxer) RegisterProtocol(
 	return senderChan, receiverChan, m.doneChan
 }
 
+func (m *Muxer) UnregisterProtocol(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+) {
+	m.protocolReceiversMutex.Lock()
+	protocolRoles, ok := m.protocolReceivers[protocolId]
+	if !ok {
+		return
+	}
+	recvChan, ok := protocolRoles[protocolRole]
+	if !ok {
+		return
+	}
+	// Signal shutdown to protocol
+	close(recvChan)
+	// Remove mapping
+	delete(protocolRoles, protocolRole)
+	m.protocolReceiversMutex.Unlock()
+}
+
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
 // one protocol from sending at once
 func (m *Muxer) Send(msg *Segment) error {

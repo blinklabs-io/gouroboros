@@ -44,6 +44,7 @@ type Protocol struct {
 	sendReadyChan       chan bool
 	stateTransitionChan chan<- protocolStateTransition
 	onceStart           sync.Once
+	onceStop            sync.Once
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -144,6 +145,21 @@ func (p *Protocol) Start() {
 		go p.stateLoop(stateTransitionChan)
 		go p.recvLoop()
 		go p.sendLoop()
+	})
+}
+
+// Stop shuts down the mini-protocol
+func (p *Protocol) Stop() {
+	p.onceStop.Do(func() {
+		// Unregister protocol from muxer
+		muxerProtocolRole := muxer.ProtocolRoleInitiator
+		if p.config.Role == ProtocolRoleServer {
+			muxerProtocolRole = muxer.ProtocolRoleResponder
+		}
+		p.config.Muxer.RegisterProtocol(
+			p.config.ProtocolId,
+			muxerProtocolRole,
+		)
 	})
 }
 

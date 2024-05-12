@@ -26,8 +26,8 @@ type Server struct {
 	*protocol.Protocol
 	config                 *Config
 	callbackContext        CallbackContext
+	protoOptions           protocol.ProtocolOptions
 	ackCount               int
-	stateDone              bool
 	requestTxIdsResultChan chan []TxIdAndSize
 	requestTxsResultChan   chan []TxBody
 	onceStart              sync.Once
@@ -36,7 +36,9 @@ type Server struct {
 // NewServer returns a new TxSubmission server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
-		config:                 cfg,
+		config: cfg,
+		// Save this for re-use later
+		protoOptions:           protoOptions,
 		requestTxIdsResultChan: make(chan []TxIdAndSize),
 		requestTxsResultChan:   make(chan []TxBody),
 	}
@@ -44,12 +46,17 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.initProtocol()
+	return s
+}
+
+func (s *Server) initProtocol() {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
@@ -57,7 +64,6 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		InitialState:        stateInit,
 	}
 	s.Protocol = protocol.New(protoConfig)
-	return s
 }
 
 func (s *Server) Start() {
@@ -98,9 +104,6 @@ func (s *Server) RequestTxIds(
 	blocking bool,
 	reqCount int,
 ) ([]TxIdAndSize, error) {
-	if s.stateDone {
-		return nil, protocol.ProtocolShuttingDownError
-	}
 	msg := NewMsgRequestTxIds(blocking, uint16(s.ackCount), uint16(reqCount))
 	if err := s.SendMessage(msg); err != nil {
 		return nil, err
@@ -117,9 +120,6 @@ func (s *Server) RequestTxIds(
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
-	if s.stateDone {
-		return nil, protocol.ProtocolShuttingDownError
-	}
 	msg := NewMsgRequestTxs(txIds)
 	if err := s.SendMessage(msg); err != nil {
 		return nil, err
@@ -147,7 +147,12 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() error {
-	s.stateDone = true
+	// Restart protocol
+	s.Protocol.Stop()
+	s.initProtocol()
+	s.requestTxIdsResultChan = make(chan []TxIdAndSize)
+	s.requestTxsResultChan = make(chan []TxBody)
+	s.Protocol.Start()
 	return nil
 }
 
