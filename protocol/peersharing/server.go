@@ -25,23 +25,31 @@ type Server struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
+	protoOptions    protocol.ProtocolOptions
 }
 
 // NewServer returns a new PeerSharing server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
+		// Save this for re-use later
+		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.initProtocol()
+	return s
+}
+
+func (s *Server) initProtocol() {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.handleMessage,
 		MessageFromCborFunc: NewMsgFromCbor,
@@ -49,7 +57,6 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		InitialState:        stateIdle,
 	}
 	s.Protocol = protocol.New(protoConfig)
-	return s
 }
 
 func (s *Server) handleMessage(msg protocol.Message) error {
@@ -88,5 +95,9 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone(msg protocol.Message) error {
+	// Restart protocol
+	s.Protocol.Stop()
+	s.initProtocol()
+	s.Protocol.Start()
 	return nil
 }
