@@ -51,7 +51,7 @@ func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
 	var calculateBlockBodyHashByte [32]byte
 	if len(txsRaw) == 0 {
 		zeroTxHash, decodeZTHError := hex.DecodeString(BLOCK_BODY_HASH_ZERO_TX_HEX)
-		if err != nil {
+		if decodeZTHError != nil {
 			return false, fmt.Errorf("VerifyBlockBody: zeroTxHash decode error, %v", decodeZTHError.Error())
 		}
 		copy(calculateBlockBodyHashByte[:], zeroTxHash[:32])
