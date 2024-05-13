@@ -5,6 +5,7 @@ go 1.21
 toolchain go1.21.5
 
 require (
+	filippo.io/edwards25519 v1.1.0
 	github.com/blinklabs-io/ouroboros-mock v0.3.0
 	github.com/fxamacker/cbor/v2 v2.6.0
 	github.com/jinzhu/copier v0.4.0
