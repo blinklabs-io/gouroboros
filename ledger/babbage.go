@@ -448,6 +448,10 @@ func (t BabbageTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t BabbageTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

@@ -166,6 +166,10 @@ func (t AllegraTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t AllegraTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

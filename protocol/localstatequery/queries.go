@@ -16,7 +16,6 @@ package localstatequery
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -315,70 +314,13 @@ type StakePoolParamsResult struct {
 		Margin        *cbor.Rat
 		RewardAccount ledger.Address
 		PoolOwners    []ledger.Blake2b224
-		Relays        []StakePoolParamsResultRelay
+		Relays        []ledger.PoolRelay
 		PoolMetadata  *struct {
 			cbor.StructAsArray
 			Url          string
 			MetadataHash ledger.Blake2b256
 		}
 	}
-}
-
-type StakePoolParamsResultRelay struct {
-	Type     int
-	Port     *uint
-	Ipv4     *net.IP
-	Ipv6     *net.IP
-	Hostname *string
-}
-
-func (s *StakePoolParamsResultRelay) UnmarshalCBOR(data []byte) error {
-	tmpId, err := cbor.DecodeIdFromList(data)
-	if err != nil {
-		return err
-	}
-	s.Type = tmpId
-	switch tmpId {
-	case 0:
-		var tmpData struct {
-			cbor.StructAsArray
-			Type uint
-			Port *uint
-			Ipv4 *net.IP
-			Ipv6 *net.IP
-		}
-		if _, err := cbor.Decode(data, &tmpData); err != nil {
-			return err
-		}
-		s.Port = tmpData.Port
-		s.Ipv4 = tmpData.Ipv4
-		s.Ipv6 = tmpData.Ipv6
-	case 1:
-		var tmpData struct {
-			cbor.StructAsArray
-			Type     uint
-			Port     *uint
-			Hostname *string
-		}
-		if _, err := cbor.Decode(data, &tmpData); err != nil {
-			return err
-		}
-		s.Port = tmpData.Port
-		s.Hostname = tmpData.Hostname
-	case 2:
-		var tmpData struct {
-			cbor.StructAsArray
-			Type     uint
-			Hostname *string
-		}
-		if _, err := cbor.Decode(data, &tmpData); err != nil {
-			return err
-		}
-		s.Hostname = tmpData.Hostname
-	default:
-		return fmt.Errorf("invalid relay type: %d", tmpId)
-	}
-	return nil
 }
 
 // TODO

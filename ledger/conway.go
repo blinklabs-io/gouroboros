@@ -172,6 +172,10 @@ func (t ConwayTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t ConwayTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t ConwayTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

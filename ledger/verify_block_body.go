@@ -190,44 +190,35 @@ func GetBlockOutput(txBodies []BabbageTransactionBody) ([]UTXOOutput, []RegisCer
 		// We will only focus on:
 		// pool_registration = (3, pool_params)
 		// pool_retirement = (4, pool_keyhash, epoch)
-		txCertsBytes := tx.Certificates
-		if txCertsBytes != nil {
-			var certs []interface{}
-			_, err := cbor.Decode(txCertsBytes, &certs)
-			if err != nil {
-				return nil, nil, nil, fmt.Errorf("GetBlockOutput: decode txCertsBytes, tx index %v, error, %v", txIndex, err.Error())
-			}
-			for certIndex, cert := range certs {
-				certBytes := cert.([]interface{})
-				// For type like this, Haskell cbor will have an int flag at first byte, to detect which struct to be used
-				flagByte := certBytes[0].(uint64)
-				if flagByte == 3 {
-					poolIdBytes := certBytes[1].([]byte)
-					vrfKeyHashBytes := certBytes[2].([]byte)
-					vrfKeyHashHex := hex.EncodeToString(vrfKeyHashBytes)
-					poolId, poolIdError := PoolIdToBech32(poolIdBytes)
-					if poolIdError != nil {
-						return nil, nil, nil, fmt.Errorf("GetBlockOutput: RegisSPO => PoolIdToBech32 , tx index %v, cert index %v, error, %v", txIndex, certIndex, poolIdError.Error())
-					}
-					regisCerts = append(regisCerts, RegisCert{
-						RegisPoolId:  poolId,
-						RegisPoolVrf: vrfKeyHashHex,
-						TxIndex:      txIndex,
-					})
-				} else if flagByte == 4 {
-					// pool_retirement
-					poolIdBytes := certBytes[1].([]byte)
-					poolId, poolIdError := PoolIdToBech32(poolIdBytes)
-					if poolIdError != nil {
-						return nil, nil, nil, fmt.Errorf("GetBlockOutput: RetireSPO => PoolIdToBech32, tx index %v, cert index %v, error, %v", txIndex, certIndex, poolIdError.Error())
-					}
-					retireEpoch := certBytes[2].(uint64)
-					deRegisCerts = append(deRegisCerts, DeRegisCert{
-						DeRegisPoolId: poolId,
-						DeRegisEpoch:  strconv.FormatUint(retireEpoch, 10),
-						TxIndex:       txIndex,
-					})
+		for certIndex, cert := range tx.Certificates() {
+			switch v := cert.(type) {
+			case *PoolRegistrationCertificate:
+				poolIdBytes := v.Operator[:]
+				vrfKeyHashBytes := v.VrfKeyHash[:]
+				vrfKeyHashHex := hex.EncodeToString(vrfKeyHashBytes)
+				poolId, poolIdError := PoolIdToBech32(poolIdBytes)
+				if poolIdError != nil {
+					return nil, nil, nil, fmt.Errorf("GetBlockOutput: RegisSPO => PoolIdToBech32 , tx index %v, cert index %v, error, %v", txIndex, certIndex, poolIdError.Error())
 				}
+				regisCerts = append(regisCerts, RegisCert{
+					RegisPoolId:  poolId,
+					RegisPoolVrf: vrfKeyHashHex,
+					TxIndex:      txIndex,
+				})
+
+			case *PoolRetirementCertificate:
+				// pool_retirement
+				poolIdBytes := v.PoolKeyHash[:]
+				poolId, poolIdError := PoolIdToBech32(poolIdBytes)
+				if poolIdError != nil {
+					return nil, nil, nil, fmt.Errorf("GetBlockOutput: RetireSPO => PoolIdToBech32, tx index %v, cert index %v, error, %v", txIndex, certIndex, poolIdError.Error())
+				}
+				retireEpoch := v.Epoch
+				deRegisCerts = append(deRegisCerts, DeRegisCert{
+					DeRegisPoolId: poolId,
+					DeRegisEpoch:  strconv.FormatUint(retireEpoch, 10),
+					TxIndex:       txIndex,
+				})
 			}
 		}
 
