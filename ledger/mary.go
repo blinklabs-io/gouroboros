@@ -183,6 +183,10 @@ func (t MaryTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t MaryTransaction) TotalCollateral() uint64 {
+	return t.Body.TotalCollateral()
+}
+
 func (t MaryTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }

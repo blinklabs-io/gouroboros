@@ -185,6 +185,11 @@ func (t *ByronTransaction) CollateralReturn() TransactionOutput {
 	return nil
 }
 
+func (t *ByronTransaction) TotalCollateral() uint64 {
+	// No collateral in Byron
+	return 0
+}
+
 func (t *ByronTransaction) Certificates() []Certificate {
 	// No certificates in Byron
 	return nil
