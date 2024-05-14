@@ -379,15 +379,15 @@ type AlonzoProtocolParameters struct {
 
 type AlonzoProtocolParameterUpdate struct {
 	MaryProtocolParameterUpdate
-	MinPoolCost          uint              `cbor:"16,keyasint"`
-	AdaPerUtxoByte       uint              `cbor:"17,keyasint"`
-	CostModels           map[string][]uint `cbor:"18,keyasint"`
-	ExecutionCosts       *ExUnitPrice      `cbor:"19,keyasint"`
-	MaxTxExUnits         *ExUnit           `cbor:"20,keyasint"`
-	MaxBlockExUnits      *ExUnit           `cbor:"21,keyasint"`
-	MaxValueSize         uint              `cbor:"22,keyasint"`
-	CollateralPercentage uint              `cbor:"23,keyasint"`
-	MaxCollateralInputs  uint              `cbor:"24,keyasint"`
+	MinPoolCost          uint            `cbor:"16,keyasint"`
+	AdaPerUtxoByte       uint            `cbor:"17,keyasint"`
+	CostModels           map[uint][]uint `cbor:"18,keyasint"`
+	ExecutionCosts       *ExUnitPrice    `cbor:"19,keyasint"`
+	MaxTxExUnits         *ExUnit         `cbor:"20,keyasint"`
+	MaxBlockExUnits      *ExUnit         `cbor:"21,keyasint"`
+	MaxValueSize         uint            `cbor:"22,keyasint"`
+	CollateralPercentage uint            `cbor:"23,keyasint"`
+	MaxCollateralInputs  uint            `cbor:"24,keyasint"`
 }
 
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
