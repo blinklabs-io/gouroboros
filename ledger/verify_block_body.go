@@ -304,3 +304,23 @@ type DeRegisCert struct {
 	DeRegisEpoch  string
 	TxIndex       int
 }
+
+func GetListRegisCertPoolId(regisCerts []RegisCert) []string {
+        poolId := make([]string, 0)
+        if len(regisCerts) > 0 {
+                for _, cert := range regisCerts {
+                        poolId = append(poolId, cert.RegisPoolId)
+                }
+        }
+        return poolId
+}
+
+func GetListUnregisCertPoolId(deRegisCerts []DeRegisCert) []string {
+        poolId := make([]string, 0)
+        if len(deRegisCerts) > 0 {
+                for _, cert := range deRegisCerts {
+                        poolId = append(poolId, cert.DeRegisPoolId)
+                }
+        }
+        return poolId
+}
