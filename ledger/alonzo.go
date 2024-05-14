@@ -276,6 +276,10 @@ func (t AlonzoTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t AlonzoTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

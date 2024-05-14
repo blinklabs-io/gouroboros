@@ -183,6 +183,10 @@ func (t MaryTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t MaryTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

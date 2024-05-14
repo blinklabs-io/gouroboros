@@ -43,6 +43,7 @@ type TransactionBody interface {
 	ReferenceInputs() []TransactionInput
 	Collateral() []TransactionInput
 	CollateralReturn() TransactionOutput
+	Certificates() []Certificate
 	Utxorpc() *utxorpc.Tx
 }
 

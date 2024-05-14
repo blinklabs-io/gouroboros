@@ -162,13 +162,12 @@ func (h *ShelleyBlockHeader) Era() Era {
 
 type ShelleyTransactionBody struct {
 	cbor.DecodeStoreCbor
-	hash      string
-	TxInputs  []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
-	TxOutputs []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
-	TxFee     uint64                     `cbor:"2,keyasint,omitempty"`
-	Ttl       uint64                     `cbor:"3,keyasint,omitempty"`
-	// TODO: figure out how to parse properly
-	Certificates cbor.RawMessage `cbor:"4,keyasint,omitempty"`
+	hash           string
+	TxInputs       []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
+	TxOutputs      []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxFee          uint64                     `cbor:"2,keyasint,omitempty"`
+	Ttl            uint64                     `cbor:"3,keyasint,omitempty"`
+	TxCertificates []CertificateWrapper       `cbor:"4,keyasint,omitempty"`
 	// TODO: figure out how to parse this correctly
 	// We keep the raw CBOR because it can contain a map with []byte keys, which
 	// Go does not allow
@@ -229,6 +228,14 @@ func (b *ShelleyTransactionBody) Collateral() []TransactionInput {
 func (b *ShelleyTransactionBody) CollateralReturn() TransactionOutput {
 	// No collateral in Shelley
 	return nil
+}
+
+func (b *ShelleyTransactionBody) Certificates() []Certificate {
+	ret := make([]Certificate, len(b.TxCertificates))
+	for i, cert := range b.TxCertificates {
+		ret[i] = cert.Certificate
+	}
+	return ret
 }
 
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
@@ -375,6 +382,10 @@ func (t ShelleyTransaction) Collateral() []TransactionInput {
 
 func (t ShelleyTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
+}
+
+func (t ShelleyTransaction) Certificates() []Certificate {
+	return t.Body.Certificates()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {

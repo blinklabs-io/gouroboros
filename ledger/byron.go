@@ -185,6 +185,11 @@ func (t *ByronTransaction) CollateralReturn() TransactionOutput {
 	return nil
 }
 
+func (t *ByronTransaction) Certificates() []Certificate {
+	// No certificates in Byron
+	return nil
+}
+
 func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }
