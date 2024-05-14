@@ -460,6 +460,10 @@ func (t BabbageTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }
 
+func (t BabbageTransaction) Withdrawals() map[*Address]uint64 {
+	return t.Body.Withdrawals()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

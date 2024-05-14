@@ -180,6 +180,10 @@ func (t ConwayTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }
 
+func (t ConwayTransaction) Withdrawals() map[*Address]uint64 {
+	return t.Body.Withdrawals()
+}
+
 func (t ConwayTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

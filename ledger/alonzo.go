@@ -284,6 +284,10 @@ func (t AlonzoTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }
 
+func (t AlonzoTransaction) Withdrawals() map[*Address]uint64 {
+	return t.Body.Withdrawals()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

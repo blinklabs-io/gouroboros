@@ -191,6 +191,10 @@ func (t MaryTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }
 
+func (t MaryTransaction) Withdrawals() map[*Address]uint64 {
+	return t.Body.Withdrawals()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

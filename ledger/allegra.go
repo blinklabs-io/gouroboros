@@ -174,6 +174,10 @@ func (t AllegraTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }
 
+func (t AllegraTransaction) Withdrawals() map[*Address]uint64 {
+	return t.Body.Withdrawals()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
