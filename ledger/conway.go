@@ -121,14 +121,59 @@ func (h *ConwayBlockHeader) Era() Era {
 
 type ConwayTransactionBody struct {
 	BabbageTransactionBody
-	VotingProcedures     *cbor.Value `cbor:"19,keyasint,omitempty"`
-	ProposalProcedures   *cbor.Value `cbor:"20,keyasint,omitempty"`
-	CurrentTreasuryValue int64       `cbor:"21,keyasint,omitempty"`
-	Donation             uint64      `cbor:"22,keyasint,omitempty"`
+	TxVotingProcedures   VotingProcedures `cbor:"19,keyasint,omitempty"`
+	ProposalProcedures   *cbor.Value      `cbor:"20,keyasint,omitempty"`
+	CurrentTreasuryValue int64            `cbor:"21,keyasint,omitempty"`
+	Donation             uint64           `cbor:"22,keyasint,omitempty"`
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
+}
+
+func (b *ConwayTransactionBody) VotingProcedures() VotingProcedures {
+	return b.TxVotingProcedures
+}
+
+// VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
+type VotingProcedures map[*Voter]map[*GovActionId]VotingProcedure
+
+const (
+	VoterTypeConstitutionalCommitteeHotKeyHash    uint8 = 0
+	VoterTypeConstitutionalCommitteeHotScriptHash uint8 = 1
+	VoterTypeDRepKeyHash                          uint8 = 2
+	VoterTypeDRepScriptHash                       uint8 = 3
+	VoterTypeStakingPoolKeyHash                   uint8 = 4
+)
+
+type Voter struct {
+	cbor.StructAsArray
+	Type uint8
+	Hash [28]byte
+}
+
+const (
+	GovVoteNo      uint8 = 0
+	GovVoteYes     uint8 = 1
+	GovVoteAbstain uint8 = 2
+)
+
+type VotingProcedure struct {
+	cbor.StructAsArray
+	Vote   uint8
+	Anchor *GovAnchor
+}
+
+type GovAnchor struct {
+	cbor.StructAsArray
+	Url      string
+	DataHash [32]byte
+}
+
+type GovActionId struct {
+	cbor.StructAsArray
+	TransactionId [32]byte
+	GovActionIdx  uint32
 }
 
 type ConwayTransaction struct {
@@ -182,6 +227,10 @@ func (t ConwayTransaction) Certificates() []Certificate {
 
 func (t ConwayTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
+}
+
+func (t ConwayTransaction) VotingProcedures() VotingProcedures {
+	return t.Body.VotingProcedures()
 }
 
 func (t ConwayTransaction) Metadata() *cbor.Value {

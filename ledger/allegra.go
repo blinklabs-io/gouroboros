@@ -178,6 +178,10 @@ func (t AllegraTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t AllegraTransaction) VotingProcedures() VotingProcedures {
+	return t.Body.VotingProcedures()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

@@ -195,6 +195,10 @@ func (t MaryTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t MaryTransaction) VotingProcedures() VotingProcedures {
+	return t.Body.VotingProcedures()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
