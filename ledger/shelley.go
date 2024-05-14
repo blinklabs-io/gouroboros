@@ -168,11 +168,8 @@ type ShelleyTransactionBody struct {
 	TxFee          uint64                     `cbor:"2,keyasint,omitempty"`
 	Ttl            uint64                     `cbor:"3,keyasint,omitempty"`
 	TxCertificates []CertificateWrapper       `cbor:"4,keyasint,omitempty"`
-	// TODO: figure out how to parse this correctly
-	// We keep the raw CBOR because it can contain a map with []byte keys, which
-	// Go does not allow
-	Withdrawals cbor.Value `cbor:"5,keyasint,omitempty"`
-	Update      struct {
+	TxWithdrawals  map[*Address]uint64        `cbor:"5,keyasint,omitempty"`
+	Update         struct {
 		cbor.StructAsArray
 		ProtocolParamUpdates map[Blake2b224]ShelleyProtocolParameterUpdate
 		Epoch                uint64
@@ -241,6 +238,10 @@ func (b *ShelleyTransactionBody) Certificates() []Certificate {
 		ret[i] = cert.Certificate
 	}
 	return ret
+}
+
+func (b *ShelleyTransactionBody) Withdrawals() map[*Address]uint64 {
+	return b.TxWithdrawals
 }
 
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
@@ -395,6 +396,10 @@ func (t ShelleyTransaction) TotalCollateral() uint64 {
 
 func (t ShelleyTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
+}
+
+func (t ShelleyTransaction) Withdrawals() map[*Address]uint64 {
+	return t.Body.Withdrawals()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {

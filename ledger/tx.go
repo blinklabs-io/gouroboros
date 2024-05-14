@@ -45,6 +45,7 @@ type TransactionBody interface {
 	CollateralReturn() TransactionOutput
 	TotalCollateral() uint64
 	Certificates() []Certificate
+	Withdrawals() map[*Address]uint64
 	Utxorpc() *utxorpc.Tx
 }
 

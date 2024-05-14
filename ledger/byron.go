@@ -195,6 +195,11 @@ func (t *ByronTransaction) Certificates() []Certificate {
 	return nil
 }
 
+func (t *ByronTransaction) Withdrawals() map[*Address]uint64 {
+	// No withdrawals in Byron
+	return nil
+}
+
 func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }
