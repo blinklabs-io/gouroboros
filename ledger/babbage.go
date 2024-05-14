@@ -182,7 +182,7 @@ type BabbageTransactionBody struct {
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
 	TxCollateralReturn *BabbageTransactionOutput `cbor:"16,keyasint,omitempty"`
-	TotalCollateral    uint64                    `cbor:"17,keyasint,omitempty"`
+	TxTotalCollateral  uint64                    `cbor:"17,keyasint,omitempty"`
 	TxReferenceInputs  []ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
 }
 
@@ -216,6 +216,10 @@ func (b *BabbageTransactionBody) CollateralReturn() TransactionOutput {
 		return nil
 	}
 	return b.TxCollateralReturn
+}
+
+func (b *BabbageTransactionBody) TotalCollateral() uint64 {
+	return b.TxTotalCollateral
 }
 
 func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
@@ -446,6 +450,10 @@ func (t BabbageTransaction) Collateral() []TransactionInput {
 
 func (t BabbageTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
+}
+
+func (t BabbageTransaction) TotalCollateral() uint64 {
+	return t.Body.TotalCollateral()
 }
 
 func (t BabbageTransaction) Certificates() []Certificate {

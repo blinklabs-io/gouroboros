@@ -230,6 +230,11 @@ func (b *ShelleyTransactionBody) CollateralReturn() TransactionOutput {
 	return nil
 }
 
+func (b *ShelleyTransactionBody) TotalCollateral() uint64 {
+	// No collateral in Shelley
+	return 0
+}
+
 func (b *ShelleyTransactionBody) Certificates() []Certificate {
 	ret := make([]Certificate, len(b.TxCertificates))
 	for i, cert := range b.TxCertificates {
@@ -382,6 +387,10 @@ func (t ShelleyTransaction) Collateral() []TransactionInput {
 
 func (t ShelleyTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
+}
+
+func (t ShelleyTransaction) TotalCollateral() uint64 {
+	return t.Body.TotalCollateral()
 }
 
 func (t ShelleyTransaction) Certificates() []Certificate {

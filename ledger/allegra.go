@@ -166,6 +166,10 @@ func (t AllegraTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t AllegraTransaction) TotalCollateral() uint64 {
+	return t.Body.TotalCollateral()
+}
+
 func (t AllegraTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }

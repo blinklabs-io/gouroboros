@@ -276,6 +276,10 @@ func (t AlonzoTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t AlonzoTransaction) TotalCollateral() uint64 {
+	return t.Body.TotalCollateral()
+}
+
 func (t AlonzoTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }

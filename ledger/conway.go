@@ -172,6 +172,10 @@ func (t ConwayTransaction) CollateralReturn() TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
+func (t ConwayTransaction) TotalCollateral() uint64 {
+	return t.Body.TotalCollateral()
+}
+
 func (t ConwayTransaction) Certificates() []Certificate {
 	return t.Body.Certificates()
 }

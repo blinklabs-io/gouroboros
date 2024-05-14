@@ -19,7 +19,7 @@ func TestBabbageBlockTransactions(t *testing.T) {
 
 	for i := 0; i < txsCount; i++ {
 		b.TransactionBodies[i] = BabbageTransactionBody{
-			TotalCollateral: 1 << i,
+			TxTotalCollateral: 1 << i,
 		}
 		b.TransactionWitnessSets[i] = BabbageTransactionWitnessSet{
 			AlonzoTransactionWitnessSet: AlonzoTransactionWitnessSet{
