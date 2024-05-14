@@ -288,6 +288,10 @@ func (t AlonzoTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t AlonzoTransaction) VotingProcedures() VotingProcedures {
+	return t.Body.VotingProcedures()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

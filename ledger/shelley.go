@@ -244,6 +244,11 @@ func (b *ShelleyTransactionBody) Withdrawals() map[*Address]uint64 {
 	return b.TxWithdrawals
 }
 
+func (t *ShelleyTransactionBody) VotingProcedures() VotingProcedures {
+	// No voting procedures in Shelley
+	return nil
+}
+
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 	var txi []*utxorpc.TxInput
 	var txo []*utxorpc.TxOutput
@@ -400,6 +405,10 @@ func (t ShelleyTransaction) Certificates() []Certificate {
 
 func (t ShelleyTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
+}
+
+func (t ShelleyTransaction) VotingProcedures() VotingProcedures {
+	return t.Body.VotingProcedures()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.Value {
