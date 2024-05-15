@@ -47,6 +47,7 @@ type TransactionBody interface {
 	Certificates() []Certificate
 	Withdrawals() map[*Address]uint64
 	VotingProcedures() VotingProcedures
+	ProposalProcedures() []ProposalProcedure
 	Utxorpc() *utxorpc.Tx
 }
 

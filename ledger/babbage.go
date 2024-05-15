@@ -468,6 +468,10 @@ func (t BabbageTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
+func (t BabbageTransaction) ProposalProcedures() []ProposalProcedure {
+	return t.Body.ProposalProcedures()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

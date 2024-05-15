@@ -292,6 +292,10 @@ func (t AlonzoTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
+func (t AlonzoTransaction) ProposalProcedures() []ProposalProcedure {
+	return t.Body.ProposalProcedures()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

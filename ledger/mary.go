@@ -199,6 +199,10 @@ func (t MaryTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
+func (t MaryTransaction) ProposalProcedures() []ProposalProcedure {
+	return t.Body.ProposalProcedures()
+}
+
 func (t MaryTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }

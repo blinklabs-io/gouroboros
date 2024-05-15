@@ -182,6 +182,10 @@ func (t AllegraTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
+func (t AllegraTransaction) ProposalProcedures() []ProposalProcedure {
+	return t.Body.ProposalProcedures()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.Value {
 	return t.TxMetadata
 }
