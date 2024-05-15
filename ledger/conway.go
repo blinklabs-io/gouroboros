@@ -373,6 +373,10 @@ func (t ConwayTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
+func (t ConwayTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return t.Body.AssetMint()
+}
+
 func (t ConwayTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }

@@ -249,6 +249,11 @@ func (b *ShelleyTransactionBody) RequiredSigners() []Blake2b224 {
 	return nil
 }
 
+func (b *ShelleyTransactionBody) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	// No asset minting in Shelley
+	return nil
+}
+
 func (t *ShelleyTransactionBody) VotingProcedures() VotingProcedures {
 	// No voting procedures in Shelley
 	return nil
@@ -419,6 +424,10 @@ func (t ShelleyTransaction) Withdrawals() map[*Address]uint64 {
 
 func (t ShelleyTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
+}
+
+func (t ShelleyTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return t.Body.AssetMint()
 }
 
 func (t ShelleyTransaction) VotingProcedures() VotingProcedures {

@@ -182,6 +182,10 @@ func (t AllegraTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
+func (t AllegraTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return t.Body.AssetMint()
+}
+
 func (t AllegraTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
