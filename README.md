@@ -120,18 +120,22 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Metadata
     - [X] Fees
     - [X] TTL
-    - [ ] Certificates
-    - [ ] Staking reward withdrawls
+    - [X] Certificates
+    - [X] Staking reward withdrawls
     - [X] Protocol parameter updates
-    - [ ] Auxiliary data hash
-    - [ ] Validity interval start
-    - [ ] Mint operations
-    - [ ] Script data hash
-    - [ ] Collateral inputs
-    - [ ] Required signers
-    - [ ] Collateral return
-    - [ ] Total collateral
-    - [ ] Reference inputs
+    - [X] Auxiliary data hash
+    - [X] Validity interval start
+    - [X] Mint operations
+    - [X] Script data hash
+    - [X] Collateral inputs
+    - [X] Required signers
+    - [X] Collateral return
+    - [X] Total collateral
+    - [X] Reference inputs
+    - [X] Voting procedures
+    - [X] Proposal procedures
+    - [ ] Current treasury value
+    - [ ] Donation
 - [ ] Testing
   - [X] Test framework for mocking Ouroboros conversations
   - [ ] CBOR deserialization and serialization
