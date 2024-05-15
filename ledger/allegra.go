@@ -186,6 +186,10 @@ func (t AllegraTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t AllegraTransaction) AuxDataHash() *Blake2b256 {
+	return t.Body.AuxDataHash()
+}
+
 func (t AllegraTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }

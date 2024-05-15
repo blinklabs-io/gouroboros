@@ -205,6 +205,11 @@ func (t *ByronTransaction) Withdrawals() map[*Address]uint64 {
 	return nil
 }
 
+func (t *ByronTransaction) AuxDataHash() *Blake2b256 {
+	// No aux data hash in Byron
+	return nil
+}
+
 func (t *ByronTransaction) RequiredSigners() []Blake2b224 {
 	// No required signers in Byron
 	return nil

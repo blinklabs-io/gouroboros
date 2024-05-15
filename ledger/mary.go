@@ -203,6 +203,10 @@ func (t MaryTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t MaryTransaction) AuxDataHash() *Blake2b256 {
+	return t.Body.AuxDataHash()
+}
+
 func (t MaryTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }

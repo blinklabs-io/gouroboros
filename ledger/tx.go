@@ -47,6 +47,7 @@ type TransactionBody interface {
 	TotalCollateral() uint64
 	Certificates() []Certificate
 	Withdrawals() map[*Address]uint64
+	AuxDataHash() *Blake2b256
 	RequiredSigners() []Blake2b224
 	AssetMint() *MultiAsset[MultiAssetTypeMint]
 	ScriptDataHash() *Blake2b256
