@@ -120,8 +120,8 @@ type MaryTransactionBody struct {
 		ProtocolParamUpdates map[Blake2b224]MaryProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	TxOutputs []MaryTransactionOutput        `cbor:"1,keyasint,omitempty"`
-	Mint      MultiAsset[MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxOutputs []MaryTransactionOutput         `cbor:"1,keyasint,omitempty"`
+	TxMint    *MultiAsset[MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
 }
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -135,6 +135,10 @@ func (b *MaryTransactionBody) Outputs() []TransactionOutput {
 		ret = append(ret, &output)
 	}
 	return ret
+}
+
+func (b *MaryTransactionBody) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return b.TxMint
 }
 
 type MaryTransaction struct {
@@ -197,6 +201,10 @@ func (t MaryTransaction) Withdrawals() map[*Address]uint64 {
 
 func (t MaryTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
+}
+
+func (t MaryTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return t.Body.AssetMint()
 }
 
 func (t MaryTransaction) VotingProcedures() VotingProcedures {

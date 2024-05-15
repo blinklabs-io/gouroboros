@@ -47,6 +47,7 @@ type TransactionBody interface {
 	Certificates() []Certificate
 	Withdrawals() map[*Address]uint64
 	RequiredSigners() []Blake2b224
+	AssetMint() *MultiAsset[MultiAssetTypeMint]
 	VotingProcedures() VotingProcedures
 	ProposalProcedures() []ProposalProcedure
 	Utxorpc() *utxorpc.Tx

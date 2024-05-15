@@ -205,6 +205,11 @@ func (t *ByronTransaction) RequiredSigners() []Blake2b224 {
 	return nil
 }
 
+func (t *ByronTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	// No asset mints in Byron
+	return nil
+}
+
 func (t *ByronTransaction) VotingProcedures() VotingProcedures {
 	// No voting procedures in Byron
 	return nil

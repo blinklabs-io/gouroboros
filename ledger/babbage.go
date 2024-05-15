@@ -472,6 +472,10 @@ func (t BabbageTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
+func (t BabbageTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return t.Body.AssetMint()
+}
+
 func (t BabbageTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }

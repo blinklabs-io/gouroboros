@@ -296,6 +296,10 @@ func (t AlonzoTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
+func (t AlonzoTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return t.Body.AssetMint()
+}
+
 func (t AlonzoTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
