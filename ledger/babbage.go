@@ -440,6 +440,10 @@ func (t BabbageTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t BabbageTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
+}
+
 func (t BabbageTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }

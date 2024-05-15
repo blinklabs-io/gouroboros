@@ -213,6 +213,11 @@ func (b *ShelleyTransactionBody) TTL() uint64 {
 	return b.Ttl
 }
 
+func (b *ShelleyTransactionBody) ValidityIntervalStart() uint64 {
+	// No validity interval start in Shelley
+	return 0
+}
+
 func (b *ShelleyTransactionBody) ReferenceInputs() []TransactionInput {
 	return []TransactionInput{}
 }
@@ -401,6 +406,10 @@ func (t ShelleyTransaction) Fee() uint64 {
 
 func (t ShelleyTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t ShelleyTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
 }
 
 func (t ShelleyTransaction) ReferenceInputs() []TransactionInput {
