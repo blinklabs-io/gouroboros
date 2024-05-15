@@ -205,6 +205,11 @@ func (t *ByronTransaction) VotingProcedures() VotingProcedures {
 	return nil
 }
 
+func (t *ByronTransaction) ProposalProcedures() []ProposalProcedure {
+	// No proposal procedures in Byron
+	return nil
+}
+
 func (t *ByronTransaction) Metadata() *cbor.Value {
 	return t.Attributes
 }

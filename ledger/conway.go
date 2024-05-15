@@ -121,10 +121,10 @@ func (h *ConwayBlockHeader) Era() Era {
 
 type ConwayTransactionBody struct {
 	BabbageTransactionBody
-	TxVotingProcedures   VotingProcedures `cbor:"19,keyasint,omitempty"`
-	ProposalProcedures   *cbor.Value      `cbor:"20,keyasint,omitempty"`
-	CurrentTreasuryValue int64            `cbor:"21,keyasint,omitempty"`
-	Donation             uint64           `cbor:"22,keyasint,omitempty"`
+	TxVotingProcedures   VotingProcedures    `cbor:"19,keyasint,omitempty"`
+	TxProposalProcedures []ProposalProcedure `cbor:"20,keyasint,omitempty"`
+	CurrentTreasuryValue int64               `cbor:"21,keyasint,omitempty"`
+	Donation             uint64              `cbor:"22,keyasint,omitempty"`
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -133,6 +133,10 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (b *ConwayTransactionBody) VotingProcedures() VotingProcedures {
 	return b.TxVotingProcedures
+}
+
+func (b *ConwayTransactionBody) ProposalProcedures() []ProposalProcedure {
+	return b.TxProposalProcedures
 }
 
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
@@ -175,6 +179,142 @@ type GovActionId struct {
 	TransactionId [32]byte
 	GovActionIdx  uint32
 }
+
+type ProposalProcedure struct {
+	cbor.StructAsArray
+	Deposit       uint64
+	RewardAccount Address
+	GovAction     GovActionWrapper
+	Anchor        GovAnchor
+}
+
+const (
+	GovActionTypeParameterChange    = 0
+	GovActionTypeHardForkInitiation = 1
+	GovActionTypeTreasuryWithdrawal = 2
+	GovActionTypeNoConfidence       = 3
+	GovActionTypeUpdateCommittee    = 4
+	GovActionTypeNewConstitution    = 5
+	GovActionTypeInfo               = 6
+)
+
+type GovActionWrapper struct {
+	Type   uint
+	Action GovAction
+}
+
+func (g *GovActionWrapper) UnmarshalCBOR(data []byte) error {
+	// Determine action type
+	actionType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	var tmpAction GovAction
+	switch actionType {
+	case GovActionTypeParameterChange:
+		tmpAction = &ParameterChangeGovAction{}
+	case GovActionTypeHardForkInitiation:
+		tmpAction = &HardForkInitiationGovAction{}
+	case GovActionTypeTreasuryWithdrawal:
+		tmpAction = &TreasuryWithdrawalGovAction{}
+	case GovActionTypeNoConfidence:
+		tmpAction = &NoConfidenceGovAction{}
+	case GovActionTypeUpdateCommittee:
+		tmpAction = &UpdateCommitteeGovAction{}
+	case GovActionTypeNewConstitution:
+		tmpAction = &NewConstitutionGovAction{}
+	case GovActionTypeInfo:
+		tmpAction = &InfoGovAction{}
+	default:
+		return fmt.Errorf("unknown governance action type: %d", actionType)
+	}
+	// Decode action
+	if _, err := cbor.Decode(data, tmpAction); err != nil {
+		return err
+	}
+	g.Type = uint(actionType)
+	g.Action = tmpAction
+	return nil
+}
+
+func (g *GovActionWrapper) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(g.Action)
+}
+
+type GovAction interface {
+	isGovAction()
+}
+
+type ParameterChangeGovAction struct {
+	cbor.StructAsArray
+	Type        uint
+	ActionId    *GovActionId
+	ParamUpdate BabbageProtocolParameterUpdate // TODO: use Conway params update type
+	PolicyHash  []byte
+}
+
+func (a ParameterChangeGovAction) isGovAction() {}
+
+type HardForkInitiationGovAction struct {
+	cbor.StructAsArray
+	Type            uint
+	ActionId        *GovActionId
+	ProtocolVersion struct {
+		cbor.StructAsArray
+		Major uint
+		Minor uint
+	}
+}
+
+func (a HardForkInitiationGovAction) isGovAction() {}
+
+type TreasuryWithdrawalGovAction struct {
+	cbor.StructAsArray
+	Type        uint
+	Withdrawals map[*Address]uint64
+	PolicyHash  []byte
+}
+
+func (a TreasuryWithdrawalGovAction) isGovAction() {}
+
+type NoConfidenceGovAction struct {
+	cbor.StructAsArray
+	Type     uint
+	ActionId *GovActionId
+}
+
+func (a NoConfidenceGovAction) isGovAction() {}
+
+type UpdateCommitteeGovAction struct {
+	cbor.StructAsArray
+	Type        uint
+	ActionId    *GovActionId
+	Credentials []StakeCredential
+	CredEpochs  map[*StakeCredential]uint
+	Unknown     cbor.Rat
+}
+
+func (a UpdateCommitteeGovAction) isGovAction() {}
+
+type NewConstitutionGovAction struct {
+	cbor.StructAsArray
+	Type         uint
+	ActionId     *GovActionId
+	Constitution struct {
+		cbor.StructAsArray
+		Anchor     GovAnchor
+		ScriptHash []byte
+	}
+}
+
+func (a NewConstitutionGovAction) isGovAction() {}
+
+type InfoGovAction struct {
+	cbor.StructAsArray
+	Type uint
+}
+
+func (a InfoGovAction) isGovAction() {}
 
 type ConwayTransaction struct {
 	cbor.StructAsArray
@@ -231,6 +371,10 @@ func (t ConwayTransaction) Withdrawals() map[*Address]uint64 {
 
 func (t ConwayTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
+}
+
+func (t ConwayTransaction) ProposalProcedures() []ProposalProcedure {
+	return t.Body.ProposalProcedures()
 }
 
 func (t ConwayTransaction) Metadata() *cbor.Value {
