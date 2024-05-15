@@ -200,6 +200,11 @@ func (t *ByronTransaction) Withdrawals() map[*Address]uint64 {
 	return nil
 }
 
+func (t *ByronTransaction) RequiredSigners() []Blake2b224 {
+	// No required signers in Byron
+	return nil
+}
+
 func (t *ByronTransaction) VotingProcedures() VotingProcedures {
 	// No voting procedures in Byron
 	return nil

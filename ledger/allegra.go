@@ -178,6 +178,10 @@ func (t AllegraTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t AllegraTransaction) RequiredSigners() []Blake2b224 {
+	return t.Body.RequiredSigners()
+}
+
 func (t AllegraTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }

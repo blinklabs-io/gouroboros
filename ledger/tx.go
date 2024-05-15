@@ -46,6 +46,7 @@ type TransactionBody interface {
 	TotalCollateral() uint64
 	Certificates() []Certificate
 	Withdrawals() map[*Address]uint64
+	RequiredSigners() []Blake2b224
 	VotingProcedures() VotingProcedures
 	ProposalProcedures() []ProposalProcedure
 	Utxorpc() *utxorpc.Tx

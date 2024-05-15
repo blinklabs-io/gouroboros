@@ -468,6 +468,10 @@ func (t BabbageTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
+func (t BabbageTransaction) RequiredSigners() []Blake2b224 {
+	return t.Body.RequiredSigners()
+}
+
 func (t BabbageTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
