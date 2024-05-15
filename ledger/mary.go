@@ -195,6 +195,10 @@ func (t MaryTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t MaryTransaction) RequiredSigners() []Blake2b224 {
+	return t.Body.RequiredSigners()
+}
+
 func (t MaryTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }

@@ -244,6 +244,11 @@ func (b *ShelleyTransactionBody) Withdrawals() map[*Address]uint64 {
 	return b.TxWithdrawals
 }
 
+func (b *ShelleyTransactionBody) RequiredSigners() []Blake2b224 {
+	// No required signers in Shelley
+	return nil
+}
+
 func (t *ShelleyTransactionBody) VotingProcedures() VotingProcedures {
 	// No voting procedures in Shelley
 	return nil
@@ -410,6 +415,10 @@ func (t ShelleyTransaction) Certificates() []Certificate {
 
 func (t ShelleyTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
+}
+
+func (t ShelleyTransaction) RequiredSigners() []Blake2b224 {
+	return t.Body.RequiredSigners()
 }
 
 func (t ShelleyTransaction) VotingProcedures() VotingProcedures {

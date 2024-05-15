@@ -128,10 +128,10 @@ type AlonzoTransactionBody struct {
 		ProtocolParamUpdates map[Blake2b224]AlonzoProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	ScriptDataHash  Blake2b256                `cbor:"11,keyasint,omitempty"`
-	TxCollateral    []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
-	RequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
-	NetworkId       uint8                     `cbor:"15,keyasint,omitempty"`
+	ScriptDataHash    Blake2b256                `cbor:"11,keyasint,omitempty"`
+	TxCollateral      []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
+	TxRequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
+	NetworkId         uint8                     `cbor:"15,keyasint,omitempty"`
 }
 
 func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -153,6 +153,10 @@ func (b *AlonzoTransactionBody) Collateral() []TransactionInput {
 		ret = append(ret, collateral)
 	}
 	return ret
+}
+
+func (b *AlonzoTransactionBody) RequiredSigners() []Blake2b224 {
+	return b.TxRequiredSigners[:]
 }
 
 type AlonzoTransactionOutput struct {
@@ -286,6 +290,10 @@ func (t AlonzoTransaction) Certificates() []Certificate {
 
 func (t AlonzoTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
+}
+
+func (t AlonzoTransaction) RequiredSigners() []Blake2b224 {
+	return t.Body.RequiredSigners()
 }
 
 func (t AlonzoTransaction) VotingProcedures() VotingProcedures {
