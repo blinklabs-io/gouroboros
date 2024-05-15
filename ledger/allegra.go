@@ -186,6 +186,10 @@ func (t AllegraTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
+func (t AllegraTransaction) ScriptDataHash() *Blake2b256 {
+	return t.Body.ScriptDataHash()
+}
+
 func (t AllegraTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }

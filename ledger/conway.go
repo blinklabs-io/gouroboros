@@ -377,6 +377,10 @@ func (t ConwayTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
+func (t ConwayTransaction) ScriptDataHash() *Blake2b256 {
+	return t.Body.ScriptDataHash()
+}
+
 func (t ConwayTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }
