@@ -300,6 +300,10 @@ func (t AlonzoTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t AlonzoTransaction) AuxDataHash() *Blake2b256 {
+	return t.Body.AuxDataHash()
+}
+
 func (t AlonzoTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }

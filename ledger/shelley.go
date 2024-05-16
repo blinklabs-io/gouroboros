@@ -174,7 +174,7 @@ type ShelleyTransactionBody struct {
 		ProtocolParamUpdates map[Blake2b224]ShelleyProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	MetadataHash Blake2b256 `cbor:"7,keyasint,omitempty"`
+	TxAuxDataHash *Blake2b256 `cbor:"7,keyasint,omitempty"`
 }
 
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -247,6 +247,10 @@ func (b *ShelleyTransactionBody) Certificates() []Certificate {
 
 func (b *ShelleyTransactionBody) Withdrawals() map[*Address]uint64 {
 	return b.TxWithdrawals
+}
+
+func (b *ShelleyTransactionBody) AuxDataHash() *Blake2b256 {
+	return b.TxAuxDataHash
 }
 
 func (b *ShelleyTransactionBody) RequiredSigners() []Blake2b224 {
@@ -434,6 +438,10 @@ func (t ShelleyTransaction) Certificates() []Certificate {
 
 func (t ShelleyTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
+}
+
+func (t ShelleyTransaction) AuxDataHash() *Blake2b256 {
+	return t.Body.AuxDataHash()
 }
 
 func (t ShelleyTransaction) RequiredSigners() []Blake2b224 {

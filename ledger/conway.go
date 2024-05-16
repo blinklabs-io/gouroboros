@@ -373,6 +373,10 @@ func (t ConwayTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t ConwayTransaction) AuxDataHash() *Blake2b256 {
+	return t.Body.AuxDataHash()
+}
+
 func (t ConwayTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
