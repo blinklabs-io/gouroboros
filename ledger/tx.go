@@ -40,6 +40,7 @@ type TransactionBody interface {
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
+	ValidityIntervalStart() uint64
 	ReferenceInputs() []TransactionInput
 	Collateral() []TransactionInput
 	CollateralReturn() TransactionOutput

@@ -272,6 +272,10 @@ func (t AlonzoTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t AlonzoTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
+}
+
 func (t AlonzoTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }

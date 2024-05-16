@@ -175,6 +175,10 @@ func (t MaryTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t MaryTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
+}
+
 func (t MaryTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }

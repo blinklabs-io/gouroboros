@@ -345,6 +345,10 @@ func (t ConwayTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
+func (t ConwayTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
+}
+
 func (t ConwayTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }

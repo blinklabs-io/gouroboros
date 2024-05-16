@@ -119,11 +119,15 @@ type AllegraTransactionBody struct {
 		ProtocolParamUpdates map[Blake2b224]AllegraProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	ValidityIntervalStart uint64 `cbor:"8,keyasint,omitempty"`
+	TxValidityIntervalStart uint64 `cbor:"8,keyasint,omitempty"`
 }
 
 func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
+}
+
+func (b *AllegraTransactionBody) ValidityIntervalStart() uint64 {
+	return b.TxValidityIntervalStart
 }
 
 type AllegraTransaction struct {
@@ -152,6 +156,10 @@ func (t AllegraTransaction) Fee() uint64 {
 
 func (t AllegraTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t AllegraTransaction) ValidityIntervalStart() uint64 {
+	return t.Body.ValidityIntervalStart()
 }
 
 func (t AllegraTransaction) ReferenceInputs() []TransactionInput {

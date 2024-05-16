@@ -170,6 +170,11 @@ func (t *ByronTransaction) TTL() uint64 {
 	return 0
 }
 
+func (t *ByronTransaction) ValidityIntervalStart() uint64 {
+	// No validity interval start in Byron
+	return 0
+}
+
 func (t *ByronTransaction) ReferenceInputs() []TransactionInput {
 	// No reference inputs in Byron
 	return nil
