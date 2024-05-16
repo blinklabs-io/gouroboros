@@ -26,7 +26,7 @@ import (
 
 type Transaction interface {
 	TransactionBody
-	Metadata() *cbor.Value
+	Metadata() *cbor.LazyValue
 	IsValid() bool
 	Consumed() []TransactionInput
 	Produced() []TransactionOutput

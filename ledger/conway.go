@@ -39,7 +39,7 @@ type ConwayBlock struct {
 	Header                 *ConwayBlockHeader
 	TransactionBodies      []ConwayTransactionBody
 	TransactionWitnessSets []BabbageTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.Value
+	TransactionMetadataSet map[uint]*cbor.LazyValue
 	InvalidTransactions    []uint
 }
 
@@ -322,7 +322,7 @@ type ConwayTransaction struct {
 	Body       ConwayTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	IsTxValid  bool
-	TxMetadata *cbor.Value
+	TxMetadata *cbor.LazyValue
 }
 
 func (t ConwayTransaction) Hash() string {
@@ -397,7 +397,7 @@ func (t ConwayTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t ConwayTransaction) Metadata() *cbor.Value {
+func (t ConwayTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
 

@@ -40,7 +40,7 @@ type MaryBlock struct {
 	Header                 *MaryBlockHeader
 	TransactionBodies      []MaryTransactionBody
 	TransactionWitnessSets []MaryTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.Value
+	TransactionMetadataSet map[uint]*cbor.LazyValue
 }
 
 func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
@@ -146,7 +146,7 @@ type MaryTransaction struct {
 	cbor.DecodeStoreCbor
 	Body       MaryTransactionBody
 	WitnessSet MaryTransactionWitnessSet
-	TxMetadata *cbor.Value
+	TxMetadata *cbor.LazyValue
 }
 
 type MaryTransactionWitnessSet struct {
@@ -227,7 +227,7 @@ func (t MaryTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t MaryTransaction) Metadata() *cbor.Value {
+func (t MaryTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
 
