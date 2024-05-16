@@ -464,6 +464,10 @@ func (t BabbageTransaction) Withdrawals() map[*Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
+func (t BabbageTransaction) ScriptDataHash() *Blake2b256 {
+	return t.Body.ScriptDataHash()
+}
+
 func (t BabbageTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }

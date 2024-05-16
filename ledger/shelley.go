@@ -254,12 +254,17 @@ func (b *ShelleyTransactionBody) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return nil
 }
 
-func (t *ShelleyTransactionBody) VotingProcedures() VotingProcedures {
+func (b *ShelleyTransactionBody) ScriptDataHash() *Blake2b256 {
+	// No script data hash in Shelley
+	return nil
+}
+
+func (b *ShelleyTransactionBody) VotingProcedures() VotingProcedures {
 	// No voting procedures in Shelley
 	return nil
 }
 
-func (t *ShelleyTransactionBody) ProposalProcedures() []ProposalProcedure {
+func (b *ShelleyTransactionBody) ProposalProcedures() []ProposalProcedure {
 	// No proposal procedures in Shelley
 	return nil
 }
@@ -428,6 +433,10 @@ func (t ShelleyTransaction) RequiredSigners() []Blake2b224 {
 
 func (t ShelleyTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return t.Body.AssetMint()
+}
+
+func (t ShelleyTransaction) ScriptDataHash() *Blake2b256 {
+	return t.Body.ScriptDataHash()
 }
 
 func (t ShelleyTransaction) VotingProcedures() VotingProcedures {

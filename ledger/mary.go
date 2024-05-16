@@ -207,6 +207,10 @@ func (t MaryTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
+func (t MaryTransaction) ScriptDataHash() *Blake2b256 {
+	return t.Body.ScriptDataHash()
+}
+
 func (t MaryTransaction) VotingProcedures() VotingProcedures {
 	return t.Body.VotingProcedures()
 }

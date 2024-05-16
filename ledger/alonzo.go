@@ -128,7 +128,7 @@ type AlonzoTransactionBody struct {
 		ProtocolParamUpdates map[Blake2b224]AlonzoProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	ScriptDataHash    Blake2b256                `cbor:"11,keyasint,omitempty"`
+	TxScriptDataHash  *Blake2b256               `cbor:"11,keyasint,omitempty"`
 	TxCollateral      []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
 	TxRequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
 	NetworkId         uint8                     `cbor:"15,keyasint,omitempty"`
@@ -157,6 +157,10 @@ func (b *AlonzoTransactionBody) Collateral() []TransactionInput {
 
 func (b *AlonzoTransactionBody) RequiredSigners() []Blake2b224 {
 	return b.TxRequiredSigners[:]
+}
+
+func (b *AlonzoTransactionBody) ScriptDataHash() *Blake2b256 {
+	return b.TxScriptDataHash
 }
 
 type AlonzoTransactionOutput struct {
@@ -298,6 +302,10 @@ func (t AlonzoTransaction) RequiredSigners() []Blake2b224 {
 
 func (t AlonzoTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return t.Body.AssetMint()
+}
+
+func (t AlonzoTransaction) ScriptDataHash() *Blake2b256 {
+	return t.Body.ScriptDataHash()
 }
 
 func (t AlonzoTransaction) VotingProcedures() VotingProcedures {

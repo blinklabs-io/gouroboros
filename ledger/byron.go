@@ -210,6 +210,11 @@ func (t *ByronTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return nil
 }
 
+func (t *ByronTransaction) ScriptDataHash() *Blake2b256 {
+	// No script data hash in Byron
+	return nil
+}
+
 func (t *ByronTransaction) VotingProcedures() VotingProcedures {
 	// No voting procedures in Byron
 	return nil
