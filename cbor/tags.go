@@ -42,7 +42,10 @@ var customTagSet _cbor.TagSet
 func init() {
 	// Build custom tagset
 	customTagSet = _cbor.NewTagSet()
-	tagOpts := _cbor.TagOptions{EncTag: _cbor.EncTagRequired, DecTag: _cbor.DecTagRequired}
+	tagOpts := _cbor.TagOptions{
+		EncTag: _cbor.EncTagRequired,
+		DecTag: _cbor.DecTagRequired,
+	}
 	// Wrapped CBOR
 	if err := customTagSet.Add(
 		tagOpts,

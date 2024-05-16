@@ -389,7 +389,9 @@ type MoveInstantaneousRewardsCertificateReward struct {
 	OtherPot uint64
 }
 
-func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(data []byte) error {
+func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
+	data []byte,
+) error {
 	// Try to parse as map
 	tmpMapData := struct {
 		cbor.StructAsArray
@@ -424,7 +426,9 @@ type MoveInstantaneousRewardsCertificate struct {
 
 func (c MoveInstantaneousRewardsCertificate) isCertificate() {}
 
-func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(cborData []byte) error {
+func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
 	return c.UnmarshalCbor(cborData, c)
 }
 

@@ -164,7 +164,10 @@ func (a AssetFingerprint) Hash() Blake2b160 {
 	tmpHash, err := blake2b.New(20, nil)
 	if err != nil {
 		panic(
-			fmt.Sprintf("unexpected error creating empty blake2b hash: %s", err),
+			fmt.Sprintf(
+				"unexpected error creating empty blake2b hash: %s",
+				err,
+			),
 		)
 	}
 	tmpHash.Write(a.policyId)
@@ -276,10 +279,16 @@ func NewAddressFromParts(
 	stakingAddr []byte,
 ) (Address, error) {
 	if len(paymentAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf("invalid payment address hash length: %d", len(paymentAddr))
+		return Address{}, fmt.Errorf(
+			"invalid payment address hash length: %d",
+			len(paymentAddr),
+		)
 	}
 	if len(stakingAddr) > 0 && len(stakingAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf("invalid staking address hash length: %d", len(stakingAddr))
+		return Address{}, fmt.Errorf(
+			"invalid staking address hash length: %d",
+			len(stakingAddr),
+		)
 	}
 	return Address{
 		addressType:    addrType,
@@ -305,7 +314,8 @@ func (a *Address) populateFromBytes(data []byte) error {
 			return fmt.Errorf("invalid address length: %d", dataLen)
 		}
 		// Check bounds of second part if the address type is supposed to have one
-		if a.addressType != AddressTypeKeyNone && a.addressType != AddressTypeScriptNone {
+		if a.addressType != AddressTypeKeyNone &&
+			a.addressType != AddressTypeScriptNone {
 			if dataLen > (AddressHashSize + 1) {
 				if dataLen < (AddressHashSize + AddressHashSize + 1) {
 					return fmt.Errorf("invalid address length: %d", dataLen)
@@ -318,7 +328,8 @@ func (a *Address) populateFromBytes(data []byte) error {
 	payload := data[1:]
 	a.paymentAddress = payload[:AddressHashSize]
 	payload = payload[AddressHashSize:]
-	if a.addressType != AddressTypeKeyNone && a.addressType != AddressTypeScriptNone {
+	if a.addressType != AddressTypeKeyNone &&
+		a.addressType != AddressTypeScriptNone {
 		if len(payload) >= AddressHashSize {
 			a.stakingAddress = payload[:AddressHashSize]
 			payload = payload[AddressHashSize:]
@@ -465,7 +476,10 @@ func (i IssuerVkey) Hash() Blake2b224 {
 	hash, err := blake2b.New(28, nil)
 	if err != nil {
 		panic(
-			fmt.Sprintf("unexpected error creating empty blake2b hash: %s", err),
+			fmt.Sprintf(
+				"unexpected error creating empty blake2b hash: %s",
+				err,
+			),
 		)
 	}
 	hash.Write(i[:])

@@ -48,7 +48,11 @@ var conversationHandshakeAcquire = []ouroboros_mock.ConversationEntry{
 
 type testInnerFunc func(*testing.T, *ouroboros.Connection)
 
-func runTest(t *testing.T, conversation []ouroboros_mock.ConversationEntry, innerFunc testInnerFunc) {
+func runTest(
+	t *testing.T,
+	conversation []ouroboros_mock.ConversationEntry,
+	innerFunc testInnerFunc,
+) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
@@ -128,7 +132,11 @@ func TestHasTxTrue(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if hasTx != expectedResult {
-				t.Fatalf("did not receive expected HasTx result: got %v, wanted %v", hasTx, expectedResult)
+				t.Fatalf(
+					"did not receive expected HasTx result: got %v, wanted %v",
+					hasTx,
+					expectedResult,
+				)
 			}
 		},
 	)
@@ -160,7 +168,11 @@ func TestHasTxFalse(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if hasTx != expectedResult {
-				t.Fatalf("did not receive expected HasTx result: got %v, wanted %v", hasTx, expectedResult)
+				t.Fatalf(
+					"did not receive expected HasTx result: got %v, wanted %v",
+					hasTx,
+					expectedResult,
+				)
 			}
 		},
 	)
@@ -197,13 +209,25 @@ func TestGetSizes(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if capacity != expectedCapacity {
-				t.Fatalf("did not receive expected capacity result: got %d, wanted %d", capacity, expectedCapacity)
+				t.Fatalf(
+					"did not receive expected capacity result: got %d, wanted %d",
+					capacity,
+					expectedCapacity,
+				)
 			}
 			if size != expectedSize {
-				t.Fatalf("did not receive expected size result: got %d, wanted %d", size, expectedSize)
+				t.Fatalf(
+					"did not receive expected size result: got %d, wanted %d",
+					size,
+					expectedSize,
+				)
 			}
 			if txCount != expectedTxCount {
-				t.Fatalf("did not receive expected TX count result: got %d, wanted %d", txCount, expectedTxCount)
+				t.Fatalf(
+					"did not receive expected TX count result: got %d, wanted %d",
+					txCount,
+					expectedTxCount,
+				)
 			}
 		},
 	)
@@ -253,14 +277,22 @@ func TestNextTx(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tx1, expectedTx1) {
-				t.Fatalf("did not get expected TX content\n  got:    %x\n  wanted: %x", tx1, expectedTx1)
+				t.Fatalf(
+					"did not get expected TX content\n  got:    %x\n  wanted: %x",
+					tx1,
+					expectedTx1,
+				)
 			}
 			tx2, err := oConn.LocalTxMonitor().Client.NextTx()
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tx2, expectedTx2) {
-				t.Fatalf("did not get expected TX content\n  got:    %x\n  wanted: %x", tx2, expectedTx2)
+				t.Fatalf(
+					"did not get expected TX content\n  got:    %x\n  wanted: %x",
+					tx2,
+					expectedTx2,
+				)
 			}
 		},
 	)

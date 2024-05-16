@@ -452,10 +452,15 @@ func NewAlonzoTransactionFromCbor(data []byte) (*AlonzoTransaction, error) {
 	return &alonzoTx, nil
 }
 
-func NewAlonzoTransactionOutputFromCbor(data []byte) (*AlonzoTransactionOutput, error) {
+func NewAlonzoTransactionOutputFromCbor(
+	data []byte,
+) (*AlonzoTransactionOutput, error) {
 	var alonzoTxOutput AlonzoTransactionOutput
 	if _, err := cbor.Decode(data, &alonzoTxOutput); err != nil {
-		return nil, fmt.Errorf("Alonzo transaction output decode error: %s", err)
+		return nil, fmt.Errorf(
+			"Alonzo transaction output decode error: %s",
+			err,
+		)
 	}
 	return &alonzoTxOutput, nil
 }

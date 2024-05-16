@@ -39,7 +39,11 @@ var conversationHandshakeSubmitTx = []ouroboros_mock.ConversationEntry{
 
 type testInnerFunc func(*testing.T, *ouroboros.Connection)
 
-func runTest(t *testing.T, conversation []ouroboros_mock.ConversationEntry, innerFunc testInnerFunc) {
+func runTest(
+	t *testing.T,
+	conversation []ouroboros_mock.ConversationEntry,
+	innerFunc testInnerFunc,
+) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
@@ -109,7 +113,10 @@ func TestSubmitTxAccept(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			err := oConn.LocalTxSubmission().Client.SubmitTx(ledger.TxTypeBabbage, testTx)
+			err := oConn.LocalTxSubmission().Client.SubmitTx(
+				ledger.TxTypeBabbage,
+				testTx,
+			)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
@@ -138,12 +145,19 @@ func TestSubmitTxRject(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			err := oConn.LocalTxSubmission().Client.SubmitTx(ledger.TxTypeBabbage, testTx)
+			err := oConn.LocalTxSubmission().Client.SubmitTx(
+				ledger.TxTypeBabbage,
+				testTx,
+			)
 			if err == nil {
 				t.Fatalf("did not receive expected error")
 			}
 			if err.Error() != expectedErr.Error() {
-				t.Fatalf("did not receive expected error\n  got:    %s\n  wanted: %s", err, expectedErr)
+				t.Fatalf(
+					"did not receive expected error\n  got:    %s\n  wanted: %s",
+					err,
+					expectedErr,
+				)
 			}
 		},
 	)

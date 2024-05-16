@@ -43,7 +43,11 @@ var conversationHandshakeFindIntersect = []ouroboros_mock.ConversationEntry{
 
 type testInnerFunc func(*testing.T, *ouroboros.Connection)
 
-func runTest(t *testing.T, conversation []ouroboros_mock.ConversationEntry, innerFunc testInnerFunc) {
+func runTest(
+	t *testing.T,
+	conversation []ouroboros_mock.ConversationEntry,
+	innerFunc testInnerFunc,
+) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
@@ -124,7 +128,11 @@ func TestIntersectNotFound(t *testing.T) {
 				t.Fatalf("did not receive expected error")
 			}
 			if err != chainsync.IntersectNotFoundError {
-				t.Fatalf("did not receive expected error\n  got:    %s\n  wanted: %s", err, chainsync.IntersectNotFoundError)
+				t.Fatalf(
+					"did not receive expected error\n  got:    %s\n  wanted: %s",
+					err,
+					chainsync.IntersectNotFoundError,
+				)
 			}
 		},
 	)
@@ -157,7 +165,11 @@ func TestGetCurrentTip(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tip, &expectedTip) {
-				t.Fatalf("did not receive expected tip\n  got:    %#v\n  wanted: %#v", tip, expectedTip)
+				t.Fatalf(
+					"did not receive expected tip\n  got:    %#v\n  wanted: %#v",
+					tip,
+					expectedTip,
+				)
 			}
 		},
 	)
@@ -234,15 +246,25 @@ func TestGetAvailableBlockRange(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange([]ocommon.Point{expectedIntersect})
+			start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange(
+				[]ocommon.Point{expectedIntersect},
+			)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(start, expectedStart) {
-				t.Fatalf("did not receive expected start point\n  got:    %#v\n  wanted: %#v", start, expectedStart)
+				t.Fatalf(
+					"did not receive expected start point\n  got:    %#v\n  wanted: %#v",
+					start,
+					expectedStart,
+				)
 			}
 			if !reflect.DeepEqual(end, expectedTip.Point) {
-				t.Fatalf("did not receive expected end point\n  got:    %#v\n  wanted: %#v", end, expectedTip.Point)
+				t.Fatalf(
+					"did not receive expected end point\n  got:    %#v\n  wanted: %#v",
+					end,
+					expectedTip.Point,
+				)
 			}
 		},
 	)

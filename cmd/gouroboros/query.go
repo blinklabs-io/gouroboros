@@ -191,7 +191,9 @@ func testQuery(f *globalFlags) {
 			}
 			tmpPools = append(tmpPools, tmpPoolId)
 		}
-		poolParams, err := o.LocalStateQuery().Client.GetStakePoolParams(tmpPools)
+		poolParams, err := o.LocalStateQuery().Client.GetStakePoolParams(
+			tmpPools,
+		)
 		if err != nil {
 			fmt.Printf("ERROR: failure querying stake pool params: %s\n", err)
 			os.Exit(1)

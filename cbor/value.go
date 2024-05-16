@@ -290,7 +290,8 @@ func (c *Constructor) UnmarshalCBOR(data []byte) error {
 	if _, err := Decode(tmpTag.Content, &tmpValue); err != nil {
 		return err
 	}
-	if tmpTag.Number >= CborTagAlternative1Min && tmpTag.Number <= CborTagAlternative1Max {
+	if tmpTag.Number >= CborTagAlternative1Min &&
+		tmpTag.Number <= CborTagAlternative1Max {
 		// Alternatives 0-6
 		c.constructor = uint(tmpTag.Number - CborTagAlternative1Min)
 		c.value = &tmpValue

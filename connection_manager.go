@@ -78,7 +78,11 @@ func NewConnectionManager(cfg ConnectionManagerConfig) *ConnectionManager {
 	}
 }
 
-func (c *ConnectionManager) AddHost(address string, port uint, tags ...ConnectionManagerTag) {
+func (c *ConnectionManager) AddHost(
+	address string,
+	port uint,
+	tags ...ConnectionManagerTag,
+) {
 	tmpTags := map[ConnectionManagerTag]bool{}
 	for _, tag := range tags {
 		tmpTags[tag] = true
@@ -99,12 +103,20 @@ func (c *ConnectionManager) AddHostsFromTopology(topology *TopologyConfig) {
 	}
 	for _, localRoot := range topology.LocalRoots {
 		for _, host := range localRoot.AccessPoints {
-			c.AddHost(host.Address, host.Port, ConnectionManagerTagHostLocalRoot)
+			c.AddHost(
+				host.Address,
+				host.Port,
+				ConnectionManagerTagHostLocalRoot,
+			)
 		}
 	}
 	for _, publicRoot := range topology.PublicRoots {
 		for _, host := range publicRoot.AccessPoints {
-			c.AddHost(host.Address, host.Port, ConnectionManagerTagHostPublicRoot)
+			c.AddHost(
+				host.Address,
+				host.Port,
+				ConnectionManagerTagHostPublicRoot,
+			)
 		}
 	}
 }
@@ -129,13 +141,17 @@ func (c *ConnectionManager) RemoveConnection(connId ConnectionId) {
 	c.connectionsMutex.Unlock()
 }
 
-func (c *ConnectionManager) GetConnectionById(connId ConnectionId) *ConnectionManagerConnection {
+func (c *ConnectionManager) GetConnectionById(
+	connId ConnectionId,
+) *ConnectionManagerConnection {
 	c.connectionsMutex.Lock()
 	defer c.connectionsMutex.Unlock()
 	return c.connections[connId]
 }
 
-func (c *ConnectionManager) GetConnectionsByTags(tags ...ConnectionManagerTag) []*ConnectionManagerConnection {
+func (c *ConnectionManager) GetConnectionsByTags(
+	tags ...ConnectionManagerTag,
+) []*ConnectionManagerConnection {
 	var ret []*ConnectionManagerConnection
 	c.connectionsMutex.Lock()
 	for _, conn := range c.connections {

@@ -441,7 +441,9 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 
 		// Set timeout for state transition
 		if p.config.StateMap[currentState].Timeout > 0 {
-			transitionTimer = time.NewTimer(p.config.StateMap[currentState].Timeout)
+			transitionTimer = time.NewTimer(
+				p.config.StateMap[currentState].Timeout,
+			)
 		}
 	}
 	getTimerChan := func() <-chan time.Time {

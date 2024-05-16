@@ -118,7 +118,10 @@ func main() {
 	// convert to tx
 	txType, err := ledger.DetermineTransactionType(txBytes)
 	if err != nil {
-		fmt.Printf("ERROR: could not parse transaction to determine type: %s", err)
+		fmt.Printf(
+			"ERROR: could not parse transaction to determine type: %s",
+			err,
+		)
 		os.Exit(1)
 	}
 	tx, err := ledger.NewTransactionFromCbor(txType, txBytes)

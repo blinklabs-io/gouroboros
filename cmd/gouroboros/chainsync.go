@@ -261,7 +261,11 @@ func testChainSync(f *globalFlags) {
 	select {}
 }
 
-func chainSyncRollBackwardHandler(ctx chainsync.CallbackContext, point common.Point, tip chainsync.Tip) error {
+func chainSyncRollBackwardHandler(
+	ctx chainsync.CallbackContext,
+	point common.Point,
+	tip chainsync.Tip,
+) error {
 	fmt.Printf("roll backward: point = %#v, tip = %#v\n", point, tip)
 	return nil
 }
@@ -318,7 +322,10 @@ func chainSyncRollForwardHandler(
 	return nil
 }
 
-func blockFetchBlockHandler(ctx blockfetch.CallbackContext, blockData ledger.Block) error {
+func blockFetchBlockHandler(
+	ctx blockfetch.CallbackContext,
+	blockData ledger.Block,
+) error {
 	switch block := blockData.(type) {
 	case *ledger.ByronEpochBoundaryBlock:
 		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.Epoch, block.SlotNumber(), block.Hash())

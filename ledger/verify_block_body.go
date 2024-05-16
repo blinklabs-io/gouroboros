@@ -40,19 +40,30 @@ func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
 	var txsRaw [][]string
 	_, err := cbor.Decode(rawDataBytes, &txsRaw)
 	if err != nil {
-		return false, fmt.Errorf("VerifyBlockBody: txs decode error, %v", err.Error())
+		return false, fmt.Errorf(
+			"VerifyBlockBody: txs decode error, %v",
+			err.Error(),
+		)
 	}
 
 	blockBodyHashByte, decodeBBHError := hex.DecodeString(blockBodyHash)
 	if decodeBBHError != nil {
-		return false, fmt.Errorf("VerifyBlockBody: blockBodyHashByte decode error, %v", decodeBBHError.Error())
+		return false, fmt.Errorf(
+			"VerifyBlockBody: blockBodyHashByte decode error, %v",
+			decodeBBHError.Error(),
+		)
 	}
 
 	var calculateBlockBodyHashByte [32]byte
 	if len(txsRaw) == 0 {
-		zeroTxHash, decodeZTHError := hex.DecodeString(BLOCK_BODY_HASH_ZERO_TX_HEX)
+		zeroTxHash, decodeZTHError := hex.DecodeString(
+			BLOCK_BODY_HASH_ZERO_TX_HEX,
+		)
 		if decodeZTHError != nil {
-			return false, fmt.Errorf("VerifyBlockBody: zeroTxHash decode error, %v", decodeZTHError.Error())
+			return false, fmt.Errorf(
+				"VerifyBlockBody: zeroTxHash decode error, %v",
+				decodeZTHError.Error(),
+			)
 		}
 		copy(calculateBlockBodyHashByte[:], zeroTxHash[:32])
 	} else {
@@ -72,19 +83,31 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqNonValid := []uint{}
 	for index, tx := range txsRaw {
 		if len(tx) != 3 {
-			return nil, fmt.Errorf("CalculateBlockBodyHash: tx len error, tx index %v length = %v", index, len(tx))
+			return nil, fmt.Errorf(
+				"CalculateBlockBodyHash: tx len error, tx index %v length = %v",
+				index,
+				len(tx),
+			)
 		}
 		bodyTmpHex := tx[0]
 		bodyTmpBytes, bodyTmpBytesError := hex.DecodeString(bodyTmpHex)
 		if bodyTmpBytesError != nil {
-			return nil, fmt.Errorf("CalculateBlockBodyHash: decode body tx[%v] error, %v", index, bodyTmpBytesError.Error())
+			return nil, fmt.Errorf(
+				"CalculateBlockBodyHash: decode body tx[%v] error, %v",
+				index,
+				bodyTmpBytesError.Error(),
+			)
 		}
 		txSeqBody = append(txSeqBody, bodyTmpBytes)
 
 		witTmpHex := tx[1]
 		witTmpBytes, witTmpBytesError := hex.DecodeString(witTmpHex)
 		if witTmpBytesError != nil {
-			return nil, fmt.Errorf("CalculateBlockBodyHash: decode wit tx[%v] error, %v", index, witTmpBytesError.Error())
+			return nil, fmt.Errorf(
+				"CalculateBlockBodyHash: decode wit tx[%v] error, %v",
+				index,
+				witTmpBytesError.Error(),
+			)
 		}
 
 		txSeqWit = append(txSeqWit, witTmpBytes)
@@ -93,7 +116,11 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 		if auxTmpHex != "" {
 			auxBytes, auxBytesError := hex.DecodeString(auxTmpHex)
 			if auxBytesError != nil {
-				return nil, fmt.Errorf("CalculateBlockBodyHash: decode aux tx[%v] error, %v", index, auxBytesError.Error())
+				return nil, fmt.Errorf(
+					"CalculateBlockBodyHash: decode aux tx[%v] error, %v",
+					index,
+					auxBytesError.Error(),
+				)
 			}
 			// Cardano use Tag 259 for this when encCbor
 			// Ref: https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxAuxData.hs#L125
@@ -105,7 +132,10 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	}
 	txSeqBodyBytes, txSeqBodyBytesError := cbor.Encode(txSeqBody)
 	if txSeqBodyBytesError != nil {
-		return nil, fmt.Errorf("CalculateBlockBodyHash: encode txSeqBody error, %v", txSeqBodyBytesError.Error())
+		return nil, fmt.Errorf(
+			"CalculateBlockBodyHash: encode txSeqBody error, %v",
+			txSeqBodyBytesError.Error(),
+		)
 	}
 
 	txSeqBodySum32Bytes := blake2b.Sum256(txSeqBodyBytes)
@@ -113,21 +143,30 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 
 	txSeqWitsBytes, txSeqWitsBytesError := cbor.Encode(txSeqWit)
 	if txSeqWitsBytesError != nil {
-		return nil, fmt.Errorf("CalculateBlockBodyHash: encode txSeqWit error, %v", txSeqWitsBytesError.Error())
+		return nil, fmt.Errorf(
+			"CalculateBlockBodyHash: encode txSeqWit error, %v",
+			txSeqWitsBytesError.Error(),
+		)
 	}
 	txSeqWitsSum32Bytes := blake2b.Sum256(txSeqWitsBytes)
 	txSeqWitsSumBytes := txSeqWitsSum32Bytes[:]
 
 	txSeqMetadataBytes, txSeqMetadataBytesError := cbor.Encode(txSeqMetadata)
 	if txSeqMetadataBytesError != nil {
-		return nil, fmt.Errorf("CalculateBlockBodyHash: encode txSeqMetadata error, %v", txSeqMetadataBytesError.Error())
+		return nil, fmt.Errorf(
+			"CalculateBlockBodyHash: encode txSeqMetadata error, %v",
+			txSeqMetadataBytesError.Error(),
+		)
 	}
 	txSeqMetadataSum32Bytes := blake2b.Sum256(txSeqMetadataBytes)
 	txSeqMetadataSumBytes := txSeqMetadataSum32Bytes[:]
 
 	txSeqNonValidBytes, txSeqNonValidBytesError := cbor.Encode(txSeqNonValid)
 	if txSeqNonValidBytesError != nil {
-		return nil, fmt.Errorf("CalculateBlockBodyHash: encode txSeqNonValid error, %v", txSeqNonValidBytesError.Error())
+		return nil, fmt.Errorf(
+			"CalculateBlockBodyHash: encode txSeqNonValid error, %v",
+			txSeqNonValidBytesError.Error(),
+		)
 	}
 	txSeqIsValidSum32Bytes := blake2b.Sum256(txSeqNonValidBytes)
 	txSeqIsValidSumBytes := txSeqIsValidSum32Bytes[:]
@@ -149,18 +188,28 @@ func GetTxBodies(txsRaw [][]string) ([]BabbageTransactionBody, error) {
 		bodyTmpHex := tx[0]
 		bodyTmpBytes, bodyTmpBytesError := hex.DecodeString(bodyTmpHex)
 		if bodyTmpBytesError != nil {
-			return nil, fmt.Errorf("CalculateBlockBodyHash: decode bodyTmpBytesError, index %v, error, %v", index, bodyTmpBytesError.Error())
+			return nil, fmt.Errorf(
+				"CalculateBlockBodyHash: decode bodyTmpBytesError, index %v, error, %v",
+				index,
+				bodyTmpBytesError.Error(),
+			)
 		}
 		_, err := cbor.Decode(bodyTmpBytes, &tmp)
 		if err != nil {
-			return nil, fmt.Errorf("CalculateBlockBodyHash: decode bodyTmpBytes, index %v, error, %v", index, err.Error())
+			return nil, fmt.Errorf(
+				"CalculateBlockBodyHash: decode bodyTmpBytes, index %v, error, %v",
+				index,
+				err.Error(),
+			)
 		}
 		bodies = append(bodies, tmp)
 	}
 	return bodies, nil
 }
 
-func GetBlockOutput(txBodies []BabbageTransactionBody) ([]UTXOOutput, []RegisCert, []DeRegisCert, error) {
+func GetBlockOutput(
+	txBodies []BabbageTransactionBody,
+) ([]UTXOOutput, []RegisCert, []DeRegisCert, error) {
 	var outputs []UTXOOutput
 	var regisCerts []RegisCert
 	var deRegisCerts []DeRegisCert
@@ -175,7 +224,12 @@ func GetBlockOutput(txBodies []BabbageTransactionBody) ([]UTXOOutput, []RegisCer
 			cborDatumHex := hex.EncodeToString(cborDatum)
 			tokens, extractTokensError := ExtractTokens(txOutput)
 			if extractTokensError != nil {
-				return nil, nil, nil, fmt.Errorf("GetBlockOutput: ExtractTokens error, tx index %v, outputIndex %v, error, %v", txIndex, outputIndex, extractTokensError.Error())
+				return nil, nil, nil, fmt.Errorf(
+					"GetBlockOutput: ExtractTokens error, tx index %v, outputIndex %v, error, %v",
+					txIndex,
+					outputIndex,
+					extractTokensError.Error(),
+				)
 			}
 			tmpOutput := UTXOOutput{
 				TxHash:      txHash,
@@ -230,7 +284,10 @@ func GetBlockOutput(txBodies []BabbageTransactionBody) ([]UTXOOutput, []RegisCer
 func PoolIdToBech32(data []byte) (string, error) {
 	pool, err := bech32.ConvertAndEncode("pool", data)
 	if err != nil {
-		return "", fmt.Errorf("PoolIdToBech32: ConvertAndEncode error, %v", err.Error())
+		return "", fmt.Errorf(
+			"PoolIdToBech32: ConvertAndEncode error, %v",
+			err.Error(),
+		)
 	}
 	return pool, nil
 }
@@ -245,12 +302,18 @@ func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 	if output.Assets() != nil {
 		assetsBytes, assetsBytesError := output.Assets().MarshalJSON()
 		if assetsBytesError != nil {
-			return nil, fmt.Errorf("ExtractTokens: MarshalJSON assets error, %v", assetsBytesError.Error())
+			return nil, fmt.Errorf(
+				"ExtractTokens: MarshalJSON assets error, %v",
+				assetsBytesError.Error(),
+			)
 		}
 		var assets []multiAssetJson[MultiAssetTypeOutput]
 		err := json.Unmarshal(assetsBytes, &assets)
 		if err != nil {
-			return nil, fmt.Errorf("ExtractTokens: json.Unmarshal error, %v", err.Error())
+			return nil, fmt.Errorf(
+				"ExtractTokens: json.Unmarshal error, %v",
+				err.Error(),
+			)
 		}
 		for _, asset := range assets {
 			outputTokens = append(outputTokens, UTXOOutputToken{
@@ -297,21 +360,21 @@ type DeRegisCert struct {
 }
 
 func GetListRegisCertPoolId(regisCerts []RegisCert) []string {
-        poolId := make([]string, 0)
-        if len(regisCerts) > 0 {
-                for _, cert := range regisCerts {
-                        poolId = append(poolId, cert.RegisPoolId)
-                }
-        }
-        return poolId
+	poolId := make([]string, 0)
+	if len(regisCerts) > 0 {
+		for _, cert := range regisCerts {
+			poolId = append(poolId, cert.RegisPoolId)
+		}
+	}
+	return poolId
 }
 
 func GetListUnregisCertPoolId(deRegisCerts []DeRegisCert) []string {
-        poolId := make([]string, 0)
-        if len(deRegisCerts) > 0 {
-                for _, cert := range deRegisCerts {
-                        poolId = append(poolId, cert.DeRegisPoolId)
-                }
-        }
-        return poolId
+	poolId := make([]string, 0)
+	if len(deRegisCerts) > 0 {
+		for _, cert := range deRegisCerts {
+			poolId = append(poolId, cert.DeRegisPoolId)
+		}
+	}
+	return poolId
 }

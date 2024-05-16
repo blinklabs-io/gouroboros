@@ -83,7 +83,10 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 		)
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
-	peers, err := s.config.ShareRequestFunc(s.callbackContext, int(msgShareRequest.Amount))
+	peers, err := s.config.ShareRequestFunc(
+		s.callbackContext,
+		int(msgShareRequest.Amount),
+	)
 	if err != nil {
 		return err
 	}

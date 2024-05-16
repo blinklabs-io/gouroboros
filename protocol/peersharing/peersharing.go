@@ -110,7 +110,9 @@ func NewConfig(options ...PeerSharingOptionFunc) Config {
 }
 
 // WithShareRequestFunc specifies the ShareRequest callback function
-func WithShareRequestFunc(shareRequestFunc ShareRequestFunc) PeerSharingOptionFunc {
+func WithShareRequestFunc(
+	shareRequestFunc ShareRequestFunc,
+) PeerSharingOptionFunc {
 	return func(c *Config) {
 		c.ShareRequestFunc = shareRequestFunc
 	}

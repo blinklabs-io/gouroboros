@@ -110,7 +110,11 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 		)
 	}
 	msgRequestRange := msg.(*MsgRequestRange)
-	return s.config.RequestRangeFunc(s.callbackContext, msgRequestRange.Start, msgRequestRange.End)
+	return s.config.RequestRangeFunc(
+		s.callbackContext,
+		msgRequestRange.Start,
+		msgRequestRange.End,
+	)
 }
 
 func (s *Server) handleClientDone() error {
