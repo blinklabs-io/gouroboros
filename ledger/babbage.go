@@ -649,10 +649,15 @@ func NewBabbageTransactionFromCbor(data []byte) (*BabbageTransaction, error) {
 	return &babbageTx, nil
 }
 
-func NewBabbageTransactionOutputFromCbor(data []byte) (*BabbageTransactionOutput, error) {
+func NewBabbageTransactionOutputFromCbor(
+	data []byte,
+) (*BabbageTransactionOutput, error) {
 	var babbageTxOutput BabbageTransactionOutput
 	if _, err := cbor.Decode(data, &babbageTxOutput); err != nil {
-		return nil, fmt.Errorf("Babbage transaction output decode error: %s", err)
+		return nil, fmt.Errorf(
+			"Babbage transaction output decode error: %s",
+			err,
+		)
 	}
 	return &babbageTxOutput, nil
 }

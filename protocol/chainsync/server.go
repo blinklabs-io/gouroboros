@@ -32,7 +32,11 @@ type Server struct {
 }
 
 // NewServer returns a new ChainSync server object
-func NewServer(stateContext interface{}, protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
+func NewServer(
+	stateContext interface{},
+	protoOptions protocol.ProtocolOptions,
+	cfg *Config,
+) *Server {
 	s := &Server{
 		config: cfg,
 		// Save these for re-use later
@@ -137,7 +141,10 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 		)
 	}
 	msgFindIntersect := msg.(*MsgFindIntersect)
-	point, tip, err := s.config.FindIntersectFunc(s.callbackContext, msgFindIntersect.Points)
+	point, tip, err := s.config.FindIntersectFunc(
+		s.callbackContext,
+		msgFindIntersect.Points,
+	)
 	if err != nil {
 		if err == IntersectNotFoundError {
 			msgResp := NewMsgIntersectNotFound(tip)

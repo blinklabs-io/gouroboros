@@ -113,10 +113,18 @@ func TestClientNtCAccept(t *testing.T) {
 	// Check negotiated version and version data
 	protoVersion, protoVersionData := oConn.ProtocolVersion()
 	if protoVersion != mockProtocolVersionNtC {
-		t.Fatalf("did not get expected protocol version: got %d, wanted %d", protoVersion, mockProtocolVersionNtC)
+		t.Fatalf(
+			"did not get expected protocol version: got %d, wanted %d",
+			protoVersion,
+			mockProtocolVersionNtC,
+		)
 	}
 	if !reflect.DeepEqual(protoVersionData, mockNtCVersionData()) {
-		t.Fatalf("did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v", protoVersionData, mockNtCVersionData())
+		t.Fatalf(
+			"did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v",
+			protoVersionData,
+			mockNtCVersionData(),
+		)
 	}
 	// Close Ouroboros connection
 	if err := oConn.Close(); err != nil {
@@ -159,10 +167,18 @@ func TestClientNtNAccept(t *testing.T) {
 	// Check negotiated version and version data
 	protoVersion, protoVersionData := oConn.ProtocolVersion()
 	if protoVersion != mockProtocolVersionNtN {
-		t.Fatalf("did not get expected protocol version: got %d, wanted %d", protoVersion, mockProtocolVersionNtN)
+		t.Fatalf(
+			"did not get expected protocol version: got %d, wanted %d",
+			protoVersion,
+			mockProtocolVersionNtN,
+		)
 	}
 	if !reflect.DeepEqual(protoVersionData, mockNtNVersionData()) {
-		t.Fatalf("did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v", protoVersionData, mockNtNVersionData())
+		t.Fatalf(
+			"did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v",
+			protoVersionData,
+			mockNtNVersionData(),
+		)
 	}
 	// Close Ouroboros connection
 	if err := oConn.Close(); err != nil {
@@ -205,10 +221,18 @@ func TestClientNtNAcceptV11(t *testing.T) {
 	// Check negotiated version and version data
 	protoVersion, protoVersionData := oConn.ProtocolVersion()
 	if protoVersion != mockProtocolVersionNtNV11 {
-		t.Fatalf("did not get expected protocol version: got %d, wanted %d", protoVersion, mockProtocolVersionNtNV11)
+		t.Fatalf(
+			"did not get expected protocol version: got %d, wanted %d",
+			protoVersion,
+			mockProtocolVersionNtNV11,
+		)
 	}
 	if !reflect.DeepEqual(protoVersionData, mockNtNVersionDataV11()) {
-		t.Fatalf("did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v", protoVersionData, mockNtNVersionDataV11())
+		t.Fatalf(
+			"did not get expected protocol version data:\n  got:   %#v\n  wanted: %#v",
+			protoVersionData,
+			mockNtNVersionDataV11(),
+		)
 	}
 	// Close Ouroboros connection
 	if err := oConn.Close(); err != nil {

@@ -37,9 +37,15 @@ func TestServerBasicHandshake(t *testing.T) {
 				Messages: []protocol.Message{
 					handshake.NewMsgProposeVersions(
 						protocol.ProtocolVersionMap{
-							(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
-							(11 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
-							(12 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
+							(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+							(11 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+							(12 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
 						},
 					),
 				},
@@ -51,7 +57,9 @@ func TestServerBasicHandshake(t *testing.T) {
 				MsgFromCborFunc: handshake.NewMsgFromCbor,
 				Message: handshake.NewMsgAcceptVersion(
 					(12 + protocol.ProtocolVersionNtCOffset),
-					protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
+					protocol.VersionDataNtC9to14(
+						ouroboros_mock.MockNetworkMagic,
+					),
 				),
 			},
 		},
@@ -89,7 +97,9 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 	defer func() {
 		goleak.VerifyNone(t)
 	}()
-	expectedErr := fmt.Errorf("handshake failed: refused due to version mismatch")
+	expectedErr := fmt.Errorf(
+		"handshake failed: refused due to version mismatch",
+	)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleServer,
 		[]ouroboros_mock.ConversationEntry{
@@ -99,9 +109,15 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 				Messages: []protocol.Message{
 					handshake.NewMsgProposeVersions(
 						protocol.ProtocolVersionMap{
-							(100 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
-							(101 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
-							(102 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
+							(100 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+							(101 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+							(102 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
 						},
 					),
 				},

@@ -43,7 +43,11 @@ type Client struct {
 }
 
 // NewClient returns a new ChainSync client object
-func NewClient(stateContext interface{}, protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
+func NewClient(
+	stateContext interface{},
+	protoOptions protocol.ProtocolOptions,
+	cfg *Config,
+) *Client {
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -305,7 +309,8 @@ func (c *Client) handleAwaitReply() error {
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
-	if (c.config == nil || c.config.RollForwardFunc == nil) && !c.wantFirstBlock {
+	if (c.config == nil || c.config.RollForwardFunc == nil) &&
+		!c.wantFirstBlock {
 		return fmt.Errorf(
 			"received chain-sync RollForward message but no callback function is defined",
 		)
@@ -349,7 +354,12 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			return nil
 		}
 		// Call the user callback function
-		callbackErr = c.config.RollForwardFunc(c.callbackContext, blockType, blockHeader, msg.Tip)
+		callbackErr = c.config.RollForwardFunc(
+			c.callbackContext,
+			blockType,
+			blockHeader,
+			msg.Tip,
+		)
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		blk, err := ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())

@@ -38,22 +38,36 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	// check is KES valid
 	headerCborByte, headerDecodeError := hex.DecodeString(headerCborHex)
 	if headerDecodeError != nil {
-		return fmt.Errorf("VerifyBlock: headerCborByte decode error, %v", headerDecodeError.Error()), false, "", 0, 0
+		return fmt.Errorf(
+			"VerifyBlock: headerCborByte decode error, %v",
+			headerDecodeError.Error(),
+		), false, "", 0, 0
 	}
-	header, headerUnmarshalError := NewBabbageBlockHeaderFromCbor(headerCborByte)
+	header, headerUnmarshalError := NewBabbageBlockHeaderFromCbor(
+		headerCborByte,
+	)
 	if headerUnmarshalError != nil {
-		return fmt.Errorf("VerifyBlock: header unmarshal error, %v", headerUnmarshalError.Error()), false, "", 0, 0
+		return fmt.Errorf(
+			"VerifyBlock: header unmarshal error, %v",
+			headerUnmarshalError.Error(),
+		), false, "", 0, 0
 	}
 	isKesValid, errKes := VerifyKes(header, slotPerKesPeriod)
 	if errKes != nil {
-		return fmt.Errorf("VerifyBlock: KES invalid, %v", errKes.Error()), false, "", 0, 0
+		return fmt.Errorf(
+			"VerifyBlock: KES invalid, %v",
+			errKes.Error(),
+		), false, "", 0, 0
 	}
 
 	// check is VRF valid
 	// Ref: https://github.com/IntersectMBO/ouroboros-consensus/blob/de74882102236fdc4dd25aaa2552e8b3e208448c/ouroboros-consensus-protocol/src/ouroboros-consensus-protocol/Ouroboros/Consensus/Protocol/Praos.hs#L541
 	epochNonceByte, epochNonceDecodeError := hex.DecodeString(epochNonceHex)
 	if epochNonceDecodeError != nil {
-		return fmt.Errorf("VerifyBlock: epochNonceByte decode error, %v", epochNonceDecodeError.Error()), false, "", 0, 0
+		return fmt.Errorf(
+			"VerifyBlock: epochNonceByte decode error, %v",
+			epochNonceDecodeError.Error(),
+		), false, "", 0, 0
 	}
 	vrfBytes := header.Body.VrfKey[:]
 	vrfResult := header.Body.VrfResult.([]interface{})
@@ -62,7 +76,10 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	seed := MkInputVrf(int64(header.Body.Slot), epochNonceByte)
 	output, errVrf := VrfVerifyAndHash(vrfBytes, vrfProofBytes, seed)
 	if errVrf != nil {
-		return fmt.Errorf("VerifyBlock: vrf invalid, %v", errVrf.Error()), false, "", 0, 0
+		return fmt.Errorf(
+			"VerifyBlock: vrf invalid, %v",
+			errVrf.Error(),
+		), false, "", 0, 0
 	}
 	isVrfValid := bytes.Equal(output, vrfOutputBytes)
 
@@ -71,7 +88,10 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	blockBodyHashHex := hex.EncodeToString(blockBodyHash[:])
 	isBodyValid, isBodyValidError := VerifyBlockBody(bodyHex, blockBodyHashHex)
 	if isBodyValidError != nil {
-		return fmt.Errorf("VerifyBlock: VerifyBlockBody error, %v", isBodyValidError.Error()), false, "", 0, 0
+		return fmt.Errorf(
+			"VerifyBlock: VerifyBlockBody error, %v",
+			isBodyValidError.Error(),
+		), false, "", 0, 0
 	}
 	isValid = isKesValid && isVrfValid && isBodyValid
 	vrfHex = hex.EncodeToString(vrfBytes)
@@ -80,23 +100,39 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	return nil, isValid, vrfHex, blockNo, slotNo
 }
 
-func ExtractBlockData(bodyHex string) ([]UTXOOutput, []RegisCert, []DeRegisCert, error) {
+func ExtractBlockData(
+	bodyHex string,
+) ([]UTXOOutput, []RegisCert, []DeRegisCert, error) {
 	rawDataBytes, rawDataBytesError := hex.DecodeString(bodyHex)
 	if rawDataBytesError != nil {
-		return nil, nil, nil, fmt.Errorf("ExtractBlockData: bodyHex decode error, %v", rawDataBytesError.Error())
+		return nil, nil, nil, fmt.Errorf(
+			"ExtractBlockData: bodyHex decode error, %v",
+			rawDataBytesError.Error(),
+		)
 	}
 	var txsRaw [][]string
 	_, err := cbor.Decode(rawDataBytes, &txsRaw)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("ExtractBlockData: txsRaw decode error, %v", err.Error())
+		return nil, nil, nil, fmt.Errorf(
+			"ExtractBlockData: txsRaw decode error, %v",
+			err.Error(),
+		)
 	}
 	txBodies, txBodiesError := GetTxBodies(txsRaw)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("ExtractBlockData: GetTxBodies error, %v", txBodiesError.Error())
+		return nil, nil, nil, fmt.Errorf(
+			"ExtractBlockData: GetTxBodies error, %v",
+			txBodiesError.Error(),
+		)
 	}
-	uTXOOutput, regisCerts, deRegisCerts, getBlockOutputError := GetBlockOutput(txBodies)
+	uTXOOutput, regisCerts, deRegisCerts, getBlockOutputError := GetBlockOutput(
+		txBodies,
+	)
 	if getBlockOutputError != nil {
-		return nil, nil, nil, fmt.Errorf("ExtractBlockData: GetBlockOutput error, %v", getBlockOutputError.Error())
+		return nil, nil, nil, fmt.Errorf(
+			"ExtractBlockData: GetBlockOutput error, %v",
+			getBlockOutputError.Error(),
+		)
 	}
 	return uTXOOutput, regisCerts, deRegisCerts, nil
 }

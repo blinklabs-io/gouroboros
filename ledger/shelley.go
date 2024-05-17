@@ -629,10 +629,15 @@ func NewShelleyTransactionFromCbor(data []byte) (*ShelleyTransaction, error) {
 	return &shelleyTx, nil
 }
 
-func NewShelleyTransactionOutputFromCbor(data []byte) (*ShelleyTransactionOutput, error) {
+func NewShelleyTransactionOutputFromCbor(
+	data []byte,
+) (*ShelleyTransactionOutput, error) {
 	var shelleyTxOutput ShelleyTransactionOutput
 	if _, err := cbor.Decode(data, &shelleyTxOutput); err != nil {
-		return nil, fmt.Errorf("Shelley transaction output decode error: %s", err)
+		return nil, fmt.Errorf(
+			"Shelley transaction output decode error: %s",
+			err,
+		)
 	}
 	return &shelleyTxOutput, nil
 }

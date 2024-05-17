@@ -146,7 +146,11 @@ func (c *Connection) Dial(proto string, address string) error {
 // passed to the [net.DialTimeout] func. The handshake will be started when a connection is established.
 // An error will be returned if the connection fails, a connection was already established, or the
 // handshake fails
-func (c *Connection) DialTimeout(proto string, address string, timeout time.Duration) error {
+func (c *Connection) DialTimeout(
+	proto string,
+	address string,
+	timeout time.Duration,
+) error {
 	if c.conn != nil {
 		return fmt.Errorf("a connection was already established")
 	}
@@ -310,17 +314,19 @@ func (c *Connection) setupConnection() error {
 	var handshakeFullDuplex bool
 	handshakeConfig := handshake.NewConfig(
 		handshake.WithProtocolVersionMap(protoVersions),
-		handshake.WithFinishedFunc(func(ctx handshake.CallbackContext, version uint16, versionData protocol.VersionData) error {
-			c.handshakeVersion = version
-			c.handshakeVersionData = versionData
-			if c.useNodeToNodeProto {
-				if versionData.DiffusionMode() == protocol.DiffusionModeInitiatorAndResponder {
-					handshakeFullDuplex = true
+		handshake.WithFinishedFunc(
+			func(ctx handshake.CallbackContext, version uint16, versionData protocol.VersionData) error {
+				c.handshakeVersion = version
+				c.handshakeVersionData = versionData
+				if c.useNodeToNodeProto {
+					if versionData.DiffusionMode() == protocol.DiffusionModeInitiatorAndResponder {
+						handshakeFullDuplex = true
+					}
 				}
-			}
-			close(c.handshakeFinishedChan)
-			return nil
-		}),
+				close(c.handshakeFinishedChan)
+				return nil
+			},
+		),
 	)
 	c.handshake = handshake.New(protoOptions, &handshakeConfig)
 	if c.server {

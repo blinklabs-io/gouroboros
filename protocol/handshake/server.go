@@ -142,7 +142,11 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	}
 	// Check network magic
 	if proposedVersionData.NetworkMagic() != versionData.NetworkMagic() {
-		errMsg := fmt.Sprintf("network magic mismatch: %#v /= %#v", versionData, proposedVersionData)
+		errMsg := fmt.Sprintf(
+			"network magic mismatch: %#v /= %#v",
+			versionData,
+			proposedVersionData,
+		)
 		msgRefuse := NewMsgRefuse(
 			[]any{
 				RefuseReasonRefused,
@@ -164,5 +168,9 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	if err := s.SendMessage(msgAcceptVersion); err != nil {
 		return err
 	}
-	return s.config.FinishedFunc(s.callbackContext, proposedVersion, proposedVersionData)
+	return s.config.FinishedFunc(
+		s.callbackContext,
+		proposedVersion,
+		proposedVersionData,
+	)
 }

@@ -582,7 +582,9 @@ func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
 	return &result, nil
 }
 
-func (c *Client) GetUTxOByTxIn(txIns []ledger.TransactionInput) (*UTxOByTxInResult, error) {
+func (c *Client) GetUTxOByTxIn(
+	txIns []ledger.TransactionInput,
+) (*UTxOByTxInResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()

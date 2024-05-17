@@ -46,7 +46,9 @@ var ConversationKeepAliveWrongResponse = []ouroboros_mock.ConversationEntry{
 		ProtocolId: keepalive.ProtocolId,
 		IsResponse: true,
 		Messages: []protocol.Message{
-			keepalive.NewMsgKeepAliveResponse(MockKeepAliveWrongCookie), // Incorrect Cookie value
+			keepalive.NewMsgKeepAliveResponse(
+				MockKeepAliveWrongCookie,
+			), // Incorrect Cookie value
 		},
 	},
 }
@@ -55,8 +57,10 @@ var ConversationKeepAliveDifferentCookie = []ouroboros_mock.ConversationEntry{
 	ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
 	ouroboros_mock.ConversationEntryHandshakeNtNResponse,
 	ouroboros_mock.ConversationEntryInput{
-		ProtocolId:      keepalive.ProtocolId,
-		Message:         keepalive.NewMsgKeepAlive(MockKeepAliveDifferentCookie),
+		ProtocolId: keepalive.ProtocolId,
+		Message: keepalive.NewMsgKeepAlive(
+			MockKeepAliveDifferentCookie,
+		),
 		MsgFromCborFunc: keepalive.NewMsgFromCbor,
 	},
 	ouroboros_mock.ConversationEntryOutput{

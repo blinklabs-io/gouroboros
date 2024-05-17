@@ -108,7 +108,10 @@ func generateBlockHeaderHash(data []byte, prefix []byte) string {
 	tmpHash, err := blake2b.New256(nil)
 	if err != nil {
 		panic(
-			fmt.Sprintf("unexpected error generating empty blake2b hash: %s", err),
+			fmt.Sprintf(
+				"unexpected error generating empty blake2b hash: %s",
+				err,
+			),
 		)
 	}
 	if prefix != nil {

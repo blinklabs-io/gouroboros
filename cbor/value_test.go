@@ -336,7 +336,10 @@ func TestConstructorDecode(t *testing.T) {
 				testDef.expectedObj.Constructor(),
 			)
 		}
-		if !reflect.DeepEqual(tmpConstr.Fields(), testDef.expectedObj.Fields()) {
+		if !reflect.DeepEqual(
+			tmpConstr.Fields(),
+			testDef.expectedObj.Fields(),
+		) {
 			t.Fatalf(
 				"did not decode to expected fields\n  got:    %#v\n  wanted: %#v",
 				tmpConstr.Fields(),

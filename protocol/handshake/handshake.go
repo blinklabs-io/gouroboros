@@ -111,7 +111,9 @@ func NewConfig(options ...HandshakeOptionFunc) Config {
 }
 
 // WithProtocolVersionMap specifies the supported protocol versions
-func WithProtocolVersionMap(versionMap protocol.ProtocolVersionMap) HandshakeOptionFunc {
+func WithProtocolVersionMap(
+	versionMap protocol.ProtocolVersionMap,
+) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.ProtocolVersionMap = versionMap
 	}

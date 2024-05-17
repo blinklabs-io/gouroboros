@@ -132,7 +132,9 @@ func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
 	}
 }
 
-func WithRequestRangeFunc(requestRangeFunc RequestRangeFunc) BlockFetchOptionFunc {
+func WithRequestRangeFunc(
+	requestRangeFunc RequestRangeFunc,
+) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.RequestRangeFunc = requestRangeFunc
 	}

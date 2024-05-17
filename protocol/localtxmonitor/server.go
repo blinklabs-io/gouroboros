@@ -89,7 +89,9 @@ func (s *Server) handleAcquire() error {
 		)
 	}
 	// Call the user callback function to get mempool information
-	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(s.callbackContext)
+	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(
+		s.callbackContext,
+	)
 	if err != nil {
 		return err
 	}

@@ -217,6 +217,7 @@ type CallbackContext struct {
 // Callback function types
 type RollBackwardFunc func(CallbackContext, common.Point, Tip) error
 type RollForwardFunc func(CallbackContext, uint, interface{}, Tip) error
+
 type FindIntersectFunc func(CallbackContext, []common.Point) (common.Point, Tip, error)
 type RequestNextFunc func(CallbackContext) error
 
@@ -269,7 +270,9 @@ func WithRollForwardFunc(rollForwardFunc RollForwardFunc) ChainSyncOptionFunc {
 }
 
 // WithFindIntersectFunc specifies the FindIntersect callback function
-func WithFindIntersectFunc(findIntersectFunc FindIntersectFunc) ChainSyncOptionFunc {
+func WithFindIntersectFunc(
+	findIntersectFunc FindIntersectFunc,
+) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.FindIntersectFunc = findIntersectFunc
 	}

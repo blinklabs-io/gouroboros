@@ -65,7 +65,11 @@ func NewSumKesFromByte(depth uint64, fromByte []byte) SumXKesSig {
 	}
 }
 
-func (s SumXKesSig) Verify(period uint64, pubKey ed25519.PublicKey, msg []byte) bool {
+func (s SumXKesSig) Verify(
+	period uint64,
+	pubKey ed25519.PublicKey,
+	msg []byte,
+) bool {
 	pk2 := HashPair(s.LeftHandSidePublicKey, s.RightHandSidePublicKey)
 	if !bytes.Equal(pk2, pubKey) {
 		return false
@@ -94,7 +98,10 @@ func HashPair(l ed25519.PublicKey, r ed25519.PublicKey) ed25519.PublicKey {
 	h, err := blake2b.New(32, nil)
 	if err != nil {
 		panic(
-			fmt.Sprintf("unexpected error creating empty blake2b hash: %s", err),
+			fmt.Sprintf(
+				"unexpected error creating empty blake2b hash: %s",
+				err,
+			),
 		)
 	}
 	h.Write(l[:])
@@ -108,12 +115,19 @@ func Sum0KesSigFromByte(sigBytes []byte) Sum0KesSig {
 
 type Sum0KesSig []byte
 
-func (s Sum0KesSig) Verify(_ uint64, pubKey ed25519.PublicKey, msg []byte) bool {
+func (s Sum0KesSig) Verify(
+	_ uint64,
+	pubKey ed25519.PublicKey,
+	msg []byte,
+) bool {
 	return ed25519.Verify(pubKey, msg, s)
 }
 
 // TODO: make this work on anything from Shelley onward
-func VerifyKes(header *BabbageBlockHeader, slotsPerKesPeriod uint64) (bool, error) {
+func VerifyKes(
+	header *BabbageBlockHeader,
+	slotsPerKesPeriod uint64,
+) (bool, error) {
 	// Ref: https://github.com/IntersectMBO/ouroboros-consensus/blob/de74882102236fdc4dd25aaa2552e8b3e208448c/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Protocol/Praos.hs#L125
 	sigBytes := header.Signature.([]byte)
 	// Ref: https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-protocol-tpraos/src/Cardano/Protocol/TPraos/BHeader.hs#L189

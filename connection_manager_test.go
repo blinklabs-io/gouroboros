@@ -56,10 +56,18 @@ func TestConnectionManagerConnError(t *testing.T) {
 			ConnClosedFunc: func(connId ouroboros.ConnectionId, err error) {
 				if err != nil {
 					if connId != expectedConnId {
-						t.Fatalf("did not receive error from expected connection: got %d, wanted %d", connId, expectedConnId)
+						t.Fatalf(
+							"did not receive error from expected connection: got %d, wanted %d",
+							connId,
+							expectedConnId,
+						)
 					}
 					if err != expectedErr {
-						t.Fatalf("did not receive expected error: got: %s, expected: %s", err, expectedErr)
+						t.Fatalf(
+							"did not receive expected error: got: %s, expected: %s",
+							err,
+							expectedErr,
+						)
 					}
 					close(doneChan)
 				}
@@ -121,7 +129,11 @@ func TestConnectionManagerConnClosed(t *testing.T) {
 		ouroboros.ConnectionManagerConfig{
 			ConnClosedFunc: func(connId ouroboros.ConnectionId, err error) {
 				if connId != expectedConnId {
-					t.Fatalf("did not receive closed signal from expected connection: got %d, wanted %d", connId, expectedConnId)
+					t.Fatalf(
+						"did not receive closed signal from expected connection: got %d, wanted %d",
+						connId,
+						expectedConnId,
+					)
 				}
 				if err != nil {
 					t.Fatalf("received unexpected error: %s", err)

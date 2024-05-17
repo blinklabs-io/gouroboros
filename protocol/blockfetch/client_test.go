@@ -41,7 +41,11 @@ var conversationHandshakeRequestRange = []ouroboros_mock.ConversationEntry{
 
 type testInnerFunc func(*testing.T, *ouroboros.Connection)
 
-func runTest(t *testing.T, conversation []ouroboros_mock.ConversationEntry, innerFunc testInnerFunc) {
+func runTest(
+	t *testing.T,
+	conversation []ouroboros_mock.ConversationEntry,
+	innerFunc testInnerFunc,
+) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
@@ -151,10 +155,18 @@ func TestGetBlock(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if blk.Hash() != testBlock.Hash() {
-				t.Fatalf("did not receive expected block hash: got %s, wanted %s", blk.Hash(), testBlock.Hash())
+				t.Fatalf(
+					"did not receive expected block hash: got %s, wanted %s",
+					blk.Hash(),
+					testBlock.Hash(),
+				)
 			}
 			if blk.SlotNumber() != testBlockSlot {
-				t.Fatalf("did not receive expected block slot: got %d, wanted %d", blk.SlotNumber(), testBlockSlot)
+				t.Fatalf(
+					"did not receive expected block slot: got %d, wanted %d",
+					blk.SlotNumber(),
+					testBlockSlot,
+				)
 			}
 		},
 	)
@@ -186,7 +198,11 @@ func TestGetBlockNoBlocks(t *testing.T) {
 				t.Fatalf("did not receive expected error")
 			}
 			if err.Error() != expectedErr {
-				t.Fatalf("did not receive expected error\n  got:    %s\n  wanted: %s", err, expectedErr)
+				t.Fatalf(
+					"did not receive expected error\n  got:    %s\n  wanted: %s",
+					err,
+					expectedErr,
+				)
 			}
 		},
 	)

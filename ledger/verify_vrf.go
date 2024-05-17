@@ -43,20 +43,29 @@ func MkInputVrf(slot int64, eta0 []byte) []byte {
 	h, err := blake2b.New(32, nil)
 	if err != nil {
 		panic(
-			fmt.Sprintf("unexpected error creating empty blake2b hash: %s", err),
+			fmt.Sprintf(
+				"unexpected error creating empty blake2b hash: %s",
+				err,
+			),
 		)
 	}
 	h.Write(concat)
 	return h.Sum(nil)
 }
 
-func VrfVerifyAndHash(publicKey []byte, proof []byte, msg []byte) ([]byte, error) {
+func VrfVerifyAndHash(
+	publicKey []byte,
+	proof []byte,
+	msg []byte,
+) ([]byte, error) {
 	Y := &edwards25519.Point{}
 	// validate key
 	if _, err := Y.SetBytes(publicKey); err != nil {
 		return nil, err
 	}
-	isSmallOrder := (&edwards25519.Point{}).MultByCofactor(Y).Equal(edwards25519.NewIdentityPoint()) == 1
+	isSmallOrder := (&edwards25519.Point{}).MultByCofactor(Y).
+		Equal(edwards25519.NewIdentityPoint()) ==
+		1
 	if isSmallOrder {
 		return nil, fmt.Errorf("public key is a small order point")
 	}
@@ -76,7 +85,9 @@ func vrfVerify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
 	var U, V *edwards25519.Point // ge25519_p3     H_point, Gamma_point, U_point, V_point, tmp_p3_point;
 	var tmp1, tmp2 *edwards25519.Point
 
-	Gamma, cScalar, sScalar, err := vrfIetfdraft03DecodeProof(pi) // _vrf_ietfdraft03_decode_proof(&Gamma_point, c_scalar, s_scalar, pi) != 0
+	Gamma, cScalar, sScalar, err := vrfIetfdraft03DecodeProof(
+		pi,
+	) // _vrf_ietfdraft03_decode_proof(&Gamma_point, c_scalar, s_scalar, pi) != 0
 	if err != nil {
 		return false, err
 	}
@@ -110,9 +121,17 @@ func vrfVerify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
 	V = &edwards25519.Point{}
 	V.Subtract(tmp1, tmp2)
 
-	cprime := vrfHashPoints(H, Gamma, U, V) // _vrf_ietfdraft03_hash_points(cprime, &H_point, &Gamma_point, &U_point, &V_point);
+	cprime := vrfHashPoints(
+		H,
+		Gamma,
+		U,
+		V,
+	) // _vrf_ietfdraft03_hash_points(cprime, &H_point, &Gamma_point, &U_point, &V_point);
 
-	cmp := subtle.ConstantTimeCompare(cScalar[:], cprime.Bytes()) // return crypto_verify_16(c_scalar, cprime);
+	cmp := subtle.ConstantTimeCompare(
+		cScalar[:],
+		cprime.Bytes(),
+	) // return crypto_verify_16(c_scalar, cprime);
 	return cmp == 1, nil
 }
 
@@ -155,7 +174,9 @@ func cryptoVrfIetfdraft03ProofToHash(pi []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-func vrfIetfdraft03DecodeProof(pi []byte) (gamma *edwards25519.Point, c []byte, s []byte, err error) {
+func vrfIetfdraft03DecodeProof(
+	pi []byte,
+) (gamma *edwards25519.Point, c []byte, s []byte, err error) {
 	if len(pi) != 80 {
 		return nil, nil, nil, fmt.Errorf("unexpected length of pi (must be 80)")
 	}
@@ -169,7 +190,10 @@ func vrfIetfdraft03DecodeProof(pi []byte) (gamma *edwards25519.Point, c []byte, 
 	return gamma, c, s, nil
 }
 
-func vrfHashToCurveElligator225519(Y *edwards25519.Point, alpha []byte) (*edwards25519.Point, error) {
+func vrfHashToCurveElligator225519(
+	Y *edwards25519.Point,
+	alpha []byte,
+) (*edwards25519.Point, error) {
 	hs := sha512.New()
 
 	hs.Write([]byte{VRF_SUITE})
@@ -231,21 +255,40 @@ func ge25519FromUniform(r []byte) ([]byte, error) {
 
 	eIsMinus1 = int(s[1] & 1) // e_is_minus_1 = s[1] & 1;
 	eIsNotMinus1 := eIsMinus1 ^ 1
-	negx = new(field.Element).Negate(x)             // fe25519_neg(negx, x);
-	x.Select(x, negx, eIsNotMinus1)                 // fe25519_cmov(x, negx, e_is_minus_1);
-	x2.Zero()                                       // fe25519_0(x2);
-	x2.Select(x2, curve25519AElement, eIsNotMinus1) // fe25519_cmov(x2, curve25519_A, e_is_minus_1);
-	x.Subtract(x, x2)                               // fe25519_sub(x, x, x2);
+	negx = new(field.Element).Negate(x) // fe25519_neg(negx, x);
+	x.Select(
+		x,
+		negx,
+		eIsNotMinus1,
+	) // fe25519_cmov(x, negx, e_is_minus_1);
+	x2.Zero() // fe25519_0(x2);
+	x2.Select(
+		x2,
+		curve25519AElement,
+		eIsNotMinus1,
+	) // fe25519_cmov(x2, curve25519_A, e_is_minus_1);
+	x.Subtract(x, x2) // fe25519_sub(x, x, x2);
 	// yed = (x-1)/(x+1)
 	{
 		var one, xPlusOne, xPlusOneInv, xMinusOne, yed *field.Element
 
-		one = (&field.Element{}).One()                            // fe25519_1(one);
-		xPlusOne = (&field.Element{}).Add(x, one)                 // fe25519_add(x_plus_one, x, one);
-		xMinusOne = (&field.Element{}).Subtract(x, one)           // fe25519_sub(x_minus_one, x, one);
-		xPlusOneInv = (&field.Element{}).Invert(xPlusOne)         // fe25519_invert(x_plus_one_inv, x_plus_one);
-		yed = (&field.Element{}).Multiply(xMinusOne, xPlusOneInv) // fe25519_mul(yed, x_minus_one, x_plus_one_inv);
-		s = yed.Bytes()                                           // fe25519_tobytes(s, yed);
+		one = (&field.Element{}).One() // fe25519_1(one);
+		xPlusOne = (&field.Element{}).Add(
+			x,
+			one,
+		) // fe25519_add(x_plus_one, x, one);
+		xMinusOne = (&field.Element{}).Subtract(
+			x,
+			one,
+		) // fe25519_sub(x_minus_one, x, one);
+		xPlusOneInv = (&field.Element{}).Invert(
+			xPlusOne,
+		) // fe25519_invert(x_plus_one_inv, x_plus_one);
+		yed = (&field.Element{}).Multiply(
+			xMinusOne,
+			xPlusOneInv,
+		) // fe25519_mul(yed, x_minus_one, x_plus_one_inv);
+		s = yed.Bytes() // fe25519_tobytes(s, yed);
 	}
 
 	// recover x

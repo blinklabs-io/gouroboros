@@ -65,7 +65,11 @@ var conversationCurrentEra = append(
 
 type testInnerFunc func(*testing.T, *ouroboros.Connection)
 
-func runTest(t *testing.T, conversation []ouroboros_mock.ConversationEntry, innerFunc testInnerFunc) {
+func runTest(
+	t *testing.T,
+	conversation []ouroboros_mock.ConversationEntry,
+	innerFunc testInnerFunc,
+) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
@@ -130,7 +134,11 @@ func TestGetCurrentEra(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if currentEra != 5 {
-				t.Fatalf("did not receive expected result: got %d, expected %d", currentEra, 5)
+				t.Fatalf(
+					"did not receive expected result: got %d, expected %d",
+					currentEra,
+					5,
+				)
 			}
 		},
 	)
@@ -165,7 +173,11 @@ func TestGetChainPoint(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(chainPoint, &expectedPoint) {
-				t.Fatalf("did not receive expected result\n  got:    %#v\n  wanted: %#v", chainPoint, expectedPoint)
+				t.Fatalf(
+					"did not receive expected result\n  got:    %#v\n  wanted: %#v",
+					chainPoint,
+					expectedPoint,
+				)
 			}
 		},
 	)
@@ -199,14 +211,20 @@ func TestGetEpochNo(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if epochNo != expectedEpochNo {
-				t.Fatalf("did not receive expected result, got %d, wanted %d", epochNo, expectedEpochNo)
+				t.Fatalf(
+					"did not receive expected result, got %d, wanted %d",
+					epochNo,
+					expectedEpochNo,
+				)
 			}
 		},
 	)
 }
 
 func TestGetUTxOByAddress(t *testing.T) {
-	testAddress, err := ledger.NewAddress("addr_test1vrk294czhxhglflvxla7vxj2cjz7wyrdpxl3fj0vych5wws77xuc7")
+	testAddress, err := ledger.NewAddress(
+		"addr_test1vrk294czhxhglflvxla7vxj2cjz7wyrdpxl3fj0vych5wws77xuc7",
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
@@ -246,7 +264,9 @@ func TestGetUTxOByAddress(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			utxos, err := oConn.LocalStateQuery().Client.GetUTxOByAddress([]ledger.Address{testAddress})
+			utxos, err := oConn.LocalStateQuery().Client.GetUTxOByAddress(
+				[]ledger.Address{testAddress},
+			)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
@@ -256,7 +276,11 @@ func TestGetUTxOByAddress(t *testing.T) {
 				utxos.Results[k] = v
 			}
 			if !reflect.DeepEqual(utxos, &expectedResult) {
-				t.Fatalf("did not receive expected result\n got:    %#v\n  wanted: %#v", utxos, expectedResult)
+				t.Fatalf(
+					"did not receive expected result\n got:    %#v\n  wanted: %#v",
+					utxos,
+					expectedResult,
+				)
 			}
 		},
 	)

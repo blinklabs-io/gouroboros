@@ -100,11 +100,17 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 	}
 	msgAcceptVersion := msg.(*MsgAcceptVersion)
 	protoVersion := protocol.GetProtocolVersion(msgAcceptVersion.Version)
-	versionData, err := protoVersion.NewVersionDataFromCborFunc(msgAcceptVersion.VersionData)
+	versionData, err := protoVersion.NewVersionDataFromCborFunc(
+		msgAcceptVersion.VersionData,
+	)
 	if err != nil {
 		return err
 	}
-	return c.config.FinishedFunc(c.callbackContext, msgAcceptVersion.Version, versionData)
+	return c.config.FinishedFunc(
+		c.callbackContext,
+		msgAcceptVersion.Version,
+		versionData,
+	)
 }
 
 func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
