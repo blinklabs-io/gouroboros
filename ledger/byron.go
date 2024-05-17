@@ -126,7 +126,7 @@ type ByronTransaction struct {
 	hash       string
 	TxInputs   []ByronTransactionInput
 	TxOutputs  []ByronTransactionOutput
-	Attributes *cbor.Value
+	Attributes *cbor.LazyValue
 }
 
 func (t *ByronTransaction) UnmarshalCBOR(data []byte) error {
@@ -235,7 +235,7 @@ func (t *ByronTransaction) ProposalProcedures() []ProposalProcedure {
 	return nil
 }
 
-func (t *ByronTransaction) Metadata() *cbor.Value {
+func (t *ByronTransaction) Metadata() *cbor.LazyValue {
 	return t.Attributes
 }
 

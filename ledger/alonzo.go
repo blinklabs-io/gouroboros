@@ -40,7 +40,7 @@ type AlonzoBlock struct {
 	Header                 *AlonzoBlockHeader
 	TransactionBodies      []AlonzoTransactionBody
 	TransactionWitnessSets []AlonzoTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.Value
+	TransactionMetadataSet map[uint]*cbor.LazyValue
 	InvalidTransactions    []uint
 }
 
@@ -249,7 +249,7 @@ type AlonzoTransaction struct {
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	IsTxValid  bool
-	TxMetadata *cbor.Value
+	TxMetadata *cbor.LazyValue
 }
 
 func (t AlonzoTransaction) Hash() string {
@@ -324,7 +324,7 @@ func (t AlonzoTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t AlonzoTransaction) Metadata() *cbor.Value {
+func (t AlonzoTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
 

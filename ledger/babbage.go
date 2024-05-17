@@ -40,7 +40,7 @@ type BabbageBlock struct {
 	Header                 *BabbageBlockHeader
 	TransactionBodies      []BabbageTransactionBody
 	TransactionWitnessSets []BabbageTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.Value
+	TransactionMetadataSet map[uint]*cbor.LazyValue
 	InvalidTransactions    []uint
 }
 
@@ -417,7 +417,7 @@ type BabbageTransaction struct {
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	IsTxValid  bool
-	TxMetadata *cbor.Value
+	TxMetadata *cbor.LazyValue
 }
 
 func (t BabbageTransaction) Hash() string {
@@ -492,7 +492,7 @@ func (t BabbageTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t BabbageTransaction) Metadata() *cbor.Value {
+func (t BabbageTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
 
