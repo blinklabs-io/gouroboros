@@ -124,7 +124,7 @@ type ConwayTransactionBody struct {
 	TxVotingProcedures     VotingProcedures    `cbor:"19,keyasint,omitempty"`
 	TxProposalProcedures   []ProposalProcedure `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue int64               `cbor:"21,keyasint,omitempty"`
-	Donation               uint64              `cbor:"22,keyasint,omitempty"`
+	TxDonation             uint64              `cbor:"22,keyasint,omitempty"`
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -141,6 +141,10 @@ func (b *ConwayTransactionBody) ProposalProcedures() []ProposalProcedure {
 
 func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
 	return b.TxCurrentTreasuryValue
+}
+
+func (b *ConwayTransactionBody) Donation() uint64 {
+	return b.TxDonation
 }
 
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
@@ -403,6 +407,10 @@ func (t ConwayTransaction) ProposalProcedures() []ProposalProcedure {
 
 func (t ConwayTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
+}
+
+func (t ConwayTransaction) Donation() uint64 {
+	return t.Body.Donation()
 }
 
 func (t ConwayTransaction) Metadata() *cbor.LazyValue {

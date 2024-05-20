@@ -283,6 +283,11 @@ func (b *ShelleyTransactionBody) CurrentTreasuryValue() int64 {
 	return 0
 }
 
+func (b *ShelleyTransactionBody) Donation() uint64 {
+	// No donation in Shelley
+	return 0
+}
+
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 	var txi []*utxorpc.TxInput
 	var txo []*utxorpc.TxOutput
@@ -471,6 +476,10 @@ func (t ShelleyTransaction) ProposalProcedures() []ProposalProcedure {
 
 func (t ShelleyTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
+}
+
+func (t ShelleyTransaction) Donation() uint64 {
+	return t.Body.Donation()
 }
 
 func (t ShelleyTransaction) Metadata() *cbor.LazyValue {

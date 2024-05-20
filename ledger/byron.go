@@ -240,6 +240,11 @@ func (t *ByronTransaction) CurrentTreasuryValue() int64 {
 	return 0
 }
 
+func (t *ByronTransaction) Donation() uint64 {
+	// No donation in Byron
+	return 0
+}
+
 func (t *ByronTransaction) Metadata() *cbor.LazyValue {
 	return t.Attributes
 }

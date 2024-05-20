@@ -231,6 +231,10 @@ func (t MaryTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
 }
 
+func (t MaryTransaction) Donation() uint64 {
+	return t.Body.Donation()
+}
+
 func (t MaryTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
