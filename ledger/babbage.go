@@ -492,6 +492,10 @@ func (t BabbageTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
+func (t BabbageTransaction) CurrentTreasuryValue() int64 {
+	return t.Body.CurrentTreasuryValue()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }

@@ -121,10 +121,10 @@ func (h *ConwayBlockHeader) Era() Era {
 
 type ConwayTransactionBody struct {
 	BabbageTransactionBody
-	TxVotingProcedures   VotingProcedures    `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures []ProposalProcedure `cbor:"20,keyasint,omitempty"`
-	CurrentTreasuryValue int64               `cbor:"21,keyasint,omitempty"`
-	Donation             uint64              `cbor:"22,keyasint,omitempty"`
+	TxVotingProcedures     VotingProcedures    `cbor:"19,keyasint,omitempty"`
+	TxProposalProcedures   []ProposalProcedure `cbor:"20,keyasint,omitempty"`
+	TxCurrentTreasuryValue int64               `cbor:"21,keyasint,omitempty"`
+	Donation               uint64              `cbor:"22,keyasint,omitempty"`
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -137,6 +137,10 @@ func (b *ConwayTransactionBody) VotingProcedures() VotingProcedures {
 
 func (b *ConwayTransactionBody) ProposalProcedures() []ProposalProcedure {
 	return b.TxProposalProcedures
+}
+
+func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
+	return b.TxCurrentTreasuryValue
 }
 
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
@@ -395,6 +399,10 @@ func (t ConwayTransaction) VotingProcedures() VotingProcedures {
 
 func (t ConwayTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
+}
+
+func (t ConwayTransaction) CurrentTreasuryValue() int64 {
+	return t.Body.CurrentTreasuryValue()
 }
 
 func (t ConwayTransaction) Metadata() *cbor.LazyValue {

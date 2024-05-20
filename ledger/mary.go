@@ -227,6 +227,10 @@ func (t MaryTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
+func (t MaryTransaction) CurrentTreasuryValue() int64 {
+	return t.Body.CurrentTreasuryValue()
+}
+
 func (t MaryTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
