@@ -324,6 +324,10 @@ func (t AlonzoTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
+func (t AlonzoTransaction) CurrentTreasuryValue() int64 {
+	return t.Body.CurrentTreasuryValue()
+}
+
 func (t AlonzoTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }

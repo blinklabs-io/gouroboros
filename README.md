@@ -134,7 +134,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Reference inputs
     - [X] Voting procedures
     - [X] Proposal procedures
-    - [ ] Current treasury value
+    - [X] Current treasury value
     - [ ] Donation
 - [ ] Testing
   - [X] Test framework for mocking Ouroboros conversations

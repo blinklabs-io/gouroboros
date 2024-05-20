@@ -53,6 +53,7 @@ type TransactionBody interface {
 	ScriptDataHash() *Blake2b256
 	VotingProcedures() VotingProcedures
 	ProposalProcedures() []ProposalProcedure
+	CurrentTreasuryValue() int64
 	Utxorpc() *utxorpc.Tx
 }
 

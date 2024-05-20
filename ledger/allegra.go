@@ -210,6 +210,10 @@ func (t AllegraTransaction) ProposalProcedures() []ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
+func (t AllegraTransaction) CurrentTreasuryValue() int64 {
+	return t.Body.CurrentTreasuryValue()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }

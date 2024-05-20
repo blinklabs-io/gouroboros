@@ -235,6 +235,11 @@ func (t *ByronTransaction) ProposalProcedures() []ProposalProcedure {
 	return nil
 }
 
+func (t *ByronTransaction) CurrentTreasuryValue() int64 {
+	// No current treasury value in Byron
+	return 0
+}
+
 func (t *ByronTransaction) Metadata() *cbor.LazyValue {
 	return t.Attributes
 }
