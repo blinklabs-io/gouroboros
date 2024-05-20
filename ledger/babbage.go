@@ -496,6 +496,10 @@ func (t BabbageTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
 }
 
+func (t BabbageTransaction) Donation() uint64 {
+	return t.Body.Donation()
+}
+
 func (t BabbageTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }

@@ -135,7 +135,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Voting procedures
     - [X] Proposal procedures
     - [X] Current treasury value
-    - [ ] Donation
+    - [X] Donation
 - [ ] Testing
   - [X] Test framework for mocking Ouroboros conversations
   - [ ] CBOR deserialization and serialization

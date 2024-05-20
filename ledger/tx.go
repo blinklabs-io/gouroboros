@@ -54,6 +54,7 @@ type TransactionBody interface {
 	VotingProcedures() VotingProcedures
 	ProposalProcedures() []ProposalProcedure
 	CurrentTreasuryValue() int64
+	Donation() uint64
 	Utxorpc() *utxorpc.Tx
 }
 

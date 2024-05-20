@@ -214,6 +214,10 @@ func (t AllegraTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
 }
 
+func (t AllegraTransaction) Donation() uint64 {
+	return t.Body.Donation()
+}
+
 func (t AllegraTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
