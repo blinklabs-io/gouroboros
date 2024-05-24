@@ -23,13 +23,25 @@ import (
 )
 
 const (
-	CertificateTypeStakeRegistration        = 0
-	CertificateTypeStakeDeregistration      = 1
-	CertificateTypeStakeDelegation          = 2
-	CertificateTypePoolRegistration         = 3
-	CertificateTypePoolRetirement           = 4
-	CertificateTypeGenesisKeyDelegation     = 5
-	CertificateTypeMoveInstantaneousRewards = 6
+	CertificateTypeStakeRegistration               = 0
+	CertificateTypeStakeDeregistration             = 1
+	CertificateTypeStakeDelegation                 = 2
+	CertificateTypePoolRegistration                = 3
+	CertificateTypePoolRetirement                  = 4
+	CertificateTypeGenesisKeyDelegation            = 5
+	CertificateTypeMoveInstantaneousRewards        = 6
+	CertificateTypeRegistration                    = 7
+	CertificateTypeDeregistration                  = 8
+	CertificateTypeVoteDelegation                  = 9
+	CertificateTypeStakeVoteDelegation             = 10
+	CertificateTypeStakeRegistrationDelegation     = 11
+	CertificateTypeVoteRegistrationDelegation      = 12
+	CertificateTypeStakeVoteRegistrationDelegation = 13
+	CertificateTypeAuthCommitteeHot                = 14
+	CertificateTypeResignCommitteeCold             = 15
+	CertificateTypeRegistrationDrep                = 16
+	CertificateTypeDeregistrationDrep              = 17
+	CertificateTypeUpdateDrep                      = 18
 )
 
 type CertificateWrapper struct {
@@ -59,6 +71,30 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 		tmpCert = &GenesisKeyDelegationCertificate{}
 	case CertificateTypeMoveInstantaneousRewards:
 		tmpCert = &MoveInstantaneousRewardsCertificate{}
+	case CertificateTypeRegistration:
+		tmpCert = &RegistrationCertificate{}
+	case CertificateTypeDeregistration:
+		tmpCert = &DeregistrationCertificate{}
+	case CertificateTypeVoteDelegation:
+		tmpCert = &VoteDelegationCertificate{}
+	case CertificateTypeStakeVoteDelegation:
+		tmpCert = &StakeVoteDelegationCertificate{}
+	case CertificateTypeStakeRegistrationDelegation:
+		tmpCert = &StakeRegistrationDelegationCertificate{}
+	case CertificateTypeVoteRegistrationDelegation:
+		tmpCert = &VoteRegistrationDelegationCertificate{}
+	case CertificateTypeStakeVoteRegistrationDelegation:
+		tmpCert = &StakeVoteRegistrationDelegationCertificate{}
+	case CertificateTypeAuthCommitteeHot:
+		tmpCert = &AuthCommitteeHotCertificate{}
+	case CertificateTypeResignCommitteeCold:
+		tmpCert = &ResignCommitteeColdCertificate{}
+	case CertificateTypeRegistrationDrep:
+		tmpCert = &RegistrationDrepCertificate{}
+	case CertificateTypeDeregistrationDrep:
+		tmpCert = &DeregistrationDrepCertificate{}
+	case CertificateTypeUpdateDrep:
+		tmpCert = &UpdateDrepCertificate{}
 	default:
 		return fmt.Errorf("unknown certificate type: %d", certType)
 	}
@@ -89,8 +125,8 @@ const (
 type StakeCredential struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	CredType        uint
-	StakeCredential []byte
+	CredType   uint
+	Credential []byte
 }
 
 func (c *StakeCredential) Utxorpc() *utxorpc.StakeCredential {
@@ -98,14 +134,51 @@ func (c *StakeCredential) Utxorpc() *utxorpc.StakeCredential {
 	switch c.CredType {
 	case StakeCredentialTypeAddrKeyHash:
 		ret.StakeCredential = &utxorpc.StakeCredential_AddrKeyHash{
-			AddrKeyHash: c.StakeCredential[:],
+			AddrKeyHash: c.Credential[:],
 		}
 	case StakeCredentialTypeScriptHash:
 		ret.StakeCredential = &utxorpc.StakeCredential_ScriptHash{
-			ScriptHash: c.StakeCredential[:],
+			ScriptHash: c.Credential[:],
 		}
 	}
 	return ret
+}
+
+const (
+	DrepTypeAddrKeyHash  = 0
+	DrepTypeScriptHash   = 1
+	DrepTypeAbstain      = 2
+	DrepTypeNoConfidence = 3
+)
+
+type Drep struct {
+	Type       int
+	Credential []byte
+}
+
+func (d *Drep) UnmarshalCBOR(data []byte) error {
+	drepType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	switch drepType {
+	case DrepTypeAddrKeyHash, DrepTypeScriptHash:
+		d.Type = drepType
+		tmpData := struct {
+			cbor.StructAsArray
+			Type       int
+			Credential []byte
+		}{}
+		if _, err := cbor.Decode(data, &tmpData); err != nil {
+			return err
+		}
+		d.Credential = tmpData.Credential[:]
+	case DrepTypeAbstain, DrepTypeNoConfidence:
+		d.Type = drepType
+	default:
+		return fmt.Errorf("unknown drep type: %d", drepType)
+	}
+	return nil
 }
 
 type StakeRegistrationCertificate struct {
@@ -452,4 +525,262 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() *utxorpc.Certificate {
 			},
 		},
 	}
+}
+
+type RegistrationCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType        uint
+	StakeCredential StakeCredential
+	Amount          int64
+}
+
+func (c RegistrationCertificate) isCertificate() {}
+
+func (c *RegistrationCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *RegistrationCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type DeregistrationCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType        uint
+	StakeCredential StakeCredential
+	Amount          int64
+}
+
+func (c DeregistrationCertificate) isCertificate() {}
+
+func (c *DeregistrationCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *DeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type VoteDelegationCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType        uint
+	StakeCredential StakeCredential
+	Drep            Drep
+}
+
+func (c VoteDelegationCertificate) isCertificate() {}
+
+func (c *VoteDelegationCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *VoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type StakeVoteDelegationCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType        uint
+	StakeCredential StakeCredential
+	PoolKeyHash     []byte
+	Drep            Drep
+}
+
+func (c StakeVoteDelegationCertificate) isCertificate() {}
+
+func (c *StakeVoteDelegationCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type StakeRegistrationDelegationCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType        uint
+	StakeCredential StakeCredential
+	PoolKeyHash     []byte
+	Amount          int64
+}
+
+func (c StakeRegistrationDelegationCertificate) isCertificate() {}
+
+func (c *StakeRegistrationDelegationCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *StakeRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type VoteRegistrationDelegationCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType        uint
+	StakeCredential StakeCredential
+	Drep            Drep
+	Amount          int64
+}
+
+func (c VoteRegistrationDelegationCertificate) isCertificate() {}
+
+func (c *VoteRegistrationDelegationCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *VoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type StakeVoteRegistrationDelegationCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType        uint
+	StakeCredential StakeCredential
+	PoolKeyHash     []byte
+	Drep            Drep
+	Amount          int64
+}
+
+func (c StakeVoteRegistrationDelegationCertificate) isCertificate() {}
+
+func (c *StakeVoteRegistrationDelegationCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type AuthCommitteeHotCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType       uint
+	ColdCredential StakeCredential
+	HostCredential StakeCredential
+}
+
+func (c AuthCommitteeHotCertificate) isCertificate() {}
+
+func (c *AuthCommitteeHotCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *AuthCommitteeHotCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type ResignCommitteeColdCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType       uint
+	ColdCredential StakeCredential
+	Anchor         *GovAnchor
+}
+
+func (c ResignCommitteeColdCertificate) isCertificate() {}
+
+func (c *ResignCommitteeColdCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *ResignCommitteeColdCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type RegistrationDrepCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType       uint
+	DrepCredential StakeCredential
+	Amount         int64
+	Anchor         *GovAnchor
+}
+
+func (c RegistrationDrepCertificate) isCertificate() {}
+
+func (c *RegistrationDrepCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *RegistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type DeregistrationDrepCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType       uint
+	DrepCredential StakeCredential
+	Amount         int64
+}
+
+func (c DeregistrationDrepCertificate) isCertificate() {}
+
+func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *DeregistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
+}
+
+type UpdateDrepCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType       uint
+	DrepCredential StakeCredential
+	Anchor         *GovAnchor
+}
+
+func (c UpdateDrepCertificate) isCertificate() {}
+
+func (c *UpdateDrepCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	return c.UnmarshalCbor(cborData, c)
+}
+
+func (c *UpdateDrepCertificate) Utxorpc() *utxorpc.Certificate {
+	// TODO
+	return nil
 }
