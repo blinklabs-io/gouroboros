@@ -26,7 +26,6 @@ import (
 	"strconv"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -244,16 +243,11 @@ func GetBlockOutput(
 		// We will only focus on:
 		// pool_registration = (3, pool_params)
 		// pool_retirement = (4, pool_keyhash, epoch)
-		for certIndex, cert := range tx.Certificates() {
+		for _, cert := range tx.Certificates() {
 			switch v := cert.(type) {
 			case *PoolRegistrationCertificate:
-				poolIdBytes := v.Operator[:]
-				vrfKeyHashBytes := v.VrfKeyHash[:]
-				vrfKeyHashHex := hex.EncodeToString(vrfKeyHashBytes)
-				poolId, poolIdError := PoolIdToBech32(poolIdBytes)
-				if poolIdError != nil {
-					return nil, nil, nil, fmt.Errorf("GetBlockOutput: RegisSPO => PoolIdToBech32 , tx index %v, cert index %v, error, %v", txIndex, certIndex, poolIdError.Error())
-				}
+				poolId := NewBlake2b224(v.Operator[:]).String()
+				vrfKeyHashHex := hex.EncodeToString(v.VrfKeyHash[:])
 				regisCerts = append(regisCerts, RegisCert{
 					RegisPoolId:  poolId,
 					RegisPoolVrf: vrfKeyHashHex,
@@ -262,11 +256,7 @@ func GetBlockOutput(
 
 			case *PoolRetirementCertificate:
 				// pool_retirement
-				poolIdBytes := v.PoolKeyHash[:]
-				poolId, poolIdError := PoolIdToBech32(poolIdBytes)
-				if poolIdError != nil {
-					return nil, nil, nil, fmt.Errorf("GetBlockOutput: RetireSPO => PoolIdToBech32, tx index %v, cert index %v, error, %v", txIndex, certIndex, poolIdError.Error())
-				}
+				poolId := NewBlake2b224(v.PoolKeyHash[:]).String()
 				retireEpoch := v.Epoch
 				deRegisCerts = append(deRegisCerts, DeRegisCert{
 					DeRegisPoolId: poolId,
@@ -279,17 +269,6 @@ func GetBlockOutput(
 	}
 
 	return outputs, regisCerts, deRegisCerts, nil
-}
-
-func PoolIdToBech32(data []byte) (string, error) {
-	pool, err := bech32.ConvertAndEncode("pool", data)
-	if err != nil {
-		return "", fmt.Errorf(
-			"PoolIdToBech32: ConvertAndEncode error, %v",
-			err.Error(),
-		)
-	}
-	return pool, nil
 }
 
 func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
