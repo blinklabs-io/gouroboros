@@ -118,33 +118,6 @@ type Certificate interface {
 }
 
 const (
-	StakeCredentialTypeAddrKeyHash = 0
-	StakeCredentialTypeScriptHash  = 1
-)
-
-type StakeCredential struct {
-	cbor.StructAsArray
-	cbor.DecodeStoreCbor
-	CredType   uint
-	Credential []byte
-}
-
-func (c *StakeCredential) Utxorpc() *utxorpc.StakeCredential {
-	ret := &utxorpc.StakeCredential{}
-	switch c.CredType {
-	case StakeCredentialTypeAddrKeyHash:
-		ret.StakeCredential = &utxorpc.StakeCredential_AddrKeyHash{
-			AddrKeyHash: c.Credential[:],
-		}
-	case StakeCredentialTypeScriptHash:
-		ret.StakeCredential = &utxorpc.StakeCredential_ScriptHash{
-			ScriptHash: c.Credential[:],
-		}
-	}
-	return ret
-}
-
-const (
 	DrepTypeAddrKeyHash  = 0
 	DrepTypeScriptHash   = 1
 	DrepTypeAbstain      = 2
