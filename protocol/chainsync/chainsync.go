@@ -241,10 +241,10 @@ func NewConfig(options ...ChainSyncOptionFunc) Config {
 		PipelineLimit:    0,
 		IntersectTimeout: 5 * time.Second,
 		// We should really use something more useful like 30-60s, but we've seen 55s between blocks
-		// in the preview network
+		// in the preview network and almost 240s in preprod
 		// https://preview.cexplorer.io/block/cb08a386363a946d2606e912fcd81ffed2bf326cdbc4058297b14471af4f67e9
 		// https://preview.cexplorer.io/block/86806dca4ba735b233cbeee6da713bdece36fd41fb5c568f9ef5a3f5cbf572a3
-		BlockTimeout: 180 * time.Second,
+		BlockTimeout: 300 * time.Second,
 	}
 	// Apply provided options functions
 	for _, option := range options {
