@@ -186,7 +186,9 @@ func NewMsgRollForwardNtN(
 		Tip: tip,
 	}
 	wrappedHeader := NewWrappedHeader(era, byronType, blockCbor)
-	m.WrappedHeader = *wrappedHeader
+	if wrappedHeader != nil {
+		m.WrappedHeader = *wrappedHeader
+	}
 	return m
 }
 
