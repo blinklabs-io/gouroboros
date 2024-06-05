@@ -262,7 +262,10 @@ func (c *Client) GetAvailableBlockRange(
 		case firstBlock := <-firstBlockChan:
 			firstBlockChan = nil
 			if firstBlock.error != nil {
-				return start, end, fmt.Errorf("failed to get first block: %w", firstBlock.error)
+				return start, end, fmt.Errorf(
+					"failed to get first block: %w",
+					firstBlock.error,
+				)
 			}
 			start = firstBlock.point
 		case <-c.readyForNextBlockChan:
@@ -416,7 +419,9 @@ func (c *Client) wantIntersectFound() (<-chan clientPointResult, func()) {
 	}
 }
 
-func (c *Client) requestFindIntersect(intersectPoints []common.Point) clientPointResult {
+func (c *Client) requestFindIntersect(
+	intersectPoints []common.Point,
+) clientPointResult {
 	resultChan, cancel := c.wantIntersectFound()
 	msg := NewMsgFindIntersect(intersectPoints)
 	if err := c.SendMessage(msg); err != nil {
@@ -445,7 +450,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			return nil
 		}
 	}()
-	if firstBlockChan == nil && (c.config == nil || c.config.RollForwardFunc == nil) {
+	if firstBlockChan == nil &&
+		(c.config == nil || c.config.RollForwardFunc == nil) {
 		return fmt.Errorf(
 			"received chain-sync RollForward message but no callback function is defined",
 		)
