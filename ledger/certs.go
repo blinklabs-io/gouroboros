@@ -221,7 +221,6 @@ func (c *StakeDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	}
 }
 
-type AddrKeyHash Blake2b224
 type PoolKeyHash Blake2b224
 type PoolMetadataHash Blake2b256
 type VrfKeyHash Blake2b256

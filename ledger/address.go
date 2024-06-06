@@ -43,6 +43,8 @@ const (
 	AddressTypeNoneScript    = 0b1111
 )
 
+type AddrKeyHash Blake2b224
+
 type Address struct {
 	addressType    uint8
 	networkId      uint8
@@ -191,6 +193,11 @@ func (a Address) PaymentAddress() *Address {
 	return newAddr
 }
 
+// PaymentKeyHash returns a new Blake2b224 hash of the payment key
+func (a *Address) PaymentKeyHash() Blake2b224 {
+	return Blake2b224(a.paymentAddress[:])
+}
+
 // StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
 func (a Address) StakeAddress() *Address {
 	var addrType uint8
@@ -210,6 +217,11 @@ func (a Address) StakeAddress() *Address {
 		stakingAddress: a.stakingAddress[:],
 	}
 	return newAddr
+}
+
+// StakeKeyHash returns a new Blake2b224 hash of the stake key
+func (a *Address) StakeKeyHash() Blake2b224 {
+	return Blake2b224(a.stakingAddress[:])
 }
 
 func (a Address) generateHRP() string {
