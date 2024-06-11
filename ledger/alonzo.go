@@ -169,21 +169,34 @@ type AlonzoTransactionOutput struct {
 	OutputAddress     Address
 	OutputAmount      MaryTransactionOutputValue
 	TxOutputDatumHash *Blake2b256
+	legacyOutput      bool
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	// Save original CBOR
 	o.SetCbor(cborData)
-	// Try to parse as Mary output first
+	// Try to parse as legacy Mary output first
 	var tmpOutput MaryTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
-		// Copy from temp Shelley output to Alonzo format
+		// Copy from temp Mary output to Alonzo format
 		o.OutputAddress = tmpOutput.OutputAddress
 		o.OutputAmount = tmpOutput.OutputAmount
+		o.legacyOutput = true
 	} else {
 		return cbor.DecodeGeneric(cborData, o)
 	}
 	return nil
+}
+
+func (o *AlonzoTransactionOutput) MarshalCBOR() ([]byte, error) {
+	if o.legacyOutput {
+		tmpOutput := MaryTransactionOutput{
+			OutputAddress: o.OutputAddress,
+			OutputAmount:  o.OutputAmount,
+		}
+		return cbor.Encode(&tmpOutput)
+	}
+	return cbor.EncodeGeneric(o)
 }
 
 func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {

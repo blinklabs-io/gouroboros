@@ -342,6 +342,17 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
+	if o.legacyOutput {
+		tmpOutput := AlonzoTransactionOutput{
+			OutputAddress: o.OutputAddress,
+			OutputAmount:  o.OutputAmount,
+		}
+		return cbor.Encode(&tmpOutput)
+	}
+	return cbor.EncodeGeneric(o)
+}
+
 func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
 		Address   Address                           `json:"address"`
