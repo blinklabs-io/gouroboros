@@ -137,6 +137,14 @@ func (b *MaryTransactionBody) Outputs() []TransactionOutput {
 	return ret
 }
 
+func (b *MaryTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
+	updateMap := make(map[Blake2b224]any)
+	for k, v := range b.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return updateMap
+}
+
 func (b *MaryTransactionBody) AssetMint() *MultiAsset[MultiAssetTypeMint] {
 	return b.TxMint
 }
@@ -177,6 +185,10 @@ func (t MaryTransaction) TTL() uint64 {
 
 func (t MaryTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
+}
+
+func (t MaryTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+	return t.Body.ProtocolParametersUpdate()
 }
 
 func (t MaryTransaction) ReferenceInputs() []TransactionInput {
@@ -249,14 +261,6 @@ func (t MaryTransaction) Consumed() []TransactionInput {
 
 func (t MaryTransaction) Produced() []TransactionOutput {
 	return t.Outputs()
-}
-
-func (t *MaryTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
-	for k, v := range t.Body.Update.ProtocolParamUpdates {
-		updateMap[k] = v
-	}
-	return updateMap
 }
 
 func (t *MaryTransaction) Cbor() []byte {

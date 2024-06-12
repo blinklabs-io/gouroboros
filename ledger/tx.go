@@ -30,7 +30,6 @@ type Transaction interface {
 	IsValid() bool
 	Consumed() []TransactionInput
 	Produced() []TransactionOutput
-	ProtocolParametersUpdate() map[Blake2b224]any
 }
 
 type TransactionBody interface {
@@ -40,6 +39,7 @@ type TransactionBody interface {
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
+	ProtocolParametersUpdate() map[Blake2b224]any
 	ValidityIntervalStart() uint64
 	ReferenceInputs() []TransactionInput
 	Collateral() []TransactionInput
