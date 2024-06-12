@@ -48,7 +48,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] Server support
     - [ ] LocalStateQuery
       - [X] Client support
-      - [ ] Server support
+      - [X] Server support
       - [ ] Queries
         - [X] System start
         - [X] Current era
@@ -73,7 +73,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [ ] Pool distribution
 - [ ] Ledger
   - [ ] Eras
-    - [ ] Byron
+    - [X] Byron
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
@@ -114,7 +114,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] TX inputs
       - [X] TX outputs
       - [ ] Parameter updates
-  - [ ] Transaction attributes
+  - [X] Transaction attributes
     - [X] Inputs
     - [X] Outputs
     - [X] Metadata
