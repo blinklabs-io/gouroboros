@@ -147,6 +147,14 @@ func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
 	return ret
 }
 
+func (b *AlonzoTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
+	updateMap := make(map[Blake2b224]any)
+	for k, v := range b.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return updateMap
+}
+
 func (b *AlonzoTransactionBody) Collateral() []TransactionInput {
 	ret := []TransactionInput{}
 	for _, collateral := range b.TxCollateral {
@@ -289,6 +297,10 @@ func (t AlonzoTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
+func (t AlonzoTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+	return t.Body.ProtocolParametersUpdate()
+}
+
 func (t AlonzoTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
@@ -368,14 +380,6 @@ func (t AlonzoTransaction) Produced() []TransactionOutput {
 		// No collateral return in Alonzo
 		return []TransactionOutput{}
 	}
-}
-
-func (t *AlonzoTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
-	for k, v := range t.Body.Update.ProtocolParamUpdates {
-		updateMap[k] = v
-	}
-	return updateMap
 }
 
 func (t *AlonzoTransaction) Cbor() []byte {

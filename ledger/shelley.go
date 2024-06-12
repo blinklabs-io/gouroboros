@@ -218,6 +218,14 @@ func (b *ShelleyTransactionBody) ValidityIntervalStart() uint64 {
 	return 0
 }
 
+func (b *ShelleyTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
+	updateMap := make(map[Blake2b224]any)
+	for k, v := range b.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return updateMap
+}
+
 func (b *ShelleyTransactionBody) ReferenceInputs() []TransactionInput {
 	return []TransactionInput{}
 }
@@ -503,11 +511,7 @@ func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
 }
 
 func (t *ShelleyTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
-	for k, v := range t.Body.Update.ProtocolParamUpdates {
-		updateMap[k] = v
-	}
-	return updateMap
+	return t.Body.ProtocolParametersUpdate()
 }
 
 func (t *ShelleyTransaction) Cbor() []byte {

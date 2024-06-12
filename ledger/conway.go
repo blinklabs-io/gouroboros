@@ -131,6 +131,14 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (b *ConwayTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
+	updateMap := make(map[Blake2b224]any)
+	for k, v := range b.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return updateMap
+}
+
 func (b *ConwayTransactionBody) VotingProcedures() VotingProcedures {
 	return b.TxVotingProcedures
 }
@@ -357,6 +365,10 @@ func (t ConwayTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
+func (t ConwayTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+	return t.Body.ProtocolParametersUpdate()
+}
+
 func (t ConwayTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
@@ -438,14 +450,6 @@ func (t ConwayTransaction) Produced() []TransactionOutput {
 		}
 		return []TransactionOutput{t.CollateralReturn()}
 	}
-}
-
-func (t *ConwayTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
-	for k, v := range t.Body.Update.ProtocolParamUpdates {
-		updateMap[k] = v
-	}
-	return updateMap
 }
 
 func (t *ConwayTransaction) Cbor() []byte {

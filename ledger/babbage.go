@@ -199,6 +199,14 @@ func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
 	return ret
 }
 
+func (b *BabbageTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
+	updateMap := make(map[Blake2b224]any)
+	for k, v := range b.Update.ProtocolParamUpdates {
+		updateMap[k] = v
+	}
+	return updateMap
+}
+
 func (b *BabbageTransactionBody) ReferenceInputs() []TransactionInput {
 	ret := []TransactionInput{}
 	for _, input := range b.TxReferenceInputs {
@@ -455,6 +463,10 @@ func (t BabbageTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
+func (t BabbageTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+	return t.Body.ProtocolParametersUpdate()
+}
+
 func (t BabbageTransaction) ReferenceInputs() []TransactionInput {
 	return t.Body.ReferenceInputs()
 }
@@ -536,14 +548,6 @@ func (t BabbageTransaction) Produced() []TransactionOutput {
 		}
 		return []TransactionOutput{t.CollateralReturn()}
 	}
-}
-
-func (t *BabbageTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
-	for k, v := range t.Body.Update.ProtocolParamUpdates {
-		updateMap[k] = v
-	}
-	return updateMap
 }
 
 func (t *BabbageTransaction) Cbor() []byte {
