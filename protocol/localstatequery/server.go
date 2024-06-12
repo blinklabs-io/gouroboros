@@ -99,7 +99,7 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 	switch msgAcquire := msg.(type) {
 	case *MsgAcquire:
 		// Call the user callback function
-		return s.config.AcquireFunc(s.callbackContext, msgAcquire.Point)
+		return s.config.AcquireFunc(s.callbackContext, &msgAcquire.Point)
 	case *MsgAcquireNoPoint:
 		// Call the user callback function
 		return s.config.AcquireFunc(s.callbackContext, nil)
@@ -137,7 +137,7 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 	switch msgReAcquire := msg.(type) {
 	case *MsgReAcquire:
 		// Call the user callback function
-		return s.config.ReAcquireFunc(s.callbackContext, msgReAcquire.Point)
+		return s.config.ReAcquireFunc(s.callbackContext, &msgReAcquire.Point)
 	case *MsgReAcquireNoPoint:
 		// Call the user callback function
 		return s.config.ReAcquireFunc(s.callbackContext, nil)

@@ -20,6 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Protocol identifiers
@@ -128,11 +129,10 @@ type CallbackContext struct {
 }
 
 // Callback function types
-// TODO: update callbacks
-type AcquireFunc func(CallbackContext, interface{}) error
-type QueryFunc func(CallbackContext, interface{}) error
+type AcquireFunc func(CallbackContext, *common.Point) error
+type QueryFunc func(CallbackContext, any) error
 type ReleaseFunc func(CallbackContext) error
-type ReAcquireFunc func(CallbackContext, interface{}) error
+type ReAcquireFunc func(CallbackContext, *common.Point) error
 type DoneFunc func(CallbackContext) error
 
 // New returns a new LocalStateQuery object
