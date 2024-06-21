@@ -50,3 +50,43 @@ func TestEncode(t *testing.T) {
 		}
 	}
 }
+
+func TestEncodeIndefLengthList(t *testing.T) {
+	expectedCborHex := "9f1904d219162eff"
+	tmpData := cbor.IndefLengthList{
+		1234,
+		5678,
+	}
+	cborData, err := cbor.Encode(tmpData)
+	if err != nil {
+		t.Fatalf("failed to encode object to CBOR: %s", err)
+	}
+	cborHex := hex.EncodeToString(cborData)
+	if cborHex != expectedCborHex {
+		t.Fatalf(
+			"object did not encode to expected CBOR\n  got %s\n  wanted: %s",
+			cborHex,
+			expectedCborHex,
+		)
+	}
+}
+
+func TestEncodeIndefLengthByteString(t *testing.T) {
+	expectedCborHex := "5f440102030443abcdefff"
+	tmpData := cbor.IndefLengthByteString{
+		[]byte{1, 2, 3, 4},
+		[]byte{0xab, 0xcd, 0xef},
+	}
+	cborData, err := cbor.Encode(tmpData)
+	if err != nil {
+		t.Fatalf("failed to encode object to CBOR: %s", err)
+	}
+	cborHex := hex.EncodeToString(cborData)
+	if cborHex != expectedCborHex {
+		t.Fatalf(
+			"object did not encode to expected CBOR\n  got %s\n  wanted: %s",
+			cborHex,
+			expectedCborHex,
+		)
+	}
+}

@@ -93,9 +93,7 @@ func (m *MsgReplyTxIds) MarshalCBOR() ([]byte, error) {
 	}
 	tmp := []any{
 		MessageTypeReplyTxIds,
-		cbor.IndefLengthList{
-			Items: items,
-		},
+		cbor.IndefLengthList(items),
 	}
 	return cbor.Encode(tmp)
 }
@@ -122,9 +120,7 @@ func (m *MsgRequestTxs) MarshalCBOR() ([]byte, error) {
 	}
 	tmp := []any{
 		MessageTypeRequestTxs,
-		cbor.IndefLengthList{
-			Items: items,
-		},
+		cbor.IndefLengthList(items),
 	}
 	return cbor.Encode(tmp)
 }
@@ -151,9 +147,7 @@ func (m *MsgReplyTxs) MarshalCBOR() ([]byte, error) {
 	}
 	tmp := []any{
 		MessageTypeReplyTxs,
-		cbor.IndefLengthList{
-			Items: items,
-		},
+		cbor.IndefLengthList(items),
 	}
 	return cbor.Encode(tmp)
 }
