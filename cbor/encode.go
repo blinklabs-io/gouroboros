@@ -25,7 +25,11 @@ import (
 
 func Encode(data interface{}) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
-	em, err := _cbor.CoreDetEncOptions().EncModeWithTags(customTagSet)
+	opts := _cbor.EncOptions{
+		// Make sure that maps have ordered keys
+		Sort: _cbor.SortCoreDeterministic,
+	}
+	em, err := opts.EncModeWithTags(customTagSet)
 	if err != nil {
 		return nil, err
 	}
