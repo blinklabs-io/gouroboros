@@ -411,12 +411,26 @@ func (o BabbageTransactionOutput) Datum() *cbor.LazyValue {
 }
 
 func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+	var address []byte
+	if o.OutputAddress.Bytes() == nil {
+		address = []byte{}
+	} else {
+		address = o.OutputAddress.Bytes()
+	}
+
+	var datumHash []byte
+	if o.DatumHash() == nil {
+		datumHash = []byte{}
+	} else {
+		datumHash = o.DatumHash().Bytes()
+	}
+
 	return &utxorpc.TxOutput{
-		Address: o.OutputAddress.Bytes(),
+		Address: address,
 		Coin:    o.Amount(),
 		// Assets: o.Assets(),
 		// Datum:     o.Datum(),
-		DatumHash: o.DatumHash().Bytes(),
+		DatumHash: datumHash,
 		// Script:    o.ScriptRef,
 	}
 }
