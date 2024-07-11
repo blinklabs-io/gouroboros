@@ -78,7 +78,7 @@ func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
 func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	var txSeqBody []cbor.RawMessage
 	var txSeqWit []cbor.RawMessage
-	txSeqMetadata := map[uint64]cbor.RawTag{}
+	txSeqMetadata := make(map[uint64]interface{}, len(txsRaw))
 	txSeqNonValid := []uint{}
 	for index, tx := range txsRaw {
 		if len(tx) != 3 {
@@ -121,11 +121,18 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 					auxBytesError.Error(),
 				)
 			}
-			// Cardano use Tag 259 for this when encCbor
-			// Ref: https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxAuxData.hs#L125
-			txSeqMetadata[uint64(index)] = cbor.RawTag{
-				Number: 259, Content: auxBytes,
+
+			var auxInterface interface{}
+			_, auxDecodeError := cbor.Decode(auxBytes, &auxInterface)
+			if auxDecodeError != nil {
+				return nil, fmt.Errorf(
+					"CalculateBlockBodyHash: decode aux tx[%v] error, %v",
+					index,
+					auxDecodeError.Error(),
+				)
 			}
+
+			txSeqMetadata[uint64(index)] = auxInterface
 		}
 		// TODO: should form nonValid TX here
 	}
