@@ -29,7 +29,7 @@ type Transaction interface {
 	Metadata() *cbor.LazyValue
 	IsValid() bool
 	Consumed() []TransactionInput
-	Produced() []TransactionOutput
+	Produced() []Utxo
 }
 
 type TransactionBody interface {
@@ -72,6 +72,11 @@ type TransactionOutput interface {
 	DatumHash() *Blake2b256
 	Cbor() []byte
 	Utxorpc() *utxorpc.TxOutput
+}
+
+type Utxo struct {
+	Id     TransactionInput
+	Output TransactionOutput
 }
 
 func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {

@@ -242,8 +242,18 @@ func (t AllegraTransaction) Consumed() []TransactionInput {
 	return t.Inputs()
 }
 
-func (t AllegraTransaction) Produced() []TransactionOutput {
-	return t.Outputs()
+func (t AllegraTransaction) Produced() []Utxo {
+	var ret []Utxo
+	for idx, output := range t.Outputs() {
+		ret = append(
+			ret,
+			Utxo{
+				Id:     NewShelleyTransactionInput(t.Hash(), idx),
+				Output: output,
+			},
+		)
+	}
+	return ret
 }
 
 func (t AllegraTransaction) ProtocolParametersUpdate() map[Blake2b224]any {

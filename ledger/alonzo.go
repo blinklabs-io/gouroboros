@@ -373,12 +373,22 @@ func (t AlonzoTransaction) Consumed() []TransactionInput {
 	}
 }
 
-func (t AlonzoTransaction) Produced() []TransactionOutput {
+func (t AlonzoTransaction) Produced() []Utxo {
 	if t.IsValid() {
-		return t.Outputs()
+		var ret []Utxo
+		for idx, output := range t.Outputs() {
+			ret = append(
+				ret,
+				Utxo{
+					Id:     NewShelleyTransactionInput(t.Hash(), idx),
+					Output: output,
+				},
+			)
+		}
+		return ret
 	} else {
 		// No collateral return in Alonzo
-		return []TransactionOutput{}
+		return []Utxo{}
 	}
 }
 

@@ -553,14 +553,29 @@ func (t BabbageTransaction) Consumed() []TransactionInput {
 	}
 }
 
-func (t BabbageTransaction) Produced() []TransactionOutput {
+func (t BabbageTransaction) Produced() []Utxo {
 	if t.IsValid() {
-		return t.Outputs()
+		var ret []Utxo
+		for idx, output := range t.Outputs() {
+			ret = append(
+				ret,
+				Utxo{
+					Id:     NewShelleyTransactionInput(t.Hash(), idx),
+					Output: output,
+				},
+			)
+		}
+		return ret
 	} else {
 		if t.CollateralReturn() == nil {
-			return []TransactionOutput{}
+			return []Utxo{}
 		}
-		return []TransactionOutput{t.CollateralReturn()}
+		return []Utxo{
+			{
+				Id:     NewShelleyTransactionInput(t.Hash(), len(t.Outputs())),
+				Output: t.CollateralReturn(),
+			},
+		}
 	}
 }
 

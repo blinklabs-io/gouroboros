@@ -332,6 +332,17 @@ type ShelleyTransactionInput struct {
 	OutputIndex uint32
 }
 
+func NewShelleyTransactionInput(hash string, idx int) ShelleyTransactionInput {
+	tmpHash, err := hex.DecodeString(hash)
+	if err != nil {
+		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+	}
+	return ShelleyTransactionInput{
+		TxId:        Blake2b256(tmpHash),
+		OutputIndex: uint32(idx),
+	}
+}
+
 func (i ShelleyTransactionInput) Id() Blake2b256 {
 	return i.TxId
 }
@@ -502,8 +513,18 @@ func (t ShelleyTransaction) Consumed() []TransactionInput {
 	return t.Inputs()
 }
 
-func (t ShelleyTransaction) Produced() []TransactionOutput {
-	return t.Outputs()
+func (t ShelleyTransaction) Produced() []Utxo {
+	var ret []Utxo
+	for idx, output := range t.Outputs() {
+		ret = append(
+			ret,
+			Utxo{
+				Id:     NewShelleyTransactionInput(t.Hash(), idx),
+				Output: output,
+			},
+		)
+	}
+	return ret
 }
 
 func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {

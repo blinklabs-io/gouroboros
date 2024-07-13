@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
@@ -257,8 +258,18 @@ func (t *ByronTransaction) Consumed() []TransactionInput {
 	return t.Inputs()
 }
 
-func (t *ByronTransaction) Produced() []TransactionOutput {
-	return t.Outputs()
+func (t *ByronTransaction) Produced() []Utxo {
+	var ret []Utxo
+	for idx, output := range t.Outputs() {
+		ret = append(
+			ret,
+			Utxo{
+				Id:     NewByronTransactionInput(t.Hash(), idx),
+				Output: output,
+			},
+		)
+	}
+	return ret
 }
 
 func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
@@ -278,6 +289,17 @@ type ByronTransactionInput struct {
 	cbor.StructAsArray
 	TxId        Blake2b256
 	OutputIndex uint32
+}
+
+func NewByronTransactionInput(hash string, idx int) ByronTransactionInput {
+	tmpHash, err := hex.DecodeString(hash)
+	if err != nil {
+		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+	}
+	return ByronTransactionInput{
+		TxId:        Blake2b256(tmpHash),
+		OutputIndex: uint32(idx),
+	}
 }
 
 func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
