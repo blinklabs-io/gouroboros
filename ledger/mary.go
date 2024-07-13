@@ -259,8 +259,18 @@ func (t MaryTransaction) Consumed() []TransactionInput {
 	return t.Inputs()
 }
 
-func (t MaryTransaction) Produced() []TransactionOutput {
-	return t.Outputs()
+func (t MaryTransaction) Produced() []Utxo {
+	var ret []Utxo
+	for idx, output := range t.Outputs() {
+		ret = append(
+			ret,
+			Utxo{
+				Id:     NewShelleyTransactionInput(t.Hash(), idx),
+				Output: output,
+			},
+		)
+	}
+	return ret
 }
 
 func (t *MaryTransaction) Cbor() []byte {
