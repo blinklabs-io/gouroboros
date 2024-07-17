@@ -38,7 +38,7 @@ type ConwayBlock struct {
 	cbor.DecodeStoreCbor
 	Header                 *ConwayBlockHeader
 	TransactionBodies      []ConwayTransactionBody
-	TransactionWitnessSets []BabbageTransactionWitnessSet
+	TransactionWitnessSets []ConwayTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
 	InvalidTransactions    []uint
 }
@@ -117,6 +117,57 @@ type ConwayBlockHeader struct {
 
 func (h *ConwayBlockHeader) Era() Era {
 	return eras[EraIdConway]
+}
+
+type ConwayRedeemerKey struct {
+	cbor.StructAsArray
+	Tag   uint8
+	Index uint32
+}
+
+type ConwayRedeemerValue struct {
+	cbor.StructAsArray
+	Data    cbor.RawMessage
+	ExUnits RedeemerExUnits
+}
+
+type ConwayRedeemers struct {
+	Redeemers map[ConwayRedeemerKey]ConwayRedeemerValue
+	legacy    bool
+}
+
+func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
+	// Try to parse as legacy redeemer first
+	var tmpRedeemers []AlonzoRedeemer
+	if _, err := cbor.Decode(cborData, &tmpRedeemers); err == nil {
+		// Copy data from legacy redeemer type
+		for _, redeemer := range tmpRedeemers {
+			tmpKey := ConwayRedeemerKey{
+				Tag:   redeemer.Tag,
+				Index: redeemer.Index,
+			}
+			tmpVal := ConwayRedeemerValue{
+				Data:    redeemer.Data,
+				ExUnits: redeemer.ExUnits,
+			}
+			r.Redeemers[tmpKey] = tmpVal
+		}
+		r.legacy = true
+	} else {
+		_, err := cbor.Decode(cborData, &(r.Redeemers))
+		return err
+	}
+	return nil
+}
+
+type ConwayTransactionWitnessSet struct {
+	BabbageTransactionWitnessSet
+	Redeemers       ConwayRedeemers   `cbor:"5,keyasint,omitempty"`
+	PlutusV3Scripts []cbor.RawMessage `cbor:"7,keyasint,omitempty"`
+}
+
+func (t *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	return t.UnmarshalCbor(cborData, t)
 }
 
 type ConwayTransactionBody struct {
@@ -336,7 +387,7 @@ type ConwayTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	Body       ConwayTransactionBody
-	WitnessSet BabbageTransactionWitnessSet
+	WitnessSet ConwayTransactionWitnessSet
 	IsTxValid  bool
 	TxMetadata *cbor.LazyValue
 }
