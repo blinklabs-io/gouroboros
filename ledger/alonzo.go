@@ -253,11 +253,25 @@ func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 	}
 }
 
+type AlonzoRedeemer struct {
+	cbor.StructAsArray
+	Tag     uint8
+	Index   uint32
+	Data    cbor.RawMessage
+	ExUnits RedeemerExUnits
+}
+
+type RedeemerExUnits struct {
+	cbor.StructAsArray
+	Memory uint64
+	Steps  uint64
+}
+
 type AlonzoTransactionWitnessSet struct {
 	ShelleyTransactionWitnessSet
 	PlutusScripts []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
 	PlutusData    []cbor.RawMessage `cbor:"4,keyasint,omitempty"`
-	Redeemers     []cbor.RawMessage `cbor:"5,keyasint,omitempty"`
+	Redeemers     []AlonzoRedeemer  `cbor:"5,keyasint,omitempty"`
 }
 
 func (t *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
