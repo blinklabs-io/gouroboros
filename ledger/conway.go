@@ -206,6 +206,55 @@ func (b *ConwayTransactionBody) Donation() uint64 {
 	return b.TxDonation
 }
 
+type ConwayProtocolParameters struct {
+	BabbageProtocolParameters
+	PoolVotingThresholds       PoolVotingThresholds
+	DRepVotingThresholds       DRepVotingThresholds
+	MinCommitteeSize           uint
+	CommitteeTermLimit         uint64
+	GovActionValidityPeriod    uint64
+	GovActionDeposit           uint64
+	DRepDeposit                uint64
+	DRepInactivityPeriod       uint64
+	MinFeeRefScriptCostPerByte *cbor.Rat
+}
+
+type ConwayProtocolParameterUpdate struct {
+	BabbageProtocolParameterUpdate
+	PoolVotingThresholds       PoolVotingThresholds `cbor:"25,keyasint"`
+	DRepVotingThresholds       DRepVotingThresholds `cbor:"26,keyasint"`
+	MinCommitteeSize           uint                 `cbor:"27,keyasint"`
+	CommitteeTermLimit         uint64               `cbor:"28,keyasint"`
+	GovActionValidityPeriod    uint64               `cbor:"29,keyasint"`
+	GovActionDeposit           uint64               `cbor:"30,keyasint"`
+	DRepDeposit                uint64               `cbor:"31,keyasint"`
+	DRepInactivityPeriod       uint64               `cbor:"32,keyasint"`
+	MinFeeRefScriptCostPerByte *cbor.Rat            `cbor:"33,keyasint"`
+}
+
+type PoolVotingThresholds struct {
+	cbor.StructAsArray
+	MotionNoConfidence                       cbor.Rat
+	CommitteeNormal                          cbor.Rat
+	CommitteeNoConfidence                    cbor.Rat
+	HardForkInitiation                       cbor.Rat
+	SecurityRelevantParameterVotingThreshold cbor.Rat
+}
+
+type DRepVotingThresholds struct {
+	cbor.StructAsArray
+	MotionNoConfidence    cbor.Rat
+	CommitteeNormal       cbor.Rat
+	CommitteeNoConfidence cbor.Rat
+	UpdateConstitution    cbor.Rat
+	HardForkInitiation    cbor.Rat
+	PPNetworkGroup        cbor.Rat
+	PPEconomicGroup       cbor.Rat
+	PPTechnicalGroup      cbor.Rat
+	PPGovGroup            cbor.Rat
+	TreasureWithdrawal    cbor.Rat
+}
+
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
 type VotingProcedures map[*Voter]map[*GovActionId]VotingProcedure
 
@@ -316,7 +365,7 @@ type ParameterChangeGovAction struct {
 	cbor.StructAsArray
 	Type        uint
 	ActionId    *GovActionId
-	ParamUpdate BabbageProtocolParameterUpdate // TODO: use Conway params update type
+	ParamUpdate ConwayProtocolParameterUpdate
 	PolicyHash  []byte
 }
 

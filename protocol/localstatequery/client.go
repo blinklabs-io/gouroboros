@@ -348,6 +348,12 @@ func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error)
 		QueryTypeShelleyCurrentProtocolParams,
 	)
 	switch currentEra {
+	case ledger.EraIdConway:
+		result := []ledger.ConwayProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
 	case ledger.EraIdBabbage:
 		result := []ledger.BabbageProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
@@ -379,11 +385,7 @@ func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error)
 		}
 		return result[0], nil
 	default:
-		result := []any{}
-		if err := c.runQuery(query, &result); err != nil {
-			return nil, err
-		}
-		return result[0], nil
+		return nil, fmt.Errorf("unknown era ID: %d", currentEra)
 	}
 }
 
