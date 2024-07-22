@@ -6,7 +6,7 @@ toolchain go1.21.5
 
 require (
 	filippo.io/edwards25519 v1.1.0
-	github.com/blinklabs-io/ouroboros-mock v0.3.1
+	github.com/blinklabs-io/ouroboros-mock v0.3.2
 	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0

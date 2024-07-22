@@ -1,7 +1,7 @@
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
-github.com/blinklabs-io/ouroboros-mock v0.3.1 h1:oQiMgH0VgsJIGy4lJGaySegObq5FsVgFTYXUO2PS2T8=
-github.com/blinklabs-io/ouroboros-mock v0.3.1/go.mod h1:6DosKZuBZ4mmvky3hXUzGZqqb/KhbwOiKOldwAtNoxc=
+github.com/blinklabs-io/ouroboros-mock v0.3.2 h1:tsym/TxeZB1N7GaxAvLU7hrMicszBR98vbj3XuRgD6U=
+github.com/blinklabs-io/ouroboros-mock v0.3.2/go.mod h1:4Lmv174yNH63x83YKKpcQJY10f3WkZFGDy1GvMh3ChY=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
