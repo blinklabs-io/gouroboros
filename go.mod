@@ -10,7 +10,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0
-	github.com/utxorpc/go-codegen v0.7.0
+	github.com/utxorpc/go-codegen v0.8.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.25.0
 )

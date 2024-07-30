@@ -429,8 +429,10 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 		Address: address,
 		Coin:    o.Amount(),
 		// Assets: o.Assets(),
-		// Datum:     o.Datum(),
-		DatumHash: datumHash,
+		Datum: &utxorpc.Datum{
+			Hash: datumHash,
+			// OriginalCbor: o.Datum().Cbor(),
+		},
 		// Script:    o.ScriptRef,
 	}
 }

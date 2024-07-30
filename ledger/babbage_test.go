@@ -2765,7 +2765,7 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 	txOutput := output.Utxorpc()
 
 	assert.NotNil(t, txOutput)
-	assert.Equal(t, []byte{}, txOutput.DatumHash)
+	assert.Equal(t, []byte{}, txOutput.Datum.Hash)
 	assert.Equal(t, []byte{0x0}, txOutput.Address)
 	assert.Equal(t, uint64(1000), txOutput.Coin)
 }

@@ -19,8 +19,8 @@ github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRI
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
-github.com/utxorpc/go-codegen v0.7.0 h1:AlULPJuKJNvcgXAySiN6oj+jlvWdcFUeDn8cPkJMtus=
-github.com/utxorpc/go-codegen v0.7.0/go.mod h1:+npvJc9wftIf8JMtWaRXxwjX0YlOCpNp1OlZVioNEO0=
+github.com/utxorpc/go-codegen v0.8.0 h1:KFhYwxx0VU3nPm43v2WmtR+uQE2zqXTNIQbYgRA1K9U=
+github.com/utxorpc/go-codegen v0.8.0/go.mod h1:+npvJc9wftIf8JMtWaRXxwjX0YlOCpNp1OlZVioNEO0=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
