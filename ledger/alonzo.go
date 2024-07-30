@@ -249,7 +249,9 @@ func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 		Address: o.OutputAddress.Bytes(),
 		Coin:    o.Amount(),
 		// Assets: o.Assets,
-		DatumHash: o.TxOutputDatumHash.Bytes(),
+		Datum: &utxorpc.Datum{
+			Hash: o.TxOutputDatumHash.Bytes(),
+		},
 	}
 }
 
