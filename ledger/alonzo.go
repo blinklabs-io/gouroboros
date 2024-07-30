@@ -245,10 +245,27 @@ func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
 }
 
 func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+	var assets []*utxorpc.Multiasset
+	if o.Assets() != nil {
+		for policyId, policyData := range o.Assets().data {
+			var ma = &utxorpc.Multiasset{
+				PolicyId: policyId.Bytes(),
+			}
+			for assetName, amount := range policyData {
+				asset := &utxorpc.Asset{
+					Name:       assetName.Bytes(),
+					OutputCoin: amount,
+				}
+				ma.Assets = append(ma.Assets, asset)
+			}
+			assets = append(assets, ma)
+		}
+	}
+
 	return &utxorpc.TxOutput{
 		Address: o.OutputAddress.Bytes(),
 		Coin:    o.Amount(),
-		// Assets: o.Assets,
+		Assets:  assets,
 		Datum: &utxorpc.Datum{
 			Hash: o.TxOutputDatumHash.Bytes(),
 		},

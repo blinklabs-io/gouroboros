@@ -418,6 +418,23 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 		address = o.OutputAddress.Bytes()
 	}
 
+	var assets []*utxorpc.Multiasset
+	if o.Assets() != nil {
+		for policyId, policyData := range o.Assets().data {
+			var ma = &utxorpc.Multiasset{
+				PolicyId: policyId.Bytes(),
+			}
+			for assetName, amount := range policyData {
+				asset := &utxorpc.Asset{
+					Name:       assetName.Bytes(),
+					OutputCoin: amount,
+				}
+				ma.Assets = append(ma.Assets, asset)
+			}
+			assets = append(assets, ma)
+		}
+	}
+
 	var datumHash []byte
 	if o.DatumHash() == nil {
 		datumHash = []byte{}
@@ -428,7 +445,7 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 	return &utxorpc.TxOutput{
 		Address: address,
 		Coin:    o.Amount(),
-		// Assets: o.Assets(),
+		Assets:  assets,
 		Datum: &utxorpc.Datum{
 			Hash: datumHash,
 			// OriginalCbor: o.Datum().Cbor(),
