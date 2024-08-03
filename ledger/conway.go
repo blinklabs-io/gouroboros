@@ -141,6 +141,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	var tmpRedeemers []AlonzoRedeemer
 	if _, err := cbor.Decode(cborData, &tmpRedeemers); err == nil {
 		// Copy data from legacy redeemer type
+		r.Redeemers = make(map[ConwayRedeemerKey]ConwayRedeemerValue)
 		for _, redeemer := range tmpRedeemers {
 			tmpKey := ConwayRedeemerKey{
 				Tag:   redeemer.Tag,
