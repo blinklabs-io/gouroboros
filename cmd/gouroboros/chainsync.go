@@ -324,6 +324,7 @@ func chainSyncRollForwardHandler(
 
 func blockFetchBlockHandler(
 	ctx blockfetch.CallbackContext,
+	blockType uint,
 	blockData ledger.Block,
 ) error {
 	switch block := blockData.(type) {

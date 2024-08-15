@@ -191,7 +191,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	}
 	// We use the callback when requesting ranges and the internal channel for a single block
 	if c.blockUseCallback {
-		if err := c.config.BlockFunc(c.callbackContext, blk); err != nil {
+		if err := c.config.BlockFunc(c.callbackContext, wrappedBlock.Type, blk); err != nil {
 			return err
 		}
 	} else {
