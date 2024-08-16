@@ -223,6 +223,10 @@ func (c *Client) GetAvailableBlockRange(
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 
+	// Use origin if no intersect points were specified
+	if len(intersectPoints) == 0 {
+		intersectPoints = []common.Point{common.NewPointOrigin()}
+	}
 	// Find our chain intersection
 	result := c.requestFindIntersect(intersectPoints)
 	if result.error != nil {
