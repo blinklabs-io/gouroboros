@@ -101,7 +101,7 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type BlockFunc func(CallbackContext, ledger.Block) error
+type BlockFunc func(CallbackContext, uint, ledger.Block) error
 type RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
