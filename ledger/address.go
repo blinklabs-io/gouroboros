@@ -195,6 +195,10 @@ func (a Address) PaymentAddress() *Address {
 
 // PaymentKeyHash returns a new Blake2b224 hash of the payment key
 func (a *Address) PaymentKeyHash() Blake2b224 {
+	if len(a.paymentAddress) != AddressHashSize {
+		// Return empty hash
+		return Blake2b224([AddressHashSize]byte{})
+	}
 	return Blake2b224(a.paymentAddress[:])
 }
 
@@ -221,6 +225,10 @@ func (a Address) StakeAddress() *Address {
 
 // StakeKeyHash returns a new Blake2b224 hash of the stake key
 func (a *Address) StakeKeyHash() Blake2b224 {
+	if len(a.stakingAddress) != AddressHashSize {
+		// Return empty hash
+		return Blake2b224([AddressHashSize]byte{})
+	}
 	return Blake2b224(a.stakingAddress[:])
 }
 
