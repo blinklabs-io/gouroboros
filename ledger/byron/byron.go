@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package byron
 
 import (
 	"encoding/hex"
@@ -54,7 +54,7 @@ type ByronMainBlockHeader struct {
 	cbor.DecodeStoreCbor
 	hash          string
 	ProtocolMagic uint32
-	PrevBlock     Blake2b256
+	PrevBlock     common.Blake2b256
 	BodyProof     interface{}
 	ConsensusData struct {
 		cbor.StructAsArray
@@ -85,7 +85,7 @@ type ByronMainBlockHeader struct {
 			Unknown uint32
 		}
 		Attributes interface{}
-		ExtraProof Blake2b256
+		ExtraProof common.Blake2b256
 	}
 }
 
@@ -99,10 +99,13 @@ func (h *ByronMainBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(
-			h.Cbor(),
-			[]byte{0x82, BlockTypeByronMain},
+		tmpHash := common.Blake2b256Hash(
+			append(
+				[]byte{0x82, BlockTypeByronMain},
+				h.Cbor()...,
+			),
 		)
+		h.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return h.hash
 }
@@ -120,9 +123,9 @@ func (h *ByronMainBlockHeader) SlotNumber() uint64 {
 	)
 }
 
-func (h *ByronMainBlockHeader) IssuerVkey() IssuerVkey {
+func (h *ByronMainBlockHeader) IssuerVkey() common.IssuerVkey {
 	// Byron blocks don't have an issuer
-	return IssuerVkey{}
+	return common.IssuerVkey{}
 }
 
 func (h *ByronMainBlockHeader) BlockBodySize() uint64 {
@@ -130,7 +133,7 @@ func (h *ByronMainBlockHeader) BlockBodySize() uint64 {
 	return 0
 }
 
-func (h *ByronMainBlockHeader) Era() Era {
+func (h *ByronMainBlockHeader) Era() common.Era {
 	return EraByron
 }
 
@@ -150,21 +153,22 @@ func (t *ByronTransaction) UnmarshalCBOR(data []byte) error {
 
 func (t *ByronTransaction) Hash() string {
 	if t.hash == "" {
-		t.hash = generateTransactionHash(t.Cbor(), nil)
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return t.hash
 }
 
-func (t *ByronTransaction) Inputs() []TransactionInput {
-	ret := []TransactionInput{}
+func (t *ByronTransaction) Inputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
 	for _, input := range t.TxInputs {
 		ret = append(ret, input)
 	}
 	return ret
 }
 
-func (t *ByronTransaction) Outputs() []TransactionOutput {
-	ret := []TransactionOutput{}
+func (t *ByronTransaction) Outputs() []common.TransactionOutput {
+	ret := []common.TransactionOutput{}
 	for _, output := range t.TxOutputs {
 		output := output
 		ret = append(ret, &output)
@@ -189,17 +193,17 @@ func (t *ByronTransaction) ValidityIntervalStart() uint64 {
 	return 0
 }
 
-func (t *ByronTransaction) ReferenceInputs() []TransactionInput {
+func (t *ByronTransaction) ReferenceInputs() []common.TransactionInput {
 	// No reference inputs in Byron
 	return nil
 }
 
-func (t *ByronTransaction) Collateral() []TransactionInput {
+func (t *ByronTransaction) Collateral() []common.TransactionInput {
 	// No collateral in Byron
 	return nil
 }
 
-func (t *ByronTransaction) CollateralReturn() TransactionOutput {
+func (t *ByronTransaction) CollateralReturn() common.TransactionOutput {
 	// No collateral in Byron
 	return nil
 }
@@ -209,22 +213,22 @@ func (t *ByronTransaction) TotalCollateral() uint64 {
 	return 0
 }
 
-func (t *ByronTransaction) Certificates() []Certificate {
+func (t *ByronTransaction) Certificates() []common.Certificate {
 	// No certificates in Byron
 	return nil
 }
 
-func (t *ByronTransaction) Withdrawals() map[*Address]uint64 {
+func (t *ByronTransaction) Withdrawals() map[*common.Address]uint64 {
 	// No withdrawals in Byron
 	return nil
 }
 
-func (t *ByronTransaction) AuxDataHash() *Blake2b256 {
+func (t *ByronTransaction) AuxDataHash() *common.Blake2b256 {
 	// No aux data hash in Byron
 	return nil
 }
 
-func (t *ByronTransaction) RequiredSigners() []Blake2b224 {
+func (t *ByronTransaction) RequiredSigners() []common.Blake2b224 {
 	// No required signers in Byron
 	return nil
 }
@@ -234,17 +238,17 @@ func (t *ByronTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeM
 	return nil
 }
 
-func (t *ByronTransaction) ScriptDataHash() *Blake2b256 {
+func (t *ByronTransaction) ScriptDataHash() *common.Blake2b256 {
 	// No script data hash in Byron
 	return nil
 }
 
-func (t *ByronTransaction) VotingProcedures() VotingProcedures {
+func (t *ByronTransaction) VotingProcedures() common.VotingProcedures {
 	// No voting procedures in Byron
 	return nil
 }
 
-func (t *ByronTransaction) ProposalProcedures() []ProposalProcedure {
+func (t *ByronTransaction) ProposalProcedures() []common.ProposalProcedure {
 	// No proposal procedures in Byron
 	return nil
 }
@@ -267,16 +271,16 @@ func (t *ByronTransaction) IsValid() bool {
 	return true
 }
 
-func (t *ByronTransaction) Consumed() []TransactionInput {
+func (t *ByronTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
-func (t *ByronTransaction) Produced() []Utxo {
-	var ret []Utxo
+func (t *ByronTransaction) Produced() []common.Utxo {
+	var ret []common.Utxo
 	for idx, output := range t.Outputs() {
 		ret = append(
 			ret,
-			Utxo{
+			common.Utxo{
 				Id:     NewByronTransactionInput(t.Hash(), idx),
 				Output: output,
 			},
@@ -289,9 +293,9 @@ func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
 	return &utxorpc.Tx{}
 }
 
-func (t *ByronTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+func (t *ByronTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
 	// TODO: Implement this add missing Body TransactionBody
-	updateMap := make(map[Blake2b224]any)
+	updateMap := make(map[common.Blake2b224]any)
 	// for k, v := range t.Body.Update.ProtocolParamUpdates {
 	// 	updateMap[k] = v
 	// }
@@ -300,7 +304,7 @@ func (t *ByronTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
 
 type ByronTransactionInput struct {
 	cbor.StructAsArray
-	TxId        Blake2b256
+	TxId        common.Blake2b256
 	OutputIndex uint32
 }
 
@@ -310,7 +314,7 @@ func NewByronTransactionInput(hash string, idx int) ByronTransactionInput {
 		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
 	}
 	return ByronTransactionInput{
-		TxId:        Blake2b256(tmpHash),
+		TxId:        common.Blake2b256(tmpHash),
 		OutputIndex: uint32(idx),
 	}
 }
@@ -340,7 +344,7 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (i ByronTransactionInput) Id() Blake2b256 {
+func (i ByronTransactionInput) Id() common.Blake2b256 {
 	return i.TxId
 }
 
@@ -368,8 +372,8 @@ func (i ByronTransactionInput) MarshalJSON() ([]byte, error) {
 type ByronTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OutputAddress Address `json:"address"`
-	OutputAmount  uint64  `json:"amount"`
+	OutputAddress common.Address `json:"address"`
+	OutputAmount  uint64         `json:"amount"`
 }
 
 func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
@@ -390,7 +394,7 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (o ByronTransactionOutput) Address() Address {
+func (o ByronTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
@@ -402,7 +406,7 @@ func (o ByronTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTyp
 	return nil
 }
 
-func (o ByronTransactionOutput) DatumHash() *Blake2b256 {
+func (o ByronTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
@@ -442,7 +446,7 @@ type ByronEpochBoundaryBlockHeader struct {
 	cbor.DecodeStoreCbor
 	hash          string
 	ProtocolMagic uint32
-	PrevBlock     Blake2b256
+	PrevBlock     common.Blake2b256
 	BodyProof     interface{}
 	ConsensusData struct {
 		cbor.StructAsArray
@@ -465,10 +469,13 @@ func (h *ByronEpochBoundaryBlockHeader) Hash() string {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
-		h.hash = generateBlockHeaderHash(
-			h.Cbor(),
-			[]byte{0x82, BlockTypeByronEbb},
+		tmpHash := common.Blake2b256Hash(
+			append(
+				[]byte{0x82, BlockTypeByronEbb},
+				h.Cbor()...,
+			),
 		)
+		h.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return h.hash
 }
@@ -482,9 +489,9 @@ func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
 	return uint64(h.ConsensusData.Epoch * ByronSlotsPerEpoch)
 }
 
-func (h *ByronEpochBoundaryBlockHeader) IssuerVkey() IssuerVkey {
+func (h *ByronEpochBoundaryBlockHeader) IssuerVkey() common.IssuerVkey {
 	// Byron blocks don't have an issuer
-	return IssuerVkey([]byte{})
+	return common.IssuerVkey([]byte{})
 }
 
 func (h *ByronEpochBoundaryBlockHeader) BlockBodySize() uint64 {
@@ -492,7 +499,7 @@ func (h *ByronEpochBoundaryBlockHeader) BlockBodySize() uint64 {
 	return 0
 }
 
-func (h *ByronEpochBoundaryBlockHeader) Era() Era {
+func (h *ByronEpochBoundaryBlockHeader) Era() common.Era {
 	return EraByron
 }
 
@@ -521,7 +528,7 @@ func (b *ByronMainBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *ByronMainBlock) IssuerVkey() IssuerVkey {
+func (b *ByronMainBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -529,12 +536,12 @@ func (b *ByronMainBlock) BlockBodySize() uint64 {
 	return uint64(len(b.Body.Cbor()))
 }
 
-func (b *ByronMainBlock) Era() Era {
+func (b *ByronMainBlock) Era() common.Era {
 	return b.Header.Era()
 }
 
-func (b *ByronMainBlock) Transactions() []Transaction {
-	ret := make([]Transaction, len(b.Body.TxPayload))
+func (b *ByronMainBlock) Transactions() []common.Transaction {
+	ret := make([]common.Transaction, len(b.Body.TxPayload))
 	for idx, payload := range b.Body.TxPayload {
 		payload := payload
 		ret[idx] = &payload.Transaction
@@ -550,7 +557,7 @@ type ByronEpochBoundaryBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	Header *ByronEpochBoundaryBlockHeader
-	Body   []Blake2b224
+	Body   []common.Blake2b224
 	Extra  []interface{}
 }
 
@@ -571,7 +578,7 @@ func (b *ByronEpochBoundaryBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *ByronEpochBoundaryBlock) IssuerVkey() IssuerVkey {
+func (b *ByronEpochBoundaryBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -580,11 +587,11 @@ func (b *ByronEpochBoundaryBlock) BlockBodySize() uint64 {
 	return 0
 }
 
-func (b *ByronEpochBoundaryBlock) Era() Era {
+func (b *ByronEpochBoundaryBlock) Era() common.Era {
 	return b.Header.Era()
 }
 
-func (b *ByronEpochBoundaryBlock) Transactions() []Transaction {
+func (b *ByronEpochBoundaryBlock) Transactions() []common.Transaction {
 	// Boundary blocks don't have transactions
 	return nil
 }

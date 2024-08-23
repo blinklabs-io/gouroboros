@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package alonzo
 
 import (
 	"encoding/hex"
@@ -21,6 +21,8 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
@@ -73,7 +75,7 @@ func (b *AlonzoBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *AlonzoBlock) IssuerVkey() IssuerVkey {
+func (b *AlonzoBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -81,17 +83,17 @@ func (b *AlonzoBlock) BlockBodySize() uint64 {
 	return b.Header.BlockBodySize()
 }
 
-func (b *AlonzoBlock) Era() Era {
+func (b *AlonzoBlock) Era() common.Era {
 	return EraAlonzo
 }
 
-func (b *AlonzoBlock) Transactions() []Transaction {
+func (b *AlonzoBlock) Transactions() []common.Transaction {
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
 	}
 
-	ret := make([]Transaction, len(b.TransactionBodies))
+	ret := make([]common.Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
 		ret[idx] = &AlonzoTransaction{
 			Body:       b.TransactionBodies[idx],
@@ -126,33 +128,33 @@ func (b *AlonzoBlock) Utxorpc() *utxorpc.Block {
 }
 
 type AlonzoBlockHeader struct {
-	ShelleyBlockHeader
+	shelley.ShelleyBlockHeader
 }
 
-func (h *AlonzoBlockHeader) Era() Era {
+func (h *AlonzoBlockHeader) Era() common.Era {
 	return EraAlonzo
 }
 
 type AlonzoTransactionBody struct {
-	MaryTransactionBody
+	mary.MaryTransactionBody
 	TxOutputs []AlonzoTransactionOutput `cbor:"1,keyasint,omitempty"`
 	Update    struct {
 		cbor.StructAsArray
-		ProtocolParamUpdates map[Blake2b224]AlonzoProtocolParameterUpdate
+		ProtocolParamUpdates map[common.Blake2b224]AlonzoProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	TxScriptDataHash  *Blake2b256               `cbor:"11,keyasint,omitempty"`
-	TxCollateral      []ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
-	TxRequiredSigners []Blake2b224              `cbor:"14,keyasint,omitempty"`
-	NetworkId         uint8                     `cbor:"15,keyasint,omitempty"`
+	TxScriptDataHash  *common.Blake2b256                `cbor:"11,keyasint,omitempty"`
+	TxCollateral      []shelley.ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
+	TxRequiredSigners []common.Blake2b224               `cbor:"14,keyasint,omitempty"`
+	NetworkId         uint8                             `cbor:"15,keyasint,omitempty"`
 }
 
 func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
-func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
-	ret := []TransactionOutput{}
+func (b *AlonzoTransactionBody) Outputs() []common.TransactionOutput {
+	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
 		output := output
 		ret = append(ret, &output)
@@ -160,46 +162,46 @@ func (b *AlonzoTransactionBody) Outputs() []TransactionOutput {
 	return ret
 }
 
-func (b *AlonzoTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
+func (b *AlonzoTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
+	updateMap := make(map[common.Blake2b224]any)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return updateMap
 }
 
-func (b *AlonzoTransactionBody) Collateral() []TransactionInput {
-	ret := []TransactionInput{}
+func (b *AlonzoTransactionBody) Collateral() []common.TransactionInput {
+	ret := []common.TransactionInput{}
 	for _, collateral := range b.TxCollateral {
 		ret = append(ret, collateral)
 	}
 	return ret
 }
 
-func (b *AlonzoTransactionBody) RequiredSigners() []Blake2b224 {
+func (b *AlonzoTransactionBody) RequiredSigners() []common.Blake2b224 {
 	return b.TxRequiredSigners[:]
 }
 
-func (b *AlonzoTransactionBody) ScriptDataHash() *Blake2b256 {
+func (b *AlonzoTransactionBody) ScriptDataHash() *common.Blake2b256 {
 	return b.TxScriptDataHash
 }
 
 type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OutputAddress     Address
-	OutputAmount      MaryTransactionOutputValue
-	TxOutputDatumHash *Blake2b256
+	OutputAddress     common.Address
+	OutputAmount      mary.MaryTransactionOutputValue
+	TxOutputDatumHash *common.Blake2b256
 	legacyOutput      bool
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	// Save original CBOR
 	o.SetCbor(cborData)
-	// Try to parse as legacy Mary output first
-	var tmpOutput MaryTransactionOutput
+	// Try to parse as legacy mary.Mary output first
+	var tmpOutput mary.MaryTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
-		// Copy from temp Mary output to Alonzo format
+		// Copy from temp mary.Mary output to Alonzo format
 		o.OutputAddress = tmpOutput.OutputAddress
 		o.OutputAmount = tmpOutput.OutputAmount
 		o.legacyOutput = true
@@ -211,7 +213,7 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 
 func (o *AlonzoTransactionOutput) MarshalCBOR() ([]byte, error) {
 	if o.legacyOutput {
-		tmpOutput := MaryTransactionOutput{
+		tmpOutput := mary.MaryTransactionOutput{
 			OutputAddress: o.OutputAddress,
 			OutputAmount:  o.OutputAmount,
 		}
@@ -222,7 +224,7 @@ func (o *AlonzoTransactionOutput) MarshalCBOR() ([]byte, error) {
 
 func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address   Address                                         `json:"address"`
+		Address   common.Address                                  `json:"address"`
 		Amount    uint64                                          `json:"amount"`
 		Assets    *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
 		DatumHash string                                          `json:"datumHash,omitempty"`
@@ -237,7 +239,7 @@ func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o AlonzoTransactionOutput) Address() Address {
+func (o AlonzoTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
@@ -249,7 +251,7 @@ func (o AlonzoTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTy
 	return o.OutputAmount.Assets
 }
 
-func (o AlonzoTransactionOutput) DatumHash() *Blake2b256 {
+func (o AlonzoTransactionOutput) DatumHash() *common.Blake2b256 {
 	return o.TxOutputDatumHash
 }
 
@@ -292,17 +294,11 @@ type AlonzoRedeemer struct {
 	Tag     uint8
 	Index   uint32
 	Data    cbor.RawMessage
-	ExUnits RedeemerExUnits
-}
-
-type RedeemerExUnits struct {
-	cbor.StructAsArray
-	Memory uint64
-	Steps  uint64
+	ExUnits common.RedeemerExUnits
 }
 
 type AlonzoTransactionWitnessSet struct {
-	ShelleyTransactionWitnessSet
+	shelley.ShelleyTransactionWitnessSet
 	PlutusScripts []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
 	PlutusData    []cbor.RawMessage `cbor:"4,keyasint,omitempty"`
 	Redeemers     []AlonzoRedeemer  `cbor:"5,keyasint,omitempty"`
@@ -325,11 +321,11 @@ func (t AlonzoTransaction) Hash() string {
 	return t.Body.Hash()
 }
 
-func (t AlonzoTransaction) Inputs() []TransactionInput {
+func (t AlonzoTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t AlonzoTransaction) Outputs() []TransactionOutput {
+func (t AlonzoTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
@@ -345,19 +341,19 @@ func (t AlonzoTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t AlonzoTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+func (t AlonzoTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
 	return t.Body.ProtocolParametersUpdate()
 }
 
-func (t AlonzoTransaction) ReferenceInputs() []TransactionInput {
+func (t AlonzoTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t AlonzoTransaction) Collateral() []TransactionInput {
+func (t AlonzoTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t AlonzoTransaction) CollateralReturn() TransactionOutput {
+func (t AlonzoTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
@@ -365,19 +361,19 @@ func (t AlonzoTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t AlonzoTransaction) Certificates() []Certificate {
+func (t AlonzoTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AlonzoTransaction) Withdrawals() map[*Address]uint64 {
+func (t AlonzoTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t AlonzoTransaction) AuxDataHash() *Blake2b256 {
+func (t AlonzoTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t AlonzoTransaction) RequiredSigners() []Blake2b224 {
+func (t AlonzoTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
@@ -385,15 +381,15 @@ func (t AlonzoTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeM
 	return t.Body.AssetMint()
 }
 
-func (t AlonzoTransaction) ScriptDataHash() *Blake2b256 {
+func (t AlonzoTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t AlonzoTransaction) VotingProcedures() VotingProcedures {
+func (t AlonzoTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t AlonzoTransaction) ProposalProcedures() []ProposalProcedure {
+func (t AlonzoTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
@@ -413,7 +409,7 @@ func (t AlonzoTransaction) IsValid() bool {
 	return t.IsTxValid
 }
 
-func (t AlonzoTransaction) Consumed() []TransactionInput {
+func (t AlonzoTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
 	} else {
@@ -421,14 +417,14 @@ func (t AlonzoTransaction) Consumed() []TransactionInput {
 	}
 }
 
-func (t AlonzoTransaction) Produced() []Utxo {
+func (t AlonzoTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []Utxo
+		var ret []common.Utxo
 		for idx, output := range t.Outputs() {
 			ret = append(
 				ret,
-				Utxo{
-					Id:     NewShelleyTransactionInput(t.Hash(), idx),
+				common.Utxo{
+					Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
 					Output: output,
 				},
 			)
@@ -436,7 +432,7 @@ func (t AlonzoTransaction) Produced() []Utxo {
 		return ret
 	} else {
 		// No collateral return in Alonzo
-		return []Utxo{}
+		return []common.Utxo{}
 	}
 }
 
@@ -484,7 +480,7 @@ type ExUnitPrice struct {
 }
 
 type AlonzoProtocolParameters struct {
-	MaryProtocolParameters
+	mary.MaryProtocolParameters
 	MinPoolCost          uint
 	AdaPerUtxoByte       uint
 	CostModels           uint
@@ -497,7 +493,7 @@ type AlonzoProtocolParameters struct {
 }
 
 type AlonzoProtocolParameterUpdate struct {
-	MaryProtocolParameterUpdate
+	mary.MaryProtocolParameterUpdate
 	MinPoolCost          uint            `cbor:"16,keyasint"`
 	AdaPerUtxoByte       uint            `cbor:"17,keyasint"`
 	CostModels           map[uint][]uint `cbor:"18,keyasint"`

@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package mary
 
 import (
 	"encoding/hex"
@@ -20,7 +20,9 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
@@ -72,7 +74,7 @@ func (b *MaryBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *MaryBlock) IssuerVkey() IssuerVkey {
+func (b *MaryBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -80,12 +82,12 @@ func (b *MaryBlock) BlockBodySize() uint64 {
 	return b.Header.BlockBodySize()
 }
 
-func (b *MaryBlock) Era() Era {
+func (b *MaryBlock) Era() common.Era {
 	return EraMary
 }
 
-func (b *MaryBlock) Transactions() []Transaction {
-	ret := make([]Transaction, len(b.TransactionBodies))
+func (b *MaryBlock) Transactions() []common.Transaction {
+	ret := make([]common.Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
 		ret[idx] = &MaryTransaction{
 			Body:       b.TransactionBodies[idx],
@@ -119,18 +121,18 @@ func (b *MaryBlock) Utxorpc() *utxorpc.Block {
 }
 
 type MaryBlockHeader struct {
-	ShelleyBlockHeader
+	shelley.ShelleyBlockHeader
 }
 
-func (h *MaryBlockHeader) Era() Era {
+func (h *MaryBlockHeader) Era() common.Era {
 	return EraMary
 }
 
 type MaryTransactionBody struct {
-	AllegraTransactionBody
+	allegra.AllegraTransactionBody
 	Update struct {
 		cbor.StructAsArray
-		ProtocolParamUpdates map[Blake2b224]MaryProtocolParameterUpdate
+		ProtocolParamUpdates map[common.Blake2b224]MaryProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
 	TxOutputs []MaryTransactionOutput                       `cbor:"1,keyasint,omitempty"`
@@ -141,8 +143,8 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
-func (b *MaryTransactionBody) Outputs() []TransactionOutput {
-	ret := []TransactionOutput{}
+func (b *MaryTransactionBody) Outputs() []common.TransactionOutput {
+	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
 		output := output
 		ret = append(ret, &output)
@@ -150,8 +152,8 @@ func (b *MaryTransactionBody) Outputs() []TransactionOutput {
 	return ret
 }
 
-func (b *MaryTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
+func (b *MaryTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
+	updateMap := make(map[common.Blake2b224]any)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
@@ -171,7 +173,7 @@ type MaryTransaction struct {
 }
 
 type MaryTransactionWitnessSet struct {
-	ShelleyTransactionWitnessSet
+	shelley.ShelleyTransactionWitnessSet
 	Script        []interface{} `cbor:"4,keyasint,omitempty"`
 	PlutusScripts []interface{} `cbor:"5,keyasint,omitempty"`
 }
@@ -180,11 +182,11 @@ func (t MaryTransaction) Hash() string {
 	return t.Body.Hash()
 }
 
-func (t MaryTransaction) Inputs() []TransactionInput {
+func (t MaryTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t MaryTransaction) Outputs() []TransactionOutput {
+func (t MaryTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
@@ -200,19 +202,19 @@ func (t MaryTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t MaryTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+func (t MaryTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
 	return t.Body.ProtocolParametersUpdate()
 }
 
-func (t MaryTransaction) ReferenceInputs() []TransactionInput {
+func (t MaryTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t MaryTransaction) Collateral() []TransactionInput {
+func (t MaryTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t MaryTransaction) CollateralReturn() TransactionOutput {
+func (t MaryTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
@@ -220,19 +222,19 @@ func (t MaryTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t MaryTransaction) Certificates() []Certificate {
+func (t MaryTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t MaryTransaction) Withdrawals() map[*Address]uint64 {
+func (t MaryTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t MaryTransaction) AuxDataHash() *Blake2b256 {
+func (t MaryTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t MaryTransaction) RequiredSigners() []Blake2b224 {
+func (t MaryTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
@@ -240,15 +242,15 @@ func (t MaryTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMin
 	return t.Body.AssetMint()
 }
 
-func (t MaryTransaction) ScriptDataHash() *Blake2b256 {
+func (t MaryTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t MaryTransaction) VotingProcedures() VotingProcedures {
+func (t MaryTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t MaryTransaction) ProposalProcedures() []ProposalProcedure {
+func (t MaryTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
@@ -268,17 +270,17 @@ func (t MaryTransaction) IsValid() bool {
 	return true
 }
 
-func (t MaryTransaction) Consumed() []TransactionInput {
+func (t MaryTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
-func (t MaryTransaction) Produced() []Utxo {
-	var ret []Utxo
+func (t MaryTransaction) Produced() []common.Utxo {
+	var ret []common.Utxo
 	for idx, output := range t.Outputs() {
 		ret = append(
 			ret,
-			Utxo{
-				Id:     NewShelleyTransactionInput(t.Hash(), idx),
+			common.Utxo{
+				Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
 				Output: output,
 			},
 		)
@@ -319,13 +321,13 @@ func (t *MaryTransaction) Utxorpc() *utxorpc.Tx {
 type MaryTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OutputAddress Address
+	OutputAddress common.Address
 	OutputAmount  MaryTransactionOutputValue
 }
 
 func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address Address                                         `json:"address"`
+		Address common.Address                                  `json:"address"`
 		Amount  uint64                                          `json:"amount"`
 		Assets  *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
 	}{
@@ -336,7 +338,7 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o MaryTransactionOutput) Address() Address {
+func (o MaryTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
@@ -348,7 +350,7 @@ func (o MaryTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetType
 	return o.OutputAmount.Assets
 }
 
-func (o MaryTransactionOutput) DatumHash() *Blake2b256 {
+func (o MaryTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
@@ -390,11 +392,11 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 }
 
 type MaryProtocolParameters struct {
-	AllegraProtocolParameters
+	allegra.AllegraProtocolParameters
 }
 
 type MaryProtocolParameterUpdate struct {
-	AllegraProtocolParameterUpdate
+	allegra.AllegraProtocolParameterUpdate
 }
 
 func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {

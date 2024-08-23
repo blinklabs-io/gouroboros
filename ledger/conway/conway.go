@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package conway
 
 import (
 	"encoding/hex"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
@@ -72,7 +75,7 @@ func (b *ConwayBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *ConwayBlock) IssuerVkey() IssuerVkey {
+func (b *ConwayBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -80,17 +83,17 @@ func (b *ConwayBlock) BlockBodySize() uint64 {
 	return b.Header.BlockBodySize()
 }
 
-func (b *ConwayBlock) Era() Era {
+func (b *ConwayBlock) Era() common.Era {
 	return EraConway
 }
 
-func (b *ConwayBlock) Transactions() []Transaction {
+func (b *ConwayBlock) Transactions() []common.Transaction {
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
 	}
 
-	ret := make([]Transaction, len(b.TransactionBodies))
+	ret := make([]common.Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
 		ret[idx] = &ConwayTransaction{
 			Body:       b.TransactionBodies[idx],
@@ -125,10 +128,10 @@ func (b *ConwayBlock) Utxorpc() *utxorpc.Block {
 }
 
 type ConwayBlockHeader struct {
-	BabbageBlockHeader
+	babbage.BabbageBlockHeader
 }
 
-func (h *ConwayBlockHeader) Era() Era {
+func (h *ConwayBlockHeader) Era() common.Era {
 	return EraConway
 }
 
@@ -141,7 +144,7 @@ type ConwayRedeemerKey struct {
 type ConwayRedeemerValue struct {
 	cbor.StructAsArray
 	Data    cbor.RawMessage
-	ExUnits RedeemerExUnits
+	ExUnits common.RedeemerExUnits
 }
 
 type ConwayRedeemers struct {
@@ -151,7 +154,7 @@ type ConwayRedeemers struct {
 
 func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	// Try to parse as legacy redeemer first
-	var tmpRedeemers []AlonzoRedeemer
+	var tmpRedeemers []alonzo.AlonzoRedeemer
 	if _, err := cbor.Decode(cborData, &tmpRedeemers); err == nil {
 		// Copy data from legacy redeemer type
 		r.Redeemers = make(map[ConwayRedeemerKey]ConwayRedeemerValue)
@@ -175,7 +178,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 }
 
 type ConwayTransactionWitnessSet struct {
-	BabbageTransactionWitnessSet
+	babbage.BabbageTransactionWitnessSet
 	Redeemers       ConwayRedeemers   `cbor:"5,keyasint,omitempty"`
 	PlutusV3Scripts []cbor.RawMessage `cbor:"7,keyasint,omitempty"`
 }
@@ -185,30 +188,30 @@ func (t *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 }
 
 type ConwayTransactionBody struct {
-	BabbageTransactionBody
-	TxVotingProcedures     VotingProcedures    `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures   []ProposalProcedure `cbor:"20,keyasint,omitempty"`
-	TxCurrentTreasuryValue int64               `cbor:"21,keyasint,omitempty"`
-	TxDonation             uint64              `cbor:"22,keyasint,omitempty"`
+	babbage.BabbageTransactionBody
+	TxVotingProcedures     common.VotingProcedures    `cbor:"19,keyasint,omitempty"`
+	TxProposalProcedures   []common.ProposalProcedure `cbor:"20,keyasint,omitempty"`
+	TxCurrentTreasuryValue int64                      `cbor:"21,keyasint,omitempty"`
+	TxDonation             uint64                     `cbor:"22,keyasint,omitempty"`
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
-func (b *ConwayTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
+func (b *ConwayTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
+	updateMap := make(map[common.Blake2b224]any)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return updateMap
 }
 
-func (b *ConwayTransactionBody) VotingProcedures() VotingProcedures {
+func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
 	return b.TxVotingProcedures
 }
 
-func (b *ConwayTransactionBody) ProposalProcedures() []ProposalProcedure {
+func (b *ConwayTransactionBody) ProposalProcedures() []common.ProposalProcedure {
 	return b.TxProposalProcedures
 }
 
@@ -221,7 +224,7 @@ func (b *ConwayTransactionBody) Donation() uint64 {
 }
 
 type ConwayProtocolParameters struct {
-	BabbageProtocolParameters
+	babbage.BabbageProtocolParameters
 	PoolVotingThresholds       PoolVotingThresholds
 	DRepVotingThresholds       DRepVotingThresholds
 	MinCommitteeSize           uint
@@ -234,7 +237,7 @@ type ConwayProtocolParameters struct {
 }
 
 type ConwayProtocolParameterUpdate struct {
-	BabbageProtocolParameterUpdate
+	babbage.BabbageProtocolParameterUpdate
 	PoolVotingThresholds       PoolVotingThresholds `cbor:"25,keyasint"`
 	DRepVotingThresholds       DRepVotingThresholds `cbor:"26,keyasint"`
 	MinCommitteeSize           uint                 `cbor:"27,keyasint"`
@@ -282,11 +285,11 @@ func (t ConwayTransaction) Hash() string {
 	return t.Body.Hash()
 }
 
-func (t ConwayTransaction) Inputs() []TransactionInput {
+func (t ConwayTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t ConwayTransaction) Outputs() []TransactionOutput {
+func (t ConwayTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
@@ -302,19 +305,19 @@ func (t ConwayTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t ConwayTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+func (t ConwayTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
 	return t.Body.ProtocolParametersUpdate()
 }
 
-func (t ConwayTransaction) ReferenceInputs() []TransactionInput {
+func (t ConwayTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t ConwayTransaction) Collateral() []TransactionInput {
+func (t ConwayTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t ConwayTransaction) CollateralReturn() TransactionOutput {
+func (t ConwayTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
@@ -322,19 +325,19 @@ func (t ConwayTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t ConwayTransaction) Certificates() []Certificate {
+func (t ConwayTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ConwayTransaction) Withdrawals() map[*Address]uint64 {
+func (t ConwayTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t ConwayTransaction) AuxDataHash() *Blake2b256 {
+func (t ConwayTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t ConwayTransaction) RequiredSigners() []Blake2b224 {
+func (t ConwayTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
@@ -342,15 +345,15 @@ func (t ConwayTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeM
 	return t.Body.AssetMint()
 }
 
-func (t ConwayTransaction) ScriptDataHash() *Blake2b256 {
+func (t ConwayTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t ConwayTransaction) VotingProcedures() VotingProcedures {
+func (t ConwayTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t ConwayTransaction) ProposalProcedures() []ProposalProcedure {
+func (t ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
@@ -370,7 +373,7 @@ func (t ConwayTransaction) IsValid() bool {
 	return t.IsTxValid
 }
 
-func (t ConwayTransaction) Consumed() []TransactionInput {
+func (t ConwayTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
 	} else {
@@ -378,14 +381,14 @@ func (t ConwayTransaction) Consumed() []TransactionInput {
 	}
 }
 
-func (t ConwayTransaction) Produced() []Utxo {
+func (t ConwayTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []Utxo
+		var ret []common.Utxo
 		for idx, output := range t.Outputs() {
 			ret = append(
 				ret,
-				Utxo{
-					Id:     NewShelleyTransactionInput(t.Hash(), idx),
+				common.Utxo{
+					Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
 					Output: output,
 				},
 			)
@@ -393,11 +396,11 @@ func (t ConwayTransaction) Produced() []Utxo {
 		return ret
 	} else {
 		if t.CollateralReturn() == nil {
-			return []Utxo{}
+			return []common.Utxo{}
 		}
-		return []Utxo{
+		return []common.Utxo{
 			{
-				Id:     NewShelleyTransactionInput(t.Hash(), len(t.Outputs())),
+				Id:     shelley.NewShelleyTransactionInput(t.Hash(), len(t.Outputs())),
 				Output: t.CollateralReturn(),
 			},
 		}
