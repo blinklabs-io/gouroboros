@@ -25,7 +25,13 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
-type Blake2b256 [32]byte
+const (
+	Blake2b256Size = 32
+	Blake2b224Size = 28
+	Blake2b160Size = 20
+)
+
+type Blake2b256 [Blake2b256Size]byte
 
 func NewBlake2b256(data []byte) Blake2b256 {
 	b := Blake2b256{}
@@ -41,7 +47,22 @@ func (b Blake2b256) Bytes() []byte {
 	return b[:]
 }
 
-type Blake2b224 [28]byte
+// Blake2b256Hash generates a Blake2b-256 hash from the provided data
+func Blake2b256Hash(data []byte) Blake2b256 {
+	tmpHash, err := blake2b.New(Blake2b256Size, nil)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error generating empty blake2b hash: %s",
+				err,
+			),
+		)
+	}
+	tmpHash.Write(data)
+	return Blake2b256(tmpHash.Sum(nil))
+}
+
+type Blake2b224 [Blake2b224Size]byte
 
 func NewBlake2b224(data []byte) Blake2b224 {
 	b := Blake2b224{}
@@ -57,7 +78,22 @@ func (b Blake2b224) Bytes() []byte {
 	return b[:]
 }
 
-type Blake2b160 [20]byte
+// Blake2b224Hash generates a Blake2b-224 hash from the provided data
+func Blake2b224Hash(data []byte) Blake2b224 {
+	tmpHash, err := blake2b.New(Blake2b224Size, nil)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error generating empty blake2b hash: %s",
+				err,
+			),
+		)
+	}
+	tmpHash.Write(data)
+	return Blake2b224(tmpHash.Sum(nil))
+}
+
+type Blake2b160 [Blake2b160Size]byte
 
 func NewBlake2b160(data []byte) Blake2b160 {
 	b := Blake2b160{}
@@ -71,6 +107,21 @@ func (b Blake2b160) String() string {
 
 func (b Blake2b160) Bytes() []byte {
 	return b[:]
+}
+
+// Blake2b160Hash generates a Blake2b-160 hash from the provided data
+func Blake2b160Hash(data []byte) Blake2b160 {
+	tmpHash, err := blake2b.New(Blake2b160Size, nil)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error generating empty blake2b hash: %s",
+				err,
+			),
+		)
+	}
+	tmpHash.Write(data)
+	return Blake2b160(tmpHash.Sum(nil))
 }
 
 type MultiAssetTypeOutput = uint64
