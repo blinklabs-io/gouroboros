@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/blake2b"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type Transaction interface {
@@ -49,7 +50,7 @@ type TransactionBody interface {
 	Withdrawals() map[*Address]uint64
 	AuxDataHash() *Blake2b256
 	RequiredSigners() []Blake2b224
-	AssetMint() *MultiAsset[MultiAssetTypeMint]
+	AssetMint() *common.MultiAsset[common.MultiAssetTypeMint]
 	ScriptDataHash() *Blake2b256
 	VotingProcedures() VotingProcedures
 	ProposalProcedures() []ProposalProcedure
@@ -67,7 +68,7 @@ type TransactionInput interface {
 type TransactionOutput interface {
 	Address() Address
 	Amount() uint64
-	Assets() *MultiAsset[MultiAssetTypeOutput]
+	Assets() *common.MultiAsset[common.MultiAssetTypeOutput]
 	Datum() *cbor.LazyValue
 	DatumHash() *Blake2b256
 	Cbor() []byte

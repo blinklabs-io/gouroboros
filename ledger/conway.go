@@ -21,6 +21,7 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const (
@@ -502,7 +503,7 @@ func (t ConwayTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t ConwayTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (t ConwayTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 

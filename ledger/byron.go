@@ -21,6 +21,7 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const (
@@ -216,7 +217,7 @@ func (t *ByronTransaction) RequiredSigners() []Blake2b224 {
 	return nil
 }
 
-func (t *ByronTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (t *ByronTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	// No asset mints in Byron
 	return nil
 }
@@ -385,7 +386,7 @@ func (o ByronTransactionOutput) Amount() uint64 {
 	return o.OutputAmount
 }
 
-func (o ByronTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
+func (o ByronTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return nil
 }
 

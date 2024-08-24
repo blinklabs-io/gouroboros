@@ -21,6 +21,7 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const (
@@ -266,7 +267,7 @@ func (b *ShelleyTransactionBody) RequiredSigners() []Blake2b224 {
 	return nil
 }
 
-func (b *ShelleyTransactionBody) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (b *ShelleyTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	// No asset minting in Shelley
 	return nil
 }
@@ -383,7 +384,7 @@ func (o ShelleyTransactionOutput) Amount() uint64 {
 	return o.OutputAmount
 }
 
-func (o ShelleyTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
+func (o ShelleyTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return nil
 }
 
@@ -477,7 +478,7 @@ func (t ShelleyTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t ShelleyTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (t ShelleyTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
