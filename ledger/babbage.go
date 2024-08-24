@@ -19,14 +19,15 @@ import (
 	"encoding/json"
 	"fmt"
 
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 const (
-	EraIdBabbage = 5
+	EraIdBabbage   = 5
+	EraNameBabbage = "Babbage"
 
 	BlockTypeBabbage = 6
 
@@ -34,6 +35,17 @@ const (
 
 	TxTypeBabbage = 5
 )
+
+var (
+	EraBabbage = common.Era{
+		Id:   EraIdBabbage,
+		Name: EraNameBabbage,
+	}
+)
+
+func init() {
+	common.RegisterEra(EraBabbage)
+}
 
 type BabbageBlock struct {
 	cbor.StructAsArray
@@ -70,7 +82,7 @@ func (b *BabbageBlock) BlockBodySize() uint64 {
 }
 
 func (b *BabbageBlock) Era() Era {
-	return eras[EraIdBabbage]
+	return EraBabbage
 }
 
 func (b *BabbageBlock) Transactions() []Transaction {
@@ -171,7 +183,7 @@ func (h *BabbageBlockHeader) BlockBodySize() uint64 {
 }
 
 func (h *BabbageBlockHeader) Era() Era {
-	return eras[EraIdBabbage]
+	return EraBabbage
 }
 
 type BabbageTransactionBody struct {

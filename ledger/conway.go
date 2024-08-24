@@ -18,14 +18,15 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 const (
-	EraIdConway = 6
+	EraIdConway   = 6
+	EraNameConway = "Conway"
 
 	BlockTypeConway = 7
 
@@ -33,6 +34,17 @@ const (
 
 	TxTypeConway = 6
 )
+
+var (
+	EraConway = common.Era{
+		Id:   EraIdConway,
+		Name: EraNameConway,
+	}
+)
+
+func init() {
+	common.RegisterEra(EraConway)
+}
 
 type ConwayBlock struct {
 	cbor.StructAsArray
@@ -69,7 +81,7 @@ func (b *ConwayBlock) BlockBodySize() uint64 {
 }
 
 func (b *ConwayBlock) Era() Era {
-	return eras[EraIdConway]
+	return EraConway
 }
 
 func (b *ConwayBlock) Transactions() []Transaction {
@@ -117,7 +129,7 @@ type ConwayBlockHeader struct {
 }
 
 func (h *ConwayBlockHeader) Era() Era {
-	return eras[EraIdConway]
+	return EraConway
 }
 
 type ConwayRedeemerKey struct {

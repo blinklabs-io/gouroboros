@@ -19,14 +19,15 @@ import (
 	"encoding/json"
 	"fmt"
 
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 const (
-	EraIdMary = 3
+	EraIdMary   = 3
+	EraNameMary = "Mary"
 
 	BlockTypeMary = 4
 
@@ -34,6 +35,17 @@ const (
 
 	TxTypeMary = 3
 )
+
+var (
+	EraMary = common.Era{
+		Id:   EraIdMary,
+		Name: EraNameMary,
+	}
+)
+
+func init() {
+	common.RegisterEra(EraMary)
+}
 
 type MaryBlock struct {
 	cbor.StructAsArray
@@ -69,7 +81,7 @@ func (b *MaryBlock) BlockBodySize() uint64 {
 }
 
 func (b *MaryBlock) Era() Era {
-	return eras[EraIdMary]
+	return EraMary
 }
 
 func (b *MaryBlock) Transactions() []Transaction {
@@ -111,7 +123,7 @@ type MaryBlockHeader struct {
 }
 
 func (h *MaryBlockHeader) Era() Era {
-	return eras[EraIdMary]
+	return EraMary
 }
 
 type MaryTransactionBody struct {
