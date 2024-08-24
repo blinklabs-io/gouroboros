@@ -41,14 +41,29 @@ func NewAddress(addr string) (Address, error) {
 	return common.NewAddress(addr)
 }
 
+// Governance types
+type VotingProcedure = common.VotingProcedure
+type VotingProcedures = common.VotingProcedures
+type ProposalProcedure = common.ProposalProcedure
+
+// Certificates
+type Certificate = common.Certificate
+type CertificateWrapper = common.CertificateWrapper
+type PoolRetirementCertificate = common.PoolRetirementCertificate
+type PoolRegistrationCertificate = common.PoolRegistrationCertificate
+
 // Other types
 type IssuerVkey = common.IssuerVkey
+
+// Pools
+type PoolRelay = common.PoolRelay
 type PoolId = common.PoolId
 
 func NewPoolIdFromBech32(poolId string) (PoolId, error) {
 	return common.NewPoolIdFromBech32(poolId)
 }
 
+// Assets
 type AssetFingerprint = common.AssetFingerprint
 
 func NewAssetFingerprint(policyId []byte, assetName []byte) AssetFingerprint {
