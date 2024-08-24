@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package common
 
 import (
 	"encoding/hex"
@@ -82,6 +82,12 @@ type MultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
 	data map[Blake2b224]map[cbor.ByteString]T
 }
 
+// NewMultiAsset creates a MultiAsset with the specified data
+func NewMultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint](data map[Blake2b224]map[cbor.ByteString]T) MultiAsset[T] {
+	return MultiAsset[T]{data: data}
+}
+
+// multiAssetJson is a convenience type for marshaling/unmarshaling MultiAsset to/from JSON
 type multiAssetJson[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
 	Name        string `json:"name"`
 	NameHex     string `json:"nameHex"`

@@ -22,6 +22,7 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const (
@@ -363,11 +364,11 @@ func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
 
 func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address   Address                           `json:"address"`
-		Amount    uint64                            `json:"amount"`
-		Assets    *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
-		Datum     *cbor.LazyValue                   `json:"datum,omitempty"`
-		DatumHash string                            `json:"datumHash,omitempty"`
+		Address   Address                                         `json:"address"`
+		Amount    uint64                                          `json:"amount"`
+		Assets    *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
+		Datum     *cbor.LazyValue                                 `json:"datum,omitempty"`
+		DatumHash string                                          `json:"datumHash,omitempty"`
 	}{
 		Address: o.OutputAddress,
 		Amount:  o.OutputAmount.Amount,
@@ -392,7 +393,7 @@ func (o BabbageTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o BabbageTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
+func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
@@ -420,13 +421,15 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 
 	var assets []*utxorpc.Multiasset
 	if o.Assets() != nil {
-		for policyId, policyData := range o.Assets().data {
+		tmpAssets := o.Assets()
+		for _, policyId := range tmpAssets.Policies() {
 			var ma = &utxorpc.Multiasset{
 				PolicyId: policyId.Bytes(),
 			}
-			for assetName, amount := range policyData {
+			for _, assetName := range tmpAssets.Assets(policyId) {
+				amount := tmpAssets.Asset(policyId, assetName)
 				asset := &utxorpc.Asset{
-					Name:       assetName.Bytes(),
+					Name:       assetName,
 					OutputCoin: amount,
 				}
 				ma.Assets = append(ma.Assets, asset)
@@ -540,7 +543,7 @@ func (t BabbageTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t BabbageTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (t BabbageTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 

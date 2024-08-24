@@ -21,7 +21,6 @@ package ledger
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -286,26 +285,15 @@ func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 		TokenValue:     strconv.FormatUint(output.Amount(), 10),
 	})
 	if output.Assets() != nil {
-		assetsBytes, assetsBytesError := output.Assets().MarshalJSON()
-		if assetsBytesError != nil {
-			return nil, fmt.Errorf(
-				"ExtractTokens: MarshalJSON assets error, %v",
-				assetsBytesError.Error(),
-			)
-		}
-		var assets []multiAssetJson[MultiAssetTypeOutput]
-		err := json.Unmarshal(assetsBytes, &assets)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"ExtractTokens: json.Unmarshal error, %v",
-				err.Error(),
-			)
-		}
-		for _, asset := range assets {
-			outputTokens = append(outputTokens, UTXOOutputToken{
-				TokenAssetName: asset.PolicyId + asset.NameHex,
-				TokenValue:     strconv.FormatUint(asset.Amount, 10),
-			})
+		tmpAssets := output.Assets()
+		for _, policyId := range tmpAssets.Policies() {
+			for _, assetName := range tmpAssets.Assets(policyId) {
+				amount := tmpAssets.Asset(policyId, assetName)
+				outputTokens = append(outputTokens, UTXOOutputToken{
+					TokenAssetName: policyId.String() + hex.EncodeToString(assetName),
+					TokenValue:     strconv.FormatUint(amount, 10),
+				})
+			}
 		}
 	}
 	return outputTokens, nil

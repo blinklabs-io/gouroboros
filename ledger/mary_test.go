@@ -21,13 +21,14 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 func createMaryTransactionOutputValueAssets(
 	policyId []byte,
 	assetName []byte,
 	amount uint64,
-) *MultiAsset[MultiAssetTypeOutput] {
+) *common.MultiAsset[common.MultiAssetTypeOutput] {
 	data := map[Blake2b224]map[cbor.ByteString]uint64{}
 	policyIdKey := Blake2b224{}
 	copy(policyIdKey[:], policyId)
@@ -35,7 +36,8 @@ func createMaryTransactionOutputValueAssets(
 	data[policyIdKey] = map[cbor.ByteString]uint64{
 		assetKey: amount,
 	}
-	return &MultiAsset[MultiAssetTypeOutput]{data: data}
+	ret := common.NewMultiAsset[common.MultiAssetTypeOutput](data)
+	return &ret
 }
 
 func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {

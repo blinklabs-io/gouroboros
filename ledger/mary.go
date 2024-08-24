@@ -22,6 +22,7 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const (
@@ -120,8 +121,8 @@ type MaryTransactionBody struct {
 		ProtocolParamUpdates map[Blake2b224]MaryProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	TxOutputs []MaryTransactionOutput         `cbor:"1,keyasint,omitempty"`
-	TxMint    *MultiAsset[MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxOutputs []MaryTransactionOutput                       `cbor:"1,keyasint,omitempty"`
+	TxMint    *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
 }
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -145,7 +146,7 @@ func (b *MaryTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
 	return updateMap
 }
 
-func (b *MaryTransactionBody) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (b *MaryTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return b.TxMint
 }
 
@@ -223,7 +224,7 @@ func (t MaryTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t MaryTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (t MaryTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
@@ -312,9 +313,9 @@ type MaryTransactionOutput struct {
 
 func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address Address                           `json:"address"`
-		Amount  uint64                            `json:"amount"`
-		Assets  *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
+		Address Address                                         `json:"address"`
+		Amount  uint64                                          `json:"amount"`
+		Assets  *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
 	}{
 		Address: o.OutputAddress,
 		Amount:  o.OutputAmount.Amount,
@@ -331,7 +332,7 @@ func (o MaryTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o MaryTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
+func (o MaryTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
@@ -355,7 +356,7 @@ type MaryTransactionOutputValue struct {
 	cbor.StructAsArray
 	Amount uint64
 	// We use a pointer here to allow it to be nil
-	Assets *MultiAsset[MultiAssetTypeOutput]
+	Assets *common.MultiAsset[common.MultiAssetTypeOutput]
 }
 
 func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {

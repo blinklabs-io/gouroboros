@@ -14,40 +14,38 @@
 
 package ouroboros
 
-import (
-	"github.com/blinklabs-io/gouroboros/ledger"
-)
+import "github.com/blinklabs-io/gouroboros/ledger/common"
 
 // Network definitions
 var (
 	NetworkTestnet = Network{
-		Id:           ledger.AddressNetworkTestnet,
+		Id:           common.AddressNetworkTestnet,
 		Name:         "testnet",
 		NetworkMagic: 1097911063,
 	}
 	NetworkMainnet = Network{
-		Id:                ledger.AddressNetworkMainnet,
+		Id:                common.AddressNetworkMainnet,
 		Name:              "mainnet",
 		NetworkMagic:      764824073,
 		PublicRootAddress: "backbone.cardano-mainnet.iohk.io",
 		PublicRootPort:    3001,
 	}
 	NetworkPreprod = Network{
-		Id:                ledger.AddressNetworkTestnet,
+		Id:                common.AddressNetworkTestnet,
 		Name:              "preprod",
 		NetworkMagic:      1,
 		PublicRootAddress: "preprod-node.world.dev.cardano.org",
 		PublicRootPort:    30000,
 	}
 	NetworkPreview = Network{
-		Id:                ledger.AddressNetworkTestnet,
+		Id:                common.AddressNetworkTestnet,
 		Name:              "preview",
 		NetworkMagic:      2,
 		PublicRootAddress: "preview-node.play.dev.cardano.org",
 		PublicRootPort:    3001,
 	}
 	NetworkSancho = Network{
-		Id:                ledger.AddressNetworkTestnet,
+		Id:                common.AddressNetworkTestnet,
 		Name:              "sanchonet",
 		NetworkMagic:      4,
 		PublicRootAddress: "sanchonet-node.play.dev.cardano.org",

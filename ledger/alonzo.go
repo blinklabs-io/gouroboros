@@ -22,6 +22,7 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const (
@@ -209,10 +210,10 @@ func (o *AlonzoTransactionOutput) MarshalCBOR() ([]byte, error) {
 
 func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address   Address                           `json:"address"`
-		Amount    uint64                            `json:"amount"`
-		Assets    *MultiAsset[MultiAssetTypeOutput] `json:"assets,omitempty"`
-		DatumHash string                            `json:"datumHash,omitempty"`
+		Address   Address                                         `json:"address"`
+		Amount    uint64                                          `json:"amount"`
+		Assets    *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
+		DatumHash string                                          `json:"datumHash,omitempty"`
 	}{
 		Address: o.OutputAddress,
 		Amount:  o.OutputAmount.Amount,
@@ -232,7 +233,7 @@ func (o AlonzoTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o AlonzoTransactionOutput) Assets() *MultiAsset[MultiAssetTypeOutput] {
+func (o AlonzoTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
@@ -247,13 +248,15 @@ func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
 func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 	var assets []*utxorpc.Multiasset
 	if o.Assets() != nil {
-		for policyId, policyData := range o.Assets().data {
+		tmpAssets := o.Assets()
+		for _, policyId := range tmpAssets.Policies() {
 			var ma = &utxorpc.Multiasset{
 				PolicyId: policyId.Bytes(),
 			}
-			for assetName, amount := range policyData {
+			for _, assetName := range tmpAssets.Assets(policyId) {
+				amount := tmpAssets.Asset(policyId, assetName)
 				asset := &utxorpc.Asset{
-					Name:       assetName.Bytes(),
+					Name:       assetName,
 					OutputCoin: amount,
 				}
 				ma.Assets = append(ma.Assets, asset)
@@ -366,7 +369,7 @@ func (t AlonzoTransaction) RequiredSigners() []Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t AlonzoTransaction) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+func (t AlonzoTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
