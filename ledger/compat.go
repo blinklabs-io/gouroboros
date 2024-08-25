@@ -72,6 +72,8 @@ func NewPoolIdFromBech32(poolId string) (PoolId, error) {
 }
 
 // Assets
+type MultiAssetTypeMint = common.MultiAssetTypeMint
+type MultiAssetTypeOutput = common.MultiAssetTypeOutput
 type AssetFingerprint = common.AssetFingerprint
 
 func NewAssetFingerprint(policyId []byte, assetName []byte) AssetFingerprint {
