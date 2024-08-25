@@ -15,12 +15,9 @@
 package ledger
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-
-	"golang.org/x/crypto/blake2b"
 )
 
 // Compatablity aliases
@@ -119,21 +116,4 @@ func DetermineTransactionType(data []byte) (uint, error) {
 		return TxTypeConway, nil
 	}
 	return 0, fmt.Errorf("unknown transaction type")
-}
-
-func generateTransactionHash(data []byte, prefix []byte) string {
-	tmpHash, err := blake2b.New256(nil)
-	if err != nil {
-		panic(
-			fmt.Sprintf(
-				"unexpected error generating empty blake2b hash: %s",
-				err,
-			),
-		)
-	}
-	if prefix != nil {
-		tmpHash.Write(prefix)
-	}
-	tmpHash.Write(data)
-	return hex.EncodeToString(tmpHash.Sum(nil))
 }

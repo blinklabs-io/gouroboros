@@ -1,9 +1,27 @@
-package ledger
+// Copyright 2024 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package babbage
 
 import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,8 +46,8 @@ func TestBabbageBlockTransactions(t *testing.T) {
 			TxTotalCollateral: 1 << i,
 		}
 		b.TransactionWitnessSets[i] = BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: AlonzoTransactionWitnessSet{
-				ShelleyTransactionWitnessSet: ShelleyTransactionWitnessSet{
+			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
+				ShelleyTransactionWitnessSet: shelley.ShelleyTransactionWitnessSet{
 					VkeyWitnesses: []interface{}{
 						append(make([]byte, 95), 1<<i),
 					},
@@ -2755,8 +2773,8 @@ type TxOutput struct {
 
 func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 	output := BabbageTransactionOutput{
-		OutputAddress: Address{},
-		OutputAmount: MaryTransactionOutputValue{
+		OutputAddress: common.Address{},
+		OutputAmount: mary.MaryTransactionOutputValue{
 			Amount: 1000,
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{},
@@ -2772,8 +2790,8 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 
 func TestBabbageTransactionOutput_DatumHashReturnsNil(t *testing.T) {
 	output := BabbageTransactionOutput{
-		OutputAddress: Address{},
-		OutputAmount: MaryTransactionOutputValue{
+		OutputAddress: common.Address{},
+		OutputAmount: mary.MaryTransactionOutputValue{
 			Amount: 1000,
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{},

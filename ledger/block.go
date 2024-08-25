@@ -15,11 +15,9 @@
 package ledger
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-	"golang.org/x/crypto/blake2b"
 )
 
 type Block interface {
@@ -102,21 +100,4 @@ func DetermineBlockType(data []byte) (uint, error) {
 		return BlockTypeConway, nil
 	}
 	return 0, fmt.Errorf("unknown block type")
-}
-
-func generateBlockHeaderHash(data []byte, prefix []byte) string {
-	tmpHash, err := blake2b.New256(nil)
-	if err != nil {
-		panic(
-			fmt.Sprintf(
-				"unexpected error generating empty blake2b hash: %s",
-				err,
-			),
-		)
-	}
-	if prefix != nil {
-		tmpHash.Write(prefix)
-	}
-	tmpHash.Write(data)
-	return hex.EncodeToString(tmpHash.Sum(nil))
 }

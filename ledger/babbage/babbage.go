@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package babbage
 
 import (
 	"encoding/hex"
@@ -20,7 +20,10 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
@@ -73,7 +76,7 @@ func (b *BabbageBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *BabbageBlock) IssuerVkey() IssuerVkey {
+func (b *BabbageBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -81,17 +84,17 @@ func (b *BabbageBlock) BlockBodySize() uint64 {
 	return b.Header.BlockBodySize()
 }
 
-func (b *BabbageBlock) Era() Era {
+func (b *BabbageBlock) Era() common.Era {
 	return EraBabbage
 }
 
-func (b *BabbageBlock) Transactions() []Transaction {
+func (b *BabbageBlock) Transactions() []common.Transaction {
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
 	}
 
-	ret := make([]Transaction, len(b.TransactionBodies))
+	ret := make([]common.Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
 		ret[idx] = &BabbageTransaction{
 			Body:       b.TransactionBodies[idx],
@@ -133,12 +136,12 @@ type BabbageBlockHeader struct {
 		cbor.StructAsArray
 		BlockNumber   uint64
 		Slot          uint64
-		PrevHash      Blake2b256
-		IssuerVkey    IssuerVkey
+		PrevHash      common.Blake2b256
+		IssuerVkey    common.IssuerVkey
 		VrfKey        []byte
 		VrfResult     interface{}
 		BlockBodySize uint64
-		BlockBodyHash Blake2b256
+		BlockBodyHash common.Blake2b256
 		OpCert        struct {
 			cbor.StructAsArray
 			HotVkey        []byte
@@ -161,7 +164,8 @@ func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
 
 func (h *BabbageBlockHeader) Hash() string {
 	if h.hash == "" {
-		h.hash = generateBlockHeaderHash(h.Cbor(), nil)
+		tmpHash := common.Blake2b256Hash(h.Cbor())
+		h.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return h.hash
 }
@@ -174,7 +178,7 @@ func (h *BabbageBlockHeader) SlotNumber() uint64 {
 	return h.Body.Slot
 }
 
-func (h *BabbageBlockHeader) IssuerVkey() IssuerVkey {
+func (h *BabbageBlockHeader) IssuerVkey() common.IssuerVkey {
 	return h.Body.IssuerVkey
 }
 
@@ -182,29 +186,29 @@ func (h *BabbageBlockHeader) BlockBodySize() uint64 {
 	return h.Body.BlockBodySize
 }
 
-func (h *BabbageBlockHeader) Era() Era {
+func (h *BabbageBlockHeader) Era() common.Era {
 	return EraBabbage
 }
 
 type BabbageTransactionBody struct {
-	AlonzoTransactionBody
+	alonzo.AlonzoTransactionBody
 	TxOutputs []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
 	Update    struct {
 		cbor.StructAsArray
-		ProtocolParamUpdates map[Blake2b224]BabbageProtocolParameterUpdate
+		ProtocolParamUpdates map[common.Blake2b224]BabbageProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	TxCollateralReturn *BabbageTransactionOutput `cbor:"16,keyasint,omitempty"`
-	TxTotalCollateral  uint64                    `cbor:"17,keyasint,omitempty"`
-	TxReferenceInputs  []ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
+	TxCollateralReturn *BabbageTransactionOutput         `cbor:"16,keyasint,omitempty"`
+	TxTotalCollateral  uint64                            `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs  []shelley.ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
-func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
-	ret := []TransactionOutput{}
+func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
+	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
 		output := output
 		ret = append(ret, &output)
@@ -212,16 +216,16 @@ func (b *BabbageTransactionBody) Outputs() []TransactionOutput {
 	return ret
 }
 
-func (b *BabbageTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
+func (b *BabbageTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
+	updateMap := make(map[common.Blake2b224]any)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return updateMap
 }
 
-func (b *BabbageTransactionBody) ReferenceInputs() []TransactionInput {
-	ret := []TransactionInput{}
+func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
 	for _, input := range b.TxReferenceInputs {
 		input := input
 		ret = append(ret, &input)
@@ -229,7 +233,7 @@ func (b *BabbageTransactionBody) ReferenceInputs() []TransactionInput {
 	return ret
 }
 
-func (b *BabbageTransactionBody) CollateralReturn() TransactionOutput {
+func (b *BabbageTransactionBody) CollateralReturn() common.TransactionOutput {
 	// Return an actual nil if we have no value. If we return our nil pointer,
 	// we get a non-nil interface containing a nil value, which is harder to
 	// compare against
@@ -286,7 +290,7 @@ const (
 )
 
 type BabbageTransactionOutputDatumOption struct {
-	hash *Blake2b256
+	hash *common.Blake2b256
 	data *cbor.LazyValue
 }
 
@@ -300,7 +304,7 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(data []byte) error {
 		var tmpDatumHash struct {
 			cbor.StructAsArray
 			Type int
-			Hash Blake2b256
+			Hash common.Blake2b256
 		}
 		if _, err := cbor.Decode(data, &tmpDatumHash); err != nil {
 			return err
@@ -340,8 +344,8 @@ func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
 
 type BabbageTransactionOutput struct {
 	cbor.DecodeStoreCbor
-	OutputAddress Address                              `cbor:"0,keyasint,omitempty"`
-	OutputAmount  MaryTransactionOutputValue           `cbor:"1,keyasint,omitempty"`
+	OutputAddress common.Address                       `cbor:"0,keyasint,omitempty"`
+	OutputAmount  mary.MaryTransactionOutputValue      `cbor:"1,keyasint,omitempty"`
 	DatumOption   *BabbageTransactionOutputDatumOption `cbor:"2,keyasint,omitempty"`
 	ScriptRef     *cbor.Tag                            `cbor:"3,keyasint,omitempty"`
 	legacyOutput  bool
@@ -351,7 +355,7 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	// Save original CBOR
 	o.SetCbor(cborData)
 	// Try to parse as legacy output first
-	var tmpOutput AlonzoTransactionOutput
+	var tmpOutput alonzo.AlonzoTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
 		// Copy from temp legacy object to Babbage format
 		o.OutputAddress = tmpOutput.OutputAddress
@@ -365,7 +369,7 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 
 func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
 	if o.legacyOutput {
-		tmpOutput := AlonzoTransactionOutput{
+		tmpOutput := alonzo.AlonzoTransactionOutput{
 			OutputAddress: o.OutputAddress,
 			OutputAmount:  o.OutputAmount,
 		}
@@ -376,7 +380,7 @@ func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
 
 func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
-		Address   Address                                         `json:"address"`
+		Address   common.Address                                  `json:"address"`
 		Amount    uint64                                          `json:"amount"`
 		Assets    *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
 		Datum     *cbor.LazyValue                                 `json:"datum,omitempty"`
@@ -397,7 +401,7 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o BabbageTransactionOutput) Address() Address {
+func (o BabbageTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
@@ -409,11 +413,11 @@ func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetT
 	return o.OutputAmount.Assets
 }
 
-func (o BabbageTransactionOutput) DatumHash() *Blake2b256 {
+func (o BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
 	if o.DatumOption != nil {
 		return o.DatumOption.hash
 	}
-	return &Blake2b256{}
+	return &common.Blake2b256{}
 }
 
 func (o BabbageTransactionOutput) Datum() *cbor.LazyValue {
@@ -470,7 +474,7 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 }
 
 type BabbageTransactionWitnessSet struct {
-	AlonzoTransactionWitnessSet
+	alonzo.AlonzoTransactionWitnessSet
 	PlutusV2Scripts []cbor.RawMessage `cbor:"6,keyasint,omitempty"`
 }
 
@@ -491,11 +495,11 @@ func (t BabbageTransaction) Hash() string {
 	return t.Body.Hash()
 }
 
-func (t BabbageTransaction) Inputs() []TransactionInput {
+func (t BabbageTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t BabbageTransaction) Outputs() []TransactionOutput {
+func (t BabbageTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
@@ -511,19 +515,19 @@ func (t BabbageTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t BabbageTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+func (t BabbageTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
 	return t.Body.ProtocolParametersUpdate()
 }
 
-func (t BabbageTransaction) ReferenceInputs() []TransactionInput {
+func (t BabbageTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t BabbageTransaction) Collateral() []TransactionInput {
+func (t BabbageTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t BabbageTransaction) CollateralReturn() TransactionOutput {
+func (t BabbageTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
@@ -531,27 +535,27 @@ func (t BabbageTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t BabbageTransaction) Certificates() []Certificate {
+func (t BabbageTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t BabbageTransaction) Withdrawals() map[*Address]uint64 {
+func (t BabbageTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t BabbageTransaction) AuxDataHash() *Blake2b256 {
+func (t BabbageTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t BabbageTransaction) ScriptDataHash() *Blake2b256 {
+func (t BabbageTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t BabbageTransaction) VotingProcedures() VotingProcedures {
+func (t BabbageTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t BabbageTransaction) RequiredSigners() []Blake2b224 {
+func (t BabbageTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
@@ -559,7 +563,7 @@ func (t BabbageTransaction) AssetMint() *common.MultiAsset[common.MultiAssetType
 	return t.Body.AssetMint()
 }
 
-func (t BabbageTransaction) ProposalProcedures() []ProposalProcedure {
+func (t BabbageTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
@@ -579,7 +583,7 @@ func (t BabbageTransaction) IsValid() bool {
 	return t.IsTxValid
 }
 
-func (t BabbageTransaction) Consumed() []TransactionInput {
+func (t BabbageTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
 	} else {
@@ -587,14 +591,14 @@ func (t BabbageTransaction) Consumed() []TransactionInput {
 	}
 }
 
-func (t BabbageTransaction) Produced() []Utxo {
+func (t BabbageTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []Utxo
+		var ret []common.Utxo
 		for idx, output := range t.Outputs() {
 			ret = append(
 				ret,
-				Utxo{
-					Id:     NewShelleyTransactionInput(t.Hash(), idx),
+				common.Utxo{
+					Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
 					Output: output,
 				},
 			)
@@ -602,11 +606,11 @@ func (t BabbageTransaction) Produced() []Utxo {
 		return ret
 	} else {
 		if t.CollateralReturn() == nil {
-			return []Utxo{}
+			return []common.Utxo{}
 		}
-		return []Utxo{
+		return []common.Utxo{
 			{
-				Id:     NewShelleyTransactionInput(t.Hash(), len(t.Outputs())),
+				Id:     shelley.NewShelleyTransactionInput(t.Hash(), len(t.Outputs())),
 				Output: t.CollateralReturn(),
 			},
 		}

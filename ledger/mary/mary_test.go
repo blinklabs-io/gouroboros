@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package mary
 
 import (
 	"encoding/hex"
@@ -29,8 +29,8 @@ func createMaryTransactionOutputValueAssets(
 	assetName []byte,
 	amount uint64,
 ) *common.MultiAsset[common.MultiAssetTypeOutput] {
-	data := map[Blake2b224]map[cbor.ByteString]uint64{}
-	policyIdKey := Blake2b224{}
+	data := map[common.Blake2b224]map[cbor.ByteString]uint64{}
+	policyIdKey := common.Blake2b224{}
 	copy(policyIdKey[:], policyId)
 	assetKey := cbor.NewByteString(assetName)
 	data[policyIdKey] = map[cbor.ByteString]uint64{

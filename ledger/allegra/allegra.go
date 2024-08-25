@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package allegra
 
 import (
 	"encoding/hex"
@@ -20,6 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
@@ -51,7 +52,7 @@ type AllegraBlock struct {
 	cbor.DecodeStoreCbor
 	Header                 *AllegraBlockHeader
 	TransactionBodies      []AllegraTransactionBody
-	TransactionWitnessSets []ShelleyTransactionWitnessSet
+	TransactionWitnessSets []shelley.ShelleyTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
 }
 
@@ -71,7 +72,7 @@ func (b *AllegraBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *AllegraBlock) IssuerVkey() IssuerVkey {
+func (b *AllegraBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -79,12 +80,12 @@ func (b *AllegraBlock) BlockBodySize() uint64 {
 	return b.Header.BlockBodySize()
 }
 
-func (b *AllegraBlock) Era() Era {
+func (b *AllegraBlock) Era() common.Era {
 	return EraAllegra
 }
 
-func (b *AllegraBlock) Transactions() []Transaction {
-	ret := make([]Transaction, len(b.TransactionBodies))
+func (b *AllegraBlock) Transactions() []common.Transaction {
+	ret := make([]common.Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
 		ret[idx] = &AllegraTransaction{
 			Body:       b.TransactionBodies[idx],
@@ -118,18 +119,18 @@ func (b *AllegraBlock) Utxorpc() *utxorpc.Block {
 }
 
 type AllegraBlockHeader struct {
-	ShelleyBlockHeader
+	shelley.ShelleyBlockHeader
 }
 
-func (h *AllegraBlockHeader) Era() Era {
+func (h *AllegraBlockHeader) Era() common.Era {
 	return EraAllegra
 }
 
 type AllegraTransactionBody struct {
-	ShelleyTransactionBody
+	shelley.ShelleyTransactionBody
 	Update struct {
 		cbor.StructAsArray
-		ProtocolParamUpdates map[Blake2b224]AllegraProtocolParameterUpdate
+		ProtocolParamUpdates map[common.Blake2b224]AllegraProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
 	TxValidityIntervalStart uint64 `cbor:"8,keyasint,omitempty"`
@@ -143,8 +144,8 @@ func (b *AllegraTransactionBody) ValidityIntervalStart() uint64 {
 	return b.TxValidityIntervalStart
 }
 
-func (b *AllegraTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
+func (b *AllegraTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
+	updateMap := make(map[common.Blake2b224]any)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
@@ -155,7 +156,7 @@ type AllegraTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	Body       AllegraTransactionBody
-	WitnessSet ShelleyTransactionWitnessSet
+	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
 }
 
@@ -163,11 +164,11 @@ func (t AllegraTransaction) Hash() string {
 	return t.Body.Hash()
 }
 
-func (t AllegraTransaction) Inputs() []TransactionInput {
+func (t AllegraTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t AllegraTransaction) Outputs() []TransactionOutput {
+func (t AllegraTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
@@ -183,15 +184,15 @@ func (t AllegraTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t AllegraTransaction) ReferenceInputs() []TransactionInput {
+func (t AllegraTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t AllegraTransaction) Collateral() []TransactionInput {
+func (t AllegraTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t AllegraTransaction) CollateralReturn() TransactionOutput {
+func (t AllegraTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
@@ -199,19 +200,19 @@ func (t AllegraTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t AllegraTransaction) Certificates() []Certificate {
+func (t AllegraTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AllegraTransaction) Withdrawals() map[*Address]uint64 {
+func (t AllegraTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t AllegraTransaction) AuxDataHash() *Blake2b256 {
+func (t AllegraTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t AllegraTransaction) RequiredSigners() []Blake2b224 {
+func (t AllegraTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
@@ -219,15 +220,15 @@ func (t AllegraTransaction) AssetMint() *common.MultiAsset[common.MultiAssetType
 	return t.Body.AssetMint()
 }
 
-func (t AllegraTransaction) ScriptDataHash() *Blake2b256 {
+func (t AllegraTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t AllegraTransaction) VotingProcedures() VotingProcedures {
+func (t AllegraTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t AllegraTransaction) ProposalProcedures() []ProposalProcedure {
+func (t AllegraTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
@@ -251,17 +252,17 @@ func (t AllegraTransaction) IsValid() bool {
 	return true
 }
 
-func (t AllegraTransaction) Consumed() []TransactionInput {
+func (t AllegraTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
-func (t AllegraTransaction) Produced() []Utxo {
-	var ret []Utxo
+func (t AllegraTransaction) Produced() []common.Utxo {
+	var ret []common.Utxo
 	for idx, output := range t.Outputs() {
 		ret = append(
 			ret,
-			Utxo{
-				Id:     NewShelleyTransactionInput(t.Hash(), idx),
+			common.Utxo{
+				Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
 				Output: output,
 			},
 		)
@@ -269,7 +270,7 @@ func (t AllegraTransaction) Produced() []Utxo {
 	return ret
 }
 
-func (t AllegraTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+func (t AllegraTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
 	return t.Body.ProtocolParametersUpdate()
 }
 
@@ -300,11 +301,11 @@ func (t *AllegraTransaction) Cbor() []byte {
 }
 
 type AllegraProtocolParameters struct {
-	ShelleyProtocolParameters
+	shelley.ShelleyProtocolParameters
 }
 
 type AllegraProtocolParameterUpdate struct {
-	ShelleyProtocolParameterUpdate
+	shelley.ShelleyProtocolParameterUpdate
 }
 
 func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {

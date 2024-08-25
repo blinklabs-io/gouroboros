@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger
+package shelley
 
 import (
 	"encoding/hex"
@@ -71,7 +71,7 @@ func (b *ShelleyBlock) SlotNumber() uint64 {
 	return b.Header.SlotNumber()
 }
 
-func (b *ShelleyBlock) IssuerVkey() IssuerVkey {
+func (b *ShelleyBlock) IssuerVkey() common.IssuerVkey {
 	return b.Header.IssuerVkey()
 }
 
@@ -79,12 +79,12 @@ func (b *ShelleyBlock) BlockBodySize() uint64 {
 	return b.Header.BlockBodySize()
 }
 
-func (b *ShelleyBlock) Era() Era {
+func (b *ShelleyBlock) Era() common.Era {
 	return EraShelley
 }
 
-func (b *ShelleyBlock) Transactions() []Transaction {
-	ret := make([]Transaction, len(b.TransactionBodies))
+func (b *ShelleyBlock) Transactions() []common.Transaction {
+	ret := make([]common.Transaction, len(b.TransactionBodies))
 	for idx := range b.TransactionBodies {
 		ret[idx] = &ShelleyTransaction{
 			Body:       b.TransactionBodies[idx],
@@ -125,13 +125,13 @@ type ShelleyBlockHeader struct {
 		cbor.StructAsArray
 		BlockNumber          uint64
 		Slot                 uint64
-		PrevHash             Blake2b256
-		IssuerVkey           IssuerVkey
+		PrevHash             common.Blake2b256
+		IssuerVkey           common.IssuerVkey
 		VrfKey               []byte
 		NonceVrf             interface{}
 		LeaderVrf            interface{}
 		BlockBodySize        uint64
-		BlockBodyHash        Blake2b256
+		BlockBodyHash        common.Blake2b256
 		OpCertHotVkey        []byte
 		OpCertSequenceNumber uint32
 		OpCertKesPeriod      uint32
@@ -148,7 +148,8 @@ func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
 
 func (h *ShelleyBlockHeader) Hash() string {
 	if h.hash == "" {
-		h.hash = generateBlockHeaderHash(h.Cbor(), nil)
+		tmpHash := common.Blake2b256Hash(h.Cbor())
+		h.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return h.hash
 }
@@ -161,7 +162,7 @@ func (h *ShelleyBlockHeader) SlotNumber() uint64 {
 	return h.Body.Slot
 }
 
-func (h *ShelleyBlockHeader) IssuerVkey() IssuerVkey {
+func (h *ShelleyBlockHeader) IssuerVkey() common.IssuerVkey {
 	return h.Body.IssuerVkey
 }
 
@@ -169,25 +170,25 @@ func (h *ShelleyBlockHeader) BlockBodySize() uint64 {
 	return h.Body.BlockBodySize
 }
 
-func (h *ShelleyBlockHeader) Era() Era {
+func (h *ShelleyBlockHeader) Era() common.Era {
 	return EraShelley
 }
 
 type ShelleyTransactionBody struct {
 	cbor.DecodeStoreCbor
 	hash           string
-	TxInputs       []ShelleyTransactionInput  `cbor:"0,keyasint,omitempty"`
-	TxOutputs      []ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
-	TxFee          uint64                     `cbor:"2,keyasint,omitempty"`
-	Ttl            uint64                     `cbor:"3,keyasint,omitempty"`
-	TxCertificates []CertificateWrapper       `cbor:"4,keyasint,omitempty"`
-	TxWithdrawals  map[*Address]uint64        `cbor:"5,keyasint,omitempty"`
+	TxInputs       []ShelleyTransactionInput   `cbor:"0,keyasint,omitempty"`
+	TxOutputs      []ShelleyTransactionOutput  `cbor:"1,keyasint,omitempty"`
+	TxFee          uint64                      `cbor:"2,keyasint,omitempty"`
+	Ttl            uint64                      `cbor:"3,keyasint,omitempty"`
+	TxCertificates []common.CertificateWrapper `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals  map[*common.Address]uint64  `cbor:"5,keyasint,omitempty"`
 	Update         struct {
 		cbor.StructAsArray
-		ProtocolParamUpdates map[Blake2b224]ShelleyProtocolParameterUpdate
+		ProtocolParamUpdates map[common.Blake2b224]ShelleyProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	TxAuxDataHash *Blake2b256 `cbor:"7,keyasint,omitempty"`
+	TxAuxDataHash *common.Blake2b256 `cbor:"7,keyasint,omitempty"`
 }
 
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -196,21 +197,22 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 
 func (b *ShelleyTransactionBody) Hash() string {
 	if b.hash == "" {
-		b.hash = generateTransactionHash(b.Cbor(), nil)
+		tmpHash := common.Blake2b256Hash(b.Cbor())
+		b.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return b.hash
 }
 
-func (b *ShelleyTransactionBody) Inputs() []TransactionInput {
-	ret := []TransactionInput{}
+func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
 	for _, input := range b.TxInputs {
 		ret = append(ret, input)
 	}
 	return ret
 }
 
-func (b *ShelleyTransactionBody) Outputs() []TransactionOutput {
-	ret := []TransactionOutput{}
+func (b *ShelleyTransactionBody) Outputs() []common.TransactionOutput {
+	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
 		output := output
 		ret = append(ret, &output)
@@ -231,24 +233,24 @@ func (b *ShelleyTransactionBody) ValidityIntervalStart() uint64 {
 	return 0
 }
 
-func (b *ShelleyTransactionBody) ProtocolParametersUpdate() map[Blake2b224]any {
-	updateMap := make(map[Blake2b224]any)
+func (b *ShelleyTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
+	updateMap := make(map[common.Blake2b224]any)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return updateMap
 }
 
-func (b *ShelleyTransactionBody) ReferenceInputs() []TransactionInput {
-	return []TransactionInput{}
+func (b *ShelleyTransactionBody) ReferenceInputs() []common.TransactionInput {
+	return []common.TransactionInput{}
 }
 
-func (b *ShelleyTransactionBody) Collateral() []TransactionInput {
+func (b *ShelleyTransactionBody) Collateral() []common.TransactionInput {
 	// No collateral in Shelley
 	return nil
 }
 
-func (b *ShelleyTransactionBody) CollateralReturn() TransactionOutput {
+func (b *ShelleyTransactionBody) CollateralReturn() common.TransactionOutput {
 	// No collateral in Shelley
 	return nil
 }
@@ -258,23 +260,23 @@ func (b *ShelleyTransactionBody) TotalCollateral() uint64 {
 	return 0
 }
 
-func (b *ShelleyTransactionBody) Certificates() []Certificate {
-	ret := make([]Certificate, len(b.TxCertificates))
+func (b *ShelleyTransactionBody) Certificates() []common.Certificate {
+	ret := make([]common.Certificate, len(b.TxCertificates))
 	for i, cert := range b.TxCertificates {
 		ret[i] = cert.Certificate
 	}
 	return ret
 }
 
-func (b *ShelleyTransactionBody) Withdrawals() map[*Address]uint64 {
+func (b *ShelleyTransactionBody) Withdrawals() map[*common.Address]uint64 {
 	return b.TxWithdrawals
 }
 
-func (b *ShelleyTransactionBody) AuxDataHash() *Blake2b256 {
+func (b *ShelleyTransactionBody) AuxDataHash() *common.Blake2b256 {
 	return b.TxAuxDataHash
 }
 
-func (b *ShelleyTransactionBody) RequiredSigners() []Blake2b224 {
+func (b *ShelleyTransactionBody) RequiredSigners() []common.Blake2b224 {
 	// No required signers in Shelley
 	return nil
 }
@@ -284,17 +286,17 @@ func (b *ShelleyTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsse
 	return nil
 }
 
-func (b *ShelleyTransactionBody) ScriptDataHash() *Blake2b256 {
+func (b *ShelleyTransactionBody) ScriptDataHash() *common.Blake2b256 {
 	// No script data hash in Shelley
 	return nil
 }
 
-func (b *ShelleyTransactionBody) VotingProcedures() VotingProcedures {
+func (b *ShelleyTransactionBody) VotingProcedures() common.VotingProcedures {
 	// No voting procedures in Shelley
 	return nil
 }
 
-func (b *ShelleyTransactionBody) ProposalProcedures() []ProposalProcedure {
+func (b *ShelleyTransactionBody) ProposalProcedures() []common.ProposalProcedure {
 	// No proposal procedures in Shelley
 	return nil
 }
@@ -341,7 +343,7 @@ func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 
 type ShelleyTransactionInput struct {
 	cbor.StructAsArray
-	TxId        Blake2b256
+	TxId        common.Blake2b256
 	OutputIndex uint32
 }
 
@@ -351,12 +353,12 @@ func NewShelleyTransactionInput(hash string, idx int) ShelleyTransactionInput {
 		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
 	}
 	return ShelleyTransactionInput{
-		TxId:        Blake2b256(tmpHash),
+		TxId:        common.Blake2b256(tmpHash),
 		OutputIndex: uint32(idx),
 	}
 }
 
-func (i ShelleyTransactionInput) Id() Blake2b256 {
+func (i ShelleyTransactionInput) Id() common.Blake2b256 {
 	return i.TxId
 }
 
@@ -384,11 +386,11 @@ func (i ShelleyTransactionInput) MarshalJSON() ([]byte, error) {
 type ShelleyTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OutputAddress Address `json:"address"`
-	OutputAmount  uint64  `json:"amount"`
+	OutputAddress common.Address `json:"address"`
+	OutputAmount  uint64         `json:"amount"`
 }
 
-func (o ShelleyTransactionOutput) Address() Address {
+func (o ShelleyTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
@@ -400,7 +402,7 @@ func (o ShelleyTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetT
 	return nil
 }
 
-func (o ShelleyTransactionOutput) DatumHash() *Blake2b256 {
+func (o ShelleyTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
@@ -438,11 +440,11 @@ func (t ShelleyTransaction) Hash() string {
 	return t.Body.Hash()
 }
 
-func (t ShelleyTransaction) Inputs() []TransactionInput {
+func (t ShelleyTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t ShelleyTransaction) Outputs() []TransactionOutput {
+func (t ShelleyTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
@@ -458,15 +460,15 @@ func (t ShelleyTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t ShelleyTransaction) ReferenceInputs() []TransactionInput {
+func (t ShelleyTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t ShelleyTransaction) Collateral() []TransactionInput {
+func (t ShelleyTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t ShelleyTransaction) CollateralReturn() TransactionOutput {
+func (t ShelleyTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
@@ -474,19 +476,19 @@ func (t ShelleyTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t ShelleyTransaction) Certificates() []Certificate {
+func (t ShelleyTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ShelleyTransaction) Withdrawals() map[*Address]uint64 {
+func (t ShelleyTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t ShelleyTransaction) AuxDataHash() *Blake2b256 {
+func (t ShelleyTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t ShelleyTransaction) RequiredSigners() []Blake2b224 {
+func (t ShelleyTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
@@ -494,15 +496,15 @@ func (t ShelleyTransaction) AssetMint() *common.MultiAsset[common.MultiAssetType
 	return t.Body.AssetMint()
 }
 
-func (t ShelleyTransaction) ScriptDataHash() *Blake2b256 {
+func (t ShelleyTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t ShelleyTransaction) VotingProcedures() VotingProcedures {
+func (t ShelleyTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t ShelleyTransaction) ProposalProcedures() []ProposalProcedure {
+func (t ShelleyTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
@@ -522,16 +524,16 @@ func (t ShelleyTransaction) IsValid() bool {
 	return true
 }
 
-func (t ShelleyTransaction) Consumed() []TransactionInput {
+func (t ShelleyTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
-func (t ShelleyTransaction) Produced() []Utxo {
-	var ret []Utxo
+func (t ShelleyTransaction) Produced() []common.Utxo {
+	var ret []common.Utxo
 	for idx, output := range t.Outputs() {
 		ret = append(
 			ret,
-			Utxo{
+			common.Utxo{
 				Id:     NewShelleyTransactionInput(t.Hash(), idx),
 				Output: output,
 			},
@@ -544,7 +546,7 @@ func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
 }
 
-func (t *ShelleyTransaction) ProtocolParametersUpdate() map[Blake2b224]any {
+func (t *ShelleyTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
 	return t.Body.ProtocolParametersUpdate()
 }
 
