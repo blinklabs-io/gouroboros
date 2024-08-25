@@ -18,67 +18,17 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-	"golang.org/x/crypto/blake2b"
-
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+
+	"golang.org/x/crypto/blake2b"
 )
 
-type Transaction interface {
-	TransactionBody
-	Metadata() *cbor.LazyValue
-	IsValid() bool
-	Consumed() []TransactionInput
-	Produced() []Utxo
-}
-
-type TransactionBody interface {
-	Cbor() []byte
-	Fee() uint64
-	Hash() string
-	Inputs() []TransactionInput
-	Outputs() []TransactionOutput
-	TTL() uint64
-	ProtocolParametersUpdate() map[Blake2b224]any
-	ValidityIntervalStart() uint64
-	ReferenceInputs() []TransactionInput
-	Collateral() []TransactionInput
-	CollateralReturn() TransactionOutput
-	TotalCollateral() uint64
-	Certificates() []Certificate
-	Withdrawals() map[*Address]uint64
-	AuxDataHash() *Blake2b256
-	RequiredSigners() []Blake2b224
-	AssetMint() *common.MultiAsset[common.MultiAssetTypeMint]
-	ScriptDataHash() *Blake2b256
-	VotingProcedures() VotingProcedures
-	ProposalProcedures() []ProposalProcedure
-	CurrentTreasuryValue() int64
-	Donation() uint64
-	Utxorpc() *utxorpc.Tx
-}
-
-type TransactionInput interface {
-	Id() Blake2b256
-	Index() uint32
-	Utxorpc() *utxorpc.TxInput
-}
-
-type TransactionOutput interface {
-	Address() Address
-	Amount() uint64
-	Assets() *common.MultiAsset[common.MultiAssetTypeOutput]
-	Datum() *cbor.LazyValue
-	DatumHash() *Blake2b256
-	Cbor() []byte
-	Utxorpc() *utxorpc.TxOutput
-}
-
-type Utxo struct {
-	Id     TransactionInput
-	Output TransactionOutput
-}
+// Compatablity aliases
+type Transaction = common.Transaction
+type TransactionBody = common.TransactionBody
+type TransactionInput = common.TransactionInput
+type TransactionOutput = common.TransactionOutput
+type Utxo = common.Utxo
 
 func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 	switch txType {
