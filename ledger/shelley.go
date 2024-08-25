@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	EraIdShelley = 1
+	EraIdShelley   = 1
+	EraNameShelley = "Shelley"
 
 	BlockTypeShelley = 2
 
@@ -33,6 +34,17 @@ const (
 
 	TxTypeShelley = 1
 )
+
+var (
+	EraShelley = common.Era{
+		Id:   EraIdShelley,
+		Name: EraNameShelley,
+	}
+)
+
+func init() {
+	common.RegisterEra(EraShelley)
+}
 
 type ShelleyBlock struct {
 	cbor.StructAsArray
@@ -68,7 +80,7 @@ func (b *ShelleyBlock) BlockBodySize() uint64 {
 }
 
 func (b *ShelleyBlock) Era() Era {
-	return eras[EraIdShelley]
+	return EraShelley
 }
 
 func (b *ShelleyBlock) Transactions() []Transaction {
@@ -158,7 +170,7 @@ func (h *ShelleyBlockHeader) BlockBodySize() uint64 {
 }
 
 func (h *ShelleyBlockHeader) Era() Era {
-	return eras[EraIdShelley]
+	return EraShelley
 }
 
 type ShelleyTransactionBody struct {

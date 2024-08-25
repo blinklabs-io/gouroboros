@@ -18,14 +18,15 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 const (
-	EraIdByron = 0
+	EraIdByron   = 0
+	EraNameByron = "Byron"
 
 	BlockTypeByronEbb  = 0
 	BlockTypeByronMain = 1
@@ -36,6 +37,17 @@ const (
 
 	ByronSlotsPerEpoch = 21600
 )
+
+var (
+	EraByron = common.Era{
+		Id:   EraIdByron,
+		Name: EraNameByron,
+	}
+)
+
+func init() {
+	common.RegisterEra(EraByron)
+}
 
 type ByronMainBlockHeader struct {
 	cbor.StructAsArray
@@ -119,7 +131,7 @@ func (h *ByronMainBlockHeader) BlockBodySize() uint64 {
 }
 
 func (h *ByronMainBlockHeader) Era() Era {
-	return eras[EraIdByron]
+	return EraByron
 }
 
 type ByronTransaction struct {
@@ -481,7 +493,7 @@ func (h *ByronEpochBoundaryBlockHeader) BlockBodySize() uint64 {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Era() Era {
-	return eras[EraIdByron]
+	return EraByron
 }
 
 type ByronMainBlock struct {

@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,53 +14,16 @@
 
 package ledger
 
-type Era struct {
-	Id   uint8
-	Name string
-}
+import (
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+)
 
-var eras = map[uint8]Era{
-	EraIdByron: Era{
-		Id:   EraIdByron,
-		Name: "Byron",
-	},
-	EraIdShelley: Era{
-		Id:   EraIdShelley,
-		Name: "Shelley",
-	},
-	EraIdAllegra: Era{
-		Id:   EraIdAllegra,
-		Name: "Allegra",
-	},
-	EraIdMary: Era{
-		Id:   EraIdMary,
-		Name: "Mary",
-	},
-	EraIdAlonzo: Era{
-		Id:   EraIdAlonzo,
-		Name: "Alonzo",
-	},
-	EraIdBabbage: Era{
-		Id:   EraIdBabbage,
-		Name: "Babbage",
-	},
-	EraIdConway: Era{
-		Id:   EraIdConway,
-		Name: "Conway",
-	},
-}
+type Era = common.Era
 
-var EraInvalid = Era{
-	Id:   0,
-	Name: "invalid",
-}
+var EraInvalid = common.EraInvalid
 
 func GetEraById(eraId uint8) Era {
-	era, ok := eras[eraId]
-	if !ok {
-		return EraInvalid
-	}
-	return era
+	return common.EraById(eraId)
 }
 
 // BlockHeaderToBlockTypeMap is a mapping of NtN chainsync block header types

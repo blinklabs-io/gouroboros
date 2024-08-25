@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ledger_test
+package common_test
 
 import (
-	"github.com/blinklabs-io/gouroboros/ledger"
 	"testing"
+
+	_ "github.com/blinklabs-io/gouroboros/ledger" // This is needed to get the eras registered
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type getEraByIdTestDefinition struct {
@@ -50,6 +52,10 @@ var getEraByIdTests = []getEraByIdTestDefinition{
 		Name: "Babbage",
 	},
 	{
+		Id:   6,
+		Name: "Conway",
+	},
+	{
 		Id:   99,
 		Name: "invalid",
 	},
@@ -57,8 +63,8 @@ var getEraByIdTests = []getEraByIdTestDefinition{
 
 func TestGetEraById(t *testing.T) {
 	for _, test := range getEraByIdTests {
-		era := ledger.GetEraById(test.Id)
-		if era == ledger.EraInvalid {
+		era := common.EraById(test.Id)
+		if era == common.EraInvalid {
 			if test.Name != "invalid" {
 				t.Fatalf("got unexpected EraInvalid, wanted %s", test.Name)
 			}
