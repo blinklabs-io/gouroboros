@@ -37,9 +37,16 @@ func NewBlake2b256(data []byte) Blake2b256 {
 type Address = common.Address
 type AddrKeyHash = common.AddrKeyHash
 
-func NewAddress(addr string) (Address, error) {
-	return common.NewAddress(addr)
-}
+const (
+	AddressTypeScriptNone = common.AddressTypeScriptNone
+	AddressTypeKeyNone    = common.AddressTypeKeyNone
+	AddressTypeKeyKey     = common.AddressTypeKeyKey
+)
+
+var (
+	NewAddress          = common.NewAddress
+	NewAddressFromParts = common.NewAddressFromParts
+)
 
 // Governance types
 type VotingProcedure = common.VotingProcedure
