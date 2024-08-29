@@ -224,7 +224,33 @@ func (b *ConwayTransactionBody) Donation() uint64 {
 }
 
 type ConwayProtocolParameters struct {
-	babbage.BabbageProtocolParameters
+	cbor.StructAsArray
+	MinFeeA            uint
+	MinFeeB            uint
+	MaxBlockBodySize   uint
+	MaxTxSize          uint
+	MaxBlockHeaderSize uint
+	KeyDeposit         uint
+	PoolDeposit        uint
+	MaxEpoch           uint
+	NOpt               uint
+	A0                 *cbor.Rat
+	Rho                *cbor.Rat
+	Tau                *cbor.Rat
+	Protocol           struct {
+		cbor.StructAsArray
+		Major uint
+		Minor uint
+	}
+	MinPoolCost                uint
+	AdaPerUtxoByte             uint
+	CostModels                 map[uint][]int
+	ExecutionUnitPrices        []*cbor.Rat // [priceMemory priceSteps]
+	MaxTxExecutionUnits        []uint
+	MaxBlockExecutionUnits     []uint
+	MaxValueSize               uint
+	CollateralPercentage       uint
+	MaxCollateralInputs        uint
 	PoolVotingThresholds       PoolVotingThresholds
 	DRepVotingThresholds       DRepVotingThresholds
 	MinCommitteeSize           uint
