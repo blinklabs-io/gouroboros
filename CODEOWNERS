@@ -1,3 +1,5 @@
 # Blink Labs
 #
-* @agaffney @verbotenj @wolf31o2
+* @blinklabs-io/core
+*.md @blinklabs-io/core @blinklabs-io/pms
+LICENSE @blinklabs-io/core @blinklabs-io/pms
