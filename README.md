@@ -180,7 +180,7 @@ make
 Run the chain-sync test program against a public mainnet node, starting at the beginning of the Shelley era:
 
 ```
-./gouroboros -address backbone.cardano-mainnet.iohk.io:3001 -network mainnet -ntn chain-sync -bulk -start-era shelley
+./gouroboros -address backbone.cardano.iog.io:3001 -network mainnet -ntn chain-sync -bulk -start-era shelley
 ```
 
 This will produce a LOT of output and take quite a few hours to reach chain tip. You're mostly looking for it to get through
