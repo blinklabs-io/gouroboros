@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ var (
 		Id:                common.AddressNetworkMainnet,
 		Name:              "mainnet",
 		NetworkMagic:      764824073,
-		PublicRootAddress: "backbone.cardano-mainnet.iohk.io",
+		PublicRootAddress: "backbone.cardano.iog.io",
 		PublicRootPort:    3001,
 	}
 	NetworkPreprod = Network{
