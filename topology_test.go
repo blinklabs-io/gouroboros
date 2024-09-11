@@ -33,7 +33,7 @@ var topologyTests = []topologyTestDefinition{
 {
   "Producers": [
     {
-      "addr": "relays-new.cardano-mainnet.iohk.io",
+      "addr": "backbone.cardano.iog.io",
       "port": 3001,
       "valency": 2
     }
@@ -43,7 +43,7 @@ var topologyTests = []topologyTestDefinition{
 		expectedObject: &ouroboros.TopologyConfig{
 			Producers: []ouroboros.TopologyConfigLegacyProducer{
 				{
-					Address: "relays-new.cardano-mainnet.iohk.io",
+					Address: "backbone.cardano.iog.io",
 					Port:    3001,
 					Valency: 2,
 				},
@@ -64,7 +64,7 @@ var topologyTests = []topologyTestDefinition{
     {
       "accessPoints": [
         {
-          "address": "backbone.cardano-mainnet.iohk.io",
+          "address": "backbone.cardano.iog.io",
           "port": 3001
         }
       ],
@@ -95,7 +95,7 @@ var topologyTests = []topologyTestDefinition{
 				{
 					AccessPoints: []ouroboros.TopologyConfigP2PAccessPoint{
 						{
-							Address: "backbone.cardano-mainnet.iohk.io",
+							Address: "backbone.cardano.iog.io",
 							Port:    3001,
 						},
 					},
