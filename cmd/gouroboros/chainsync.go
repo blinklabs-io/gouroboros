@@ -73,35 +73,6 @@ var eraIntersect = map[string]map[string][]interface{}{
 	"unknown": map[string][]interface{}{
 		"genesis": []interface{}{},
 	},
-	"testnet": map[string][]interface{}{
-		"genesis": []interface{}{},
-		"byron":   []interface{}{},
-		// Last block of epoch 73 (Byron era)
-		"shelley": []interface{}{
-			1598399,
-			"7e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
-		},
-		// Last block of epoch 101 (Shelley era)
-		"allegra": []interface{}{
-			13694363,
-			"b596f9739b647ab5af901c8fc6f75791e262b0aeba81994a1d622543459734f2",
-		},
-		// Last block of epoch 111 (Allegra era)
-		"mary": []interface{}{
-			18014387,
-			"9914c8da22a833a777d8fc1f735d2dbba70b99f15d765b6c6ee45fe322d92d93",
-		},
-		// Last block of epoch 153 (Mary era)
-		"alonzo": []interface{}{
-			36158304,
-			"2b95ce628d36c3f8f37a32c2942b48e4f9295ccfe8190bcbc1f012e1e97c79eb",
-		},
-		// Last block of epoch 214 (Alonzo era)
-		"babbage": []interface{}{
-			62510369,
-			"d931221f9bc4cae34de422d9f4281a2b0344e86aac6b31eb54e2ee90f44a09b9",
-		},
-	},
 	"mainnet": map[string][]interface{}{
 		"genesis": []interface{}{},
 		// Chain genesis, but explicit
@@ -130,6 +101,11 @@ var eraIntersect = map[string]map[string][]interface{}{
 		"babbage": []interface{}{
 			72316796,
 			"c58a24ba8203e7629422a24d9dc68ce2ed495420bf40d9dab124373655161a20",
+		},
+		// Last block of epoch 306 (Babbage era)
+		"conway": []any{
+			133660799,
+			"e757d57eb8dc9500a61c60a39fadb63d9be6973ba96ae337fd24453d4d15c343",
 		},
 	},
 	"preprod": map[string][]interface{}{
