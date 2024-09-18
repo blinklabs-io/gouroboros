@@ -151,6 +151,10 @@ func (t *ByronTransaction) UnmarshalCBOR(data []byte) error {
 	return t.UnmarshalCbor(data, t)
 }
 
+func (ByronTransaction) Type() int {
+	return TxTypeByron
+}
+
 func (t *ByronTransaction) Hash() string {
 	if t.hash == "" {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
@@ -516,6 +520,10 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (ByronMainBlock) Type() int {
+	return BlockTypeByronMain
+}
+
 func (b *ByronMainBlock) Hash() string {
 	return b.Header.Hash()
 }
@@ -564,6 +572,10 @@ type ByronEpochBoundaryBlock struct {
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 	// Decode generically and store original CBOR
 	return b.UnmarshalCbor(cborData, b)
+}
+
+func (ByronEpochBoundaryBlock) Type() int {
+	return BlockTypeByronEbb
 }
 
 func (b *ByronEpochBoundaryBlock) Hash() string {

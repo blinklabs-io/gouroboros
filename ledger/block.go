@@ -22,6 +22,7 @@ import (
 
 type Block interface {
 	BlockHeader
+	Type() int
 	Transactions() []Transaction
 	Utxorpc() *utxorpc.Block
 }

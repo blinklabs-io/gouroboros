@@ -63,6 +63,10 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (AlonzoBlock) Type() int {
+	return BlockTypeAlonzo
+}
+
 func (b *AlonzoBlock) Hash() string {
 	return b.Header.Hash()
 }
@@ -315,6 +319,10 @@ type AlonzoTransaction struct {
 	WitnessSet AlonzoTransactionWitnessSet
 	IsTxValid  bool
 	TxMetadata *cbor.LazyValue
+}
+
+func (AlonzoTransaction) Type() int {
+	return TxTypeAlonzo
 }
 
 func (t AlonzoTransaction) Hash() string {
