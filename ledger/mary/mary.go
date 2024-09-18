@@ -62,6 +62,10 @@ func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (MaryBlock) Type() int {
+	return BlockTypeMary
+}
+
 func (b *MaryBlock) Hash() string {
 	return b.Header.Hash()
 }
@@ -170,6 +174,10 @@ type MaryTransaction struct {
 	Body       MaryTransactionBody
 	WitnessSet MaryTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
+}
+
+func (MaryTransaction) Type() int {
+	return TxTypeMary
 }
 
 type MaryTransactionWitnessSet struct {

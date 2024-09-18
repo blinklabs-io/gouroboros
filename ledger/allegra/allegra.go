@@ -60,6 +60,10 @@ func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (AllegraBlock) Type() int {
+	return BlockTypeAllegra
+}
+
 func (b *AllegraBlock) Hash() string {
 	return b.Header.Hash()
 }
@@ -158,6 +162,10 @@ type AllegraTransaction struct {
 	Body       AllegraTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
+}
+
+func (AllegraTransaction) Type() int {
+	return TxTypeAllegra
 }
 
 func (t AllegraTransaction) Hash() string {

@@ -64,6 +64,10 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (BabbageBlock) Type() int {
+	return BlockTypeBabbage
+}
+
 func (b *BabbageBlock) Hash() string {
 	return b.Header.Hash()
 }
@@ -489,6 +493,10 @@ type BabbageTransaction struct {
 	WitnessSet BabbageTransactionWitnessSet
 	IsTxValid  bool
 	TxMetadata *cbor.LazyValue
+}
+
+func (BabbageTransaction) Type() int {
+	return TxTypeBabbage
 }
 
 func (t BabbageTransaction) Hash() string {

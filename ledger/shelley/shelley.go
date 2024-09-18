@@ -59,6 +59,10 @@ func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (ShelleyBlock) Type() int {
+	return BlockTypeShelley
+}
+
 func (b *ShelleyBlock) Hash() string {
 	return b.Header.Hash()
 }
@@ -434,6 +438,10 @@ type ShelleyTransaction struct {
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
+}
+
+func (ShelleyTransaction) Type() int {
+	return TxTypeShelley
 }
 
 func (t ShelleyTransaction) Hash() string {

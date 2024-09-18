@@ -63,6 +63,10 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
+func (ConwayBlock) Type() int {
+	return BlockTypeConway
+}
+
 func (b *ConwayBlock) Hash() string {
 	return b.Header.Hash()
 }
@@ -305,6 +309,10 @@ type ConwayTransaction struct {
 	WitnessSet ConwayTransactionWitnessSet
 	IsTxValid  bool
 	TxMetadata *cbor.LazyValue
+}
+
+func (ConwayTransaction) Type() int {
+	return TxTypeConway
 }
 
 func (t ConwayTransaction) Hash() string {
