@@ -126,6 +126,10 @@ func (p *Protocol) Start() {
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
+		if p.muxerDoneChan == nil {
+			p.SendError(fmt.Errorf("could not register protocol with muxer"))
+			return
+		}
 
 		// Create channels
 		p.sendQueueChan = make(chan Message, 50)
