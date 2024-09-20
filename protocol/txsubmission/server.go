@@ -108,13 +108,13 @@ func (s *Server) RequestTxIds(
 	if err := s.SendMessage(msg); err != nil {
 		return nil, err
 	}
-	// Reset ack count
-	s.ackCount = 0
 	// Wait for result
 	txIds, ok := <-s.requestTxIdsResultChan
 	if !ok {
 		return nil, protocol.ProtocolShuttingDownError
 	}
+	// Update ack count for next call
+	s.ackCount = len(txIds)
 	return txIds, nil
 }
 
@@ -129,8 +129,6 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 	if !ok {
 		return nil, protocol.ProtocolShuttingDownError
 	}
-	// Set the ack count for the next RequestTxIds request based on the number we got for this one
-	s.ackCount = len(txs)
 	return txs, nil
 }
 
