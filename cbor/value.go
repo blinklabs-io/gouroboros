@@ -162,6 +162,8 @@ func (v *Value) processArray(data []byte) error {
 func generateAstJson(obj interface{}) ([]byte, error) {
 	tmpJsonObj := map[string]interface{}{}
 	switch v := obj.(type) {
+	case []byte:
+		tmpJsonObj["bytes"] = hex.EncodeToString(v)
 	case ByteString:
 		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
 	case WrappedCbor:
