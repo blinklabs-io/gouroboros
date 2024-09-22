@@ -121,6 +121,18 @@ var testDefs = []struct {
 		),
 		expectedAstJson: `{"map":[{"k":{"int":1},"v":{"int":2}},{"k":{"int":3},"v":{"int":4}}]}`,
 	},
+	// 259({2: [h'abcd']})
+	{
+		cborHex: "D90103A1028142ABCD",
+		expectedObject: cbor.Map(
+			map[any]any{
+				uint64(2): []any{
+					[]byte{0xab, 0xcd},
+				},
+			},
+		),
+		expectedAstJson: `{"map":[{"k":{"int":2},"v":{"list":[{"bytes":"abcd"}]}}]}`,
+	},
 }
 
 func TestValueDecode(t *testing.T) {
