@@ -297,13 +297,10 @@ func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
 	return &utxorpc.Tx{}
 }
 
-func (t *ByronTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	// TODO: Implement this add missing Body TransactionBody
-	updateMap := make(map[common.Blake2b224]any)
-	// for k, v := range t.Body.Update.ProtocolParamUpdates {
-	// 	updateMap[k] = v
-	// }
-	return updateMap
+func (t *ByronTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	// No protocol parameter updates in Byron
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
+	return 0, updateMap
 }
 
 type ByronTransactionInput struct {
