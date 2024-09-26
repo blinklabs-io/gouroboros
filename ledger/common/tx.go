@@ -36,7 +36,7 @@ type TransactionBody interface {
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
-	ProtocolParametersUpdate() map[Blake2b224]any
+	ProtocolParameterUpdates() (uint64, map[Blake2b224]ProtocolParameterUpdate)
 	ValidityIntervalStart() uint64
 	ReferenceInputs() []TransactionInput
 	Collateral() []TransactionInput

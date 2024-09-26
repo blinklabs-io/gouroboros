@@ -220,12 +220,12 @@ func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *BabbageTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	updateMap := make(map[common.Blake2b224]any)
+func (b *BabbageTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
-	return updateMap
+	return b.Update.Epoch, updateMap
 }
 
 func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
@@ -523,8 +523,8 @@ func (t BabbageTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t BabbageTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	return t.Body.ProtocolParametersUpdate()
+func (t BabbageTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return t.Body.ProtocolParameterUpdates()
 }
 
 func (t BabbageTransaction) ReferenceInputs() []common.TransactionInput {
@@ -685,6 +685,7 @@ type BabbageProtocolParameters struct {
 }
 
 type BabbageProtocolParameterUpdate struct {
+	cbor.DecodeStoreCbor
 	MinFeeA            uint      `cbor:"0,keyasint"`
 	MinFeeB            uint      `cbor:"1,keyasint"`
 	MaxBlockBodySize   uint      `cbor:"2,keyasint"`
@@ -711,6 +712,12 @@ type BabbageProtocolParameterUpdate struct {
 	MaxValueSize           uint           `cbor:"22,keyasint"`
 	CollateralPercentage   uint           `cbor:"23,keyasint"`
 	MaxCollateralInputs    uint           `cbor:"24,keyasint"`
+}
+
+func (BabbageProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+
+func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
+	return u.UnmarshalCbor(data, u)
 }
 
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {

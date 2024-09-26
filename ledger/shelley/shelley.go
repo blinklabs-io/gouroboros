@@ -237,12 +237,12 @@ func (b *ShelleyTransactionBody) ValidityIntervalStart() uint64 {
 	return 0
 }
 
-func (b *ShelleyTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	updateMap := make(map[common.Blake2b224]any)
+func (b *ShelleyTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
-	return updateMap
+	return b.Update.Epoch, updateMap
 }
 
 func (b *ShelleyTransactionBody) ReferenceInputs() []common.TransactionInput {
@@ -554,8 +554,8 @@ func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
 }
 
-func (t *ShelleyTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	return t.Body.ProtocolParametersUpdate()
+func (t *ShelleyTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return t.Body.ProtocolParameterUpdates()
 }
 
 func (t *ShelleyTransaction) Cbor() []byte {
@@ -606,6 +606,7 @@ type ShelleyProtocolParameters struct {
 }
 
 type ShelleyProtocolParameterUpdate struct {
+	cbor.DecodeStoreCbor
 	MinFeeA            uint      `cbor:"0,keyasint"`
 	MinFeeB            uint      `cbor:"1,keyasint"`
 	MaxBlockBodySize   uint      `cbor:"2,keyasint"`
@@ -626,6 +627,12 @@ type ShelleyProtocolParameterUpdate struct {
 		Minor uint
 	} `cbor:"14,keyasint"`
 	MinUtxoValue uint `cbor:"15,keyasint"`
+}
+
+func (ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+
+func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
+	return u.UnmarshalCbor(data, u)
 }
 
 const (

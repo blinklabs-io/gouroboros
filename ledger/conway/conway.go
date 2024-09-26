@@ -203,12 +203,12 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
-func (b *ConwayTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	updateMap := make(map[common.Blake2b224]any)
+func (b *ConwayTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
-	return updateMap
+	return b.Update.Epoch, updateMap
 }
 
 func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
@@ -339,8 +339,8 @@ func (t ConwayTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t ConwayTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	return t.Body.ProtocolParametersUpdate()
+func (t ConwayTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return t.Body.ProtocolParameterUpdates()
 }
 
 func (t ConwayTransaction) ReferenceInputs() []common.TransactionInput {

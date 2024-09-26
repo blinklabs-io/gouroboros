@@ -148,12 +148,12 @@ func (b *AllegraTransactionBody) ValidityIntervalStart() uint64 {
 	return b.TxValidityIntervalStart
 }
 
-func (b *AllegraTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	updateMap := make(map[common.Blake2b224]any)
+func (b *AllegraTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
-	return updateMap
+	return b.Update.Epoch, updateMap
 }
 
 type AllegraTransaction struct {
@@ -278,8 +278,8 @@ func (t AllegraTransaction) Produced() []common.Utxo {
 	return ret
 }
 
-func (t AllegraTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	return t.Body.ProtocolParametersUpdate()
+func (t AllegraTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return t.Body.ProtocolParameterUpdates()
 }
 
 func (t *AllegraTransaction) Cbor() []byte {

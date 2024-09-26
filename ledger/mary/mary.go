@@ -156,12 +156,12 @@ func (b *MaryTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *MaryTransactionBody) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	updateMap := make(map[common.Blake2b224]any)
+func (b *MaryTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
-	return updateMap
+	return b.Update.Epoch, updateMap
 }
 
 func (b *MaryTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
@@ -210,8 +210,8 @@ func (t MaryTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t MaryTransaction) ProtocolParametersUpdate() map[common.Blake2b224]any {
-	return t.Body.ProtocolParametersUpdate()
+func (t MaryTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return t.Body.ProtocolParameterUpdates()
 }
 
 func (t MaryTransaction) ReferenceInputs() []common.TransactionInput {
