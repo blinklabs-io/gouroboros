@@ -20,17 +20,32 @@ package ledger
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"strconv"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
+	_cbor "github.com/fxamacker/cbor/v2"
 	"golang.org/x/crypto/blake2b"
+	"math"
+	"reflect"
+	"strconv"
+)
+
+const (
+	maxAdditionalInformationWithoutArgument = 23
+	additionalInformationWith1ByteArgument  = 24
+	additionalInformationWith2ByteArgument  = 25
+	additionalInformationWith4ByteArgument  = 26
+	additionalInformationWith8ByteArgument  = 27
 )
 
 const (
 	LOVELACE_TOKEN              = "lovelace"
 	BLOCK_BODY_HASH_ZERO_TX_HEX = "29571d16f081709b3c48651860077bebf9340abb3fc7133443c54f1f5a5edcf1"
+	MAX_LIST_LENGTH_CBOR        = 23
+	CBOR_TYPE_MAP               = 0xa0
+	CBOR_TYPE_MAP_INDEF         = 0xbf
+	CBOR_BREAK_TAG              = 0xff
 )
 
 func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
@@ -74,11 +89,204 @@ func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
 	return bytes.Equal(calculateBlockBodyHashByte[:32], blockBodyHashByte), nil
 }
 
+func CustomTagSet() _cbor.TagSet {
+	customTagSet := _cbor.NewTagSet()
+	tagOpts := _cbor.TagOptions{
+		EncTag: _cbor.EncTagRequired,
+		DecTag: _cbor.DecTagRequired,
+	}
+	// Wrapped CBOR
+	if err := customTagSet.Add(
+		tagOpts,
+		reflect.TypeOf(cbor.WrappedCbor{}),
+		cbor.CborTagCbor,
+	); err != nil {
+		panic(err)
+	}
+	// Rational numbers
+	if err := customTagSet.Add(
+		tagOpts,
+		reflect.TypeOf(cbor.Rat{}),
+		cbor.CborTagRational,
+	); err != nil {
+		panic(err)
+	}
+	// Sets
+	if err := customTagSet.Add(
+		tagOpts,
+		reflect.TypeOf(cbor.Set{}),
+		cbor.CborTagSet,
+	); err != nil {
+		panic(err)
+	}
+	// Maps
+	if err := customTagSet.Add(
+		tagOpts,
+		reflect.TypeOf(cbor.Map{}),
+		cbor.CborTagMap,
+	); err != nil {
+		panic(err)
+	}
+
+	return customTagSet
+}
+
+func GetEncMode() (_cbor.EncMode, error) {
+	opts := _cbor.EncOptions{
+		Sort: _cbor.SortNone,
+	}
+	customTagSet := CustomTagSet()
+	em, err := opts.EncModeWithTags(customTagSet)
+	if err != nil {
+		return nil, err
+	}
+	return em, nil
+}
+
+func EncodeCborList(data []cbor.RawMessage) ([]byte, error) {
+	// Cardano base consider list more than 23 will be ListLenIndef
+	// https://github.com/IntersectMBO/cardano-base/blob/e86a25c54389ddd0f77fdbc3f3615c57bd91d543/cardano-binary/src/Cardano/Binary/ToCBOR.hs#L708C10-L708C28
+	if len(data) <= MAX_LIST_LENGTH_CBOR {
+		return cbor.Encode(data)
+	}
+	buf := bytes.NewBuffer(nil)
+	em, err := GetEncMode()
+	if err != nil {
+		return nil, err
+	}
+	enc := em.NewEncoder(buf)
+
+	if err := enc.StartIndefiniteArray(); err != nil {
+		return nil, err
+	}
+	for _, item := range data {
+		err = enc.Encode(item)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := enc.EndIndefinite(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), err
+}
+
+func EncodeCborTxSeq(data []uint) ([]byte, error) {
+	// Cardano base consider list more than 23 will be ListLenIndef
+	// https://github.com/IntersectMBO/cardano-base/blob/e86a25c54389ddd0f77fdbc3f3615c57bd91d543/cardano-binary/src/Cardano/Binary/ToCBOR.hs#L708C10-L708C28
+
+	if len(data) <= MAX_LIST_LENGTH_CBOR {
+		return cbor.Encode(data)
+	}
+	buf := bytes.NewBuffer(nil)
+	em, err := GetEncMode()
+	if err != nil {
+		return nil, err
+	}
+	enc := em.NewEncoder(buf)
+
+	if err := enc.StartIndefiniteArray(); err != nil {
+		return nil, err
+	}
+	for _, item := range data {
+		err = enc.Encode(item)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := enc.EndIndefinite(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), err
+}
+
+type AuxData struct {
+	index uint64
+	data  []byte
+}
+
+// encodeHead writes CBOR head of specified type t and returns number of bytes written.
+// copy from https://github.com/fxamacker/cbor/blob/46c3919161ecd1beff1b80867e08efb37d43f27c/encode.go#L1728
+func encodeHead(e *bytes.Buffer, t byte, n uint64) int {
+	if n <= maxAdditionalInformationWithoutArgument {
+		const headSize = 1
+		e.WriteByte(t | byte(n))
+		return headSize
+	}
+
+	if n <= math.MaxUint8 {
+		const headSize = 2
+		scratch := [headSize]byte{
+			t | byte(additionalInformationWith1ByteArgument),
+			byte(n),
+		}
+		e.Write(scratch[:])
+		return headSize
+	}
+
+	if n <= math.MaxUint16 {
+		const headSize = 3
+		var scratch [headSize]byte
+		scratch[0] = t | byte(additionalInformationWith2ByteArgument)
+		binary.BigEndian.PutUint16(scratch[1:], uint16(n))
+		e.Write(scratch[:])
+		return headSize
+	}
+
+	if n <= math.MaxUint32 {
+		const headSize = 5
+		var scratch [headSize]byte
+		scratch[0] = t | byte(additionalInformationWith4ByteArgument)
+		binary.BigEndian.PutUint32(scratch[1:], uint32(n))
+		e.Write(scratch[:])
+		return headSize
+	}
+
+	const headSize = 9
+	var scratch [headSize]byte
+	scratch[0] = t | byte(additionalInformationWith8ByteArgument)
+	binary.BigEndian.PutUint64(scratch[1:], n)
+	e.Write(scratch[:])
+	return headSize
+}
+
+// EncodeCborMap manual build aux bytes data
+func EncodeCborMap(data []AuxData) ([]byte, error) {
+	dataLen := len(data)
+	if dataLen == 0 {
+		txSeqMetadata := make(map[uint64]interface{})
+		return cbor.Encode(txSeqMetadata)
+	}
+	var dataBuffer bytes.Buffer
+	var dataBytes []byte
+	if dataLen <= MAX_LIST_LENGTH_CBOR {
+		encodeHead(&dataBuffer, byte(CBOR_TYPE_MAP), uint64(dataLen))
+		dataBytes = dataBuffer.Bytes()
+	} else {
+		dataBytes = []byte{
+			uint8(CBOR_TYPE_MAP_INDEF),
+		}
+	}
+
+	for _, aux := range data {
+		dataIndex := aux.index
+		dataValue := aux.data
+		indexBytes, _ := cbor.Encode(dataIndex)
+		dataBytes = append(dataBytes, indexBytes...)
+		dataBytes = append(dataBytes, dataValue...)
+	}
+	if dataLen > MAX_LIST_LENGTH_CBOR {
+		dataBytes = append(dataBytes, CBOR_BREAK_TAG)
+	}
+
+	return dataBytes, nil
+}
+
 func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
-	var txSeqBody []cbor.RawMessage
-	var txSeqWit []cbor.RawMessage
-	txSeqMetadata := make(map[uint64]interface{}, len(txsRaw))
-	txSeqNonValid := []uint{}
+	txSeqBody := make([]cbor.RawMessage, 0)
+	txSeqWit := make([]cbor.RawMessage, 0)
+	auxRawData := make([]AuxData, 0)
+	txSeqNonValid := make([]uint, 0)
 	for index, tx := range txsRaw {
 		if len(tx) != 3 {
 			return nil, fmt.Errorf(
@@ -120,22 +328,14 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 					auxBytesError.Error(),
 				)
 			}
-
-			var auxInterface interface{}
-			_, auxDecodeError := cbor.Decode(auxBytes, &auxInterface)
-			if auxDecodeError != nil {
-				return nil, fmt.Errorf(
-					"CalculateBlockBodyHash: decode aux tx[%v] error, %v",
-					index,
-					auxDecodeError.Error(),
-				)
-			}
-
-			txSeqMetadata[uint64(index)] = auxInterface
+			auxRawData = append(auxRawData, AuxData{
+				index: uint64(index),
+				data:  auxBytes,
+			})
 		}
 		// TODO: should form nonValid TX here
 	}
-	txSeqBodyBytes, txSeqBodyBytesError := cbor.Encode(txSeqBody)
+	txSeqBodyBytes, txSeqBodyBytesError := EncodeCborList(txSeqBody)
 	if txSeqBodyBytesError != nil {
 		return nil, fmt.Errorf(
 			"CalculateBlockBodyHash: encode txSeqBody error, %v",
@@ -146,7 +346,7 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqBodySum32Bytes := blake2b.Sum256(txSeqBodyBytes)
 	txSeqBodySumBytes := txSeqBodySum32Bytes[:]
 
-	txSeqWitsBytes, txSeqWitsBytesError := cbor.Encode(txSeqWit)
+	txSeqWitsBytes, txSeqWitsBytesError := EncodeCborList(txSeqWit)
 	if txSeqWitsBytesError != nil {
 		return nil, fmt.Errorf(
 			"CalculateBlockBodyHash: encode txSeqWit error, %v",
@@ -156,7 +356,7 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqWitsSum32Bytes := blake2b.Sum256(txSeqWitsBytes)
 	txSeqWitsSumBytes := txSeqWitsSum32Bytes[:]
 
-	txSeqMetadataBytes, txSeqMetadataBytesError := cbor.Encode(txSeqMetadata)
+	txSeqMetadataBytes, txSeqMetadataBytesError := EncodeCborMap(auxRawData)
 	if txSeqMetadataBytesError != nil {
 		return nil, fmt.Errorf(
 			"CalculateBlockBodyHash: encode txSeqMetadata error, %v",
@@ -166,7 +366,7 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqMetadataSum32Bytes := blake2b.Sum256(txSeqMetadataBytes)
 	txSeqMetadataSumBytes := txSeqMetadataSum32Bytes[:]
 
-	txSeqNonValidBytes, txSeqNonValidBytesError := cbor.Encode(txSeqNonValid)
+	txSeqNonValidBytes, txSeqNonValidBytesError := EncodeCborTxSeq(txSeqNonValid)
 	if txSeqNonValidBytesError != nil {
 		return nil, fmt.Errorf(
 			"CalculateBlockBodyHash: encode txSeqNonValid error, %v",
