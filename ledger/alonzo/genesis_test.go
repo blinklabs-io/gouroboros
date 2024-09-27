@@ -15,8 +15,8 @@
 package alonzo_test
 
 import (
-	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -411,8 +411,8 @@ var expectedGenesisObj = alonzo.AlonzoGenesis{
 }
 
 func TestGenesisFromJson(t *testing.T) {
-	var tmpGenesis alonzo.AlonzoGenesis
-	if err := json.Unmarshal([]byte(alonzoGenesisConfig), &tmpGenesis); err != nil {
+	tmpGenesis, err := alonzo.NewAlonzoGenesisFromReader(strings.NewReader(alonzoGenesisConfig))
+	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if !reflect.DeepEqual(tmpGenesis, expectedGenesisObj) {
