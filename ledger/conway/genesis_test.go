@@ -15,8 +15,8 @@
 package conway_test
 
 import (
-	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
@@ -383,8 +383,8 @@ var expectedGenesisObj = conway.ConwayGenesis{
 }
 
 func TestGenesisFromJson(t *testing.T) {
-	var tmpGenesis conway.ConwayGenesis
-	if err := json.Unmarshal([]byte(conwayGenesisConfig), &tmpGenesis); err != nil {
+	tmpGenesis, err := conway.NewConwayGenesisFromReader(strings.NewReader(conwayGenesisConfig))
+	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if !reflect.DeepEqual(tmpGenesis, expectedGenesisObj) {

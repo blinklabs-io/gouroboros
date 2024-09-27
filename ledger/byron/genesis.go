@@ -14,6 +14,12 @@
 
 package byron
 
+import (
+	"encoding/json"
+	"io"
+	"os"
+)
+
 type ByronGenesis struct {
 	AvvmDistr        map[string]string
 	BlockVersionData ByronGenesisBlockVersionData
@@ -73,4 +79,23 @@ type ByronGenesisVssCert struct {
 	Signature   string
 	SigningKey  string
 	VssKey      string
+}
+
+func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
+	var ret ByronGenesis
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&ret); err != nil {
+		return ret, err
+	}
+	return ret, nil
+}
+
+func NewByronGenesisFromFile(path string) (ByronGenesis, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return ByronGenesis{}, err
+	}
+	defer f.Close()
+	return NewByronGenesisFromReader(f)
 }

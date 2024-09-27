@@ -15,8 +15,8 @@
 package shelley_test
 
 import (
-	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,8 +167,8 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 }
 
 func TestGenesisFromJson(t *testing.T) {
-	var tmpGenesis shelley.ShelleyGenesis
-	if err := json.Unmarshal([]byte(shelleyGenesisConfig), &tmpGenesis); err != nil {
+	tmpGenesis, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(shelleyGenesisConfig))
+	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if !reflect.DeepEqual(tmpGenesis, expectedGenesisObj) {

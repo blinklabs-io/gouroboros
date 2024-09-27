@@ -14,6 +14,12 @@
 
 package conway
 
+import (
+	"encoding/json"
+	"io"
+	"os"
+)
+
 type ConwayGenesis struct {
 	PoolVotingThresholds       ConwayGenesisPoolVotingThresholds
 	DRepVotingThresholds       ConwayGenesisDRepVotingThresholds
@@ -63,4 +69,23 @@ type ConwayGenesisConstitutionAnchor struct {
 type ConwayGenesisCommittee struct {
 	Members   map[string]int
 	Threshold map[string]int
+}
+
+func NewConwayGenesisFromReader(r io.Reader) (ConwayGenesis, error) {
+	var ret ConwayGenesis
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&ret); err != nil {
+		return ret, err
+	}
+	return ret, nil
+}
+
+func NewConwayGenesisFromFile(path string) (ConwayGenesis, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return ConwayGenesis{}, err
+	}
+	defer f.Close()
+	return NewConwayGenesisFromReader(f)
 }

@@ -15,8 +15,8 @@
 package byron_test
 
 import (
-	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -236,8 +236,8 @@ var expectedGenesisObj = byron.ByronGenesis{
 }
 
 func TestGenesisFromJson(t *testing.T) {
-	var tmpGenesis byron.ByronGenesis
-	if err := json.Unmarshal([]byte(byronGenesisConfig), &tmpGenesis); err != nil {
+	tmpGenesis, err := byron.NewByronGenesisFromReader(strings.NewReader(byronGenesisConfig))
+	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if !reflect.DeepEqual(tmpGenesis, expectedGenesisObj) {

@@ -14,7 +14,12 @@
 
 package shelley
 
-import "time"
+import (
+	"encoding/json"
+	"io"
+	"os"
+	"time"
+)
 
 type ShelleyGenesis struct {
 	SystemStart        time.Time                    `json:"systemStart"`
@@ -55,4 +60,23 @@ type ShelleyGenesisProtocolParams struct {
 	}
 	MinUtxoValue uint `json:"minUTxOValue"`
 	MinPoolCost  uint
+}
+
+func NewShelleyGenesisFromReader(r io.Reader) (ShelleyGenesis, error) {
+	var ret ShelleyGenesis
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&ret); err != nil {
+		return ret, err
+	}
+	return ret, nil
+}
+
+func NewShelleyGenesisFromFile(path string) (ShelleyGenesis, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return ShelleyGenesis{}, err
+	}
+	defer f.Close()
+	return NewShelleyGenesisFromReader(f)
 }
