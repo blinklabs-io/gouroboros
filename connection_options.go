@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package ouroboros
 
 import (
+	"log/slog"
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
@@ -63,6 +64,13 @@ func WithErrorChan(errorChan chan error) ConnectionOptionFunc {
 func WithServer(server bool) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.server = server
+	}
+}
+
+// WithLogger specifies the slog.Logger to use. This is empty by default
+func WithLogger(logger *slog.Logger) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.logger = logger
 	}
 }
 
