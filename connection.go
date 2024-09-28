@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -59,6 +60,7 @@ type Connection struct {
 	networkMagic          uint32
 	server                bool
 	useNodeToNodeProto    bool
+	logger                *slog.Logger
 	muxer                 *muxer.Muxer
 	errorChan             chan error
 	protoErrorChan        chan error
