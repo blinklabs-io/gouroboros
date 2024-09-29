@@ -334,7 +334,7 @@ func TestMsgFindIntersect(t *testing.T) {
 			CborHex: "82048180",
 			Message: NewMsgFindIntersect(
 				[]common.Point{
-					common.Point{},
+					{},
 				},
 			),
 			MessageType: MessageTypeFindIntersect,
@@ -344,7 +344,7 @@ func TestMsgFindIntersect(t *testing.T) {
 			CborHex: "820481821a001863bf58207e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
 			Message: NewMsgFindIntersect(
 				[]common.Point{
-					common.Point{
+					{
 						Slot: 1598399,
 						Hash: hexDecode(
 							"7E16781B40EBF8B6DA18F7B5E8ADE855D6738095EF2F1C58C77E88B6E45997A4",

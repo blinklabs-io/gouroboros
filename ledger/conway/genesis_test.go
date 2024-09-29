@@ -383,11 +383,17 @@ var expectedGenesisObj = conway.ConwayGenesis{
 }
 
 func TestGenesisFromJson(t *testing.T) {
-	tmpGenesis, err := conway.NewConwayGenesisFromReader(strings.NewReader(conwayGenesisConfig))
+	tmpGenesis, err := conway.NewConwayGenesisFromReader(
+		strings.NewReader(conwayGenesisConfig),
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if !reflect.DeepEqual(tmpGenesis, expectedGenesisObj) {
-		t.Fatalf("did not get expected object:\n     got: %#v\n  wanted: %#v", tmpGenesis, expectedGenesisObj)
+		t.Fatalf(
+			"did not get expected object:\n     got: %#v\n  wanted: %#v",
+			tmpGenesis,
+			expectedGenesisObj,
+		)
 	}
 }

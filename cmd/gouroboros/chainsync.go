@@ -70,35 +70,35 @@ func newChainSyncFlags() *chainSyncFlags {
 
 // Intersect points (last block of previous era) for each era on testnet/mainnet
 var eraIntersect = map[string]map[string][]interface{}{
-	"unknown": map[string][]interface{}{
-		"genesis": []interface{}{},
+	"unknown": {
+		"genesis": {},
 	},
-	"mainnet": map[string][]interface{}{
-		"genesis": []interface{}{},
+	"mainnet": {
+		"genesis": {},
 		// Chain genesis, but explicit
-		"byron": []interface{}{},
+		"byron": {},
 		// Last block of epoch 207 (Byron era)
-		"shelley": []interface{}{
+		"shelley": {
 			4492799,
 			"f8084c61b6a238acec985b59310b6ecec49c0ab8352249afd7268da5cff2a457",
 		},
 		// Last block of epoch 235 (Shelley era)
-		"allegra": []interface{}{
+		"allegra": {
 			16588737,
 			"4e9bbbb67e3ae262133d94c3da5bffce7b1127fc436e7433b87668dba34c354a",
 		},
 		// Last block of epoch 250 (Allegra era)
-		"mary": []interface{}{
+		"mary": {
 			23068793,
 			"69c44ac1dda2ec74646e4223bc804d9126f719b1c245dadc2ad65e8de1b276d7",
 		},
 		// Last block of epoch 289 (Mary era)
-		"alonzo": []interface{}{
+		"alonzo": {
 			39916796,
 			"e72579ff89dc9ed325b723a33624b596c08141c7bd573ecfff56a1f7229e4d09",
 		},
 		// Last block of epoch 364 (Alonzo era)
-		"babbage": []interface{}{
+		"babbage": {
 			72316796,
 			"c58a24ba8203e7629422a24d9dc68ce2ed495420bf40d9dab124373655161a20",
 		},
@@ -108,15 +108,15 @@ var eraIntersect = map[string]map[string][]interface{}{
 			"e757d57eb8dc9500a61c60a39fadb63d9be6973ba96ae337fd24453d4d15c343",
 		},
 	},
-	"preprod": map[string][]interface{}{
-		"genesis": []interface{}{},
-		"alonzo":  []interface{}{},
+	"preprod": {
+		"genesis": {},
+		"alonzo":  {},
 	},
-	"preview": map[string][]interface{}{
-		"genesis": []interface{}{},
-		"alonzo":  []interface{}{},
+	"preview": {
+		"genesis": {},
+		"alonzo":  {},
 		// Last block of epoch 3 (Alonzo era)
-		"babbage": []interface{}{
+		"babbage": {
 			345594,
 			"e47ac07272e95d6c3dc8279def7b88ded00e310f99ac3dfbae48ed9ff55e6001",
 		},

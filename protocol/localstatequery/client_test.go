@@ -234,7 +234,7 @@ func TestGetUTxOByAddress(t *testing.T) {
 	}
 	expectedResult := localstatequery.UTxOByAddressResult{
 		Results: map[localstatequery.UtxoId]ledger.BabbageTransactionOutput{
-			expectedUtxoId: ledger.BabbageTransactionOutput{
+			expectedUtxoId: {
 				OutputAddress: testAddress,
 				OutputAmount: ledger.MaryTransactionOutputValue{
 					Amount: 234567,

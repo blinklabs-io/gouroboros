@@ -366,7 +366,9 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqMetadataSum32Bytes := blake2b.Sum256(txSeqMetadataBytes)
 	txSeqMetadataSumBytes := txSeqMetadataSum32Bytes[:]
 
-	txSeqNonValidBytes, txSeqNonValidBytesError := EncodeCborTxSeq(txSeqNonValid)
+	txSeqNonValidBytes, txSeqNonValidBytesError := EncodeCborTxSeq(
+		txSeqNonValid,
+	)
 	if txSeqNonValidBytesError != nil {
 		return nil, fmt.Errorf(
 			"CalculateBlockBodyHash: encode txSeqNonValid error, %v",
@@ -490,8 +492,10 @@ func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 			for _, assetName := range tmpAssets.Assets(policyId) {
 				amount := tmpAssets.Asset(policyId, assetName)
 				outputTokens = append(outputTokens, UTXOOutputToken{
-					TokenAssetName: policyId.String() + hex.EncodeToString(assetName),
-					TokenValue:     strconv.FormatUint(amount, 10),
+					TokenAssetName: policyId.String() + hex.EncodeToString(
+						assetName,
+					),
+					TokenValue: strconv.FormatUint(amount, 10),
 				})
 			}
 		}

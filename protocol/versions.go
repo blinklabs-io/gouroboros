@@ -46,7 +46,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 	//
 	// We don't bother supporting NtC protocol versions before 9 (when Alonzo was enabled)
 
-	(9 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(9 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc: NewVersionDataNtC9to14FromCbor,
 		EnableLocalQueryProtocol:   true,
 		EnableShelleyEra:           true,
@@ -55,7 +55,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableAlonzoEra:            true,
 	},
 	// added GetChainBlockNo and GetChainPoint queries
-	(10 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(10 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc: NewVersionDataNtC9to14FromCbor,
 		EnableLocalQueryProtocol:   true,
 		EnableShelleyEra:           true,
@@ -64,7 +64,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableAlonzoEra:            true,
 	},
 	// added GetRewardInfoPools Block query
-	(11 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(11 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc: NewVersionDataNtC9to14FromCbor,
 		EnableLocalQueryProtocol:   true,
 		EnableShelleyEra:           true,
@@ -72,7 +72,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableMaryEra:              true,
 		EnableAlonzoEra:            true,
 	},
-	(12 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(12 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc:   NewVersionDataNtC9to14FromCbor,
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
@@ -81,7 +81,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableAlonzoEra:              true,
 		EnableLocalTxMonitorProtocol: true,
 	},
-	(13 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(13 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc:   NewVersionDataNtC9to14FromCbor,
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
@@ -92,7 +92,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableLocalTxMonitorProtocol: true,
 	},
 	// added GetPoolDistr, GetPoolState, @GetSnapshots
-	(14 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(14 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc:   NewVersionDataNtC9to14FromCbor,
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
@@ -103,7 +103,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableLocalTxMonitorProtocol: true,
 	},
 	// added query param to handshake
-	(15 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(15 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
@@ -113,7 +113,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableBabbageEra:             true,
 		EnableLocalTxMonitorProtocol: true,
 	},
-	(16 + ProtocolVersionNtCOffset): ProtocolVersion{
+	(16 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
@@ -129,7 +129,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 	//
 	// We don't bother supporting NtN protocol versions before 7 (when Alonzo was enabled)
 
-	7: ProtocolVersion{
+	7: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN7to10FromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
@@ -137,7 +137,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableMaryEra:              true,
 		EnableAlonzoEra:            true,
 	},
-	8: ProtocolVersion{
+	8: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN7to10FromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
@@ -145,7 +145,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableMaryEra:              true,
 		EnableAlonzoEra:            true,
 	},
-	9: ProtocolVersion{
+	9: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN7to10FromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
@@ -154,7 +154,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableAlonzoEra:            true,
 		EnableBabbageEra:           true,
 	},
-	10: ProtocolVersion{
+	10: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN7to10FromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
@@ -164,7 +164,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableBabbageEra:           true,
 		EnableFullDuplex:           true,
 	},
-	11: ProtocolVersion{
+	11: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN11to12FromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
@@ -176,7 +176,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnablePeerSharingProtocol:  true,
 		PeerSharingUseV11:          true,
 	},
-	12: ProtocolVersion{
+	12: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN11to12FromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
@@ -189,7 +189,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnablePeerSharingProtocol:  true,
 		PeerSharingUseV11:          true,
 	},
-	13: ProtocolVersion{
+	13: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
