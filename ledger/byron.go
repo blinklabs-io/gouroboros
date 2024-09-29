@@ -16,7 +16,7 @@ package ledger
 
 import "github.com/blinklabs-io/gouroboros/ledger/byron"
 
-// The below are compatability types, constants, and functions for the Byron era
+// The below are compatibility types, constants, and functions for the Byron era
 // to keep existing code working after a refactor of the ledger package
 
 // Byron types

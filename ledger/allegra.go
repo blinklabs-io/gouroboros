@@ -16,7 +16,7 @@ package ledger
 
 import "github.com/blinklabs-io/gouroboros/ledger/allegra"
 
-// The below are compatability types, constants, and functions for the Allegra era
+// The below are compatibility types, constants, and functions for the Allegra era
 // to keep existing code working after a refactor of the ledger package
 
 // Allegra types

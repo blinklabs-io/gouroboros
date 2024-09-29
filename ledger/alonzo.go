@@ -16,7 +16,7 @@ package ledger
 
 import "github.com/blinklabs-io/gouroboros/ledger/alonzo"
 
-// The below are compatability types, constants, and functions for the Alonzo era
+// The below are compatibility types, constants, and functions for the Alonzo era
 // to keep existing code working after a refactor of the ledger package
 
 // Alonzo types

@@ -16,7 +16,7 @@ package ledger
 
 import "github.com/blinklabs-io/gouroboros/ledger/shelley"
 
-// The below are compatability types, constants, and functions for the Shelley era
+// The below are compatibility types, constants, and functions for the Shelley era
 // to keep existing code working after a refactor of the ledger package
 
 // Shelley types
