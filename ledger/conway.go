@@ -16,7 +16,7 @@ package ledger
 
 import "github.com/blinklabs-io/gouroboros/ledger/conway"
 
-// The below are compatability types, constants, and functions for the Conway era
+// The below are compatibility types, constants, and functions for the Conway era
 // to keep existing code working after a refactor of the ledger package
 
 // Conway types

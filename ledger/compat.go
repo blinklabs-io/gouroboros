@@ -18,7 +18,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-// The below are compatability types and functions to keep existing code working
+// The below are compatibility types and functions to keep existing code working
 // after a refactor of the ledger package
 
 // Hash types

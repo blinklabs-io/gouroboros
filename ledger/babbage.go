@@ -16,7 +16,7 @@ package ledger
 
 import "github.com/blinklabs-io/gouroboros/ledger/babbage"
 
-// The below are compatability types, constants, and functions for the Babbage era
+// The below are compatibility types, constants, and functions for the Babbage era
 // to keep existing code working after a refactor of the ledger package
 
 // Babbage types
