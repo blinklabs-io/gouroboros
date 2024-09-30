@@ -134,7 +134,9 @@ type MultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
 }
 
 // NewMultiAsset creates a MultiAsset with the specified data
-func NewMultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint](data map[Blake2b224]map[cbor.ByteString]T) MultiAsset[T] {
+func NewMultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint](
+	data map[Blake2b224]map[cbor.ByteString]T,
+) MultiAsset[T] {
 	return MultiAsset[T]{data: data}
 }
 

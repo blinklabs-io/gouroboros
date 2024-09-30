@@ -227,8 +227,8 @@ var expectedGenesisObj = alonzo.AlonzoGenesis{
 	CollateralPercentage: 150,
 	MaxCollateralInputs:  3,
 	ExecutionPrices: map[string]map[string]int{
-		"prMem":   map[string]int{"denominator": 10000, "numerator": 577},
-		"prSteps": map[string]int{"denominator": 10000000, "numerator": 721},
+		"prMem":   {"denominator": 10000, "numerator": 577},
+		"prSteps": {"denominator": 10000000, "numerator": 721},
 	},
 	MaxTxExUnits: map[string]int{
 		"exUnitsMem":   10000000,
@@ -239,7 +239,7 @@ var expectedGenesisObj = alonzo.AlonzoGenesis{
 		"exUnitsSteps": 40000000000,
 	},
 	CostModels: map[string]map[string]int{
-		"PlutusV1": map[string]int{
+		"PlutusV1": {
 			"addInteger-cpu-arguments-intercept":                       197209,
 			"addInteger-cpu-arguments-slope":                           0,
 			"addInteger-memory-arguments-intercept":                    1,
@@ -411,11 +411,17 @@ var expectedGenesisObj = alonzo.AlonzoGenesis{
 }
 
 func TestGenesisFromJson(t *testing.T) {
-	tmpGenesis, err := alonzo.NewAlonzoGenesisFromReader(strings.NewReader(alonzoGenesisConfig))
+	tmpGenesis, err := alonzo.NewAlonzoGenesisFromReader(
+		strings.NewReader(alonzoGenesisConfig),
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if !reflect.DeepEqual(tmpGenesis, expectedGenesisObj) {
-		t.Fatalf("did not get expected object:\n     got: %#v\n  wanted: %#v", tmpGenesis, expectedGenesisObj)
+		t.Fatalf(
+			"did not get expected object:\n     got: %#v\n  wanted: %#v",
+			tmpGenesis,
+			expectedGenesisObj,
+		)
 	}
 }
