@@ -2,6 +2,7 @@
   <img src="./assets/gOuroboros-logo-with-text-horizontal.png" alt="gOurobros Logo" width="640">
   <br>
   <img alt="GitHub" src="https://img.shields.io/github/license/blinklabs-io/gouroboros">
+  <a href="https://goreportcard.com/report/github.com/blinklabs-io/gouroboros"><img src="https://goreportcard.com/badge/github.com/blinklabs-io/gouroboros" alt="Go Report Card"></a>
   <a href="https://pkg.go.dev/github.com/blinklabs-io/gouroboros"><img src="https://pkg.go.dev/badge/github.com/blinklabs-io/gouroboros.svg" alt="Go Reference"></a>
   <a href="https://discord.gg/5fPRZnX4qW"><img src="https://img.shields.io/badge/Discord-7289DA?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
 </div>
