@@ -20,7 +20,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-// Compatablity aliases
+// Compatiblity aliases
 type Transaction = common.Transaction
 type TransactionBody = common.TransactionBody
 type TransactionInput = common.TransactionInput
