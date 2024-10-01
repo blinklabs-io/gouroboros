@@ -110,7 +110,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeRequestNext:
-		err = s.handleRequestNext(msg)
+		err = s.handleRequestNext()
 	case MessageTypeFindIntersect:
 		err = s.handleFindIntersect(msg)
 	case MessageTypeDone:
@@ -125,7 +125,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (s *Server) handleRequestNext(msg protocol.Message) error {
+func (s *Server) handleRequestNext() error {
 	if s.config == nil || s.config.RequestNextFunc == nil {
 		return fmt.Errorf(
 			"received chain-sync RequestNext message but no callback function is defined",
