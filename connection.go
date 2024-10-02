@@ -102,6 +102,10 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 		protoErrorChan:        make(chan error, 10),
 		handshakeFinishedChan: make(chan interface{}),
 		doneChan:              make(chan interface{}),
+		// Create a discard logger to throw away logs. We do this so
+		// we don't have to add guards around every log operation if
+		// a logger is not configured by the user.
+		logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -287,6 +291,7 @@ func (c *Connection) setupConnection() error {
 	protoOptions := protocol.ProtocolOptions{
 		ConnectionId: c.id,
 		Muxer:        c.muxer,
+		Logger:       c.logger,
 		ErrorChan:    c.protoErrorChan,
 	}
 	if c.useNodeToNodeProto {

@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -53,6 +54,7 @@ type ProtocolConfig struct {
 	ProtocolId          uint16
 	ErrorChan           chan error
 	Muxer               *muxer.Muxer
+	Logger              *slog.Logger
 	Mode                ProtocolMode
 	Role                ProtocolRole
 	MessageHandlerFunc  MessageHandlerFunc
@@ -85,6 +87,7 @@ const (
 type ProtocolOptions struct {
 	ConnectionId connection.ConnectionId
 	Muxer        *muxer.Muxer
+	Logger       *slog.Logger
 	ErrorChan    chan error
 	Mode         ProtocolMode
 	// TODO: remove me
@@ -118,6 +121,7 @@ func New(config ProtocolConfig) *Protocol {
 func (p *Protocol) Start() {
 	p.onceStart.Do(func() {
 		// Register protocol with muxer
+		p.Logger().Debug("registering protocol with muxer")
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
@@ -156,6 +160,7 @@ func (p *Protocol) Start() {
 func (p *Protocol) Stop() {
 	p.onceStop.Do(func() {
 		// Unregister protocol from muxer
+		p.Logger().Debug("unregistering protocol with muxer")
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
@@ -165,6 +170,14 @@ func (p *Protocol) Stop() {
 			muxerProtocolRole,
 		)
 	})
+}
+
+// Logger returns the protocol logger
+func (p *Protocol) Logger() *slog.Logger {
+	if p.config.Logger == nil {
+		return slog.New(slog.NewJSONHandler(io.Discard, nil))
+	}
+	return p.config.Logger
 }
 
 // Mode returns the protocol mode
