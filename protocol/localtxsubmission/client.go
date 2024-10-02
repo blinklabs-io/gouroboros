@@ -58,6 +58,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -72,6 +73,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -81,20 +84,19 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) messageHandler(msg protocol.Message) error {
+// Stop transitions the protocol to the Done state. No more operations will be possible
+func (c *Client) Stop() error {
 	var err error
-	switch msg.Type() {
-	case MessageTypeAcceptTx:
-		err = c.handleAcceptTx()
-	case MessageTypeRejectTx:
-		err = c.handleRejectTx(msg)
-	default:
-		err = fmt.Errorf(
-			"%s: received unexpected message type %d",
-			ProtocolName,
-			msg.Type(),
-		)
-	}
+	c.onceStop.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("stopping protocol: %s", ProtocolName))
+		c.busyMutex.Lock()
+		defer c.busyMutex.Unlock()
+		msg := NewMsgDone()
+		if err = c.SendMessage(msg); err != nil {
+			return
+		}
+	})
 	return err
 }
 
@@ -113,26 +115,35 @@ func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 	return err
 }
 
-// Stop transitions the protocol to the Done state. No more operations will be possible
-func (c *Client) Stop() error {
+func (c *Client) messageHandler(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
 	var err error
-	c.onceStop.Do(func() {
-		c.busyMutex.Lock()
-		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
-		}
-	})
+	switch msg.Type() {
+	case MessageTypeAcceptTx:
+		err = c.handleAcceptTx()
+	case MessageTypeRejectTx:
+		err = c.handleRejectTx(msg)
+	default:
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
+	}
 	return err
 }
 
 func (c *Client) handleAcceptTx() error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client accept tx for %s", ProtocolName))
 	c.submitResultChan <- nil
 	return nil
 }
 
 func (c *Client) handleRejectTx(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client reject tx for %s", ProtocolName))
 	msgRejectTx := msg.(*MsgRejectTx)
 	rejectErr, err := ledger.NewTxSubmitErrorFromCbor(msgRejectTx.Reason)
 	if err != nil {

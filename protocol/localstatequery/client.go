@@ -72,6 +72,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -94,6 +95,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -104,7 +107,572 @@ func (c *Client) Start() {
 	})
 }
 
+// Acquire starts the acquire process for the specified chain point
+func (c *Client) Acquire(point *common.Point) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s Acquire(point: %+v)", ProtocolName, point))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	return c.acquire(point)
+}
+
+// Release releases the previously acquired chain point
+func (c *Client) Release() error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s Release()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	return c.release()
+}
+
+// GetCurrentEra returns the current era ID
+func (c *Client) GetCurrentEra() (int, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetCurrentEra()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	return c.getCurrentEra()
+}
+
+// GetSystemStart returns the SystemStart value
+func (c *Client) GetSystemStart() (*SystemStartResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetSystemStart()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	query := buildQuery(
+		QueryTypeSystemStart,
+	)
+	var result SystemStartResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetChainBlockNo returns the latest block number
+func (c *Client) GetChainBlockNo() (int64, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetChainBlockNo()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	query := buildQuery(
+		QueryTypeChainBlockNo,
+	)
+	result := []int64{}
+	if err := c.runQuery(query, &result); err != nil {
+		return 0, err
+	}
+	return result[1], nil
+}
+
+// GetChainPoint returns the current chain tip
+func (c *Client) GetChainPoint() (*common.Point, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetChainPoint()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	query := buildQuery(
+		QueryTypeChainPoint,
+	)
+	var result common.Point
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetEraHistory returns the era history
+func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetEraHistory()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	query := buildHardForkQuery(QueryTypeHardForkEraHistory)
+	var result []EraHistoryResult
+	if err := c.runQuery(query, &result); err != nil {
+		return []EraHistoryResult{}, err
+	}
+	return result, nil
+}
+
+// GetEpochNo returns the current epoch number
+func (c *Client) GetEpochNo() (int, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetEpochNo()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return 0, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyEpochNo,
+	)
+	result := []int{}
+	if err := c.runQuery(query, &result); err != nil {
+		return 0, err
+	}
+	return result[0], nil
+}
+
+// TODO
+/*
+query	[2 #6.258([*[0 int]])	int is the stake the user intends to delegate, the array must be sorted
+*/
+func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetNonMyopicMemberRewards()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyNonMyopicMemberRewards,
+	)
+	var result NonMyopicMemberRewardsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetCurrentProtocolParams returns the set of protocol params that are currently in effect
+func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetCurrentProtocolParams()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyCurrentProtocolParams,
+	)
+	switch currentEra {
+	case ledger.EraIdConway:
+		result := []ledger.ConwayProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
+	case ledger.EraIdBabbage:
+		result := []ledger.BabbageProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
+	case ledger.EraIdAlonzo:
+		result := []ledger.AlonzoProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
+	case ledger.EraIdMary:
+		result := []ledger.MaryProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
+	case ledger.EraIdAllegra:
+		result := []ledger.AllegraProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
+	case ledger.EraIdShelley:
+		result := []ledger.ShelleyProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		return result[0], nil
+	default:
+		return nil, fmt.Errorf("unknown era ID: %d", currentEra)
+	}
+}
+
+// GetProposedProtocolParamsUpdates returns the set of proposed protocol params updates
+func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpdatesResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetProposedProtocolParamsUpdates()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyProposedProtocolParamsUpdates,
+	)
+	var result ProposedProtocolParamsUpdatesResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+
+}
+
+// GetStakeDistribution returns the stake distribution
+func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetStakeDistribution()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakeDistribution,
+	)
+	var result StakeDistributionResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetUTxOByAddress returns the UTxOs for a given list of ledger.Address structs
+func (c *Client) GetUTxOByAddress(
+	addrs []ledger.Address,
+) (*UTxOByAddressResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetUTxOByAddress(addrs: %+v)", ProtocolName, addrs))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyUtxoByAddress,
+		addrs,
+	)
+	var result UTxOByAddressResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetUTxOWhole returns the current UTxO set
+func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetUTxOWhole()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyUtxoWhole,
+	)
+	var result UTxOWholeResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TODO
+func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s DebugEpochState()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyDebugEpochState,
+	)
+	var result DebugEpochStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TODO
+/*
+query	[10 #6.258([ *rwdr ])]
+*/
+func (c *Client) GetFilteredDelegationsAndRewardAccounts(
+	creds []interface{},
+) (*FilteredDelegationsAndRewardAccountsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetFilteredDelegationsAndRewardAccounts(creds: %+v)", ProtocolName, creds))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyFilteredDelegationAndRewardAccounts,
+		// TODO: add params
+	)
+	var result FilteredDelegationsAndRewardAccountsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetGenesisConfig()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyGenesisConfig,
+	)
+	result := []GenesisConfigResult{}
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result[0], nil
+}
+
+// TODO
+func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s DebugNewEpochState()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyDebugNewEpochState,
+	)
+	var result DebugNewEpochStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TODO
+func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s DebugChainDepState()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyDebugChainDepState,
+	)
+	var result DebugChainDepStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetRewardProvenance()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyRewardProvenance,
+	)
+	var result RewardProvenanceResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetUTxOByTxIn(
+	txIns []ledger.TransactionInput,
+) (*UTxOByTxInResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetUTxOByTxIn(txIns: %+v)", ProtocolName, txIns))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyUtxoByTxin,
+		txIns,
+	)
+	var result UTxOByTxInResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetStakePools() (*StakePoolsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetStakePools()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakePools,
+	)
+	var result StakePoolsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetStakePoolParams(
+	poolIds []ledger.PoolId,
+) (*StakePoolParamsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetStakePoolParams(poolIds: %+v)", ProtocolName, poolIds))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakePoolParams,
+		cbor.Tag{
+			Number:  cbor.CborTagSet,
+			Content: poolIds,
+		},
+	)
+	var result StakePoolParamsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TODO
+func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetRewardInfoPools()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyRewardInfoPools,
+	)
+	var result RewardInfoPoolsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TODO
+func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetPoolState(poolIds: %+v)", ProtocolName, poolIds))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyPoolState,
+	)
+	var result PoolStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TODO
+func (c *Client) GetStakeSnapshots(
+	poolId interface{},
+) (*StakeSnapshotsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetStakeSnapshots(poolId: %+v)", ProtocolName, poolId))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakeSnapshots,
+	)
+	var result StakeSnapshotsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// TODO
+func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetPoolDistr(poolIds: %+v)", ProtocolName, poolIds))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyPoolDistr,
+	)
+	var result PoolDistrResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) messageHandler(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcquired:
@@ -124,6 +692,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 }
 
 func (c *Client) handleAcquired() error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client acquired for %s", ProtocolName))
 	c.acquired = true
 	c.acquireResultChan <- nil
 	c.currentEra = -1
@@ -131,6 +701,8 @@ func (c *Client) handleAcquired() error {
 }
 
 func (c *Client) handleFailure(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client failure for %s", ProtocolName))
 	msgFailure := msg.(*MsgFailure)
 	switch msgFailure.Failure {
 	case AcquireFailurePointTooOld:
@@ -144,6 +716,8 @@ func (c *Client) handleFailure(msg protocol.Message) error {
 }
 
 func (c *Client) handleResult(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client result for %s", ProtocolName))
 	msgResult := msg.(*MsgResult)
 	c.queryResultChan <- msgResult.Result
 	return nil
@@ -217,510 +791,4 @@ func (c *Client) getCurrentEra() (int, error) {
 		return -1, err
 	}
 	return result, nil
-}
-
-// Acquire starts the acquire process for the specified chain point
-func (c *Client) Acquire(point *common.Point) error {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	return c.acquire(point)
-}
-
-// Release releases the previously acquired chain point
-func (c *Client) Release() error {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	return c.release()
-}
-
-// GetCurrentEra returns the current era ID
-func (c *Client) GetCurrentEra() (int, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	return c.getCurrentEra()
-}
-
-// GetSystemStart returns the SystemStart value
-func (c *Client) GetSystemStart() (*SystemStartResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	query := buildQuery(
-		QueryTypeSystemStart,
-	)
-	var result SystemStartResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// GetChainBlockNo returns the latest block number
-func (c *Client) GetChainBlockNo() (int64, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	query := buildQuery(
-		QueryTypeChainBlockNo,
-	)
-	result := []int64{}
-	if err := c.runQuery(query, &result); err != nil {
-		return 0, err
-	}
-	return result[1], nil
-}
-
-// GetChainPoint returns the current chain tip
-func (c *Client) GetChainPoint() (*common.Point, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	query := buildQuery(
-		QueryTypeChainPoint,
-	)
-	var result common.Point
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// GetEraHistory returns the era history
-func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	query := buildHardForkQuery(QueryTypeHardForkEraHistory)
-	var result []EraHistoryResult
-	if err := c.runQuery(query, &result); err != nil {
-		return []EraHistoryResult{}, err
-	}
-	return result, nil
-}
-
-// GetEpochNo returns the current epoch number
-func (c *Client) GetEpochNo() (int, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return 0, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyEpochNo,
-	)
-	result := []int{}
-	if err := c.runQuery(query, &result); err != nil {
-		return 0, err
-	}
-	return result[0], nil
-}
-
-// TODO
-/*
-query	[2 #6.258([*[0 int]])	int is the stake the user intends to delegate, the array must be sorted
-*/
-func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyNonMyopicMemberRewards,
-	)
-	var result NonMyopicMemberRewardsResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// GetCurrentProtocolParams returns the set of protocol params that are currently in effect
-func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyCurrentProtocolParams,
-	)
-	switch currentEra {
-	case ledger.EraIdConway:
-		result := []ledger.ConwayProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
-			return nil, err
-		}
-		return result[0], nil
-	case ledger.EraIdBabbage:
-		result := []ledger.BabbageProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
-			return nil, err
-		}
-		return result[0], nil
-	case ledger.EraIdAlonzo:
-		result := []ledger.AlonzoProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
-			return nil, err
-		}
-		return result[0], nil
-	case ledger.EraIdMary:
-		result := []ledger.MaryProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
-			return nil, err
-		}
-		return result[0], nil
-	case ledger.EraIdAllegra:
-		result := []ledger.AllegraProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
-			return nil, err
-		}
-		return result[0], nil
-	case ledger.EraIdShelley:
-		result := []ledger.ShelleyProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
-			return nil, err
-		}
-		return result[0], nil
-	default:
-		return nil, fmt.Errorf("unknown era ID: %d", currentEra)
-	}
-}
-
-func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpdatesResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyProposedProtocolParamsUpdates,
-	)
-	var result ProposedProtocolParamsUpdatesResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-
-}
-
-// GetStakeDistribution returns the stake distribution
-func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyStakeDistribution,
-	)
-	var result StakeDistributionResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Client) GetUTxOByAddress(
-	addrs []ledger.Address,
-) (*UTxOByAddressResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyUtxoByAddress,
-		addrs,
-	)
-	var result UTxOByAddressResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyUtxoWhole,
-	)
-	var result UTxOWholeResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// TODO
-func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyDebugEpochState,
-	)
-	var result DebugEpochStateResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// TODO
-/*
-query	[10 #6.258([ *rwdr ])]
-*/
-func (c *Client) GetFilteredDelegationsAndRewardAccounts(
-	creds []interface{},
-) (*FilteredDelegationsAndRewardAccountsResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyFilteredDelegationAndRewardAccounts,
-		// TODO: add params
-	)
-	var result FilteredDelegationsAndRewardAccountsResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyGenesisConfig,
-	)
-	result := []GenesisConfigResult{}
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result[0], nil
-}
-
-// TODO
-func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyDebugNewEpochState,
-	)
-	var result DebugNewEpochStateResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// TODO
-func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyDebugChainDepState,
-	)
-	var result DebugChainDepStateResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyRewardProvenance,
-	)
-	var result RewardProvenanceResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Client) GetUTxOByTxIn(
-	txIns []ledger.TransactionInput,
-) (*UTxOByTxInResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyUtxoByTxin,
-		txIns,
-	)
-	var result UTxOByTxInResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Client) GetStakePools() (*StakePoolsResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyStakePools,
-	)
-	var result StakePoolsResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func (c *Client) GetStakePoolParams(
-	poolIds []ledger.PoolId,
-) (*StakePoolParamsResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyStakePoolParams,
-		cbor.Tag{
-			Number:  cbor.CborTagSet,
-			Content: poolIds,
-		},
-	)
-	var result StakePoolParamsResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// TODO
-func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyRewardInfoPools,
-	)
-	var result RewardInfoPoolsResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// TODO
-func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyPoolState,
-	)
-	var result PoolStateResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// TODO
-func (c *Client) GetStakeSnapshots(
-	poolId interface{},
-) (*StakeSnapshotsResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyStakeSnapshots,
-	)
-	var result StakeSnapshotsResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// TODO
-func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyPoolDistr,
-	)
-	var result PoolDistrResult
-	if err := c.runQuery(query, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
 }

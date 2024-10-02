@@ -100,6 +100,7 @@ func NewClient(
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -115,6 +116,8 @@ func NewClient(
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -124,33 +127,12 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) messageHandler(msg protocol.Message) error {
-	var err error
-	switch msg.Type() {
-	case MessageTypeAwaitReply:
-		err = c.handleAwaitReply()
-	case MessageTypeRollForward:
-		err = c.handleRollForward(msg)
-	case MessageTypeRollBackward:
-		err = c.handleRollBackward(msg)
-	case MessageTypeIntersectFound:
-		err = c.handleIntersectFound(msg)
-	case MessageTypeIntersectNotFound:
-		err = c.handleIntersectNotFound(msg)
-	default:
-		err = fmt.Errorf(
-			"%s: received unexpected message type %d",
-			ProtocolName,
-			msg.Type(),
-		)
-	}
-	return err
-}
-
 // Stop transitions the protocol to the Done state. No more protocol operations will be possible afterward
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("stopping protocol: %s", ProtocolName))
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 		msg := NewMsgDone()
@@ -163,6 +145,8 @@ func (c *Client) Stop() error {
 
 // GetCurrentTip returns the current chain tip
 func (c *Client) GetCurrentTip() (*Tip, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetCurrentTip()", ProtocolName))
 	done := atomic.Bool{}
 	requestResultChan := make(chan Tip, 1)
 	requestErrorChan := make(chan error, 1)
@@ -220,6 +204,8 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 func (c *Client) GetAvailableBlockRange(
 	intersectPoints []common.Point,
 ) (common.Point, common.Point, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetAvailableBlockRange(intersectPoints: %+v)", ProtocolName, intersectPoints))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 
@@ -293,6 +279,8 @@ func (c *Client) GetAvailableBlockRange(
 // Sync begins a chain-sync operation using the provided intersect point(s). Incoming blocks will be delivered
 // via the RollForward callback function specified in the protocol config
 func (c *Client) Sync(intersectPoints []common.Point) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s Sync(intersectPoints: %+v)", ProtocolName, intersectPoints))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	// Use origin if no intersect points were specified
@@ -441,11 +429,40 @@ func (c *Client) requestFindIntersect(
 	}
 }
 
+func (c *Client) messageHandler(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
+	var err error
+	switch msg.Type() {
+	case MessageTypeAwaitReply:
+		err = c.handleAwaitReply()
+	case MessageTypeRollForward:
+		err = c.handleRollForward(msg)
+	case MessageTypeRollBackward:
+		err = c.handleRollBackward(msg)
+	case MessageTypeIntersectFound:
+		err = c.handleIntersectFound(msg)
+	case MessageTypeIntersectNotFound:
+		err = c.handleIntersectNotFound(msg)
+	default:
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
+	}
+	return err
+}
+
 func (c *Client) handleAwaitReply() error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client await reply for %s", ProtocolName))
 	return nil
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client roll forward for %s", ProtocolName))
 	firstBlockChan := func() chan<- clientPointResult {
 		select {
 		case ch := <-c.wantFirstBlockChan:
@@ -554,6 +571,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 }
 
 func (c *Client) handleRollBackward(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client roll backward for %s", ProtocolName))
 	msgRollBackward := msg.(*MsgRollBackward)
 	c.sendCurrentTip(msgRollBackward.Tip)
 	if len(c.wantFirstBlockChan) == 0 {
@@ -579,6 +598,8 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 }
 
 func (c *Client) handleIntersectFound(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client intersect found for %s", ProtocolName))
 	msgIntersectFound := msg.(*MsgIntersectFound)
 	c.sendCurrentTip(msgIntersectFound.Tip)
 
@@ -591,6 +612,8 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 }
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client intersect not found for %s", ProtocolName))
 	msgIntersectNotFound := msgGeneric.(*MsgIntersectNotFound)
 	c.sendCurrentTip(msgIntersectNotFound.Tip)
 
