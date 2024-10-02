@@ -47,6 +47,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
@@ -60,6 +61,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 func (s *Server) handleMessage(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeProposeVersions:
@@ -75,6 +78,8 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 }
 
 func (s *Server) handleProposeVersions(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server propose versions for %s", ProtocolName))
 	if s.config.FinishedFunc == nil {
 		return fmt.Errorf(
 			"received handshake ProposeVersions message but no callback function is defined",

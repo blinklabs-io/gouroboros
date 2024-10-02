@@ -47,6 +47,7 @@ func (s *Server) initProtocol() {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
 		ErrorChan:           s.protoOptions.ErrorChan,
 		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
@@ -59,16 +60,22 @@ func (s *Server) initProtocol() {
 }
 
 func (s *Server) NoBlocks() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("server called %s NoBlocks()", ProtocolName))
 	msg := NewMsgNoBlocks()
 	return s.SendMessage(msg)
 }
 
 func (s *Server) StartBatch() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("server called %s StartBatch()", ProtocolName))
 	msg := NewMsgStartBatch()
 	return s.SendMessage(msg)
 }
 
 func (s *Server) Block(blockType uint, blockData []byte) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("server called %s Block(blockType: %+v, blockData: %x)", ProtocolName, blockType, blockData))
 	wrappedBlock := WrappedBlock{
 		Type:     blockType,
 		RawBlock: blockData,
@@ -82,11 +89,15 @@ func (s *Server) Block(blockType uint, blockData []byte) error {
 }
 
 func (s *Server) BatchDone() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("server called %s BatchDone()", ProtocolName))
 	msg := NewMsgBatchDone()
 	return s.SendMessage(msg)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeRequestRange:
@@ -104,6 +115,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleRequestRange(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server request range for %s", ProtocolName))
 	if s.config == nil || s.config.RequestRangeFunc == nil {
 		return fmt.Errorf(
 			"received block-fetch RequestRange message but no callback function is defined",
@@ -118,6 +131,8 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 }
 
 func (s *Server) handleClientDone() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server client done for %s", ProtocolName))
 	// Restart protocol
 	s.Protocol.Stop()
 	s.initProtocol()

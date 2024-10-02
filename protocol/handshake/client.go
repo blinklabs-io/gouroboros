@@ -53,6 +53,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -68,6 +69,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 // Start begins the handshake process
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
 		c.Protocol.Start()
 		// Send our ProposeVersions message
 		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)
@@ -76,6 +79,8 @@ func (c *Client) Start() {
 }
 
 func (c *Client) handleMessage(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcceptVersion:
@@ -93,6 +98,8 @@ func (c *Client) handleMessage(msg protocol.Message) error {
 }
 
 func (c *Client) handleAcceptVersion(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client accept version for %s", ProtocolName))
 	if c.config.FinishedFunc == nil {
 		return fmt.Errorf(
 			"received handshake AcceptVersion message but no callback function is defined",
@@ -114,6 +121,8 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 }
 
 func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client refuse for %s", ProtocolName))
 	msg := msgGeneric.(*MsgRefuse)
 	var err error
 	switch msg.Reason[0].(uint64) {

@@ -69,6 +69,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -83,6 +84,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -95,7 +98,109 @@ func (c *Client) Start() {
 	})
 }
 
+// Stop transitions the protocol to the Done state. No more operations will be possible
+func (c *Client) Stop() error {
+	var err error
+	c.onceStop.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("stopping protocol: %s", ProtocolName))
+		c.busyMutex.Lock()
+		defer c.busyMutex.Unlock()
+		msg := NewMsgDone()
+		if err = c.SendMessage(msg); err != nil {
+			return
+		}
+	})
+	return err
+}
+
+// Acquire starts the acquire process for a current mempool snapshot
+func (c *Client) Acquire() error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s Acquire()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	return c.acquire()
+}
+
+// Release releases the previously acquired mempool snapshot
+func (c *Client) Release() error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s Release()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	return c.release()
+}
+
+// HasTx returns whether or not the specified transaction ID exists in the mempool snapshot
+func (c *Client) HasTx(txId []byte) (bool, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s HasTx(txId: %x)", ProtocolName, txId))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	if !c.acquired {
+		if err := c.acquire(); err != nil {
+			return false, err
+		}
+	}
+	msg := NewMsgHasTx(txId)
+	if err := c.SendMessage(msg); err != nil {
+		return false, err
+	}
+	result, ok := <-c.hasTxResultChan
+	if !ok {
+		return false, protocol.ProtocolShuttingDownError
+	}
+	return result, nil
+}
+
+// NextTx returns the next transaction in the mempool snapshot
+func (c *Client) NextTx() ([]byte, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s NextTx()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	if !c.acquired {
+		if err := c.acquire(); err != nil {
+			return nil, err
+		}
+	}
+	msg := NewMsgNextTx()
+	if err := c.SendMessage(msg); err != nil {
+		return nil, err
+	}
+	tx, ok := <-c.nextTxResultChan
+	if !ok {
+		return nil, protocol.ProtocolShuttingDownError
+	}
+	return tx, nil
+}
+
+// GetSizes returns the capacity (in bytes), size (in bytes), and number of transactions in the mempool snapshot
+func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("client called %s GetSizes()", ProtocolName))
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	if !c.acquired {
+		if err := c.acquire(); err != nil {
+			return 0, 0, 0, err
+		}
+	}
+	msg := NewMsgGetSizes()
+	if err := c.SendMessage(msg); err != nil {
+		return 0, 0, 0, err
+	}
+	result, ok := <-c.getSizesResultChan
+	if !ok {
+		return 0, 0, 0, protocol.ProtocolShuttingDownError
+	}
+	return result.Capacity, result.Size, result.NumberOfTxs, nil
+}
+
 func (c *Client) messageHandler(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcquired:
@@ -114,6 +219,40 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		)
 	}
 	return err
+}
+
+func (c *Client) handleAcquired(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client acquired for %s", ProtocolName))
+	msgAcquired := msg.(*MsgAcquired)
+	c.acquired = true
+	c.acquiredSlot = msgAcquired.SlotNo
+	c.acquireResultChan <- true
+	return nil
+}
+
+func (c *Client) handleReplyHasTx(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client reply has tx for %s", ProtocolName))
+	msgReplyHasTx := msg.(*MsgReplyHasTx)
+	c.hasTxResultChan <- msgReplyHasTx.Result
+	return nil
+}
+
+func (c *Client) handleReplyNextTx(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client reply next tx for %s", ProtocolName))
+	msgReplyNextTx := msg.(*MsgReplyNextTx)
+	c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx
+	return nil
+}
+
+func (c *Client) handleReplyGetSizes(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("handling client reply get sizes for %s", ProtocolName))
+	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
+	c.getSizesResultChan <- msgReplyGetSizes.Result
+	return nil
 }
 
 func (c *Client) acquire() error {
@@ -135,119 +274,5 @@ func (c *Client) release() error {
 		return err
 	}
 	c.acquired = false
-	return nil
-}
-
-// Acquire starts the acquire process for a current mempool snapshot
-func (c *Client) Acquire() error {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	return c.acquire()
-}
-
-// Release releases the previously acquired mempool snapshot
-func (c *Client) Release() error {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	return c.release()
-}
-
-// Stop transitions the protocol to the Done state. No more operations will be possible
-func (c *Client) Stop() error {
-	var err error
-	c.onceStop.Do(func() {
-		c.busyMutex.Lock()
-		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
-		}
-	})
-	return err
-}
-
-// HasTx returns whether or not the specified transaction ID exists in the mempool snapshot
-func (c *Client) HasTx(txId []byte) (bool, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	if !c.acquired {
-		if err := c.acquire(); err != nil {
-			return false, err
-		}
-	}
-	msg := NewMsgHasTx(txId)
-	if err := c.SendMessage(msg); err != nil {
-		return false, err
-	}
-	result, ok := <-c.hasTxResultChan
-	if !ok {
-		return false, protocol.ProtocolShuttingDownError
-	}
-	return result, nil
-}
-
-// NextTx returns the next transaction in the mempool snapshot
-func (c *Client) NextTx() ([]byte, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	if !c.acquired {
-		if err := c.acquire(); err != nil {
-			return nil, err
-		}
-	}
-	msg := NewMsgNextTx()
-	if err := c.SendMessage(msg); err != nil {
-		return nil, err
-	}
-	tx, ok := <-c.nextTxResultChan
-	if !ok {
-		return nil, protocol.ProtocolShuttingDownError
-	}
-	return tx, nil
-}
-
-// GetSizes returns the capacity (in bytes), size (in bytes), and number of transactions in the mempool snapshot
-func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	if !c.acquired {
-		if err := c.acquire(); err != nil {
-			return 0, 0, 0, err
-		}
-	}
-	msg := NewMsgGetSizes()
-	if err := c.SendMessage(msg); err != nil {
-		return 0, 0, 0, err
-	}
-	result, ok := <-c.getSizesResultChan
-	if !ok {
-		return 0, 0, 0, protocol.ProtocolShuttingDownError
-	}
-	return result.Capacity, result.Size, result.NumberOfTxs, nil
-}
-
-func (c *Client) handleAcquired(msg protocol.Message) error {
-	msgAcquired := msg.(*MsgAcquired)
-	c.acquired = true
-	c.acquiredSlot = msgAcquired.SlotNo
-	c.acquireResultChan <- true
-	return nil
-}
-
-func (c *Client) handleReplyHasTx(msg protocol.Message) error {
-	msgReplyHasTx := msg.(*MsgReplyHasTx)
-	c.hasTxResultChan <- msgReplyHasTx.Result
-	return nil
-}
-
-func (c *Client) handleReplyNextTx(msg protocol.Message) error {
-	msgReplyNextTx := msg.(*MsgReplyNextTx)
-	c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx
-	return nil
-}
-
-func (c *Client) handleReplyGetSizes(msg protocol.Message) error {
-	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
-	c.getSizesResultChan <- msgReplyGetSizes.Result
 	return nil
 }

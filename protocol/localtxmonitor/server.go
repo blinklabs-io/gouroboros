@@ -45,6 +45,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
@@ -58,6 +59,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcquire:
@@ -83,6 +86,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleAcquire() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server acquire for %s", ProtocolName))
 	if s.config.GetMempoolFunc == nil {
 		return fmt.Errorf(
 			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
@@ -122,16 +127,22 @@ func (s *Server) handleAcquire() error {
 }
 
 func (s *Server) handleDone() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server done for %s", ProtocolName))
 	return nil
 }
 
 func (s *Server) handleRelease() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server release for %s", ProtocolName))
 	s.mempoolCapacity = 0
 	s.mempoolTxs = nil
 	return nil
 }
 
 func (s *Server) handleHasTx(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server has tx for %s", ProtocolName))
 	msgHasTx := msg.(*MsgHasTx)
 	txId := hex.EncodeToString(msgHasTx.TxId)
 	hasTx := false
@@ -149,6 +160,8 @@ func (s *Server) handleHasTx(msg protocol.Message) error {
 }
 
 func (s *Server) handleNextTx() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server next tx for %s", ProtocolName))
 	if s.mempoolNextTxIdx > len(s.mempoolTxs) {
 		newMsg := NewMsgReplyNextTx(0, nil)
 		if err := s.SendMessage(newMsg); err != nil {
@@ -166,6 +179,8 @@ func (s *Server) handleNextTx() error {
 }
 
 func (s *Server) handleGetSizes() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("handling server get sizes for %s", ProtocolName))
 	totalTxSize := 0
 	for _, tx := range s.mempoolTxs {
 		totalTxSize += len(tx.Tx)
