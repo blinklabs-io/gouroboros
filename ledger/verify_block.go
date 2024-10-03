@@ -119,7 +119,7 @@ func ExtractBlockData(
 		)
 	}
 	txBodies, txBodiesError := GetTxBodies(txsRaw)
-	if err != nil {
+	if txBodiesError != nil {
 		return nil, nil, nil, fmt.Errorf(
 			"ExtractBlockData: GetTxBodies error, %v",
 			txBodiesError.Error(),
