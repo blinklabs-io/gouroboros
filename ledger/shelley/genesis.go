@@ -16,7 +16,9 @@ package shelley
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"time"
 )
@@ -49,10 +51,10 @@ type ShelleyGenesisProtocolParams struct {
 	PoolDeposit        uint
 	MaxEpoch           uint `json:"eMax"`
 	NOpt               uint
-	A0                 float32
-	Rho                float32
-	Tau                float32
-	Decentralization   float32 `json:"decentralisationParam"`
+	A0                 *GenesisRat
+	Rho                *GenesisRat
+	Tau                *GenesisRat
+	Decentralization   *GenesisRat `json:"decentralisationParam"`
 	ExtraEntropy       map[string]string
 	ProtocolVersion    struct {
 		Major uint
@@ -79,4 +81,17 @@ func NewShelleyGenesisFromFile(path string) (ShelleyGenesis, error) {
 	}
 	defer f.Close()
 	return NewShelleyGenesisFromReader(f)
+}
+
+// GenesisRat is a wrapper to big.Rat that allows for unmarshaling from a bare float from JSON
+type GenesisRat struct {
+	*big.Rat
+}
+
+func (r *GenesisRat) UnmarshalJSON(data []byte) error {
+	r.Rat = new(big.Rat)
+	if _, ok := r.Rat.SetString(string(data)); !ok {
+		return fmt.Errorf("math/big: cannot unmarshal %q into a *big.Rat", data)
+	}
+	return nil
 }
