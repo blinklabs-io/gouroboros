@@ -117,7 +117,7 @@ func NewClient(
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
+			Debug(fmt.Sprintf("%s: starting protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -132,7 +132,7 @@ func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("stopping protocol: %s", ProtocolName))
+			Debug(fmt.Sprintf("%s: stopping protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 		msg := NewMsgDone()
@@ -146,7 +146,7 @@ func (c *Client) Stop() error {
 // GetCurrentTip returns the current chain tip
 func (c *Client) GetCurrentTip() (*Tip, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetCurrentTip()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetCurrentTip()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	done := atomic.Bool{}
 	requestResultChan := make(chan Tip, 1)
 	requestErrorChan := make(chan error, 1)
@@ -185,10 +185,14 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			// The request is being handled by another request, wait for the result.
 			waitingForCurrentTipChan = nil
 		case tip := <-waitingResultChan:
+			c.Protocol.Logger().
+				Debug(fmt.Sprintf("%s: returning tip results {Slot: %d, Hash: %x, BlockNumber: %d} to %+v", ProtocolName, tip.Point.Slot, tip.Point.Hash, tip.BlockNumber, c.callbackContext.ConnectionId.RemoteAddr))
 			// The result from the other request is ready.
 			done.Store(true)
 			return &tip, nil
 		case tip := <-requestResultChan:
+			c.Protocol.Logger().
+				Debug(fmt.Sprintf("%s: returning tip results {Slot: %d, Hash: %x, BlockNumber: %d} to %+v", ProtocolName, tip.Point.Slot, tip.Point.Hash, tip.BlockNumber, c.callbackContext.ConnectionId.RemoteAddr))
 			// If waitingForCurrentTipChan is full, the for loop that empties it might finish the
 			// loop before the select statement that writes to it is triggered. For that reason we
 			// require requestResultChan here.
@@ -204,8 +208,6 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 func (c *Client) GetAvailableBlockRange(
 	intersectPoints []common.Point,
 ) (common.Point, common.Point, error) {
-	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetAvailableBlockRange(intersectPoints: %+v)", ProtocolName, intersectPoints))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 
@@ -213,6 +215,18 @@ func (c *Client) GetAvailableBlockRange(
 	if len(intersectPoints) == 0 {
 		intersectPoints = []common.Point{common.NewPointOrigin()}
 	}
+	switch len(intersectPoints) {
+	case 1:
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: client %+v called GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash))
+	case 2:
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: client %+v called GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash, intersectPoints[1].Slot, intersectPoints[1].Hash))
+	default:
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: client %+v called GetAvailableBlockRange(intersectPoints: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints))
+	}
+
 	// Find our chain intersection
 	result := c.requestFindIntersect(intersectPoints)
 	if result.error != nil {
@@ -279,13 +293,23 @@ func (c *Client) GetAvailableBlockRange(
 // Sync begins a chain-sync operation using the provided intersect point(s). Incoming blocks will be delivered
 // via the RollForward callback function specified in the protocol config
 func (c *Client) Sync(intersectPoints []common.Point) error {
-	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s Sync(intersectPoints: %+v)", ProtocolName, intersectPoints))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+
 	// Use origin if no intersect points were specified
 	if len(intersectPoints) == 0 {
 		intersectPoints = []common.Point{common.NewPointOrigin()}
+	}
+	switch len(intersectPoints) {
+	case 1:
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: client %+v called Sync(intersectPoints: []{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash))
+	case 2:
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: client %+v called Sync(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash, intersectPoints[1].Slot, intersectPoints[1].Hash))
+	default:
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: client %+v called Sync(intersectPoints: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints))
 	}
 
 	intersectResultChan, cancel := c.wantIntersectFound()
@@ -430,8 +454,6 @@ func (c *Client) requestFindIntersect(
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
-	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeAwaitReply:
@@ -456,13 +478,13 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleAwaitReply() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client await reply for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client await reply for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	return nil
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client roll forward for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client roll forward for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	firstBlockChan := func() chan<- clientPointResult {
 		select {
 		case ch := <-c.wantFirstBlockChan:
@@ -572,7 +594,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 
 func (c *Client) handleRollBackward(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client roll backward for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client roll backward for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msgRollBackward := msg.(*MsgRollBackward)
 	c.sendCurrentTip(msgRollBackward.Tip)
 	if len(c.wantFirstBlockChan) == 0 {
@@ -599,7 +621,7 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 
 func (c *Client) handleIntersectFound(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client intersect found for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client intersect found for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msgIntersectFound := msg.(*MsgIntersectFound)
 	c.sendCurrentTip(msgIntersectFound.Tip)
 
@@ -613,7 +635,7 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client intersect not found for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client intersect not found for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msgIntersectNotFound := msgGeneric.(*MsgIntersectNotFound)
 	c.sendCurrentTip(msgIntersectNotFound.Tip)
 

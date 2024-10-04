@@ -54,6 +54,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -68,6 +69,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: starting protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -119,6 +122,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 }
 
 func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: client keepalive response for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msg := msgGeneric.(*MsgKeepAliveResponse)
 	if msg.Cookie != c.config.Cookie {
 		return fmt.Errorf(

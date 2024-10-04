@@ -53,6 +53,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -66,6 +67,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 }
 
 func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: client %+v called GetPeers(amount: %d)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, amount))
 	msg := NewMsgShareRequest(amount)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
@@ -78,6 +81,8 @@ func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 }
 
 func (c *Client) handleMessage(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: client message for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	var err error
 	switch msg.Type() {
 	case MessageTypeSharePeers:
@@ -93,6 +98,8 @@ func (c *Client) handleMessage(msg protocol.Message) error {
 }
 
 func (c *Client) handleSharePeers(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: client share peers for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msgSharePeers := msg.(*MsgSharePeers)
 	c.sharePeersChan <- msgSharePeers.PeerAddresses
 	return nil

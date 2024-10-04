@@ -82,7 +82,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
+			Debug(fmt.Sprintf("%s: starting protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -97,7 +97,7 @@ func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("stopping protocol: %s", ProtocolName))
+			Debug(fmt.Sprintf("%s: stopping protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		msg := NewMsgClientDone()
 		err = c.SendMessage(msg)
 	})
@@ -107,7 +107,7 @@ func (c *Client) Stop() error {
 // GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive)
 func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetBlockRange(start: %+v, end: %+v)", ProtocolName, start, end))
+		Debug(fmt.Sprintf("%s: client called GetBlockRange(start: {Slot: %d, Hash: %x}, end: {Slot: %d, Hash: %x})", ProtocolName, start.Slot, start.Hash, end.Slot, end.Hash))
 	c.busyMutex.Lock()
 	c.blockUseCallback = true
 	msg := NewMsgRequestRange(start, end)
@@ -129,7 +129,7 @@ func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 // GetBlock requests and returns a single block specified by the provided point
 func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetBlock(point: %+v)", ProtocolName, point))
+		Debug(fmt.Sprintf("%s: client called GetBlock(point: {Slot: %d, Hash: %x})", ProtocolName, point.Slot, point.Hash))
 	c.busyMutex.Lock()
 	c.blockUseCallback = false
 	msg := NewMsgRequestRange(point, point)
@@ -153,8 +153,6 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
-	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeStartBatch:
@@ -177,14 +175,14 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleStartBatch() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client start batch for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client start batch for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.startBatchResultChan <- nil
 	return nil
 }
 
 func (c *Client) handleNoBlocks() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client no blocks found for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client no blocks found for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	err := fmt.Errorf("block(s) not found")
 	c.startBatchResultChan <- err
 	return nil
@@ -192,7 +190,7 @@ func (c *Client) handleNoBlocks() error {
 
 func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client block found for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client block found for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msg := msgGeneric.(*MsgBlock)
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
@@ -219,7 +217,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 
 func (c *Client) handleBatchDone() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client batch done for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client batch done for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Unlock()
 	return nil
 }
