@@ -70,7 +70,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: starting protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug(fmt.Sprintf("%s: starting client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.Protocol.Start()
 		// Send our ProposeVersions message
 		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)

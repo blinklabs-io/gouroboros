@@ -38,6 +38,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
@@ -68,6 +69,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server keep alive for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	msg := msgGeneric.(*MsgKeepAlive)
 	if s.config != nil && s.config.KeepAliveFunc != nil {
 		// Call the user callback function
@@ -80,6 +83,8 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 }
 
 func (s *Server) handleDone() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	if s.config != nil && s.config.DoneFunc != nil {
 		// Call the user callback function
 		return s.config.DoneFunc(s.callbackContext)

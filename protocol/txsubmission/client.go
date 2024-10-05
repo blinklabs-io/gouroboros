@@ -69,6 +69,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 // Init tells the server to begin asking us for transactions
 func (c *Client) Init() {
 	c.onceInit.Do(func() {
+		c.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: client %+v called Init()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		// Send our Init message
 		msg := NewMsgInit()
 		_ = c.SendMessage(msg)

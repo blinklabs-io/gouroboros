@@ -55,6 +55,7 @@ func (s *Server) initProtocol() {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
 		ErrorChan:           s.protoOptions.ErrorChan,
 		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
@@ -68,6 +69,8 @@ func (s *Server) initProtocol() {
 
 func (s *Server) Start() {
 	s.onceStart.Do(func() {
+		s.Protocol.Logger().
+			Debug(fmt.Sprintf("%s: starting server protocol for connection %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 		s.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -104,6 +107,8 @@ func (s *Server) RequestTxIds(
 	blocking bool,
 	reqCount int,
 ) ([]TxIdAndSize, error) {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server %+v called RequestTxIds(blocking: %+v, reqCount: %d)", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr, blocking, reqCount))
 	msg := NewMsgRequestTxIds(blocking, uint16(s.ackCount), uint16(reqCount))
 	if err := s.SendMessage(msg); err != nil {
 		return nil, err
@@ -120,6 +125,8 @@ func (s *Server) RequestTxIds(
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server %+v called RequestTxs(txIds: %+v)", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr, txIds))
 	msg := NewMsgRequestTxs(txIds)
 	if err := s.SendMessage(msg); err != nil {
 		return nil, err
@@ -133,18 +140,24 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 }
 
 func (s *Server) handleReplyTxIds(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server reply tx ids for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	msgReplyTxIds := msg.(*MsgReplyTxIds)
 	s.requestTxIdsResultChan <- msgReplyTxIds.TxIds
 	return nil
 }
 
 func (s *Server) handleReplyTxs(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server reply txs for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	msgReplyTxs := msg.(*MsgReplyTxs)
 	s.requestTxsResultChan <- msgReplyTxs.Txs
 	return nil
 }
 
 func (s *Server) handleDone() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	// Restart protocol
 	s.Protocol.Stop()
 	s.initProtocol()
@@ -155,6 +168,8 @@ func (s *Server) handleDone() error {
 }
 
 func (s *Server) handleInit() error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server init for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	if s.config == nil || s.config.InitFunc == nil {
 		return fmt.Errorf(
 			"received tx-submission Init message but no callback function is defined",

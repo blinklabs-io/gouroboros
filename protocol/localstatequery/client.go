@@ -96,7 +96,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
+			Debug(fmt.Sprintf("%s: starting client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -110,7 +110,7 @@ func (c *Client) Start() {
 // Acquire starts the acquire process for the specified chain point
 func (c *Client) Acquire(point *common.Point) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s Acquire(point: %+v)", ProtocolName, point))
+		Debug(fmt.Sprintf("%s: client %+v called Acquire(point: {Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, point.Slot, point.Hash))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.acquire(point)
@@ -119,7 +119,7 @@ func (c *Client) Acquire(point *common.Point) error {
 // Release releases the previously acquired chain point
 func (c *Client) Release() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s Release()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called Release()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.release()
@@ -128,7 +128,7 @@ func (c *Client) Release() error {
 // GetCurrentEra returns the current era ID
 func (c *Client) GetCurrentEra() (int, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetCurrentEra()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetCurrentEra()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.getCurrentEra()
@@ -137,7 +137,7 @@ func (c *Client) GetCurrentEra() (int, error) {
 // GetSystemStart returns the SystemStart value
 func (c *Client) GetSystemStart() (*SystemStartResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetSystemStart()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetSystemStart()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildQuery(
@@ -153,7 +153,7 @@ func (c *Client) GetSystemStart() (*SystemStartResult, error) {
 // GetChainBlockNo returns the latest block number
 func (c *Client) GetChainBlockNo() (int64, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetChainBlockNo()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetChainBlockNo()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildQuery(
@@ -169,7 +169,7 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 // GetChainPoint returns the current chain tip
 func (c *Client) GetChainPoint() (*common.Point, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetChainPoint()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetChainPoint()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildQuery(
@@ -185,7 +185,7 @@ func (c *Client) GetChainPoint() (*common.Point, error) {
 // GetEraHistory returns the era history
 func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetEraHistory()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetEraHistory()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildHardForkQuery(QueryTypeHardForkEraHistory)
@@ -199,7 +199,7 @@ func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
 // GetEpochNo returns the current epoch number
 func (c *Client) GetEpochNo() (int, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetEpochNo()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetEpochNo()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -223,7 +223,7 @@ query	[2 #6.258([*[0 int]])	int is the stake the user intends to delegate, the a
 */
 func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetNonMyopicMemberRewards()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetNonMyopicMemberRewards()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -244,7 +244,7 @@ func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, err
 // GetCurrentProtocolParams returns the set of protocol params that are currently in effect
 func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetCurrentProtocolParams()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetCurrentProtocolParams()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -300,7 +300,7 @@ func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error)
 // GetProposedProtocolParamsUpdates returns the set of proposed protocol params updates
 func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpdatesResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetProposedProtocolParamsUpdates()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetProposedProtocolParamsUpdates()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -322,7 +322,7 @@ func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpda
 // GetStakeDistribution returns the stake distribution
 func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetStakeDistribution()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetStakeDistribution()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -345,7 +345,7 @@ func (c *Client) GetUTxOByAddress(
 	addrs []ledger.Address,
 ) (*UTxOByAddressResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetUTxOByAddress(addrs: %+v)", ProtocolName, addrs))
+		Debug(fmt.Sprintf("%s: client %+v called GetUTxOByAddress(addrs: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, addrs))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -367,7 +367,7 @@ func (c *Client) GetUTxOByAddress(
 // GetUTxOWhole returns the current UTxO set
 func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetUTxOWhole()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetUTxOWhole()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -388,7 +388,7 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 // TODO
 func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s DebugEpochState()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called DebugEpochState()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -414,7 +414,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 	creds []interface{},
 ) (*FilteredDelegationsAndRewardAccountsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetFilteredDelegationsAndRewardAccounts(creds: %+v)", ProtocolName, creds))
+		Debug(fmt.Sprintf("%s: client %+v called GetFilteredDelegationsAndRewardAccounts(creds: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, creds))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -435,7 +435,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 
 func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetGenesisConfig()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetGenesisConfig()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -456,7 +456,7 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 // TODO
 func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s DebugNewEpochState()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called DebugNewEpochState()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -477,7 +477,7 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 // TODO
 func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s DebugChainDepState()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called DebugChainDepState()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -497,7 +497,7 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 
 func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetRewardProvenance()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetRewardProvenance()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -519,7 +519,7 @@ func (c *Client) GetUTxOByTxIn(
 	txIns []ledger.TransactionInput,
 ) (*UTxOByTxInResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetUTxOByTxIn(txIns: %+v)", ProtocolName, txIns))
+		Debug(fmt.Sprintf("%s: client %+v called GetUTxOByTxIn(txIns: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, txIns))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -540,7 +540,7 @@ func (c *Client) GetUTxOByTxIn(
 
 func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetStakePools()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetStakePools()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -562,7 +562,7 @@ func (c *Client) GetStakePoolParams(
 	poolIds []ledger.PoolId,
 ) (*StakePoolParamsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetStakePoolParams(poolIds: %+v)", ProtocolName, poolIds))
+		Debug(fmt.Sprintf("%s: client %+v called GetStakePoolParams(poolIds: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, poolIds))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -587,7 +587,7 @@ func (c *Client) GetStakePoolParams(
 // TODO
 func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetRewardInfoPools()", ProtocolName))
+		Debug(fmt.Sprintf("%s: client %+v called GetRewardInfoPools()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -608,7 +608,7 @@ func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 // TODO
 func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetPoolState(poolIds: %+v)", ProtocolName, poolIds))
+		Debug(fmt.Sprintf("%s: client %+v called GetPoolState(poolIds: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, poolIds))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -631,7 +631,7 @@ func (c *Client) GetStakeSnapshots(
 	poolId interface{},
 ) (*StakeSnapshotsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetStakeSnapshots(poolId: %+v)", ProtocolName, poolId))
+		Debug(fmt.Sprintf("%s: client %+v called GetStakeSnapshots(poolId: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, poolId))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -652,7 +652,7 @@ func (c *Client) GetStakeSnapshots(
 // TODO
 func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("client called %s GetPoolDistr(poolIds: %+v)", ProtocolName, poolIds))
+		Debug(fmt.Sprintf("%s: client %+v called GetPoolDistr(poolIds: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, poolIds))
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	currentEra, err := c.getCurrentEra()
@@ -671,8 +671,6 @@ func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
-	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcquired:
@@ -693,7 +691,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleAcquired() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client acquired for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client acquired for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	c.acquired = true
 	c.acquireResultChan <- nil
 	c.currentEra = -1
@@ -702,7 +700,7 @@ func (c *Client) handleAcquired() error {
 
 func (c *Client) handleFailure(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client failure for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client failure for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msgFailure := msg.(*MsgFailure)
 	switch msgFailure.Failure {
 	case AcquireFailurePointTooOld:
@@ -717,7 +715,7 @@ func (c *Client) handleFailure(msg protocol.Message) error {
 
 func (c *Client) handleResult(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client result for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client result for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msgResult := msg.(*MsgResult)
 	c.queryResultChan <- msgResult.Result
 	return nil

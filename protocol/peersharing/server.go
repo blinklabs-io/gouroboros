@@ -48,6 +48,7 @@ func (s *Server) initProtocol() {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
 		ErrorChan:           s.protoOptions.ErrorChan,
 		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
@@ -77,6 +78,8 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 }
 
 func (s *Server) handleShareRequest(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server share request for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	if s.config == nil || s.config.ShareRequestFunc == nil {
 		return fmt.Errorf(
 			"received peer-sharing ShareRequest message but no callback function is defined",
@@ -98,6 +101,8 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone(msg protocol.Message) error {
+	s.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	// Restart protocol
 	s.Protocol.Stop()
 	s.initProtocol()

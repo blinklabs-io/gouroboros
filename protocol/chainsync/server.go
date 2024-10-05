@@ -79,21 +79,21 @@ func (s *Server) initProtocol() {
 
 func (s *Server) RollBackward(point common.Point, tip Tip) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("server called %s RollBackward(point: %+v, tip: %+v)", ProtocolName, point, tip))
+		Debug(fmt.Sprintf("%s: server %+v called RollBackward(point: {Slot: %d, Hash: %x}, tip: {Point: %+v, BlockNumber: %d})", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr, point.Slot, point.Hash, tip.Point, tip.BlockNumber))
 	msg := NewMsgRollBackward(point, tip)
 	return s.SendMessage(msg)
 }
 
 func (s *Server) AwaitReply() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("server called %s AwaitReply()", ProtocolName))
+		Debug(fmt.Sprintf("%s: server %+v called AwaitReply()", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	msg := NewMsgAwaitReply()
 	return s.SendMessage(msg)
 }
 
 func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("server called %s Rollforward(blockType: %+v, blockData: %x, tip: %+v)", ProtocolName, blockType, blockData, tip))
+		Debug(fmt.Sprintf("%s: server %+v called RollForward(blockType: %+v, blockData: %x, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr, blockType, blockData, tip.Point.Slot, tip.Point.Hash, tip.BlockNumber))
 	if s.Mode() == protocol.ProtocolModeNodeToNode {
 		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
 		msg := NewMsgRollForwardNtN(
@@ -114,8 +114,6 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
-	s.Protocol.Logger().
-		Debug(fmt.Sprintf("handling server message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeRequestNext:
@@ -137,8 +135,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 func (s *Server) handleRequestNext() error {
 	// TODO: figure out why this one log message causes a panic (and only this one)
 	//   during tests
-	// s.Protocol.Logger().
-	// 	Debug(fmt.Sprintf("handling server request next for %s", ProtocolName))
+	//s.Protocol.Logger().
+	//	Debug(fmt.Sprintf("%s: server request next for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	if s.config == nil || s.config.RequestNextFunc == nil {
 		return fmt.Errorf(
 			"received chain-sync RequestNext message but no callback function is defined",
@@ -149,7 +147,7 @@ func (s *Server) handleRequestNext() error {
 
 func (s *Server) handleFindIntersect(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("handling server find intersect for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: server find intersect for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	if s.config == nil || s.config.FindIntersectFunc == nil {
 		return fmt.Errorf(
 			"received chain-sync FindIntersect message but no callback function is defined",
@@ -179,7 +177,7 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 
 func (s *Server) handleDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("handling server done for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	// Restart protocol
 	s.Protocol.Stop()
 	s.initProtocol()

@@ -57,7 +57,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.handleMessage,
+		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        stateIdle,
@@ -80,9 +80,7 @@ func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 	return peers, nil
 }
 
-func (c *Client) handleMessage(msg protocol.Message) error {
-	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client message for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeSharePeers:
