@@ -55,8 +55,6 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
-	s.Protocol.Logger().
-		Debug(fmt.Sprintf("handling server message for %s", ProtocolName))
 	var err error
 	switch msg.Type() {
 	case MessageTypeSubmitTx:
@@ -75,7 +73,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleSubmitTx(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("handling server submit tx for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: server submit tx for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	if s.config.SubmitTxFunc == nil {
 		return fmt.Errorf(
 			"received local-tx-submission SubmitTx message but no callback function is defined",
@@ -104,6 +102,6 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 
 func (s *Server) handleDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("handling server done for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
 	return nil
 }

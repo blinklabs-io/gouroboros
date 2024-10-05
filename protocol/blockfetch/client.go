@@ -82,7 +82,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: starting protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug(fmt.Sprintf("%s: starting client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -97,7 +97,7 @@ func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: stopping protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug(fmt.Sprintf("%s: stopping client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		msg := NewMsgClientDone()
 		err = c.SendMessage(msg)
 	})
