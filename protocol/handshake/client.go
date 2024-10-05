@@ -57,7 +57,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.handleMessage,
+		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        statePropose,
@@ -70,7 +70,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("starting protocol: %s", ProtocolName))
+			Debug(fmt.Sprintf("%s: starting protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 		c.Protocol.Start()
 		// Send our ProposeVersions message
 		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)
@@ -78,9 +78,7 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) handleMessage(msg protocol.Message) error {
-	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client message for %s", ProtocolName))
+func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcceptVersion:
@@ -99,7 +97,7 @@ func (c *Client) handleMessage(msg protocol.Message) error {
 
 func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client accept version for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client accept version for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	if c.config.FinishedFunc == nil {
 		return fmt.Errorf(
 			"received handshake AcceptVersion message but no callback function is defined",
@@ -122,7 +120,7 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 
 func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("handling client refuse for %s", ProtocolName))
+		Debug(fmt.Sprintf("%s: client refuse for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	msg := msgGeneric.(*MsgRefuse)
 	var err error
 	switch msg.Reason[0].(uint64) {

@@ -53,6 +53,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
 		Muxer:               protoOptions.Muxer,
+		Logger:              protoOptions.Logger,
 		ErrorChan:           protoOptions.ErrorChan,
 		Mode:                protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
@@ -75,6 +76,8 @@ func (c *Client) Init() {
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: client message for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	var err error
 	switch msg.Type() {
 	case MessageTypeRequestTxIds:
@@ -92,6 +95,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 }
 
 func (c *Client) handleRequestTxIds(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: client request tx ids for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	if c.config.RequestTxIdsFunc == nil {
 		return fmt.Errorf(
 			"received tx-submission RequestTxIds message but no callback function is defined",
@@ -116,6 +121,8 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 }
 
 func (c *Client) handleRequestTxs(msg protocol.Message) error {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("%s: client request txs for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
 	if c.config.RequestTxsFunc == nil {
 		return fmt.Errorf(
 			"received tx-submission RequestTxs message but no callback function is defined",

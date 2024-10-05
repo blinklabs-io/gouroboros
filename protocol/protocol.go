@@ -121,7 +121,6 @@ func New(config ProtocolConfig) *Protocol {
 func (p *Protocol) Start() {
 	p.onceStart.Do(func() {
 		// Register protocol with muxer
-		p.Logger().Debug("registering protocol with muxer")
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
@@ -160,7 +159,6 @@ func (p *Protocol) Start() {
 func (p *Protocol) Stop() {
 	p.onceStop.Do(func() {
 		// Unregister protocol from muxer
-		p.Logger().Debug("unregistering protocol with muxer")
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
