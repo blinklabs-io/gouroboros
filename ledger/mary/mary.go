@@ -399,14 +399,6 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 	}
 }
 
-type MaryProtocolParameters struct {
-	allegra.AllegraProtocolParameters
-}
-
-type MaryProtocolParameterUpdate struct {
-	allegra.AllegraProtocolParameterUpdate
-}
-
 func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
 	var maryBlock MaryBlock
 	if _, err := cbor.Decode(data, &maryBlock); err != nil {
