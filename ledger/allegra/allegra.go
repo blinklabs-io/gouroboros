@@ -308,14 +308,6 @@ func (t *AllegraTransaction) Cbor() []byte {
 	return cborData
 }
 
-type AllegraProtocolParameters struct {
-	shelley.ShelleyProtocolParameters
-}
-
-type AllegraProtocolParameterUpdate struct {
-	shelley.ShelleyProtocolParameterUpdate
-}
-
 func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {
 	var allegraBlock AllegraBlock
 	if _, err := cbor.Decode(data, &allegraBlock); err != nil {

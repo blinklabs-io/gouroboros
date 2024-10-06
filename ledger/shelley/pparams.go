@@ -15,10 +15,10 @@
 package shelley
 
 import (
-	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type ShelleyProtocolParameters struct {
@@ -36,7 +36,7 @@ type ShelleyProtocolParameters struct {
 	Rho                *cbor.Rat
 	Tau                *cbor.Rat
 	Decentralization   *cbor.Rat
-	Nonce              *Nonce
+	Nonce              *common.Nonce
 	ProtocolMajor      uint
 	ProtocolMinor      uint
 	MinUtxoValue       uint
@@ -145,7 +145,7 @@ type ShelleyProtocolParameterUpdate struct {
 	Rho                *cbor.Rat                                 `cbor:"10,keyasint"`
 	Tau                *cbor.Rat                                 `cbor:"11,keyasint"`
 	Decentralization   *cbor.Rat                                 `cbor:"12,keyasint"`
-	Nonce              *Nonce                                    `cbor:"13,keyasint"`
+	Nonce              *common.Nonce                             `cbor:"13,keyasint"`
 	ProtocolVersion    *ShelleyProtocolParametersProtocolVersion `cbor:"14,keyasint"`
 	MinUtxoValue       *uint                                     `cbor:"15,keyasint"`
 }
@@ -154,41 +154,4 @@ func (ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
 	return u.UnmarshalCbor(data, u)
-}
-
-const (
-	NonceType0 = 0
-	NonceType1 = 1
-)
-
-var NeutralNonce = Nonce{
-	Type: NonceType0,
-}
-
-type Nonce struct {
-	cbor.StructAsArray
-	Type  uint
-	Value [32]byte
-}
-
-func (n *Nonce) UnmarshalCBOR(data []byte) error {
-	nonceType, err := cbor.DecodeIdFromList(data)
-	if err != nil {
-		return err
-	}
-
-	n.Type = uint(nonceType)
-
-	switch nonceType {
-	case NonceType0:
-		// Value uses default value
-	case NonceType1:
-		if err := cbor.DecodeGeneric(data, n); err != nil {
-			fmt.Printf("Nonce decode error: %+v\n", data)
-			return err
-		}
-	default:
-		return fmt.Errorf("unsupported nonce type %d", nonceType)
-	}
-	return nil
 }
