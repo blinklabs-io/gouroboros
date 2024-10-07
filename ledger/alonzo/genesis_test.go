@@ -15,6 +15,7 @@
 package alonzo_test
 
 import (
+	"math/big"
 	"reflect"
 	"strings"
 	"testing"
@@ -226,17 +227,21 @@ var expectedGenesisObj = alonzo.AlonzoGenesis{
 	MaxValueSize:         5000,
 	CollateralPercentage: 150,
 	MaxCollateralInputs:  3,
-	ExecutionPrices: map[string]map[string]int{
-		"prMem":   {"denominator": 10000, "numerator": 577},
-		"prSteps": {"denominator": 10000000, "numerator": 721},
+	ExecutionPrices: alonzo.AlonzoGenesisExecutionPrices{
+		Mem: &alonzo.AlonzoGenesisExecutionPricesRat{
+			Rat: big.NewRat(577, 10000),
+		},
+		Steps: &alonzo.AlonzoGenesisExecutionPricesRat{
+			Rat: big.NewRat(721, 10000000),
+		},
 	},
-	MaxTxExUnits: map[string]int{
-		"exUnitsMem":   10000000,
-		"exUnitsSteps": 10000000000,
+	MaxTxExUnits: alonzo.AlonzoGenesisExUnits{
+		Mem:   10000000,
+		Steps: 10000000000,
 	},
-	MaxBlockExUnits: map[string]int{
-		"exUnitsMem":   50000000,
-		"exUnitsSteps": 40000000000,
+	MaxBlockExUnits: alonzo.AlonzoGenesisExUnits{
+		Mem:   50000000,
+		Steps: 40000000000,
 	},
 	CostModels: map[string]map[string]int{
 		"PlutusV1": {

@@ -17,17 +17,18 @@ package alonzo
 import (
 	"encoding/json"
 	"io"
+	"math/big"
 	"os"
 )
 
 type AlonzoGenesis struct {
 	LovelacePerUtxoWord  uint64 `json:"lovelacePerUTxOWord"`
-	MaxValueSize         int
-	CollateralPercentage int
-	MaxCollateralInputs  int
-	ExecutionPrices      map[string]map[string]int
-	MaxTxExUnits         map[string]int
-	MaxBlockExUnits      map[string]int
+	MaxValueSize         uint
+	CollateralPercentage uint
+	MaxCollateralInputs  uint
+	ExecutionPrices      AlonzoGenesisExecutionPrices
+	MaxTxExUnits         AlonzoGenesisExUnits
+	MaxBlockExUnits      AlonzoGenesisExUnits
 	CostModels           map[string]map[string]int
 }
 
@@ -48,4 +49,30 @@ func NewAlonzoGenesisFromFile(path string) (AlonzoGenesis, error) {
 	}
 	defer f.Close()
 	return NewAlonzoGenesisFromReader(f)
+}
+
+type AlonzoGenesisExUnits struct {
+	Mem   uint `json:"exUnitsMem"`
+	Steps uint `json:"exUnitsSteps"`
+}
+
+type AlonzoGenesisExecutionPrices struct {
+	Steps *AlonzoGenesisExecutionPricesRat `json:"prSteps"`
+	Mem   *AlonzoGenesisExecutionPricesRat `json:"prMem"`
+}
+
+type AlonzoGenesisExecutionPricesRat struct {
+	*big.Rat
+}
+
+func (r *AlonzoGenesisExecutionPricesRat) UnmarshalJSON(data []byte) error {
+	var tmpData struct {
+		Numerator   int64 `json:"numerator"`
+		Denominator int64 `json:"denominator"`
+	}
+	if err := json.Unmarshal(data, &tmpData); err != nil {
+		return err
+	}
+	r.Rat = big.NewRat(tmpData.Numerator, tmpData.Denominator)
+	return nil
 }
