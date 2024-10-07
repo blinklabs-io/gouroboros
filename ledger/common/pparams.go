@@ -14,7 +14,50 @@
 
 package common
 
+import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+)
+
 type ProtocolParameterUpdate interface {
 	IsProtocolParameterUpdate()
 	Cbor() []byte
+}
+
+const (
+	NonceType0 = 0
+	NonceType1 = 1
+)
+
+var NeutralNonce = Nonce{
+	Type: NonceType0,
+}
+
+type Nonce struct {
+	cbor.StructAsArray
+	Type  uint
+	Value [32]byte
+}
+
+func (n *Nonce) UnmarshalCBOR(data []byte) error {
+	nonceType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+
+	n.Type = uint(nonceType)
+
+	switch nonceType {
+	case NonceType0:
+		// Value uses default value
+	case NonceType1:
+		if err := cbor.DecodeGeneric(data, n); err != nil {
+			fmt.Printf("Nonce decode error: %+v\n", data)
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported nonce type %d", nonceType)
+	}
+	return nil
 }
