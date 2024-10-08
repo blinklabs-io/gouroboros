@@ -61,3 +61,15 @@ func (n *Nonce) UnmarshalCBOR(data []byte) error {
 	}
 	return nil
 }
+
+type ExUnit struct {
+	cbor.StructAsArray
+	Mem   uint
+	Steps uint
+}
+
+type ExUnitPrice struct {
+	cbor.StructAsArray
+	MemPrice  *cbor.Rat
+	StepPrice *cbor.Rat
+}

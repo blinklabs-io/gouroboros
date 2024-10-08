@@ -475,48 +475,6 @@ func (t *AlonzoTransaction) Utxorpc() *utxorpc.Tx {
 	return t.Body.Utxorpc()
 }
 
-type ExUnit struct {
-	cbor.StructAsArray
-	Mem   uint
-	Steps uint
-}
-
-type ExUnitPrice struct {
-	cbor.StructAsArray
-	MemPrice  uint
-	StepPrice uint
-}
-
-type AlonzoProtocolParameters struct {
-	mary.MaryProtocolParameters
-	MinPoolCost          uint
-	AdaPerUtxoByte       uint
-	CostModels           uint
-	ExecutionCosts       uint
-	MaxTxExUnits         uint
-	MaxBlockExUnits      uint
-	MaxValueSize         uint
-	CollateralPercentage uint
-	MaxCollateralInputs  uint
-}
-
-type AlonzoProtocolParameterUpdate struct {
-	mary.MaryProtocolParameterUpdate
-	MinPoolCost          uint            `cbor:"16,keyasint"`
-	AdaPerUtxoByte       uint            `cbor:"17,keyasint"`
-	CostModels           map[uint][]uint `cbor:"18,keyasint"`
-	ExecutionCosts       *ExUnitPrice    `cbor:"19,keyasint"`
-	MaxTxExUnits         *ExUnit         `cbor:"20,keyasint"`
-	MaxBlockExUnits      *ExUnit         `cbor:"21,keyasint"`
-	MaxValueSize         uint            `cbor:"22,keyasint"`
-	CollateralPercentage uint            `cbor:"23,keyasint"`
-	MaxCollateralInputs  uint            `cbor:"24,keyasint"`
-}
-
-func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
-	return u.UnmarshalCbor(data, u)
-}
-
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 	var alonzoBlock AlonzoBlock
 	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
