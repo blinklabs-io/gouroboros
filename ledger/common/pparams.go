@@ -25,6 +25,12 @@ type ProtocolParameterUpdate interface {
 	Cbor() []byte
 }
 
+type ProtocolParametersProtocolVersion struct {
+	cbor.StructAsArray
+	Major uint
+	Minor uint
+}
+
 const (
 	NonceType0 = 0
 	NonceType1 = 1

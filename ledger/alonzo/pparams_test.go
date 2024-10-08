@@ -124,7 +124,7 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 	}
 }
 
-func TestShelleyProtocolParamsUpdateFromGenesis(t *testing.T) {
+func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 	testDefs := []struct {
 		startParams    alonzo.AlonzoProtocolParameters
 		genesisJson    string
