@@ -279,6 +279,10 @@ type ConwayProtocolParameterUpdate struct {
 	MinFeeRefScriptCostPerByte *cbor.Rat            `cbor:"33,keyasint"`
 }
 
+func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
+	return u.UnmarshalCbor(data, u)
+}
+
 type PoolVotingThresholds struct {
 	cbor.StructAsArray
 	MotionNoConfidence                       cbor.Rat

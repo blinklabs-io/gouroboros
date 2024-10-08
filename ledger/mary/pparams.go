@@ -29,3 +29,7 @@ func (p *MaryProtocolParameters) Update(paramUpdate *MaryProtocolParameterUpdate
 type MaryProtocolParameterUpdate struct {
 	allegra.AllegraProtocolParameterUpdate
 }
+
+func (u *MaryProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
+	return u.UnmarshalCbor(data, u)
+}
