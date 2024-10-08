@@ -513,6 +513,10 @@ type AlonzoProtocolParameterUpdate struct {
 	MaxCollateralInputs  uint            `cbor:"24,keyasint"`
 }
 
+func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
+	return u.UnmarshalCbor(data, u)
+}
+
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 	var alonzoBlock AlonzoBlock
 	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
