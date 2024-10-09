@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
@@ -126,10 +127,10 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 		PoolDeposit:        500000000,
 		MaxEpoch:           18,
 		NOpt:               150,
-		A0:                 &shelley.GenesisRat{Rat: big.NewRat(3, 10)},
-		Rho:                &shelley.GenesisRat{Rat: big.NewRat(3, 1000)},
-		Tau:                &shelley.GenesisRat{Rat: big.NewRat(2, 10)},
-		Decentralization:   &shelley.GenesisRat{Rat: new(big.Rat).SetInt64(1)},
+		A0:                 &common.GenesisRat{Rat: big.NewRat(3, 10)},
+		Rho:                &common.GenesisRat{Rat: big.NewRat(3, 1000)},
+		Tau:                &common.GenesisRat{Rat: big.NewRat(2, 10)},
+		Decentralization:   &common.GenesisRat{Rat: new(big.Rat).SetInt64(1)},
 		ExtraEntropy: map[string]string{
 			"tag": "NeutralNonce",
 		},

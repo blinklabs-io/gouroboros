@@ -38,7 +38,7 @@ type BabbageProtocolParameters struct {
 	ProtocolMinor        uint
 	MinPoolCost          uint64
 	AdaPerUtxoByte       uint64
-	CostModels           map[uint][]uint64
+	CostModels           map[uint][]int64
 	ExecutionCosts       common.ExUnitPrice
 	MaxTxExUnits         common.ExUnit
 	MaxBlockExUnits      common.ExUnit
@@ -134,7 +134,7 @@ type BabbageProtocolParameterUpdate struct {
 	ProtocolVersion      *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
 	MinPoolCost          *uint64                                   `cbor:"16,keyasint"`
 	AdaPerUtxoByte       *uint64                                   `cbor:"17,keyasint"`
-	CostModels           map[uint][]uint64                         `cbor:"18,keyasint"`
+	CostModels           map[uint][]int64                         `cbor:"18,keyasint"`
 	ExecutionCosts       *common.ExUnitPrice                       `cbor:"19,keyasint"`
 	MaxTxExUnits         *common.ExUnit                            `cbor:"20,keyasint"`
 	MaxBlockExUnits      *common.ExUnit                            `cbor:"21,keyasint"`

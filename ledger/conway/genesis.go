@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type ConwayGenesis struct {
@@ -29,31 +31,31 @@ type ConwayGenesis struct {
 	GovActionDeposit           uint64
 	DRepDeposit                uint64 `json:"dRepDeposit"`
 	DRepInactivityPeriod       uint64 `json:"dRepActivity"`
-	MinFeeRefScriptCostPerByte float32
-	PlutusV3CostModel          []int `json:"plutusV3CostModel"`
+	MinFeeRefScriptCostPerByte *common.GenesisRat
+	PlutusV3CostModel          []int64 `json:"plutusV3CostModel"`
 	Constitution               ConwayGenesisConstitution
 	Committee                  ConwayGenesisCommittee
 }
 
 type ConwayGenesisPoolVotingThresholds struct {
-	CommitteeNormal       float32
-	CommitteeNoConfidence float32
-	HardForkInitiation    float32
-	MotionNoConfidence    float32
-	PpSecurityGroup       float32
+	CommitteeNormal       *common.GenesisRat
+	CommitteeNoConfidence *common.GenesisRat
+	HardForkInitiation    *common.GenesisRat
+	MotionNoConfidence    *common.GenesisRat
+	PpSecurityGroup       *common.GenesisRat
 }
 
 type ConwayGenesisDRepVotingThresholds struct {
-	MotionNoConfidence    float32
-	CommitteeNormal       float32
-	CommitteeNoConfidence float32
-	UpdateToConstitution  float32
-	HardForkInitiation    float32
-	PpNetworkGroup        float32
-	PpEconomicGroup       float32
-	PpTechnicalGroup      float32
-	PpGovGroup            float32
-	TreasuryWithdrawal    float32
+	MotionNoConfidence    *common.GenesisRat
+	CommitteeNormal       *common.GenesisRat
+	CommitteeNoConfidence *common.GenesisRat
+	UpdateToConstitution  *common.GenesisRat
+	HardForkInitiation    *common.GenesisRat
+	PpNetworkGroup        *common.GenesisRat
+	PpEconomicGroup       *common.GenesisRat
+	PpTechnicalGroup      *common.GenesisRat
+	PpGovGroup            *common.GenesisRat
+	TreasuryWithdrawal    *common.GenesisRat
 }
 
 type ConwayGenesisConstitution struct {
