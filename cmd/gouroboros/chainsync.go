@@ -308,6 +308,10 @@ func blockFetchBlockHandler(
 		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.Epoch, block.SlotNumber(), block.Hash())
 	case *ledger.ByronMainBlock:
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.SlotId.Epoch, block.SlotNumber(), block.Hash())
+		if len(block.Body.UpdPayload.Proposals) > 0 {
+			proposal := block.Body.UpdPayload.Proposals[0]
+			fmt.Printf("proposal.BlockVersion = %d/%d/%d, SoftwareVersion = %s/%d, BlockVersionMod = %#v\n", proposal.BlockVersion.Major, proposal.BlockVersion.Minor, proposal.BlockVersion.Unknown, proposal.SoftwareVersion.Name, proposal.SoftwareVersion.Version, proposal.BlockVersionMod)
+		}
 	case ledger.Block:
 		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", block.Era().Name, block.SlotNumber(), block.BlockNumber(), block.Hash())
 	}
