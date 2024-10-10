@@ -124,12 +124,6 @@ func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) {
 	//p.Nonce              *cbor.Rat
 }
 
-type ShelleyProtocolParametersProtocolVersion struct {
-	cbor.StructAsArray
-	Major uint
-	Minor uint
-}
-
 type ShelleyProtocolParameterUpdate struct {
 	cbor.DecodeStoreCbor
 	MinFeeA            *uint                                     `cbor:"0,keyasint"`
@@ -146,7 +140,7 @@ type ShelleyProtocolParameterUpdate struct {
 	Tau                *cbor.Rat                                 `cbor:"11,keyasint"`
 	Decentralization   *cbor.Rat                                 `cbor:"12,keyasint"`
 	Nonce              *common.Nonce                             `cbor:"13,keyasint"`
-	ProtocolVersion    *ShelleyProtocolParametersProtocolVersion `cbor:"14,keyasint"`
+	ProtocolVersion    *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
 	MinUtxoValue       *uint                                     `cbor:"15,keyasint"`
 }
 
