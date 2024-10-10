@@ -1,0 +1,252 @@
+// Copyright 2024 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package conway
+
+import (
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+)
+
+type ConwayProtocolParameters struct {
+	cbor.StructAsArray
+	MinFeeA                    uint
+	MinFeeB                    uint
+	MaxBlockBodySize           uint
+	MaxTxSize                  uint
+	MaxBlockHeaderSize         uint
+	KeyDeposit                 uint
+	PoolDeposit                uint
+	MaxEpoch                   uint
+	NOpt                       uint
+	A0                         *cbor.Rat
+	Rho                        *cbor.Rat
+	Tau                        *cbor.Rat
+	ProtocolVersion            common.ProtocolParametersProtocolVersion
+	MinPoolCost                uint64
+	AdaPerUtxoByte             uint64
+	CostModels                 map[uint][]int64
+	ExecutionCosts             common.ExUnitPrice
+	MaxTxExUnits               common.ExUnit
+	MaxBlockExUnits            common.ExUnit
+	MaxValueSize               uint
+	CollateralPercentage       uint
+	MaxCollateralInputs        uint
+	PoolVotingThresholds       PoolVotingThresholds
+	DRepVotingThresholds       DRepVotingThresholds
+	MinCommitteeSize           uint
+	CommitteeTermLimit         uint64
+	GovActionValidityPeriod    uint64
+	GovActionDeposit           uint64
+	DRepDeposit                uint64
+	DRepInactivityPeriod       uint64
+	MinFeeRefScriptCostPerByte *cbor.Rat
+}
+
+func (p *ConwayProtocolParameters) Update(paramUpdate *ConwayProtocolParameterUpdate) {
+	if paramUpdate.MinFeeA != nil {
+		p.MinFeeA = *paramUpdate.MinFeeA
+	}
+	if paramUpdate.MinFeeB != nil {
+		p.MinFeeB = *paramUpdate.MinFeeB
+	}
+	if paramUpdate.MaxBlockBodySize != nil {
+		p.MaxBlockBodySize = *paramUpdate.MaxBlockBodySize
+	}
+	if paramUpdate.MaxTxSize != nil {
+		p.MaxTxSize = *paramUpdate.MaxTxSize
+	}
+	if paramUpdate.MaxBlockHeaderSize != nil {
+		p.MaxBlockHeaderSize = *paramUpdate.MaxBlockHeaderSize
+	}
+	if paramUpdate.KeyDeposit != nil {
+		p.KeyDeposit = *paramUpdate.KeyDeposit
+	}
+	if paramUpdate.PoolDeposit != nil {
+		p.PoolDeposit = *paramUpdate.PoolDeposit
+	}
+	if paramUpdate.MaxEpoch != nil {
+		p.MaxEpoch = *paramUpdate.MaxEpoch
+	}
+	if paramUpdate.NOpt != nil {
+		p.NOpt = *paramUpdate.NOpt
+	}
+	if paramUpdate.A0 != nil {
+		p.A0 = paramUpdate.A0
+	}
+	if paramUpdate.Rho != nil {
+		p.Rho = paramUpdate.Rho
+	}
+	if paramUpdate.Tau != nil {
+		p.Tau = paramUpdate.Tau
+	}
+	if paramUpdate.ProtocolVersion != nil {
+		p.ProtocolVersion = *paramUpdate.ProtocolVersion
+	}
+	if paramUpdate.MinPoolCost != nil {
+		p.MinPoolCost = *paramUpdate.MinPoolCost
+	}
+	if paramUpdate.AdaPerUtxoByte != nil {
+		p.AdaPerUtxoByte = *paramUpdate.AdaPerUtxoByte
+	}
+	if paramUpdate.CostModels != nil {
+		p.CostModels = paramUpdate.CostModels
+	}
+	if paramUpdate.ExecutionCosts != nil {
+		p.ExecutionCosts = *paramUpdate.ExecutionCosts
+	}
+	if paramUpdate.MaxTxExUnits != nil {
+		p.MaxTxExUnits = *paramUpdate.MaxTxExUnits
+	}
+	if paramUpdate.MaxBlockExUnits != nil {
+		p.MaxBlockExUnits = *paramUpdate.MaxBlockExUnits
+	}
+	if paramUpdate.MaxValueSize != nil {
+		p.MaxValueSize = *paramUpdate.MaxValueSize
+	}
+	if paramUpdate.CollateralPercentage != nil {
+		p.CollateralPercentage = *paramUpdate.CollateralPercentage
+	}
+	if paramUpdate.MaxCollateralInputs != nil {
+		p.MaxCollateralInputs = *paramUpdate.MaxCollateralInputs
+	}
+	if paramUpdate.PoolVotingThresholds != nil {
+		p.PoolVotingThresholds = *paramUpdate.PoolVotingThresholds
+	}
+	if paramUpdate.DRepVotingThresholds != nil {
+		p.DRepVotingThresholds = *paramUpdate.DRepVotingThresholds
+	}
+	if paramUpdate.MinCommitteeSize != nil {
+		p.MinCommitteeSize = *paramUpdate.MinCommitteeSize
+	}
+	if paramUpdate.CommitteeTermLimit != nil {
+		p.CommitteeTermLimit = *paramUpdate.CommitteeTermLimit
+	}
+	if paramUpdate.GovActionValidityPeriod != nil {
+		p.GovActionValidityPeriod = *paramUpdate.GovActionValidityPeriod
+	}
+	if paramUpdate.GovActionDeposit != nil {
+		p.GovActionDeposit = *paramUpdate.GovActionDeposit
+	}
+	if paramUpdate.DRepDeposit != nil {
+		p.DRepDeposit = *paramUpdate.DRepDeposit
+	}
+	if paramUpdate.DRepInactivityPeriod != nil {
+		p.DRepInactivityPeriod = *paramUpdate.DRepInactivityPeriod
+	}
+	if paramUpdate.MinFeeRefScriptCostPerByte != nil {
+		p.MinFeeRefScriptCostPerByte = paramUpdate.MinFeeRefScriptCostPerByte
+	}
+}
+
+func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) {
+	p.MinCommitteeSize = genesis.MinCommitteeSize
+	p.CommitteeTermLimit = genesis.CommitteeTermLimit
+	p.GovActionValidityPeriod = genesis.GovActionValidityPeriod
+	p.GovActionDeposit = genesis.GovActionDeposit
+	p.DRepDeposit = genesis.DRepDeposit
+	p.DRepInactivityPeriod = genesis.DRepInactivityPeriod
+	if genesis.MinFeeRefScriptCostPerByte != nil {
+		p.MinFeeRefScriptCostPerByte = &cbor.Rat{Rat: genesis.MinFeeRefScriptCostPerByte.Rat}
+	}
+	if len(genesis.PlutusV3CostModel) > 0 {
+		p.CostModels[2] = genesis.PlutusV3CostModel
+	}
+	if genesis.PoolVotingThresholds.MotionNoConfidence != nil {
+		p.PoolVotingThresholds.MotionNoConfidence = cbor.Rat{Rat: genesis.PoolVotingThresholds.MotionNoConfidence.Rat}
+	}
+	if genesis.PoolVotingThresholds.CommitteeNormal != nil {
+		p.PoolVotingThresholds.CommitteeNormal = cbor.Rat{Rat: genesis.PoolVotingThresholds.CommitteeNormal.Rat}
+	}
+	if genesis.PoolVotingThresholds.CommitteeNoConfidence != nil {
+		p.PoolVotingThresholds.CommitteeNoConfidence = cbor.Rat{Rat: genesis.PoolVotingThresholds.CommitteeNoConfidence.Rat}
+	}
+	if genesis.PoolVotingThresholds.HardForkInitiation != nil {
+		p.PoolVotingThresholds.HardForkInitiation = cbor.Rat{Rat: genesis.PoolVotingThresholds.HardForkInitiation.Rat}
+	}
+	if genesis.PoolVotingThresholds.PpSecurityGroup != nil {
+		p.PoolVotingThresholds.PpSecurityGroup = cbor.Rat{Rat: genesis.PoolVotingThresholds.PpSecurityGroup.Rat}
+	}
+	if genesis.DRepVotingThresholds.MotionNoConfidence != nil {
+		p.DRepVotingThresholds.MotionNoConfidence = cbor.Rat{Rat: genesis.DRepVotingThresholds.MotionNoConfidence.Rat}
+	}
+	if genesis.DRepVotingThresholds.CommitteeNormal != nil {
+		p.DRepVotingThresholds.CommitteeNormal = cbor.Rat{Rat: genesis.DRepVotingThresholds.CommitteeNormal.Rat}
+	}
+	if genesis.DRepVotingThresholds.CommitteeNoConfidence != nil {
+		p.DRepVotingThresholds.CommitteeNoConfidence = cbor.Rat{Rat: genesis.DRepVotingThresholds.CommitteeNoConfidence.Rat}
+	}
+	if genesis.DRepVotingThresholds.UpdateToConstitution != nil {
+		p.DRepVotingThresholds.UpdateToConstitution = cbor.Rat{Rat: genesis.DRepVotingThresholds.UpdateToConstitution.Rat}
+	}
+	if genesis.DRepVotingThresholds.HardForkInitiation != nil {
+		p.DRepVotingThresholds.HardForkInitiation = cbor.Rat{Rat: genesis.DRepVotingThresholds.HardForkInitiation.Rat}
+	}
+	if genesis.DRepVotingThresholds.PpNetworkGroup != nil {
+		p.DRepVotingThresholds.PpNetworkGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpNetworkGroup.Rat}
+	}
+	if genesis.DRepVotingThresholds.PpEconomicGroup != nil {
+		p.DRepVotingThresholds.PpEconomicGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpEconomicGroup.Rat}
+	}
+	if genesis.DRepVotingThresholds.PpTechnicalGroup != nil {
+		p.DRepVotingThresholds.PpTechnicalGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpTechnicalGroup.Rat}
+	}
+	if genesis.DRepVotingThresholds.PpGovGroup != nil {
+		p.DRepVotingThresholds.PpGovGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpGovGroup.Rat}
+	}
+	if genesis.DRepVotingThresholds.TreasuryWithdrawal != nil {
+		p.DRepVotingThresholds.TreasuryWithdrawal = cbor.Rat{Rat: genesis.DRepVotingThresholds.TreasuryWithdrawal.Rat}
+	}
+}
+
+type ConwayProtocolParameterUpdate struct {
+	babbage.BabbageProtocolParameterUpdate
+	PoolVotingThresholds       *PoolVotingThresholds `cbor:"25,keyasint"`
+	DRepVotingThresholds       *DRepVotingThresholds `cbor:"26,keyasint"`
+	MinCommitteeSize           *uint                 `cbor:"27,keyasint"`
+	CommitteeTermLimit         *uint64               `cbor:"28,keyasint"`
+	GovActionValidityPeriod    *uint64               `cbor:"29,keyasint"`
+	GovActionDeposit           *uint64               `cbor:"30,keyasint"`
+	DRepDeposit                *uint64               `cbor:"31,keyasint"`
+	DRepInactivityPeriod       *uint64               `cbor:"32,keyasint"`
+	MinFeeRefScriptCostPerByte *cbor.Rat             `cbor:"33,keyasint"`
+}
+
+func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
+	return u.UnmarshalCbor(data, u)
+}
+
+type PoolVotingThresholds struct {
+	cbor.StructAsArray
+	MotionNoConfidence    cbor.Rat
+	CommitteeNormal       cbor.Rat
+	CommitteeNoConfidence cbor.Rat
+	HardForkInitiation    cbor.Rat
+	PpSecurityGroup       cbor.Rat
+}
+
+type DRepVotingThresholds struct {
+	cbor.StructAsArray
+	MotionNoConfidence    cbor.Rat
+	CommitteeNormal       cbor.Rat
+	CommitteeNoConfidence cbor.Rat
+	UpdateToConstitution  cbor.Rat
+	HardForkInitiation    cbor.Rat
+	PpNetworkGroup        cbor.Rat
+	PpEconomicGroup       cbor.Rat
+	PpTechnicalGroup      cbor.Rat
+	PpGovGroup            cbor.Rat
+	TreasuryWithdrawal    cbor.Rat
+}
