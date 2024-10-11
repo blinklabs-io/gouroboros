@@ -73,19 +73,10 @@ type ByronMainBlockHeader struct {
 	}
 	ExtraData struct {
 		cbor.StructAsArray
-		BlockVersion struct {
-			cbor.StructAsArray
-			Major   uint16
-			Minor   uint16
-			Unknown uint8
-		}
-		SoftwareVersion struct {
-			cbor.StructAsArray
-			Name    string
-			Unknown uint32
-		}
-		Attributes interface{}
-		ExtraProof common.Blake2b256
+		BlockVersion    ByronBlockVersion
+		SoftwareVersion ByronSoftwareVersion
+		Attributes      interface{}
+		ExtraProof      common.Blake2b256
 	}
 }
 
@@ -422,6 +413,59 @@ func (o ByronTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 	}
 }
 
+type ByronBlockVersion struct {
+	cbor.StructAsArray
+	Major   uint16
+	Minor   uint16
+	Unknown uint8
+}
+
+type ByronSoftwareVersion struct {
+	cbor.StructAsArray
+	Name    string
+	Version uint32
+}
+
+type ByronUpdatePayload struct {
+	cbor.StructAsArray
+	Proposals []ByronUpdateProposal
+	Votes     []any
+}
+
+type ByronUpdateProposal struct {
+	cbor.DecodeStoreCbor
+	cbor.StructAsArray
+	BlockVersion    ByronBlockVersion
+	BlockVersionMod ByronUpdateProposalBlockVersionMod
+	SoftwareVersion ByronSoftwareVersion
+	Data            any
+	Attributes      any
+	From            []byte
+	Signature       []byte
+}
+
+func (p *ByronUpdateProposal) UnmarshalCBOR(data []byte) error {
+	return p.UnmarshalCbor(data, p)
+}
+
+type ByronUpdateProposalBlockVersionMod struct {
+	cbor.StructAsArray
+	ScriptVersion     []uint16
+	SlotDuration      []uint64
+	MaxBlockSize      []uint64
+	MaxHeaderSize     []uint64
+	MaxTxSize         []uint64
+	MaxProposalSize   []uint64
+	MpcThd            []uint64
+	HeavyDelThd       []uint64
+	UpdateVoteThd     []uint64
+	UpdateProposalThd []uint64
+	UpdateImplicit    []uint64
+	SoftForkRule      []any
+	TxFeePolicy       []any
+	UnlockStakeEpoch  []uint64
+}
+
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -434,7 +478,7 @@ type ByronMainBlockBody struct {
 	}
 	SscPayload cbor.Value
 	DlgPayload []interface{}
-	UpdPayload []interface{}
+	UpdPayload ByronUpdatePayload
 }
 
 func (b *ByronMainBlockBody) UnmarshalCBOR(data []byte) error {
