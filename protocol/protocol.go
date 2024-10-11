@@ -163,7 +163,7 @@ func (p *Protocol) Stop() {
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
 		}
-		p.config.Muxer.RegisterProtocol(
+		p.config.Muxer.UnregisterProtocol(
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
