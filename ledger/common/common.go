@@ -78,6 +78,10 @@ func (b Blake2b224) Bytes() []byte {
 	return b[:]
 }
 
+func (b Blake2b224) MarshalJSON() ([]byte, error) {
+	return json.Marshal(b.String())
+}
+
 // Blake2b224Hash generates a Blake2b-224 hash from the provided data
 func Blake2b224Hash(data []byte) Blake2b224 {
 	tmpHash, err := blake2b.New(Blake2b224Size, nil)

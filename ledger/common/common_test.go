@@ -125,3 +125,39 @@ func TestMultiAssetJson(t *testing.T) {
 		}
 	}
 }
+
+// Test the MarshalJSON method for Blake2b224 to ensure it properly converts to JSON.
+func TestBlake2b224_MarshalJSON(t *testing.T) {
+	// Example data to represent Blake2b224 hash
+	data := []byte("blinklabs")
+	hash := NewBlake2b224(data)
+
+	// Blake2b224 always produces 28 bytes (224 bits) as its output.
+	// Expected JSON value: the hex-encoded string of "blinklabs" padded to fit 28 bytes.
+	// JSON marshalling adds quotes around the string, so include quotes in expected value.
+	expected := `"626c696e6b6c61627300000000000000000000000000000000000000"`
+
+	// Marshal the Blake2b224 object to JSON
+	jsonData, err := json.Marshal(hash)
+	if err != nil {
+		t.Fatalf("failed to marshal Blake2b224: %v", err)
+	}
+
+	// Compare the result with the expected output
+	if string(jsonData) != expected {
+		t.Errorf("expected %s but got %s", expected, string(jsonData))
+	}
+}
+
+func TestBlake2b224_String(t *testing.T) {
+	data := []byte("blinklabs") // Less than 28 bytes
+	hash := NewBlake2b224(data)
+
+	// Expected hex string for "blinklabs" padded/truncated to fit 28 bytes
+	expected := "626c696e6b6c61627300000000000000000000000000000000000000"
+
+	// Verify if String() gives the correct hex-encoded string
+	if hash.String() != expected {
+		t.Errorf("expected %s but got %s", expected, hash.String())
+	}
+}
