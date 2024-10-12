@@ -16,6 +16,7 @@ package cbor
 
 import (
 	"encoding/hex"
+	"encoding/json"
 
 	_cbor "github.com/fxamacker/cbor/v2"
 )
@@ -35,4 +36,9 @@ func NewByteString(data []byte) ByteString {
 // String returns a hex-encoded representation of the bytestring
 func (bs ByteString) String() string {
 	return hex.EncodeToString(bs.Bytes())
+}
+
+// MarshalJSON converts ByteString to a JSON-compatible string
+func (bs ByteString) MarshalJSON() ([]byte, error) {
+	return json.Marshal(bs.String())
 }
