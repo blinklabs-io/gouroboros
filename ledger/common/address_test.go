@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAddressFromBytes(t *testing.T) {
@@ -224,4 +225,17 @@ func TestAddressStakeAddress(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestAddressPaymentAddress_MixedCase(t *testing.T) {
+
+	lowerCaseAddress := "addr_test1qqawz5hm2tchtmarkfn2tamzvd2spatl89gtutgra6zwc3ktqj7p944ckc9lq7u36jrq99znwhzlq6jfv2j4ql92m4rq07hp8t"
+	laddr, err := NewAddress(lowerCaseAddress)
+	assert.Nil(t, err, "Expected no error when decoding a lowercase address")
+	// address with mixed case
+	mixedCaseAddress := "addr_test1QQawz5hm2tchtmarkfn2tamzvd2spatl89gtutgra6zwc3ktqj7p944ckc9lq7u36jrq99znwhzlq6jfv2j4ql92m4rq07hp8t"
+	addr, err := NewAddress(mixedCaseAddress)
+	assert.Nil(t, err, "Expected no error when decoding a mixed-case address")
+	assert.NotNil(t, addr, "Expected a valid address object after decoding")
+	assert.Equal(t, laddr.String(), addr.String(), "Expected the mixed-case address to be equal to lowercase")
 }

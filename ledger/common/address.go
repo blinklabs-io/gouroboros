@@ -16,6 +16,7 @@ package common
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/base58"
 	"github.com/blinklabs-io/gouroboros/bech32"
@@ -55,6 +56,7 @@ type Address struct {
 
 // NewAddress returns an Address based on the provided bech32 address string
 func NewAddress(addr string) (Address, error) {
+	addr = strings.ToLower(addr)
 	_, data, err := bech32.DecodeNoLimit(addr)
 	if err != nil {
 		return Address{}, err
