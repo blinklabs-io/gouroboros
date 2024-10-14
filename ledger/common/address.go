@@ -16,6 +16,7 @@ package common
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/base58"
 	"github.com/blinklabs-io/gouroboros/bech32"
@@ -53,15 +54,25 @@ type Address struct {
 	extraData      []byte
 }
 
-// NewAddress returns an Address based on the provided bech32 address string
+// NewAddress returns an Address based on the provided bech32/base58 address string
+// It detects if the string has mixed case assumes it is a base58 encoded address
+// otherwise, it assumes it is bech32 encoded
 func NewAddress(addr string) (Address, error) {
-	_, data, err := bech32.DecodeNoLimit(addr)
-	if err != nil {
-		return Address{}, err
-	}
-	decoded, err := bech32.ConvertBits(data, 5, 8, false)
-	if err != nil {
-		return Address{}, err
+	var decoded []byte
+	var err error
+
+	if strings.ToLower(addr) != addr {
+		// Mixed case detected: Assume Base58 encoding (e.g., Byron addresses)
+		decoded = base58.Decode(addr)
+	} else {
+		_, data, err := bech32.DecodeNoLimit(addr)
+		if err != nil {
+			return Address{}, err
+		}
+		decoded, err = bech32.ConvertBits(data, 5, 8, false)
+		if err != nil {
+			return Address{}, err
+		}
 	}
 	a := Address{}
 	err = a.populateFromBytes(decoded)
