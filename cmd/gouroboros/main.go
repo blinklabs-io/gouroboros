@@ -91,9 +91,9 @@ func main() {
 	}
 
 	if f.networkMagic == 0 {
-		network := ouroboros.NetworkByName(f.network)
-		if network == ouroboros.NetworkInvalid {
-			fmt.Printf("Invalid network specified: %s\n", f.network)
+		network, ok := ouroboros.NetworkByName(f.network)
+		if !ok {
+			fmt.Printf("Unknown network specified: %s\n", f.network)
 			os.Exit(1)
 		}
 		f.networkMagic = int(network.NetworkMagic)

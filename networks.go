@@ -18,50 +18,62 @@ import "github.com/blinklabs-io/gouroboros/ledger/common"
 
 // Network definitions
 var (
-	NetworkTestnet = Network{
-		Id:           common.AddressNetworkTestnet,
-		Name:         "testnet",
-		NetworkMagic: 1097911063,
-	}
 	NetworkMainnet = Network{
-		Id:                common.AddressNetworkMainnet,
-		Name:              "mainnet",
-		NetworkMagic:      764824073,
-		PublicRootAddress: "backbone.cardano.iog.io",
-		PublicRootPort:    3001,
+		Id:           common.AddressNetworkMainnet,
+		Name:         "mainnet",
+		NetworkMagic: 764824073,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "backbone.cardano.iog.io",
+				Port:    3001,
+			},
+			{
+				Address: "backbone.mainnet.emurgornd.com",
+				Port:    3001,
+			},
+			{
+				Address: "backbone.mainnet.cardanofoundation.org",
+				Port:    3001,
+			},
+		},
 	}
 	NetworkPreprod = Network{
-		Id:                common.AddressNetworkTestnet,
-		Name:              "preprod",
-		NetworkMagic:      1,
-		PublicRootAddress: "preprod-node.world.dev.cardano.org",
-		PublicRootPort:    30000,
+		Id:           common.AddressNetworkTestnet,
+		Name:         "preprod",
+		NetworkMagic: 1,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "preprod-node.play.dev.cardano.org",
+				Port:    3001,
+			},
+		},
 	}
 	NetworkPreview = Network{
-		Id:                common.AddressNetworkTestnet,
-		Name:              "preview",
-		NetworkMagic:      2,
-		PublicRootAddress: "preview-node.play.dev.cardano.org",
-		PublicRootPort:    3001,
+		Id:           common.AddressNetworkTestnet,
+		Name:         "preview",
+		NetworkMagic: 2,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "preview-node.play.dev.cardano.org",
+				Port:    3001,
+			},
+		},
 	}
 	NetworkSancho = Network{
-		Id:                common.AddressNetworkTestnet,
-		Name:              "sanchonet",
-		NetworkMagic:      4,
-		PublicRootAddress: "sanchonet-node.play.dev.cardano.org",
-		PublicRootPort:    3001,
+		Id:           common.AddressNetworkTestnet,
+		Name:         "sanchonet",
+		NetworkMagic: 4,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "sanchonet-node.play.dev.cardano.org",
+				Port:    3001,
+			},
+		},
 	}
-
-	NetworkInvalid = Network{
-		Id:           0,
-		Name:         "invalid",
-		NetworkMagic: 0,
-	} // NetworkInvalid is used as a return value for lookup functions when a network isn't found
 )
 
 // List of valid networks for use in lookup functions
 var networks = []Network{
-	NetworkTestnet,
 	NetworkMainnet,
 	NetworkPreprod,
 	NetworkPreview,
@@ -69,42 +81,46 @@ var networks = []Network{
 }
 
 // NetworkByName returns a predefined network by name
-func NetworkByName(name string) Network {
+func NetworkByName(name string) (Network, bool) {
 	for _, network := range networks {
 		if network.Name == name {
-			return network
+			return network, true
 		}
 	}
-	return NetworkInvalid
+	return Network{}, false
 }
 
 // NetworkById returns a predefined network by ID
-func NetworkById(id uint8) Network {
+func NetworkById(id uint8) (Network, bool) {
 	for _, network := range networks {
 		if network.Id == id {
-			return network
+			return network, true
 		}
 	}
-	return NetworkInvalid
+	return Network{}, false
 }
 
 // NetworkByNetworkMagic returns a predefined network by network magic
-func NetworkByNetworkMagic(networkMagic uint32) Network {
+func NetworkByNetworkMagic(networkMagic uint32) (Network, bool) {
 	for _, network := range networks {
 		if network.NetworkMagic == networkMagic {
-			return network
+			return network, true
 		}
 	}
-	return NetworkInvalid
+	return Network{}, false
 }
 
 // Network represents a Cardano network
 type Network struct {
-	Id                uint8 // network ID used for addresses
-	Name              string
-	NetworkMagic      uint32
-	PublicRootAddress string
-	PublicRootPort    uint
+	Id             uint8 // network ID used for addresses
+	Name           string
+	NetworkMagic   uint32
+	BootstrapPeers []NetworkBootstrapPeer
+}
+
+type NetworkBootstrapPeer struct {
+	Address string
+	Port    uint
 }
 
 func (n Network) String() string {
