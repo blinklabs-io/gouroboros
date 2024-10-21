@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/blinklabs-io/gouroboros"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 )
 
 type GlobalFlags struct {
@@ -86,9 +86,9 @@ func (f *GlobalFlags) Parse() {
 		os.Exit(1)
 	}
 	if f.NetworkMagic == 0 {
-		network := ouroboros.NetworkByName(f.Network)
-		if network == ouroboros.NetworkInvalid {
-			fmt.Printf("Invalid network specified: %s\n", f.Network)
+		network, ok := ouroboros.NetworkByName(f.Network)
+		if !ok {
+			fmt.Printf("Unknown network specified: %s\n", f.Network)
 			os.Exit(1)
 		}
 		f.NetworkMagic = int(network.NetworkMagic)
