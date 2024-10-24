@@ -85,7 +85,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: starting client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("starting client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -103,7 +107,11 @@ func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: stopping client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("stopping client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 		msg := NewMsgDone()
@@ -117,7 +125,12 @@ func (c *Client) Stop() error {
 // Acquire starts the acquire process for a current mempool snapshot
 func (c *Client) Acquire() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called Acquire()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling Acquire()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.acquire()
@@ -126,7 +139,12 @@ func (c *Client) Acquire() error {
 // Release releases the previously acquired mempool snapshot
 func (c *Client) Release() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called Release()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling Release()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	return c.release()
@@ -135,7 +153,12 @@ func (c *Client) Release() error {
 // HasTx returns whether or not the specified transaction ID exists in the mempool snapshot
 func (c *Client) HasTx(txId []byte) (bool, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called HasTx(txId: %x)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, txId))
+		Debug(fmt.Sprintf("calling HasTx(txId: %x)", txId),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	if !c.acquired {
@@ -157,7 +180,12 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 // NextTx returns the next transaction in the mempool snapshot
 func (c *Client) NextTx() ([]byte, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called NextTx()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling NextTx()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	if !c.acquired {
@@ -179,7 +207,12 @@ func (c *Client) NextTx() ([]byte, error) {
 // GetSizes returns the capacity (in bytes), size (in bytes), and number of transactions in the mempool snapshot
 func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called GetSizes()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling GetSizes()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	if !c.acquired {
@@ -221,7 +254,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleAcquired(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client acquired for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("acquired",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgAcquired := msg.(*MsgAcquired)
 	c.acquired = true
 	c.acquiredSlot = msgAcquired.SlotNo
@@ -231,7 +269,12 @@ func (c *Client) handleAcquired(msg protocol.Message) error {
 
 func (c *Client) handleReplyHasTx(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client reply has tx for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("reply has tx",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgReplyHasTx := msg.(*MsgReplyHasTx)
 	c.hasTxResultChan <- msgReplyHasTx.Result
 	return nil
@@ -239,7 +282,12 @@ func (c *Client) handleReplyHasTx(msg protocol.Message) error {
 
 func (c *Client) handleReplyNextTx(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client reply next tx for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("reply next tx",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgReplyNextTx := msg.(*MsgReplyNextTx)
 	c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx
 	return nil
@@ -247,7 +295,12 @@ func (c *Client) handleReplyNextTx(msg protocol.Message) error {
 
 func (c *Client) handleReplyGetSizes(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client reply get sizes for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("reply get sizes",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
 	c.getSizesResultChan <- msgReplyGetSizes.Result
 	return nil
