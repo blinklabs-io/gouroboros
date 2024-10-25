@@ -68,7 +68,12 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called GetPeers(amount: %d)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, amount))
+		Debug(fmt.Sprintf("calling GetPeers(amount: %d)", amount),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msg := NewMsgShareRequest(amount)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
@@ -97,7 +102,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleSharePeers(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client share peers for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("share peers",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgSharePeers := msg.(*MsgSharePeers)
 	c.sharePeersChan <- msgSharePeers.PeerAddresses
 	return nil

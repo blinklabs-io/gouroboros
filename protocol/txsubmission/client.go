@@ -70,7 +70,12 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Init() {
 	c.onceInit.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: client %+v called Init()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("calling Init()",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		// Send our Init message
 		msg := NewMsgInit()
 		_ = c.SendMessage(msg)
@@ -98,7 +103,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client request tx ids for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("requesting tx ids",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	if c.config.RequestTxIdsFunc == nil {
 		return fmt.Errorf(
 			"received tx-submission RequestTxIds message but no callback function is defined",
@@ -124,7 +134,12 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 
 func (c *Client) handleRequestTxs(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client request txs for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("requesting txs",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	if c.config.RequestTxsFunc == nil {
 		return fmt.Errorf(
 			"received tx-submission RequestTxs message but no callback function is defined",

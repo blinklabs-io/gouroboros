@@ -117,7 +117,11 @@ func NewClient(
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: starting client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("starting client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -132,7 +136,11 @@ func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: stopping client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("stopping client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 		msg := NewMsgDone()
@@ -146,7 +154,12 @@ func (c *Client) Stop() error {
 // GetCurrentTip returns the current chain tip
 func (c *Client) GetCurrentTip() (*Tip, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called GetCurrentTip()", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling GetCurrentTip()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	done := atomic.Bool{}
 	requestResultChan := make(chan Tip, 1)
 	requestErrorChan := make(chan error, 1)
@@ -186,13 +199,25 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			waitingForCurrentTipChan = nil
 		case tip := <-waitingResultChan:
 			c.Protocol.Logger().
-				Debug(fmt.Sprintf("%s: returning tip results {Slot: %d, Hash: %x, BlockNumber: %d} to %+v", ProtocolName, tip.Point.Slot, tip.Point.Hash, tip.BlockNumber, c.callbackContext.ConnectionId.RemoteAddr))
+				Debug(
+					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "client",
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
 			// The result from the other request is ready.
 			done.Store(true)
 			return &tip, nil
 		case tip := <-requestResultChan:
 			c.Protocol.Logger().
-				Debug(fmt.Sprintf("%s: returning tip results {Slot: %d, Hash: %x, BlockNumber: %d} to %+v", ProtocolName, tip.Point.Slot, tip.Point.Hash, tip.BlockNumber, c.callbackContext.ConnectionId.RemoteAddr))
+				Debug(
+					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "client",
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
 			// If waitingForCurrentTipChan is full, the for loop that empties it might finish the
 			// loop before the select statement that writes to it is triggered. For that reason we
 			// require requestResultChan here.
@@ -215,16 +240,49 @@ func (c *Client) GetAvailableBlockRange(
 	if len(intersectPoints) == 0 {
 		intersectPoints = []common.Point{common.NewPointOrigin()}
 	}
+
+	// Debug logging
 	switch len(intersectPoints) {
 	case 1:
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: client %+v called GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash))
+			Debug(
+				fmt.Sprintf(
+					"calling GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x})",
+					intersectPoints[0].Slot,
+					intersectPoints[0].Hash,
+				),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 	case 2:
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: client %+v called GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash, intersectPoints[1].Slot, intersectPoints[1].Hash))
+			Debug(
+				fmt.Sprintf(
+					"calling GetAvailableBlockRange(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})",
+					intersectPoints[0].Slot,
+					intersectPoints[0].Hash,
+					intersectPoints[1].Slot,
+					intersectPoints[1].Hash,
+				),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 	default:
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: client %+v called GetAvailableBlockRange(intersectPoints: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints))
+			Debug(
+				fmt.Sprintf(
+					"calling GetAvailableBlockRange(intersectPoints: %+v)",
+					intersectPoints,
+				),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 	}
 
 	// Find our chain intersection
@@ -300,16 +358,49 @@ func (c *Client) Sync(intersectPoints []common.Point) error {
 	if len(intersectPoints) == 0 {
 		intersectPoints = []common.Point{common.NewPointOrigin()}
 	}
+
+	// Debug logging
 	switch len(intersectPoints) {
 	case 1:
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: client %+v called Sync(intersectPoints: []{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash))
+			Debug(
+				fmt.Sprintf(
+					"calling Sync(intersectPoints: []{Slot: %d, Hash: %x})",
+					intersectPoints[0].Slot,
+					intersectPoints[0].Hash,
+				),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 	case 2:
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: client %+v called Sync(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints[0].Slot, intersectPoints[0].Hash, intersectPoints[1].Slot, intersectPoints[1].Hash))
+			Debug(
+				fmt.Sprintf(
+					"calling Sync(intersectPoints: []{Slot: %d, Hash: %x},{Slot: %d, Hash: %x})",
+					intersectPoints[0].Slot,
+					intersectPoints[0].Hash,
+					intersectPoints[1].Slot,
+					intersectPoints[1].Hash,
+				),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 	default:
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: client %+v called Sync(intersectPoints: %+v)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, intersectPoints))
+			Debug(
+				fmt.Sprintf(
+					"calling Sync(intersectPoints: %+v)",
+					intersectPoints,
+				),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 	}
 
 	intersectResultChan, cancel := c.wantIntersectFound()
@@ -478,13 +569,23 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleAwaitReply() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client await reply for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("waiting for next reply",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	return nil
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client roll forward for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("roll forward",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	firstBlockChan := func() chan<- clientPointResult {
 		select {
 		case ch := <-c.wantFirstBlockChan:
@@ -594,7 +695,12 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 
 func (c *Client) handleRollBackward(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client roll backward for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("roll backward",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgRollBackward := msg.(*MsgRollBackward)
 	c.sendCurrentTip(msgRollBackward.Tip)
 	if len(c.wantFirstBlockChan) == 0 {
@@ -621,7 +727,12 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 
 func (c *Client) handleIntersectFound(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client intersect found for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("chain intersect found",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgIntersectFound := msg.(*MsgIntersectFound)
 	c.sendCurrentTip(msgIntersectFound.Tip)
 
@@ -635,7 +746,12 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 
 func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client intersect not found for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("chain intersect not found",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgIntersectNotFound := msgGeneric.(*MsgIntersectNotFound)
 	c.sendCurrentTip(msgIntersectNotFound.Tip)
 

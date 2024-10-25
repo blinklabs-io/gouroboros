@@ -74,7 +74,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: starting client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("starting client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
@@ -89,7 +93,11 @@ func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: stopping client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("stopping client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 		msg := NewMsgDone()
@@ -103,7 +111,12 @@ func (c *Client) Stop() error {
 // SubmitTx submits a transaction using the specified transaction era ID and TX payload
 func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client %+v called SubmitTx(eraId: %d, tx: %x)", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr, eraId, tx))
+		Debug(fmt.Sprintf("calling SubmitTx(eraId: %d, tx: %x)", eraId, tx),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	msg := NewMsgSubmitTx(eraId, tx)
@@ -136,14 +149,24 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleAcceptTx() error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client accept tx for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("accept tx",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.submitResultChan <- nil
 	return nil
 }
 
 func (c *Client) handleRejectTx(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client reject tx for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("reject tx",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msgRejectTx := msg.(*MsgRejectTx)
 	rejectErr, err := ledger.NewTxSubmitErrorFromCbor(msgRejectTx.Reason)
 	if err != nil {

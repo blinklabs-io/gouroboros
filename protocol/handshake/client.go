@@ -70,7 +70,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
-			Debug(fmt.Sprintf("%s: starting client protocol for connection %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+			Debug("starting client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
 		c.Protocol.Start()
 		// Send our ProposeVersions message
 		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)
@@ -97,7 +101,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 
 func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client accept version for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("accepted version negotiation",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	if c.config.FinishedFunc == nil {
 		return fmt.Errorf(
 			"received handshake AcceptVersion message but no callback function is defined",
@@ -120,7 +129,12 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 
 func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: client refuse for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+		Debug("refused handshake",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	msg := msgGeneric.(*MsgRefuse)
 	var err error
 	switch msg.Reason[0].(uint64) {
