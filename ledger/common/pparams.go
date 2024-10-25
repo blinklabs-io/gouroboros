@@ -88,7 +88,9 @@ type ExUnitPrice struct {
 
 // ConvertToUtxorpcCardanoCostModels converts a map of cost models for Plutus scripts into cardano.CostModels
 // Only PlutusV(keys 1, 2, and 3) are supported.
-func ConvertToUtxorpcCardanoCostModels(models map[uint][]int64) *cardano.CostModels {
+func ConvertToUtxorpcCardanoCostModels(
+	models map[uint][]int64,
+) *cardano.CostModels {
 	costModels := &cardano.CostModels{}
 	for k, v := range models {
 		costModel := &cardano.CostModel{Values: v}

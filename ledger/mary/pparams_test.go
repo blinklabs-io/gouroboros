@@ -36,7 +36,9 @@ func TestMaryProtocolParamsUpdate(t *testing.T) {
 			startParams: mary.MaryProtocolParameters{
 				AllegraProtocolParameters: allegra.AllegraProtocolParameters{
 					ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-						Decentralization: &cbor.Rat{Rat: new(big.Rat).SetInt64(1)},
+						Decentralization: &cbor.Rat{
+							Rat: new(big.Rat).SetInt64(1),
+						},
 					},
 				},
 			},
@@ -79,7 +81,11 @@ func TestMaryProtocolParamsUpdate(t *testing.T) {
 		tmpParams := testDef.startParams
 		tmpParams.Update(&tmpUpdate)
 		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
-			t.Fatalf("did not get expected params:\n     got: %#v\n  wanted: %#v", tmpParams, testDef.expectedParams)
+			t.Fatalf(
+				"did not get expected params:\n     got: %#v\n  wanted: %#v",
+				tmpParams,
+				testDef.expectedParams,
+			)
 		}
 	}
 }

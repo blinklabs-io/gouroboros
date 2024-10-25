@@ -34,7 +34,9 @@ type AlonzoProtocolParameters struct {
 	MaxCollateralInputs  uint
 }
 
-func (p *AlonzoProtocolParameters) Update(paramUpdate *AlonzoProtocolParameterUpdate) {
+func (p *AlonzoProtocolParameters) Update(
+	paramUpdate *AlonzoProtocolParameterUpdate,
+) {
 	p.MaryProtocolParameters.Update(
 		&paramUpdate.MaryProtocolParameterUpdate,
 	)
@@ -81,7 +83,8 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 		Mem:   genesis.MaxBlockExUnits.Mem,
 		Steps: genesis.MaxBlockExUnits.Steps,
 	}
-	if genesis.ExecutionPrices.Mem != nil && genesis.ExecutionPrices.Steps != nil {
+	if genesis.ExecutionPrices.Mem != nil &&
+		genesis.ExecutionPrices.Steps != nil {
 		p.ExecutionCosts = common.ExUnitPrice{
 			MemPrice:  &cbor.Rat{Rat: genesis.ExecutionPrices.Mem.Rat},
 			StepPrice: &cbor.Rat{Rat: genesis.ExecutionPrices.Steps.Rat},

@@ -62,7 +62,11 @@ func TestShelleyProtocolParamsUpdate(t *testing.T) {
 		tmpParams := testDef.startParams
 		tmpParams.Update(&tmpUpdate)
 		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
-			t.Fatalf("did not get expected params:\n     got: %#v\n  wanted: %#v", tmpParams, testDef.expectedParams)
+			t.Fatalf(
+				"did not get expected params:\n     got: %#v\n  wanted: %#v",
+				tmpParams,
+				testDef.expectedParams,
+			)
 		}
 	}
 }
@@ -82,14 +86,20 @@ func TestShelleyProtocolParamsUpdateFromGenesis(t *testing.T) {
 		},
 	}
 	for _, testDef := range testDefs {
-		tmpGenesis, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(testDef.genesisJson))
+		tmpGenesis, err := shelley.NewShelleyGenesisFromReader(
+			strings.NewReader(testDef.genesisJson),
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
 		tmpParams := testDef.startParams
 		tmpParams.UpdateFromGenesis(&tmpGenesis)
 		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
-			t.Fatalf("did not get expected params:\n     got: %#v\n  wanted: %#v", tmpParams, testDef.expectedParams)
+			t.Fatalf(
+				"did not get expected params:\n     got: %#v\n  wanted: %#v",
+				tmpParams,
+				testDef.expectedParams,
+			)
 		}
 	}
 }

@@ -68,10 +68,19 @@ func (p *ConwayProtocolParameters) Utxorpc() *cardano.PParams {
 		PoolDeposit:              uint64(p.PoolDeposit),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence:            &cardano.RationalNumber{Numerator: int32(p.A0.Num().Int64()), Denominator: uint32(p.A0.Denom().Int64())},
-		MonetaryExpansion:        &cardano.RationalNumber{Numerator: int32(p.Rho.Num().Int64()), Denominator: uint32(p.Rho.Denom().Int64())},
-		TreasuryExpansion:        &cardano.RationalNumber{Numerator: int32(p.Tau.Num().Int64()), Denominator: uint32(p.Tau.Denom().Int64())},
-		MinPoolCost:              p.MinPoolCost,
+		PoolInfluence: &cardano.RationalNumber{
+			Numerator:   int32(p.A0.Num().Int64()),
+			Denominator: uint32(p.A0.Denom().Int64()),
+		},
+		MonetaryExpansion: &cardano.RationalNumber{
+			Numerator:   int32(p.Rho.Num().Int64()),
+			Denominator: uint32(p.Rho.Denom().Int64()),
+		},
+		TreasuryExpansion: &cardano.RationalNumber{
+			Numerator:   int32(p.Tau.Num().Int64()),
+			Denominator: uint32(p.Tau.Denom().Int64()),
+		},
+		MinPoolCost: p.MinPoolCost,
 		ProtocolVersion: &cardano.ProtocolVersion{
 			Major: uint32(p.ProtocolVersion.Major),
 			Minor: uint32(p.ProtocolVersion.Minor),
@@ -79,17 +88,33 @@ func (p *ConwayProtocolParameters) Utxorpc() *cardano.PParams {
 		MaxValueSize:         uint64(p.MaxValueSize),
 		CollateralPercentage: uint64(p.CollateralPercentage),
 		MaxCollateralInputs:  uint64(p.MaxCollateralInputs),
-		CostModels:           common.ConvertToUtxorpcCardanoCostModels(p.CostModels),
+		CostModels: common.ConvertToUtxorpcCardanoCostModels(
+			p.CostModels,
+		),
 		Prices: &cardano.ExPrices{
-			Memory: &cardano.RationalNumber{Numerator: int32(p.ExecutionCosts.MemPrice.Num().Int64()), Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64())},
-			Steps:  &cardano.RationalNumber{Numerator: int32(p.ExecutionCosts.StepPrice.Num().Int64()), Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64())},
+			Memory: &cardano.RationalNumber{
+				Numerator:   int32(p.ExecutionCosts.MemPrice.Num().Int64()),
+				Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64()),
+			},
+			Steps: &cardano.RationalNumber{
+				Numerator:   int32(p.ExecutionCosts.StepPrice.Num().Int64()),
+				Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64()),
+			},
 		},
-		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{Memory: uint64(p.MaxTxExUnits.Mem), Steps: uint64(p.MaxTxExUnits.Steps)},
-		MaxExecutionUnitsPerBlock:       &cardano.ExUnits{Memory: uint64(p.MaxBlockExUnits.Mem), Steps: uint64(p.MaxBlockExUnits.Steps)},
+		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
+			Memory: uint64(p.MaxTxExUnits.Mem),
+			Steps:  uint64(p.MaxTxExUnits.Steps),
+		},
+		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
+			Memory: uint64(p.MaxBlockExUnits.Mem),
+			Steps:  uint64(p.MaxBlockExUnits.Steps),
+		},
 	}
 }
 
-func (p *ConwayProtocolParameters) Update(paramUpdate *ConwayProtocolParameterUpdate) {
+func (p *ConwayProtocolParameters) Update(
+	paramUpdate *ConwayProtocolParameterUpdate,
+) {
 	if paramUpdate.MinFeeA != nil {
 		p.MinFeeA = *paramUpdate.MinFeeA
 	}
@@ -193,55 +218,87 @@ func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) {
 	p.DRepDeposit = genesis.DRepDeposit
 	p.DRepInactivityPeriod = genesis.DRepInactivityPeriod
 	if genesis.MinFeeRefScriptCostPerByte != nil {
-		p.MinFeeRefScriptCostPerByte = &cbor.Rat{Rat: genesis.MinFeeRefScriptCostPerByte.Rat}
+		p.MinFeeRefScriptCostPerByte = &cbor.Rat{
+			Rat: genesis.MinFeeRefScriptCostPerByte.Rat,
+		}
 	}
 	if len(genesis.PlutusV3CostModel) > 0 {
 		p.CostModels[2] = genesis.PlutusV3CostModel
 	}
 	if genesis.PoolVotingThresholds.MotionNoConfidence != nil {
-		p.PoolVotingThresholds.MotionNoConfidence = cbor.Rat{Rat: genesis.PoolVotingThresholds.MotionNoConfidence.Rat}
+		p.PoolVotingThresholds.MotionNoConfidence = cbor.Rat{
+			Rat: genesis.PoolVotingThresholds.MotionNoConfidence.Rat,
+		}
 	}
 	if genesis.PoolVotingThresholds.CommitteeNormal != nil {
-		p.PoolVotingThresholds.CommitteeNormal = cbor.Rat{Rat: genesis.PoolVotingThresholds.CommitteeNormal.Rat}
+		p.PoolVotingThresholds.CommitteeNormal = cbor.Rat{
+			Rat: genesis.PoolVotingThresholds.CommitteeNormal.Rat,
+		}
 	}
 	if genesis.PoolVotingThresholds.CommitteeNoConfidence != nil {
-		p.PoolVotingThresholds.CommitteeNoConfidence = cbor.Rat{Rat: genesis.PoolVotingThresholds.CommitteeNoConfidence.Rat}
+		p.PoolVotingThresholds.CommitteeNoConfidence = cbor.Rat{
+			Rat: genesis.PoolVotingThresholds.CommitteeNoConfidence.Rat,
+		}
 	}
 	if genesis.PoolVotingThresholds.HardForkInitiation != nil {
-		p.PoolVotingThresholds.HardForkInitiation = cbor.Rat{Rat: genesis.PoolVotingThresholds.HardForkInitiation.Rat}
+		p.PoolVotingThresholds.HardForkInitiation = cbor.Rat{
+			Rat: genesis.PoolVotingThresholds.HardForkInitiation.Rat,
+		}
 	}
 	if genesis.PoolVotingThresholds.PpSecurityGroup != nil {
-		p.PoolVotingThresholds.PpSecurityGroup = cbor.Rat{Rat: genesis.PoolVotingThresholds.PpSecurityGroup.Rat}
+		p.PoolVotingThresholds.PpSecurityGroup = cbor.Rat{
+			Rat: genesis.PoolVotingThresholds.PpSecurityGroup.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.MotionNoConfidence != nil {
-		p.DRepVotingThresholds.MotionNoConfidence = cbor.Rat{Rat: genesis.DRepVotingThresholds.MotionNoConfidence.Rat}
+		p.DRepVotingThresholds.MotionNoConfidence = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.MotionNoConfidence.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.CommitteeNormal != nil {
-		p.DRepVotingThresholds.CommitteeNormal = cbor.Rat{Rat: genesis.DRepVotingThresholds.CommitteeNormal.Rat}
+		p.DRepVotingThresholds.CommitteeNormal = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.CommitteeNormal.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.CommitteeNoConfidence != nil {
-		p.DRepVotingThresholds.CommitteeNoConfidence = cbor.Rat{Rat: genesis.DRepVotingThresholds.CommitteeNoConfidence.Rat}
+		p.DRepVotingThresholds.CommitteeNoConfidence = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.CommitteeNoConfidence.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.UpdateToConstitution != nil {
-		p.DRepVotingThresholds.UpdateToConstitution = cbor.Rat{Rat: genesis.DRepVotingThresholds.UpdateToConstitution.Rat}
+		p.DRepVotingThresholds.UpdateToConstitution = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.UpdateToConstitution.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.HardForkInitiation != nil {
-		p.DRepVotingThresholds.HardForkInitiation = cbor.Rat{Rat: genesis.DRepVotingThresholds.HardForkInitiation.Rat}
+		p.DRepVotingThresholds.HardForkInitiation = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.HardForkInitiation.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.PpNetworkGroup != nil {
-		p.DRepVotingThresholds.PpNetworkGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpNetworkGroup.Rat}
+		p.DRepVotingThresholds.PpNetworkGroup = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.PpNetworkGroup.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.PpEconomicGroup != nil {
-		p.DRepVotingThresholds.PpEconomicGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpEconomicGroup.Rat}
+		p.DRepVotingThresholds.PpEconomicGroup = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.PpEconomicGroup.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.PpTechnicalGroup != nil {
-		p.DRepVotingThresholds.PpTechnicalGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpTechnicalGroup.Rat}
+		p.DRepVotingThresholds.PpTechnicalGroup = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.PpTechnicalGroup.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.PpGovGroup != nil {
-		p.DRepVotingThresholds.PpGovGroup = cbor.Rat{Rat: genesis.DRepVotingThresholds.PpGovGroup.Rat}
+		p.DRepVotingThresholds.PpGovGroup = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.PpGovGroup.Rat,
+		}
 	}
 	if genesis.DRepVotingThresholds.TreasuryWithdrawal != nil {
-		p.DRepVotingThresholds.TreasuryWithdrawal = cbor.Rat{Rat: genesis.DRepVotingThresholds.TreasuryWithdrawal.Rat}
+		p.DRepVotingThresholds.TreasuryWithdrawal = cbor.Rat{
+			Rat: genesis.DRepVotingThresholds.TreasuryWithdrawal.Rat,
+		}
 	}
 }
 
