@@ -79,21 +79,47 @@ func (s *Server) initProtocol() {
 
 func (s *Server) RollBackward(point common.Point, tip Tip) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server %+v called RollBackward(point: {Slot: %d, Hash: %x}, tip: {Point: %+v, BlockNumber: %d})", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr, point.Slot, point.Hash, tip.Point, tip.BlockNumber))
+		Debug(
+			fmt.Sprintf("calling RollBackward(point: {Slot: %d, Hash: %x}, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})",
+				point.Slot, point.Hash,
+				tip.Point.Slot, tip.Point.Hash,
+				tip.BlockNumber,
+			),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	msg := NewMsgRollBackward(point, tip)
 	return s.SendMessage(msg)
 }
 
 func (s *Server) AwaitReply() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server %+v called AwaitReply()", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling AwaitReply()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	msg := NewMsgAwaitReply()
 	return s.SendMessage(msg)
 }
 
 func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server %+v called RollForward(blockType: %+v, blockData: %x, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr, blockType, blockData, tip.Point.Slot, tip.Point.Hash, tip.BlockNumber))
+		Debug(
+			fmt.Sprintf("calling RollForward(blockType: %+x, blockData: %x, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})",
+				blockType,
+				blockData,
+				tip.Point.Slot, tip.Point.Hash,
+				tip.BlockNumber,
+			),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.Mode() == protocol.ProtocolModeNodeToNode {
 		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
 		msg := NewMsgRollForwardNtN(
@@ -136,7 +162,12 @@ func (s *Server) handleRequestNext() error {
 	// TODO: figure out why this one log message causes a panic (and only this one)
 	//   during tests
 	//s.Protocol.Logger().
-	//	Debug(fmt.Sprintf("%s: server request next for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+	//	Debug("request next",
+	//		"component", "network",
+	//		"protocol", ProtocolName,
+	//		"role", "server",
+	//		"connection_id", s.callbackContext.ConnectionId.String(),
+	//	)
 	if s.config == nil || s.config.RequestNextFunc == nil {
 		return fmt.Errorf(
 			"received chain-sync RequestNext message but no callback function is defined",
@@ -147,7 +178,12 @@ func (s *Server) handleRequestNext() error {
 
 func (s *Server) handleFindIntersect(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server find intersect for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("find intersect",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config == nil || s.config.FindIntersectFunc == nil {
 		return fmt.Errorf(
 			"received chain-sync FindIntersect message but no callback function is defined",
@@ -177,7 +213,12 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 
 func (s *Server) handleDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("done",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	// Restart protocol
 	s.Protocol.Stop()
 	s.initProtocol()

@@ -61,21 +61,37 @@ func (s *Server) initProtocol() {
 
 func (s *Server) NoBlocks() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server %+v called NoBlocks()", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling NoBlocks()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	msg := NewMsgNoBlocks()
 	return s.SendMessage(msg)
 }
 
 func (s *Server) StartBatch() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server %+v called StartBatch()", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling StartBatch()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	msg := NewMsgStartBatch()
 	return s.SendMessage(msg)
 }
 
 func (s *Server) Block(blockType uint, blockData []byte) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server %+v called Block(blockType: %+v, blockData: %x)", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr, blockType, blockData))
+		Debug(
+			fmt.Sprintf("calling Block(blockType: %+x, blockData: %x)", blockType, blockData),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	wrappedBlock := WrappedBlock{
 		Type:     blockType,
 		RawBlock: blockData,
@@ -90,7 +106,12 @@ func (s *Server) Block(blockType uint, blockData []byte) error {
 
 func (s *Server) BatchDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server %+v called BatchDone()", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("calling BatchDone()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	msg := NewMsgBatchDone()
 	return s.SendMessage(msg)
 }
@@ -114,7 +135,12 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleRequestRange(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server request range for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("request range",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config == nil || s.config.RequestRangeFunc == nil {
 		return fmt.Errorf(
 			"received block-fetch RequestRange message but no callback function is defined",
@@ -130,7 +156,12 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 
 func (s *Server) handleClientDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server client done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("client done",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	// Restart protocol
 	s.Protocol.Stop()
 	s.initProtocol()

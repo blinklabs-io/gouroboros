@@ -70,7 +70,12 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server keep alive for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("keep alive",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	msg := msgGeneric.(*MsgKeepAlive)
 	if s.config != nil && s.config.KeepAliveFunc != nil {
 		// Call the user callback function
@@ -84,7 +89,12 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 
 func (s *Server) handleDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("done",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config != nil && s.config.DoneFunc != nil {
 		// Call the user callback function
 		return s.config.DoneFunc(s.callbackContext)

@@ -77,7 +77,12 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 
 func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server propose versions for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("propose versions",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config.FinishedFunc == nil {
 		return fmt.Errorf(
 			"received handshake ProposeVersions message but no callback function is defined",

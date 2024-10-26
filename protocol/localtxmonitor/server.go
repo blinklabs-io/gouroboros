@@ -85,7 +85,12 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleAcquire() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server acquire for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("acquire",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config.GetMempoolFunc == nil {
 		return fmt.Errorf(
 			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
@@ -126,13 +131,23 @@ func (s *Server) handleAcquire() error {
 
 func (s *Server) handleDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("done",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	return nil
 }
 
 func (s *Server) handleRelease() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server release for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("release",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	s.mempoolCapacity = 0
 	s.mempoolTxs = nil
 	return nil
@@ -140,7 +155,12 @@ func (s *Server) handleRelease() error {
 
 func (s *Server) handleHasTx(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server has tx for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("has tx",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	msgHasTx := msg.(*MsgHasTx)
 	txId := hex.EncodeToString(msgHasTx.TxId)
 	hasTx := false
@@ -159,7 +179,12 @@ func (s *Server) handleHasTx(msg protocol.Message) error {
 
 func (s *Server) handleNextTx() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server next tx for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("next tx",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.mempoolNextTxIdx > len(s.mempoolTxs) {
 		newMsg := NewMsgReplyNextTx(0, nil)
 		if err := s.SendMessage(newMsg); err != nil {
@@ -178,7 +203,12 @@ func (s *Server) handleNextTx() error {
 
 func (s *Server) handleGetSizes() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server get sizes for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("get sizes",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	totalTxSize := 0
 	for _, tx := range s.mempoolTxs {
 		totalTxSize += len(tx.Tx)
