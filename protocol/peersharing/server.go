@@ -79,7 +79,12 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 
 func (s *Server) handleShareRequest(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server share request for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("share request",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config == nil || s.config.ShareRequestFunc == nil {
 		return fmt.Errorf(
 			"received peer-sharing ShareRequest message but no callback function is defined",
@@ -102,7 +107,12 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 
 func (s *Server) handleDone(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("done",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	// Restart protocol
 	s.Protocol.Stop()
 	s.initProtocol()

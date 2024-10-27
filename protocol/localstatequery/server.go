@@ -93,7 +93,12 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleAcquire(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server acquire for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("acquire",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config.AcquireFunc == nil {
 		return fmt.Errorf(
 			"received local-state-query Acquire message but no callback function is defined",
@@ -112,7 +117,12 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 
 func (s *Server) handleQuery(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server query for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("query",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config.QueryFunc == nil {
 		return fmt.Errorf(
 			"received local-state-query Query message but no callback function is defined",
@@ -125,7 +135,12 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 
 func (s *Server) handleRelease() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server release for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("release",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config.ReleaseFunc == nil {
 		return fmt.Errorf(
 			"received local-state-query Release message but no callback function is defined",
@@ -137,7 +152,12 @@ func (s *Server) handleRelease() error {
 
 func (s *Server) handleReAcquire(msg protocol.Message) error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server reacquire for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("reacquire",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config.ReAcquireFunc == nil {
 		return fmt.Errorf(
 			"received local-state-query ReAcquire message but no callback function is defined",
@@ -156,7 +176,12 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 
 func (s *Server) handleDone() error {
 	s.Protocol.Logger().
-		Debug(fmt.Sprintf("%s: server done for %+v", ProtocolName, s.callbackContext.ConnectionId.RemoteAddr))
+		Debug("done",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
 	if s.config.DoneFunc == nil {
 		return fmt.Errorf(
 			"received local-state-query Done message but no callback function is defined",
