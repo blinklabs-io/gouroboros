@@ -70,7 +70,11 @@ func TestAllegraProtocolParamsUpdate(t *testing.T) {
 		tmpParams := testDef.startParams
 		tmpParams.Update(&tmpUpdate)
 		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
-			t.Fatalf("did not get expected params:\n     got: %#v\n  wanted: %#v", tmpParams, testDef.expectedParams)
+			t.Fatalf(
+				"did not get expected params:\n     got: %#v\n  wanted: %#v",
+				tmpParams,
+				testDef.expectedParams,
+			)
 		}
 	}
 }

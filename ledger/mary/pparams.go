@@ -20,7 +20,9 @@ type MaryProtocolParameters struct {
 	allegra.AllegraProtocolParameters
 }
 
-func (p *MaryProtocolParameters) Update(paramUpdate *MaryProtocolParameterUpdate) {
+func (p *MaryProtocolParameters) Update(
+	paramUpdate *MaryProtocolParameterUpdate,
+) {
 	p.AllegraProtocolParameters.Update(
 		&paramUpdate.AllegraProtocolParameterUpdate,
 	)

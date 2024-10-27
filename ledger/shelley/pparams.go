@@ -42,7 +42,9 @@ type ShelleyProtocolParameters struct {
 	MinUtxoValue       uint
 }
 
-func (p *ShelleyProtocolParameters) Update(paramUpdate *ShelleyProtocolParameterUpdate) {
+func (p *ShelleyProtocolParameters) Update(
+	paramUpdate *ShelleyProtocolParameterUpdate,
+) {
 	if paramUpdate.MinFeeA != nil {
 		p.MinFeeA = *paramUpdate.MinFeeA
 	}
@@ -115,7 +117,9 @@ func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) {
 		p.Tau = &cbor.Rat{Rat: new(big.Rat).Set(genesisParams.Tau.Rat)}
 	}
 	if genesisParams.Decentralization != nil {
-		p.Decentralization = &cbor.Rat{Rat: new(big.Rat).Set(genesisParams.Decentralization.Rat)}
+		p.Decentralization = &cbor.Rat{
+			Rat: new(big.Rat).Set(genesisParams.Decentralization.Rat),
+		}
 	}
 	p.ProtocolMajor = genesisParams.ProtocolVersion.Major
 	p.ProtocolMinor = genesisParams.ProtocolVersion.Minor

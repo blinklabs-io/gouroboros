@@ -40,7 +40,9 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 				MaryProtocolParameters: mary.MaryProtocolParameters{
 					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
 						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							Decentralization: &cbor.Rat{Rat: new(big.Rat).SetInt64(1)},
+							Decentralization: &cbor.Rat{
+								Rat: new(big.Rat).SetInt64(1),
+							},
 						},
 					},
 				},
@@ -119,7 +121,11 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 		tmpParams := testDef.startParams
 		tmpParams.Update(&tmpUpdate)
 		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
-			t.Fatalf("did not get expected params:\n     got: %#v\n  wanted: %#v", tmpParams, testDef.expectedParams)
+			t.Fatalf(
+				"did not get expected params:\n     got: %#v\n  wanted: %#v",
+				tmpParams,
+				testDef.expectedParams,
+			)
 		}
 	}
 }
@@ -135,7 +141,9 @@ func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 				MaryProtocolParameters: mary.MaryProtocolParameters{
 					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
 						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							Decentralization: &cbor.Rat{Rat: new(big.Rat).SetInt64(1)},
+							Decentralization: &cbor.Rat{
+								Rat: new(big.Rat).SetInt64(1),
+							},
 						},
 					},
 				},
@@ -145,7 +153,9 @@ func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 				MaryProtocolParameters: mary.MaryProtocolParameters{
 					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
 						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							Decentralization: &cbor.Rat{Rat: new(big.Rat).SetInt64(1)},
+							Decentralization: &cbor.Rat{
+								Rat: new(big.Rat).SetInt64(1),
+							},
 						},
 					},
 				},
@@ -154,14 +164,20 @@ func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 		},
 	}
 	for _, testDef := range testDefs {
-		tmpGenesis, err := alonzo.NewAlonzoGenesisFromReader(strings.NewReader(testDef.genesisJson))
+		tmpGenesis, err := alonzo.NewAlonzoGenesisFromReader(
+			strings.NewReader(testDef.genesisJson),
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
 		tmpParams := testDef.startParams
 		tmpParams.UpdateFromGenesis(&tmpGenesis)
 		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
-			t.Fatalf("did not get expected params:\n     got: %#v\n  wanted: %#v", tmpParams, testDef.expectedParams)
+			t.Fatalf(
+				"did not get expected params:\n     got: %#v\n  wanted: %#v",
+				tmpParams,
+				testDef.expectedParams,
+			)
 		}
 	}
 }

@@ -23,7 +23,9 @@ type AllegraProtocolParameters struct {
 	shelley.ShelleyProtocolParameters
 }
 
-func (p *AllegraProtocolParameters) Update(paramUpdate *AllegraProtocolParameterUpdate) {
+func (p *AllegraProtocolParameters) Update(
+	paramUpdate *AllegraProtocolParameterUpdate,
+) {
 	p.ShelleyProtocolParameters.Update(
 		&paramUpdate.ShelleyProtocolParameterUpdate,
 	)

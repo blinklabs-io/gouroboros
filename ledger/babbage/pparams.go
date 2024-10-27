@@ -48,7 +48,9 @@ type BabbageProtocolParameters struct {
 	MaxCollateralInputs  uint
 }
 
-func (p *BabbageProtocolParameters) Update(paramUpdate *BabbageProtocolParameterUpdate) {
+func (p *BabbageProtocolParameters) Update(
+	paramUpdate *BabbageProtocolParameterUpdate,
+) {
 	if paramUpdate.MinFeeA != nil {
 		p.MinFeeA = *paramUpdate.MinFeeA
 	}
