@@ -18,6 +18,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type AlonzoProtocolParameters struct {
@@ -95,7 +96,7 @@ type AlonzoProtocolParameterUpdate struct {
 	mary.MaryProtocolParameterUpdate
 	MinPoolCost          *uint64             `cbor:"16,keyasint"`
 	AdaPerUtxoByte       *uint64             `cbor:"17,keyasint"`
-	CostModels           map[uint][]int64   `cbor:"18,keyasint"`
+	CostModels           map[uint][]int64    `cbor:"18,keyasint"`
 	ExecutionCosts       *common.ExUnitPrice `cbor:"19,keyasint"`
 	MaxTxExUnits         *common.ExUnit      `cbor:"20,keyasint"`
 	MaxBlockExUnits      *common.ExUnit      `cbor:"21,keyasint"`
@@ -106,4 +107,9 @@ type AlonzoProtocolParameterUpdate struct {
 
 func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
 	return u.UnmarshalCbor(data, u)
+}
+
+func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
+	// TODO: Implement the conversion logic to cardano.PParams
+	return &cardano.PParams{}
 }

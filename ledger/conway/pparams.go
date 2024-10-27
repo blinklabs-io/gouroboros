@@ -18,6 +18,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ConwayProtocolParameters struct {
@@ -53,6 +54,39 @@ type ConwayProtocolParameters struct {
 	DRepDeposit                uint64
 	DRepInactivityPeriod       uint64
 	MinFeeRefScriptCostPerByte *cbor.Rat
+}
+
+func (p *ConwayProtocolParameters) Utxorpc() *cardano.PParams {
+	return &cardano.PParams{
+		CoinsPerUtxoByte:         p.AdaPerUtxoByte,
+		MaxTxSize:                uint64(p.MaxTxSize),
+		MinFeeCoefficient:        uint64(p.MinFeeA),
+		MinFeeConstant:           uint64(p.MinFeeB),
+		MaxBlockBodySize:         uint64(p.MaxBlockBodySize),
+		MaxBlockHeaderSize:       uint64(p.MaxBlockHeaderSize),
+		StakeKeyDeposit:          uint64(p.KeyDeposit),
+		PoolDeposit:              uint64(p.PoolDeposit),
+		PoolRetirementEpochBound: uint64(p.MaxEpoch),
+		DesiredNumberOfPools:     uint64(p.NOpt),
+		PoolInfluence:            &cardano.RationalNumber{Numerator: int32(p.A0.Num().Int64()), Denominator: uint32(p.A0.Denom().Int64())},
+		MonetaryExpansion:        &cardano.RationalNumber{Numerator: int32(p.Rho.Num().Int64()), Denominator: uint32(p.Rho.Denom().Int64())},
+		TreasuryExpansion:        &cardano.RationalNumber{Numerator: int32(p.Tau.Num().Int64()), Denominator: uint32(p.Tau.Denom().Int64())},
+		MinPoolCost:              p.MinPoolCost,
+		ProtocolVersion: &cardano.ProtocolVersion{
+			Major: uint32(p.ProtocolVersion.Major),
+			Minor: uint32(p.ProtocolVersion.Minor),
+		},
+		MaxValueSize:         uint64(p.MaxValueSize),
+		CollateralPercentage: uint64(p.CollateralPercentage),
+		MaxCollateralInputs:  uint64(p.MaxCollateralInputs),
+		CostModels:           common.ConvertToUtxorpcCardanoCostModels(p.CostModels),
+		Prices: &cardano.ExPrices{
+			Memory: &cardano.RationalNumber{Numerator: int32(p.ExecutionCosts.MemPrice.Num().Int64()), Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64())},
+			Steps:  &cardano.RationalNumber{Numerator: int32(p.ExecutionCosts.StepPrice.Num().Int64()), Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64())},
+		},
+		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{Memory: uint64(p.MaxTxExUnits.Mem), Steps: uint64(p.MaxTxExUnits.Steps)},
+		MaxExecutionUnitsPerBlock:       &cardano.ExUnits{Memory: uint64(p.MaxBlockExUnits.Mem), Steps: uint64(p.MaxBlockExUnits.Steps)},
+	}
 }
 
 func (p *ConwayProtocolParameters) Update(paramUpdate *ConwayProtocolParameterUpdate) {
