@@ -17,6 +17,7 @@ package babbage
 import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 // BabbageProtocolParameters represents the current Babbage protocol parameters as seen in local-state-query
@@ -134,7 +135,7 @@ type BabbageProtocolParameterUpdate struct {
 	ProtocolVersion      *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
 	MinPoolCost          *uint64                                   `cbor:"16,keyasint"`
 	AdaPerUtxoByte       *uint64                                   `cbor:"17,keyasint"`
-	CostModels           map[uint][]int64                         `cbor:"18,keyasint"`
+	CostModels           map[uint][]int64                          `cbor:"18,keyasint"`
 	ExecutionCosts       *common.ExUnitPrice                       `cbor:"19,keyasint"`
 	MaxTxExUnits         *common.ExUnit                            `cbor:"20,keyasint"`
 	MaxBlockExUnits      *common.ExUnit                            `cbor:"21,keyasint"`
@@ -147,4 +148,9 @@ func (BabbageProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
 	return u.UnmarshalCbor(data, u)
+}
+
+func (p *BabbageProtocolParameters) Utxorpc() *cardano.PParams {
+	// TODO: Implement the conversion logic to cardano.PParams
+	return &cardano.PParams{}
 }
