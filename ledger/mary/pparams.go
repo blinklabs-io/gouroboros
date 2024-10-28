@@ -14,7 +14,10 @@
 
 package mary
 
-import "github.com/blinklabs-io/gouroboros/ledger/allegra"
+import (
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+)
 
 type MaryProtocolParameters struct {
 	allegra.AllegraProtocolParameters
@@ -34,4 +37,8 @@ type MaryProtocolParameterUpdate struct {
 
 func (u *MaryProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
 	return u.UnmarshalCbor(data, u)
+}
+
+func (p *MaryProtocolParameters) Utxorpc() *cardano.PParams {
+	return p.AllegraProtocolParameters.Utxorpc()
 }

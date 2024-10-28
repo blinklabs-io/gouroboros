@@ -19,6 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ShelleyProtocolParameters struct {
@@ -152,4 +153,34 @@ func (ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
 	return u.UnmarshalCbor(data, u)
+}
+
+func (p *ShelleyProtocolParameters) Utxorpc() *cardano.PParams {
+	return &cardano.PParams{
+		MaxTxSize:                uint64(p.MaxTxSize),
+		MinFeeCoefficient:        uint64(p.MinFeeA),
+		MinFeeConstant:           uint64(p.MinFeeB),
+		MaxBlockBodySize:         uint64(p.MaxBlockBodySize),
+		MaxBlockHeaderSize:       uint64(p.MaxBlockHeaderSize),
+		StakeKeyDeposit:          uint64(p.KeyDeposit),
+		PoolDeposit:              uint64(p.PoolDeposit),
+		PoolRetirementEpochBound: uint64(p.MaxEpoch),
+		DesiredNumberOfPools:     uint64(p.NOpt),
+		PoolInfluence: &cardano.RationalNumber{
+			Numerator:   int32(p.A0.Num().Int64()),
+			Denominator: uint32(p.A0.Denom().Int64()),
+		},
+		MonetaryExpansion: &cardano.RationalNumber{
+			Numerator:   int32(p.Rho.Num().Int64()),
+			Denominator: uint32(p.Rho.Denom().Int64()),
+		},
+		TreasuryExpansion: &cardano.RationalNumber{
+			Numerator:   int32(p.Tau.Num().Int64()),
+			Denominator: uint32(p.Tau.Denom().Int64()),
+		},
+		ProtocolVersion: &cardano.ProtocolVersion{
+			Major: uint32(p.ProtocolMajor),
+			Minor: uint32(p.ProtocolMinor),
+		},
+	}
 }
