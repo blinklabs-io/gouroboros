@@ -113,9 +113,16 @@ func (c *Client) Start() {
 
 // Acquire starts the acquire process for the specified chain point
 func (c *Client) Acquire(point *common.Point) error {
+	var msg string
+	if point != nil {
+		msg = fmt.Sprintf("calling Acquire(point: {Slot: %d, Hash: %x})", point.Slot, point.Hash)
+	} else {
+		msg = "calling Acquire(point: latest)"
+	}
+
 	c.Protocol.Logger().
 		Debug(
-			fmt.Sprintf("calling Acquire(point: {Slot: %d, Hash: %x})", point.Slot, point.Hash),
+			msg,
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "client",
