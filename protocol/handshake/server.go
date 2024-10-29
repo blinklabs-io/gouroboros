@@ -129,6 +129,21 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	// Decode protocol parameters for selected version
 	versionInfo := protocol.GetProtocolVersion(proposedVersion)
 	versionData := s.config.ProtocolVersionMap[proposedVersion]
+	if versionData == nil {
+		msgRefuse := NewMsgRefuse(
+			[]any{
+				RefuseReasonDecodeError,
+				proposedVersion,
+				fmt.Errorf("handshake failed: refused due to empty version data"),
+			},
+		)
+		if err := s.SendMessage(msgRefuse); err != nil {
+			return err
+		}
+		return fmt.Errorf(
+			"handshake failed: refused due to empty version data",
+		)
+	}
 	proposedVersionData, err := versionInfo.NewVersionDataFromCborFunc(
 		msgProposeVersions.VersionMap[proposedVersion],
 	)
@@ -148,6 +163,22 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			err,
 		)
 	}
+	if proposedVersionData == nil {
+		msgRefuse := NewMsgRefuse(
+			[]any{
+				RefuseReasonDecodeError,
+				proposedVersion,
+				fmt.Errorf("handshake failed: refused due to empty version map"),
+			},
+		)
+		if err := s.SendMessage(msgRefuse); err != nil {
+			return err
+		}
+		return fmt.Errorf(
+			"handshake failed: refused due to empty version map",
+		)
+	}
+
 	// Check network magic
 	if proposedVersionData.NetworkMagic() != versionData.NetworkMagic() {
 		errMsg := fmt.Sprintf(

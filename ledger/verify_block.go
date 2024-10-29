@@ -52,6 +52,11 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 			headerUnmarshalError.Error(),
 		), false, "", 0, 0
 	}
+	if header == nil {
+		return fmt.Errorf(
+			"VerifyBlock: header returned empty",
+		), false, "", 0, 0
+	}
 	isKesValid, errKes := VerifyKes(header, slotPerKesPeriod)
 	if errKes != nil {
 		return fmt.Errorf(

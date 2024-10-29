@@ -154,6 +154,10 @@ func TestShelleyUtxorpc(t *testing.T) {
 	result := inputParams.Utxorpc()
 
 	if !reflect.DeepEqual(result, expectedUtxorpc) {
-		t.Fatalf("Utxorpc() test failed for Shelley:\nExpected: %#v\nGot: %#v", expectedUtxorpc, result)
+		t.Fatalf(
+			"Utxorpc() test failed for Shelley:\nExpected: %#v\nGot: %#v",
+			expectedUtxorpc,
+			result,
+		)
 	}
 }
