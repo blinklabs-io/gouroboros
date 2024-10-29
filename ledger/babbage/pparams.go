@@ -16,6 +16,7 @@ package babbage
 
 import (
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
@@ -206,4 +207,33 @@ func (p *BabbageProtocolParameters) Utxorpc() *cardano.PParams {
 			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
 	}
+}
+
+func UpgradePParams(prevPParams alonzo.AlonzoProtocolParameters) BabbageProtocolParameters {
+	ret := BabbageProtocolParameters{
+		MinFeeA:              prevPParams.MinFeeA,
+		MinFeeB:              prevPParams.MinFeeB,
+		MaxBlockBodySize:     prevPParams.MaxBlockBodySize,
+		MaxTxSize:            prevPParams.MaxTxSize,
+		MaxBlockHeaderSize:   prevPParams.MaxBlockHeaderSize,
+		KeyDeposit:           prevPParams.KeyDeposit,
+		PoolDeposit:          prevPParams.PoolDeposit,
+		MaxEpoch:             prevPParams.MaxEpoch,
+		NOpt:                 prevPParams.NOpt,
+		A0:                   prevPParams.A0,
+		Rho:                  prevPParams.Rho,
+		Tau:                  prevPParams.Tau,
+		ProtocolMajor:        prevPParams.ProtocolMajor,
+		ProtocolMinor:        prevPParams.ProtocolMinor,
+		MinPoolCost:          prevPParams.MinPoolCost,
+		AdaPerUtxoByte:       prevPParams.AdaPerUtxoByte,
+		CostModels:           prevPParams.CostModels,
+		ExecutionCosts:       prevPParams.ExecutionCosts,
+		MaxTxExUnits:         prevPParams.MaxTxExUnits,
+		MaxBlockExUnits:      prevPParams.MaxBlockExUnits,
+		MaxValueSize:         prevPParams.MaxValueSize,
+		CollateralPercentage: prevPParams.CollateralPercentage,
+		MaxCollateralInputs:  prevPParams.MaxCollateralInputs,
+	}
+	return ret
 }

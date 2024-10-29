@@ -160,7 +160,7 @@ func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 						},
 					},
 				},
-				AdaPerUtxoByte: 34482,
+				AdaPerUtxoByte: 34482 / 8,
 			},
 		},
 	}
@@ -205,7 +205,7 @@ func TestAlonzoUtxorpc(t *testing.T) {
 				},
 			},
 		},
-		AdaPerUtxoByte:       44,
+		AdaPerUtxoByte:       44 / 8,
 		MinPoolCost:          340000000,
 		MaxValueSize:         1024,
 		CollateralPercentage: 150,
@@ -230,7 +230,7 @@ func TestAlonzoUtxorpc(t *testing.T) {
 	}
 
 	expectedUtxorpc := &cardano.PParams{
-		CoinsPerUtxoByte:         44,
+		CoinsPerUtxoByte:         44 / 8,
 		MaxTxSize:                16384,
 		MinFeeCoefficient:        500,
 		MinFeeConstant:           2,
