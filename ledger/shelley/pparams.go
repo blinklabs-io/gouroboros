@@ -187,3 +187,8 @@ func (p *ShelleyProtocolParameters) Utxorpc() *cardano.PParams {
 		},
 	}
 }
+
+func UpgradePParams(prevPParams any) ShelleyProtocolParameters {
+	// No upgrade from Byron
+	return ShelleyProtocolParameters{}
+}

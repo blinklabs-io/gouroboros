@@ -73,8 +73,7 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 	if genesis == nil {
 		return
 	}
-	// XXX: do we need to convert this?
-	p.AdaPerUtxoByte = genesis.LovelacePerUtxoWord
+	p.AdaPerUtxoByte = genesis.LovelacePerUtxoWord / 8
 	p.MaxValueSize = genesis.MaxValueSize
 	p.CollateralPercentage = genesis.CollateralPercentage
 	p.MaxCollateralInputs = genesis.MaxCollateralInputs
@@ -168,5 +167,11 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 			Memory: uint64(p.MaxBlockExUnits.Mem),
 			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
+	}
+}
+
+func UpgradePParams(prevPParams mary.MaryProtocolParameters) AlonzoProtocolParameters {
+	return AlonzoProtocolParameters{
+		MaryProtocolParameters: prevPParams,
 	}
 }

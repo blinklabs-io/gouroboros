@@ -344,3 +344,34 @@ type DRepVotingThresholds struct {
 	PpGovGroup            cbor.Rat
 	TreasuryWithdrawal    cbor.Rat
 }
+
+func UpgradePParams(prevPParams babbage.BabbageProtocolParameters) ConwayProtocolParameters {
+	ret := ConwayProtocolParameters{
+		MinFeeA:            prevPParams.MinFeeA,
+		MinFeeB:            prevPParams.MinFeeB,
+		MaxBlockBodySize:   prevPParams.MaxBlockBodySize,
+		MaxTxSize:          prevPParams.MaxTxSize,
+		MaxBlockHeaderSize: prevPParams.MaxBlockHeaderSize,
+		KeyDeposit:         prevPParams.KeyDeposit,
+		PoolDeposit:        prevPParams.PoolDeposit,
+		MaxEpoch:           prevPParams.MaxEpoch,
+		NOpt:               prevPParams.NOpt,
+		A0:                 prevPParams.A0,
+		Rho:                prevPParams.Rho,
+		Tau:                prevPParams.Tau,
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: prevPParams.ProtocolMajor,
+			Minor: prevPParams.ProtocolMinor,
+		},
+		MinPoolCost:          prevPParams.MinPoolCost,
+		AdaPerUtxoByte:       prevPParams.AdaPerUtxoByte,
+		CostModels:           prevPParams.CostModels,
+		ExecutionCosts:       prevPParams.ExecutionCosts,
+		MaxTxExUnits:         prevPParams.MaxTxExUnits,
+		MaxBlockExUnits:      prevPParams.MaxBlockExUnits,
+		MaxValueSize:         prevPParams.MaxValueSize,
+		CollateralPercentage: prevPParams.CollateralPercentage,
+		MaxCollateralInputs:  prevPParams.MaxCollateralInputs,
+	}
+	return ret
+}

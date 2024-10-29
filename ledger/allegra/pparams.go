@@ -42,3 +42,9 @@ func (u *AllegraProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
 func (p *AllegraProtocolParameters) Utxorpc() *cardano.PParams {
 	return p.ShelleyProtocolParameters.Utxorpc()
 }
+
+func UpgradePParams(prevPParams shelley.ShelleyProtocolParameters) AllegraProtocolParameters {
+	return AllegraProtocolParameters{
+		ShelleyProtocolParameters: prevPParams,
+	}
+}
