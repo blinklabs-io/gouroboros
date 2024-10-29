@@ -132,6 +132,10 @@ func TestAllegraUtxorpc(t *testing.T) {
 	result := inputParams.Utxorpc()
 
 	if !reflect.DeepEqual(result, expectedUtxorpc) {
-		t.Fatalf("Utxorpc() test failed for Allegra:\nExpected: %#v\nGot: %#v", expectedUtxorpc, result)
+		t.Fatalf(
+			"Utxorpc() test failed for Allegra:\nExpected: %#v\nGot: %#v",
+			expectedUtxorpc,
+			result,
+		)
 	}
 }

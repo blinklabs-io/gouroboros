@@ -211,6 +211,9 @@ func (p *ConwayProtocolParameters) Update(
 }
 
 func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) {
+	if genesis == nil {
+		return
+	}
 	p.MinCommitteeSize = genesis.MinCommitteeSize
 	p.CommitteeTermLimit = genesis.CommitteeTermLimit
 	p.GovActionValidityPeriod = genesis.GovActionValidityPeriod

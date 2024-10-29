@@ -115,7 +115,11 @@ func (c *Client) Start() {
 func (c *Client) Acquire(point *common.Point) error {
 	var msg string
 	if point != nil {
-		msg = fmt.Sprintf("calling Acquire(point: {Slot: %d, Hash: %x})", point.Slot, point.Hash)
+		msg = fmt.Sprintf(
+			"calling Acquire(point: {Slot: %d, Hash: %x})",
+			point.Slot,
+			point.Hash,
+		)
 	} else {
 		msg = "calling Acquire(point: latest)"
 	}

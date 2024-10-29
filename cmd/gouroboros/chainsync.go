@@ -170,7 +170,7 @@ func testChainSync(f *globalFlags) {
 			os.Exit(1)
 		}
 	}()
-	oConn, err = ouroboros.New(
+	o, err := ouroboros.New(
 		ouroboros.WithConnection(conn),
 		ouroboros.WithNetworkMagic(uint32(f.networkMagic)),
 		ouroboros.WithErrorChan(errorChan),
@@ -183,6 +183,11 @@ func testChainSync(f *globalFlags) {
 		fmt.Printf("ERROR: %s\n", err)
 		os.Exit(1)
 	}
+	if o == nil {
+		fmt.Println("ERROR: empty connection")
+		os.Exit(1)
+	}
+	oConn = o
 
 	var point common.Point
 	if chainSyncFlags.tip {
@@ -260,6 +265,9 @@ func chainSyncRollForwardHandler(
 		blockSlot := v.SlotNumber()
 		blockHash, _ := hex.DecodeString(v.Hash())
 		var err error
+		if oConn == nil {
+			return fmt.Errorf("empty ouroboros connection, aborting!")
+		}
 		block, err = oConn.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
 		if err != nil {
 			return err

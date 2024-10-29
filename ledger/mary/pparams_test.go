@@ -145,6 +145,10 @@ func TestMaryUtxorpc(t *testing.T) {
 	result := inputParams.Utxorpc()
 
 	if !reflect.DeepEqual(result, expectedUtxorpc) {
-		t.Fatalf("Utxorpc() test failed for Mary:\nExpected: %#v\nGot: %#v", expectedUtxorpc, result)
+		t.Fatalf(
+			"Utxorpc() test failed for Mary:\nExpected: %#v\nGot: %#v",
+			expectedUtxorpc,
+			result,
+		)
 	}
 }

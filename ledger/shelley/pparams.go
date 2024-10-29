@@ -98,6 +98,9 @@ func (p *ShelleyProtocolParameters) Update(
 }
 
 func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) {
+	if genesis == nil {
+		return
+	}
 	genesisParams := genesis.ProtocolParameters
 	p.MinFeeA = genesisParams.MinFeeA
 	p.MinFeeB = genesisParams.MinFeeB
