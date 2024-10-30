@@ -113,7 +113,44 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableBabbageEra:             true,
 		EnableLocalTxMonitorProtocol: true,
 	},
+	// added @ImmutableTip@ to @LocalStateQuery@, enabled Conway, and @GetStakeDelegDeposits@.
 	(16 + ProtocolVersionNtCOffset): {
+		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableLocalTxMonitorProtocol: true,
+	},
+	// added @GetProposals@ and @GetRatifyState@ queries
+	(17 + ProtocolVersionNtCOffset): {
+		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableLocalTxMonitorProtocol: true,
+	},
+	// added @GetFuturePParams@ query
+	(18 + ProtocolVersionNtCOffset): {
+		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableLocalTxMonitorProtocol: true,
+	},
+	// added @GetLedgerPeerSnapshot@
+	(19 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
 		EnableLocalQueryProtocol:     true,
 		EnableShelleyEra:             true,
@@ -190,6 +227,19 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		PeerSharingUseV11:          true,
 	},
 	13: {
+		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
+		EnableShelleyEra:           true,
+		EnableKeepAliveProtocol:    true,
+		EnableAllegraEra:           true,
+		EnableMaryEra:              true,
+		EnableAlonzoEra:            true,
+		EnableBabbageEra:           true,
+		EnableConwayEra:            true,
+		EnableFullDuplex:           true,
+		EnablePeerSharingProtocol:  true,
+	},
+	// Enables Chang+1 HF
+	14: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
 		EnableShelleyEra:           true,
 		EnableKeepAliveProtocol:    true,
