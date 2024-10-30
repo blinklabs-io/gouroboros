@@ -56,6 +56,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [X] Chain tip
         - [X] Era history
         - [X] Current protocol parameters
+        - [ ] Future protocol parameters
         - [X] Stake distribution
         - [ ] Non-myopic member rewards
         - [ ] Proposed protocol parameter updates
