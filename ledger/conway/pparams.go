@@ -226,6 +226,9 @@ func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) {
 		}
 	}
 	if len(genesis.PlutusV3CostModel) > 0 {
+		if p.CostModels == nil {
+			p.CostModels = make(map[uint][]int64)
+		}
 		p.CostModels[2] = genesis.PlutusV3CostModel
 	}
 	if genesis.PoolVotingThresholds.MotionNoConfidence != nil {
