@@ -20,6 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgercommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -303,7 +304,7 @@ func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, err
 }
 
 // GetCurrentProtocolParams returns the set of protocol params that are currently in effect
-func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error) {
+func (c *Client) GetCurrentProtocolParams() (ledgercommon.ProtocolParameters, error) {
 	c.Protocol.Logger().
 		Debug("calling GetCurrentProtocolParams()",
 			"component", "network",
@@ -327,37 +328,37 @@ func (c *Client) GetCurrentProtocolParams() (CurrentProtocolParamsResult, error)
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
-		return result[0], nil
+		return &result[0], nil
 	case ledger.EraIdBabbage:
 		result := []ledger.BabbageProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
-		return result[0], nil
+		return &result[0], nil
 	case ledger.EraIdAlonzo:
 		result := []ledger.AlonzoProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
-		return result[0], nil
+		return &result[0], nil
 	case ledger.EraIdMary:
 		result := []ledger.MaryProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
-		return result[0], nil
+		return &result[0], nil
 	case ledger.EraIdAllegra:
 		result := []ledger.AllegraProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
-		return result[0], nil
+		return &result[0], nil
 	case ledger.EraIdShelley:
 		result := []ledger.ShelleyProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {
 			return nil, err
 		}
-		return result[0], nil
+		return &result[0], nil
 	default:
 		return nil, fmt.Errorf("unknown era ID: %d", currentEra)
 	}

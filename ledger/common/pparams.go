@@ -33,7 +33,7 @@ type ProtocolParametersProtocolVersion struct {
 	Minor uint
 }
 
-type ProtocolParametersUtxorpc interface {
+type ProtocolParameters interface {
 	Utxorpc() *cardano.PParams
 }
 
