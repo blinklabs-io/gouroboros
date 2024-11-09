@@ -134,7 +134,9 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				fmt.Errorf("handshake failed: refused due to empty version data"),
+				fmt.Errorf(
+					"handshake failed: refused due to empty version data",
+				),
 			},
 		)
 		if err := s.SendMessage(msgRefuse); err != nil {
@@ -168,7 +170,9 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				fmt.Errorf("handshake failed: refused due to empty version map"),
+				fmt.Errorf(
+					"handshake failed: refused due to empty version map",
+				),
 			},
 		)
 		if err := s.SendMessage(msgRefuse); err != nil {

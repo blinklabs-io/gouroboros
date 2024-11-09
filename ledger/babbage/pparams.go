@@ -209,7 +209,9 @@ func (p *BabbageProtocolParameters) Utxorpc() *cardano.PParams {
 	}
 }
 
-func UpgradePParams(prevPParams alonzo.AlonzoProtocolParameters) BabbageProtocolParameters {
+func UpgradePParams(
+	prevPParams alonzo.AlonzoProtocolParameters,
+) BabbageProtocolParameters {
 	ret := BabbageProtocolParameters{
 		MinFeeA:              prevPParams.MinFeeA,
 		MinFeeB:              prevPParams.MinFeeB,
