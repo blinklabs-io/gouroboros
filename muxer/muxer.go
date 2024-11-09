@@ -160,6 +160,8 @@ func (m *Muxer) RegisterProtocol(
 	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
 		m.protocolSenders[protocolId] = make(map[ProtocolRole]chan *Segment)
+	}
+	if _, ok := m.protocolReceivers[protocolId]; !ok {
 		m.protocolReceivers[protocolId] = make(map[ProtocolRole]chan *Segment)
 	}
 	m.protocolSenders[protocolId][protocolRole] = senderChan
