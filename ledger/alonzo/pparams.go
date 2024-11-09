@@ -170,7 +170,9 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 	}
 }
 
-func UpgradePParams(prevPParams mary.MaryProtocolParameters) AlonzoProtocolParameters {
+func UpgradePParams(
+	prevPParams mary.MaryProtocolParameters,
+) AlonzoProtocolParameters {
 	return AlonzoProtocolParameters{
 		MaryProtocolParameters: prevPParams,
 	}

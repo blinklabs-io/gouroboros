@@ -348,7 +348,9 @@ type DRepVotingThresholds struct {
 	TreasuryWithdrawal    cbor.Rat
 }
 
-func UpgradePParams(prevPParams babbage.BabbageProtocolParameters) ConwayProtocolParameters {
+func UpgradePParams(
+	prevPParams babbage.BabbageProtocolParameters,
+) ConwayProtocolParameters {
 	ret := ConwayProtocolParameters{
 		MinFeeA:            prevPParams.MinFeeA,
 		MinFeeB:            prevPParams.MinFeeB,

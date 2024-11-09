@@ -43,7 +43,9 @@ func (p *MaryProtocolParameters) Utxorpc() *cardano.PParams {
 	return p.AllegraProtocolParameters.Utxorpc()
 }
 
-func UpgradePParams(prevPParams allegra.AllegraProtocolParameters) MaryProtocolParameters {
+func UpgradePParams(
+	prevPParams allegra.AllegraProtocolParameters,
+) MaryProtocolParameters {
 	return MaryProtocolParameters{
 		AllegraProtocolParameters: prevPParams,
 	}
