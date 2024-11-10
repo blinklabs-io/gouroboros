@@ -163,6 +163,12 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-s.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	msgReplyTxIds := msg.(*MsgReplyTxIds)
 	s.requestTxIdsResultChan <- msgReplyTxIds.TxIds
 	return nil
@@ -176,6 +182,12 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-s.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	msgReplyTxs := msg.(*MsgReplyTxs)
 	s.requestTxsResultChan <- msgReplyTxs.Txs
 	return nil
