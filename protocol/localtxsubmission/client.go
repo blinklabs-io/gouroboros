@@ -155,6 +155,12 @@ func (c *Client) handleAcceptTx() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	c.submitResultChan <- nil
 	return nil
 }
@@ -167,6 +173,12 @@ func (c *Client) handleRejectTx(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	msgRejectTx := msg.(*MsgRejectTx)
 	rejectErr, err := ledger.NewTxSubmitErrorFromCbor(msgRejectTx.Reason)
 	if err != nil {

@@ -848,6 +848,12 @@ func (c *Client) handleAcquired() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	c.acquired = true
 	c.acquireResultChan <- nil
 	c.currentEra = -1
@@ -862,6 +868,12 @@ func (c *Client) handleFailure(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	msgFailure := msg.(*MsgFailure)
 	switch msgFailure.Failure {
 	case AcquireFailurePointTooOld:
@@ -882,6 +894,12 @@ func (c *Client) handleResult(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	msgResult := msg.(*MsgResult)
 	c.queryResultChan <- msgResult.Result
 	return nil

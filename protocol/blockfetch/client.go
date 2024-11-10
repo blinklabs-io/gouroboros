@@ -206,6 +206,12 @@ func (c *Client) handleStartBatch() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	c.startBatchResultChan <- nil
 	return nil
 }
@@ -218,6 +224,12 @@ func (c *Client) handleNoBlocks() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
+	}
 	err := fmt.Errorf("block(s) not found")
 	c.startBatchResultChan <- err
 	return nil
@@ -243,6 +255,12 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	)
 	if err != nil {
 		return err
+	}
+	// Check for shutdown
+	select {
+	case <-c.Protocol.DoneChan():
+		return protocol.ProtocolShuttingDownError
+	default:
 	}
 	// We use the callback when requesting ranges and the internal channel for a single block
 	if c.blockUseCallback {
