@@ -245,8 +245,11 @@ func (m *Muxer) readLoop() {
 		// Close receiver channels
 		m.protocolReceiversMutex.Lock()
 		for _, protocolRoles := range m.protocolReceivers {
-			for _, recvChan := range protocolRoles {
+			for protocolRole, recvChan := range protocolRoles {
+				// Signal shutdown to protocol
 				close(recvChan)
+				// Remove mapping
+				delete(protocolRoles, protocolRole)
 			}
 		}
 		m.protocolReceiversMutex.Unlock()
