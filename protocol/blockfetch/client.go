@@ -164,6 +164,7 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	}
 	err, ok := <-c.startBatchResultChan
 	if !ok {
+		c.busyMutex.Unlock()
 		return nil, protocol.ProtocolShuttingDownError
 	}
 	if err != nil {
@@ -172,6 +173,7 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	}
 	block, ok := <-c.blockChan
 	if !ok {
+		c.busyMutex.Unlock()
 		return nil, protocol.ProtocolShuttingDownError
 	}
 	return block, nil
