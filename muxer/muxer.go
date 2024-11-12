@@ -333,9 +333,8 @@ func (m *Muxer) readLoop() {
 			)
 			return
 		}
-		if recvChan != nil {
-			recvChan <- msg
-		}
+		recvChan <- msg
+
 		// Wait until the muxer is started to continue
 		// We don't want to read more than one segment until the handshake is complete
 		if !started {
