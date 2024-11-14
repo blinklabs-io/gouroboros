@@ -283,6 +283,12 @@ func (c *Client) handleBatchDone() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// Notify the user if requested
+	if c.blockUseCallback && c.config.BatchDoneFunc != nil {
+		if err := c.config.BatchDoneFunc(c.callbackContext); err != nil {
+			return err
+		}
+	}
 	c.busyMutex.Unlock()
 	return nil
 }
