@@ -135,6 +135,17 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 			blockData,
 			tip,
 		)
+		if msg == nil {
+			s.Protocol.Logger().
+				Error(
+					"failed to create roll forward message",
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "server",
+					"connection_id", s.callbackContext.ConnectionId.String(),
+				)
+			return fmt.Errorf("failed to create roll forward message")
+		}
 		return s.SendMessage(msg)
 	}
 }
