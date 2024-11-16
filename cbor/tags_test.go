@@ -54,6 +54,7 @@ var tagsTestDefs = []struct {
 			},
 		),
 	},
+	// 30([9223372036854775809, 10000000000000000000])
 	{
 		cborHex: "d81e821b80000000000000011b8ac7230489e80000",
 		object: cbor.Rat{
@@ -61,6 +62,13 @@ var tagsTestDefs = []struct {
 				new(big.Int).SetUint64(9223372036854775809),
 				new(big.Int).SetUint64(10000000000000000000),
 			),
+		},
+	},
+	// 30([-1, 2])
+	{
+		cborHex: "d81e822002",
+		object: cbor.Rat{
+			Rat: big.NewRat(-1, 2),
 		},
 	},
 }
