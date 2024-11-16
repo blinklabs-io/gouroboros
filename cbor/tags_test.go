@@ -54,6 +54,15 @@ var tagsTestDefs = []struct {
 			},
 		),
 	},
+	{
+		cborHex: "d81e821b80000000000000011b8ac7230489e80000",
+		object: cbor.Rat{
+			Rat: new(big.Rat).SetFrac(
+				new(big.Int).SetUint64(9223372036854775809),
+				new(big.Int).SetUint64(10000000000000000000),
+			),
+		},
+	},
 }
 
 func TestTagsDecode(t *testing.T) {

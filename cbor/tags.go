@@ -93,11 +93,19 @@ type Rat struct {
 }
 
 func (r *Rat) UnmarshalCBOR(cborData []byte) error {
-	tmpRat := []int64{}
+	tmpRat := []uint64{}
 	if _, err := Decode(cborData, &tmpRat); err != nil {
 		return err
 	}
-	r.Rat = big.NewRat(tmpRat[0], tmpRat[1])
+	// Convert numerator and denominator to big.Int
+	// It's necessary to do this to support num/denom larger than int64 (up to uint64)
+	tmpNum := new(big.Int)
+	tmpNum.SetUint64(tmpRat[0])
+	tmpDenom := new(big.Int)
+	tmpDenom.SetUint64(tmpRat[1])
+	// Create new big.Rat with num/denom set to big.Int values above
+	r.Rat = new(big.Rat)
+	r.Rat.SetFrac(tmpNum, tmpDenom)
 	return nil
 }
 
