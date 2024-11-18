@@ -127,6 +127,7 @@ func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// NOTE: this will be unlocked on BatchDone
 	c.busyMutex.Lock()
 	c.blockUseCallback = true
 	msg := NewMsgRequestRange(start, end)
@@ -136,6 +137,7 @@ func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 	}
 	err, ok := <-c.startBatchResultChan
 	if !ok {
+		c.busyMutex.Unlock()
 		return protocol.ProtocolShuttingDownError
 	}
 	if err != nil {
@@ -155,6 +157,7 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// NOTE: this will be unlocked on BatchDone
 	c.busyMutex.Lock()
 	c.blockUseCallback = false
 	msg := NewMsgRequestRange(point, point)
