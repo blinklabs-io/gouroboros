@@ -447,6 +447,7 @@ func (c *Client) syncLoop() {
 		msg := NewMsgRequestNext()
 		if err := c.SendMessage(msg); err != nil {
 			c.SendError(err)
+			c.busyMutex.Unlock()
 			return
 		}
 		c.busyMutex.Unlock()
