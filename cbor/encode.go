@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"sync"
 
 	_cbor "github.com/fxamacker/cbor/v2"
 	"github.com/jinzhu/copier"
@@ -38,27 +39,42 @@ func Encode(data interface{}) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
+var encodeGenericTypeCache = map[reflect.Type]reflect.Type{}
+var encodeGenericTypeCacheMutex sync.RWMutex
+
 // EncodeGeneric encodes the specified object to CBOR without using the source object's
 // MarshalCBOR() function
 func EncodeGeneric(src interface{}) ([]byte, error) {
-	// Create a duplicate(-ish) struct from the destination
-	// We do this so that we can bypass any custom UnmarshalCBOR() function on the
-	// destination object
+	// Get source type
 	valueSrc := reflect.ValueOf(src)
-	if valueSrc.Kind() != reflect.Pointer ||
-		valueSrc.Elem().Kind() != reflect.Struct {
-		return nil, fmt.Errorf("source must be a pointer to a struct")
-	}
-	typeSrcElem := valueSrc.Elem().Type()
-	srcTypeFields := []reflect.StructField{}
-	for i := 0; i < typeSrcElem.NumField(); i++ {
-		tmpField := typeSrcElem.Field(i)
-		if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
-			srcTypeFields = append(srcTypeFields, tmpField)
+	typeSrc := valueSrc.Elem().Type()
+	// Check type cache
+	encodeGenericTypeCacheMutex.RLock()
+	tmpTypeSrc, ok := encodeGenericTypeCache[typeSrc]
+	encodeGenericTypeCacheMutex.RUnlock()
+	if !ok {
+		// Create a duplicate(-ish) struct from the destination
+		// We do this so that we can bypass any custom MarshalCBOR() function on the
+		// source object
+		if valueSrc.Kind() != reflect.Pointer ||
+			valueSrc.Elem().Kind() != reflect.Struct {
+			return nil, fmt.Errorf("source must be a pointer to a struct")
 		}
+		srcTypeFields := []reflect.StructField{}
+		for i := 0; i < typeSrc.NumField(); i++ {
+			tmpField := typeSrc.Field(i)
+			if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
+				srcTypeFields = append(srcTypeFields, tmpField)
+			}
+		}
+		tmpTypeSrc = reflect.StructOf(srcTypeFields)
+		// Populate cache
+		encodeGenericTypeCacheMutex.Lock()
+		encodeGenericTypeCache[typeSrc] = tmpTypeSrc
+		encodeGenericTypeCacheMutex.Unlock()
 	}
 	// Create temporary object with the type created above
-	tmpSrc := reflect.New(reflect.StructOf(srcTypeFields))
+	tmpSrc := reflect.New(tmpTypeSrc)
 	// Copy values from source object into temporary object
 	if err := copier.Copy(tmpSrc.Interface(), src); err != nil {
 		return nil, err

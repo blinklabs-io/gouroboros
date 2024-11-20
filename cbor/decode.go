@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"sync"
 
 	_cbor "github.com/fxamacker/cbor/v2"
 	"github.com/jinzhu/copier"
@@ -109,27 +110,43 @@ func DecodeById(
 	return ret, nil
 }
 
+var decodeGenericTypeCache = map[reflect.Type]reflect.Type{}
+var decodeGenericTypeCacheMutex sync.RWMutex
+
 // DecodeGeneric decodes the specified CBOR into the destination object without using the
 // destination object's UnmarshalCBOR() function
 func DecodeGeneric(cborData []byte, dest interface{}) error {
-	// Create a duplicate(-ish) struct from the destination
-	// We do this so that we can bypass any custom UnmarshalCBOR() function on the
-	// destination object
+	// Get destination type
 	valueDest := reflect.ValueOf(dest)
-	if valueDest.Kind() != reflect.Pointer ||
-		valueDest.Elem().Kind() != reflect.Struct {
-		return fmt.Errorf("destination must be a pointer to a struct")
-	}
-	typeDestElem := valueDest.Elem().Type()
-	destTypeFields := []reflect.StructField{}
-	for i := 0; i < typeDestElem.NumField(); i++ {
-		tmpField := typeDestElem.Field(i)
-		if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
-			destTypeFields = append(destTypeFields, tmpField)
+	typeDest := valueDest.Elem().Type()
+	// Check type cache
+	decodeGenericTypeCacheMutex.RLock()
+	tmpTypeDest, ok := decodeGenericTypeCache[typeDest]
+	decodeGenericTypeCacheMutex.RUnlock()
+	if !ok {
+		// Create a duplicate(-ish) struct from the destination
+		// We do this so that we can bypass any custom UnmarshalCBOR() function on the
+		// destination object
+		if valueDest.Kind() != reflect.Pointer ||
+			valueDest.Elem().Kind() != reflect.Struct {
+			decodeGenericTypeCacheMutex.Unlock()
+			return fmt.Errorf("destination must be a pointer to a struct")
 		}
+		destTypeFields := []reflect.StructField{}
+		for i := 0; i < typeDest.NumField(); i++ {
+			tmpField := typeDest.Field(i)
+			if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
+				destTypeFields = append(destTypeFields, tmpField)
+			}
+		}
+		tmpTypeDest = reflect.StructOf(destTypeFields)
+		// Populate cache
+		decodeGenericTypeCacheMutex.Lock()
+		decodeGenericTypeCache[typeDest] = tmpTypeDest
+		decodeGenericTypeCacheMutex.Unlock()
 	}
 	// Create temporary object with the type created above
-	tmpDest := reflect.New(reflect.StructOf(destTypeFields))
+	tmpDest := reflect.New(tmpTypeDest)
 	// Decode CBOR into temporary object
 	if _, err := Decode(cborData, tmpDest.Interface()); err != nil {
 		return err
