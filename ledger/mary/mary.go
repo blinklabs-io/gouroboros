@@ -70,6 +70,10 @@ func (b *MaryBlock) Hash() string {
 	return b.Header.Hash()
 }
 
+func (b *MaryBlock) PrevHash() string {
+	return b.Header.PrevHash()
+}
+
 func (b *MaryBlock) BlockNumber() uint64 {
 	return b.Header.BlockNumber()
 }

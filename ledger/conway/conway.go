@@ -71,6 +71,10 @@ func (b *ConwayBlock) Hash() string {
 	return b.Header.Hash()
 }
 
+func (b *ConwayBlock) PrevHash() string {
+	return b.Header.PrevHash()
+}
+
 func (b *ConwayBlock) BlockNumber() uint64 {
 	return b.Header.BlockNumber()
 }

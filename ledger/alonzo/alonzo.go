@@ -71,6 +71,10 @@ func (b *AlonzoBlock) Hash() string {
 	return b.Header.Hash()
 }
 
+func (b *AlonzoBlock) PrevHash() string {
+	return b.Header.PrevHash()
+}
+
 func (b *AlonzoBlock) BlockNumber() uint64 {
 	return b.Header.BlockNumber()
 }

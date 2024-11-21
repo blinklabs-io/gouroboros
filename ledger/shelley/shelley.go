@@ -67,6 +67,10 @@ func (b *ShelleyBlock) Hash() string {
 	return b.Header.Hash()
 }
 
+func (b *ShelleyBlock) PrevHash() string {
+	return b.Header.PrevHash()
+}
+
 func (b *ShelleyBlock) BlockNumber() uint64 {
 	return b.Header.BlockNumber()
 }
@@ -156,6 +160,10 @@ func (h *ShelleyBlockHeader) Hash() string {
 		h.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return h.hash
+}
+
+func (h *ShelleyBlockHeader) PrevHash() string {
+	return h.Body.PrevHash.String()
 }
 
 func (h *ShelleyBlockHeader) BlockNumber() uint64 {
