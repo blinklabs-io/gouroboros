@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,26 +17,12 @@ package ledger
 import (
 	"fmt"
 
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-type Block interface {
-	BlockHeader
-	Type() int
-	Transactions() []Transaction
-	Utxorpc() *utxorpc.Block
-}
-
-type BlockHeader interface {
-	Hash() string
-	PrevHash() string
-	BlockNumber() uint64
-	SlotNumber() uint64
-	IssuerVkey() IssuerVkey
-	BlockBodySize() uint64
-	Era() Era
-	Cbor() []byte
-}
+// Compatibility aliases
+type Block = common.Block
+type BlockHeader = common.BlockHeader
 
 func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 	switch blockType {
