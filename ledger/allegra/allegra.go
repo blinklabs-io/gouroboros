@@ -68,6 +68,10 @@ func (b *AllegraBlock) Hash() string {
 	return b.Header.Hash()
 }
 
+func (b *AllegraBlock) PrevHash() string {
+	return b.Header.PrevHash()
+}
+
 func (b *AllegraBlock) BlockNumber() uint64 {
 	return b.Header.BlockNumber()
 }

@@ -29,6 +29,7 @@ type Block interface {
 
 type BlockHeader interface {
 	Hash() string
+	PrevHash() string
 	BlockNumber() uint64
 	SlotNumber() uint64
 	IssuerVkey() IssuerVkey

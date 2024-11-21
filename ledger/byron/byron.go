@@ -101,6 +101,10 @@ func (h *ByronMainBlockHeader) Hash() string {
 	return h.hash
 }
 
+func (h *ByronMainBlockHeader) PrevHash() string {
+	return h.PrevBlock.String()
+}
+
 func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 	// Byron blocks don't store the block number in the block
 	return 0
@@ -525,6 +529,10 @@ func (h *ByronEpochBoundaryBlockHeader) Hash() string {
 	return h.hash
 }
 
+func (h *ByronEpochBoundaryBlockHeader) PrevHash() string {
+	return h.PrevBlock.String()
+}
+
 func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
 	// Byron blocks don't store the block number in the block
 	return 0
@@ -567,6 +575,10 @@ func (ByronMainBlock) Type() int {
 
 func (b *ByronMainBlock) Hash() string {
 	return b.Header.Hash()
+}
+
+func (b *ByronMainBlock) PrevHash() string {
+	return b.Header.PrevHash()
 }
 
 func (b *ByronMainBlock) BlockNumber() uint64 {
@@ -621,6 +633,10 @@ func (ByronEpochBoundaryBlock) Type() int {
 
 func (b *ByronEpochBoundaryBlock) Hash() string {
 	return b.Header.Hash()
+}
+
+func (b *ByronEpochBoundaryBlock) PrevHash() string {
+	return b.Header.PrevHash()
 }
 
 func (b *ByronEpochBoundaryBlock) BlockNumber() uint64 {

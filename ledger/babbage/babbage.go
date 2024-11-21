@@ -72,6 +72,10 @@ func (b *BabbageBlock) Hash() string {
 	return b.Header.Hash()
 }
 
+func (b *BabbageBlock) PrevHash() string {
+	return b.Header.PrevHash()
+}
+
 func (b *BabbageBlock) BlockNumber() uint64 {
 	return b.Header.BlockNumber()
 }
@@ -172,6 +176,10 @@ func (h *BabbageBlockHeader) Hash() string {
 		h.hash = hex.EncodeToString(tmpHash.Bytes())
 	}
 	return h.hash
+}
+
+func (h *BabbageBlockHeader) PrevHash() string {
+	return h.Body.PrevHash.String()
 }
 
 func (h *BabbageBlockHeader) BlockNumber() uint64 {
