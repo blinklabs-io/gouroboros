@@ -107,10 +107,10 @@ func TestGetBlock(t *testing.T) {
 	// The slot value is one higher than our intersect point and the block height is less than
 	// our expected tip
 	testBlock := ledger.BabbageBlock{
-		Header: &ledger.BabbageBlockHeader{},
+		BlockHeader: &ledger.BabbageBlockHeader{},
 	}
-	testBlock.Header.Body.BlockNumber = testBlockNumber
-	testBlock.Header.Body.Slot = testBlockSlot
+	testBlock.BlockHeader.Body.BlockNumber = testBlockNumber
+	testBlock.BlockHeader.Body.Slot = testBlockSlot
 	blockCbor, err := cbor.Encode(testBlock)
 	if err != nil {
 		t.Fatalf("received unexpected error: %s", err)

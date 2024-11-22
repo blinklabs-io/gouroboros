@@ -559,9 +559,9 @@ func (h *ByronEpochBoundaryBlockHeader) Era() common.Era {
 type ByronMainBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header *ByronMainBlockHeader
-	Body   ByronMainBlockBody
-	Extra  []interface{}
+	BlockHeader *ByronMainBlockHeader
+	Body        ByronMainBlockBody
+	Extra       []interface{}
 }
 
 func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
@@ -574,23 +574,27 @@ func (ByronMainBlock) Type() int {
 }
 
 func (b *ByronMainBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *ByronMainBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *ByronMainBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *ByronMainBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *ByronMainBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *ByronMainBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *ByronMainBlock) BlockBodySize() uint64 {
@@ -598,7 +602,7 @@ func (b *ByronMainBlock) BlockBodySize() uint64 {
 }
 
 func (b *ByronMainBlock) Era() common.Era {
-	return b.Header.Era()
+	return b.BlockHeader.Era()
 }
 
 func (b *ByronMainBlock) Transactions() []common.Transaction {
@@ -617,9 +621,9 @@ func (b *ByronMainBlock) Utxorpc() *utxorpc.Block {
 type ByronEpochBoundaryBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header *ByronEpochBoundaryBlockHeader
-	Body   []common.Blake2b224
-	Extra  []interface{}
+	BlockHeader *ByronEpochBoundaryBlockHeader
+	Body        []common.Blake2b224
+	Extra       []interface{}
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
@@ -632,23 +636,27 @@ func (ByronEpochBoundaryBlock) Type() int {
 }
 
 func (b *ByronEpochBoundaryBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *ByronEpochBoundaryBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *ByronEpochBoundaryBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *ByronEpochBoundaryBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *ByronEpochBoundaryBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *ByronEpochBoundaryBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *ByronEpochBoundaryBlock) BlockBodySize() uint64 {
@@ -657,7 +665,7 @@ func (b *ByronEpochBoundaryBlock) BlockBodySize() uint64 {
 }
 
 func (b *ByronEpochBoundaryBlock) Era() common.Era {
-	return b.Header.Era()
+	return b.BlockHeader.Era()
 }
 
 func (b *ByronEpochBoundaryBlock) Transactions() []common.Transaction {

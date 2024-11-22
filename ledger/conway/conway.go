@@ -52,7 +52,7 @@ func init() {
 type ConwayBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header                 *ConwayBlockHeader
+	BlockHeader            *ConwayBlockHeader
 	TransactionBodies      []ConwayTransactionBody
 	TransactionWitnessSets []ConwayTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
@@ -68,27 +68,31 @@ func (ConwayBlock) Type() int {
 }
 
 func (b *ConwayBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *ConwayBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *ConwayBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *ConwayBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *ConwayBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *ConwayBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *ConwayBlock) BlockBodySize() uint64 {
-	return b.Header.BlockBodySize()
+	return b.BlockHeader.BlockBodySize()
 }
 
 func (b *ConwayBlock) Era() common.Era {

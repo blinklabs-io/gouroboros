@@ -52,7 +52,7 @@ func init() {
 type AlonzoBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header                 *AlonzoBlockHeader
+	BlockHeader            *AlonzoBlockHeader
 	TransactionBodies      []AlonzoTransactionBody
 	TransactionWitnessSets []AlonzoTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
@@ -68,27 +68,31 @@ func (AlonzoBlock) Type() int {
 }
 
 func (b *AlonzoBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *AlonzoBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *AlonzoBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *AlonzoBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *AlonzoBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *AlonzoBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *AlonzoBlock) BlockBodySize() uint64 {
-	return b.Header.BlockBodySize()
+	return b.BlockHeader.BlockBodySize()
 }
 
 func (b *AlonzoBlock) Era() common.Era {

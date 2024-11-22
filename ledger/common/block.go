@@ -4,6 +4,7 @@ import utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 type Block interface {
 	BlockHeader
+	Header() BlockHeader
 	Type() int
 	Transactions() []Transaction
 	Utxorpc() *utxorpc.Block
