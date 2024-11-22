@@ -279,7 +279,7 @@ func chainSyncRollForwardHandler(
 		byronEbbBlock := block.(*ledger.ByronEpochBoundaryBlock)
 		fmt.Printf(
 			"era = Byron (EBB), epoch = %d, slot = %d, id = %s\n",
-			byronEbbBlock.Header.ConsensusData.Epoch,
+			byronEbbBlock.BlockHeader.ConsensusData.Epoch,
 			byronEbbBlock.SlotNumber(),
 			byronEbbBlock.Hash(),
 		)
@@ -287,7 +287,7 @@ func chainSyncRollForwardHandler(
 		byronBlock := block.(*ledger.ByronMainBlock)
 		fmt.Printf(
 			"era = Byron, epoch = %d, slot = %d, id = %s\n",
-			byronBlock.Header.ConsensusData.SlotId.Epoch,
+			byronBlock.BlockHeader.ConsensusData.SlotId.Epoch,
 			byronBlock.SlotNumber(),
 			byronBlock.Hash(),
 		)
@@ -313,9 +313,9 @@ func blockFetchBlockHandler(
 ) error {
 	switch block := blockData.(type) {
 	case *ledger.ByronEpochBoundaryBlock:
-		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.Epoch, block.SlotNumber(), block.Hash())
+		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, id = %s\n", block.BlockHeader.ConsensusData.Epoch, block.SlotNumber(), block.Hash())
 	case *ledger.ByronMainBlock:
-		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", block.Header.ConsensusData.SlotId.Epoch, block.SlotNumber(), block.Hash())
+		fmt.Printf("era = Byron, epoch = %d, slot = %d, id = %s\n", block.BlockHeader.ConsensusData.SlotId.Epoch, block.SlotNumber(), block.Hash())
 	case ledger.Block:
 		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", block.Era().Name, block.SlotNumber(), block.BlockNumber(), block.Hash())
 	}

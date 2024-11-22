@@ -52,7 +52,7 @@ func init() {
 type MaryBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header                 *MaryBlockHeader
+	BlockHeader            *MaryBlockHeader
 	TransactionBodies      []MaryTransactionBody
 	TransactionWitnessSets []MaryTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
@@ -67,27 +67,31 @@ func (MaryBlock) Type() int {
 }
 
 func (b *MaryBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *MaryBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *MaryBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *MaryBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *MaryBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *MaryBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *MaryBlock) BlockBodySize() uint64 {
-	return b.Header.BlockBodySize()
+	return b.BlockHeader.BlockBodySize()
 }
 
 func (b *MaryBlock) Era() common.Era {

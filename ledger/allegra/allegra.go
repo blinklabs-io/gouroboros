@@ -50,7 +50,7 @@ func init() {
 type AllegraBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header                 *AllegraBlockHeader
+	BlockHeader            *AllegraBlockHeader
 	TransactionBodies      []AllegraTransactionBody
 	TransactionWitnessSets []shelley.ShelleyTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
@@ -65,27 +65,31 @@ func (AllegraBlock) Type() int {
 }
 
 func (b *AllegraBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *AllegraBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *AllegraBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *AllegraBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *AllegraBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *AllegraBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *AllegraBlock) BlockBodySize() uint64 {
-	return b.Header.BlockBodySize()
+	return b.BlockHeader.BlockBodySize()
 }
 
 func (b *AllegraBlock) Era() common.Era {

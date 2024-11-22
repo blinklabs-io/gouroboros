@@ -49,7 +49,7 @@ func init() {
 type ShelleyBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header                 *ShelleyBlockHeader
+	BlockHeader            *ShelleyBlockHeader
 	TransactionBodies      []ShelleyTransactionBody
 	TransactionWitnessSets []ShelleyTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
@@ -64,27 +64,31 @@ func (ShelleyBlock) Type() int {
 }
 
 func (b *ShelleyBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *ShelleyBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *ShelleyBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *ShelleyBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *ShelleyBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *ShelleyBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *ShelleyBlock) BlockBodySize() uint64 {
-	return b.Header.BlockBodySize()
+	return b.BlockHeader.BlockBodySize()
 }
 
 func (b *ShelleyBlock) Era() common.Era {

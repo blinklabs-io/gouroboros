@@ -191,10 +191,10 @@ func TestGetAvailableBlockRange(t *testing.T) {
 	// The slot value is one higher than our intersect point and the block height is less than
 	// our expected tip
 	testBlock := ledger.BabbageBlock{
-		Header: &ledger.BabbageBlockHeader{},
+		BlockHeader: &ledger.BabbageBlockHeader{},
 	}
-	testBlock.Header.Body.BlockNumber = 12001
-	testBlock.Header.Body.Slot = 20002
+	testBlock.BlockHeader.Body.BlockNumber = 12001
+	testBlock.BlockHeader.Body.Slot = 20002
 	blockCbor, err := cbor.Encode(testBlock)
 	if err != nil {
 		t.Fatalf("received unexpected error: %s", err)

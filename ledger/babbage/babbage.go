@@ -53,7 +53,7 @@ func init() {
 type BabbageBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	Header                 *BabbageBlockHeader
+	BlockHeader            *BabbageBlockHeader
 	TransactionBodies      []BabbageTransactionBody
 	TransactionWitnessSets []BabbageTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
@@ -69,27 +69,31 @@ func (BabbageBlock) Type() int {
 }
 
 func (b *BabbageBlock) Hash() string {
-	return b.Header.Hash()
+	return b.BlockHeader.Hash()
+}
+
+func (b *BabbageBlock) Header() common.BlockHeader {
+	return b.BlockHeader
 }
 
 func (b *BabbageBlock) PrevHash() string {
-	return b.Header.PrevHash()
+	return b.BlockHeader.PrevHash()
 }
 
 func (b *BabbageBlock) BlockNumber() uint64 {
-	return b.Header.BlockNumber()
+	return b.BlockHeader.BlockNumber()
 }
 
 func (b *BabbageBlock) SlotNumber() uint64 {
-	return b.Header.SlotNumber()
+	return b.BlockHeader.SlotNumber()
 }
 
 func (b *BabbageBlock) IssuerVkey() common.IssuerVkey {
-	return b.Header.IssuerVkey()
+	return b.BlockHeader.IssuerVkey()
 }
 
 func (b *BabbageBlock) BlockBodySize() uint64 {
-	return b.Header.BlockBodySize()
+	return b.BlockHeader.BlockBodySize()
 }
 
 func (b *BabbageBlock) Era() common.Era {
