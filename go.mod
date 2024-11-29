@@ -9,7 +9,7 @@ require (
 	github.com/blinklabs-io/ouroboros-mock v0.3.5
 	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/jinzhu/copier v0.4.0
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/utxorpc/go-codegen v0.12.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.29.0
