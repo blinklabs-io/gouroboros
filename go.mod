@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/utxorpc/go-codegen v0.14.0
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.30.0
+	golang.org/x/crypto v0.31.0
 )
 
 require (
