@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -109,9 +110,17 @@ func (s *Server) RequestTxIds(
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
+	var txString []string
+	for _, t := range txIds {
+		ba := []byte{}
+		for _, b := range t.TxId {
+			ba = append(ba, b)
+		}
+		txString = append(txString, common.NewBlake2b256(ba).String())
+	}
 	s.Protocol.Logger().
 		Debug(
-			fmt.Sprintf("calling RequestTxs(txIds: %+v)", txIds),
+			fmt.Sprintf("calling RequestTxs(txIds: %+v)", txString),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
