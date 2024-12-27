@@ -185,7 +185,7 @@ func (s *Server) handleNextTx() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	if s.mempoolNextTxIdx > len(s.mempoolTxs) {
+	if s.mempoolNextTxIdx >= len(s.mempoolTxs) {
 		newMsg := NewMsgReplyNextTx(0, nil)
 		if err := s.SendMessage(newMsg); err != nil {
 			return err
