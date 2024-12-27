@@ -83,7 +83,7 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type SubmitTxFunc func(CallbackContext, interface{}) error
+type SubmitTxFunc func(CallbackContext, MsgSubmitTxTransaction) error
 
 // New returns a new LocalTxSubmission object
 func New(
