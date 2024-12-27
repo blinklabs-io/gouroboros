@@ -114,20 +114,17 @@ func (c *Client) Start() {
 
 // Acquire starts the acquire process for the specified chain point
 func (c *Client) Acquire(point *common.Point) error {
-	var msg string
-	if point != nil {
-		msg = fmt.Sprintf(
-			"calling Acquire(point: {Slot: %d, Hash: %x})",
-			point.Slot,
-			point.Hash,
-		)
-	} else {
-		msg = "calling Acquire(point: latest)"
+	// Use volatile tip if no point provided
+	if point == nil {
+		return c.AcquireVolatileTip()
 	}
-
 	c.Protocol.Logger().
 		Debug(
-			msg,
+			fmt.Sprintf(
+				"calling Acquire(point: {Slot: %d, Hash: %x})",
+				point.Slot,
+				point.Hash,
+			),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "client",
@@ -135,7 +132,40 @@ func (c *Client) Acquire(point *common.Point) error {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	return c.acquire(point)
+	acquireTarget := AcquireSpecificPoint{
+		Point: *point,
+	}
+	return c.acquire(acquireTarget)
+}
+
+func (c *Client) AcquireVolatileTip() error {
+	c.Protocol.Logger().
+		Debug(
+			"calling AcquireVolatileTip",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	acquireTarget := AcquireVolatileTip{}
+	return c.acquire(acquireTarget)
+}
+
+func (c *Client) AcquireImmutableTip() error {
+	c.Protocol.Logger().
+		Debug(
+			"calling AcquireImmutableTip",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	acquireTarget := AcquireImmutableTip{}
+	return c.acquire(acquireTarget)
 }
 
 // Release releases the previously acquired chain point
@@ -906,19 +936,29 @@ func (c *Client) handleResult(msg protocol.Message) error {
 	return nil
 }
 
-func (c *Client) acquire(point *common.Point) error {
+func (c *Client) acquire(acquireTarget AcquireTarget) error {
 	var msg protocol.Message
 	if c.acquired {
-		if point != nil {
-			msg = NewMsgReAcquire(*point)
-		} else {
-			msg = NewMsgReAcquireNoPoint()
+		switch t := acquireTarget.(type) {
+		case AcquireSpecificPoint:
+			msg = NewMsgReAcquire(t.Point)
+		case AcquireVolatileTip:
+			msg = NewMsgReAcquireVolatileTip()
+		case AcquireImmutableTip:
+			msg = NewMsgReAcquireImmutableTip()
+		default:
+			return fmt.Errorf("invalid acquire point provided")
 		}
 	} else {
-		if point != nil {
-			msg = NewMsgAcquire(*point)
-		} else {
-			msg = NewMsgAcquireNoPoint()
+		switch t := acquireTarget.(type) {
+		case AcquireSpecificPoint:
+			msg = NewMsgAcquire(t.Point)
+		case AcquireVolatileTip:
+			msg = NewMsgAcquireVolatileTip()
+		case AcquireImmutableTip:
+			msg = NewMsgAcquireImmutableTip()
+		default:
+			return fmt.Errorf("invalid acquire point provided")
 		}
 	}
 	if err := c.SendMessage(msg); err != nil {
@@ -944,7 +984,7 @@ func (c *Client) release() error {
 func (c *Client) runQuery(query interface{}, result interface{}) error {
 	msg := NewMsgQuery(query)
 	if !c.acquired {
-		if err := c.acquire(nil); err != nil {
+		if err := c.acquire(AcquireVolatileTip{}); err != nil {
 			return err
 		}
 	}

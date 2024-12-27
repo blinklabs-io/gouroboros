@@ -75,9 +75,9 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 		err = s.handleRelease()
 	case MessageTypeReacquire:
 		err = s.handleReAcquire(msg)
-	case MessageTypeAcquireNoPoint:
+	case MessageTypeAcquireVolatileTip:
 		err = s.handleAcquire(msg)
-	case MessageTypeReacquireNoPoint:
+	case MessageTypeReacquireVolatileTip:
 		err = s.handleReAcquire(msg)
 	case MessageTypeDone:
 		err = s.handleDone()
@@ -104,15 +104,19 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 			"received local-state-query Acquire message but no callback function is defined",
 		)
 	}
+	var acquireTarget AcquireTarget
 	switch msgAcquire := msg.(type) {
 	case *MsgAcquire:
-		// Call the user callback function
-		return s.config.AcquireFunc(s.callbackContext, &msgAcquire.Point)
-	case *MsgAcquireNoPoint:
-		// Call the user callback function
-		return s.config.AcquireFunc(s.callbackContext, nil)
+		acquireTarget = AcquireSpecificPoint{
+			Point: msgAcquire.Point,
+		}
+	case *MsgAcquireVolatileTip:
+		acquireTarget = AcquireVolatileTip{}
+	case *MsgAcquireImmutableTip:
+		acquireTarget = AcquireImmutableTip{}
 	}
-	return nil
+	// Call the user callback function
+	return s.config.AcquireFunc(s.callbackContext, acquireTarget)
 }
 
 func (s *Server) handleQuery(msg protocol.Message) error {
@@ -163,15 +167,19 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 			"received local-state-query ReAcquire message but no callback function is defined",
 		)
 	}
+	var acquireTarget AcquireTarget
 	switch msgReAcquire := msg.(type) {
 	case *MsgReAcquire:
-		// Call the user callback function
-		return s.config.ReAcquireFunc(s.callbackContext, &msgReAcquire.Point)
-	case *MsgReAcquireNoPoint:
-		// Call the user callback function
-		return s.config.ReAcquireFunc(s.callbackContext, nil)
+		acquireTarget = AcquireSpecificPoint{
+			Point: msgReAcquire.Point,
+		}
+	case *MsgReAcquireVolatileTip:
+		acquireTarget = AcquireVolatileTip{}
+	case *MsgReAcquireImmutableTip:
+		acquireTarget = AcquireImmutableTip{}
 	}
-	return nil
+	// Call the user callback function
+	return s.config.ReAcquireFunc(s.callbackContext, acquireTarget)
 }
 
 func (s *Server) handleDone() error {

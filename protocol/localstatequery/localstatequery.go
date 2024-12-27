@@ -47,7 +47,11 @@ var StateMap = protocol.StateMap{
 				NewState: stateAcquiring,
 			},
 			{
-				MsgType:  MessageTypeAcquireNoPoint,
+				MsgType:  MessageTypeAcquireVolatileTip,
+				NewState: stateAcquiring,
+			},
+			{
+				MsgType:  MessageTypeAcquireImmutableTip,
 				NewState: stateAcquiring,
 			},
 			{
@@ -81,7 +85,11 @@ var StateMap = protocol.StateMap{
 				NewState: stateAcquiring,
 			},
 			{
-				MsgType:  MessageTypeReacquireNoPoint,
+				MsgType:  MessageTypeReacquireVolatileTip,
+				NewState: stateAcquiring,
+			},
+			{
+				MsgType:  MessageTypeReacquireImmutableTip,
 				NewState: stateAcquiring,
 			},
 			{
@@ -121,6 +129,25 @@ type Config struct {
 	QueryTimeout   time.Duration
 }
 
+// Acquire target types
+type AcquireTarget interface {
+	isAcquireTarget()
+}
+
+type AcquireSpecificPoint struct {
+	Point common.Point
+}
+
+func (AcquireSpecificPoint) isAcquireTarget() {}
+
+type AcquireVolatileTip struct{}
+
+func (AcquireVolatileTip) isAcquireTarget() {}
+
+type AcquireImmutableTip struct{}
+
+func (AcquireImmutableTip) isAcquireTarget() {}
+
 // Callback context
 type CallbackContext struct {
 	ConnectionId connection.ConnectionId
@@ -129,10 +156,10 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type AcquireFunc func(CallbackContext, *common.Point) error
+type AcquireFunc func(CallbackContext, AcquireTarget) error
 type QueryFunc func(CallbackContext, any) error
 type ReleaseFunc func(CallbackContext) error
-type ReAcquireFunc func(CallbackContext, *common.Point) error
+type ReAcquireFunc func(CallbackContext, AcquireTarget) error
 type DoneFunc func(CallbackContext) error
 
 // New returns a new LocalStateQuery object
