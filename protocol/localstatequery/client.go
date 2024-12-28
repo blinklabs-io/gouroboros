@@ -908,9 +908,9 @@ func (c *Client) handleFailure(msg protocol.Message) error {
 	msgFailure := msg.(*MsgFailure)
 	switch msgFailure.Failure {
 	case AcquireFailurePointTooOld:
-		c.acquireResultChan <- AcquireFailurePointTooOldError{}
+		c.acquireResultChan <- ErrAcquireFailurePointTooOld
 	case AcquireFailurePointNotOnChain:
-		c.acquireResultChan <- AcquireFailurePointNotOnChainError{}
+		c.acquireResultChan <- ErrAcquireFailurePointNotOnChain
 	default:
 		return fmt.Errorf("unknown failure type: %d", msgFailure.Failure)
 	}

@@ -15,8 +15,10 @@
 package localstatequery
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -116,7 +118,27 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 		acquireTarget = AcquireImmutableTip{}
 	}
 	// Call the user callback function
-	return s.config.AcquireFunc(s.callbackContext, acquireTarget)
+	err := s.config.AcquireFunc(s.callbackContext, acquireTarget, false)
+	if err != nil {
+		if errors.Is(err, ErrAcquireFailurePointTooOld) {
+			respMsg := NewMsgFailure(AcquireFailurePointTooOld)
+			if err := s.SendMessage(respMsg); err != nil {
+				return err
+			}
+		} else if errors.Is(err, ErrAcquireFailurePointNotOnChain) {
+			respMsg := NewMsgFailure(AcquireFailurePointNotOnChain)
+			if err := s.SendMessage(respMsg); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+	respMsg := NewMsgAcquired()
+	if err := s.SendMessage(respMsg); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Server) handleQuery(msg protocol.Message) error {
@@ -134,7 +156,20 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 	}
 	msgQuery := msg.(*MsgQuery)
 	// Call the user callback function
-	return s.config.QueryFunc(s.callbackContext, msgQuery.Query)
+	result, err := s.config.QueryFunc(s.callbackContext, msgQuery.Query)
+	if err != nil {
+		return err
+	}
+	// Encode query result
+	resultCbor, err := cbor.Encode(&result)
+	if err != nil {
+		return err
+	}
+	respMsg := NewMsgResult(resultCbor)
+	if err := s.SendMessage(respMsg); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Server) handleRelease() error {
@@ -162,7 +197,7 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	if s.config.ReAcquireFunc == nil {
+	if s.config.AcquireFunc == nil {
 		return fmt.Errorf(
 			"received local-state-query ReAcquire message but no callback function is defined",
 		)
@@ -179,7 +214,23 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 		acquireTarget = AcquireImmutableTip{}
 	}
 	// Call the user callback function
-	return s.config.ReAcquireFunc(s.callbackContext, acquireTarget)
+	err := s.config.AcquireFunc(s.callbackContext, acquireTarget, true)
+	if err != nil {
+		if errors.Is(err, ErrAcquireFailurePointTooOld) {
+			respMsg := NewMsgFailure(AcquireFailurePointTooOld)
+			if err := s.SendMessage(respMsg); err != nil {
+				return err
+			}
+		} else if errors.Is(err, ErrAcquireFailurePointNotOnChain) {
+			respMsg := NewMsgFailure(AcquireFailurePointNotOnChain)
+			if err := s.SendMessage(respMsg); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleDone() error {
@@ -190,11 +241,5 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	if s.config.DoneFunc == nil {
-		return fmt.Errorf(
-			"received local-state-query Done message but no callback function is defined",
-		)
-	}
-	// Call the user callback function
-	return s.config.DoneFunc(s.callbackContext)
+	return nil
 }
