@@ -83,13 +83,13 @@ var tests = []testDefinition{
 	},
 	{
 		CborHex:     "8108",
-		Message:     NewMsgAcquireNoPoint(),
-		MessageType: MessageTypeAcquireNoPoint,
+		Message:     NewMsgAcquireVolatileTip(),
+		MessageType: MessageTypeAcquireVolatileTip,
 	},
 	{
 		CborHex:     "8109",
-		Message:     NewMsgReAcquireNoPoint(),
-		MessageType: MessageTypeReacquireNoPoint,
+		Message:     NewMsgReAcquireVolatileTip(),
+		MessageType: MessageTypeReacquireVolatileTip,
 	},
 }
 

@@ -24,16 +24,18 @@ import (
 
 // Message types
 const (
-	MessageTypeAcquire          = 0
-	MessageTypeAcquired         = 1
-	MessageTypeFailure          = 2
-	MessageTypeQuery            = 3
-	MessageTypeResult           = 4
-	MessageTypeRelease          = 5
-	MessageTypeReacquire        = 6
-	MessageTypeDone             = 7
-	MessageTypeAcquireNoPoint   = 8
-	MessageTypeReacquireNoPoint = 9
+	MessageTypeAcquire               = 0
+	MessageTypeAcquired              = 1
+	MessageTypeFailure               = 2
+	MessageTypeQuery                 = 3
+	MessageTypeResult                = 4
+	MessageTypeRelease               = 5
+	MessageTypeReacquire             = 6
+	MessageTypeDone                  = 7
+	MessageTypeAcquireVolatileTip    = 8
+	MessageTypeReacquireVolatileTip  = 9
+	MessageTypeAcquireImmutableTip   = 10
+	MessageTypeReacquireImmutableTip = 11
 )
 
 // Acquire failure reasons
@@ -60,10 +62,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgRelease{}
 	case MessageTypeReacquire:
 		ret = &MsgReAcquire{}
-	case MessageTypeAcquireNoPoint:
-		ret = &MsgAcquireNoPoint{}
-	case MessageTypeReacquireNoPoint:
-		ret = &MsgReAcquireNoPoint{}
+	case MessageTypeAcquireVolatileTip:
+		ret = &MsgAcquireVolatileTip{}
+	case MessageTypeReacquireVolatileTip:
+		ret = &MsgReAcquireVolatileTip{}
+	case MessageTypeAcquireImmutableTip:
+		ret = &MsgAcquireImmutableTip{}
+	case MessageTypeReacquireImmutableTip:
+		ret = &MsgReAcquireImmutableTip{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
 	}
@@ -92,14 +98,27 @@ func NewMsgAcquire(point common.Point) *MsgAcquire {
 	return m
 }
 
-type MsgAcquireNoPoint struct {
+type MsgAcquireVolatileTip struct {
 	protocol.MessageBase
 }
 
-func NewMsgAcquireNoPoint() *MsgAcquireNoPoint {
-	m := &MsgAcquireNoPoint{
+func NewMsgAcquireVolatileTip() *MsgAcquireVolatileTip {
+	m := &MsgAcquireVolatileTip{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeAcquireNoPoint,
+			MessageType: MessageTypeAcquireVolatileTip,
+		},
+	}
+	return m
+}
+
+type MsgAcquireImmutableTip struct {
+	protocol.MessageBase
+}
+
+func NewMsgAcquireImmutableTip() *MsgAcquireImmutableTip {
+	m := &MsgAcquireImmutableTip{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeAcquireImmutableTip,
 		},
 	}
 	return m
@@ -191,14 +210,27 @@ func NewMsgReAcquire(point common.Point) *MsgReAcquire {
 	return m
 }
 
-type MsgReAcquireNoPoint struct {
+type MsgReAcquireVolatileTip struct {
 	protocol.MessageBase
 }
 
-func NewMsgReAcquireNoPoint() *MsgReAcquireNoPoint {
-	m := &MsgReAcquireNoPoint{
+func NewMsgReAcquireVolatileTip() *MsgReAcquireVolatileTip {
+	m := &MsgReAcquireVolatileTip{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeReacquireNoPoint,
+			MessageType: MessageTypeReacquireVolatileTip,
+		},
+	}
+	return m
+}
+
+type MsgReAcquireImmutableTip struct {
+	protocol.MessageBase
+}
+
+func NewMsgReAcquireImmutableTip() *MsgReAcquireImmutableTip {
+	m := &MsgReAcquireImmutableTip{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeReacquireImmutableTip,
 		},
 	}
 	return m

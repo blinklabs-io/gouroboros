@@ -37,7 +37,7 @@ var conversationHandshakeAcquire = []ouroboros_mock.ConversationEntry{
 	ouroboros_mock.ConversationEntryHandshakeNtCResponse,
 	ouroboros_mock.ConversationEntryInput{
 		ProtocolId:  localstatequery.ProtocolId,
-		MessageType: localstatequery.MessageTypeAcquireNoPoint,
+		MessageType: localstatequery.MessageTypeAcquireVolatileTip,
 	},
 	ouroboros_mock.ConversationEntryOutput{
 		ProtocolId: localstatequery.ProtocolId,
