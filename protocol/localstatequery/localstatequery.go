@@ -155,7 +155,7 @@ type CallbackContext struct {
 
 // Callback function types
 type AcquireFunc func(CallbackContext, AcquireTarget, bool) error
-type QueryFunc func(CallbackContext, any) (any, error)
+type QueryFunc func(CallbackContext, QueryWrapper) (any, error)
 type ReleaseFunc func(CallbackContext) error
 
 // New returns a new LocalStateQuery object
