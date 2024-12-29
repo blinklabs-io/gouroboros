@@ -123,8 +123,6 @@ type Config struct {
 	AcquireFunc    AcquireFunc
 	QueryFunc      QueryFunc
 	ReleaseFunc    ReleaseFunc
-	ReAcquireFunc  ReAcquireFunc
-	DoneFunc       DoneFunc
 	AcquireTimeout time.Duration
 	QueryTimeout   time.Duration
 }
@@ -156,11 +154,9 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type AcquireFunc func(CallbackContext, AcquireTarget) error
-type QueryFunc func(CallbackContext, any) error
+type AcquireFunc func(CallbackContext, AcquireTarget, bool) error
+type QueryFunc func(CallbackContext, any) (any, error)
 type ReleaseFunc func(CallbackContext) error
-type ReAcquireFunc func(CallbackContext, AcquireTarget) error
-type DoneFunc func(CallbackContext) error
 
 // New returns a new LocalStateQuery object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalStateQuery {
@@ -205,20 +201,6 @@ func WithQueryFunc(queryFunc QueryFunc) LocalStateQueryOptionFunc {
 func WithReleaseFunc(releaseFunc ReleaseFunc) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.ReleaseFunc = releaseFunc
-	}
-}
-
-// WithReAcquireFunc specifies the ReAcquire callback function when acting as a server
-func WithReAcquireFunc(reAcquireFunc ReAcquireFunc) LocalStateQueryOptionFunc {
-	return func(c *Config) {
-		c.ReAcquireFunc = reAcquireFunc
-	}
-}
-
-// WithDoneFunc specifies the Done callback function when acting as a server
-func WithDoneFunc(doneFunc DoneFunc) LocalStateQueryOptionFunc {
-	return func(c *Config) {
-		c.DoneFunc = doneFunc
 	}
 }
 
