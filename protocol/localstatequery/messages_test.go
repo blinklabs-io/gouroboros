@@ -16,11 +16,12 @@ package localstatequery
 
 import (
 	"encoding/hex"
+	"reflect"
+	"testing"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
-	"reflect"
-	"testing"
 )
 
 type testDefinition struct {
@@ -49,12 +50,12 @@ var tests = []testDefinition{
 		CborHex: "8203820082028101",
 		Message: NewMsgQuery(
 			// Current era hard-fork query
-			[]interface{}{
-				uint64(0),
-				[]interface{}{
-					uint64(2),
-					[]interface{}{
-						uint64(1),
+			&BlockQuery{
+				Query: &HardForkQuery{
+					Query: &HardForkCurrentEraQuery{
+						simpleQueryBase{
+							Type: QueryTypeHardForkCurrentEra,
+						},
 					},
 				},
 			},
@@ -105,6 +106,9 @@ func TestDecode(t *testing.T) {
 		}
 		// Set the raw CBOR so the comparison should succeed
 		test.Message.SetCbor(cborData)
+		if m, ok := msg.(*MsgQuery); ok {
+			m.Query.SetCbor(nil)
+		}
 		if !reflect.DeepEqual(msg, test.Message) {
 			t.Fatalf(
 				"CBOR did not decode to expected message object\n  got:    %#v\n  wanted: %#v",

@@ -154,7 +154,7 @@ func NewMsgFailure(failure uint8) *MsgFailure {
 
 type MsgQuery struct {
 	protocol.MessageBase
-	Query interface{}
+	Query QueryWrapper
 }
 
 func NewMsgQuery(query interface{}) *MsgQuery {
@@ -162,7 +162,9 @@ func NewMsgQuery(query interface{}) *MsgQuery {
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeQuery,
 		},
-		Query: query,
+		Query: QueryWrapper{
+			Query: query,
+		},
 	}
 	return m
 }
