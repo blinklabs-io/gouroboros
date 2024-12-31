@@ -307,7 +307,7 @@ type ShelleyRewardProvenanceQuery struct {
 type ShelleyUtxoByTxinQuery struct {
 	cbor.StructAsArray
 	Type  int
-	TxIns []ledger.TransactionInput
+	TxIns []ledger.ShelleyTransactionInput
 }
 
 type ShelleyStakePoolsQuery struct {
