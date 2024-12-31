@@ -107,9 +107,11 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 		0,
 		time.UTC,
 	),
-	NetworkMagic:      764824073,
-	NetworkId:         "Mainnet",
-	ActiveSlotsCoeff:  0.05,
+	NetworkMagic: 764824073,
+	NetworkId:    "Mainnet",
+	ActiveSlotsCoeff: common.GenesisRat{
+		Rat: big.NewRat(5, 100),
+	},
 	SecurityParam:     2160,
 	EpochLength:       432000,
 	SlotsPerKESPeriod: 129600,
@@ -144,7 +146,7 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 		MinUtxoValue: 1000000,
 		MinPoolCost:  340000000,
 	},
-	GenDelegs: map[string]map[string]any{
+	GenDelegs: map[string]map[string]string{
 		"162f94554ac8c225383a2248c245659eda870eaa82d0ef25fc7dcd82": {
 			"delegate": "4485708022839a7b9b8b639a939c85ec0ed6999b5b6dc651b03c43f6",
 			"vrf":      "aba81e764b71006c515986bf7b37a72fbb5554f78e6775f08e384dbd572a4b32",
