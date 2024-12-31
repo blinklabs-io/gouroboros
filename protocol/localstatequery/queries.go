@@ -457,10 +457,11 @@ type eraHistoryResultParams struct {
 	SlotsPerKESPeriod struct {
 		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 		_      struct{} `cbor:",toarray"`
-		Dummy1 interface{}
+		Dummy1 int
 		Value  int
-		Dummy2 interface{}
+		Dummy2 []int
 	}
+	Unknown int
 }
 
 // TODO
