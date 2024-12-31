@@ -529,6 +529,23 @@ func (u *UtxoId) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (u *UtxoId) MarshalCBOR() ([]byte, error) {
+	var tmpData []any
+	if u.DatumHash == ledger.NewBlake2b256(nil) {
+		tmpData = []any{
+			u.Hash,
+			u.Idx,
+		}
+	} else {
+		tmpData = []any{
+			u.Hash,
+			u.Idx,
+			u.DatumHash,
+		}
+	}
+	return cbor.Encode(tmpData)
+}
+
 // TODO
 /*
 result	[{* utxo => value }]
