@@ -198,13 +198,14 @@ type ChainSync struct {
 
 // Config is used to configure the ChainSync protocol instance
 type Config struct {
-	RollBackwardFunc  RollBackwardFunc
-	RollForwardFunc   RollForwardFunc
-	FindIntersectFunc FindIntersectFunc
-	RequestNextFunc   RequestNextFunc
-	IntersectTimeout  time.Duration
-	BlockTimeout      time.Duration
-	PipelineLimit     int
+	RollBackwardFunc   RollBackwardFunc
+	RollForwardFunc    RollForwardFunc
+	RollForwardRawFunc RollForwardRawFunc
+	FindIntersectFunc  FindIntersectFunc
+	RequestNextFunc    RequestNextFunc
+	IntersectTimeout   time.Duration
+	BlockTimeout       time.Duration
+	PipelineLimit      int
 }
 
 // Callback context
@@ -217,6 +218,7 @@ type CallbackContext struct {
 // Callback function types
 type RollBackwardFunc func(CallbackContext, common.Point, Tip) error
 type RollForwardFunc func(CallbackContext, uint, interface{}, Tip) error
+type RollForwardRawFunc func(CallbackContext, uint, []byte, Tip) error
 
 type FindIntersectFunc func(CallbackContext, []common.Point) (common.Point, Tip, error)
 type RequestNextFunc func(CallbackContext) error
@@ -262,10 +264,17 @@ func WithRollBackwardFunc(
 	}
 }
 
-// WithRollForwardFunc specifies the RollForward callback function
+// WithRollForwardFunc specifies the RollForward callback function. This will provided a parsed header or block
 func WithRollForwardFunc(rollForwardFunc RollForwardFunc) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RollForwardFunc = rollForwardFunc
+	}
+}
+
+// WithRollForwardRawFunc specifies the RollForwardRaw callback function. This will provide the raw header or block
+func WithRollForwardRawFunc(rollForwardRawFunc RollForwardRawFunc) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.RollForwardRawFunc = rollForwardRawFunc
 	}
 }
 
