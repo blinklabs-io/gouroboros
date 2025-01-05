@@ -596,7 +596,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		}
 	}()
 	if firstBlockChan == nil &&
-		(c.config == nil || c.config.RollForwardFunc == nil) {
+		(c.config == nil || (c.config.RollForwardFunc == nil && c.config.RollForwardRawFunc == nil)) {
 		return fmt.Errorf(
 			"received chain-sync RollForward message but no callback function is defined",
 		)
@@ -607,26 +607,21 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		c.sendCurrentTip(msg.Tip)
 
 		var blockHeader ledger.BlockHeader
+		var blockHeaderBytes []byte
 		var blockType uint
 		blockEra := msg.WrappedHeader.Era
 
 		switch blockEra {
 		case ledger.BlockHeaderTypeByron:
 			blockType = msg.WrappedHeader.ByronType()
-			var err error
-			blockHeader, err = ledger.NewBlockHeaderFromCbor(
-				blockType,
-				msg.WrappedHeader.HeaderCbor(),
-			)
-			if err != nil {
-				if firstBlockChan != nil {
-					firstBlockChan <- clientPointResult{error: err}
-				}
-				return err
-			}
+			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
 		default:
 			// Map block header type to block type
 			blockType = ledger.BlockHeaderToBlockTypeMap[blockEra]
+			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
+		}
+		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
+			// Decode header
 			var err error
 			blockHeader, err = ledger.NewBlockHeaderFromCbor(
 				blockType,
@@ -650,35 +645,63 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			return nil
 		}
 		// Call the user callback function
-		callbackErr = c.config.RollForwardFunc(
-			c.callbackContext,
-			blockType,
-			blockHeader,
-			msg.Tip,
-		)
+		if c.config.RollForwardRawFunc != nil {
+			callbackErr = c.config.RollForwardRawFunc(
+				c.callbackContext,
+				blockType,
+				blockHeaderBytes,
+				msg.Tip,
+			)
+		} else {
+			callbackErr = c.config.RollForwardFunc(
+				c.callbackContext,
+				blockType,
+				blockHeader,
+				msg.Tip,
+			)
+		}
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		c.sendCurrentTip(msg.Tip)
 
-		blk, err := ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
-		if err != nil {
-			if firstBlockChan != nil {
-				firstBlockChan <- clientPointResult{error: err}
+		var block ledger.Block
+
+		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
+			var err error
+			block, err = ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
+			if err != nil {
+				if firstBlockChan != nil {
+					firstBlockChan <- clientPointResult{error: err}
+				}
+				return err
 			}
-			return err
 		}
 		if firstBlockChan != nil {
-			blockHash, err := hex.DecodeString(blk.Hash())
+			blockHash, err := hex.DecodeString(block.Hash())
 			if err != nil {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			point := common.NewPoint(blk.SlotNumber(), blockHash)
+			point := common.NewPoint(block.SlotNumber(), blockHash)
 			firstBlockChan <- clientPointResult{tip: msg.Tip, point: point}
 			return nil
 		}
 		// Call the user callback function
-		callbackErr = c.config.RollForwardFunc(c.callbackContext, msg.BlockType(), blk, msg.Tip)
+		if c.config.RollForwardRawFunc != nil {
+			callbackErr = c.config.RollForwardRawFunc(
+				c.callbackContext,
+				msg.BlockType(),
+				msg.BlockCbor(),
+				msg.Tip,
+			)
+		} else {
+			callbackErr = c.config.RollForwardFunc(
+				c.callbackContext,
+				msg.BlockType(),
+				block,
+				msg.Tip,
+			)
+		}
 	}
 	if callbackErr != nil {
 		if callbackErr == StopSyncProcessError {
