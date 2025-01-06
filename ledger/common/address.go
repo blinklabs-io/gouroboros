@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/base58"
 	"github.com/blinklabs-io/gouroboros/bech32"
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -131,6 +132,38 @@ func NewByronAddressFromParts(
 		addressType:      AddressTypeByron,
 		paymentAddress:   paymentAddr,
 		byronAddressType: byronAddrType,
+		byronAddressAttr: attr,
+	}, nil
+}
+
+func NewByronAddressRedeem(
+	pubkey []byte,
+	attr ByronAddressAttributes,
+) (Address, error) {
+	if len(pubkey) != 32 {
+		return Address{}, fmt.Errorf(
+			"invalid redeem pubkey length: %d",
+			len(pubkey),
+		)
+	}
+	addrRoot := []any{
+		ByronAddressTypeRedeem,
+		[]any{
+			ByronAddressTypeRedeem,
+			pubkey,
+		},
+		attr,
+	}
+	addrRootBytes, err := cbor.Encode(addrRoot)
+	if err != nil {
+		return Address{}, err
+	}
+	sha3Sum := sha3.Sum256(addrRootBytes)
+	addrHash := Blake2b224Hash(sha3Sum[:])
+	return Address{
+		addressType:      AddressTypeByron,
+		paymentAddress:   addrHash.Bytes(),
+		byronAddressType: ByronAddressTypeRedeem,
 		byronAddressAttr: attr,
 	}, nil
 }
