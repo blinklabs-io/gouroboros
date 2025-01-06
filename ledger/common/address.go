@@ -179,7 +179,11 @@ func (a *Address) UnmarshalCBOR(data []byte) error {
 }
 
 func (a *Address) MarshalCBOR() ([]byte, error) {
-	return cbor.Encode(a.Bytes())
+	addrBytes := a.Bytes()
+	if a.addressType == AddressTypeByron {
+		return addrBytes, nil
+	}
+	return cbor.Encode(addrBytes)
 }
 
 // PaymentAddress returns a new Address with only the payment address portion. This will return nil for anything other than payment and script addresses
