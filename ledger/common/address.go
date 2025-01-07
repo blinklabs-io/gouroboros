@@ -16,6 +16,7 @@ package common
 
 import (
 	"fmt"
+	"hash/crc32"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/base58"
@@ -42,16 +43,22 @@ const (
 	AddressTypeByron         = 0b1000
 	AddressTypeNoneKey       = 0b1110
 	AddressTypeNoneScript    = 0b1111
+
+	ByronAddressTypePubkey = 0
+	ByronAddressTypeScript = 1
+	ByronAddressTypeRedeem = 2
 )
 
 type AddrKeyHash Blake2b224
 
 type Address struct {
-	addressType    uint8
-	networkId      uint8
-	paymentAddress []byte
-	stakingAddress []byte
-	extraData      []byte
+	addressType      uint8
+	networkId        uint8
+	paymentAddress   []byte
+	stakingAddress   []byte
+	extraData        []byte
+	byronAddressType uint64
+	byronAddressAttr ByronAddressAttributes
 }
 
 // NewAddress returns an Address based on the provided bech32/base58 address string
@@ -109,15 +116,59 @@ func NewAddressFromParts(
 	}, nil
 }
 
+func NewByronAddressFromParts(
+	byronAddrType uint64,
+	paymentAddr []byte,
+	attr ByronAddressAttributes,
+) (Address, error) {
+	if len(paymentAddr) != AddressHashSize {
+		return Address{}, fmt.Errorf(
+			"invalid payment address hash length: %d",
+			len(paymentAddr),
+		)
+	}
+	return Address{
+		addressType:      AddressTypeByron,
+		paymentAddress:   paymentAddr,
+		byronAddressType: byronAddrType,
+		byronAddressAttr: attr,
+	}, nil
+}
+
 func (a *Address) populateFromBytes(data []byte) error {
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
 	a.networkId = header & AddressHeaderNetworkMask
+	// Byron Addresses
+	if a.addressType == AddressTypeByron {
+		var rawAddr byronAddress
+		if _, err := cbor.Decode(data, &rawAddr); err != nil {
+			return err
+		}
+		payloadBytes, ok := rawAddr.Payload.Content.([]byte)
+		if !ok || rawAddr.Payload.Number != 24 {
+			return fmt.Errorf("invalid Byron address data: unexpected payload content")
+		}
+		payloadChecksum := crc32.ChecksumIEEE(payloadBytes)
+		if rawAddr.Checksum != payloadChecksum {
+			return fmt.Errorf("invalid Byron address data: checksum does not match")
+		}
+		var byronAddr byronAddressPayload
+		if _, err := cbor.Decode(payloadBytes, &byronAddr); err != nil {
+			return err
+		}
+		if len(byronAddr.Hash) != AddressHashSize {
+			return fmt.Errorf("invalid Byron address data: hash is not expected length")
+		}
+		a.byronAddressType = byronAddr.AddrType
+		a.byronAddressAttr = byronAddr.Attr
+		a.paymentAddress = byronAddr.Hash
+		return nil
+	}
 	// Check length
 	// We exclude a few address types without fixed sizes that we don't properly support yet
-	if a.addressType != AddressTypeByron &&
-		a.addressType != AddressTypeKeyPointer &&
+	if a.addressType != AddressTypeKeyPointer &&
 		a.addressType != AddressTypeScriptPointer {
 		dataLen := len(data)
 		// Addresses must be at least the address hash size plus header byte
@@ -135,7 +186,6 @@ func (a *Address) populateFromBytes(data []byte) error {
 		}
 	}
 	// Extract payload
-	// NOTE: this is definitely incorrect for Byron
 	payload := data[1:]
 	a.paymentAddress = payload[:AddressHashSize]
 	payload = payload[AddressHashSize:]
@@ -264,6 +314,31 @@ func (a Address) generateHRP() string {
 
 // Bytes returns the underlying bytes for the address
 func (a Address) Bytes() []byte {
+	if a.addressType == AddressTypeByron {
+		tmpPayload := []any{
+			a.paymentAddress,
+			a.byronAddressAttr,
+			a.byronAddressType,
+		}
+		rawPayload, err := cbor.Encode(tmpPayload)
+		if err != nil {
+			// TODO: handle error
+			return nil
+		}
+		tmpData := []any{
+			cbor.Tag{
+				Number:  24,
+				Content: rawPayload,
+			},
+			crc32.ChecksumIEEE(rawPayload),
+		}
+		ret, err := cbor.Encode(tmpData)
+		if err != nil {
+			// TODO: handle error
+			return nil
+		}
+		return ret
+	}
 	ret := []byte{}
 	ret = append(
 		ret,
@@ -300,4 +375,56 @@ func (a Address) String() string {
 
 func (a Address) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
+}
+
+type byronAddress struct {
+	cbor.StructAsArray
+	Payload  cbor.Tag
+	Checksum uint32
+}
+
+type byronAddressPayload struct {
+	cbor.StructAsArray
+	Hash     []byte
+	Attr     ByronAddressAttributes
+	AddrType uint64
+}
+
+type ByronAddressAttributes struct {
+	Payload []byte
+	Network *uint8
+}
+
+func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
+	var tmpData struct {
+		Payload    []byte `cbor:"1,keyasint,omitempty"`
+		NetworkRaw []byte `cbor:"2,keyasint,omitempty"`
+	}
+	if _, err := cbor.Decode(data, &tmpData); err != nil {
+		return err
+	}
+	a.Payload = tmpData.Payload
+	if len(tmpData.NetworkRaw) > 0 {
+		var tmpNetwork uint8
+		if _, err := cbor.Decode(tmpData.NetworkRaw, &tmpNetwork); err != nil {
+			return err
+		}
+		a.Network = &tmpNetwork
+	}
+	return nil
+}
+
+func (a *ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
+	tmpData := make(map[int]any)
+	if len(a.Payload) > 0 {
+		tmpData[1] = a.Payload
+	}
+	if a.Network != nil {
+		networkRaw, err := cbor.Encode(a.Network)
+		if err != nil {
+			return nil, err
+		}
+		tmpData[2] = networkRaw
+	}
+	return cbor.Encode(tmpData)
 }
