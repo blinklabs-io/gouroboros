@@ -53,10 +53,15 @@ func TestAddressFromBytes(t *testing.T) {
 			addressBytesHex: "61549b5a20e449a3e394b762705f64b9a26b99013003a2bfdba239967c00",
 			expectedAddress: "addr1v92fkk3qu3y68cu5ka38qhmyhx3xhxgpxqp6907m5guevlqqjd7xgj",
 		},
-		// Byron address
+		// Byron address, mainnet with derivation
 		{
 			addressBytesHex: "82d818584283581caf56de241bcca83d72c51e74d18487aa5bc68b45e2caa170fa329d3aa101581e581cea1425ccdd649b25af5deb7e6335da2eb8167353a55e77925122e95f001a3a858621",
 			expectedAddress: "DdzFFzCqrht2ii4Vc7KRchSkVvQtCqdGkQt4nF4Yxg1NpsubFBity2Tpt2eSEGrxBH1eva8qCFKM2Y5QkwM1SFBizRwZgz1N452WYvgG",
+		},
+		// Byron address, preview
+		{
+			addressBytesHex: "82d818582483581c5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dda1024102001a36d41aba",
+			expectedAddress: "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth",
 		},
 	}
 	for _, testDef := range testDefs {
@@ -135,6 +140,58 @@ func TestAddressFromParts(t *testing.T) {
 			testDef.networkId,
 			testDef.paymentAddr,
 			testDef.stakingAddr,
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if addr.String() != testDef.expectedAddress {
+			t.Fatalf(
+				"address did not match expected value, got: %s, wanted: %s",
+				addr.String(),
+				testDef.expectedAddress,
+			)
+		}
+	}
+}
+
+func TestByronAddressFromParts(t *testing.T) {
+	testDefs := []struct {
+		addressType     uint64
+		paymentAddr     []byte
+		addressAttr     ByronAddressAttributes
+		expectedAddress string
+	}{
+		// Byron address, mainnet with derivation
+		{
+			addressType: ByronAddressTypePubkey,
+			paymentAddr: test.DecodeHexString(
+				"af56de241bcca83d72c51e74d18487aa5bc68b45e2caa170fa329d3a",
+			),
+			addressAttr: ByronAddressAttributes{
+				Payload: test.DecodeHexString(
+					"581cea1425ccdd649b25af5deb7e6335da2eb8167353a55e77925122e95f",
+				),
+			},
+			expectedAddress: "DdzFFzCqrht2ii4Vc7KRchSkVvQtCqdGkQt4nF4Yxg1NpsubFBity2Tpt2eSEGrxBH1eva8qCFKM2Y5QkwM1SFBizRwZgz1N452WYvgG",
+		},
+		// Byron address, preview
+		{
+			addressType: ByronAddressTypePubkey,
+			paymentAddr: test.DecodeHexString(
+				"5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dd",
+			),
+			addressAttr: ByronAddressAttributes{
+				// We have to jump through this hoop to get an inline pointer to a uint8
+				Network: func() *uint8 { ret := uint8(2); return &ret }(),
+			},
+			expectedAddress: "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth",
+		},
+	}
+	for _, testDef := range testDefs {
+		addr, err := NewByronAddressFromParts(
+			testDef.addressType,
+			testDef.paymentAddr,
+			testDef.addressAttr,
 		)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
