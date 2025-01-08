@@ -15,7 +15,9 @@
 package byron_test
 
 import (
+	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -97,7 +99,6 @@ const byronGenesisConfig = `
 `
 
 var expectedGenesisObj = byron.ByronGenesis{
-	// TODO
 	AvvmDistr: map[string]string{
 		"-0BJDi-gauylk4LptQTgjMeo7kY9lTCbZv12vwOSTZk=": "9999300000000",
 		"-0Np4pyTOWF26iXWVIvu6fhz9QupwWRS2hcCaOEYlw0=": "3760024000000",
@@ -188,7 +189,7 @@ var expectedGenesisObj = byron.ByronGenesis{
 			Omega:      0,
 		},
 	},
-	NonAvvmBalances: map[string]interface{}{},
+	NonAvvmBalances: map[string]string{},
 	VssCerts: map[string]byron.ByronGenesisVssCert{
 		"0efd6f3b2849d5baf25b3e2bf2d46f88427b4e455fc3dc43f57819c5": {
 			ExpiryEpoch: 5,
@@ -248,5 +249,86 @@ func TestGenesisFromJson(t *testing.T) {
 			tmpGenesis,
 			expectedGenesisObj,
 		)
+	}
+}
+
+func TestGenesisNonAvvmUtxos(t *testing.T) {
+	testAddr := "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth"
+	testAmount := uint64(30_000_000_000_000_000)
+	expectedTxId := "4843cf2e582b2f9ce37600e5ab4cc678991f988f8780fed05407f9537f7712bd"
+	// Generate genesis config JSON
+	tmpGenesisData := map[string]any{
+		"nonAvvmBalances": map[string]string{
+			testAddr: strconv.FormatUint(testAmount, 10),
+		},
+	}
+	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	// Parse genesis config JSON
+	tmpGenesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(string(tmpGenesisJson)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if len(tmpGenesisUtxos) != 1 {
+		t.Fatalf("did not get expected count of genesis UTxOs")
+	}
+	tmpUtxo := tmpGenesisUtxos[0]
+	if tmpUtxo.Id.Id().String() != expectedTxId {
+		t.Fatalf("did not get expected TxID: got %s, wanted %s", tmpUtxo.Id.Id().String(), expectedTxId)
+	}
+	if tmpUtxo.Output.Address().String() != testAddr {
+		t.Fatalf("did not get expected address: got %s, wanted %s", tmpUtxo.Output.Address().String(), testAddr)
+	}
+	if tmpUtxo.Output.Amount() != testAmount {
+		t.Fatalf("did not get expected amount: got %d, wanted %d", tmpUtxo.Output.Amount(), testAmount)
+	}
+}
+
+func TestGenesisAvvmUtxos(t *testing.T) {
+	testPubkey := "URVk8FxX6Ik9z-Cub09oOxMkp6FwNq27kJUXbjJnfsQ="
+	testAmount := uint64(2463071701000000)
+	expectedTxId := "0ae3da29711600e94a33fb7441d2e76876a9a1e98b5ebdefbf2e3bc535617616"
+	expectedAddr := "Ae2tdPwUPEZKQuZh2UndEoTKEakMYHGNjJVYmNZgJk2qqgHouxDsA5oT83n"
+	// Generate genesis config JSON
+	tmpGenesisData := map[string]any{
+		"avvmDistr": map[string]string{
+			testPubkey: strconv.FormatUint(testAmount, 10),
+		},
+	}
+	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	// Parse genesis config JSON
+	tmpGenesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(string(tmpGenesisJson)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if len(tmpGenesisUtxos) != 1 {
+		t.Fatalf("did not get expected count of genesis UTxOs")
+	}
+	tmpUtxo := tmpGenesisUtxos[0]
+	if tmpUtxo.Id.Id().String() != expectedTxId {
+		t.Fatalf("did not get expected TxID: got %s, wanted %s", tmpUtxo.Id.Id().String(), expectedTxId)
+	}
+	if tmpUtxo.Output.Address().String() != expectedAddr {
+		t.Fatalf("did not get expected address: got %s, wanted %s", tmpUtxo.Output.Address().String(), expectedAddr)
+	}
+	if tmpUtxo.Output.Amount() != testAmount {
+		t.Fatalf("did not get expected amount: got %d, wanted %d", tmpUtxo.Output.Amount(), testAmount)
 	}
 }

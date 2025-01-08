@@ -15,9 +15,15 @@
 package byron
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
+	"strconv"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type ByronGenesis struct {
@@ -28,7 +34,7 @@ type ByronGenesis struct {
 	StartTime        int
 	BootStakeholders map[string]int
 	HeavyDelegation  map[string]ByronGenesisHeavyDelegation
-	NonAvvmBalances  any
+	NonAvvmBalances  map[string]string
 	VssCerts         map[string]ByronGenesisVssCert
 }
 
@@ -79,6 +85,95 @@ type ByronGenesisVssCert struct {
 	Signature   string
 	SigningKey  string
 	VssKey      string
+}
+
+func (g *ByronGenesis) GenesisUtxos() ([]common.Utxo, error) {
+	avvmUtxos, err := g.avvmUtxos()
+	if err != nil {
+		return nil, err
+	}
+	nonAvvmUtxos, err := g.nonAvvmUtxos()
+	if err != nil {
+		return nil, err
+	}
+	ret := slices.Concat(
+		avvmUtxos,
+		nonAvvmUtxos,
+	)
+	return ret, nil
+}
+
+func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
+	var ret []common.Utxo
+	for pubkey, amount := range g.AvvmDistr {
+		// Build address from redeem pubkey
+		pubkeyBytes, err := base64.URLEncoding.DecodeString(pubkey)
+		if err != nil {
+			return nil, err
+		}
+		tmpAddr, err := common.NewByronAddressRedeem(
+			pubkeyBytes,
+			// XXX: do we need to specify the network ID?
+			common.ByronAddressAttributes{},
+		)
+		if err != nil {
+			return nil, err
+		}
+		tmpAmount, err := strconv.ParseUint(amount, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		addrBytes, err := cbor.Encode(tmpAddr)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(
+			ret,
+			common.Utxo{
+				Id: ByronTransactionInput{
+					TxId:        common.Blake2b256Hash(addrBytes),
+					OutputIndex: 0,
+				},
+				Output: ByronTransactionOutput{
+					OutputAddress: tmpAddr,
+					OutputAmount:  tmpAmount,
+				},
+			},
+		)
+	}
+	return ret, nil
+}
+
+func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
+	var ret []common.Utxo
+	for address, amount := range g.NonAvvmBalances {
+		tmpAddr, err := common.NewAddress(address)
+		if err != nil {
+			return nil, err
+		}
+		tmpAmount, err := strconv.ParseUint(amount, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		addrBytes, err := cbor.Encode(tmpAddr)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(
+			ret,
+			common.Utxo{
+				Id: ByronTransactionInput{
+					TxId:        common.Blake2b256Hash(addrBytes),
+					OutputIndex: 0,
+				},
+				Output: ByronTransactionOutput{
+					OutputAddress: tmpAddr,
+					OutputAmount:  tmpAmount,
+				},
+			},
+		)
+	}
+	return ret, nil
 }
 
 func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
