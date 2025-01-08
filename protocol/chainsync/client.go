@@ -635,6 +635,11 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			}
 		}
 		if firstBlockChan != nil {
+			if blockHeader == nil {
+				err := fmt.Errorf("missing block header")
+				firstBlockChan <- clientPointResult{error: err}
+				return err
+			}
 			blockHash, err := hex.DecodeString(blockHeader.Hash())
 			if err != nil {
 				firstBlockChan <- clientPointResult{error: err}
@@ -677,6 +682,11 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			}
 		}
 		if firstBlockChan != nil {
+			if block == nil {
+				err := fmt.Errorf("missing block")
+				firstBlockChan <- clientPointResult{error: err}
+				return err
+			}
 			blockHash, err := hex.DecodeString(block.Hash())
 			if err != nil {
 				firstBlockChan <- clientPointResult{error: err}
