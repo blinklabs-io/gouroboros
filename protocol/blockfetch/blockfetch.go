@@ -88,6 +88,7 @@ type BlockFetch struct {
 
 type Config struct {
 	BlockFunc         BlockFunc
+	BlockRawFunc      BlockRawFunc
 	BatchDoneFunc     BatchDoneFunc
 	RequestRangeFunc  RequestRangeFunc
 	BatchStartTimeout time.Duration
@@ -103,6 +104,7 @@ type CallbackContext struct {
 
 // Callback function types
 type BlockFunc func(CallbackContext, uint, ledger.Block) error
+type BlockRawFunc func(CallbackContext, uint, []byte) error
 type BatchDoneFunc func(CallbackContext) error
 type RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
 
@@ -131,6 +133,12 @@ func NewConfig(options ...BlockFetchOptionFunc) Config {
 func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockFunc = blockFunc
+	}
+}
+
+func WithBlockRawFunc(blockRawFunc BlockRawFunc) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.BlockRawFunc = blockRawFunc
 	}
 }
 
