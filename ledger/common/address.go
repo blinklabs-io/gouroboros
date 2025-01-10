@@ -425,7 +425,7 @@ type byronAddressPayload struct {
 
 type ByronAddressAttributes struct {
 	Payload []byte
-	Network *uint8
+	Network *uint32
 }
 
 func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
@@ -438,7 +438,7 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 	}
 	a.Payload = tmpData.Payload
 	if len(tmpData.NetworkRaw) > 0 {
-		var tmpNetwork uint8
+		var tmpNetwork uint32
 		if _, err := cbor.Decode(tmpData.NetworkRaw, &tmpNetwork); err != nil {
 			return err
 		}

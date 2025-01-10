@@ -181,8 +181,8 @@ func TestByronAddressFromParts(t *testing.T) {
 				"5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dd",
 			),
 			addressAttr: ByronAddressAttributes{
-				// We have to jump through this hoop to get an inline pointer to a uint8
-				Network: func() *uint8 { ret := uint8(2); return &ret }(),
+				// We have to jump through this hoop to get an inline pointer to a uint32
+				Network: func() *uint32 { ret := uint32(2); return &ret }(),
 			},
 			expectedAddress: "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth",
 		},
