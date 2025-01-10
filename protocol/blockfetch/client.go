@@ -254,12 +254,16 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
 		return fmt.Errorf("%s: decode error: %s", ProtocolName, err)
 	}
-	blk, err := ledger.NewBlockFromCbor(
-		wrappedBlock.Type,
-		wrappedBlock.RawBlock,
-	)
-	if err != nil {
-		return err
+	var block ledger.Block
+	if !c.blockUseCallback || c.config.BlockFunc != nil {
+		var err error
+		block, err = ledger.NewBlockFromCbor(
+			wrappedBlock.Type,
+			wrappedBlock.RawBlock,
+		)
+		if err != nil {
+			return err
+		}
 	}
 	// Check for shutdown
 	select {
@@ -269,11 +273,21 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	}
 	// We use the callback when requesting ranges and the internal channel for a single block
 	if c.blockUseCallback {
-		if err := c.config.BlockFunc(c.callbackContext, wrappedBlock.Type, blk); err != nil {
-			return err
+		if c.config.BlockRawFunc != nil {
+			if err := c.config.BlockRawFunc(c.callbackContext, wrappedBlock.Type, wrappedBlock.RawBlock); err != nil {
+				return err
+			}
+		} else if c.config.BlockFunc != nil {
+			if err := c.config.BlockFunc(c.callbackContext, wrappedBlock.Type, block); err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf(
+				"received block-fetch Block message but no callback function is defined",
+			)
 		}
 	} else {
-		c.blockChan <- blk
+		c.blockChan <- block
 	}
 	return nil
 }
