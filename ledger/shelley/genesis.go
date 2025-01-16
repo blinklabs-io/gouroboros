@@ -113,7 +113,7 @@ type ShelleyGenesisProtocolParams struct {
 	Rho                *common.GenesisRat
 	Tau                *common.GenesisRat
 	Decentralization   *common.GenesisRat `json:"decentralisationParam"`
-	ExtraEntropy       map[string]string
+	ExtraEntropy       common.Nonce
 	ProtocolVersion    struct {
 		Major uint
 		Minor uint
@@ -145,9 +145,7 @@ func (p ShelleyGenesisProtocolParams) MarshalCBOR() ([]byte, error) {
 		cbor.Rat{
 			Rat: p.Decentralization.Rat,
 		},
-		[]any{
-			map[string]int{"NeutralNonce": 0}[p.ExtraEntropy["Tag"]],
-		},
+		p.ExtraEntropy,
 		p.ProtocolVersion.Major,
 		p.ProtocolVersion.Minor,
 		p.MinUtxoValue,

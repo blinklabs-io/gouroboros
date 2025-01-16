@@ -133,8 +133,8 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 		Rho:                &common.GenesisRat{Rat: big.NewRat(3, 1000)},
 		Tau:                &common.GenesisRat{Rat: big.NewRat(2, 10)},
 		Decentralization:   &common.GenesisRat{Rat: new(big.Rat).SetInt64(1)},
-		ExtraEntropy: map[string]string{
-			"tag": "NeutralNonce",
+		ExtraEntropy: common.Nonce{
+			Type: common.NonceTypeNeutral,
 		},
 		ProtocolVersion: struct {
 			Major uint

@@ -15,7 +15,6 @@
 package common
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -35,43 +34,6 @@ type ProtocolParametersProtocolVersion struct {
 
 type ProtocolParameters interface {
 	Utxorpc() *cardano.PParams
-}
-
-const (
-	NonceType0 = 0
-	NonceType1 = 1
-)
-
-var NeutralNonce = Nonce{
-	Type: NonceType0,
-}
-
-type Nonce struct {
-	cbor.StructAsArray
-	Type  uint
-	Value [32]byte
-}
-
-func (n *Nonce) UnmarshalCBOR(data []byte) error {
-	nonceType, err := cbor.DecodeIdFromList(data)
-	if err != nil {
-		return err
-	}
-
-	n.Type = uint(nonceType)
-
-	switch nonceType {
-	case NonceType0:
-		// Value uses default value
-	case NonceType1:
-		if err := cbor.DecodeGeneric(data, n); err != nil {
-			fmt.Printf("Nonce decode error: %+v\n", data)
-			return err
-		}
-	default:
-		return fmt.Errorf("unsupported nonce type %d", nonceType)
-	}
-	return nil
 }
 
 type ExUnit struct {
