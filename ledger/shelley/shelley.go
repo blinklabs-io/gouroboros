@@ -151,7 +151,7 @@ type ShelleyBlockHeader struct {
 		ProtoMajorVersion    uint64
 		ProtoMinorVersion    uint64
 	}
-	Signature interface{}
+	Signature []byte
 }
 
 func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {

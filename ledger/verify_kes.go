@@ -129,7 +129,6 @@ func VerifyKes(
 	slotsPerKesPeriod uint64,
 ) (bool, error) {
 	// Ref: https://github.com/IntersectMBO/ouroboros-consensus/blob/de74882102236fdc4dd25aaa2552e8b3e208448c/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Protocol/Praos.hs#L125
-	sigBytes := header.Signature.([]byte)
 	// Ref: https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-protocol-tpraos/src/Cardano/Protocol/TPraos/BHeader.hs#L189
 	msgBytes, err := cbor.Encode(header.Body)
 	if err != nil {
@@ -144,7 +143,7 @@ func VerifyKes(
 	if currentKesPeriod >= startOfKesPeriod {
 		t = currentKesPeriod - startOfKesPeriod
 	}
-	return verifySignedKES(opCertVkHotBytes, t, msgBytes, sigBytes), nil
+	return verifySignedKES(opCertVkHotBytes, t, msgBytes, header.Signature), nil
 }
 
 func verifySignedKES(vkey []byte, period uint64, msg []byte, sig []byte) bool {
