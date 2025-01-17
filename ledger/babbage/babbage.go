@@ -173,7 +173,7 @@ type BabbageBlockHeader struct {
 			Minor uint64
 		}
 	}
-	Signature interface{}
+	Signature []byte
 }
 
 func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
