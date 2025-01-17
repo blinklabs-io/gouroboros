@@ -140,6 +140,12 @@ func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
 	return block
 }
 
+type BabbageBlockHeaderVrfResult struct {
+	cbor.StructAsArray
+	Output []byte
+	Proof  []byte
+}
+
 type BabbageBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -151,7 +157,7 @@ type BabbageBlockHeader struct {
 		PrevHash      common.Blake2b256
 		IssuerVkey    common.IssuerVkey
 		VrfKey        []byte
-		VrfResult     interface{}
+		VrfResult     BabbageBlockHeaderVrfResult
 		BlockBodySize uint64
 		BlockBodyHash common.Blake2b256
 		OpCert        struct {
