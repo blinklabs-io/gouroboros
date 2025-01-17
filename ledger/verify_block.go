@@ -75,18 +75,16 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 		), false, "", 0, 0
 	}
 	vrfBytes := header.Body.VrfKey[:]
-	vrfResult := header.Body.VrfResult.([]interface{})
-	vrfProofBytes := vrfResult[1].([]byte)
-	vrfOutputBytes := vrfResult[0].([]byte)
+	vrfResult := header.Body.VrfResult
 	seed := MkInputVrf(int64(header.Body.Slot), epochNonceByte)
-	output, errVrf := VrfVerifyAndHash(vrfBytes, vrfProofBytes, seed)
+	output, errVrf := VrfVerifyAndHash(vrfBytes, vrfResult.Proof, seed)
 	if errVrf != nil {
 		return fmt.Errorf(
 			"VerifyBlock: vrf invalid, %v",
 			errVrf.Error(),
 		), false, "", 0, 0
 	}
-	isVrfValid := bytes.Equal(output, vrfOutputBytes)
+	isVrfValid := bytes.Equal(output, vrfResult.Output)
 
 	// check if block data valid
 	blockBodyHash := header.Body.BlockBodyHash
