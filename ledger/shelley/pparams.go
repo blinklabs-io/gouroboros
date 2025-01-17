@@ -37,7 +37,7 @@ type ShelleyProtocolParameters struct {
 	Rho                *cbor.Rat
 	Tau                *cbor.Rat
 	Decentralization   *cbor.Rat
-	Nonce              *common.Nonce
+	ExtraEntropy       common.Nonce
 	ProtocolMajor      uint
 	ProtocolMinor      uint
 	MinUtxoValue       uint
@@ -89,8 +89,8 @@ func (p *ShelleyProtocolParameters) Update(
 		p.ProtocolMajor = paramUpdate.ProtocolVersion.Major
 		p.ProtocolMinor = paramUpdate.ProtocolVersion.Minor
 	}
-	if paramUpdate.Nonce != nil {
-		p.Nonce = paramUpdate.Nonce
+	if paramUpdate.ExtraEntropy != nil {
+		p.ExtraEntropy = *paramUpdate.ExtraEntropy
 	}
 	if paramUpdate.MinUtxoValue != nil {
 		p.MinUtxoValue = *paramUpdate.MinUtxoValue
@@ -125,6 +125,7 @@ func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) {
 			Rat: new(big.Rat).Set(genesisParams.Decentralization.Rat),
 		}
 	}
+	p.ExtraEntropy = genesisParams.ExtraEntropy
 	p.ProtocolMajor = genesisParams.ProtocolVersion.Major
 	p.ProtocolMinor = genesisParams.ProtocolVersion.Minor
 	p.MinUtxoValue = genesisParams.MinUtxoValue
@@ -147,7 +148,7 @@ type ShelleyProtocolParameterUpdate struct {
 	Rho                *cbor.Rat                                 `cbor:"10,keyasint"`
 	Tau                *cbor.Rat                                 `cbor:"11,keyasint"`
 	Decentralization   *cbor.Rat                                 `cbor:"12,keyasint"`
-	Nonce              *common.Nonce                             `cbor:"13,keyasint"`
+	ExtraEntropy       *common.Nonce                             `cbor:"13,keyasint"`
 	ProtocolVersion    *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
 	MinUtxoValue       *uint                                     `cbor:"15,keyasint"`
 }
