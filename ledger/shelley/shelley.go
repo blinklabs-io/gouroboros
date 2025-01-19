@@ -140,8 +140,8 @@ type ShelleyBlockHeader struct {
 		PrevHash             common.Blake2b256
 		IssuerVkey           common.IssuerVkey
 		VrfKey               []byte
-		NonceVrf             interface{}
-		LeaderVrf            interface{}
+		NonceVrf             common.VrfResult
+		LeaderVrf            common.VrfResult
 		BlockBodySize        uint64
 		BlockBodyHash        common.Blake2b256
 		OpCertHotVkey        []byte
