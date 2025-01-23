@@ -19,10 +19,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/blinklabs-io/gouroboros/bech32"
-	"github.com/blinklabs-io/gouroboros/cbor"
-
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"golang.org/x/crypto/blake2b"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 const (
