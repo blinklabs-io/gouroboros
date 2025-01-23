@@ -146,7 +146,11 @@ func TestCalculateRollingNonce(t *testing.T) {
 		}
 		nonceHex := hex.EncodeToString(nonce.Bytes())
 		if nonceHex != testDef.expectedNonce {
-			t.Fatalf("did not get expected nonce value: got %s, wanted %s", nonceHex, testDef.expectedNonce)
+			t.Fatalf(
+				"did not get expected nonce value: got %s, wanted %s",
+				nonceHex,
+				testDef.expectedNonce,
+			)
 		}
 		rollingNonce = nonce.Bytes()
 	}
@@ -176,7 +180,9 @@ func TestCalculateEpochNonce(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
-		prevEpochFirstBlockHash, err := hex.DecodeString(testDef.prevEpochFirstBlockHash)
+		prevEpochFirstBlockHash, err := hex.DecodeString(
+			testDef.prevEpochFirstBlockHash,
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
@@ -188,13 +194,21 @@ func TestCalculateEpochNonce(t *testing.T) {
 			}
 			extraEntropy = tmpEntropy
 		}
-		tmpNonce, err := common.CalculateEpochNonce(stableBlockNonce, prevEpochFirstBlockHash, extraEntropy)
+		tmpNonce, err := common.CalculateEpochNonce(
+			stableBlockNonce,
+			prevEpochFirstBlockHash,
+			extraEntropy,
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
 		tmpNonceHex := hex.EncodeToString(tmpNonce.Bytes())
 		if tmpNonceHex != testDef.expectedNonce {
-			t.Fatalf("did not get expected epoch nonce: got %s, wanted %s", tmpNonceHex, testDef.expectedNonce)
+			t.Fatalf(
+				"did not get expected epoch nonce: got %s, wanted %s",
+				tmpNonceHex,
+				testDef.expectedNonce,
+			)
 		}
 	}
 }

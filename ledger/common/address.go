@@ -181,18 +181,24 @@ func (a *Address) populateFromBytes(data []byte) error {
 		}
 		payloadBytes, ok := rawAddr.Payload.Content.([]byte)
 		if !ok || rawAddr.Payload.Number != 24 {
-			return fmt.Errorf("invalid Byron address data: unexpected payload content")
+			return fmt.Errorf(
+				"invalid Byron address data: unexpected payload content",
+			)
 		}
 		payloadChecksum := crc32.ChecksumIEEE(payloadBytes)
 		if rawAddr.Checksum != payloadChecksum {
-			return fmt.Errorf("invalid Byron address data: checksum does not match")
+			return fmt.Errorf(
+				"invalid Byron address data: checksum does not match",
+			)
 		}
 		var byronAddr byronAddressPayload
 		if _, err := cbor.Decode(payloadBytes, &byronAddr); err != nil {
 			return err
 		}
 		if len(byronAddr.Hash) != AddressHashSize {
-			return fmt.Errorf("invalid Byron address data: hash is not expected length")
+			return fmt.Errorf(
+				"invalid Byron address data: hash is not expected length",
+			)
 		}
 		a.byronAddressType = byronAddr.AddrType
 		a.byronAddressAttr = byronAddr.Attr

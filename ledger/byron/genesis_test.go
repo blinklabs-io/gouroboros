@@ -282,13 +282,25 @@ func TestGenesisNonAvvmUtxos(t *testing.T) {
 	}
 	tmpUtxo := tmpGenesisUtxos[0]
 	if tmpUtxo.Id.Id().String() != expectedTxId {
-		t.Fatalf("did not get expected TxID: got %s, wanted %s", tmpUtxo.Id.Id().String(), expectedTxId)
+		t.Fatalf(
+			"did not get expected TxID: got %s, wanted %s",
+			tmpUtxo.Id.Id().String(),
+			expectedTxId,
+		)
 	}
 	if tmpUtxo.Output.Address().String() != testAddr {
-		t.Fatalf("did not get expected address: got %s, wanted %s", tmpUtxo.Output.Address().String(), testAddr)
+		t.Fatalf(
+			"did not get expected address: got %s, wanted %s",
+			tmpUtxo.Output.Address().String(),
+			testAddr,
+		)
 	}
 	if tmpUtxo.Output.Amount() != testAmount {
-		t.Fatalf("did not get expected amount: got %d, wanted %d", tmpUtxo.Output.Amount(), testAmount)
+		t.Fatalf(
+			"did not get expected amount: got %d, wanted %d",
+			tmpUtxo.Output.Amount(),
+			testAmount,
+		)
 	}
 }
 
@@ -323,12 +335,24 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 	}
 	tmpUtxo := tmpGenesisUtxos[0]
 	if tmpUtxo.Id.Id().String() != expectedTxId {
-		t.Fatalf("did not get expected TxID: got %s, wanted %s", tmpUtxo.Id.Id().String(), expectedTxId)
+		t.Fatalf(
+			"did not get expected TxID: got %s, wanted %s",
+			tmpUtxo.Id.Id().String(),
+			expectedTxId,
+		)
 	}
 	if tmpUtxo.Output.Address().String() != expectedAddr {
-		t.Fatalf("did not get expected address: got %s, wanted %s", tmpUtxo.Output.Address().String(), expectedAddr)
+		t.Fatalf(
+			"did not get expected address: got %s, wanted %s",
+			tmpUtxo.Output.Address().String(),
+			expectedAddr,
+		)
 	}
 	if tmpUtxo.Output.Amount() != testAmount {
-		t.Fatalf("did not get expected amount: got %d, wanted %d", tmpUtxo.Output.Amount(), testAmount)
+		t.Fatalf(
+			"did not get expected amount: got %d, wanted %d",
+			tmpUtxo.Output.Amount(),
+			testAmount,
+		)
 	}
 }

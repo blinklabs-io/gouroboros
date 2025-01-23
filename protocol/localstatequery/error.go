@@ -20,4 +20,6 @@ import "errors"
 var ErrAcquireFailurePointTooOld = errors.New("acquire failure: point too old")
 
 // ErrAcquireFailurePointNotOnChain indicates a failure to acquire a point due to it not being present on the chain
-var ErrAcquireFailurePointNotOnChain = errors.New("acquire failure: point not on chain")
+var ErrAcquireFailurePointNotOnChain = errors.New(
+	"acquire failure: point not on chain",
+)

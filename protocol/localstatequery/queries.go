@@ -335,7 +335,11 @@ type ShelleyPoolDistrQuery struct {
 	simpleQueryBase
 }
 
-func decodeQuery(data []byte, typeDesc string, queryTypes map[int]any) (any, error) {
+func decodeQuery(
+	data []byte,
+	typeDesc string,
+	queryTypes map[int]any,
+) (any, error) {
 	// Determine query type
 	queryType, err := cbor.DecodeIdFromList(data)
 	if err != nil {

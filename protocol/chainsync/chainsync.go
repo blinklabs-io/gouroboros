@@ -272,7 +272,9 @@ func WithRollForwardFunc(rollForwardFunc RollForwardFunc) ChainSyncOptionFunc {
 }
 
 // WithRollForwardRawFunc specifies the RollForwardRaw callback function. This will provide the raw header or block
-func WithRollForwardRawFunc(rollForwardRawFunc RollForwardRawFunc) ChainSyncOptionFunc {
+func WithRollForwardRawFunc(
+	rollForwardRawFunc RollForwardRawFunc,
+) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RollForwardRawFunc = rollForwardRawFunc
 	}

@@ -85,9 +85,15 @@ func (n *Nonce) MarshalCBOR() ([]byte, error) {
 
 // CalculateRollingNonce calculates a rolling nonce (eta_v) value from the previous block's eta_v value and the current
 // block's VRF result
-func CalculateRollingNonce(prevBlockNonce []byte, blockVrf []byte) (Blake2b256, error) {
+func CalculateRollingNonce(
+	prevBlockNonce []byte,
+	blockVrf []byte,
+) (Blake2b256, error) {
 	if len(blockVrf) != 32 && len(blockVrf) != 64 {
-		return Blake2b256{}, fmt.Errorf("invalid block VRF length: %d, expected 32 or 64", len(blockVrf))
+		return Blake2b256{}, fmt.Errorf(
+			"invalid block VRF length: %d, expected 32 or 64",
+			len(blockVrf),
+		)
 	}
 	blockVrfHash := Blake2b256Hash(blockVrf)
 	tmpData := slices.Concat(prevBlockNonce, blockVrfHash.Bytes())
@@ -96,7 +102,11 @@ func CalculateRollingNonce(prevBlockNonce []byte, blockVrf []byte) (Blake2b256, 
 
 // CalculateEpochNonce calculates an epoch nonce from the rolling nonce (eta_v) value of the block immediately before the stability
 // window and the block hash of the first block from the previous epoch.
-func CalculateEpochNonce(stableBlockNonce []byte, prevEpochFirstBlockHash []byte, extraEntropy []byte) (Blake2b256, error) {
+func CalculateEpochNonce(
+	stableBlockNonce []byte,
+	prevEpochFirstBlockHash []byte,
+	extraEntropy []byte,
+) (Blake2b256, error) {
 	tmpData := slices.Concat(
 		stableBlockNonce,
 		prevEpochFirstBlockHash,
