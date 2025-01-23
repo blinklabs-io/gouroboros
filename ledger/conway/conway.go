@@ -199,6 +199,28 @@ func (t *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return t.UnmarshalCbor(cborData, t)
 }
 
+type ConwayTransactionInput struct {
+	shelley.ShelleyTransactionInput
+}
+
+func NewConwayTransactionInput(hash string, idx int) ConwayTransactionInput {
+	tmpHash, err := hex.DecodeString(hash)
+	if err != nil {
+		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+	}
+	return ConwayTransactionInput{
+		ShelleyTransactionInput: shelley.ShelleyTransactionInput{
+			TxId:        common.Blake2b256(tmpHash),
+			OutputIndex: uint32(idx),
+		},
+	}
+}
+
+func (i *ConwayTransactionInput) UnmarshalCBOR(data []byte) error {
+	// We override the unmarshal function from ShelleyTransactionInput
+	return cbor.DecodeGeneric(data, &i.ShelleyTransactionInput)
+}
+
 type ConwayTransactionBody struct {
 	babbage.BabbageTransactionBody
 	TxVotingProcedures     common.VotingProcedures    `cbor:"19,keyasint,omitempty"`

@@ -386,13 +386,21 @@ func (i ShelleyTransactionInput) Utxorpc() *utxorpc.TxInput {
 	return &utxorpc.TxInput{
 		TxHash:      i.TxId.Bytes(),
 		OutputIndex: i.OutputIndex,
-		// AsOutput: i.AsOutput,
-		// Redeemer: i.Redeemer,
 	}
 }
 
 func (i ShelleyTransactionInput) String() string {
 	return fmt.Sprintf("%s#%d", i.TxId, i.OutputIndex)
+}
+
+func (i *ShelleyTransactionInput) UnmarshalCBOR(data []byte) error {
+	// Make sure this isn't a tag-wrapped set
+	// This is needed to prevent Conway+ TXs from being decoded as an earlier type
+	var tmpTag cbor.RawTag
+	if _, err := cbor.Decode(data, &tmpTag); err == nil {
+		return fmt.Errorf("did not expect CBOR tag")
+	}
+	return cbor.DecodeGeneric(data, i)
 }
 
 func (i ShelleyTransactionInput) MarshalJSON() ([]byte, error) {
