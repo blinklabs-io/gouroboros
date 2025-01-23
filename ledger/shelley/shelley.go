@@ -193,7 +193,7 @@ func (h *ShelleyBlockHeader) Era() common.Era {
 type ShelleyTransactionBody struct {
 	cbor.DecodeStoreCbor
 	hash           string
-	TxInputs       []ShelleyTransactionInput   `cbor:"0,keyasint,omitempty"`
+	TxInputs       ShelleyTransactionInputSet  `cbor:"0,keyasint,omitempty"`
 	TxOutputs      []ShelleyTransactionOutput  `cbor:"1,keyasint,omitempty"`
 	TxFee          uint64                      `cbor:"2,keyasint,omitempty"`
 	Ttl            uint64                      `cbor:"3,keyasint,omitempty"`
@@ -221,7 +221,7 @@ func (b *ShelleyTransactionBody) Hash() string {
 
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
 	ret := []common.TransactionInput{}
-	for _, input := range b.TxInputs {
+	for _, input := range b.TxInputs.Items() {
 		ret = append(ret, input)
 	}
 	return ret
@@ -357,6 +357,29 @@ func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 	return tx
 }
 
+type ShelleyTransactionInputSet struct {
+	items []ShelleyTransactionInput
+}
+
+func (s *ShelleyTransactionInputSet) UnmarshalCBOR(data []byte) error {
+	// Make sure this isn't a tag-wrapped set
+	// This is needed to prevent Conway+ TXs from being decoded as an earlier type
+	var tmpTag cbor.RawTag
+	if _, err := cbor.Decode(data, &tmpTag); err == nil {
+		return fmt.Errorf("did not expect CBOR tag")
+	}
+	var tmpData []ShelleyTransactionInput
+	if _, err := cbor.Decode(data, &tmpData); err != nil {
+		return err
+	}
+	s.items = tmpData
+	return nil
+}
+
+func (s *ShelleyTransactionInputSet) Items() []ShelleyTransactionInput {
+	return s.items
+}
+
 type ShelleyTransactionInput struct {
 	cbor.StructAsArray
 	TxId        common.Blake2b256
@@ -386,8 +409,6 @@ func (i ShelleyTransactionInput) Utxorpc() *utxorpc.TxInput {
 	return &utxorpc.TxInput{
 		TxHash:      i.TxId.Bytes(),
 		OutputIndex: i.OutputIndex,
-		// AsOutput: i.AsOutput,
-		// Redeemer: i.Redeemer,
 	}
 }
 

@@ -199,8 +199,27 @@ func (t *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return t.UnmarshalCbor(cborData, t)
 }
 
+type ConwayTransactionInputSet struct {
+	items []shelley.ShelleyTransactionInput
+}
+
+func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
+	// This overrides the Shelley behavior that explicitly disallowed tag-wrapped sets
+	var tmpData []shelley.ShelleyTransactionInput
+	if _, err := cbor.Decode(data, &tmpData); err != nil {
+		return err
+	}
+	s.items = tmpData
+	return nil
+}
+
+func (s *ConwayTransactionInputSet) Items() []shelley.ShelleyTransactionInput {
+	return s.items
+}
+
 type ConwayTransactionBody struct {
 	babbage.BabbageTransactionBody
+	TxInputs               ConwayTransactionInputSet  `cbor:"0,keyasint,omitempty"`
 	TxVotingProcedures     common.VotingProcedures    `cbor:"19,keyasint,omitempty"`
 	TxProposalProcedures   []common.ProposalProcedure `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue int64                      `cbor:"21,keyasint,omitempty"`
@@ -209,6 +228,14 @@ type ConwayTransactionBody struct {
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
+}
+
+func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
+	for _, input := range b.TxInputs.Items() {
+		ret = append(ret, input)
+	}
+	return ret
 }
 
 func (b *ConwayTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {

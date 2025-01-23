@@ -129,7 +129,6 @@ func DecodeGeneric(cborData []byte, dest interface{}) error {
 		// destination object
 		if valueDest.Kind() != reflect.Pointer ||
 			valueDest.Elem().Kind() != reflect.Struct {
-			decodeGenericTypeCacheMutex.Unlock()
 			return fmt.Errorf("destination must be a pointer to a struct")
 		}
 		destTypeFields := []reflect.StructField{}
