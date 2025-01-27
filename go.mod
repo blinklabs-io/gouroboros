@@ -5,7 +5,7 @@ go 1.22.11
 require (
 	filippo.io/edwards25519 v1.1.0
 	github.com/blinklabs-io/ouroboros-mock v0.3.6
-	github.com/btcsuite/btcd/btcutil v1.1.3
+	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.10.0
