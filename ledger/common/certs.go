@@ -516,7 +516,7 @@ func (c *RegistrationCertificate) UnmarshalCBOR(
 }
 
 func (c *RegistrationCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -537,7 +537,7 @@ func (c *DeregistrationCertificate) UnmarshalCBOR(
 }
 
 func (c *DeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -558,7 +558,7 @@ func (c *VoteDelegationCertificate) UnmarshalCBOR(
 }
 
 func (c *VoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -580,7 +580,7 @@ func (c *StakeVoteDelegationCertificate) UnmarshalCBOR(
 }
 
 func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -602,7 +602,7 @@ func (c *StakeRegistrationDelegationCertificate) UnmarshalCBOR(
 }
 
 func (c *StakeRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -624,7 +624,7 @@ func (c *VoteRegistrationDelegationCertificate) UnmarshalCBOR(
 }
 
 func (c *VoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -647,7 +647,7 @@ func (c *StakeVoteRegistrationDelegationCertificate) UnmarshalCBOR(
 }
 
 func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -668,7 +668,7 @@ func (c *AuthCommitteeHotCertificate) UnmarshalCBOR(
 }
 
 func (c *AuthCommitteeHotCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -689,7 +689,7 @@ func (c *ResignCommitteeColdCertificate) UnmarshalCBOR(
 }
 
 func (c *ResignCommitteeColdCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -711,7 +711,7 @@ func (c *RegistrationDrepCertificate) UnmarshalCBOR(
 }
 
 func (c *RegistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -732,7 +732,7 @@ func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 }
 
 func (c *DeregistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }
 
@@ -753,6 +753,6 @@ func (c *UpdateDrepCertificate) UnmarshalCBOR(
 }
 
 func (c *UpdateDrepCertificate) Utxorpc() *utxorpc.Certificate {
-	// TODO
+	// TODO (#850)
 	return nil
 }

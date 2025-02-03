@@ -285,7 +285,7 @@ type ShelleyCborQuery struct {
 
 type ShelleyFilteredDelegationAndRewardAccountsQuery struct {
 	simpleQueryBase
-	// TODO: add params
+	// TODO: add params (#858)
 }
 
 type ShelleyGenesisConfigQuery struct {
@@ -316,7 +316,7 @@ type ShelleyStakePoolsQuery struct {
 
 type ShelleyStakePoolParamsQuery struct {
 	simpleQueryBase
-	// TODO: add params
+	// TODO: add params (#859)
 }
 
 type ShelleyRewardInfoPoolsQuery struct {
@@ -468,7 +468,7 @@ type eraHistoryResultParams struct {
 	Unknown int
 }
 
-// TODO
+// TODO (#860)
 /*
 result	[{ *[0 int] => non_myopic_rewards }]	for each stake display reward
 non_myopic_rewards	{ *poolid => int }	int is the amount of lovelaces each pool would reward
@@ -485,7 +485,7 @@ type CurrentProtocolParamsResult interface {
 		any
 }
 
-// TODO
+// TODO (#861)
 type ProposedProtocolParamsUpdatesResult interface{}
 
 type StakeDistributionResult struct {
@@ -551,16 +551,16 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpData)
 }
 
-// TODO
+// TODO (#862)
 /*
 result	[{* utxo => value }]
 */
 type UTxOWholeResult interface{}
 
-// TODO
+// TODO (#863)
 type DebugEpochStateResult interface{}
 
-// TODO
+// TODO (#858)
 /*
 rwdr	[flag bytestring]	bytestring is the keyhash of the staking vkey
 flag	0/1	0=keyhash 1=scripthash
@@ -613,13 +613,13 @@ type GenesisConfigResult struct {
 	Unknown2  interface{}
 }
 
-// TODO
+// TODO (#864)
 type DebugNewEpochStateResult interface{}
 
-// TODO
+// TODO (#865)
 type DebugChainDepStateResult interface{}
 
-// TODO
+// TODO (#866)
 /*
 result	[ *Element ]	Expanded in order on the next rows.
 Element	CDDL	Comment
@@ -672,14 +672,14 @@ type StakePoolParamsResult struct {
 	}
 }
 
-// TODO
+// TODO (#867)
 type RewardInfoPoolsResult interface{}
 
-// TODO
+// TODO (#868)
 type PoolStateResult interface{}
 
-// TODO
+// TODO (#869)
 type StakeSnapshotsResult interface{}
 
-// TODO
+// TODO (#870)
 type PoolDistrResult interface{}

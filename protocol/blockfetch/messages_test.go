@@ -16,10 +16,11 @@ package blockfetch
 
 import (
 	"encoding/hex"
-	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/protocol"
 	"reflect"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type testDefinition struct {
@@ -28,7 +29,7 @@ type testDefinition struct {
 	MessageType uint
 }
 
-// TODO: implement tests for more messages
+// TODO: implement tests for more messages (#871)
 var tests = []testDefinition{
 	{
 		CborHex:     "8105",

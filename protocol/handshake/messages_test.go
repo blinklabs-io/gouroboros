@@ -80,7 +80,7 @@ var tests = []testDefinition{
 			},
 		),
 	},
-	// TODO: add more tests for other refusal types
+	// TODO: add more tests for other refusal types (#854)
 }
 
 func TestDecode(t *testing.T) {

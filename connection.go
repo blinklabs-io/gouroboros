@@ -314,7 +314,7 @@ func (c *Connection) setupConnection() error {
 		c.networkMagic,
 		handshakeDiffusionMode,
 		c.peerSharingEnabled,
-		// TODO: make this configurable
+		// TODO: make this configurable (#373)
 		protocol.QueryModeDisabled,
 	)
 	// Perform handshake

@@ -123,7 +123,7 @@ func (s Sum0KesSig) Verify(
 	return ed25519.Verify(pubKey, msg, s)
 }
 
-// TODO: make this work on anything from Shelley onward
+// TODO: make this work on anything from Shelley onward (#845)
 func VerifyKes(
 	header *BabbageBlockHeader,
 	slotsPerKesPeriod uint64,
