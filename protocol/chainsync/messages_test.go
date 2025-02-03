@@ -17,14 +17,15 @@ package chainsync
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger"
-	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 type testDefinition struct {
@@ -157,27 +158,6 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 			MessageType:  MessageTypeRollForward,
 			ProtocolMode: protocol.ProtocolModeNodeToNode,
 		},
-		// TODO: fetch full block content and enable test
-		/*
-			// Byron main block (NtN)
-			{
-				CborHex: string(readFile("testdata/rollforward_ntn_byron_main_block_testnet_388a82f053603f3552717d61644a353188f2d5500f4c6354cc1ad27a36a7ea91.hex")),
-				Message: NewMsgRollForwardNtN(
-					ledger.BlockHeaderTypeByron,
-					1,
-					hexDecode(string(readFile("testdata/byron_main_block_testnet_xxxx.hex"))),
-					Tip{
-						Point: common.Point{
-							Slot: 55740899,
-							Hash: hexDecode("C89E652408EC269379751C8B2BF0137297BF9F5D0FB2E76E19ACF63D783C3A66"),
-						},
-						BlockNumber: 3479284,
-					},
-				),
-				MessageType:  MessageTypeRollForward,
-				ProtocolMode: protocol.ProtocolModeNodeToNode,
-			},
-		*/
 		// Shelley block (NtN)
 		{
 			CborHex: string(

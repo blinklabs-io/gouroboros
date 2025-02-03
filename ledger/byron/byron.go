@@ -473,11 +473,11 @@ type ByronUpdateProposalBlockVersionMod struct {
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	// TODO: split this to its own type
+	// TODO: split this to its own type (#853)
 	TxPayload []struct {
 		cbor.StructAsArray
 		Transaction ByronTransaction
-		// TODO: figure out what this field actually is
+		// TODO: properly decode TX witnesses (#853)
 		Twit []cbor.Value
 	}
 	SscPayload cbor.Value

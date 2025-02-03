@@ -304,7 +304,7 @@ func (c *Client) GetEpochNo() (int, error) {
 	return result[0], nil
 }
 
-// TODO
+// TODO (#860)
 /*
 query	[2 #6.258([*[0 int]])	int is the stake the user intends to delegate, the array must be sorted
 */
@@ -502,7 +502,6 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	return &result, nil
 }
 
-// TODO
 func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling DebugEpochState()",
@@ -528,7 +527,7 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	return &result, nil
 }
 
-// TODO
+// TODO (#858)
 /*
 query	[10 #6.258([ *rwdr ])]
 */
@@ -551,7 +550,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyFilteredDelegationAndRewardAccounts,
-		// TODO: add params
+		// TODO: add params (#858)
 	)
 	var result FilteredDelegationsAndRewardAccountsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -585,7 +584,6 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	return &result[0], nil
 }
 
-// TODO
 func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling DebugNewEpochState()",
@@ -611,7 +609,6 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 	return &result, nil
 }
 
-// TODO
 func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling DebugChainDepState()",
@@ -746,7 +743,6 @@ func (c *Client) GetStakePoolParams(
 	return &result, nil
 }
 
-// TODO
 func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetRewardInfoPools()",
@@ -772,7 +768,6 @@ func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 	return &result, nil
 }
 
-// TODO
 func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetPoolState(poolIds: %+v)", poolIds),
@@ -790,6 +785,7 @@ func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolState,
+		// TODO: add args (#868)
 	)
 	var result PoolStateResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -798,7 +794,6 @@ func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 	return &result, nil
 }
 
-// TODO
 func (c *Client) GetStakeSnapshots(
 	poolId interface{},
 ) (*StakeSnapshotsResult, error) {
@@ -818,6 +813,7 @@ func (c *Client) GetStakeSnapshots(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyStakeSnapshots,
+		// TODO: add args (#869)
 	)
 	var result StakeSnapshotsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -826,7 +822,6 @@ func (c *Client) GetStakeSnapshots(
 	return &result, nil
 }
 
-// TODO
 func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetPoolDistr(poolIds: %+v)", poolIds),
@@ -844,6 +839,7 @@ func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolDistr,
+		// TODO: add args (#870)
 	)
 	var result PoolDistrResult
 	if err := c.runQuery(query, &result); err != nil {

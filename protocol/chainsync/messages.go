@@ -16,6 +16,7 @@ package chainsync
 
 import (
 	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
@@ -134,7 +135,7 @@ func NewMsgRollForwardNtC(
 	copy(m.blockCbor, blockCbor)
 	wb := NewWrappedBlock(blockType, blockCbor)
 	content, err := cbor.Encode(wb)
-	// TODO: figure out better way to handle error
+	// TODO: figure out better way to handle error (#855)
 	if err != nil {
 		return nil
 	}

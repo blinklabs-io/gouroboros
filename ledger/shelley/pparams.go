@@ -129,8 +129,6 @@ func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) {
 	p.ProtocolMajor = genesisParams.ProtocolVersion.Major
 	p.ProtocolMinor = genesisParams.ProtocolVersion.Minor
 	p.MinUtxoValue = genesisParams.MinUtxoValue
-	// TODO:
-	//p.Nonce              *cbor.Rat
 }
 
 type ShelleyProtocolParameterUpdate struct {

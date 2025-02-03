@@ -46,14 +46,13 @@ func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
 }
 
-// XXX: should this take the block header type instead?
 func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {
 	switch blockType {
 	case BlockTypeByronEbb:
 		return NewByronEpochBoundaryBlockHeaderFromCbor(data)
 	case BlockTypeByronMain:
 		return NewByronMainBlockHeaderFromCbor(data)
-	// TODO: break into separate cases and parse as specific block header types
+	// TODO: break into separate cases and parse as specific block header types (#844)
 	case BlockTypeShelley, BlockTypeAllegra, BlockTypeMary, BlockTypeAlonzo:
 		return NewShelleyBlockHeaderFromCbor(data)
 	case BlockTypeBabbage, BlockTypeConway:

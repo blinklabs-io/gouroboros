@@ -92,7 +92,7 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 			StepPrice: &cbor.Rat{Rat: genesis.ExecutionPrices.Steps.Rat},
 		}
 	}
-	// TODO: cost models
+	// TODO: cost models (#852)
 	// We have 150+ string values to map to array indexes
 	//	CostModels           map[string]map[string]int
 }

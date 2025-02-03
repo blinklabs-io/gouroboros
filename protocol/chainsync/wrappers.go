@@ -58,12 +58,13 @@ func NewWrappedHeader(
 	}
 	// Record the original block size for Byron blocks
 	if era == ledger.BlockHeaderTypeByron {
-		// TODO: figure out why we have to add 2 to the length to match official message CBOR
+		// NOTE: we add 2 to the length to account for the extra CBOR bytes that need to be added
+		// when calculating the hash
 		w.byronSize = uint(len(blockCbor)) + 2
 	}
 	// Parse block and extract header
 	tmp := []cbor.RawMessage{}
-	// TODO: figure out a better way to handle an error
+	// TODO: figure out a better way to handle an error (#856)
 	if _, err := cbor.Decode(blockCbor, &tmp); err != nil {
 		return nil
 	}

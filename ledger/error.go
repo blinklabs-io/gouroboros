@@ -295,7 +295,7 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 }
 
 func (e *UtxoFailure) Error() string {
-	// TODO: lookup era name programmatically
+	// TODO: lookup era name programmatically (#846)
 	return fmt.Sprintf("UtxoFailure (FromAlonzoUtxoFail (%s))", e.Err)
 }
 
@@ -528,7 +528,7 @@ func (e *InsufficientCollateral) Error() string {
 
 type ScriptsNotPaidUtxo struct {
 	UtxoFailureErrorBase
-	// TODO: determine content/structure of this value
+	// TODO: determine content/structure of this value (#847)
 	Value cbor.Value
 }
 
@@ -552,7 +552,7 @@ func (e *ExUnitsTooBigUtxo) Error() string {
 
 type CollateralContainsNonADA struct {
 	UtxoFailureErrorBase
-	// TODO: determine content/structure of this value
+	// TODO: determine content/structure of this value (#848)
 	Value cbor.Value
 }
 

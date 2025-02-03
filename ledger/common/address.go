@@ -362,7 +362,7 @@ func (a Address) Bytes() []byte {
 		}
 		rawPayload, err := cbor.Encode(tmpPayload)
 		if err != nil {
-			// TODO: handle error
+			// TODO: handle error (#851)
 			return nil
 		}
 		tmpData := []any{
@@ -374,7 +374,7 @@ func (a Address) Bytes() []byte {
 		}
 		ret, err := cbor.Encode(tmpData)
 		if err != nil {
-			// TODO: handle error
+			// TODO: handle error (#851)
 			return nil
 		}
 		return ret
