@@ -270,9 +270,5 @@ func NewMsgDone() *MsgDone {
 	return m
 }
 
-type Tip struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
-	Point       common.Point
-	BlockNumber uint64
-}
+// Tip is an alias to keep historical code from breaking after moving this elsewhere
+type Tip = common.Tip
