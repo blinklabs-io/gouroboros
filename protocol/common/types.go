@@ -66,3 +66,10 @@ func (p *Point) MarshalCBOR() ([]byte, error) {
 	}
 	return cbor.Encode(data)
 }
+
+// Tip represents a Point combined with a block number
+type Tip struct {
+	cbor.StructAsArray
+	Point       Point
+	BlockNumber uint64
+}
