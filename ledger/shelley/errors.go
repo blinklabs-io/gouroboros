@@ -14,7 +14,12 @@
 
 package shelley
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+)
 
 type ExpiredUtxoError struct {
 	Ttl  uint64
@@ -26,5 +31,127 @@ func (e ExpiredUtxoError) Error() string {
 		"expired UTxO: TTL %d, slot %d",
 		e.Ttl,
 		e.Slot,
+	)
+}
+
+type InputSetEmptyUtxoError struct{}
+
+func (InputSetEmptyUtxoError) Error() string {
+	return "input set empty"
+}
+
+type FeeTooSmallUtxoError struct {
+	Provided uint64
+	Min      uint64
+}
+
+func (e FeeTooSmallUtxoError) Error() string {
+	return fmt.Sprintf(
+		"fee too small: provided %d, minimum %d",
+		e.Provided,
+		e.Min,
+	)
+}
+
+type BadInputsUtxoError struct {
+	Inputs []common.TransactionInput
+}
+
+func (e BadInputsUtxoError) Error() string {
+	tmpInputs := make([]string, 0, len(e.Inputs))
+	for idx, tmpInput := range e.Inputs {
+		tmpInputs[idx] = tmpInput.String()
+	}
+	return fmt.Sprintf(
+		"bad input(s): %s",
+		strings.Join(tmpInputs, ", "),
+	)
+}
+
+type WrongNetworkError struct {
+	NetId uint
+	Addrs []common.Address
+}
+
+func (e WrongNetworkError) Error() string {
+	tmpAddrs := make([]string, 0, len(e.Addrs))
+	for idx, tmpAddr := range e.Addrs {
+		tmpAddrs[idx] = tmpAddr.String()
+	}
+	return fmt.Sprintf(
+		"wrong network: %s",
+		strings.Join(tmpAddrs, ", "),
+	)
+}
+
+type WrongNetworkWithdrawalError struct {
+	NetId uint
+	Addrs []common.Address
+}
+
+func (e WrongNetworkWithdrawalError) Error() string {
+	tmpAddrs := make([]string, 0, len(e.Addrs))
+	for idx, tmpAddr := range e.Addrs {
+		tmpAddrs[idx] = tmpAddr.String()
+	}
+	return fmt.Sprintf(
+		"wrong network withdrawals: %s",
+		strings.Join(tmpAddrs, ", "),
+	)
+}
+
+type ValueNotConservedUtxoError struct {
+	Consumed uint64
+	Produced uint64
+}
+
+func (e ValueNotConservedUtxoError) Error() string {
+	return fmt.Sprintf(
+		"value not conserved: consumed %d, produced %d",
+		e.Consumed,
+		e.Produced,
+	)
+}
+
+type OutputTooSmallUtxoError struct {
+	Outputs []common.TransactionOutput
+}
+
+func (e OutputTooSmallUtxoError) Error() string {
+	tmpOutputs := make([]string, 0, len(e.Outputs))
+	for idx, tmpOutput := range e.Outputs {
+		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
+	}
+	return fmt.Sprintf(
+		"output too small: %s",
+		strings.Join(tmpOutputs, ", "),
+	)
+}
+
+type OutputBootAddrAttrsTooBigError struct {
+	Outputs []common.TransactionOutput
+}
+
+func (e OutputBootAddrAttrsTooBigError) Error() string {
+	tmpOutputs := make([]string, 0, len(e.Outputs))
+	for idx, tmpOutput := range e.Outputs {
+		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
+	}
+	return fmt.Sprintf(
+		"output bootstrap address attributes too big: %s",
+		strings.Join(tmpOutputs, ", "),
+	)
+}
+
+type MaxTxSizeUtxoError struct {
+	TxSize    uint
+	MaxTxSize uint
+}
+
+func (e MaxTxSizeUtxoError) Error() string {
+	return fmt.Sprintf(
+		"transaction size too large: size %d, max %d",
+		e.TxSize,
+		e.MaxTxSize,
 	)
 }

@@ -15,11 +15,23 @@
 package shelley
 
 import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 	common "github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateTimeToLive,
+	UtxoValidateInputSetEmptyUtxo,
+	UtxoValidateFeeTooSmallUtxo,
+	UtxoValidateBadInputsUtxo,
+	UtxoValidateWrongNetwork,
+	UtxoValidateWrongNetworkWithdrawal,
+	UtxoValidateValueNotConservedUtxo,
+	UtxoValidateOutputTooSmallUtxo,
+	UtxoValidateOutputBootAddrAttrsTooBig,
+	UtxoValidateMaxTxSizeUtxo,
 }
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
@@ -36,4 +48,209 @@ func UtxoValidateTimeToLive(tx common.Transaction, ls common.LedgerState, ts com
 		Ttl:  ttl,
 		Slot: tip.Point.Slot,
 	}
+}
+
+// UtxoValidateInputSetEmptyUtxo ensures that the input set is not empty
+func UtxoValidateInputSetEmptyUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	if len(tx.Inputs()) > 0 {
+		return nil
+	}
+	return InputSetEmptyUtxoError{}
+}
+
+// UtxoValidateFeeTooSmallUtxo ensures that the fee is at least the calculated minimum
+func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	minFee, err := MinFeeTx(tx, pp)
+	if err != nil {
+		return err
+	}
+	if tx.Fee() >= minFee {
+		return nil
+	}
+	return FeeTooSmallUtxoError{
+		Provided: tx.Fee(),
+		Min:      minFee,
+	}
+}
+
+// UtxoValidateBadInputsUtxo ensures that all inputs are present in the ledger state (have not been spent)
+func UtxoValidateBadInputsUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	var badInputs []common.TransactionInput
+	for _, tmpInput := range tx.Inputs() {
+		_, err := ls.UtxoById(tmpInput)
+		if err != nil {
+			badInputs = append(badInputs, tmpInput)
+		}
+	}
+	if len(badInputs) == 0 {
+		return nil
+	}
+	return BadInputsUtxoError{
+		Inputs: badInputs,
+	}
+}
+
+// UtxoValidateWrongNetwork ensures that all output addresses use the correct network ID
+func UtxoValidateWrongNetwork(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	networkId := ls.NetworkId()
+	var badAddrs []common.Address
+	for _, tmpOutput := range tx.Outputs() {
+		addr := tmpOutput.Address()
+		if addr.NetworkId() == networkId {
+			continue
+		}
+		badAddrs = append(badAddrs, addr)
+	}
+	if len(badAddrs) == 0 {
+		return nil
+	}
+	return WrongNetworkError{
+		NetId: networkId,
+		Addrs: badAddrs,
+	}
+}
+
+// UtxoValidateWrongNetworkWithdrawal ensures that all withdrawal addresses use the correct network ID
+func UtxoValidateWrongNetworkWithdrawal(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	networkId := ls.NetworkId()
+	var badAddrs []common.Address
+	for addr := range tx.Withdrawals() {
+		if addr.NetworkId() == networkId {
+			continue
+		}
+		badAddrs = append(badAddrs, *addr)
+	}
+	if len(badAddrs) == 0 {
+		return nil
+	}
+	return WrongNetworkWithdrawalError{
+		NetId: networkId,
+		Addrs: badAddrs,
+	}
+}
+
+// UtxoValidateValueNotConservedUtxo ensures that the consumed value equals the produced value
+func UtxoValidateValueNotConservedUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	// Calculate consumed value
+	// consumed = value from input(s) + withdrawals + refunds(?)
+	var consumedValue uint64
+	for _, tmpInput := range tx.Inputs() {
+		tmpUtxo, err := ls.UtxoById(tmpInput)
+		// Ignore errors fetching the UTxO and exclude it from calculations
+		if err != nil {
+			continue
+		}
+		consumedValue += tmpUtxo.Output.Amount()
+	}
+	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
+		consumedValue += tmpWithdrawalAmount
+	}
+	// Calculate produced value
+	// produced = value from output(s) + fee + deposits(?)
+	var producedValue uint64
+	for _, tmpOutput := range tx.Outputs() {
+		producedValue += tmpOutput.Amount()
+	}
+	producedValue += tx.Fee()
+	if consumedValue == producedValue {
+		return nil
+	}
+	return ValueNotConservedUtxoError{
+		Consumed: consumedValue,
+		Produced: producedValue,
+	}
+}
+
+// UtxoValidateOutputTooSmallUtxo ensures that outputs have at least the minimum value
+func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	minCoin, err := MinCoinTxOut(tx, pp)
+	if err != nil {
+		return err
+	}
+	var badOutputs []common.TransactionOutput
+	for _, tmpOutput := range tx.Outputs() {
+		if tmpOutput.Amount() < minCoin {
+			badOutputs = append(badOutputs, tmpOutput)
+		}
+	}
+	if len(badOutputs) == 0 {
+		return nil
+	}
+	return OutputTooSmallUtxoError{
+		Outputs: badOutputs,
+	}
+}
+
+// UtxoValidateOutputBootAddrAttrsTooBig ensures that bootstrap (Byron) addresses don't have attributes that are too large
+func UtxoValidateOutputBootAddrAttrsTooBig(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	var badOutputs []common.TransactionOutput
+	for _, tmpOutput := range tx.Outputs() {
+		addr := tmpOutput.Address()
+		if addr.Type() != common.AddressTypeByron {
+			continue
+		}
+		attr := addr.ByronAttr()
+		attrBytes, err := cbor.Encode(attr)
+		if err != nil {
+			return err
+		}
+		if len(attrBytes) <= 64 {
+			continue
+		}
+		badOutputs = append(badOutputs, tmpOutput)
+	}
+	if len(badOutputs) == 0 {
+		return nil
+	}
+	return OutputBootAddrAttrsTooBigError{
+		Outputs: badOutputs,
+	}
+}
+
+// UtxoValidateMaxTxSizeUtxo ensures that a transaction does not exceed the max size
+func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+	tmpTx, ok := tx.(*ShelleyTransaction)
+	if !ok {
+		return fmt.Errorf("transaction is not expected type")
+	}
+	tmpPparams, ok := pp.(*ShelleyProtocolParameters)
+	if !ok {
+		return fmt.Errorf("pparams are not expected type")
+	}
+	txBytes, err := cbor.Encode(tmpTx)
+	if err != nil {
+		return err
+	}
+	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+		return nil
+	}
+	return MaxTxSizeUtxoError{
+		TxSize:    uint(len(txBytes)),
+		MaxTxSize: tmpPparams.MaxTxSize,
+	}
+}
+
+// MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
+func MinFeeTx(tx common.Transaction, pparams common.ProtocolParameters) (uint64, error) {
+	tmpTx, ok := tx.(*ShelleyTransaction)
+	if !ok {
+		return 0, fmt.Errorf("transaction is not expected type")
+	}
+	tmpPparams, ok := pparams.(*ShelleyProtocolParameters)
+	if !ok {
+		return 0, fmt.Errorf("pparams are not expected type")
+	}
+	txBytes := tmpTx.Cbor()
+	minFee := uint64((tmpPparams.MinFeeA * uint(len(txBytes))) + tmpPparams.MinFeeB)
+	return minFee, nil
+}
+
+// MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters
+func MinCoinTxOut(_ common.Transaction, pparams common.ProtocolParameters) (uint64, error) {
+	tmpPparams, ok := pparams.(*ShelleyProtocolParameters)
+	if !ok {
+		return 0, fmt.Errorf("pparams are not expected type")
+	}
+	minCoinTxOut := uint64(tmpPparams.MinUtxoValue)
+	return minCoinTxOut, nil
 }
