@@ -20,7 +20,7 @@ import (
 
 // UtxoState defines the interface for querying the UTxO state
 type UtxoState interface {
-	UtxosById([]TransactionInput) ([]Utxo, error)
+	UtxoById(TransactionInput) (Utxo, error)
 }
 
 // CertState defines the interface for querying the certificate state
@@ -30,6 +30,7 @@ type CertState interface{}
 type LedgerState interface {
 	UtxoState
 	CertState
+	NetworkId() uint
 }
 
 // TipState defines the interface for querying the current tip

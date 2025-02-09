@@ -361,6 +361,13 @@ type ShelleyTransactionInputSet struct {
 	items []ShelleyTransactionInput
 }
 
+func NewShelleyTransactionInputSet(items []ShelleyTransactionInput) ShelleyTransactionInputSet {
+	s := ShelleyTransactionInputSet{
+		items: items,
+	}
+	return s
+}
+
 func (s *ShelleyTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	// Make sure this isn't a tag-wrapped set
 	// This is needed to prevent Conway+ TXs from being decoded as an earlier type
@@ -378,6 +385,11 @@ func (s *ShelleyTransactionInputSet) UnmarshalCBOR(data []byte) error {
 
 func (s *ShelleyTransactionInputSet) Items() []ShelleyTransactionInput {
 	return s.items
+}
+
+func (s *ShelleyTransactionInputSet) SetItems(items []ShelleyTransactionInput) {
+	s.items = make([]ShelleyTransactionInput, len(items))
+	copy(s.items, items)
 }
 
 type ShelleyTransactionInput struct {

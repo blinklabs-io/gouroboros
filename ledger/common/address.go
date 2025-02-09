@@ -276,6 +276,25 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(addrBytes)
 }
 
+func (a Address) NetworkId() uint {
+	if a.addressType == AddressTypeByron {
+		if a.byronAddressAttr.Network == nil {
+			return AddressNetworkMainnet
+		}
+		return uint(*a.byronAddressAttr.Network)
+	} else {
+		return uint(a.networkId)
+	}
+}
+
+func (a Address) Type() uint8 {
+	return a.addressType
+}
+
+func (a Address) ByronType() uint64 {
+	return a.byronAddressType
+}
+
 // PaymentAddress returns a new Address with only the payment address portion. This will return nil for anything other than payment and script addresses
 func (a Address) PaymentAddress() *Address {
 	var addrType uint8
@@ -335,6 +354,10 @@ func (a *Address) StakeKeyHash() Blake2b224 {
 		return Blake2b224([AddressHashSize]byte{})
 	}
 	return Blake2b224(a.stakingAddress[:])
+}
+
+func (a *Address) ByronAttr() ByronAddressAttributes {
+	return a.byronAddressAttr
 }
 
 func (a Address) generateHRP() string {

@@ -58,6 +58,7 @@ type TransactionBody interface {
 type TransactionInput interface {
 	Id() Blake2b256
 	Index() uint32
+	String() string
 	Utxorpc() *utxorpc.TxInput
 }
 
