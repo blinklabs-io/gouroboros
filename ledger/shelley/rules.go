@@ -205,15 +205,11 @@ func UtxoValidateOutputBootAddrAttrsTooBig(tx common.Transaction, slot uint64, l
 
 // UtxoValidateMaxTxSizeUtxo ensures that a transaction does not exceed the max size
 func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpTx, ok := tx.(*ShelleyTransaction)
-	if !ok {
-		return fmt.Errorf("transaction is not expected type")
-	}
 	tmpPparams, ok := pp.(*ShelleyProtocolParameters)
 	if !ok {
 		return fmt.Errorf("pparams are not expected type")
 	}
-	txBytes, err := cbor.Encode(tmpTx)
+	txBytes, err := cbor.Encode(tx)
 	if err != nil {
 		return err
 	}
@@ -228,15 +224,11 @@ func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.Led
 
 // MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
 func MinFeeTx(tx common.Transaction, pparams common.ProtocolParameters) (uint64, error) {
-	tmpTx, ok := tx.(*ShelleyTransaction)
-	if !ok {
-		return 0, fmt.Errorf("transaction is not expected type")
-	}
 	tmpPparams, ok := pparams.(*ShelleyProtocolParameters)
 	if !ok {
 		return 0, fmt.Errorf("pparams are not expected type")
 	}
-	txBytes := tmpTx.Cbor()
+	txBytes := tx.Cbor()
 	minFee := uint64((tmpPparams.MinFeeA * uint(len(txBytes))) + tmpPparams.MinFeeB)
 	return minFee, nil
 }
