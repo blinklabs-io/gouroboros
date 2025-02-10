@@ -22,7 +22,6 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -49,14 +48,6 @@ func (ls testLedgerState) UtxoById(id common.TransactionInput) (common.Utxo, err
 	return common.Utxo{}, fmt.Errorf("not found")
 }
 
-type testTipState struct {
-	tip pcommon.Tip
-}
-
-func (ts testTipState) Tip() (pcommon.Tip, error) {
-	return ts.tip, nil
-}
-
 func TestUtxoValidateTimeToLive(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
@@ -74,17 +65,10 @@ func TestUtxoValidateTimeToLive(t *testing.T) {
 		t.Run(
 			name,
 			func(t *testing.T) {
-				testTipState := testTipState{
-					tip: pcommon.Tip{
-						Point: pcommon.Point{
-							Slot: testTipSlot,
-						},
-					},
-				}
 				err := shelley.UtxoValidateTimeToLive(
 					testTx,
+					testTipSlot,
 					testLedgerState,
-					testTipState,
 					testProtocolParams,
 				)
 				validateFunc(t, err)
@@ -177,7 +161,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 		},
 	}
 	testLedgerState := testLedgerState{}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Non-empty
 	t.Run(
@@ -185,8 +169,8 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 		func(t *testing.T) {
 			err := shelley.UtxoValidateInputSetEmptyUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -204,8 +188,8 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 		func(t *testing.T) {
 			err := shelley.UtxoValidateInputSetEmptyUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -244,7 +228,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 		MinFeeB: 53,
 	}
 	testLedgerState := testLedgerState{}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
 		t.Run(
@@ -254,8 +238,8 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 				tmpTestTx.Body.TxFee = testFee
 				err := shelley.UtxoValidateFeeTooSmallUtxo(
 					tmpTestTx,
+					testSlot,
 					testLedgerState,
-					testTipState,
 					testProtocolParams,
 				)
 				validateFunc(t, err)
@@ -336,7 +320,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 			},
 		},
 	}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good input
 	t.Run(
@@ -347,8 +331,8 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 			)
 			err := shelley.UtxoValidateBadInputsUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -368,8 +352,8 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 			)
 			err := shelley.UtxoValidateBadInputsUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -406,7 +390,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 	testLedgerState := testLedgerState{
 		networkId: common.AddressNetworkMainnet,
 	}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Correct network
 	t.Run(
@@ -415,8 +399,8 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testCorrectNetworkAddr
 			err := shelley.UtxoValidateBadInputsUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -434,8 +418,8 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testWrongNetworkAddr
 			err := shelley.UtxoValidateWrongNetwork(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -468,7 +452,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	testLedgerState := testLedgerState{
 		networkId: common.AddressNetworkMainnet,
 	}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Correct network
 	t.Run(
@@ -477,8 +461,8 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			testTx.Body.TxWithdrawals[&testCorrectNetworkAddr] = 123456
 			err := shelley.UtxoValidateWrongNetworkWithdrawal(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -496,8 +480,8 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			testTx.Body.TxWithdrawals[&testWrongNetworkAddr] = 123456
 			err := shelley.UtxoValidateWrongNetworkWithdrawal(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -550,7 +534,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Exact amount
 	t.Run(
@@ -559,8 +543,8 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount
 			err := shelley.UtxoValidateValueNotConservedUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -578,8 +562,8 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputUnderAmount
 			err := shelley.UtxoValidateValueNotConservedUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -606,8 +590,8 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputOverAmount
 			err := shelley.UtxoValidateValueNotConservedUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -641,7 +625,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 		},
 	}
 	testLedgerState := testLedgerState{}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{
 		MinUtxoValue: 100000,
 	}
@@ -652,8 +636,8 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputAmountGood
 			err := shelley.UtxoValidateOutputTooSmallUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -671,8 +655,8 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputAmountBad
 			err := shelley.UtxoValidateOutputTooSmallUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -722,7 +706,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 		},
 	}
 	testLedgerState := testLedgerState{}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good
 	t.Run(
@@ -731,8 +715,8 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testGoodAddr
 			err := shelley.UtxoValidateOutputBootAddrAttrsTooBig(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -750,8 +734,8 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testBadAddr
 			err := shelley.UtxoValidateOutputBootAddrAttrsTooBig(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {
@@ -778,7 +762,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &shelley.ShelleyTransaction{}
 	testLedgerState := testLedgerState{}
-	testTipState := testTipState{}
+	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Transaction under limit
 	t.Run(
@@ -787,8 +771,8 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 			testProtocolParams.MaxTxSize = testMaxTxSizeLarge
 			err := shelley.UtxoValidateMaxTxSizeUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err != nil {
@@ -806,8 +790,8 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 			testProtocolParams.MaxTxSize = testMaxTxSizeSmall
 			err := shelley.UtxoValidateMaxTxSizeUtxo(
 				testTx,
+				testSlot,
 				testLedgerState,
-				testTipState,
 				testProtocolParams,
 			)
 			if err == nil {

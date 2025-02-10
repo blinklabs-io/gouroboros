@@ -14,4 +14,4 @@
 
 package common
 
-type UtxoValidationRuleFunc func(Transaction, LedgerState, TipState, ProtocolParameters) error
+type UtxoValidationRuleFunc func(Transaction, uint64, LedgerState, ProtocolParameters) error

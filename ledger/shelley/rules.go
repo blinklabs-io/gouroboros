@@ -35,23 +35,19 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 }
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
-func UtxoValidateTimeToLive(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
-	tip, err := ts.Tip()
-	if err != nil {
-		return err
-	}
+func UtxoValidateTimeToLive(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	ttl := tx.TTL()
-	if ttl == 0 || ttl >= tip.Point.Slot {
+	if ttl == 0 || ttl >= slot {
 		return nil
 	}
 	return ExpiredUtxoError{
 		Ttl:  ttl,
-		Slot: tip.Point.Slot,
+		Slot: slot,
 	}
 }
 
 // UtxoValidateInputSetEmptyUtxo ensures that the input set is not empty
-func UtxoValidateInputSetEmptyUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateInputSetEmptyUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	if len(tx.Inputs()) > 0 {
 		return nil
 	}
@@ -59,7 +55,7 @@ func UtxoValidateInputSetEmptyUtxo(tx common.Transaction, ls common.LedgerState,
 }
 
 // UtxoValidateFeeTooSmallUtxo ensures that the fee is at least the calculated minimum
-func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	minFee, err := MinFeeTx(tx, pp)
 	if err != nil {
 		return err
@@ -74,7 +70,7 @@ func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, ls common.LedgerState, t
 }
 
 // UtxoValidateBadInputsUtxo ensures that all inputs are present in the ledger state (have not been spent)
-func UtxoValidateBadInputsUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateBadInputsUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	var badInputs []common.TransactionInput
 	for _, tmpInput := range tx.Inputs() {
 		_, err := ls.UtxoById(tmpInput)
@@ -91,7 +87,7 @@ func UtxoValidateBadInputsUtxo(tx common.Transaction, ls common.LedgerState, ts 
 }
 
 // UtxoValidateWrongNetwork ensures that all output addresses use the correct network ID
-func UtxoValidateWrongNetwork(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateWrongNetwork(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	networkId := ls.NetworkId()
 	var badAddrs []common.Address
 	for _, tmpOutput := range tx.Outputs() {
@@ -111,7 +107,7 @@ func UtxoValidateWrongNetwork(tx common.Transaction, ls common.LedgerState, ts c
 }
 
 // UtxoValidateWrongNetworkWithdrawal ensures that all withdrawal addresses use the correct network ID
-func UtxoValidateWrongNetworkWithdrawal(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateWrongNetworkWithdrawal(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	networkId := ls.NetworkId()
 	var badAddrs []common.Address
 	for addr := range tx.Withdrawals() {
@@ -130,7 +126,7 @@ func UtxoValidateWrongNetworkWithdrawal(tx common.Transaction, ls common.LedgerS
 }
 
 // UtxoValidateValueNotConservedUtxo ensures that the consumed value equals the produced value
-func UtxoValidateValueNotConservedUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds(?)
 	var consumedValue uint64
@@ -162,7 +158,7 @@ func UtxoValidateValueNotConservedUtxo(tx common.Transaction, ls common.LedgerSt
 }
 
 // UtxoValidateOutputTooSmallUtxo ensures that outputs have at least the minimum value
-func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	minCoin, err := MinCoinTxOut(tx, pp)
 	if err != nil {
 		return err
@@ -182,7 +178,7 @@ func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, ls common.LedgerState
 }
 
 // UtxoValidateOutputBootAddrAttrsTooBig ensures that bootstrap (Byron) addresses don't have attributes that are too large
-func UtxoValidateOutputBootAddrAttrsTooBig(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateOutputBootAddrAttrsTooBig(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
 		addr := tmpOutput.Address()
@@ -208,7 +204,7 @@ func UtxoValidateOutputBootAddrAttrsTooBig(tx common.Transaction, ls common.Ledg
 }
 
 // UtxoValidateMaxTxSizeUtxo ensures that a transaction does not exceed the max size
-func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, ls common.LedgerState, ts common.TipState, pp common.ProtocolParameters) error {
+func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	tmpTx, ok := tx.(*ShelleyTransaction)
 	if !ok {
 		return fmt.Errorf("transaction is not expected type")
