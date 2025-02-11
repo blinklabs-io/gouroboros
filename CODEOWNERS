@@ -1,5 +1,5 @@
 # Blink Labs
 #
 * @blinklabs-io/core
-*.md @blinklabs-io/core @blinklabs-io/pms
+*.md @blinklabs-io/core @blinklabs-io/docs @blinklabs-io/pms
 LICENSE @blinklabs-io/core @blinklabs-io/pms
