@@ -10,7 +10,8 @@ jobs:
   build:
     name: Conventional Commits
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-
       - uses: webiny/action-conventional-commits@v1.3.0
