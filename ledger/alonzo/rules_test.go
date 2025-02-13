@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package mary_test
+package alonzo_test
 
 import (
 	"crypto/rand"
@@ -22,6 +22,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -38,9 +39,7 @@ func (ls testLedgerState) NetworkId() uint {
 	return ls.networkId
 }
 
-func (ls testLedgerState) UtxoById(
-	id common.TransactionInput,
-) (common.Utxo, error) {
+func (ls testLedgerState) UtxoById(id common.TransactionInput) (common.Utxo, error) {
 	for _, tmpUtxo := range ls.utxos {
 		if id.Index() != tmpUtxo.Id.Index() {
 			continue
@@ -56,15 +55,17 @@ func (ls testLedgerState) UtxoById(
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			AllegraTransactionBody: allegra.AllegraTransactionBody{
-				TxValidityIntervalStart: testSlot,
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			MaryTransactionBody: mary.MaryTransactionBody{
+				AllegraTransactionBody: allegra.AllegraTransactionBody{
+					TxValidityIntervalStart: testSlot,
+				},
 			},
 		},
 	}
 	testLedgerState := testLedgerState{}
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
 	// Test helper function
@@ -72,7 +73,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 		t.Run(
 			name,
 			func(t *testing.T) {
-				err := mary.UtxoValidateOutsideValidityIntervalUtxo(
+				err := alonzo.UtxoValidateOutsideValidityIntervalUtxo(
 					testTx,
 					testSlot,
 					testLedgerState,
@@ -157,28 +158,30 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			AllegraTransactionBody: allegra.AllegraTransactionBody{
-				ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-					TxInputs: shelley.NewShelleyTransactionInputSet(
-						// Non-empty input set
-						[]shelley.ShelleyTransactionInput{
-							{},
-						},
-					),
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			MaryTransactionBody: mary.MaryTransactionBody{
+				AllegraTransactionBody: allegra.AllegraTransactionBody{
+					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+						TxInputs: shelley.NewShelleyTransactionInputSet(
+							// Non-empty input set
+							[]shelley.ShelleyTransactionInput{
+								{},
+							},
+						),
+					},
 				},
 			},
 		},
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Non-empty
 	t.Run(
 		"non-empty input set",
 		func(t *testing.T) {
-			err := mary.UtxoValidateInputSetEmptyUtxo(
+			err := alonzo.UtxoValidateInputSetEmptyUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -197,7 +200,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	t.Run(
 		"empty input set",
 		func(t *testing.T) {
-			err := mary.UtxoValidateInputSetEmptyUtxo(
+			err := alonzo.UtxoValidateInputSetEmptyUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -228,21 +231,25 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testBelowFee uint64 = 73
 	var testAboveFee uint64 = 75
 	testTxCbor, _ := hex.DecodeString("abcdef")
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			AllegraTransactionBody: allegra.AllegraTransactionBody{
-				ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-					TxFee: testExactFee,
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			MaryTransactionBody: mary.MaryTransactionBody{
+				AllegraTransactionBody: allegra.AllegraTransactionBody{
+					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+						TxFee: testExactFee,
+					},
 				},
 			},
 		},
 	}
 	testTx.SetCbor(testTxCbor)
-	testProtocolParams := &mary.MaryProtocolParameters{
-		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-				MinFeeA: 7,
-				MinFeeB: 53,
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{
+		MaryProtocolParameters: mary.MaryProtocolParameters{
+			AllegraProtocolParameters: allegra.AllegraProtocolParameters{
+				ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
+					MinFeeA: 7,
+					MinFeeB: 53,
+				},
 			},
 		},
 	}
@@ -255,7 +262,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 			func(t *testing.T) {
 				tmpTestTx := testTx
 				tmpTestTx.Body.TxFee = testFee
-				err := mary.UtxoValidateFeeTooSmallUtxo(
+				err := alonzo.UtxoValidateFeeTooSmallUtxo(
 					tmpTestTx,
 					testSlot,
 					testLedgerState,
@@ -329,8 +336,8 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		testInputTxId,
 		1,
 	)
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{},
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{},
 	}
 	testLedgerState := testLedgerState{
 		utxos: []common.Utxo{
@@ -340,7 +347,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Good input
 	t.Run(
 		"good input",
@@ -348,7 +355,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 			testTx.Body.TxInputs = shelley.NewShelleyTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{testGoodInput},
 			)
-			err := mary.UtxoValidateBadInputsUtxo(
+			err := alonzo.UtxoValidateBadInputsUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -369,7 +376,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 			testTx.Body.TxInputs = shelley.NewShelleyTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{testBadInput},
 			)
-			err := mary.UtxoValidateBadInputsUtxo(
+			err := alonzo.UtxoValidateBadInputsUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -395,15 +402,11 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateWrongNetwork(t *testing.T) {
-	testCorrectNetworkAddr, _ := common.NewAddress(
-		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
-	)
-	testWrongNetworkAddr, _ := common.NewAddress(
-		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
-	)
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			TxOutputs: []mary.MaryTransactionOutput{
+	testCorrectNetworkAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
+	testWrongNetworkAddr, _ := common.NewAddress("addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07")
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				{
 					OutputAmount: mary.MaryTransactionOutputValue{
 						Amount: 123456,
@@ -416,13 +419,13 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 		networkId: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Correct network
 	t.Run(
 		"correct network",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testCorrectNetworkAddr
-			err := mary.UtxoValidateBadInputsUtxo(
+			err := alonzo.UtxoValidateBadInputsUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -441,7 +444,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 		"wrong network",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testWrongNetworkAddr
-			err := mary.UtxoValidateWrongNetwork(
+			err := alonzo.UtxoValidateWrongNetwork(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -467,17 +470,15 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 }
 
 func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
-	testCorrectNetworkAddr, _ := common.NewAddress(
-		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
-	)
-	testWrongNetworkAddr, _ := common.NewAddress(
-		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
-	)
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			AllegraTransactionBody: allegra.AllegraTransactionBody{
-				ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-					TxWithdrawals: map[*common.Address]uint64{},
+	testCorrectNetworkAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
+	testWrongNetworkAddr, _ := common.NewAddress("addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07")
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			MaryTransactionBody: mary.MaryTransactionBody{
+				AllegraTransactionBody: allegra.AllegraTransactionBody{
+					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+						TxWithdrawals: map[*common.Address]uint64{},
+					},
 				},
 			},
 		},
@@ -486,13 +487,13 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 		networkId: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Correct network
 	t.Run(
 		"correct network",
 		func(t *testing.T) {
 			testTx.Body.TxWithdrawals[&testCorrectNetworkAddr] = 123456
-			err := mary.UtxoValidateWrongNetworkWithdrawal(
+			err := alonzo.UtxoValidateWrongNetworkWithdrawal(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -511,7 +512,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 		"wrong network",
 		func(t *testing.T) {
 			testTx.Body.TxWithdrawals[&testWrongNetworkAddr] = 123456
-			err := mary.UtxoValidateWrongNetworkWithdrawal(
+			err := alonzo.UtxoValidateWrongNetworkWithdrawal(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -543,23 +544,22 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			TxOutputs: []mary.MaryTransactionOutput{
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				// Empty placeholder output
 				{},
 			},
-			AllegraTransactionBody: allegra.AllegraTransactionBody{
-				ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-					TxFee: testFee,
-					TxInputs: shelley.NewShelleyTransactionInputSet(
-						[]shelley.ShelleyTransactionInput{
-							shelley.NewShelleyTransactionInput(
-								testInputTxId,
-								0,
-							),
-						},
-					),
+			MaryTransactionBody: mary.MaryTransactionBody{
+				AllegraTransactionBody: allegra.AllegraTransactionBody{
+					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+						TxFee: testFee,
+						TxInputs: shelley.NewShelleyTransactionInputSet(
+							[]shelley.ShelleyTransactionInput{
+								shelley.NewShelleyTransactionInput(testInputTxId, 0),
+							},
+						),
+					},
 				},
 			},
 		},
@@ -575,13 +575,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Exact amount
 	t.Run(
 		"exact amount",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
-			err := mary.UtxoValidateValueNotConservedUtxo(
+			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -600,7 +600,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		"output too low",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputUnderAmount
-			err := mary.UtxoValidateValueNotConservedUtxo(
+			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -628,7 +628,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		"output too high",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputOverAmount
-			err := mary.UtxoValidateValueNotConservedUtxo(
+			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -656,9 +656,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	var testOutputAmountGood uint64 = 1234567
 	var testOutputAmountBad uint64 = 123
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			TxOutputs: []mary.MaryTransactionOutput{
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				// Empty placeholder output
 				{},
 			},
@@ -666,10 +666,12 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{
-		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-				MinUtxoValue: 100000,
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{
+		MaryProtocolParameters: mary.MaryProtocolParameters{
+			AllegraProtocolParameters: allegra.AllegraProtocolParameters{
+				ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
+					MinUtxoValue: 100000,
+				},
 			},
 		},
 	}
@@ -678,7 +680,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 		"sufficient coin",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountGood
-			err := mary.UtxoValidateOutputTooSmallUtxo(
+			err := alonzo.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -697,7 +699,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 		"insufficient coin",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountBad
-			err := mary.UtxoValidateOutputTooSmallUtxo(
+			err := alonzo.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -742,16 +744,14 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			cbor.NewByteString(tmpAssetName): 1,
 		}
 	}
-	tmpBadMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
-		tmpBadAssets,
-	)
+	tmpBadMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](tmpBadAssets)
 	var testOutputValueBad = mary.MaryTransactionOutputValue{
 		Amount: 1234567,
 		Assets: &tmpBadMultiAsset,
 	}
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			TxOutputs: []mary.MaryTransactionOutput{
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				// Empty placeholder output
 				{},
 			},
@@ -759,13 +759,15 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{
+		MaxValueSize: 4000,
+	}
 	// Good
 	t.Run(
 		"not too large",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueGood
-			err := mary.UtxoValidateOutputTooBigUtxo(
+			err := alonzo.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -784,7 +786,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		"too large",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueBad
-			err := mary.UtxoValidateOutputTooBigUtxo(
+			err := alonzo.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -810,9 +812,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
-	testGoodAddr, _ := common.NewAddress(
-		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
-	)
+	testGoodAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
 	// Generate random pubkey
 	testBadAddrPubkey := make([]byte, 28)
 	if _, err := rand.Read(testBadAddrPubkey); err != nil {
@@ -830,9 +830,9 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			Payload: testBadAddrAttrPayload,
 		},
 	)
-	testTx := &mary.MaryTransaction{
-		Body: mary.MaryTransactionBody{
-			TxOutputs: []mary.MaryTransactionOutput{
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				// Empty placeholder
 				{},
 			},
@@ -840,13 +840,13 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Good
 	t.Run(
 		"Shelley address",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testGoodAddr
-			err := mary.UtxoValidateOutputBootAddrAttrsTooBig(
+			err := alonzo.UtxoValidateOutputBootAddrAttrsTooBig(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -865,7 +865,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 		"Byron address with large attribute payload",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testBadAddr
-			err := mary.UtxoValidateOutputBootAddrAttrsTooBig(
+			err := alonzo.UtxoValidateOutputBootAddrAttrsTooBig(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -893,16 +893,16 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
-	testTx := &mary.MaryTransaction{}
+	testTx := &alonzo.AlonzoTransaction{}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Transaction under limit
 	t.Run(
 		"transaction is under limit",
 		func(t *testing.T) {
 			testProtocolParams.MaxTxSize = testMaxTxSizeLarge
-			err := mary.UtxoValidateMaxTxSizeUtxo(
+			err := alonzo.UtxoValidateMaxTxSizeUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -921,7 +921,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 		"transaction is too large",
 		func(t *testing.T) {
 			testProtocolParams.MaxTxSize = testMaxTxSizeSmall
-			err := mary.UtxoValidateMaxTxSizeUtxo(
+			err := alonzo.UtxoValidateMaxTxSizeUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -944,4 +944,20 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 			)
 		},
 	)
+}
+
+func TestUtxoValidateInsufficientCollateral(t *testing.T) {
+	// TODO
+}
+
+func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
+	// TODO
+}
+
+func TestUtxoValidateNoCollateralInputs(t *testing.T) {
+	// TODO
+}
+
+func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
+	// TODO
 }
