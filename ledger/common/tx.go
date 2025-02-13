@@ -87,7 +87,7 @@ type TransactionWitnessSet interface {
 
 type TransactionWitnessRedeemers interface {
 	Indexes(RedeemerTag) []uint
-	Value(uint, RedeemerTag) (cbor.LazyValue, RedeemerExUnits)
+	Value(uint, RedeemerTag) (cbor.LazyValue, ExUnits)
 }
 
 type Utxo struct {
