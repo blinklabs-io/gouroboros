@@ -26,7 +26,6 @@ type MaryTransaction = mary.MaryTransaction
 type MaryTransactionBody = mary.MaryTransactionBody
 type MaryTransactionOutput = mary.MaryTransactionOutput
 type MaryTransactionOutputValue = mary.MaryTransactionOutputValue
-type MaryTransactionWitnessSet = mary.MaryTransactionWitnessSet
 type MaryProtocolParameters = mary.MaryProtocolParameters
 type MaryProtocolParameterUpdate = mary.MaryProtocolParameterUpdate
 
