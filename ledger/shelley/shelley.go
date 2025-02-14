@@ -468,9 +468,9 @@ func (o ShelleyTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 
 type ShelleyTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
-	VkeyWitnesses      []interface{} `cbor:"0,keyasint,omitempty"`
-	MultisigScripts    []interface{} `cbor:"1,keyasint,omitempty"`
-	BootstrapWitnesses []interface{} `cbor:"2,keyasint,omitempty"`
+	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
+	NativeScripts      []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 }
 
 func (t *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
