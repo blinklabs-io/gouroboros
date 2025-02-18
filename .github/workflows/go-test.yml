@@ -1,0 +1,25 @@
+name: go-test
+
+on:
+  push:
+    tags:
+      - v*
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  go-test:
+    name: go-test
+    strategy:
+      matrix:
+        go-version: [1.22.x, 1.23.x, 1.24.x]
+        platform: [ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: go-test
+        run: go test ./...
