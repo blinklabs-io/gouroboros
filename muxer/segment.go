@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package muxer
 
 import (
+	"math"
 	"time"
 )
 
@@ -45,6 +46,8 @@ type Segment struct {
 // NewSegment returns a new Segment given a protocol ID, payload bytes, and whether the segment
 // is a response
 func NewSegment(protocolId uint16, payload []byte, isResponse bool) *Segment {
+	// time since unix epoch even as nanoseconds will not overflow soon
+	// #nosec G115
 	header := SegmentHeader{
 		Timestamp:  uint32(time.Now().UnixNano() & 0xffffffff),
 		ProtocolId: protocolId,
@@ -52,7 +55,12 @@ func NewSegment(protocolId uint16, payload []byte, isResponse bool) *Segment {
 	if isResponse {
 		header.ProtocolId = header.ProtocolId + segmentProtocolIdResponseFlag
 	}
-	header.PayloadLength = uint16(len(payload))
+	size := len(payload)
+	if size > SegmentMaxPayloadLength || size > math.MaxUint16 {
+		return nil
+	}
+	// payload size fits within length
+	header.PayloadLength = uint16(size)
 	segment := &Segment{
 		SegmentHeader: header,
 		Payload:       payload,
