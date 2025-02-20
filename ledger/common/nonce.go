@@ -38,9 +38,8 @@ func (n *Nonce) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
-
-	n.Type = uint(nonceType)
-
+	// nonce type is known within uint range
+	n.Type = uint(nonceType) // #nosec G115
 	switch nonceType {
 	case NonceTypeNeutral:
 		// Value uses default value

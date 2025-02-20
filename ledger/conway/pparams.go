@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,10 +15,13 @@
 package conway
 
 import (
+	"math"
+
+	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ConwayProtocolParameters struct {
@@ -57,6 +60,33 @@ type ConwayProtocolParameters struct {
 }
 
 func (p *ConwayProtocolParameters) Utxorpc() *cardano.PParams {
+	// sanity check
+	if p.A0.Num().Int64() > math.MaxInt32 ||
+		p.A0.Denom().Int64() < 0 ||
+		p.A0.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	if p.Rho.Num().Int64() > math.MaxInt32 ||
+		p.Rho.Denom().Int64() < 0 ||
+		p.Rho.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	if p.Tau.Num().Int64() > math.MaxInt32 ||
+		p.Tau.Denom().Int64() < 0 ||
+		p.Tau.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	if p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
+		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
+		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	if p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
+		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
+		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	// #nosec G115
 	return &cardano.PParams{
 		CoinsPerUtxoByte:         p.AdaPerUtxoByte,
 		MaxTxSize:                uint64(p.MaxTxSize),

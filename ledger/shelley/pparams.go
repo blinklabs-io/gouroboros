@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,13 @@
 package shelley
 
 import (
+	"math"
 	"math/big"
+
+	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ShelleyProtocolParameters struct {
@@ -158,6 +160,23 @@ func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
 }
 
 func (p *ShelleyProtocolParameters) Utxorpc() *cardano.PParams {
+	// sanity check
+	if p.A0.Num().Int64() > math.MaxInt32 ||
+		p.A0.Denom().Int64() < 0 ||
+		p.A0.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	if p.Rho.Num().Int64() > math.MaxInt32 ||
+		p.Rho.Denom().Int64() < 0 ||
+		p.Rho.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	if p.Tau.Num().Int64() > math.MaxInt32 ||
+		p.Tau.Denom().Int64() < 0 ||
+		p.Tau.Denom().Int64() > math.MaxUint32 {
+			return nil
+	}
+	// #nosec G115
 	return &cardano.PParams{
 		MaxTxSize:                uint64(p.MaxTxSize),
 		MinFeeCoefficient:        uint64(p.MinFeeA),

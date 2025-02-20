@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package shelley
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
@@ -97,6 +98,7 @@ func (b *ShelleyBlock) Era() common.Era {
 
 func (b *ShelleyBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
+	// #nosec G115
 	for idx := range b.TransactionBodies {
 		ret[idx] = &ShelleyTransaction{
 			Body:       b.TransactionBodies[idx],
@@ -402,6 +404,9 @@ func NewShelleyTransactionInput(hash string, idx int) ShelleyTransactionInput {
 	tmpHash, err := hex.DecodeString(hash)
 	if err != nil {
 		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+	}
+	if idx < 0 || idx > math.MaxUint32 {
+		panic("index out of range")
 	}
 	return ShelleyTransactionInput{
 		TxId:        common.Blake2b256(tmpHash),

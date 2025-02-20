@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -107,6 +107,7 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 	}
 
 	ret := make([]common.Transaction, len(b.TransactionBodies))
+	// #nosec G115
 	for idx := range b.TransactionBodies {
 		ret[idx] = &BabbageTransaction{
 			Body:       b.TransactionBodies[idx],

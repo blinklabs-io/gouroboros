@@ -102,7 +102,8 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, tmpCert); err != nil {
 		return err
 	}
-	c.Type = uint(certType)
+	// certType is known within uint range
+	c.Type = uint(certType) // #nosec G115
 	c.Certificate = tmpCert
 	return nil
 }
@@ -355,6 +356,7 @@ func (c *PoolRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
 				VrfKeyhash: c.VrfKeyHash[:],
 				Pledge:     c.Pledge,
 				Cost:       c.Cost,
+				// #nosec G115
 				Margin: &utxorpc.RationalNumber{
 					Numerator:   int32(c.Margin.Num().Int64()),
 					Denominator: uint32(c.Margin.Denom().Uint64()),
@@ -484,13 +486,17 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() *utxorpc.Certificate {
 			tmpMirTargets,
 			&utxorpc.MirTarget{
 				StakeCredential: stakeCred.Utxorpc(),
-				DeltaCoin:       int64(deltaCoin),
+				// potential integer overflow
+				// #nosec G115
+				DeltaCoin: int64(deltaCoin),
 			},
 		)
 	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_MirCert{
 			MirCert: &utxorpc.MirCert{
+				// potential integer overflow
+				// #nosec G115
 				From:     utxorpc.MirSource(c.Reward.Source),
 				To:       tmpMirTargets,
 				OtherPot: c.Reward.OtherPot,
