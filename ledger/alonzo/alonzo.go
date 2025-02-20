@@ -311,9 +311,9 @@ type AlonzoRedeemer struct {
 
 type AlonzoTransactionWitnessSet struct {
 	shelley.ShelleyTransactionWitnessSet
-	PlutusScripts []cbor.RawMessage `cbor:"3,keyasint,omitempty"`
-	PlutusData    []cbor.RawMessage `cbor:"4,keyasint,omitempty"`
-	Redeemers     []AlonzoRedeemer  `cbor:"5,keyasint,omitempty"`
+	PlutusV1Scripts [][]byte         `cbor:"3,keyasint,omitempty"`
+	PlutusData      []cbor.Value     `cbor:"4,keyasint,omitempty"`
+	Redeemers       []AlonzoRedeemer `cbor:"5,keyasint,omitempty"`
 }
 
 func (t *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {

@@ -191,8 +191,8 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 
 type ConwayTransactionWitnessSet struct {
 	babbage.BabbageTransactionWitnessSet
-	Redeemers       ConwayRedeemers   `cbor:"5,keyasint,omitempty"`
-	PlutusV3Scripts []cbor.RawMessage `cbor:"7,keyasint,omitempty"`
+	Redeemers       ConwayRedeemers `cbor:"5,keyasint,omitempty"`
+	PlutusV3Scripts [][]byte        `cbor:"7,keyasint,omitempty"`
 }
 
 func (t *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {

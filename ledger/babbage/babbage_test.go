@@ -48,8 +48,11 @@ func TestBabbageBlockTransactions(t *testing.T) {
 		b.TransactionWitnessSets[i] = BabbageTransactionWitnessSet{
 			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
 				ShelleyTransactionWitnessSet: shelley.ShelleyTransactionWitnessSet{
-					VkeyWitnesses: []interface{}{
-						append(make([]byte, 95), 1<<i),
+					VkeyWitnesses: []common.VkeyWitness{
+						{
+							Vkey:      append(make([]byte, 31), 1<<i)[:],
+							Signature: append(make([]byte, 63), 1<<i)[:],
+						},
 					},
 				},
 			},

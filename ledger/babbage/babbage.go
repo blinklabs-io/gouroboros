@@ -491,7 +491,7 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 
 type BabbageTransactionWitnessSet struct {
 	alonzo.AlonzoTransactionWitnessSet
-	PlutusV2Scripts []cbor.RawMessage `cbor:"6,keyasint,omitempty"`
+	PlutusV2Scripts [][]byte `cbor:"6,keyasint,omitempty"`
 }
 
 func (t *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {

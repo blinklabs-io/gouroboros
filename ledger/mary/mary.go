@@ -54,7 +54,7 @@ type MaryBlock struct {
 	cbor.DecodeStoreCbor
 	BlockHeader            *MaryBlockHeader
 	TransactionBodies      []MaryTransactionBody
-	TransactionWitnessSets []MaryTransactionWitnessSet
+	TransactionWitnessSets []shelley.ShelleyTransactionWitnessSet
 	TransactionMetadataSet map[uint]*cbor.LazyValue
 }
 
@@ -180,18 +180,12 @@ type MaryTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	Body       MaryTransactionBody
-	WitnessSet MaryTransactionWitnessSet
+	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
 }
 
 func (MaryTransaction) Type() int {
 	return TxTypeMary
-}
-
-type MaryTransactionWitnessSet struct {
-	shelley.ShelleyTransactionWitnessSet
-	Script        []interface{} `cbor:"4,keyasint,omitempty"`
-	PlutusScripts []interface{} `cbor:"5,keyasint,omitempty"`
 }
 
 func (t MaryTransaction) Hash() string {
