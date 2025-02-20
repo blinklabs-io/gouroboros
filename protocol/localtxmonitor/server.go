@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package localtxmonitor
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -193,6 +194,9 @@ func (s *Server) handleNextTx() error {
 		return nil
 	}
 	mempoolTx := s.mempoolTxs[s.mempoolNextTxIdx]
+	if mempoolTx.EraId > math.MaxUint8 {
+		return fmt.Errorf("integer overflow in era id")
+	}
 	newMsg := NewMsgReplyNextTx(uint8(mempoolTx.EraId), mempoolTx.Tx)
 	if err := s.SendMessage(newMsg); err != nil {
 		return err
@@ -213,10 +217,18 @@ func (s *Server) handleGetSizes() error {
 	for _, tx := range s.mempoolTxs {
 		totalTxSize += len(tx.Tx)
 	}
+	numTxs := len(s.mempoolTxs)
+	// check for over/underflows
+	if totalTxSize < 0 || totalTxSize > math.MaxUint32 {
+		return fmt.Errorf("integrer overflow in total tx size")
+	}
+	if numTxs < 0 || numTxs > math.MaxUint32 {
+		return fmt.Errorf("integrer overflow in tx count")
+	}
 	newMsg := NewMsgReplyGetSizes(
 		s.mempoolCapacity,
-		uint32(totalTxSize),
-		uint32(len(s.mempoolTxs)),
+		uint32(totalTxSize), // #nosec G115
+		uint32(numTxs),
 	)
 	if err := s.SendMessage(newMsg); err != nil {
 		return err

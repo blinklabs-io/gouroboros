@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package localtxmonitor
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -170,13 +171,21 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 	if tmp == nil {
 		return nil
 	}
+	messageType64 := tmp[0].(uint64)
+	if messageType64 > math.MaxUint8 {
+		return fmt.Errorf("message type integer overflow")
+	}
 	// We know what the value will be, but it doesn't hurt to use the actual value from the message
-	m.MessageType = uint8(tmp[0].(uint64))
+	m.MessageType = uint8(messageType64)
 	// The ReplyNextTx message has a variable number of arguments
 	if len(tmp) > 1 {
 		txWrapper := tmp[1].([]interface{})
+		eraId64 := txWrapper[0].(uint64)
+		if eraId64 > math.MaxUint8 {
+			return fmt.Errorf("era id integer overflow")
+		}
 		m.Transaction = MsgReplyNextTxTransaction{
-			EraId: uint8(txWrapper[0].(uint64)),
+			EraId: uint8(eraId64),
 			Tx:    txWrapper[1].(cbor.WrappedCbor).Bytes(),
 		}
 	}
