@@ -288,6 +288,11 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 	return ret
 }
 
+func (t ByronTransaction) Witnesses() common.TransactionWitnessSet {
+	// TODO: implement once we properly support decoding Byron TX witnesses (#853)
+	return nil
+}
+
 func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
 	return &utxorpc.Tx{}
 }

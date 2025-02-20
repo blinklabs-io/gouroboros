@@ -18,6 +18,17 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+type RedeemerTag uint8
+
+const (
+	RedeemerTagSpend     RedeemerTag = 0
+	RedeemerTagMint      RedeemerTag = 1
+	RedeemerTagCert      RedeemerTag = 2
+	RedeemerTagReward    RedeemerTag = 3
+	RedeemerTagVoting    RedeemerTag = 4
+	RedeemerTagProposing RedeemerTag = 5
+)
+
 type VkeyWitness struct {
 	cbor.StructAsArray
 	Vkey      []byte
