@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -149,13 +149,13 @@ func (h *ConwayBlockHeader) Era() common.Era {
 
 type ConwayRedeemerKey struct {
 	cbor.StructAsArray
-	Tag   uint8
+	Tag   common.RedeemerTag
 	Index uint32
 }
 
 type ConwayRedeemerValue struct {
 	cbor.StructAsArray
-	Data    cbor.RawMessage
+	Data    cbor.LazyValue
 	ExUnits common.RedeemerExUnits
 }
 
@@ -189,14 +189,43 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-type ConwayTransactionWitnessSet struct {
-	babbage.BabbageTransactionWitnessSet
-	Redeemers       ConwayRedeemers `cbor:"5,keyasint,omitempty"`
-	PlutusV3Scripts [][]byte        `cbor:"7,keyasint,omitempty"`
+func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
+	ret := []uint{}
+	for key := range r.Redeemers {
+		if key.Tag == tag {
+			ret = append(ret, uint(key.Index))
+		}
+	}
+	return ret
 }
 
-func (t *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	return t.UnmarshalCbor(cborData, t)
+func (r ConwayRedeemers) Value(index uint, tag common.RedeemerTag) (cbor.LazyValue, common.RedeemerExUnits) {
+	redeemer, ok := r.Redeemers[ConwayRedeemerKey{
+		Tag:   tag,
+		Index: uint32(index),
+	}]
+	if ok {
+		return redeemer.Data, redeemer.ExUnits
+	}
+	return cbor.LazyValue{}, common.RedeemerExUnits{}
+}
+
+type ConwayTransactionWitnessSet struct {
+	babbage.BabbageTransactionWitnessSet
+	WsRedeemers       ConwayRedeemers `cbor:"5,keyasint,omitempty"`
+	WsPlutusV3Scripts [][]byte        `cbor:"7,keyasint,omitempty"`
+}
+
+func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	return w.UnmarshalCbor(cborData, w)
+}
+
+func (w ConwayTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+	return w.WsPlutusV3Scripts
+}
+
+func (w ConwayTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+	return w.WsRedeemers
 }
 
 type ConwayTransactionInputSet struct {
@@ -399,6 +428,10 @@ func (t ConwayTransaction) Produced() []common.Utxo {
 			},
 		}
 	}
+}
+
+func (t ConwayTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.WitnessSet
 }
 
 func (t *ConwayTransaction) Cbor() []byte {

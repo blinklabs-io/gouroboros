@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -469,12 +469,49 @@ func (o ShelleyTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 type ShelleyTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
-	NativeScripts      []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 }
 
 func (t *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return t.UnmarshalCbor(cborData, t)
+}
+
+func (w ShelleyTransactionWitnessSet) Vkey() []common.VkeyWitness {
+	return w.VkeyWitnesses
+}
+
+func (w ShelleyTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return w.BootstrapWitnesses
+}
+
+func (w ShelleyTransactionWitnessSet) NativeScripts() []common.NativeScript {
+	return w.WsNativeScripts
+}
+
+func (w ShelleyTransactionWitnessSet) PlutusData() []cbor.Value {
+	// No plutus data in Shelley
+	return nil
+}
+
+func (w ShelleyTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+	// No plutus v1 scripts in Shelley
+	return nil
+}
+
+func (w ShelleyTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+	// No plutus v2 scripts in Shelley
+	return nil
+}
+
+func (w ShelleyTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+	// No plutus v3 scripts in Shelley
+	return nil
+}
+
+func (w ShelleyTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+	// No redeemers in Shelley
+	return nil
 }
 
 type ShelleyTransaction struct {
@@ -593,6 +630,10 @@ func (t ShelleyTransaction) Produced() []common.Utxo {
 		)
 	}
 	return ret
+}
+
+func (t ShelleyTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.WitnessSet
 }
 
 func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {

@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -303,21 +303,54 @@ func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 
 type AlonzoRedeemer struct {
 	cbor.StructAsArray
-	Tag     uint8
+	Tag     common.RedeemerTag
 	Index   uint32
-	Data    cbor.RawMessage
+	Data    cbor.LazyValue
 	ExUnits common.RedeemerExUnits
+}
+
+type AlonzoRedeemers []AlonzoRedeemer
+
+func (r AlonzoRedeemers) Indexes(tag common.RedeemerTag) []uint {
+	ret := []uint{}
+	for _, redeemer := range r {
+		if redeemer.Tag == tag {
+			ret = append(ret, uint(redeemer.Index))
+		}
+	}
+	return ret
+}
+
+func (r AlonzoRedeemers) Value(index uint, tag common.RedeemerTag) (cbor.LazyValue, common.RedeemerExUnits) {
+	for _, redeemer := range r {
+		if redeemer.Tag == tag && uint(redeemer.Index) == index {
+			return redeemer.Data, redeemer.ExUnits
+		}
+	}
+	return cbor.LazyValue{}, common.RedeemerExUnits{}
 }
 
 type AlonzoTransactionWitnessSet struct {
 	shelley.ShelleyTransactionWitnessSet
-	PlutusV1Scripts [][]byte         `cbor:"3,keyasint,omitempty"`
-	PlutusData      []cbor.Value     `cbor:"4,keyasint,omitempty"`
-	Redeemers       []AlonzoRedeemer `cbor:"5,keyasint,omitempty"`
+	WsPlutusV1Scripts [][]byte        `cbor:"3,keyasint,omitempty"`
+	WsPlutusData      []cbor.Value    `cbor:"4,keyasint,omitempty"`
+	WsRedeemers       AlonzoRedeemers `cbor:"5,keyasint,omitempty"`
 }
 
-func (t *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	return t.UnmarshalCbor(cborData, t)
+func (w *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	return w.UnmarshalCbor(cborData, w)
+}
+
+func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+	return w.WsPlutusV1Scripts
+}
+
+func (w AlonzoTransactionWitnessSet) PlutusData() []cbor.Value {
+	return w.WsPlutusData
+}
+
+func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+	return w.WsRedeemers
 }
 
 type AlonzoTransaction struct {
@@ -450,6 +483,10 @@ func (t AlonzoTransaction) Produced() []common.Utxo {
 		// No collateral return in Alonzo
 		return []common.Utxo{}
 	}
+}
+
+func (t AlonzoTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.WitnessSet
 }
 
 func (t *AlonzoTransaction) Cbor() []byte {

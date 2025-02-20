@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -288,6 +288,10 @@ func (t AllegraTransaction) Produced() []common.Utxo {
 
 func (t AllegraTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return t.Body.ProtocolParameterUpdates()
+}
+
+func (t AllegraTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.WitnessSet
 }
 
 func (t *AllegraTransaction) Cbor() []byte {

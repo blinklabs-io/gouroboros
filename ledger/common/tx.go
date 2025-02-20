@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ type Transaction interface {
 	IsValid() bool
 	Consumed() []TransactionInput
 	Produced() []Utxo
+	Witnesses() TransactionWitnessSet
 }
 
 type TransactionBody interface {
@@ -71,6 +72,22 @@ type TransactionOutput interface {
 	DatumHash() *Blake2b256
 	Cbor() []byte
 	Utxorpc() *utxorpc.TxOutput
+}
+
+type TransactionWitnessSet interface {
+	Vkey() []VkeyWitness
+	NativeScripts() []NativeScript
+	Bootstrap() []BootstrapWitness
+	PlutusData() []cbor.Value
+	PlutusV1Scripts() [][]byte
+	PlutusV2Scripts() [][]byte
+	PlutusV3Scripts() [][]byte
+	Redeemers() TransactionWitnessRedeemers
+}
+
+type TransactionWitnessRedeemers interface {
+	Indexes(RedeemerTag) []uint
+	Value(uint, RedeemerTag) (cbor.LazyValue, RedeemerExUnits)
 }
 
 type Utxo struct {

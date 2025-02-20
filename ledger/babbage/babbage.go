@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -491,11 +491,15 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 
 type BabbageTransactionWitnessSet struct {
 	alonzo.AlonzoTransactionWitnessSet
-	PlutusV2Scripts [][]byte `cbor:"6,keyasint,omitempty"`
+	WsPlutusV2Scripts [][]byte `cbor:"6,keyasint,omitempty"`
 }
 
-func (t *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	return t.UnmarshalCbor(cborData, t)
+func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	return w.UnmarshalCbor(cborData, w)
+}
+
+func (w BabbageTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+	return w.WsPlutusV2Scripts
 }
 
 type BabbageTransaction struct {
@@ -635,6 +639,10 @@ func (t BabbageTransaction) Produced() []common.Utxo {
 			},
 		}
 	}
+}
+
+func (t BabbageTransaction) Witnesses() common.TransactionWitnessSet {
+	return t.WitnessSet
 }
 
 func (t *BabbageTransaction) Cbor() []byte {
