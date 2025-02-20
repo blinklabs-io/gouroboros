@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -70,16 +71,11 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 			v.value = tmpConstr
 		} else {
 			// Fall back to standard CBOR tag parsing for our supported types
-			var tmpTagDecode interface{}
+			var tmpTagDecode any
 			if _, err := Decode(data, &tmpTagDecode); err != nil {
 				return err
 			}
-			switch tmpTagDecode.(type) {
-			case int, uint, int64, uint64, bool, big.Int, WrappedCbor, Rat, Set, Map:
-				v.value = tmpTagDecode
-			default:
-				return fmt.Errorf("unsupported CBOR tag number: %d", tmpTag.Number)
-			}
+			v.value = tmpTagDecode
 		}
 	default:
 		var tmpValue interface{}
@@ -132,14 +128,19 @@ func (v *Value) processMap(data []byte) (err error) {
 			)
 		}
 	}()
-	tmpValue := map[Value]Value{}
+	tmpValue := map[*Value]Value{}
 	if _, err = Decode(data, &tmpValue); err != nil {
 		return err
 	}
 	// Extract actual value from each child value
-	newValue := map[interface{}]interface{}{}
+	newValue := map[any]any{}
 	for key, value := range tmpValue {
-		newValue[key.Value()] = value.Value()
+		keyValue := key.Value()
+		// Use a pointer for unhashable key types
+		if !reflect.TypeOf(keyValue).Comparable() {
+			keyValue = &keyValue
+		}
+		newValue[keyValue] = value.Value()
 	}
 	v.value = newValue
 	return nil
@@ -151,7 +152,7 @@ func (v *Value) processArray(data []byte) error {
 		return err
 	}
 	// Extract actual value from each child value
-	newValue := []interface{}{}
+	newValue := []any{}
 	for _, value := range tmpValue {
 		newValue = append(newValue, value.Value())
 	}

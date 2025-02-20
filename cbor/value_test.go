@@ -46,13 +46,6 @@ var testDefs = []struct {
 		expectedObject:      nil,
 		expectedDecodeError: io.ErrUnexpectedEOF,
 	},
-	// Invalid map key type
-	{
-		cborHex: "A1810000",
-		expectedDecodeError: fmt.Errorf(
-			"decode failure, probably due to type unsupported by Go: runtime error: hash of unhashable type []interface {}",
-		),
-	},
 	// [1, 2, 3]
 	{
 		cborHex:         "83010203",
