@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package txsubmission
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -93,7 +94,18 @@ func (s *Server) RequestTxIds(
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	msg := NewMsgRequestTxIds(blocking, uint16(s.ackCount), uint16(reqCount))
+	var ack, req uint16
+	if s.ackCount > 0 && s.ackCount <= math.MaxUint16 {
+		ack = uint16(s.ackCount)
+	} else if s.ackCount > math.MaxUint16 {
+		ack = math.MaxUint16
+	}
+	if reqCount > 0 && reqCount <= math.MaxUint16 {
+		req = uint16(reqCount)
+	} else if reqCount > math.MaxUint16 {
+		req = math.MaxUint16
+	}
+	msg := NewMsgRequestTxIds(blocking, ack, req)
 	if err := s.SendMessage(msg); err != nil {
 		return nil, err
 	}
