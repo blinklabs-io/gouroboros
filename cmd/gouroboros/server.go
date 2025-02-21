@@ -90,7 +90,7 @@ func testServer(f *globalFlags) {
 		}()
 		_, err = ouroboros.New(
 			ouroboros.WithConnection(conn),
-			ouroboros.WithNetworkMagic(uint32(f.networkMagic)),
+			ouroboros.WithNetworkMagic(uint32(f.networkMagic)), // #nosec G115
 			ouroboros.WithErrorChan(errorChan),
 			ouroboros.WithNodeToNode(f.ntnProto),
 			ouroboros.WithServer(true),

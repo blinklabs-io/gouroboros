@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ func main() {
 	}()
 	o, err := ouroboros.New(
 		ouroboros.WithConnection(conn),
-		ouroboros.WithNetworkMagic(uint32(f.NetworkMagic)),
+		ouroboros.WithNetworkMagic(uint32(f.NetworkMagic)), // #nosec G115
 		ouroboros.WithErrorChan(errorChan),
 		ouroboros.WithNodeToNode(f.NtnProto),
 		ouroboros.WithKeepAlive(true),
@@ -164,7 +164,7 @@ func handleRequestTxIds(
 				EraId: 5,
 				TxId:  txHash,
 			},
-			Size: uint32(len(txBytes)),
+			Size: uint32(len(txBytes)), // #nosec G115
 		},
 	}
 	return ret, nil
