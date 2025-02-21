@@ -98,6 +98,7 @@ func (b *AllegraBlock) Era() common.Era {
 
 func (b *AllegraBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
+	// #nosec G115
 	for idx := range b.TransactionBodies {
 		ret[idx] = &AllegraTransaction{
 			Body:       b.TransactionBodies[idx],

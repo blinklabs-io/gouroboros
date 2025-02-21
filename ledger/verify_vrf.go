@@ -1,5 +1,5 @@
 // Copyright 2024 Cardano Foundation
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ const (
 func MkInputVrf(slot int64, eta0 []byte) []byte {
 	// Ref: https://github.com/IntersectMBO/ouroboros-consensus/blob/de74882102236fdc4dd25aaa2552e8b3e208448c/ouroboros-consensus-protocol/src/ouroboros-consensus-protocol/Ouroboros/Consensus/Protocol/Praos/VRF.hs#L60
 	concat := make([]byte, 8+32)
-	binary.BigEndian.PutUint64(concat[:8], uint64(slot))
+	binary.BigEndian.PutUint64(concat[:8], uint64(slot)) // #nosec G115
 	copy(concat[8:], eta0)
 	h, err := blake2b.New(32, nil)
 	if err != nil {

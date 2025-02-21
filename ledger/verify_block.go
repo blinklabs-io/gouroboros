@@ -1,5 +1,5 @@
 // Copyright 2024 Cardano Foundation
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	headerCborHex := block.HeaderCbor
 	epochNonceHex := block.Eta0
 	bodyHex := block.BlockBodyCbor
-	slotPerKesPeriod := uint64(block.Spk)
+	slotPerKesPeriod := uint64(block.Spk) // #nosec G115
 
 	isValid := false
 	vrfHex := ""
@@ -76,7 +76,7 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	}
 	vrfBytes := header.Body.VrfKey[:]
 	vrfResult := header.Body.VrfResult
-	seed := MkInputVrf(int64(header.Body.Slot), epochNonceByte)
+	seed := MkInputVrf(int64(header.Body.Slot), epochNonceByte) // #nosec G115
 	output, errVrf := VrfVerifyAndHash(vrfBytes, vrfResult.Proof, seed)
 	if errVrf != nil {
 		return fmt.Errorf(

@@ -1,5 +1,5 @@
 // Copyright 2024 Cardano Foundation
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,6 +47,9 @@ type SumXKesSig struct {
 
 func NewSumKesFromByte(depth uint64, fromByte []byte) SumXKesSig {
 	kesSize := SIGMA_SIZE + depth*(PUBLIC_KEY_SIZE*2)
+	if kesSize > math.MaxInt {
+		panic("kes size too large")
+	}
 	if len(fromByte) != int(kesSize) {
 		panic("length not match")
 	}

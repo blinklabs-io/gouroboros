@@ -100,6 +100,7 @@ func (b *MaryBlock) Era() common.Era {
 
 func (b *MaryBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
+	// #nosec G115
 	for idx := range b.TransactionBodies {
 		ret[idx] = &MaryTransaction{
 			Body:       b.TransactionBodies[idx],

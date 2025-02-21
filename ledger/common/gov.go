@@ -113,7 +113,8 @@ func (g *GovActionWrapper) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, tmpAction); err != nil {
 		return err
 	}
-	g.Type = uint(actionType)
+	// action type is known within uint range
+	g.Type = uint(actionType) // #nosec G115
 	g.Action = tmpAction
 	return nil
 }

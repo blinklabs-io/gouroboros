@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package byron
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -313,6 +314,9 @@ func NewByronTransactionInput(hash string, idx int) ByronTransactionInput {
 	tmpHash, err := hex.DecodeString(hash)
 	if err != nil {
 		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
+	}
+	if idx < 0 || idx > math.MaxUint32 {
+		panic("index out of range")
 	}
 	return ByronTransactionInput{
 		TxId:        common.Blake2b256(tmpHash),
