@@ -203,7 +203,7 @@ func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
 func (r ConwayRedeemers) Value(index uint, tag common.RedeemerTag) (cbor.LazyValue, common.RedeemerExUnits) {
 	redeemer, ok := r.Redeemers[ConwayRedeemerKey{
 		Tag:   tag,
-		Index: uint32(index),
+		Index: uint32(index), // #nosec G115
 	}]
 	if ok {
 		return redeemer.Data, redeemer.ExUnits

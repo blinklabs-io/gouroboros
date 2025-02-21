@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -172,7 +172,7 @@ func testChainSync(f *globalFlags) {
 	}()
 	o, err := ouroboros.New(
 		ouroboros.WithConnection(conn),
-		ouroboros.WithNetworkMagic(uint32(f.networkMagic)),
+		ouroboros.WithNetworkMagic(uint32(f.networkMagic)), // #nosec G115
 		ouroboros.WithErrorChan(errorChan),
 		ouroboros.WithNodeToNode(f.ntnProto),
 		ouroboros.WithKeepAlive(true),
@@ -199,7 +199,7 @@ func testChainSync(f *globalFlags) {
 		point = tip.Point
 	} else if len(intersectPoint) > 0 {
 		// Slot
-		slot := uint64(intersectPoint[0].(int))
+		slot := uint64(intersectPoint[0].(int)) // #nosec G115
 		// Block hash
 		hash, _ := hex.DecodeString(intersectPoint[1].(string))
 		point = common.NewPoint(slot, hash)

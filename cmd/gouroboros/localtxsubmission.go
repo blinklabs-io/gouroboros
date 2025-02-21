@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -79,7 +79,7 @@ func testLocalTxSubmission(f *globalFlags) {
 	}()
 	o, err := ouroboros.New(
 		ouroboros.WithConnection(conn),
-		ouroboros.WithNetworkMagic(uint32(f.networkMagic)),
+		ouroboros.WithNetworkMagic(uint32(f.networkMagic)), // #nosec G115
 		ouroboros.WithErrorChan(errorChan),
 		ouroboros.WithNodeToNode(f.ntnProto),
 		ouroboros.WithKeepAlive(true),

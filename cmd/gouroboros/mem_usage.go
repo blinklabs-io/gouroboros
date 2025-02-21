@@ -19,11 +19,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"runtime"
 	"runtime/pprof"
 	"time"
+
+	// #nosec G108
+	_ "net/http/pprof"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 )
@@ -70,6 +72,8 @@ func testMemUsage(f *globalFlags) {
 	)
 	go func() {
 		log.Println(
+			// This is a test program, no timeouts
+			// #nosec G114
 			http.ListenAndServe(
 				fmt.Sprintf(":%d", memUsageFlags.debugPort),
 				nil,
@@ -94,7 +98,7 @@ func testMemUsage(f *globalFlags) {
 		}()
 		o, err := ouroboros.New(
 			ouroboros.WithConnection(conn),
-			ouroboros.WithNetworkMagic(uint32(f.networkMagic)),
+			ouroboros.WithNetworkMagic(uint32(f.networkMagic)), // #nosec G115
 			ouroboros.WithErrorChan(errorChan),
 			ouroboros.WithNodeToNode(f.ntnProto),
 			ouroboros.WithKeepAlive(true),
