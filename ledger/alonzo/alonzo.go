@@ -322,7 +322,10 @@ func (r AlonzoRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	return ret
 }
 
-func (r AlonzoRedeemers) Value(index uint, tag common.RedeemerTag) (cbor.LazyValue, common.RedeemerExUnits) {
+func (r AlonzoRedeemers) Value(
+	index uint,
+	tag common.RedeemerTag,
+) (cbor.LazyValue, common.RedeemerExUnits) {
 	for _, redeemer := range r {
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
 			return redeemer.Data, redeemer.ExUnits

@@ -36,7 +36,9 @@ func (ls testLedgerState) NetworkId() uint {
 	return ls.networkId
 }
 
-func (ls testLedgerState) UtxoById(id common.TransactionInput) (common.Utxo, error) {
+func (ls testLedgerState) UtxoById(
+	id common.TransactionInput,
+) (common.Utxo, error) {
 	for _, tmpUtxo := range ls.utxos {
 		if id.Index() != tmpUtxo.Id.Index() {
 			continue
@@ -383,8 +385,12 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateWrongNetwork(t *testing.T) {
-	testCorrectNetworkAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
-	testWrongNetworkAddr, _ := common.NewAddress("addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07")
+	testCorrectNetworkAddr, _ := common.NewAddress(
+		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+	)
+	testWrongNetworkAddr, _ := common.NewAddress(
+		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
+	)
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
 			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
@@ -451,8 +457,12 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 }
 
 func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
-	testCorrectNetworkAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
-	testWrongNetworkAddr, _ := common.NewAddress("addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07")
+	testCorrectNetworkAddr, _ := common.NewAddress(
+		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+	)
+	testWrongNetworkAddr, _ := common.NewAddress(
+		"addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07",
+	)
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
 			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
@@ -696,7 +706,9 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
-	testGoodAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
+	testGoodAddr, _ := common.NewAddress(
+		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+	)
 	// Generate random pubkey
 	testBadAddrPubkey := make([]byte, 28)
 	if _, err := rand.Read(testBadAddrPubkey); err != nil {

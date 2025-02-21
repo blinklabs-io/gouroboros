@@ -363,7 +363,9 @@ type ShelleyTransactionInputSet struct {
 	items []ShelleyTransactionInput
 }
 
-func NewShelleyTransactionInputSet(items []ShelleyTransactionInput) ShelleyTransactionInputSet {
+func NewShelleyTransactionInputSet(
+	items []ShelleyTransactionInput,
+) ShelleyTransactionInputSet {
 	s := ShelleyTransactionInputSet{
 		items: items,
 	}
