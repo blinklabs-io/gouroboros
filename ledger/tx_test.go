@@ -41,7 +41,11 @@ func TestDetermineTransactionType(t *testing.T) {
 			t.Fatalf("unexpected error: %s", err)
 		}
 		if tmpTxType != testDef.expectedTxType {
-			t.Fatalf("did not get expected TX type: got %d, wanted %d", tmpTxType, testDef.expectedTxType)
+			t.Fatalf(
+				"did not get expected TX type: got %d, wanted %d",
+				tmpTxType,
+				testDef.expectedTxType,
+			)
 		}
 	}
 }

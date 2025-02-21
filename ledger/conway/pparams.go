@@ -64,27 +64,27 @@ func (p *ConwayProtocolParameters) Utxorpc() *cardano.PParams {
 	if p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
-			return nil
+		return nil
 	}
 	if p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
-			return nil
+		return nil
 	}
 	if p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
-			return nil
+		return nil
 	}
 	if p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
-			return nil
+		return nil
 	}
 	if p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
-			return nil
+		return nil
 	}
 	// #nosec G115
 	return &cardano.PParams{

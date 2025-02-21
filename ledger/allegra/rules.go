@@ -35,7 +35,12 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 }
 
 // UtxoValidateOutsideValidityIntervalUtxo ensures that the current tip slot has reached the specified validity interval
-func UtxoValidateOutsideValidityIntervalUtxo(tx common.Transaction, slot uint64, _ common.LedgerState, _ common.ProtocolParameters) error {
+func UtxoValidateOutsideValidityIntervalUtxo(
+	tx common.Transaction,
+	slot uint64,
+	_ common.LedgerState,
+	_ common.ProtocolParameters,
+) error {
 	validityIntervalStart := tx.ValidityIntervalStart()
 	if validityIntervalStart == 0 || slot >= validityIntervalStart {
 		return nil
@@ -46,54 +51,119 @@ func UtxoValidateOutsideValidityIntervalUtxo(tx common.Transaction, slot uint64,
 	}
 }
 
-func UtxoValidateInputSetEmptyUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateInputSetEmptyUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
 }
 
-func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateFeeTooSmallUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
 		return fmt.Errorf("pparams are not expected type")
 	}
-	return shelley.UtxoValidateFeeTooSmallUtxo(tx, slot, ls, &tmpPparams.ShelleyProtocolParameters)
+	return shelley.UtxoValidateFeeTooSmallUtxo(
+		tx,
+		slot,
+		ls,
+		&tmpPparams.ShelleyProtocolParameters,
+	)
 }
 
-func UtxoValidateBadInputsUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateBadInputsUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
 }
 
-func UtxoValidateWrongNetwork(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateWrongNetwork(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateWrongNetwork(tx, slot, ls, pp)
 }
 
-func UtxoValidateWrongNetworkWithdrawal(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateWrongNetworkWithdrawal(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
 }
 
-func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateValueNotConservedUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
 		return fmt.Errorf("pparams are not expected type")
 	}
-	return shelley.UtxoValidateValueNotConservedUtxo(tx, slot, ls, &tmpPparams.ShelleyProtocolParameters)
+	return shelley.UtxoValidateValueNotConservedUtxo(
+		tx,
+		slot,
+		ls,
+		&tmpPparams.ShelleyProtocolParameters,
+	)
 }
 
-func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateOutputTooSmallUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
 		return fmt.Errorf("pparams are not expected type")
 	}
-	return shelley.UtxoValidateOutputTooSmallUtxo(tx, slot, ls, &tmpPparams.ShelleyProtocolParameters)
+	return shelley.UtxoValidateOutputTooSmallUtxo(
+		tx,
+		slot,
+		ls,
+		&tmpPparams.ShelleyProtocolParameters,
+	)
 }
 
-func UtxoValidateOutputBootAddrAttrsTooBig(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateOutputBootAddrAttrsTooBig(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateOutputBootAddrAttrsTooBig(tx, slot, ls, pp)
 }
 
-func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateMaxTxSizeUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
 		return fmt.Errorf("pparams are not expected type")
 	}
-	return shelley.UtxoValidateMaxTxSizeUtxo(tx, slot, ls, &tmpPparams.ShelleyProtocolParameters)
+	return shelley.UtxoValidateMaxTxSizeUtxo(
+		tx,
+		slot,
+		ls,
+		&tmpPparams.ShelleyProtocolParameters,
+	)
 }
