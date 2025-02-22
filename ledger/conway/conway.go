@@ -157,7 +157,7 @@ type ConwayRedeemerKey struct {
 type ConwayRedeemerValue struct {
 	cbor.StructAsArray
 	Data    cbor.LazyValue
-	ExUnits common.RedeemerExUnits
+	ExUnits common.ExUnits
 }
 
 type ConwayRedeemers struct {
@@ -203,7 +203,7 @@ func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
 func (r ConwayRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
-) (cbor.LazyValue, common.RedeemerExUnits) {
+) (cbor.LazyValue, common.ExUnits) {
 	redeemer, ok := r.Redeemers[ConwayRedeemerKey{
 		Tag:   tag,
 		Index: uint32(index), // #nosec G115
@@ -211,7 +211,7 @@ func (r ConwayRedeemers) Value(
 	if ok {
 		return redeemer.Data, redeemer.ExUnits
 	}
-	return cbor.LazyValue{}, common.RedeemerExUnits{}
+	return cbor.LazyValue{}, common.ExUnits{}
 }
 
 type ConwayTransactionWitnessSet struct {

@@ -307,7 +307,7 @@ type AlonzoRedeemer struct {
 	Tag     common.RedeemerTag
 	Index   uint32
 	Data    cbor.LazyValue
-	ExUnits common.RedeemerExUnits
+	ExUnits common.ExUnits
 }
 
 type AlonzoRedeemers []AlonzoRedeemer
@@ -325,13 +325,13 @@ func (r AlonzoRedeemers) Indexes(tag common.RedeemerTag) []uint {
 func (r AlonzoRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
-) (cbor.LazyValue, common.RedeemerExUnits) {
+) (cbor.LazyValue, common.ExUnits) {
 	for _, redeemer := range r {
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
 			return redeemer.Data, redeemer.ExUnits
 		}
 	}
-	return cbor.LazyValue{}, common.RedeemerExUnits{}
+	return cbor.LazyValue{}, common.ExUnits{}
 }
 
 type AlonzoTransactionWitnessSet struct {

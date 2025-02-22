@@ -36,12 +36,6 @@ type ProtocolParameters interface {
 	Utxorpc() *cardano.PParams
 }
 
-type ExUnit struct {
-	cbor.StructAsArray
-	Mem   uint
-	Steps uint
-}
-
 type ExUnitPrice struct {
 	cbor.StructAsArray
 	MemPrice  *cbor.Rat

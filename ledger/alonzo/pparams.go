@@ -30,8 +30,8 @@ type AlonzoProtocolParameters struct {
 	AdaPerUtxoByte       uint64
 	CostModels           map[uint][]int64
 	ExecutionCosts       common.ExUnitPrice
-	MaxTxExUnits         common.ExUnit
-	MaxBlockExUnits      common.ExUnit
+	MaxTxExUnits         common.ExUnits
+	MaxBlockExUnits      common.ExUnits
 	MaxValueSize         uint
 	CollateralPercentage uint
 	MaxCollateralInputs  uint
@@ -80,13 +80,13 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 	p.MaxValueSize = genesis.MaxValueSize
 	p.CollateralPercentage = genesis.CollateralPercentage
 	p.MaxCollateralInputs = genesis.MaxCollateralInputs
-	p.MaxTxExUnits = common.ExUnit{
-		Mem:   genesis.MaxTxExUnits.Mem,
-		Steps: genesis.MaxTxExUnits.Steps,
+	p.MaxTxExUnits = common.ExUnits{
+		Memory: uint64(genesis.MaxTxExUnits.Mem),
+		Steps:  uint64(genesis.MaxTxExUnits.Steps),
 	}
-	p.MaxBlockExUnits = common.ExUnit{
-		Mem:   genesis.MaxBlockExUnits.Mem,
-		Steps: genesis.MaxBlockExUnits.Steps,
+	p.MaxBlockExUnits = common.ExUnits{
+		Memory: uint64(genesis.MaxBlockExUnits.Mem),
+		Steps:  uint64(genesis.MaxBlockExUnits.Steps),
 	}
 	if genesis.ExecutionPrices.Mem != nil &&
 		genesis.ExecutionPrices.Steps != nil {
@@ -106,8 +106,8 @@ type AlonzoProtocolParameterUpdate struct {
 	AdaPerUtxoByte       *uint64             `cbor:"17,keyasint"`
 	CostModels           map[uint][]int64    `cbor:"18,keyasint"`
 	ExecutionCosts       *common.ExUnitPrice `cbor:"19,keyasint"`
-	MaxTxExUnits         *common.ExUnit      `cbor:"20,keyasint"`
-	MaxBlockExUnits      *common.ExUnit      `cbor:"21,keyasint"`
+	MaxTxExUnits         *common.ExUnits     `cbor:"20,keyasint"`
+	MaxBlockExUnits      *common.ExUnits     `cbor:"21,keyasint"`
 	MaxValueSize         *uint               `cbor:"22,keyasint"`
 	CollateralPercentage *uint               `cbor:"23,keyasint"`
 	MaxCollateralInputs  *uint               `cbor:"24,keyasint"`
@@ -190,11 +190,11 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 			},
 		},
 		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
-			Memory: uint64(p.MaxTxExUnits.Mem),
+			Memory: uint64(p.MaxTxExUnits.Memory),
 			Steps:  uint64(p.MaxTxExUnits.Steps),
 		},
 		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
-			Memory: uint64(p.MaxBlockExUnits.Mem),
+			Memory: uint64(p.MaxBlockExUnits.Memory),
 			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
 	}

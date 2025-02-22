@@ -43,8 +43,8 @@ type ConwayProtocolParameters struct {
 	AdaPerUtxoByte             uint64
 	CostModels                 map[uint][]int64
 	ExecutionCosts             common.ExUnitPrice
-	MaxTxExUnits               common.ExUnit
-	MaxBlockExUnits            common.ExUnit
+	MaxTxExUnits               common.ExUnits
+	MaxBlockExUnits            common.ExUnits
 	MaxValueSize               uint
 	CollateralPercentage       uint
 	MaxCollateralInputs        uint
@@ -132,11 +132,11 @@ func (p *ConwayProtocolParameters) Utxorpc() *cardano.PParams {
 			},
 		},
 		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
-			Memory: uint64(p.MaxTxExUnits.Mem),
+			Memory: uint64(p.MaxTxExUnits.Memory),
 			Steps:  uint64(p.MaxTxExUnits.Steps),
 		},
 		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
-			Memory: uint64(p.MaxBlockExUnits.Mem),
+			Memory: uint64(p.MaxBlockExUnits.Memory),
 			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
 	}
