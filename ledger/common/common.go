@@ -318,8 +318,8 @@ func (i IssuerVkey) PoolId() string {
 	return encoded
 }
 
-// RedeemerExUnits represents the steps and memory usage for script execution
-type RedeemerExUnits struct {
+// ExUnits represents the steps and memory usage for script execution
+type ExUnits struct {
 	cbor.StructAsArray
 	Memory uint64
 	Steps  uint64

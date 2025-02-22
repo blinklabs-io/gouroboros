@@ -49,17 +49,17 @@ func TestConwayProtocolParamsUpdate(t *testing.T) {
 		{
 			startParams: conway.ConwayProtocolParameters{
 				MaxBlockBodySize: 1,
-				MaxTxExUnits: common.ExUnit{
-					Mem:   1,
-					Steps: 1,
+				MaxTxExUnits: common.ExUnits{
+					Memory: 1,
+					Steps:  1,
 				},
 			},
 			updateCbor: "a2021a0001200014821a00aba9501b00000002540be400",
 			expectedParams: conway.ConwayProtocolParameters{
 				MaxBlockBodySize: 73728,
-				MaxTxExUnits: common.ExUnit{
-					Mem:   11250000,
-					Steps: 10000000000,
+				MaxTxExUnits: common.ExUnits{
+					Memory: 11250000,
+					Steps:  10000000000,
 				},
 			},
 		},
@@ -506,13 +506,13 @@ func TestUtxorpc(t *testing.T) {
 					MemPrice:  &cbor.Rat{Rat: big.NewRat(1, 2)},
 					StepPrice: &cbor.Rat{Rat: big.NewRat(2, 3)},
 				},
-				MaxTxExUnits: common.ExUnit{
-					Mem:   1000000,
-					Steps: 200000,
+				MaxTxExUnits: common.ExUnits{
+					Memory: 1000000,
+					Steps:  200000,
 				},
-				MaxBlockExUnits: common.ExUnit{
-					Mem:   5000000,
-					Steps: 1000000,
+				MaxBlockExUnits: common.ExUnits{
+					Memory: 5000000,
+					Steps:  1000000,
 				},
 				CostModels: map[uint][]int64{
 					1: {100, 200, 300},
