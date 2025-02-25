@@ -1,6 +1,6 @@
 module github.com/blinklabs-io/gouroboros
 
-go 1.22.11
+go 1.23.6
 
 require (
 	filippo.io/edwards25519 v1.1.0
