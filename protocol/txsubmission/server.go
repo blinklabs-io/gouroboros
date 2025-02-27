@@ -122,7 +122,7 @@ func (s *Server) RequestTxIds(
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
-	var txString []string
+	txString := []string{}
 	for _, t := range txIds {
 		ba := []byte{}
 		for _, b := range t.TxId {

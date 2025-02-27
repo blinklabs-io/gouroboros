@@ -27,7 +27,7 @@ const (
 	AgencyServer ProtocolStateAgency = 2 // Server agency
 )
 
-// State represents protocol state with both a numeric ID and a string identifer
+// State represents protocol state with both a numeric ID and a string identifier
 type State struct {
 	Id   uint
 	Name string
