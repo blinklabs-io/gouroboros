@@ -10,6 +10,8 @@ concurrency: ${{ github.ref }}
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       RELEASE_ID: ${{ steps.create-release.outputs.result }}
     steps:
