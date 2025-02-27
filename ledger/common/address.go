@@ -405,7 +405,7 @@ func (a Address) Bytes() []byte {
 	ret := []byte{}
 	ret = append(
 		ret,
-		(byte(a.addressType)<<4)|(byte(a.networkId)&AddressHeaderNetworkMask),
+		(a.addressType<<4)|(a.networkId&AddressHeaderNetworkMask),
 	)
 	ret = append(ret, a.paymentAddress...)
 	ret = append(ret, a.stakingAddress...)
