@@ -231,14 +231,15 @@ func generateAstJsonMap[T map[any]any | Map](v T) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		// NOTE: Github CodeQL hates this due to "potentially unsafe quoting", but it
-		// won't happen in practice since both values injected are auto-generated
-		tmpJson := fmt.Sprintf(
-			`{"k":%s,"v":%s}`,
-			keyAstJson,
-			valAstJson,
-		)
-		tmpItems = append(tmpItems, tmpJson)
+		tmpJsonMap := map[string]json.RawMessage{
+			"k": keyAstJson,
+			"v": valAstJson,
+		}
+		tmpJson, err := json.Marshal(tmpJsonMap)
+		if err != nil {
+			return nil, err
+		}
+		tmpItems = append(tmpItems, string(tmpJson))
 	}
 	// We naively sort the rendered map items to give consistent ordering
 	sort.Strings(tmpItems)
