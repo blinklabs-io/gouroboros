@@ -40,7 +40,7 @@ func NewBlake2b256(data []byte) Blake2b256 {
 }
 
 func (b Blake2b256) String() string {
-	return hex.EncodeToString([]byte(b[:]))
+	return hex.EncodeToString(b[:])
 }
 
 func (b Blake2b256) Bytes() []byte {
@@ -71,7 +71,7 @@ func NewBlake2b224(data []byte) Blake2b224 {
 }
 
 func (b Blake2b224) String() string {
-	return hex.EncodeToString([]byte(b[:]))
+	return hex.EncodeToString(b[:])
 }
 
 func (b Blake2b224) Bytes() []byte {
@@ -106,7 +106,7 @@ func NewBlake2b160(data []byte) Blake2b160 {
 }
 
 func (b Blake2b160) String() string {
-	return hex.EncodeToString([]byte(b[:]))
+	return hex.EncodeToString(b[:])
 }
 
 func (b Blake2b160) Bytes() []byte {

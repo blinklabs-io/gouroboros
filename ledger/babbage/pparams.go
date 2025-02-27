@@ -229,12 +229,12 @@ func (p *BabbageProtocolParameters) Utxorpc() *cardano.PParams {
 			},
 		},
 		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
-			Memory: uint64(p.MaxTxExUnits.Memory),
-			Steps:  uint64(p.MaxTxExUnits.Steps),
+			Memory: p.MaxTxExUnits.Memory,
+			Steps:  p.MaxTxExUnits.Steps,
 		},
 		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
-			Memory: uint64(p.MaxBlockExUnits.Memory),
-			Steps:  uint64(p.MaxBlockExUnits.Steps),
+			Memory: p.MaxBlockExUnits.Memory,
+			Steps:  p.MaxBlockExUnits.Steps,
 		},
 	}
 }

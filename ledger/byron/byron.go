@@ -112,10 +112,8 @@ func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
-	return uint64(
-		(h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) + uint64(
-			h.ConsensusData.SlotId.Slot,
-		),
+	return (h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) + uint64(
+		h.ConsensusData.SlotId.Slot,
 	)
 }
 
@@ -548,7 +546,7 @@ func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
-	return uint64(h.ConsensusData.Epoch * ByronSlotsPerEpoch)
+	return h.ConsensusData.Epoch * ByronSlotsPerEpoch
 }
 
 func (h *ByronEpochBoundaryBlockHeader) IssuerVkey() common.IssuerVkey {
