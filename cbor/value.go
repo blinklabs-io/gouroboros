@@ -238,7 +238,7 @@ func generateAstJsonMap[T map[any]any | Map](v T) ([]byte, error) {
 			keyAstJson,
 			valAstJson,
 		)
-		tmpItems = append(tmpItems, string(tmpJson))
+		tmpItems = append(tmpItems, tmpJson)
 	}
 	// We naively sort the rendered map items to give consistent ordering
 	sort.Strings(tmpItems)
