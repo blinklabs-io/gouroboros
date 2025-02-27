@@ -227,7 +227,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
-		output := output
+
 		ret = append(ret, &output)
 	}
 	return ret
@@ -244,7 +244,7 @@ func (b *BabbageTransactionBody) ProtocolParameterUpdates() (uint64, map[common.
 func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
 	ret := []common.TransactionInput{}
 	for _, input := range b.TxReferenceInputs {
-		input := input
+
 		ret = append(ret, &input)
 	}
 	return ret
