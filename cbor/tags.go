@@ -116,7 +116,7 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 	case uint64:
 		tmpDenom.SetUint64(v)
 	default:
-		return fmt.Errorf("unsupported demoninator type for cbor.Rat: %T", v)
+		return fmt.Errorf("unsupported denominator type for cbor.Rat: %T", v)
 	}
 	// Create new big.Rat with num/denom set to big.Int values above
 	r.Rat = new(big.Rat)
