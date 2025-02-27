@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -480,7 +480,7 @@ func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 }
 
 func (c *MoveInstantaneousRewardsCertificate) Utxorpc() *utxorpc.Certificate {
-	var tmpMirTargets []*utxorpc.MirTarget
+	tmpMirTargets := []*utxorpc.MirTarget{}
 	for stakeCred, deltaCoin := range c.Reward.Rewards {
 		tmpMirTargets = append(
 			tmpMirTargets,

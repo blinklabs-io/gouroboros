@@ -104,7 +104,7 @@ func (g *ByronGenesis) GenesisUtxos() ([]common.Utxo, error) {
 }
 
 func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
-	var ret []common.Utxo
+	ret := []common.Utxo{}
 	for pubkey, amount := range g.AvvmDistr {
 		// Build address from redeem pubkey
 		pubkeyBytes, err := base64.URLEncoding.DecodeString(pubkey)
@@ -145,7 +145,7 @@ func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
 }
 
 func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
-	var ret []common.Utxo
+	ret := []common.Utxo{}
 	for address, amount := range g.NonAvvmBalances {
 		tmpAddr, err := common.NewAddress(address)
 		if err != nil {

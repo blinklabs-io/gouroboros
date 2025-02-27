@@ -112,7 +112,7 @@ func (b *MaryBlock) Transactions() []common.Transaction {
 }
 
 func (b *MaryBlock) Utxorpc() *utxorpc.Block {
-	var txs []*utxorpc.Tx
+	txs := []*utxorpc.Tx{}
 	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
@@ -286,7 +286,7 @@ func (t MaryTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t MaryTransaction) Produced() []common.Utxo {
-	var ret []common.Utxo
+	ret := []common.Utxo{}
 	for idx, output := range t.Outputs() {
 		ret = append(
 			ret,

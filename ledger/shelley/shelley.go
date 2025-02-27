@@ -110,7 +110,7 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 }
 
 func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
-	var txs []*utxorpc.Tx
+	txs := []*utxorpc.Tx{}
 	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
@@ -330,8 +330,8 @@ func (b *ShelleyTransactionBody) Donation() uint64 {
 }
 
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
-	var txi []*utxorpc.TxInput
-	var txo []*utxorpc.TxOutput
+	txi := []*utxorpc.TxInput{}
+	txo := []*utxorpc.TxOutput{}
 	for _, i := range b.Inputs() {
 		input := i.Utxorpc()
 		txi = append(txi, input)
@@ -626,7 +626,7 @@ func (t ShelleyTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t ShelleyTransaction) Produced() []common.Utxo {
-	var ret []common.Utxo
+	ret := []common.Utxo{}
 	for idx, output := range t.Outputs() {
 		ret = append(
 			ret,

@@ -48,7 +48,7 @@ func UtxoValidateOutputTooBigUtxo(
 	_ common.LedgerState,
 	_ common.ProtocolParameters,
 ) error {
-	var badOutputs []common.TransactionOutput
+	badOutputs := []common.TransactionOutput{}
 	for _, txOutput := range tx.Outputs() {
 		tmpOutput, ok := txOutput.(*MaryTransactionOutput)
 		if !ok {

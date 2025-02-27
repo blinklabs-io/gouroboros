@@ -274,7 +274,7 @@ func (t *ByronTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t *ByronTransaction) Produced() []common.Utxo {
-	var ret []common.Utxo
+	ret := []common.Utxo{}
 	for idx, output := range t.Outputs() {
 		ret = append(
 			ret,
