@@ -390,7 +390,7 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 }
 
 func GetTxBodies(txsRaw [][]string) ([]BabbageTransactionBody, error) {
-	var bodies []BabbageTransactionBody
+	bodies := []BabbageTransactionBody{}
 	for index, tx := range txsRaw {
 		var tmp BabbageTransactionBody
 		bodyTmpHex := tx[0]

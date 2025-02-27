@@ -114,7 +114,7 @@ func UtxoValidateWrongNetwork(
 	pp common.ProtocolParameters,
 ) error {
 	networkId := ls.NetworkId()
-	var badAddrs []common.Address
+	badAddrs := []common.Address{}
 	for _, tmpOutput := range tx.Outputs() {
 		addr := tmpOutput.Address()
 		if addr.NetworkId() == networkId {
@@ -139,7 +139,7 @@ func UtxoValidateWrongNetworkWithdrawal(
 	pp common.ProtocolParameters,
 ) error {
 	networkId := ls.NetworkId()
-	var badAddrs []common.Address
+	badAddrs := []common.Address{}
 	for addr := range tx.Withdrawals() {
 		if addr.NetworkId() == networkId {
 			continue
@@ -224,7 +224,7 @@ func UtxoValidateOutputBootAddrAttrsTooBig(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	var badOutputs []common.TransactionOutput
+	badOutputs := []common.TransactionOutput{}
 	for _, tmpOutput := range tx.Outputs() {
 		addr := tmpOutput.Address()
 		if addr.Type() != common.AddressTypeByron {

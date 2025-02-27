@@ -120,7 +120,7 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 }
 
 func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
-	var txs []*utxorpc.Tx
+	txs := []*utxorpc.Tx{}
 	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
@@ -265,8 +265,9 @@ func (b *BabbageTransactionBody) TotalCollateral() uint64 {
 }
 
 func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
-	var txi, txri []*utxorpc.TxInput
-	var txo []*utxorpc.TxOutput
+	txi := []*utxorpc.TxInput{}
+	txri := []*utxorpc.TxInput{}
+	txo := []*utxorpc.TxOutput{}
 	for _, i := range b.Inputs() {
 		input := i.Utxorpc()
 		txi = append(txi, input)

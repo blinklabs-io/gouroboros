@@ -183,7 +183,7 @@ func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
 }
 
 func (m *MultiAsset[T]) Policies() []Blake2b224 {
-	var ret []Blake2b224
+	ret := []Blake2b224{}
 	for policyId := range m.data {
 		ret = append(ret, policyId)
 	}
@@ -195,7 +195,7 @@ func (m *MultiAsset[T]) Assets(policyId Blake2b224) [][]byte {
 	if !ok {
 		return nil
 	}
-	var ret [][]byte
+	ret := [][]byte{}
 	for assetName := range assets {
 		ret = append(ret, assetName.Bytes())
 	}

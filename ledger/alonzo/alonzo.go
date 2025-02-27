@@ -119,7 +119,7 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 }
 
 func (b *AlonzoBlock) Utxorpc() *utxorpc.Block {
-	var txs []*utxorpc.Tx
+	txs := []*utxorpc.Tx{}
 	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
