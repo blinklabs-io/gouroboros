@@ -232,7 +232,7 @@ func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
 func (b *ShelleyTransactionBody) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
-		output := output
+
 		ret = append(ret, &output)
 	}
 	return ret

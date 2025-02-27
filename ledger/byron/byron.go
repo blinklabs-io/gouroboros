@@ -170,7 +170,7 @@ func (t *ByronTransaction) Inputs() []common.TransactionInput {
 func (t *ByronTransaction) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range t.TxOutputs {
-		output := output
+
 		ret = append(ret, &output)
 	}
 	return ret
@@ -617,7 +617,7 @@ func (b *ByronMainBlock) Era() common.Era {
 func (b *ByronMainBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.Body.TxPayload))
 	for idx, payload := range b.Body.TxPayload {
-		payload := payload
+
 		ret[idx] = &payload.Transaction
 	}
 	return ret
