@@ -6,12 +6,21 @@ issues:
 linters:
   enable:
     - errcheck
-    - gosec
     - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
+    # Defaults above ours below
+    - bodyclose
+    - fatcontext
+    - gosec
+    - noctx
+    - perfsprint
+    - prealloc
+#linters-settings:
+#  errcheck:
+#    check-type-assertions: true
 run:
   issues-exit-code: 1
   tests: false
