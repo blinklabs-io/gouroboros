@@ -262,7 +262,7 @@ func (p *Protocol) sendLoop() {
 				if err := p.transitionState(msg); err != nil {
 					p.SendError(
 						fmt.Errorf(
-							"%s: error sending message: %s",
+							"%s: error sending message: %w",
 							p.config.Name,
 							err,
 						),
@@ -368,13 +368,13 @@ func (p *Protocol) recvLoop() {
 				p.recvReadyChan <- true
 				continue
 			}
-			p.SendError(fmt.Errorf("%s: decode error: %s", p.config.Name, err))
+			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
 			return
 		}
 		// Decode first list item to determine message type
 		var msgType uint
 		if _, err := cbor.Decode(tmpMsg[0], &msgType); err != nil {
-			p.SendError(fmt.Errorf("%s: decode error: %s", p.config.Name, err))
+			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
 		}
 		// Create Message object from CBOR
 		msgData := recvBuffer.Bytes()[:numBytesRead]
@@ -476,7 +476,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			nextState, err := p.nextState(currentState, t.msg)
 			if err != nil {
 				t.errorChan <- fmt.Errorf(
-					"%s: error handling protocol state transition: %s",
+					"%s: error handling protocol state transition: %w",
 					p.config.Name,
 					err,
 				)
@@ -540,7 +540,7 @@ func (p *Protocol) transitionState(msg Message) error {
 
 func (p *Protocol) handleMessage(msg Message) error {
 	if err := p.transitionState(msg); err != nil {
-		return fmt.Errorf("%s: error handling message: %s", p.config.Name, err)
+		return fmt.Errorf("%s: error handling message: %w", p.config.Name, err)
 	}
 
 	// Call handler function

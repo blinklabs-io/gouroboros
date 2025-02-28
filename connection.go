@@ -282,7 +282,7 @@ func (c *Connection) setupConnection() error {
 				c.errorChan <- io.EOF
 			} else {
 				// Wrap error message to denote it comes from the muxer
-				c.errorChan <- fmt.Errorf("muxer error: %s", err)
+				c.errorChan <- fmt.Errorf("muxer error: %w", err)
 			}
 			// Close connection on muxer errors
 			c.Close()
@@ -368,7 +368,7 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
-			c.errorChan <- fmt.Errorf("protocol error: %s", err)
+			c.errorChan <- fmt.Errorf("protocol error: %w", err)
 			// Close connection on mini-protocol errors
 			c.Close()
 		}
