@@ -16,6 +16,7 @@ package main
 
 import (
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -266,7 +267,7 @@ func chainSyncRollForwardHandler(
 		blockHash, _ := hex.DecodeString(v.Hash())
 		var err error
 		if oConn == nil {
-			return fmt.Errorf("empty ouroboros connection, aborting!")
+			return errors.New("empty ouroboros connection, aborting!")
 		}
 		block, err = oConn.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
 		if err != nil {
@@ -293,7 +294,7 @@ func chainSyncRollForwardHandler(
 		)
 	default:
 		if block == nil {
-			return fmt.Errorf("block is nil")
+			return errors.New("block is nil")
 		}
 		fmt.Printf(
 			"era = %s, slot = %d, block_no = %d, id = %s\n",

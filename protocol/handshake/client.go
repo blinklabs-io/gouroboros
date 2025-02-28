@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package handshake
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -108,9 +109,7 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config.FinishedFunc == nil {
-		return fmt.Errorf(
-			"received handshake AcceptVersion message but no callback function is defined",
-		)
+		return errors.New("received handshake AcceptVersion message but no callback function is defined")
 	}
 	msgAcceptVersion := msg.(*MsgAcceptVersion)
 	protoVersion := protocol.GetProtocolVersion(msgAcceptVersion.Version)

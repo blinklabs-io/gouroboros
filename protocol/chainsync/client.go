@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package chainsync
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -606,9 +607,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	}()
 	if firstBlockChan == nil &&
 		(c.config == nil || (c.config.RollForwardFunc == nil && c.config.RollForwardRawFunc == nil)) {
-		return fmt.Errorf(
-			"received chain-sync RollForward message but no callback function is defined",
-		)
+		return errors.New("received chain-sync RollForward message but no callback function is defined")
 	}
 	var callbackErr error
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
@@ -645,7 +644,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		}
 		if firstBlockChan != nil {
 			if blockHeader == nil {
-				err := fmt.Errorf("missing block header")
+				err := errors.New("missing block header")
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
@@ -692,7 +691,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		}
 		if firstBlockChan != nil {
 			if block == nil {
-				err := fmt.Errorf("missing block")
+				err := errors.New("missing block")
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
@@ -748,9 +747,7 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 	c.sendCurrentTip(msgRollBackward.Tip)
 	if len(c.wantFirstBlockChan) == 0 {
 		if c.config.RollBackwardFunc == nil {
-			return fmt.Errorf(
-				"received chain-sync RollBackward message but no callback function is defined",
-			)
+			return errors.New("received chain-sync RollBackward message but no callback function is defined")
 		}
 		// Call the user callback function
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {

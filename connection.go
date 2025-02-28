@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -158,7 +158,7 @@ func (c *Connection) DialTimeout(
 	timeout time.Duration,
 ) error {
 	if c.conn != nil {
-		return fmt.Errorf("a connection was already established")
+		return errors.New("a connection was already established")
 	}
 	conn, err := net.DialTimeout(proto, address, timeout)
 	if err != nil {

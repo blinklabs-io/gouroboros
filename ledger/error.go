@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -115,7 +116,7 @@ func NewTxSubmitErrorFromCbor(cborData []byte) (error, error) {
 			return newErr, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to parse error as any known types")
+	return nil, errors.New("failed to parse error as any known types")
 }
 
 func NewShelleyTxValidationErrorFromCbor(cborData []byte) (error, error) {
@@ -199,10 +200,10 @@ func (e *ApplyTxError) Error() string {
 	for idx, failure := range e.Failures {
 		ret = fmt.Sprintf("%s%s", ret, failure)
 		if idx < (len(e.Failures) - 1) {
-			ret = fmt.Sprintf("%s, ", ret)
+			ret = ret + ", "
 		}
 	}
-	ret = fmt.Sprintf("%s])", ret)
+	ret = ret + "])"
 	return ret
 }
 
@@ -314,10 +315,10 @@ func (e *BadInputsUtxo) Error() string {
 	for idx, input := range e.Inputs {
 		ret = fmt.Sprintf("%s%s", ret, input.String())
 		if idx < (len(e.Inputs) - 1) {
-			ret = fmt.Sprintf("%s, ", ret)
+			ret = ret + ", "
 		}
 	}
-	ret = fmt.Sprintf("%s])", ret)
+	ret = ret + "])"
 	return ret
 }
 
@@ -407,10 +408,10 @@ func (e *OutputTooSmallUtxo) Error() string {
 	for idx, output := range e.Outputs {
 		ret = fmt.Sprintf("%s%s", ret, output.String())
 		if idx < (len(e.Outputs) - 1) {
-			ret = fmt.Sprintf("%s, ", ret)
+			ret = ret + ", "
 		}
 	}
-	ret = fmt.Sprintf("%s])", ret)
+	ret = ret + "])"
 	return ret
 }
 
@@ -469,10 +470,10 @@ func (e *OutputBootAddrAttrsTooBig) Error() string {
 	for idx, output := range e.Outputs {
 		ret = fmt.Sprintf("%s%s", ret, output.String())
 		if idx < (len(e.Outputs) - 1) {
-			ret = fmt.Sprintf("%s, ", ret)
+			ret = ret + ", "
 		}
 	}
-	ret = fmt.Sprintf("%s])", ret)
+	ret = ret + "])"
 	return ret
 }
 
@@ -504,10 +505,10 @@ func (e *OutputTooBigUtxo) Error() string {
 			output.Output.String(),
 		)
 		if idx < (len(e.Outputs) - 1) {
-			ret = fmt.Sprintf("%s, ", ret)
+			ret = ret + ", "
 		}
 	}
-	ret = fmt.Sprintf("%s])", ret)
+	ret = ret + "])"
 	return ret
 
 }

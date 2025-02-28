@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -86,5 +87,5 @@ func DetermineBlockType(data []byte) (uint, error) {
 	if _, err := NewConwayBlockFromCbor(data); err == nil {
 		return BlockTypeConway, nil
 	}
-	return 0, fmt.Errorf("unknown block type")
+	return 0, errors.New("unknown block type")
 }

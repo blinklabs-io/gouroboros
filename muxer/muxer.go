@@ -218,7 +218,7 @@ func (m *Muxer) Send(msg *Segment) error {
 	// Immediately return if we're already shutting down
 	select {
 	case <-m.doneChan:
-		return fmt.Errorf("shutting down")
+		return errors.New("shutting down")
 	default:
 	}
 	// We use a mutex to make sure only one protocol can send at a time
@@ -286,18 +286,14 @@ func (m *Muxer) readLoop() {
 		// Check for message from initiator when we're not configured as a responder
 		if m.diffusionMode == DiffusionModeInitiator && !msg.IsResponse() {
 			m.sendError(
-				fmt.Errorf(
-					"received message from initiator when not configured as a responder",
-				),
+				errors.New("received message from initiator when not configured as a responder"),
 			)
 			return
 		}
 		// Check for message from responder when we're not configured as an initiator
 		if m.diffusionMode == DiffusionModeResponder && msg.IsResponse() {
 			m.sendError(
-				fmt.Errorf(
-					"received message from responder when not configured as an initiator",
-				),
+				errors.New("received message from responder when not configured as an initiator"),
 			)
 			return
 		}

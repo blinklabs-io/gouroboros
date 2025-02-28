@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package protocol
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -130,7 +131,7 @@ func (p *Protocol) Start() {
 			muxerProtocolRole,
 		)
 		if p.muxerDoneChan == nil {
-			p.SendError(fmt.Errorf("could not register protocol with muxer"))
+			p.SendError(errors.New("could not register protocol with muxer"))
 			return
 		}
 

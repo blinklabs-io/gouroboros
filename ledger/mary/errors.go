@@ -30,8 +30,5 @@ func (e OutputTooBigUtxoError) Error() string {
 	for idx, tmpOutput := range e.Outputs {
 		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
 	}
-	return fmt.Sprintf(
-		"output value too large: %s",
-		strings.Join(tmpOutputs, ", "),
-	)
+	return "output value too large: " + strings.Join(tmpOutputs, ", ")
 }

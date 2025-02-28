@@ -28,7 +28,7 @@ func DumpCborStructure(data interface{}, prefix string) string {
 	case []uint8:
 		return fmt.Sprintf("%s<bytes> (length %d),\n", prefix, len(v))
 	case []interface{}:
-		ret.WriteString(fmt.Sprintf("%s[\n", prefix))
+		ret.WriteString(prefix + "[\n")
 		newPrefix := prefix
 		// Override original user-provided prefix
 		// This assumes the original prefix won't start with a space
@@ -36,7 +36,7 @@ func DumpCborStructure(data interface{}, prefix string) string {
 			newPrefix = ""
 		}
 		// Add 2 more spaces to the new prefix
-		newPrefix = fmt.Sprintf("  %s", newPrefix)
+		newPrefix = "  " + newPrefix
 		/*
 			var lastOutput string
 			var lastOutputCount uint32
@@ -58,9 +58,9 @@ func DumpCborStructure(data interface{}, prefix string) string {
 			*/
 			ret.WriteString(tmp)
 		}
-		ret.WriteString(fmt.Sprintf("%s],\n", prefix))
+		ret.WriteString(prefix + "],\n")
 	case map[interface{}]interface{}:
-		ret.WriteString(fmt.Sprintf("%s{\n", prefix))
+		ret.WriteString(prefix + "{\n")
 		newPrefix := prefix
 		// Override original user-provided prefix
 		// This assumes the original prefix won't start with a space
@@ -68,11 +68,11 @@ func DumpCborStructure(data interface{}, prefix string) string {
 			newPrefix = ""
 		}
 		// Add 2 more spaces to the new prefix
-		newPrefix = fmt.Sprintf("  %s", newPrefix)
+		newPrefix = "  " + newPrefix
 		for key, val := range v {
 			ret.WriteString(fmt.Sprintf("%s%#v => %#v,\n", newPrefix, key, val))
 		}
-		ret.WriteString(fmt.Sprintf("%s}\n", prefix))
+		ret.WriteString(prefix + "}\n")
 	default:
 		return fmt.Sprintf("%s%#v,\n", prefix, v)
 	}

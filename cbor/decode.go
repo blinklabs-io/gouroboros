@@ -16,6 +16,7 @@ package cbor
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -53,7 +54,7 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 		return 0, err
 	}
 	if listLen == 0 {
-		return 0, fmt.Errorf("cannot return first item from empty list")
+		return 0, errors.New("cannot return first item from empty list")
 	}
 	if listLen < int(CborMaxUintSimple) {
 		if cborData[1] <= CborMaxUintSimple {
@@ -70,7 +71,7 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	// The upstream CBOR library uses uint64 by default for numeric values
 	case uint64:
 		if v > uint64(math.MaxInt) {
-			return 0, fmt.Errorf("decoded numeric value too large: uint64 > int")
+			return 0, errors.New("decoded numeric value too large: uint64 > int")
 		}
 		return int(v), nil
 	default:
@@ -133,7 +134,7 @@ func DecodeGeneric(cborData []byte, dest interface{}) error {
 		// destination object
 		if valueDest.Kind() != reflect.Pointer ||
 			valueDest.Elem().Kind() != reflect.Struct {
-			return fmt.Errorf("destination must be a pointer to a struct")
+			return errors.New("destination must be a pointer to a struct")
 		}
 		destTypeFields := []reflect.StructField{}
 		for i := 0; i < typeDest.NumField(); i++ {

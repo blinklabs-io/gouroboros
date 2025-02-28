@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package handshake
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -84,9 +85,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.FinishedFunc == nil {
-		return fmt.Errorf(
-			"received handshake ProposeVersions message but no callback function is defined",
-		)
+		return errors.New("received handshake ProposeVersions message but no callback function is defined")
 	}
 	msgProposeVersions := msg.(*MsgProposeVersions)
 	// Compute intersection of supported and proposed protocol versions
@@ -117,7 +116,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 		if err := s.SendMessage(msgRefuse); err != nil {
 			return err
 		}
-		return fmt.Errorf("handshake failed: refused due to version mismatch")
+		return errors.New("handshake failed: refused due to version mismatch")
 	}
 	// Compute highest version from intersection
 	var proposedVersion uint16
@@ -134,17 +133,13 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				fmt.Errorf(
-					"handshake failed: refused due to empty version data",
-				),
+				errors.New("handshake failed: refused due to empty version data"),
 			},
 		)
 		if err := s.SendMessage(msgRefuse); err != nil {
 			return err
 		}
-		return fmt.Errorf(
-			"handshake failed: refused due to empty version data",
-		)
+		return errors.New("handshake failed: refused due to empty version data")
 	}
 	proposedVersionData, err := versionInfo.NewVersionDataFromCborFunc(
 		msgProposeVersions.VersionMap[proposedVersion],
@@ -170,17 +165,13 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				fmt.Errorf(
-					"handshake failed: refused due to empty version map",
-				),
+				errors.New("handshake failed: refused due to empty version map"),
 			},
 		)
 		if err := s.SendMessage(msgRefuse); err != nil {
 			return err
 		}
-		return fmt.Errorf(
-			"handshake failed: refused due to empty version map",
-		)
+		return errors.New("handshake failed: refused due to empty version map")
 	}
 
 	// Check network magic

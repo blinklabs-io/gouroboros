@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"strings"
@@ -182,24 +183,18 @@ func (a *Address) populateFromBytes(data []byte) error {
 		}
 		payloadBytes, ok := rawAddr.Payload.Content.([]byte)
 		if !ok || rawAddr.Payload.Number != 24 {
-			return fmt.Errorf(
-				"invalid Byron address data: unexpected payload content",
-			)
+			return errors.New("invalid Byron address data: unexpected payload content")
 		}
 		payloadChecksum := crc32.ChecksumIEEE(payloadBytes)
 		if rawAddr.Checksum != payloadChecksum {
-			return fmt.Errorf(
-				"invalid Byron address data: checksum does not match",
-			)
+			return errors.New("invalid Byron address data: checksum does not match")
 		}
 		var byronAddr byronAddressPayload
 		if _, err := cbor.Decode(payloadBytes, &byronAddr); err != nil {
 			return err
 		}
 		if len(byronAddr.Hash) != AddressHashSize {
-			return fmt.Errorf(
-				"invalid Byron address data: hash is not expected length",
-			)
+			return errors.New("invalid Byron address data: hash is not expected length")
 		}
 		a.byronAddressType = byronAddr.AddrType
 		a.byronAddressAttr = byronAddr.Attr

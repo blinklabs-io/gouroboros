@@ -16,6 +16,7 @@ package byron
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 
@@ -342,7 +343,7 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 		}
 	default:
 		// [u8 .ne 0, encoded-cbor]
-		return fmt.Errorf("can't parse yet")
+		return errors.New("can't parse yet")
 	}
 	return nil
 }

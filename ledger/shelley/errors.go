@@ -62,10 +62,7 @@ func (e BadInputsUtxoError) Error() string {
 	for idx, tmpInput := range e.Inputs {
 		tmpInputs[idx] = tmpInput.String()
 	}
-	return fmt.Sprintf(
-		"bad input(s): %s",
-		strings.Join(tmpInputs, ", "),
-	)
+	return "bad input(s): " + strings.Join(tmpInputs, ", ")
 }
 
 type WrongNetworkError struct {
@@ -78,10 +75,7 @@ func (e WrongNetworkError) Error() string {
 	for idx, tmpAddr := range e.Addrs {
 		tmpAddrs[idx] = tmpAddr.String()
 	}
-	return fmt.Sprintf(
-		"wrong network: %s",
-		strings.Join(tmpAddrs, ", "),
-	)
+	return "wrong network: " + strings.Join(tmpAddrs, ", ")
 }
 
 type WrongNetworkWithdrawalError struct {
@@ -94,10 +88,7 @@ func (e WrongNetworkWithdrawalError) Error() string {
 	for idx, tmpAddr := range e.Addrs {
 		tmpAddrs[idx] = tmpAddr.String()
 	}
-	return fmt.Sprintf(
-		"wrong network withdrawals: %s",
-		strings.Join(tmpAddrs, ", "),
-	)
+	return "wrong network withdrawals: " + strings.Join(tmpAddrs, ", ")
 }
 
 type ValueNotConservedUtxoError struct {
@@ -122,10 +113,7 @@ func (e OutputTooSmallUtxoError) Error() string {
 	for idx, tmpOutput := range e.Outputs {
 		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
 	}
-	return fmt.Sprintf(
-		"output too small: %s",
-		strings.Join(tmpOutputs, ", "),
-	)
+	return "output too small: " + strings.Join(tmpOutputs, ", ")
 }
 
 type OutputBootAddrAttrsTooBigError struct {
@@ -137,10 +125,7 @@ func (e OutputBootAddrAttrsTooBigError) Error() string {
 	for idx, tmpOutput := range e.Outputs {
 		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
 	}
-	return fmt.Sprintf(
-		"output bootstrap address attributes too big: %s",
-		strings.Join(tmpOutputs, ", "),
-	)
+	return "output bootstrap address attributes too big: " + strings.Join(tmpOutputs, ", ")
 }
 
 type MaxTxSizeUtxoError struct {

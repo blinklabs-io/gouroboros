@@ -17,6 +17,7 @@ package babbage
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -355,7 +356,7 @@ func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
 	} else if d.data != nil {
 		tmpObj = []interface{}{DatumOptionTypeData, cbor.Tag{Number: 24, Content: d.data.Cbor()}}
 	} else {
-		return nil, fmt.Errorf("unknown datum option type")
+		return nil, errors.New("unknown datum option type")
 	}
 	return cbor.Encode(&tmpObj)
 }

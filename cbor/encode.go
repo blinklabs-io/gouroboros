@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ package cbor
 
 import (
 	"bytes"
-	"fmt"
+	"errors"
 	"reflect"
 	"sync"
 
@@ -58,7 +58,7 @@ func EncodeGeneric(src interface{}) ([]byte, error) {
 		// source object
 		if valueSrc.Kind() != reflect.Pointer ||
 			valueSrc.Elem().Kind() != reflect.Struct {
-			return nil, fmt.Errorf("source must be a pointer to a struct")
+			return nil, errors.New("source must be a pointer to a struct")
 		}
 		srcTypeFields := []reflect.StructField{}
 		for i := 0; i < typeSrc.NumField(); i++ {

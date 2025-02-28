@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package cbor
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -132,7 +133,7 @@ func (r *Rat) MarshalCBOR() ([]byte, error) {
 	} else if r.Num().IsInt64() {
 		tmpContent[0] = r.Num().Int64()
 	} else {
-		return nil, fmt.Errorf("numerator cannot be represented at int64/uint64")
+		return nil, errors.New("numerator cannot be represented at int64/uint64")
 	}
 	// Denominator
 	if r.Denom().IsUint64() {
@@ -140,7 +141,7 @@ func (r *Rat) MarshalCBOR() ([]byte, error) {
 	} else if r.Denom().IsInt64() {
 		tmpContent[1] = r.Denom().Int64()
 	} else {
-		return nil, fmt.Errorf("numerator cannot be represented at int64/uint64")
+		return nil, errors.New("numerator cannot be represented at int64/uint64")
 	}
 	tmpData := _cbor.Tag{
 		Number:  CborTagRational,

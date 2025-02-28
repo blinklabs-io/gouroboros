@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package peersharing
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -86,9 +87,7 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.ShareRequestFunc == nil {
-		return fmt.Errorf(
-			"received peer-sharing ShareRequest message but no callback function is defined",
-		)
+		return errors.New("received peer-sharing ShareRequest message but no callback function is defined")
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
 	peers, err := s.config.ShareRequestFunc(

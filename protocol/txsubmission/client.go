@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -110,9 +111,7 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config.RequestTxIdsFunc == nil {
-		return fmt.Errorf(
-			"received tx-submission RequestTxIds message but no callback function is defined",
-		)
+		return errors.New("received tx-submission RequestTxIds message but no callback function is defined")
 	}
 	msgRequestTxIds := msg.(*MsgRequestTxIds)
 	// Call the user callback function
@@ -141,9 +140,7 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config.RequestTxsFunc == nil {
-		return fmt.Errorf(
-			"received tx-submission RequestTxs message but no callback function is defined",
-		)
+		return errors.New("received tx-submission RequestTxs message but no callback function is defined")
 	}
 	msgRequestTxs := msg.(*MsgRequestTxs)
 	// Call the user callback function
