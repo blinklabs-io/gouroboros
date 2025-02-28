@@ -681,7 +681,7 @@ func (t *BabbageTransaction) Utxorpc() *utxorpc.Tx {
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {
 	var babbageBlock BabbageBlock
 	if _, err := cbor.Decode(data, &babbageBlock); err != nil {
-		return nil, fmt.Errorf("Babbage block decode error: %s", err)
+		return nil, fmt.Errorf("Babbage block decode error: %w", err)
 	}
 	return &babbageBlock, nil
 }
@@ -689,7 +689,7 @@ func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {
 func NewBabbageBlockHeaderFromCbor(data []byte) (*BabbageBlockHeader, error) {
 	var babbageBlockHeader BabbageBlockHeader
 	if _, err := cbor.Decode(data, &babbageBlockHeader); err != nil {
-		return nil, fmt.Errorf("Babbage block header decode error: %s", err)
+		return nil, fmt.Errorf("Babbage block header decode error: %w", err)
 	}
 	return &babbageBlockHeader, nil
 }
@@ -699,7 +699,7 @@ func NewBabbageTransactionBodyFromCbor(
 ) (*BabbageTransactionBody, error) {
 	var babbageTx BabbageTransactionBody
 	if _, err := cbor.Decode(data, &babbageTx); err != nil {
-		return nil, fmt.Errorf("Babbage transaction body decode error: %s", err)
+		return nil, fmt.Errorf("Babbage transaction body decode error: %w", err)
 	}
 	return &babbageTx, nil
 }
@@ -707,7 +707,7 @@ func NewBabbageTransactionBodyFromCbor(
 func NewBabbageTransactionFromCbor(data []byte) (*BabbageTransaction, error) {
 	var babbageTx BabbageTransaction
 	if _, err := cbor.Decode(data, &babbageTx); err != nil {
-		return nil, fmt.Errorf("Babbage transaction decode error: %s", err)
+		return nil, fmt.Errorf("Babbage transaction decode error: %w", err)
 	}
 	return &babbageTx, nil
 }
@@ -718,7 +718,7 @@ func NewBabbageTransactionOutputFromCbor(
 	var babbageTxOutput BabbageTransactionOutput
 	if _, err := cbor.Decode(data, &babbageTxOutput); err != nil {
 		return nil, fmt.Errorf(
-			"Babbage transaction output decode error: %s",
+			"Babbage transaction output decode error: %w",
 			err,
 		)
 	}

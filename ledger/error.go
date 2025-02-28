@@ -287,7 +287,7 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		newErr, err = NewGenericErrorFromCbor(tmpData.Err)
 		if err != nil {
-			return fmt.Errorf("failed to parse UtxoFailure: %s", err)
+			return fmt.Errorf("failed to parse UtxoFailure: %w", err)
 		}
 	}
 	e.Err = newErr.(error)

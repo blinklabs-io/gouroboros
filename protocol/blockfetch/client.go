@@ -252,7 +252,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
-		return fmt.Errorf("%s: decode error: %s", ProtocolName, err)
+		return fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
 	var block ledger.Block
 	if !c.blockUseCallback || c.config.BlockFunc != nil {

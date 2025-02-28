@@ -43,16 +43,16 @@ func createListenerSocket(f *globalFlags) (net.Listener, error) {
 	switch {
 	case f.socket != "":
 		if err := os.Remove(f.socket); err != nil {
-			return nil, fmt.Errorf("failed to remove existing socket: %s", err)
+			return nil, fmt.Errorf("failed to remove existing socket: %w", err)
 		}
 		listen, err = net.Listen("unix", f.socket)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open listening socket: %s", err)
+			return nil, fmt.Errorf("failed to open listening socket: %w", err)
 		}
 	case f.address != "":
 		listen, err = net.Listen("tcp", f.address)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open listening socket: %s", err)
+			return nil, fmt.Errorf("failed to open listening socket: %w", err)
 		}
 	default:
 		return nil, fmt.Errorf("no listening address or socket specified")

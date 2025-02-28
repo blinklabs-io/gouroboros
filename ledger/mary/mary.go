@@ -409,7 +409,7 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
 	var maryBlock MaryBlock
 	if _, err := cbor.Decode(data, &maryBlock); err != nil {
-		return nil, fmt.Errorf("Mary block decode error: %s", err)
+		return nil, fmt.Errorf("Mary block decode error: %w", err)
 	}
 	return &maryBlock, nil
 }
@@ -417,7 +417,7 @@ func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
 func NewMaryTransactionBodyFromCbor(data []byte) (*MaryTransactionBody, error) {
 	var maryTx MaryTransactionBody
 	if _, err := cbor.Decode(data, &maryTx); err != nil {
-		return nil, fmt.Errorf("Mary transaction body decode error: %s", err)
+		return nil, fmt.Errorf("Mary transaction body decode error: %w", err)
 	}
 	return &maryTx, nil
 }
@@ -425,7 +425,7 @@ func NewMaryTransactionBodyFromCbor(data []byte) (*MaryTransactionBody, error) {
 func NewMaryTransactionFromCbor(data []byte) (*MaryTransaction, error) {
 	var maryTx MaryTransaction
 	if _, err := cbor.Decode(data, &maryTx); err != nil {
-		return nil, fmt.Errorf("Mary transaction decode error: %s", err)
+		return nil, fmt.Errorf("Mary transaction decode error: %w", err)
 	}
 	return &maryTx, nil
 }
@@ -435,7 +435,7 @@ func NewMaryTransactionOutputFromCbor(
 ) (*MaryTransactionOutput, error) {
 	var maryTxOutput MaryTransactionOutput
 	if _, err := cbor.Decode(data, &maryTxOutput); err != nil {
-		return nil, fmt.Errorf("Mary transaction output decode error: %s", err)
+		return nil, fmt.Errorf("Mary transaction output decode error: %w", err)
 	}
 	return &maryTxOutput, nil
 }

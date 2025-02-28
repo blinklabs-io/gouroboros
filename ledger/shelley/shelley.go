@@ -680,7 +680,7 @@ func (t *ShelleyTransaction) Cbor() []byte {
 func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {
 	var shelleyBlock ShelleyBlock
 	if _, err := cbor.Decode(data, &shelleyBlock); err != nil {
-		return nil, fmt.Errorf("Shelley block decode error: %s", err)
+		return nil, fmt.Errorf("Shelley block decode error: %w", err)
 	}
 	return &shelleyBlock, nil
 }
@@ -688,7 +688,7 @@ func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {
 func NewShelleyBlockHeaderFromCbor(data []byte) (*ShelleyBlockHeader, error) {
 	var shelleyBlockHeader ShelleyBlockHeader
 	if _, err := cbor.Decode(data, &shelleyBlockHeader); err != nil {
-		return nil, fmt.Errorf("Shelley block header decode error: %s", err)
+		return nil, fmt.Errorf("Shelley block header decode error: %w", err)
 	}
 	return &shelleyBlockHeader, nil
 }
@@ -698,7 +698,7 @@ func NewShelleyTransactionBodyFromCbor(
 ) (*ShelleyTransactionBody, error) {
 	var shelleyTx ShelleyTransactionBody
 	if _, err := cbor.Decode(data, &shelleyTx); err != nil {
-		return nil, fmt.Errorf("Shelley transaction body decode error: %s", err)
+		return nil, fmt.Errorf("Shelley transaction body decode error: %w", err)
 	}
 	return &shelleyTx, nil
 }
@@ -706,7 +706,7 @@ func NewShelleyTransactionBodyFromCbor(
 func NewShelleyTransactionFromCbor(data []byte) (*ShelleyTransaction, error) {
 	var shelleyTx ShelleyTransaction
 	if _, err := cbor.Decode(data, &shelleyTx); err != nil {
-		return nil, fmt.Errorf("Shelley transaction decode error: %s", err)
+		return nil, fmt.Errorf("Shelley transaction decode error: %w", err)
 	}
 	return &shelleyTx, nil
 }
@@ -717,7 +717,7 @@ func NewShelleyTransactionOutputFromCbor(
 	var shelleyTxOutput ShelleyTransactionOutput
 	if _, err := cbor.Decode(data, &shelleyTxOutput); err != nil {
 		return nil, fmt.Errorf(
-			"Shelley transaction output decode error: %s",
+			"Shelley transaction output decode error: %w",
 			err,
 		)
 	}

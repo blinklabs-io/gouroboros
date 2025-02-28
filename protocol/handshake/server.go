@@ -161,7 +161,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			return err
 		}
 		return fmt.Errorf(
-			"handshake failed: refused due to protocol parameters decode failure: %s",
+			"handshake failed: refused due to protocol parameters decode failure: %w",
 			err,
 		)
 	}
