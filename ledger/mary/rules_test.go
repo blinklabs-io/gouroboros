@@ -17,7 +17,7 @@ package mary_test
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -50,7 +50,7 @@ func (ls testLedgerState) UtxoById(
 		}
 		return tmpUtxo, nil
 	}
-	return common.Utxo{}, fmt.Errorf("not found")
+	return common.Utxo{}, errors.New("not found")
 }
 
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {

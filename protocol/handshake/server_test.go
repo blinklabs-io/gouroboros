@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package handshake_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -97,9 +98,7 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 	defer func() {
 		goleak.VerifyNone(t)
 	}()
-	expectedErr := fmt.Errorf(
-		"handshake failed: refused due to version mismatch",
-	)
+	expectedErr := errors.New("handshake failed: refused due to version mismatch")
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleServer,
 		[]ouroboros_mock.ConversationEntry{

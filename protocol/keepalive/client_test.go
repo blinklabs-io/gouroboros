@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package keepalive_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -142,7 +143,7 @@ func TestServerKeepaliveHandlingWithWrongResponse(t *testing.T) {
 	go func() {
 		err := <-mockConn.ErrorChan()
 		if err == nil {
-			asyncErrChan <- fmt.Errorf("did not receive expected error")
+			asyncErrChan <- errors.New("did not receive expected error")
 		} else {
 			if err.Error() != expectedErr {
 				asyncErrChan <- fmt.Errorf("did not receive expected error\n  got:    %s\n  wanted: %s", err, expectedErr)
