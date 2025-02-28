@@ -15,6 +15,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -461,7 +462,7 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 		r.Source = tmpMapData.Source
 		return nil
 	}
-	return fmt.Errorf("failed to decode as known types")
+	return errors.New("failed to decode as known types")
 }
 
 type MoveInstantaneousRewardsCertificate struct {

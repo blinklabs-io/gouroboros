@@ -21,6 +21,7 @@ package ledger
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -53,9 +54,7 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 		), false, "", 0, 0
 	}
 	if header == nil {
-		return fmt.Errorf(
-			"VerifyBlock: header returned empty",
-		), false, "", 0, 0
+		return errors.New("VerifyBlock: header returned empty"), false, "", 0, 0
 	}
 	isKesValid, errKes := VerifyKes(header, slotPerKesPeriod)
 	if errKes != nil {

@@ -15,7 +15,7 @@
 package mary
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -52,7 +52,7 @@ func UtxoValidateOutputTooBigUtxo(
 	for _, txOutput := range tx.Outputs() {
 		tmpOutput, ok := txOutput.(*MaryTransactionOutput)
 		if !ok {
-			return fmt.Errorf("transaction output is not expected type")
+			return errors.New("transaction output is not expected type")
 		}
 		outputValBytes, err := cbor.Encode(tmpOutput.OutputAmount)
 		if err != nil {
@@ -97,7 +97,7 @@ func UtxoValidateFeeTooSmallUtxo(
 ) error {
 	tmpPparams, ok := pp.(*MaryProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateFeeTooSmallUtxo(
 		tx,
@@ -142,7 +142,7 @@ func UtxoValidateValueNotConservedUtxo(
 ) error {
 	tmpPparams, ok := pp.(*MaryProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateValueNotConservedUtxo(
 		tx,
@@ -160,7 +160,7 @@ func UtxoValidateOutputTooSmallUtxo(
 ) error {
 	tmpPparams, ok := pp.(*MaryProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateOutputTooSmallUtxo(
 		tx,
@@ -187,7 +187,7 @@ func UtxoValidateMaxTxSizeUtxo(
 ) error {
 	tmpPparams, ok := pp.(*MaryProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateMaxTxSizeUtxo(
 		tx,

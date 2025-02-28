@@ -15,7 +15,7 @@
 package shelley
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	common "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -257,7 +257,7 @@ func UtxoValidateMaxTxSizeUtxo(
 ) error {
 	tmpPparams, ok := pp.(*ShelleyProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	txBytes, err := cbor.Encode(tx)
 	if err != nil {
@@ -279,7 +279,7 @@ func MinFeeTx(
 ) (uint64, error) {
 	tmpPparams, ok := pparams.(*ShelleyProtocolParameters)
 	if !ok {
-		return 0, fmt.Errorf("pparams are not expected type")
+		return 0, errors.New("pparams are not expected type")
 	}
 	txBytes := tx.Cbor()
 	minFee := uint64(
@@ -295,7 +295,7 @@ func MinCoinTxOut(
 ) (uint64, error) {
 	tmpPparams, ok := pparams.(*ShelleyProtocolParameters)
 	if !ok {
-		return 0, fmt.Errorf("pparams are not expected type")
+		return 0, errors.New("pparams are not expected type")
 	}
 	minCoinTxOut := uint64(tmpPparams.MinUtxoValue)
 	return minCoinTxOut, nil

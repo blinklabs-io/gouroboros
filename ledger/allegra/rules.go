@@ -15,7 +15,7 @@
 package allegra
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -68,7 +68,7 @@ func UtxoValidateFeeTooSmallUtxo(
 ) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateFeeTooSmallUtxo(
 		tx,
@@ -113,7 +113,7 @@ func UtxoValidateValueNotConservedUtxo(
 ) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateValueNotConservedUtxo(
 		tx,
@@ -131,7 +131,7 @@ func UtxoValidateOutputTooSmallUtxo(
 ) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateOutputTooSmallUtxo(
 		tx,
@@ -158,7 +158,7 @@ func UtxoValidateMaxTxSizeUtxo(
 ) error {
 	tmpPparams, ok := pp.(*AllegraProtocolParameters)
 	if !ok {
-		return fmt.Errorf("pparams are not expected type")
+		return errors.New("pparams are not expected type")
 	}
 	return shelley.UtxoValidateMaxTxSizeUtxo(
 		tx,

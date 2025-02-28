@@ -16,6 +16,7 @@ package localtxmonitor
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 
@@ -93,9 +94,7 @@ func (s *Server) handleAcquire() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.GetMempoolFunc == nil {
-		return fmt.Errorf(
-			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
-		)
+		return errors.New("received local-tx-monitor Acquire message but no GetMempool callback function is defined")
 	}
 	// Call the user callback function to get mempool information
 	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(
@@ -195,7 +194,7 @@ func (s *Server) handleNextTx() error {
 	}
 	mempoolTx := s.mempoolTxs[s.mempoolNextTxIdx]
 	if mempoolTx.EraId > math.MaxUint8 {
-		return fmt.Errorf("integer overflow in era id")
+		return errors.New("integer overflow in era id")
 	}
 	newMsg := NewMsgReplyNextTx(uint8(mempoolTx.EraId), mempoolTx.Tx)
 	if err := s.SendMessage(newMsg); err != nil {
@@ -220,10 +219,10 @@ func (s *Server) handleGetSizes() error {
 	numTxs := len(s.mempoolTxs)
 	// check for over/underflows
 	if totalTxSize < 0 || totalTxSize > math.MaxUint32 {
-		return fmt.Errorf("integrer overflow in total tx size")
+		return errors.New("integrer overflow in total tx size")
 	}
 	if numTxs < 0 || numTxs > math.MaxUint32 {
-		return fmt.Errorf("integrer overflow in tx count")
+		return errors.New("integrer overflow in tx count")
 	}
 	newMsg := NewMsgReplyGetSizes(
 		s.mempoolCapacity,

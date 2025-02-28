@@ -16,6 +16,7 @@ package shelley
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 
@@ -377,7 +378,7 @@ func (s *ShelleyTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	// This is needed to prevent Conway+ TXs from being decoded as an earlier type
 	var tmpTag cbor.RawTag
 	if _, err := cbor.Decode(data, &tmpTag); err == nil {
-		return fmt.Errorf("did not expect CBOR tag")
+		return errors.New("did not expect CBOR tag")
 	}
 	var tmpData []ShelleyTransactionInput
 	if _, err := cbor.Decode(data, &tmpData); err != nil {

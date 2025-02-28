@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package blockfetch
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -235,7 +236,7 @@ func (c *Client) handleNoBlocks() error {
 		return protocol.ProtocolShuttingDownError
 	default:
 	}
-	err := fmt.Errorf("block(s) not found")
+	err := errors.New("block(s) not found")
 	c.startBatchResultChan <- err
 	return nil
 }
@@ -282,9 +283,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 				return err
 			}
 		} else {
-			return fmt.Errorf(
-				"received block-fetch Block message but no callback function is defined",
-			)
+			return errors.New("received block-fetch Block message but no callback function is defined")
 		}
 	} else {
 		c.blockChan <- block

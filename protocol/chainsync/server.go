@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -144,7 +145,7 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 					"role", "server",
 					"connection_id", s.callbackContext.ConnectionId.String(),
 				)
-			return fmt.Errorf("failed to create roll forward message")
+			return errors.New("failed to create roll forward message")
 		}
 		return s.SendMessage(msg)
 	}
@@ -180,9 +181,7 @@ func (s *Server) handleRequestNext() error {
 	//		"connection_id", s.callbackContext.ConnectionId.String(),
 	//	)
 	if s.config == nil || s.config.RequestNextFunc == nil {
-		return fmt.Errorf(
-			"received chain-sync RequestNext message but no callback function is defined",
-		)
+		return errors.New("received chain-sync RequestNext message but no callback function is defined")
 	}
 	return s.config.RequestNextFunc(s.callbackContext)
 }
@@ -196,9 +195,7 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.FindIntersectFunc == nil {
-		return fmt.Errorf(
-			"received chain-sync FindIntersect message but no callback function is defined",
-		)
+		return errors.New("received chain-sync FindIntersect message but no callback function is defined")
 	}
 	msgFindIntersect := msg.(*MsgFindIntersect)
 	point, tip, err := s.config.FindIntersectFunc(

@@ -22,6 +22,7 @@ import (
 	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"filippo.io/edwards25519"
@@ -67,7 +68,7 @@ func VrfVerifyAndHash(
 		Equal(edwards25519.NewIdentityPoint()) ==
 		1
 	if isSmallOrder {
-		return nil, fmt.Errorf("public key is a small order point")
+		return nil, errors.New("public key is a small order point")
 	}
 	// vrf_verify
 	ok, err := vrfVerify(Y, proof, msg)
@@ -75,7 +76,7 @@ func VrfVerifyAndHash(
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("issue verifying proof")
+		return nil, errors.New("issue verifying proof")
 	}
 	// proof to hash
 	return cryptoVrfIetfdraft03ProofToHash(proof)
@@ -178,7 +179,7 @@ func vrfIetfdraft03DecodeProof(
 	pi []byte,
 ) (gamma *edwards25519.Point, c []byte, s []byte, err error) {
 	if len(pi) != 80 {
-		return nil, nil, nil, fmt.Errorf("unexpected length of pi (must be 80)")
+		return nil, nil, nil, errors.New("unexpected length of pi (must be 80)")
 	}
 	/* gamma = decode_point(pi[0:32]) */
 	gamma = &edwards25519.Point{}

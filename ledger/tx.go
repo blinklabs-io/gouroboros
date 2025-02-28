@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -53,7 +54,7 @@ func NewTransactionBodyFromCbor(
 ) (TransactionBody, error) {
 	switch txType {
 	case TxTypeByron:
-		return nil, fmt.Errorf("Byron transactions do not contain a body")
+		return nil, errors.New("Byron transactions do not contain a body")
 	case TxTypeShelley:
 		return NewShelleyTransactionBodyFromCbor(data)
 	case TxTypeAllegra:
@@ -86,7 +87,7 @@ func NewTransactionOutputFromCbor(data []byte) (TransactionOutput, error) {
 	if txOut, err := NewBabbageTransactionOutputFromCbor(data); err == nil {
 		return txOut, nil
 	}
-	return nil, fmt.Errorf("unknown transaction output type")
+	return nil, errors.New("unknown transaction output type")
 }
 
 func DetermineTransactionType(data []byte) (uint, error) {
@@ -115,5 +116,5 @@ func DetermineTransactionType(data []byte) (uint, error) {
 	if _, err := NewConwayTransactionFromCbor(data); err == nil {
 		return TxTypeConway, nil
 	}
-	return 0, fmt.Errorf("unknown transaction type")
+	return 0, errors.New("unknown transaction type")
 }

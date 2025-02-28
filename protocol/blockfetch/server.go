@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package blockfetch
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -142,9 +143,7 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.RequestRangeFunc == nil {
-		return fmt.Errorf(
-			"received block-fetch RequestRange message but no callback function is defined",
-		)
+		return errors.New("received block-fetch RequestRange message but no callback function is defined")
 	}
 	msgRequestRange := msg.(*MsgRequestRange)
 	return s.config.RequestRangeFunc(
