@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package localtxsubmission_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -129,7 +130,7 @@ func TestSubmitTxRject(t *testing.T) {
 	expectedErr := localtxsubmission.TransactionRejectedError{
 		// [0, [1, ["foo"]]]
 		ReasonCbor: test.DecodeHexString("820082018163666f6f"),
-		Reason:     fmt.Errorf("GenericError ([0 [1 [foo]]])"),
+		Reason:     errors.New("GenericError ([0 [1 [foo]]])"),
 	}
 	conversation := append(
 		conversationHandshakeSubmitTx,

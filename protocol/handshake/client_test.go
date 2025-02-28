@@ -248,7 +248,7 @@ func TestClientNtNAcceptV11(t *testing.T) {
 
 func TestClientNtCRefuseVersionMismatch(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := fmt.Sprintf("%s: version mismatch", handshake.ProtocolName)
+	expectedErr := handshake.ProtocolName + ": version mismatch"
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -282,7 +282,7 @@ func TestClientNtCRefuseVersionMismatch(t *testing.T) {
 
 func TestClientNtCRefuseDecodeError(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := fmt.Sprintf("%s: decode error: foo", handshake.ProtocolName)
+	expectedErr := handshake.ProtocolName + ": decode error: foo"
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -317,7 +317,7 @@ func TestClientNtCRefuseDecodeError(t *testing.T) {
 
 func TestClientNtCRefuseRefused(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := fmt.Sprintf("%s: refused: foo", handshake.ProtocolName)
+	expectedErr := handshake.ProtocolName + ": refused: foo"
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
