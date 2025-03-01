@@ -111,16 +111,7 @@ func UtxoValidateValueNotConservedUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, ok := pp.(*AllegraProtocolParameters)
-	if !ok {
-		return errors.New("pparams are not expected type")
-	}
-	return shelley.UtxoValidateValueNotConservedUtxo(
-		tx,
-		slot,
-		ls,
-		&tmpPparams.ShelleyProtocolParameters,
-	)
+	return shelley.UtxoValidateValueNotConservedUtxo(tx, slot, ls, pp)
 }
 
 func UtxoValidateOutputTooSmallUtxo(
