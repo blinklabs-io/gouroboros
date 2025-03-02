@@ -203,7 +203,7 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 		msgFindIntersect.Points,
 	)
 	if err != nil {
-		if err == IntersectNotFoundError {
+		if errors.Is(err, IntersectNotFoundError) {
 			msgResp := NewMsgIntersectNotFound(tip)
 			if err := s.SendMessage(msgResp); err != nil {
 				return err

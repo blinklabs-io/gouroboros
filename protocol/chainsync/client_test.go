@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package chainsync_test
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -127,7 +128,7 @@ func TestIntersectNotFound(t *testing.T) {
 			if err == nil {
 				t.Fatalf("did not receive expected error")
 			}
-			if err != chainsync.IntersectNotFoundError {
+			if !errors.Is(err, chainsync.IntersectNotFoundError) {
 				t.Fatalf(
 					"did not receive expected error\n  got:    %s\n  wanted: %s",
 					err,
