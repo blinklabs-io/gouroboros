@@ -722,7 +722,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		}
 	}
 	if callbackErr != nil {
-		if callbackErr == StopSyncProcessError {
+		if errors.Is(callbackErr, StopSyncProcessError) {
 			// Signal that we're cancelling the sync
 			c.readyForNextBlockChan <- false
 			return nil
@@ -751,7 +751,7 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 		}
 		// Call the user callback function
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
-			if callbackErr == StopSyncProcessError {
+			if errors.Is(callbackErr, StopSyncProcessError) {
 				// Signal that we're cancelling the sync
 				c.readyForNextBlockChan <- false
 				return nil
