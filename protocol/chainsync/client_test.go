@@ -58,7 +58,7 @@ func runTest(
 	go func() {
 		err := <-mockConn.(*ouroboros_mock.Connection).ErrorChan()
 		if err != nil {
-			asyncErrChan <- fmt.Errorf("received unexpected error: %s", err)
+			asyncErrChan <- fmt.Errorf("received unexpected error: %w", err)
 		}
 		close(asyncErrChan)
 	}()
