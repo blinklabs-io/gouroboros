@@ -180,6 +180,7 @@ func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
+	//nolint:musttag
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
