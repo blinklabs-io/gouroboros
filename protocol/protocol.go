@@ -427,8 +427,12 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 
 		// Mark protocol as ready to send/receive based on role and agency of the new state
 		switch p.config.StateMap[currentState].Agency {
+		case AgencyNone:
+			return
 		case AgencyClient:
 			switch p.config.Role {
+			case ProtocolRoleNone:
+				return
 			case ProtocolRoleClient:
 				select {
 				case p.sendReadyChan <- true:
@@ -442,6 +446,8 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			}
 		case AgencyServer:
 			switch p.config.Role {
+			case ProtocolRoleNone:
+				return
 			case ProtocolRoleServer:
 				select {
 				case p.sendReadyChan <- true:
