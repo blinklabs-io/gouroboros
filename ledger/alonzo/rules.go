@@ -192,16 +192,13 @@ func UtxoValidateNoCollateralInputs(tx common.Transaction, slot uint64, ls commo
 	}
 	return NoCollateralInputsError{}
 }
+
 func UtxoValidateBadInputsUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
 }
 
 func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpPparams, ok := pp.(*AlonzoProtocolParameters)
-	if !ok {
-		return errors.New("pparams are not expected type")
-	}
-	return shelley.UtxoValidateValueNotConservedUtxo(tx, slot, ls, &tmpPparams.ShelleyProtocolParameters)
+	return shelley.UtxoValidateValueNotConservedUtxo(tx, slot, ls, pp)
 }
 
 func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
