@@ -58,7 +58,7 @@ type BadInputsUtxoError struct {
 }
 
 func (e BadInputsUtxoError) Error() string {
-	tmpInputs := make([]string, 0, len(e.Inputs))
+	tmpInputs := make([]string, len(e.Inputs))
 	for idx, tmpInput := range e.Inputs {
 		tmpInputs[idx] = tmpInput.String()
 	}
@@ -71,7 +71,7 @@ type WrongNetworkError struct {
 }
 
 func (e WrongNetworkError) Error() string {
-	tmpAddrs := make([]string, 0, len(e.Addrs))
+	tmpAddrs := make([]string, len(e.Addrs))
 	for idx, tmpAddr := range e.Addrs {
 		tmpAddrs[idx] = tmpAddr.String()
 	}
@@ -84,7 +84,7 @@ type WrongNetworkWithdrawalError struct {
 }
 
 func (e WrongNetworkWithdrawalError) Error() string {
-	tmpAddrs := make([]string, 0, len(e.Addrs))
+	tmpAddrs := make([]string, len(e.Addrs))
 	for idx, tmpAddr := range e.Addrs {
 		tmpAddrs[idx] = tmpAddr.String()
 	}
@@ -109,7 +109,7 @@ type OutputTooSmallUtxoError struct {
 }
 
 func (e OutputTooSmallUtxoError) Error() string {
-	tmpOutputs := make([]string, 0, len(e.Outputs))
+	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
 		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
 	}
@@ -121,7 +121,7 @@ type OutputBootAddrAttrsTooBigError struct {
 }
 
 func (e OutputBootAddrAttrsTooBigError) Error() string {
-	tmpOutputs := make([]string, 0, len(e.Outputs))
+	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
 		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
 	}

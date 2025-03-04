@@ -26,7 +26,7 @@ type OutputTooBigUtxoError struct {
 }
 
 func (e OutputTooBigUtxoError) Error() string {
-	tmpOutputs := make([]string, 0, len(e.Outputs))
+	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
 		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
 	}
