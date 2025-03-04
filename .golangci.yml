@@ -12,12 +12,12 @@ linters:
     - staticcheck
     - unused
     # Defaults above ours below
-    - bodyclose
-    - fatcontext
-    - gosec
-    - noctx
-    - perfsprint
-    - prealloc
+  disable:
+    - asasalint
+    - recvcheck
+  presets:
+    - bugs
+    - performance
 #linters-settings:
 #  errcheck:
 #    check-type-assertions: true
