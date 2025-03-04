@@ -12,34 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package babbage
+package conway
 
 import (
-	"fmt"
+	"strings"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-type TooManyCollateralInputsError struct {
-	Provided uint
-	Max      uint
+type NonDisjointRefInputsError struct {
+	Inputs []common.TransactionInput
 }
 
-func (e TooManyCollateralInputsError) Error() string {
-	return fmt.Sprintf(
-		"too many collateral inputs: provided %d, maximum %d",
-		e.Provided,
-		e.Max,
-	)
-}
-
-type IncorrectTotalCollateralFieldError struct {
-	Provided        uint64
-	TotalCollateral uint64
-}
-
-func (e IncorrectTotalCollateralFieldError) Error() string {
-	return fmt.Sprintf(
-		"incorrect total collateral field: provided %d, total collateral %d",
-		e.Provided,
-		e.TotalCollateral,
-	)
+func (e NonDisjointRefInputsError) Error() string {
+	tmpInputs := make([]string, 0, len(e.Inputs))
+	for idx, tmpInput := range e.Inputs {
+		tmpInputs[idx] = tmpInput.String()
+	}
+	return "non-disjoint reference inputs: " + strings.Join(tmpInputs, ", ")
 }

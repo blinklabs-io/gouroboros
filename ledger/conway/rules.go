@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package babbage
+package conway
 
 import (
 	"errors"
@@ -20,12 +20,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
+	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -43,6 +45,24 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateTooManyCollateralInputs,
+}
+
+func UtxoValidateDisjointRefInputs(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+	commonInputs := []common.TransactionInput{}
+	for _, refInput := range tx.ReferenceInputs() {
+		for _, input := range tx.Inputs() {
+			if refInput.String() != input.String() {
+				continue
+			}
+			commonInputs = append(commonInputs, input)
+		}
+	}
+	if len(commonInputs) == 0 {
+		return nil
+	}
+	return NonDisjointRefInputsError{
+		Inputs: commonInputs,
+	}
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
@@ -68,16 +88,16 @@ func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, slot uint64, ls common.L
 }
 
 func UtxoValidateInsufficientCollateral(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpPparams, ok := pp.(*BabbageProtocolParameters)
+	tmpPparams, ok := pp.(*ConwayProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*BabbageTransaction)
+	tmpTx, ok := tx.(*ConwayTransaction)
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	var totalCollateral uint64
@@ -99,12 +119,12 @@ func UtxoValidateInsufficientCollateral(tx common.Transaction, slot uint64, ls c
 }
 
 func UtxoValidateCollateralContainsNonAda(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpTx, ok := tx.(*BabbageTransaction)
+	tmpTx, ok := tx.(*ConwayTransaction)
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
@@ -130,40 +150,16 @@ func UtxoValidateCollateralContainsNonAda(tx common.Transaction, slot uint64, ls
 
 // UtxoValidateCollateralEqBalance ensures that the collateral return amount is equal to the collateral input amount minus the total collateral
 func UtxoValidateCollateralEqBalance(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	totalCollateral := tx.TotalCollateral()
-	if totalCollateral == 0 {
-		return nil
-	}
-	// Collect collateral input amounts
-	var collBalance uint64
-	for _, collInput := range tx.Collateral() {
-		utxo, err := ls.UtxoById(collInput)
-		if err != nil {
-			continue
-		}
-		collBalance += utxo.Output.Amount()
-	}
-	// Subtract collateral return amount
-	collReturn := tx.CollateralReturn()
-	if collReturn != nil {
-		collBalance -= collReturn.Amount()
-	}
-	if totalCollateral == collBalance {
-		return nil
-	}
-	return IncorrectTotalCollateralFieldError{
-		Provided:        collBalance,
-		TotalCollateral: totalCollateral,
-	}
+	return babbage.UtxoValidateCollateralEqBalance(tx, slot, ls, pp)
 }
 
 func UtxoValidateNoCollateralInputs(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpTx, ok := tx.(*BabbageTransaction)
+	tmpTx, ok := tx.(*ConwayTransaction)
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	if len(tx.Collateral()) > 0 {
@@ -200,13 +196,13 @@ func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, slot uint64, ls commo
 }
 
 func UtxoValidateOutputTooBigUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpPparams, ok := pp.(*BabbageProtocolParameters)
+	tmpPparams, ok := pp.(*ConwayProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
 	badOutputs := []common.TransactionOutput{}
 	for _, txOutput := range tx.Outputs() {
-		tmpOutput, ok := txOutput.(*BabbageTransactionOutput)
+		tmpOutput, ok := txOutput.(*babbage.BabbageTransactionOutput)
 		if !ok {
 			return errors.New("transaction output is not expected type")
 		}
@@ -240,7 +236,7 @@ func UtxoValidateWrongNetworkWithdrawal(tx common.Transaction, slot uint64, ls c
 }
 
 func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpPparams, ok := pp.(*BabbageProtocolParameters)
+	tmpPparams, ok := pp.(*ConwayProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
@@ -258,16 +254,16 @@ func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.Led
 }
 
 func UtxoValidateExUnitsTooBigUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpPparams, ok := pp.(*BabbageProtocolParameters)
+	tmpPparams, ok := pp.(*ConwayProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*BabbageTransaction)
+	tmpTx, ok := tx.(*ConwayTransaction)
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
 	var totalSteps, totalMemory uint64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
 		totalSteps += redeemer.ExUnits.Steps
 		totalMemory += redeemer.ExUnits.Memory
 	}
@@ -284,7 +280,7 @@ func UtxoValidateExUnitsTooBigUtxo(tx common.Transaction, slot uint64, ls common
 }
 
 func UtxoValidateTooManyCollateralInputs(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	tmpPparams, ok := pp.(*BabbageProtocolParameters)
+	tmpPparams, ok := pp.(*ConwayProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
@@ -292,7 +288,7 @@ func UtxoValidateTooManyCollateralInputs(tx common.Transaction, slot uint64, ls 
 	if collateralCount <= tmpPparams.MaxCollateralInputs {
 		return nil
 	}
-	return TooManyCollateralInputsError{
+	return babbage.TooManyCollateralInputsError{
 		Provided: collateralCount,
 		Max:      tmpPparams.MaxCollateralInputs,
 	}
@@ -303,7 +299,7 @@ func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
 ) (uint64, error) {
-	tmpPparams, ok := pparams.(*BabbageProtocolParameters)
+	tmpPparams, ok := pparams.(*ConwayProtocolParameters)
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
@@ -319,7 +315,7 @@ func MinCoinTxOut(
 	txOut common.TransactionOutput,
 	pparams common.ProtocolParameters,
 ) (uint64, error) {
-	tmpPparams, ok := pparams.(*BabbageProtocolParameters)
+	tmpPparams, ok := pparams.(*ConwayProtocolParameters)
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}

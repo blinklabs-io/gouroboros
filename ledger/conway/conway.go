@@ -236,6 +236,15 @@ type ConwayTransactionInputSet struct {
 	items []shelley.ShelleyTransactionInput
 }
 
+func NewConwayTransactionInputSet(
+	items []shelley.ShelleyTransactionInput,
+) ConwayTransactionInputSet {
+	s := ConwayTransactionInputSet{
+		items: items,
+	}
+	return s
+}
+
 func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	// This overrides the Shelley behavior that explicitly disallowed tag-wrapped sets
 	var tmpData []shelley.ShelleyTransactionInput
@@ -248,6 +257,11 @@ func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
 
 func (s *ConwayTransactionInputSet) Items() []shelley.ShelleyTransactionInput {
 	return s.items
+}
+
+func (s *ConwayTransactionInputSet) SetItems(items []shelley.ShelleyTransactionInput) {
+	s.items = make([]shelley.ShelleyTransactionInput, len(items))
+	copy(s.items, items)
 }
 
 type ConwayTransactionBody struct {

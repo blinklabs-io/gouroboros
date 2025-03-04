@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package babbage_test
+package conway_test
 
 import (
 	"crypto/rand"
@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 
@@ -56,19 +57,21 @@ func (ls testLedgerState) UtxoById(id common.TransactionInput) (common.Utxo, err
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						TxValidityIntervalStart: testSlot,
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
+					MaryTransactionBody: mary.MaryTransactionBody{
+						AllegraTransactionBody: allegra.AllegraTransactionBody{
+							TxValidityIntervalStart: testSlot,
+						},
 					},
 				},
 			},
 		},
 	}
 	testLedgerState := testLedgerState{}
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
 	// Test helper function
@@ -76,7 +79,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 		t.Run(
 			name,
 			func(t *testing.T) {
-				err := babbage.UtxoValidateOutsideValidityIntervalUtxo(
+				err := conway.UtxoValidateOutsideValidityIntervalUtxo(
 					testTx,
 					testSlot,
 					testLedgerState,
@@ -161,32 +164,24 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxInputs: shelley.NewShelleyTransactionInputSet(
-								// Non-empty input set
-								[]shelley.ShelleyTransactionInput{
-									{},
-								},
-							),
-						},
-					},
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				// Non-empty input set
+				[]shelley.ShelleyTransactionInput{
+					{},
 				},
-			},
+			),
 		},
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Non-empty
 	t.Run(
 		"non-empty input set",
 		func(t *testing.T) {
-			err := babbage.UtxoValidateInputSetEmptyUtxo(
+			err := conway.UtxoValidateInputSetEmptyUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -205,7 +200,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	t.Run(
 		"empty input set",
 		func(t *testing.T) {
-			err := babbage.UtxoValidateInputSetEmptyUtxo(
+			err := conway.UtxoValidateInputSetEmptyUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -236,13 +231,15 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testBelowFee uint64 = 73
 	var testAboveFee uint64 = 75
 	testTxCbor, _ := hex.DecodeString("abcdef")
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxFee: testExactFee,
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
+					MaryTransactionBody: mary.MaryTransactionBody{
+						AllegraTransactionBody: allegra.AllegraTransactionBody{
+							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+								TxFee: testExactFee,
+							},
 						},
 					},
 				},
@@ -250,7 +247,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 		},
 	}
 	testTx.SetCbor(testTxCbor)
-	testProtocolParams := &babbage.BabbageProtocolParameters{
+	testProtocolParams := &conway.ConwayProtocolParameters{
 		MinFeeA: 7,
 		MinFeeB: 53,
 	}
@@ -263,7 +260,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 			func(t *testing.T) {
 				tmpTestTx := testTx
 				tmpTestTx.Body.TxFee = testFee
-				err := babbage.UtxoValidateFeeTooSmallUtxo(
+				err := conway.UtxoValidateFeeTooSmallUtxo(
 					tmpTestTx,
 					testSlot,
 					testLedgerState,
@@ -337,8 +334,8 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		testInputTxId,
 		1,
 	)
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{},
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{},
 	}
 	testLedgerState := testLedgerState{
 		utxos: []common.Utxo{
@@ -348,15 +345,15 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Good input
 	t.Run(
 		"good input",
 		func(t *testing.T) {
-			testTx.Body.TxInputs = shelley.NewShelleyTransactionInputSet(
+			testTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{testGoodInput},
 			)
-			err := babbage.UtxoValidateBadInputsUtxo(
+			err := conway.UtxoValidateBadInputsUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -374,10 +371,10 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	t.Run(
 		"bad input",
 		func(t *testing.T) {
-			testTx.Body.TxInputs = shelley.NewShelleyTransactionInputSet(
+			testTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
 				[]shelley.ShelleyTransactionInput{testBadInput},
 			)
-			err := babbage.UtxoValidateBadInputsUtxo(
+			err := conway.UtxoValidateBadInputsUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -405,12 +402,14 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 func TestUtxoValidateWrongNetwork(t *testing.T) {
 	testCorrectNetworkAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
 	testWrongNetworkAddr, _ := common.NewAddress("addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07")
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			TxOutputs: []babbage.BabbageTransactionOutput{
-				{
-					OutputAmount: mary.MaryTransactionOutputValue{
-						Amount: 123456,
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				TxOutputs: []babbage.BabbageTransactionOutput{
+					{
+						OutputAmount: mary.MaryTransactionOutputValue{
+							Amount: 123456,
+						},
 					},
 				},
 			},
@@ -420,13 +419,13 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 		networkId: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Correct network
 	t.Run(
 		"correct network",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testCorrectNetworkAddr
-			err := babbage.UtxoValidateBadInputsUtxo(
+			err := conway.UtxoValidateBadInputsUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -445,7 +444,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 		"wrong network",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testWrongNetworkAddr
-			err := babbage.UtxoValidateWrongNetwork(
+			err := conway.UtxoValidateWrongNetwork(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -473,13 +472,15 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	testCorrectNetworkAddr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
 	testWrongNetworkAddr, _ := common.NewAddress("addr_test1qqx80sj9nwxdnglmzdl95v2k40d9422au0klwav8jz2dj985v0wma0mza32f8z6pv2jmkn7cen50f9vn9jmp7dd0njcqqpce07")
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxWithdrawals: map[*common.Address]uint64{},
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
+					MaryTransactionBody: mary.MaryTransactionBody{
+						AllegraTransactionBody: allegra.AllegraTransactionBody{
+							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+								TxWithdrawals: map[*common.Address]uint64{},
+							},
 						},
 					},
 				},
@@ -490,13 +491,13 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 		networkId: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Correct network
 	t.Run(
 		"correct network",
 		func(t *testing.T) {
 			testTx.Body.TxWithdrawals[&testCorrectNetworkAddr] = 123456
-			err := babbage.UtxoValidateWrongNetworkWithdrawal(
+			err := conway.UtxoValidateWrongNetworkWithdrawal(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -515,7 +516,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 		"wrong network",
 		func(t *testing.T) {
 			testTx.Body.TxWithdrawals[&testWrongNetworkAddr] = 123456
-			err := babbage.UtxoValidateWrongNetworkWithdrawal(
+			err := conway.UtxoValidateWrongNetworkWithdrawal(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -547,22 +548,24 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			TxOutputs: []babbage.BabbageTransactionOutput{
-				// Empty placeholder output
-				{},
-			},
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxFee: testFee,
-							TxInputs: shelley.NewShelleyTransactionInputSet(
-								[]shelley.ShelleyTransactionInput{
-									shelley.NewShelleyTransactionInput(testInputTxId, 0),
-								},
-							),
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+				},
+			),
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				TxOutputs: []babbage.BabbageTransactionOutput{
+					// Empty placeholder output
+					{},
+				},
+				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
+					MaryTransactionBody: mary.MaryTransactionBody{
+						AllegraTransactionBody: allegra.AllegraTransactionBody{
+							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+								TxFee: testFee,
+							},
 						},
 					},
 				},
@@ -580,13 +583,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Exact amount
 	t.Run(
 		"exact amount",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
-			err := babbage.UtxoValidateValueNotConservedUtxo(
+			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -605,7 +608,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		"output too low",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputUnderAmount
-			err := babbage.UtxoValidateValueNotConservedUtxo(
+			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -633,7 +636,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		"output too high",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputOverAmount
-			err := babbage.UtxoValidateValueNotConservedUtxo(
+			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -661,17 +664,19 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	var testOutputAmountGood uint64 = 1234567
 	var testOutputAmountBad uint64 = 123
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			TxOutputs: []babbage.BabbageTransactionOutput{
-				// Empty placeholder output
-				{},
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				TxOutputs: []babbage.BabbageTransactionOutput{
+					// Empty placeholder output
+					{},
+				},
 			},
 		},
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{
+	testProtocolParams := &conway.ConwayProtocolParameters{
 		AdaPerUtxoByte: 50,
 	}
 	// Good
@@ -679,7 +684,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 		"sufficient coin",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountGood
-			err := babbage.UtxoValidateOutputTooSmallUtxo(
+			err := conway.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -698,7 +703,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 		"insufficient coin",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountBad
-			err := babbage.UtxoValidateOutputTooSmallUtxo(
+			err := conway.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -748,17 +753,19 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		Amount: 1234567,
 		Assets: &tmpBadMultiAsset,
 	}
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			TxOutputs: []babbage.BabbageTransactionOutput{
-				// Empty placeholder output
-				{},
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				TxOutputs: []babbage.BabbageTransactionOutput{
+					// Empty placeholder output
+					{},
+				},
 			},
 		},
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{
+	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxValueSize: 4000,
 	}
 	// Good
@@ -766,7 +773,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		"not too large",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueGood
-			err := babbage.UtxoValidateOutputTooBigUtxo(
+			err := conway.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -785,7 +792,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		"too large",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueBad
-			err := babbage.UtxoValidateOutputTooBigUtxo(
+			err := conway.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -829,23 +836,25 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			Payload: testBadAddrAttrPayload,
 		},
 	)
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			TxOutputs: []babbage.BabbageTransactionOutput{
-				// Empty placeholder
-				{},
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				TxOutputs: []babbage.BabbageTransactionOutput{
+					// Empty placeholder
+					{},
+				},
 			},
 		},
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Good
 	t.Run(
 		"Shelley address",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testGoodAddr
-			err := babbage.UtxoValidateOutputBootAddrAttrsTooBig(
+			err := conway.UtxoValidateOutputBootAddrAttrsTooBig(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -864,7 +873,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 		"Byron address with large attribute payload",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testBadAddr
-			err := babbage.UtxoValidateOutputBootAddrAttrsTooBig(
+			err := conway.UtxoValidateOutputBootAddrAttrsTooBig(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -892,16 +901,16 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
-	testTx := &babbage.BabbageTransaction{}
+	testTx := &conway.ConwayTransaction{}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Transaction under limit
 	t.Run(
 		"transaction is under limit",
 		func(t *testing.T) {
 			testProtocolParams.MaxTxSize = testMaxTxSizeLarge
-			err := babbage.UtxoValidateMaxTxSizeUtxo(
+			err := conway.UtxoValidateMaxTxSizeUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -920,7 +929,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 		"transaction is too large",
 		func(t *testing.T) {
 			testProtocolParams.MaxTxSize = testMaxTxSizeSmall
-			err := babbage.UtxoValidateMaxTxSizeUtxo(
+			err := conway.UtxoValidateMaxTxSizeUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -950,23 +959,25 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	var testFee uint64 = 123456
 	var testCollateralAmount1 uint64 = 100000
 	var testCollateralAmount2 uint64 = 200000
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxFee: testFee,
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
+					MaryTransactionBody: mary.MaryTransactionBody{
+						AllegraTransactionBody: allegra.AllegraTransactionBody{
+							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
+								TxFee: testFee,
+							},
 						},
 					},
 				},
 			},
 		},
-		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
-				WsRedeemers: []alonzo.AlonzoRedeemer{
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
 					// Placeholder entry
-					{},
+					conway.ConwayRedeemerKey{}: conway.ConwayRedeemerValue{},
 				},
 			},
 		},
@@ -988,7 +999,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{
+	testProtocolParams := &conway.ConwayProtocolParameters{
 		CollateralPercentage: 150,
 	}
 	// Insufficient collateral
@@ -998,7 +1009,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			}
-			err := babbage.UtxoValidateInsufficientCollateral(
+			err := conway.UtxoValidateInsufficientCollateral(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1029,7 +1040,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			}
-			err := babbage.UtxoValidateInsufficientCollateral(
+			err := conway.UtxoValidateInsufficientCollateral(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1048,13 +1059,13 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testCollateralAmount uint64 = 100000
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{},
-		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
-				WsRedeemers: []alonzo.AlonzoRedeemer{
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{},
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
 					// Placeholder entry
-					{},
+					conway.ConwayRedeemerKey{}: conway.ConwayRedeemerValue{},
 				},
 			},
 		},
@@ -1082,7 +1093,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Coin and assets
 	t.Run(
 		"coin and assets",
@@ -1091,7 +1102,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			}
-			err := babbage.UtxoValidateCollateralContainsNonAda(
+			err := conway.UtxoValidateCollateralContainsNonAda(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1121,7 +1132,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			}
-			err := babbage.UtxoValidateCollateralContainsNonAda(
+			err := conway.UtxoValidateCollateralContainsNonAda(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1140,13 +1151,13 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testCollateralAmount uint64 = 100000
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{},
-		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
-				WsRedeemers: []alonzo.AlonzoRedeemer{
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{},
+		WitnessSet: conway.ConwayTransactionWitnessSet{
+			WsRedeemers: conway.ConwayRedeemers{
+				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
 					// Placeholder entry
-					{},
+					conway.ConwayRedeemerKey{}: conway.ConwayRedeemerValue{},
 				},
 			},
 		},
@@ -1162,12 +1173,12 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// No collateral
 	t.Run(
 		"no collateral",
 		func(t *testing.T) {
-			err := babbage.UtxoValidateNoCollateralInputs(
+			err := conway.UtxoValidateNoCollateralInputs(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1197,7 +1208,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			}
-			err := babbage.UtxoValidateNoCollateralInputs(
+			err := conway.UtxoValidateNoCollateralInputs(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1214,24 +1225,24 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 }
 
 func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
-	testRedeemerSmall := alonzo.AlonzoRedeemer{
+	testRedeemerSmall := conway.ConwayRedeemerValue{
 		ExUnits: common.ExUnits{
 			Memory: 1_000_000,
 			Steps:  2_000,
 		},
 	}
-	testRedeemerLarge := alonzo.AlonzoRedeemer{
+	testRedeemerLarge := conway.ConwayRedeemerValue{
 		ExUnits: common.ExUnits{
 			Memory: 1_000_000_000,
 			Steps:  2_000_000,
 		},
 	}
-	testTx := &babbage.BabbageTransaction{
-		WitnessSet: babbage.BabbageTransactionWitnessSet{},
+	testTx := &conway.ConwayTransaction{
+		WitnessSet: conway.ConwayTransactionWitnessSet{},
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{
+	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxTxExUnits: common.ExUnits{
 			Memory: 5_000_000,
 			Steps:  5_000,
@@ -1241,10 +1252,12 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	t.Run(
 		"ExUnits too large",
 		func(t *testing.T) {
-			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerLarge,
+			testTx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
+					conway.ConwayRedeemerKey{}: testRedeemerLarge,
+				},
 			}
-			err := babbage.UtxoValidateExUnitsTooBigUtxo(
+			err := conway.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1271,10 +1284,12 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	t.Run(
 		"ExUnits under limit",
 		func(t *testing.T) {
-			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerSmall,
+			testTx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
+					conway.ConwayRedeemerKey{}: testRedeemerSmall,
+				},
 			}
-			err := babbage.UtxoValidateExUnitsTooBigUtxo(
+			err := conway.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1290,18 +1305,91 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateDisjointRefInputs(t *testing.T) {
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{},
+	}
+	testLedgerState := testLedgerState{}
+	testSlot := uint64(0)
+	testProtocolParams := &conway.ConwayProtocolParameters{}
+	// Non-disjoint ref inputs
+	t.Run(
+		"non-disjoint ref inputs",
+		func(t *testing.T) {
+			testTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+				},
+			)
+			testTx.Body.TxReferenceInputs = []shelley.ShelleyTransactionInput{
+				shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			}
+			err := conway.UtxoValidateDisjointRefInputs(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err == nil {
+				t.Errorf(
+					"UtxoValidateDisjointRefInputs should fail when inputs and ref inputs are duplicated",
+				)
+				return
+			}
+			testErrType := conway.NonDisjointRefInputsError{}
+			assert.IsType(
+				t,
+				testErrType,
+				err,
+				"did not get expected error type: got %T, wanted %T",
+				err,
+				testErrType,
+			)
+		},
+	)
+	// Disjoint ref inputs
+	t.Run(
+		"disjoint ref inputs",
+		func(t *testing.T) {
+			testTx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+				},
+			)
+			testTx.Body.TxReferenceInputs = []shelley.ShelleyTransactionInput{
+				shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			}
+			err := conway.UtxoValidateDisjointRefInputs(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateDisjointRefInputs should succeed when inputs and ref inputs are not duplicated\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+}
+
 func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testInputAmount uint64 = 20_000_000
 	var testTotalCollateral uint64 = 5_000_000
 	var testCollateralReturnAmountGood uint64 = 15_000_000
 	var testCollateralReturnAmountBad uint64 = 16_000_000
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{
-			TxTotalCollateral: testTotalCollateral,
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				TxCollateral: []shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			BabbageTransactionBody: babbage.BabbageTransactionBody{
+				TxTotalCollateral: testTotalCollateral,
+				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
+					TxCollateral: []shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					},
 				},
 			},
 		},
@@ -1320,7 +1408,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{}
+	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Too much collateral return
 	t.Run(
 		"too much collateral return",
@@ -1330,7 +1418,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 					Amount: testCollateralReturnAmountBad,
 				},
 			}
-			err := babbage.UtxoValidateCollateralEqBalance(
+			err := conway.UtxoValidateCollateralEqBalance(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1362,7 +1450,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 					Amount: testCollateralReturnAmountGood,
 				},
 			}
-			err := babbage.UtxoValidateCollateralEqBalance(
+			err := conway.UtxoValidateCollateralEqBalance(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1380,12 +1468,12 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 
 func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
-	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{},
+	testTx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{},
 	}
 	testLedgerState := testLedgerState{}
 	testSlot := uint64(0)
-	testProtocolParams := &babbage.BabbageProtocolParameters{
+	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxCollateralInputs: 1,
 	}
 	// Too many collateral inputs
@@ -1396,7 +1484,7 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			}
-			err := babbage.UtxoValidateTooManyCollateralInputs(
+			err := conway.UtxoValidateTooManyCollateralInputs(
 				testTx,
 				testSlot,
 				testLedgerState,
@@ -1426,7 +1514,7 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			}
-			err := babbage.UtxoValidateTooManyCollateralInputs(
+			err := conway.UtxoValidateTooManyCollateralInputs(
 				testTx,
 				testSlot,
 				testLedgerState,
