@@ -25,7 +25,7 @@ type NonDisjointRefInputsError struct {
 }
 
 func (e NonDisjointRefInputsError) Error() string {
-	tmpInputs := make([]string, 0, len(e.Inputs))
+	tmpInputs := make([]string, len(e.Inputs))
 	for idx, tmpInput := range e.Inputs {
 		tmpInputs[idx] = tmpInput.String()
 	}
