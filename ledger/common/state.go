@@ -24,7 +24,10 @@ type UtxoState interface {
 }
 
 // CertState defines the interface for querying the certificate state
-type CertState interface{}
+type CertState interface {
+	StakeRegistration([]byte) ([]StakeRegistrationCertificate, error)
+	PoolRegistration([]byte) ([]PoolRegistrationCertificate, error)
+}
 
 // LedgerState defines the interface for querying the ledger
 type LedgerState interface {

@@ -17,38 +17,14 @@ package shelley_test
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"testing"
 
+	test "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 
 	"github.com/stretchr/testify/assert"
 )
-
-type testLedgerState struct {
-	networkId uint
-	utxos     []common.Utxo
-}
-
-func (ls testLedgerState) NetworkId() uint {
-	return ls.networkId
-}
-
-func (ls testLedgerState) UtxoById(
-	id common.TransactionInput,
-) (common.Utxo, error) {
-	for _, tmpUtxo := range ls.utxos {
-		if id.Index() != tmpUtxo.Id.Index() {
-			continue
-		}
-		if string(id.Id().Bytes()) != string(tmpUtxo.Id.Id().Bytes()) {
-			continue
-		}
-		return tmpUtxo, nil
-	}
-	return common.Utxo{}, errors.New("not found")
-}
 
 func TestUtxoValidateTimeToLive(t *testing.T) {
 	var testSlot uint64 = 555666777
@@ -58,7 +34,7 @@ func TestUtxoValidateTimeToLive(t *testing.T) {
 			Ttl: testSlot,
 		},
 	}
-	testLedgerState := testLedgerState{}
+	testLedgerState := test.MockLedgerState{}
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -162,7 +138,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := testLedgerState{}
+	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Non-empty
@@ -229,7 +205,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 		MinFeeA: 7,
 		MinFeeB: 53,
 	}
-	testLedgerState := testLedgerState{}
+	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -315,8 +291,8 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	testTx := &shelley.ShelleyTransaction{
 		Body: shelley.ShelleyTransactionBody{},
 	}
-	testLedgerState := testLedgerState{
-		utxos: []common.Utxo{
+	testLedgerState := test.MockLedgerState{
+		MockUtxos: []common.Utxo{
 			{
 				Id: testGoodInput,
 			},
@@ -393,8 +369,8 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := testLedgerState{
-		networkId: common.AddressNetworkMainnet,
+	testLedgerState := test.MockLedgerState{
+		MockNetworkId: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
@@ -459,8 +435,8 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := testLedgerState{
-		networkId: common.AddressNetworkMainnet,
+	testLedgerState := test.MockLedgerState{
+		MockNetworkId: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
@@ -518,6 +494,8 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	var testInputAmount uint64 = 555666777
 	var testFee uint64 = 123456
 	var testStakeDeposit uint64 = 2_000_000
+	var testStakeCred1 = []byte{0x01, 0x23, 0x45}
+	var testStakeCred2 = []byte{0xab, 0xcd, 0xef}
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
@@ -535,12 +513,19 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := testLedgerState{
-		utxos: []common.Utxo{
+	testLedgerState := test.MockLedgerState{
+		MockUtxos: []common.Utxo{
 			{
 				Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				Output: shelley.ShelleyTransactionOutput{
 					OutputAmount: testInputAmount,
+				},
+			},
+		},
+		MockStakeRegistration: []common.StakeRegistrationCertificate{
+			{
+				StakeRegistration: common.StakeCredential{
+					Credential: testStakeCred2,
 				},
 			},
 		},
@@ -568,15 +553,48 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
-	// Stake registration
+	// First stake registration
 	t.Run(
-		"stake registration",
+		"first stake registration",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount - testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type:        common.CertificateTypeStakeRegistration,
-					Certificate: &common.StakeRegistrationCertificate{},
+					Type: common.CertificateTypeStakeRegistration,
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeRegistration: common.StakeCredential{
+							Credential: testStakeCred1,
+						},
+					},
+				},
+			}
+			err := shelley.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should succeed when inputs and outputs are balanced\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+	// Second stake registration
+	t.Run(
+		"second stake registration",
+		func(t *testing.T) {
+			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type: common.CertificateTypeStakeRegistration,
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeRegistration: common.StakeCredential{
+							Credential: testStakeCred2,
+						},
+					},
 				},
 			}
 			err := shelley.UtxoValidateValueNotConservedUtxo(
@@ -662,7 +680,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := testLedgerState{}
+	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{
 		MinUtxoValue: 100000,
@@ -745,7 +763,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := testLedgerState{}
+	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good
@@ -801,7 +819,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &shelley.ShelleyTransaction{}
-	testLedgerState := testLedgerState{}
+	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Transaction under limit
