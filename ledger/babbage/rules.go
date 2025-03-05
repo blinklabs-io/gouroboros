@@ -203,11 +203,23 @@ func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls co
 	}
 	producedValue += tx.Fee()
 	for _, cert := range tx.Certificates() {
-		switch cert.(type) {
+		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			producedValue += uint64(tmpPparams.PoolDeposit)
+			certs, err := ls.PoolRegistration(common.Blake2b224(tmpCert.Operator).Bytes())
+			if err != nil {
+				return err
+			}
+			if len(certs) == 0 {
+				producedValue += uint64(tmpPparams.PoolDeposit)
+			}
 		case *common.StakeRegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			certs, err := ls.StakeRegistration(tmpCert.StakeRegistration.Credential)
+			if err != nil {
+				return err
+			}
+			if len(certs) == 0 {
+				producedValue += uint64(tmpPparams.KeyDeposit)
+			}
 		}
 	}
 	if consumedValue == producedValue {
