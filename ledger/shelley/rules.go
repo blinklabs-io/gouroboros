@@ -162,6 +162,10 @@ func UtxoValidateValueNotConservedUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	tmpPparams, ok := pp.(*ShelleyProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds(?)
 	var consumedValue uint64
@@ -177,12 +181,20 @@ func UtxoValidateValueNotConservedUtxo(
 		consumedValue += tmpWithdrawalAmount
 	}
 	// Calculate produced value
-	// produced = value from output(s) + fee + deposits(?)
+	// produced = value from output(s) + fee + deposits
 	var producedValue uint64
 	for _, tmpOutput := range tx.Outputs() {
 		producedValue += tmpOutput.Amount()
 	}
 	producedValue += tx.Fee()
+	for _, cert := range tx.Certificates() {
+		switch cert.(type) {
+		case *common.PoolRegistrationCertificate:
+			producedValue += uint64(tmpPparams.PoolDeposit)
+		case *common.StakeRegistrationCertificate:
+			producedValue += uint64(tmpPparams.KeyDeposit)
+		}
+	}
 	if consumedValue == producedValue {
 		return nil
 	}

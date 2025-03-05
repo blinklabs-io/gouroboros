@@ -177,7 +177,46 @@ func UtxoValidateBadInputsUtxo(tx common.Transaction, slot uint64, ls common.Led
 }
 
 func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
-	return shelley.UtxoValidateValueNotConservedUtxo(tx, slot, ls, pp)
+	tmpPparams, ok := pp.(*BabbageProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	// Calculate consumed value
+	// consumed = value from input(s) + withdrawals + refunds(?)
+	var consumedValue uint64
+	for _, tmpInput := range tx.Inputs() {
+		tmpUtxo, err := ls.UtxoById(tmpInput)
+		// Ignore errors fetching the UTxO and exclude it from calculations
+		if err != nil {
+			continue
+		}
+		consumedValue += tmpUtxo.Output.Amount()
+	}
+	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
+		consumedValue += tmpWithdrawalAmount
+	}
+	// Calculate produced value
+	// produced = value from output(s) + fee + deposits
+	var producedValue uint64
+	for _, tmpOutput := range tx.Outputs() {
+		producedValue += tmpOutput.Amount()
+	}
+	producedValue += tx.Fee()
+	for _, cert := range tx.Certificates() {
+		switch cert.(type) {
+		case *common.PoolRegistrationCertificate:
+			producedValue += uint64(tmpPparams.PoolDeposit)
+		case *common.StakeRegistrationCertificate:
+			producedValue += uint64(tmpPparams.KeyDeposit)
+		}
+	}
+	if consumedValue == producedValue {
+		return nil
+	}
+	return shelley.ValueNotConservedUtxoError{
+		Consumed: consumedValue,
+		Produced: producedValue,
+	}
 }
 
 func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
