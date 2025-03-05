@@ -540,6 +540,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testInputAmount uint64 = 555666777
 	var testFee uint64 = 123456
+	var testStakeDeposit uint64 = 2_000_000
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
@@ -575,12 +576,43 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		},
 	}
 	testSlot := uint64(0)
-	testProtocolParams := &mary.MaryProtocolParameters{}
+	testProtocolParams := &mary.MaryProtocolParameters{
+		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
+			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
+				KeyDeposit: uint(testStakeDeposit),
+			},
+		},
+	}
 	// Exact amount
 	t.Run(
 		"exact amount",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			err := mary.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should succeed when inputs and outputs are balanced\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+	// Stake registration
+	t.Run(
+		"stake registration",
+		func(t *testing.T) {
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testStakeDeposit
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type:        common.CertificateTypeStakeRegistration,
+					Certificate: &common.StakeRegistrationCertificate{},
+				},
+			}
 			err := mary.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
