@@ -102,7 +102,9 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.AcquireFunc == nil {
-		return errors.New("received local-state-query Acquire message but no callback function is defined")
+		return errors.New(
+			"received local-state-query Acquire message but no callback function is defined",
+		)
 	}
 	var acquireTarget AcquireTarget
 	switch msgAcquire := msg.(type) {
@@ -148,7 +150,9 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.QueryFunc == nil {
-		return errors.New("received local-state-query Query message but no callback function is defined")
+		return errors.New(
+			"received local-state-query Query message but no callback function is defined",
+		)
 	}
 	msgQuery := msg.(*MsgQuery)
 	// Call the user callback function
@@ -177,7 +181,9 @@ func (s *Server) handleRelease() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.ReleaseFunc == nil {
-		return errors.New("received local-state-query Release message but no callback function is defined")
+		return errors.New(
+			"received local-state-query Release message but no callback function is defined",
+		)
 	}
 	// Call the user callback function
 	return s.config.ReleaseFunc(s.callbackContext)
@@ -192,7 +198,9 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.AcquireFunc == nil {
-		return errors.New("received local-state-query ReAcquire message but no callback function is defined")
+		return errors.New(
+			"received local-state-query ReAcquire message but no callback function is defined",
+		)
 	}
 	var acquireTarget AcquireTarget
 	switch msgReAcquire := msg.(type) {

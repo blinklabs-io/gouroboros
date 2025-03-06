@@ -81,7 +81,9 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.SubmitTxFunc == nil {
-		return errors.New("received local-tx-submission SubmitTx message but no callback function is defined")
+		return errors.New(
+			"received local-tx-submission SubmitTx message but no callback function is defined",
+		)
 	}
 	msgSubmitTx := msg.(*MsgSubmitTx)
 	// Call the user callback function and send Accept/RejectTx based on result

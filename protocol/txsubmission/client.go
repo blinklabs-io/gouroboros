@@ -111,7 +111,9 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config.RequestTxIdsFunc == nil {
-		return errors.New("received tx-submission RequestTxIds message but no callback function is defined")
+		return errors.New(
+			"received tx-submission RequestTxIds message but no callback function is defined",
+		)
 	}
 	msgRequestTxIds := msg.(*MsgRequestTxIds)
 	// Call the user callback function
@@ -140,7 +142,9 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config.RequestTxsFunc == nil {
-		return errors.New("received tx-submission RequestTxs message but no callback function is defined")
+		return errors.New(
+			"received tx-submission RequestTxs message but no callback function is defined",
+		)
 	}
 	msgRequestTxs := msg.(*MsgRequestTxs)
 	// Call the user callback function

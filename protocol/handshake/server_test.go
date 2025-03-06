@@ -98,7 +98,9 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 	defer func() {
 		goleak.VerifyNone(t)
 	}()
-	expectedErr := errors.New("handshake failed: refused due to version mismatch")
+	expectedErr := errors.New(
+		"handshake failed: refused due to version mismatch",
+	)
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleServer,
 		[]ouroboros_mock.ConversationEntry{

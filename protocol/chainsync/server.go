@@ -181,7 +181,9 @@ func (s *Server) handleRequestNext() error {
 	//		"connection_id", s.callbackContext.ConnectionId.String(),
 	//	)
 	if s.config == nil || s.config.RequestNextFunc == nil {
-		return errors.New("received chain-sync RequestNext message but no callback function is defined")
+		return errors.New(
+			"received chain-sync RequestNext message but no callback function is defined",
+		)
 	}
 	return s.config.RequestNextFunc(s.callbackContext)
 }
@@ -195,7 +197,9 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.FindIntersectFunc == nil {
-		return errors.New("received chain-sync FindIntersect message but no callback function is defined")
+		return errors.New(
+			"received chain-sync FindIntersect message but no callback function is defined",
+		)
 	}
 	msgFindIntersect := msg.(*MsgFindIntersect)
 	point, tip, err := s.config.FindIntersectFunc(

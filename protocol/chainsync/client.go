@@ -607,7 +607,9 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	}()
 	if firstBlockChan == nil &&
 		(c.config == nil || (c.config.RollForwardFunc == nil && c.config.RollForwardRawFunc == nil)) {
-		return errors.New("received chain-sync RollForward message but no callback function is defined")
+		return errors.New(
+			"received chain-sync RollForward message but no callback function is defined",
+		)
 	}
 	var callbackErr error
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
@@ -747,7 +749,9 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 	c.sendCurrentTip(msgRollBackward.Tip)
 	if len(c.wantFirstBlockChan) == 0 {
 		if c.config.RollBackwardFunc == nil {
-			return errors.New("received chain-sync RollBackward message but no callback function is defined")
+			return errors.New(
+				"received chain-sync RollBackward message but no callback function is defined",
+			)
 		}
 		// Call the user callback function
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
