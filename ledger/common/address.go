@@ -273,10 +273,13 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 
 func (a Address) NetworkId() uint {
 	if a.addressType == AddressTypeByron {
+		// Use Shelley network ID convention
 		if a.byronAddressAttr.Network == nil {
+			// Return mainnet if no network ID is present in address
 			return AddressNetworkMainnet
 		}
-		return uint(*a.byronAddressAttr.Network)
+		// Return testnet, since the convention says we only include network ID on testnets
+		return AddressNetworkTestnet
 	} else {
 		return uint(a.networkId)
 	}
