@@ -291,3 +291,36 @@ func TestAddressPaymentAddress_MixedCase(t *testing.T) {
 	assert.Nil(t, err, "Expected no error when decoding a mixed-case address")
 	assert.NotNil(t, addr, "Expected a valid address object after decoding")
 }
+
+func TestAddressNetworkId(t *testing.T) {
+	testDefs := []struct {
+		address           string
+		expectedNetworkId uint
+	}{
+		{
+			address:           "addr_test1wpvdxve27gk4ylwyf7t6xn3c7swrfzwz9uv0akwnpctkc4qdhgye0",
+			expectedNetworkId: AddressNetworkTestnet,
+		},
+		{
+			address:           "FHnt4NL7yPXsabNmoHMHCfzUVkAC1vSZKd3fgyPfvRGhoXdum5oadfcrADWF8Fc",
+			expectedNetworkId: AddressNetworkTestnet,
+		},
+		{
+			address:           "addr1q862w5ru0hpxl4r6vezgtegrfqve0dm2dp3yj2f7y4arrf223wd3fr6qcumc6873am478xnxmfp8lgpe6q6ju9ttjgns2xavze",
+			expectedNetworkId: AddressNetworkMainnet,
+		},
+	}
+	for _, testDef := range testDefs {
+		addr, err := NewAddress(testDef.address)
+		if err != nil {
+			t.Fatalf("failed to decode address: %s", err)
+		}
+		if addr.NetworkId() != testDef.expectedNetworkId {
+			t.Fatalf(
+				"address did not return expected network ID, got: %d, wanted: %d",
+				addr.NetworkId(),
+				testDef.expectedNetworkId,
+			)
+		}
+	}
+}
