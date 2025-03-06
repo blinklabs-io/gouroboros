@@ -141,6 +141,9 @@ type MultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
 func NewMultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint](
 	data map[Blake2b224]map[cbor.ByteString]T,
 ) MultiAsset[T] {
+	if data == nil {
+		data = make(map[Blake2b224]map[cbor.ByteString]T)
+	}
 	return MultiAsset[T]{data: data}
 }
 
@@ -208,6 +211,41 @@ func (m *MultiAsset[T]) Asset(policyId Blake2b224, assetName []byte) T {
 		return 0
 	}
 	return policy[cbor.NewByteString(assetName)]
+}
+
+func (m *MultiAsset[T]) Add(assets *MultiAsset[T]) {
+	if assets == nil {
+		return
+	}
+	for policy, assets := range assets.data {
+		for asset, amount := range assets {
+			newAmount := m.Asset(policy, asset.Bytes()) + amount
+			if _, ok := m.data[policy]; !ok {
+				m.data[policy] = make(map[cbor.ByteString]T)
+			}
+			m.data[policy][asset] = newAmount
+		}
+	}
+}
+
+func (m *MultiAsset[T]) Compare(assets *MultiAsset[T]) bool {
+	if assets == nil {
+		return false
+	}
+	if len(assets.data) != len(m.data) {
+		return false
+	}
+	for policy, assets := range assets.data {
+		if len(assets) != len(m.data[policy]) {
+			return false
+		}
+		for asset, amount := range assets {
+			if amount != m.Asset(policy, asset.Bytes()) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type AssetFingerprint struct {
