@@ -524,8 +524,6 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	var testInputAmount uint64 = 555666777
 	var testFee uint64 = 123456
 	var testStakeDeposit uint64 = 2_000_000
-	var testStakeCred1 = []byte{0x01, 0x23, 0x45}
-	var testStakeCred2 = []byte{0xab, 0xcd, 0xef}
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
@@ -562,13 +560,6 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				},
 			},
 		},
-		MockStakeRegistration: []common.StakeRegistrationCertificate{
-			{
-				StakeRegistration: common.StakeCredential{
-					Credential: testStakeCred2,
-				},
-			},
-		},
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
@@ -593,18 +584,16 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
-	// First stake registration
+	// Stake registration
 	t.Run(
-		"first stake registration",
+		"stake registration",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: common.CertificateTypeStakeRegistration,
 					Certificate: &common.StakeRegistrationCertificate{
-						StakeRegistration: common.StakeCredential{
-							Credential: testStakeCred1,
-						},
+						StakeRegistration: common.StakeCredential{},
 					},
 				},
 			}
@@ -622,18 +611,16 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
-	// Second stake registration
+	// Stake deregistration
 	t.Run(
-		"second stake registration",
+		"stake deregistration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: common.CertificateTypeStakeRegistration,
-					Certificate: &common.StakeRegistrationCertificate{
-						StakeRegistration: common.StakeCredential{
-							Credential: testStakeCred2,
-						},
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeDeregistration: common.StakeCredential{},
 					},
 				},
 			}
