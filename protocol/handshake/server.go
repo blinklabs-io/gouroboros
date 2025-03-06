@@ -85,7 +85,9 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.FinishedFunc == nil {
-		return errors.New("received handshake ProposeVersions message but no callback function is defined")
+		return errors.New(
+			"received handshake ProposeVersions message but no callback function is defined",
+		)
 	}
 	msgProposeVersions := msg.(*MsgProposeVersions)
 	// Compute intersection of supported and proposed protocol versions
@@ -133,7 +135,9 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				errors.New("handshake failed: refused due to empty version data"),
+				errors.New(
+					"handshake failed: refused due to empty version data",
+				),
 			},
 		)
 		if err := s.SendMessage(msgRefuse); err != nil {
@@ -165,7 +169,9 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			[]any{
 				RefuseReasonDecodeError,
 				proposedVersion,
-				errors.New("handshake failed: refused due to empty version map"),
+				errors.New(
+					"handshake failed: refused due to empty version map",
+				),
 			},
 		)
 		if err := s.SendMessage(msgRefuse); err != nil {

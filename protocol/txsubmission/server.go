@@ -225,7 +225,9 @@ func (s *Server) handleInit() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.InitFunc == nil {
-		return errors.New("received tx-submission Init message but no callback function is defined")
+		return errors.New(
+			"received tx-submission Init message but no callback function is defined",
+		)
 	}
 	// Call the user callback function
 	return s.config.InitFunc(s.callbackContext)

@@ -259,7 +259,9 @@ func (s *ConwayTransactionInputSet) Items() []shelley.ShelleyTransactionInput {
 	return s.items
 }
 
-func (s *ConwayTransactionInputSet) SetItems(items []shelley.ShelleyTransactionInput) {
+func (s *ConwayTransactionInputSet) SetItems(
+	items []shelley.ShelleyTransactionInput,
+) {
 	s.items = make([]shelley.ShelleyTransactionInput, len(items))
 	copy(s.items, items)
 }

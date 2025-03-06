@@ -143,7 +143,9 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.RequestRangeFunc == nil {
-		return errors.New("received block-fetch RequestRange message but no callback function is defined")
+		return errors.New(
+			"received block-fetch RequestRange message but no callback function is defined",
+		)
 	}
 	msgRequestRange := msg.(*MsgRequestRange)
 	return s.config.RequestRangeFunc(

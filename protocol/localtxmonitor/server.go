@@ -94,7 +94,9 @@ func (s *Server) handleAcquire() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config.GetMempoolFunc == nil {
-		return errors.New("received local-tx-monitor Acquire message but no GetMempool callback function is defined")
+		return errors.New(
+			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
+		)
 	}
 	// Call the user callback function to get mempool information
 	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(

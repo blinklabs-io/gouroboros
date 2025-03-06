@@ -125,7 +125,10 @@ func (e OutputBootAddrAttrsTooBigError) Error() string {
 	for idx, tmpOutput := range e.Outputs {
 		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
 	}
-	return "output bootstrap address attributes too big: " + strings.Join(tmpOutputs, ", ")
+	return "output bootstrap address attributes too big: " + strings.Join(
+		tmpOutputs,
+		", ",
+	)
 }
 
 type MaxTxSizeUtxoError struct {

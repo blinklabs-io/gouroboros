@@ -46,7 +46,9 @@ func (ls MockLedgerState) UtxoById(
 	return common.Utxo{}, errors.New("not found")
 }
 
-func (ls MockLedgerState) StakeRegistration(stakingKey []byte) ([]common.StakeRegistrationCertificate, error) {
+func (ls MockLedgerState) StakeRegistration(
+	stakingKey []byte,
+) ([]common.StakeRegistrationCertificate, error) {
 	ret := []common.StakeRegistrationCertificate{}
 	for _, cert := range ls.MockStakeRegistration {
 		if string(cert.StakeRegistration.Credential) == string(stakingKey) {
@@ -56,10 +58,16 @@ func (ls MockLedgerState) StakeRegistration(stakingKey []byte) ([]common.StakeRe
 	return ret, nil
 }
 
-func (ls MockLedgerState) PoolRegistration(poolKeyHash []byte) ([]common.PoolRegistrationCertificate, error) {
+func (ls MockLedgerState) PoolRegistration(
+	poolKeyHash []byte,
+) ([]common.PoolRegistrationCertificate, error) {
 	ret := []common.PoolRegistrationCertificate{}
 	for _, cert := range ls.MockPoolRegistration {
-		if string(common.Blake2b224(cert.Operator).Bytes()) == string(poolKeyHash) {
+		if string(
+			common.Blake2b224(cert.Operator).Bytes(),
+		) == string(
+			poolKeyHash,
+		) {
 			ret = append(ret, cert)
 		}
 	}

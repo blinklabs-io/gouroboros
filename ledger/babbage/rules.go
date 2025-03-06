@@ -45,15 +45,30 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateTooManyCollateralInputs,
 }
 
-func UtxoValidateOutsideValidityIntervalUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateOutsideValidityIntervalUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return allegra.UtxoValidateOutsideValidityIntervalUtxo(tx, slot, ls, pp)
 }
 
-func UtxoValidateInputSetEmptyUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateInputSetEmptyUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
 }
 
-func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateFeeTooSmallUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	minFee, err := MinFeeTx(tx, pp)
 	if err != nil {
 		return err
@@ -67,7 +82,12 @@ func UtxoValidateFeeTooSmallUtxo(tx common.Transaction, slot uint64, ls common.L
 	}
 }
 
-func UtxoValidateInsufficientCollateral(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateInsufficientCollateral(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*BabbageProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
@@ -98,7 +118,12 @@ func UtxoValidateInsufficientCollateral(tx common.Transaction, slot uint64, ls c
 	}
 }
 
-func UtxoValidateCollateralContainsNonAda(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateCollateralContainsNonAda(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpTx, ok := tx.(*BabbageTransaction)
 	if !ok {
 		return errors.New("transaction is not expected type")
@@ -129,7 +154,12 @@ func UtxoValidateCollateralContainsNonAda(tx common.Transaction, slot uint64, ls
 }
 
 // UtxoValidateCollateralEqBalance ensures that the collateral return amount is equal to the collateral input amount minus the total collateral
-func UtxoValidateCollateralEqBalance(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateCollateralEqBalance(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	totalCollateral := tx.TotalCollateral()
 	if totalCollateral == 0 {
 		return nil
@@ -157,7 +187,12 @@ func UtxoValidateCollateralEqBalance(tx common.Transaction, slot uint64, ls comm
 	}
 }
 
-func UtxoValidateNoCollateralInputs(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateNoCollateralInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpTx, ok := tx.(*BabbageTransaction)
 	if !ok {
 		return errors.New("transaction is not expected type")
@@ -172,11 +207,21 @@ func UtxoValidateNoCollateralInputs(tx common.Transaction, slot uint64, ls commo
 	return alonzo.NoCollateralInputsError{}
 }
 
-func UtxoValidateBadInputsUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateBadInputsUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
 }
 
-func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateValueNotConservedUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*BabbageProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
@@ -231,7 +276,12 @@ func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls co
 	}
 }
 
-func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateOutputTooSmallUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
 		minCoin, err := MinCoinTxOut(tmpOutput, pp)
@@ -250,7 +300,12 @@ func UtxoValidateOutputTooSmallUtxo(tx common.Transaction, slot uint64, ls commo
 	}
 }
 
-func UtxoValidateOutputTooBigUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateOutputTooBigUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*BabbageProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
@@ -278,19 +333,39 @@ func UtxoValidateOutputTooBigUtxo(tx common.Transaction, slot uint64, ls common.
 	}
 }
 
-func UtxoValidateOutputBootAddrAttrsTooBig(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateOutputBootAddrAttrsTooBig(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateOutputBootAddrAttrsTooBig(tx, slot, ls, pp)
 }
 
-func UtxoValidateWrongNetwork(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateWrongNetwork(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateWrongNetwork(tx, slot, ls, pp)
 }
 
-func UtxoValidateWrongNetworkWithdrawal(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateWrongNetworkWithdrawal(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	return shelley.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
 }
 
-func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateMaxTxSizeUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*BabbageProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
@@ -308,7 +383,12 @@ func UtxoValidateMaxTxSizeUtxo(tx common.Transaction, slot uint64, ls common.Led
 	}
 }
 
-func UtxoValidateExUnitsTooBigUtxo(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateExUnitsTooBigUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*BabbageProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")
@@ -322,7 +402,8 @@ func UtxoValidateExUnitsTooBigUtxo(tx common.Transaction, slot uint64, ls common
 		totalSteps += redeemer.ExUnits.Steps
 		totalMemory += redeemer.ExUnits.Memory
 	}
-	if totalSteps <= tmpPparams.MaxTxExUnits.Steps && totalMemory <= tmpPparams.MaxTxExUnits.Memory {
+	if totalSteps <= tmpPparams.MaxTxExUnits.Steps &&
+		totalMemory <= tmpPparams.MaxTxExUnits.Memory {
 		return nil
 	}
 	return alonzo.ExUnitsTooBigUtxoError{
@@ -334,7 +415,12 @@ func UtxoValidateExUnitsTooBigUtxo(tx common.Transaction, slot uint64, ls common
 	}
 }
 
-func UtxoValidateTooManyCollateralInputs(tx common.Transaction, slot uint64, ls common.LedgerState, pp common.ProtocolParameters) error {
+func UtxoValidateTooManyCollateralInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
 	tmpPparams, ok := pp.(*BabbageProtocolParameters)
 	if !ok {
 		return errors.New("pparams are not expected type")

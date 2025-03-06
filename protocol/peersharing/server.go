@@ -87,7 +87,9 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.ShareRequestFunc == nil {
-		return errors.New("received peer-sharing ShareRequest message but no callback function is defined")
+		return errors.New(
+			"received peer-sharing ShareRequest message but no callback function is defined",
+		)
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
 	peers, err := s.config.ShareRequestFunc(

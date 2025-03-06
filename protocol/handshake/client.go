@@ -109,7 +109,9 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config.FinishedFunc == nil {
-		return errors.New("received handshake AcceptVersion message but no callback function is defined")
+		return errors.New(
+			"received handshake AcceptVersion message but no callback function is defined",
+		)
 	}
 	msgAcceptVersion := msg.(*MsgAcceptVersion)
 	protoVersion := protocol.GetProtocolVersion(msgAcceptVersion.Version)
