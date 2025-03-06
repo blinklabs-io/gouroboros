@@ -178,7 +178,7 @@ func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls co
 		return errors.New("pparams are not expected type")
 	}
 	// Calculate consumed value
-	// consumed = value from input(s) + withdrawals + refunds(?)
+	// consumed = value from input(s) + withdrawals + refunds
 	var consumedValue uint64
 	for _, tmpInput := range tx.Inputs() {
 		tmpUtxo, err := ls.UtxoById(tmpInput)
@@ -190,6 +190,12 @@ func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls co
 	}
 	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
 		consumedValue += tmpWithdrawalAmount
+	}
+	for _, cert := range tx.Certificates() {
+		switch cert.(type) {
+		case *common.StakeDeregistrationCertificate:
+			consumedValue += uint64(tmpPparams.KeyDeposit)
+		}
 	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
@@ -209,13 +215,7 @@ func UtxoValidateValueNotConservedUtxo(tx common.Transaction, slot uint64, ls co
 				producedValue += uint64(tmpPparams.PoolDeposit)
 			}
 		case *common.StakeRegistrationCertificate:
-			certs, err := ls.StakeRegistration(tmpCert.StakeRegistration.Credential)
-			if err != nil {
-				return err
-			}
-			if len(certs) == 0 {
-				producedValue += uint64(tmpPparams.KeyDeposit)
-			}
+			producedValue += uint64(tmpPparams.KeyDeposit)
 		}
 	}
 	if consumedValue == producedValue {
