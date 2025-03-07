@@ -1099,7 +1099,9 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testCollateralAmount uint64 = 100000
 	testTx := &babbage.BabbageTransaction{
-		Body: babbage.BabbageTransactionBody{},
+		Body: babbage.BabbageTransactionBody{
+			TxTotalCollateral: testCollateralAmount,
+		},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
 			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
 				WsRedeemers: []alonzo.AlonzoRedeemer{
@@ -1110,7 +1112,11 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		},
 	}
 	tmpMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
-		map[common.Blake2b224]map[cbor.ByteString]uint64{},
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.Blake2b224Hash([]byte("abcd")): map[cbor.ByteString]uint64{
+				cbor.NewByteString([]byte("efgh")): 123,
+			},
+		},
 	)
 	testLedgerState := test.MockLedgerState{
 		MockUtxos: []common.Utxo{
@@ -1170,6 +1176,34 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
 				shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			}
+			err := babbage.UtxoValidateCollateralContainsNonAda(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateCollateralContainsNonAda should succeed when collateral with only coin is provided\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+	// Coin and assets with return
+	t.Run(
+		"coin and assets with return",
+		func(t *testing.T) {
+			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
+				shelley.NewShelleyTransactionInput(testInputTxId, 0),
+				shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			}
+			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: testCollateralAmount,
+					Assets: &tmpMultiAsset,
+				},
 			}
 			err := babbage.UtxoValidateCollateralContainsNonAda(
 				testTx,

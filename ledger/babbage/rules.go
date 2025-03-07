@@ -134,19 +134,28 @@ func UtxoValidateCollateralContainsNonAda(
 	}
 	badOutputs := []common.TransactionOutput{}
 	var totalCollateral uint64
+	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
 		}
 		totalCollateral += utxo.Output.Amount()
-		if utxo.Output.Assets() == nil {
+		totalAssets.Add(utxo.Output.Assets())
+		if utxo.Output.Assets() == nil || len(utxo.Output.Assets().Policies()) == 0 {
 			continue
 		}
 		badOutputs = append(badOutputs, utxo.Output)
 	}
 	if len(badOutputs) == 0 {
 		return nil
+	}
+	// Check if all collateral assets are accounted for in the collateral return
+	collReturn := tx.CollateralReturn()
+	if collReturn != nil {
+		if collReturn.Assets().Compare(&totalAssets) {
+			return nil
+		}
 	}
 	return alonzo.CollateralContainsNonAdaError{
 		Provided: totalCollateral,
