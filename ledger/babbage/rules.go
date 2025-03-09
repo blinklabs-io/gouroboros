@@ -153,8 +153,11 @@ func UtxoValidateCollateralContainsNonAda(
 	// Check if all collateral assets are accounted for in the collateral return
 	collReturn := tx.CollateralReturn()
 	if collReturn != nil {
-		if collReturn.Assets().Compare(&totalAssets) {
-			return nil
+		collReturnAssets := collReturn.Assets()
+		if collReturnAssets != nil {
+			if collReturnAssets.Compare(&totalAssets) {
+				return nil
+			}
 		}
 	}
 	return alonzo.CollateralContainsNonAdaError{
