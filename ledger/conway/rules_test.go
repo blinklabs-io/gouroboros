@@ -1128,6 +1128,13 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	)
+	tmpZeroMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.Blake2b224Hash([]byte("abcd")): map[cbor.ByteString]uint64{
+				cbor.NewByteString([]byte("efgh")): 0,
+			},
+		},
+	)
 	testLedgerState := test.MockLedgerState{
 		MockUtxos: []common.Utxo{
 			{
@@ -1142,6 +1149,15 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 					OutputAmount: mary.MaryTransactionOutputValue{
 						Amount: testCollateralAmount,
 						Assets: &tmpMultiAsset,
+					},
+				},
+			},
+			{
+				Id: shelley.NewShelleyTransactionInput(testInputTxId, 2),
+				Output: babbage.BabbageTransactionOutput{
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: testCollateralAmount,
+						Assets: &tmpZeroMultiAsset,
 					},
 				},
 			},
@@ -1213,6 +1229,32 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralAmount,
 					Assets: &tmpMultiAsset,
+				},
+			}
+			err := conway.UtxoValidateCollateralContainsNonAda(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateCollateralContainsNonAda should succeed when collateral with only coin is provided\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+	// Coin and zero assets with return
+	t.Run(
+		"coin and zero assets with return",
+		func(t *testing.T) {
+			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
+				shelley.NewShelleyTransactionInput(testInputTxId, 2),
+			}
+			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: testCollateralAmount,
 				},
 			}
 			err := conway.UtxoValidateCollateralContainsNonAda(

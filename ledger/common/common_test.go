@@ -126,6 +126,84 @@ func TestMultiAssetJson(t *testing.T) {
 	}
 }
 
+func TestMultiAssetCompare(t *testing.T) {
+	testDefs := []struct {
+		asset1         *MultiAsset[MultiAssetTypeOutput]
+		asset2         *MultiAsset[MultiAssetTypeOutput]
+		expectedResult bool
+	}{
+		{
+			asset1: &MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224([]byte("abcd")): {
+						cbor.NewByteString([]byte("cdef")): 123,
+					},
+				},
+			},
+			asset2: &MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224([]byte("abcd")): {
+						cbor.NewByteString([]byte("cdef")): 123,
+					},
+				},
+			},
+			expectedResult: true,
+		},
+		{
+			asset1: &MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224([]byte("abcd")): {
+						cbor.NewByteString([]byte("cdef")): 123,
+					},
+				},
+			},
+			asset2: &MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224([]byte("abcd")): {
+						cbor.NewByteString([]byte("cdef")): 124,
+					},
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			asset1: &MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224([]byte("abcd")): {
+						cbor.NewByteString([]byte("cdef")): 0,
+					},
+				},
+			},
+			asset2:         nil,
+			expectedResult: true,
+		},
+		{
+			asset1: &MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224([]byte("abcd")): {
+						cbor.NewByteString([]byte("cdef")): 123,
+					},
+				},
+			},
+			asset2: &MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224([]byte("abcd")): {
+						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("efgh")): 123,
+					},
+				},
+			},
+			expectedResult: false,
+		},
+	}
+	for _, testDef := range testDefs {
+		tmpResult := testDef.asset1.Compare(testDef.asset2)
+		if tmpResult != testDef.expectedResult {
+			t.Errorf("did not get expected result: got %v, wanted %v", tmpResult, testDef.expectedResult)
+		}
+	}
+}
+
 // Test the MarshalJSON method for Blake2b224 to ensure it properly converts to JSON.
 func TestBlake2b224_MarshalJSON(t *testing.T) {
 	// Example data to represent Blake2b224 hash
