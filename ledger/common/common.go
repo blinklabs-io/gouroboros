@@ -229,23 +229,44 @@ func (m *MultiAsset[T]) Add(assets *MultiAsset[T]) {
 }
 
 func (m *MultiAsset[T]) Compare(assets *MultiAsset[T]) bool {
-	if assets == nil {
+	// Normalize data for easier comparison
+	tmpData := m.normalize()
+	otherData := assets.normalize()
+	// Compare policy counts
+	if len(otherData) != len(tmpData) {
 		return false
 	}
-	if len(assets.data) != len(m.data) {
-		return false
-	}
-	for policy, assets := range assets.data {
-		if len(assets) != len(m.data[policy]) {
+	for policy, assets := range otherData {
+		// Compare asset counts for policy
+		if len(assets) != len(tmpData[policy]) {
 			return false
 		}
 		for asset, amount := range assets {
+			// Compare quantity of specific asset
 			if amount != m.Asset(policy, asset.Bytes()) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+func (m *MultiAsset[T]) normalize() map[Blake2b224]map[cbor.ByteString]T {
+	ret := map[Blake2b224]map[cbor.ByteString]T{}
+	if m == nil || m.data == nil {
+		return ret
+	}
+	for policy, assets := range m.data {
+		for asset, amount := range assets {
+			if amount != 0 {
+				if _, ok := ret[policy]; !ok {
+					ret[policy] = make(map[cbor.ByteString]T)
+				}
+				ret[policy][asset] = amount
+			}
+		}
+	}
+	return ret
 }
 
 type AssetFingerprint struct {
