@@ -15,6 +15,7 @@
 package localstatequery_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -284,4 +285,67 @@ func TestGetUTxOByAddress(t *testing.T) {
 			}
 		},
 	)
+}
+
+func TestGenesisConfigJSON(t *testing.T) {
+	genesisConfig := localstatequery.GenesisConfigResult{
+		Start: localstatequery.SystemStartResult{
+			Year:        2024,
+			Day:         35,
+			Picoseconds: 1234567890123456,
+		},
+		NetworkMagic:      764824073,
+		NetworkId:         1,
+		ActiveSlotsCoeff:  []interface{}{0.1, 0.2},
+		SecurityParam:     2160,
+		EpochLength:       432000,
+		SlotsPerKESPeriod: 129600,
+		MaxKESEvolutions:  62,
+		SlotLength:        1,
+		UpdateQuorum:      5,
+		MaxLovelaceSupply: 45000000000000000,
+		ProtocolParams: localstatequery.ProtocolParams{
+			MinFeeA:               44,
+			MinFeeB:               155381,
+			MaxBlockBodySize:      65536,
+			MaxTxSize:             16384,
+			MaxBlockHeaderSize:    1100,
+			KeyDeposit:            2000000,
+			PoolDeposit:           500000000,
+			EMax:                  18,
+			NOpt:                  500,
+			A0:                    []int{0},
+			Rho:                   []int{1},
+			Tau:                   []int{2},
+			DecentralizationParam: []int{3},
+			ExtraEntropy:          nil,
+			ProtocolVersionMajor:  2,
+			ProtocolVersionMinor:  0,
+			MinUTxOValue:          1000000,
+			MinPoolCost:           340000000,
+		},
+		GenDelegs: []byte("mocked_cbor_data"),
+		Unknown1:  nil,
+		Unknown2:  nil,
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(genesisConfig)
+	if err != nil {
+		t.Fatalf("Failed to marshal JSON: %v", err)
+	}
+
+	// Unmarshal back to struct
+	var result localstatequery.GenesisConfigResult
+	if err := json.Unmarshal(jsonData, &result); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	//Compare everything after unmarshalling
+
+	if !reflect.DeepEqual(genesisConfig, result) {
+		t.Errorf("Mismatch after JSON marshalling/unmarshalling. Expected:\n%+v\nGot:\n%+v", genesisConfig, result)
+	} else {
+		t.Logf("Successfully validated the GenesisConfigResult after JSON marshalling and unmarshalling.")
+	}
 }

@@ -585,32 +585,33 @@ type GenesisConfigResult struct {
 	SlotLength        int
 	UpdateQuorum      int
 	MaxLovelaceSupply int64
-	ProtocolParams    struct {
-		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-		_                     struct{} `cbor:",toarray"`
-		MinFeeA               int
-		MinFeeB               int
-		MaxBlockBodySize      int
-		MaxTxSize             int
-		MaxBlockHeaderSize    int
-		KeyDeposit            int
-		PoolDeposit           int
-		EMax                  int
-		NOpt                  int
-		A0                    []int
-		Rho                   []int
-		Tau                   []int
-		DecentralizationParam []int
-		ExtraEntropy          interface{}
-		ProtocolVersionMajor  int
-		ProtocolVersionMinor  int
-		MinUTxOValue          int
-		MinPoolCost           int
-	}
+	ProtocolParams    ProtocolParams
 	// This value contains maps with bytestring keys, which we can't parse yet
 	GenDelegs cbor.RawMessage
 	Unknown1  interface{}
 	Unknown2  interface{}
+}
+
+type ProtocolParams struct {
+	_                     struct{} `cbor:",toarray"`
+	MinFeeA               int
+	MinFeeB               int
+	MaxBlockBodySize      int
+	MaxTxSize             int
+	MaxBlockHeaderSize    int
+	KeyDeposit            int
+	PoolDeposit           int
+	EMax                  int
+	NOpt                  int
+	A0                    []int
+	Rho                   []int
+	Tau                   []int
+	DecentralizationParam []int
+	ExtraEntropy          interface{}
+	ProtocolVersionMajor  int
+	ProtocolVersionMinor  int
+	MinUTxOValue          int
+	MinPoolCost           int
 }
 
 // TODO (#864)
