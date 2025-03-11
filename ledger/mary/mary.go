@@ -414,6 +414,14 @@ func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
 	return &maryBlock, nil
 }
 
+func NewMaryBlockHeaderFromCbor(data []byte) (*MaryBlockHeader, error) {
+	var maryBlockHeader MaryBlockHeader
+	if _, err := cbor.Decode(data, &maryBlockHeader); err != nil {
+		return nil, fmt.Errorf("Mary block header decode error: %w", err)
+	}
+	return &maryBlockHeader, nil
+}
+
 func NewMaryTransactionBodyFromCbor(data []byte) (*MaryTransactionBody, error) {
 	var maryTx MaryTransactionBody
 	if _, err := cbor.Decode(data, &maryTx); err != nil {

@@ -37,6 +37,7 @@ const (
 // Allegra functions
 var (
 	NewAllegraBlockFromCbor           = allegra.NewAllegraBlockFromCbor
+	NewAllegraBlockHeaderFromCbor     = allegra.NewAllegraBlockHeaderFromCbor
 	NewAllegraTransactionFromCbor     = allegra.NewAllegraTransactionFromCbor
 	NewAllegraTransactionBodyFromCbor = allegra.NewAllegraTransactionBodyFromCbor
 )
