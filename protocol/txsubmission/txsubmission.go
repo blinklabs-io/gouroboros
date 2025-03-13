@@ -133,9 +133,11 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type RequestTxIdsFunc func(CallbackContext, bool, uint16, uint16) ([]TxIdAndSize, error)
-type RequestTxsFunc func(CallbackContext, []TxId) ([]TxBody, error)
-type InitFunc func(CallbackContext) error
+type (
+	RequestTxIdsFunc func(CallbackContext, bool, uint16, uint16) ([]TxIdAndSize, error)
+	RequestTxsFunc   func(CallbackContext, []TxId) ([]TxBody, error)
+	InitFunc         func(CallbackContext) error
+)
 
 // New returns a new TxSubmission object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *TxSubmission {

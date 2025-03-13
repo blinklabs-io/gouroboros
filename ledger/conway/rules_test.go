@@ -1123,14 +1123,14 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	}
 	tmpMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
-			common.Blake2b224Hash([]byte("abcd")): map[cbor.ByteString]uint64{
+			common.Blake2b224Hash([]byte("abcd")): {
 				cbor.NewByteString([]byte("efgh")): 123,
 			},
 		},
 	)
 	tmpZeroMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
-			common.Blake2b224Hash([]byte("abcd")): map[cbor.ByteString]uint64{
+			common.Blake2b224Hash([]byte("abcd")): {
 				cbor.NewByteString([]byte("efgh")): 0,
 			},
 		},

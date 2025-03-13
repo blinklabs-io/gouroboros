@@ -19,10 +19,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"golang.org/x/crypto/blake2b"
-
-	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 const (
@@ -128,8 +127,10 @@ func Blake2b160Hash(data []byte) Blake2b160 {
 	return Blake2b160(tmpHash.Sum(nil))
 }
 
-type MultiAssetTypeOutput = uint64
-type MultiAssetTypeMint = int64
+type (
+	MultiAssetTypeOutput = uint64
+	MultiAssetTypeMint   = int64
+)
 
 // MultiAsset represents a collection of policies, assets, and quantities. It's used for
 // TX outputs (uint64) and TX asset minting (int64 to allow for negative values for burning)

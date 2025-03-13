@@ -20,14 +20,16 @@ import "github.com/blinklabs-io/gouroboros/ledger/alonzo"
 // to keep existing code working after a refactor of the ledger package
 
 // Alonzo types
-type AlonzoBlock = alonzo.AlonzoBlock
-type AlonzoBlockHeader = alonzo.AlonzoBlockHeader
-type AlonzoTransaction = alonzo.AlonzoTransaction
-type AlonzoTransactionBody = alonzo.AlonzoTransactionBody
-type AlonzoTransactionOutput = alonzo.AlonzoTransactionOutput
-type AlonzoTransactionWitnessSet = alonzo.AlonzoTransactionWitnessSet
-type AlonzoProtocolParameters = alonzo.AlonzoProtocolParameters
-type AlonzoProtocolParameterUpdate = alonzo.AlonzoProtocolParameterUpdate
+type (
+	AlonzoBlock                   = alonzo.AlonzoBlock
+	AlonzoBlockHeader             = alonzo.AlonzoBlockHeader
+	AlonzoTransaction             = alonzo.AlonzoTransaction
+	AlonzoTransactionBody         = alonzo.AlonzoTransactionBody
+	AlonzoTransactionOutput       = alonzo.AlonzoTransactionOutput
+	AlonzoTransactionWitnessSet   = alonzo.AlonzoTransactionWitnessSet
+	AlonzoProtocolParameters      = alonzo.AlonzoProtocolParameters
+	AlonzoProtocolParameterUpdate = alonzo.AlonzoProtocolParameterUpdate
+)
 
 // Alonzo constants
 const (

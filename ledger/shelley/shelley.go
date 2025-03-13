@@ -20,10 +20,9 @@ import (
 	"fmt"
 	"math"
 
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 const (
@@ -37,12 +36,10 @@ const (
 	TxTypeShelley = 1
 )
 
-var (
-	EraShelley = common.Era{
-		Id:   EraIdShelley,
-		Name: EraNameShelley,
-	}
-)
+var EraShelley = common.Era{
+	Id:   EraIdShelley,
+	Name: EraNameShelley,
+}
 
 func init() {
 	common.RegisterEra(EraShelley)
@@ -233,7 +230,6 @@ func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
 func (b *ShelleyTransactionBody) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
-
 		ret = append(ret, &output)
 	}
 	return ret

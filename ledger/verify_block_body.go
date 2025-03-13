@@ -23,12 +23,13 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"github.com/blinklabs-io/gouroboros/cbor"
-	_cbor "github.com/fxamacker/cbor/v2"
-	"golang.org/x/crypto/blake2b"
 	"math"
 	"reflect"
 	"strconv"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	_cbor "github.com/fxamacker/cbor/v2"
+	"golang.org/x/crypto/blake2b"
 )
 
 const (
@@ -474,7 +475,6 @@ func GetBlockOutput(
 				})
 			}
 		}
-
 	}
 
 	return outputs, regisCerts, deRegisCerts, nil

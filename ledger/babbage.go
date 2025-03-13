@@ -20,14 +20,16 @@ import "github.com/blinklabs-io/gouroboros/ledger/babbage"
 // to keep existing code working after a refactor of the ledger package
 
 // Babbage types
-type BabbageBlock = babbage.BabbageBlock
-type BabbageBlockHeader = babbage.BabbageBlockHeader
-type BabbageTransaction = babbage.BabbageTransaction
-type BabbageTransactionBody = babbage.BabbageTransactionBody
-type BabbageTransactionOutput = babbage.BabbageTransactionOutput
-type BabbageTransactionWitnessSet = babbage.BabbageTransactionWitnessSet
-type BabbageProtocolParameters = babbage.BabbageProtocolParameters
-type BabbageProtocolParameterUpdate = babbage.BabbageProtocolParameterUpdate
+type (
+	BabbageBlock                   = babbage.BabbageBlock
+	BabbageBlockHeader             = babbage.BabbageBlockHeader
+	BabbageTransaction             = babbage.BabbageTransaction
+	BabbageTransactionBody         = babbage.BabbageTransactionBody
+	BabbageTransactionOutput       = babbage.BabbageTransactionOutput
+	BabbageTransactionWitnessSet   = babbage.BabbageTransactionWitnessSet
+	BabbageProtocolParameters      = babbage.BabbageProtocolParameters
+	BabbageProtocolParameterUpdate = babbage.BabbageProtocolParameterUpdate
+)
 
 // Babbage constants
 const (

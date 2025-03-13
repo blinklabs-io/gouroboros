@@ -39,7 +39,7 @@ const (
 
 type VersionData interface {
 	NetworkMagic() uint32
-	//Query() bool
+	// Query() bool
 	// NtN only
 	DiffusionMode() bool
 	PeerSharing() bool

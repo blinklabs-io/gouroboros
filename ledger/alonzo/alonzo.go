@@ -23,7 +23,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -38,12 +37,10 @@ const (
 	TxTypeAlonzo = 4
 )
 
-var (
-	EraAlonzo = common.Era{
-		Id:   EraIdAlonzo,
-		Name: EraNameAlonzo,
-	}
-)
+var EraAlonzo = common.Era{
+	Id:   EraIdAlonzo,
+	Name: EraNameAlonzo,
+}
 
 func init() {
 	common.RegisterEra(EraAlonzo)
@@ -169,7 +166,6 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b *AlonzoTransactionBody) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
-
 		ret = append(ret, &output)
 	}
 	return ret
@@ -277,7 +273,7 @@ func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 	if o.Assets() != nil {
 		tmpAssets := o.Assets()
 		for _, policyId := range tmpAssets.Policies() {
-			var ma = &utxorpc.Multiasset{
+			ma := &utxorpc.Multiasset{
 				PolicyId: policyId.Bytes(),
 			}
 			for _, assetName := range tmpAssets.Assets(policyId) {

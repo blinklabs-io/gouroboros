@@ -17,11 +17,10 @@ package alonzo
 import (
 	"math"
 
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type AlonzoProtocolParameters struct {

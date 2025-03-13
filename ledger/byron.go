@@ -20,13 +20,15 @@ import "github.com/blinklabs-io/gouroboros/ledger/byron"
 // to keep existing code working after a refactor of the ledger package
 
 // Byron types
-type ByronEpochBoundaryBlock = byron.ByronEpochBoundaryBlock
-type ByronMainBlock = byron.ByronMainBlock
-type ByronEpochBounaryBlockHeader = byron.ByronEpochBoundaryBlockHeader
-type ByronMainBlockHeader = byron.ByronMainBlockHeader
-type ByronTransaction = byron.ByronTransaction
-type ByronTransactionInput = byron.ByronTransactionInput
-type ByronTransactionOutput = byron.ByronTransactionOutput
+type (
+	ByronEpochBoundaryBlock      = byron.ByronEpochBoundaryBlock
+	ByronMainBlock               = byron.ByronMainBlock
+	ByronEpochBounaryBlockHeader = byron.ByronEpochBoundaryBlockHeader
+	ByronMainBlockHeader         = byron.ByronMainBlockHeader
+	ByronTransaction             = byron.ByronTransaction
+	ByronTransactionInput        = byron.ByronTransactionInput
+	ByronTransactionOutput       = byron.ByronTransactionOutput
+)
 
 // Byron constants
 const (

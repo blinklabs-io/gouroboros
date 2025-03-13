@@ -20,13 +20,15 @@ import "github.com/blinklabs-io/gouroboros/ledger/conway"
 // to keep existing code working after a refactor of the ledger package
 
 // Conway types
-type ConwayBlock = conway.ConwayBlock
-type ConwayBlockHeader = conway.ConwayBlockHeader
-type ConwayTransaction = conway.ConwayTransaction
-type ConwayTransactionBody = conway.ConwayTransactionBody
-type ConwayTransactionWitnessSet = conway.ConwayTransactionWitnessSet
-type ConwayProtocolParameters = conway.ConwayProtocolParameters
-type ConwayProtocolParameterUpdate = conway.ConwayProtocolParameterUpdate
+type (
+	ConwayBlock                   = conway.ConwayBlock
+	ConwayBlockHeader             = conway.ConwayBlockHeader
+	ConwayTransaction             = conway.ConwayTransaction
+	ConwayTransactionBody         = conway.ConwayTransactionBody
+	ConwayTransactionWitnessSet   = conway.ConwayTransactionWitnessSet
+	ConwayProtocolParameters      = conway.ConwayProtocolParameters
+	ConwayProtocolParameterUpdate = conway.ConwayProtocolParameterUpdate
+)
 
 // Conway constants
 const (

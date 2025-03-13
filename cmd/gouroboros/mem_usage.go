@@ -19,13 +19,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	// #nosec G108
+	_ "net/http/pprof"
 	"os"
 	"runtime"
 	"runtime/pprof"
 	"time"
-
-	// #nosec G108
-	_ "net/http/pprof"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 )

@@ -20,15 +20,17 @@ import "github.com/blinklabs-io/gouroboros/ledger/shelley"
 // to keep existing code working after a refactor of the ledger package
 
 // Shelley types
-type ShelleyBlock = shelley.ShelleyBlock
-type ShelleyBlockHeader = shelley.ShelleyBlockHeader
-type ShelleyTransaction = shelley.ShelleyTransaction
-type ShelleyTransactionBody = shelley.ShelleyTransactionBody
-type ShelleyTransactionInput = shelley.ShelleyTransactionInput
-type ShelleyTransactionOutput = shelley.ShelleyTransactionOutput
-type ShelleyTransactionWitnessSet = shelley.ShelleyTransactionWitnessSet
-type ShelleyProtocolParameters = shelley.ShelleyProtocolParameters
-type ShelleyProtocolParameterUpdate = shelley.ShelleyProtocolParameterUpdate
+type (
+	ShelleyBlock                   = shelley.ShelleyBlock
+	ShelleyBlockHeader             = shelley.ShelleyBlockHeader
+	ShelleyTransaction             = shelley.ShelleyTransaction
+	ShelleyTransactionBody         = shelley.ShelleyTransactionBody
+	ShelleyTransactionInput        = shelley.ShelleyTransactionInput
+	ShelleyTransactionOutput       = shelley.ShelleyTransactionOutput
+	ShelleyTransactionWitnessSet   = shelley.ShelleyTransactionWitnessSet
+	ShelleyProtocolParameters      = shelley.ShelleyProtocolParameters
+	ShelleyProtocolParameterUpdate = shelley.ShelleyProtocolParameterUpdate
+)
 
 // Shelley constants
 const (

@@ -510,7 +510,6 @@ func (e *OutputTooBigUtxo) Error() string {
 	}
 	ret = ret + "])"
 	return ret
-
 }
 
 type InsufficientCollateral struct {

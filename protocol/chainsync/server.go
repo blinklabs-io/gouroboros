@@ -173,7 +173,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 func (s *Server) handleRequestNext() error {
 	// TODO: figure out why this one log message causes a panic (and only this one)
 	//   during tests (#857)
-	//s.Protocol.Logger().
+	// s.Protocol.Logger().
 	//	Debug("request next",
 	//		"component", "network",
 	//		"protocol", ProtocolName,

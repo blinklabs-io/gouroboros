@@ -17,11 +17,10 @@ package babbage
 import (
 	"math"
 
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 // BabbageProtocolParameters represents the current Babbage protocol parameters as seen in local-state-query

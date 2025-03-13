@@ -216,12 +216,16 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type RollBackwardFunc func(CallbackContext, common.Point, Tip) error
-type RollForwardFunc func(CallbackContext, uint, interface{}, Tip) error
-type RollForwardRawFunc func(CallbackContext, uint, []byte, Tip) error
+type (
+	RollBackwardFunc   func(CallbackContext, common.Point, Tip) error
+	RollForwardFunc    func(CallbackContext, uint, interface{}, Tip) error
+	RollForwardRawFunc func(CallbackContext, uint, []byte, Tip) error
+)
 
-type FindIntersectFunc func(CallbackContext, []common.Point) (common.Point, Tip, error)
-type RequestNextFunc func(CallbackContext) error
+type (
+	FindIntersectFunc func(CallbackContext, []common.Point) (common.Point, Tip, error)
+	RequestNextFunc   func(CallbackContext) error
+)
 
 // New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {

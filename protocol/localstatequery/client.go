@@ -419,7 +419,6 @@ func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpda
 		return nil, err
 	}
 	return &result, nil
-
 }
 
 // GetStakeDistribution returns the stake distribution

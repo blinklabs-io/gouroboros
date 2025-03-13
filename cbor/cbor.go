@@ -36,8 +36,10 @@ const (
 type RawMessage = _cbor.RawMessage
 
 // Alias for Tag for convenience
-type Tag = _cbor.Tag
-type RawTag = _cbor.RawTag
+type (
+	Tag    = _cbor.Tag
+	RawTag = _cbor.RawTag
+)
 
 // Useful for embedding and easier to remember
 type StructAsArray struct {

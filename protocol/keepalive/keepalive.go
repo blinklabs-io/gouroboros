@@ -88,9 +88,11 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type KeepAliveFunc func(CallbackContext, uint16) error
-type KeepAliveResponseFunc func(CallbackContext, uint16) error
-type DoneFunc func(CallbackContext) error
+type (
+	KeepAliveFunc         func(CallbackContext, uint16) error
+	KeepAliveResponseFunc func(CallbackContext, uint16) error
+	DoneFunc              func(CallbackContext) error
+)
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *KeepAlive {
 	k := &KeepAlive{
