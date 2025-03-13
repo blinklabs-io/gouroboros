@@ -4,6 +4,11 @@ issues:
   max-issues-per-linter: 0
   max-same-issues: 0
 linters:
+  disable:
+    - asasalint
+    - depguard
+    - recvcheck
+    - unparam
   enable:
     - errcheck
     - gosimple
@@ -12,12 +17,15 @@ linters:
     - staticcheck
     - unused
     # Defaults above ours below
-  disable:
-    - asasalint
-    - recvcheck
+    - copyloopvar
+    - usestdlibvars
+    - whitespace
   presets:
     - bugs
+    - format
+    - import
     - performance
+    - unused
 #linters-settings:
 #  errcheck:
 #    check-type-assertions: true

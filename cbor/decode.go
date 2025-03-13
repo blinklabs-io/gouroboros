@@ -115,8 +115,10 @@ func DecodeById(
 	return ret, nil
 }
 
-var decodeGenericTypeCache = map[reflect.Type]reflect.Type{}
-var decodeGenericTypeCacheMutex sync.RWMutex
+var (
+	decodeGenericTypeCache      = map[reflect.Type]reflect.Type{}
+	decodeGenericTypeCacheMutex sync.RWMutex
+)
 
 // DecodeGeneric decodes the specified CBOR into the destination object without using the
 // destination object's UnmarshalCBOR() function

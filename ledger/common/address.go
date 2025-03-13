@@ -20,10 +20,9 @@ import (
 	"hash/crc32"
 	"strings"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/btcsuite/btcd/btcutil/base58"
 	"github.com/btcsuite/btcd/btcutil/bech32"
-
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"golang.org/x/crypto/sha3"
 )
 

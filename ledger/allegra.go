@@ -20,11 +20,13 @@ import "github.com/blinklabs-io/gouroboros/ledger/allegra"
 // to keep existing code working after a refactor of the ledger package
 
 // Allegra types
-type AllegraBlock = allegra.AllegraBlock
-type AllegraTransaction = allegra.AllegraTransaction
-type AllegraTransactionBody = allegra.AllegraTransactionBody
-type AllegraProtocolParameters = allegra.AllegraProtocolParameters
-type AllegraProtocolParameterUpdate = allegra.AllegraProtocolParameterUpdate
+type (
+	AllegraBlock                   = allegra.AllegraBlock
+	AllegraTransaction             = allegra.AllegraTransaction
+	AllegraTransactionBody         = allegra.AllegraTransactionBody
+	AllegraProtocolParameters      = allegra.AllegraProtocolParameters
+	AllegraProtocolParameterUpdate = allegra.AllegraProtocolParameterUpdate
+)
 
 // Allegra constants
 const (

@@ -199,7 +199,11 @@ func TestMultiAssetCompare(t *testing.T) {
 	for _, testDef := range testDefs {
 		tmpResult := testDef.asset1.Compare(testDef.asset2)
 		if tmpResult != testDef.expectedResult {
-			t.Errorf("did not get expected result: got %v, wanted %v", tmpResult, testDef.expectedResult)
+			t.Errorf(
+				"did not get expected result: got %v, wanted %v",
+				tmpResult,
+				testDef.expectedResult,
+			)
 		}
 	}
 }

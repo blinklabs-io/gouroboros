@@ -156,7 +156,6 @@ func vrfHashPoints(P1, P2, P3, P4 *edwards25519.Point) *edwards25519.Scalar {
 		panic(err)
 	}
 	return r
-
 }
 
 func cryptoVrfIetfdraft03ProofToHash(pi []byte) ([]byte, error) {
@@ -212,6 +211,7 @@ func vrfHashToCurveElligator225519(
 	_, _ = result.SetBytes(hBytes[:]) // ge25519_frombytes(&H_point, h_string);
 	return result, nil
 }
+
 func ge25519FromUniform(r []byte) ([]byte, error) {
 	s := make([]byte, 32)
 	var e, negx, rr2, x, x2, x3 *field.Element

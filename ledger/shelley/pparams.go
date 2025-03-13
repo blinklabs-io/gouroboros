@@ -18,10 +18,9 @@ import (
 	"math"
 	"math/big"
 
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ShelleyProtocolParameters struct {

@@ -39,8 +39,10 @@ func Encode(data interface{}) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-var encodeGenericTypeCache = map[reflect.Type]reflect.Type{}
-var encodeGenericTypeCacheMutex sync.RWMutex
+var (
+	encodeGenericTypeCache      = map[reflect.Type]reflect.Type{}
+	encodeGenericTypeCacheMutex sync.RWMutex
+)
 
 // EncodeGeneric encodes the specified object to CBOR without using the source object's
 // MarshalCBOR() function

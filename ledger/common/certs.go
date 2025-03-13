@@ -223,9 +223,11 @@ func (c *StakeDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	}
 }
 
-type PoolKeyHash Blake2b224
-type PoolMetadataHash Blake2b256
-type VrfKeyHash Blake2b256
+type (
+	PoolKeyHash      Blake2b224
+	PoolMetadataHash Blake2b256
+	VrfKeyHash       Blake2b256
+)
 
 type PoolMetadata struct {
 	cbor.StructAsArray

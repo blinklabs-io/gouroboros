@@ -21,7 +21,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -36,12 +35,10 @@ const (
 	TxTypeAllegra = 2
 )
 
-var (
-	EraAllegra = common.Era{
-		Id:   EraIdAllegra,
-		Name: EraNameAllegra,
-	}
-)
+var EraAllegra = common.Era{
+	Id:   EraIdAllegra,
+	Name: EraNameAllegra,
+}
 
 func init() {
 	common.RegisterEra(EraAllegra)

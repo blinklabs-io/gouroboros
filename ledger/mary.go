@@ -20,14 +20,16 @@ import "github.com/blinklabs-io/gouroboros/ledger/mary"
 // to keep existing code working after a refactor of the ledger package
 
 // Mary types
-type MaryBlock = mary.MaryBlock
-type MaryBlockHeader = mary.MaryBlockHeader
-type MaryTransaction = mary.MaryTransaction
-type MaryTransactionBody = mary.MaryTransactionBody
-type MaryTransactionOutput = mary.MaryTransactionOutput
-type MaryTransactionOutputValue = mary.MaryTransactionOutputValue
-type MaryProtocolParameters = mary.MaryProtocolParameters
-type MaryProtocolParameterUpdate = mary.MaryProtocolParameterUpdate
+type (
+	MaryBlock                   = mary.MaryBlock
+	MaryBlockHeader             = mary.MaryBlockHeader
+	MaryTransaction             = mary.MaryTransaction
+	MaryTransactionBody         = mary.MaryTransactionBody
+	MaryTransactionOutput       = mary.MaryTransactionOutput
+	MaryTransactionOutputValue  = mary.MaryTransactionOutputValue
+	MaryProtocolParameters      = mary.MaryProtocolParameters
+	MaryProtocolParameterUpdate = mary.MaryProtocolParameterUpdate
+)
 
 // Mary constants
 const (

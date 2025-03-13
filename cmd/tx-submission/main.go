@@ -33,10 +33,12 @@ type txSubmissionFlags struct {
 	rawTxFile string
 }
 
-var txBytes []byte
-var txHash [32]byte
-var sentTx bool
-var doneChan chan any
+var (
+	txBytes  []byte
+	txHash   [32]byte
+	sentTx   bool
+	doneChan chan any
+)
 
 func main() {
 	// Parse commandline

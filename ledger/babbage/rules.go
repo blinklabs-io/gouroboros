@@ -142,7 +142,8 @@ func UtxoValidateCollateralContainsNonAda(
 		}
 		totalCollateral += utxo.Output.Amount()
 		totalAssets.Add(utxo.Output.Assets())
-		if utxo.Output.Assets() == nil || len(utxo.Output.Assets().Policies()) == 0 {
+		if utxo.Output.Assets() == nil ||
+			len(utxo.Output.Assets().Policies()) == 0 {
 			continue
 		}
 		badOutputs = append(badOutputs, utxo.Output)

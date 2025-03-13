@@ -248,7 +248,6 @@ func generateAstJsonMap[T map[any]any | Map](v T) ([]byte, error) {
 		strings.Join(tmpItems, ","),
 	)
 	return []byte(tmpJson), nil
-
 }
 
 type Constructor struct {

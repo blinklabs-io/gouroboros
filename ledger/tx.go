@@ -22,11 +22,13 @@ import (
 )
 
 // Compatibility aliases
-type Transaction = common.Transaction
-type TransactionBody = common.TransactionBody
-type TransactionInput = common.TransactionInput
-type TransactionOutput = common.TransactionOutput
-type Utxo = common.Utxo
+type (
+	Transaction       = common.Transaction
+	TransactionBody   = common.TransactionBody
+	TransactionInput  = common.TransactionInput
+	TransactionOutput = common.TransactionOutput
+	Utxo              = common.Utxo
+)
 
 func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 	switch txType {

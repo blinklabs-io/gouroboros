@@ -25,7 +25,6 @@ import (
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-
 	"golang.org/x/crypto/blake2b"
 )
 

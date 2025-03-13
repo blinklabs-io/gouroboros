@@ -22,8 +22,10 @@ import (
 // after a refactor of the ledger package
 
 // Hash types
-type Blake2b224 = common.Blake2b224
-type Blake2b256 = common.Blake2b256
+type (
+	Blake2b224 = common.Blake2b224
+	Blake2b256 = common.Blake2b256
+)
 
 func NewBlake2b224(data []byte) Blake2b224 {
 	return common.NewBlake2b224(data)
@@ -34,8 +36,10 @@ func NewBlake2b256(data []byte) Blake2b256 {
 }
 
 // Address
-type Address = common.Address
-type AddrKeyHash = common.AddrKeyHash
+type (
+	Address     = common.Address
+	AddrKeyHash = common.AddrKeyHash
+)
 
 const (
 	AddressTypeScriptNone = common.AddressTypeScriptNone
@@ -49,32 +53,40 @@ var (
 )
 
 // Governance types
-type VotingProcedure = common.VotingProcedure
-type VotingProcedures = common.VotingProcedures
-type ProposalProcedure = common.ProposalProcedure
+type (
+	VotingProcedure   = common.VotingProcedure
+	VotingProcedures  = common.VotingProcedures
+	ProposalProcedure = common.ProposalProcedure
+)
 
 // Certificates
-type Certificate = common.Certificate
-type CertificateWrapper = common.CertificateWrapper
-type PoolRetirementCertificate = common.PoolRetirementCertificate
-type PoolRegistrationCertificate = common.PoolRegistrationCertificate
-type StakeDelegationCertificate = common.StakeDelegationCertificate
+type (
+	Certificate                 = common.Certificate
+	CertificateWrapper          = common.CertificateWrapper
+	PoolRetirementCertificate   = common.PoolRetirementCertificate
+	PoolRegistrationCertificate = common.PoolRegistrationCertificate
+	StakeDelegationCertificate  = common.StakeDelegationCertificate
+)
 
 // Other types
 type IssuerVkey = common.IssuerVkey
 
 // Pools
-type PoolRelay = common.PoolRelay
-type PoolId = common.PoolId
+type (
+	PoolRelay = common.PoolRelay
+	PoolId    = common.PoolId
+)
 
 func NewPoolIdFromBech32(poolId string) (PoolId, error) {
 	return common.NewPoolIdFromBech32(poolId)
 }
 
 // Assets
-type MultiAssetTypeMint = common.MultiAssetTypeMint
-type MultiAssetTypeOutput = common.MultiAssetTypeOutput
-type AssetFingerprint = common.AssetFingerprint
+type (
+	MultiAssetTypeMint   = common.MultiAssetTypeMint
+	MultiAssetTypeOutput = common.MultiAssetTypeOutput
+	AssetFingerprint     = common.AssetFingerprint
+)
 
 func NewAssetFingerprint(policyId []byte, assetName []byte) AssetFingerprint {
 	return common.NewAssetFingerprint(policyId, assetName)

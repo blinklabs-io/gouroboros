@@ -22,7 +22,6 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -40,12 +39,10 @@ const (
 	ByronSlotsPerEpoch = 21600
 )
 
-var (
-	EraByron = common.Era{
-		Id:   EraIdByron,
-		Name: EraNameByron,
-	}
-)
+var EraByron = common.Era{
+	Id:   EraIdByron,
+	Name: EraNameByron,
+}
 
 func init() {
 	common.RegisterEra(EraByron)
@@ -169,7 +166,6 @@ func (t *ByronTransaction) Inputs() []common.TransactionInput {
 func (t *ByronTransaction) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range t.TxOutputs {
-
 		ret = append(ret, &output)
 	}
 	return ret
@@ -616,7 +612,6 @@ func (b *ByronMainBlock) Era() common.Era {
 func (b *ByronMainBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.Body.TxPayload))
 	for idx, payload := range b.Body.TxPayload {
-
 		ret[idx] = &payload.Transaction
 	}
 	return ret

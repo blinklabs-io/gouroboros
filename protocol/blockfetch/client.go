@@ -20,10 +20,9 @@ import (
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
-
-	"github.com/blinklabs-io/gouroboros/ledger"
 )
 
 type Client struct {

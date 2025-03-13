@@ -22,8 +22,10 @@ import (
 )
 
 // Compatibility aliases
-type Block = common.Block
-type BlockHeader = common.BlockHeader
+type (
+	Block       = common.Block
+	BlockHeader = common.BlockHeader
+)
 
 func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 	switch blockType {

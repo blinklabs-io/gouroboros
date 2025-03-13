@@ -16,7 +16,6 @@ package common
 
 import (
 	"github.com/blinklabs-io/gouroboros/cbor"
-
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 

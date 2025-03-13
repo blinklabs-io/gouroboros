@@ -26,14 +26,14 @@ import (
 
 type serverFlags struct {
 	flagset *flag.FlagSet
-	//txFile  string
+	// txFile  string
 }
 
 func newServerFlags() *serverFlags {
 	f := &serverFlags{
 		flagset: flag.NewFlagSet("server", flag.ExitOnError),
 	}
-	//f.flagset.StringVar(&f.txFile, "tx-file", "", "path to the transaction file to submit")
+	// f.flagset.StringVar(&f.txFile, "tx-file", "", "path to the transaction file to submit")
 	return f
 }
 

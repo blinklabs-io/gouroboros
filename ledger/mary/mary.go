@@ -23,7 +23,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -38,12 +37,10 @@ const (
 	TxTypeMary = 3
 )
 
-var (
-	EraMary = common.Era{
-		Id:   EraIdMary,
-		Name: EraNameMary,
-	}
-)
+var EraMary = common.Era{
+	Id:   EraIdMary,
+	Name: EraNameMary,
+}
 
 func init() {
 	common.RegisterEra(EraMary)
@@ -159,7 +156,6 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b *MaryTransactionBody) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
-
 		ret = append(ret, &output)
 	}
 	return ret

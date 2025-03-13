@@ -18,10 +18,9 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
-
-	"github.com/blinklabs-io/gouroboros/ledger"
 )
 
 const (
@@ -103,10 +102,12 @@ type CallbackContext struct {
 }
 
 // Callback function types
-type BlockFunc func(CallbackContext, uint, ledger.Block) error
-type BlockRawFunc func(CallbackContext, uint, []byte) error
-type BatchDoneFunc func(CallbackContext) error
-type RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
+type (
+	BlockFunc        func(CallbackContext, uint, ledger.Block) error
+	BlockRawFunc     func(CallbackContext, uint, []byte) error
+	BatchDoneFunc    func(CallbackContext) error
+	RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
+)
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	b := &BlockFetch{

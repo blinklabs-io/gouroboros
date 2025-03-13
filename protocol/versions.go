@@ -305,7 +305,6 @@ func GetProtocolVersionMap(
 						CborNetworkMagic:                       networkMagic,
 						CborInitiatorAndResponderDiffusionMode: diffusionMode,
 					}
-
 				}
 			}
 		}

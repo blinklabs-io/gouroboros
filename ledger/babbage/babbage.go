@@ -25,7 +25,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -40,12 +39,10 @@ const (
 	TxTypeBabbage = 5
 )
 
-var (
-	EraBabbage = common.Era{
-		Id:   EraIdBabbage,
-		Name: EraNameBabbage,
-	}
-)
+var EraBabbage = common.Era{
+	Id:   EraIdBabbage,
+	Name: EraNameBabbage,
+}
 
 func init() {
 	common.RegisterEra(EraBabbage)
@@ -228,7 +225,6 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
 	ret := []common.TransactionOutput{}
 	for _, output := range b.TxOutputs {
-
 		ret = append(ret, &output)
 	}
 	return ret
@@ -245,7 +241,6 @@ func (b *BabbageTransactionBody) ProtocolParameterUpdates() (uint64, map[common.
 func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
 	ret := []common.TransactionInput{}
 	for _, input := range b.TxReferenceInputs {
-
 		ret = append(ret, &input)
 	}
 	return ret
@@ -458,7 +453,7 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 	if o.Assets() != nil {
 		tmpAssets := o.Assets()
 		for _, policyId := range tmpAssets.Policies() {
-			var ma = &utxorpc.Multiasset{
+			ma := &utxorpc.Multiasset{
 				PolicyId: policyId.Bytes(),
 			}
 			for _, assetName := range tmpAssets.Assets(policyId) {
