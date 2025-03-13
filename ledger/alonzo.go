@@ -40,7 +40,7 @@ const (
 // Alonzo functions
 var (
 	NewAlonzoBlockFromCbor             = alonzo.NewAlonzoBlockFromCbor
-	NewAlonzoBlockHeaderFromCbor       = alonzo.NewAlonzoBlockFromCbor
+	NewAlonzoBlockHeaderFromCbor       = alonzo.NewAlonzoBlockHeaderFromCbor
 	NewAlonzoTransactionFromCbor       = alonzo.NewAlonzoTransactionFromCbor
 	NewAlonzoTransactionBodyFromCbor   = alonzo.NewAlonzoTransactionBodyFromCbor
 	NewAlonzoTransactionOutputFromCbor = alonzo.NewAlonzoTransactionOutputFromCbor
