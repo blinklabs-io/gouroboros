@@ -585,14 +585,14 @@ type GenesisConfigResult struct {
 	SlotLength        int
 	UpdateQuorum      int
 	MaxLovelaceSupply int64
-	ProtocolParams    ProtocolParams
+	ProtocolParams    GenesisConfigResultProtocolParameters
 	// This value contains maps with bytestring keys, which we can't parse yet
 	GenDelegs cbor.RawMessage
 	Unknown1  interface{}
 	Unknown2  interface{}
 }
 
-type ProtocolParams struct {
+type GenesisConfigResultProtocolParameters struct {
 	_                     struct{} `cbor:",toarray"`
 	MinFeeA               int
 	MinFeeB               int

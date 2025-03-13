@@ -304,7 +304,7 @@ func TestGenesisConfigJSON(t *testing.T) {
 		SlotLength:        1,
 		UpdateQuorum:      5,
 		MaxLovelaceSupply: 45000000000000000,
-		ProtocolParams: localstatequery.ProtocolParams{
+		ProtocolParams: localstatequery.GenesisConfigResultProtocolParameters{
 			MinFeeA:               44,
 			MinFeeB:               155381,
 			MaxBlockBodySize:      65536,
