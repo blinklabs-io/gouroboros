@@ -53,7 +53,6 @@ func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {
 		return NewByronEpochBoundaryBlockHeaderFromCbor(data)
 	case BlockTypeByronMain:
 		return NewByronMainBlockHeaderFromCbor(data)
-	// TODO: break into separate cases and parse as specific block header types (#844)
 	case BlockTypeShelley:
 		return NewShelleyBlockHeaderFromCbor(data)
 	case BlockTypeAllegra:
