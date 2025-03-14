@@ -132,26 +132,27 @@ func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
 type ShelleyBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash string
-	Body struct {
-		cbor.StructAsArray
-		BlockNumber          uint64
-		Slot                 uint64
-		PrevHash             common.Blake2b256
-		IssuerVkey           common.IssuerVkey
-		VrfKey               []byte
-		NonceVrf             common.VrfResult
-		LeaderVrf            common.VrfResult
-		BlockBodySize        uint64
-		BlockBodyHash        common.Blake2b256
-		OpCertHotVkey        []byte
-		OpCertSequenceNumber uint32
-		OpCertKesPeriod      uint32
-		OpCertSignature      []byte
-		ProtoMajorVersion    uint64
-		ProtoMinorVersion    uint64
-	}
+	hash      string
+	Body      ShelleyBlockHeaderBody
 	Signature []byte
+}
+type ShelleyBlockHeaderBody struct {
+	cbor.StructAsArray
+	BlockNumber          uint64
+	Slot                 uint64
+	PrevHash             common.Blake2b256
+	IssuerVkey           common.IssuerVkey
+	VrfKey               []byte
+	NonceVrf             common.VrfResult
+	LeaderVrf            common.VrfResult
+	BlockBodySize        uint64
+	BlockBodyHash        common.Blake2b256
+	OpCertHotVkey        []byte
+	OpCertSequenceNumber uint32
+	OpCertKesPeriod      uint32
+	OpCertSignature      []byte
+	ProtoMajorVersion    uint64
+	ProtoMinorVersion    uint64
 }
 
 func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {

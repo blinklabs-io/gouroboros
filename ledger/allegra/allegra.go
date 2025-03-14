@@ -326,6 +326,14 @@ func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {
 	return &allegraBlock, nil
 }
 
+func NewAllegraBlockHeaderFromCbor(data []byte) (*AllegraBlockHeader, error) {
+	var allegraBlockHeader AllegraBlockHeader
+	if _, err := cbor.Decode(data, &allegraBlockHeader); err != nil {
+		return nil, fmt.Errorf("Allegra block header decode error: %w", err)
+	}
+	return &allegraBlockHeader, nil
+}
+
 func NewAllegraTransactionBodyFromCbor(
 	data []byte,
 ) (*AllegraTransactionBody, error) {

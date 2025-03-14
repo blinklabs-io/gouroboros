@@ -142,31 +142,37 @@ func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
 type BabbageBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash string
-	Body struct {
-		cbor.StructAsArray
-		BlockNumber   uint64
-		Slot          uint64
-		PrevHash      common.Blake2b256
-		IssuerVkey    common.IssuerVkey
-		VrfKey        []byte
-		VrfResult     common.VrfResult
-		BlockBodySize uint64
-		BlockBodyHash common.Blake2b256
-		OpCert        struct {
-			cbor.StructAsArray
-			HotVkey        []byte
-			SequenceNumber uint32
-			KesPeriod      uint32
-			Signature      []byte
-		}
-		ProtoVersion struct {
-			cbor.StructAsArray
-			Major uint64
-			Minor uint64
-		}
-	}
+	hash      string
+	Body      BabbageBlockHeaderBody
 	Signature []byte
+}
+
+type BabbageBlockHeaderBody struct {
+	cbor.StructAsArray
+	BlockNumber   uint64
+	Slot          uint64
+	PrevHash      common.Blake2b256
+	IssuerVkey    common.IssuerVkey
+	VrfKey        []byte
+	VrfResult     common.VrfResult
+	BlockBodySize uint64
+	BlockBodyHash common.Blake2b256
+	OpCert        BabbageOpCert
+	ProtoVersion  BabbageProtoVersion
+}
+
+type BabbageOpCert struct {
+	cbor.StructAsArray
+	HotVkey        []byte
+	SequenceNumber uint32
+	KesPeriod      uint32
+	Signature      []byte
+}
+
+type BabbageProtoVersion struct {
+	cbor.StructAsArray
+	Major uint64
+	Minor uint64
 }
 
 func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {

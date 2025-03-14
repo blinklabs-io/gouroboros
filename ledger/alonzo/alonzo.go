@@ -528,6 +528,14 @@ func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 	return &alonzoBlock, nil
 }
 
+func NewAlonzoBlockHeaderFromCbor(data []byte) (*AlonzoBlockHeader, error) {
+	var alonzoBlockHeader AlonzoBlockHeader
+	if _, err := cbor.Decode(data, &alonzoBlockHeader); err != nil {
+		return nil, fmt.Errorf("Alonzo block header decode error: %w", err)
+	}
+	return &alonzoBlockHeader, nil
+}
+
 func NewAlonzoTransactionBodyFromCbor(
 	data []byte,
 ) (*AlonzoTransactionBody, error) {

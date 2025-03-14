@@ -42,6 +42,7 @@ const (
 // Mary functions
 var (
 	NewMaryBlockFromCbor             = mary.NewMaryBlockFromCbor
+	NewMaryBlockHeaderFromCbor       = mary.NewMaryBlockHeaderFromCbor
 	NewMaryTransactionFromCbor       = mary.NewMaryTransactionFromCbor
 	NewMaryTransactionBodyFromCbor   = mary.NewMaryTransactionBodyFromCbor
 	NewMaryTransactionOutputFromCbor = mary.NewMaryTransactionOutputFromCbor
