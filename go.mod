@@ -2,9 +2,11 @@ module github.com/blinklabs-io/gouroboros
 
 go 1.23.6
 
+toolchain go1.24.1
+
 require (
 	filippo.io/edwards25519 v1.1.0
-	github.com/blinklabs-io/ouroboros-mock v0.3.6
+	github.com/blinklabs-io/ouroboros-mock v0.3.7
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/jinzhu/copier v0.4.0

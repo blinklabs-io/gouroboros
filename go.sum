@@ -1,8 +1,8 @@
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
-github.com/blinklabs-io/ouroboros-mock v0.3.6 h1:m/iK4l1EJbiz9kU0u5uzWNEwlskazWuwbJHysr2hhP4=
-github.com/blinklabs-io/ouroboros-mock v0.3.6/go.mod h1:S++j/dBxNYG3AlcRaeZvok4X2ih7GrK+VWV1s0SLN3M=
+github.com/blinklabs-io/ouroboros-mock v0.3.7 h1:86FvD591XhdGk2BqQweRKfwc6Y6ll5Lunmo/RUehJ6o=
+github.com/blinklabs-io/ouroboros-mock v0.3.7/go.mod h1:611xZgdWCxZsSaS5tjgxqjmWIkSpsM9eKuQAKozw+sk=
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=
 github.com/btcsuite/btcd v0.22.0-beta.0.20220111032746-97732e52810c/go.mod h1:tjmYdS6MLJ5/s0Fj4DbLgSbDHbEqLJrtnHecBFkdz5M=
 github.com/btcsuite/btcd v0.23.5-0.20231215221805-96c9fd8078fd/go.mod h1:nm3Bko6zh6bWP60UxwoT5LzdGJsQJaPo6HjduXq9p6A=
