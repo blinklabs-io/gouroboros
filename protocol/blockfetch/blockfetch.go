@@ -92,6 +92,7 @@ type Config struct {
 	RequestRangeFunc  RequestRangeFunc
 	BatchStartTimeout time.Duration
 	BlockTimeout      time.Duration
+	RecvQueueSize     int
 }
 
 // Callback context
@@ -166,5 +167,13 @@ func WithBatchStartTimeout(timeout time.Duration) BlockFetchOptionFunc {
 func WithBlockTimeout(timeout time.Duration) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockTimeout = timeout
+	}
+}
+
+// WithRecvQueueSize specifies the size of the received messages queue. This is useful to adjust
+// the number of blocks that can be fetched at once when acting as a client
+func WithRecvQueueSize(size int) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.RecvQueueSize = size
 	}
 }

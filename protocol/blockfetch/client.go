@@ -75,6 +75,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		StateMap:            stateMap,
 		InitialState:        StateIdle,
 	}
+	if c.config != nil {
+		protoConfig.RecvQueueSize = c.config.RecvQueueSize
+	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
 }

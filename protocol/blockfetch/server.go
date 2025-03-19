@@ -57,6 +57,9 @@ func (s *Server) initProtocol() {
 		StateMap:            StateMap,
 		InitialState:        StateIdle,
 	}
+	if s.config != nil {
+		protoConfig.RecvQueueSize = s.config.RecvQueueSize
+	}
 	s.Protocol = protocol.New(protoConfig)
 }
 
