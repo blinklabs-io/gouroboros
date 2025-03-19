@@ -206,6 +206,7 @@ type Config struct {
 	IntersectTimeout   time.Duration
 	BlockTimeout       time.Duration
 	PipelineLimit      int
+	RecvQueueSize      int
 }
 
 // Callback context
@@ -318,5 +319,13 @@ func WithBlockTimeout(timeout time.Duration) ChainSyncOptionFunc {
 func WithPipelineLimit(limit int) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.PipelineLimit = limit
+	}
+}
+
+// WithRecvQueueSize specifies the size of the received messages queue. This is useful to adjust
+// the number of pipelined messages that can be supported when acting as a server
+func WithRecvQueueSize(size int) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.RecvQueueSize = size
 	}
 }

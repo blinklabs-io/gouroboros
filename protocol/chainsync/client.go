@@ -112,6 +112,9 @@ func NewClient(
 		StateContext:        stateContext,
 		InitialState:        stateIdle,
 	}
+	if c.config != nil {
+		protoConfig.RecvQueueSize = c.config.RecvQueueSize
+	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
 }
