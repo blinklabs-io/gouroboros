@@ -181,6 +181,10 @@ type MaryTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
+func (t *MaryTransaction) UnmarshalCBOR(data []byte) error {
+	return t.UnmarshalCbor(data, t)
+}
+
 func (MaryTransaction) Type() int {
 	return TxTypeMary
 }
@@ -334,6 +338,10 @@ type MaryTransactionOutput struct {
 	cbor.DecodeStoreCbor
 	OutputAddress common.Address
 	OutputAmount  MaryTransactionOutputValue
+}
+
+func (o *MaryTransactionOutput) UnmarshalCBOR(data []byte) error {
+	return o.UnmarshalCbor(data, o)
 }
 
 func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {

@@ -170,6 +170,10 @@ type AllegraTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
+func (t *AllegraTransaction) UnmarshalCBOR(data []byte) error {
+	return t.UnmarshalCbor(data, t)
+}
+
 func (AllegraTransaction) Type() int {
 	return TxTypeAllegra
 }

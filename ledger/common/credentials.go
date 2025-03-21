@@ -34,6 +34,10 @@ type StakeCredential struct {
 	Credential []byte
 }
 
+func (c *StakeCredential) UnmarshalCBOR(data []byte) error {
+	return c.UnmarshalCbor(data, c)
+}
+
 func (c *StakeCredential) Hash() Blake2b224 {
 	hash, err := blake2b.New(28, nil)
 	if err != nil {

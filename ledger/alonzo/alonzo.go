@@ -362,6 +362,10 @@ type AlonzoTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
+func (t *AlonzoTransaction) UnmarshalCBOR(data []byte) error {
+	return t.UnmarshalCbor(data, t)
+}
+
 func (AlonzoTransaction) Type() int {
 	return TxTypeAlonzo
 }

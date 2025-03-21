@@ -444,6 +444,10 @@ type ShelleyTransactionOutput struct {
 	OutputAmount  uint64         `json:"amount"`
 }
 
+func (o *ShelleyTransactionOutput) UnmarshalCBOR(data []byte) error {
+	return o.UnmarshalCbor(data, o)
+}
+
 func (o ShelleyTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
@@ -525,6 +529,10 @@ type ShelleyTransaction struct {
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
+}
+
+func (t *ShelleyTransaction) UnmarshalCBOR(data []byte) error {
+	return t.UnmarshalCbor(data, t)
 }
 
 func (ShelleyTransaction) Type() int {
