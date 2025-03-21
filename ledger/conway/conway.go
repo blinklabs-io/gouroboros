@@ -317,6 +317,10 @@ type ConwayTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
+func (t *ConwayTransaction) UnmarshalCBOR(data []byte) error {
+	return t.UnmarshalCbor(data, t)
+}
+
 func (ConwayTransaction) Type() int {
 	return TxTypeConway
 }

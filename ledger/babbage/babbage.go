@@ -515,6 +515,10 @@ type BabbageTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
+func (t *BabbageTransaction) UnmarshalCBOR(data []byte) error {
+	return t.UnmarshalCbor(data, t)
+}
+
 func (BabbageTransaction) Type() int {
 	return TxTypeBabbage
 }
