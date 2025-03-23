@@ -27,11 +27,13 @@ const (
 	CredentialTypeScriptHash  = 1
 )
 
+type CredentialHash Blake2b224
+
 type Credential struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CredType   uint
-	Credential []byte
+	Credential CredentialHash
 }
 
 func (c *Credential) UnmarshalCBOR(data []byte) error {
