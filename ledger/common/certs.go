@@ -160,7 +160,7 @@ type StakeRegistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType          uint
-	StakeRegistration StakeCredential
+	StakeRegistration Credential
 }
 
 func (c StakeRegistrationCertificate) isCertificate() {}
@@ -181,7 +181,7 @@ type StakeDeregistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType            uint
-	StakeDeregistration StakeCredential
+	StakeDeregistration Credential
 }
 
 func (c StakeDeregistrationCertificate) isCertificate() {}
@@ -202,7 +202,7 @@ type StakeDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential *StakeCredential
+	StakeCredential *Credential
 	PoolKeyHash     PoolKeyHash
 }
 
@@ -435,7 +435,7 @@ const (
 
 type MoveInstantaneousRewardsCertificateReward struct {
 	Source   uint
-	Rewards  map[*StakeCredential]uint64
+	Rewards  map[*Credential]uint64
 	OtherPot uint64
 }
 
@@ -446,7 +446,7 @@ func (r *MoveInstantaneousRewardsCertificateReward) UnmarshalCBOR(
 	tmpMapData := struct {
 		cbor.StructAsArray
 		Source  uint
-		Rewards map[*StakeCredential]uint64
+		Rewards map[*Credential]uint64
 	}{}
 	if _, err := cbor.Decode(data, &tmpMapData); err == nil {
 		r.Rewards = tmpMapData.Rewards
@@ -512,7 +512,7 @@ type RegistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential StakeCredential
+	StakeCredential Credential
 	Amount          int64
 }
 
@@ -533,7 +533,7 @@ type DeregistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential StakeCredential
+	StakeCredential Credential
 	Amount          int64
 }
 
@@ -554,7 +554,7 @@ type VoteDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential StakeCredential
+	StakeCredential Credential
 	Drep            Drep
 }
 
@@ -575,7 +575,7 @@ type StakeVoteDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential StakeCredential
+	StakeCredential Credential
 	PoolKeyHash     []byte
 	Drep            Drep
 }
@@ -597,7 +597,7 @@ type StakeRegistrationDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential StakeCredential
+	StakeCredential Credential
 	PoolKeyHash     []byte
 	Amount          int64
 }
@@ -619,7 +619,7 @@ type VoteRegistrationDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential StakeCredential
+	StakeCredential Credential
 	Drep            Drep
 	Amount          int64
 }
@@ -641,7 +641,7 @@ type StakeVoteRegistrationDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType        uint
-	StakeCredential StakeCredential
+	StakeCredential Credential
 	PoolKeyHash     []byte
 	Drep            Drep
 	Amount          int64
@@ -664,8 +664,8 @@ type AuthCommitteeHotCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType       uint
-	ColdCredential StakeCredential
-	HostCredential StakeCredential
+	ColdCredential Credential
+	HostCredential Credential
 }
 
 func (c AuthCommitteeHotCertificate) isCertificate() {}
@@ -685,7 +685,7 @@ type ResignCommitteeColdCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType       uint
-	ColdCredential StakeCredential
+	ColdCredential Credential
 	Anchor         *GovAnchor
 }
 
@@ -706,7 +706,7 @@ type RegistrationDrepCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType       uint
-	DrepCredential StakeCredential
+	DrepCredential Credential
 	Amount         int64
 	Anchor         *GovAnchor
 }
@@ -728,7 +728,7 @@ type DeregistrationDrepCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType       uint
-	DrepCredential StakeCredential
+	DrepCredential Credential
 	Amount         int64
 }
 
@@ -749,7 +749,7 @@ type UpdateDrepCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CertType       uint
-	DrepCredential StakeCredential
+	DrepCredential Credential
 	Anchor         *GovAnchor
 }
 

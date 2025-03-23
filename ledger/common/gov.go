@@ -171,8 +171,8 @@ type UpdateCommitteeGovAction struct {
 	cbor.StructAsArray
 	Type        uint
 	ActionId    *GovActionId
-	Credentials []StakeCredential
-	CredEpochs  map[*StakeCredential]uint
+	Credentials []Credential
+	CredEpochs  map[*Credential]uint
 	Unknown     cbor.Rat
 }
 

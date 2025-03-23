@@ -27,18 +27,18 @@ const (
 	StakeCredentialTypeScriptHash  = 1
 )
 
-type StakeCredential struct {
+type Credential struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	CredType   uint
 	Credential []byte
 }
 
-func (c *StakeCredential) UnmarshalCBOR(data []byte) error {
+func (c *Credential) UnmarshalCBOR(data []byte) error {
 	return c.UnmarshalCbor(data, c)
 }
 
-func (c *StakeCredential) Hash() Blake2b224 {
+func (c *Credential) Hash() Blake2b224 {
 	hash, err := blake2b.New(28, nil)
 	if err != nil {
 		panic(
@@ -54,7 +54,7 @@ func (c *StakeCredential) Hash() Blake2b224 {
 	return Blake2b224(hash.Sum(nil))
 }
 
-func (c *StakeCredential) Utxorpc() *utxorpc.StakeCredential {
+func (c *Credential) Utxorpc() *utxorpc.StakeCredential {
 	ret := &utxorpc.StakeCredential{}
 	switch c.CredType {
 	case StakeCredentialTypeAddrKeyHash:
