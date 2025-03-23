@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	StakeCredentialTypeAddrKeyHash = 0
-	StakeCredentialTypeScriptHash  = 1
+	CredentialTypeAddrKeyHash = 0
+	CredentialTypeScriptHash  = 1
 )
 
 type Credential struct {
@@ -57,11 +57,11 @@ func (c *Credential) Hash() Blake2b224 {
 func (c *Credential) Utxorpc() *utxorpc.StakeCredential {
 	ret := &utxorpc.StakeCredential{}
 	switch c.CredType {
-	case StakeCredentialTypeAddrKeyHash:
+	case CredentialTypeAddrKeyHash:
 		ret.StakeCredential = &utxorpc.StakeCredential_AddrKeyHash{
 			AddrKeyHash: c.Credential[:],
 		}
-	case StakeCredentialTypeScriptHash:
+	case CredentialTypeScriptHash:
 		ret.StakeCredential = &utxorpc.StakeCredential_ScriptHash{
 			ScriptHash: c.Credential[:],
 		}
