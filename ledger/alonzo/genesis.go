@@ -22,14 +22,14 @@ import (
 )
 
 type AlonzoGenesis struct {
-	LovelacePerUtxoWord  uint64 `json:"lovelacePerUTxOWord"`
-	MaxValueSize         uint
-	CollateralPercentage uint
-	MaxCollateralInputs  uint
-	ExecutionPrices      AlonzoGenesisExecutionPrices
-	MaxTxExUnits         AlonzoGenesisExUnits
-	MaxBlockExUnits      AlonzoGenesisExUnits
-	CostModels           map[string]map[string]int
+	LovelacePerUtxoWord  uint64                       `json:"lovelacePerUTxOWord"`
+	MaxValueSize         uint                         `json:"maxValueSize"`
+	CollateralPercentage uint                         `json:"collateralPercentage"`
+	MaxCollateralInputs  uint                         `json:"maxCollateralInputs"`
+	ExecutionPrices      AlonzoGenesisExecutionPrices `json:"executionPrices"`
+	MaxTxExUnits         AlonzoGenesisExUnits         `json:"maxTxExUnits"`
+	MaxBlockExUnits      AlonzoGenesisExUnits         `json:"maxBlockExUnits"`
+	CostModels           map[string]map[string]int    `json:"costModels"`
 }
 
 func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {
