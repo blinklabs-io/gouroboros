@@ -36,7 +36,6 @@ func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {
 	var ret AlonzoGenesis
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
-	//nolint:musttag
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}

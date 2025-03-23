@@ -77,7 +77,6 @@ func NewConwayGenesisFromReader(r io.Reader) (ConwayGenesis, error) {
 	var ret ConwayGenesis
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
-	//nolint:musttag
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}

@@ -158,7 +158,6 @@ func NewShelleyGenesisFromReader(r io.Reader) (ShelleyGenesis, error) {
 	var ret ShelleyGenesis
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
-	//nolint:musttag
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
