@@ -27,15 +27,15 @@ import (
 )
 
 type ByronGenesis struct {
-	AvvmDistr        map[string]string
-	BlockVersionData ByronGenesisBlockVersionData
-	FtsSeed          string
-	ProtocolConsts   ByronGenesisProtocolConsts
-	StartTime        int
-	BootStakeholders map[string]int
-	HeavyDelegation  map[string]ByronGenesisHeavyDelegation
-	NonAvvmBalances  map[string]string
-	VssCerts         map[string]ByronGenesisVssCert
+	AvvmDistr        map[string]string                      `json:"avvmDistr"`
+	BlockVersionData ByronGenesisBlockVersionData           `json:"blockVersionData"`
+	FtsSeed          string                                 `json:"ftsSeed"`
+	ProtocolConsts   ByronGenesisProtocolConsts             `json:"protocolConsts"`
+	StartTime        int                                    `json:"startTime"`
+	BootStakeholders map[string]int                         `json:"bootStakeholders"`
+	HeavyDelegation  map[string]ByronGenesisHeavyDelegation `json:"heavyDelegation"`
+	NonAvvmBalances  map[string]string                      `json:"nonAvvmBalances"`
+	VssCerts         map[string]ByronGenesisVssCert         `json:"vssCerts"`
 }
 
 type ByronGenesisBlockVersionData struct {
@@ -180,7 +180,6 @@ func NewByronGenesisFromReader(r io.Reader) (ByronGenesis, error) {
 	var ret ByronGenesis
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
-	//nolint:musttag
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}

@@ -23,18 +23,18 @@ import (
 )
 
 type ConwayGenesis struct {
-	PoolVotingThresholds       ConwayGenesisPoolVotingThresholds
-	DRepVotingThresholds       ConwayGenesisDRepVotingThresholds
-	MinCommitteeSize           uint   `json:"committeeMinSize"`
-	CommitteeTermLimit         uint64 `json:"committeeMaxTermLength"`
-	GovActionValidityPeriod    uint64 `json:"govActionLifetime"`
-	GovActionDeposit           uint64
-	DRepDeposit                uint64 `json:"dRepDeposit"`
-	DRepInactivityPeriod       uint64 `json:"dRepActivity"`
-	MinFeeRefScriptCostPerByte *common.GenesisRat
-	PlutusV3CostModel          []int64 `json:"plutusV3CostModel"`
-	Constitution               ConwayGenesisConstitution
-	Committee                  ConwayGenesisCommittee
+	PoolVotingThresholds       ConwayGenesisPoolVotingThresholds `json:"poolVotingThresholds"`
+	DRepVotingThresholds       ConwayGenesisDRepVotingThresholds `json:"dRepVotingThresholds"`
+	MinCommitteeSize           uint                              `json:"committeeMinSize"`
+	CommitteeTermLimit         uint64                            `json:"committeeMaxTermLength"`
+	GovActionValidityPeriod    uint64                            `json:"govActionLifetime"`
+	GovActionDeposit           uint64                            `json:"govActionDeposit"`
+	DRepDeposit                uint64                            `json:"dRepDeposit"`
+	DRepInactivityPeriod       uint64                            `json:"dRepActivity"`
+	MinFeeRefScriptCostPerByte *common.GenesisRat                `json:"minFeeRefScriptCostPerByte"`
+	PlutusV3CostModel          []int64                           `json:"plutusV3CostModel"`
+	Constitution               ConwayGenesisConstitution         `json:"constitution"`
+	Committee                  ConwayGenesisCommittee            `json:"committee"`
 }
 
 type ConwayGenesisPoolVotingThresholds struct {
@@ -77,7 +77,6 @@ func NewConwayGenesisFromReader(r io.Reader) (ConwayGenesis, error) {
 	var ret ConwayGenesis
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
-	//nolint:musttag
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}

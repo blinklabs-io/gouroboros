@@ -356,3 +356,76 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 		)
 	}
 }
+
+func TestNewByronGenesisFromReader(t *testing.T) {
+	jsonData := `{
+        "avvmDistr": { "addr1": "1000" },
+        "blockVersionData": {
+            "heavyDelThd": "1",
+            "maxBlockSize": "2",
+            "maxHeaderSize": "3",
+            "maxProposalSize": "4",
+            "maxTxSize": "5",
+            "mpcThd": "6",
+            "scriptVersion": 1,
+            "slotDuration": "7",
+            "softforkRule": {
+                "initThd": "8",
+                "minThd": "9",
+                "thdDecrement": "10"
+            },
+            "txFeePolicy": {
+                "multiplier": "11",
+                "summand": "12"
+            },
+            "unlockStakeEpoch": "13",
+            "updateImplicit": "14",
+            "updateProposalThd": "15",
+            "updateVoteThd": "16"
+        },
+        "ftsSeed": "seed",
+        "protocolConsts": {
+            "k": 1,
+            "protocolMagic": 42,
+            "vssMinTtl": 2,
+            "vssMaxTtl": 10
+        },
+        "startTime": 100000,
+        "bootStakeholders": { "stakeholder1": 1 },
+        "heavyDelegation": {
+            "key1": {
+                "cert": "cert-val",
+                "delegatePk": "delegate-pk",
+                "issuerPk": "issuer-pk",
+                "omega": 5
+            }
+        },
+        "nonAvvmBalances": { "addr2": "2000" },
+        "vssCerts": {
+            "cert1": {
+                "expiryEpoch": 5,
+                "signature": "sig",
+                "signingKey": "sign-key",
+                "vssKey": "vss-key"
+            }
+        }
+    }`
+
+	expected := byron.ByronGenesis{}
+	err := json.Unmarshal([]byte(jsonData), &expected)
+	if err != nil {
+		t.Errorf("Failed to unmarshal expected: %v", err)
+	}
+
+	reader := strings.NewReader(jsonData)
+	result, err := byron.NewByronGenesisFromReader(reader)
+	if err != nil {
+		t.Errorf("Failed to decode: %v", err)
+	}
+
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("ByronGenesis struct does not match expected.\nGot: %#v\nExpected: %#v", result, expected)
+	} else {
+		t.Logf("ByronGenesis decoded correctly")
+	}
+}

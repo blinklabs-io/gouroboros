@@ -15,6 +15,7 @@
 package conway_test
 
 import (
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"strings"
@@ -399,5 +400,66 @@ func TestGenesisFromJson(t *testing.T) {
 			tmpGenesis,
 			expectedGenesisObj,
 		)
+	}
+}
+
+func TestNewConwayGenesisFromReader(t *testing.T) {
+	jsonData := `{
+    "poolVotingThresholds": {
+      "committeeNormal": null,
+      "committeeNoConfidence": null,
+      "hardForkInitiation": null,
+      "motionNoConfidence": null,
+      "ppSecurityGroup": null
+    },
+    "dRepVotingThresholds": {
+      "motionNoConfidence": null,
+      "committeeNormal": null,
+      "committeeNoConfidence": null,
+      "updateToConstitution": null,
+      "hardForkInitiation": null,
+      "ppNetworkGroup": null,
+      "ppEconomicGroup": null,
+      "ppTechnicalGroup": null,
+      "ppGovGroup": null,
+      "treasuryWithdrawal": null
+    },
+    "committeeMinSize": 5,
+    "committeeMaxTermLength": 365,
+    "govActionLifetime": 90,
+    "govActionDeposit": 1000,
+    "dRepDeposit": 200,
+    "dRepActivity": 60,
+    "minFeeRefScriptCostPerByte": null,
+    "plutusV3CostModel": [1, 2, 3],
+    "constitution": {
+      "anchor": {
+        "dataHash": "abc123",
+        "url": "https://example.com"
+      },
+      "script": "example-script"
+    },
+    "committee": {
+      "members": { "key1": 1 },
+      "threshold": { "key1": 2 }
+    }
+  }`
+
+	expected := conway.ConwayGenesis{}
+	err := json.Unmarshal([]byte(jsonData), &expected)
+	if err != nil {
+		t.Errorf("Failed to unmarshal expected JSON: %v", err)
+	}
+
+	reader := strings.NewReader(jsonData)
+	actual, err := conway.NewConwayGenesisFromReader(reader)
+	if err != nil {
+		t.Errorf("Failed to decode JSON via NewConwayGenesisFromReader: %v", err)
+	}
+
+	if !reflect.DeepEqual(expected, actual) {
+		t.Errorf("Mismatch between expected and actual structs\nExpected: %#v\nActual:   %#v", expected, actual)
+	} else {
+		t.Logf("ConwayGenesis decoded correctly and matches expected structure")
 	}
 }
