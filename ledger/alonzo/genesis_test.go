@@ -430,3 +430,62 @@ func TestGenesisFromJson(t *testing.T) {
 		)
 	}
 }
+
+func TestNewAlonzoGenesisFromReader(t *testing.T) {
+	jsonData := `{
+        "lovelacePerUTxOWord": 34482,
+        "maxValueSize": 5000,
+        "collateralPercentage": 150,
+        "maxCollateralInputs": 3,
+        "executionPrices": {
+            "prSteps": { "numerator": 721, "denominator": 10000 },
+            "prMem": { "numerator": 577, "denominator": 10000 }
+        },
+        "maxTxExUnits": { "exUnitsMem": 1000000, "exUnitsSteps": 10000000 },
+        "maxBlockExUnits": { "exUnitsMem": 50000000, "exUnitsSteps": 40000000000 },
+        "costModels": {
+            "PlutusV1": {
+                "addInteger-cpu-arguments-intercept": 205665,
+                "addInteger-cpu-arguments-slope": 812
+            }
+        }
+    }`
+
+	reader := strings.NewReader(jsonData)
+	result, err := alonzo.NewAlonzoGenesisFromReader(reader)
+	if err != nil {
+		t.Errorf("Failed to decode JSON: %v", err)
+	}
+
+	if result.LovelacePerUtxoWord != 34482 {
+		t.Errorf("Expected LovelacePerUtxoWord 34482, got %d", result.LovelacePerUtxoWord)
+	} else {
+		t.Logf("LovelacePerUtxoWord is correct: %d", result.LovelacePerUtxoWord)
+	}
+
+	if result.ExecutionPrices.Steps.Rat.Cmp(big.NewRat(721, 10000)) != 0 {
+		t.Errorf("Unexpected prSteps: got %v, expected 721/10000", result.ExecutionPrices.Steps.Rat)
+	} else {
+		t.Logf("prSteps is correct: %v", result.ExecutionPrices.Steps.Rat)
+	}
+
+	if result.ExecutionPrices.Mem.Rat.Cmp(big.NewRat(577, 10000)) != 0 {
+		t.Errorf("Unexpected prMem: got %v, expected 577/10000", result.ExecutionPrices.Mem.Rat)
+	} else {
+		t.Logf("prMem is correct: %v", result.ExecutionPrices.Mem.Rat)
+	}
+
+	expectedCostModels := map[string]map[string]int{
+		"PlutusV1": {
+			"addInteger-cpu-arguments-intercept": 205665,
+			"addInteger-cpu-arguments-slope":     812,
+		},
+	}
+	if !reflect.DeepEqual(result.CostModels, expectedCostModels) {
+		t.Errorf("Unexpected CostModels:\nGot:  %v\nExpected: %v", result.CostModels, expectedCostModels)
+	} else {
+		t.Logf("CostModels are correct")
+	}
+
+	t.Logf("AlonzoGenesis JSON decoding test completed successfully.")
+}
