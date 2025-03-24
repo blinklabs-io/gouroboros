@@ -27,7 +27,7 @@ const (
 	CredentialTypeScriptHash  = 1
 )
 
-type CredentialHash Blake2b224
+type CredentialHash = Blake2b224
 
 type Credential struct {
 	cbor.StructAsArray

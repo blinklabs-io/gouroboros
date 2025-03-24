@@ -51,7 +51,7 @@ const (
 	ByronAddressTypeRedeem = 2
 )
 
-type AddrKeyHash Blake2b224
+type AddrKeyHash = Blake2b224
 
 type Address struct {
 	addressType      uint8
