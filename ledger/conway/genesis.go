@@ -38,39 +38,39 @@ type ConwayGenesis struct {
 }
 
 type ConwayGenesisPoolVotingThresholds struct {
-	CommitteeNormal       *common.GenesisRat
-	CommitteeNoConfidence *common.GenesisRat
-	HardForkInitiation    *common.GenesisRat
-	MotionNoConfidence    *common.GenesisRat
-	PpSecurityGroup       *common.GenesisRat
+	CommitteeNormal       *common.GenesisRat `json:"committeeNormal"`
+	CommitteeNoConfidence *common.GenesisRat `json:"committeeNoConfidence"`
+	HardForkInitiation    *common.GenesisRat `json:"hardForkInitiation"`
+	MotionNoConfidence    *common.GenesisRat `json:"motionNoConfidence"`
+	PpSecurityGroup       *common.GenesisRat `json:"ppSecurityGroup"`
 }
 
 type ConwayGenesisDRepVotingThresholds struct {
-	MotionNoConfidence    *common.GenesisRat
-	CommitteeNormal       *common.GenesisRat
-	CommitteeNoConfidence *common.GenesisRat
-	UpdateToConstitution  *common.GenesisRat
-	HardForkInitiation    *common.GenesisRat
-	PpNetworkGroup        *common.GenesisRat
-	PpEconomicGroup       *common.GenesisRat
-	PpTechnicalGroup      *common.GenesisRat
-	PpGovGroup            *common.GenesisRat
-	TreasuryWithdrawal    *common.GenesisRat
+	MotionNoConfidence    *common.GenesisRat `json:"motionNoConfidence"`
+	CommitteeNormal       *common.GenesisRat `json:"committeeNormal"`
+	CommitteeNoConfidence *common.GenesisRat `json:"committeeNoConfidence"`
+	UpdateToConstitution  *common.GenesisRat `json:"updateToConstitution"`
+	HardForkInitiation    *common.GenesisRat `json:"hardForkInitiation"`
+	PpNetworkGroup        *common.GenesisRat `json:"ppNetworkGroup"`
+	PpEconomicGroup       *common.GenesisRat `json:"ppEconomicGroup"`
+	PpTechnicalGroup      *common.GenesisRat `json:"ppTechnicalGroup"`
+	PpGovGroup            *common.GenesisRat `json:"ppGovGroup"`
+	TreasuryWithdrawal    *common.GenesisRat `json:"treasuryWithdrawal"`
 }
 
 type ConwayGenesisConstitution struct {
-	Anchor ConwayGenesisConstitutionAnchor
-	Script string
+	Anchor ConwayGenesisConstitutionAnchor `json:"anchor"`
+	Script string                          `json:"script"`
 }
 
 type ConwayGenesisConstitutionAnchor struct {
-	DataHash string
-	Url      string
+	DataHash string `json:"dataHash"`
+	Url      string `json:"url"`
 }
 
 type ConwayGenesisCommittee struct {
-	Members   map[string]int
-	Threshold map[string]int
+	Members   map[string]int `json:"members"`
+	Threshold map[string]int `json:"threshold"`
 }
 
 func NewConwayGenesisFromReader(r io.Reader) (ConwayGenesis, error) {
