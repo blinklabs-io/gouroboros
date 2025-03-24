@@ -456,6 +456,13 @@ func MinFeeTx(
 		return 0, errors.New("pparams are not expected type")
 	}
 	txBytes := tx.Cbor()
+	if len(txBytes) == 0 {
+		var err error
+		txBytes, err = cbor.Encode(tx)
+		if err != nil {
+			return 0, err
+		}
+	}
 	minFee := uint64(
 		(tmpPparams.MinFeeA * uint(len(txBytes))) + tmpPparams.MinFeeB,
 	)
