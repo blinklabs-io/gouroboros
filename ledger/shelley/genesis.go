@@ -100,26 +100,26 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 
 type ShelleyGenesisProtocolParams struct {
 	cbor.StructAsArray
-	MinFeeA            uint
-	MinFeeB            uint
-	MaxBlockBodySize   uint
-	MaxTxSize          uint
-	MaxBlockHeaderSize uint
-	KeyDeposit         uint
-	PoolDeposit        uint
-	MaxEpoch           uint `json:"eMax"`
-	NOpt               uint
-	A0                 *common.GenesisRat
-	Rho                *common.GenesisRat
-	Tau                *common.GenesisRat
+	MinFeeA            uint               `json:"minFeeA"`
+	MinFeeB            uint               `json:"minFeeB"`
+	MaxBlockBodySize   uint               `json:"maxBlockBodySize"`
+	MaxTxSize          uint               `json:"maxTxSize"`
+	MaxBlockHeaderSize uint               `json:"maxBlockHeaderSize"`
+	KeyDeposit         uint               `json:"keyDeposit"`
+	PoolDeposit        uint               `json:"poolDeposit"`
+	MaxEpoch           uint               `json:"eMax"`
+	NOpt               uint               `json:"nOpt"`
+	A0                 *common.GenesisRat `json:"a0"`
+	Rho                *common.GenesisRat `json:"rho"`
+	Tau                *common.GenesisRat `json:"tau"`
 	Decentralization   *common.GenesisRat `json:"decentralisationParam"`
-	ExtraEntropy       common.Nonce
+	ExtraEntropy       common.Nonce       `json:"extraEntropy"`
 	ProtocolVersion    struct {
-		Major uint
-		Minor uint
-	}
+		Major uint `json:"major"`
+		Minor uint `json:"minor"`
+	} `json:"protocolVersion"`
 	MinUtxoValue uint `json:"minUTxOValue"`
-	MinPoolCost  uint
+	MinPoolCost  uint `json:"minPoolCost"`
 }
 
 func (p ShelleyGenesisProtocolParams) MarshalCBOR() ([]byte, error) {

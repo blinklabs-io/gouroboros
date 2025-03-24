@@ -137,8 +137,8 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 			Type: common.NonceTypeNeutral,
 		},
 		ProtocolVersion: struct {
-			Major uint
-			Minor uint
+			Major uint `json:"major"`
+			Minor uint `json:"minor"`
 		}{
 			Major: 2,
 			Minor: 0,

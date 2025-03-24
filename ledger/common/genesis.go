@@ -21,7 +21,7 @@ import (
 
 // GenesisRat is a wrapper to big.Rat that allows for unmarshaling from a bare float from JSON
 type GenesisRat struct {
-	*big.Rat
+	*big.Rat `json:"string"`
 }
 
 func (r *GenesisRat) UnmarshalJSON(data []byte) error {
