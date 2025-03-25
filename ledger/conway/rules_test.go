@@ -208,7 +208,8 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = 74
 	var testBelowFee uint64 = 73
 	var testAboveFee uint64 = 75
-	testTxCbor, _ := hex.DecodeString("abcdef")
+	// NOTE: this is length 4, but 3 will be used in the calculations
+	testTxCbor, _ := hex.DecodeString("abcdef01")
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
 			BabbageTransactionBody: babbage.BabbageTransactionBody{

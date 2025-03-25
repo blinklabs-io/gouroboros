@@ -109,7 +109,7 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
-			IsTxValid:  !invalidTxMap[uint(idx)],
+			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
 	}
 	return ret
@@ -313,7 +313,7 @@ type ConwayTransaction struct {
 	cbor.DecodeStoreCbor
 	Body       ConwayTransactionBody
 	WitnessSet ConwayTransactionWitnessSet
-	IsTxValid  bool
+	TxIsValid  bool
 	TxMetadata *cbor.LazyValue
 }
 
@@ -414,7 +414,7 @@ func (t ConwayTransaction) Metadata() *cbor.LazyValue {
 }
 
 func (t ConwayTransaction) IsValid() bool {
-	return t.IsTxValid
+	return t.TxIsValid
 }
 
 func (t ConwayTransaction) Consumed() []common.TransactionInput {
@@ -470,7 +470,7 @@ func (t *ConwayTransaction) Cbor() []byte {
 	tmpObj := []any{
 		cbor.RawMessage(t.Body.Cbor()),
 		cbor.RawMessage(t.WitnessSet.Cbor()),
-		t.IsValid,
+		t.TxIsValid,
 	}
 	if t.TxMetadata != nil {
 		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
@@ -478,7 +478,10 @@ func (t *ConwayTransaction) Cbor() []byte {
 		tmpObj = append(tmpObj, nil)
 	}
 	// This should never fail, since we're only encoding a list and a bool value
-	cborData, _ = cbor.Encode(&tmpObj)
+	cborData, err := cbor.Encode(&tmpObj)
+	if err != nil {
+		panic("CBOR encoding that should never fail has failed: " + err.Error())
+	}
 	return cborData
 }
 

@@ -325,7 +325,10 @@ func (t *MaryTransaction) Cbor() []byte {
 		tmpObj = append(tmpObj, nil)
 	}
 	// This should never fail, since we're only encoding a list and a bool value
-	cborData, _ = cbor.Encode(&tmpObj)
+	cborData, err := cbor.Encode(&tmpObj)
+	if err != nil {
+		panic("CBOR encoding that should never fail has failed: " + err.Error())
+	}
 	return cborData
 }
 
