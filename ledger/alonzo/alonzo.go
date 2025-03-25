@@ -109,7 +109,7 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxMetadata: b.TransactionMetadataSet[uint(idx)],
-			IsTxValid:  !invalidTxMap[uint(idx)],
+			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
 	}
 	return ret
@@ -358,7 +358,7 @@ type AlonzoTransaction struct {
 	cbor.DecodeStoreCbor
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
-	IsTxValid  bool
+	TxIsValid  bool
 	TxMetadata *cbor.LazyValue
 }
 
@@ -459,7 +459,7 @@ func (t AlonzoTransaction) Metadata() *cbor.LazyValue {
 }
 
 func (t AlonzoTransaction) IsValid() bool {
-	return t.IsTxValid
+	return t.TxIsValid
 }
 
 func (t AlonzoTransaction) Consumed() []common.TransactionInput {
@@ -496,7 +496,7 @@ func (t AlonzoTransaction) Witnesses() common.TransactionWitnessSet {
 func (t *AlonzoTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
-	if cborData != nil {
+	if len(cborData) > 0 {
 		return cborData[:]
 	}
 	// Return immediately if the body CBOR is also empty, which implies an empty TX object
@@ -508,7 +508,7 @@ func (t *AlonzoTransaction) Cbor() []byte {
 	tmpObj := []any{
 		cbor.RawMessage(t.Body.Cbor()),
 		cbor.RawMessage(t.WitnessSet.Cbor()),
-		t.IsValid,
+		t.TxIsValid,
 	}
 	if t.TxMetadata != nil {
 		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
@@ -516,7 +516,10 @@ func (t *AlonzoTransaction) Cbor() []byte {
 		tmpObj = append(tmpObj, nil)
 	}
 	// This should never fail, since we're only encoding a list and a bool value
-	cborData, _ = cbor.Encode(&tmpObj)
+	cborData, err := cbor.Encode(&tmpObj)
+	if err != nil {
+		panic("CBOR encoding that should never fail has failed: " + err.Error())
+	}
 	return cborData
 }
 

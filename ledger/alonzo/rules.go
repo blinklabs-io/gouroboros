@@ -133,16 +133,17 @@ func UtxoValidateFeeTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, ok := pp.(*AlonzoProtocolParameters)
-	if !ok {
-		return errors.New("pparams are not expected type")
+	minFee, err := MinFeeTx(tx, pp)
+	if err != nil {
+		return err
 	}
-	return shelley.UtxoValidateFeeTooSmallUtxo(
-		tx,
-		slot,
-		ls,
-		&tmpPparams.ShelleyProtocolParameters,
-	)
+	if tx.Fee() >= minFee {
+		return nil
+	}
+	return shelley.FeeTooSmallUtxoError{
+		Provided: tx.Fee(),
+		Min:      minFee,
+	}
 }
 
 // UtxoValidateInsufficientCollateral ensures that there is sufficient collateral provided
@@ -327,4 +328,33 @@ func UtxoValidateMaxTxSizeUtxo(
 		ls,
 		&tmpPparams.ShelleyProtocolParameters,
 	)
+}
+
+// MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
+func MinFeeTx(
+	tx common.Transaction,
+	pparams common.ProtocolParameters,
+) (uint64, error) {
+	tmpPparams, ok := pparams.(*AlonzoProtocolParameters)
+	if !ok {
+		return 0, errors.New("pparams are not expected type")
+	}
+	txBytes := tx.Cbor()
+	if len(txBytes) == 0 {
+		var err error
+		txBytes, err = cbor.Encode(tx)
+		if err != nil {
+			return 0, err
+		}
+	}
+	// We calculate fee based on the pre-Alonzo TX format, which does not include the 'valid' field
+	// Instead of having a separate helper to build the CBOR in the custom format, we subtract 1 since
+	// a boolean is always represented by a single byte in CBOR
+	txSize := max(0, len(txBytes)-1)
+	minFee := uint64(
+		// The TX size can never be negative, so casting to uint is safe
+		//nolint:gosec
+		(tmpPparams.MinFeeA * uint(txSize)) + tmpPparams.MinFeeB,
+	)
+	return minFee, nil
 }

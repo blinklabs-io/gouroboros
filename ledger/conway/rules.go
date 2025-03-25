@@ -464,8 +464,14 @@ func MinFeeTx(
 			return 0, err
 		}
 	}
+	// We calculate fee based on the pre-Alonzo TX format, which does not include the 'valid' field
+	// Instead of having a separate helper to build the CBOR in the custom format, we subtract 1 since
+	// a boolean is always represented by a single byte in CBOR
+	txSize := max(0, len(txBytes)-1)
 	minFee := uint64(
-		(tmpPparams.MinFeeA * uint(len(txBytes))) + tmpPparams.MinFeeB,
+		// The TX size can never be negative, so casting to uint is safe
+		//nolint:gosec
+		(tmpPparams.MinFeeA * uint(txSize)) + tmpPparams.MinFeeB,
 	)
 	return minFee, nil
 }
