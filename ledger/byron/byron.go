@@ -66,7 +66,7 @@ type ByronMainBlockHeader struct {
 		PubKey     []byte
 		Difficulty struct {
 			cbor.StructAsArray
-			Unknown uint64
+			Value uint64
 		}
 		BlockSig []interface{}
 	}
@@ -105,8 +105,7 @@ func (h *ByronMainBlockHeader) PrevHash() string {
 }
 
 func (h *ByronMainBlockHeader) BlockNumber() uint64 {
-	// Byron blocks don't store the block number in the block
-	return 0
+	return h.ConsensusData.Difficulty.Value
 }
 
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
@@ -538,8 +537,7 @@ func (h *ByronEpochBoundaryBlockHeader) PrevHash() string {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
-	// Byron blocks don't store the block number in the block
-	return 0
+	return h.ConsensusData.Difficulty.Value
 }
 
 func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
