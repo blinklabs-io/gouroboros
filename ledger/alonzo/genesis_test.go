@@ -458,19 +458,28 @@ func TestNewAlonzoGenesisFromReader(t *testing.T) {
 	}
 
 	if result.LovelacePerUtxoWord != 34482 {
-		t.Errorf("Expected LovelacePerUtxoWord 34482, got %d", result.LovelacePerUtxoWord)
+		t.Errorf(
+			"Expected LovelacePerUtxoWord 34482, got %d",
+			result.LovelacePerUtxoWord,
+		)
 	} else {
 		t.Logf("LovelacePerUtxoWord is correct: %d", result.LovelacePerUtxoWord)
 	}
 
 	if result.ExecutionPrices.Steps.Rat.Cmp(big.NewRat(721, 10000)) != 0 {
-		t.Errorf("Unexpected prSteps: got %v, expected 721/10000", result.ExecutionPrices.Steps.Rat)
+		t.Errorf(
+			"Unexpected prSteps: got %v, expected 721/10000",
+			result.ExecutionPrices.Steps.Rat,
+		)
 	} else {
 		t.Logf("prSteps is correct: %v", result.ExecutionPrices.Steps.Rat)
 	}
 
 	if result.ExecutionPrices.Mem.Rat.Cmp(big.NewRat(577, 10000)) != 0 {
-		t.Errorf("Unexpected prMem: got %v, expected 577/10000", result.ExecutionPrices.Mem.Rat)
+		t.Errorf(
+			"Unexpected prMem: got %v, expected 577/10000",
+			result.ExecutionPrices.Mem.Rat,
+		)
 	} else {
 		t.Logf("prMem is correct: %v", result.ExecutionPrices.Mem.Rat)
 	}
@@ -482,7 +491,11 @@ func TestNewAlonzoGenesisFromReader(t *testing.T) {
 		},
 	}
 	if !reflect.DeepEqual(result.CostModels, expectedCostModels) {
-		t.Errorf("Unexpected CostModels:\nGot:  %v\nExpected: %v", result.CostModels, expectedCostModels)
+		t.Errorf(
+			"Unexpected CostModels:\nGot:  %v\nExpected: %v",
+			result.CostModels,
+			expectedCostModels,
+		)
 	} else {
 		t.Logf("CostModels are correct")
 	}

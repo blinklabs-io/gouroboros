@@ -43,7 +43,9 @@ func mockShelleyCBOR() []byte {
 }
 
 func mockAllegraCBOR() []byte {
-	allegraHeader := allegra.AllegraBlockHeader{ShelleyBlockHeader: ShelleyBlockHeader{}}
+	allegraHeader := allegra.AllegraBlockHeader{
+		ShelleyBlockHeader: ShelleyBlockHeader{},
+	}
 	data, _ := cbor.Marshal(allegraHeader)
 	return data
 }
@@ -107,13 +109,55 @@ func TestNewBlockHeaderFromCbor(t *testing.T) {
 		expectErr  bool
 		expectedFn string
 	}{
-		{"Shelley Block", BlockTypeShelley, mockShelleyCBOR(), false, "NewShelleyBlockHeaderFromCbor"},
-		{"Allegra Block", BlockTypeAllegra, mockAllegraCBOR(), false, "NewAllegraBlockHeaderFromCbor"},
-		{"Mary Block", BlockTypeMary, mockMaryCBOR(), false, "NewMaryBlockHeaderFromCbor"},
-		{"Alonzo Block", BlockTypeAlonzo, mockAlonzoCBOR(), false, "NewAlonzoBlockHeaderFromCbor"},
-		{"Babbage Block", BlockTypeBabbage, mockBabbageCBOR(), false, "NewBabbageBlockHeaderFromCbor"},
-		{"Conway Block", BlockTypeConway, mockConwayCBOR(), false, "NewConwayBlockHeaderFromCbor"},
-		{"Invalid Block Type", 9999, []byte{0xFF, 0x00, 0x00}, true, "UnknownFunction"},
+		{
+			"Shelley Block",
+			BlockTypeShelley,
+			mockShelleyCBOR(),
+			false,
+			"NewShelleyBlockHeaderFromCbor",
+		},
+		{
+			"Allegra Block",
+			BlockTypeAllegra,
+			mockAllegraCBOR(),
+			false,
+			"NewAllegraBlockHeaderFromCbor",
+		},
+		{
+			"Mary Block",
+			BlockTypeMary,
+			mockMaryCBOR(),
+			false,
+			"NewMaryBlockHeaderFromCbor",
+		},
+		{
+			"Alonzo Block",
+			BlockTypeAlonzo,
+			mockAlonzoCBOR(),
+			false,
+			"NewAlonzoBlockHeaderFromCbor",
+		},
+		{
+			"Babbage Block",
+			BlockTypeBabbage,
+			mockBabbageCBOR(),
+			false,
+			"NewBabbageBlockHeaderFromCbor",
+		},
+		{
+			"Conway Block",
+			BlockTypeConway,
+			mockConwayCBOR(),
+			false,
+			"NewConwayBlockHeaderFromCbor",
+		},
+		{
+			"Invalid Block Type",
+			9999,
+			[]byte{0xFF, 0x00, 0x00},
+			true,
+			"UnknownFunction",
+		},
 	}
 
 	for _, test := range tests {

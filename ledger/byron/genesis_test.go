@@ -424,7 +424,11 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(result, expected) {
-		t.Errorf("ByronGenesis struct does not match expected.\nGot: %#v\nExpected: %#v", result, expected)
+		t.Errorf(
+			"ByronGenesis struct does not match expected.\nGot: %#v\nExpected: %#v",
+			result,
+			expected,
+		)
 	} else {
 		t.Logf("ByronGenesis decoded correctly")
 	}
