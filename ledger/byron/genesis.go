@@ -39,52 +39,52 @@ type ByronGenesis struct {
 }
 
 type ByronGenesisBlockVersionData struct {
-	HeavyDelThd       int `json:",string"`
-	MaxBlockSize      int `json:",string"`
-	MaxHeaderSize     int `json:",string"`
-	MaxProposalSize   int `json:",string"`
-	MaxTxSize         int `json:",string"`
-	MpcThd            int `json:",string"`
-	ScriptVersion     int
-	SlotDuration      int `json:",string"`
-	SoftforkRule      ByronGenesisBlockVersionDataSoftforkRule
-	TxFeePolicy       ByronGenesisBlockVersionDataTxFeePolicy
-	UnlockStakeEpoch  uint64 `json:",string"`
-	UpdateImplicit    int    `json:",string"`
-	UpdateProposalThd int    `json:",string"`
-	UpdateVoteThd     int    `json:",string"`
+	HeavyDelThd       int                                      `json:"heavyDelThd,string"`
+	MaxBlockSize      int                                      `json:"maxBlockSize,string"`
+	MaxHeaderSize     int                                      `json:"maxHeaderSize,string"`
+	MaxProposalSize   int                                      `json:"maxProposalSize,string"`
+	MaxTxSize         int                                      `json:"maxTxSize,string"`
+	MpcThd            int                                      `json:"mpcThd,string"`
+	ScriptVersion     int                                      `json:"scriptVersion"`
+	SlotDuration      int                                      `json:"slotDuration,string"`
+	SoftforkRule      ByronGenesisBlockVersionDataSoftforkRule `json:"softforkRule"`
+	TxFeePolicy       ByronGenesisBlockVersionDataTxFeePolicy  `json:"txFeePolicy"`
+	UnlockStakeEpoch  uint64                                   `json:"unlockStakeEpoch,string"`
+	UpdateImplicit    int                                      `json:"updateImplicit,string"`
+	UpdateProposalThd int                                      `json:"updateProposalThd,string"`
+	UpdateVoteThd     int                                      `json:"updateVoteThd,string"`
 }
 
 type ByronGenesisBlockVersionDataSoftforkRule struct {
-	InitThd      int `json:",string"`
-	MinThd       int `json:",string"`
-	ThdDecrement int `json:",string"`
+	InitThd      int `json:"initThd,string"`
+	MinThd       int `json:"minThd,string"`
+	ThdDecrement int `json:"thdDecrement,string"`
 }
 
 type ByronGenesisBlockVersionDataTxFeePolicy struct {
-	Multiplier int `json:",string"`
-	Summand    int `json:",string"`
+	Multiplier int `json:"multiplier,string"`
+	Summand    int `json:"summand,string"`
 }
 
 type ByronGenesisProtocolConsts struct {
-	K             int
-	ProtocolMagic int
-	VssMinTTL     int
-	VssMaxTTL     int
+	K             int `json:"k"`
+	ProtocolMagic int `json:"protocolMagic"`
+	VssMinTTL     int `json:"vssMinTtl"`
+	VssMaxTTL     int `json:"vssMaxTtl"`
 }
 
 type ByronGenesisHeavyDelegation struct {
-	Cert       string
-	DelegatePk string
-	IssuerPk   string
-	Omega      int
+	Cert       string `json:"cert"`
+	DelegatePk string `json:"delegatePk"`
+	IssuerPk   string `json:"issuerPk"`
+	Omega      int    `json:"omega"`
 }
 
 type ByronGenesisVssCert struct {
-	ExpiryEpoch int
-	Signature   string
-	SigningKey  string
-	VssKey      string
+	ExpiryEpoch int    `json:"expiryEpoch"`
+	Signature   string `json:"signature"`
+	SigningKey  string `json:"signingKey"`
+	VssKey      string `json:"vssKey"`
 }
 
 func (g *ByronGenesis) GenesisUtxos() ([]common.Utxo, error) {
