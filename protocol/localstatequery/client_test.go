@@ -344,7 +344,11 @@ func TestGenesisConfigJSON(t *testing.T) {
 	//Compare everything after unmarshalling
 
 	if !reflect.DeepEqual(genesisConfig, result) {
-		t.Errorf("Mismatch after JSON marshalling/unmarshalling. Expected:\n%+v\nGot:\n%+v", genesisConfig, result)
+		t.Errorf(
+			"Mismatch after JSON marshalling/unmarshalling. Expected:\n%+v\nGot:\n%+v",
+			genesisConfig,
+			result,
+		)
 	} else {
 		t.Logf("Successfully validated the GenesisConfigResult after JSON marshalling and unmarshalling.")
 	}

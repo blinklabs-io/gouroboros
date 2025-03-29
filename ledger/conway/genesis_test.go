@@ -454,11 +454,18 @@ func TestNewConwayGenesisFromReader(t *testing.T) {
 	reader := strings.NewReader(jsonData)
 	actual, err := conway.NewConwayGenesisFromReader(reader)
 	if err != nil {
-		t.Errorf("Failed to decode JSON via NewConwayGenesisFromReader: %v", err)
+		t.Errorf(
+			"Failed to decode JSON via NewConwayGenesisFromReader: %v",
+			err,
+		)
 	}
 
 	if !reflect.DeepEqual(expected, actual) {
-		t.Errorf("Mismatch between expected and actual structs\nExpected: %#v\nActual:   %#v", expected, actual)
+		t.Errorf(
+			"Mismatch between expected and actual structs\nExpected: %#v\nActual:   %#v",
+			expected,
+			actual,
+		)
 	} else {
 		t.Logf("ConwayGenesis decoded correctly and matches expected structure")
 	}
