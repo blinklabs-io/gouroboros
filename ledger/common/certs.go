@@ -117,6 +117,7 @@ type Certificate interface {
 	isCertificate()
 	Cbor() []byte
 	Utxorpc() *utxorpc.Certificate
+	Type() uint
 }
 
 const (
@@ -177,6 +178,10 @@ func (c *StakeRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
 	}
 }
 
+func (c *StakeRegistrationCertificate) Type() uint {
+	return c.CertType
+}
+
 type StakeDeregistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -196,6 +201,10 @@ func (c *StakeDeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
 			StakeDeregistration: c.StakeDeregistration.Utxorpc(),
 		},
 	}
+}
+
+func (c *StakeDeregistrationCertificate) Type() uint {
+	return c.CertType
 }
 
 type StakeDelegationCertificate struct {
@@ -221,6 +230,10 @@ func (c *StakeDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 			},
 		},
 	}
+}
+
+func (c *StakeDelegationCertificate) Type() uint {
+	return c.CertType
 }
 
 type (
@@ -373,6 +386,10 @@ func (c *PoolRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
 	}
 }
 
+func (c *PoolRegistrationCertificate) Type() uint {
+	return c.CertType
+}
+
 type PoolRetirementCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -396,6 +413,10 @@ func (c *PoolRetirementCertificate) Utxorpc() *utxorpc.Certificate {
 			},
 		},
 	}
+}
+
+func (c *PoolRetirementCertificate) Type() uint {
+	return c.CertType
 }
 
 type GenesisKeyDelegationCertificate struct {
@@ -423,6 +444,10 @@ func (c *GenesisKeyDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 			},
 		},
 	}
+}
+
+func (c *GenesisKeyDelegationCertificate) Type() uint {
+	return c.CertType
 }
 
 type MirSource int32
@@ -508,6 +533,10 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() *utxorpc.Certificate {
 	}
 }
 
+func (c *MoveInstantaneousRewardsCertificate) Type() uint {
+	return c.CertType
+}
+
 type RegistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -527,6 +556,10 @@ func (c *RegistrationCertificate) UnmarshalCBOR(
 func (c *RegistrationCertificate) Utxorpc() *utxorpc.Certificate {
 	// TODO (#850)
 	return nil
+}
+
+func (c *RegistrationCertificate) Type() uint {
+	return c.CertType
 }
 
 type DeregistrationCertificate struct {
@@ -550,6 +583,10 @@ func (c *DeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
 	return nil
 }
 
+func (c *DeregistrationCertificate) Type() uint {
+	return c.CertType
+}
+
 type VoteDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -569,6 +606,10 @@ func (c *VoteDelegationCertificate) UnmarshalCBOR(
 func (c *VoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	// TODO (#850)
 	return nil
+}
+
+func (c *VoteDelegationCertificate) Type() uint {
+	return c.CertType
 }
 
 type StakeVoteDelegationCertificate struct {
@@ -593,6 +634,10 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	return nil
 }
 
+func (c *StakeVoteDelegationCertificate) Type() uint {
+	return c.CertType
+}
+
 type StakeRegistrationDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -615,6 +660,10 @@ func (c *StakeRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate 
 	return nil
 }
 
+func (c *StakeRegistrationDelegationCertificate) Type() uint {
+	return c.CertType
+}
+
 type VoteRegistrationDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -635,6 +684,10 @@ func (c *VoteRegistrationDelegationCertificate) UnmarshalCBOR(
 func (c *VoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	// TODO (#850)
 	return nil
+}
+
+func (c *VoteRegistrationDelegationCertificate) Type() uint {
+	return c.CertType
 }
 
 type StakeVoteRegistrationDelegationCertificate struct {
@@ -660,6 +713,10 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certific
 	return nil
 }
 
+func (c *StakeVoteRegistrationDelegationCertificate) Type() uint {
+	return c.CertType
+}
+
 type AuthCommitteeHotCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -681,6 +738,10 @@ func (c *AuthCommitteeHotCertificate) Utxorpc() *utxorpc.Certificate {
 	return nil
 }
 
+func (c *AuthCommitteeHotCertificate) Type() uint {
+	return c.CertType
+}
+
 type ResignCommitteeColdCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -700,6 +761,10 @@ func (c *ResignCommitteeColdCertificate) UnmarshalCBOR(
 func (c *ResignCommitteeColdCertificate) Utxorpc() *utxorpc.Certificate {
 	// TODO (#850)
 	return nil
+}
+
+func (c *ResignCommitteeColdCertificate) Type() uint {
+	return c.CertType
 }
 
 type RegistrationDrepCertificate struct {
@@ -724,6 +789,10 @@ func (c *RegistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
 	return nil
 }
 
+func (c *RegistrationDrepCertificate) Type() uint {
+	return c.CertType
+}
+
 type DeregistrationDrepCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -745,6 +814,10 @@ func (c *DeregistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
 	return nil
 }
 
+func (c *DeregistrationDrepCertificate) Type() uint {
+	return c.CertType
+}
+
 type UpdateDrepCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -764,4 +837,8 @@ func (c *UpdateDrepCertificate) UnmarshalCBOR(
 func (c *UpdateDrepCertificate) Utxorpc() *utxorpc.Certificate {
 	// TODO (#850)
 	return nil
+}
+
+func (c *UpdateDrepCertificate) Type() uint {
+	return c.CertType
 }
