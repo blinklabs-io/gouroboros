@@ -271,23 +271,14 @@ func TestCertificateTypeMethods(t *testing.T) {
 		{"UpdateDrep", &UpdateDrepCertificate{CertType: CertificateTypeUpdateDrep}, CertificateTypeUpdateDrep},
 	}
 
-	allPassed := true
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.cert.Type()
 			if got != tt.expected {
-				allPassed = false
 				t.Errorf("FAIL: %s -> Type() = %d, expected = %d", tt.name, got, tt.expected)
 			} else {
 				t.Logf("PASS: %s -> Type() = %d, expected = %d \n", tt.name, got, tt.expected)
 			}
 		})
-	}
-
-	if allPassed {
-		t.Logf("\n ALL CERTIFICATE TYPE TESTS PASSED SUCCESSFULLY")
-	} else {
-		t.Logf("\n SOME CERTIFICATE TYPE TESTS FAILED ")
 	}
 }
