@@ -205,7 +205,7 @@ func TestGetAvailableBlockRange(t *testing.T) {
 	}
 	expectedStart := ocommon.NewPoint(
 		testBlock.SlotNumber(),
-		test.DecodeHexString(testBlock.Hash()),
+		testBlock.Hash().Bytes(),
 	)
 	conversation := append(
 		conversationHandshakeFindIntersect,

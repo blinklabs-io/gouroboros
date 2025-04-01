@@ -33,7 +33,7 @@ type Transaction interface {
 type TransactionBody interface {
 	Cbor() []byte
 	Fee() uint64
-	Hash() string
+	Hash() Blake2b256
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64

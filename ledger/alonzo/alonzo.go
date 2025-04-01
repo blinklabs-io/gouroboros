@@ -15,7 +15,6 @@
 package alonzo
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -64,7 +63,7 @@ func (AlonzoBlock) Type() int {
 	return BlockTypeAlonzo
 }
 
-func (b *AlonzoBlock) Hash() string {
+func (b *AlonzoBlock) Hash() common.Blake2b256 {
 	return b.BlockHeader.Hash()
 }
 
@@ -72,7 +71,7 @@ func (b *AlonzoBlock) Header() common.BlockHeader {
 	return b.BlockHeader
 }
 
-func (b *AlonzoBlock) PrevHash() string {
+func (b *AlonzoBlock) PrevHash() common.Blake2b256 {
 	return b.BlockHeader.PrevHash()
 }
 
@@ -117,7 +116,6 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 
 func (b *AlonzoBlock) Utxorpc() *utxorpc.Block {
 	txs := []*utxorpc.Tx{}
-	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
 		txs = append(txs, tx)
@@ -126,7 +124,7 @@ func (b *AlonzoBlock) Utxorpc() *utxorpc.Block {
 		Tx: txs,
 	}
 	header := &utxorpc.BlockHeader{
-		Hash:   tmpHash,
+		Hash:   b.Hash().Bytes(),
 		Height: b.BlockNumber(),
 		Slot:   b.SlotNumber(),
 	}
@@ -370,7 +368,7 @@ func (AlonzoTransaction) Type() int {
 	return TxTypeAlonzo
 }
 
-func (t AlonzoTransaction) Hash() string {
+func (t AlonzoTransaction) Hash() common.Blake2b256 {
 	return t.Body.Hash()
 }
 
@@ -477,7 +475,7 @@ func (t AlonzoTransaction) Produced() []common.Utxo {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
+					Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), idx),
 					Output: output,
 				},
 			)

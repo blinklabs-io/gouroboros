@@ -15,7 +15,6 @@
 package mary
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -63,7 +62,7 @@ func (MaryBlock) Type() int {
 	return BlockTypeMary
 }
 
-func (b *MaryBlock) Hash() string {
+func (b *MaryBlock) Hash() common.Blake2b256 {
 	return b.BlockHeader.Hash()
 }
 
@@ -71,7 +70,7 @@ func (b *MaryBlock) Header() common.BlockHeader {
 	return b.BlockHeader
 }
 
-func (b *MaryBlock) PrevHash() string {
+func (b *MaryBlock) PrevHash() common.Blake2b256 {
 	return b.BlockHeader.PrevHash()
 }
 
@@ -110,7 +109,6 @@ func (b *MaryBlock) Transactions() []common.Transaction {
 
 func (b *MaryBlock) Utxorpc() *utxorpc.Block {
 	txs := []*utxorpc.Tx{}
-	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
 		txs = append(txs, tx)
@@ -119,7 +117,7 @@ func (b *MaryBlock) Utxorpc() *utxorpc.Block {
 		Tx: txs,
 	}
 	header := &utxorpc.BlockHeader{
-		Hash:   tmpHash,
+		Hash:   b.Hash().Bytes(),
 		Height: b.BlockNumber(),
 		Slot:   b.SlotNumber(),
 	}
@@ -189,7 +187,7 @@ func (MaryTransaction) Type() int {
 	return TxTypeMary
 }
 
-func (t MaryTransaction) Hash() string {
+func (t MaryTransaction) Hash() common.Blake2b256 {
 	return t.Body.Hash()
 }
 
@@ -291,7 +289,7 @@ func (t MaryTransaction) Produced() []common.Utxo {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
+				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), idx),
 				Output: output,
 			},
 		)

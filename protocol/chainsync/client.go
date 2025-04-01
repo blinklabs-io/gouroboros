@@ -15,7 +15,6 @@
 package chainsync
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -653,12 +652,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			blockHash, err := hex.DecodeString(blockHeader.Hash())
-			if err != nil {
-				firstBlockChan <- clientPointResult{error: err}
-				return err
-			}
-			point := common.NewPoint(blockHeader.SlotNumber(), blockHash)
+			point := common.NewPoint(blockHeader.SlotNumber(), blockHeader.Hash().Bytes())
 			firstBlockChan <- clientPointResult{tip: msg.Tip, point: point}
 			return nil
 		}
@@ -700,12 +694,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			blockHash, err := hex.DecodeString(block.Hash())
-			if err != nil {
-				firstBlockChan <- clientPointResult{error: err}
-				return err
-			}
-			point := common.NewPoint(block.SlotNumber(), blockHash)
+			point := common.NewPoint(block.SlotNumber(), block.Hash().Bytes())
 			firstBlockChan <- clientPointResult{tip: msg.Tip, point: point}
 			return nil
 		}
