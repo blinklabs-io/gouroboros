@@ -652,7 +652,10 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			point := common.NewPoint(blockHeader.SlotNumber(), blockHeader.Hash().Bytes())
+			point := common.NewPoint(
+				blockHeader.SlotNumber(),
+				blockHeader.Hash().Bytes(),
+			)
 			firstBlockChan <- clientPointResult{tip: msg.Tip, point: point}
 			return nil
 		}

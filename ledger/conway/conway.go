@@ -430,7 +430,10 @@ func (t ConwayTransaction) Produced() []common.Utxo {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), idx),
+					Id: shelley.NewShelleyTransactionInput(
+						t.Hash().String(),
+						idx,
+					),
 					Output: output,
 				},
 			)
