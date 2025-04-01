@@ -78,7 +78,7 @@ func (c *Client) Start() {
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
-			<-c.Protocol.DoneChan()
+			<-c.DoneChan()
 			// Stop any existing timer
 			c.timerMutex.Lock()
 			if c.timer != nil {

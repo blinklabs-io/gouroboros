@@ -26,7 +26,7 @@ type GenesisRat struct {
 
 func (r *GenesisRat) UnmarshalJSON(data []byte) error {
 	r.Rat = new(big.Rat)
-	if _, ok := r.Rat.SetString(string(data)); !ok {
+	if _, ok := r.SetString(string(data)); !ok {
 		return fmt.Errorf("math/big: cannot unmarshal %q into a *big.Rat", data)
 	}
 	return nil

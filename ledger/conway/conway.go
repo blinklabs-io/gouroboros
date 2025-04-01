@@ -490,7 +490,7 @@ func (t *ConwayTransaction) Utxorpc() *utxorpc.Tx {
 func NewConwayBlockFromCbor(data []byte) (*ConwayBlock, error) {
 	var conwayBlock ConwayBlock
 	if _, err := cbor.Decode(data, &conwayBlock); err != nil {
-		return nil, fmt.Errorf("Conway block decode error: %w", err)
+		return nil, fmt.Errorf("decode Conway block error: %w", err)
 	}
 	return &conwayBlock, nil
 }
@@ -498,7 +498,7 @@ func NewConwayBlockFromCbor(data []byte) (*ConwayBlock, error) {
 func NewConwayBlockHeaderFromCbor(data []byte) (*ConwayBlockHeader, error) {
 	var conwayBlockHeader ConwayBlockHeader
 	if _, err := cbor.Decode(data, &conwayBlockHeader); err != nil {
-		return nil, fmt.Errorf("Conway block header decode error: %w", err)
+		return nil, fmt.Errorf("decode Conway block header error: %w", err)
 	}
 	return &conwayBlockHeader, nil
 }
@@ -508,7 +508,7 @@ func NewConwayTransactionBodyFromCbor(
 ) (*ConwayTransactionBody, error) {
 	var conwayTx ConwayTransactionBody
 	if _, err := cbor.Decode(data, &conwayTx); err != nil {
-		return nil, fmt.Errorf("Conway transaction body decode error: %w", err)
+		return nil, fmt.Errorf("decode Conway transaction body error: %w", err)
 	}
 	return &conwayTx, nil
 }
@@ -516,7 +516,7 @@ func NewConwayTransactionBodyFromCbor(
 func NewConwayTransactionFromCbor(data []byte) (*ConwayTransaction, error) {
 	var conwayTx ConwayTransaction
 	if _, err := cbor.Decode(data, &conwayTx); err != nil {
-		return nil, fmt.Errorf("Conway transaction decode error: %w", err)
+		return nil, fmt.Errorf("decode Conway transaction error: %w", err)
 	}
 	return &conwayTx, nil
 }

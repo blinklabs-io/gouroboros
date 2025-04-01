@@ -128,11 +128,11 @@ func TestIntersectNotFound(t *testing.T) {
 			if err == nil {
 				t.Fatalf("did not receive expected error")
 			}
-			if !errors.Is(err, chainsync.IntersectNotFoundError) {
+			if !errors.Is(err, chainsync.ErrIntersectNotFound) {
 				t.Fatalf(
 					"did not receive expected error\n  got:    %s\n  wanted: %s",
 					err,
-					chainsync.IntersectNotFoundError,
+					chainsync.ErrIntersectNotFound,
 				)
 			}
 		},

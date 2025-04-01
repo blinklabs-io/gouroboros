@@ -93,7 +93,7 @@ func (c *Client) Start() {
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
-			<-c.Protocol.DoneChan()
+			<-c.DoneChan()
 			close(c.acquireResultChan)
 			close(c.hasTxResultChan)
 			close(c.nextTxResultChan)
@@ -172,7 +172,7 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 	}
 	result, ok := <-c.hasTxResultChan
 	if !ok {
-		return false, protocol.ProtocolShuttingDownError
+		return false, protocol.ErrProtocolShuttingDown
 	}
 	return result, nil
 }
@@ -199,7 +199,7 @@ func (c *Client) NextTx() ([]byte, error) {
 	}
 	tx, ok := <-c.nextTxResultChan
 	if !ok {
-		return nil, protocol.ProtocolShuttingDownError
+		return nil, protocol.ErrProtocolShuttingDown
 	}
 	return tx, nil
 }
@@ -226,7 +226,7 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 	}
 	result, ok := <-c.getSizesResultChan
 	if !ok {
-		return 0, 0, 0, protocol.ProtocolShuttingDownError
+		return 0, 0, 0, protocol.ErrProtocolShuttingDown
 	}
 	return result.Capacity, result.Size, result.NumberOfTxs, nil
 }
@@ -314,7 +314,7 @@ func (c *Client) acquire() error {
 	// Wait for reply
 	_, ok := <-c.acquireResultChan
 	if !ok {
-		return protocol.ProtocolShuttingDownError
+		return protocol.ErrProtocolShuttingDown
 	}
 	return nil
 }

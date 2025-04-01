@@ -56,7 +56,7 @@ func NewTransactionBodyFromCbor(
 ) (TransactionBody, error) {
 	switch txType {
 	case TxTypeByron:
-		return nil, errors.New("Byron transactions do not contain a body")
+		return nil, errors.New("no body for Byron transactions")
 	case TxTypeShelley:
 		return NewShelleyTransactionBodyFromCbor(data)
 	case TxTypeAllegra:

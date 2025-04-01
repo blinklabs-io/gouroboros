@@ -82,7 +82,7 @@ func (c *Client) Start() {
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
-			<-c.Protocol.DoneChan()
+			<-c.DoneChan()
 			close(c.submitResultChan)
 		}()
 	})
@@ -125,7 +125,7 @@ func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 	}
 	err, ok := <-c.submitResultChan
 	if !ok {
-		return protocol.ProtocolShuttingDownError
+		return protocol.ErrProtocolShuttingDown
 	}
 	return err
 }
@@ -157,8 +157,8 @@ func (c *Client) handleAcceptTx() error {
 		)
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	c.submitResultChan <- nil
@@ -175,8 +175,8 @@ func (c *Client) handleRejectTx(msg protocol.Message) error {
 		)
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	msgRejectTx := msg.(*MsgRejectTx)

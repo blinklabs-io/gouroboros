@@ -80,7 +80,7 @@ func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 	}
 	peers, ok := <-c.sharePeersChan
 	if !ok {
-		return nil, protocol.ProtocolShuttingDownError
+		return nil, protocol.ErrProtocolShuttingDown
 	}
 	return peers, nil
 }

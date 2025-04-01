@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   golangci:
@@ -21,6 +20,4 @@ jobs:
         with:
           go-version: 1.23.x
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          only-new-issues: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+        uses: golangci/golangci-lint-action@v7

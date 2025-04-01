@@ -1,35 +1,71 @@
-issues:
-  exclude-dirs:
-    - docs
-  max-issues-per-linter: 0
-  max-same-issues: 0
+version: "2"
+run:
+  issues-exit-code: 1
+  tests: false
 linters:
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - contextcheck
+    - copyloopvar
+    - durationcheck
+    - errchkjson
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - gomodguard
+    - gosec
+    - gosmopolitan
+    - loggercheck
+    - makezero
+    - musttag
+    - nilerr
+    - nilnesserr
+    - noctx
+    - perfsprint
+    - prealloc
+    - protogetter
+    - reassign
+    - rowserrcheck
+    - spancheck
+    - sqlclosecheck
+    - testifylint
+    - usestdlibvars
+    - whitespace
+    - zerologlint
   disable:
     - asasalint
     - depguard
     - recvcheck
     - unparam
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - docs
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    # Defaults above ours below
-    - copyloopvar
-    - usestdlibvars
-    - whitespace
-  presets:
-    - bugs
-    - format
-    - import
-    - performance
-    - unused
-#linters-settings:
-#  errcheck:
-#    check-type-assertions: true
-run:
-  issues-exit-code: 1
-  tests: false
-  timeout: 10m
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - docs
+      - third_party$
+      - builtin$
+      - examples$

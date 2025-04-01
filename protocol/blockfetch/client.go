@@ -93,7 +93,7 @@ func (c *Client) Start() {
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
-			<-c.Protocol.DoneChan()
+			<-c.DoneChan()
 			close(c.blockChan)
 			close(c.startBatchResultChan)
 		}()
@@ -141,7 +141,7 @@ func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 	err, ok := <-c.startBatchResultChan
 	if !ok {
 		c.busyMutex.Unlock()
-		return protocol.ProtocolShuttingDownError
+		return protocol.ErrProtocolShuttingDown
 	}
 	if err != nil {
 		c.busyMutex.Unlock()
@@ -171,7 +171,7 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	err, ok := <-c.startBatchResultChan
 	if !ok {
 		c.busyMutex.Unlock()
-		return nil, protocol.ProtocolShuttingDownError
+		return nil, protocol.ErrProtocolShuttingDown
 	}
 	if err != nil {
 		c.busyMutex.Unlock()
@@ -180,7 +180,7 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	block, ok := <-c.blockChan
 	if !ok {
 		c.busyMutex.Unlock()
-		return nil, protocol.ProtocolShuttingDownError
+		return nil, protocol.ErrProtocolShuttingDown
 	}
 	return block, nil
 }
@@ -216,8 +216,8 @@ func (c *Client) handleStartBatch() error {
 		)
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	c.startBatchResultChan <- nil
@@ -234,8 +234,8 @@ func (c *Client) handleNoBlocks() error {
 		)
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	err := errors.New("block(s) not found")
@@ -270,8 +270,8 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	}
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	// We use the callback when requesting ranges and the internal channel for a single block
