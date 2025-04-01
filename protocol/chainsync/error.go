@@ -16,8 +16,8 @@ package chainsync
 
 import "errors"
 
-var IntersectNotFoundError = errors.New("chain intersection not found")
+var ErrIntersectNotFound = errors.New("chain intersection not found")
 
 // StopChainSync is used as a special return value from a RollForward or RollBackward handler function
 // to signify that the sync process should be stopped
-var StopSyncProcessError = errors.New("stop sync process")
+var ErrStopSyncProcess = errors.New("stop sync process")

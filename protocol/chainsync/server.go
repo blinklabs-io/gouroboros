@@ -210,7 +210,7 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 		msgFindIntersect.Points,
 	)
 	if err != nil {
-		if errors.Is(err, IntersectNotFoundError) {
+		if errors.Is(err, ErrIntersectNotFound) {
 			msgResp := NewMsgIntersectNotFound(tip)
 			if err := s.SendMessage(msgResp); err != nil {
 				return err
@@ -235,8 +235,8 @@ func (s *Server) handleDone() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	s.Protocol.Stop()
+	s.Stop()
 	s.initProtocol()
-	s.Protocol.Start()
+	s.Start()
 	return nil
 }

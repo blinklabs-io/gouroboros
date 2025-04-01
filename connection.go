@@ -249,7 +249,7 @@ func (c *Connection) setupConnection() error {
 	// Check network magic value
 	if c.networkMagic == 0 {
 		return fmt.Errorf(
-			"invalid network magic value provided: %d\n",
+			"invalid network magic value provided: %d",
 			c.networkMagic,
 		)
 	}

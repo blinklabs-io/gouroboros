@@ -528,7 +528,7 @@ func (t *AlonzoTransaction) Utxorpc() *utxorpc.Tx {
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 	var alonzoBlock AlonzoBlock
 	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
-		return nil, fmt.Errorf("Alonzo block decode error: %w", err)
+		return nil, fmt.Errorf("decode Alonzo block error: %w", err)
 	}
 	return &alonzoBlock, nil
 }
@@ -536,7 +536,7 @@ func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
 func NewAlonzoBlockHeaderFromCbor(data []byte) (*AlonzoBlockHeader, error) {
 	var alonzoBlockHeader AlonzoBlockHeader
 	if _, err := cbor.Decode(data, &alonzoBlockHeader); err != nil {
-		return nil, fmt.Errorf("Alonzo block header decode error: %w", err)
+		return nil, fmt.Errorf("decode Alonzo block header error: %w", err)
 	}
 	return &alonzoBlockHeader, nil
 }
@@ -546,7 +546,7 @@ func NewAlonzoTransactionBodyFromCbor(
 ) (*AlonzoTransactionBody, error) {
 	var alonzoTx AlonzoTransactionBody
 	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
-		return nil, fmt.Errorf("Alonzo transaction body decode error: %w", err)
+		return nil, fmt.Errorf("decode Alonzo transaction body error: %w", err)
 	}
 	return &alonzoTx, nil
 }
@@ -554,7 +554,7 @@ func NewAlonzoTransactionBodyFromCbor(
 func NewAlonzoTransactionFromCbor(data []byte) (*AlonzoTransaction, error) {
 	var alonzoTx AlonzoTransaction
 	if _, err := cbor.Decode(data, &alonzoTx); err != nil {
-		return nil, fmt.Errorf("Alonzo transaction decode error: %w", err)
+		return nil, fmt.Errorf("decode Alonzo transaction error: %w", err)
 	}
 	return &alonzoTx, nil
 }
@@ -565,7 +565,7 @@ func NewAlonzoTransactionOutputFromCbor(
 	var alonzoTxOutput AlonzoTransactionOutput
 	if _, err := cbor.Decode(data, &alonzoTxOutput); err != nil {
 		return nil, fmt.Errorf(
-			"Alonzo transaction output decode error: %w",
+			"decode Alonzo transaction output error: %w",
 			err,
 		)
 	}

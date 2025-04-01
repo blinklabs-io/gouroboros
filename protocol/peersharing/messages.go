@@ -125,7 +125,8 @@ func (p *PeerAddress) UnmarshalCBOR(cborData []byte) error {
 		if err != nil {
 			return err
 		}
-		if cborListLen == 8 {
+		switch cborListLen {
+		case 8:
 			// V11-12
 			tmpPeer := struct {
 				cbor.StructAsArray
@@ -147,7 +148,7 @@ func (p *PeerAddress) UnmarshalCBOR(cborData []byte) error {
 			binary.LittleEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
 			binary.LittleEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
 			p.Port = tmpPeer.Port
-		} else if cborListLen == 6 {
+		case 6:
 			// V13+
 			tmpPeer := struct {
 				cbor.StructAsArray
@@ -167,11 +168,11 @@ func (p *PeerAddress) UnmarshalCBOR(cborData []byte) error {
 			binary.LittleEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
 			binary.LittleEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
 			p.Port = tmpPeer.Port
-		} else {
+		default:
 			return fmt.Errorf("invalid peer address length: %d", cborListLen)
 		}
 	default:
-		return fmt.Errorf("unknown peer type: %d\n", peerType)
+		return fmt.Errorf("unknown peer type: %d", peerType)
 	}
 	return nil
 }

@@ -121,7 +121,7 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Create new big.Rat with num/denom set to big.Int values above
 	r.Rat = new(big.Rat)
-	r.Rat.SetFrac(tmpNum, tmpDenom)
+	r.SetFrac(tmpNum, tmpDenom)
 	return nil
 }
 

@@ -113,7 +113,7 @@ func (s *Server) RequestTxIds(
 	// Wait for result
 	select {
 	case <-s.DoneChan():
-		return nil, protocol.ProtocolShuttingDownError
+		return nil, protocol.ErrProtocolShuttingDown
 	case txIds := <-s.requestTxIdsResultChan:
 		// Update ack count for next call
 		s.ackCount = len(txIds)
@@ -146,7 +146,7 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 	// Wait for result
 	select {
 	case <-s.DoneChan():
-		return nil, protocol.ProtocolShuttingDownError
+		return nil, protocol.ErrProtocolShuttingDown
 	case txs := <-s.requestTxsResultChan:
 		return txs, nil
 	}
@@ -208,7 +208,7 @@ func (s *Server) handleDone() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	s.Protocol.Stop()
+	s.Stop()
 	s.initProtocol()
 	s.requestTxIdsResultChan = make(chan []TxIdAndSize)
 	s.requestTxsResultChan = make(chan []TxBody)

@@ -129,7 +129,7 @@ func (c *Client) Start() {
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
-			<-c.Protocol.DoneChan()
+			<-c.DoneChan()
 			close(c.readyForNextBlockChan)
 		}()
 	})
@@ -184,7 +184,7 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			return
 		}
 		select {
-		case <-c.Protocol.DoneChan():
+		case <-c.DoneChan():
 		case tip := <-currentTipChan:
 			requestResultChan <- tip
 		}
@@ -195,9 +195,9 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 
 	for {
 		select {
-		case <-c.Protocol.DoneChan():
+		case <-c.DoneChan():
 			done.Store(true)
-			return nil, protocol.ProtocolShuttingDownError
+			return nil, protocol.ErrProtocolShuttingDown
 		case waitingForCurrentTipChan <- waitingResultChan:
 			// The request is being handled by another request, wait for the result.
 			waitingForCurrentTipChan = nil
@@ -321,7 +321,7 @@ func (c *Client) GetAvailableBlockRange(
 	for {
 		select {
 		case <-c.DoneChan():
-			return start, end, protocol.ProtocolShuttingDownError
+			return start, end, protocol.ErrProtocolShuttingDown
 		case tip := <-currentTipChan:
 			currentTipChan = nil
 			end = tip.Point
@@ -414,8 +414,8 @@ func (c *Client) Sync(intersectPoints []common.Point) error {
 		return err
 	}
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	case result := <-intersectResultChan:
 		if result.error != nil {
 			return result.error
@@ -491,7 +491,7 @@ func (c *Client) wantCurrentTip() (<-chan Tip, func()) {
 	ch := make(chan Tip, 1)
 
 	select {
-	case <-c.Protocol.DoneChan():
+	case <-c.DoneChan():
 		return nil, func() {}
 	case c.wantCurrentTipChan <- ch:
 		return ch, func() {
@@ -509,7 +509,7 @@ func (c *Client) wantFirstBlock() (<-chan clientPointResult, func()) {
 	ch := make(chan clientPointResult, 1)
 
 	select {
-	case <-c.Protocol.DoneChan():
+	case <-c.DoneChan():
 		return nil, func() {}
 	case c.wantFirstBlockChan <- ch:
 		return ch, func() {
@@ -527,7 +527,7 @@ func (c *Client) wantIntersectFound() (<-chan clientPointResult, func()) {
 	ch := make(chan clientPointResult, 1)
 
 	select {
-	case <-c.Protocol.DoneChan():
+	case <-c.DoneChan():
 		return nil, func() {}
 	case c.wantIntersectFoundChan <- ch:
 		return ch, func() {
@@ -550,8 +550,8 @@ func (c *Client) requestFindIntersect(
 	}
 
 	select {
-	case <-c.Protocol.DoneChan():
-		return clientPointResult{error: protocol.ProtocolShuttingDownError}
+	case <-c.DoneChan():
+		return clientPointResult{error: protocol.ErrProtocolShuttingDown}
 	case result := <-resultChan:
 		return result
 	}
@@ -716,7 +716,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		}
 	}
 	if callbackErr != nil {
-		if errors.Is(callbackErr, StopSyncProcessError) {
+		if errors.Is(callbackErr, ErrStopSyncProcess) {
 			// Signal that we're cancelling the sync
 			c.readyForNextBlockChan <- false
 			return nil
@@ -747,7 +747,7 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 		}
 		// Call the user callback function
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
-			if errors.Is(callbackErr, StopSyncProcessError) {
+			if errors.Is(callbackErr, ErrStopSyncProcess) {
 				// Signal that we're cancelling the sync
 				c.readyForNextBlockChan <- false
 				return nil
@@ -793,7 +793,7 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
 
 	select {
 	case ch := <-c.wantIntersectFoundChan:
-		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: IntersectNotFoundError}
+		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
 	default:
 	}
 	return nil

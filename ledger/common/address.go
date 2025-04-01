@@ -301,14 +301,12 @@ func (a Address) ByronType() uint64 {
 // PaymentAddress returns a new Address with only the payment address portion. This will return nil for anything other than payment and script addresses
 func (a Address) PaymentAddress() *Address {
 	var addrType uint8
-	if a.addressType == AddressTypeKeyKey ||
-		a.addressType == AddressTypeKeyNone {
+	switch a.addressType {
+	case AddressTypeKeyKey, AddressTypeKeyNone:
 		addrType = AddressTypeKeyNone
-	} else if a.addressType == AddressTypeScriptKey ||
-		a.addressType == AddressTypeScriptNone ||
-		a.addressType == AddressTypeScriptScript {
+	case AddressTypeScriptKey, AddressTypeScriptNone, AddressTypeScriptScript:
 		addrType = AddressTypeScriptNone
-	} else {
+	default:
 		// Unsupported address type
 		return nil
 	}
@@ -332,13 +330,12 @@ func (a *Address) PaymentKeyHash() Blake2b224 {
 // StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
 func (a Address) StakeAddress() *Address {
 	var addrType uint8
-	if a.addressType == AddressTypeKeyKey ||
-		a.addressType == AddressTypeScriptKey {
+	switch a.addressType {
+	case AddressTypeKeyKey, AddressTypeScriptKey:
 		addrType = AddressTypeNoneKey
-	} else if a.addressType == AddressTypeScriptScript ||
-		a.addressType == AddressTypeNoneScript {
+	case AddressTypeScriptScript, AddressTypeNoneScript:
 		addrType = AddressTypeNoneScript
-	} else {
+	default:
 		// Unsupported address type
 		return nil
 	}

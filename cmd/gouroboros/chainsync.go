@@ -267,7 +267,7 @@ func chainSyncRollForwardHandler(
 		blockHash := v.Hash().Bytes()
 		var err error
 		if oConn == nil {
-			return errors.New("empty ouroboros connection, aborting!")
+			return errors.New("empty ouroboros connection, aborting")
 		}
 		block, err = oConn.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
 		if err != nil {

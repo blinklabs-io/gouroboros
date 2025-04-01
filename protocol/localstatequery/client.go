@@ -106,7 +106,7 @@ func (c *Client) Start() {
 		c.Protocol.Start()
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
-			<-c.Protocol.DoneChan()
+			<-c.DoneChan()
 			close(c.queryResultChan)
 			close(c.acquireResultChan)
 		}()
@@ -877,8 +877,8 @@ func (c *Client) handleAcquired() error {
 		)
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	c.acquired = true
@@ -897,8 +897,8 @@ func (c *Client) handleFailure(msg protocol.Message) error {
 		)
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	msgFailure := msg.(*MsgFailure)
@@ -923,8 +923,8 @@ func (c *Client) handleResult(msg protocol.Message) error {
 		)
 	// Check for shutdown
 	select {
-	case <-c.Protocol.DoneChan():
-		return protocol.ProtocolShuttingDownError
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
 	default:
 	}
 	msgResult := msg.(*MsgResult)
@@ -962,7 +962,7 @@ func (c *Client) acquire(acquireTarget AcquireTarget) error {
 	}
 	err, ok := <-c.acquireResultChan
 	if !ok {
-		return protocol.ProtocolShuttingDownError
+		return protocol.ErrProtocolShuttingDown
 	}
 	return err
 }
@@ -989,7 +989,7 @@ func (c *Client) runQuery(query interface{}, result interface{}) error {
 	}
 	resultCbor, ok := <-c.queryResultChan
 	if !ok {
-		return protocol.ProtocolShuttingDownError
+		return protocol.ErrProtocolShuttingDown
 	}
 	if _, err := cbor.Decode(resultCbor, result); err != nil {
 		return err

@@ -167,8 +167,8 @@ func (s *Server) handleClientDone() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	s.Protocol.Stop()
+	s.Stop()
 	s.initProtocol()
-	s.Protocol.Start()
+	s.Start()
 	return nil
 }

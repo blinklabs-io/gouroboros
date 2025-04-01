@@ -16,4 +16,4 @@ package protocol
 
 import "errors"
 
-var ProtocolShuttingDownError = errors.New("protocol is shutting down")
+var ErrProtocolShuttingDown = errors.New("protocol is shutting down")

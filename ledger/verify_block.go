@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+//nolint:staticcheck
 func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	headerCborHex := block.HeaderCbor
 	epochNonceHex := block.Eta0
