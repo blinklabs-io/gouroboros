@@ -250,32 +250,141 @@ func TestCertificateTypeMethods(t *testing.T) {
 		cert     Certificate
 		expected uint
 	}{
-		{"StakeRegistration", &StakeRegistrationCertificate{CertType: CertificateTypeStakeRegistration}, CertificateTypeStakeRegistration},
-		{"StakeDeregistration", &StakeDeregistrationCertificate{CertType: CertificateTypeStakeDeregistration}, CertificateTypeStakeDeregistration},
-		{"StakeDelegation", &StakeDelegationCertificate{CertType: CertificateTypeStakeDelegation}, CertificateTypeStakeDelegation},
-		{"PoolRegistration", &PoolRegistrationCertificate{CertType: CertificateTypePoolRegistration}, CertificateTypePoolRegistration},
-		{"PoolRetirement", &PoolRetirementCertificate{CertType: CertificateTypePoolRetirement}, CertificateTypePoolRetirement},
-		{"GenesisKeyDelegation", &GenesisKeyDelegationCertificate{CertType: CertificateTypeGenesisKeyDelegation}, CertificateTypeGenesisKeyDelegation},
-		{"MoveInstantaneousRewards", &MoveInstantaneousRewardsCertificate{CertType: CertificateTypeMoveInstantaneousRewards}, CertificateTypeMoveInstantaneousRewards},
-		{"Registration", &RegistrationCertificate{CertType: CertificateTypeRegistration}, CertificateTypeRegistration},
-		{"Deregistration", &DeregistrationCertificate{CertType: CertificateTypeDeregistration}, CertificateTypeDeregistration},
-		{"VoteDelegation", &VoteDelegationCertificate{CertType: CertificateTypeVoteDelegation}, CertificateTypeVoteDelegation},
-		{"StakeVoteDelegation", &StakeVoteDelegationCertificate{CertType: CertificateTypeStakeVoteDelegation}, CertificateTypeStakeVoteDelegation},
-		{"StakeRegistrationDelegation", &StakeRegistrationDelegationCertificate{CertType: CertificateTypeStakeRegistrationDelegation}, CertificateTypeStakeRegistrationDelegation},
-		{"VoteRegistrationDelegation", &VoteRegistrationDelegationCertificate{CertType: CertificateTypeVoteRegistrationDelegation}, CertificateTypeVoteRegistrationDelegation},
-		{"StakeVoteRegistrationDelegation", &StakeVoteRegistrationDelegationCertificate{CertType: CertificateTypeStakeVoteRegistrationDelegation}, CertificateTypeStakeVoteRegistrationDelegation},
-		{"AuthCommitteeHot", &AuthCommitteeHotCertificate{CertType: CertificateTypeAuthCommitteeHot}, CertificateTypeAuthCommitteeHot},
-		{"ResignCommitteeCold", &ResignCommitteeColdCertificate{CertType: CertificateTypeResignCommitteeCold}, CertificateTypeResignCommitteeCold},
-		{"RegistrationDrep", &RegistrationDrepCertificate{CertType: CertificateTypeRegistrationDrep}, CertificateTypeRegistrationDrep},
-		{"DeregistrationDrep", &DeregistrationDrepCertificate{CertType: CertificateTypeDeregistrationDrep}, CertificateTypeDeregistrationDrep},
-		{"UpdateDrep", &UpdateDrepCertificate{CertType: CertificateTypeUpdateDrep}, CertificateTypeUpdateDrep},
+		{
+			"StakeRegistration",
+			&StakeRegistrationCertificate{
+				CertType: CertificateTypeStakeRegistration,
+			},
+			CertificateTypeStakeRegistration,
+		},
+		{
+			"StakeDeregistration",
+			&StakeDeregistrationCertificate{
+				CertType: CertificateTypeStakeDeregistration,
+			},
+			CertificateTypeStakeDeregistration,
+		},
+		{
+			"StakeDelegation",
+			&StakeDelegationCertificate{
+				CertType: CertificateTypeStakeDelegation,
+			},
+			CertificateTypeStakeDelegation,
+		},
+		{
+			"PoolRegistration",
+			&PoolRegistrationCertificate{
+				CertType: CertificateTypePoolRegistration,
+			},
+			CertificateTypePoolRegistration,
+		},
+		{
+			"PoolRetirement",
+			&PoolRetirementCertificate{CertType: CertificateTypePoolRetirement},
+			CertificateTypePoolRetirement,
+		},
+		{
+			"GenesisKeyDelegation",
+			&GenesisKeyDelegationCertificate{
+				CertType: CertificateTypeGenesisKeyDelegation,
+			},
+			CertificateTypeGenesisKeyDelegation,
+		},
+		{
+			"MoveInstantaneousRewards",
+			&MoveInstantaneousRewardsCertificate{
+				CertType: CertificateTypeMoveInstantaneousRewards,
+			},
+			CertificateTypeMoveInstantaneousRewards,
+		},
+		{
+			"Registration",
+			&RegistrationCertificate{CertType: CertificateTypeRegistration},
+			CertificateTypeRegistration,
+		},
+		{
+			"Deregistration",
+			&DeregistrationCertificate{CertType: CertificateTypeDeregistration},
+			CertificateTypeDeregistration,
+		},
+		{
+			"VoteDelegation",
+			&VoteDelegationCertificate{CertType: CertificateTypeVoteDelegation},
+			CertificateTypeVoteDelegation,
+		},
+		{
+			"StakeVoteDelegation",
+			&StakeVoteDelegationCertificate{
+				CertType: CertificateTypeStakeVoteDelegation,
+			},
+			CertificateTypeStakeVoteDelegation,
+		},
+		{
+			"StakeRegistrationDelegation",
+			&StakeRegistrationDelegationCertificate{
+				CertType: CertificateTypeStakeRegistrationDelegation,
+			},
+			CertificateTypeStakeRegistrationDelegation,
+		},
+		{
+			"VoteRegistrationDelegation",
+			&VoteRegistrationDelegationCertificate{
+				CertType: CertificateTypeVoteRegistrationDelegation,
+			},
+			CertificateTypeVoteRegistrationDelegation,
+		},
+		{
+			"StakeVoteRegistrationDelegation",
+			&StakeVoteRegistrationDelegationCertificate{
+				CertType: CertificateTypeStakeVoteRegistrationDelegation,
+			},
+			CertificateTypeStakeVoteRegistrationDelegation,
+		},
+		{
+			"AuthCommitteeHot",
+			&AuthCommitteeHotCertificate{
+				CertType: CertificateTypeAuthCommitteeHot,
+			},
+			CertificateTypeAuthCommitteeHot,
+		},
+		{
+			"ResignCommitteeCold",
+			&ResignCommitteeColdCertificate{
+				CertType: CertificateTypeResignCommitteeCold,
+			},
+			CertificateTypeResignCommitteeCold,
+		},
+		{
+			"RegistrationDrep",
+			&RegistrationDrepCertificate{
+				CertType: CertificateTypeRegistrationDrep,
+			},
+			CertificateTypeRegistrationDrep,
+		},
+		{
+			"DeregistrationDrep",
+			&DeregistrationDrepCertificate{
+				CertType: CertificateTypeDeregistrationDrep,
+			},
+			CertificateTypeDeregistrationDrep,
+		},
+		{
+			"UpdateDrep",
+			&UpdateDrepCertificate{CertType: CertificateTypeUpdateDrep},
+			CertificateTypeUpdateDrep,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.cert.Type()
 			if got != tt.expected {
-				t.Errorf("FAIL: %s -> Type() = %d, expected = %d", tt.name, got, tt.expected)
+				t.Errorf(
+					"FAIL: %s -> Type() = %d, expected = %d",
+					tt.name,
+					got,
+					tt.expected,
+				)
 			} else {
 				t.Logf("PASS: %s -> Type() = %d, expected = %d \n", tt.name, got, tt.expected)
 			}
