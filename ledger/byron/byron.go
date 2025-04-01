@@ -51,7 +51,7 @@ func init() {
 type ByronMainBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash          string
+	hash          *common.Blake2b256
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
 	BodyProof     interface{}
@@ -84,8 +84,8 @@ func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	return h.UnmarshalCbor(cborData, h)
 }
 
-func (h *ByronMainBlockHeader) Hash() string {
-	if h.hash == "" {
+func (h *ByronMainBlockHeader) Hash() common.Blake2b256 {
+	if h.hash == nil {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
@@ -95,13 +95,13 @@ func (h *ByronMainBlockHeader) Hash() string {
 				h.Cbor()...,
 			),
 		)
-		h.hash = hex.EncodeToString(tmpHash.Bytes())
+		h.hash = &tmpHash
 	}
-	return h.hash
+	return *h.hash
 }
 
-func (h *ByronMainBlockHeader) PrevHash() string {
-	return h.PrevBlock.String()
+func (h *ByronMainBlockHeader) PrevHash() common.Blake2b256 {
+	return h.PrevBlock
 }
 
 func (h *ByronMainBlockHeader) BlockNumber() uint64 {
@@ -131,7 +131,7 @@ func (h *ByronMainBlockHeader) Era() common.Era {
 type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash       string
+	hash       *common.Blake2b256
 	TxInputs   []ByronTransactionInput
 	TxOutputs  []ByronTransactionOutput
 	Attributes *cbor.LazyValue
@@ -146,12 +146,12 @@ func (ByronTransaction) Type() int {
 	return TxTypeByron
 }
 
-func (t *ByronTransaction) Hash() string {
-	if t.hash == "" {
+func (t *ByronTransaction) Hash() common.Blake2b256 {
+	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = hex.EncodeToString(tmpHash.Bytes())
+		t.hash = &tmpHash
 	}
-	return t.hash
+	return *t.hash
 }
 
 func (t *ByronTransaction) Inputs() []common.TransactionInput {
@@ -275,7 +275,7 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewByronTransactionInput(t.Hash(), idx),
+				Id:     NewByronTransactionInput(t.Hash().String(), idx),
 				Output: output,
 			},
 		)
@@ -496,7 +496,7 @@ func (b *ByronMainBlockBody) UnmarshalCBOR(data []byte) error {
 type ByronEpochBoundaryBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash          string
+	hash          *common.Blake2b256
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
 	BodyProof     interface{}
@@ -516,8 +516,8 @@ func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	return h.UnmarshalCbor(cborData, h)
 }
 
-func (h *ByronEpochBoundaryBlockHeader) Hash() string {
-	if h.hash == "" {
+func (h *ByronEpochBoundaryBlockHeader) Hash() common.Blake2b256 {
+	if h.hash == nil {
 		// Prepend bytes for CBOR list wrapper
 		// The block hash is calculated with these extra bytes, so we have to add them to
 		// get the correct value
@@ -527,13 +527,13 @@ func (h *ByronEpochBoundaryBlockHeader) Hash() string {
 				h.Cbor()...,
 			),
 		)
-		h.hash = hex.EncodeToString(tmpHash.Bytes())
+		h.hash = &tmpHash
 	}
-	return h.hash
+	return *h.hash
 }
 
-func (h *ByronEpochBoundaryBlockHeader) PrevHash() string {
-	return h.PrevBlock.String()
+func (h *ByronEpochBoundaryBlockHeader) PrevHash() common.Blake2b256 {
+	return h.PrevBlock
 }
 
 func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
@@ -575,7 +575,7 @@ func (ByronMainBlock) Type() int {
 	return BlockTypeByronMain
 }
 
-func (b *ByronMainBlock) Hash() string {
+func (b *ByronMainBlock) Hash() common.Blake2b256 {
 	return b.BlockHeader.Hash()
 }
 
@@ -583,7 +583,7 @@ func (b *ByronMainBlock) Header() common.BlockHeader {
 	return b.BlockHeader
 }
 
-func (b *ByronMainBlock) PrevHash() string {
+func (b *ByronMainBlock) PrevHash() common.Blake2b256 {
 	return b.BlockHeader.PrevHash()
 }
 
@@ -636,7 +636,7 @@ func (ByronEpochBoundaryBlock) Type() int {
 	return BlockTypeByronEbb
 }
 
-func (b *ByronEpochBoundaryBlock) Hash() string {
+func (b *ByronEpochBoundaryBlock) Hash() common.Blake2b256 {
 	return b.BlockHeader.Hash()
 }
 
@@ -644,7 +644,7 @@ func (b *ByronEpochBoundaryBlock) Header() common.BlockHeader {
 	return b.BlockHeader
 }
 
-func (b *ByronEpochBoundaryBlock) PrevHash() string {
+func (b *ByronEpochBoundaryBlock) PrevHash() common.Blake2b256 {
 	return b.BlockHeader.PrevHash()
 }
 

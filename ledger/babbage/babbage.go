@@ -15,7 +15,6 @@
 package babbage
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,7 +65,7 @@ func (BabbageBlock) Type() int {
 	return BlockTypeBabbage
 }
 
-func (b *BabbageBlock) Hash() string {
+func (b *BabbageBlock) Hash() common.Blake2b256 {
 	return b.BlockHeader.Hash()
 }
 
@@ -74,7 +73,7 @@ func (b *BabbageBlock) Header() common.BlockHeader {
 	return b.BlockHeader
 }
 
-func (b *BabbageBlock) PrevHash() string {
+func (b *BabbageBlock) PrevHash() common.Blake2b256 {
 	return b.BlockHeader.PrevHash()
 }
 
@@ -119,7 +118,6 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 
 func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
 	txs := []*utxorpc.Tx{}
-	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
 		txs = append(txs, tx)
@@ -128,7 +126,7 @@ func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
 		Tx: txs,
 	}
 	header := &utxorpc.BlockHeader{
-		Hash:   tmpHash,
+		Hash:   b.Hash().Bytes(),
 		Height: b.BlockNumber(),
 		Slot:   b.SlotNumber(),
 	}
@@ -142,7 +140,7 @@ func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
 type BabbageBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash      string
+	hash      *common.Blake2b256
 	Body      BabbageBlockHeaderBody
 	Signature []byte
 }
@@ -179,16 +177,16 @@ func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	return h.UnmarshalCbor(cborData, h)
 }
 
-func (h *BabbageBlockHeader) Hash() string {
-	if h.hash == "" {
+func (h *BabbageBlockHeader) Hash() common.Blake2b256 {
+	if h.hash == nil {
 		tmpHash := common.Blake2b256Hash(h.Cbor())
-		h.hash = hex.EncodeToString(tmpHash.Bytes())
+		h.hash = &tmpHash
 	}
-	return h.hash
+	return *h.hash
 }
 
-func (h *BabbageBlockHeader) PrevHash() string {
-	return h.Body.PrevHash.String()
+func (h *BabbageBlockHeader) PrevHash() common.Blake2b256 {
+	return h.Body.PrevHash
 }
 
 func (h *BabbageBlockHeader) BlockNumber() uint64 {
@@ -282,10 +280,6 @@ func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
 		input := ri.Utxorpc()
 		txri = append(txri, input)
 	}
-	tmpHash, err := hex.DecodeString(b.Hash())
-	if err != nil {
-		return &utxorpc.Tx{}
-	}
 	tx := &utxorpc.Tx{
 		Inputs:  txi,
 		Outputs: txo,
@@ -299,7 +293,7 @@ func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
 		// Successful:   b.Successful(),
 		// Auxiliary:    b.AuxData(),
 		// Validity:     b.Validity(),
-		Hash: tmpHash,
+		Hash: b.Hash().Bytes(),
 	}
 	return tx
 }
@@ -523,7 +517,7 @@ func (BabbageTransaction) Type() int {
 	return TxTypeBabbage
 }
 
-func (t BabbageTransaction) Hash() string {
+func (t BabbageTransaction) Hash() common.Blake2b256 {
 	return t.Body.Hash()
 }
 
@@ -630,7 +624,7 @@ func (t BabbageTransaction) Produced() []common.Utxo {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
+					Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), idx),
 					Output: output,
 				},
 			)
@@ -642,7 +636,7 @@ func (t BabbageTransaction) Produced() []common.Utxo {
 		}
 		return []common.Utxo{
 			{
-				Id:     shelley.NewShelleyTransactionInput(t.Hash(), len(t.Outputs())),
+				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), len(t.Outputs())),
 				Output: t.CollateralReturn(),
 			},
 		}

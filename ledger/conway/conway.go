@@ -15,7 +15,6 @@
 package conway
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -64,7 +63,7 @@ func (ConwayBlock) Type() int {
 	return BlockTypeConway
 }
 
-func (b *ConwayBlock) Hash() string {
+func (b *ConwayBlock) Hash() common.Blake2b256 {
 	return b.BlockHeader.Hash()
 }
 
@@ -72,7 +71,7 @@ func (b *ConwayBlock) Header() common.BlockHeader {
 	return b.BlockHeader
 }
 
-func (b *ConwayBlock) PrevHash() string {
+func (b *ConwayBlock) PrevHash() common.Blake2b256 {
 	return b.BlockHeader.PrevHash()
 }
 
@@ -117,7 +116,6 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 
 func (b *ConwayBlock) Utxorpc() *utxorpc.Block {
 	txs := []*utxorpc.Tx{}
-	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
 		txs = append(txs, tx)
@@ -126,7 +124,7 @@ func (b *ConwayBlock) Utxorpc() *utxorpc.Block {
 		Tx: txs,
 	}
 	header := &utxorpc.BlockHeader{
-		Hash:   tmpHash,
+		Hash:   b.Hash().Bytes(),
 		Height: b.BlockNumber(),
 		Slot:   b.SlotNumber(),
 	}
@@ -325,7 +323,7 @@ func (ConwayTransaction) Type() int {
 	return TxTypeConway
 }
 
-func (t ConwayTransaction) Hash() string {
+func (t ConwayTransaction) Hash() common.Blake2b256 {
 	return t.Body.Hash()
 }
 
@@ -432,7 +430,7 @@ func (t ConwayTransaction) Produced() []common.Utxo {
 			ret = append(
 				ret,
 				common.Utxo{
-					Id:     shelley.NewShelleyTransactionInput(t.Hash(), idx),
+					Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), idx),
 					Output: output,
 				},
 			)
@@ -444,7 +442,7 @@ func (t ConwayTransaction) Produced() []common.Utxo {
 		}
 		return []common.Utxo{
 			{
-				Id:     shelley.NewShelleyTransactionInput(t.Hash(), len(t.Outputs())),
+				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), len(t.Outputs())),
 				Output: t.CollateralReturn(),
 			},
 		}

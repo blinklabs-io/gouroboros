@@ -118,7 +118,7 @@ func TestGetBlock(t *testing.T) {
 	if _, err := cbor.Decode(blockCbor, &testBlock); err != nil {
 		t.Fatalf("received unexpected error: %s", err)
 	}
-	testBlockHash := test.DecodeHexString(testBlock.Hash())
+	testBlockHash := testBlock.Hash().Bytes()
 	wrappedBlock := blockfetch.WrappedBlock{
 		Type:     ledger.BlockTypeBabbage,
 		RawBlock: cbor.RawMessage(blockCbor),

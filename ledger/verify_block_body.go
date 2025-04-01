@@ -423,7 +423,7 @@ func GetBlockOutput(
 	var regisCerts []RegisCert
 	var deRegisCerts []DeRegisCert
 	for txIndex, tx := range txBodies {
-		txHash := tx.Hash()
+		txHash := tx.Hash().String()
 		txOutputs := tx.Outputs()
 		for outputIndex, txOutput := range txOutputs {
 			cborDatum := []byte{}

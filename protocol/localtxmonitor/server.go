@@ -167,7 +167,7 @@ func (s *Server) handleHasTx(msg protocol.Message) error {
 	txId := hex.EncodeToString(msgHasTx.TxId)
 	hasTx := false
 	for _, tx := range s.mempoolTxs {
-		if tx.txObj.Hash() == txId {
+		if tx.txObj.Hash().String() == txId {
 			hasTx = true
 			break
 		}

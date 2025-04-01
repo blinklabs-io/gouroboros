@@ -62,7 +62,7 @@ func (ShelleyBlock) Type() int {
 	return BlockTypeShelley
 }
 
-func (b *ShelleyBlock) Hash() string {
+func (b *ShelleyBlock) Hash() common.Blake2b256 {
 	return b.BlockHeader.Hash()
 }
 
@@ -70,7 +70,7 @@ func (b *ShelleyBlock) Header() common.BlockHeader {
 	return b.BlockHeader
 }
 
-func (b *ShelleyBlock) PrevHash() string {
+func (b *ShelleyBlock) PrevHash() common.Blake2b256 {
 	return b.BlockHeader.PrevHash()
 }
 
@@ -109,7 +109,6 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 
 func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
 	txs := []*utxorpc.Tx{}
-	tmpHash, _ := hex.DecodeString(b.Hash())
 	for _, t := range b.Transactions() {
 		tx := t.Utxorpc()
 		txs = append(txs, tx)
@@ -118,7 +117,7 @@ func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
 		Tx: txs,
 	}
 	header := &utxorpc.BlockHeader{
-		Hash:   tmpHash,
+		Hash:   b.Hash().Bytes(),
 		Height: b.BlockNumber(),
 		Slot:   b.SlotNumber(),
 	}
@@ -132,7 +131,7 @@ func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
 type ShelleyBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	hash      string
+	hash      *common.Blake2b256
 	Body      ShelleyBlockHeaderBody
 	Signature []byte
 }
@@ -159,16 +158,16 @@ func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	return h.UnmarshalCbor(cborData, h)
 }
 
-func (h *ShelleyBlockHeader) Hash() string {
-	if h.hash == "" {
+func (h *ShelleyBlockHeader) Hash() common.Blake2b256 {
+	if h.hash == nil {
 		tmpHash := common.Blake2b256Hash(h.Cbor())
-		h.hash = hex.EncodeToString(tmpHash.Bytes())
+		h.hash = &tmpHash
 	}
-	return h.hash
+	return *h.hash
 }
 
-func (h *ShelleyBlockHeader) PrevHash() string {
-	return h.Body.PrevHash.String()
+func (h *ShelleyBlockHeader) PrevHash() common.Blake2b256 {
+	return h.Body.PrevHash
 }
 
 func (h *ShelleyBlockHeader) BlockNumber() uint64 {
@@ -193,7 +192,7 @@ func (h *ShelleyBlockHeader) Era() common.Era {
 
 type ShelleyTransactionBody struct {
 	cbor.DecodeStoreCbor
-	hash           string
+	hash           *common.Blake2b256
 	TxInputs       ShelleyTransactionInputSet  `cbor:"0,keyasint,omitempty"`
 	TxOutputs      []ShelleyTransactionOutput  `cbor:"1,keyasint,omitempty"`
 	TxFee          uint64                      `cbor:"2,keyasint,omitempty"`
@@ -212,12 +211,12 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
 }
 
-func (b *ShelleyTransactionBody) Hash() string {
-	if b.hash == "" {
+func (b *ShelleyTransactionBody) Hash() common.Blake2b256 {
+	if b.hash == nil {
 		tmpHash := common.Blake2b256Hash(b.Cbor())
-		b.hash = hex.EncodeToString(tmpHash.Bytes())
+		b.hash = &tmpHash
 	}
-	return b.hash
+	return *b.hash
 }
 
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
@@ -338,10 +337,6 @@ func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 		output := o.Utxorpc()
 		txo = append(txo, output)
 	}
-	tmpHash, err := hex.DecodeString(b.Hash())
-	if err != nil {
-		return &utxorpc.Tx{}
-	}
 	tx := &utxorpc.Tx{
 		Inputs:  txi,
 		Outputs: txo,
@@ -352,7 +347,7 @@ func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
 		// Validity:     b.Validity(),
 		// Successful:   b.Successful(),
 		// Auxiliary:    b.AuxData(),
-		Hash: tmpHash,
+		Hash: b.Hash().Bytes(),
 	}
 	return tx
 }
@@ -539,7 +534,7 @@ func (ShelleyTransaction) Type() int {
 	return TxTypeShelley
 }
 
-func (t ShelleyTransaction) Hash() string {
+func (t ShelleyTransaction) Hash() common.Blake2b256 {
 	return t.Body.Hash()
 }
 
@@ -637,7 +632,7 @@ func (t ShelleyTransaction) Produced() []common.Utxo {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewShelleyTransactionInput(t.Hash(), idx),
+				Id:     NewShelleyTransactionInput(t.Hash().String(), idx),
 				Output: output,
 			},
 		)

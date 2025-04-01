@@ -15,7 +15,6 @@
 package babbage
 
 import (
-	"encoding/hex"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -2747,8 +2746,7 @@ func TestBabbageBlock_Utxorpc(t *testing.T) {
 	assert.Equal(t, len(babbageBlock.TransactionBodies), len(utxoBlock.Body.Tx))
 
 	// Validate the header details
-	tmpHash, _ := hex.DecodeString(babbageBlock.Hash())
-	assert.Equal(t, tmpHash, utxoBlock.Header.Hash)
+	assert.Equal(t, babbageBlock.Hash().Bytes(), utxoBlock.Header.Hash)
 	assert.Equal(t, babbageBlock.BlockNumber(), utxoBlock.Header.Height)
 	assert.Equal(t, babbageBlock.SlotNumber(), utxoBlock.Header.Slot)
 

@@ -264,7 +264,7 @@ func chainSyncRollForwardHandler(
 		block = v
 	case ledger.BlockHeader:
 		blockSlot := v.SlotNumber()
-		blockHash, _ := hex.DecodeString(v.Hash())
+		blockHash := v.Hash().Bytes()
 		var err error
 		if oConn == nil {
 			return errors.New("empty ouroboros connection, aborting!")
