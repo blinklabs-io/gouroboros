@@ -144,21 +144,37 @@ func (h *AlonzoBlockHeader) Era() common.Era {
 }
 
 type AlonzoTransactionBody struct {
-	mary.MaryTransactionBody
-	TxOutputs []AlonzoTransactionOutput `cbor:"1,keyasint,omitempty"`
-	Update    struct {
+	common.TransactionBodyBase
+	TxInputs       shelley.ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
+	TxOutputs      []AlonzoTransactionOutput          `cbor:"1,keyasint,omitempty"`
+	TxFee          uint64                             `cbor:"2,keyasint,omitempty"`
+	Ttl            uint64                             `cbor:"3,keyasint,omitempty"`
+	TxCertificates []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals  map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
+	Update         struct {
 		cbor.StructAsArray
 		ProtocolParamUpdates map[common.Blake2b224]AlonzoProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	TxScriptDataHash  *common.Blake2b256                `cbor:"11,keyasint,omitempty"`
-	TxCollateral      []shelley.ShelleyTransactionInput `cbor:"13,keyasint,omitempty"`
-	TxRequiredSigners []common.Blake2b224               `cbor:"14,keyasint,omitempty"`
-	NetworkId         uint8                             `cbor:"15,keyasint,omitempty"`
+	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
+	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
+	TxCollateral            []shelley.ShelleyTransactionInput             `cbor:"13,keyasint,omitempty"`
+	TxRequiredSigners       []common.Blake2b224                           `cbor:"14,keyasint,omitempty"`
+	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
 }
 
 func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
+}
+
+func (b *AlonzoTransactionBody) Inputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
+	for _, input := range b.TxInputs.Items() {
+		ret = append(ret, input)
+	}
+	return ret
 }
 
 func (b *AlonzoTransactionBody) Outputs() []common.TransactionOutput {
@@ -169,12 +185,44 @@ func (b *AlonzoTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
+func (b *AlonzoTransactionBody) Fee() uint64 {
+	return b.TxFee
+}
+
+func (b *AlonzoTransactionBody) TTL() uint64 {
+	return b.Ttl
+}
+
+func (b *AlonzoTransactionBody) ValidityIntervalStart() uint64 {
+	return b.TxValidityIntervalStart
+}
+
 func (b *AlonzoTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return b.Update.Epoch, updateMap
+}
+
+func (b *AlonzoTransactionBody) Certificates() []common.Certificate {
+	ret := make([]common.Certificate, len(b.TxCertificates))
+	for i, cert := range b.TxCertificates {
+		ret[i] = cert.Certificate
+	}
+	return ret
+}
+
+func (b *AlonzoTransactionBody) Withdrawals() map[*common.Address]uint64 {
+	return b.TxWithdrawals
+}
+
+func (b *AlonzoTransactionBody) AuxDataHash() *common.Blake2b256 {
+	return b.TxAuxDataHash
+}
+
+func (b *AlonzoTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return b.TxMint
 }
 
 func (b *AlonzoTransactionBody) Collateral() []common.TransactionInput {
@@ -191,6 +239,10 @@ func (b *AlonzoTransactionBody) RequiredSigners() []common.Blake2b224 {
 
 func (b *AlonzoTransactionBody) ScriptDataHash() *common.Blake2b256 {
 	return b.TxScriptDataHash
+}
+
+func (b *AlonzoTransactionBody) Utxorpc() *utxorpc.Tx {
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type AlonzoTransactionOutput struct {

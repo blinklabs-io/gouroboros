@@ -131,14 +131,12 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
-			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-				TxInputs: shelley.NewShelleyTransactionInputSet(
-					// Non-empty input set
-					[]shelley.ShelleyTransactionInput{
-						{},
-					},
-				),
-			},
+			TxInputs: shelley.NewShelleyTransactionInputSet(
+				// Non-empty input set
+				[]shelley.ShelleyTransactionInput{
+					{},
+				},
+			),
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -200,9 +198,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	testTxCbor, _ := hex.DecodeString("abcdef")
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
-			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-				TxFee: testExactFee,
-			},
+			TxFee: testExactFee,
 		},
 	}
 	testTx.SetCbor(testTxCbor)
@@ -369,11 +365,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 	)
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
-			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-				TxOutputs: []shelley.ShelleyTransactionOutput{
-					{
-						OutputAmount: 123456,
-					},
+			TxOutputs: []shelley.ShelleyTransactionOutput{
+				{
+					OutputAmount: 123456,
 				},
 			},
 		},
@@ -441,9 +435,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	)
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
-			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-				TxWithdrawals: map[*common.Address]uint64{},
-			},
+			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
 	testLedgerState := test.MockLedgerState{
@@ -510,17 +502,15 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	testOutputOverAmount := testOutputExactAmount + 999
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
-			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-				TxFee: testFee,
-				TxInputs: shelley.NewShelleyTransactionInputSet(
-					[]shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					},
-				),
-				TxOutputs: []shelley.ShelleyTransactionOutput{
-					// Empty placeholder output
-					{},
+			TxFee: testFee,
+			TxInputs: shelley.NewShelleyTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
+			),
+			TxOutputs: []shelley.ShelleyTransactionOutput{
+				// Empty placeholder output
+				{},
 			},
 		},
 	}
@@ -676,11 +666,9 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	var testOutputAmountBad uint64 = 123
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
-			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-				TxOutputs: []shelley.ShelleyTransactionOutput{
-					// Empty placeholder output
-					{},
-				},
+			TxOutputs: []shelley.ShelleyTransactionOutput{
+				// Empty placeholder output
+				{},
 			},
 		},
 	}
@@ -763,11 +751,9 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 	)
 	testTx := &allegra.AllegraTransaction{
 		Body: allegra.AllegraTransactionBody{
-			ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-				TxOutputs: []shelley.ShelleyTransactionOutput{
-					// Empty placeholder
-					{},
-				},
+			TxOutputs: []shelley.ShelleyTransactionOutput{
+				// Empty placeholder
+				{},
 			},
 		},
 	}

@@ -93,3 +93,134 @@ type Utxo struct {
 	Id     TransactionInput
 	Output TransactionOutput
 }
+
+// TransactionBodyBase provides a set of functions that return empty values to satisfy the
+// TransactionBody interface. It also provides functionality for generating a transaction hash
+// and storing/retrieving the original CiBOR
+type TransactionBodyBase struct {
+	cbor.DecodeStoreCbor
+	hash *Blake2b256
+}
+
+func (b *TransactionBodyBase) Hash() Blake2b256 {
+	if b.hash == nil {
+		tmpHash := Blake2b256Hash(b.Cbor())
+		b.hash = &tmpHash
+	}
+	return *b.hash
+}
+
+func (b *TransactionBodyBase) Inputs() []TransactionInput {
+	return nil
+}
+
+func (b *TransactionBodyBase) Outputs() []TransactionOutput {
+	return nil
+}
+
+func (b *TransactionBodyBase) Fee() uint64 {
+	return 0
+}
+
+func (b *TransactionBodyBase) TTL() uint64 {
+	return 0
+}
+
+func (b *TransactionBodyBase) ValidityIntervalStart() uint64 {
+	return 0
+}
+
+func (b *TransactionBodyBase) ReferenceInputs() []TransactionInput {
+	return []TransactionInput{}
+}
+
+func (b *TransactionBodyBase) Collateral() []TransactionInput {
+	return nil
+}
+
+func (b *TransactionBodyBase) CollateralReturn() TransactionOutput {
+	return nil
+}
+
+func (b *TransactionBodyBase) TotalCollateral() uint64 {
+	return 0
+}
+
+func (b *TransactionBodyBase) Certificates() []Certificate {
+	return nil
+}
+
+func (b *TransactionBodyBase) Withdrawals() map[*Address]uint64 {
+	return nil
+}
+
+func (b *TransactionBodyBase) AuxDataHash() *Blake2b256 {
+	return nil
+}
+
+func (b *TransactionBodyBase) RequiredSigners() []Blake2b224 {
+	return nil
+}
+
+func (b *TransactionBodyBase) AssetMint() *MultiAsset[MultiAssetTypeMint] {
+	return nil
+}
+
+func (b *TransactionBodyBase) ScriptDataHash() *Blake2b256 {
+	return nil
+}
+
+func (b *TransactionBodyBase) VotingProcedures() VotingProcedures {
+	return nil
+}
+
+func (b *TransactionBodyBase) ProposalProcedures() []ProposalProcedure {
+	return nil
+}
+
+func (b *TransactionBodyBase) CurrentTreasuryValue() int64 {
+	return 0
+}
+
+func (b *TransactionBodyBase) Donation() uint64 {
+	return 0
+}
+
+func (b *TransactionBodyBase) Utxorpc() *utxorpc.Tx {
+	return nil
+}
+
+// TransactionBodyToUtxorpc is a common helper for converting TransactionBody to utxorpc.Tx
+func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
+	txi := []*utxorpc.TxInput{}
+	txri := []*utxorpc.TxInput{}
+	txo := []*utxorpc.TxOutput{}
+	for _, i := range tx.Inputs() {
+		input := i.Utxorpc()
+		txi = append(txi, input)
+	}
+	for _, o := range tx.Outputs() {
+		output := o.Utxorpc()
+		txo = append(txo, output)
+	}
+	for _, ri := range tx.ReferenceInputs() {
+		input := ri.Utxorpc()
+		txri = append(txri, input)
+	}
+	ret := &utxorpc.Tx{
+		Inputs:  txi,
+		Outputs: txo,
+		// Certificates: tx.Certificates(),
+		// Withdrawals:  tx.Withdrawals(),
+		// Mint:         tx.Mint(),
+		ReferenceInputs: txri,
+		// Witnesses:    tx.Witnesses(),
+		// Collateral:   tx.Collateral(),
+		Fee: tx.Fee(),
+		// Successful:   tx.Successful(),
+		// Auxiliary:    tx.AuxData(),
+		// Validity:     tx.Validity(),
+		Hash: tx.Hash().Bytes(),
+	}
+	return ret
+}
