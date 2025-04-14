@@ -968,11 +968,9 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			TxFee: testFee,
 		},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
-				WsRedeemers: []alonzo.AlonzoRedeemer{
-					// Placeholder entry
-					{},
-				},
+			WsRedeemers: []alonzo.AlonzoRedeemer{
+				// Placeholder entry
+				{},
 			},
 		},
 	}
@@ -1058,11 +1056,9 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			TxTotalCollateral: testCollateralAmount,
 		},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
-				WsRedeemers: []alonzo.AlonzoRedeemer{
-					// Placeholder entry
-					{},
-				},
+			WsRedeemers: []alonzo.AlonzoRedeemer{
+				// Placeholder entry
+				{},
 			},
 		},
 	}
@@ -1224,11 +1220,9 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
-				WsRedeemers: []alonzo.AlonzoRedeemer{
-					// Placeholder entry
-					{},
-				},
+			WsRedeemers: []alonzo.AlonzoRedeemer{
+				// Placeholder entry
+				{},
 			},
 		},
 	}

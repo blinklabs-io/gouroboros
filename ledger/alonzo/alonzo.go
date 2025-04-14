@@ -381,18 +381,43 @@ func (r AlonzoRedeemers) Value(
 }
 
 type AlonzoTransactionWitnessSet struct {
-	shelley.ShelleyTransactionWitnessSet
-	WsPlutusV1Scripts [][]byte        `cbor:"3,keyasint,omitempty"`
-	WsPlutusData      []cbor.Value    `cbor:"4,keyasint,omitempty"`
-	WsRedeemers       AlonzoRedeemers `cbor:"5,keyasint,omitempty"`
+	cbor.DecodeStoreCbor
+	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
+	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
+	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
+	WsPlutusData       []cbor.Value              `cbor:"4,keyasint,omitempty"`
+	WsRedeemers        AlonzoRedeemers           `cbor:"5,keyasint,omitempty"`
 }
 
 func (w *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return w.UnmarshalCbor(cborData, w)
 }
 
+func (w AlonzoTransactionWitnessSet) Vkey() []common.VkeyWitness {
+	return w.VkeyWitnesses
+}
+
+func (w AlonzoTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return w.BootstrapWitnesses
+}
+
+func (w AlonzoTransactionWitnessSet) NativeScripts() []common.NativeScript {
+	return w.WsNativeScripts
+}
+
 func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() [][]byte {
 	return w.WsPlutusV1Scripts
+}
+
+func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+	// No plutus v2 scripts in Alonzo
+	return nil
+}
+
+func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+	// No plutus v3 scripts in Alonzo
+	return nil
 }
 
 func (w AlonzoTransactionWitnessSet) PlutusData() []cbor.Value {

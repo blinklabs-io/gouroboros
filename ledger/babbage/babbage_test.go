@@ -17,10 +17,8 @@ package babbage
 import (
 	"testing"
 
-	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -45,14 +43,10 @@ func TestBabbageBlockTransactions(t *testing.T) {
 			TxTotalCollateral: 1 << i,
 		}
 		b.TransactionWitnessSets[i] = BabbageTransactionWitnessSet{
-			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
-				ShelleyTransactionWitnessSet: shelley.ShelleyTransactionWitnessSet{
-					VkeyWitnesses: []common.VkeyWitness{
-						{
-							Vkey:      append(make([]byte, 31), 1<<i)[:],
-							Signature: append(make([]byte, 63), 1<<i)[:],
-						},
-					},
+			VkeyWitnesses: []common.VkeyWitness{
+				{
+					Vkey:      append(make([]byte, 31), 1<<i)[:],
+					Signature: append(make([]byte, 63), 1<<i)[:],
 				},
 			},
 		}
