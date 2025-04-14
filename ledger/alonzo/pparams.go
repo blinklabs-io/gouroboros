@@ -16,6 +16,7 @@ package alonzo
 
 import (
 	"math"
+	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -94,9 +95,38 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 			StepPrice: &cbor.Rat{Rat: genesis.ExecutionPrices.Steps.Rat},
 		}
 	}
-	// TODO: cost models (#852)
-	// We have 150+ string values to map to array indexes
-	//	CostModels           map[string]map[string]int
+
+	// Process cost models
+	if genesis.CostModels != nil {
+		p.CostModels = make(map[uint][]int64)
+		for lang, model := range genesis.CostModels {
+			var langKey uint
+			switch lang {
+			case "plutus:v1":
+				langKey = 0
+			case "plutus:v2":
+				langKey = 1
+			default:
+				// Skip unknown language
+				continue
+			}
+
+			// Get sorted keys to determine indexes
+			keys := make([]string, 0, len(model))
+			for k := range model {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+
+			// Create slice with values in alphabetical order
+			costs := make([]int64, len(keys))
+			for i, key := range keys {
+				costs[i] = int64(model[key])
+			}
+
+			p.CostModels[langKey] = costs
+		}
+	}
 }
 
 type AlonzoProtocolParameterUpdate struct {

@@ -163,6 +163,64 @@ func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 				AdaPerUtxoByte: 34482 / 8,
 			},
 		},
+		{
+			startParams: alonzo.AlonzoProtocolParameters{},
+			genesisJson: `{
+				"lovelacePerUTxOWord": 34482,
+				"costModels": {
+					"plutus:v1": {
+						"addInteger-cpu-arguments-intercept": 10,
+						"subtractInteger-cpu-arguments-intercept": 30,
+						"multiplyInteger-cpu-arguments-intercept": 20
+					},
+					"plutus:v2": {
+						"appendByteString-cpu-arguments-slope": 5,
+						"consByteString-cpu-arguments-intercept": 2
+					},
+					"plutus:v3": {
+						"unknown-op": 999
+					}
+				}
+			}`,
+			expectedParams: alonzo.AlonzoProtocolParameters{
+				AdaPerUtxoByte: 34482 / 8,
+				CostModels: map[uint][]int64{
+					0: {
+						10, // addInteger-cpu-arguments-intercept
+						20, // multiplyInteger-cpu-arguments-intercept
+						30, // subtractInteger-cpu-arguments-intercept
+					},
+					1: {
+						5, // appendByteString-cpu-arguments-slope
+						2, // consByteString-cpu-arguments-intercept
+					},
+				},
+			},
+		},
+		{
+			//out of order keys
+			startParams: alonzo.AlonzoProtocolParameters{},
+			genesisJson: `{
+				"lovelacePerUTxOWord": 34482,
+				"costModels": {
+					"plutus:v1": {
+						"zzz": 3,
+						"aaa": 1,
+						"mmm": 2
+					}
+				}
+			}`,
+			expectedParams: alonzo.AlonzoProtocolParameters{
+				AdaPerUtxoByte: 34482 / 8,
+				CostModels: map[uint][]int64{
+					0: {
+						1, // "aaa"
+						2, // "mmm"
+						3, // "zzz"
+					},
+				},
+			},
+		},
 	}
 	for _, testDef := range testDefs {
 		tmpGenesis, err := alonzo.NewAlonzoGenesisFromReader(
