@@ -96,7 +96,7 @@ type Utxo struct {
 
 // TransactionBodyBase provides a set of functions that return empty values to satisfy the
 // TransactionBody interface. It also provides functionality for generating a transaction hash
-// and storing/retrieving the original CiBOR
+// and storing/retrieving the original CBOR
 type TransactionBodyBase struct {
 	cbor.DecodeStoreCbor
 	hash *Blake2b256
