@@ -55,7 +55,14 @@ type ShelleyBlock struct {
 }
 
 func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tShelleyBlock ShelleyBlock
+	var tmp tShelleyBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ShelleyBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (ShelleyBlock) Type() int {
@@ -155,7 +162,14 @@ type ShelleyBlockHeaderBody struct {
 }
 
 func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	return h.UnmarshalCbor(cborData, h)
+	type tShelleyBlockHeader ShelleyBlockHeader
+	var tmp tShelleyBlockHeader
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*h = ShelleyBlockHeader(tmp)
+	h.SetCbor(cborData)
+	return nil
 }
 
 func (h *ShelleyBlockHeader) Hash() common.Blake2b256 {
@@ -207,7 +221,14 @@ type ShelleyTransactionBody struct {
 }
 
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tShelleyTransactionBody ShelleyTransactionBody
+	var tmp tShelleyTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ShelleyTransactionBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
@@ -349,8 +370,15 @@ type ShelleyTransactionOutput struct {
 	OutputAmount  uint64         `json:"amount"`
 }
 
-func (o *ShelleyTransactionOutput) UnmarshalCBOR(data []byte) error {
-	return o.UnmarshalCbor(data, o)
+func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	type tShelleyTransactionOutput ShelleyTransactionOutput
+	var tmp tShelleyTransactionOutput
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*o = ShelleyTransactionOutput(tmp)
+	o.SetCbor(cborData)
+	return nil
 }
 
 func (o ShelleyTransactionOutput) Address() common.Address {
@@ -387,8 +415,15 @@ type ShelleyTransactionWitnessSet struct {
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 }
 
-func (t *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	return t.UnmarshalCbor(cborData, t)
+func (w *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
+	type tShelleyTransactionWitnessSet ShelleyTransactionWitnessSet
+	var tmp tShelleyTransactionWitnessSet
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*w = ShelleyTransactionWitnessSet(tmp)
+	w.SetCbor(cborData)
+	return nil
 }
 
 func (w ShelleyTransactionWitnessSet) Vkey() []common.VkeyWitness {
@@ -436,8 +471,15 @@ type ShelleyTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
-func (t *ShelleyTransaction) UnmarshalCBOR(data []byte) error {
-	return t.UnmarshalCbor(data, t)
+func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
+	type tShelleyTransaction ShelleyTransaction
+	var tmp tShelleyTransaction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*t = ShelleyTransaction(tmp)
+	t.SetCbor(cborData)
+	return nil
 }
 
 func (ShelleyTransaction) Type() int {

@@ -36,8 +36,15 @@ type Credential struct {
 	Credential CredentialHash
 }
 
-func (c *Credential) UnmarshalCBOR(data []byte) error {
-	return c.UnmarshalCbor(data, c)
+func (c *Credential) UnmarshalCBOR(cborData []byte) error {
+	type tCredential Credential
+	var tmp tCredential
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = Credential(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *Credential) Hash() Blake2b224 {

@@ -53,7 +53,14 @@ type AllegraBlock struct {
 }
 
 func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tAllegraBlock AllegraBlock
+	var tmp tAllegraBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = AllegraBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (AllegraBlock) Type() int {
@@ -152,7 +159,14 @@ type AllegraTransactionBody struct {
 }
 
 func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tAllegraTransactionBody AllegraTransactionBody
+	var tmp tAllegraTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = AllegraTransactionBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (b *AllegraTransactionBody) Inputs() []common.TransactionInput {
@@ -219,8 +233,15 @@ type AllegraTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
-func (t *AllegraTransaction) UnmarshalCBOR(data []byte) error {
-	return t.UnmarshalCbor(data, t)
+func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
+	type tAllegraTransaction AllegraTransaction
+	var tmp tAllegraTransaction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*t = AllegraTransaction(tmp)
+	t.SetCbor(cborData)
+	return nil
 }
 
 func (AllegraTransaction) Type() int {
