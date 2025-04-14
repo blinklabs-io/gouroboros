@@ -80,8 +80,14 @@ type ByronMainBlockHeader struct {
 }
 
 func (h *ByronMainBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	// Decode generically and store original CBOR
-	return h.UnmarshalCbor(cborData, h)
+	type tByronMainBlockHeader ByronMainBlockHeader
+	var tmp tByronMainBlockHeader
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*h = ByronMainBlockHeader(tmp)
+	h.SetCbor(cborData)
+	return nil
 }
 
 func (h *ByronMainBlockHeader) Hash() common.Blake2b256 {
@@ -137,9 +143,15 @@ type ByronTransaction struct {
 	Attributes *cbor.LazyValue
 }
 
-func (t *ByronTransaction) UnmarshalCBOR(data []byte) error {
-	// Decode generically and store original CBOR
-	return t.UnmarshalCbor(data, t)
+func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
+	type tByronTransaction ByronTransaction
+	var tmp tByronTransaction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*t = ByronTransaction(tmp)
+	t.SetCbor(cborData)
+	return nil
 }
 
 func (ByronTransaction) Type() int {
@@ -451,8 +463,15 @@ type ByronUpdateProposal struct {
 	Signature       []byte
 }
 
-func (p *ByronUpdateProposal) UnmarshalCBOR(data []byte) error {
-	return p.UnmarshalCbor(data, p)
+func (p *ByronUpdateProposal) UnmarshalCBOR(cborData []byte) error {
+	type tByronUpdateProposal ByronUpdateProposal
+	var tmp tByronUpdateProposal
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*p = ByronUpdateProposal(tmp)
+	p.SetCbor(cborData)
+	return nil
 }
 
 type ByronUpdateProposalBlockVersionMod struct {
@@ -488,9 +507,15 @@ type ByronMainBlockBody struct {
 	UpdPayload ByronUpdatePayload
 }
 
-func (b *ByronMainBlockBody) UnmarshalCBOR(data []byte) error {
-	// Decode generically and store original CBOR
-	return b.UnmarshalCbor(data, b)
+func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
+	type tByronMainBlockBody ByronMainBlockBody
+	var tmp tByronMainBlockBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ByronMainBlockBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 type ByronEpochBoundaryBlockHeader struct {
@@ -512,8 +537,14 @@ type ByronEpochBoundaryBlockHeader struct {
 }
 
 func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	// Decode generically and store original CBOR
-	return h.UnmarshalCbor(cborData, h)
+	type tByronEpochBoundaryBlockHeader ByronEpochBoundaryBlockHeader
+	var tmp tByronEpochBoundaryBlockHeader
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*h = ByronEpochBoundaryBlockHeader(tmp)
+	h.SetCbor(cborData)
+	return nil
 }
 
 func (h *ByronEpochBoundaryBlockHeader) Hash() common.Blake2b256 {
@@ -567,8 +598,14 @@ type ByronMainBlock struct {
 }
 
 func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
-	// Decode generically and store original CBOR
-	return b.UnmarshalCbor(cborData, b)
+	type tByronMainBlock ByronMainBlock
+	var tmp tByronMainBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ByronMainBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (ByronMainBlock) Type() int {
@@ -628,8 +665,14 @@ type ByronEpochBoundaryBlock struct {
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
-	// Decode generically and store original CBOR
-	return b.UnmarshalCbor(cborData, b)
+	type tByronEpochBoundaryBlock ByronEpochBoundaryBlock
+	var tmp tByronEpochBoundaryBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ByronEpochBoundaryBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (ByronEpochBoundaryBlock) Type() int {

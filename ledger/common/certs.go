@@ -167,7 +167,14 @@ type StakeRegistrationCertificate struct {
 func (c StakeRegistrationCertificate) isCertificate() {}
 
 func (c *StakeRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tStakeRegistrationCertificate StakeRegistrationCertificate
+	var tmp tStakeRegistrationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = StakeRegistrationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *StakeRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -192,7 +199,14 @@ type StakeDeregistrationCertificate struct {
 func (c StakeDeregistrationCertificate) isCertificate() {}
 
 func (c *StakeDeregistrationCertificate) UnmarshalCBOR(cborData []byte) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tStakeDeregistrationCertificate StakeDeregistrationCertificate
+	var tmp tStakeDeregistrationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = StakeDeregistrationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *StakeDeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -218,7 +232,14 @@ type StakeDelegationCertificate struct {
 func (c StakeDelegationCertificate) isCertificate() {}
 
 func (c *StakeDelegationCertificate) UnmarshalCBOR(cborData []byte) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tStakeDelegationCertificate StakeDelegationCertificate
+	var tmp tStakeDelegationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = StakeDelegationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *StakeDelegationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -353,7 +374,14 @@ type PoolRegistrationCertificate struct {
 func (c PoolRegistrationCertificate) isCertificate() {}
 
 func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tPoolRegistrationCertificate PoolRegistrationCertificate
+	var tmp tPoolRegistrationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = PoolRegistrationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *PoolRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -401,7 +429,14 @@ type PoolRetirementCertificate struct {
 func (c PoolRetirementCertificate) isCertificate() {}
 
 func (c *PoolRetirementCertificate) UnmarshalCBOR(cborData []byte) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tPoolRetirementCertificate PoolRetirementCertificate
+	var tmp tPoolRetirementCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = PoolRetirementCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *PoolRetirementCertificate) Utxorpc() *utxorpc.Certificate {
@@ -431,7 +466,14 @@ type GenesisKeyDelegationCertificate struct {
 func (c GenesisKeyDelegationCertificate) isCertificate() {}
 
 func (c *GenesisKeyDelegationCertificate) UnmarshalCBOR(cborData []byte) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tGenesisKeyDelegationCertificate GenesisKeyDelegationCertificate
+	var tmp tGenesisKeyDelegationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = GenesisKeyDelegationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *GenesisKeyDelegationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -504,7 +546,14 @@ func (c MoveInstantaneousRewardsCertificate) isCertificate() {}
 func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tMoveInstantaneousRewardsCertificate MoveInstantaneousRewardsCertificate
+	var tmp tMoveInstantaneousRewardsCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = MoveInstantaneousRewardsCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *MoveInstantaneousRewardsCertificate) Utxorpc() *utxorpc.Certificate {
@@ -550,7 +599,14 @@ func (c RegistrationCertificate) isCertificate() {}
 func (c *RegistrationCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tRegistrationCertificate RegistrationCertificate
+	var tmp tRegistrationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = RegistrationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *RegistrationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -575,7 +631,14 @@ func (c DeregistrationCertificate) isCertificate() {}
 func (c *DeregistrationCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tDeregistrationCertificate DeregistrationCertificate
+	var tmp tDeregistrationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = DeregistrationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *DeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -600,7 +663,14 @@ func (c VoteDelegationCertificate) isCertificate() {}
 func (c *VoteDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tVoteDelegationCertificate VoteDelegationCertificate
+	var tmp tVoteDelegationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = VoteDelegationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *VoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -626,7 +696,14 @@ func (c StakeVoteDelegationCertificate) isCertificate() {}
 func (c *StakeVoteDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tStakeVoteDelegationCertificate StakeVoteDelegationCertificate
+	var tmp tStakeVoteDelegationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = StakeVoteDelegationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -652,7 +729,14 @@ func (c StakeRegistrationDelegationCertificate) isCertificate() {}
 func (c *StakeRegistrationDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tStakeRegistrationDelegationCertificate StakeRegistrationDelegationCertificate
+	var tmp tStakeRegistrationDelegationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = StakeRegistrationDelegationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *StakeRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -678,7 +762,14 @@ func (c VoteRegistrationDelegationCertificate) isCertificate() {}
 func (c *VoteRegistrationDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tVoteRegistrationDelegationCertificate VoteRegistrationDelegationCertificate
+	var tmp tVoteRegistrationDelegationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = VoteRegistrationDelegationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *VoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -705,7 +796,14 @@ func (c StakeVoteRegistrationDelegationCertificate) isCertificate() {}
 func (c *StakeVoteRegistrationDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tStakeVoteRegistrationDelegationCertificate StakeVoteRegistrationDelegationCertificate
+	var tmp tStakeVoteRegistrationDelegationCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = StakeVoteRegistrationDelegationCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
@@ -730,7 +828,14 @@ func (c AuthCommitteeHotCertificate) isCertificate() {}
 func (c *AuthCommitteeHotCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tAuthCommitteeHotCertificate AuthCommitteeHotCertificate
+	var tmp tAuthCommitteeHotCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = AuthCommitteeHotCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *AuthCommitteeHotCertificate) Utxorpc() *utxorpc.Certificate {
@@ -755,7 +860,14 @@ func (c ResignCommitteeColdCertificate) isCertificate() {}
 func (c *ResignCommitteeColdCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tResignCommitteeColdCertificate ResignCommitteeColdCertificate
+	var tmp tResignCommitteeColdCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = ResignCommitteeColdCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *ResignCommitteeColdCertificate) Utxorpc() *utxorpc.Certificate {
@@ -781,7 +893,14 @@ func (c RegistrationDrepCertificate) isCertificate() {}
 func (c *RegistrationDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tRegistrationDrepCertificate RegistrationDrepCertificate
+	var tmp tRegistrationDrepCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = RegistrationDrepCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *RegistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
@@ -806,7 +925,14 @@ func (c DeregistrationDrepCertificate) isCertificate() {}
 func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tDeregistrationDrepCertificate DeregistrationDrepCertificate
+	var tmp tDeregistrationDrepCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = DeregistrationDrepCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *DeregistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
@@ -831,7 +957,14 @@ func (c UpdateDrepCertificate) isCertificate() {}
 func (c *UpdateDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
-	return c.UnmarshalCbor(cborData, c)
+	type tUpdateDrepCertificate UpdateDrepCertificate
+	var tmp tUpdateDrepCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = UpdateDrepCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c *UpdateDrepCertificate) Utxorpc() *utxorpc.Certificate {

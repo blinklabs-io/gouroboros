@@ -56,7 +56,14 @@ type ConwayBlock struct {
 }
 
 func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tConwayBlock ConwayBlock
+	var tmp tConwayBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ConwayBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (ConwayBlock) Type() int {
@@ -222,7 +229,14 @@ type ConwayTransactionWitnessSet struct {
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	return w.UnmarshalCbor(cborData, w)
+	type tConwayTransactionWitnessSet ConwayTransactionWitnessSet
+	var tmp tConwayTransactionWitnessSet
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*w = ConwayTransactionWitnessSet(tmp)
+	w.SetCbor(cborData)
+	return nil
 }
 
 func (w ConwayTransactionWitnessSet) Vkey() []common.VkeyWitness {
@@ -321,7 +335,14 @@ type ConwayTransactionBody struct {
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tConwayTransactionBody ConwayTransactionBody
+	var tmp tConwayTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ConwayTransactionBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
@@ -447,8 +468,15 @@ type ConwayTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
-func (t *ConwayTransaction) UnmarshalCBOR(data []byte) error {
-	return t.UnmarshalCbor(data, t)
+func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
+	type tConwayTransaction ConwayTransaction
+	var tmp tConwayTransaction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*t = ConwayTransaction(tmp)
+	t.SetCbor(cborData)
+	return nil
 }
 
 func (ConwayTransaction) Type() int {
