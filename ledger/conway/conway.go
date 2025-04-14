@@ -210,17 +210,47 @@ func (r ConwayRedeemers) Value(
 }
 
 type ConwayTransactionWitnessSet struct {
-	babbage.BabbageTransactionWitnessSet
-	WsRedeemers       ConwayRedeemers `cbor:"5,keyasint,omitempty"`
-	WsPlutusV3Scripts [][]byte        `cbor:"7,keyasint,omitempty"`
+	cbor.DecodeStoreCbor
+	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
+	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
+	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
+	WsPlutusData       []cbor.Value              `cbor:"4,keyasint,omitempty"`
+	WsRedeemers        ConwayRedeemers           `cbor:"5,keyasint,omitempty"`
+	WsPlutusV2Scripts  [][]byte                  `cbor:"6,keyasint,omitempty"`
+	WsPlutusV3Scripts  [][]byte                  `cbor:"7,keyasint,omitempty"`
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return w.UnmarshalCbor(cborData, w)
 }
 
+func (w ConwayTransactionWitnessSet) Vkey() []common.VkeyWitness {
+	return w.VkeyWitnesses
+}
+
+func (w ConwayTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return w.BootstrapWitnesses
+}
+
+func (w ConwayTransactionWitnessSet) NativeScripts() []common.NativeScript {
+	return w.WsNativeScripts
+}
+
+func (w ConwayTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+	return w.WsPlutusV1Scripts
+}
+
+func (w ConwayTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+	return w.WsPlutusV2Scripts
+}
+
 func (w ConwayTransactionWitnessSet) PlutusV3Scripts() [][]byte {
 	return w.WsPlutusV3Scripts
+}
+
+func (w ConwayTransactionWitnessSet) PlutusData() []cbor.Value {
+	return w.WsPlutusData
 }
 
 func (w ConwayTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
