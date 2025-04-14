@@ -35,11 +35,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testZeroSlot uint64 = 0
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
-			MaryTransactionBody: mary.MaryTransactionBody{
-				AllegraTransactionBody: allegra.AllegraTransactionBody{
-					TxValidityIntervalStart: testSlot,
-				},
-			},
+			TxValidityIntervalStart: testSlot,
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -138,18 +134,12 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
-			MaryTransactionBody: mary.MaryTransactionBody{
-				AllegraTransactionBody: allegra.AllegraTransactionBody{
-					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-						TxInputs: shelley.NewShelleyTransactionInputSet(
-							// Non-empty input set
-							[]shelley.ShelleyTransactionInput{
-								{},
-							},
-						),
-					},
+			TxInputs: shelley.NewShelleyTransactionInputSet(
+				// Non-empty input set
+				[]shelley.ShelleyTransactionInput{
+					{},
 				},
-			},
+			),
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -212,13 +202,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	testTxCbor, _ := hex.DecodeString("abcdef01")
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
-			MaryTransactionBody: mary.MaryTransactionBody{
-				AllegraTransactionBody: allegra.AllegraTransactionBody{
-					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-						TxFee: testExactFee,
-					},
-				},
-			},
+			TxFee: testExactFee,
 		},
 	}
 	testTx.SetCbor(testTxCbor)
@@ -461,13 +445,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	)
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
-			MaryTransactionBody: mary.MaryTransactionBody{
-				AllegraTransactionBody: allegra.AllegraTransactionBody{
-					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-						TxWithdrawals: map[*common.Address]uint64{},
-					},
-				},
-			},
+			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
 	testLedgerState := test.MockLedgerState{
@@ -538,21 +516,15 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				// Empty placeholder output
 				{},
 			},
-			MaryTransactionBody: mary.MaryTransactionBody{
-				AllegraTransactionBody: allegra.AllegraTransactionBody{
-					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-						TxFee: testFee,
-						TxInputs: shelley.NewShelleyTransactionInputSet(
-							[]shelley.ShelleyTransactionInput{
-								shelley.NewShelleyTransactionInput(
-									testInputTxId,
-									0,
-								),
-							},
-						),
-					},
+			TxFee: testFee,
+			TxInputs: shelley.NewShelleyTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(
+						testInputTxId,
+						0,
+					),
 				},
-			},
+			),
 		},
 	}
 	testLedgerState := test.MockLedgerState{
@@ -1010,13 +982,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	var testCollateralAmount2 uint64 = 200000
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
-			MaryTransactionBody: mary.MaryTransactionBody{
-				AllegraTransactionBody: allegra.AllegraTransactionBody{
-					ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-						TxFee: testFee,
-					},
-				},
-			},
+			TxFee: testFee,
 		},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
 			WsRedeemers: []alonzo.AlonzoRedeemer{

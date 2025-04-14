@@ -191,8 +191,7 @@ func (h *ShelleyBlockHeader) Era() common.Era {
 }
 
 type ShelleyTransactionBody struct {
-	cbor.DecodeStoreCbor
-	hash           *common.Blake2b256
+	common.TransactionBodyBase
 	TxInputs       ShelleyTransactionInputSet  `cbor:"0,keyasint,omitempty"`
 	TxOutputs      []ShelleyTransactionOutput  `cbor:"1,keyasint,omitempty"`
 	TxFee          uint64                      `cbor:"2,keyasint,omitempty"`
@@ -209,14 +208,6 @@ type ShelleyTransactionBody struct {
 
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
-}
-
-func (b *ShelleyTransactionBody) Hash() common.Blake2b256 {
-	if b.hash == nil {
-		tmpHash := common.Blake2b256Hash(b.Cbor())
-		b.hash = &tmpHash
-	}
-	return *b.hash
 }
 
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
@@ -243,36 +234,12 @@ func (b *ShelleyTransactionBody) TTL() uint64 {
 	return b.Ttl
 }
 
-func (b *ShelleyTransactionBody) ValidityIntervalStart() uint64 {
-	// No validity interval start in Shelley
-	return 0
-}
-
 func (b *ShelleyTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return b.Update.Epoch, updateMap
-}
-
-func (b *ShelleyTransactionBody) ReferenceInputs() []common.TransactionInput {
-	return []common.TransactionInput{}
-}
-
-func (b *ShelleyTransactionBody) Collateral() []common.TransactionInput {
-	// No collateral in Shelley
-	return nil
-}
-
-func (b *ShelleyTransactionBody) CollateralReturn() common.TransactionOutput {
-	// No collateral in Shelley
-	return nil
-}
-
-func (b *ShelleyTransactionBody) TotalCollateral() uint64 {
-	// No collateral in Shelley
-	return 0
 }
 
 func (b *ShelleyTransactionBody) Certificates() []common.Certificate {
@@ -291,65 +258,8 @@ func (b *ShelleyTransactionBody) AuxDataHash() *common.Blake2b256 {
 	return b.TxAuxDataHash
 }
 
-func (b *ShelleyTransactionBody) RequiredSigners() []common.Blake2b224 {
-	// No required signers in Shelley
-	return nil
-}
-
-func (b *ShelleyTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
-	// No asset minting in Shelley
-	return nil
-}
-
-func (b *ShelleyTransactionBody) ScriptDataHash() *common.Blake2b256 {
-	// No script data hash in Shelley
-	return nil
-}
-
-func (b *ShelleyTransactionBody) VotingProcedures() common.VotingProcedures {
-	// No voting procedures in Shelley
-	return nil
-}
-
-func (b *ShelleyTransactionBody) ProposalProcedures() []common.ProposalProcedure {
-	// No proposal procedures in Shelley
-	return nil
-}
-
-func (b *ShelleyTransactionBody) CurrentTreasuryValue() int64 {
-	// No current treasury value in Shelley
-	return 0
-}
-
-func (b *ShelleyTransactionBody) Donation() uint64 {
-	// No donation in Shelley
-	return 0
-}
-
 func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
-	txi := []*utxorpc.TxInput{}
-	txo := []*utxorpc.TxOutput{}
-	for _, i := range b.Inputs() {
-		input := i.Utxorpc()
-		txi = append(txi, input)
-	}
-	for _, o := range b.Outputs() {
-		output := o.Utxorpc()
-		txo = append(txo, output)
-	}
-	tx := &utxorpc.Tx{
-		Inputs:  txi,
-		Outputs: txo,
-		// Certificates: b.Certificates(),
-		// Withdrawals:  b.Withdrawals(),
-		// Witnesses:    b.Witnesses(),
-		Fee: b.Fee(),
-		// Validity:     b.Validity(),
-		// Successful:   b.Successful(),
-		// Auxiliary:    b.AuxData(),
-		Hash: b.Hash().Bytes(),
-	}
-	return tx
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type ShelleyTransactionInputSet struct {

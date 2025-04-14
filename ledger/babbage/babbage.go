@@ -210,20 +210,40 @@ func (h *BabbageBlockHeader) Era() common.Era {
 }
 
 type BabbageTransactionBody struct {
-	alonzo.AlonzoTransactionBody
-	TxOutputs []BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
-	Update    struct {
+	common.TransactionBodyBase
+	TxInputs       shelley.ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
+	TxOutputs      []BabbageTransactionOutput         `cbor:"1,keyasint,omitempty"`
+	TxFee          uint64                             `cbor:"2,keyasint,omitempty"`
+	Ttl            uint64                             `cbor:"3,keyasint,omitempty"`
+	TxCertificates []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals  map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
+	Update         struct {
 		cbor.StructAsArray
 		ProtocolParamUpdates map[common.Blake2b224]BabbageProtocolParameterUpdate
 		Epoch                uint64
 	} `cbor:"6,keyasint,omitempty"`
-	TxCollateralReturn *BabbageTransactionOutput         `cbor:"16,keyasint,omitempty"`
-	TxTotalCollateral  uint64                            `cbor:"17,keyasint,omitempty"`
-	TxReferenceInputs  []shelley.ShelleyTransactionInput `cbor:"18,keyasint,omitempty"`
+	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
+	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
+	TxCollateral            []shelley.ShelleyTransactionInput             `cbor:"13,keyasint,omitempty"`
+	TxRequiredSigners       []common.Blake2b224                           `cbor:"14,keyasint,omitempty"`
+	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
+	TxCollateralReturn      *BabbageTransactionOutput                     `cbor:"16,keyasint,omitempty"`
+	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs       []shelley.ShelleyTransactionInput             `cbor:"18,keyasint,omitempty"`
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return b.UnmarshalCbor(cborData, b)
+}
+
+func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
+	for _, input := range b.TxInputs.Items() {
+		ret = append(ret, input)
+	}
+	return ret
 }
 
 func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
@@ -234,12 +254,60 @@ func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
+func (b *BabbageTransactionBody) Fee() uint64 {
+	return b.TxFee
+}
+
+func (b *BabbageTransactionBody) TTL() uint64 {
+	return b.Ttl
+}
+
+func (b *BabbageTransactionBody) ValidityIntervalStart() uint64 {
+	return b.TxValidityIntervalStart
+}
+
 func (b *BabbageTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return b.Update.Epoch, updateMap
+}
+
+func (b *BabbageTransactionBody) Certificates() []common.Certificate {
+	ret := make([]common.Certificate, len(b.TxCertificates))
+	for i, cert := range b.TxCertificates {
+		ret[i] = cert.Certificate
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) Withdrawals() map[*common.Address]uint64 {
+	return b.TxWithdrawals
+}
+
+func (b *BabbageTransactionBody) AuxDataHash() *common.Blake2b256 {
+	return b.TxAuxDataHash
+}
+
+func (b *BabbageTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return b.TxMint
+}
+
+func (b *BabbageTransactionBody) Collateral() []common.TransactionInput {
+	ret := []common.TransactionInput{}
+	for _, collateral := range b.TxCollateral {
+		ret = append(ret, collateral)
+	}
+	return ret
+}
+
+func (b *BabbageTransactionBody) RequiredSigners() []common.Blake2b224 {
+	return b.TxRequiredSigners[:]
+}
+
+func (b *BabbageTransactionBody) ScriptDataHash() *common.Blake2b256 {
+	return b.TxScriptDataHash
 }
 
 func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
@@ -265,37 +333,7 @@ func (b *BabbageTransactionBody) TotalCollateral() uint64 {
 }
 
 func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
-	txi := []*utxorpc.TxInput{}
-	txri := []*utxorpc.TxInput{}
-	txo := []*utxorpc.TxOutput{}
-	for _, i := range b.Inputs() {
-		input := i.Utxorpc()
-		txi = append(txi, input)
-	}
-	for _, o := range b.Outputs() {
-		output := o.Utxorpc()
-		txo = append(txo, output)
-	}
-	for _, ri := range b.ReferenceInputs() {
-		input := ri.Utxorpc()
-		txri = append(txri, input)
-	}
-	tx := &utxorpc.Tx{
-		Inputs:  txi,
-		Outputs: txo,
-		// Certificates: b.Certificates(),
-		// Withdrawals:  b.Withdrawals(),
-		// Mint:         b.Mint(),
-		ReferenceInputs: txri,
-		// Witnesses:    b.Witnesses(),
-		// Collateral:   b.Collateral(),
-		Fee: b.Fee(),
-		// Successful:   b.Successful(),
-		// Auxiliary:    b.AuxData(),
-		// Validity:     b.Validity(),
-		Hash: b.Hash().Bytes(),
-	}
-	return tx
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 const (

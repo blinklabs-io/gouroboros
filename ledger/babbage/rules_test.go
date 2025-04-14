@@ -36,13 +36,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testZeroSlot uint64 = 0
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						TxValidityIntervalStart: testSlot,
-					},
-				},
-			},
+			TxValidityIntervalStart: testSlot,
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -141,20 +135,12 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxInputs: shelley.NewShelleyTransactionInputSet(
-								// Non-empty input set
-								[]shelley.ShelleyTransactionInput{
-									{},
-								},
-							),
-						},
-					},
+			TxInputs: shelley.NewShelleyTransactionInputSet(
+				// Non-empty input set
+				[]shelley.ShelleyTransactionInput{
+					{},
 				},
-			},
+			),
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -217,15 +203,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	testTxCbor, _ := hex.DecodeString("abcdef01")
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxFee: testExactFee,
-						},
-					},
-				},
-			},
+			TxFee: testExactFee,
 		},
 	}
 	testTx.SetCbor(testTxCbor)
@@ -462,15 +440,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	)
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxWithdrawals: map[*common.Address]uint64{},
-						},
-					},
-				},
-			},
+			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
 	testLedgerState := test.MockLedgerState{
@@ -541,23 +511,15 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				// Empty placeholder output
 				{},
 			},
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxFee: testFee,
-							TxInputs: shelley.NewShelleyTransactionInputSet(
-								[]shelley.ShelleyTransactionInput{
-									shelley.NewShelleyTransactionInput(
-										testInputTxId,
-										0,
-									),
-								},
-							),
-						},
-					},
+			TxFee: testFee,
+			TxInputs: shelley.NewShelleyTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(
+						testInputTxId,
+						0,
+					),
 				},
-			},
+			),
 		},
 	}
 	testLedgerState := test.MockLedgerState{
@@ -1003,15 +965,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	var testCollateralAmount2 uint64 = 200000
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				MaryTransactionBody: mary.MaryTransactionBody{
-					AllegraTransactionBody: allegra.AllegraTransactionBody{
-						ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-							TxFee: testFee,
-						},
-					},
-				},
-			},
+			TxFee: testFee,
 		},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
 			AlonzoTransactionWitnessSet: alonzo.AlonzoTransactionWitnessSet{
@@ -1426,10 +1380,8 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
 			TxTotalCollateral: testTotalCollateral,
-			AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-				TxCollateral: []shelley.ShelleyTransactionInput{
-					shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				},
+			TxCollateral: []shelley.ShelleyTransactionInput{
+				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			},
 		},
 	}

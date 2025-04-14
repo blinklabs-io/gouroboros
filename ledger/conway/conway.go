@@ -262,12 +262,32 @@ func (s *ConwayTransactionInputSet) SetItems(
 }
 
 type ConwayTransactionBody struct {
-	babbage.BabbageTransactionBody
-	TxInputs               ConwayTransactionInputSet  `cbor:"0,keyasint,omitempty"`
-	TxVotingProcedures     common.VotingProcedures    `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures   []common.ProposalProcedure `cbor:"20,keyasint,omitempty"`
-	TxCurrentTreasuryValue int64                      `cbor:"21,keyasint,omitempty"`
-	TxDonation             uint64                     `cbor:"22,keyasint,omitempty"`
+	common.TransactionBodyBase
+	TxInputs       ConwayTransactionInputSet          `cbor:"0,keyasint,omitempty"`
+	TxOutputs      []babbage.BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxFee          uint64                             `cbor:"2,keyasint,omitempty"`
+	Ttl            uint64                             `cbor:"3,keyasint,omitempty"`
+	TxCertificates []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals  map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
+	Update         struct {
+		cbor.StructAsArray
+		ProtocolParamUpdates map[common.Blake2b224]babbage.BabbageProtocolParameterUpdate
+		Epoch                uint64
+	} `cbor:"6,keyasint,omitempty"`
+	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
+	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
+	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
+	TxCollateral            []shelley.ShelleyTransactionInput             `cbor:"13,keyasint,omitempty"`
+	TxRequiredSigners       []common.Blake2b224                           `cbor:"14,keyasint,omitempty"`
+	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
+	TxCollateralReturn      *babbage.BabbageTransactionOutput             `cbor:"16,keyasint,omitempty"`
+	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
+	TxReferenceInputs       []shelley.ShelleyTransactionInput             `cbor:"18,keyasint,omitempty"`
+	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
+	TxProposalProcedures    []common.ProposalProcedure                    `cbor:"20,keyasint,omitempty"`
+	TxCurrentTreasuryValue  int64                                         `cbor:"21,keyasint,omitempty"`
+	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
 }
 
 func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
@@ -282,12 +302,90 @@ func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
 	return ret
 }
 
+func (b *ConwayTransactionBody) Outputs() []common.TransactionOutput {
+	ret := []common.TransactionOutput{}
+	for _, output := range b.TxOutputs {
+		ret = append(ret, &output)
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) Fee() uint64 {
+	return b.TxFee
+}
+
+func (b *ConwayTransactionBody) TTL() uint64 {
+	return b.Ttl
+}
+
+func (b *ConwayTransactionBody) ValidityIntervalStart() uint64 {
+	return b.TxValidityIntervalStart
+}
+
 func (b *ConwayTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
 	}
 	return b.Update.Epoch, updateMap
+}
+
+func (b *ConwayTransactionBody) Certificates() []common.Certificate {
+	ret := make([]common.Certificate, len(b.TxCertificates))
+	for i, cert := range b.TxCertificates {
+		ret[i] = cert.Certificate
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) Withdrawals() map[*common.Address]uint64 {
+	return b.TxWithdrawals
+}
+
+func (b *ConwayTransactionBody) AuxDataHash() *common.Blake2b256 {
+	return b.TxAuxDataHash
+}
+
+func (b *ConwayTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	return b.TxMint
+}
+
+func (b *ConwayTransactionBody) Collateral() []common.TransactionInput {
+	ret := []common.TransactionInput{}
+	for _, collateral := range b.TxCollateral {
+		ret = append(ret, collateral)
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) RequiredSigners() []common.Blake2b224 {
+	return b.TxRequiredSigners[:]
+}
+
+func (b *ConwayTransactionBody) ScriptDataHash() *common.Blake2b256 {
+	return b.TxScriptDataHash
+}
+
+func (b *ConwayTransactionBody) ReferenceInputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
+	for _, input := range b.TxReferenceInputs {
+		ret = append(ret, &input)
+	}
+	return ret
+}
+
+func (b *ConwayTransactionBody) CollateralReturn() common.TransactionOutput {
+	// Return an actual nil if we have no value. If we return our nil pointer,
+	// we get a non-nil interface containing a nil value, which is harder to
+	// compare against
+	if b.TxCollateralReturn == nil {
+		return nil
+	}
+	return b.TxCollateralReturn
+}
+
+func (b *ConwayTransactionBody) TotalCollateral() uint64 {
+	return b.TxTotalCollateral
 }
 
 func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
@@ -304,6 +402,10 @@ func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
 
 func (b *ConwayTransactionBody) Donation() uint64 {
 	return b.TxDonation
+}
+
+func (b *ConwayTransactionBody) Utxorpc() *utxorpc.Tx {
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type ConwayTransaction struct {

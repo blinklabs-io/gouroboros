@@ -37,15 +37,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testZeroSlot uint64 = 0
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-					MaryTransactionBody: mary.MaryTransactionBody{
-						AllegraTransactionBody: allegra.AllegraTransactionBody{
-							TxValidityIntervalStart: testSlot,
-						},
-					},
-				},
-			},
+			TxValidityIntervalStart: testSlot,
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -212,17 +204,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	testTxCbor, _ := hex.DecodeString("abcdef01")
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-					MaryTransactionBody: mary.MaryTransactionBody{
-						AllegraTransactionBody: allegra.AllegraTransactionBody{
-							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-								TxFee: testExactFee,
-							},
-						},
-					},
-				},
-			},
+			TxFee: testExactFee,
 		},
 	}
 	testTx.SetCbor(testTxCbor)
@@ -387,12 +369,10 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 	)
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				TxOutputs: []babbage.BabbageTransactionOutput{
-					{
-						OutputAmount: mary.MaryTransactionOutputValue{
-							Amount: 123456,
-						},
+			TxOutputs: []babbage.BabbageTransactionOutput{
+				{
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: 123456,
 					},
 				},
 			},
@@ -461,17 +441,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 	)
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-					MaryTransactionBody: mary.MaryTransactionBody{
-						AllegraTransactionBody: allegra.AllegraTransactionBody{
-							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-								TxWithdrawals: map[*common.Address]uint64{},
-							},
-						},
-					},
-				},
-			},
+			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
 	testLedgerState := test.MockLedgerState{
@@ -543,21 +513,11 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
 			),
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				TxOutputs: []babbage.BabbageTransactionOutput{
-					// Empty placeholder output
-					{},
-				},
-				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-					MaryTransactionBody: mary.MaryTransactionBody{
-						AllegraTransactionBody: allegra.AllegraTransactionBody{
-							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-								TxFee: testFee,
-							},
-						},
-					},
-				},
+			TxOutputs: []babbage.BabbageTransactionOutput{
+				// Empty placeholder output
+				{},
 			},
+			TxFee: testFee,
 		},
 	}
 	testLedgerState := test.MockLedgerState{
@@ -710,11 +670,9 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	var testOutputAmountBad uint64 = 123
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				TxOutputs: []babbage.BabbageTransactionOutput{
-					// Empty placeholder output
-					{},
-				},
+			TxOutputs: []babbage.BabbageTransactionOutput{
+				// Empty placeholder output
+				{},
 			},
 		},
 	}
@@ -801,11 +759,9 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	}
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				TxOutputs: []babbage.BabbageTransactionOutput{
-					// Empty placeholder output
-					{},
-				},
+			TxOutputs: []babbage.BabbageTransactionOutput{
+				// Empty placeholder output
+				{},
 			},
 		},
 	}
@@ -886,11 +842,9 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 	)
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				TxOutputs: []babbage.BabbageTransactionOutput{
-					// Empty placeholder
-					{},
-				},
+			TxOutputs: []babbage.BabbageTransactionOutput{
+				// Empty placeholder
+				{},
 			},
 		},
 	}
@@ -1009,17 +963,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	var testCollateralAmount2 uint64 = 200000
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-					MaryTransactionBody: mary.MaryTransactionBody{
-						AllegraTransactionBody: allegra.AllegraTransactionBody{
-							ShelleyTransactionBody: shelley.ShelleyTransactionBody{
-								TxFee: testFee,
-							},
-						},
-					},
-				},
-			},
+			TxFee: testFee,
 		},
 		WitnessSet: conway.ConwayTransactionWitnessSet{
 			WsRedeemers: conway.ConwayRedeemers{
@@ -1109,9 +1053,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	var testCollateralAmount uint64 = 100000
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				TxTotalCollateral: testCollateralAmount,
-			},
+			TxTotalCollateral: testCollateralAmount,
 		},
 		WitnessSet: conway.ConwayTransactionWitnessSet{
 			WsRedeemers: conway.ConwayRedeemers{
@@ -1510,13 +1452,9 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	var testCollateralReturnAmountBad uint64 = 16_000_000
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
-			BabbageTransactionBody: babbage.BabbageTransactionBody{
-				TxTotalCollateral: testTotalCollateral,
-				AlonzoTransactionBody: alonzo.AlonzoTransactionBody{
-					TxCollateral: []shelley.ShelleyTransactionInput{
-						shelley.NewShelleyTransactionInput(testInputTxId, 0),
-					},
-				},
+			TxTotalCollateral: testTotalCollateral,
+			TxCollateral: []shelley.ShelleyTransactionInput{
+				shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			},
 		},
 	}
