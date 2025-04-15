@@ -22,11 +22,8 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -38,57 +35,27 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 	}{
 		{
 			startParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							Decentralization: &cbor.Rat{
-								Rat: new(big.Rat).SetInt64(1),
-							},
-						},
-					},
+				Decentralization: &cbor.Rat{
+					Rat: new(big.Rat).SetInt64(1),
 				},
 			},
 			updateCbor: "a10cd81e82090a",
 			expectedParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							Decentralization: &cbor.Rat{Rat: big.NewRat(9, 10)},
-						},
-					},
-				},
+				Decentralization: &cbor.Rat{Rat: big.NewRat(9, 10)},
 			},
 		},
 		{
 			startParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							ProtocolMajor: 5,
-						},
-					},
-				},
+				ProtocolMajor: 5,
 			},
 			updateCbor: "a10e820600",
 			expectedParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							ProtocolMajor: 6,
-						},
-					},
-				},
+				ProtocolMajor: 6,
 			},
 		},
 		{
 			startParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							MaxBlockBodySize: 1,
-						},
-					},
-				},
+				MaxBlockBodySize: 1,
 				MaxTxExUnits: common.ExUnits{
 					Memory: 1,
 					Steps:  1,
@@ -96,13 +63,7 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 			},
 			updateCbor: "a2021a0001200014821a00aba9501b00000002540be400",
 			expectedParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							MaxBlockBodySize: 73728,
-						},
-					},
-				},
+				MaxBlockBodySize: 73728,
 				MaxTxExUnits: common.ExUnits{
 					Memory: 11250000,
 					Steps:  10000000000,
@@ -139,26 +100,14 @@ func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 	}{
 		{
 			startParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							Decentralization: &cbor.Rat{
-								Rat: new(big.Rat).SetInt64(1),
-							},
-						},
-					},
+				Decentralization: &cbor.Rat{
+					Rat: new(big.Rat).SetInt64(1),
 				},
 			},
 			genesisJson: `{"lovelacePerUTxOWord": 34482}`,
 			expectedParams: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: mary.MaryProtocolParameters{
-					AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-						ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-							Decentralization: &cbor.Rat{
-								Rat: new(big.Rat).SetInt64(1),
-							},
-						},
-					},
+				Decentralization: &cbor.Rat{
+					Rat: new(big.Rat).SetInt64(1),
 				},
 				AdaPerUtxoByte: 34482 / 8,
 			},
@@ -185,26 +134,20 @@ func TestAlonzoProtocolParamsUpdateFromGenesis(t *testing.T) {
 
 func TestAlonzoUtxorpc(t *testing.T) {
 	inputParams := alonzo.AlonzoProtocolParameters{
-		MaryProtocolParameters: mary.MaryProtocolParameters{
-			AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-				ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-					MaxTxSize:          16384,
-					MinFeeA:            500,
-					MinFeeB:            2,
-					MaxBlockBodySize:   65536,
-					MaxBlockHeaderSize: 1024,
-					KeyDeposit:         2000,
-					PoolDeposit:        500000,
-					MaxEpoch:           2160,
-					NOpt:               100,
-					A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
-					Rho:                &cbor.Rat{Rat: big.NewRat(3, 4)},
-					Tau:                &cbor.Rat{Rat: big.NewRat(5, 6)},
-					ProtocolMajor:      8,
-					ProtocolMinor:      0,
-				},
-			},
-		},
+		MaxTxSize:            16384,
+		MinFeeA:              500,
+		MinFeeB:              2,
+		MaxBlockBodySize:     65536,
+		MaxBlockHeaderSize:   1024,
+		KeyDeposit:           2000,
+		PoolDeposit:          500000,
+		MaxEpoch:             2160,
+		NOpt:                 100,
+		A0:                   &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho:                  &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau:                  &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ProtocolMajor:        8,
+		ProtocolMinor:        0,
 		AdaPerUtxoByte:       44 / 8,
 		MinPoolCost:          340000000,
 		MaxValueSize:         1024,

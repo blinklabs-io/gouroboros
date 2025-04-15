@@ -476,11 +476,9 @@ non_myopic_rewards	{ *poolid => int }	int is the amount of lovelaces each pool w
 type NonMyopicMemberRewardsResult interface{}
 
 type CurrentProtocolParamsResult interface {
-	ledger.AllegraProtocolParameters |
-		ledger.AlonzoProtocolParameters |
+	ledger.AlonzoProtocolParameters |
 		ledger.BabbageProtocolParameters |
 		ledger.ConwayProtocolParameters |
-		ledger.MaryProtocolParameters |
 		ledger.ShelleyProtocolParameters |
 		any
 }

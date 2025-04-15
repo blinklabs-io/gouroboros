@@ -151,8 +151,15 @@ type BabbageProtocolParameterUpdate struct {
 
 func (BabbageProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
-func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
-	return u.UnmarshalCbor(data, u)
+func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	type tBabbageProtocolParameterUpdate BabbageProtocolParameterUpdate
+	var tmp tBabbageProtocolParameterUpdate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*u = BabbageProtocolParameterUpdate(tmp)
+	u.SetCbor(cborData)
+	return nil
 }
 
 func (p *BabbageProtocolParameters) Utxorpc() *cardano.PParams {

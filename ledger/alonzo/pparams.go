@@ -24,7 +24,24 @@ import (
 )
 
 type AlonzoProtocolParameters struct {
-	mary.MaryProtocolParameters
+	cbor.StructAsArray
+	MinFeeA              uint
+	MinFeeB              uint
+	MaxBlockBodySize     uint
+	MaxTxSize            uint
+	MaxBlockHeaderSize   uint
+	KeyDeposit           uint
+	PoolDeposit          uint
+	MaxEpoch             uint
+	NOpt                 uint
+	A0                   *cbor.Rat
+	Rho                  *cbor.Rat
+	Tau                  *cbor.Rat
+	Decentralization     *cbor.Rat
+	ExtraEntropy         common.Nonce
+	ProtocolMajor        uint
+	ProtocolMinor        uint
+	MinUtxoValue         uint
 	MinPoolCost          uint64
 	AdaPerUtxoByte       uint64
 	CostModels           map[uint][]int64
@@ -39,9 +56,55 @@ type AlonzoProtocolParameters struct {
 func (p *AlonzoProtocolParameters) Update(
 	paramUpdate *AlonzoProtocolParameterUpdate,
 ) {
-	p.MaryProtocolParameters.Update(
-		&paramUpdate.MaryProtocolParameterUpdate,
-	)
+	if paramUpdate.MinFeeA != nil {
+		p.MinFeeA = *paramUpdate.MinFeeA
+	}
+	if paramUpdate.MinFeeB != nil {
+		p.MinFeeB = *paramUpdate.MinFeeB
+	}
+	if paramUpdate.MaxBlockBodySize != nil {
+		p.MaxBlockBodySize = *paramUpdate.MaxBlockBodySize
+	}
+	if paramUpdate.MaxTxSize != nil {
+		p.MaxTxSize = *paramUpdate.MaxTxSize
+	}
+	if paramUpdate.MaxBlockHeaderSize != nil {
+		p.MaxBlockHeaderSize = *paramUpdate.MaxBlockHeaderSize
+	}
+	if paramUpdate.KeyDeposit != nil {
+		p.KeyDeposit = *paramUpdate.KeyDeposit
+	}
+	if paramUpdate.PoolDeposit != nil {
+		p.PoolDeposit = *paramUpdate.PoolDeposit
+	}
+	if paramUpdate.MaxEpoch != nil {
+		p.MaxEpoch = *paramUpdate.MaxEpoch
+	}
+	if paramUpdate.NOpt != nil {
+		p.NOpt = *paramUpdate.NOpt
+	}
+	if paramUpdate.A0 != nil {
+		p.A0 = paramUpdate.A0
+	}
+	if paramUpdate.Rho != nil {
+		p.Rho = paramUpdate.Rho
+	}
+	if paramUpdate.Tau != nil {
+		p.Tau = paramUpdate.Tau
+	}
+	if paramUpdate.Decentralization != nil {
+		p.Decentralization = paramUpdate.Decentralization
+	}
+	if paramUpdate.ProtocolVersion != nil {
+		p.ProtocolMajor = paramUpdate.ProtocolVersion.Major
+		p.ProtocolMinor = paramUpdate.ProtocolVersion.Minor
+	}
+	if paramUpdate.ExtraEntropy != nil {
+		p.ExtraEntropy = *paramUpdate.ExtraEntropy
+	}
+	if paramUpdate.MinUtxoValue != nil {
+		p.MinUtxoValue = *paramUpdate.MinUtxoValue
+	}
 	if paramUpdate.MinPoolCost != nil {
 		p.MinPoolCost = *paramUpdate.MinPoolCost
 	}
@@ -100,20 +163,45 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 }
 
 type AlonzoProtocolParameterUpdate struct {
-	mary.MaryProtocolParameterUpdate
-	MinPoolCost          *uint64             `cbor:"16,keyasint"`
-	AdaPerUtxoByte       *uint64             `cbor:"17,keyasint"`
-	CostModels           map[uint][]int64    `cbor:"18,keyasint"`
-	ExecutionCosts       *common.ExUnitPrice `cbor:"19,keyasint"`
-	MaxTxExUnits         *common.ExUnits     `cbor:"20,keyasint"`
-	MaxBlockExUnits      *common.ExUnits     `cbor:"21,keyasint"`
-	MaxValueSize         *uint               `cbor:"22,keyasint"`
-	CollateralPercentage *uint               `cbor:"23,keyasint"`
-	MaxCollateralInputs  *uint               `cbor:"24,keyasint"`
+	cbor.DecodeStoreCbor
+	MinFeeA              *uint                                     `cbor:"0,keyasint"`
+	MinFeeB              *uint                                     `cbor:"1,keyasint"`
+	MaxBlockBodySize     *uint                                     `cbor:"2,keyasint"`
+	MaxTxSize            *uint                                     `cbor:"3,keyasint"`
+	MaxBlockHeaderSize   *uint                                     `cbor:"4,keyasint"`
+	KeyDeposit           *uint                                     `cbor:"5,keyasint"`
+	PoolDeposit          *uint                                     `cbor:"6,keyasint"`
+	MaxEpoch             *uint                                     `cbor:"7,keyasint"`
+	NOpt                 *uint                                     `cbor:"8,keyasint"`
+	A0                   *cbor.Rat                                 `cbor:"9,keyasint"`
+	Rho                  *cbor.Rat                                 `cbor:"10,keyasint"`
+	Tau                  *cbor.Rat                                 `cbor:"11,keyasint"`
+	Decentralization     *cbor.Rat                                 `cbor:"12,keyasint"`
+	ExtraEntropy         *common.Nonce                             `cbor:"13,keyasint"`
+	ProtocolVersion      *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
+	MinUtxoValue         *uint                                     `cbor:"15,keyasint"`
+	MinPoolCost          *uint64                                   `cbor:"16,keyasint"`
+	AdaPerUtxoByte       *uint64                                   `cbor:"17,keyasint"`
+	CostModels           map[uint][]int64                          `cbor:"18,keyasint"`
+	ExecutionCosts       *common.ExUnitPrice                       `cbor:"19,keyasint"`
+	MaxTxExUnits         *common.ExUnits                           `cbor:"20,keyasint"`
+	MaxBlockExUnits      *common.ExUnits                           `cbor:"21,keyasint"`
+	MaxValueSize         *uint                                     `cbor:"22,keyasint"`
+	CollateralPercentage *uint                                     `cbor:"23,keyasint"`
+	MaxCollateralInputs  *uint                                     `cbor:"24,keyasint"`
 }
 
-func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
-	return u.UnmarshalCbor(data, u)
+func (AlonzoProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+
+func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	type tAlonzoProtocolParameterUpdate AlonzoProtocolParameterUpdate
+	var tmp tAlonzoProtocolParameterUpdate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*u = AlonzoProtocolParameterUpdate(tmp)
+	u.SetCbor(cborData)
+	return nil
 }
 
 func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
@@ -203,6 +291,22 @@ func UpgradePParams(
 	prevPParams mary.MaryProtocolParameters,
 ) AlonzoProtocolParameters {
 	return AlonzoProtocolParameters{
-		MaryProtocolParameters: prevPParams,
+		MinFeeA:            prevPParams.MinFeeA,
+		MinFeeB:            prevPParams.MinFeeB,
+		MaxBlockBodySize:   prevPParams.MaxBlockBodySize,
+		MaxTxSize:          prevPParams.MaxTxSize,
+		MaxBlockHeaderSize: prevPParams.MaxBlockHeaderSize,
+		KeyDeposit:         prevPParams.KeyDeposit,
+		PoolDeposit:        prevPParams.PoolDeposit,
+		MaxEpoch:           prevPParams.MaxEpoch,
+		NOpt:               prevPParams.NOpt,
+		A0:                 prevPParams.A0,
+		Rho:                prevPParams.Rho,
+		Tau:                prevPParams.Tau,
+		Decentralization:   prevPParams.Decentralization,
+		ExtraEntropy:       prevPParams.ExtraEntropy,
+		ProtocolMajor:      prevPParams.ProtocolMajor,
+		ProtocolMinor:      prevPParams.ProtocolMinor,
+		MinUtxoValue:       prevPParams.MinUtxoValue,
 	}
 }
