@@ -525,7 +525,12 @@ func (u *UtxoId) UnmarshalCBOR(data []byte) error {
 		u.Hash = tmpData.Hash
 		u.Idx = tmpData.Idx
 	case 3:
-		return cbor.DecodeGeneric(data, u)
+		type tUtxoId UtxoId
+		var tmp tUtxoId
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return err
+		}
+		*u = UtxoId(tmp)
 	default:
 		return fmt.Errorf("invalid list length: %d", listLen)
 	}

@@ -269,8 +269,6 @@ type AlonzoTransactionOutput struct {
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	// Save original CBOR
-	o.SetCbor(cborData)
 	// Try to parse as legacy mary.Mary output first
 	var tmpOutput mary.MaryTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -279,8 +277,15 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.OutputAmount = tmpOutput.OutputAmount
 		o.legacyOutput = true
 	} else {
-		return cbor.DecodeGeneric(cborData, o)
+		type tAlonzoTransactionOutput AlonzoTransactionOutput
+		var tmp tAlonzoTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		*o = AlonzoTransactionOutput(tmp)
 	}
+	// Save original CBOR
+	o.SetCbor(cborData)
 	return nil
 }
 

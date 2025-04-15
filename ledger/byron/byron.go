@@ -337,6 +337,7 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 	}
 	switch id {
 	case 0:
+		// Decode outer data
 		var tmpData struct {
 			cbor.StructAsArray
 			Id   int
@@ -345,9 +346,13 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 		if _, err := cbor.Decode(data, &tmpData); err != nil {
 			return err
 		}
-		if err := cbor.DecodeGeneric(tmpData.Cbor, i); err != nil {
+		// Decode inner data
+		type tByronTransactionInput ByronTransactionInput
+		var tmp tByronTransactionInput
+		if _, err := cbor.Decode(tmpData.Cbor, &tmp); err != nil {
 			return err
 		}
+		*i = ByronTransactionInput(tmp)
 	default:
 		// [u8 .ne 0, encoded-cbor]
 		return errors.New("can't parse yet")
