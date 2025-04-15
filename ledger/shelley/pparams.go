@@ -154,8 +154,15 @@ type ShelleyProtocolParameterUpdate struct {
 
 func (ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
-func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
-	return u.UnmarshalCbor(data, u)
+func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
+	type tShelleyProtocolParameterUpdate ShelleyProtocolParameterUpdate
+	var tmp tShelleyProtocolParameterUpdate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*u = ShelleyProtocolParameterUpdate(tmp)
+	u.SetCbor(cborData)
+	return nil
 }
 
 func (p *ShelleyProtocolParameters) Utxorpc() *cardano.PParams {

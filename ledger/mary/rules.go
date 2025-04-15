@@ -103,7 +103,7 @@ func UtxoValidateFeeTooSmallUtxo(
 		tx,
 		slot,
 		ls,
-		&tmpPparams.ShelleyProtocolParameters,
+		tmpPparams,
 	)
 }
 
@@ -148,7 +148,7 @@ func UtxoValidateValueNotConservedUtxo(
 		tx,
 		slot,
 		ls,
-		&tmpPparams.ShelleyProtocolParameters,
+		tmpPparams,
 	)
 }
 
@@ -166,7 +166,7 @@ func UtxoValidateOutputTooSmallUtxo(
 		tx,
 		slot,
 		ls,
-		&tmpPparams.ShelleyProtocolParameters,
+		tmpPparams,
 	)
 }
 
@@ -193,6 +193,6 @@ func UtxoValidateMaxTxSizeUtxo(
 		tx,
 		slot,
 		ls,
-		&tmpPparams.ShelleyProtocolParameters,
+		tmpPparams,
 	)
 }

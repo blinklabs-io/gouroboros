@@ -205,12 +205,8 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	}
 	testTx.SetCbor(testTxCbor)
 	testProtocolParams := &mary.MaryProtocolParameters{
-		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-				MinFeeA: 7,
-				MinFeeB: 53,
-			},
-		},
+		MinFeeA: 7,
+		MinFeeB: 53,
 	}
 	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
@@ -535,11 +531,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{
-		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-				KeyDeposit: uint(testStakeDeposit),
-			},
-		},
+		KeyDeposit: uint(testStakeDeposit),
 	}
 	// Exact amount
 	t.Run(
@@ -686,11 +678,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{
-		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-				MinUtxoValue: 100000,
-			},
-		},
+		MinUtxoValue: 100000,
 	}
 	// Good
 	t.Run(

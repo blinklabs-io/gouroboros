@@ -14,39 +14,14 @@
 
 package mary
 
-import (
-	"github.com/blinklabs-io/gouroboros/ledger/allegra"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-)
+import "github.com/blinklabs-io/gouroboros/ledger/shelley"
 
-type MaryProtocolParameters struct {
-	allegra.AllegraProtocolParameters
-}
+type MaryProtocolParameters = shelley.ShelleyProtocolParameters
 
-func (p *MaryProtocolParameters) Update(
-	paramUpdate *MaryProtocolParameterUpdate,
-) {
-	p.AllegraProtocolParameters.Update(
-		&paramUpdate.AllegraProtocolParameterUpdate,
-	)
-}
-
-type MaryProtocolParameterUpdate struct {
-	allegra.AllegraProtocolParameterUpdate
-}
-
-func (u *MaryProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
-	return u.UnmarshalCbor(data, u)
-}
-
-func (p *MaryProtocolParameters) Utxorpc() *cardano.PParams {
-	return p.AllegraProtocolParameters.Utxorpc()
-}
+type MaryProtocolParameterUpdate = shelley.ShelleyProtocolParameterUpdate
 
 func UpgradePParams(
-	prevPParams allegra.AllegraProtocolParameters,
+	prevPParams shelley.ShelleyProtocolParameters,
 ) MaryProtocolParameters {
-	return MaryProtocolParameters{
-		AllegraProtocolParameters: prevPParams,
-	}
+	return MaryProtocolParameters(prevPParams)
 }
