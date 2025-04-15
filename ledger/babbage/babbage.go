@@ -425,8 +425,6 @@ type BabbageTransactionOutput struct {
 }
 
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	// Save original CBOR
-	o.SetCbor(cborData)
 	// Try to parse as legacy output first
 	var tmpOutput alonzo.AlonzoTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -442,6 +440,8 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		}
 		*o = BabbageTransactionOutput(tmp)
 	}
+	// Save original CBOR
+	o.SetCbor(cborData)
 	return nil
 }
 
