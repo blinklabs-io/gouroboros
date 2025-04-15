@@ -471,12 +471,16 @@ type MaryTransactionOutputValue struct {
 }
 
 func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
+	// Try to decode as simple amount first
 	if _, err := cbor.Decode(data, &(v.Amount)); err == nil {
 		return nil
 	}
-	if err := cbor.DecodeGeneric(data, v); err != nil {
+	type tMaryTransactionOutputValue MaryTransactionOutputValue
+	var tmp tMaryTransactionOutputValue
+	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
+	*v = MaryTransactionOutputValue(tmp)
 	return nil
 }
 

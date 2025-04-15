@@ -45,9 +45,12 @@ func (n *Nonce) UnmarshalCBOR(data []byte) error {
 	case NonceTypeNeutral:
 		// Value uses default value
 	case NonceTypeNonce:
-		if err := cbor.DecodeGeneric(data, n); err != nil {
+		type tNonce Nonce
+		var tmp tNonce
+		if _, err := cbor.Decode(data, &tmp); err != nil {
 			return err
 		}
+		*n = Nonce(tmp)
 	default:
 		return fmt.Errorf("unsupported nonce type %d", nonceType)
 	}

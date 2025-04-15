@@ -435,7 +435,12 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.OutputAmount = tmpOutput.OutputAmount
 		o.legacyOutput = true
 	} else {
-		return cbor.DecodeGeneric(cborData, o)
+		type tBabbageTransactionOutput BabbageTransactionOutput
+		var tmp tBabbageTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		*o = BabbageTransactionOutput(tmp)
 	}
 	return nil
 }
