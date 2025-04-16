@@ -283,6 +283,9 @@ func UtxoValidateValueNotConservedUtxo(
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		}
 	}
+	for _, proposal := range tx.ProposalProcedures() {
+		producedValue += proposal.Deposit
+	}
 	if consumedValue == producedValue {
 		return nil
 	}
