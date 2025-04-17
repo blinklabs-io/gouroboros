@@ -17,6 +17,7 @@ package localstatequery_test
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"reflect"
 	"testing"
 	"time"
@@ -290,9 +291,9 @@ func TestGetUTxOByAddress(t *testing.T) {
 func TestGenesisConfigJSON(t *testing.T) {
 	genesisConfig := localstatequery.GenesisConfigResult{
 		Start: localstatequery.SystemStartResult{
-			Year:        2024,
+			Year:        *big.NewInt(2024),
 			Day:         35,
-			Picoseconds: 1234567890123456,
+			Picoseconds: *big.NewInt(1234567890123456),
 		},
 		NetworkMagic:      764824073,
 		NetworkId:         1,

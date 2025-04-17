@@ -124,7 +124,9 @@ func testQuery(f *globalFlags) {
 			os.Exit(1)
 		}
 		fmt.Printf(
-			"system-start: year = %d, day = %d, picoseconds = %d\n",
+			// REVIEW: %d should work for big/Int, but warns and produces output
+			// like {%!d(bool=false) [2025]}
+			"system-start: year = %v, day = %d, picoseconds = %v\n",
 			systemStart.Year,
 			systemStart.Day,
 			systemStart.Picoseconds,
