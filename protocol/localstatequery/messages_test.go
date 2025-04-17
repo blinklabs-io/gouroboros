@@ -16,6 +16,9 @@ package localstatequery
 
 import (
 	"encoding/hex"
+	"fmt"
+	"math/big"
+	"os"
 	"reflect"
 	"testing"
 
@@ -28,6 +31,7 @@ type testDefinition struct {
 	CborHex     string
 	Message     protocol.Message
 	MessageType uint
+	Result      interface{}
 }
 
 var tests = []testDefinition{
@@ -92,6 +96,26 @@ var tests = []testDefinition{
 		Message:     NewMsgReAcquireVolatileTip(),
 		MessageType: MessageTypeReacquireVolatileTip,
 	},
+	{
+		CborHex:     string(readFile("../../cardano-blueprint/src/api/examples/getSystemStart/query.cbor")),
+		Message:     NewMsgQuery(&SystemStartQuery{simpleQueryBase{Type: QueryTypeSystemStart}}),
+		MessageType: MessageTypeQuery,
+	},
+	{
+		CborHex: string(readFile("../../cardano-blueprint/src/api/examples/getSystemStart/result.cbor")),
+		Message: NewMsgResult(unsafeCbor(
+			SystemStartResult{
+				Year:        unsafeBigInt([]byte("703941703872597091335551638723343370661404331303175992839224705786473148")),
+				Day:         -4205646576720553090,
+				Picoseconds: unsafeBigInt([]byte("-554918151390414980540174869115975093799476848534297657333456993160799627")),
+			})),
+		MessageType: MessageTypeResult,
+		Result: SystemStartResult{
+			Year:        unsafeBigInt([]byte("703941703872597091335551638723343370661404331303175992839224705786473148")),
+			Day:         -4205646576720553090,
+			Picoseconds: unsafeBigInt([]byte("-554918151390414980540174869115975093799476848534297657333456993160799627")),
+		},
+	},
 }
 
 func TestDecode(t *testing.T) {
@@ -104,6 +128,23 @@ func TestDecode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to decode CBOR: %s", err)
 		}
+		// cast msg to MsgResult and further try to decode cbor
+		if m, ok := msg.(*MsgResult); ok && test.Result != nil {
+			var decoded = reflect.New(reflect.TypeOf(test.Result))
+			_, err := cbor.Decode(m.Result, decoded.Interface())
+			if err != nil {
+				t.Fatalf("failed to decode result: %s", err)
+			}
+			var actual = reflect.Indirect(decoded).Interface()
+			if !reflect.DeepEqual(actual, test.Result) {
+				t.Fatalf(
+					"MsgResult content did not decode to expected Result object\n  got:    %#v\n  wanted: %#v",
+					actual,
+					test.Result,
+				)
+			}
+		}
+
 		// Set the raw CBOR so the comparison should succeed
 		test.Message.SetCbor(cborData)
 		if m, ok := msg.(*MsgQuery); ok {
@@ -134,4 +175,31 @@ func TestEncode(t *testing.T) {
 			)
 		}
 	}
+}
+
+// Helper function to encode to cbor or panic
+func unsafeCbor(data interface{}) []byte {
+	cborData, err := cbor.Encode(data)
+	if err != nil {
+		panic(fmt.Sprintf("error encoding to CBOR: %s", err))
+	}
+	return cborData
+}
+
+func unsafeBigInt(text []byte) big.Int {
+	var i big.Int
+	err := i.UnmarshalText(text)
+	if err != nil {
+		panic(fmt.Sprintf("error unmarshalling text to big.Int: %s", err))
+	}
+	return i
+}
+
+// Helper function to allow inline reading of a file without capturing the error
+func readFile(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("error reading file: %s", err))
+	}
+	return data
 }
