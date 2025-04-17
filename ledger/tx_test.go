@@ -54,6 +54,5 @@ func TestDetermineTransactionType(t *testing.T) {
 				testDef.expectedTxType,
 			)
 		}
-		t.Logf("Test %s passed: correctly identified tx type %d", testDef.name, tmpTxType)
 	}
 }
