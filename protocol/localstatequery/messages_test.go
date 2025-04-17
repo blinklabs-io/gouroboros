@@ -16,6 +16,8 @@ package localstatequery
 
 import (
 	"encoding/hex"
+	"fmt"
+	"os"
 	"reflect"
 	"testing"
 
@@ -92,6 +94,16 @@ var tests = []testDefinition{
 		Message:     NewMsgReAcquireVolatileTip(),
 		MessageType: MessageTypeReacquireVolatileTip,
 	},
+	{
+		CborHex:     string(readFile("../../cardano-blueprint/src/api/examples/getSystemStart/query.cbor")),
+		Message:     NewMsgQuery(&SystemStartQuery{simpleQueryBase{Type: QueryTypeSystemStart}}),
+		MessageType: MessageTypeQuery,
+	},
+	{
+		CborHex:     string(readFile("../../cardano-blueprint/src/api/examples/getSystemStart/result.cbor")),
+		Message:     NewMsgResult([]byte{5}), // FIXME: not correct and should also check SystemStart decoder
+		MessageType: MessageTypeResult,
+	},
 }
 
 func TestDecode(t *testing.T) {
@@ -134,4 +146,13 @@ func TestEncode(t *testing.T) {
 			)
 		}
 	}
+}
+
+// Helper function to allow inline reading of a file without capturing the error
+func readFile(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("error reading file: %s", err))
+	}
+	return data
 }
