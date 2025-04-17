@@ -76,7 +76,9 @@ func NewTransactionBodyFromCbor(
 // NewTransactionOutputFromCbor attempts to parse the provided arbitrary CBOR data as a transaction output from
 // each of the eras, returning the first one that we can successfully decode
 func NewTransactionOutputFromCbor(data []byte) (TransactionOutput, error) {
-	// TODO: add Byron transaction output support (#849)
+	if txOut, err := NewByronTransactionOutputFromCbor(data); err == nil {
+		return txOut, nil
+	}
 	if txOut, err := NewShelleyTransactionOutputFromCbor(data); err == nil {
 		return txOut, nil
 	}
@@ -93,13 +95,9 @@ func NewTransactionOutputFromCbor(data []byte) (TransactionOutput, error) {
 }
 
 func DetermineTransactionType(data []byte) (uint, error) {
-	// TODO: uncomment this once the following issue is resolved: (#849)
-	// https://github.com/blinklabs-io/gouroboros/issues/206
-	/*
-		if _, err := NewByronTransactionFromCbor(data); err == nil {
-			return TxTypeByron, nil
-		}
-	*/
+	if _, err := NewByronTransactionFromCbor(data); err == nil {
+		return TxTypeByron, nil
+	}
 	if _, err := NewShelleyTransactionFromCbor(data); err == nil {
 		return TxTypeShelley, nil
 	}

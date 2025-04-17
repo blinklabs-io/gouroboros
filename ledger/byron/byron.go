@@ -771,3 +771,11 @@ func NewByronTransactionFromCbor(data []byte) (*ByronTransaction, error) {
 	}
 	return &byronTx, nil
 }
+
+func NewByronTransactionOutputFromCbor(data []byte) (*ByronTransactionOutput, error) {
+	var byronTxOutput ByronTransactionOutput
+	if _, err := cbor.Decode(data, &byronTxOutput); err != nil {
+		return nil, fmt.Errorf("decode Byron transaction output error: %w", err)
+	}
+	return &byronTxOutput, nil
+}
