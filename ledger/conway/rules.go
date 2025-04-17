@@ -279,6 +279,8 @@ func UtxoValidateValueNotConservedUtxo(
 			}
 		case *common.RegistrationCertificate:
 			producedValue += uint64(tmpPparams.KeyDeposit)
+		case *common.RegistrationDrepCertificate:
+			producedValue += uint64(tmpPparams.DRepDeposit)
 		case *common.StakeRegistrationCertificate:
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		}
