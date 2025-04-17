@@ -16,6 +16,7 @@ package localstatequery
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -416,9 +417,13 @@ type SystemStartQuery struct {
 type SystemStartResult struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
-	Year        int
+	Year        big.Int
 	Day         int
-	Picoseconds uint64
+	Picoseconds big.Int
+}
+
+func (s SystemStartResult) String() string {
+	return fmt.Sprintf("SystemStart %s %d %s", s.Year.String(), s.Day, s.Picoseconds.String())
 }
 
 type ChainBlockNoQuery struct {
