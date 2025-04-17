@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
 
@@ -424,6 +425,33 @@ type SystemStartResult struct {
 
 func (s SystemStartResult) String() string {
 	return fmt.Sprintf("SystemStart %s %d %s", s.Year.String(), s.Day, s.Picoseconds.String())
+}
+
+func (s SystemStartResult) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Year        string
+		Day         int
+		Picoseconds string
+	}{
+		Year:        s.Year.String(),
+		Day:         s.Day,
+		Picoseconds: s.Picoseconds.String(),
+	})
+}
+
+func (s *SystemStartResult) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Year        string
+		Day         int
+		Picoseconds string
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	s.Year.SetString(tmp.Year, 10)
+	s.Day = tmp.Day
+	s.Picoseconds.SetString(tmp.Picoseconds, 10)
+	return nil
 }
 
 type ChainBlockNoQuery struct {
