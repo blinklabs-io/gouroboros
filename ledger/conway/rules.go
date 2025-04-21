@@ -256,6 +256,8 @@ func UtxoValidateValueNotConservedUtxo(
 		switch cert.(type) {
 		case *common.DeregistrationCertificate:
 			consumedValue += uint64(tmpPparams.KeyDeposit)
+		case *common.DeregistrationDrepCertificate:
+			consumedValue += uint64(tmpPparams.DRepDeposit)
 		case *common.StakeDeregistrationCertificate:
 			consumedValue += uint64(tmpPparams.KeyDeposit)
 		}
