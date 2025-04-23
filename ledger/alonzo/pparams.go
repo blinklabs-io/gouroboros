@@ -328,69 +328,77 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 		return nil
 	}
 
-	// Helper function to safely convert rational numbers with bounds checking
-	safeRatConvert := func(rat *cbor.Rat) *cardano.RationalNumber {
+	// Safe conversion helper functions
+	safeInt64ToInt32 := func(val int64) (int32, bool) {
+		if val < math.MinInt32 || val > math.MaxInt32 {
+			return 0, false
+		}
+		return int32(val), true
+	}
+
+	safeUintToUint32 := func(val uint) (uint32, bool) {
+		if val > math.MaxUint32 {
+			return 0, false
+		}
+		return uint32(val), true
+	}
+
+	// Convert protocol version
+	protocolMajor, ok1 := safeUintToUint32(p.ProtocolMajor)
+	protocolMinor, ok2 := safeUintToUint32(p.ProtocolMinor)
+	if !ok1 || !ok2 {
+		return nil
+	}
+
+	// Convert rational numbers
+	convertRat := func(rat *cbor.Rat) *cardano.RationalNumber {
 		if rat == nil || rat.Rat == nil {
 			return nil
 		}
-		num := rat.Num().Int64()
-		denom := rat.Denom().Int64()
-
-		// Check bounds for int32 numerator and uint32 denominator
-		if num < math.MinInt32 || num > math.MaxInt32 {
+		num, numOk := safeInt64ToInt32(rat.Num().Int64())
+		denom64 := rat.Denom().Int64()
+		if denom64 <= 0 || denom64 > math.MaxUint32 {
 			return nil
 		}
-		if denom <= 0 || denom > math.MaxUint32 {
+		denom := uint32(denom64)
+		if !numOk {
 			return nil
 		}
-
 		return &cardano.RationalNumber{
-			Numerator:   int32(num),
-			Denominator: uint32(denom),
+			Numerator:   num,
+			Denominator: denom,
 		}
 	}
 
-	// Convert all rational numbers with safety checks
-	a0 := safeRatConvert(p.A0)
-	rho := safeRatConvert(p.Rho)
-	tau := safeRatConvert(p.Tau)
-	memPrice := safeRatConvert(p.ExecutionCosts.MemPrice)
-	stepPrice := safeRatConvert(p.ExecutionCosts.StepPrice)
+	a0 := convertRat(p.A0)
+	rho := convertRat(p.Rho)
+	tau := convertRat(p.Tau)
+	memPrice := convertRat(p.ExecutionCosts.MemPrice)
+	stepPrice := convertRat(p.ExecutionCosts.StepPrice)
 
-	// Return nil if any conversion failed
 	if a0 == nil || rho == nil || tau == nil || memPrice == nil || stepPrice == nil {
 		return nil
 	}
 
-	// Convert cost models with proper version handling
+	// Convert cost models
 	costModels := &cardano.CostModels{}
 	if p.CostModels != nil {
-		// Initialize all Plutus versions to empty models first
 		costModels.PlutusV1 = &cardano.CostModel{Values: []int64{}}
 		costModels.PlutusV2 = &cardano.CostModel{Values: []int64{}}
 		costModels.PlutusV3 = &cardano.CostModel{Values: []int64{}}
 
-		// Convert each version that exists in our parameters
 		for version, model := range p.CostModels {
-			var values []int64
+			values := make([]int64, len(model.Order))
+			for i, name := range model.Order {
+				values[i] = model.Parameters[name]
+			}
+
 			switch version {
 			case PlutusV1:
-				values = make([]int64, len(model.Order))
-				for i, name := range model.Order {
-					values[i] = model.Parameters[name]
-				}
 				costModels.PlutusV1.Values = values
 			case PlutusV2:
-				values = make([]int64, len(model.Order))
-				for i, name := range model.Order {
-					values[i] = model.Parameters[name]
-				}
 				costModels.PlutusV2.Values = values
 			case PlutusV3:
-				values = make([]int64, len(model.Order))
-				for i, name := range model.Order {
-					values[i] = model.Parameters[name]
-				}
 				costModels.PlutusV3.Values = values
 			}
 		}
@@ -412,8 +420,8 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 		TreasuryExpansion:        tau,
 		MinPoolCost:              p.MinPoolCost,
 		ProtocolVersion: &cardano.ProtocolVersion{
-			Major: uint32(p.ProtocolMajor),
-			Minor: uint32(p.ProtocolMinor),
+			Major: protocolMajor,
+			Minor: protocolMinor,
 		},
 		MaxValueSize:         uint64(p.MaxValueSize),
 		CollateralPercentage: uint64(p.CollateralPercentage),
