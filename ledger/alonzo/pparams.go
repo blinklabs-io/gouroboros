@@ -22,7 +22,8 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/gouroboros/ledger/mary"
+
+	//"github.com/blinklabs-io/gouroboros/ledger/mary"
 	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -327,22 +328,37 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 		return nil
 	}
 
-	// Helper function to safely check rational number bounds
-	safeRatCheck := func(rat *cbor.Rat) bool {
+	// Helper function to safely convert rational numbers with bounds checking
+	safeRatConvert := func(rat *cbor.Rat) *cardano.RationalNumber {
 		if rat == nil || rat.Rat == nil {
-			return false
+			return nil
 		}
 		num := rat.Num().Int64()
 		denom := rat.Denom().Int64()
-		return num <= math.MaxInt32 && denom > 0 && denom <= math.MaxUint32
+
+		// Check bounds for int32 numerator and uint32 denominator
+		if num < math.MinInt32 || num > math.MaxInt32 {
+			return nil
+		}
+		if denom <= 0 || denom > math.MaxUint32 {
+			return nil
+		}
+
+		return &cardano.RationalNumber{
+			Numerator:   int32(num),
+			Denominator: uint32(denom),
+		}
 	}
 
-	// Validate all rational numbers
-	if !safeRatCheck(p.A0) || !safeRatCheck(p.Rho) || !safeRatCheck(p.Tau) {
-		return nil
-	}
-	if p.ExecutionCosts.MemPrice == nil || p.ExecutionCosts.StepPrice == nil ||
-		!safeRatCheck(p.ExecutionCosts.MemPrice) || !safeRatCheck(p.ExecutionCosts.StepPrice) {
+	// Convert all rational numbers with safety checks
+	a0 := safeRatConvert(p.A0)
+	rho := safeRatConvert(p.Rho)
+	tau := safeRatConvert(p.Tau)
+	memPrice := safeRatConvert(p.ExecutionCosts.MemPrice)
+	stepPrice := safeRatConvert(p.ExecutionCosts.StepPrice)
+
+	// Return nil if any conversion failed
+	if a0 == nil || rho == nil || tau == nil || memPrice == nil || stepPrice == nil {
 		return nil
 	}
 
@@ -391,19 +407,10 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 		PoolDeposit:              uint64(p.PoolDeposit),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence: &cardano.RationalNumber{
-			Numerator:   int32(p.A0.Num().Int64()),
-			Denominator: uint32(p.A0.Denom().Int64()),
-		},
-		MonetaryExpansion: &cardano.RationalNumber{
-			Numerator:   int32(p.Rho.Num().Int64()),
-			Denominator: uint32(p.Rho.Denom().Int64()),
-		},
-		TreasuryExpansion: &cardano.RationalNumber{
-			Numerator:   int32(p.Tau.Num().Int64()),
-			Denominator: uint32(p.Tau.Denom().Int64()),
-		},
-		MinPoolCost: p.MinPoolCost,
+		PoolInfluence:            a0,
+		MonetaryExpansion:        rho,
+		TreasuryExpansion:        tau,
+		MinPoolCost:              p.MinPoolCost,
 		ProtocolVersion: &cardano.ProtocolVersion{
 			Major: uint32(p.ProtocolMajor),
 			Minor: uint32(p.ProtocolMinor),
@@ -413,14 +420,8 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 		MaxCollateralInputs:  uint64(p.MaxCollateralInputs),
 		CostModels:           costModels,
 		Prices: &cardano.ExPrices{
-			Memory: &cardano.RationalNumber{
-				Numerator:   int32(p.ExecutionCosts.MemPrice.Num().Int64()),
-				Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64()),
-			},
-			Steps: &cardano.RationalNumber{
-				Numerator:   int32(p.ExecutionCosts.StepPrice.Num().Int64()),
-				Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64()),
-			},
+			Memory: memPrice,
+			Steps:  stepPrice,
 		},
 		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
 			Memory: p.MaxTxExUnits.Memory,
@@ -430,29 +431,5 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 			Memory: p.MaxBlockExUnits.Memory,
 			Steps:  p.MaxBlockExUnits.Steps,
 		},
-	}
-}
-
-func UpgradePParams(
-	prevPParams mary.MaryProtocolParameters,
-) AlonzoProtocolParameters {
-	return AlonzoProtocolParameters{
-		MinFeeA:            prevPParams.MinFeeA,
-		MinFeeB:            prevPParams.MinFeeB,
-		MaxBlockBodySize:   prevPParams.MaxBlockBodySize,
-		MaxTxSize:          prevPParams.MaxTxSize,
-		MaxBlockHeaderSize: prevPParams.MaxBlockHeaderSize,
-		KeyDeposit:         prevPParams.KeyDeposit,
-		PoolDeposit:        prevPParams.PoolDeposit,
-		MaxEpoch:           prevPParams.MaxEpoch,
-		NOpt:               prevPParams.NOpt,
-		A0:                 prevPParams.A0,
-		Rho:                prevPParams.Rho,
-		Tau:                prevPParams.Tau,
-		Decentralization:   prevPParams.Decentralization,
-		ExtraEntropy:       prevPParams.ExtraEntropy,
-		ProtocolMajor:      prevPParams.ProtocolMajor,
-		ProtocolMinor:      prevPParams.ProtocolMinor,
-		MinUtxoValue:       prevPParams.MinUtxoValue,
 	}
 }
