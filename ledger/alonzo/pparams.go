@@ -15,12 +15,9 @@
 package alonzo
 
 import (
-	//"encoding/json"
 	"fmt"
 	"math"
 	"sort"
-
-	//"strconv"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
