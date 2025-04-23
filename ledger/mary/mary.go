@@ -54,7 +54,14 @@ type MaryBlock struct {
 }
 
 func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tMaryBlock MaryBlock
+	var tmp tMaryBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = MaryBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (MaryBlock) Type() int {
@@ -154,7 +161,14 @@ type MaryTransactionBody struct {
 }
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tMaryTransactionBody MaryTransactionBody
+	var tmp tMaryTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = MaryTransactionBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
@@ -225,8 +239,15 @@ type MaryTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
-func (t *MaryTransaction) UnmarshalCBOR(data []byte) error {
-	return t.UnmarshalCbor(data, t)
+func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
+	type tMaryTransaction MaryTransaction
+	var tmp tMaryTransaction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*t = MaryTransaction(tmp)
+	t.SetCbor(cborData)
+	return nil
 }
 
 func (MaryTransaction) Type() int {
@@ -390,8 +411,15 @@ type MaryTransactionOutput struct {
 	OutputAmount  MaryTransactionOutputValue
 }
 
-func (o *MaryTransactionOutput) UnmarshalCBOR(data []byte) error {
-	return o.UnmarshalCbor(data, o)
+func (o *MaryTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	type tMaryTransactionOutput MaryTransactionOutput
+	var tmp tMaryTransactionOutput
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*o = MaryTransactionOutput(tmp)
+	o.SetCbor(cborData)
+	return nil
 }
 
 func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
@@ -443,12 +471,16 @@ type MaryTransactionOutputValue struct {
 }
 
 func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
+	// Try to decode as simple amount first
 	if _, err := cbor.Decode(data, &(v.Amount)); err == nil {
 		return nil
 	}
-	if err := cbor.DecodeGeneric(data, v); err != nil {
+	type tMaryTransactionOutputValue MaryTransactionOutputValue
+	var tmp tMaryTransactionOutputValue
+	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
+	*v = MaryTransactionOutputValue(tmp)
 	return nil
 }
 

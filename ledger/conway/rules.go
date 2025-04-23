@@ -254,6 +254,10 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
+		case *common.DeregistrationCertificate:
+			consumedValue += uint64(tmpPparams.KeyDeposit)
+		case *common.DeregistrationDrepCertificate:
+			consumedValue += uint64(tmpPparams.DRepDeposit)
 		case *common.StakeDeregistrationCertificate:
 			consumedValue += uint64(tmpPparams.KeyDeposit)
 		}
@@ -275,9 +279,16 @@ func UtxoValidateValueNotConservedUtxo(
 			if len(certs) == 0 {
 				producedValue += uint64(tmpPparams.PoolDeposit)
 			}
+		case *common.RegistrationCertificate:
+			producedValue += uint64(tmpPparams.KeyDeposit)
+		case *common.RegistrationDrepCertificate:
+			producedValue += uint64(tmpPparams.DRepDeposit)
 		case *common.StakeRegistrationCertificate:
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		}
+	}
+	for _, proposal := range tx.ProposalProcedures() {
+		producedValue += proposal.Deposit
 	}
 	if consumedValue == producedValue {
 		return nil

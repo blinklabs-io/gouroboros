@@ -20,16 +20,13 @@ import (
 	"math/big"
 	"reflect"
 
-	//"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	//"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 // Helper to create properly initialized base protocol parameters
@@ -215,6 +212,7 @@ func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
 	}
 }
 
+
 func convertToExecutionPricesRat(r *struct {
 	Numerator   int64 `json:"numerator"`
 	Denominator int64 `json:"denominator"`
@@ -241,7 +239,8 @@ func convertCostModels(tempModels map[string]map[string]int) map[string]map[stri
 	return models
 }
 
-func TestAlonzoProtocolParametersUtxorpc(t *testing.T) {
+
+func TestAlonzoUtxorpc(t *testing.T) {
 	params := alonzo.AlonzoProtocolParameters{
 		MaryProtocolParameters: newBaseProtocolParams(),
 		MinPoolCost:            340000000,

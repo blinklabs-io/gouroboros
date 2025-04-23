@@ -56,7 +56,14 @@ type AlonzoBlock struct {
 }
 
 func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tAlonzoBlock AlonzoBlock
+	var tmp tAlonzoBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = AlonzoBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (AlonzoBlock) Type() int {
@@ -166,7 +173,14 @@ type AlonzoTransactionBody struct {
 }
 
 func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tAlonzoTransactionBody AlonzoTransactionBody
+	var tmp tAlonzoTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = AlonzoTransactionBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (b *AlonzoTransactionBody) Inputs() []common.TransactionInput {
@@ -255,8 +269,6 @@ type AlonzoTransactionOutput struct {
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	// Save original CBOR
-	o.SetCbor(cborData)
 	// Try to parse as legacy mary.Mary output first
 	var tmpOutput mary.MaryTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -265,8 +277,15 @@ func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.OutputAmount = tmpOutput.OutputAmount
 		o.legacyOutput = true
 	} else {
-		return cbor.DecodeGeneric(cborData, o)
+		type tAlonzoTransactionOutput AlonzoTransactionOutput
+		var tmp tAlonzoTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		*o = AlonzoTransactionOutput(tmp)
 	}
+	// Save original CBOR
+	o.SetCbor(cborData)
 	return nil
 }
 
@@ -391,7 +410,14 @@ type AlonzoTransactionWitnessSet struct {
 }
 
 func (w *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	return w.UnmarshalCbor(cborData, w)
+	type tAlonzoTransactionWitnessSet AlonzoTransactionWitnessSet
+	var tmp tAlonzoTransactionWitnessSet
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*w = AlonzoTransactionWitnessSet(tmp)
+	w.SetCbor(cborData)
+	return nil
 }
 
 func (w AlonzoTransactionWitnessSet) Vkey() []common.VkeyWitness {
@@ -437,8 +463,15 @@ type AlonzoTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
-func (t *AlonzoTransaction) UnmarshalCBOR(data []byte) error {
-	return t.UnmarshalCbor(data, t)
+func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
+	type tAlonzoTransaction AlonzoTransaction
+	var tmp tAlonzoTransaction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*t = AlonzoTransaction(tmp)
+	t.SetCbor(cborData)
+	return nil
 }
 
 func (AlonzoTransaction) Type() int {

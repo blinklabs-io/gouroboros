@@ -16,37 +16,14 @@ package allegra
 
 import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
-type AllegraProtocolParameters struct {
-	shelley.ShelleyProtocolParameters
-}
+type AllegraProtocolParameters = shelley.ShelleyProtocolParameters
 
-func (p *AllegraProtocolParameters) Update(
-	paramUpdate *AllegraProtocolParameterUpdate,
-) {
-	p.ShelleyProtocolParameters.Update(
-		&paramUpdate.ShelleyProtocolParameterUpdate,
-	)
-}
-
-type AllegraProtocolParameterUpdate struct {
-	shelley.ShelleyProtocolParameterUpdate
-}
-
-func (u *AllegraProtocolParameterUpdate) UnmarshalCBOR(data []byte) error {
-	return u.UnmarshalCbor(data, u)
-}
-
-func (p *AllegraProtocolParameters) Utxorpc() *cardano.PParams {
-	return p.ShelleyProtocolParameters.Utxorpc()
-}
+type AllegraProtocolParameterUpdate = shelley.ShelleyProtocolParameterUpdate
 
 func UpgradePParams(
 	prevPParams shelley.ShelleyProtocolParameters,
 ) AllegraProtocolParameters {
-	return AllegraProtocolParameters{
-		ShelleyProtocolParameters: prevPParams,
-	}
+	return AllegraProtocolParameters(prevPParams)
 }

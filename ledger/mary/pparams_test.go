@@ -21,9 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -35,38 +33,22 @@ func TestMaryProtocolParamsUpdate(t *testing.T) {
 	}{
 		{
 			startParams: mary.MaryProtocolParameters{
-				AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-					ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-						Decentralization: &cbor.Rat{
-							Rat: new(big.Rat).SetInt64(1),
-						},
-					},
+				Decentralization: &cbor.Rat{
+					Rat: new(big.Rat).SetInt64(1),
 				},
 			},
 			updateCbor: "a10cd81e82090a",
 			expectedParams: mary.MaryProtocolParameters{
-				AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-					ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-						Decentralization: &cbor.Rat{Rat: big.NewRat(9, 10)},
-					},
-				},
+				Decentralization: &cbor.Rat{Rat: big.NewRat(9, 10)},
 			},
 		},
 		{
 			startParams: mary.MaryProtocolParameters{
-				AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-					ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-						ProtocolMajor: 4,
-					},
-				},
+				ProtocolMajor: 4,
 			},
 			updateCbor: "a10e820500",
 			expectedParams: mary.MaryProtocolParameters{
-				AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-					ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-						ProtocolMajor: 5,
-					},
-				},
+				ProtocolMajor: 5,
 			},
 		},
 	}
@@ -93,25 +75,21 @@ func TestMaryProtocolParamsUpdate(t *testing.T) {
 
 func TestMaryUtxorpc(t *testing.T) {
 	inputParams := mary.MaryProtocolParameters{
-		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-				MinFeeA:            500,
-				MinFeeB:            2,
-				MaxBlockBodySize:   65536,
-				MaxTxSize:          16384,
-				MaxBlockHeaderSize: 1024,
-				KeyDeposit:         2000,
-				PoolDeposit:        500000,
-				MaxEpoch:           2160,
-				NOpt:               100,
-				A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
-				Rho:                &cbor.Rat{Rat: big.NewRat(3, 4)},
-				Tau:                &cbor.Rat{Rat: big.NewRat(5, 6)},
-				ProtocolMajor:      8,
-				ProtocolMinor:      0,
-				MinUtxoValue:       1000000,
-			},
-		},
+		MinFeeA:            500,
+		MinFeeB:            2,
+		MaxBlockBodySize:   65536,
+		MaxTxSize:          16384,
+		MaxBlockHeaderSize: 1024,
+		KeyDeposit:         2000,
+		PoolDeposit:        500000,
+		MaxEpoch:           2160,
+		NOpt:               100,
+		A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho:                &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau:                &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ProtocolMajor:      8,
+		ProtocolMinor:      0,
+		MinUtxoValue:       1000000,
 	}
 
 	expectedUtxorpc := &cardano.PParams{

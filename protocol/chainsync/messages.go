@@ -144,9 +144,14 @@ func NewMsgRollForwardNtC(
 }
 
 func (m *MsgRollForwardNtC) UnmarshalCBOR(data []byte) error {
-	if err := cbor.DecodeGeneric(data, m); err != nil {
+	// Decode message
+	type tMsgRollForwardNtC MsgRollForwardNtC
+	var tmp tMsgRollForwardNtC
+	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
+	*m = MsgRollForwardNtC(tmp)
+	// Decode wrapped block
 	var wb WrappedBlock
 	if _, err := cbor.Decode(m.WrappedBlock.Content.([]byte), &wb); err != nil {
 		return err

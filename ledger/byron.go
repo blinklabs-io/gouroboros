@@ -47,4 +47,5 @@ var (
 	NewByronMainBlockHeaderFromCbor          = byron.NewByronMainBlockHeaderFromCbor
 	NewByronTransactionInput                 = byron.NewByronTransactionInput
 	NewByronTransactionFromCbor              = byron.NewByronTransactionFromCbor
+	NewByronTransactionOutputFromCbor        = byron.NewByronTransactionOutputFromCbor
 )

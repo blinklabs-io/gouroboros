@@ -69,18 +69,3 @@ func (d *DecodeStoreCbor) SetCbor(cborData []byte) {
 func (d DecodeStoreCbor) Cbor() []byte {
 	return d.cborData
 }
-
-// UnmarshalCbor decodes the specified CBOR into the destination object and saves the original CBOR
-func (d *DecodeStoreCbor) UnmarshalCbor(
-	cborData []byte,
-	dest DecodeStoreCborInterface,
-) error {
-	if err := DecodeGeneric(cborData, dest); err != nil {
-		return err
-	}
-	// Store a copy of the original CBOR data
-	// This must be done after we copy from the temp object above, or it gets wiped out
-	// when using struct embedding and the DecodeStoreCbor struct is embedded at a deeper level
-	d.SetCbor(cborData)
-	return nil
-}

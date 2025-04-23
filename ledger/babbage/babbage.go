@@ -58,7 +58,14 @@ type BabbageBlock struct {
 }
 
 func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tBabbageBlock BabbageBlock
+	var tmp tBabbageBlock
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = BabbageBlock(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (BabbageBlock) Type() int {
@@ -174,7 +181,14 @@ type BabbageProtoVersion struct {
 }
 
 func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
-	return h.UnmarshalCbor(cborData, h)
+	type tBabbageBlockHeader BabbageBlockHeader
+	var tmp tBabbageBlockHeader
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*h = BabbageBlockHeader(tmp)
+	h.SetCbor(cborData)
+	return nil
 }
 
 func (h *BabbageBlockHeader) Hash() common.Blake2b256 {
@@ -235,7 +249,14 @@ type BabbageTransactionBody struct {
 }
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
-	return b.UnmarshalCbor(cborData, b)
+	type tBabbageTransactionBody BabbageTransactionBody
+	var tmp tBabbageTransactionBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = BabbageTransactionBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
@@ -404,8 +425,6 @@ type BabbageTransactionOutput struct {
 }
 
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	// Save original CBOR
-	o.SetCbor(cborData)
 	// Try to parse as legacy output first
 	var tmpOutput alonzo.AlonzoTransactionOutput
 	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
@@ -414,8 +433,15 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		o.OutputAmount = tmpOutput.OutputAmount
 		o.legacyOutput = true
 	} else {
-		return cbor.DecodeGeneric(cborData, o)
+		type tBabbageTransactionOutput BabbageTransactionOutput
+		var tmp tBabbageTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		*o = BabbageTransactionOutput(tmp)
 	}
+	// Save original CBOR
+	o.SetCbor(cborData)
 	return nil
 }
 
@@ -537,7 +563,14 @@ type BabbageTransactionWitnessSet struct {
 }
 
 func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
-	return w.UnmarshalCbor(cborData, w)
+	type tBabbageTransactionWitnessSet BabbageTransactionWitnessSet
+	var tmp tBabbageTransactionWitnessSet
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*w = BabbageTransactionWitnessSet(tmp)
+	w.SetCbor(cborData)
+	return nil
 }
 
 func (w BabbageTransactionWitnessSet) Vkey() []common.VkeyWitness {
@@ -582,8 +615,15 @@ type BabbageTransaction struct {
 	TxMetadata *cbor.LazyValue
 }
 
-func (t *BabbageTransaction) UnmarshalCBOR(data []byte) error {
-	return t.UnmarshalCbor(data, t)
+func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
+	type tBabbageTransaction BabbageTransaction
+	var tmp tBabbageTransaction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*t = BabbageTransaction(tmp)
+	t.SetCbor(cborData)
+	return nil
 }
 
 func (BabbageTransaction) Type() int {

@@ -476,11 +476,9 @@ non_myopic_rewards	{ *poolid => int }	int is the amount of lovelaces each pool w
 type NonMyopicMemberRewardsResult interface{}
 
 type CurrentProtocolParamsResult interface {
-	ledger.AllegraProtocolParameters |
-		ledger.AlonzoProtocolParameters |
+	ledger.AlonzoProtocolParameters |
 		ledger.BabbageProtocolParameters |
 		ledger.ConwayProtocolParameters |
-		ledger.MaryProtocolParameters |
 		ledger.ShelleyProtocolParameters |
 		any
 }
@@ -527,7 +525,12 @@ func (u *UtxoId) UnmarshalCBOR(data []byte) error {
 		u.Hash = tmpData.Hash
 		u.Idx = tmpData.Idx
 	case 3:
-		return cbor.DecodeGeneric(data, u)
+		type tUtxoId UtxoId
+		var tmp tUtxoId
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return err
+		}
+		*u = UtxoId(tmp)
 	default:
 		return fmt.Errorf("invalid list length: %d", listLen)
 	}
