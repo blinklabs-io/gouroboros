@@ -19,37 +19,33 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
-
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
 // Helper to create properly initialized base protocol parameters
-func newBaseProtocolParams() mary.MaryProtocolParameters {
-	return mary.MaryProtocolParameters{
-		AllegraProtocolParameters: allegra.AllegraProtocolParameters{
-			ShelleyProtocolParameters: shelley.ShelleyProtocolParameters{
-				MinFeeA:            44,
-				MinFeeB:            155381,
-				MaxBlockBodySize:   65536,
-				MaxTxSize:          16384,
-				MaxBlockHeaderSize: 1100,
-				KeyDeposit:         2000000,
-				PoolDeposit:        500000000,
-				MaxEpoch:           18,
-				NOpt:               500,
-				A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
-				Rho:                &cbor.Rat{Rat: big.NewRat(3, 4)},
-				Tau:                &cbor.Rat{Rat: big.NewRat(5, 6)},
-				ProtocolMajor:      8,
-				ProtocolMinor:      0,
-			},
-		},
+func newBaseProtocolParams() alonzo.AlonzoProtocolParameters {
+	return alonzo.AlonzoProtocolParameters{
+		MinFeeA:            44,
+		MinFeeB:            155381,
+		MaxBlockBodySize:   65536,
+		MaxTxSize:          16384,
+		MaxBlockHeaderSize: 1100,
+		KeyDeposit:         2000000,
+		PoolDeposit:        500000000,
+		MaxEpoch:           18,
+		NOpt:               500,
+		A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho:                &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau:                &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ProtocolMajor:      8,
+		ProtocolMinor:      0,
+		// Initialize other required fields with zero values
+		MinPoolCost:    0,
+		AdaPerUtxoByte: 0,
 	}
 }
 
@@ -63,10 +59,11 @@ func TestAlonzoProtocolParametersUpdate(t *testing.T) {
 		{
 			name:       "Update MinPoolCost",
 			updateCbor: "a1101903e8", // {16: 1000}
-			expected: alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: newBaseProtocolParams(),
-				MinPoolCost:            1000,
-			},
+			expected: func() alonzo.AlonzoProtocolParameters {
+				params := newBaseProtocolParams()
+				params.MinPoolCost = 1000
+				return params
+			}(),
 		},
 	}
 
@@ -85,9 +82,7 @@ func TestAlonzoProtocolParametersUpdate(t *testing.T) {
 				return
 			}
 
-			params := alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: newBaseProtocolParams(),
-			}
+			params := newBaseProtocolParams()
 			params.Update(&update)
 
 			if !reflect.DeepEqual(params, tt.expected) {
@@ -96,6 +91,7 @@ func TestAlonzoProtocolParametersUpdate(t *testing.T) {
 		})
 	}
 }
+
 func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -197,9 +193,7 @@ func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
 				CostModels: convertCostModels(tempGenesis.CostModels),
 			}
 
-			params := alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: newBaseProtocolParams(),
-			}
+			params := newBaseProtocolParams()
 			err = params.UpdateFromGenesis(&genesis)
 			if err != nil {
 				t.Fatalf("UpdateFromGenesis failed: %v", err)
@@ -211,7 +205,6 @@ func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
 		})
 	}
 }
-
 
 func convertToExecutionPricesRat(r *struct {
 	Numerator   int64 `json:"numerator"`
@@ -239,15 +232,28 @@ func convertCostModels(tempModels map[string]map[string]int) map[string]map[stri
 	return models
 }
 
-
-func TestAlonzoUtxorpc(t *testing.T) {
+func TestAlonzoProtocolParametersUtxorpc(t *testing.T) {
+	baseParams := newBaseProtocolParams()
 	params := alonzo.AlonzoProtocolParameters{
-		MaryProtocolParameters: newBaseProtocolParams(),
-		MinPoolCost:            340000000,
-		AdaPerUtxoByte:         4310,
-		MaxValueSize:           5000,
-		CollateralPercentage:   150,
-		MaxCollateralInputs:    3,
+		MinFeeA:              baseParams.MinFeeA,
+		MinFeeB:              baseParams.MinFeeB,
+		MaxBlockBodySize:     baseParams.MaxBlockBodySize,
+		MaxTxSize:            baseParams.MaxTxSize,
+		MaxBlockHeaderSize:   baseParams.MaxBlockHeaderSize,
+		KeyDeposit:           baseParams.KeyDeposit,
+		PoolDeposit:          baseParams.PoolDeposit,
+		MaxEpoch:             baseParams.MaxEpoch,
+		NOpt:                 baseParams.NOpt,
+		A0:                   baseParams.A0,
+		Rho:                  baseParams.Rho,
+		Tau:                  baseParams.Tau,
+		ProtocolMajor:        baseParams.ProtocolMajor,
+		ProtocolMinor:        baseParams.ProtocolMinor,
+		MinPoolCost:          340000000,
+		AdaPerUtxoByte:       4310,
+		MaxValueSize:         5000,
+		CollateralPercentage: 150,
+		MaxCollateralInputs:  3,
 		ExecutionCosts: common.ExUnitPrice{
 			MemPrice:  &cbor.Rat{Rat: big.NewRat(577, 10000)},
 			StepPrice: &cbor.Rat{Rat: big.NewRat(721, 10000000)},
@@ -318,10 +324,8 @@ func TestCostModelConversions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			params := alonzo.AlonzoProtocolParameters{
-				MaryProtocolParameters: newBaseProtocolParams(),
-				CostModels:             tt.input,
-			}
+			params := newBaseProtocolParams()
+			params.CostModels = tt.input
 			result := params.ToLegacyCostModels()
 			if !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("unexpected result:\ngot: %v\nwant: %v", result, tt.expected)
