@@ -429,7 +429,5 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 			result,
 			expected,
 		)
-	} else {
-		t.Logf("ByronGenesis decoded correctly")
 	}
 }
