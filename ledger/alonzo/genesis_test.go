@@ -462,8 +462,6 @@ func TestNewAlonzoGenesisFromReader(t *testing.T) {
 			"Expected LovelacePerUtxoWord 34482, got %d",
 			result.LovelacePerUtxoWord,
 		)
-	} else {
-		t.Logf("LovelacePerUtxoWord is correct: %d", result.LovelacePerUtxoWord)
 	}
 
 	if result.ExecutionPrices.Steps.Rat.Cmp(big.NewRat(721, 10000)) != 0 {
@@ -471,8 +469,6 @@ func TestNewAlonzoGenesisFromReader(t *testing.T) {
 			"Unexpected prSteps: got %v, expected 721/10000",
 			result.ExecutionPrices.Steps.Rat,
 		)
-	} else {
-		t.Logf("prSteps is correct: %v", result.ExecutionPrices.Steps.Rat)
 	}
 
 	if result.ExecutionPrices.Mem.Rat.Cmp(big.NewRat(577, 10000)) != 0 {
@@ -480,8 +476,6 @@ func TestNewAlonzoGenesisFromReader(t *testing.T) {
 			"Unexpected prMem: got %v, expected 577/10000",
 			result.ExecutionPrices.Mem.Rat,
 		)
-	} else {
-		t.Logf("prMem is correct: %v", result.ExecutionPrices.Mem.Rat)
 	}
 
 	expectedCostModels := map[string]map[string]int{
@@ -496,9 +490,5 @@ func TestNewAlonzoGenesisFromReader(t *testing.T) {
 			result.CostModels,
 			expectedCostModels,
 		)
-	} else {
-		t.Logf("CostModels are correct")
 	}
-
-	t.Logf("AlonzoGenesis JSON decoding test completed successfully.")
 }

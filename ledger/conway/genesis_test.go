@@ -466,7 +466,5 @@ func TestNewConwayGenesisFromReader(t *testing.T) {
 			expected,
 			actual,
 		)
-	} else {
-		t.Logf("ConwayGenesis decoded correctly and matches expected structure")
 	}
 }

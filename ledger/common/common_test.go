@@ -385,8 +385,6 @@ func TestCertificateTypeMethods(t *testing.T) {
 					got,
 					tt.expected,
 				)
-			} else {
-				t.Logf("PASS: %s -> Type() = %d, expected = %d \n", tt.name, got, tt.expected)
 			}
 		})
 	}
