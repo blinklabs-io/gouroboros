@@ -258,9 +258,9 @@ func (c *StakeDelegationCertificate) Type() uint {
 }
 
 type (
-	PoolKeyHash      Blake2b224
-	PoolMetadataHash Blake2b256
-	VrfKeyHash       Blake2b256
+	PoolKeyHash      = Blake2b224
+	PoolMetadataHash = Blake2b256
+	VrfKeyHash       = Blake2b256
 )
 
 type PoolMetadata struct {
