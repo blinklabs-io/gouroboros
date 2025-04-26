@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -70,7 +71,7 @@ func NewWrappedHeader(
 		return nil, fmt.Errorf("CBOR decode failed in NewWrappedHeader: %w", err)
 	}
 	if len(tmp) == 0 {
-		return nil, fmt.Errorf("decoded CBOR header is empty")
+		return nil, errors.New("decoded CBOR header is empty")
 	}
 	w.headerCbor = tmp[0]
 	return w, nil
