@@ -126,12 +126,15 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 		)
 	if s.Mode() == protocol.ProtocolModeNodeToNode {
 		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
-		msg := NewMsgRollForwardNtN(
+		msg, err := NewMsgRollForwardNtN(
 			eraId,
 			0,
 			blockData,
 			tip,
 		)
+		if err != nil {
+			return fmt.Errorf("failed to create roll forward message: %w", err)
+		}
 		return s.SendMessage(msg)
 	} else {
 		msg := NewMsgRollForwardNtC(

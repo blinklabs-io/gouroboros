@@ -127,6 +127,15 @@ func TestMsgAwaitReply(t *testing.T) {
 }
 
 func TestMsgRollForwardNodeToNode(t *testing.T) {
+	createMsg := func(t *testing.T, era uint, filePath string, tip Tip) *MsgRollForwardNtN {
+		blockData := hexDecode(string(readFile(filePath)))
+		msg, err := NewMsgRollForwardNtN(era, 0, blockData, tip)
+		if err != nil {
+			t.Fatalf("failed to create NewMsgRollForwardNtN: %v", err)
+		}
+		return msg
+	}
+
 	tests := []testDefinition{
 		// Byron EBB (NtN)
 		{
@@ -135,16 +144,10 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 					"testdata/rollforward_ntn_byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 				),
 			),
-			Message: NewMsgRollForwardNtN(
+			Message: createMsg(
+				t,
 				ledger.BlockHeaderTypeByron,
-				0,
-				hexDecode(
-					string(
-						readFile(
-							"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
-						),
-					),
-				),
+				"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 				Tip{
 					Point: common.Point{
 						Slot: 55740899,
@@ -165,16 +168,10 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 					"testdata/rollforward_ntn_shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
 				),
 			),
-			Message: NewMsgRollForwardNtN(
+			Message: createMsg(
+				t,
 				ledger.BlockHeaderTypeShelley,
-				0,
-				hexDecode(
-					string(
-						readFile(
-							"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
-						),
-					),
-				),
+				"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
 				Tip{
 					Point: common.Point{
 						Slot: 55770176,
@@ -192,6 +189,26 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 	runTests(tests, t)
 }
 
+func TestMsgRollForwardNodeToNode_CorruptedCBOR(t *testing.T) {
+	badCBOR := []byte{0x01, 0x02, 0x03} // garbage CBOR
+
+	_, err := NewMsgRollForwardNtN(
+		ledger.BlockHeaderTypeShelley,
+		0,
+		badCBOR,
+		Tip{
+			Point: common.Point{
+				Slot: 1,
+				Hash: []byte{0xDE, 0xAD, 0xBE, 0xEF},
+			},
+			BlockNumber: 1,
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("expected error from NewMsgRollForwardNtN with corrupted CBOR, got nil")
+	}
+}
 func TestMsgRollForwardNodeToClient(t *testing.T) {
 	tests := []testDefinition{
 		// Byron EBB (NtC)
