@@ -184,18 +184,19 @@ func NewMsgRollForwardNtN(
 	byronType uint,
 	blockCbor []byte,
 	tip Tip,
-) *MsgRollForwardNtN {
+) (*MsgRollForwardNtN, error) {
 	m := &MsgRollForwardNtN{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRollForward,
 		},
 		Tip: tip,
 	}
-	wrappedHeader := NewWrappedHeader(era, byronType, blockCbor)
-	if wrappedHeader != nil {
-		m.WrappedHeader = *wrappedHeader
+	wrappedHeader, err := NewWrappedHeader(era, byronType, blockCbor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wrapped header: %w", err)
 	}
-	return m
+	m.WrappedHeader = *wrappedHeader
+	return m, nil
 }
 
 type MsgRollBackward struct {

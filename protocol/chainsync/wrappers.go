@@ -15,6 +15,8 @@
 package chainsync
 
 import (
+	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 )
@@ -51,7 +53,7 @@ func NewWrappedHeader(
 	era uint,
 	byronType uint,
 	blockCbor []byte,
-) *WrappedHeader {
+) (*WrappedHeader, error) {
 	w := &WrappedHeader{
 		Era:       era,
 		byronType: byronType,
@@ -64,12 +66,14 @@ func NewWrappedHeader(
 	}
 	// Parse block and extract header
 	tmp := []cbor.RawMessage{}
-	// TODO: figure out a better way to handle an error (#856)
 	if _, err := cbor.Decode(blockCbor, &tmp); err != nil {
-		return nil
+		return nil, fmt.Errorf("CBOR decode failed in NewWrappedHeader: %w", err)
+	}
+	if len(tmp) == 0 {
+		return nil, fmt.Errorf("decoded CBOR header is empty")
 	}
 	w.headerCbor = tmp[0]
-	return w
+	return w, nil
 }
 
 func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
