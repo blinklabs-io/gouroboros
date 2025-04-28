@@ -68,7 +68,10 @@ func NewWrappedHeader(
 	// Parse block and extract header
 	tmp := []cbor.RawMessage{}
 	if _, err := cbor.Decode(blockCbor, &tmp); err != nil {
-		return nil, fmt.Errorf("CBOR decode failed in NewWrappedHeader: %w", err)
+		return nil, fmt.Errorf(
+			"CBOR decode failed in NewWrappedHeader: %w",
+			err,
+		)
 	}
 	if len(tmp) == 0 {
 		return nil, errors.New("decoded CBOR header is empty")

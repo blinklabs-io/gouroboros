@@ -206,7 +206,9 @@ func TestMsgRollForwardNodeToNode_CorruptedCBOR(t *testing.T) {
 	)
 
 	if err == nil {
-		t.Fatalf("expected error from NewMsgRollForwardNtN with corrupted CBOR, got nil")
+		t.Fatalf(
+			"expected error from NewMsgRollForwardNtN with corrupted CBOR, got nil",
+		)
 	}
 }
 func TestMsgRollForwardNodeToClient(t *testing.T) {

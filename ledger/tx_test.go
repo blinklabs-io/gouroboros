@@ -45,7 +45,10 @@ func TestDetermineTransactionType(t *testing.T) {
 		}
 		tmpTxType, err := ledger.DetermineTransactionType(txCbor)
 		if err != nil {
-			t.Fatalf("DetermineTransactionType failed with an unexpected error: %s", err)
+			t.Fatalf(
+				"DetermineTransactionType failed with an unexpected error: %s",
+				err,
+			)
 		}
 		if tmpTxType != testDef.expectedTxType {
 			t.Fatalf(
