@@ -15,7 +15,9 @@
 package localstatequery
 
 import (
+	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -416,9 +418,40 @@ type SystemStartQuery struct {
 type SystemStartResult struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_           struct{} `cbor:",toarray"`
-	Year        int
+	Year        big.Int
 	Day         int
-	Picoseconds uint64
+	Picoseconds big.Int
+}
+
+func (s SystemStartResult) String() string {
+	return fmt.Sprintf("SystemStart %s %d %s", s.Year.String(), s.Day, s.Picoseconds.String())
+}
+
+func (s SystemStartResult) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Year        string `json:"year"`
+		Day         int    `json:"day"`
+		Picoseconds string `json:"picoseconds"`
+	}{
+		Year:        s.Year.String(),
+		Day:         s.Day,
+		Picoseconds: s.Picoseconds.String(),
+	})
+}
+
+func (s *SystemStartResult) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Year        string `json:"year"`
+		Day         int    `json:"day"`
+		Picoseconds string `json:"picoseconds"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	s.Year.SetString(tmp.Year, 10)
+	s.Day = tmp.Day
+	s.Picoseconds.SetString(tmp.Picoseconds, 10)
+	return nil
 }
 
 type ChainBlockNoQuery struct {
