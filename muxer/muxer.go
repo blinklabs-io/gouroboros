@@ -111,6 +111,15 @@ func (m *Muxer) Start() {
 	}
 }
 
+// StartOnce unblocks the read loop for one iteration. This is generally used to perform the handshake before registering
+// additional protocols and calling Start
+func (m *Muxer) StartOnce() {
+	select {
+	case m.startChan <- false:
+	default:
+	}
+}
+
 // Stop shuts down the muxer
 func (m *Muxer) Stop() {
 	m.onceStop.Do(func() {
@@ -262,6 +271,17 @@ func (m *Muxer) readLoop() {
 			return
 		default:
 		}
+		// Wait until the muxer is started to continue
+		if !started {
+			select {
+			case <-m.doneChan:
+				// Break out of read loop if we're shutting down
+				return
+			case v := <-m.startChan:
+				// We block again on the next iteration of we get 'false' from startChan
+				started = v
+			}
+		}
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
@@ -334,17 +354,5 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		recvChan <- msg
-
-		// Wait until the muxer is started to continue
-		// We don't want to read more than one segment until the handshake is complete
-		if !started {
-			select {
-			case <-m.doneChan:
-				// Break out of read loop if we're shutting down
-				return
-			case <-m.startChan:
-				started = true
-			}
-		}
 	}
 }

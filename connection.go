@@ -341,6 +341,7 @@ func (c *Connection) setupConnection() error {
 	} else {
 		c.handshake.Client.Start()
 	}
+	c.muxer.StartOnce()
 	// Wait for handshake completion or error
 	select {
 	case <-c.doneChan:
