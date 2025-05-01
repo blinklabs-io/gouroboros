@@ -786,7 +786,7 @@ type StakeVoteRegistrationDelegationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	PoolKeyHash     []byte
+	PoolKeyHash     PoolKeyHash
 	Drep            Drep
 	Amount          int64
 }
