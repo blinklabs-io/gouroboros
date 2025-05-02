@@ -289,6 +289,8 @@ func UtxoValidateValueNotConservedUtxo(
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		case *common.StakeVoteRegistrationDelegationCertificate:
 			producedValue += uint64(tmpPparams.KeyDeposit)
+		case *common.VoteRegistrationDelegationCertificate:
+			producedValue += uint64(tmpPparams.KeyDeposit)
 		}
 	}
 	for _, proposal := range tx.ProposalProcedures() {
