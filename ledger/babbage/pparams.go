@@ -265,7 +265,7 @@ func UpgradePParams(
 		ProtocolMinor:        prevPParams.ProtocolMinor,
 		MinPoolCost:          prevPParams.MinPoolCost,
 		AdaPerUtxoByte:       prevPParams.AdaPerUtxoByte,
-		CostModels:           prevPParams.ToLegacyCostModels(),
+		CostModels:           prevPParams.CostModels,
 		ExecutionCosts:       prevPParams.ExecutionCosts,
 		MaxTxExUnits:         prevPParams.MaxTxExUnits,
 		MaxBlockExUnits:      prevPParams.MaxBlockExUnits,

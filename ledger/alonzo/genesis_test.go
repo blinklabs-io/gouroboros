@@ -243,8 +243,8 @@ var expectedGenesisObj = alonzo.AlonzoGenesis{
 		Mem:   50000000,
 		Steps: 40000000000,
 	},
-	CostModels: map[string]map[string]int{
-		"PlutusV1": {
+	CostModels: map[string]interface{}{
+		"PlutusV1": map[string]int{
 			"addInteger-cpu-arguments-intercept":                       197209,
 			"addInteger-cpu-arguments-slope":                           0,
 			"addInteger-memory-arguments-intercept":                    1,
@@ -484,8 +484,8 @@ func TestNewAlonzoGenesisFromReader(t *testing.T) {
 		t.Logf("prMem is correct: %v", result.ExecutionPrices.Mem.Rat)
 	}
 
-	expectedCostModels := map[string]map[string]int{
-		"PlutusV1": {
+	expectedCostModels := map[string]interface{}{
+		"PlutusV1": map[string]int{
 			"addInteger-cpu-arguments-intercept": 205665,
 			"addInteger-cpu-arguments-slope":     812,
 		},

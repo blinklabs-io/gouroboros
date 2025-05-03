@@ -17,26 +17,25 @@ package alonzo
 import (
 	"fmt"
 	"math"
-	"sort"
-	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
-type PlutusVersion string
-
+// Constants for Plutus version mapping
 const (
-	PlutusV1 PlutusVersion = "PlutusV1"
-	PlutusV2 PlutusVersion = "PlutusV2"
-	PlutusV3 PlutusVersion = "PlutusV3"
+	PlutusV1Key uint = 0
+	PlutusV2Key uint = 1
+	PlutusV3Key uint = 2
 )
 
-type CostModel struct {
-	Version    PlutusVersion
-	Parameters map[string]int64
-	Order      []string
+// Expected parameter counts for validation
+var plutusParamCounts = map[uint]int{
+	PlutusV1Key: 166,
+	PlutusV2Key: 175,
+	PlutusV3Key: 187,
 }
 
 type AlonzoProtocolParameters struct {
@@ -60,7 +59,7 @@ type AlonzoProtocolParameters struct {
 	MinUtxoValue         uint
 	MinPoolCost          uint64
 	AdaPerUtxoByte       uint64
-	CostModels           map[PlutusVersion]*CostModel
+	CostModels           map[uint][]int64
 	ExecutionCosts       common.ExUnitPrice
 	MaxTxExUnits         common.ExUnits
 	MaxBlockExUnits      common.ExUnits
@@ -128,7 +127,7 @@ func (p *AlonzoProtocolParameters) Update(
 		p.AdaPerUtxoByte = *paramUpdate.AdaPerUtxoByte
 	}
 	if paramUpdate.CostModels != nil {
-		p.convertLegacyCostModels(paramUpdate.CostModels)
+		p.CostModels = paramUpdate.CostModels
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts
@@ -177,106 +176,83 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) err
 	}
 
 	if genesis.CostModels != nil {
-		p.CostModels = make(map[PlutusVersion]*CostModel)
+		p.CostModels = make(map[uint][]int64)
 
-		for lang, model := range genesis.CostModels {
-			version, ok := toPlutusVersion(lang)
+		for versionStr, model := range genesis.CostModels {
+			key, ok := plutusVersionToKey(versionStr)
 			if !ok {
 				continue
 			}
 
-			params := make(map[string]int64)
-			order := make([]string, 0, len(model))
+			var values []int64
+			switch v := model.(type) {
+			case map[string]interface{}:
+				maxIndex := 0
+				// Find maximum parameter index
+				for paramName := range v {
+					var index int
+					if _, err := fmt.Sscanf(paramName, "param%d", &index); err == nil && index > maxIndex {
+						maxIndex = index
+					}
+				}
+				values = make([]int64, maxIndex)
+				for paramName, val := range v {
+					var index int
+					if _, err := fmt.Sscanf(paramName, "param%d", &index); err == nil && index > 0 {
+						if intVal, ok := val.(float64); ok {
+							values[index-1] = int64(intVal)
+						}
+					}
+				}
 
-			// Since model is now map[string]int, we don't need type assertions
-			for name, val := range model {
-				params[name] = int64(val) // Convert int to int64
-				order = append(order, name)
+			case []interface{}:
+				values = make([]int64, len(v))
+				for i, val := range v {
+					if intVal, ok := val.(float64); ok {
+						values[i] = int64(intVal)
+					}
+				}
+
+			default:
+				return fmt.Errorf("invalid cost model format for %s", versionStr)
+			}
+			if expected, ok := plutusParamCounts[key]; ok && len(values) != expected {
+				return fmt.Errorf("invalid parameter count for %s: expected %d, got %d",
+					versionStr, expected, len(values))
 			}
 
-			// Sort keys alphabetically (maintains consistency with original behavior)
-			sort.Strings(order)
-
-			p.CostModels[version] = &CostModel{
-				Version:    version,
-				Parameters: params,
-				Order:      order,
-			}
+			p.CostModels[key] = values
 		}
 	}
 	return nil
 }
 
-func (p *AlonzoProtocolParameters) convertLegacyCostModels(legacyModels map[uint][]int64) {
-	p.CostModels = make(map[PlutusVersion]*CostModel)
-
-	for langKey, values := range legacyModels {
-		var version PlutusVersion
-		switch langKey {
-		case 0:
-			version = PlutusV1
-		case 1:
-			version = PlutusV2
-		case 2:
-			version = PlutusV3
-		default:
-			continue
-		}
-
-		params := make(map[string]int64)
-		order := make([]string, len(values))
-		for i, val := range values {
-			name := fmt.Sprintf("param%d", i)
-			params[name] = val
-			order[i] = name
-		}
-
-		p.CostModels[version] = &CostModel{
-			Version:    version,
-			Parameters: params,
-			Order:      order,
-		}
-	}
-}
-
-func toPlutusVersion(key string) (PlutusVersion, bool) {
-	switch strings.ToLower(key) {
-	case "plutus:v1", "plutusv1":
-		return PlutusV1, true
-	case "plutus:v2", "plutusv2":
-		return PlutusV2, true
-	case "plutus:v3", "plutusv3":
-		return PlutusV3, true
+// Helper to convert Plutus version string to key
+func plutusVersionToKey(version string) (uint, bool) {
+	switch version {
+	case "PlutusV1":
+		return PlutusV1Key, true
+	case "PlutusV2":
+		return PlutusV2Key, true
+	case "PlutusV3":
+		return PlutusV3Key, true
 	default:
-		return "", false
+		return 0, false
 	}
 }
 
-func (p *AlonzoProtocolParameters) ToLegacyCostModels() map[uint][]int64 {
-	legacyModels := make(map[uint][]int64)
-
-	for version, model := range p.CostModels {
-		var langKey uint
-		switch version {
-		case PlutusV1:
-			langKey = 0
-		case PlutusV2:
-			langKey = 1
-		case PlutusV3:
-			langKey = 2
-		default:
-			continue
-		}
-
-		// Convert ordered parameters back to list format
-		values := make([]int64, len(model.Order))
-		for i, name := range model.Order {
-			values[i] = model.Parameters[name]
-		}
-		legacyModels[langKey] = values
+// Helper to convert key back to string
+func plutusKeyToVersion(key uint) string {
+	switch key {
+	case PlutusV1Key:
+		return "PlutusV1"
+	case PlutusV2Key:
+		return "PlutusV2"
+	case PlutusV3Key:
+		return "PlutusV3"
+	default:
+		return ""
 	}
-
-	return legacyModels
 }
 
 type AlonzoProtocolParameterUpdate struct {
@@ -322,86 +298,33 @@ func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
-	if p == nil {
+	// sanity check
+	if p.A0.Num().Int64() > math.MaxInt32 ||
+		p.A0.Denom().Int64() < 0 ||
+		p.A0.Denom().Int64() > math.MaxUint32 {
 		return nil
 	}
-
-	// Safe conversion helper functions
-	safeInt64ToInt32 := func(val int64) (int32, bool) {
-		if val < math.MinInt32 || val > math.MaxInt32 {
-			return 0, false
-		}
-		return int32(val), true
-	}
-
-	safeUintToUint32 := func(val uint) (uint32, bool) {
-		if val > math.MaxUint32 {
-			return 0, false
-		}
-		return uint32(val), true
-	}
-
-	// Convert protocol version
-	protocolMajor, ok1 := safeUintToUint32(p.ProtocolMajor)
-	protocolMinor, ok2 := safeUintToUint32(p.ProtocolMinor)
-	if !ok1 || !ok2 {
+	if p.Rho.Num().Int64() > math.MaxInt32 ||
+		p.Rho.Denom().Int64() < 0 ||
+		p.Rho.Denom().Int64() > math.MaxUint32 {
 		return nil
 	}
-
-	// Convert rational numbers
-	convertRat := func(rat *cbor.Rat) *cardano.RationalNumber {
-		if rat == nil || rat.Rat == nil {
-			return nil
-		}
-		num, numOk := safeInt64ToInt32(rat.Num().Int64())
-		denom64 := rat.Denom().Int64()
-		if denom64 <= 0 || denom64 > math.MaxUint32 {
-			return nil
-		}
-		denom := uint32(denom64)
-		if !numOk {
-			return nil
-		}
-		return &cardano.RationalNumber{
-			Numerator:   num,
-			Denominator: denom,
-		}
-	}
-
-	a0 := convertRat(p.A0)
-	rho := convertRat(p.Rho)
-	tau := convertRat(p.Tau)
-	memPrice := convertRat(p.ExecutionCosts.MemPrice)
-	stepPrice := convertRat(p.ExecutionCosts.StepPrice)
-
-	if a0 == nil || rho == nil || tau == nil || memPrice == nil || stepPrice == nil {
+	if p.Tau.Num().Int64() > math.MaxInt32 ||
+		p.Tau.Denom().Int64() < 0 ||
+		p.Tau.Denom().Int64() > math.MaxUint32 {
 		return nil
 	}
-
-	// Convert cost models
-	costModels := &cardano.CostModels{}
-	if p.CostModels != nil {
-		costModels.PlutusV1 = &cardano.CostModel{Values: []int64{}}
-		costModels.PlutusV2 = &cardano.CostModel{Values: []int64{}}
-		costModels.PlutusV3 = &cardano.CostModel{Values: []int64{}}
-
-		for version, model := range p.CostModels {
-			values := make([]int64, len(model.Order))
-			for i, name := range model.Order {
-				values[i] = model.Parameters[name]
-			}
-
-			switch version {
-			case PlutusV1:
-				costModels.PlutusV1.Values = values
-			case PlutusV2:
-				costModels.PlutusV2.Values = values
-			case PlutusV3:
-				costModels.PlutusV3.Values = values
-			}
-		}
+	if p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
+		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
+		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
+		return nil
 	}
-
+	if p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
+		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
+		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
+		return nil
+	}
+	// #nosec G115
 	return &cardano.PParams{
 		CoinsPerUtxoByte:         p.AdaPerUtxoByte,
 		MaxTxSize:                uint64(p.MaxTxSize),
@@ -413,21 +336,38 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 		PoolDeposit:              uint64(p.PoolDeposit),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence:            a0,
-		MonetaryExpansion:        rho,
-		TreasuryExpansion:        tau,
-		MinPoolCost:              p.MinPoolCost,
+		PoolInfluence: &cardano.RationalNumber{
+			Numerator:   int32(p.A0.Num().Int64()),
+			Denominator: uint32(p.A0.Denom().Int64()),
+		},
+		MonetaryExpansion: &cardano.RationalNumber{
+			Numerator:   int32(p.Rho.Num().Int64()),
+			Denominator: uint32(p.Rho.Denom().Int64()),
+		},
+		TreasuryExpansion: &cardano.RationalNumber{
+			Numerator:   int32(p.Tau.Num().Int64()),
+			Denominator: uint32(p.Tau.Denom().Int64()),
+		},
+		MinPoolCost: p.MinPoolCost,
 		ProtocolVersion: &cardano.ProtocolVersion{
-			Major: protocolMajor,
-			Minor: protocolMinor,
+			Major: uint32(p.ProtocolMajor),
+			Minor: uint32(p.ProtocolMinor),
 		},
 		MaxValueSize:         uint64(p.MaxValueSize),
 		CollateralPercentage: uint64(p.CollateralPercentage),
 		MaxCollateralInputs:  uint64(p.MaxCollateralInputs),
-		CostModels:           costModels,
+		CostModels: common.ConvertToUtxorpcCardanoCostModels(
+			p.CostModels,
+		),
 		Prices: &cardano.ExPrices{
-			Memory: memPrice,
-			Steps:  stepPrice,
+			Memory: &cardano.RationalNumber{
+				Numerator:   int32(p.ExecutionCosts.MemPrice.Num().Int64()),
+				Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64()),
+			},
+			Steps: &cardano.RationalNumber{
+				Numerator:   int32(p.ExecutionCosts.StepPrice.Num().Int64()),
+				Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64()),
+			},
 		},
 		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
 			Memory: p.MaxTxExUnits.Memory,
@@ -437,5 +377,29 @@ func (p *AlonzoProtocolParameters) Utxorpc() *cardano.PParams {
 			Memory: p.MaxBlockExUnits.Memory,
 			Steps:  p.MaxBlockExUnits.Steps,
 		},
+	}
+}
+
+func UpgradePParams(
+	prevPParams mary.MaryProtocolParameters,
+) AlonzoProtocolParameters {
+	return AlonzoProtocolParameters{
+		MinFeeA:            prevPParams.MinFeeA,
+		MinFeeB:            prevPParams.MinFeeB,
+		MaxBlockBodySize:   prevPParams.MaxBlockBodySize,
+		MaxTxSize:          prevPParams.MaxTxSize,
+		MaxBlockHeaderSize: prevPParams.MaxBlockHeaderSize,
+		KeyDeposit:         prevPParams.KeyDeposit,
+		PoolDeposit:        prevPParams.PoolDeposit,
+		MaxEpoch:           prevPParams.MaxEpoch,
+		NOpt:               prevPParams.NOpt,
+		A0:                 prevPParams.A0,
+		Rho:                prevPParams.Rho,
+		Tau:                prevPParams.Tau,
+		Decentralization:   prevPParams.Decentralization,
+		ExtraEntropy:       prevPParams.ExtraEntropy,
+		ProtocolMajor:      prevPParams.ProtocolMajor,
+		ProtocolMinor:      prevPParams.ProtocolMinor,
+		MinUtxoValue:       prevPParams.MinUtxoValue,
 	}
 }
