@@ -241,20 +241,6 @@ func plutusVersionToKey(version string) (uint, bool) {
 	}
 }
 
-// Helper to convert key back to string
-func plutusKeyToVersion(key uint) string {
-	switch key {
-	case PlutusV1Key:
-		return "PlutusV1"
-	case PlutusV2Key:
-		return "PlutusV2"
-	case PlutusV3Key:
-		return "PlutusV3"
-	default:
-		return ""
-	}
-}
-
 type AlonzoProtocolParameterUpdate struct {
 	cbor.DecodeStoreCbor
 	MinFeeA              *uint                                     `cbor:"0,keyasint"`
