@@ -68,6 +68,7 @@ type Connection struct {
 	handshakeVersion      uint16
 	handshakeVersionData  protocol.VersionData
 	doneChan              chan interface{}
+	connClosedChan        chan struct{}
 	waitGroup             sync.WaitGroup
 	onceClose             sync.Once
 	sendKeepAlives        bool
@@ -101,7 +102,7 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 	c := &Connection{
 		protoErrorChan:        make(chan error, 10),
 		handshakeFinishedChan: make(chan interface{}),
-		doneChan:              make(chan interface{}),
+		connClosedChan:        make(chan struct{}),
 		// Create a discard logger to throw away logs. We do this so
 		// we don't have to add guards around every log operation if
 		// a logger is not configured by the user.
@@ -173,12 +174,16 @@ func (c *Connection) DialTimeout(
 
 // Close will shutdown the Ouroboros connection
 func (c *Connection) Close() error {
-	var err error
 	c.onceClose.Do(func() {
+		if c.doneChan == nil {
+			return
+		}
 		// Close doneChan to signify that we're shutting down
 		close(c.doneChan)
+		// Wait for connection to be closed
+		<-c.connClosedChan
 	})
-	return err
+	return nil
 }
 
 // BlockFetch returns the block-fetch protocol handler
@@ -237,6 +242,8 @@ func (c *Connection) shutdown() {
 	if c.muxer != nil {
 		c.muxer.Stop()
 	}
+	// Close channel to let Close() know that it can return
+	close(c.connClosedChan)
 	// Wait for other goroutines to finish
 	c.waitGroup.Wait()
 	// Close consumer error channel to signify connection shutdown
@@ -254,6 +261,7 @@ func (c *Connection) setupConnection() error {
 		)
 	}
 	// Start Goroutine to shutdown when doneChan is closed
+	c.doneChan = make(chan interface{})
 	go func() {
 		<-c.doneChan
 		c.shutdown()
