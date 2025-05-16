@@ -258,9 +258,9 @@ func (c *StakeDelegationCertificate) Type() uint {
 }
 
 type (
-	PoolKeyHash      Blake2b224
-	PoolMetadataHash Blake2b256
-	VrfKeyHash       Blake2b256
+	PoolKeyHash      = Blake2b224
+	PoolMetadataHash = Blake2b256
+	VrfKeyHash       = Blake2b256
 )
 
 type PoolMetadata struct {
@@ -611,8 +611,11 @@ func (c *RegistrationCertificate) UnmarshalCBOR(
 
 func (c *RegistrationCertificate) Utxorpc() *utxorpc.Certificate {
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeRegistration{
-			StakeRegistration: c.StakeCredential.Utxorpc(),
+		Certificate: &utxorpc.Certificate_RegCert{
+			RegCert: &utxorpc.RegCert{
+				StakeCredential: c.StakeCredential.Utxorpc(),
+				Coin:            uint64(c.Amount),
+			},
 		},
 	}
 }
@@ -646,8 +649,11 @@ func (c *DeregistrationCertificate) UnmarshalCBOR(
 
 func (c *DeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDeregistration{
-			StakeDeregistration: c.StakeCredential.Utxorpc(),
+		Certificate: &utxorpc.Certificate_UnregCert{
+			UnregCert: &utxorpc.UnRegCert{
+				StakeCredential: c.StakeCredential.Utxorpc(),
+				Coin:            uint64(c.Amount),
+			},
 		},
 	}
 }
