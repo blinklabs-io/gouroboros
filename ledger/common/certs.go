@@ -614,7 +614,6 @@ func (c *RegistrationCertificate) Utxorpc() *utxorpc.Certificate {
 		Certificate: &utxorpc.Certificate_RegCert{
 			RegCert: &utxorpc.RegCert{
 				StakeCredential: c.StakeCredential.Utxorpc(),
-				Coin:            uint64(c.Amount),
 			},
 		},
 	}
@@ -652,7 +651,6 @@ func (c *DeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
 		Certificate: &utxorpc.Certificate_UnregCert{
 			UnregCert: &utxorpc.UnRegCert{
 				StakeCredential: c.StakeCredential.Utxorpc(),
-				Coin:            uint64(c.Amount),
 			},
 		},
 	}
