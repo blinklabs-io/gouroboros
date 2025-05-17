@@ -684,26 +684,11 @@ func (c *VoteDelegationCertificate) UnmarshalCBOR(
 }
 
 func (c *VoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	// Get the DRep proto
-	drepProto := c.Drep.Utxorpc()
-
-	// Extract the credential bytes if available
-	var drepBytes []byte
-	if drepProto != nil {
-		switch v := drepProto.GetDrep().(type) {
-		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = v.AddrKeyHash
-		case *utxorpc.DRep_ScriptHash:
-			drepBytes = v.ScriptHash
-		default:
-			drepBytes = nil
-		}
-	}
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDelegation{
-			StakeDelegation: &utxorpc.StakeDelegationCert{
+		Certificate: &utxorpc.Certificate_VoteDelegCert{
+			VoteDelegCert: &utxorpc.VoteDelegCert{
 				StakeCredential: c.StakeCredential.Utxorpc(),
-				PoolKeyhash:     drepBytes,
+				Drep:            c.Drep.Utxorpc(),
 			},
 		},
 	}
@@ -759,10 +744,11 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	encodedKey = append(encodedKey, drepBytes...)
 
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDelegation{
-			StakeDelegation: &utxorpc.StakeDelegationCert{
+		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
+			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
 				StakeCredential: c.StakeCredential.Utxorpc(),
 				PoolKeyhash:     encodedKey,
+				Drep:            c.Drep.Utxorpc(),
 			},
 		},
 	}
@@ -798,8 +784,8 @@ func (c *StakeRegistrationDelegationCertificate) UnmarshalCBOR(
 
 func (c *StakeRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDelegation{
-			StakeDelegation: &utxorpc.StakeDelegationCert{
+		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
+			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
 				StakeCredential: c.StakeCredential.Utxorpc(),
 				PoolKeyhash:     c.PoolKeyHash,
 			},
@@ -836,23 +822,11 @@ func (c *VoteRegistrationDelegationCertificate) UnmarshalCBOR(
 }
 
 func (c *VoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	drepProto := c.Drep.Utxorpc()
-	var drepBytes []byte
-
-	if drepProto != nil {
-		switch v := drepProto.GetDrep().(type) {
-		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = v.AddrKeyHash
-		case *utxorpc.DRep_ScriptHash:
-			drepBytes = v.ScriptHash
-		}
-	}
-
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDelegation{
-			StakeDelegation: &utxorpc.StakeDelegationCert{
+		Certificate: &utxorpc.Certificate_VoteRegDelegCert{
+			VoteRegDelegCert: &utxorpc.VoteRegDelegCert{
 				StakeCredential: c.StakeCredential.Utxorpc(),
-				PoolKeyhash:     drepBytes,
+				Drep:            c.Drep.Utxorpc(),
 			},
 		},
 	}
@@ -901,10 +875,11 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certific
 	}
 
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDelegation{
-			StakeDelegation: &utxorpc.StakeDelegationCert{
+		Certificate: &utxorpc.Certificate_StakeVoteRegDelegCert{
+			StakeVoteRegDelegCert: &utxorpc.StakeVoteRegDelegCert{
 				StakeCredential: c.StakeCredential.Utxorpc(),
 				PoolKeyhash:     drepBytes,
+				Drep:            c.Drep.Utxorpc(),
 			},
 		},
 	}
@@ -939,10 +914,10 @@ func (c *AuthCommitteeHotCertificate) UnmarshalCBOR(
 
 func (c *AuthCommitteeHotCertificate) Utxorpc() *utxorpc.Certificate {
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_GenesisKeyDelegation{
-			GenesisKeyDelegation: &utxorpc.GenesisKeyDelegationCert{
-				GenesisHash:         c.ColdCredential.Credential[:],
-				GenesisDelegateHash: c.HostCredential.Credential[:],
+		Certificate: &utxorpc.Certificate_AuthCommitteeHotCert{
+			AuthCommitteeHotCert: &utxorpc.AuthCommitteeHotCert{
+				CommitteeColdCredential: c.ColdCredential.Utxorpc(),
+				CommitteeHotCredential:  c.HostCredential.Utxorpc(),
 			},
 		},
 	}
@@ -976,10 +951,18 @@ func (c *ResignCommitteeColdCertificate) UnmarshalCBOR(
 }
 
 func (c *ResignCommitteeColdCertificate) Utxorpc() *utxorpc.Certificate {
+	var anchor *utxorpc.Anchor
+	if c.Anchor != nil {
+		anchor = &utxorpc.Anchor{
+			Url:         c.Anchor.Url,
+			ContentHash: c.Anchor.DataHash[:],
+		}
+	}
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_PoolRetirement{
-			PoolRetirement: &utxorpc.PoolRetirementCert{
-				PoolKeyhash: c.ColdCredential.Credential[:],
+		Certificate: &utxorpc.Certificate_ResignCommitteeColdCert{
+			ResignCommitteeColdCert: &utxorpc.ResignCommitteeColdCert{
+				CommitteeColdCredential: c.ColdCredential.Utxorpc(),
+				Anchor:                  anchor,
 			},
 		},
 	}
@@ -1014,9 +997,20 @@ func (c *RegistrationDrepCertificate) UnmarshalCBOR(
 }
 
 func (c *RegistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
+	// Handle anchor data if present
+	var anchor *utxorpc.Anchor
+	if c.Anchor != nil {
+		anchor = &utxorpc.Anchor{
+			Url:         c.Anchor.Url,
+			ContentHash: c.Anchor.DataHash[:],
+		}
+	}
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeRegistration{
-			StakeRegistration: c.DrepCredential.Utxorpc(),
+		Certificate: &utxorpc.Certificate_RegDrepCert{
+			RegDrepCert: &utxorpc.RegDRepCert{
+				DrepCredential: c.DrepCredential.Utxorpc(),
+				Anchor:         anchor,
+			},
 		},
 	}
 }
@@ -1050,8 +1044,10 @@ func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 
 func (c *DeregistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDeregistration{
-			StakeDeregistration: c.DrepCredential.Utxorpc(),
+		Certificate: &utxorpc.Certificate_UnregDrepCert{
+			UnregDrepCert: &utxorpc.UnRegDRepCert{
+				DrepCredential: c.DrepCredential.Utxorpc(),
+			},
 		},
 	}
 }
@@ -1084,33 +1080,18 @@ func (c *UpdateDrepCertificate) UnmarshalCBOR(
 }
 
 func (c *UpdateDrepCertificate) Utxorpc() *utxorpc.Certificate {
-	// Handle anchor data if present
-	var metadata *utxorpc.PoolMetadata
+	var anchor *utxorpc.Anchor
 	if c.Anchor != nil {
-		metadata = &utxorpc.PoolMetadata{
-			Url:  c.Anchor.Url,
-			Hash: c.Anchor.DataHash[:],
+		anchor = &utxorpc.Anchor{
+			Url:         c.Anchor.Url,
+			ContentHash: c.Anchor.DataHash[:],
 		}
 	}
-
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_PoolRegistration{
-			PoolRegistration: &utxorpc.PoolRegistrationCert{
-				// Store DRep credential hash bytes in operator field
-				Operator: c.DrepCredential.Credential[:],
-				// Store anchor info in metadata
-				PoolMetadata: metadata,
-				// Set minimal required fields
-				VrfKeyhash: []byte{},
-				Pledge:     0,
-				Cost:       0,
-				Margin: &utxorpc.RationalNumber{
-					Numerator:   0,
-					Denominator: 1,
-				},
-				RewardAccount: nil,
-				PoolOwners:    nil,
-				Relays:        nil,
+		Certificate: &utxorpc.Certificate_UpdateDrepCert{
+			UpdateDrepCert: &utxorpc.UpdateDRepCert{
+				DrepCredential: c.DrepCredential.Utxorpc(),
+				Anchor:         anchor,
 			},
 		},
 	}
