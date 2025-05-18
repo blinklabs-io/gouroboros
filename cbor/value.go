@@ -27,7 +27,7 @@ import (
 // Helpful wrapper for parsing arbitrary CBOR data which may contain types that
 // cannot be easily represented in Go (such as maps with bytestring keys)
 type Value struct {
-	value interface{}
+	value any
 	// We store this as a string so that the type is still hashable for use as map keys
 	cborData string
 }
@@ -78,7 +78,7 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 			v.value = tmpTagDecode
 		}
 	default:
-		var tmpValue interface{}
+		var tmpValue any
 		if _, err := Decode(data, &tmpValue); err != nil {
 			return err
 		}
@@ -91,7 +91,7 @@ func (v Value) Cbor() []byte {
 	return []byte(v.cborData)
 }
 
-func (v Value) Value() interface{} {
+func (v Value) Value() any {
 	return v.value
 }
 
@@ -160,8 +160,8 @@ func (v *Value) processArray(data []byte) error {
 	return nil
 }
 
-func generateAstJson(obj interface{}) ([]byte, error) {
-	tmpJsonObj := map[string]interface{}{}
+func generateAstJson(obj any) ([]byte, error) {
+	tmpJsonObj := map[string]any{}
 	switch v := obj.(type) {
 	case []byte:
 		tmpJsonObj["bytes"] = hex.EncodeToString(v)
@@ -169,11 +169,11 @@ func generateAstJson(obj interface{}) ([]byte, error) {
 		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
 	case WrappedCbor:
 		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
-	case []interface{}:
+	case []any:
 		return generateAstJsonList[[]any](v)
 	case Set:
 		return generateAstJsonList[Set](v)
-	case map[interface{}]interface{}:
+	case map[any]any:
 		return generateAstJsonMap[map[any]any](v)
 	case Map:
 		return generateAstJsonMap[Map](v)
@@ -376,12 +376,12 @@ func (l *LazyValue) MarshalJSON() ([]byte, error) {
 	return l.value.MarshalJSON()
 }
 
-func (l *LazyValue) Decode() (interface{}, error) {
+func (l *LazyValue) Decode() (any, error) {
 	err := l.value.UnmarshalCBOR([]byte(l.value.cborData))
 	return l.Value(), err
 }
 
-func (l *LazyValue) Value() interface{} {
+func (l *LazyValue) Value() any {
 	return l.value.Value()
 }
 

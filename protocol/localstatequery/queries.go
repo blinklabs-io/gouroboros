@@ -368,15 +368,15 @@ func decodeQuery(
 	return tmpQuery, nil
 }
 
-func buildQuery(queryType int, params ...interface{}) []interface{} {
-	ret := []interface{}{queryType}
+func buildQuery(queryType int, params ...any) []any {
+	ret := []any{queryType}
 	if len(params) > 0 {
 		ret = append(ret, params...)
 	}
 	return ret
 }
 
-func buildHardForkQuery(queryType int, params ...interface{}) []interface{} {
+func buildHardForkQuery(queryType int, params ...any) []any {
 	ret := buildQuery(
 		QueryTypeBlock,
 		buildQuery(
@@ -393,8 +393,8 @@ func buildHardForkQuery(queryType int, params ...interface{}) []interface{} {
 func buildShelleyQuery(
 	era int,
 	queryType int,
-	params ...interface{},
-) []interface{} {
+	params ...any,
+) []any {
 	ret := buildQuery(
 		QueryTypeBlock,
 		buildQuery(
@@ -481,7 +481,7 @@ type EraHistoryResult struct {
 type eraHistoryResultBeginEnd struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_        struct{} `cbor:",toarray"`
-	Timespan interface{}
+	Timespan any
 	SlotNo   int
 	EpochNo  int
 }
@@ -506,7 +506,7 @@ type eraHistoryResultParams struct {
 result	[{ *[0 int] => non_myopic_rewards }]	for each stake display reward
 non_myopic_rewards	{ *poolid => int }	int is the amount of lovelaces each pool would reward
 */
-type NonMyopicMemberRewardsResult interface{}
+type NonMyopicMemberRewardsResult any
 
 type CurrentProtocolParamsResult interface {
 	ledger.AlonzoProtocolParameters |
@@ -517,7 +517,7 @@ type CurrentProtocolParamsResult interface {
 }
 
 // TODO (#861)
-type ProposedProtocolParamsUpdatesResult interface{}
+type ProposedProtocolParamsUpdatesResult any
 
 type StakeDistributionResult struct {
 	cbor.StructAsArray
@@ -591,10 +591,10 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 /*
 result	[{* utxo => value }]
 */
-type UTxOWholeResult interface{}
+type UTxOWholeResult any
 
 // TODO (#863)
-type DebugEpochStateResult interface{}
+type DebugEpochStateResult any
 
 // TODO (#858)
 /*
@@ -605,7 +605,7 @@ delegation	{ * rwdr => poolid }	poolid is a bytestring
 rewards	{ * rwdr => int }
 It seems to be a requirement to sort the reward addresses on the query. Scripthash addresses come first, then within a group the bytestring being a network order integer sort ascending.
 */
-type FilteredDelegationsAndRewardAccountsResult interface{}
+type FilteredDelegationsAndRewardAccountsResult any
 
 type GenesisConfigResult struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
@@ -613,7 +613,7 @@ type GenesisConfigResult struct {
 	Start             SystemStartResult
 	NetworkMagic      int
 	NetworkId         uint8
-	ActiveSlotsCoeff  []interface{}
+	ActiveSlotsCoeff  []any
 	SecurityParam     int
 	EpochLength       int
 	SlotsPerKESPeriod int
@@ -624,8 +624,8 @@ type GenesisConfigResult struct {
 	ProtocolParams    GenesisConfigResultProtocolParameters
 	// This value contains maps with bytestring keys, which we can't parse yet
 	GenDelegs cbor.RawMessage
-	Unknown1  interface{}
-	Unknown2  interface{}
+	Unknown1  any
+	Unknown2  any
 }
 
 type GenesisConfigResultProtocolParameters struct {
@@ -643,7 +643,7 @@ type GenesisConfigResultProtocolParameters struct {
 	Rho                   []int
 	Tau                   []int
 	DecentralizationParam []int
-	ExtraEntropy          interface{}
+	ExtraEntropy          any
 	ProtocolVersionMajor  int
 	ProtocolVersionMinor  int
 	MinUTxOValue          int
@@ -651,10 +651,10 @@ type GenesisConfigResultProtocolParameters struct {
 }
 
 // TODO (#864)
-type DebugNewEpochStateResult interface{}
+type DebugNewEpochStateResult any
 
 // TODO (#865)
-type DebugChainDepStateResult interface{}
+type DebugChainDepStateResult any
 
 // TODO (#866)
 /*
@@ -677,7 +677,7 @@ activeStakeGo
 nil
 nil
 */
-type RewardProvenanceResult interface{}
+type RewardProvenanceResult any
 
 type UTxOByTxInResult struct {
 	cbor.StructAsArray
@@ -710,13 +710,13 @@ type StakePoolParamsResult struct {
 }
 
 // TODO (#867)
-type RewardInfoPoolsResult interface{}
+type RewardInfoPoolsResult any
 
 // TODO (#868)
-type PoolStateResult interface{}
+type PoolStateResult any
 
 // TODO (#869)
-type StakeSnapshotsResult interface{}
+type StakeSnapshotsResult any
 
 // TODO (#870)
-type PoolDistrResult interface{}
+type PoolDistrResult any

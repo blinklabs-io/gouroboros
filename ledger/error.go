@@ -63,7 +63,7 @@ func NewGenericErrorFromCbor(cborData []byte) (error, error) {
 }
 
 type GenericError struct {
-	Value interface{}
+	Value any
 	Cbor  []byte
 }
 
@@ -261,7 +261,7 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 	e.Era = tmpData.Era
 	newErr, err := cbor.DecodeById(
 		tmpData.Err,
-		map[int]interface{}{
+		map[int]any{
 			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
 			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
 			UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
@@ -339,7 +339,7 @@ type OutsideValidityIntervalUtxo struct {
 }
 
 func (e *OutsideValidityIntervalUtxo) Error() string {
-	validityInterval := e.ValidityInterval.Value().([]interface{})
+	validityInterval := e.ValidityInterval.Value().([]any)
 	return fmt.Sprintf(
 		"OutsideValidityIntervalUtxo (ValidityInterval { invalidBefore = %v, invalidHereafter = %v }, Slot %d)",
 		validityInterval[0],

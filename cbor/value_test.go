@@ -30,7 +30,7 @@ import (
 
 var testDefs = []struct {
 	cborHex             string
-	expectedObject      interface{}
+	expectedObject      any
 	expectedAstJson     string
 	expectedDecodeError error
 }{

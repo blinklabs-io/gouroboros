@@ -31,7 +31,7 @@ type testDefinition struct {
 	CborHex     string
 	Message     protocol.Message
 	MessageType uint
-	Result      interface{}
+	Result      any
 }
 
 var tests = []testDefinition{
@@ -178,7 +178,7 @@ func TestEncode(t *testing.T) {
 }
 
 // Helper function to encode to cbor or panic
-func unsafeCbor(data interface{}) []byte {
+func unsafeCbor(data any) []byte {
 	cborData, err := cbor.Encode(data)
 	if err != nil {
 		panic(fmt.Sprintf("error encoding to CBOR: %s", err))

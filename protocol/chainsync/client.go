@@ -55,7 +55,7 @@ type clientPointResult struct {
 
 // NewClient returns a new ChainSync client object
 func NewClient(
-	stateContext interface{},
+	stateContext any,
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Client {

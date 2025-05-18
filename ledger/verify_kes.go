@@ -39,7 +39,7 @@ const (
 
 type SumXKesSig struct {
 	Depth                  uint64
-	Sigma                  interface{}
+	Sigma                  any
 	LeftHandSidePublicKey  ed25519.PublicKey
 	RightHandSidePublicKey ed25519.PublicKey
 }
@@ -53,7 +53,7 @@ func NewSumKesFromByte(depth uint64, fromByte []byte) SumXKesSig {
 		panic("length not match")
 	}
 	nextKesSize := SIGMA_SIZE + (depth-1)*(PUBLIC_KEY_SIZE*2)
-	var sigma interface{}
+	var sigma any
 	if depth == 1 {
 		sigma = Sum0KesSigFromByte(fromByte)
 	} else {

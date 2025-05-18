@@ -24,7 +24,7 @@ import (
 	"github.com/jinzhu/copier"
 )
 
-func Encode(data interface{}) ([]byte, error) {
+func Encode(data any) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	opts := _cbor.EncOptions{
 		// Make sure that maps have ordered keys
@@ -46,7 +46,7 @@ var (
 
 // EncodeGeneric encodes the specified object to CBOR without using the source object's
 // MarshalCBOR() function
-func EncodeGeneric(src interface{}) ([]byte, error) {
+func EncodeGeneric(src any) ([]byte, error) {
 	// Get source type
 	valueSrc := reflect.ValueOf(src)
 	typeSrc := valueSrc.Elem().Type()

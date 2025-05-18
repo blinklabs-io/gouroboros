@@ -70,7 +70,7 @@ func newChainSyncFlags() *chainSyncFlags {
 }
 
 // Intersect points (last block of previous era) for each era on testnet/mainnet
-var eraIntersect = map[string]map[string][]interface{}{
+var eraIntersect = map[string]map[string][]any{
 	"unknown": {
 		"genesis": {},
 	},
@@ -145,7 +145,7 @@ func testChainSync(f *globalFlags) {
 		os.Exit(1)
 	}
 
-	var intersectPoint []interface{}
+	var intersectPoint []any
 	if _, ok := eraIntersect[f.network]; !ok {
 		if chainSyncFlags.startEra != "genesis" {
 			fmt.Printf(
@@ -255,7 +255,7 @@ func chainSyncRollBackwardHandler(
 func chainSyncRollForwardHandler(
 	ctx chainsync.CallbackContext,
 	blockType uint,
-	blockData interface{},
+	blockData any,
 	tip chainsync.Tip,
 ) error {
 	var block ledger.Block

@@ -532,7 +532,7 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 query	[10 #6.258([ *rwdr ])]
 */
 func (c *Client) GetFilteredDelegationsAndRewardAccounts(
-	creds []interface{},
+	creds []any,
 ) (*FilteredDelegationsAndRewardAccountsResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetFilteredDelegationsAndRewardAccounts(creds: %+v)", creds),
@@ -768,7 +768,7 @@ func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 	return &result, nil
 }
 
-func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
+func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetPoolState(poolIds: %+v)", poolIds),
 			"component", "network",
@@ -795,7 +795,7 @@ func (c *Client) GetPoolState(poolIds []interface{}) (*PoolStateResult, error) {
 }
 
 func (c *Client) GetStakeSnapshots(
-	poolId interface{},
+	poolId any,
 ) (*StakeSnapshotsResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetStakeSnapshots(poolId: %+v)", poolId),
@@ -822,7 +822,7 @@ func (c *Client) GetStakeSnapshots(
 	return &result, nil
 }
 
-func (c *Client) GetPoolDistr(poolIds []interface{}) (*PoolDistrResult, error) {
+func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetPoolDistr(poolIds: %+v)", poolIds),
 			"component", "network",
@@ -977,7 +977,7 @@ func (c *Client) release() error {
 	return nil
 }
 
-func (c *Client) runQuery(query interface{}, result interface{}) error {
+func (c *Client) runQuery(query any, result any) error {
 	msg := NewMsgQuery(query)
 	if !c.acquired {
 		if err := c.acquire(AcquireVolatileTip{}); err != nil {

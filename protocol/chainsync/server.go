@@ -34,7 +34,7 @@ type Server struct {
 
 // NewServer returns a new ChainSync server object
 func NewServer(
-	stateContext interface{},
+	stateContext any,
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Server {

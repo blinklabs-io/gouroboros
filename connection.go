@@ -64,10 +64,10 @@ type Connection struct {
 	muxer                 *muxer.Muxer
 	errorChan             chan error
 	protoErrorChan        chan error
-	handshakeFinishedChan chan interface{}
+	handshakeFinishedChan chan any
 	handshakeVersion      uint16
 	handshakeVersionData  protocol.VersionData
-	doneChan              chan interface{}
+	doneChan              chan any
 	connClosedChan        chan struct{}
 	waitGroup             sync.WaitGroup
 	onceClose             sync.Once
@@ -101,7 +101,7 @@ type Connection struct {
 func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 	c := &Connection{
 		protoErrorChan:        make(chan error, 10),
-		handshakeFinishedChan: make(chan interface{}),
+		handshakeFinishedChan: make(chan any),
 		connClosedChan:        make(chan struct{}),
 		// Create a discard logger to throw away logs. We do this so
 		// we don't have to add guards around every log operation if
@@ -261,7 +261,7 @@ func (c *Connection) setupConnection() error {
 		)
 	}
 	// Start Goroutine to shutdown when doneChan is closed
-	c.doneChan = make(chan interface{})
+	c.doneChan = make(chan any)
 	go func() {
 		<-c.doneChan
 		c.shutdown()

@@ -65,7 +65,7 @@ type ProtocolConfig struct {
 	MessageHandlerFunc  MessageHandlerFunc
 	MessageFromCborFunc MessageFromCborFunc
 	StateMap            StateMap
-	StateContext        interface{}
+	StateContext        any
 	InitialState        State
 	RecvQueueSize       int
 }

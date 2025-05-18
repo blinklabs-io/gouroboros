@@ -404,11 +404,11 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(data []byte) error {
 }
 
 func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
-	var tmpObj []interface{}
+	var tmpObj []any
 	if d.hash != nil {
-		tmpObj = []interface{}{DatumOptionTypeHash, d.hash}
+		tmpObj = []any{DatumOptionTypeHash, d.hash}
 	} else if d.data != nil {
-		tmpObj = []interface{}{DatumOptionTypeData, cbor.Tag{Number: 24, Content: d.data.Cbor()}}
+		tmpObj = []any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: d.data.Cbor()}}
 	} else {
 		return nil, errors.New("unknown datum option type")
 	}

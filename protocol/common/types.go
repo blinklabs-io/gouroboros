@@ -43,7 +43,7 @@ func NewPointOrigin() Point {
 // UnmarshalCBOR is a helper function for decoding a Point object from CBOR. The object content can vary,
 // so we need to do some special handling when decoding. It is not intended to be called directly.
 func (p *Point) UnmarshalCBOR(data []byte) error {
-	var tmp []interface{}
+	var tmp []any
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
@@ -57,12 +57,12 @@ func (p *Point) UnmarshalCBOR(data []byte) error {
 // MarshalCBOR is a helper function for encoding a Point object to CBOR. The object content can vary, so we
 // need to do some special handling when encoding. It is not intended to be called directly.
 func (p *Point) MarshalCBOR() ([]byte, error) {
-	var data []interface{}
+	var data []any
 	if p.Slot == 0 && p.Hash == nil {
 		// Return an empty list if values are zero
-		data = make([]interface{}, 0)
+		data = make([]any, 0)
 	} else {
-		data = []interface{}{p.Slot, p.Hash}
+		data = []any{p.Slot, p.Hash}
 	}
 	return cbor.Encode(data)
 }
