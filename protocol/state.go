@@ -15,6 +15,7 @@
 package protocol
 
 import (
+	"maps"
 	"time"
 )
 
@@ -71,8 +72,6 @@ type StateMap map[State]StateMapEntry
 // since we need to copy the state map in various places
 func (s StateMap) Copy() StateMap {
 	ret := StateMap{}
-	for k, v := range s {
-		ret[k] = v
-	}
+	maps.Copy(ret, s)
 	return ret
 }
