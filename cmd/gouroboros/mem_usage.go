@@ -79,7 +79,7 @@ func testMemUsage(f *globalFlags) {
 		)
 	}()
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		showMemoryStats("open")
 
 		conn := createClientConnection(f)

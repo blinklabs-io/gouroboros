@@ -453,7 +453,7 @@ func (c *Client) syncLoop() {
 		}
 		// Request the next block(s)
 		msgCount := max(c.config.PipelineLimit, 1)
-		for i := 0; i < msgCount; i++ {
+		for range msgCount {
 			msg := NewMsgRequestNext()
 			if err := c.SendMessage(msg); err != nil {
 				c.SendError(err)
