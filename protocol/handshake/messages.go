@@ -103,10 +103,10 @@ func NewMsgAcceptVersion(
 
 type MsgRefuse struct {
 	protocol.MessageBase
-	Reason []interface{}
+	Reason []any
 }
 
-func NewMsgRefuse(reason []interface{}) *MsgRefuse {
+func NewMsgRefuse(reason []any) *MsgRefuse {
 	m := &MsgRefuse{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRefuse,

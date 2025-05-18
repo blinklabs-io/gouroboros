@@ -30,11 +30,11 @@ func JsonStringsEqual(jsonData1 []byte, jsonData2 []byte) bool {
 		return true
 	}
 	// Decode provided JSON strings
-	var tmpObj1 interface{}
+	var tmpObj1 any
 	if err := json.Unmarshal(jsonData1, &tmpObj1); err != nil {
 		return false
 	}
-	var tmpObj2 interface{}
+	var tmpObj2 any
 	if err := json.Unmarshal(jsonData2, &tmpObj2); err != nil {
 		return false
 	}

@@ -297,7 +297,7 @@ func TestGenesisConfigJSON(t *testing.T) {
 		},
 		NetworkMagic:      764824073,
 		NetworkId:         1,
-		ActiveSlotsCoeff:  []interface{}{0.1, 0.2},
+		ActiveSlotsCoeff:  []any{0.1, 0.2},
 		SecurityParam:     2160,
 		EpochLength:       432000,
 		SlotsPerKESPeriod: 129600,

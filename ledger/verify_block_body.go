@@ -255,7 +255,7 @@ func encodeHead(e *bytes.Buffer, t byte, n uint64) int {
 func EncodeCborMap(data []AuxData) ([]byte, error) {
 	dataLen := len(data)
 	if dataLen == 0 {
-		txSeqMetadata := make(map[uint64]interface{})
+		txSeqMetadata := make(map[uint64]any)
 		return cbor.Encode(txSeqMetadata)
 	}
 	var dataBuffer bytes.Buffer

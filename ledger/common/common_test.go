@@ -68,7 +68,7 @@ func TestAssetFingerprint(t *testing.T) {
 
 func TestMultiAssetJson(t *testing.T) {
 	testDefs := []struct {
-		multiAssetObj interface{}
+		multiAssetObj any
 		expectedJson  string
 	}{
 		{

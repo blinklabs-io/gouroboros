@@ -111,13 +111,13 @@ func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
 }
 
 func (w *WrappedHeader) MarshalCBOR() ([]byte, error) {
-	ret := []interface{}{
+	ret := []any{
 		w.Era,
 	}
 	switch w.Era {
 	case ledger.BlockHeaderTypeByron:
-		tmp := []interface{}{
-			[]interface{}{
+		tmp := []any{
+			[]any{
 				w.byronType,
 				w.byronSize,
 			},

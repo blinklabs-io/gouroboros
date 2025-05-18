@@ -23,14 +23,14 @@ import (
 
 type encodeTestDefinition struct {
 	CborHex string
-	Object  interface{}
+	Object  any
 }
 
 var encodeTests = []encodeTestDefinition{
 	// Simple list of numbers
 	{
 		CborHex: "83010203",
-		Object:  []interface{}{1, 2, 3},
+		Object:  []any{1, 2, 3},
 	},
 }
 

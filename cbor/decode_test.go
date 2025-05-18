@@ -25,7 +25,7 @@ import (
 
 type decodeTestDefinition struct {
 	CborHex   string
-	Object    interface{}
+	Object    any
 	BytesRead int
 }
 
@@ -33,12 +33,12 @@ var decodeTests = []decodeTestDefinition{
 	// Simple list of numbers
 	{
 		CborHex: "83010203",
-		Object:  []interface{}{uint64(1), uint64(2), uint64(3)},
+		Object:  []any{uint64(1), uint64(2), uint64(3)},
 	},
 	// Multiple CBOR objects
 	{
 		CborHex:   "81018102",
-		Object:    []interface{}{uint64(1)},
+		Object:    []any{uint64(1)},
 		BytesRead: 2,
 	},
 }
@@ -49,7 +49,7 @@ func TestDecode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to decode CBOR hex: %s", err)
 		}
-		var dest interface{}
+		var dest any
 		bytesRead, err := cbor.Decode(cborData, &dest)
 		if err != nil {
 			t.Fatalf("failed to decode CBOR: %s", err)
@@ -205,7 +205,7 @@ type decodeByIdObjectC struct {
 
 type decodeByIdTestDefinition struct {
 	CborHex string
-	Object  interface{}
+	Object  any
 	Error   error
 }
 
@@ -245,7 +245,7 @@ var decodeByIdTests = []decodeByIdTestDefinition{
 func TestDecodeById(t *testing.T) {
 	for _, test := range decodeByIdTests {
 		// We define this inside the loop to make sure to get fresh objects each time
-		var decodeByIdObjectMap = map[int]interface{}{
+		var decodeByIdObjectMap = map[int]any{
 			1: &decodeByIdObjectA{},
 			2: &decodeByIdObjectB{},
 			3: &decodeByIdObjectC{},

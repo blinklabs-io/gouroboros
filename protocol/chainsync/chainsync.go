@@ -141,7 +141,7 @@ type StateContext struct {
 	pipelineCount int
 }
 
-var IncrementPipelineCount = func(context interface{}, msg protocol.Message) bool {
+var IncrementPipelineCount = func(context any, msg protocol.Message) bool {
 	s := context.(*StateContext)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -150,7 +150,7 @@ var IncrementPipelineCount = func(context interface{}, msg protocol.Message) boo
 	return true
 }
 
-var DecrementPipelineCountAndIsEmpty = func(context interface{}, msg protocol.Message) bool {
+var DecrementPipelineCountAndIsEmpty = func(context any, msg protocol.Message) bool {
 	s := context.(*StateContext)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -162,7 +162,7 @@ var DecrementPipelineCountAndIsEmpty = func(context interface{}, msg protocol.Me
 	return false
 }
 
-var DecrementPipelineCountAndIsNotEmpty = func(context interface{}, msg protocol.Message) bool {
+var DecrementPipelineCountAndIsNotEmpty = func(context any, msg protocol.Message) bool {
 	s := context.(*StateContext)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -174,7 +174,7 @@ var DecrementPipelineCountAndIsNotEmpty = func(context interface{}, msg protocol
 	return false
 }
 
-var PipelineIsEmtpy = func(context interface{}, msg protocol.Message) bool {
+var PipelineIsEmtpy = func(context any, msg protocol.Message) bool {
 	s := context.(*StateContext)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -182,7 +182,7 @@ var PipelineIsEmtpy = func(context interface{}, msg protocol.Message) bool {
 	return s.pipelineCount == 0
 }
 
-var PipelineIsNotEmpty = func(context interface{}, msg protocol.Message) bool {
+var PipelineIsNotEmpty = func(context any, msg protocol.Message) bool {
 	s := context.(*StateContext)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -219,7 +219,7 @@ type CallbackContext struct {
 // Callback function types
 type (
 	RollBackwardFunc   func(CallbackContext, common.Point, Tip) error
-	RollForwardFunc    func(CallbackContext, uint, interface{}, Tip) error
+	RollForwardFunc    func(CallbackContext, uint, any, Tip) error
 	RollForwardRawFunc func(CallbackContext, uint, []byte, Tip) error
 )
 

@@ -69,9 +69,9 @@ var tests = []testDefinition{
 		CborHex:     "82028200840708090a",
 		MessageType: MessageTypeRefuse,
 		Message: NewMsgRefuse(
-			[]interface{}{
+			[]any{
 				uint64(RefuseReasonVersionMismatch),
-				[]interface{}{
+				[]any{
 					uint64(7),
 					uint64(8),
 					uint64(9),

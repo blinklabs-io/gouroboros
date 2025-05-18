@@ -165,7 +165,7 @@ func NewMsgReplyNextTx(eraId uint8, tx []byte) *MsgReplyNextTx {
 }
 
 func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
-	var tmp []interface{}
+	var tmp []any
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 	m.MessageType = uint8(messageType64)
 	// The ReplyNextTx message has a variable number of arguments
 	if len(tmp) > 1 {
-		txWrapper := tmp[1].([]interface{})
+		txWrapper := tmp[1].([]any)
 		eraId64 := txWrapper[0].(uint64)
 		if eraId64 > math.MaxUint8 {
 			return errors.New("era id integer overflow")
@@ -194,7 +194,7 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 }
 
 func (m *MsgReplyNextTx) MarshalCBOR() ([]byte, error) {
-	tmp := []interface{}{m.MessageType}
+	tmp := []any{m.MessageType}
 	if m.Transaction.Tx != nil {
 		type tmpTxObj struct {
 			// Tells the CBOR decoder to convert to/from a struct and a CBOR array

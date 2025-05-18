@@ -26,7 +26,7 @@ import (
 	"github.com/jinzhu/copier"
 )
 
-func Decode(dataBytes []byte, dest interface{}) (int, error) {
+func Decode(dataBytes []byte, dest any) (int, error) {
 	data := bytes.NewReader(dataBytes)
 	// Create a custom decoder that returns an error on unknown fields
 	decOptions := _cbor.DecOptions{
@@ -67,7 +67,7 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 		return 0, err
 	}
 	// Make sure that the value is actually numeric
-	switch v := tmp.Value().([]interface{})[0].(type) {
+	switch v := tmp.Value().([]any)[0].(type) {
 	// The upstream CBOR library uses uint64 by default for numeric values
 	case uint64:
 		if v > uint64(math.MaxInt) {
@@ -99,8 +99,8 @@ func ListLength(cborData []byte) (int, error) {
 // a map of numbers to object pointers to decode into
 func DecodeById(
 	cborData []byte,
-	idMap map[int]interface{},
-) (interface{}, error) {
+	idMap map[int]any,
+) (any, error) {
 	id, err := DecodeIdFromList(cborData)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ var (
 
 // DecodeGeneric decodes the specified CBOR into the destination object without using the
 // destination object's UnmarshalCBOR() function
-func DecodeGeneric(cborData []byte, dest interface{}) error {
+func DecodeGeneric(cborData []byte, dest any) error {
 	// Get destination type
 	valueDest := reflect.ValueOf(dest)
 	typeDest := valueDest.Elem().Type()

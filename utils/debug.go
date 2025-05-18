@@ -20,14 +20,14 @@ import (
 )
 
 // DumpCborStructure generates an indented string representing an arbitrary data structure for debugging purposes
-func DumpCborStructure(data interface{}, prefix string) string {
+func DumpCborStructure(data any, prefix string) string {
 	var ret bytes.Buffer
 	switch v := data.(type) {
 	case int, uint, int16, uint16, int32, uint32, int64, uint64:
 		return fmt.Sprintf("%s0x%x (%d),\n", prefix, v, v)
 	case []uint8:
 		return fmt.Sprintf("%s<bytes> (length %d),\n", prefix, len(v))
-	case []interface{}:
+	case []any:
 		ret.WriteString(prefix + "[\n")
 		newPrefix := prefix
 		// Override original user-provided prefix
@@ -59,7 +59,7 @@ func DumpCborStructure(data interface{}, prefix string) string {
 			ret.WriteString(tmp)
 		}
 		ret.WriteString(prefix + "],\n")
-	case map[interface{}]interface{}:
+	case map[any]any:
 		ret.WriteString(prefix + "{\n")
 		newPrefix := prefix
 		// Override original user-provided prefix

@@ -157,7 +157,7 @@ type MsgQuery struct {
 	Query QueryWrapper
 }
 
-func NewMsgQuery(query interface{}) *MsgQuery {
+func NewMsgQuery(query any) *MsgQuery {
 	m := &MsgQuery{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeQuery,

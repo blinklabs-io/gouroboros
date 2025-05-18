@@ -54,7 +54,7 @@ type ByronMainBlockHeader struct {
 	hash          *common.Blake2b256
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
-	BodyProof     interface{}
+	BodyProof     any
 	ConsensusData struct {
 		cbor.StructAsArray
 		// [slotid, pubkey, difficulty, blocksig]
@@ -68,13 +68,13 @@ type ByronMainBlockHeader struct {
 			cbor.StructAsArray
 			Value uint64
 		}
-		BlockSig []interface{}
+		BlockSig []any
 	}
 	ExtraData struct {
 		cbor.StructAsArray
 		BlockVersion    ByronBlockVersion
 		SoftwareVersion ByronSoftwareVersion
-		Attributes      interface{}
+		Attributes      any
 		ExtraProof      common.Blake2b256
 	}
 }
@@ -508,7 +508,7 @@ type ByronMainBlockBody struct {
 		Twit []cbor.Value
 	}
 	SscPayload cbor.Value
-	DlgPayload []interface{}
+	DlgPayload []any
 	UpdPayload ByronUpdatePayload
 }
 
@@ -529,7 +529,7 @@ type ByronEpochBoundaryBlockHeader struct {
 	hash          *common.Blake2b256
 	ProtocolMagic uint32
 	PrevBlock     common.Blake2b256
-	BodyProof     interface{}
+	BodyProof     any
 	ConsensusData struct {
 		cbor.StructAsArray
 		Epoch      uint64
@@ -538,7 +538,7 @@ type ByronEpochBoundaryBlockHeader struct {
 			Value uint64
 		}
 	}
-	ExtraData interface{}
+	ExtraData any
 }
 
 func (h *ByronEpochBoundaryBlockHeader) UnmarshalCBOR(cborData []byte) error {
@@ -599,7 +599,7 @@ type ByronMainBlock struct {
 	cbor.DecodeStoreCbor
 	BlockHeader *ByronMainBlockHeader
 	Body        ByronMainBlockBody
-	Extra       []interface{}
+	Extra       []any
 }
 
 func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
@@ -666,7 +666,7 @@ type ByronEpochBoundaryBlock struct {
 	cbor.DecodeStoreCbor
 	BlockHeader *ByronEpochBoundaryBlockHeader
 	Body        []common.Blake2b224
-	Extra       []interface{}
+	Extra       []any
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
