@@ -139,7 +139,7 @@ func DecodeGeneric(cborData []byte, dest interface{}) error {
 			return errors.New("destination must be a pointer to a struct")
 		}
 		destTypeFields := []reflect.StructField{}
-		for i := 0; i < typeDest.NumField(); i++ {
+		for i := range typeDest.NumField() {
 			tmpField := typeDest.Field(i)
 			if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
 				destTypeFields = append(destTypeFields, tmpField)

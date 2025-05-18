@@ -63,7 +63,7 @@ func EncodeGeneric(src interface{}) ([]byte, error) {
 			return nil, errors.New("source must be a pointer to a struct")
 		}
 		srcTypeFields := []reflect.StructField{}
-		for i := 0; i < typeSrc.NumField(); i++ {
+		for i := range typeSrc.NumField() {
 			tmpField := typeSrc.Field(i)
 			if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
 				srcTypeFields = append(srcTypeFields, tmpField)

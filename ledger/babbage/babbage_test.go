@@ -38,7 +38,7 @@ func TestBabbageBlockTransactions(t *testing.T) {
 	b.TransactionBodies = make([]BabbageTransactionBody, txsCount)
 	b.TransactionWitnessSets = make([]BabbageTransactionWitnessSet, txsCount)
 
-	for i := 0; i < txsCount; i++ {
+	for i := range txsCount {
 		b.TransactionBodies[i] = BabbageTransactionBody{
 			TxTotalCollateral: 1 << i,
 		}
