@@ -305,10 +305,7 @@ func (p *Protocol) sendLoop() {
 		// Send messages in multiple segments (if needed)
 		for {
 			// Determine segment payload length
-			segmentPayloadLength := payloadBuf.Len()
-			if segmentPayloadLength > muxer.SegmentMaxPayloadLength {
-				segmentPayloadLength = muxer.SegmentMaxPayloadLength
-			}
+			segmentPayloadLength := min(payloadBuf.Len(), muxer.SegmentMaxPayloadLength)
 			// Send current segment
 			segmentPayload := payloadBuf.Bytes()[:segmentPayloadLength]
 			isResponse := p.Role() == ProtocolRoleServer
