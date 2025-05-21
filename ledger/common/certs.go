@@ -728,11 +728,11 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 
 	// Extract DRep credential if it exists (AddrKeyHash or ScriptHash)
 	if drepProto != nil {
-		switch v := drepProto.GetDrep().(type) {
+		switch drepProto.GetDrep().(type) {
 		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = v.AddrKeyHash
+			drepBytes = drepProto.GetAddrKeyHash()
 		case *utxorpc.DRep_ScriptHash:
-			drepBytes = v.ScriptHash
+			drepBytes = drepProto.GetScriptHash()
 		}
 	}
 
@@ -866,11 +866,11 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certific
 	var drepBytes []byte
 
 	if drepProto != nil {
-		switch v := drepProto.GetDrep().(type) {
+		switch drepProto.GetDrep().(type) {
 		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = v.AddrKeyHash
+			drepBytes = drepProto.GetAddrKeyHash()
 		case *utxorpc.DRep_ScriptHash:
-			drepBytes = v.ScriptHash
+			drepBytes = drepProto.GetScriptHash()
 		}
 	}
 
