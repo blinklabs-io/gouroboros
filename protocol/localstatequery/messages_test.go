@@ -97,12 +97,12 @@ var tests = []testDefinition{
 		MessageType: MessageTypeReacquireVolatileTip,
 	},
 	{
-		CborHex:     string(readFile("../../internal/test/cardano-blueprint/src/api/examples/getSystemStart/query.cbor")),
+		CborHex:     string(readFile("../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/query.cbor")),
 		Message:     NewMsgQuery(&SystemStartQuery{simpleQueryBase{Type: QueryTypeSystemStart}}),
 		MessageType: MessageTypeQuery,
 	},
 	{
-		CborHex: string(readFile("../../internal/test/cardano-blueprint/src/api/examples/getSystemStart/result.cbor")),
+		CborHex: string(readFile("../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/result.cbor")),
 		Message: NewMsgResult(unsafeCbor(
 			SystemStartResult{
 				Year:        unsafeBigInt([]byte("703941703872597091335551638723343370661404331303175992839224705786473148")),
