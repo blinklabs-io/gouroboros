@@ -30,7 +30,85 @@ type AlonzoGenesis struct {
 	ExecutionPrices      AlonzoGenesisExecutionPrices `json:"executionPrices"`
 	MaxTxExUnits         AlonzoGenesisExUnits         `json:"maxTxExUnits"`
 	MaxBlockExUnits      AlonzoGenesisExUnits         `json:"maxBlockExUnits"`
-	CostModels           map[string]interface{}       `json:"costModels"`
+	CostModels           map[string]CostModel         `json:"costModels"`
+}
+
+type CostModel map[string]int
+
+// NormalizeCostModels converts all cost model keys to consistent paramX format
+func (g *AlonzoGenesis) NormalizeCostModels() error {
+	if g.CostModels == nil {
+		return nil
+	}
+
+	for version, model := range g.CostModels {
+		normalized := make(CostModel)
+		for k, v := range model {
+			// Check if key is already in paramX format
+			var index int
+			if _, err := fmt.Sscanf(k, "param%d", &index); err == nil {
+				normalized[k] = v // Keep existing paramX keys
+				continue
+			}
+
+			// Check if key is a numeric index (from array format)
+			if _, err := fmt.Sscanf(k, "%d", &index); err == nil {
+				normalized[fmt.Sprintf("param%d", index)] = v
+				continue
+			}
+			normalized[k] = v
+		}
+		g.CostModels[version] = normalized
+	}
+	return nil
+}
+
+func (c *CostModel) UnmarshalJSON(data []byte) error {
+	tmpMap := make(map[string]interface{})
+	if err := json.Unmarshal(data, &tmpMap); err != nil {
+		// Try to unmarshal as array first
+		var tmpArray []interface{}
+		if arrayErr := json.Unmarshal(data, &tmpArray); arrayErr == nil {
+			*c = make(CostModel)
+			for i, v := range tmpArray {
+				num, err := toInt(v)
+				if err != nil {
+					return fmt.Errorf("array index %d: %w", i, err)
+				}
+				(*c)[fmt.Sprintf("%d", i)] = num
+			}
+			return nil
+		}
+		return err
+	}
+
+	*c = make(CostModel)
+	for k, v := range tmpMap {
+		num, err := toInt(v)
+		if err != nil {
+			return fmt.Errorf("key %s: %w", k, err)
+		}
+		(*c)[k] = num
+	}
+	return nil
+}
+
+func toInt(v interface{}) (int, error) {
+	switch val := v.(type) {
+	case float64:
+		return int(val), nil
+	case int:
+		return val, nil
+	case json.Number:
+		intVal, err := val.Int64()
+		return int(intVal), err
+	case int64:
+		return int(val), nil
+	case uint64:
+		return int(val), nil
+	default:
+		return 0, fmt.Errorf("unsupported numeric type: %T", v)
+	}
 }
 
 func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {
@@ -78,44 +156,5 @@ func (r *AlonzoGenesisExecutionPricesRat) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	r.Rat = big.NewRat(tmpData.Numerator, tmpData.Denominator)
-	return nil
-}
-
-func (a *AlonzoGenesis) NormalizeCostModels() error {
-	if a.CostModels == nil {
-		return nil
-	}
-
-	normalized := make(map[string]map[string]int)
-	for version, model := range a.CostModels {
-		if modelMap, ok := model.(map[string]interface{}); ok {
-			versionMap := make(map[string]int)
-			for k, v := range modelMap {
-				switch val := v.(type) {
-				case float64:
-					versionMap[k] = int(val)
-				case int:
-					versionMap[k] = val
-				case json.Number:
-					intVal, err := val.Int64()
-					if err != nil {
-						floatVal, err := val.Float64()
-						if err != nil {
-							return fmt.Errorf("invalid number in cost model: %v", val)
-						}
-						intVal = int64(floatVal)
-					}
-					versionMap[k] = int(intVal)
-				default:
-					return fmt.Errorf("invalid cost model value type: %T", v)
-				}
-			}
-			normalized[version] = versionMap
-		}
-	}
-	a.CostModels = make(map[string]interface{})
-	for k, v := range normalized {
-		a.CostModels[k] = v
-	}
 	return nil
 }

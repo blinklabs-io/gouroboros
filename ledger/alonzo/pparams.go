@@ -17,6 +17,7 @@ package alonzo
 import (
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -168,7 +169,8 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) err
 		Steps:  uint64(genesis.MaxBlockExUnits.Steps),
 	}
 
-	if genesis.ExecutionPrices.Mem != nil && genesis.ExecutionPrices.Steps != nil {
+	if genesis.ExecutionPrices.Mem != nil &&
+		genesis.ExecutionPrices.Steps != nil {
 		p.ExecutionCosts = common.ExUnitPrice{
 			MemPrice:  &cbor.Rat{Rat: genesis.ExecutionPrices.Mem.Rat},
 			StepPrice: &cbor.Rat{Rat: genesis.ExecutionPrices.Steps.Rat},
@@ -184,41 +186,26 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) err
 				continue
 			}
 
-			var values []int64
-			switch v := model.(type) {
-			case map[string]interface{}:
-				maxIndex := 0
-				// Find maximum parameter index
-				for paramName := range v {
-					var index int
-					if _, err := fmt.Sscanf(paramName, "param%d", &index); err == nil && index > maxIndex {
-						maxIndex = index
-					}
-				}
-				values = make([]int64, maxIndex)
-				for paramName, val := range v {
-					var index int
-					if _, err := fmt.Sscanf(paramName, "param%d", &index); err == nil && index > 0 {
-						if intVal, ok := val.(float64); ok {
-							values[index-1] = int64(intVal)
-						}
-					}
-				}
-
-			case []interface{}:
-				values = make([]int64, len(v))
-				for i, val := range v {
-					if intVal, ok := val.(float64); ok {
-						values[i] = int64(intVal)
-					}
-				}
-
-			default:
-				return fmt.Errorf("invalid cost model format for %s", versionStr)
+			expectedCount, ok := plutusParamCounts[key]
+			if !ok {
+				continue
 			}
-			if expected, ok := plutusParamCounts[key]; ok && len(values) != expected {
-				return fmt.Errorf("invalid parameter count for %s: expected %d, got %d",
-					versionStr, expected, len(values))
+
+			values := make([]int64, expectedCount)
+
+			for paramName, val := range model {
+				if index, err := strconv.Atoi(paramName); err == nil {
+					if index >= 0 && index < expectedCount {
+						values[index] = int64(val)
+					}
+				}
+			}
+
+			// Verify we have all expected parameters
+			for i, val := range values {
+				if val == 0 {
+					return fmt.Errorf("missing parameter at index %d for %s", i, versionStr)
+				}
 			}
 
 			p.CostModels[key] = values

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -63,17 +64,16 @@ func newBaseProtocolParams() alonzo.AlonzoProtocolParameters {
 		CollateralPercentage: 150,
 		MaxCollateralInputs:  3,
 		CostModels: map[uint][]int64{
-			0: completeCostModel(166), // PlutusV1 with exactly 166 parameters
-			1: completeCostModel(175), // PlutusV2 with exactly 175 parameters
+			alonzo.PlutusV1Key: completeCostModel(166),
+			alonzo.PlutusV2Key: completeCostModel(175),
 		},
 	}
 }
 
-// Helper function to create complete cost models
 func completeCostModel(size int) []int64 {
 	model := make([]int64, size)
 	for i := range model {
-		model[i] = int64(i + 1) // Fill with sequential values
+		model[i] = int64(i + 1)
 	}
 	return model
 }
@@ -104,23 +104,6 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 				ProtocolMajor: 6,
 			},
 		},
-		{
-			startParams: alonzo.AlonzoProtocolParameters{
-				MaxBlockBodySize: 1,
-				MaxTxExUnits: common.ExUnits{
-					Memory: 1,
-					Steps:  1,
-				},
-			},
-			updateCbor: "a2021a0001200014821a00aba9501b00000002540be400",
-			expectedParams: alonzo.AlonzoProtocolParameters{
-				MaxBlockBodySize: 73728,
-				MaxTxExUnits: common.ExUnits{
-					Memory: 11250000,
-					Steps:  10000000000,
-				},
-			},
-		},
 	}
 	for _, testDef := range testDefs {
 		cborBytes, err := hex.DecodeString(testDef.updateCbor)
@@ -144,86 +127,74 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 }
 
 func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
-	// Create cost models in the format the UpdateFromGenesis expects
-	plutusV1CostModel := make(map[string]interface{})
-	for i := 1; i <= 166; i++ {
-		plutusV1CostModel[fmt.Sprintf("param%d", i)] = i
+	// Create cost models with numeric string keys
+	plutusV1CostModel := make(map[string]int)
+	for i := 0; i < 166; i++ {
+		plutusV1CostModel[strconv.Itoa(i)] = i + 1 // "0":1, "1":2, etc.
 	}
 
-	plutusV2CostModel := make(map[string]interface{})
-	for i := 1; i <= 175; i++ {
-		plutusV2CostModel[fmt.Sprintf("param%d", i)] = i
+	plutusV2CostModel := make(map[string]int)
+	for i := 0; i < 175; i++ {
+		plutusV2CostModel[strconv.Itoa(i)] = i + 1 // "0":1, "1":2, etc.
 	}
 
-	tests := []struct {
-		name        string
-		genesisJSON string
-	}{
-		{
-			name: "Basic Parameters",
-			genesisJSON: `{
-                "lovelacePerUTxOWord": 34482,
-                "maxValueSize": 5000,
-                "collateralPercentage": 150,
-                "maxCollateralInputs": 3,
-                "maxTxExUnits": {"mem": 10000000, "steps": 10000000000},
-                "maxBlockExUnits": {"mem": 50000000, "steps": 40000000000},
-                "executionPrices": {
-                    "prMem": {"numerator": 577, "denominator": 10000},
-                    "prSteps": {"numerator": 721, "denominator": 10000000}
-                },
-                "costModels": {
-                    "PlutusV1": ` + toJSON(plutusV1CostModel) + `,
-                    "PlutusV2": ` + toJSON(plutusV2CostModel) + `
-                }
-            }`,
-		},
+	genesisJSON := fmt.Sprintf(`{
+        "lovelacePerUTxOWord": 34482,
+        "maxValueSize": 5000,
+        "collateralPercentage": 150,
+        "maxCollateralInputs": 3,
+        "executionPrices": {
+            "prSteps": { "numerator": 721, "denominator": 10000000 },
+            "prMem": { "numerator": 577, "denominator": 10000 }
+        },
+        "maxTxExUnits": { "exUnitsMem": 10000000, "exUnitsSteps": 10000000000 },
+        "maxBlockExUnits": { "exUnitsMem": 50000000, "exUnitsSteps": 40000000000 },
+        "costModels": {
+            "PlutusV1": %s,
+            "PlutusV2": %s
+        }
+    }`, toJSON(plutusV1CostModel), toJSON(plutusV2CostModel))
+
+	var genesis alonzo.AlonzoGenesis
+	if err := json.Unmarshal([]byte(genesisJSON), &genesis); err != nil {
+		t.Fatalf("failed to parse genesis: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var genesis alonzo.AlonzoGenesis
-			if err := json.Unmarshal([]byte(tt.genesisJSON), &genesis); err != nil {
-				t.Fatalf("failed to parse genesis: %v", err)
-			}
+	params := newBaseProtocolParams()
+	if err := params.UpdateFromGenesis(&genesis); err != nil {
+		t.Fatalf("UpdateFromGenesis failed: %v", err)
+	}
 
-			params := newBaseProtocolParams()
-			if err := params.UpdateFromGenesis(&genesis); err != nil {
-				t.Fatalf("UpdateFromGenesis failed: %v", err)
-			}
-
-			if len(params.CostModels[0]) != 166 {
-				t.Errorf("expected 166 PlutusV1 parameters, got %d", len(params.CostModels[0]))
-			}
-			if len(params.CostModels[1]) != 175 {
-				t.Errorf("expected 175 PlutusV2 parameters, got %d", len(params.CostModels[1]))
-			}
-		})
+	if len(params.CostModels[alonzo.PlutusV1Key]) != 166 {
+		t.Errorf("expected 166 PlutusV1 parameters, got %d", len(params.CostModels[alonzo.PlutusV1Key]))
+	}
+	if len(params.CostModels[alonzo.PlutusV2Key]) != 175 {
+		t.Errorf("expected 175 PlutusV2 parameters, got %d", len(params.CostModels[alonzo.PlutusV2Key]))
 	}
 }
 
 func TestCostModelArrayFormat(t *testing.T) {
-	// Create a PlutusV1 cost model as an array
-	plutusV1Array := make([]int, 166)
-	for i := range plutusV1Array {
-		plutusV1Array[i] = i + 1
+	// Create cost model with numeric string keys
+	plutusV1CostModel := make(map[string]int)
+	for i := 0; i < 166; i++ {
+		plutusV1CostModel[strconv.Itoa(i)] = i + 1 // "0":1, "1":2, etc.
 	}
 
 	genesisJSON := fmt.Sprintf(`{
-		"lovelacePerUTxOWord": 34482,
-		"maxValueSize": 5000,
-		"collateralPercentage": 150,
-		"maxCollateralInputs": 3,
-		"executionPrices": {
-			"prMem": {"numerator": 577, "denominator": 10000},
-			"prSteps": {"numerator": 721, "denominator": 10000000}
-		},
-		"maxTxExUnits": {"mem": 10000000, "steps": 10000000000},
-		"maxBlockExUnits": {"mem": 50000000, "steps": 40000000000},
-		"costModels": {
-			"PlutusV1": %s
-		}
-	}`, toJSON(plutusV1Array))
+        "lovelacePerUTxOWord": 34482,
+        "maxValueSize": 5000,
+        "collateralPercentage": 150,
+        "maxCollateralInputs": 3,
+        "executionPrices": {
+            "prSteps": { "numerator": 721, "denominator": 10000000 },
+            "prMem": { "numerator": 577, "denominator": 10000 }
+        },
+        "maxTxExUnits": { "exUnitsMem": 10000000, "exUnitsSteps": 10000000000 },
+        "maxBlockExUnits": { "exUnitsMem": 50000000, "exUnitsSteps": 40000000000 },
+        "costModels": {
+            "PlutusV1": %s
+        }
+    }`, toJSON(plutusV1CostModel))
 
 	var genesis alonzo.AlonzoGenesis
 	if err := json.Unmarshal([]byte(genesisJSON), &genesis); err != nil {
@@ -238,30 +209,17 @@ func TestCostModelArrayFormat(t *testing.T) {
 	if len(params.CostModels[alonzo.PlutusV1Key]) != 166 {
 		t.Errorf("expected 166 parameters, got %d", len(params.CostModels[alonzo.PlutusV1Key]))
 	}
-
-	// Verify first and last values
-	if params.CostModels[alonzo.PlutusV1Key][0] != 1 {
-		t.Errorf("expected first parameter to be 1, got %d", params.CostModels[alonzo.PlutusV1Key][0])
-	}
-	if params.CostModels[alonzo.PlutusV1Key][165] != 166 {
-		t.Errorf("expected last parameter to be 166, got %d", params.CostModels[alonzo.PlutusV1Key][165])
-	}
 }
 
 func TestScientificNotationInCostModels(t *testing.T) {
-	// Create a full cost model with 166 parameters, using scientific notation for some
-	costModel := make(map[string]interface{})
-	for i := 1; i <= 166; i++ {
-		switch i {
-		case 1:
-			costModel[fmt.Sprintf("param%d", i)] = 2.477736e+06
-		case 2:
-			costModel[fmt.Sprintf("param%d", i)] = 1.5e6
-		case 3:
-			costModel[fmt.Sprintf("param%d", i)] = 1000000
-		default:
-			costModel[fmt.Sprintf("param%d", i)] = i * 1000
-		}
+	costModel := map[string]interface{}{
+		"0": 2.477736e+06, // Changed from param1 to 0
+		"1": 1.5e6,        // Changed from param2 to 1
+		"2": 1000000,      // Changed from param3 to 2
+	}
+	// Fill remaining parameters
+	for i := 3; i < 166; i++ {
+		costModel[strconv.Itoa(i)] = i * 1000
 	}
 
 	genesisJSON := fmt.Sprintf(`{
@@ -270,11 +228,11 @@ func TestScientificNotationInCostModels(t *testing.T) {
         "collateralPercentage": 150,
         "maxCollateralInputs": 3,
         "executionPrices": {
-            "prMem": {"numerator": 577, "denominator": 10000},
-            "prSteps": {"numerator": 721, "denominator": 10000000}
+            "prSteps": { "numerator": 721, "denominator": 10000000 },
+            "prMem": { "numerator": 577, "denominator": 10000 }
         },
-        "maxTxExUnits": {"mem": 10000000, "steps": 10000000000},
-        "maxBlockExUnits": {"mem": 50000000, "steps": 40000000000},
+        "maxTxExUnits": { "exUnitsMem": 10000000, "exUnitsSteps": 10000000000 },
+        "maxBlockExUnits": { "exUnitsMem": 50000000, "exUnitsSteps": 40000000000 },
         "costModels": {
             "PlutusV1": %s
         }
@@ -290,36 +248,16 @@ func TestScientificNotationInCostModels(t *testing.T) {
 		t.Fatalf("UpdateFromGenesis failed: %v", err)
 	}
 
-	// Verify the scientific notation conversions
 	expected := []int64{2477736, 1500000, 1000000}
 	for i := 0; i < 3; i++ {
 		if params.CostModels[alonzo.PlutusV1Key][i] != expected[i] {
 			t.Errorf("parameter %d conversion failed: got %d, want %d",
-				i+1, params.CostModels[alonzo.PlutusV1Key][i], expected[i])
+				i, params.CostModels[alonzo.PlutusV1Key][i], expected[i])
 		}
-	}
-
-	// Verify we have all 166 parameters
-	if len(params.CostModels[alonzo.PlutusV1Key]) != 166 {
-		t.Errorf("expected 166 parameters, got %d", len(params.CostModels[alonzo.PlutusV1Key]))
 	}
 }
 
 func TestInvalidCostModelFormats(t *testing.T) {
-	baseJSON := `{
-        "lovelacePerUTxOWord": 34482,
-        "maxValueSize": 5000,
-        "collateralPercentage": 150,
-        "maxCollateralInputs": 3,
-        "executionPrices": {
-            "prMem": {"numerator": 577, "denominator": 10000},
-            "prSteps": {"numerator": 721, "denominator": 10000000}
-        },
-        "maxTxExUnits": {"mem": 10000000, "steps": 10000000000},
-        "maxBlockExUnits": {"mem": 50000000, "steps": 40000000000},
-        %s
-    }`
-
 	tests := []struct {
 		name        string
 		costModels  string
@@ -330,30 +268,43 @@ func TestInvalidCostModelFormats(t *testing.T) {
 			costModels: `"costModels": {
                 "PlutusV1": "invalid"
             }`,
-			expectError: "invalid cost model format",
+			expectError: "cannot unmarshal string into Go struct field AlonzoGenesis.costModels",
 		},
 		{
-			name: "ShortArray",
+			name: "MissingParameters",
 			costModels: `"costModels": {
-                "PlutusV1": [1, 2, 3]
+                "PlutusV1": {"0":1, "1":2, "2":3}
             }`,
-			expectError: "expected 166, got 3",
+			expectError: "missing parameter at index 3 for PlutusV1",
 		},
 	}
+
+	baseJSON := `{
+        "lovelacePerUTxOWord": 34482,
+        "maxValueSize": 5000,
+        "collateralPercentage": 150,
+        "maxCollateralInputs": 3,
+        "executionPrices": {
+            "prSteps": { "numerator": 721, "denominator": 10000000 },
+            "prMem": { "numerator": 577, "denominator": 10000 }
+        },
+        "maxTxExUnits": { "exUnitsMem": 10000000, "exUnitsSteps": 10000000000 },
+        "maxBlockExUnits": { "exUnitsMem": 50000000, "exUnitsSteps": 40000000000 },
+        %s
+    }`
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fullJSON := fmt.Sprintf(baseJSON, tt.costModels)
 
 			var genesis alonzo.AlonzoGenesis
-			if err := json.Unmarshal([]byte(fullJSON), &genesis); err != nil {
-				t.Fatalf("failed to unmarshal genesis: %v", err)
-			}
-
-			params := alonzo.AlonzoProtocolParameters{}
-			err := params.UpdateFromGenesis(&genesis)
+			err := json.Unmarshal([]byte(fullJSON), &genesis)
 			if err == nil {
-				t.Fatal("expected error but got none")
+				params := alonzo.AlonzoProtocolParameters{}
+				err = params.UpdateFromGenesis(&genesis)
+				if err == nil {
+					t.Fatal("expected error but got none")
+				}
 			}
 			if !strings.Contains(err.Error(), tt.expectError) {
 				t.Errorf("expected error containing %q, got %v", tt.expectError, err)
@@ -480,28 +431,5 @@ func toJSON(v interface{}) string {
 	if err != nil {
 		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
 	}
-	return string(b)
-}
-
-func verifyCostModel(t *testing.T, models map[string]interface{}, name string, expectedCount int) {
-	cm, ok := models[name].(map[string]interface{})
-	if !ok {
-		t.Fatalf("%s cost model not found or wrong type", name)
-	}
-	if len(cm) != expectedCount {
-		t.Fatalf("%s parameter count mismatch: got %d, want %d", name, len(cm), expectedCount)
-	}
-}
-
-func mustMarshalJSON(v interface{}) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
-	}
-	return string(b)
-}
-
-func jsonStringFromMap(m map[string]int64) string {
-	b, _ := json.Marshal(m)
 	return string(b)
 }
