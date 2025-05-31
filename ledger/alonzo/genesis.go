@@ -18,8 +18,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"os"
+	"strconv"
 )
 
 type AlonzoGenesis struct {
@@ -75,7 +77,7 @@ func (c *CostModel) UnmarshalJSON(data []byte) error {
 				if err != nil {
 					return fmt.Errorf("array index %d: %w", i, err)
 				}
-				(*c)[fmt.Sprintf("%d", i)] = num
+				(*c)[strconv.Itoa(i)] = num
 			}
 			return nil
 		}
@@ -96,15 +98,30 @@ func (c *CostModel) UnmarshalJSON(data []byte) error {
 func toInt(v interface{}) (int, error) {
 	switch val := v.(type) {
 	case float64:
+		if val > float64(math.MaxInt) || val < float64(math.MinInt) {
+			return 0, fmt.Errorf("float64 value %v overflows int", val)
+		}
 		return int(val), nil
 	case int:
 		return val, nil
 	case json.Number:
 		intVal, err := val.Int64()
-		return int(intVal), err
+		if err != nil {
+			return 0, err
+		}
+		if intVal > math.MaxInt || intVal < math.MinInt {
+			return 0, fmt.Errorf("json.Number value %v overflows int", val)
+		}
+		return int(intVal), nil
 	case int64:
+		if val > math.MaxInt || val < math.MinInt {
+			return 0, fmt.Errorf("int64 value %v overflows int", val)
+		}
 		return int(val), nil
 	case uint64:
+		if val > math.MaxInt {
+			return 0, fmt.Errorf("uint64 value %v overflows int", val)
+		}
 		return int(val), nil
 	default:
 		return 0, fmt.Errorf("unsupported numeric type: %T", v)
