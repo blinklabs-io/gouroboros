@@ -15,13 +15,29 @@
 package alonzo
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
+
+// Constants for Plutus version mapping
+const (
+	PlutusV1Key uint = 0
+	PlutusV2Key uint = 1
+	PlutusV3Key uint = 2
+)
+
+// Expected parameter counts for validation
+var plutusParamCounts = map[uint]int{
+	PlutusV1Key: 166,
+	PlutusV2Key: 175,
+	PlutusV3Key: 187,
+}
 
 type AlonzoProtocolParameters struct {
 	cbor.StructAsArray
@@ -134,10 +150,12 @@ func (p *AlonzoProtocolParameters) Update(
 	}
 }
 
-func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
+func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) error {
 	if genesis == nil {
-		return
+		return nil
 	}
+
+	// Common parameter updates
 	p.AdaPerUtxoByte = genesis.LovelacePerUtxoWord / 8
 	p.MaxValueSize = genesis.MaxValueSize
 	p.CollateralPercentage = genesis.CollateralPercentage
@@ -150,6 +168,7 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 		Memory: uint64(genesis.MaxBlockExUnits.Mem),
 		Steps:  uint64(genesis.MaxBlockExUnits.Steps),
 	}
+
 	if genesis.ExecutionPrices.Mem != nil &&
 		genesis.ExecutionPrices.Steps != nil {
 		p.ExecutionCosts = common.ExUnitPrice{
@@ -157,9 +176,56 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) {
 			StepPrice: &cbor.Rat{Rat: genesis.ExecutionPrices.Steps.Rat},
 		}
 	}
-	// TODO: cost models (#852)
-	// We have 150+ string values to map to array indexes
-	//	CostModels           map[string]map[string]int
+
+	if genesis.CostModels != nil {
+		p.CostModels = make(map[uint][]int64)
+
+		for versionStr, model := range genesis.CostModels {
+			key, ok := plutusVersionToKey(versionStr)
+			if !ok {
+				continue
+			}
+
+			expectedCount, ok := plutusParamCounts[key]
+			if !ok {
+				continue
+			}
+
+			values := make([]int64, expectedCount)
+
+			for paramName, val := range model {
+				if index, err := strconv.Atoi(paramName); err == nil {
+					if index >= 0 && index < expectedCount {
+						values[index] = int64(val)
+					}
+				}
+			}
+
+			// Verify we have all expected parameters
+			for i, val := range values {
+				if val == 0 {
+					return fmt.Errorf("missing parameter at index %d for %s", i, versionStr)
+				}
+			}
+
+			p.CostModels[key] = values
+		}
+	}
+	return nil
+}
+
+// Helper to convert Plutus version string to key
+func plutusVersionToKey(version string) (uint, bool) {
+	switch version {
+	case "PlutusV1":
+		return PlutusV1Key, true
+	case "PlutusV2":
+		return PlutusV2Key, true
+	case "PlutusV3":
+		return PlutusV3Key, true
+	default:
+		return 0, false
+	}
 }
 
 type AlonzoProtocolParameterUpdate struct {
