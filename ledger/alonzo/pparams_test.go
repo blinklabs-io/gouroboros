@@ -166,10 +166,16 @@ func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
 	}
 
 	if len(params.CostModels[alonzo.PlutusV1Key]) != 166 {
-		t.Errorf("expected 166 PlutusV1 parameters, got %d", len(params.CostModels[alonzo.PlutusV1Key]))
+		t.Errorf(
+			"expected 166 PlutusV1 parameters, got %d",
+			len(params.CostModels[alonzo.PlutusV1Key]),
+		)
 	}
 	if len(params.CostModels[alonzo.PlutusV2Key]) != 175 {
-		t.Errorf("expected 175 PlutusV2 parameters, got %d", len(params.CostModels[alonzo.PlutusV2Key]))
+		t.Errorf(
+			"expected 175 PlutusV2 parameters, got %d",
+			len(params.CostModels[alonzo.PlutusV2Key]),
+		)
 	}
 }
 
@@ -207,7 +213,10 @@ func TestCostModelArrayFormat(t *testing.T) {
 	}
 
 	if len(params.CostModels[alonzo.PlutusV1Key]) != 166 {
-		t.Errorf("expected 166 parameters, got %d", len(params.CostModels[alonzo.PlutusV1Key]))
+		t.Errorf(
+			"expected 166 parameters, got %d",
+			len(params.CostModels[alonzo.PlutusV1Key]),
+		)
 	}
 }
 
@@ -307,7 +316,11 @@ func TestInvalidCostModelFormats(t *testing.T) {
 				}
 			}
 			if !strings.Contains(err.Error(), tt.expectError) {
-				t.Errorf("expected error containing %q, got %v", tt.expectError, err)
+				t.Errorf(
+					"expected error containing %q, got %v",
+					tt.expectError,
+					err,
+				)
 			}
 		})
 	}

@@ -150,7 +150,9 @@ func (p *AlonzoProtocolParameters) Update(
 	}
 }
 
-func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) error {
+func (p *AlonzoProtocolParameters) UpdateFromGenesis(
+	genesis *AlonzoGenesis,
+) error {
 	if genesis == nil {
 		return nil
 	}
@@ -204,7 +206,11 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(genesis *AlonzoGenesis) err
 			// Verify we have all expected parameters
 			for i, val := range values {
 				if val == 0 {
-					return fmt.Errorf("missing parameter at index %d for %s", i, versionStr)
+					return fmt.Errorf(
+						"missing parameter at index %d for %s",
+						i,
+						versionStr,
+					)
 				}
 			}
 
