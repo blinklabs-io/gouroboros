@@ -97,23 +97,49 @@ var tests = []testDefinition{
 		MessageType: MessageTypeReacquireVolatileTip,
 	},
 	{
-		CborHex:     string(readFile("../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/query.cbor")),
-		Message:     NewMsgQuery(&SystemStartQuery{simpleQueryBase{Type: QueryTypeSystemStart}}),
+		CborHex: string(
+			readFile(
+				"../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/query.cbor",
+			),
+		),
+		Message: NewMsgQuery(
+			&SystemStartQuery{simpleQueryBase{Type: QueryTypeSystemStart}},
+		),
 		MessageType: MessageTypeQuery,
 	},
 	{
-		CborHex: string(readFile("../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/result.cbor")),
+		CborHex: string(
+			readFile(
+				"../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/result.cbor",
+			),
+		),
 		Message: NewMsgResult(unsafeCbor(
 			SystemStartResult{
-				Year:        unsafeBigInt([]byte("703941703872597091335551638723343370661404331303175992839224705786473148")),
-				Day:         -4205646576720553090,
-				Picoseconds: unsafeBigInt([]byte("-554918151390414980540174869115975093799476848534297657333456993160799627")),
+				Year: unsafeBigInt(
+					[]byte(
+						"703941703872597091335551638723343370661404331303175992839224705786473148",
+					),
+				),
+				Day: -4205646576720553090,
+				Picoseconds: unsafeBigInt(
+					[]byte(
+						"-554918151390414980540174869115975093799476848534297657333456993160799627",
+					),
+				),
 			})),
 		MessageType: MessageTypeResult,
 		Result: SystemStartResult{
-			Year:        unsafeBigInt([]byte("703941703872597091335551638723343370661404331303175992839224705786473148")),
-			Day:         -4205646576720553090,
-			Picoseconds: unsafeBigInt([]byte("-554918151390414980540174869115975093799476848534297657333456993160799627")),
+			Year: unsafeBigInt(
+				[]byte(
+					"703941703872597091335551638723343370661404331303175992839224705786473148",
+				),
+			),
+			Day: -4205646576720553090,
+			Picoseconds: unsafeBigInt(
+				[]byte(
+					"-554918151390414980540174869115975093799476848534297657333456993160799627",
+				),
+			),
 		},
 	},
 }

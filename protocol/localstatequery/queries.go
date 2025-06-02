@@ -424,7 +424,12 @@ type SystemStartResult struct {
 }
 
 func (s SystemStartResult) String() string {
-	return fmt.Sprintf("SystemStart %s %d %s", s.Year.String(), s.Day, s.Picoseconds.String())
+	return fmt.Sprintf(
+		"SystemStart %s %d %s",
+		s.Year.String(),
+		s.Day,
+		s.Picoseconds.String(),
+	)
 }
 
 func (s SystemStartResult) MarshalJSON() ([]byte, error) {
