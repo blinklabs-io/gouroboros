@@ -193,13 +193,10 @@ func UtxoValidateCollateralEqBalance(
 
 	// Subtract collateral return amount with underflow protection
 	collReturn := tx.CollateralReturn()
-	if collReturn != nil {
-		returnAmt := collReturn.Amount()
-		if collBalance < returnAmt {
-			return errors.New("collateral return amount exceeds collateral input balance")
-		}
-		collBalance -= returnAmt
+	if collReturn != nil && collBalance >= collReturn.Amount() {
+		collBalance -= collReturn.Amount()
 	}
+
 	if totalCollateral == collBalance {
 		return nil
 	}
