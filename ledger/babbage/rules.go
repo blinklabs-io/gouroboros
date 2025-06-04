@@ -184,11 +184,19 @@ func UtxoValidateCollateralEqBalance(
 		}
 		collBalance += utxo.Output.Amount()
 	}
-	// Subtract collateral return amount
+
+	// Skip validation if no valid collateral UTxOs were found
+	// This avoids subtracting from zero and prevents uint underflow
+	if collBalance == 0 {
+		return nil
+	}
+
+	// Subtract collateral return amount with underflow protection
 	collReturn := tx.CollateralReturn()
-	if collReturn != nil {
+	if collReturn != nil && collBalance >= collReturn.Amount() {
 		collBalance -= collReturn.Amount()
 	}
+
 	if totalCollateral == collBalance {
 		return nil
 	}
