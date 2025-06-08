@@ -70,7 +70,7 @@ type TransactionOutput interface {
 	Datum() *cbor.LazyValue
 	DatumHash() *Blake2b256
 	Cbor() []byte
-	Utxorpc() *utxorpc.TxOutput
+	Utxorpc() (*utxorpc.TxOutput, error)
 }
 
 type TransactionWitnessSet interface {
@@ -200,7 +200,10 @@ func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
 		txi = append(txi, input)
 	}
 	for _, o := range tx.Outputs() {
-		output := o.Utxorpc()
+		output, err := o.Utxorpc()
+		if err != nil {
+			return nil
+		}
 		txo = append(txo, output)
 	}
 	for _, ri := range tx.ReferenceInputs() {

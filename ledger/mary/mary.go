@@ -455,12 +455,17 @@ func (o MaryTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
 }
 
-func (o MaryTransactionOutput) Utxorpc() *utxorpc.TxOutput {
-	return &utxorpc.TxOutput{
-		Address: o.OutputAddress.Bytes(),
-		Coin:    o.Amount(),
-		// Assets: o.Assets,
+func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+	addressBytes, err := o.OutputAddress.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address bytes: %w", err)
 	}
+	return &utxorpc.TxOutput{
+			Address: addressBytes,
+			Coin:    o.Amount(),
+			// Assets: o.Assets,
+		},
+		err
 }
 
 type MaryTransactionOutputValue struct {

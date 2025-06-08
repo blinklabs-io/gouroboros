@@ -337,7 +337,7 @@ func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
 }
 
-func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	var assets []*utxorpc.Multiasset
 	if o.Assets() != nil {
 		tmpAssets := o.Assets()
@@ -357,14 +357,20 @@ func (o AlonzoTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 		}
 	}
 
-	return &utxorpc.TxOutput{
-		Address: o.OutputAddress.Bytes(),
-		Coin:    o.Amount(),
-		Assets:  assets,
-		Datum: &utxorpc.Datum{
-			Hash: o.TxOutputDatumHash.Bytes(),
-		},
+	addressBytes, err := o.OutputAddress.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address bytes: %w", err)
 	}
+
+	return &utxorpc.TxOutput{
+			Address: addressBytes,
+			Coin:    o.Amount(),
+			Assets:  assets,
+			Datum: &utxorpc.Datum{
+				Hash: o.TxOutputDatumHash.Bytes(),
+			},
+		},
+		nil
 }
 
 type AlonzoRedeemer struct {

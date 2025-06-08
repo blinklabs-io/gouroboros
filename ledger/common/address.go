@@ -269,7 +269,11 @@ func (a *Address) UnmarshalCBOR(data []byte) error {
 }
 
 func (a *Address) MarshalCBOR() ([]byte, error) {
-	addrBytes := a.Bytes()
+	addrBytes, err := a.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address bytes: %w", err)
+	}
+
 	if a.addressType == AddressTypeByron {
 		return addrBytes, nil
 	}
@@ -376,7 +380,7 @@ func (a Address) generateHRP() string {
 }
 
 // Bytes returns the underlying bytes for the address
-func (a Address) Bytes() []byte {
+func (a Address) Bytes() ([]byte, error) {
 	if a.addressType == AddressTypeByron {
 		tmpPayload := []any{
 			a.paymentAddress,
@@ -385,8 +389,7 @@ func (a Address) Bytes() []byte {
 		}
 		rawPayload, err := cbor.Encode(tmpPayload)
 		if err != nil {
-			// TODO: handle error (#851)
-			return nil
+			return nil, fmt.Errorf("failed to encode Byron address payload: %w", err)
 		}
 		tmpData := []any{
 			cbor.Tag{
@@ -397,10 +400,9 @@ func (a Address) Bytes() []byte {
 		}
 		ret, err := cbor.Encode(tmpData)
 		if err != nil {
-			// TODO: handle error (#851)
-			return nil
+			return nil, fmt.Errorf("failed to encode Byron address data: %w", err)
 		}
-		return ret
+		return ret, nil
 	}
 	ret := []byte{}
 	ret = append(
@@ -410,12 +412,15 @@ func (a Address) Bytes() []byte {
 	ret = append(ret, a.paymentAddress...)
 	ret = append(ret, a.stakingAddress...)
 	ret = append(ret, a.extraData...)
-	return ret
+	return ret, nil
 }
 
 // String returns the bech32-encoded version of the address
 func (a Address) String() string {
-	data := a.Bytes()
+	data, err := a.Bytes()
+	if err != nil {
+		panic(fmt.Sprintf("failed to get address bytes: %v", err))
+	}
 	if a.addressType == AddressTypeByron {
 		// Encode data to base58
 		encoded := base58.Encode(data)
