@@ -239,9 +239,9 @@ func (p *ConwayProtocolParameters) Update(
 	}
 }
 
-func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) {
+func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) error {
 	if genesis == nil {
-		return
+		return nil
 	}
 	p.MinCommitteeSize = genesis.MinCommitteeSize
 	p.CommitteeTermLimit = genesis.CommitteeTermLimit
@@ -335,6 +335,7 @@ func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) {
 			Rat: genesis.DRepVotingThresholds.TreasuryWithdrawal.Rat,
 		}
 	}
+	return nil
 }
 
 type ConwayProtocolParameterUpdate struct {

@@ -466,7 +466,9 @@ func TestConwayProtocolParamsUpdateFromGenesis(t *testing.T) {
 			t.Fatalf("unexpected error: %s", err)
 		}
 		tmpParams := testDef.startParams
-		tmpParams.UpdateFromGenesis(&tmpGenesis)
+		if err := tmpParams.UpdateFromGenesis(&tmpGenesis); err != nil {
+			t.Fatalf("unexpected error updating pparams from genesis: %s", err)
+		}
 		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
 			t.Fatalf(
 				"did not get expected params:\n     got: %#v\n  wanted: %#v",

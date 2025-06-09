@@ -98,9 +98,9 @@ func (p *ShelleyProtocolParameters) Update(
 	}
 }
 
-func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) {
+func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) error {
 	if genesis == nil {
-		return
+		return nil
 	}
 	genesisParams := genesis.ProtocolParameters
 	p.MinFeeA = genesisParams.MinFeeA
@@ -130,6 +130,7 @@ func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) {
 	p.ProtocolMajor = genesisParams.ProtocolVersion.Major
 	p.ProtocolMinor = genesisParams.ProtocolVersion.Minor
 	p.MinUtxoValue = genesisParams.MinUtxoValue
+	return nil
 }
 
 type ShelleyProtocolParameterUpdate struct {
