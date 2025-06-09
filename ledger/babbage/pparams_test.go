@@ -23,7 +23,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func TestBabbageProtocolParamsUpdate(t *testing.T) {
@@ -550,5 +553,122 @@ func TestBabbageUtxorpc(t *testing.T) {
 				result,
 			)
 		}
+	}
+}
+
+// Unit test for BabbageTransactionInput.Utxorpc()
+func TestBabbageTransactionInput_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 2)
+
+	got := input.Utxorpc()
+	want := &cardano.TxInput{
+		TxHash:      input.Id().Bytes(),
+		OutputIndex: input.Index(),
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("BabbageTransactionInput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v", got, want)
+	}
+}
+
+// Unit test for BabbageTransactionOutput.Utxorpc()
+func TestBabbageTransactionOutput_Utxorpc(t *testing.T) {
+	address := common.Address{}
+	amount := uint64(8400)
+
+	output := babbage.BabbageTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: amount},
+	}
+
+	got := output.Utxorpc()
+	want := &utxorpc.TxOutput{
+		Address: address.Bytes(),
+		Coin:    amount,
+		Datum: &utxorpc.Datum{
+			Hash: make([]byte, 32),
+		},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("BabbageTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v", got, want)
+	}
+}
+
+// Unit test for BabbageTransactionBody.Utxorpc()
+func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	address := common.Address{}
+	output := babbage.BabbageTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+	}
+
+	body := babbage.BabbageTransactionBody{
+		TxInputs:  inputSet,
+		TxOutputs: []babbage.BabbageTransactionOutput{output},
+		TxFee:     100,
+	}
+
+	got := body.Utxorpc()
+
+	if got.Fee != 100 {
+		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 5000 {
+		t.Errorf("Output coin mismatch: got %d, want 5000", got.Outputs[0].Coin)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
+	}
+}
+
+// Unit test for BabbageTransaction.Utxorpc()
+func TestBabbageTransaction_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 2)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	address := common.Address{}
+	output := babbage.BabbageTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 9000},
+	}
+
+	body := babbage.BabbageTransactionBody{
+		TxInputs:  inputSet,
+		TxOutputs: []babbage.BabbageTransactionOutput{output},
+		TxFee:     150,
+	}
+	tx := babbage.BabbageTransaction{
+		Body:      body,
+		TxIsValid: true,
+	}
+
+	got := tx.Utxorpc()
+
+	if got.Fee != 150 {
+		t.Errorf("Fee mismatch: got %d, want 150", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 9000 {
+		t.Errorf("Output coin mismatch: got %d, want 9000", got.Outputs[0].Coin)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
 	}
 }

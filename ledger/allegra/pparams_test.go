@@ -22,6 +22,8 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -126,5 +128,88 @@ func TestAllegraUtxorpc(t *testing.T) {
 			expectedUtxorpc,
 			result,
 		)
+	}
+}
+
+// Unit test for AllegraTransactionBody.Utxorpc()
+func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
+	// mock input
+	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	address := common.Address{}
+
+	// Define a transaction output
+	output := shelley.ShelleyTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  1000,
+	}
+
+	// Create transaction body
+	txBody := &allegra.AllegraTransactionBody{
+		TxInputs:                inputSet,
+		TxOutputs:               []shelley.ShelleyTransactionOutput{output},
+		TxFee:                   200,
+		Ttl:                     5000,
+		TxValidityIntervalStart: 4500,
+	}
+
+	// Run Utxorpc conversion
+	actual := txBody.Utxorpc()
+
+	// Check that the fee matches
+	if actual.Fee != txBody.Fee() {
+		t.Errorf("AllegraTransactionBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d", actual.Fee, txBody.Fee())
+	}
+	// Check number of inputs
+	if len(actual.Inputs) != len(txBody.Inputs()) {
+		t.Errorf("AllegraTransactionBody.Utxorpc() input length mismatch\nGot: %d\nWant: %d", len(actual.Inputs), len(txBody.Inputs()))
+	}
+	// Check number of outputs
+	if len(actual.Outputs) != len(txBody.Outputs()) {
+		t.Errorf("AllegraTransactionBody.Utxorpc() output length mismatch\nGot: %d\nWant: %d", len(actual.Outputs), len(txBody.Outputs()))
+	}
+}
+
+// Unit test for AllegraTransaction.Utxorpc()
+func TestAllegraTransaction_Utxorpc(t *testing.T) {
+	// Prepare mock input
+	input := shelley.NewShelleyTransactionInput("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 0)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	// Prepare mock output
+	address := common.Address{}
+	output := shelley.ShelleyTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  2000,
+	}
+
+	// Create transaction body
+	tx := &allegra.AllegraTransaction{
+		Body: allegra.AllegraTransactionBody{
+			TxInputs:                inputSet,
+			TxOutputs:               []shelley.ShelleyTransactionOutput{output},
+			TxFee:                   150,
+			Ttl:                     1000,
+			TxValidityIntervalStart: 950,
+		},
+		WitnessSet: shelley.ShelleyTransactionWitnessSet{},
+		TxMetadata: nil,
+	}
+
+	// Run Utxorpc conversion
+	actual := tx.Utxorpc()
+
+	// Assertion checks
+	if actual.Fee != tx.Fee() {
+		t.Errorf("AllegraTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d", actual.Fee, tx.Fee())
+	}
+
+	if len(actual.Inputs) != len(tx.Inputs()) {
+		t.Errorf("AllegraTransaction.Utxorpc() input length mismatch\nGot: %d\nWant: %d", len(actual.Inputs), len(tx.Inputs()))
+	}
+
+	if len(actual.Outputs) != len(tx.Outputs()) {
+		t.Errorf("AllegraTransaction.Utxorpc() output length mismatch\nGot: %d\nWant: %d", len(actual.Outputs), len(tx.Outputs()))
 	}
 }
