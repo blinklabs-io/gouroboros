@@ -505,12 +505,17 @@ func (o BabbageTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
 }
 
-func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
+func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+	// Handle address bytes
+	addressBytes, err := o.OutputAddress.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get output address bytes: %w", err)
+	}
 	var address []byte
-	if o.OutputAddress.Bytes() == nil {
+	if addressBytes == nil {
 		address = []byte{}
 	} else {
-		address = o.OutputAddress.Bytes()
+		address = addressBytes
 	}
 
 	var assets []*utxorpc.Multiasset
@@ -540,15 +545,16 @@ func (o BabbageTransactionOutput) Utxorpc() *utxorpc.TxOutput {
 	}
 
 	return &utxorpc.TxOutput{
-		Address: address,
-		Coin:    o.Amount(),
-		Assets:  assets,
-		Datum: &utxorpc.Datum{
-			Hash: datumHash,
-			// OriginalCbor: o.Datum().Cbor(),
+			Address: address,
+			Coin:    o.Amount(),
+			Assets:  assets,
+			Datum: &utxorpc.Datum{
+				Hash: datumHash,
+				// OriginalCbor: o.Datum().Cbor(),
+			},
+			// Script:    o.ScriptRef,
 		},
-		// Script:    o.ScriptRef,
-	}
+		nil
 }
 
 type BabbageTransactionWitnessSet struct {

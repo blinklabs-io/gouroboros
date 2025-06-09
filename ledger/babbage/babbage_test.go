@@ -2775,7 +2775,10 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 		DatumOption: &BabbageTransactionOutputDatumOption{},
 	}
 
-	txOutput := output.Utxorpc()
+	txOutput, err := output.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() failed: %v", err) // Fail and stop the test
+	}
 
 	assert.NotNil(t, txOutput)
 	assert.Equal(t, []byte{}, txOutput.Datum.Hash)

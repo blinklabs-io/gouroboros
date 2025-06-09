@@ -195,11 +195,20 @@ func TestShelleyTransactionOutput_Utxorpc(t *testing.T) {
 	}
 
 	// Convert it to utxorpc format
-	actual := output.Utxorpc()
+	actual, err := output.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() failed: %v", err) // Fail immediately on error
+	}
+
+	// Get expected address bytes (with error handling)
+	expectedAddressBytes, err := address.Bytes()
+	if err != nil {
+		t.Fatalf("address.Bytes() failed: %v", err)
+	}
 
 	// expected output in utxorpc format
 	expected := &cardano.TxOutput{
-		Address: address.Bytes(),
+		Address: expectedAddressBytes,
 		Coin:    1000,
 	}
 

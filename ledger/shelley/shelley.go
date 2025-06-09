@@ -401,11 +401,16 @@ func (o ShelleyTransactionOutput) Datum() *cbor.LazyValue {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Utxorpc() *utxorpc.TxOutput {
-	return &utxorpc.TxOutput{
-		Address: o.OutputAddress.Bytes(),
-		Coin:    o.Amount(),
+func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+	addressBytes, err := o.OutputAddress.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address bytes: %w", err)
 	}
+
+	return &utxorpc.TxOutput{
+		Address: addressBytes,
+		Coin:    o.Amount(),
+	}, nil
 }
 
 type ShelleyTransactionWitnessSet struct {
