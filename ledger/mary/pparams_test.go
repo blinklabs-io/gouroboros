@@ -21,7 +21,9 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -128,5 +130,117 @@ func TestMaryUtxorpc(t *testing.T) {
 			expectedUtxorpc,
 			result,
 		)
+	}
+}
+
+// Unit test for MaryTransactionInput.Utxorpc()
+func TestMaryTransactionInput_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0)
+
+	got := input.Utxorpc()
+	want := &cardano.TxInput{
+		TxHash:      input.Id().Bytes(),
+		OutputIndex: input.Index(),
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MaryTransactionInput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v", got, want)
+	}
+}
+
+// Unit test for MaryTransactionOutput.Utxorpc()
+func TestMaryTransactionOutput_Utxorpc(t *testing.T) {
+	address := common.Address{}
+	amount := uint64(4200)
+
+	output := mary.MaryTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: amount},
+	}
+
+	got := output.Utxorpc()
+	want := &cardano.TxOutput{
+		Address: address.Bytes(),
+		Coin:    amount,
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MaryTransactionOutput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v", got, want)
+	}
+}
+
+// Unit test for MaryTransactionBody.Utxorpc()
+func TestMaryTransactionBody_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	address := common.Address{}
+	output := mary.MaryTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+	}
+
+	body := mary.MaryTransactionBody{
+		TxInputs:  inputSet,
+		TxOutputs: []mary.MaryTransactionOutput{output},
+		TxFee:     100,
+	}
+
+	got := body.Utxorpc()
+
+	if got.Fee != 100 {
+		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 5000 {
+		t.Errorf("Output coin mismatch: got %d, want 5000", got.Outputs[0].Coin)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
+	}
+}
+
+// Unit test for MaryTransaction.Utxorpc()
+func TestMaryTransaction_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 2)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	address := common.Address{}
+	output := mary.MaryTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 8000},
+	}
+
+	body := mary.MaryTransactionBody{
+		TxInputs:  inputSet,
+		TxOutputs: []mary.MaryTransactionOutput{output},
+		TxFee:     25,
+	}
+
+	tx := mary.MaryTransaction{
+		Body: body,
+	}
+
+	got := tx.Utxorpc()
+
+	if got.Fee != 25 {
+		t.Errorf("Transaction fee mismatch: got %d, want 25", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 8000 {
+		t.Errorf("Output coin mismatch: got %d, want 8000", got.Outputs[0].Coin)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
 	}
 }

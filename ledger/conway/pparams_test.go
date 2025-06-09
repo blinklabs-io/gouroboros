@@ -22,8 +22,11 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -594,5 +597,123 @@ func TestUtxorpc(t *testing.T) {
 				result,
 			)
 		}
+	}
+}
+
+// Unit test for ConwayTransactionBody.Utxorpc()
+func TestConwayTransactionBody_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	var inputSet conway.ConwayTransactionInputSet
+	inputSet.SetItems([]shelley.ShelleyTransactionInput{input})
+
+	address := common.Address{}
+	output := babbage.BabbageTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+	}
+	txCollateral := []shelley.ShelleyTransactionInput{input}
+	txTotalCollateral := uint64(200)
+	txReferenceInputs := []shelley.ShelleyTransactionInput{input}
+	txAuxDataHash := &common.Blake2b256{0xde, 0xad, 0xbe, 0xef}
+	txValidityIntervalStart := uint64(4000)
+	var signer common.Blake2b224
+	copy(signer[:], []byte{0xab, 0xcd, 0xef})
+	txRequiredSigners := []common.Blake2b224{signer}
+	txScriptDataHash := &common.Blake2b256{0xba, 0xad, 0xf0, 0x0d}
+	txMint := &common.MultiAsset[common.MultiAssetTypeMint]{}
+
+	body := conway.ConwayTransactionBody{
+		TxInputs:                inputSet,
+		TxOutputs:               []babbage.BabbageTransactionOutput{output},
+		TxFee:                   1000,
+		Ttl:                     5000,
+		TxCollateral:            txCollateral,
+		TxTotalCollateral:       txTotalCollateral,
+		TxReferenceInputs:       txReferenceInputs,
+		TxAuxDataHash:           txAuxDataHash,
+		TxValidityIntervalStart: txValidityIntervalStart,
+		TxRequiredSigners:       txRequiredSigners,
+		TxScriptDataHash:        txScriptDataHash,
+		TxMint:                  txMint,
+	}
+
+	got := body.Utxorpc()
+
+	if got.Fee != 1000 {
+		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 5000 {
+		t.Errorf("Output coin mismatch: got %d, want 5000", got.Outputs[0].Coin)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
+	}
+}
+
+// Unit test for ConwayTransaction.Utxorpc()
+func TestConwayTransaction_Utxorpc(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0)
+	var inputSet conway.ConwayTransactionInputSet
+	inputSet.SetItems([]shelley.ShelleyTransactionInput{input})
+
+	address := common.Address{}
+	output := babbage.BabbageTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+	}
+
+	txCollateral := []shelley.ShelleyTransactionInput{input}
+	txTotalCollateral := uint64(200)
+	txReferenceInputs := []shelley.ShelleyTransactionInput{input}
+	txAuxDataHash := &common.Blake2b256{0xde, 0xad, 0xbe, 0xef}
+	txValidityIntervalStart := uint64(4000)
+	var signer common.Blake2b224
+	copy(signer[:], []byte{0xab, 0xcd, 0xef})
+	txRequiredSigners := []common.Blake2b224{signer}
+	txScriptDataHash := &common.Blake2b256{0xba, 0xad, 0xf0, 0x0d}
+	txMint := &common.MultiAsset[common.MultiAssetTypeMint]{}
+
+	body := conway.ConwayTransactionBody{
+		TxInputs:                inputSet,
+		TxOutputs:               []babbage.BabbageTransactionOutput{output},
+		TxFee:                   1000,
+		Ttl:                     5000,
+		TxCollateral:            txCollateral,
+		TxTotalCollateral:       txTotalCollateral,
+		TxReferenceInputs:       txReferenceInputs,
+		TxAuxDataHash:           txAuxDataHash,
+		TxValidityIntervalStart: txValidityIntervalStart,
+		TxRequiredSigners:       txRequiredSigners,
+		TxScriptDataHash:        txScriptDataHash,
+		TxMint:                  txMint,
+	}
+
+	tx := &conway.ConwayTransaction{
+		Body:      body,
+		TxIsValid: true,
+	}
+
+	got := tx.Utxorpc()
+
+	if got.Fee != 1000 {
+		t.Errorf("Transaction fee mismatch: got %d, want 25", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 5000 {
+		t.Errorf("Output coin mismatch: got %d, want 8000", got.Outputs[0].Coin)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
 	}
 }

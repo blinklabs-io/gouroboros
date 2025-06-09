@@ -27,7 +27,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func newBaseProtocolParams() alonzo.AlonzoProtocolParameters {
@@ -445,4 +448,129 @@ func toJSON(v interface{}) string {
 		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
 	}
 	return string(b)
+}
+
+// Unit test for AlonzoTransactionOutput.Utxorpc()
+func TestAlonzoTransactionOutput_Utxorpc(t *testing.T) {
+	address := common.Address{}
+	amount := uint64(5000)
+	datumHash := common.Blake2b256{1, 2, 3, 4}
+
+	// Mock output
+	output := alonzo.AlonzoTransactionOutput{
+		OutputAddress:     address,
+		OutputAmount:      mary.MaryTransactionOutputValue{Amount: amount},
+		TxOutputDatumHash: &datumHash,
+	}
+
+	got := output.Utxorpc()
+	want := &utxorpc.TxOutput{
+		Address: address.Bytes(),
+		Coin:    amount,
+		Assets:  nil,
+		Datum: &utxorpc.Datum{
+			Hash: datumHash.Bytes(),
+		},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("AlonzoTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v", got, want)
+	}
+}
+
+// Unit test for AlonzoTransactionBody.Utxorpc()
+func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
+	// Mock input
+	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	// Mock output
+	address := common.Address{}
+	datumHash := common.Blake2b256{1, 2, 3, 4}
+	output := alonzo.AlonzoTransactionOutput{
+		OutputAddress:     address,
+		OutputAmount:      mary.MaryTransactionOutputValue{Amount: 1000},
+		TxOutputDatumHash: &datumHash,
+	}
+
+	body := alonzo.AlonzoTransactionBody{
+		TxInputs:  inputSet,
+		TxOutputs: []alonzo.AlonzoTransactionOutput{output},
+		TxFee:     50,
+	}
+
+	// Run Utxorpc conversion
+	got := body.Utxorpc()
+
+	// Assertion checks
+	if got.Fee != 50 {
+		t.Errorf("Fee mismatch: got %d, want 50", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if got.Inputs[0].OutputIndex != input.Index() {
+		t.Errorf("Input index mismatch: got %d, want %d", got.Inputs[0].OutputIndex, input.Index())
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 1000 {
+		t.Errorf("Output coin mismatch: got %d, want 1000", got.Outputs[0].Coin)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
+	}
+}
+
+// Unit test for AlonzoTransaction.Utxorpc()
+func TestAlonzoTransaction_Utxorpc(t *testing.T) {
+	// Mock input
+	input := shelley.NewShelleyTransactionInput("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
+	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+
+	// Mock output
+	address := common.Address{}
+	datumHash := &common.Blake2b256{0x11, 0x22, 0x33}
+	output := alonzo.AlonzoTransactionOutput{
+		OutputAddress:     address,
+		OutputAmount:      mary.MaryTransactionOutputValue{Amount: 2000},
+		TxOutputDatumHash: datumHash,
+	}
+
+	body := alonzo.AlonzoTransactionBody{
+		TxInputs:  inputSet,
+		TxOutputs: []alonzo.AlonzoTransactionOutput{output},
+		TxFee:     75,
+	}
+
+	// Wrap in transaction
+	tx := alonzo.AlonzoTransaction{
+		Body:      body,
+		TxIsValid: true,
+	}
+
+	// Run Utxorpc conversion
+	got := tx.Utxorpc()
+
+	// Assertion checks
+	if got.Fee != 75 {
+		t.Errorf("Transaction fee mismatch: got %d, want 75", got.Fee)
+	}
+	if len(got.Inputs) != 1 {
+		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
+	}
+	if len(got.Outputs) != 1 {
+		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+	}
+	if got.Outputs[0].Coin != 2000 {
+		t.Errorf("Output coin mismatch: got %d, want 2000", got.Outputs[0].Coin)
+	}
+	expectedDatum := datumHash.Bytes()
+	if !reflect.DeepEqual(got.Outputs[0].Datum.Hash, expectedDatum) {
+		t.Errorf("Datum hash mismatch: got %x, want %x", got.Outputs[0].Datum.Hash, expectedDatum)
+	}
+	if len(got.Hash) == 0 {
+		t.Error("Expected non-empty transaction hash")
+	}
 }
