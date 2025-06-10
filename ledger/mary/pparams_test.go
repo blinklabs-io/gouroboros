@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/stretchr/testify/assert"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -158,9 +159,12 @@ func TestMaryTransactionOutput_Utxorpc(t *testing.T) {
 		OutputAmount:  mary.MaryTransactionOutputValue{Amount: amount},
 	}
 
-	got := output.Utxorpc()
+	got, err := output.Utxorpc()
+	assert.NoError(t, err)
+	addr, err := address.Bytes()
+	assert.NoError(t, err)
 	want := &cardano.TxOutput{
-		Address: address.Bytes(),
+		Address: addr,
 		Coin:    amount,
 	}
 
