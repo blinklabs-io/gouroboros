@@ -193,7 +193,6 @@ func (b *TransactionBodyBase) Utxorpc() *utxorpc.Tx {
 // TransactionBodyToUtxorpc is a common helper for converting TransactionBody to utxorpc.Tx
 func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
 	txi := []*utxorpc.TxInput{}
-	txri := []*utxorpc.TxInput{}
 	txo := []*utxorpc.TxOutput{}
 	for _, i := range tx.Inputs() {
 		input := i.Utxorpc()
@@ -206,24 +205,30 @@ func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
 		}
 		txo = append(txo, output)
 	}
-	for _, ri := range tx.ReferenceInputs() {
-		input := ri.Utxorpc()
-		txri = append(txri, input)
-	}
 	ret := &utxorpc.Tx{
 		Inputs:  txi,
 		Outputs: txo,
-		// Certificates: tx.Certificates(),
-		// Withdrawals:  tx.Withdrawals(),
-		// Mint:         tx.Mint(),
-		ReferenceInputs: txri,
-		// Witnesses:    tx.Witnesses(),
-		// Collateral:   tx.Collateral(),
+		// Certificates:    tx.Certificates(),
+		// Withdrawals:     tx.Withdrawals(),
+		// Mint:            tx.Mint(),
+		// ReferenceInputs: tx.ReferenceInputs(),
+		// Witnesses:       tx.Witnesses(),
+		// Collateral:      tx.Collateral(),
 		Fee: tx.Fee(),
-		// Successful:   tx.Successful(),
-		// Auxiliary:    tx.AuxData(),
-		// Validity:     tx.Validity(),
+		// Validity:        tx.Validity(),
+		// Successful:      tx.Successful(),
+		// Auxiliary:       tx.AuxData(),
 		Hash: tx.Hash().Bytes(),
+		// Proposals:       tx.ProposalProcedures(),
 	}
+	for _, ri := range tx.ReferenceInputs() {
+		input := ri.Utxorpc()
+		ret.ReferenceInputs = append(ret.ReferenceInputs, input)
+	}
+	for _, c := range tx.Certificates() {
+		cert := c.Utxorpc()
+		ret.Certificates = append(ret.Certificates, cert)
+	}
+
 	return ret
 }
