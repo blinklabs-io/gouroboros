@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,8 +29,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
-	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	"github.com/stretchr/testify/assert"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func newBaseProtocolParams() alonzo.AlonzoProtocolParameters {
@@ -463,12 +463,15 @@ func TestAlonzoTransactionOutput_Utxorpc(t *testing.T) {
 		TxOutputDatumHash: &datumHash,
 	}
 
-	got := output.Utxorpc()
-	want := &utxorpc.TxOutput{
-		Address: address.Bytes(),
+	got, err := output.Utxorpc()
+	assert.NoError(t, err)
+	addr, err := address.Bytes()
+	assert.NoError(t, err)
+	want := &cardano.TxOutput{
+		Address: addr,
 		Coin:    amount,
 		Assets:  nil,
-		Datum: &utxorpc.Datum{
+		Datum: &cardano.Datum{
 			Hash: datumHash.Bytes(),
 		},
 	}
