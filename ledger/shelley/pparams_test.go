@@ -168,7 +168,10 @@ func TestShelleyUtxorpc(t *testing.T) {
 // Tests conversion of a ShelleyTransactionInput to its utxorpc-compatible representation.
 func TestShelleyTransactionInput_Utxorpc(t *testing.T) {
 	// Create a mock transaction input with dummy transaction hash and index
-	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		1,
+	)
 
 	// Convert it to utxorpc TxInput
 	got := input.Utxorpc()
@@ -215,19 +218,32 @@ func TestShelleyTransactionOutput_Utxorpc(t *testing.T) {
 	}
 
 	// Debug prints
-	t.Logf("DEBUG got.Address=%#v want.Address=%#v\n", actual.Address, expected.Address)
+	t.Logf(
+		"DEBUG got.Address=%#v want.Address=%#v\n",
+		actual.Address,
+		expected.Address,
+	)
 
 	// Compare actual and expected results
 	if !reflect.DeepEqual(actual, expected) {
-		t.Errorf("TxOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v", actual, expected)
+		t.Errorf(
+			"TxOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v",
+			actual,
+			expected,
+		)
 	}
 }
 
 // Test the conversion of a full ShelleyTransactionBody to utxorpc format, verifying fee, input count, and output count.
 func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 	// Create input set with one mock input
-	input := shelley.NewShelleyTransactionInput("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 0)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		0,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	// Use mock address
 	address := common.Address{}
@@ -251,25 +267,42 @@ func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 
 	// Check that the fee matches
 	if actual.Fee != txBody.Fee() {
-		t.Errorf("TxBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d", actual.Fee, txBody.Fee())
+		t.Errorf(
+			"TxBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
+			actual.Fee,
+			txBody.Fee(),
+		)
 	}
 
 	// Check number of inputs
 	if len(actual.Inputs) != len(txBody.Inputs()) {
-		t.Errorf("TxBody.Utxorpc() input length mismatch\nGot: %d\nWant: %d", len(actual.Inputs), len(txBody.Inputs()))
+		t.Errorf(
+			"TxBody.Utxorpc() input length mismatch\nGot: %d\nWant: %d",
+			len(actual.Inputs),
+			len(txBody.Inputs()),
+		)
 	}
 
 	// Check number of outputs
 	if len(actual.Outputs) != len(txBody.Outputs()) {
-		t.Errorf("TxBody.Utxorpc() output length mismatch\nGot: %d\nWant: %d", len(actual.Outputs), len(txBody.Outputs()))
+		t.Errorf(
+			"TxBody.Utxorpc() output length mismatch\nGot: %d\nWant: %d",
+			len(actual.Outputs),
+			len(txBody.Outputs()),
+		)
 	}
 }
 
 // Test the conversion of a full ShelleyTransaction to utxorpc format, verifying fee, input count, and output count.
 func TestShelleyTransaction_Utxorpc(t *testing.T) {
 	// Create input set with one mock input
-	input := shelley.NewShelleyTransactionInput("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 0)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		0,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	// Use mock address
 	address := common.Address{}
@@ -299,16 +332,28 @@ func TestShelleyTransaction_Utxorpc(t *testing.T) {
 
 	// Verify the fee
 	if got.Fee != tx.Body.Fee() {
-		t.Errorf("ShelleyTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d", got.Fee, tx.Body.Fee())
+		t.Errorf(
+			"ShelleyTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
+			got.Fee,
+			tx.Body.Fee(),
+		)
 	}
 
 	// Verify input count
 	if len(got.Inputs) != len(tx.Body.Inputs()) {
-		t.Errorf("ShelleyTransaction.Utxorpc() input count mismatch\nGot: %d\nWant: %d", len(got.Inputs), len(tx.Body.Inputs()))
+		t.Errorf(
+			"ShelleyTransaction.Utxorpc() input count mismatch\nGot: %d\nWant: %d",
+			len(got.Inputs),
+			len(tx.Body.Inputs()),
+		)
 	}
 
 	// Verify output count
 	if len(got.Outputs) != len(tx.Body.Outputs()) {
-		t.Errorf("ShelleyTransaction.Utxorpc() output count mismatch\nGot: %d\nWant: %d", len(got.Outputs), len(tx.Body.Outputs()))
+		t.Errorf(
+			"ShelleyTransaction.Utxorpc() output count mismatch\nGot: %d\nWant: %d",
+			len(got.Outputs),
+			len(tx.Body.Outputs()),
+		)
 	}
 }

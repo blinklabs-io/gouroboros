@@ -389,7 +389,10 @@ func (a Address) Bytes() ([]byte, error) {
 		}
 		rawPayload, err := cbor.Encode(tmpPayload)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encode Byron address payload: %w", err)
+			return nil, fmt.Errorf(
+				"failed to encode Byron address payload: %w",
+				err,
+			)
 		}
 		tmpData := []any{
 			cbor.Tag{
@@ -400,7 +403,10 @@ func (a Address) Bytes() ([]byte, error) {
 		}
 		ret, err := cbor.Encode(tmpData)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encode Byron address data: %w", err)
+			return nil, fmt.Errorf(
+				"failed to encode Byron address data: %w",
+				err,
+			)
 		}
 		return ret, nil
 	}

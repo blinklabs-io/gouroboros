@@ -239,7 +239,9 @@ func (p *ConwayProtocolParameters) Update(
 	}
 }
 
-func (p *ConwayProtocolParameters) UpdateFromGenesis(genesis *ConwayGenesis) error {
+func (p *ConwayProtocolParameters) UpdateFromGenesis(
+	genesis *ConwayGenesis,
+) error {
 	if genesis == nil {
 		return nil
 	}

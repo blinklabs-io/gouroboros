@@ -558,7 +558,10 @@ func TestBabbageUtxorpc(t *testing.T) {
 
 // Unit test for BabbageTransactionInput.Utxorpc()
 func TestBabbageTransactionInput_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 2)
+	input := shelley.NewShelleyTransactionInput(
+		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		2,
+	)
 
 	got := input.Utxorpc()
 	want := &cardano.TxInput{
@@ -567,7 +570,11 @@ func TestBabbageTransactionInput_Utxorpc(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("BabbageTransactionInput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v", got, want)
+		t.Errorf(
+			"BabbageTransactionInput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
@@ -594,7 +601,11 @@ func TestBabbageTransactionOutput_Utxorpc(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("BabbageTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v", got, want)
+		t.Errorf(
+			"BabbageTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
@@ -602,7 +613,9 @@ func TestBabbageTransactionOutput_Utxorpc(t *testing.T) {
 func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
 	input := shelley.NewShelleyTransactionInput(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	address := common.Address{}
 	output := babbage.BabbageTransactionOutput{
@@ -639,7 +652,9 @@ func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
 func TestBabbageTransaction_Utxorpc(t *testing.T) {
 	input := shelley.NewShelleyTransactionInput(
 		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 2)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	address := common.Address{}
 	output := babbage.BabbageTransactionOutput{
