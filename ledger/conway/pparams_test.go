@@ -604,7 +604,10 @@ func TestUtxorpc(t *testing.T) {
 
 // Unit test for ConwayTransactionBody.Utxorpc()
 func TestConwayTransactionBody_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		1,
+	)
 	var inputSet conway.ConwayTransactionInputSet
 	inputSet.SetItems([]shelley.ShelleyTransactionInput{input})
 
@@ -660,7 +663,10 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 
 // Unit test for ConwayTransaction.Utxorpc()
 func TestConwayTransaction_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0)
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
 	var inputSet conway.ConwayTransactionInputSet
 	inputSet.SetItems([]shelley.ShelleyTransactionInput{input})
 

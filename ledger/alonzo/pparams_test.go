@@ -477,15 +477,24 @@ func TestAlonzoTransactionOutput_Utxorpc(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("AlonzoTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v", got, want)
+		t.Errorf(
+			"AlonzoTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
 // Unit test for AlonzoTransactionBody.Utxorpc()
 func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 	// Mock input
-	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	// Mock output
 	address := common.Address{}
@@ -513,7 +522,11 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
 	}
 	if got.Inputs[0].OutputIndex != input.Index() {
-		t.Errorf("Input index mismatch: got %d, want %d", got.Inputs[0].OutputIndex, input.Index())
+		t.Errorf(
+			"Input index mismatch: got %d, want %d",
+			got.Inputs[0].OutputIndex,
+			input.Index(),
+		)
 	}
 	if len(got.Outputs) != 1 {
 		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
@@ -529,8 +542,13 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 // Unit test for AlonzoTransaction.Utxorpc()
 func TestAlonzoTransaction_Utxorpc(t *testing.T) {
 	// Mock input
-	input := shelley.NewShelleyTransactionInput("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		1,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	// Mock output
 	address := common.Address{}
@@ -571,7 +589,11 @@ func TestAlonzoTransaction_Utxorpc(t *testing.T) {
 	}
 	expectedDatum := datumHash.Bytes()
 	if !reflect.DeepEqual(got.Outputs[0].Datum.Hash, expectedDatum) {
-		t.Errorf("Datum hash mismatch: got %x, want %x", got.Outputs[0].Datum.Hash, expectedDatum)
+		t.Errorf(
+			"Datum hash mismatch: got %x, want %x",
+			got.Outputs[0].Datum.Hash,
+			expectedDatum,
+		)
 	}
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")

@@ -134,8 +134,13 @@ func TestAllegraUtxorpc(t *testing.T) {
 // Unit test for AllegraTransactionBody.Utxorpc()
 func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 	// mock input
-	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		1,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	address := common.Address{}
 
@@ -159,23 +164,40 @@ func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 
 	// Check that the fee matches
 	if actual.Fee != txBody.Fee() {
-		t.Errorf("AllegraTransactionBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d", actual.Fee, txBody.Fee())
+		t.Errorf(
+			"AllegraTransactionBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
+			actual.Fee,
+			txBody.Fee(),
+		)
 	}
 	// Check number of inputs
 	if len(actual.Inputs) != len(txBody.Inputs()) {
-		t.Errorf("AllegraTransactionBody.Utxorpc() input length mismatch\nGot: %d\nWant: %d", len(actual.Inputs), len(txBody.Inputs()))
+		t.Errorf(
+			"AllegraTransactionBody.Utxorpc() input length mismatch\nGot: %d\nWant: %d",
+			len(actual.Inputs),
+			len(txBody.Inputs()),
+		)
 	}
 	// Check number of outputs
 	if len(actual.Outputs) != len(txBody.Outputs()) {
-		t.Errorf("AllegraTransactionBody.Utxorpc() output length mismatch\nGot: %d\nWant: %d", len(actual.Outputs), len(txBody.Outputs()))
+		t.Errorf(
+			"AllegraTransactionBody.Utxorpc() output length mismatch\nGot: %d\nWant: %d",
+			len(actual.Outputs),
+			len(txBody.Outputs()),
+		)
 	}
 }
 
 // Unit test for AllegraTransaction.Utxorpc()
 func TestAllegraTransaction_Utxorpc(t *testing.T) {
 	// Prepare mock input
-	input := shelley.NewShelleyTransactionInput("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 0)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		0,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	// Prepare mock output
 	address := common.Address{}
@@ -202,14 +224,26 @@ func TestAllegraTransaction_Utxorpc(t *testing.T) {
 
 	// Assertion checks
 	if actual.Fee != tx.Fee() {
-		t.Errorf("AllegraTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d", actual.Fee, tx.Fee())
+		t.Errorf(
+			"AllegraTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
+			actual.Fee,
+			tx.Fee(),
+		)
 	}
 
 	if len(actual.Inputs) != len(tx.Inputs()) {
-		t.Errorf("AllegraTransaction.Utxorpc() input length mismatch\nGot: %d\nWant: %d", len(actual.Inputs), len(tx.Inputs()))
+		t.Errorf(
+			"AllegraTransaction.Utxorpc() input length mismatch\nGot: %d\nWant: %d",
+			len(actual.Inputs),
+			len(tx.Inputs()),
+		)
 	}
 
 	if len(actual.Outputs) != len(tx.Outputs()) {
-		t.Errorf("AllegraTransaction.Utxorpc() output length mismatch\nGot: %d\nWant: %d", len(actual.Outputs), len(tx.Outputs()))
+		t.Errorf(
+			"AllegraTransaction.Utxorpc() output length mismatch\nGot: %d\nWant: %d",
+			len(actual.Outputs),
+			len(tx.Outputs()),
+		)
 	}
 }

@@ -136,7 +136,10 @@ func TestMaryUtxorpc(t *testing.T) {
 
 // Unit test for MaryTransactionInput.Utxorpc()
 func TestMaryTransactionInput_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0)
+	input := shelley.NewShelleyTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		0,
+	)
 
 	got := input.Utxorpc()
 	want := &cardano.TxInput{
@@ -145,7 +148,11 @@ func TestMaryTransactionInput_Utxorpc(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("MaryTransactionInput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v", got, want)
+		t.Errorf(
+			"MaryTransactionInput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
@@ -169,14 +176,23 @@ func TestMaryTransactionOutput_Utxorpc(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("MaryTransactionOutput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v", got, want)
+		t.Errorf(
+			"MaryTransactionOutput.Utxorpc() mismatch\\nGot: %+v\\nWant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
 // Unit test for MaryTransactionBody.Utxorpc()
 func TestMaryTransactionBody_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 1)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		1,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	address := common.Address{}
 	output := mary.MaryTransactionOutput{
@@ -211,8 +227,13 @@ func TestMaryTransactionBody_Utxorpc(t *testing.T) {
 
 // Unit test for MaryTransaction.Utxorpc()
 func TestMaryTransaction_Utxorpc(t *testing.T) {
-	input := shelley.NewShelleyTransactionInput("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 2)
-	inputSet := shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{input})
+	input := shelley.NewShelleyTransactionInput(
+		"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		2,
+	)
+	inputSet := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input},
+	)
 
 	address := common.Address{}
 	output := mary.MaryTransactionOutput{

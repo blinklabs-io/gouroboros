@@ -1450,26 +1450,32 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		},
 	)
 	// no valid collateral UTxO, should skip and not underflow
-	t.Run("no valid collateral UTxO, should skip and not underflow", func(t *testing.T) {
-		// Ledger state with NO matching UTxO
-		missingUtxoLedgerState := test.MockLedgerState{
-			MockUtxos: []common.Utxo{}, // empty
-		}
-		testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
-			OutputAmount: mary.MaryTransactionOutputValue{
-				Amount: testCollateralReturnAmountBad,
-			},
-		}
-		err := babbage.UtxoValidateCollateralEqBalance(
-			testTx,
-			testSlot,
-			missingUtxoLedgerState,
-			testProtocolParams,
-		)
-		if err != nil {
-			t.Errorf("Should skip collateral return validation if collBalance == 0. Got error: %v", err)
-		}
-	})
+	t.Run(
+		"no valid collateral UTxO, should skip and not underflow",
+		func(t *testing.T) {
+			// Ledger state with NO matching UTxO
+			missingUtxoLedgerState := test.MockLedgerState{
+				MockUtxos: []common.Utxo{}, // empty
+			}
+			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: testCollateralReturnAmountBad,
+				},
+			}
+			err := babbage.UtxoValidateCollateralEqBalance(
+				testTx,
+				testSlot,
+				missingUtxoLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"Should skip collateral return validation if collBalance == 0. Got error: %v",
+					err,
+				)
+			}
+		},
+	)
 }
 
 func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {

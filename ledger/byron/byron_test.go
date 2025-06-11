@@ -26,7 +26,10 @@ import (
 
 // Unit test for ByronTransactionInput.Utxorpc()
 func TestByronTransactionInput_Utxorpc(t *testing.T) {
-	input := byron.NewByronTransactionInput("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	input := byron.NewByronTransactionInput(
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		1,
+	)
 
 	got := input.Utxorpc()
 	want := &cardano.TxInput{
@@ -35,7 +38,11 @@ func TestByronTransactionInput_Utxorpc(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ByronTransactionInput.Utxorpc() mismatch\nGot: %+v\nWant: %+v", got, want)
+		t.Errorf(
+			"ByronTransactionInput.Utxorpc() mismatch\nGot: %+v\nWant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
@@ -57,7 +64,11 @@ func TestByronTransactionOutput_Utxorpc(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ByronTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v", got, want)
+		t.Errorf(
+			"ByronTransactionOutput.Utxorpc() mismatch\nGot: %+v\nWant: %+v",
+			got,
+			want,
+		)
 	}
 }
 
@@ -71,7 +82,9 @@ func TestByronTransaction_Utxorpc_Empty(t *testing.T) {
 
 	// Validate it's not nil
 	if result == nil {
-		t.Fatal("ByronTransaction.Utxorpc() returned nil; expected empty cardano.Tx object")
+		t.Fatal(
+			"ByronTransaction.Utxorpc() returned nil; expected empty cardano.Tx object",
+		)
 	}
 
 	// Validate that it's the zero value

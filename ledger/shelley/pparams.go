@@ -98,7 +98,9 @@ func (p *ShelleyProtocolParameters) Update(
 	}
 }
 
-func (p *ShelleyProtocolParameters) UpdateFromGenesis(genesis *ShelleyGenesis) error {
+func (p *ShelleyProtocolParameters) UpdateFromGenesis(
+	genesis *ShelleyGenesis,
+) error {
 	if genesis == nil {
 		return nil
 	}
