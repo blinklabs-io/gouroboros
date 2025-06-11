@@ -16,8 +16,9 @@ package alonzo
 
 import (
 	"fmt"
+	"maps"
 	"math"
-	"strconv"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -193,25 +194,21 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 				continue
 			}
 
-			values := make([]int64, expectedCount)
-
-			for paramName, val := range model {
-				if index, err := strconv.Atoi(paramName); err == nil {
-					if index >= 0 && index < expectedCount {
-						values[index] = int64(val)
-					}
-				}
+			// The sort order of the keys in map form corresponds to the index in list form
+			paramKeys := slices.Sorted(maps.Keys(model))
+			if len(paramKeys) != expectedCount {
+				return fmt.Errorf(
+					"incorrect param count for %s: %d",
+					versionStr,
+					len(paramKeys),
+				)
 			}
 
-			// Verify we have all expected parameters
-			for i, val := range values {
-				if val == 0 {
-					return fmt.Errorf(
-						"missing parameter at index %d for %s",
-						i,
-						versionStr,
-					)
-				}
+			// Copy values from map format into list format
+			values := make([]int64, expectedCount)
+			for index, paramName := range paramKeys {
+				val := model[paramName]
+				values[index] = int64(val)
 			}
 
 			p.CostModels[key] = values
