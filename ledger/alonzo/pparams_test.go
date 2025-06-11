@@ -231,7 +231,7 @@ func TestScientificNotationInCostModels(t *testing.T) {
 	}
 	// Fill remaining parameters
 	for i := 3; i < 166; i++ {
-		costModel[strconv.Itoa(i)] = i * 1000
+		costModel[`test`+strconv.Itoa(i)] = i * 1000
 	}
 
 	genesisJSON := fmt.Sprintf(`{
@@ -287,7 +287,7 @@ func TestInvalidCostModelFormats(t *testing.T) {
 			costModels: `"costModels": {
                 "PlutusV1": {"0":1, "1":2, "2":3}
             }`,
-			expectError: "missing parameter at index 3 for PlutusV1",
+			expectError: "incorrect param count for PlutusV1: 3",
 		},
 	}
 
