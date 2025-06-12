@@ -286,8 +286,8 @@ func (c *Connection) setupConnection() error {
 				return
 			}
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				// Return a bare io.EOF error if error is EOF/ErrUnexpectedEOF
-				c.errorChan <- io.EOF
+				// Preserve the original wrapped error with friendly message
+				c.errorChan <- err
 			} else {
 				// Wrap error message to denote it comes from the muxer
 				c.errorChan <- fmt.Errorf("muxer error: %w", err)
@@ -354,7 +354,7 @@ func (c *Connection) setupConnection() error {
 	select {
 	case <-c.doneChan:
 		// Return an error if we're shutting down
-		return io.EOF
+		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
 	case err := <-c.protoErrorChan:
 		// Shutdown the connection and return the error
 		c.Close()

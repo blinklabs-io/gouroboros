@@ -284,10 +284,11 @@ func (m *Muxer) readLoop() {
 		}
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
-			if errors.Is(err, io.ErrClosedPipe) {
-				err = io.EOF
+			if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.EOF) {
+				m.sendError(fmt.Errorf("peer closed the connection while reading header: %w", err))
+			} else {
+				m.sendError(err)
 			}
-			m.sendError(err)
 			return
 		}
 		msg := &Segment{
@@ -297,10 +298,11 @@ func (m *Muxer) readLoop() {
 		// We use ReadFull because it guarantees to read the expected number of bytes or
 		// return an error
 		if _, err := io.ReadFull(m.conn, msg.Payload); err != nil {
-			if errors.Is(err, io.ErrClosedPipe) {
-				err = io.EOF
+			if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.EOF) {
+				m.sendError(fmt.Errorf("peer closed the connection while reading payload: %w", err))
+			} else {
+				m.sendError(err)
 			}
-			m.sendError(err)
 			return
 		}
 		// Check for message from initiator when we're not configured as a responder
