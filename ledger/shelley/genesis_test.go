@@ -15,6 +15,7 @@
 package shelley_test
 
 import (
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"strings"
@@ -176,7 +177,7 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 			"vrf":      "6394a632af51a32768a6f12dac3485d9c0712d0b54e3f389f355385762a478f2",
 		},
 	},
-	InitialFunds: map[string]any{},
+	InitialFunds: map[string]uint64{},
 }
 
 func TestGenesisFromJson(t *testing.T) {
@@ -191,6 +192,59 @@ func TestGenesisFromJson(t *testing.T) {
 			"did not get expected object:\n     got: %#v\n  wanted: %#v",
 			tmpGenesis,
 			expectedGenesisObj,
+		)
+	}
+}
+
+func TestGenesisUtxos(t *testing.T) {
+	testHexAddr := "000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad"
+	testAmount := uint64(120_000_000_000_000)
+	expectedTxId := "23e41590bf49ad07dd6f28db73f9f16c804b9b5791b9dd669bfc58df8a9a1129"
+	expectedAddr := "addr_test1qqqy2xpurh9wkr99eavr569euvdxxqduhhjgwpjm6dde2k5ch2wnqc0ph52hf8xg2l55kvzc8sfquvj44kunk3rgrwksfahlvw"
+	// Generate genesis config JSON
+	tmpGenesisData := map[string]any{
+		"initialFunds": map[string]uint64{
+			testHexAddr: testAmount,
+		},
+	}
+	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	// Parse genesis config JSON
+	tmpGenesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(string(tmpGenesisJson)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tmpGenesisUtxos, err := tmpGenesis.GenesisUtxos()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if len(tmpGenesisUtxos) != 1 {
+		t.Fatalf("did not get expected count of genesis UTxOs")
+	}
+	tmpUtxo := tmpGenesisUtxos[0]
+	if tmpUtxo.Id.Id().String() != expectedTxId {
+		t.Fatalf(
+			"did not get expected TxID: got %s, wanted %s",
+			tmpUtxo.Id.Id().String(),
+			expectedTxId,
+		)
+	}
+	if tmpUtxo.Output.Address().String() != expectedAddr {
+		t.Fatalf(
+			"did not get expected address: got %s, wanted %s",
+			tmpUtxo.Output.Address().String(),
+			expectedAddr,
+		)
+	}
+	if tmpUtxo.Output.Amount() != testAmount {
+		t.Fatalf(
+			"did not get expected amount: got %d, wanted %d",
+			tmpUtxo.Output.Amount(),
+			testAmount,
 		)
 	}
 }

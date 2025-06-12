@@ -40,7 +40,7 @@ type ShelleyGenesis struct {
 	MaxLovelaceSupply  uint64                       `json:"maxLovelaceSupply"`
 	ProtocolParameters ShelleyGenesisProtocolParams `json:"protocolParams"`
 	GenDelegs          map[string]map[string]string `json:"genDelegs"`
-	InitialFunds       map[string]any               `json:"initialFunds"`
+	InitialFunds       map[string]uint64            `json:"initialFunds"`
 	Staking            any                          `json:"staking"`
 }
 
@@ -96,6 +96,38 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		staking,
 	}
 	return cbor.Encode(tmpData)
+}
+
+func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
+	ret := []common.Utxo{}
+	for address, amount := range g.InitialFunds {
+		addrBytes, err := hex.DecodeString(address)
+		if err != nil {
+			return nil, err
+		}
+		tmpAddr, err := common.NewAddressFromBytes(addrBytes)
+		if err != nil {
+			return nil, err
+		}
+		addrCborBytes, err := cbor.Encode(tmpAddr)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(
+			ret,
+			common.Utxo{
+				Id: ShelleyTransactionInput{
+					TxId:        common.Blake2b256Hash(addrCborBytes),
+					OutputIndex: 0,
+				},
+				Output: ShelleyTransactionOutput{
+					OutputAddress: tmpAddr,
+					OutputAmount:  amount,
+				},
+			},
+		)
+	}
+	return ret, nil
 }
 
 type ShelleyGenesisProtocolParams struct {

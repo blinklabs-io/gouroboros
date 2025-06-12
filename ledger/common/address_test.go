@@ -65,8 +65,7 @@ func TestAddressFromBytes(t *testing.T) {
 		},
 	}
 	for _, testDef := range testDefs {
-		addr := Address{}
-		err := addr.populateFromBytes(
+		addr, err := NewAddressFromBytes(
 			test.DecodeHexString(testDef.addressBytesHex),
 		)
 		if err != nil {
