@@ -91,6 +91,15 @@ func NewAddress(addr string) (Address, error) {
 	return a, nil
 }
 
+// NewAddressFromBytes returns an Address based on the raw bytes provided
+func NewAddressFromBytes(addrBytes []byte) (Address, error) {
+	var ret Address
+	if err := ret.populateFromBytes(addrBytes); err != nil {
+		return Address{}, err
+	}
+	return ret, nil
+}
+
 // NewAddressFromParts returns an Address based on the individual parts of the address that are provided
 func NewAddressFromParts(
 	addrType uint8,
