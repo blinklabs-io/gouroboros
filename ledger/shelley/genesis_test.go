@@ -199,7 +199,7 @@ func TestGenesisFromJson(t *testing.T) {
 func TestGenesisUtxos(t *testing.T) {
 	testHexAddr := "000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad"
 	testAmount := uint64(120_000_000_000_000)
-	expectedTxId := "23e41590bf49ad07dd6f28db73f9f16c804b9b5791b9dd669bfc58df8a9a1129"
+	expectedTxId := "d7357999c3867a9d8eb7c84b25a8d4fc20699d9d802f6c51a4554bd6a928783e"
 	expectedAddr := "addr_test1qqqy2xpurh9wkr99eavr569euvdxxqduhhjgwpjm6dde2k5ch2wnqc0ph52hf8xg2l55kvzc8sfquvj44kunk3rgrwksfahlvw"
 	// Generate genesis config JSON
 	tmpGenesisData := map[string]any{

@@ -109,15 +109,11 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 		if err != nil {
 			return nil, err
 		}
-		addrCborBytes, err := cbor.Encode(tmpAddr)
-		if err != nil {
-			return nil, err
-		}
 		ret = append(
 			ret,
 			common.Utxo{
 				Id: ShelleyTransactionInput{
-					TxId:        common.Blake2b256Hash(addrCborBytes),
+					TxId:        common.Blake2b256Hash(addrBytes),
 					OutputIndex: 0,
 				},
 				Output: ShelleyTransactionOutput{
