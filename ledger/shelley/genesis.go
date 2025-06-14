@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"math/big"
 	"os"
 	"time"
 
@@ -35,7 +36,7 @@ type ShelleyGenesis struct {
 	EpochLength        int                          `json:"epochLength"`
 	SlotsPerKESPeriod  int                          `json:"slotsPerKESPeriod"`
 	MaxKESEvolutions   int                          `json:"maxKESEvolutions"`
-	SlotLength         int                          `json:"slotLength"`
+	SlotLength         common.GenesisRat            `json:"slotLength"`
 	UpdateQuorum       int                          `json:"updateQuorum"`
 	MaxLovelaceSupply  uint64                       `json:"maxLovelaceSupply"`
 	ProtocolParameters ShelleyGenesisProtocolParams `json:"protocolParams"`
@@ -71,6 +72,7 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 			map[any]any{},
 		}
 	}
+	slotLengthMs := &big.Rat{}
 	tmpData := []any{
 		[]any{
 			g.SystemStart.Year(),
@@ -87,7 +89,7 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		g.EpochLength,
 		g.SlotsPerKESPeriod,
 		g.MaxKESEvolutions,
-		g.SlotLength * 1_000_000,
+		slotLengthMs.Mul(g.SlotLength.Rat, big.NewRat(1_000_000, 1)),
 		g.UpdateQuorum,
 		g.MaxLovelaceSupply,
 		g.ProtocolParameters,

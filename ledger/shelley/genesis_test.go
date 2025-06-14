@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -117,7 +117,9 @@ var expectedGenesisObj = shelley.ShelleyGenesis{
 	EpochLength:       432000,
 	SlotsPerKESPeriod: 129600,
 	MaxKESEvolutions:  62,
-	SlotLength:        1,
+	SlotLength: common.GenesisRat{
+		Rat: big.NewRat(1, 1),
+	},
 	UpdateQuorum:      5,
 	MaxLovelaceSupply: 45000000000000000,
 	ProtocolParameters: shelley.ShelleyGenesisProtocolParams{
