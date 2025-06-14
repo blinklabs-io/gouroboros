@@ -502,7 +502,7 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	}
 	jsonData, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling UTxOWhole result to JSON: %s", err)
+		return nil, fmt.Errorf("error marshaling UTxOWhole result to JSON: %w", err)
 	}
 	fmt.Println("UTxOWhole Result:")
 	fmt.Println(string(jsonData))
