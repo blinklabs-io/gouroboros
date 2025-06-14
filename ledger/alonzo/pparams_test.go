@@ -132,12 +132,12 @@ func TestAlonzoProtocolParamsUpdate(t *testing.T) {
 func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
 	// Create cost models with numeric string keys
 	plutusV1CostModel := make(map[string]int)
-	for i := 0; i < 166; i++ {
+	for i := range 166 {
 		plutusV1CostModel[strconv.Itoa(i)] = i + 1 // "0":1, "1":2, etc.
 	}
 
 	plutusV2CostModel := make(map[string]int)
-	for i := 0; i < 175; i++ {
+	for i := range 175 {
 		plutusV2CostModel[strconv.Itoa(i)] = i + 1 // "0":1, "1":2, etc.
 	}
 
@@ -185,7 +185,7 @@ func TestAlonzoProtocolParametersUpdateFromGenesis(t *testing.T) {
 func TestCostModelArrayFormat(t *testing.T) {
 	// Create cost model with numeric string keys
 	plutusV1CostModel := make(map[string]int)
-	for i := 0; i < 166; i++ {
+	for i := range 166 {
 		plutusV1CostModel[strconv.Itoa(i)] = i + 1 // "0":1, "1":2, etc.
 	}
 
@@ -261,7 +261,7 @@ func TestScientificNotationInCostModels(t *testing.T) {
 	}
 
 	expected := []int64{2477736, 1500000, 1000000}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if params.CostModels[alonzo.PlutusV1Key][i] != expected[i] {
 			t.Errorf("parameter %d conversion failed: got %d, want %d",
 				i, params.CostModels[alonzo.PlutusV1Key][i], expected[i])
