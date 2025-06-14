@@ -66,10 +66,10 @@ func (g *AlonzoGenesis) NormalizeCostModels() error {
 }
 
 func (c *CostModel) UnmarshalJSON(data []byte) error {
-	tmpMap := make(map[string]interface{})
+	tmpMap := make(map[string]any)
 	if err := json.Unmarshal(data, &tmpMap); err != nil {
 		// Try to unmarshal as array first
-		var tmpArray []interface{}
+		var tmpArray []any
 		if arrayErr := json.Unmarshal(data, &tmpArray); arrayErr == nil {
 			*c = make(CostModel)
 			for i, v := range tmpArray {
@@ -95,7 +95,7 @@ func (c *CostModel) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func toInt(v interface{}) (int, error) {
+func toInt(v any) (int, error) {
 	switch val := v.(type) {
 	case float64:
 		if val > float64(math.MaxInt) || val < float64(math.MinInt) {

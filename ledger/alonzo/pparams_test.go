@@ -224,7 +224,7 @@ func TestCostModelArrayFormat(t *testing.T) {
 }
 
 func TestScientificNotationInCostModels(t *testing.T) {
-	costModel := map[string]interface{}{
+	costModel := map[string]any{
 		"0": 2.477736e+06, // Changed from param1 to 0
 		"1": 1.5e6,        // Changed from param2 to 1
 		"2": 1000000,      // Changed from param3 to 2
@@ -442,7 +442,7 @@ func TestAlonzoUtxorpc(t *testing.T) {
 	}
 }
 
-func toJSON(v interface{}) string {
+func toJSON(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {
 		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
