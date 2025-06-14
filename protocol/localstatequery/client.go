@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -499,6 +500,12 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
+	jsonData, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling UTxOWhole result to JSON: %s", err)
+	}
+	fmt.Println("UTxOWhole Result:")
+	fmt.Println(string(jsonData))
 	return &result, nil
 }
 
