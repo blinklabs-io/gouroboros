@@ -69,6 +69,19 @@ type Muxer struct {
 	onceStop               sync.Once
 }
 
+type ConnectionClosedError struct {
+	Context string
+	Err     error
+}
+
+func (e *ConnectionClosedError) Error() string {
+	return fmt.Sprintf("peer closed the connection while %s: %v", e.Context, e.Err)
+}
+
+func (e *ConnectionClosedError) Unwrap() error {
+	return e.Err
+}
+
 // New creates a new Muxer object and starts the read loop
 func New(conn net.Conn) *Muxer {
 	m := &Muxer{
@@ -287,7 +300,11 @@ func (m *Muxer) readLoop() {
 			if errors.Is(err, io.ErrClosedPipe) {
 				err = io.EOF
 			}
-			m.sendError(err)
+			if errors.Is(err, io.EOF) {
+				m.sendError(&ConnectionClosedError{Context: "reading header", Err: err})
+			} else {
+				m.sendError(err)
+			}
 			return
 		}
 		msg := &Segment{
@@ -300,7 +317,11 @@ func (m *Muxer) readLoop() {
 			if errors.Is(err, io.ErrClosedPipe) {
 				err = io.EOF
 			}
-			m.sendError(err)
+			if errors.Is(err, io.EOF) {
+				m.sendError(&ConnectionClosedError{Context: "reading payload", Err: err})
+			} else {
+				m.sendError(err)
+			}
 			return
 		}
 		// Check for message from initiator when we're not configured as a responder
