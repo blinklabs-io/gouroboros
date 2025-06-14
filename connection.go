@@ -285,8 +285,9 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				// Preserve the original wrapped error with friendly message
+			var connErr *muxer.ConnectionClosedError
+			if errors.As(err, &connErr) {
+				// Pass through ConnectionClosedError from muxer
 				c.errorChan <- err
 			} else {
 				// Wrap error message to denote it comes from the muxer

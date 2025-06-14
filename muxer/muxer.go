@@ -69,6 +69,19 @@ type Muxer struct {
 	onceStop               sync.Once
 }
 
+type ConnectionClosedError struct {
+	Context string
+	Err     error
+}
+
+func (e *ConnectionClosedError) Error() string {
+	return fmt.Sprintf("peer closed the connection while %s: %v", e.Context, e.Err)
+}
+
+func (e *ConnectionClosedError) Unwrap() error {
+	return e.Err
+}
+
 // New creates a new Muxer object and starts the read loop
 func New(conn net.Conn) *Muxer {
 	m := &Muxer{
@@ -284,8 +297,11 @@ func (m *Muxer) readLoop() {
 		}
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
-			if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.EOF) {
-				m.sendError(fmt.Errorf("peer closed the connection while reading header: %w", err))
+			if errors.Is(err, io.ErrClosedPipe) {
+				err = io.EOF
+			}
+			if errors.Is(err, io.EOF) {
+				m.sendError(&ConnectionClosedError{Context: "reading header", Err: err})
 			} else {
 				m.sendError(err)
 			}
@@ -298,8 +314,11 @@ func (m *Muxer) readLoop() {
 		// We use ReadFull because it guarantees to read the expected number of bytes or
 		// return an error
 		if _, err := io.ReadFull(m.conn, msg.Payload); err != nil {
-			if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.EOF) {
-				m.sendError(fmt.Errorf("peer closed the connection while reading payload: %w", err))
+			if errors.Is(err, io.ErrClosedPipe) {
+				err = io.EOF
+			}
+			if errors.Is(err, io.EOF) {
+				m.sendError(&ConnectionClosedError{Context: "reading payload", Err: err})
 			} else {
 				m.sendError(err)
 			}
