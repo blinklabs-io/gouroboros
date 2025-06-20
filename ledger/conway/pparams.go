@@ -15,7 +15,7 @@
 package conway
 
 import (
-	"fmt"
+	"errors"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -64,27 +64,27 @@ func (p *ConwayProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 	if p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid A0 rational number values")
+		return nil, errors.New("invalid A0 rational number values")
 	}
 	if p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid Rho rational number values")
+		return nil, errors.New("invalid Rho rational number values")
 	}
 	if p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid Tau rational number values")
+		return nil, errors.New("invalid Tau rational number values")
 	}
 	if p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid memory price rational number values")
+		return nil, errors.New("invalid memory price rational number values")
 	}
 	if p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid step price rational number values")
+		return nil, errors.New("invalid step price rational number values")
 	}
 	// #nosec G115
 	return &cardano.PParams{

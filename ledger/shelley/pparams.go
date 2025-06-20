@@ -15,7 +15,7 @@
 package shelley
 
 import (
-	"fmt"
+	"errors"
 	"math"
 	"math/big"
 
@@ -174,17 +174,17 @@ func (p *ShelleyProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 	if p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid A0 rational number values")
+		return nil, errors.New("invalid A0 rational number values")
 	}
 	if p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid Rho rational number values")
+		return nil, errors.New("invalid Rho rational number values")
 	}
 	if p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
-		return nil, fmt.Errorf("invalid Tau rational number values")
+		return nil, errors.New("invalid Tau rational number values")
 	}
 	// #nosec G115
 	return &cardano.PParams{
