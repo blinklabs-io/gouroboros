@@ -31,7 +31,10 @@ func TestByronTransactionInput_Utxorpc(t *testing.T) {
 		1,
 	)
 
-	got := input.Utxorpc()
+	got, err := input.Utxorpc()
+	if err != nil {
+		t.Fatal("Could not get transaction input")
+	}
 	want := &cardano.TxInput{
 		TxHash:      input.Id().Bytes(),
 		OutputIndex: input.Index(),
@@ -78,7 +81,10 @@ func TestByronTransaction_Utxorpc_Empty(t *testing.T) {
 	tx := &byron.ByronTransaction{}
 
 	// Run Utxorpc conversion
-	result := tx.Utxorpc()
+	result, err := tx.Utxorpc()
+	if err != nil {
+		t.Fatal("Could not convert Utxorpc")
+	}
 
 	// Validate it's not nil
 	if result == nil {

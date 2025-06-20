@@ -300,8 +300,8 @@ func (t ByronTransaction) Witnesses() common.TransactionWitnessSet {
 	return nil
 }
 
-func (t *ByronTransaction) Utxorpc() *utxorpc.Tx {
-	return &utxorpc.Tx{}
+func (t *ByronTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	return &utxorpc.Tx{}, nil
 }
 
 func (t *ByronTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
@@ -368,13 +368,13 @@ func (i ByronTransactionInput) Index() uint32 {
 	return i.OutputIndex
 }
 
-func (i ByronTransactionInput) Utxorpc() *utxorpc.TxInput {
+func (i ByronTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
 	return &utxorpc.TxInput{
 		TxHash:      i.TxId.Bytes(),
 		OutputIndex: i.OutputIndex,
 		// AsOutput: i.AsOutput,
 		// Redeemer: i.Redeemer,
-	}
+	}, nil
 }
 
 func (i ByronTransactionInput) String() string {
@@ -662,8 +662,8 @@ func (b *ByronMainBlock) Transactions() []common.Transaction {
 	return ret
 }
 
-func (b *ByronMainBlock) Utxorpc() *utxorpc.Block {
-	return &utxorpc.Block{}
+func (b *ByronMainBlock) Utxorpc() (*utxorpc.Block, error) {
+	return &utxorpc.Block{}, nil
 }
 
 type ByronEpochBoundaryBlock struct {
@@ -727,8 +727,8 @@ func (b *ByronEpochBoundaryBlock) Transactions() []common.Transaction {
 	return nil
 }
 
-func (b *ByronEpochBoundaryBlock) Utxorpc() *utxorpc.Block {
-	return &utxorpc.Block{}
+func (b *ByronEpochBoundaryBlock) Utxorpc() (*utxorpc.Block, error) {
+	return &utxorpc.Block{}, nil
 }
 
 func NewByronEpochBoundaryBlockFromCbor(

@@ -123,10 +123,13 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 	return ret
 }
 
-func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
+func (b *BabbageBlock) Utxorpc() (*utxorpc.Block, error) {
 	txs := []*utxorpc.Tx{}
 	for _, t := range b.Transactions() {
-		tx := t.Utxorpc()
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
 		txs = append(txs, tx)
 	}
 	body := &utxorpc.BlockBody{
@@ -141,7 +144,7 @@ func (b *BabbageBlock) Utxorpc() *utxorpc.Block {
 		Body:   body,
 		Header: header,
 	}
-	return block
+	return block, nil
 }
 
 type BabbageBlockHeader struct {
@@ -353,8 +356,8 @@ func (b *BabbageTransactionBody) TotalCollateral() uint64 {
 	return b.TxTotalCollateral
 }
 
-func (b *BabbageTransactionBody) Utxorpc() *utxorpc.Tx {
-	return common.TransactionBodyToUtxorpc(b)
+func (b *BabbageTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b), nil
 }
 
 const (
@@ -799,8 +802,12 @@ func (t *BabbageTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *BabbageTransaction) Utxorpc() *utxorpc.Tx {
-	return t.Body.Utxorpc()
+func (t *BabbageTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Babbage transaction: %w", err)
+	}
+	return tx, nil
 }
 
 func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {

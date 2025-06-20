@@ -112,10 +112,13 @@ func (b *AllegraBlock) Transactions() []common.Transaction {
 	return ret
 }
 
-func (b *AllegraBlock) Utxorpc() *utxorpc.Block {
+func (b *AllegraBlock) Utxorpc() (*utxorpc.Block, error) {
 	txs := []*utxorpc.Tx{}
 	for _, t := range b.Transactions() {
-		tx := t.Utxorpc()
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
 		txs = append(txs, tx)
 	}
 	body := &utxorpc.BlockBody{
@@ -130,7 +133,7 @@ func (b *AllegraBlock) Utxorpc() *utxorpc.Block {
 		Body:   body,
 		Header: header,
 	}
-	return block
+	return block, nil
 }
 
 type AllegraBlockHeader struct {
@@ -221,8 +224,8 @@ func (b *AllegraTransactionBody) AuxDataHash() *common.Blake2b256 {
 	return b.TxAuxDataHash
 }
 
-func (b *AllegraTransactionBody) Utxorpc() *utxorpc.Tx {
-	return common.TransactionBodyToUtxorpc(b)
+func (b *AllegraTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b), nil
 }
 
 type AllegraTransaction struct {
@@ -332,8 +335,12 @@ func (t AllegraTransaction) Metadata() *cbor.LazyValue {
 	return t.TxMetadata
 }
 
-func (t AllegraTransaction) Utxorpc() *utxorpc.Tx {
-	return t.Body.Utxorpc()
+func (t AllegraTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert transaction body: %w", err)
+	}
+	return tx, nil
 }
 
 func (t AllegraTransaction) IsValid() bool {

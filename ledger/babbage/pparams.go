@@ -15,6 +15,7 @@
 package babbage
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -162,32 +163,32 @@ func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (p *BabbageProtocolParameters) Utxorpc() *cardano.PParams {
+func (p *BabbageProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 	// sanity check
 	if p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
-		return nil
+		return nil, fmt.Errorf("invalid A0 rational number values")
 	}
 	if p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
-		return nil
+		return nil, fmt.Errorf("invalid Rho rational number values")
 	}
 	if p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
-		return nil
+		return nil, fmt.Errorf("invalid Tau rational number values")
 	}
 	if p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
-		return nil
+		return nil, fmt.Errorf("invalid memory price rational number values")
 	}
 	if p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
-		return nil
+		return nil, fmt.Errorf("invalid step price rational number values")
 	}
 	// #nosec G115
 	return &cardano.PParams{
@@ -242,7 +243,7 @@ func (p *BabbageProtocolParameters) Utxorpc() *cardano.PParams {
 			Memory: p.MaxBlockExUnits.Memory,
 			Steps:  p.MaxBlockExUnits.Steps,
 		},
-	}
+	}, nil
 }
 
 func UpgradePParams(

@@ -545,7 +545,10 @@ func TestBabbageUtxorpc(t *testing.T) {
 	}
 
 	for _, testDef := range testDefs {
-		result := testDef.startParams.Utxorpc()
+		result, err := testDef.startParams.Utxorpc()
+		if err != nil {
+			t.Fatalf("Utxorpc() failed: %v", err)
+		}
 		if !reflect.DeepEqual(result, testDef.expectedUtxorpc) {
 			t.Fatalf(
 				"Utxorpc() test failed:\nExpected: %#v\nGot: %#v",
@@ -563,7 +566,10 @@ func TestBabbageTransactionInput_Utxorpc(t *testing.T) {
 		2,
 	)
 
-	got := input.Utxorpc()
+	got, err := input.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() failed: %v", err)
+	}
 	want := &cardano.TxInput{
 		TxHash:      input.Id().Bytes(),
 		OutputIndex: input.Index(),
@@ -629,8 +635,10 @@ func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
 		TxFee:     100,
 	}
 
-	got := body.Utxorpc()
-
+	got, err := body.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
 	if got.Fee != 100 {
 		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
 	}
@@ -672,8 +680,10 @@ func TestBabbageTransaction_Utxorpc(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	got := tx.Utxorpc()
-
+	got, err := tx.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() failed: %v", err)
+	}
 	if got.Fee != 150 {
 		t.Errorf("Fee mismatch: got %d, want 150", got.Fee)
 	}

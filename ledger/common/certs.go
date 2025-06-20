@@ -116,7 +116,7 @@ func (c *CertificateWrapper) MarshalCBOR() ([]byte, error) {
 type Certificate interface {
 	isCertificate()
 	Cbor() []byte
-	Utxorpc() *utxorpc.Certificate
+	Utxorpc() (*utxorpc.Certificate, error)
 	Type() uint
 }
 
@@ -177,12 +177,16 @@ func (c *StakeRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (c *StakeRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *StakeRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	stakeCred, err := c.StakeRegistration.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_StakeRegistration{
-			StakeRegistration: c.StakeRegistration.Utxorpc(),
+			StakeRegistration: stakeCred,
 		},
-	}
+	}, nil
 }
 
 func (c *StakeRegistrationCertificate) Type() uint {
@@ -209,12 +213,18 @@ func (c *StakeDeregistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (c *StakeDeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
-	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDeregistration{
-			StakeDeregistration: c.StakeDeregistration.Utxorpc(),
-		},
+func (c *StakeDeregistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	stakeDeReg, err := c.StakeDeregistration.Utxorpc()
+	if err != nil {
+		return nil, err
 	}
+
+	return &utxorpc.Certificate{
+			Certificate: &utxorpc.Certificate_StakeDeregistration{
+				StakeDeregistration: stakeDeReg,
+			},
+		},
+		nil
 }
 
 func (c *StakeDeregistrationCertificate) Type() uint {
@@ -242,15 +252,20 @@ func (c *StakeDelegationCertificate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (c *StakeDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *StakeDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeDelegation{
-			StakeDelegation: &utxorpc.StakeDelegationCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
-				PoolKeyhash:     c.PoolKeyHash[:],
+			Certificate: &utxorpc.Certificate_StakeDelegation{
+				StakeDelegation: &utxorpc.StakeDelegationCert{
+					StakeCredential: stakeCred,
+					PoolKeyhash:     c.PoolKeyHash[:],
+				},
 			},
 		},
-	}
+		nil
 }
 
 func (c *StakeDelegationCertificate) Type() uint {
@@ -269,11 +284,12 @@ type PoolMetadata struct {
 	Hash PoolMetadataHash
 }
 
-func (p *PoolMetadata) Utxorpc() *utxorpc.PoolMetadata {
+func (p *PoolMetadata) Utxorpc() (*utxorpc.PoolMetadata, error) {
 	return &utxorpc.PoolMetadata{
-		Url:  p.Url,
-		Hash: p.Hash[:],
-	}
+			Url:  p.Url,
+			Hash: p.Hash[:],
+		},
+		nil
 }
 
 const (
@@ -339,7 +355,7 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (p *PoolRelay) Utxorpc() *utxorpc.Relay {
+func (p *PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 	ret := &utxorpc.Relay{}
 	if p.Port != nil {
 		ret.Port = *p.Port
@@ -353,7 +369,7 @@ func (p *PoolRelay) Utxorpc() *utxorpc.Relay {
 	if p.Port != nil {
 		ret.Port = *p.Port
 	}
-	return ret
+	return ret, nil
 }
 
 type PoolRegistrationCertificate struct {
@@ -384,14 +400,24 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (c *PoolRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	tmpPoolOwners := make([][]byte, len(c.PoolOwners))
 	for i, owner := range c.PoolOwners {
 		tmpPoolOwners[i] = owner[:]
 	}
 	tmpRelays := make([]*utxorpc.Relay, len(c.Relays))
 	for i, relay := range c.Relays {
-		tmpRelays[i] = relay.Utxorpc()
+		relayUtxo, err := relay.Utxorpc()
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert relay %d: %w", i, err)
+		}
+		tmpRelays[i] = relayUtxo
+	}
+
+	// Handle pool metadata with error checking
+	poolMetadata, err := c.PoolMetadata.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert pool metadata: %w", err)
 	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_PoolRegistration{
@@ -408,10 +434,10 @@ func (c *PoolRegistrationCertificate) Utxorpc() *utxorpc.Certificate {
 				RewardAccount: c.RewardAccount[:],
 				PoolOwners:    tmpPoolOwners,
 				Relays:        tmpRelays,
-				PoolMetadata:  c.PoolMetadata.Utxorpc(),
+				PoolMetadata:  poolMetadata,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *PoolRegistrationCertificate) Type() uint {
@@ -439,7 +465,7 @@ func (c *PoolRetirementCertificate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (c *PoolRetirementCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *PoolRetirementCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_PoolRetirement{
 			PoolRetirement: &utxorpc.PoolRetirementCert{
@@ -447,7 +473,7 @@ func (c *PoolRetirementCertificate) Utxorpc() *utxorpc.Certificate {
 				Epoch:       c.Epoch,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *PoolRetirementCertificate) Type() uint {
@@ -476,7 +502,7 @@ func (c *GenesisKeyDelegationCertificate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (c *GenesisKeyDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *GenesisKeyDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_GenesisKeyDelegation{
 			GenesisKeyDelegation: &utxorpc.GenesisKeyDelegationCert{
@@ -485,7 +511,7 @@ func (c *GenesisKeyDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 				VrfKeyhash:          c.VrfKeyHash[:],
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *GenesisKeyDelegationCertificate) Type() uint {
@@ -556,13 +582,17 @@ func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *MoveInstantaneousRewardsCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	tmpMirTargets := []*utxorpc.MirTarget{}
 	for stakeCred, deltaCoin := range c.Reward.Rewards {
+		stakeCr, err := stakeCred.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
 		tmpMirTargets = append(
 			tmpMirTargets,
 			&utxorpc.MirTarget{
-				StakeCredential: stakeCred.Utxorpc(),
+				StakeCredential: stakeCr,
 				// potential integer overflow
 				// #nosec G115
 				DeltaCoin: int64(deltaCoin),
@@ -579,7 +609,7 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() *utxorpc.Certificate {
 				OtherPot: c.Reward.OtherPot,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *MoveInstantaneousRewardsCertificate) Type() uint {
@@ -609,14 +639,18 @@ func (c *RegistrationCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *RegistrationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *RegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_RegCert{
 			RegCert: &utxorpc.RegCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
+				StakeCredential: stakeCred,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *RegistrationCertificate) Type() uint {
@@ -646,14 +680,18 @@ func (c *DeregistrationCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *DeregistrationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *DeregistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_UnregCert{
 			UnregCert: &utxorpc.UnRegCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
+				StakeCredential: stakeCred,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *DeregistrationCertificate) Type() uint {
@@ -683,15 +721,23 @@ func (c *VoteDelegationCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *VoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *VoteDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	drep, err := c.Drep.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert DRep: %w", err)
+	}
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_VoteDelegCert{
 			VoteDelegCert: &utxorpc.VoteDelegCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
-				Drep:            c.Drep.Utxorpc(),
+				StakeCredential: stakeCred,
+				Drep:            drep,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *VoteDelegationCertificate) Type() uint {
@@ -722,8 +768,12 @@ func (c *StakeVoteDelegationCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	drepProto := c.Drep.Utxorpc()
+func (c *StakeVoteDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	// Handle DRep conversion with error checking
+	drepProto, err := c.Drep.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert DRep: %w", err)
+	}
 	var drepBytes []byte
 
 	// Extract DRep credential if it exists (AddrKeyHash or ScriptHash)
@@ -743,15 +793,19 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() *utxorpc.Certificate {
 	encodedKey = append(encodedKey, c.PoolKeyHash...)
 	encodedKey = append(encodedKey, drepBytes...)
 
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
 			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
+				StakeCredential: stakeCred,
 				PoolKeyhash:     encodedKey,
-				Drep:            c.Drep.Utxorpc(),
+				Drep:            drepProto,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *StakeVoteDelegationCertificate) Type() uint {
@@ -782,15 +836,19 @@ func (c *StakeRegistrationDelegationCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *StakeRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *StakeRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
 			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
+				StakeCredential: stakeCred,
 				PoolKeyhash:     c.PoolKeyHash,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *StakeRegistrationDelegationCertificate) Type() uint {
@@ -821,15 +879,24 @@ func (c *VoteRegistrationDelegationCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *VoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *VoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	// Handle DRep conversion with error checking
+	drep, err := c.Drep.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert DRep: %w", err)
+	}
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_VoteRegDelegCert{
 			VoteRegDelegCert: &utxorpc.VoteRegDelegCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
-				Drep:            c.Drep.Utxorpc(),
+				StakeCredential: stakeCred,
+				Drep:            drep,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *VoteRegistrationDelegationCertificate) Type() uint {
@@ -861,8 +928,13 @@ func (c *StakeVoteRegistrationDelegationCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certificate {
-	drepProto := c.Drep.Utxorpc()
+func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	// Handle DRep conversion with error checking
+	drepProto, err := c.Drep.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert DRep: %w", err)
+	}
+
 	var drepBytes []byte
 
 	if drepProto != nil {
@@ -873,16 +945,19 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() *utxorpc.Certific
 			drepBytes = drepProto.GetScriptHash()
 		}
 	}
-
+	stakeCred, err := c.StakeCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_StakeVoteRegDelegCert{
 			StakeVoteRegDelegCert: &utxorpc.StakeVoteRegDelegCert{
-				StakeCredential: c.StakeCredential.Utxorpc(),
+				StakeCredential: stakeCred,
 				PoolKeyhash:     drepBytes,
-				Drep:            c.Drep.Utxorpc(),
+				Drep:            drepProto,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *StakeVoteRegistrationDelegationCertificate) Type() uint {
@@ -912,15 +987,23 @@ func (c *AuthCommitteeHotCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *AuthCommitteeHotCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *AuthCommitteeHotCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	coldCred, err := c.ColdCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
+	hostCred, err := c.HostCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_AuthCommitteeHotCert{
 			AuthCommitteeHotCert: &utxorpc.AuthCommitteeHotCert{
-				CommitteeColdCredential: c.ColdCredential.Utxorpc(),
-				CommitteeHotCredential:  c.HostCredential.Utxorpc(),
+				CommitteeColdCredential: coldCred,
+				CommitteeHotCredential:  hostCred,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *AuthCommitteeHotCertificate) Type() uint {
@@ -950,7 +1033,7 @@ func (c *ResignCommitteeColdCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *ResignCommitteeColdCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *ResignCommitteeColdCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	var anchor *utxorpc.Anchor
 	if c.Anchor != nil {
 		anchor = &utxorpc.Anchor{
@@ -958,14 +1041,18 @@ func (c *ResignCommitteeColdCertificate) Utxorpc() *utxorpc.Certificate {
 			ContentHash: c.Anchor.DataHash[:],
 		}
 	}
+	coldCred, err := c.ColdCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_ResignCommitteeColdCert{
 			ResignCommitteeColdCert: &utxorpc.ResignCommitteeColdCert{
-				CommitteeColdCredential: c.ColdCredential.Utxorpc(),
+				CommitteeColdCredential: coldCred,
 				Anchor:                  anchor,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *ResignCommitteeColdCertificate) Type() uint {
@@ -996,7 +1083,7 @@ func (c *RegistrationDrepCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *RegistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *RegistrationDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	// Handle anchor data if present
 	var anchor *utxorpc.Anchor
 	if c.Anchor != nil {
@@ -1005,14 +1092,18 @@ func (c *RegistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
 			ContentHash: c.Anchor.DataHash[:],
 		}
 	}
+	drepCred, err := c.DrepCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_RegDrepCert{
 			RegDrepCert: &utxorpc.RegDRepCert{
-				DrepCredential: c.DrepCredential.Utxorpc(),
+				DrepCredential: drepCred,
 				Anchor:         anchor,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *RegistrationDrepCertificate) Type() uint {
@@ -1042,14 +1133,18 @@ func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *DeregistrationDrepCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *DeregistrationDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	drepCred, err := c.DrepCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_UnregDrepCert{
 			UnregDrepCert: &utxorpc.UnRegDRepCert{
-				DrepCredential: c.DrepCredential.Utxorpc(),
+				DrepCredential: drepCred,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *DeregistrationDrepCertificate) Type() uint {
@@ -1079,7 +1174,7 @@ func (c *UpdateDrepCertificate) UnmarshalCBOR(
 	return nil
 }
 
-func (c *UpdateDrepCertificate) Utxorpc() *utxorpc.Certificate {
+func (c *UpdateDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	var anchor *utxorpc.Anchor
 	if c.Anchor != nil {
 		anchor = &utxorpc.Anchor{
@@ -1087,14 +1182,18 @@ func (c *UpdateDrepCertificate) Utxorpc() *utxorpc.Certificate {
 			ContentHash: c.Anchor.DataHash[:],
 		}
 	}
+	drepCred, err := c.DrepCredential.Utxorpc()
+	if err != nil {
+		return nil, err
+	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_UpdateDrepCert{
 			UpdateDrepCert: &utxorpc.UpdateDRepCert{
-				DrepCredential: c.DrepCredential.Utxorpc(),
+				DrepCredential: drepCred,
 				Anchor:         anchor,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *UpdateDrepCertificate) Type() uint {
@@ -1102,25 +1201,25 @@ func (c *UpdateDrepCertificate) Type() uint {
 }
 
 // DRep implementation
-func (d *Drep) Utxorpc() *utxorpc.DRep {
+func (d *Drep) Utxorpc() (*utxorpc.DRep, error) {
 	switch d.Type {
 	case DrepTypeAddrKeyHash:
 		return &utxorpc.DRep{
 			Drep: &utxorpc.DRep_AddrKeyHash{AddrKeyHash: d.Credential},
-		}
+		}, nil
 	case DrepTypeScriptHash:
 		return &utxorpc.DRep{
 			Drep: &utxorpc.DRep_ScriptHash{ScriptHash: d.Credential},
-		}
+		}, nil
 	case DrepTypeAbstain:
 		return &utxorpc.DRep{
 			Drep: &utxorpc.DRep_Abstain{Abstain: true},
-		}
+		}, nil
 	case DrepTypeNoConfidence:
 		return &utxorpc.DRep{
 			Drep: &utxorpc.DRep_NoConfidence{NoConfidence: true},
-		}
+		}, nil
 	default:
-		return nil
+		return nil, fmt.Errorf("unknown DRep type: %d", d.Type)
 	}
 }
