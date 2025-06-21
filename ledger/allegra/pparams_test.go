@@ -120,8 +120,10 @@ func TestAllegraUtxorpc(t *testing.T) {
 		},
 	}
 
-	result := inputParams.Utxorpc()
-
+	result, err := inputParams.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed: %v", err)
+	}
 	if !reflect.DeepEqual(result, expectedUtxorpc) {
 		t.Fatalf(
 			"Utxorpc() test failed for Allegra:\nExpected: %#v\nGot: %#v",
@@ -160,7 +162,10 @@ func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Run Utxorpc conversion
-	actual := txBody.Utxorpc()
+	actual, err := txBody.Utxorpc()
+	if err != nil {
+		t.Errorf("Failed to convert the transaction")
+	}
 
 	// Check that the fee matches
 	if actual.Fee != txBody.Fee() {
@@ -220,8 +225,10 @@ func TestAllegraTransaction_Utxorpc(t *testing.T) {
 	}
 
 	// Run Utxorpc conversion
-	actual := tx.Utxorpc()
-
+	actual, err := tx.Utxorpc()
+	if err != nil {
+		t.Errorf("Failed to convert the transaction")
+	}
 	// Assertion checks
 	if actual.Fee != tx.Fee() {
 		t.Errorf(

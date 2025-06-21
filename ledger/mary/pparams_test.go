@@ -123,7 +123,10 @@ func TestMaryUtxorpc(t *testing.T) {
 		},
 	}
 
-	result := inputParams.Utxorpc()
+	result, err := inputParams.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed")
+	}
 
 	if !reflect.DeepEqual(result, expectedUtxorpc) {
 		t.Fatalf(
@@ -141,7 +144,10 @@ func TestMaryTransactionInput_Utxorpc(t *testing.T) {
 		0,
 	)
 
-	got := input.Utxorpc()
+	got, err := input.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not get correct UTxorpc input")
+	}
 	want := &cardano.TxInput{
 		TxHash:      input.Id().Bytes(),
 		OutputIndex: input.Index(),
@@ -206,7 +212,10 @@ func TestMaryTransactionBody_Utxorpc(t *testing.T) {
 		TxFee:     100,
 	}
 
-	got := body.Utxorpc()
+	got, err := body.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not get correct UTxorpc input")
+	}
 
 	if got.Fee != 100 {
 		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
@@ -251,7 +260,10 @@ func TestMaryTransaction_Utxorpc(t *testing.T) {
 		Body: body,
 	}
 
-	got := tx.Utxorpc()
+	got, err := tx.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not get correct UTxorpc input")
+	}
 
 	if got.Fee != 25 {
 		t.Errorf("Transaction fee mismatch: got %d, want 25", got.Fee)

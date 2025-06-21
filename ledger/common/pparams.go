@@ -33,7 +33,7 @@ type ProtocolParametersProtocolVersion struct {
 }
 
 type ProtocolParameters interface {
-	Utxorpc() *cardano.PParams
+	Utxorpc() (*cardano.PParams, error)
 }
 
 type ExUnitPrice struct {

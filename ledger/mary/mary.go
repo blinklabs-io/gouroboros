@@ -113,10 +113,13 @@ func (b *MaryBlock) Transactions() []common.Transaction {
 	return ret
 }
 
-func (b *MaryBlock) Utxorpc() *utxorpc.Block {
+func (b *MaryBlock) Utxorpc() (*utxorpc.Block, error) {
 	txs := []*utxorpc.Tx{}
 	for _, t := range b.Transactions() {
-		tx := t.Utxorpc()
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
 		txs = append(txs, tx)
 	}
 	body := &utxorpc.BlockBody{
@@ -131,7 +134,7 @@ func (b *MaryBlock) Utxorpc() *utxorpc.Block {
 		Body:   body,
 		Header: header,
 	}
-	return block
+	return block, nil
 }
 
 type MaryBlockHeader struct {
@@ -227,8 +230,8 @@ func (b *MaryTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTy
 	return b.TxMint
 }
 
-func (b *MaryTransactionBody) Utxorpc() *utxorpc.Tx {
-	return common.TransactionBodyToUtxorpc(b)
+func (b *MaryTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b), nil
 }
 
 type MaryTransaction struct {
@@ -400,8 +403,12 @@ func (t *MaryTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *MaryTransaction) Utxorpc() *utxorpc.Tx {
-	return t.Body.Utxorpc()
+func (t *MaryTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Mary transaction: %w", err)
+	}
+	return tx, nil
 }
 
 type MaryTransactionOutput struct {

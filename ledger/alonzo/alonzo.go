@@ -121,10 +121,13 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 	return ret
 }
 
-func (b *AlonzoBlock) Utxorpc() *utxorpc.Block {
+func (b *AlonzoBlock) Utxorpc() (*utxorpc.Block, error) {
 	txs := []*utxorpc.Tx{}
 	for _, t := range b.Transactions() {
-		tx := t.Utxorpc()
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
 		txs = append(txs, tx)
 	}
 	body := &utxorpc.BlockBody{
@@ -139,7 +142,7 @@ func (b *AlonzoBlock) Utxorpc() *utxorpc.Block {
 		Body:   body,
 		Header: header,
 	}
-	return block
+	return block, nil
 }
 
 type AlonzoBlockHeader struct {
@@ -255,8 +258,8 @@ func (b *AlonzoTransactionBody) ScriptDataHash() *common.Blake2b256 {
 	return b.TxScriptDataHash
 }
 
-func (b *AlonzoTransactionBody) Utxorpc() *utxorpc.Tx {
-	return common.TransactionBodyToUtxorpc(b)
+func (b *AlonzoTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b), nil
 }
 
 type AlonzoTransactionOutput struct {
@@ -640,8 +643,12 @@ func (t *AlonzoTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *AlonzoTransaction) Utxorpc() *utxorpc.Tx {
-	return t.Body.Utxorpc()
+func (t *AlonzoTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Alonzo transaction: %w", err)
+	}
+	return tx, nil
 }
 
 func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {

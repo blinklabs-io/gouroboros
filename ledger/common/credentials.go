@@ -63,7 +63,7 @@ func (c *Credential) Hash() Blake2b224 {
 	return Blake2b224(hash.Sum(nil))
 }
 
-func (c *Credential) Utxorpc() *utxorpc.StakeCredential {
+func (c *Credential) Utxorpc() (*utxorpc.StakeCredential, error) {
 	ret := &utxorpc.StakeCredential{}
 	switch c.CredType {
 	case CredentialTypeAddrKeyHash:
@@ -75,5 +75,5 @@ func (c *Credential) Utxorpc() *utxorpc.StakeCredential {
 			ScriptHash: c.Credential[:],
 		}
 	}
-	return ret
+	return ret, nil
 }

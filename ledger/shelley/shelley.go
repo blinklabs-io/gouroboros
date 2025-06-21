@@ -114,10 +114,13 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 	return ret
 }
 
-func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
+func (b *ShelleyBlock) Utxorpc() (*utxorpc.Block, error) {
 	txs := []*utxorpc.Tx{}
 	for _, t := range b.Transactions() {
-		tx := t.Utxorpc()
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
 		txs = append(txs, tx)
 	}
 	body := &utxorpc.BlockBody{
@@ -132,7 +135,7 @@ func (b *ShelleyBlock) Utxorpc() *utxorpc.Block {
 		Body:   body,
 		Header: header,
 	}
-	return block
+	return block, nil
 }
 
 type ShelleyBlockHeader struct {
@@ -279,8 +282,8 @@ func (b *ShelleyTransactionBody) AuxDataHash() *common.Blake2b256 {
 	return b.TxAuxDataHash
 }
 
-func (b *ShelleyTransactionBody) Utxorpc() *utxorpc.Tx {
-	return common.TransactionBodyToUtxorpc(b)
+func (b *ShelleyTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b), nil
 }
 
 type ShelleyTransactionInputSet struct {
@@ -348,11 +351,11 @@ func (i ShelleyTransactionInput) Index() uint32 {
 	return i.OutputIndex
 }
 
-func (i ShelleyTransactionInput) Utxorpc() *utxorpc.TxInput {
+func (i ShelleyTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
 	return &utxorpc.TxInput{
 		TxHash:      i.TxId.Bytes(),
 		OutputIndex: i.OutputIndex,
-	}
+	}, nil
 }
 
 func (i ShelleyTransactionInput) String() string {
@@ -601,8 +604,12 @@ func (t ShelleyTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.WitnessSet
 }
 
-func (t ShelleyTransaction) Utxorpc() *utxorpc.Tx {
-	return t.Body.Utxorpc()
+func (t ShelleyTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Shelley transaction: %w", err)
+	}
+	return tx, nil
 }
 
 func (t *ShelleyTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {

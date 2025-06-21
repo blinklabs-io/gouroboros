@@ -154,7 +154,10 @@ func TestShelleyUtxorpc(t *testing.T) {
 		},
 	}
 
-	result := inputParams.Utxorpc()
+	result, err := inputParams.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed")
+	}
 
 	if !reflect.DeepEqual(result, expectedUtxorpc) {
 		t.Fatalf(
@@ -174,7 +177,10 @@ func TestShelleyTransactionInput_Utxorpc(t *testing.T) {
 	)
 
 	// Convert it to utxorpc TxInput
-	got := input.Utxorpc()
+	got, err := input.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not convert to  utxorpc TxInput")
+	}
 
 	// Expected value with same hash and index
 	want := &cardano.TxInput{
@@ -263,7 +269,10 @@ func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Convert the transaction body to utxorpc format
-	actual := txBody.Utxorpc()
+	actual, err := txBody.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not convert the transaction body to utxorpc format")
+	}
 
 	// Check that the fee matches
 	if actual.Fee != txBody.Fee() {
@@ -328,7 +337,10 @@ func TestShelleyTransaction_Utxorpc(t *testing.T) {
 	}
 
 	// Invoke Utxorpc conversion
-	got := tx.Utxorpc()
+	got, err := tx.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not Invoke Utxorpc conversion")
+	}
 
 	// Verify the fee
 	if got.Fee != tx.Body.Fee() {

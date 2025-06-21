@@ -53,14 +53,14 @@ type TransactionBody interface {
 	ProposalProcedures() []ProposalProcedure
 	CurrentTreasuryValue() int64
 	Donation() uint64
-	Utxorpc() *utxorpc.Tx
+	Utxorpc() (*utxorpc.Tx, error)
 }
 
 type TransactionInput interface {
 	Id() Blake2b256
 	Index() uint32
 	String() string
-	Utxorpc() *utxorpc.TxInput
+	Utxorpc() (*utxorpc.TxInput, error)
 }
 
 type TransactionOutput interface {
@@ -195,7 +195,10 @@ func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
 	txi := []*utxorpc.TxInput{}
 	txo := []*utxorpc.TxOutput{}
 	for _, i := range tx.Inputs() {
-		input := i.Utxorpc()
+		input, err := i.Utxorpc()
+		if err != nil {
+			return nil
+		}
 		txi = append(txi, input)
 	}
 	for _, o := range tx.Outputs() {
@@ -222,11 +225,17 @@ func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
 		// Proposals:       tx.ProposalProcedures(),
 	}
 	for _, ri := range tx.ReferenceInputs() {
-		input := ri.Utxorpc()
+		input, err := ri.Utxorpc()
+		if err != nil {
+			return nil
+		}
 		ret.ReferenceInputs = append(ret.ReferenceInputs, input)
 	}
 	for _, c := range tx.Certificates() {
-		cert := c.Utxorpc()
+		cert, err := c.Utxorpc()
+		if err != nil {
+			return nil
+		}
 		ret.Certificates = append(ret.Certificates, cert)
 	}
 

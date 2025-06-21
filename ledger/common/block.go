@@ -7,7 +7,7 @@ type Block interface {
 	Header() BlockHeader
 	Type() int
 	Transactions() []Transaction
-	Utxorpc() *utxorpc.Block
+	Utxorpc() (*utxorpc.Block, error)
 }
 
 type BlockHeader interface {

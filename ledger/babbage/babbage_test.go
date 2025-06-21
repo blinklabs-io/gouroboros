@@ -2731,7 +2731,10 @@ func TestBabbageBlock_Utxorpc(t *testing.T) {
 	assert.NotNil(t, babbageBlock.TransactionBodies)
 	assert.NotNil(t, babbageBlock.TransactionWitnessSets)
 
-	utxoBlock := babbageBlock.Utxorpc()
+	utxoBlock, err := babbageBlock.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() failed: %v", err)
+	}
 
 	// Validate the resulting utxorpc.Block
 	assert.NotNil(t, utxoBlock)

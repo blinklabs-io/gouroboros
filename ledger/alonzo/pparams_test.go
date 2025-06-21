@@ -431,7 +431,10 @@ func TestAlonzoUtxorpc(t *testing.T) {
 		},
 	}
 
-	result := inputParams.Utxorpc()
+	result, err := inputParams.Utxorpc()
+	if err != nil {
+		t.Fatalf("Utxorpc() conversion failed")
+	}
 
 	if !reflect.DeepEqual(result, expectedUtxorpc) {
 		t.Fatalf(
@@ -512,7 +515,10 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Run Utxorpc conversion
-	got := body.Utxorpc()
+	got, err := body.Utxorpc()
+	if err != nil {
+		t.Errorf("Failed to convert the transaction")
+	}
 
 	// Assertion checks
 	if got.Fee != 50 {
@@ -572,7 +578,10 @@ func TestAlonzoTransaction_Utxorpc(t *testing.T) {
 	}
 
 	// Run Utxorpc conversion
-	got := tx.Utxorpc()
+	got, err := tx.Utxorpc()
+	if err != nil {
+		t.Errorf("Failed to convert the transaction")
+	}
 
 	// Assertion checks
 	if got.Fee != 75 {

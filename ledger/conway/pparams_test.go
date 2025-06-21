@@ -590,7 +590,10 @@ func TestUtxorpc(t *testing.T) {
 	}
 
 	for _, testDef := range testDefs {
-		result := testDef.startParams.Utxorpc()
+		result, err := testDef.startParams.Utxorpc()
+		if err != nil {
+			t.Fatalf("Utxorpc() conversion failed")
+		}
 		// Compare the result with the expected value
 		if !reflect.DeepEqual(result, testDef.expectedUtxorpc) {
 			t.Fatalf(
@@ -642,7 +645,10 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 		TxMint:                  txMint,
 	}
 
-	got := body.Utxorpc()
+	got, err := body.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not get the transaction input")
+	}
 
 	if got.Fee != 1000 {
 		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
@@ -707,7 +713,10 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 		TxIsValid: true,
 	}
 
-	got := tx.Utxorpc()
+	got, err := tx.Utxorpc()
+	if err != nil {
+		t.Errorf("Could not get the transaction input")
+	}
 
 	if got.Fee != 1000 {
 		t.Errorf("Transaction fee mismatch: got %d, want 25", got.Fee)

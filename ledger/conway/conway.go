@@ -121,10 +121,13 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 	return ret
 }
 
-func (b *ConwayBlock) Utxorpc() *utxorpc.Block {
+func (b *ConwayBlock) Utxorpc() (*utxorpc.Block, error) {
 	txs := []*utxorpc.Tx{}
 	for _, t := range b.Transactions() {
-		tx := t.Utxorpc()
+		tx, err := t.Utxorpc()
+		if err != nil {
+			return nil, err
+		}
 		txs = append(txs, tx)
 	}
 	body := &utxorpc.BlockBody{
@@ -139,7 +142,7 @@ func (b *ConwayBlock) Utxorpc() *utxorpc.Block {
 		Body:   body,
 		Header: header,
 	}
-	return block
+	return block, nil
 }
 
 type ConwayBlockHeader struct {
@@ -455,8 +458,8 @@ func (b *ConwayTransactionBody) Donation() uint64 {
 	return b.TxDonation
 }
 
-func (b *ConwayTransactionBody) Utxorpc() *utxorpc.Tx {
-	return common.TransactionBodyToUtxorpc(b)
+func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return common.TransactionBodyToUtxorpc(b), nil
 }
 
 type ConwayTransaction struct {
@@ -646,8 +649,12 @@ func (t *ConwayTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *ConwayTransaction) Utxorpc() *utxorpc.Tx {
-	return t.Body.Utxorpc()
+func (t *ConwayTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Conway transaction: %w", err)
+	}
+	return tx, nil
 }
 
 func NewConwayBlockFromCbor(data []byte) (*ConwayBlock, error) {
