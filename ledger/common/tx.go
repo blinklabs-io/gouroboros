@@ -71,6 +71,7 @@ type TransactionOutput interface {
 	DatumHash() *Blake2b256
 	Cbor() []byte
 	Utxorpc() (*utxorpc.TxOutput, error)
+	GetScriptRef() *cbor.LazyValue
 }
 
 type TransactionWitnessSet interface {

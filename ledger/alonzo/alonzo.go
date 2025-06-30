@@ -324,6 +324,10 @@ func (o AlonzoTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
+func (o AlonzoTransactionOutput) GetScriptRef() *cbor.LazyValue {
+	return nil
+}
+
 func (o AlonzoTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }

@@ -486,6 +486,16 @@ func (o BabbageTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
+func (o BabbageTransactionOutput) GetScriptRef() *cbor.LazyValue {
+	if o.ScriptRef == nil {
+		return nil
+	}
+	if lazyVal, ok := o.ScriptRef.Content.(*cbor.LazyValue); ok {
+		return lazyVal
+	}
+	return nil
+}
+
 func (o BabbageTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
