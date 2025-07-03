@@ -388,7 +388,7 @@ func (o ShelleyTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (o ShelleyTransactionOutput) GetScriptRef() *cbor.LazyValue {
+func (o ShelleyTransactionOutput) ScriptRef() *cbor.LazyValue {
 	return nil
 }
 

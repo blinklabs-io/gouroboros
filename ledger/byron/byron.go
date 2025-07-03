@@ -414,7 +414,7 @@ func (o ByronTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (o ByronTransactionOutput) GetScriptRef() *cbor.LazyValue {
+func (o ByronTransactionOutput) ScriptRef() *cbor.LazyValue {
 	return nil
 }
 
