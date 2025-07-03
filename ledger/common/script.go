@@ -15,14 +15,86 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
+const (
+	ScriptRefTypeNativeScript = 0
+	ScriptRefTypePlutusV1     = 1
+	ScriptRefTypePlutusV2     = 2
+	ScriptRefTypePlutusV3     = 3
+)
+
+type Script interface {
+	isScript()
+}
+
+type ScriptRef struct {
+	Type   uint
+	Script Script
+}
+
+func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
+	// Unwrap outer CBOR tag
+	var tmpTag cbor.Tag
+	if _, err := cbor.Decode(data, &tmpTag); err != nil {
+		return err
+	}
+	innerCbor, ok := tmpTag.Content.([]byte)
+	if !ok {
+		return errors.New("unexpected tag type")
+	}
+	// Determine script type
+	var rawScript struct {
+		cbor.StructAsArray
+		Type uint
+		Raw  cbor.RawMessage
+	}
+	if _, err := cbor.Decode(innerCbor, &rawScript); err != nil {
+		return err
+	}
+	var tmpScript Script
+	switch rawScript.Type {
+	case ScriptRefTypeNativeScript:
+		tmpScript = &NativeScript{}
+	case ScriptRefTypePlutusV1:
+		tmpScript = &PlutusV1Script{}
+	case ScriptRefTypePlutusV2:
+		tmpScript = &PlutusV2Script{}
+	case ScriptRefTypePlutusV3:
+		tmpScript = &PlutusV3Script{}
+	default:
+		return fmt.Errorf("unknown script type %d", rawScript.Type)
+	}
+	// Decode script
+	if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+		return err
+	}
+	s.Type = rawScript.Type
+	s.Script = tmpScript
+	return nil
+}
+
+type PlutusV1Script []byte
+
+func (PlutusV1Script) isScript() {}
+
+type PlutusV2Script []byte
+
+func (PlutusV2Script) isScript() {}
+
+type PlutusV3Script []byte
+
+func (PlutusV3Script) isScript() {}
+
 type NativeScript struct {
 	item any
 }
+
+func (NativeScript) isScript() {}
 
 func (n *NativeScript) Item() any {
 	return n.item
