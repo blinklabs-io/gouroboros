@@ -446,7 +446,7 @@ func (o MaryTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (txo MaryTransactionOutput) ScriptRef() *cbor.LazyValue {
+func (txo MaryTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 

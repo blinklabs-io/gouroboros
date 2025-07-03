@@ -324,7 +324,7 @@ func (o AlonzoTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (o AlonzoTransactionOutput) ScriptRef() *cbor.LazyValue {
+func (o AlonzoTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
