@@ -414,6 +414,10 @@ func (o ByronTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
+func (o ByronTransactionOutput) ScriptRef() *cbor.LazyValue {
+	return nil
+}
+
 func (o ByronTransactionOutput) Amount() uint64 {
 	return o.OutputAmount
 }

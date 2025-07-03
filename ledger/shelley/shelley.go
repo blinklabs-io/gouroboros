@@ -388,6 +388,10 @@ func (o ShelleyTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
+func (o ShelleyTransactionOutput) ScriptRef() *cbor.LazyValue {
+	return nil
+}
+
 func (o ShelleyTransactionOutput) Amount() uint64 {
 	return o.OutputAmount
 }

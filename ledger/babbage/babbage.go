@@ -423,7 +423,7 @@ type BabbageTransactionOutput struct {
 	OutputAddress common.Address                       `cbor:"0,keyasint,omitempty"`
 	OutputAmount  mary.MaryTransactionOutputValue      `cbor:"1,keyasint,omitempty"`
 	DatumOption   *BabbageTransactionOutputDatumOption `cbor:"2,keyasint,omitempty"`
-	ScriptRef     *cbor.Tag                            `cbor:"3,keyasint,omitempty"`
+	TxScriptRef   *cbor.Tag                            `cbor:"3,keyasint,omitempty"`
 	legacyOutput  bool
 }
 
@@ -484,6 +484,16 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 
 func (o BabbageTransactionOutput) Address() common.Address {
 	return o.OutputAddress
+}
+
+func (o BabbageTransactionOutput) ScriptRef() *cbor.LazyValue {
+	if o.TxScriptRef == nil {
+		return nil
+	}
+	if lazyVal, ok := o.TxScriptRef.Content.(*cbor.LazyValue); ok {
+		return lazyVal
+	}
+	return nil
 }
 
 func (o BabbageTransactionOutput) Amount() uint64 {
