@@ -17,6 +17,7 @@ package shelley
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
@@ -42,7 +43,40 @@ type ShelleyGenesis struct {
 	ProtocolParameters ShelleyGenesisProtocolParams `json:"protocolParams"`
 	GenDelegs          map[string]map[string]string `json:"genDelegs"`
 	InitialFunds       map[string]uint64            `json:"initialFunds"`
-	Staking            any                          `json:"staking"`
+	Staking            GenesisStaking               `json:"staking"`
+}
+
+type GenesisStaking struct {
+	Pools map[string]GenesisPool `json:"pools"`
+	Stake map[string]string      `json:"stake"`
+}
+
+type GenesisPool struct {
+	Cost          int64          `json:"cost"`
+	Margin        float64        `json:"margin"`
+	Metadata      interface{}    `json:"metadata"`
+	Owners        []string       `json:"owners"`
+	Pledge        int64          `json:"pledge"`
+	PublicKey     string         `json:"publicKey"`
+	Relays        []GenesisRelay `json:"relays"`
+	RewardAccount GenesisReward  `json:"rewardAccount"`
+	Vrf           string         `json:"vrf"`
+}
+
+type GenesisRelay struct {
+	SingleHostName *SingleHostName `json:"single host name,omitempty"`
+}
+
+type SingleHostName struct {
+	DNSName string `json:"dnsName"`
+	Port    int    `json:"port"`
+}
+
+type GenesisReward struct {
+	Credential struct {
+		KeyHash string `json:"key hash"`
+	} `json:"credential"`
+	Network string `json:"network"`
 }
 
 func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
@@ -65,13 +99,52 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 			cbor.NewByteString(vrfBytes),
 		}
 	}
-	staking := []any{}
-	if g.Staking == nil {
-		staking = []any{
-			map[any]any{},
-			map[any]any{},
+
+	// Convert pools to CBOR format
+	cborPools := make(map[cbor.ByteString]any)
+	for poolId, pool := range g.Staking.Pools {
+		poolIdBytes, err := hex.DecodeString(poolId)
+		if err != nil {
+			return nil, err
+		}
+		vrfBytes, err := hex.DecodeString(pool.Vrf)
+		if err != nil {
+			return nil, err
+		}
+		rewardAccountBytes, err := hex.DecodeString(pool.RewardAccount.Credential.KeyHash)
+		if err != nil {
+			return nil, err
+		}
+		cborPools[cbor.NewByteString(poolIdBytes)] = []any{
+			pool.Cost,
+			pool.Margin,
+			pool.Pledge,
+			pool.PublicKey,
+			[]any{
+				[]byte{0},
+				rewardAccountBytes,
+			},
+			pool.Owners,
+			pool.Relays,
+			vrfBytes,
+			pool.Metadata,
 		}
 	}
+
+	// Convert stake to CBOR format
+	cborStake := make(map[cbor.ByteString]cbor.ByteString)
+	for stakeAddr, poolId := range g.Staking.Stake {
+		stakeAddrBytes, err := hex.DecodeString(stakeAddr)
+		if err != nil {
+			return nil, err
+		}
+		poolIdBytes, err := hex.DecodeString(poolId)
+		if err != nil {
+			return nil, err
+		}
+		cborStake[cbor.NewByteString(stakeAddrBytes)] = cbor.NewByteString(poolIdBytes)
+	}
+
 	slotLengthMs := &big.Rat{}
 	tmpData := []any{
 		[]any{
@@ -95,7 +168,10 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		g.ProtocolParameters,
 		genDelegs,
 		g.InitialFunds,
-		staking,
+		[]any{
+			cborPools,
+			cborStake,
+		},
 	}
 	return cbor.Encode(tmpData)
 }
@@ -126,6 +202,32 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 		)
 	}
 	return ret, nil
+}
+
+// GetInitialPools returns all initial stake pools with their delegators
+func (g *ShelleyGenesis) GetInitialPools() (map[string]GenesisPool, map[string][]string, error) {
+	poolStake := make(map[string][]string)
+	for stakeAddr, poolId := range g.Staking.Stake {
+		poolStake[poolId] = append(poolStake[poolId], stakeAddr)
+	}
+	return g.Staking.Pools, poolStake, nil
+}
+
+// GetPoolById returns a specific pool by its ID along with its delegators
+func (g *ShelleyGenesis) GetPoolById(poolId string) (*GenesisPool, []string, error) {
+	pool, exists := g.Staking.Pools[poolId]
+	if !exists {
+		return nil, nil, fmt.Errorf("pool not found")
+	}
+
+	var delegators []string
+	for stakeAddr, pId := range g.Staking.Stake {
+		if pId == poolId {
+			delegators = append(delegators, stakeAddr)
+		}
+	}
+
+	return &pool, delegators, nil
 }
 
 type ShelleyGenesisProtocolParams struct {
