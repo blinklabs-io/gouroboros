@@ -17,7 +17,7 @@ package shelley
 import (
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"math/big"
 	"os"
@@ -217,7 +217,7 @@ func (g *ShelleyGenesis) GetInitialPools() (map[string]GenesisPool, map[string][
 func (g *ShelleyGenesis) GetPoolById(poolId string) (*GenesisPool, []string, error) {
 	pool, exists := g.Staking.Pools[poolId]
 	if !exists {
-		return nil, nil, fmt.Errorf("pool not found")
+		return nil, nil, errors.New("pool not found")
 	}
 
 	var delegators []string
