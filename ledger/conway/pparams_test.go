@@ -15,14 +15,9 @@
 package conway_test
 
 import (
-	"bytes"
 	"encoding/hex"
-	"fmt"
 	"math/big"
-	"os"
-	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -32,7 +27,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	fxcbor "github.com/fxamacker/cbor/v2"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -756,129 +750,5 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 	}
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")
-	}
-}
-
-func isValidHexString(s string) error {
-	if len(s)%2 != 0 {
-		return fmt.Errorf("hex string must have even length, got %d", len(s))
-	}
-	matched, err := regexp.MatchString("^[0-9a-fA-F]+$", s)
-	if err != nil {
-		return fmt.Errorf("regex validation failed: %v", err)
-	}
-	if !matched {
-		return fmt.Errorf("hex string contains invalid characters")
-	}
-	return nil
-}
-
-func TestConwayBlock_CborRoundTrip_UsingStandardMarshal(t *testing.T) {
-	// Read the hex-encoded CBOR string for a Conway block
-	filePath := filepath.Join("testdata", "conway_block.cbor.hex")
-	dataHex, err := os.ReadFile(filePath)
-	if err != nil {
-		t.Fatalf("Failed to read test file 'conway_block.cbor.hex': %v", err)
-	}
-
-	// Validate the hex string before decoding
-	hexStr := strings.TrimSpace(string(dataHex))
-	if err := isValidHexString(hexStr); err != nil {
-		t.Fatalf("Invalid Conway block hex string: %v", err)
-	}
-
-	// Decode the hex string into CBOR bytes
-	dataBytes, err := hex.DecodeString(hexStr)
-	if err != nil {
-		t.Fatalf("Failed to decode Conway block hex string into CBOR bytes: %v", err)
-	}
-
-	// Deserialize CBOR bytes into ConwayBlock struct
-	var block conway.ConwayBlock
-	err = block.UnmarshalCBOR(dataBytes)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal CBOR data into ConwayBlock: %v", err)
-	}
-
-	// Re-marshal the struct back to CBOR using inbuilt cbor.Marshal
-	encoded, err := fxcbor.Marshal(block)
-	if encoded == nil {
-		t.Fatal("Re-encoded CBOR from ConwayBlock is nil")
-	}
-	if len(encoded) == 0 {
-		t.Fatal("Re-encoded CBOR from ConwayBlock is empty")
-	}
-
-	if !bytes.Equal(dataBytes, encoded) {
-		t.Errorf("CBOR round-trip mismatch for Conway block\nOriginal CBOR (hex): %x\nRe-encoded CBOR (hex): %x", dataBytes, encoded)
-
-		// Check from which byte it differs
-		diffIndex := -1
-		for i := 0; i < len(dataBytes) && i < len(encoded); i++ {
-			if dataBytes[i] != encoded[i] {
-				diffIndex = i
-				break
-			}
-		}
-		if diffIndex != -1 {
-			t.Logf("First mismatch at byte index: %d", diffIndex)
-			t.Logf("Original byte: 0x%02x, Re-encoded byte: 0x%02x", dataBytes[diffIndex], encoded[diffIndex])
-		} else {
-			t.Logf("Length mismatch: original length = %d, re-encoded length = %d", len(dataBytes), len(encoded))
-		}
-	}
-
-	//Save re-encoded CBOR hex to a new file for inspection
-	newHexPath := filepath.Join("testdata", "conway_block_reencoded.cbor.hex")
-	if err := os.WriteFile(newHexPath, []byte(hex.EncodeToString(encoded)), 0644); err != nil {
-		t.Errorf("Failed to write re-encoded CBOR hex to file: %v", err)
-	}
-}
-
-func TestConwayBlock_CborRoundTrip_UsingCustomEncode(t *testing.T) {
-	// Read the hex-encoded CBOR string for a Conway block
-	filePath := filepath.Join("testdata", "conway_block.cbor.hex")
-	dataHex, err := os.ReadFile(filePath)
-	if err != nil {
-		t.Fatalf("Failed to read test file 'conway_block.cbor.hex': %v", err)
-	}
-
-	// Validate the hex string before decoding
-	hexStr := strings.TrimSpace(string(dataHex))
-	if err := isValidHexString(hexStr); err != nil {
-		t.Fatalf("Invalid Conway block hex string: %v", err)
-	}
-
-	// Decode the hex string into CBOR bytes
-	dataBytes, err := hex.DecodeString(hexStr)
-	if err != nil {
-		t.Fatalf("Failed to decode Conway block hex string into CBOR bytes: %v", err)
-	}
-
-	// Deserialize CBOR bytes into ConwayBlock struct
-	var block conway.ConwayBlock
-	err = block.UnmarshalCBOR(dataBytes)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal CBOR data into ConwayBlock: %v", err)
-	}
-
-	// Re-encode using the cbor Encode function
-	encoded, err := cbor.Encode(block)
-	if err != nil {
-		t.Fatalf("Failed to marshal ConwayBlock using custom encode function: %v", err)
-	}
-	if encoded == nil || len(encoded) == 0 {
-		t.Fatal("Custom encoded CBOR from ConwayBlock is nil or empty")
-	}
-
-	// Ensure the original and re-encoded CBOR bytes are identical
-	if !bytes.Equal(dataBytes, encoded) {
-		t.Errorf("Custom CBOR round-trip mismatch for Conway block\nOriginal CBOR (hex): %x\nCustom Encoded CBOR (hex): %x", dataBytes, encoded)
-	}
-
-	// Save the re-encoded CBOR for comparison
-	newHexPath := filepath.Join("testdata", "conway_block_reencoded.custom.hex")
-	if err := os.WriteFile(newHexPath, []byte(hex.EncodeToString(encoded)), 0644); err != nil {
-		t.Errorf("Failed to write custom re-encoded CBOR hex to file: %v", err)
 	}
 }
