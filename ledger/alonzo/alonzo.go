@@ -265,10 +265,10 @@ func (b *AlonzoTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
 type AlonzoTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OutputAddress     common.Address
-	OutputAmount      mary.MaryTransactionOutputValue
-	TxOutputDatumHash *common.Blake2b256
-	legacyOutput      bool
+	OutputAddress   common.Address
+	OutputAmount    mary.MaryTransactionOutputValue
+	OutputDatumHash *common.Blake2b256
+	legacyOutput    bool
 }
 
 func (o *AlonzoTransactionOutput) UnmarshalCBOR(cborData []byte) error {
@@ -300,7 +300,14 @@ func (o *AlonzoTransactionOutput) MarshalCBOR() ([]byte, error) {
 		}
 		return cbor.Encode(&tmpOutput)
 	}
-	return cbor.EncodeGeneric(o)
+	tmpOutput := []any{
+		o.OutputAddress,
+		o.OutputAmount,
+	}
+	if o.OutputDatumHash != nil {
+		tmpOutput = append(tmpOutput, o.OutputDatumHash)
+	}
+	return cbor.Encode(tmpOutput)
 }
 
 func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
@@ -314,8 +321,8 @@ func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 		Amount:  o.OutputAmount.Amount,
 		Assets:  o.OutputAmount.Assets,
 	}
-	if o.TxOutputDatumHash != nil {
-		tmpObj.DatumHash = o.TxOutputDatumHash.String()
+	if o.OutputDatumHash != nil {
+		tmpObj.DatumHash = o.OutputDatumHash.String()
 	}
 	return json.Marshal(&tmpObj)
 }
@@ -337,7 +344,7 @@ func (o AlonzoTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTy
 }
 
 func (o AlonzoTransactionOutput) DatumHash() *common.Blake2b256 {
-	return o.TxOutputDatumHash
+	return o.OutputDatumHash
 }
 
 func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
@@ -374,7 +381,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 			Coin:    o.Amount(),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
-				Hash: o.TxOutputDatumHash.Bytes(),
+				Hash: o.OutputDatumHash.Bytes(),
 			},
 		},
 		nil
