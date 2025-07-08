@@ -282,10 +282,6 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address bytes: %w", err)
 	}
-
-	if a.addressType == AddressTypeByron {
-		return addrBytes, nil
-	}
 	return cbor.Encode(addrBytes)
 }
 
