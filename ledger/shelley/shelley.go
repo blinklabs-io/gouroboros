@@ -316,6 +316,10 @@ func (s *ShelleyTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (s *ShelleyTransactionInputSet) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(s.items)
+}
+
 func (s *ShelleyTransactionInputSet) Items() []ShelleyTransactionInput {
 	return s.items
 }
