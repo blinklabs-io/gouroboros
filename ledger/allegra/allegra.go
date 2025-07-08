@@ -144,21 +144,23 @@ func (h *AllegraBlockHeader) Era() common.Era {
 	return EraAllegra
 }
 
+type AllegraTransactionPparamUpdate struct {
+	cbor.StructAsArray
+	ProtocolParamUpdates map[common.Blake2b224]AllegraProtocolParameterUpdate
+	Epoch                uint64
+}
+
 type AllegraTransactionBody struct {
 	common.TransactionBodyBase
-	TxInputs       shelley.ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
-	TxOutputs      []shelley.ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
-	TxFee          uint64                             `cbor:"2,keyasint,omitempty"`
-	Ttl            uint64                             `cbor:"3,keyasint,omitempty"`
-	TxCertificates []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
-	TxWithdrawals  map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
-	Update         struct {
-		cbor.StructAsArray
-		ProtocolParamUpdates map[common.Blake2b224]AllegraProtocolParameterUpdate
-		Epoch                uint64
-	} `cbor:"6,keyasint,omitempty"`
-	TxAuxDataHash           *common.Blake2b256 `cbor:"7,keyasint,omitempty"`
-	TxValidityIntervalStart uint64             `cbor:"8,keyasint,omitempty"`
+	TxInputs                shelley.ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
+	TxOutputs               []shelley.ShelleyTransactionOutput `cbor:"1,keyasint,omitempty"`
+	TxFee                   uint64                             `cbor:"2,keyasint,omitempty"`
+	Ttl                     uint64                             `cbor:"3,keyasint,omitempty"`
+	TxCertificates          []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals           map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
+	Update                  *AllegraTransactionPparamUpdate    `cbor:"6,keyasint,omitempty"`
+	TxAuxDataHash           *common.Blake2b256                 `cbor:"7,keyasint,omitempty"`
+	TxValidityIntervalStart uint64                             `cbor:"8,keyasint,omitempty"`
 }
 
 func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {

@@ -153,19 +153,21 @@ func (h *AlonzoBlockHeader) Era() common.Era {
 	return EraAlonzo
 }
 
+type AlonzoTransactionPparamUpdate struct {
+	cbor.StructAsArray
+	ProtocolParamUpdates map[common.Blake2b224]AlonzoProtocolParameterUpdate
+	Epoch                uint64
+}
+
 type AlonzoTransactionBody struct {
 	common.TransactionBodyBase
-	TxInputs       shelley.ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
-	TxOutputs      []AlonzoTransactionOutput          `cbor:"1,keyasint,omitempty"`
-	TxFee          uint64                             `cbor:"2,keyasint,omitempty"`
-	Ttl            uint64                             `cbor:"3,keyasint,omitempty"`
-	TxCertificates []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
-	TxWithdrawals  map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
-	Update         struct {
-		cbor.StructAsArray
-		ProtocolParamUpdates map[common.Blake2b224]AlonzoProtocolParameterUpdate
-		Epoch                uint64
-	} `cbor:"6,keyasint,omitempty"`
+	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
+	TxOutputs               []AlonzoTransactionOutput                     `cbor:"1,keyasint,omitempty"`
+	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
+	Ttl                     uint64                                        `cbor:"3,keyasint,omitempty"`
+	TxCertificates          []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
+	Update                  *AlonzoTransactionPparamUpdate                `cbor:"6,keyasint,omitempty"`
 	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
 	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
