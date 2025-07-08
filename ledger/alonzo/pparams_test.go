@@ -461,9 +461,9 @@ func TestAlonzoTransactionOutput_Utxorpc(t *testing.T) {
 
 	// Mock output
 	output := alonzo.AlonzoTransactionOutput{
-		OutputAddress:     address,
-		OutputAmount:      mary.MaryTransactionOutputValue{Amount: amount},
-		TxOutputDatumHash: &datumHash,
+		OutputAddress:   address,
+		OutputAmount:    mary.MaryTransactionOutputValue{Amount: amount},
+		OutputDatumHash: &datumHash,
 	}
 
 	got, err := output.Utxorpc()
@@ -503,9 +503,9 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	datumHash := common.Blake2b256{1, 2, 3, 4}
 	output := alonzo.AlonzoTransactionOutput{
-		OutputAddress:     address,
-		OutputAmount:      mary.MaryTransactionOutputValue{Amount: 1000},
-		TxOutputDatumHash: &datumHash,
+		OutputAddress:   address,
+		OutputAmount:    mary.MaryTransactionOutputValue{Amount: 1000},
+		OutputDatumHash: &datumHash,
 	}
 
 	body := alonzo.AlonzoTransactionBody{
@@ -560,9 +560,9 @@ func TestAlonzoTransaction_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	datumHash := &common.Blake2b256{0x11, 0x22, 0x33}
 	output := alonzo.AlonzoTransactionOutput{
-		OutputAddress:     address,
-		OutputAmount:      mary.MaryTransactionOutputValue{Amount: 2000},
-		TxOutputDatumHash: datumHash,
+		OutputAddress:   address,
+		OutputAmount:    mary.MaryTransactionOutputValue{Amount: 2000},
+		OutputDatumHash: datumHash,
 	}
 
 	body := alonzo.AlonzoTransactionBody{
