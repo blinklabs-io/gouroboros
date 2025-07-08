@@ -207,20 +207,22 @@ func (h *ShelleyBlockHeader) Era() common.Era {
 	return EraShelley
 }
 
+type ShelleyTransactionPparamUpdate struct {
+	cbor.StructAsArray
+	ProtocolParamUpdates map[common.Blake2b224]ShelleyProtocolParameterUpdate
+	Epoch                uint64
+}
+
 type ShelleyTransactionBody struct {
 	common.TransactionBodyBase
-	TxInputs       ShelleyTransactionInputSet  `cbor:"0,keyasint,omitempty"`
-	TxOutputs      []ShelleyTransactionOutput  `cbor:"1,keyasint,omitempty"`
-	TxFee          uint64                      `cbor:"2,keyasint,omitempty"`
-	Ttl            uint64                      `cbor:"3,keyasint,omitempty"`
-	TxCertificates []common.CertificateWrapper `cbor:"4,keyasint,omitempty"`
-	TxWithdrawals  map[*common.Address]uint64  `cbor:"5,keyasint,omitempty"`
-	Update         struct {
-		cbor.StructAsArray
-		ProtocolParamUpdates map[common.Blake2b224]ShelleyProtocolParameterUpdate
-		Epoch                uint64
-	} `cbor:"6,keyasint,omitempty"`
-	TxAuxDataHash *common.Blake2b256 `cbor:"7,keyasint,omitempty"`
+	TxInputs       ShelleyTransactionInputSet      `cbor:"0,keyasint,omitempty"`
+	TxOutputs      []ShelleyTransactionOutput      `cbor:"1,keyasint,omitempty"`
+	TxFee          uint64                          `cbor:"2,keyasint,omitempty"`
+	Ttl            uint64                          `cbor:"3,keyasint,omitempty"`
+	TxCertificates []common.CertificateWrapper     `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals  map[*common.Address]uint64      `cbor:"5,keyasint,omitempty"`
+	Update         *ShelleyTransactionPparamUpdate `cbor:"6,keyasint,omitempty"`
+	TxAuxDataHash  *common.Blake2b256              `cbor:"7,keyasint,omitempty"`
 }
 
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {

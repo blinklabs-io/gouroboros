@@ -308,19 +308,21 @@ func (s *ConwayTransactionInputSet) SetItems(
 	copy(s.items, items)
 }
 
+type ConwayTransactionPparamUpdate struct {
+	cbor.StructAsArray
+	ProtocolParamUpdates map[common.Blake2b224]babbage.BabbageProtocolParameterUpdate
+	Epoch                uint64
+}
+
 type ConwayTransactionBody struct {
 	common.TransactionBodyBase
-	TxInputs       ConwayTransactionInputSet          `cbor:"0,keyasint,omitempty"`
-	TxOutputs      []babbage.BabbageTransactionOutput `cbor:"1,keyasint,omitempty"`
-	TxFee          uint64                             `cbor:"2,keyasint,omitempty"`
-	Ttl            uint64                             `cbor:"3,keyasint,omitempty"`
-	TxCertificates []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
-	TxWithdrawals  map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
-	Update         struct {
-		cbor.StructAsArray
-		ProtocolParamUpdates map[common.Blake2b224]babbage.BabbageProtocolParameterUpdate
-		Epoch                uint64
-	} `cbor:"6,keyasint,omitempty"`
+	TxInputs                ConwayTransactionInputSet                     `cbor:"0,keyasint,omitempty"`
+	TxOutputs               []babbage.BabbageTransactionOutput            `cbor:"1,keyasint,omitempty"`
+	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
+	Ttl                     uint64                                        `cbor:"3,keyasint,omitempty"`
+	TxCertificates          []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
+	Update                  *ConwayTransactionPparamUpdate                `cbor:"6,keyasint,omitempty"`
 	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
 	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`

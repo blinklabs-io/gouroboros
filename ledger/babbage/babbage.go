@@ -226,19 +226,21 @@ func (h *BabbageBlockHeader) Era() common.Era {
 	return EraBabbage
 }
 
+type BabbageTransactionPparamUpdate struct {
+	cbor.StructAsArray
+	ProtocolParamUpdates map[common.Blake2b224]BabbageProtocolParameterUpdate
+	Epoch                uint64
+}
+
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
-	TxInputs       shelley.ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
-	TxOutputs      []BabbageTransactionOutput         `cbor:"1,keyasint,omitempty"`
-	TxFee          uint64                             `cbor:"2,keyasint,omitempty"`
-	Ttl            uint64                             `cbor:"3,keyasint,omitempty"`
-	TxCertificates []common.CertificateWrapper        `cbor:"4,keyasint,omitempty"`
-	TxWithdrawals  map[*common.Address]uint64         `cbor:"5,keyasint,omitempty"`
-	Update         struct {
-		cbor.StructAsArray
-		ProtocolParamUpdates map[common.Blake2b224]BabbageProtocolParameterUpdate
-		Epoch                uint64
-	} `cbor:"6,keyasint,omitempty"`
+	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
+	TxOutputs               []BabbageTransactionOutput                    `cbor:"1,keyasint,omitempty"`
+	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
+	Ttl                     uint64                                        `cbor:"3,keyasint,omitempty"`
+	TxCertificates          []common.CertificateWrapper                   `cbor:"4,keyasint,omitempty"`
+	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
+	Update                  *BabbageTransactionPparamUpdate               `cbor:"6,keyasint,omitempty"`
 	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
 	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
