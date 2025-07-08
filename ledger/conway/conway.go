@@ -15,6 +15,7 @@
 package conway
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -275,7 +276,8 @@ func (w ConwayTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeem
 }
 
 type ConwayTransactionInputSet struct {
-	items []shelley.ShelleyTransactionInput
+	useSet bool
+	items  []shelley.ShelleyTransactionInput
 }
 
 func NewConwayTransactionInputSet(
@@ -288,13 +290,34 @@ func NewConwayTransactionInputSet(
 }
 
 func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
-	// This overrides the Shelley behavior that explicitly disallowed tag-wrapped sets
+	// Check if the set is wrapped in a CBOR tag
+	// This is mostly needed so we can remember whether it was Set-wrapped for CBOR encoding
+	var tmpTag cbor.RawTag
+	if _, err := cbor.Decode(data, &tmpTag); err == nil {
+		if tmpTag.Number != cbor.CborTagSet {
+			return errors.New("unexpected tag type")
+		}
+		data = []byte(tmpTag.Content)
+		s.useSet = true
+	}
 	var tmpData []shelley.ShelleyTransactionInput
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
 	s.items = tmpData
 	return nil
+}
+
+func (s *ConwayTransactionInputSet) MarshalCBOR() ([]byte, error) {
+	tmpItems := make([]any, len(s.items))
+	for i, item := range s.items {
+		tmpItems[i] = item
+	}
+	var tmpData any = tmpItems
+	if s.useSet {
+		tmpData = cbor.Set(tmpItems)
+	}
+	return cbor.Encode(tmpData)
 }
 
 func (s *ConwayTransactionInputSet) Items() []shelley.ShelleyTransactionInput {
