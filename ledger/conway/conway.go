@@ -350,12 +350,12 @@ type ConwayTransactionBody struct {
 	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
 	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
-	TxCollateral            []shelley.ShelleyTransactionInput             `cbor:"13,keyasint,omitempty"`
-	TxRequiredSigners       []common.Blake2b224                           `cbor:"14,keyasint,omitempty"`
+	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
+	TxRequiredSigners       cbor.SetType[common.Blake2b224]               `cbor:"14,keyasint,omitempty,omitzero"`
 	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
 	TxCollateralReturn      *babbage.BabbageTransactionOutput             `cbor:"16,keyasint,omitempty"`
 	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
-	TxReferenceInputs       []shelley.ShelleyTransactionInput             `cbor:"18,keyasint,omitempty"`
+	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
 	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
 	TxProposalProcedures    []common.ProposalProcedure                    `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue  int64                                         `cbor:"21,keyasint,omitempty"`
@@ -431,14 +431,14 @@ func (b *ConwayTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsset
 
 func (b *ConwayTransactionBody) Collateral() []common.TransactionInput {
 	ret := []common.TransactionInput{}
-	for _, collateral := range b.TxCollateral {
+	for _, collateral := range b.TxCollateral.Items() {
 		ret = append(ret, collateral)
 	}
 	return ret
 }
 
 func (b *ConwayTransactionBody) RequiredSigners() []common.Blake2b224 {
-	return b.TxRequiredSigners[:]
+	return b.TxRequiredSigners.Items()
 }
 
 func (b *ConwayTransactionBody) ScriptDataHash() *common.Blake2b256 {
@@ -447,7 +447,7 @@ func (b *ConwayTransactionBody) ScriptDataHash() *common.Blake2b256 {
 
 func (b *ConwayTransactionBody) ReferenceInputs() []common.TransactionInput {
 	ret := []common.TransactionInput{}
-	for _, input := range b.TxReferenceInputs {
+	for _, input := range b.TxReferenceInputs.Items() {
 		ret = append(ret, &input)
 	}
 	return ret

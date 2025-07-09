@@ -159,3 +159,54 @@ type Set []any
 
 // Map corresponds to CBOR tag 259 and is used to represent a map with key/value operations
 type Map map[any]any
+
+// SetType is a generic type for wrapping other types in an optional CBOR set tag
+type SetType[T any] struct {
+	useTag bool
+	items  []T
+}
+
+func NewSetType[T any](items []T, useTag bool) SetType[T] {
+	return SetType[T]{
+		items:  items,
+		useTag: useTag,
+	}
+}
+
+func (t *SetType[T]) UnmarshalCBOR(data []byte) error {
+	// Check if the set is wrapped in a CBOR tag
+	// This is mostly needed so we can remember whether it was Set-wrapped for CBOR encoding
+	var tmpTag RawTag
+	t.useTag = false
+	if _, err := Decode(data, &tmpTag); err == nil {
+		if tmpTag.Number != CborTagSet {
+			return errors.New("unexpected tag type")
+		}
+		data = []byte(tmpTag.Content)
+		t.useTag = true
+	}
+	var tmpData []T
+	if _, err := Decode(data, &tmpData); err != nil {
+		return err
+	}
+	t.items = tmpData
+	return nil
+}
+
+func (t *SetType[T]) MarshalCBOR() ([]byte, error) {
+	tmpItems := make([]any, len(t.items))
+	for i, item := range t.items {
+		tmpItems[i] = item
+	}
+	var tmpData any = tmpItems
+	if t.useTag {
+		tmpData = Set(tmpItems)
+	}
+	return Encode(tmpData)
+}
+
+func (t *SetType[T]) Items() []T {
+	ret := make([]T, len(t.items))
+	copy(ret, t.items)
+	return ret
+}
