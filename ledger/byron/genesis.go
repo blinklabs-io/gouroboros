@@ -22,7 +22,6 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -123,7 +122,7 @@ func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
 		if err != nil {
 			return nil, err
 		}
-		addrBytes, err := cbor.Encode(tmpAddr)
+		addrBytes, err := tmpAddr.Bytes()
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +154,7 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 		if err != nil {
 			return nil, err
 		}
-		addrBytes, err := cbor.Encode(tmpAddr)
+		addrBytes, err := tmpAddr.Bytes()
 		if err != nil {
 			return nil, err
 		}
