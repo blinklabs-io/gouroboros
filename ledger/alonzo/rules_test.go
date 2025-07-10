@@ -997,9 +997,12 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	t.Run(
 		"insufficient collateral",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
-				shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			}
+			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+				},
+				false,
+			)
 			err := alonzo.UtxoValidateInsufficientCollateral(
 				testTx,
 				testSlot,
@@ -1027,10 +1030,13 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	t.Run(
 		"sufficient collateral",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
-				shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				shelley.NewShelleyTransactionInput(testInputTxId, 1),
-			}
+			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+				},
+				false,
+			)
 			err := alonzo.UtxoValidateInsufficientCollateral(
 				testTx,
 				testSlot,
@@ -1087,10 +1093,13 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	t.Run(
 		"coin and assets",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
-				shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				shelley.NewShelleyTransactionInput(testInputTxId, 1),
-			}
+			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					shelley.NewShelleyTransactionInput(testInputTxId, 1),
+				},
+				false,
+			)
 			err := alonzo.UtxoValidateCollateralContainsNonAda(
 				testTx,
 				testSlot,
@@ -1118,9 +1127,12 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	t.Run(
 		"coin only",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
-				shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			}
+			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+				},
+				false,
+			)
 			err := alonzo.UtxoValidateCollateralContainsNonAda(
 				testTx,
 				testSlot,
@@ -1192,9 +1204,12 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	t.Run(
 		"collateral",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = []shelley.ShelleyTransactionInput{
-				shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			}
+			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+				[]shelley.ShelleyTransactionInput{
+					shelley.NewShelleyTransactionInput(testInputTxId, 0),
+				},
+				false,
+			)
 			err := alonzo.UtxoValidateNoCollateralInputs(
 				testTx,
 				testSlot,

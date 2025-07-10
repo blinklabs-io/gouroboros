@@ -619,14 +619,23 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 		OutputAddress: address,
 		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
 	}
-	txCollateral := []shelley.ShelleyTransactionInput{input}
+	txCollateral := cbor.NewSetType[shelley.ShelleyTransactionInput](
+		[]shelley.ShelleyTransactionInput{input},
+		false,
+	)
 	txTotalCollateral := uint64(200)
-	txReferenceInputs := []shelley.ShelleyTransactionInput{input}
+	txReferenceInputs := cbor.NewSetType[shelley.ShelleyTransactionInput](
+		[]shelley.ShelleyTransactionInput{input},
+		false,
+	)
 	txAuxDataHash := &common.Blake2b256{0xde, 0xad, 0xbe, 0xef}
 	txValidityIntervalStart := uint64(4000)
 	var signer common.Blake2b224
 	copy(signer[:], []byte{0xab, 0xcd, 0xef})
-	txRequiredSigners := []common.Blake2b224{signer}
+	txRequiredSigners := cbor.NewSetType[common.Blake2b224](
+		[]common.Blake2b224{signer},
+		false,
+	)
 	txScriptDataHash := &common.Blake2b256{0xba, 0xad, 0xf0, 0x0d}
 	txMint := &common.MultiAsset[common.MultiAssetTypeMint]{}
 
@@ -682,14 +691,23 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
 	}
 
-	txCollateral := []shelley.ShelleyTransactionInput{input}
+	txCollateral := cbor.NewSetType[shelley.ShelleyTransactionInput](
+		[]shelley.ShelleyTransactionInput{input},
+		false,
+	)
 	txTotalCollateral := uint64(200)
-	txReferenceInputs := []shelley.ShelleyTransactionInput{input}
+	txReferenceInputs := cbor.NewSetType[shelley.ShelleyTransactionInput](
+		[]shelley.ShelleyTransactionInput{input},
+		false,
+	)
 	txAuxDataHash := &common.Blake2b256{0xde, 0xad, 0xbe, 0xef}
 	txValidityIntervalStart := uint64(4000)
 	var signer common.Blake2b224
 	copy(signer[:], []byte{0xab, 0xcd, 0xef})
-	txRequiredSigners := []common.Blake2b224{signer}
+	txRequiredSigners := cbor.NewSetType[common.Blake2b224](
+		[]common.Blake2b224{signer},
+		false,
+	)
 	txScriptDataHash := &common.Blake2b256{0xba, 0xad, 0xf0, 0x0d}
 	txMint := &common.MultiAsset[common.MultiAssetTypeMint]{}
 

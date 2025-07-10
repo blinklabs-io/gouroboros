@@ -172,8 +172,8 @@ type AlonzoTransactionBody struct {
 	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
 	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
-	TxCollateral            []shelley.ShelleyTransactionInput             `cbor:"13,keyasint,omitempty"`
-	TxRequiredSigners       []common.Blake2b224                           `cbor:"14,keyasint,omitempty"`
+	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
+	TxRequiredSigners       cbor.SetType[common.Blake2b224]               `cbor:"14,keyasint,omitempty,omitzero"`
 	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
 }
 
@@ -246,14 +246,14 @@ func (b *AlonzoTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsset
 
 func (b *AlonzoTransactionBody) Collateral() []common.TransactionInput {
 	ret := []common.TransactionInput{}
-	for _, collateral := range b.TxCollateral {
+	for _, collateral := range b.TxCollateral.Items() {
 		ret = append(ret, collateral)
 	}
 	return ret
 }
 
 func (b *AlonzoTransactionBody) RequiredSigners() []common.Blake2b224 {
-	return b.TxRequiredSigners[:]
+	return b.TxRequiredSigners.Items()
 }
 
 func (b *AlonzoTransactionBody) ScriptDataHash() *common.Blake2b256 {
