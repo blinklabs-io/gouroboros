@@ -207,6 +207,12 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	// Call the user callback function
+	if s.config != nil && s.config.DoneFunc != nil {
+		if err := s.config.DoneFunc(s.callbackContext); err != nil {
+			return err
+		}
+	}
 	// Restart protocol
 	s.Stop()
 	s.initProtocol()

@@ -122,6 +122,7 @@ type Config struct {
 	RequestTxIdsFunc RequestTxIdsFunc
 	RequestTxsFunc   RequestTxsFunc
 	InitFunc         InitFunc
+	DoneFunc         DoneFunc
 	IdleTimeout      time.Duration
 }
 
@@ -137,6 +138,7 @@ type (
 	RequestTxIdsFunc func(CallbackContext, bool, uint16, uint16) ([]TxIdAndSize, error)
 	RequestTxsFunc   func(CallbackContext, []TxId) ([]TxBody, error)
 	InitFunc         func(CallbackContext) error
+	DoneFunc         func(CallbackContext) error
 )
 
 // New returns a new TxSubmission object
@@ -183,6 +185,13 @@ func WithRequestTxsFunc(requestTxsFunc RequestTxsFunc) TxSubmissionOptionFunc {
 func WithInitFunc(initFunc InitFunc) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.InitFunc = initFunc
+	}
+}
+
+// WithDoneFunc specifies the Done callback function
+func WithDoneFunc(doneFunc DoneFunc) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.DoneFunc = doneFunc
 	}
 }
 
