@@ -124,7 +124,17 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 		msgRequestTxIds.Req,
 	)
 	if err != nil {
-		return err
+		if !errors.Is(err, ErrStopServerProcess) {
+			return err
+		}
+		if !msgRequestTxIds.Blocking {
+			return errors.New("cannot stop server process during a non-blocking operation")
+		}
+		resp := NewMsgDone()
+		if err := c.SendMessage(resp); err != nil {
+			return err
+		}
+		return nil
 	}
 	resp := NewMsgReplyTxIds(txIds)
 	if err := c.SendMessage(resp); err != nil {
