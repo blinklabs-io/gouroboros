@@ -250,3 +250,168 @@ func TestGenesisUtxos(t *testing.T) {
 		)
 	}
 }
+
+const shelleyGenesisWithStaking = `
+{
+  "activeSlotsCoeff": 0.05,
+  "protocolParams": {
+    "protocolVersion": {
+      "minor": 0,
+      "major": 2
+    },
+    "decentralisationParam": 1,
+    "eMax": 18,
+    "extraEntropy": {
+      "tag": "NeutralNonce"
+    },
+    "maxTxSize": 16384,
+    "maxBlockBodySize": 65536,
+    "maxBlockHeaderSize": 1100,
+    "minFeeA": 44,
+    "minFeeB": 155381,
+    "minUTxOValue": 1000000,
+    "poolDeposit": 500000000,
+    "minPoolCost": 340000000,
+    "keyDeposit": 2000000,
+    "nOpt": 150,
+    "rho": 0.003,
+    "tau": 0.20,
+    "a0": 0.3
+  },
+  "genDelegs": {},
+  "updateQuorum": 5,
+  "networkId": "Testnet",
+  "initialFunds": {},
+  "maxLovelaceSupply": 45000000000000000,
+  "networkMagic": 764824073,
+  "epochLength": 432000,
+  "systemStart": "2017-09-23T21:44:51Z",
+  "slotsPerKESPeriod": 129600,
+  "slotLength": 1,
+  "maxKESEvolutions": 62,
+  "securityParam": 2160,
+  "staking": {
+    "pools": {
+      "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195": {
+        "cost": 340000000,
+        "margin": 0.0,
+        "metadata": null,
+        "owners": [],
+        "pledge": 0,
+        "publicKey": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195",
+        "relays": [
+          {
+            "single host name": {
+              "dnsName": "p4.example",
+              "port": 3001
+            }
+          }
+        ],
+        "rewardAccount": {
+          "credential": {
+            "key hash": "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+          },
+          "network": "Testnet"
+        },
+        "vrf": "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+      }
+    },
+    "stake": {
+      "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+    }
+  }
+}
+`
+
+func TestGenesisStaking(t *testing.T) {
+	tmpGenesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(shelleyGenesisWithStaking),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	// Test GetInitialPools
+	pools, delegators, err := tmpGenesis.GetInitialPools()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	expectedPoolId := "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+	if len(pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(pools))
+	}
+
+	pool, exists := pools[expectedPoolId]
+	if !exists {
+		t.Fatalf("expected pool with ID %s not found", expectedPoolId)
+	}
+
+	// Verify pool details
+	if pool.Cost != 340000000 {
+		t.Errorf("expected pool cost 340000000, got %d", pool.Cost)
+	}
+	if pool.Margin != 0.0 {
+		t.Errorf("expected pool margin 0.0, got %f", pool.Margin)
+	}
+	if pool.Pledge != 0 {
+		t.Errorf("expected pool pledge 0, got %d", pool.Pledge)
+	}
+	if pool.PublicKey != expectedPoolId {
+		t.Errorf("expected pool public key %s, got %s", expectedPoolId, pool.PublicKey)
+	}
+	if pool.Vrf != "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e" {
+		t.Errorf("unexpected pool VRF key")
+	}
+
+	// Verify delegators
+	expectedStakeAddr := "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
+	if len(delegators[expectedPoolId]) != 1 {
+		t.Fatalf("expected 1 delegator for pool, got %d", len(delegators[expectedPoolId]))
+	}
+	if delegators[expectedPoolId][0] != expectedStakeAddr {
+		t.Errorf("expected stake address %s, got %s", expectedStakeAddr, delegators[expectedPoolId][0])
+	}
+
+	// Test GetPoolById
+	poolById, delegatorsById, err := tmpGenesis.GetPoolById(expectedPoolId)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if poolById.PublicKey != expectedPoolId {
+		t.Errorf("GetPoolById: expected pool public key %s, got %s", expectedPoolId, poolById.PublicKey)
+	}
+
+	if len(delegatorsById) != 1 || delegatorsById[0] != expectedStakeAddr {
+		t.Errorf("GetPoolById: unexpected delegators")
+	}
+
+	// Test non-existent pool
+	_, _, err = tmpGenesis.GetPoolById("nonexistentpoolid")
+	if err == nil {
+		t.Error("expected error for non-existent pool, got nil")
+	} else if err.Error() != "pool not found" {
+		t.Errorf("expected 'pool not found' error, got: %v", err)
+	}
+}
+
+func TestGenesisStakingCBOR(t *testing.T) {
+	tmpGenesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(shelleyGenesisWithStaking),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	// Test CBOR marshaling
+	cborData, err := tmpGenesis.MarshalCBOR()
+	if err != nil {
+		t.Fatalf("unexpected error during CBOR marshaling: %s", err)
+	}
+
+	if len(cborData) == 0 {
+		t.Error("expected non-empty CBOR data, got empty")
+	}
+
+}
