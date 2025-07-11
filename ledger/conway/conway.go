@@ -167,27 +167,14 @@ type ConwayRedeemerValue struct {
 }
 
 type ConwayRedeemers struct {
-	Redeemers map[ConwayRedeemerKey]ConwayRedeemerValue
-	legacy    bool
+	Redeemers       map[ConwayRedeemerKey]ConwayRedeemerValue
+	legacyRedeemers alonzo.AlonzoRedeemers
+	legacy          bool
 }
 
 func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	// Try to parse as legacy redeemer first
-	var tmpRedeemers []alonzo.AlonzoRedeemer
-	if _, err := cbor.Decode(cborData, &tmpRedeemers); err == nil {
-		// Copy data from legacy redeemer type
-		r.Redeemers = make(map[ConwayRedeemerKey]ConwayRedeemerValue)
-		for _, redeemer := range tmpRedeemers {
-			tmpKey := ConwayRedeemerKey{
-				Tag:   redeemer.Tag,
-				Index: redeemer.Index,
-			}
-			tmpVal := ConwayRedeemerValue{
-				Data:    redeemer.Data,
-				ExUnits: redeemer.ExUnits,
-			}
-			r.Redeemers[tmpKey] = tmpVal
-		}
+	if _, err := cbor.Decode(cborData, &(r.legacyRedeemers)); err == nil {
 		r.legacy = true
 	} else {
 		_, err := cbor.Decode(cborData, &(r.Redeemers))
@@ -197,6 +184,9 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
+	if r.legacy {
+		return r.legacyRedeemers.Indexes(tag)
+	}
 	ret := []uint{}
 	for key := range r.Redeemers {
 		if key.Tag == tag {
@@ -210,6 +200,9 @@ func (r ConwayRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
 ) (cbor.LazyValue, common.ExUnits) {
+	if r.legacy {
+		return r.legacyRedeemers.Value(index, tag)
+	}
 	redeemer, ok := r.Redeemers[ConwayRedeemerKey{
 		Tag:   tag,
 		Index: uint32(index), // #nosec G115
