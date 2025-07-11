@@ -402,6 +402,9 @@ func (b *ConwayTransactionBody) ValidityIntervalStart() uint64 {
 }
 
 func (b *ConwayTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	if b.Update == nil {
+		return 0, nil
+	}
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
 		updateMap[k] = v
