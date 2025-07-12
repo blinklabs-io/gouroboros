@@ -183,6 +183,13 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
+	if r.legacy {
+		return cbor.Encode(r.legacyRedeemers)
+	}
+	return cbor.Encode(r.Redeemers)
+}
+
 func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	if r.legacy {
 		return r.legacyRedeemers.Indexes(tag)
