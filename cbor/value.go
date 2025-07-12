@@ -32,6 +32,12 @@ type Value struct {
 	cborData string
 }
 
+func (v *Value) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR
+	// This is only a stopgap, since it doesn't allow us to build values from scratch
+	return []byte(v.cborData), nil
+}
+
 func (v *Value) UnmarshalCBOR(data []byte) error {
 	// Save the original CBOR
 	v.cborData = string(data[:])
@@ -358,6 +364,12 @@ func (v Constructor) MarshalJSON() ([]byte, error) {
 
 type LazyValue struct {
 	value *Value
+}
+
+func (l *LazyValue) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR
+	// This is only a stopgap, since it doesn't allow us to build values from scratch
+	return []byte(l.value.cborData), nil
 }
 
 func (l *LazyValue) UnmarshalCBOR(data []byte) error {
