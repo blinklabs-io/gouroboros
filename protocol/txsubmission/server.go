@@ -236,6 +236,7 @@ func (s *Server) handleDone() error {
 	s.initProtocol()
 	s.requestTxIdsResultChan = make(chan requestTxIdsResult)
 	s.requestTxsResultChan = make(chan []TxBody)
+	s.ackCount = 0
 	s.Start()
 	return nil
 }
