@@ -215,14 +215,14 @@ func (r ConwayRedeemers) Value(
 
 type ConwayTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
-	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
-	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
-	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
-	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []cbor.Value              `cbor:"4,keyasint,omitempty"`
-	WsRedeemers        ConwayRedeemers           `cbor:"5,keyasint,omitempty"`
-	WsPlutusV2Scripts  [][]byte                  `cbor:"6,keyasint,omitempty"`
-	WsPlutusV3Scripts  [][]byte                  `cbor:"7,keyasint,omitempty"`
+	VkeyWitnesses      cbor.SetType[common.VkeyWitness]      `cbor:"0,keyasint,omitempty,omitzero"`
+	WsNativeScripts    cbor.SetType[common.NativeScript]     `cbor:"1,keyasint,omitempty,omitzero"`
+	BootstrapWitnesses cbor.SetType[common.BootstrapWitness] `cbor:"2,keyasint,omitempty,omitzero"`
+	WsPlutusV1Scripts  cbor.SetType[[]byte]                  `cbor:"3,keyasint,omitempty,omitzero"`
+	WsPlutusData       cbor.SetType[cbor.Value]              `cbor:"4,keyasint,omitempty,omitzero"`
+	WsRedeemers        ConwayRedeemers                       `cbor:"5,keyasint,omitempty,omitzero"`
+	WsPlutusV2Scripts  cbor.SetType[[]byte]                  `cbor:"6,keyasint,omitempty,omitzero"`
+	WsPlutusV3Scripts  cbor.SetType[[]byte]                  `cbor:"7,keyasint,omitempty,omitzero"`
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
@@ -237,31 +237,31 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (w ConwayTransactionWitnessSet) Vkey() []common.VkeyWitness {
-	return w.VkeyWitnesses
+	return w.VkeyWitnesses.Items()
 }
 
 func (w ConwayTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
-	return w.BootstrapWitnesses
+	return w.BootstrapWitnesses.Items()
 }
 
 func (w ConwayTransactionWitnessSet) NativeScripts() []common.NativeScript {
-	return w.WsNativeScripts
+	return w.WsNativeScripts.Items()
 }
 
 func (w ConwayTransactionWitnessSet) PlutusV1Scripts() [][]byte {
-	return w.WsPlutusV1Scripts
+	return w.WsPlutusV1Scripts.Items()
 }
 
 func (w ConwayTransactionWitnessSet) PlutusV2Scripts() [][]byte {
-	return w.WsPlutusV2Scripts
+	return w.WsPlutusV2Scripts.Items()
 }
 
 func (w ConwayTransactionWitnessSet) PlutusV3Scripts() [][]byte {
-	return w.WsPlutusV3Scripts
+	return w.WsPlutusV3Scripts.Items()
 }
 
 func (w ConwayTransactionWitnessSet) PlutusData() []cbor.Value {
-	return w.WsPlutusData
+	return w.WsPlutusData.Items()
 }
 
 func (w ConwayTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
