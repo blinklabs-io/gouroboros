@@ -75,7 +75,11 @@ type ConnectionClosedError struct {
 }
 
 func (e *ConnectionClosedError) Error() string {
-	return fmt.Sprintf("peer closed the connection while %s: %v", e.Context, e.Err)
+	return fmt.Sprintf(
+		"peer closed the connection while %s: %v",
+		e.Context,
+		e.Err,
+	)
 }
 
 func (e *ConnectionClosedError) Unwrap() error {
@@ -301,7 +305,9 @@ func (m *Muxer) readLoop() {
 				err = io.EOF
 			}
 			if errors.Is(err, io.EOF) {
-				m.sendError(&ConnectionClosedError{Context: "reading header", Err: err})
+				m.sendError(
+					&ConnectionClosedError{Context: "reading header", Err: err},
+				)
 			} else {
 				m.sendError(err)
 			}
@@ -318,7 +324,12 @@ func (m *Muxer) readLoop() {
 				err = io.EOF
 			}
 			if errors.Is(err, io.EOF) {
-				m.sendError(&ConnectionClosedError{Context: "reading payload", Err: err})
+				m.sendError(
+					&ConnectionClosedError{
+						Context: "reading payload",
+						Err:     err,
+					},
+				)
 			} else {
 				m.sendError(err)
 			}

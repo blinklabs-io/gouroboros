@@ -35,7 +35,10 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	// Decode the hex string into CBOR bytes
 	dataBytes, err := hex.DecodeString(hexStr)
 	if err != nil {
-		t.Fatalf("Failed to decode Conway block hex string into CBOR bytes: %v", err)
+		t.Fatalf(
+			"Failed to decode Conway block hex string into CBOR bytes: %v",
+			err,
+		)
 	}
 
 	// Deserialize CBOR bytes into ConwayBlock struct
@@ -48,7 +51,10 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	// Re-encode using the cbor Encode function
 	encoded, err := cbor.Encode(block)
 	if err != nil {
-		t.Fatalf("Failed to marshal ConwayBlock using custom encode function: %v", err)
+		t.Fatalf(
+			"Failed to marshal ConwayBlock using custom encode function: %v",
+			err,
+		)
 	}
 	if encoded == nil || len(encoded) == 0 {
 		t.Fatal("Custom encoded CBOR from ConwayBlock is nil or empty")
@@ -56,7 +62,11 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 
 	// Ensure the original and re-encoded CBOR bytes are identical
 	if !bytes.Equal(dataBytes, encoded) {
-		t.Errorf("Custom CBOR round-trip mismatch for Conway block\nOriginal CBOR (hex): %x\nCustom Encoded CBOR (hex): %x", dataBytes, encoded)
+		t.Errorf(
+			"Custom CBOR round-trip mismatch for Conway block\nOriginal CBOR (hex): %x\nCustom Encoded CBOR (hex): %x",
+			dataBytes,
+			encoded,
+		)
 
 		// Check from which byte it differs
 		diffIndex := -1
@@ -68,7 +78,11 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 		}
 		if diffIndex != -1 {
 			t.Logf("First mismatch at byte index: %d", diffIndex)
-			t.Logf("Original byte: 0x%02x, Re-encoded byte: 0x%02x", dataBytes[diffIndex], encoded[diffIndex])
+			t.Logf(
+				"Original byte: 0x%02x, Re-encoded byte: 0x%02x",
+				dataBytes[diffIndex],
+				encoded[diffIndex],
+			)
 		} else {
 			t.Logf("Length mismatch: original length = %d, re-encoded length = %d", len(dataBytes), len(encoded))
 		}
