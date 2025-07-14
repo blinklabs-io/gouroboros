@@ -33,6 +33,10 @@ func TestScriptRefDecode(t *testing.T) {
 		t.Fatalf("unexpected error decoding script ref CBOR: %s", err)
 	}
 	if !reflect.DeepEqual(testScriptRef.Script, &expectedScript) {
-		t.Fatalf("did not get expected script\n     got: %#v\n  wanted: %#v", testScriptRef.Script, &expectedScript)
+		t.Fatalf(
+			"did not get expected script\n     got: %#v\n  wanted: %#v",
+			testScriptRef.Script,
+			&expectedScript,
+		)
 	}
 }
