@@ -19,9 +19,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -375,6 +377,17 @@ func (i ByronTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
 		// AsOutput: i.AsOutput,
 		// Redeemer: i.Redeemer,
 	}, nil
+}
+
+func (i ByronTransactionInput) ToPlutusData() data.PlutusData {
+	// This will never actually get called, but it's identical to Shelley
+	return data.NewConstr(
+		0,
+		[]data.PlutusData{
+			data.NewByteString(i.TxId.Bytes()),
+			data.NewInteger(big.NewInt(int64(i.OutputIndex))),
+		},
+	)
 }
 
 func (i ByronTransactionInput) String() string {
