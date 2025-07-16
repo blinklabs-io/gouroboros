@@ -16,7 +16,8 @@ jobs:
     name: go-test
     strategy:
       matrix:
-        go-version: [1.23.x, 1.24.x]
+        # TODO: go back to last 2 versions once 1.25 is released
+        go-version: [1.24.x]
         platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
