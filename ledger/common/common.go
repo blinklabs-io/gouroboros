@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"golang.org/x/crypto/blake2b"
 )
@@ -44,6 +45,10 @@ func (b Blake2b256) String() string {
 
 func (b Blake2b256) Bytes() []byte {
 	return b[:]
+}
+
+func (b Blake2b256) ToPlutusData() data.PlutusData {
+	return data.NewByteString(b[:])
 }
 
 // Blake2b256Hash generates a Blake2b-256 hash from the provided data
@@ -75,6 +80,10 @@ func (b Blake2b224) String() string {
 
 func (b Blake2b224) Bytes() []byte {
 	return b[:]
+}
+
+func (b Blake2b224) ToPlutusData() data.PlutusData {
+	return data.NewByteString(b[:])
 }
 
 func (b Blake2b224) MarshalJSON() ([]byte, error) {
@@ -110,6 +119,10 @@ func (b Blake2b160) String() string {
 
 func (b Blake2b160) Bytes() []byte {
 	return b[:]
+}
+
+func (b Blake2b160) ToPlutusData() data.PlutusData {
+	return data.NewByteString(b[:])
 }
 
 // Blake2b160Hash generates a Blake2b-160 hash from the provided data
