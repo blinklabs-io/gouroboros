@@ -37,10 +37,8 @@ func TestShelleyTransactionInputToPlutusData(t *testing.T) {
 	}
 	expectedData := data.NewConstr(
 		0,
-		[]data.PlutusData{
-			data.NewByteString(testTxId),
-			data.NewInteger(big.NewInt(int64(testTxOutputIdx))),
-		},
+		data.NewByteString(testTxId),
+		data.NewInteger(big.NewInt(int64(testTxOutputIdx))),
 	)
 	tmpData := testInput.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {

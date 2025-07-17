@@ -372,10 +372,8 @@ func (i ShelleyTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
 func (i ShelleyTransactionInput) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		0,
-		[]data.PlutusData{
-			data.NewByteString(i.TxId.Bytes()),
-			data.NewInteger(big.NewInt(int64(i.OutputIndex))),
-		},
+		data.NewByteString(i.TxId.Bytes()),
+		data.NewInteger(big.NewInt(int64(i.OutputIndex))),
 	)
 }
 

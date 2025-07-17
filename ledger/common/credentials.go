@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 	"golang.org/x/crypto/blake2b"
 )
@@ -76,4 +77,20 @@ func (c *Credential) Utxorpc() (*utxorpc.StakeCredential, error) {
 		}
 	}
 	return ret, nil
+}
+
+func (c *Credential) ToPlutusData() data.PlutusData {
+	switch c.CredType {
+	case CredentialTypeAddrKeyHash:
+		return data.NewConstr(
+			0,
+			data.NewByteString(c.Credential.Bytes()),
+		)
+	case CredentialTypeScriptHash:
+		return data.NewConstr(
+			1,
+			data.NewByteString(c.Credential.Bytes()),
+		)
+	}
+	return nil
 }

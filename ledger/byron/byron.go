@@ -383,10 +383,8 @@ func (i ByronTransactionInput) ToPlutusData() data.PlutusData {
 	// This will never actually get called, but it's identical to Shelley
 	return data.NewConstr(
 		0,
-		[]data.PlutusData{
-			data.NewByteString(i.TxId.Bytes()),
-			data.NewInteger(big.NewInt(int64(i.OutputIndex))),
-		},
+		data.NewByteString(i.TxId.Bytes()),
+		data.NewInteger(big.NewInt(int64(i.OutputIndex))),
 	)
 }
 
