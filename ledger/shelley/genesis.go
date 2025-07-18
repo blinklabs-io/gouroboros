@@ -18,7 +18,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"math/big"
 	"os"
@@ -235,47 +234,40 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 
 // InitialPools returns all pools and their delegators from the genesis data
 func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCertificate, map[string][]common.Address, error) {
-
 	pools := make(map[string]common.PoolRegistrationCertificate)
 	poolStake := make(map[string][]common.Address)
 
-	// Check for empty staking data
 	if reflect.DeepEqual(g.Staking, GenesisStaking{}) {
 		return pools, poolStake, nil
 	}
 
-	// Process stake delegations first
 	for stakeAddr, poolId := range g.Staking.Stake {
-		// Validate stake address format
 		if len(stakeAddr) != 56 {
-			return nil, nil, fmt.Errorf("invalid stake address length: %d (expected 56 hex chars)", len(stakeAddr))
+			return nil, nil, errors.New("invalid stake address length")
 		}
 
 		stakeKeyBytes, err := hex.DecodeString(stakeAddr)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decode stake key %s: %w", stakeAddr, err)
+			return nil, nil, errors.New("failed to decode stake key")
 		}
 
-		// Create stake address
 		stakeAddrBytes := append([]byte{0xE1}, stakeKeyBytes...)
 		addr, err := common.NewAddressFromBytes(stakeAddrBytes)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create stake address: %w", err)
+			return nil, nil, errors.New("failed to create stake address")
 		}
 
 		poolStake[poolId] = append(poolStake[poolId], addr)
 	}
 
-	// Process pools
 	for poolId, pool := range g.Staking.Pools {
-		// Validate pool ID format
 		if len(poolId) != 56 {
-			return nil, nil, fmt.Errorf("invalid pool ID length: %d (expected 56 hex chars)", len(poolId))
+			return nil, nil, errors.New("invalid pool ID length")
 		}
 
 		operatorBytes, err := hex.DecodeString(poolId)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decode pool operator key: %w", err)
+			return nil, nil, errors.New("failed to decode pool operator key")
 		}
 
 		pools[poolId] = common.PoolRegistrationCertificate{
@@ -296,7 +288,6 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 
 // PoolById returns a specific pool by its ID along with its delegators
 func (g *ShelleyGenesis) PoolById(poolId string) (*common.PoolRegistrationCertificate, []common.Address, error) {
-	// Validate input
 	if len(poolId) != 56 {
 		return nil, nil, errors.New("invalid pool ID length")
 	}
@@ -306,7 +297,6 @@ func (g *ShelleyGenesis) PoolById(poolId string) (*common.PoolRegistrationCertif
 		return nil, nil, errors.New("pool not found")
 	}
 
-	// Decode pool operator key
 	operatorBytes, err := hex.DecodeString(poolId)
 	if err != nil {
 		return nil, nil, errors.New("failed to decode pool operator key")
@@ -334,7 +324,6 @@ func (g *ShelleyGenesis) PoolById(poolId string) (*common.PoolRegistrationCertif
 		}
 	}
 
-	// Return pool with delegators
 	return &common.PoolRegistrationCertificate{
 		Operator:      common.Blake2b224(operatorBytes),
 		VrfKeyHash:    pool.VrfKeyHash,
