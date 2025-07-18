@@ -17,10 +17,12 @@ package common
 import (
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 )
 
 func TestAssetFingerprint(t *testing.T) {
@@ -241,6 +243,20 @@ func TestBlake2b224_String(t *testing.T) {
 	// Verify if String() gives the correct hex-encoded string
 	if hash.String() != expected {
 		t.Errorf("expected %s but got %s", expected, hash.String())
+	}
+}
+
+func TestBlake2b224_ToPlutusData(t *testing.T) {
+	testData := []byte("blinklabs")
+	hash := Blake2b224Hash(testData)
+	expectedHash, err := hex.DecodeString("d33ef286551f50d455cfeb68b45b02622fb05ef21cfd1aabd0d7880c")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	expectedPd := data.NewByteString(expectedHash)
+	tmpPd := hash.ToPlutusData()
+	if !reflect.DeepEqual(tmpPd, expectedPd) {
+		t.Fatalf("did not get expected PlutusData:     got: %#v\n  wanted: %#v", tmpPd, expectedPd)
 	}
 }
 
