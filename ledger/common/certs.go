@@ -392,51 +392,100 @@ type PoolRegistrationCertificate struct {
 
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	type Alias PoolRegistrationCertificate
+
+	// Temporary struct for initial unmarshaling
 	aux := &struct {
-		Margin        interface{} `json:"margin"`
-		RewardAccount struct {
-			Credential struct {
-				KeyHash string `json:"key hash"`
-			} `json:"credential"`
-			Network string `json:"network"`
-		} `json:"rewardAccount"`
+		Operator      string          `json:"operator"`
+		VrfKeyHash    string          `json:"vrfKeyHash"`
+		Pledge        uint64          `json:"pledge"`
+		Cost          uint64          `json:"cost"`
+		Margin        json.RawMessage `json:"margin"`
+		RewardAccount json.RawMessage `json:"rewardAccount"`
+		PoolOwners    []string        `json:"poolOwners"`
+		Relays        []PoolRelay     `json:"relays"`
+		PoolMetadata  *PoolMetadata   `json:"poolMetadata,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(p),
 	}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
+	if err := json.Unmarshal(data, aux); err != nil {
+		return fmt.Errorf("failed to unmarshal pool registration: %w", err)
 	}
 
+	p.Cost = aux.Cost
+
 	// Handle margin field
-	switch v := aux.Margin.(type) {
-	case float64:
-		p.Margin.Rat = new(big.Rat).SetFloat64(v)
-	case []interface{}:
-		if len(v) == 2 {
-			if num, ok := v[0].(float64); ok {
-				if den, ok := v[1].(float64); ok {
-					p.Margin.Rat = new(big.Rat).SetFrac64(int64(num), int64(den))
+	if len(aux.Margin) > 0 {
+		var marginValue interface{}
+		if err := json.Unmarshal(aux.Margin, &marginValue); err != nil {
+			return fmt.Errorf("failed to unmarshal margin: %w", err)
+		}
+
+		switch v := marginValue.(type) {
+		case float64:
+			p.Margin.Rat = new(big.Rat).SetFloat64(v)
+		case []interface{}:
+			if len(v) == 2 {
+				if num, ok := v[0].(float64); ok {
+					if den, ok := v[1].(float64); ok && den != 0 {
+						p.Margin.Rat = new(big.Rat).SetFrac64(int64(num), int64(den))
+					}
 				}
 			}
 		}
-	default:
-		p.Margin.Rat = new(big.Rat).SetInt64(0)
 	}
 
 	// Handle reward account
-	if aux.RewardAccount.Credential.KeyHash != "" {
-		hashBytes, err := hex.DecodeString(aux.RewardAccount.Credential.KeyHash)
+	if len(aux.RewardAccount) > 0 {
+		var rewardAccount struct {
+			Credential struct {
+				KeyHash string `json:"key hash"`
+			} `json:"credential"`
+		}
+		if err := json.Unmarshal(aux.RewardAccount, &rewardAccount); err != nil {
+			return fmt.Errorf("failed to unmarshal reward account: %w", err)
+		}
+
+		if rewardAccount.Credential.KeyHash != "" {
+			hashBytes, err := hex.DecodeString(rewardAccount.Credential.KeyHash)
+			if err != nil {
+				return fmt.Errorf("failed to decode reward account key hash: %w", err)
+			}
+			var hash Blake2b224
+			copy(hash[:], hashBytes)
+			p.RewardAccount = AddrKeyHash(hash)
+		}
+	}
+
+	// Convert string fields to binary types
+	if aux.Operator != "" {
+		opBytes, err := hex.DecodeString(aux.Operator)
 		if err != nil {
-			return fmt.Errorf("failed to decode reward account key hash: %w", err)
+			return fmt.Errorf("invalid operator key: %w", err)
 		}
-		if len(hashBytes) != 28 {
-			return fmt.Errorf("invalid key hash length: expected 28, got %d", len(hashBytes))
+		p.Operator = PoolKeyHash(Blake2b224(opBytes))
+	}
+
+	if aux.VrfKeyHash != "" {
+		vrfBytes, err := hex.DecodeString(aux.VrfKeyHash)
+		if err != nil {
+			return fmt.Errorf("invalid VRF key hash: %w", err)
 		}
-		var hash Blake2b224
-		copy(hash[:], hashBytes)
-		p.RewardAccount = hash
+		p.VrfKeyHash = VrfKeyHash(Blake2b256(vrfBytes))
+	}
+
+	// Convert pool owners
+	if len(aux.PoolOwners) > 0 {
+		owners := make([]AddrKeyHash, len(aux.PoolOwners))
+		for i, owner := range aux.PoolOwners {
+			ownerBytes, err := hex.DecodeString(owner)
+			if err != nil {
+				return fmt.Errorf("invalid pool owner key: %w", err)
+			}
+			owners[i] = AddrKeyHash(Blake2b224(ownerBytes))
+		}
+		p.PoolOwners = owners
 	}
 
 	return nil
