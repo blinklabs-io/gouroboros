@@ -15,8 +15,11 @@
 package common
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -373,18 +376,128 @@ func (p *PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 }
 
 type PoolRegistrationCertificate struct {
-	cbor.StructAsArray
-	cbor.DecodeStoreCbor
-	CertType      uint
-	Operator      PoolKeyHash
-	VrfKeyHash    VrfKeyHash
-	Pledge        uint64
-	Cost          uint64
-	Margin        cbor.Rat
-	RewardAccount AddrKeyHash
-	PoolOwners    []AddrKeyHash
-	Relays        []PoolRelay
-	PoolMetadata  *PoolMetadata
+	cbor.StructAsArray   `json:"-"`
+	cbor.DecodeStoreCbor `json:"-"`
+	CertType             uint          `json:"certType,omitempty"`
+	Operator             PoolKeyHash   `json:"operator"`
+	VrfKeyHash           VrfKeyHash    `json:"vrfKeyHash"`
+	Pledge               uint64        `json:"pledge"`
+	Cost                 uint64        `json:"cost"`
+	Margin               cbor.Rat      `json:"margin"`
+	RewardAccount        AddrKeyHash   `json:"rewardAccount"`
+	PoolOwners           []AddrKeyHash `json:"poolOwners"`
+	Relays               []PoolRelay   `json:"relays"`
+	PoolMetadata         *PoolMetadata `json:"poolMetadata,omitempty"`
+}
+
+func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
+	type Alias PoolRegistrationCertificate
+
+	aux := &struct {
+		Operator      string          `json:"operator"`
+		VrfKeyHash    string          `json:"vrfKeyHash"`
+		Pledge        uint64          `json:"pledge"`
+		Cost          uint64          `json:"cost"`
+		Margin        json.RawMessage `json:"margin"`
+		RewardAccount json.RawMessage `json:"rewardAccount"`
+		PoolOwners    []string        `json:"poolOwners"`
+		Relays        []PoolRelay     `json:"relays"`
+		PoolMetadata  *PoolMetadata   `json:"poolMetadata,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(p),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return fmt.Errorf("failed to unmarshal pool registration: %w", err)
+	}
+
+	p.Pledge = aux.Pledge
+	p.Cost = aux.Cost
+	p.Relays = aux.Relays
+	p.PoolMetadata = aux.PoolMetadata
+
+	// Handle margin field
+	if len(aux.Margin) > 0 {
+		var marginValue interface{}
+		if err := json.Unmarshal(aux.Margin, &marginValue); err != nil {
+			return fmt.Errorf("failed to unmarshal margin: %w", err)
+		}
+
+		switch v := marginValue.(type) {
+		case float64:
+			p.Margin.Rat = new(big.Rat).SetFloat64(v)
+		case []interface{}:
+			if len(v) == 2 {
+				if num, ok := v[0].(float64); ok {
+					if den, ok := v[1].(float64); ok && den != 0 {
+						p.Margin.Rat = new(big.Rat).SetFrac64(int64(num), int64(den))
+					}
+				}
+			}
+		}
+	}
+
+	// Handle reward account
+	if len(aux.RewardAccount) > 0 {
+		type credential struct {
+			KeyHash string `json:"key hash"`
+		}
+		type rewardAccount struct {
+			Credential credential `json:"credential"`
+			Network    string     `json:"network,omitempty"`
+		}
+
+		var ra rewardAccount
+		if err := json.Unmarshal(aux.RewardAccount, &ra); err != nil {
+			return fmt.Errorf("failed to unmarshal reward account: %w", err)
+		}
+
+		if ra.Credential.KeyHash != "" {
+			hashBytes, err := hex.DecodeString(ra.Credential.KeyHash)
+			if err != nil {
+				return fmt.Errorf("failed to decode reward account key hash: %w", err)
+			}
+			if len(hashBytes) != 28 {
+				return fmt.Errorf("invalid key hash length: expected 28, got %d", len(hashBytes))
+			}
+			var hash Blake2b224
+			copy(hash[:], hashBytes)
+			p.RewardAccount = AddrKeyHash(hash)
+		}
+	}
+
+	// Convert string fields to binary types
+	if aux.Operator != "" {
+		opBytes, err := hex.DecodeString(aux.Operator)
+		if err != nil {
+			return fmt.Errorf("invalid operator key: %w", err)
+		}
+		p.Operator = PoolKeyHash(Blake2b224(opBytes))
+	}
+
+	if aux.VrfKeyHash != "" {
+		vrfBytes, err := hex.DecodeString(aux.VrfKeyHash)
+		if err != nil {
+			return fmt.Errorf("invalid VRF key hash: %w", err)
+		}
+		p.VrfKeyHash = VrfKeyHash(Blake2b256(vrfBytes))
+	}
+
+	// Convert pool owners
+	if len(aux.PoolOwners) > 0 {
+		owners := make([]AddrKeyHash, len(aux.PoolOwners))
+		for i, owner := range aux.PoolOwners {
+			ownerBytes, err := hex.DecodeString(owner)
+			if err != nil {
+				return fmt.Errorf("invalid pool owner key: %w", err)
+			}
+			owners[i] = AddrKeyHash(Blake2b224(ownerBytes))
+		}
+		p.PoolOwners = owners
+	}
+
+	return nil
 }
 
 func (c PoolRegistrationCertificate) isCertificate() {}

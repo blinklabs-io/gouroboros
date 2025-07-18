@@ -15,6 +15,7 @@
 package shelley_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"reflect"
@@ -249,4 +250,135 @@ func TestGenesisUtxos(t *testing.T) {
 			testAmount,
 		)
 	}
+}
+
+func TestGenesisStaking(t *testing.T) {
+	const testGenesis = `{
+        "systemStart": "2017-09-23T21:44:51Z",
+        "networkMagic": 764824073,
+        "staking": {
+            "pools": {
+                "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195": {
+                    "cost": 340000000,
+                    "margin": 0.0,
+                    "pledge": 0,
+                    "publicKey": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195",
+                    "vrf": "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e",
+                    "rewardAccount": {
+                        "credential": {
+                            "key hash": "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+                        },
+                        "network": "Testnet"
+                    }
+                }
+            },
+            "stake": {
+                "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+            }
+        },
+        "protocolParams": {
+            "minFeeA": 44,
+            "minFeeB": 155381,
+            "maxBlockBodySize": 65536,
+            "maxTxSize": 16384,
+            "maxBlockHeaderSize": 1100,
+            "keyDeposit": 2000000,
+            "poolDeposit": 500000000
+        }
+    }`
+
+	t.Run("TestInitialPools", func(t *testing.T) {
+		genesis, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(testGenesis))
+		if err != nil {
+			t.Fatalf("Genesis parsing failed: %v", err)
+		}
+
+		pools, delegators, err := genesis.InitialPools()
+		if err != nil {
+			t.Fatalf("InitialPools failed: %v", err)
+		}
+
+		expectedPoolId := "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		expectedStakeKey := "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
+
+		// Test pool count
+		if len(pools) != 1 {
+			t.Errorf("Expected 1 pool, got %d", len(pools))
+		}
+
+		// Test pool data
+		pool, exists := pools[expectedPoolId]
+		if !exists {
+			t.Fatal("Expected pool not found")
+		}
+
+		if pool.Cost != 340000000 {
+			t.Errorf("Expected pool cost 340000000, got %d", pool.Cost)
+		}
+
+		// Test delegators
+		if len(delegators) != 1 {
+			t.Errorf("Expected 1 delegator mapping, got %d", len(delegators))
+		}
+
+		delegs := delegators[expectedPoolId]
+		if len(delegs) != 1 {
+			t.Errorf("Expected 1 delegator, got %d", len(delegs))
+		} else {
+			// Extract stake key from address
+			addrBytes, _ := delegs[0].Bytes()
+			if len(addrBytes) != 29 || addrBytes[0] != 0xE1 {
+				t.Error("Delegator address is not in expected stake address format")
+			} else {
+				stakeKey := hex.EncodeToString(addrBytes[1:])
+				if stakeKey != expectedStakeKey {
+					t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
+						expectedStakeKey, stakeKey)
+				}
+			}
+		}
+	})
+
+	t.Run("TestPoolById", func(t *testing.T) {
+		genesis, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(testGenesis))
+		if err != nil {
+			t.Fatalf("Genesis parsing failed: %v", err)
+		}
+
+		expectedPoolId := "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		expectedStakeKey := "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
+
+		pool, delegators, err := genesis.PoolById(expectedPoolId)
+		if err != nil {
+			t.Fatalf("PoolById failed: %v", err)
+		}
+
+		// Test pool data
+		if pool.Cost != 340000000 {
+			t.Errorf("Expected pool cost 340000000, got %d", pool.Cost)
+		}
+
+		// Test delegators
+		if len(delegators) != 1 {
+			t.Errorf("Expected 1 delegator, got %d", len(delegators))
+		} else {
+			// Extract stake key from address
+			addrBytes, _ := delegators[0].Bytes()
+			if len(addrBytes) != 29 || addrBytes[0] != 0xE1 {
+				t.Error("Delegator address is not in expected stake address format")
+			} else {
+				stakeKey := hex.EncodeToString(addrBytes[1:])
+				if stakeKey != expectedStakeKey {
+					t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
+						expectedStakeKey, stakeKey)
+				}
+			}
+		}
+
+		// Test non-existent pool
+		_, _, err = genesis.PoolById("nonexistentpoolid")
+		if err == nil {
+			t.Error("Expected error for non-existent pool, got nil")
+		}
+	})
 }
