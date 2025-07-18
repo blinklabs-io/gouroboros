@@ -15,8 +15,11 @@
 package common
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -385,6 +388,58 @@ type PoolRegistrationCertificate struct {
 	PoolOwners    []AddrKeyHash
 	Relays        []PoolRelay
 	PoolMetadata  *PoolMetadata
+}
+
+func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
+	type Alias PoolRegistrationCertificate
+	aux := &struct {
+		Margin        interface{} `json:"margin"`
+		RewardAccount struct {
+			Credential struct {
+				KeyHash string `json:"key hash"`
+			} `json:"credential"`
+			Network string `json:"network"`
+		} `json:"rewardAccount"`
+		*Alias
+	}{
+		Alias: (*Alias)(p),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle margin field
+	switch v := aux.Margin.(type) {
+	case float64:
+		p.Margin.Rat = new(big.Rat).SetFloat64(v)
+	case []interface{}:
+		if len(v) == 2 {
+			if num, ok := v[0].(float64); ok {
+				if den, ok := v[1].(float64); ok {
+					p.Margin.Rat = new(big.Rat).SetFrac64(int64(num), int64(den))
+				}
+			}
+		}
+	default:
+		p.Margin.Rat = new(big.Rat).SetInt64(0)
+	}
+
+	// Handle reward account
+	if aux.RewardAccount.Credential.KeyHash != "" {
+		hashBytes, err := hex.DecodeString(aux.RewardAccount.Credential.KeyHash)
+		if err != nil {
+			return fmt.Errorf("failed to decode reward account key hash: %w", err)
+		}
+		if len(hashBytes) != 28 {
+			return fmt.Errorf("invalid key hash length: expected 28, got %d", len(hashBytes))
+		}
+		var hash Blake2b224
+		copy(hash[:], hashBytes)
+		p.RewardAccount = hash
+	}
+
+	return nil
 }
 
 func (c PoolRegistrationCertificate) isCertificate() {}

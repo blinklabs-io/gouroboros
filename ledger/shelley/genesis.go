@@ -18,9 +18,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -47,36 +49,8 @@ type ShelleyGenesis struct {
 }
 
 type GenesisStaking struct {
-	Pools map[string]GenesisPool `json:"pools"`
-	Stake map[string]string      `json:"stake"`
-}
-
-type GenesisPool struct {
-	Cost          int64          `json:"cost"`
-	Margin        float64        `json:"margin"`
-	Metadata      interface{}    `json:"metadata"`
-	Owners        []string       `json:"owners"`
-	Pledge        int64          `json:"pledge"`
-	PublicKey     string         `json:"publicKey"`
-	Relays        []GenesisRelay `json:"relays"`
-	RewardAccount GenesisReward  `json:"rewardAccount"`
-	Vrf           string         `json:"vrf"`
-}
-
-type GenesisRelay struct {
-	SingleHostName *SingleHostName `json:"single host name,omitempty"`
-}
-
-type SingleHostName struct {
-	DNSName string `json:"dnsName"`
-	Port    int    `json:"port"`
-}
-
-type GenesisReward struct {
-	Credential struct {
-		KeyHash string `json:"key hash"`
-	} `json:"credential"`
-	Network string `json:"network"`
+	Pools map[string]common.PoolRegistrationCertificate `json:"pools"`
+	Stake map[string]string                             `json:"stake"`
 }
 
 func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
@@ -107,27 +81,21 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		vrfBytes, err := hex.DecodeString(pool.Vrf)
-		if err != nil {
-			return nil, err
-		}
-		rewardAccountBytes, err := hex.DecodeString(pool.RewardAccount.Credential.KeyHash)
-		if err != nil {
-			return nil, err
-		}
+		vrfBytes := pool.VrfKeyHash.Bytes()
+		rewardAccountBytes := pool.RewardAccount.Bytes()
 		cborPools[cbor.NewByteString(poolIdBytes)] = []any{
 			pool.Cost,
 			pool.Margin,
 			pool.Pledge,
-			pool.PublicKey,
+			pool.Operator.Bytes(),
 			[]any{
 				[]byte{0},
 				rewardAccountBytes,
 			},
-			pool.Owners,
-			pool.Relays,
+			convertAddrKeyHashesToBytes(pool.PoolOwners),
+			convertPoolRelays(pool.Relays),
 			vrfBytes,
-			pool.Metadata,
+			pool.PoolMetadata,
 		}
 	}
 
@@ -176,6 +144,67 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpData)
 }
 
+func convertAddrKeyHashesToBytes(hashes []common.AddrKeyHash) [][]byte {
+	result := make([][]byte, len(hashes))
+	for i, h := range hashes {
+		result[i] = h.Bytes()
+	}
+	return result
+}
+
+func convertPoolRelays(relays []common.PoolRelay) []any {
+	result := make([]any, len(relays))
+	for i, relay := range relays {
+		switch relay.Type {
+		case 0: // SingleHostAddr
+			var ipv4, ipv6 []byte
+			var port uint32
+			if relay.Ipv4 != nil {
+				ipv4 = relay.Ipv4.To4()
+			}
+			if relay.Ipv6 != nil {
+				ipv6 = relay.Ipv6.To16()
+			}
+			if relay.Port != nil {
+				port = *relay.Port
+			}
+			result[i] = map[string]any{
+				"single host addr": []any{
+					ipv4,
+					ipv6,
+					port,
+				},
+			}
+		case 1: // SingleHostName
+			var hostname string
+			var port uint32
+			if relay.Hostname != nil {
+				hostname = *relay.Hostname
+			}
+			if relay.Port != nil {
+				port = *relay.Port
+			}
+			result[i] = map[string]any{
+				"single host name": []any{
+					hostname,
+					port,
+				},
+			}
+		case 2: // MultiHostName
+			var hostname string
+			if relay.Hostname != nil {
+				hostname = *relay.Hostname
+			}
+			result[i] = map[string]any{
+				"multi host name": hostname,
+			}
+		default:
+			result[i] = nil
+		}
+	}
+	return result
+}
+
 func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 	ret := []common.Utxo{}
 	for address, amount := range g.InitialFunds {
@@ -204,30 +233,119 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 	return ret, nil
 }
 
-// GetInitialPools returns all initial stake pools with their delegators
-func (g *ShelleyGenesis) GetInitialPools() (map[string]GenesisPool, map[string][]string, error) {
-	poolStake := make(map[string][]string)
-	for stakeAddr, poolId := range g.Staking.Stake {
-		poolStake[poolId] = append(poolStake[poolId], stakeAddr)
+// InitialPools returns all pools and their delegators from the genesis data
+func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCertificate, map[string][]common.Address, error) {
+
+	pools := make(map[string]common.PoolRegistrationCertificate)
+	poolStake := make(map[string][]common.Address)
+
+	// Check for empty staking data
+	if reflect.DeepEqual(g.Staking, GenesisStaking{}) {
+		return pools, poolStake, nil
 	}
-	return g.Staking.Pools, poolStake, nil
+
+	// Process stake delegations first
+	for stakeAddr, poolId := range g.Staking.Stake {
+		// Validate stake address format
+		if len(stakeAddr) != 56 {
+			return nil, nil, fmt.Errorf("invalid stake address length: %d (expected 56 hex chars)", len(stakeAddr))
+		}
+
+		stakeKeyBytes, err := hex.DecodeString(stakeAddr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to decode stake key %s: %w", stakeAddr, err)
+		}
+
+		// Create stake address
+		stakeAddrBytes := append([]byte{0xE1}, stakeKeyBytes...)
+		addr, err := common.NewAddressFromBytes(stakeAddrBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create stake address: %w", err)
+		}
+
+		poolStake[poolId] = append(poolStake[poolId], addr)
+	}
+
+	// Process pools
+	for poolId, pool := range g.Staking.Pools {
+		// Validate pool ID format
+		if len(poolId) != 56 {
+			return nil, nil, fmt.Errorf("invalid pool ID length: %d (expected 56 hex chars)", len(poolId))
+		}
+
+		operatorBytes, err := hex.DecodeString(poolId)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to decode pool operator key: %w", err)
+		}
+
+		pools[poolId] = common.PoolRegistrationCertificate{
+			Operator:      common.Blake2b224(operatorBytes),
+			VrfKeyHash:    pool.VrfKeyHash,
+			Pledge:        pool.Pledge,
+			Cost:          pool.Cost,
+			Margin:        pool.Margin,
+			RewardAccount: pool.RewardAccount,
+			PoolOwners:    pool.PoolOwners,
+			Relays:        pool.Relays,
+			PoolMetadata:  pool.PoolMetadata,
+		}
+	}
+
+	return pools, poolStake, nil
 }
 
-// GetPoolById returns a specific pool by its ID along with its delegators
-func (g *ShelleyGenesis) GetPoolById(poolId string) (*GenesisPool, []string, error) {
+// PoolById returns a specific pool by its ID along with its delegators
+func (g *ShelleyGenesis) PoolById(poolId string) (*common.PoolRegistrationCertificate, []common.Address, error) {
+	// Validate input
+	if len(poolId) != 56 {
+		return nil, nil, errors.New("invalid pool ID length")
+	}
+
 	pool, exists := g.Staking.Pools[poolId]
 	if !exists {
 		return nil, nil, errors.New("pool not found")
 	}
 
-	var delegators []string
+	// Decode pool operator key
+	operatorBytes, err := hex.DecodeString(poolId)
+	if err != nil {
+		return nil, nil, errors.New("failed to decode pool operator key")
+	}
+
+	var delegators []common.Address
 	for stakeAddr, pId := range g.Staking.Stake {
 		if pId == poolId {
-			delegators = append(delegators, stakeAddr)
+			if len(stakeAddr) != 56 {
+				return nil, nil, errors.New("invalid stake address length")
+			}
+
+			stakeKeyBytes, err := hex.DecodeString(stakeAddr)
+			if err != nil {
+				return nil, nil, errors.New("failed to decode stake key")
+			}
+
+			stakeAddrBytes := append([]byte{0xE1}, stakeKeyBytes...)
+			addr, err := common.NewAddressFromBytes(stakeAddrBytes)
+			if err != nil {
+				return nil, nil, errors.New("failed to create stake address")
+			}
+
+			delegators = append(delegators, addr)
 		}
 	}
 
-	return &pool, delegators, nil
+	// Return pool with delegators
+	return &common.PoolRegistrationCertificate{
+		Operator:      common.Blake2b224(operatorBytes),
+		VrfKeyHash:    pool.VrfKeyHash,
+		Pledge:        pool.Pledge,
+		Cost:          pool.Cost,
+		Margin:        pool.Margin,
+		RewardAccount: pool.RewardAccount,
+		PoolOwners:    pool.PoolOwners,
+		Relays:        pool.Relays,
+		PoolMetadata:  pool.PoolMetadata,
+	}, delegators, nil
 }
 
 type ShelleyGenesisProtocolParams struct {
