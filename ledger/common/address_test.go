@@ -15,9 +15,11 @@
 package common
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -320,6 +322,58 @@ func TestAddressNetworkId(t *testing.T) {
 				addr.NetworkId(),
 				testDef.expectedNetworkId,
 			)
+		}
+	}
+}
+
+func TestAddressToPlutusData(t *testing.T) {
+	testDefs := []struct {
+		address      string
+		expectedData data.PlutusData
+	}{
+		// Payment-only address
+		// This was adapted from the Aiken tests
+		{
+			address: "addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6",
+			expectedData: data.NewConstr(
+				0,
+				data.NewConstr(
+					0,
+					data.NewConstr(
+						0,
+						data.NewByteString(
+							[]byte{
+								0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+							},
+						),
+					),
+				),
+				data.NewConstr(
+					1,
+				),
+			),
+		},
+		/*
+			{
+				address: "addr1qyln2c2cx5jc4hw768pwz60n5245462dvp4auqcw09rl2xz07huw84puu6cea3qe0ce3apks7hjckqkh5ad4uax0l9ws0q9xty",
+			},
+			{
+				address: "addr1wysmmrpwphe0h6fpxlmcmw46frmzxz89yvpsf8cdv29kcnqsw3vw6",
+			},
+			// Script address with script staking key
+			{
+				address: "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta",
+			},
+		*/
+	}
+	for _, testDef := range testDefs {
+		tmpAddr, err := NewAddress(testDef.address)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		tmpPd := tmpAddr.ToPlutusData()
+		if !reflect.DeepEqual(tmpPd, testDef.expectedData) {
+			t.Errorf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpPd, testDef.expectedData)
 		}
 	}
 }

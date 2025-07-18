@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 	"github.com/btcsuite/btcd/btcutil/base58"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"golang.org/x/crypto/sha3"
@@ -283,6 +284,69 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 		return nil, fmt.Errorf("failed to get address bytes: %w", err)
 	}
 	return cbor.Encode(addrBytes)
+}
+
+func (a *Address) ToPlutusData() data.PlutusData {
+	if a.addressType == AddressTypeByron {
+		// There is no PlutusData representation for Byron addresses
+		return nil
+	}
+	// Build payment part
+	var paymentPd data.PlutusData
+	switch a.addressType {
+	case AddressTypeKeyKey, AddressTypeKeyScript, AddressTypeKeyPointer, AddressTypeKeyNone:
+		tmpCred := &Credential{
+			CredType:   CredentialTypeAddrKeyHash,
+			Credential: NewBlake2b224(a.paymentAddress),
+		}
+		paymentPd = data.NewConstr(
+			0,
+			tmpCred.ToPlutusData(),
+		)
+	case AddressTypeScriptKey, AddressTypeScriptScript, AddressTypeScriptPointer, AddressTypeScriptNone:
+		tmpCred := &Credential{
+			CredType:   CredentialTypeScriptHash,
+			Credential: NewBlake2b224(a.paymentAddress),
+		}
+		paymentPd = data.NewConstr(
+			1,
+			tmpCred.ToPlutusData(),
+		)
+	default:
+		return nil
+	}
+	// Build stake part
+	var stakePd data.PlutusData
+	switch a.addressType {
+	case AddressTypeKeyKey, AddressTypeScriptKey, AddressTypeNoneKey:
+		tmpCred := &Credential{
+			CredType:   CredentialTypeAddrKeyHash,
+			Credential: NewBlake2b224(a.stakingAddress),
+		}
+		stakePd = data.NewConstr(
+			0,
+			tmpCred.ToPlutusData(),
+		)
+	case AddressTypeKeyScript, AddressTypeScriptScript, AddressTypeNoneScript:
+		tmpCred := &Credential{
+			CredType:   CredentialTypeScriptHash,
+			Credential: NewBlake2b224(a.stakingAddress),
+		}
+		stakePd = data.NewConstr(
+			0,
+			tmpCred.ToPlutusData(),
+		)
+	case AddressTypeKeyNone, AddressTypeScriptNone:
+		stakePd = data.NewConstr(1)
+	// TODO: add support for pointer addresses once we add it to Address
+	default:
+		return nil
+	}
+	return data.NewConstr(
+		0,
+		paymentPd,
+		stakePd,
+	)
 }
 
 func (a Address) NetworkId() uint {
