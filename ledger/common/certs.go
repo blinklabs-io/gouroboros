@@ -393,7 +393,6 @@ type PoolRegistrationCertificate struct {
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	type Alias PoolRegistrationCertificate
 
-	// Temporary struct for initial unmarshaling
 	aux := &struct {
 		Operator      string          `json:"operator"`
 		VrfKeyHash    string          `json:"vrfKeyHash"`
@@ -413,7 +412,10 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("failed to unmarshal pool registration: %w", err)
 	}
 
+	p.Pledge = aux.Pledge
 	p.Cost = aux.Cost
+	p.Relays = aux.Relays
+	p.PoolMetadata = aux.PoolMetadata
 
 	// Handle margin field
 	if len(aux.Margin) > 0 {
@@ -438,19 +440,26 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 
 	// Handle reward account
 	if len(aux.RewardAccount) > 0 {
-		var rewardAccount struct {
-			Credential struct {
-				KeyHash string `json:"key hash"`
-			} `json:"credential"`
+		type credential struct {
+			KeyHash string `json:"key hash"`
 		}
-		if err := json.Unmarshal(aux.RewardAccount, &rewardAccount); err != nil {
+		type rewardAccount struct {
+			Credential credential `json:"credential"`
+			Network    string     `json:"network,omitempty"`
+		}
+
+		var ra rewardAccount
+		if err := json.Unmarshal(aux.RewardAccount, &ra); err != nil {
 			return fmt.Errorf("failed to unmarshal reward account: %w", err)
 		}
 
-		if rewardAccount.Credential.KeyHash != "" {
-			hashBytes, err := hex.DecodeString(rewardAccount.Credential.KeyHash)
+		if ra.Credential.KeyHash != "" {
+			hashBytes, err := hex.DecodeString(ra.Credential.KeyHash)
 			if err != nil {
 				return fmt.Errorf("failed to decode reward account key hash: %w", err)
+			}
+			if len(hashBytes) != 28 {
+				return fmt.Errorf("invalid key hash length: expected 28, got %d", len(hashBytes))
 			}
 			var hash Blake2b224
 			copy(hash[:], hashBytes)
