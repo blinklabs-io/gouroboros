@@ -376,18 +376,18 @@ func (p *PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 }
 
 type PoolRegistrationCertificate struct {
-	cbor.StructAsArray
-	cbor.DecodeStoreCbor
-	CertType      uint
-	Operator      PoolKeyHash
-	VrfKeyHash    VrfKeyHash
-	Pledge        uint64
-	Cost          uint64
-	Margin        cbor.Rat
-	RewardAccount AddrKeyHash
-	PoolOwners    []AddrKeyHash
-	Relays        []PoolRelay
-	PoolMetadata  *PoolMetadata
+	cbor.StructAsArray   `json:"-"`
+	cbor.DecodeStoreCbor `json:"-"`
+	CertType             uint          `json:"certType,omitempty"`
+	Operator             PoolKeyHash   `json:"operator"`
+	VrfKeyHash           VrfKeyHash    `json:"vrfKeyHash"`
+	Pledge               uint64        `json:"pledge"`
+	Cost                 uint64        `json:"cost"`
+	Margin               cbor.Rat      `json:"margin"`
+	RewardAccount        AddrKeyHash   `json:"rewardAccount"`
+	PoolOwners           []AddrKeyHash `json:"poolOwners"`
+	Relays               []PoolRelay   `json:"relays"`
+	PoolMetadata         *PoolMetadata `json:"poolMetadata,omitempty"`
 }
 
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
