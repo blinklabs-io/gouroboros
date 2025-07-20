@@ -391,9 +391,7 @@ type PoolRegistrationCertificate struct {
 }
 
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
-	type Alias PoolRegistrationCertificate
-
-	aux := &struct {
+	type tempPool struct {
 		Operator      string          `json:"operator"`
 		VrfKeyHash    string          `json:"vrfKeyHash"`
 		Pledge        uint64          `json:"pledge"`
@@ -403,24 +401,22 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		PoolOwners    []string        `json:"poolOwners"`
 		Relays        []PoolRelay     `json:"relays"`
 		PoolMetadata  *PoolMetadata   `json:"poolMetadata,omitempty"`
-		*Alias
-	}{
-		Alias: (*Alias)(p),
 	}
 
-	if err := json.Unmarshal(data, aux); err != nil {
+	var tmp tempPool
+	if err := json.Unmarshal(data, &tmp); err != nil {
 		return fmt.Errorf("failed to unmarshal pool registration: %w", err)
 	}
 
-	p.Pledge = aux.Pledge
-	p.Cost = aux.Cost
-	p.Relays = aux.Relays
-	p.PoolMetadata = aux.PoolMetadata
+	p.Pledge = tmp.Pledge
+	p.Cost = tmp.Cost
+	p.Relays = tmp.Relays
+	p.PoolMetadata = tmp.PoolMetadata
 
 	// Handle margin field
-	if len(aux.Margin) > 0 {
+	if len(tmp.Margin) > 0 {
 		var marginValue interface{}
-		if err := json.Unmarshal(aux.Margin, &marginValue); err != nil {
+		if err := json.Unmarshal(tmp.Margin, &marginValue); err != nil {
 			return fmt.Errorf("failed to unmarshal margin: %w", err)
 		}
 
@@ -439,17 +435,16 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Handle reward account
-	if len(aux.RewardAccount) > 0 {
+	if len(tmp.RewardAccount) > 0 {
 		type credential struct {
 			KeyHash string `json:"key hash"`
 		}
 		type rewardAccount struct {
 			Credential credential `json:"credential"`
-			Network    string     `json:"network,omitempty"`
 		}
 
 		var ra rewardAccount
-		if err := json.Unmarshal(aux.RewardAccount, &ra); err != nil {
+		if err := json.Unmarshal(tmp.RewardAccount, &ra); err != nil {
 			return fmt.Errorf("failed to unmarshal reward account: %w", err)
 		}
 
@@ -468,16 +463,16 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert string fields to binary types
-	if aux.Operator != "" {
-		opBytes, err := hex.DecodeString(aux.Operator)
+	if tmp.Operator != "" {
+		opBytes, err := hex.DecodeString(tmp.Operator)
 		if err != nil {
 			return fmt.Errorf("invalid operator key: %w", err)
 		}
 		p.Operator = PoolKeyHash(Blake2b224(opBytes))
 	}
 
-	if aux.VrfKeyHash != "" {
-		vrfBytes, err := hex.DecodeString(aux.VrfKeyHash)
+	if tmp.VrfKeyHash != "" {
+		vrfBytes, err := hex.DecodeString(tmp.VrfKeyHash)
 		if err != nil {
 			return fmt.Errorf("invalid VRF key hash: %w", err)
 		}
@@ -485,9 +480,9 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert pool owners
-	if len(aux.PoolOwners) > 0 {
-		owners := make([]AddrKeyHash, len(aux.PoolOwners))
-		for i, owner := range aux.PoolOwners {
+	if len(tmp.PoolOwners) > 0 {
+		owners := make([]AddrKeyHash, len(tmp.PoolOwners))
+		for i, owner := range tmp.PoolOwners {
 			ownerBytes, err := hex.DecodeString(owner)
 			if err != nil {
 				return fmt.Errorf("invalid pool owner key: %w", err)
