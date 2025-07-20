@@ -302,11 +302,11 @@ const (
 )
 
 type PoolRelay struct {
-	Type     int
-	Port     *uint32
-	Ipv4     *net.IP
-	Ipv6     *net.IP
-	Hostname *string
+	Type     int     `json:"type"`
+	Port     *uint32 `json:"port,omitempty"`
+	Ipv4     *net.IP `json:"ipv4,omitempty"`
+	Ipv6     *net.IP `json:"ipv6,omitempty"`
+	Hostname *string `json:"hostname,omitempty"`
 }
 
 func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
@@ -391,6 +391,7 @@ type PoolRegistrationCertificate struct {
 }
 
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
+	//nolint:musttag
 	type tempPool struct {
 		Operator      string          `json:"operator"`
 		VrfKeyHash    string          `json:"vrfKeyHash"`
@@ -399,8 +400,15 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		Margin        json.RawMessage `json:"margin"`
 		RewardAccount json.RawMessage `json:"rewardAccount"`
 		PoolOwners    []string        `json:"poolOwners"`
-		Relays        []PoolRelay     `json:"relays"`
-		PoolMetadata  *PoolMetadata   `json:"poolMetadata,omitempty"`
+		Relays        []struct {
+			Type     int     `json:"type"`
+			Port     *uint32 `json:"port,omitempty"`
+			Ipv4     *net.IP `json:"ipv4,omitempty"`
+			Ipv6     *net.IP `json:"ipv6,omitempty"`
+			Hostname *string `json:"hostname,omitempty"`
+		} `json:"relays"`
+
+		PoolMetadata *PoolMetadata `json:"poolMetadata,omitempty"`
 	}
 
 	var tmp tempPool
@@ -410,7 +418,16 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 
 	p.Pledge = tmp.Pledge
 	p.Cost = tmp.Cost
-	p.Relays = tmp.Relays
+	p.Relays = make([]PoolRelay, len(tmp.Relays))
+	for i, relay := range tmp.Relays {
+		p.Relays[i] = PoolRelay{
+			Type:     relay.Type,
+			Port:     relay.Port,
+			Ipv4:     relay.Ipv4,
+			Ipv6:     relay.Ipv6,
+			Hostname: relay.Hostname,
+		}
+	}
 	p.PoolMetadata = tmp.PoolMetadata
 
 	// Handle margin field
