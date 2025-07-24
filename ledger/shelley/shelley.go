@@ -403,6 +403,11 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
+	// A Shelley transaction output will never be used for Plutus scripts
+	return nil
+}
+
 func (o ShelleyTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }

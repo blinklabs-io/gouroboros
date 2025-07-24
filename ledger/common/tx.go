@@ -74,6 +74,7 @@ type TransactionOutput interface {
 	Cbor() []byte
 	Utxorpc() (*utxorpc.TxOutput, error)
 	ScriptRef() Script
+	ToPlutusData() data.PlutusData
 }
 
 type TransactionWitnessSet interface {
