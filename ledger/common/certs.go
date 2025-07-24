@@ -392,7 +392,6 @@ type PoolRegistrationCertificate struct {
 
 func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	type tempPool struct {
-		//nolint:musttag
 		Operator      string          `json:"operator"`
 		VrfKeyHash    string          `json:"vrfKeyHash"`
 		Pledge        uint64          `json:"pledge"`
@@ -412,6 +411,7 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	var tmp tempPool
+	//nolint:musttag
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return fmt.Errorf("failed to unmarshal pool registration: %w", err)
 	}
