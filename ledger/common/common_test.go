@@ -17,6 +17,7 @@ package common
 import (
 	"encoding/hex"
 	"encoding/json"
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -124,6 +125,90 @@ func TestMultiAssetJson(t *testing.T) {
 				jsonData,
 				test.expectedJson,
 			)
+		}
+	}
+}
+
+func TestMultiAssetToPlutusData(t *testing.T) {
+	testDefs := []struct {
+		multiAssetObj any
+		expectedData  data.PlutusData
+	}{
+		{
+			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+					},
+				},
+			},
+			expectedData: data.NewMap(
+				[][2]data.PlutusData{
+					{
+						data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+						data.NewMap(
+							[][2]data.PlutusData{
+								{
+									data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+									data.NewInteger(big.NewInt(123456)),
+								},
+							},
+						),
+					},
+				},
+			),
+		},
+		{
+			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+					},
+					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): 234567,
+					},
+				},
+			},
+			expectedData: data.NewMap(
+				[][2]data.PlutusData{
+					{
+						data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+						data.NewMap(
+							[][2]data.PlutusData{
+								{
+									data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+									data.NewInteger(big.NewInt(123456)),
+								},
+							},
+						),
+					},
+					{
+						data.NewByteString(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")),
+						data.NewMap(
+							[][2]data.PlutusData{
+								{
+									data.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")),
+									data.NewInteger(big.NewInt(234567)),
+								},
+							},
+						),
+					},
+				},
+			),
+		},
+	}
+	for _, testDef := range testDefs {
+		var tmpData data.PlutusData
+		switch v := testDef.multiAssetObj.(type) {
+		case MultiAsset[MultiAssetTypeOutput]:
+			tmpData = v.ToPlutusData()
+		case MultiAsset[MultiAssetTypeMint]:
+			tmpData = v.ToPlutusData()
+		default:
+			t.Fatalf("test def multi-asset object was not expected type: %T", v)
+		}
+		if !reflect.DeepEqual(tmpData, testDef.expectedData) {
+			t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, testDef.expectedData)
 		}
 	}
 }
