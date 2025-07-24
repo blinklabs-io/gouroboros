@@ -18,12 +18,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -485,6 +487,49 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(&tmpObj)
+}
+
+func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount.Amount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(new(big.Int).SetUint64(o.OutputAmount.Amount)),
+						},
+					},
+				),
+			},
+		)
+	}
+	if o.OutputAmount.Assets != nil {
+		assetData := o.OutputAmount.Assets.ToPlutusData()
+		assetDataMap, ok := assetData.(*data.Map)
+		if !ok {
+			return nil
+		}
+		valueData = append(
+			valueData,
+			assetDataMap.Pairs...,
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		// TODO: implement this
+		data.NewConstr(0),
+		// Empty script ref
+		// TODO: implement this
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o BabbageTransactionOutput) Address() common.Address {

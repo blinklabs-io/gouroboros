@@ -421,6 +421,11 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
+	// A Byron transaction output will never be used for Plutus scripts
+	return nil
+}
+
 func (o ByronTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }

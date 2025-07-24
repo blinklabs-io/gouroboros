@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -445,6 +446,11 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 		Assets:  o.OutputAmount.Assets,
 	}
 	return json.Marshal(&tmpObj)
+}
+
+func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
+	// A Mary transaction output will never be used for Plutus scripts
+	return nil
 }
 
 func (o MaryTransactionOutput) Address() common.Address {
