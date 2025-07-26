@@ -381,12 +381,20 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		return nil, fmt.Errorf("failed to get address bytes: %w", err)
 	}
 
+	// Datum hash handling
+	var datumHash []byte
+	if o.OutputDatumHash != nil {
+		datumHash = o.OutputDatumHash.Bytes()
+	} else {
+		fmt.Printf("No datum hash present")
+	}
+
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
 			Coin:    o.Amount(),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
-				Hash: o.OutputDatumHash.Bytes(),
+				Hash: datumHash,
 			},
 		},
 		nil

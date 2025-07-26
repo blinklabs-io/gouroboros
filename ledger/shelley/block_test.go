@@ -89,3 +89,41 @@ func TestShelleyBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 		}
 	}
 }
+
+func TestShelleyBlockUtxorpc(t *testing.T) {
+	// Decode the test block CBOR
+	blockCbor, err := hex.DecodeString(shelleyBlockHex)
+	if err != nil {
+		t.Fatalf("failed to decode block hex: %v", err)
+	}
+
+	block, err := shelley.NewShelleyBlockFromCbor(blockCbor)
+	if err != nil {
+		t.Fatalf("failed to parse block: %v", err)
+	}
+
+	// Convert to utxorpc format
+	utxoBlock, err := block.Utxorpc()
+	if err != nil {
+		t.Fatalf("failed to convert to utxorpc: %v", err)
+	}
+
+	if utxoBlock.Header == nil {
+		t.Error("block header is nil")
+	}
+	if utxoBlock.Body == nil {
+		t.Error("block body is nil")
+	}
+
+	expectedTxCount := len(block.TransactionBodies)
+	if len(utxoBlock.Body.Tx) != expectedTxCount {
+		t.Errorf("expected %d transactions, got %d", expectedTxCount, len(utxoBlock.Body.Tx))
+	}
+
+	if utxoBlock.Header.Height != block.BlockNumber() {
+		t.Errorf("height mismatch: expected %d, got %d", block.BlockNumber(), utxoBlock.Header.Height)
+	}
+	if utxoBlock.Header.Slot != block.SlotNumber() {
+		t.Errorf("slot mismatch: expected %d, got %d", block.SlotNumber(), utxoBlock.Header.Slot)
+	}
+}
