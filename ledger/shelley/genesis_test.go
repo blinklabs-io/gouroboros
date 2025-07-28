@@ -27,6 +27,12 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
+func init() {
+	// Initialize network headers for tests
+	shelley.RegisterStakeHeaders("Mainnet", 0xE0, 0xE1)
+	shelley.RegisterStakeHeaders("Testnet", 0xF0, 0xF1)
+}
+
 const shelleyGenesisConfig = `
 {
   "activeSlotsCoeff": 0.05,
@@ -256,6 +262,7 @@ func TestGenesisStaking(t *testing.T) {
 	const testGenesis = `{
         "systemStart": "2017-09-23T21:44:51Z",
         "networkMagic": 764824073,
+        "networkId": "Testnet",
         "staking": {
             "pools": {
                 "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195": {
@@ -327,8 +334,8 @@ func TestGenesisStaking(t *testing.T) {
 		} else {
 			// Extract stake key from address
 			addrBytes, _ := delegs[0].Bytes()
-			if len(addrBytes) != 29 || addrBytes[0] != 0xE1 {
-				t.Error("Delegator address is not in expected stake address format")
+			if len(addrBytes) != 29 || addrBytes[0] != 0xF1 { // Testnet script stake address
+				t.Errorf("Delegator address is not in expected stake address format: got %x", addrBytes[0])
 			} else {
 				stakeKey := hex.EncodeToString(addrBytes[1:])
 				if stakeKey != expectedStakeKey {
@@ -364,8 +371,8 @@ func TestGenesisStaking(t *testing.T) {
 		} else {
 			// Extract stake key from address
 			addrBytes, _ := delegators[0].Bytes()
-			if len(addrBytes) != 29 || addrBytes[0] != 0xE1 {
-				t.Error("Delegator address is not in expected stake address format")
+			if len(addrBytes) != 29 || addrBytes[0] != 0xF1 { // Testnet script stake address
+				t.Errorf("Delegator address is not in expected stake address format: got %x", addrBytes[0])
 			} else {
 				stakeKey := hex.EncodeToString(addrBytes[1:])
 				if stakeKey != expectedStakeKey {
