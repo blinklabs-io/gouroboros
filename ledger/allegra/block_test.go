@@ -22,6 +22,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/stretchr/testify/assert"
 )
 
 // https://cexplorer.io/block/8115134ab013f6a5fd88fd2a10825177a2eedcde31cb2f1f35e492df469cf9a8
@@ -87,4 +88,51 @@ func TestAllegraBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 			t.Logf("Length mismatch: original length = %d, re-encoded length = %d", len(dataBytes), len(encoded))
 		}
 	}
+}
+
+func TestAllegraUtxorpcBlock(t *testing.T) {
+	// Decode the block hex to bytes
+	blockCbor, err := hex.DecodeString(allegraBlockHex)
+	assert.NoError(t, err, "Failed to decode block hex")
+
+	// Parse the block
+	block, err := allegra.NewAllegraBlockFromCbor(blockCbor)
+	assert.NoError(t, err, "Failed to parse block")
+	assert.NotNil(t, block, "Parsed block is nil")
+
+	expectedHash := block.Hash().String()
+	expectedHeight := block.BlockNumber()
+	expectedSlot := block.SlotNumber()
+
+	// Convert to UTxO RPC format
+	utxorpcBlock, err := block.Utxorpc()
+	assert.NoError(t, err, "Utxorpc() conversion failed")
+	assert.NotNil(t, utxorpcBlock, "RPC block is nil")
+
+	t.Run("BlockHeader", func(t *testing.T) {
+		assert.Equal(t, expectedHash, hex.EncodeToString(utxorpcBlock.Header.Hash),
+			"Block hash mismatch")
+
+		assert.Equal(t, expectedHeight, utxorpcBlock.Header.Height,
+			"Block height mismatch")
+
+		assert.Equal(t, expectedSlot, utxorpcBlock.Header.Slot,
+			"Block slot mismatch")
+	})
+
+	t.Run("Transactions", func(t *testing.T) {
+		originalTxs := block.Transactions()
+		rpcTxs := utxorpcBlock.Body.Tx
+
+		assert.Equal(t, len(originalTxs), len(rpcTxs),
+			"Transaction count mismatch")
+
+		if len(rpcTxs) > 0 {
+			firstRpcTx := rpcTxs[0]
+			assert.NotEmpty(t, firstRpcTx.Hash, "Transaction hash should not be empty")
+			assert.Greater(t, len(firstRpcTx.Inputs), 0, "Transaction should have inputs")
+			assert.Greater(t, len(firstRpcTx.Outputs), 0, "Transaction should have outputs")
+			assert.Greater(t, firstRpcTx.Fee, uint64(0), "Transaction fee should be positive")
+		}
+	})
 }

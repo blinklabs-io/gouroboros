@@ -88,3 +88,76 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 		}
 	}
 }
+
+func TestConwayBlockUtxorpc(t *testing.T) {
+	blockCbor, err := hex.DecodeString(conwayBlockHex)
+	if err != nil {
+		t.Fatalf("failed to decode test block hex: %v", err)
+	}
+
+	block, err := conway.NewConwayBlockFromCbor(blockCbor)
+	if err != nil {
+		t.Fatalf("failed to parse Conway block: %v", err)
+	}
+
+	utxoBlock, err := block.Utxorpc()
+	if err != nil {
+		t.Fatalf("failed to convert Conway block to utxorpc: %v", err)
+	}
+
+	if utxoBlock.Header == nil {
+		t.Fatal("block header is nil")
+	}
+
+	expectedHash := block.Hash().Bytes()
+	if !compareByteSlices(utxoBlock.Header.Hash, expectedHash) {
+		t.Errorf("block hash mismatch:\nexpected: %x\nactual: %x", expectedHash, utxoBlock.Header.Hash)
+	}
+
+	if utxoBlock.Header.Height != block.BlockNumber() {
+		t.Errorf("block height mismatch: expected %d, got %d", block.BlockNumber(), utxoBlock.Header.Height)
+	}
+
+	if utxoBlock.Header.Slot != block.SlotNumber() {
+		t.Errorf("block slot mismatch: expected %d, got %d", block.SlotNumber(), utxoBlock.Header.Slot)
+	}
+
+	if utxoBlock.Body == nil {
+		t.Fatal("block body is nil")
+	}
+
+	expectedTxCount := len(block.TransactionBodies)
+	if len(utxoBlock.Body.Tx) != expectedTxCount {
+		t.Errorf("transaction count mismatch: expected %d, got %d", expectedTxCount, len(utxoBlock.Body.Tx))
+	}
+
+	if expectedTxCount > 0 {
+		firstTx := block.Transactions()[0]
+		utxoFirstTx := utxoBlock.Body.Tx[0]
+
+		expectedTxHash := firstTx.Hash().Bytes()
+		if !compareByteSlices(utxoFirstTx.Hash, expectedTxHash) {
+			t.Errorf("first tx hash mismatch:\nexpected: %x\nactual: %x", expectedTxHash, utxoFirstTx.Hash)
+		}
+
+		if len(utxoFirstTx.Inputs) != len(firstTx.Inputs()) {
+			t.Errorf("first tx input count mismatch: expected %d, got %d", len(firstTx.Inputs()), len(utxoFirstTx.Inputs))
+		}
+
+		if len(utxoFirstTx.Outputs) != len(firstTx.Outputs()) {
+			t.Errorf("first tx output count mismatch: expected %d, got %d", len(firstTx.Outputs()), len(utxoFirstTx.Outputs))
+		}
+	}
+}
+
+func compareByteSlices(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
