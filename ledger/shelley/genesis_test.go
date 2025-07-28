@@ -27,12 +27,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
-func init() {
-	// Initialize network headers for tests
-	shelley.RegisterStakeHeaders("Mainnet", 0xE0, 0xE1)
-	shelley.RegisterStakeHeaders("Testnet", 0xF0, 0xF1)
-}
-
 const shelleyGenesisConfig = `
 {
   "activeSlotsCoeff": 0.05,
@@ -103,6 +97,9 @@ const shelleyGenesisConfig = `
   "securityParam": 2160
 }
 `
+const (
+	expectedTestnetScriptStakeHeader = 0xF1
+)
 
 var expectedGenesisObj = shelley.ShelleyGenesis{
 	SystemStart: time.Date(
@@ -332,16 +329,29 @@ func TestGenesisStaking(t *testing.T) {
 		if len(delegs) != 1 {
 			t.Errorf("Expected 1 delegator, got %d", len(delegs))
 		} else {
-			// Extract stake key from address
-			addrBytes, _ := delegs[0].Bytes()
-			if len(addrBytes) != 29 || addrBytes[0] != 0xF1 { // Testnet script stake address
-				t.Errorf("Delegator address is not in expected stake address format: got %x", addrBytes[0])
-			} else {
-				stakeKey := hex.EncodeToString(addrBytes[1:])
-				if stakeKey != expectedStakeKey {
-					t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
-						expectedStakeKey, stakeKey)
-				}
+			// Verify address format
+			addrBytes, err := delegs[0].Bytes()
+			if err != nil {
+				t.Fatalf("Failed to get address bytes: %v", err)
+			}
+
+			// Should be 29 bytes (1 header + 28 stake key)
+			if len(addrBytes) != 29 {
+				t.Errorf("Expected address length 29, got %d", len(addrBytes))
+			}
+
+			// Verify testnet script stake address header
+			// In TestInitialPools and TestPoolById, replace the header check with:
+			if addrBytes[0] != expectedTestnetScriptStakeHeader {
+				t.Errorf("Expected header byte %x, got %x",
+					expectedTestnetScriptStakeHeader, addrBytes[0])
+			}
+
+			// Verify stake key matches
+			stakeKey := hex.EncodeToString(addrBytes[1:])
+			if stakeKey != expectedStakeKey {
+				t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
+					expectedStakeKey, stakeKey)
 			}
 		}
 	})
@@ -369,16 +379,29 @@ func TestGenesisStaking(t *testing.T) {
 		if len(delegators) != 1 {
 			t.Errorf("Expected 1 delegator, got %d", len(delegators))
 		} else {
-			// Extract stake key from address
-			addrBytes, _ := delegators[0].Bytes()
-			if len(addrBytes) != 29 || addrBytes[0] != 0xF1 { // Testnet script stake address
-				t.Errorf("Delegator address is not in expected stake address format: got %x", addrBytes[0])
-			} else {
-				stakeKey := hex.EncodeToString(addrBytes[1:])
-				if stakeKey != expectedStakeKey {
-					t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
-						expectedStakeKey, stakeKey)
-				}
+			// Verify address format
+			addrBytes, err := delegators[0].Bytes()
+			if err != nil {
+				t.Fatalf("Failed to get address bytes: %v", err)
+			}
+
+			// Should be 29 bytes (1 header + 28 stake key)
+			if len(addrBytes) != 29 {
+				t.Errorf("Expected address length 29, got %d", len(addrBytes))
+			}
+
+			// Verify testnet script stake address header
+			// In TestInitialPools and TestPoolById, replace the header check with:
+			if addrBytes[0] != expectedTestnetScriptStakeHeader {
+				t.Errorf("Expected header byte %x, got %x",
+					expectedTestnetScriptStakeHeader, addrBytes[0])
+			}
+
+			// Verify stake key matches
+			stakeKey := hex.EncodeToString(addrBytes[1:])
+			if stakeKey != expectedStakeKey {
+				t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
+					expectedStakeKey, stakeKey)
 			}
 		}
 

@@ -22,48 +22,11 @@ import (
 	"math/big"
 	"os"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
-
-// Network stake address headers
-var (
-	stakeHeaderRegistry = map[string]struct {
-		Base, Script byte
-	}{
-		"Mainnet": {0xE0, 0xE1},
-		"Testnet": {0xF0, 0xF1},
-	}
-	stakeHeaderMutex sync.RWMutex
-)
-
-// RegisterStakeHeaders allows runtime registration of network address headers
-func RegisterStakeHeaders(networkId string, baseHeader, scriptHeader byte) {
-	stakeHeaderMutex.Lock()
-	defer stakeHeaderMutex.Unlock()
-	stakeHeaderRegistry[networkId] = struct{ Base, Script byte }{
-		Base:   baseHeader,
-		Script: scriptHeader,
-	}
-}
-
-func getStakeAddressHeader(networkId string, isScript bool) (byte, error) {
-	stakeHeaderMutex.RLock()
-	defer stakeHeaderMutex.RUnlock()
-
-	headers, exists := stakeHeaderRegistry[networkId]
-	if !exists {
-		return 0, errors.New("network not registered in stake header registry")
-	}
-
-	if isScript {
-		return headers.Script, nil
-	}
-	return headers.Base, nil
-}
 
 type ShelleyGenesis struct {
 	cbor.StructAsArray
@@ -269,6 +232,17 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 	return ret, nil
 }
 
+func (g *ShelleyGenesis) getNetworkId() (uint8, error) {
+	switch g.NetworkId {
+	case "Mainnet":
+		return common.AddressNetworkMainnet, nil
+	case "Testnet":
+		return common.AddressNetworkTestnet, nil
+	default:
+		return 0, errors.New("unknown network ID")
+	}
+}
+
 func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCertificate, map[string][]common.Address, error) {
 	pools := make(map[string]common.PoolRegistrationCertificate)
 	poolStake := make(map[string][]common.Address)
@@ -277,38 +251,36 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 		return pools, poolStake, nil
 	}
 
-	headerByte, err := getStakeAddressHeader(g.NetworkId, true)
+	networkId, err := g.getNetworkId()
 	if err != nil {
-		return nil, nil, errors.New("failed to get stake address header")
+		return nil, nil, err
 	}
 
+	// Process all stake addresses
 	for stakeAddr, poolId := range g.Staking.Stake {
-		if len(stakeAddr) != 56 {
-			return nil, nil, errors.New("invalid stake address length")
-		}
-
-		stakeKeyBytes, err := hex.DecodeString(stakeAddr)
+		stakeKey, err := hex.DecodeString(stakeAddr)
 		if err != nil {
 			return nil, nil, errors.New("failed to decode stake key")
 		}
 
-		stakeAddrBytes := append([]byte{headerByte}, stakeKeyBytes...)
-		addr, err := common.NewAddressFromBytes(stakeAddrBytes)
+		addr, err := common.NewAddressFromParts(
+			common.AddressTypeNoneScript, // Script stake address
+			networkId,
+			nil,
+			stakeKey,
+		)
 		if err != nil {
-			return nil, nil, errors.New("failed to create stake address")
+			return nil, nil, errors.New("failed to create address")
 		}
 
 		poolStake[poolId] = append(poolStake[poolId], addr)
 	}
 
+	// Process all stake pools
 	for poolId, pool := range g.Staking.Pools {
-		if len(poolId) != 56 {
-			return nil, nil, errors.New("invalid pool ID length")
-		}
-
 		operatorBytes, err := hex.DecodeString(poolId)
 		if err != nil {
-			return nil, nil, errors.New("failed to decode pool operator key")
+			return nil, nil, errors.New("failed to decode pool ID")
 		}
 
 		pools[poolId] = common.PoolRegistrationCertificate{
@@ -334,30 +306,30 @@ func (g *ShelleyGenesis) PoolById(poolId string) (*common.PoolRegistrationCertif
 
 	pool, exists := g.Staking.Pools[poolId]
 	if !exists {
-		return nil, nil, errors.New("pool not found")
+		return nil, nil, errors.New("pool  not found")
 	}
 
-	headerByte, err := getStakeAddressHeader(g.NetworkId, true)
+	networkId, err := g.getNetworkId()
 	if err != nil {
-		return nil, nil, errors.New("failed to get stake address header")
+		return nil, nil, err
 	}
 
 	var delegators []common.Address
 	for stakeAddr, pId := range g.Staking.Stake {
 		if pId == poolId {
-			if len(stakeAddr) != 56 {
-				return nil, nil, errors.New("invalid stake address length")
-			}
-
-			stakeKeyBytes, err := hex.DecodeString(stakeAddr)
+			stakeKey, err := hex.DecodeString(stakeAddr)
 			if err != nil {
 				return nil, nil, errors.New("failed to decode stake key")
 			}
 
-			stakeAddrBytes := append([]byte{headerByte}, stakeKeyBytes...)
-			addr, err := common.NewAddressFromBytes(stakeAddrBytes)
+			addr, err := common.NewAddressFromParts(
+				common.AddressTypeNoneScript,
+				networkId,
+				nil,
+				stakeKey,
+			)
 			if err != nil {
-				return nil, nil, errors.New("failed to create stake address")
+				return nil, nil, errors.New("failed to create address")
 			}
 
 			delegators = append(delegators, addr)
