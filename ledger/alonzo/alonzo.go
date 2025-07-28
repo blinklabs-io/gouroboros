@@ -385,8 +385,6 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	var datumHash []byte
 	if o.OutputDatumHash != nil {
 		datumHash = o.OutputDatumHash.Bytes()
-	} else {
-		fmt.Printf("No datum hash present")
 	}
 
 	return &utxorpc.TxOutput{
