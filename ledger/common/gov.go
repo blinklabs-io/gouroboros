@@ -140,7 +140,7 @@ type ProposalProcedure struct {
 
 func (p *ProposalProcedure) ToPlutusData() data.PlutusData {
 	return data.NewConstr(0,
-		data.NewInteger(big.NewInt(int64(p.Deposit))),
+		data.NewInteger(new(big.Int).SetUint64(p.Deposit)),
 		p.RewardAccount.ToPlutusData(),
 		p.GovAction.ToPlutusData(),
 	)
@@ -242,8 +242,8 @@ func (a *HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
 	return data.NewConstr(1,
 		a.ActionId.ToPlutusData(),
 		data.NewConstr(0,
-			data.NewInteger(big.NewInt(int64(a.ProtocolVersion.Major))),
-			data.NewInteger(big.NewInt(int64(a.ProtocolVersion.Minor))),
+			data.NewInteger(new(big.Int).SetUint64(uint64(a.ProtocolVersion.Major))),
+			data.NewInteger(new(big.Int).SetUint64(uint64(a.ProtocolVersion.Minor))),
 		),
 	)
 }
@@ -262,7 +262,7 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	for addr, amount := range a.Withdrawals {
 		pairs = append(pairs, [2]data.PlutusData{
 			data.NewConstr(0, addr.ToPlutusData()),
-			data.NewInteger(big.NewInt(int64(amount))),
+			data.NewInteger(new(big.Int).SetUint64(amount)),
 		})
 	}
 	return data.NewConstr(2,
@@ -306,7 +306,7 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	for cred, epoch := range a.CredEpochs {
 		addedPairs = append(addedPairs, [2]data.PlutusData{
 			cred.ToPlutusData(),
-			data.NewInteger(big.NewInt(int64(epoch))),
+			data.NewInteger(new(big.Int).SetUint64(uint64(epoch))),
 		})
 	}
 
