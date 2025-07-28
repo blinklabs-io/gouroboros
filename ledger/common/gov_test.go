@@ -18,7 +18,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/pkg/data"
+	"github.com/stretchr/testify/assert"
 )
 
 // Ttests the ToPlutusData method for Voter types
@@ -176,4 +178,168 @@ func TestVotingProcedureToPlutusData(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProposalProcedureToPlutusData(t *testing.T) {
+	addr := Address{}
+	action := &InfoGovAction{}
+
+	pp := &ProposalProcedure{
+		Deposit:       1000000,
+		RewardAccount: addr,
+		GovAction:     GovActionWrapper{Action: action},
+	}
+
+	pd := pp.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(0), constr.Tag)
+	assert.Len(t, constr.Fields, 3)
+}
+
+func TestGovActionIdToPlutusData(t *testing.T) {
+	txId := [32]byte{1, 2, 3, 4}
+	govActionId := &GovActionId{
+		TransactionId: txId,
+		GovActionIdx:  42,
+	}
+
+	pd := govActionId.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(0), constr.Tag)
+	assert.Len(t, constr.Fields, 2)
+}
+
+func TestParameterChangeGovActionToPlutusData(t *testing.T) {
+	action := &ParameterChangeGovAction{
+		ActionId:    &GovActionId{},
+		ParamUpdate: []byte{1, 2, 3},
+		PolicyHash:  []byte{4, 5, 6},
+	}
+
+	pd := action.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(0), constr.Tag)
+	assert.Len(t, constr.Fields, 3)
+}
+
+func TestHardForkInitiationGovActionToPlutusData(t *testing.T) {
+	action := &HardForkInitiationGovAction{
+		ActionId: &GovActionId{},
+		ProtocolVersion: struct {
+			cbor.StructAsArray
+			Major uint
+			Minor uint
+		}{
+			Major: 8,
+			Minor: 0,
+		},
+	}
+
+	pd := action.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(1), constr.Tag)
+	assert.Len(t, constr.Fields, 2)
+}
+
+func TestTreasuryWithdrawalGovActionToPlutusData(t *testing.T) {
+	addr := Address{}
+	withdrawals := map[*Address]uint64{
+		&addr: 5000000,
+	}
+
+	action := &TreasuryWithdrawalGovAction{
+		Withdrawals: withdrawals,
+		PolicyHash:  []byte{1, 2, 3},
+	}
+
+	pd := action.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(2), constr.Tag)
+	assert.Len(t, constr.Fields, 2)
+}
+
+func TestNoConfidenceGovActionToPlutusData(t *testing.T) {
+	action := &NoConfidenceGovAction{
+		ActionId: &GovActionId{},
+	}
+
+	pd := action.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(3), constr.Tag)
+	assert.Len(t, constr.Fields, 1)
+}
+
+func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
+	cred := Credential{
+		CredType:   CredentialTypeAddrKeyHash,
+		Credential: NewBlake2b224([]byte("test")),
+	}
+	creds := []Credential{cred}
+	credEpochs := map[*Credential]uint{
+		&cred: 42,
+	}
+
+	// Test with zero value Rat
+	t.Run("ZeroValueRat", func(t *testing.T) {
+		action := &UpdateCommitteeGovAction{
+			ActionId:    &GovActionId{},
+			Credentials: creds,
+			CredEpochs:  credEpochs,
+			Unknown:     cbor.Rat{}, // Zero value
+		}
+
+		pd := action.ToPlutusData()
+		assert.NotNil(t, pd)
+
+		constr, ok := pd.(*data.Constr)
+		assert.True(t, ok)
+		assert.Equal(t, uint(4), constr.Tag)
+
+		// Verify default values were used
+		num, ok := constr.Fields[3].(*data.Integer)
+		assert.True(t, ok)
+		assert.Equal(t, int64(0), num.Inner.Int64())
+
+		den, ok := constr.Fields[4].(*data.Integer)
+		assert.True(t, ok)
+		assert.Equal(t, int64(1), den.Inner.Int64())
+	})
+
+	t.Run("NilCase", func(t *testing.T) {
+	})
+}
+
+func TestNewConstitutionGovActionToPlutusData(t *testing.T) {
+	action := &NewConstitutionGovAction{
+		ActionId: &GovActionId{},
+		Constitution: struct {
+			cbor.StructAsArray
+			Anchor     GovAnchor
+			ScriptHash []byte
+		}{
+			ScriptHash: []byte{1, 2, 3},
+		},
+	}
+
+	pd := action.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(5), constr.Tag)
+	assert.Len(t, constr.Fields, 2)
+}
+
+func TestInfoGovActionToPlutusData(t *testing.T) {
+	action := &InfoGovAction{}
+
+	pd := action.ToPlutusData()
+	constr, ok := pd.(*data.Constr)
+	assert.True(t, ok)
+	assert.Equal(t, uint(6), constr.Tag)
+	assert.Len(t, constr.Fields, 0)
 }
