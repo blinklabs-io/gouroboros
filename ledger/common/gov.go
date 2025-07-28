@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/pkg/data"
 )
 
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
@@ -37,16 +38,68 @@ type Voter struct {
 	Hash [28]byte
 }
 
+func (v Voter) ToPlutusData() data.PlutusData {
+	switch v.Type {
+	case VoterTypeConstitutionalCommitteeHotScriptHash:
+		cred := &Credential{
+			CredType:   CredentialTypeScriptHash,
+			Credential: NewBlake2b224(v.Hash[:]),
+		}
+		return data.NewConstr(0, cred.ToPlutusData())
+	case VoterTypeConstitutionalCommitteeHotKeyHash:
+		cred := &Credential{
+			CredType:   CredentialTypeAddrKeyHash,
+			Credential: NewBlake2b224(v.Hash[:]),
+		}
+		return data.NewConstr(0, cred.ToPlutusData())
+	case VoterTypeDRepScriptHash:
+		cred := &Credential{
+			CredType:   CredentialTypeScriptHash,
+			Credential: NewBlake2b224(v.Hash[:]),
+		}
+		return data.NewConstr(1, cred.ToPlutusData())
+	case VoterTypeDRepKeyHash:
+		cred := &Credential{
+			CredType:   CredentialTypeAddrKeyHash,
+			Credential: NewBlake2b224(v.Hash[:]),
+		}
+		return data.NewConstr(1, cred.ToPlutusData())
+	case VoterTypeStakingPoolKeyHash:
+		return data.NewConstr(2, data.NewByteString(v.Hash[:]))
+	default:
+		return data.NewConstr(0)
+	}
+}
+
 const (
 	GovVoteNo      uint8 = 0
 	GovVoteYes     uint8 = 1
 	GovVoteAbstain uint8 = 2
 )
 
+type Vote uint8
+
+func (v Vote) ToPlutusData() data.PlutusData {
+	switch v {
+	case Vote(GovVoteNo):
+		return data.NewConstr(0)
+	case Vote(GovVoteYes):
+		return data.NewConstr(1)
+	case Vote(GovVoteAbstain):
+		return data.NewConstr(2)
+	default:
+		return data.NewConstr(0)
+	}
+}
+
 type VotingProcedure struct {
 	cbor.StructAsArray
 	Vote   uint8
 	Anchor *GovAnchor
+}
+
+func (vp VotingProcedure) ToPlutusData() data.PlutusData {
+	return Vote(vp.Vote).ToPlutusData()
 }
 
 type GovAnchor struct {
