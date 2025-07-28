@@ -78,7 +78,7 @@ func TestVoterToPlutusData(t *testing.T) {
 				Type: 255, // Unknown type
 				Hash: [28]byte{},
 			},
-			expectedData: data.NewConstr(0),
+			expectedData: nil,
 		},
 	}
 
@@ -117,7 +117,7 @@ func TestVoteToPlutusData(t *testing.T) {
 		{
 			name:         "Unknown",
 			vote:         Vote(255), // Unknown vote
-			expectedData: data.NewConstr(0),
+			expectedData: nil,
 		},
 	}
 
@@ -164,7 +164,7 @@ func TestVotingProcedureToPlutusData(t *testing.T) {
 			procedure: VotingProcedure{
 				Vote: 255, // Unknown vote
 			},
-			expectedData: data.NewConstr(0),
+			expectedData: nil,
 		},
 	}
 

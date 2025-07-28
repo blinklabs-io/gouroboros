@@ -67,7 +67,7 @@ func (v Voter) ToPlutusData() data.PlutusData {
 	case VoterTypeStakingPoolKeyHash:
 		return data.NewConstr(2, data.NewByteString(v.Hash[:]))
 	default:
-		return data.NewConstr(0)
+		return nil
 	}
 }
 
@@ -88,7 +88,7 @@ func (v Vote) ToPlutusData() data.PlutusData {
 	case Vote(GovVoteAbstain):
 		return data.NewConstr(2)
 	default:
-		return data.NewConstr(0)
+		return nil
 	}
 }
 
