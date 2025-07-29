@@ -427,33 +427,31 @@ func (a Address) Bytes() ([]byte, error) {
 			},
 			crc32.ChecksumIEEE(rawPayload),
 		}
-		return cbor.Encode(tmpData)
+		ret, err := cbor.Encode(tmpData)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to encode Byron address data: %w",
+				err,
+			)
+		}
+		return ret, nil
 	}
 
-	// Calculate header byte
 	header := (a.addressType << 4) | (a.networkId & AddressHeaderNetworkMask)
 
 	if a.addressType == AddressTypeNoneScript && a.networkId == AddressNetworkTestnet {
 		header = (AddressTypeNoneScript << 4) | 1
 	}
 
-	// Build address bytes
-	ret := []byte{header}
-	if a.addressType != AddressTypeNoneKey && a.addressType != AddressTypeNoneScript {
-		if len(a.paymentAddress) != AddressHashSize {
-			return nil, fmt.Errorf("invalid payment address length: %d (expected %d)",
-				len(a.paymentAddress), AddressHashSize)
-		}
-		ret = append(ret, a.paymentAddress...)
-	}
+	ret := []byte{}
+	ret = append(
+		ret,
+		header,
+	)
+	ret = append(ret, a.paymentAddress...)
+	ret = append(ret, a.stakingAddress...)
+	ret = append(ret, a.extraData...)
 
-	if len(a.stakingAddress) > 0 {
-		if len(a.stakingAddress) != AddressHashSize {
-			return nil, fmt.Errorf("invalid staking address length: %d (expected %d)",
-				len(a.stakingAddress), AddressHashSize)
-		}
-		ret = append(ret, a.stakingAddress...)
-	}
 	return ret, nil
 }
 
