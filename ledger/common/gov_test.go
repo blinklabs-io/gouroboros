@@ -291,7 +291,7 @@ func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
 			ActionId:    &GovActionId{},
 			Credentials: creds,
 			CredEpochs:  credEpochs,
-			Unknown:     cbor.Rat{}, // Zero value
+			Quorum:      cbor.Rat{}, // Zero value
 		}
 
 		pd := action.ToPlutusData()

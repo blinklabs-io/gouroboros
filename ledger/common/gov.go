@@ -17,7 +17,6 @@ package common
 import (
 	"fmt"
 	"math/big"
-	"reflect"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/pkg/data"
@@ -293,7 +292,7 @@ type UpdateCommitteeGovAction struct {
 	ActionId    *GovActionId
 	Credentials []Credential
 	CredEpochs  map[*Credential]uint
-	Unknown     cbor.Rat
+	Quorum      cbor.Rat
 }
 
 func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
@@ -310,26 +309,13 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 		})
 	}
 
-	// Safe handling of Unknown Rat
+	// Get numerator and denominator using Rat methods
 	var num, den *big.Int
-	if rat := a.Unknown; rat != (cbor.Rat{}) {
-		val := reflect.ValueOf(rat)
-		numField := val.FieldByName("num")
-		denField := val.FieldByName("den")
-
-		if numField.IsValid() && !numField.IsNil() {
-			num = numField.Interface().(*big.Int)
-		}
-		if denField.IsValid() && !denField.IsNil() {
-			den = denField.Interface().(*big.Int)
-		}
-	}
-
-	// Default values if still nil
-	if num == nil {
+	if a.Quorum != (cbor.Rat{}) {
+		num = a.Quorum.Num()
+		den = a.Quorum.Denom()
+	} else {
 		num = big.NewInt(0)
-	}
-	if den == nil {
 		den = big.NewInt(1)
 	}
 
