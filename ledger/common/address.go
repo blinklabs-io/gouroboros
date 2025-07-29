@@ -120,16 +120,11 @@ func NewAddressFromParts(
 		if len(stakingAddr) != AddressHashSize {
 			return Address{}, fmt.Errorf("staking key must be exactly %d bytes", AddressHashSize)
 		}
-
-		if addrType == AddressTypeNoneScript && networkId == AddressNetworkTestnet {
-			header := byte(0xF1)
-			addrBytes := append([]byte{header}, stakingAddr...)
-			return NewAddressFromBytes(addrBytes)
-		}
-
-		header := addrType<<4 | networkId
-		addrBytes := append([]byte{header}, stakingAddr...)
-		return NewAddressFromBytes(addrBytes)
+		return Address{
+			addressType:    addrType,
+			networkId:      networkId,
+			stakingAddress: stakingAddr,
+		}, nil
 	}
 
 	// Handle regular addresses
@@ -141,13 +136,12 @@ func NewAddressFromParts(
 		return Address{}, fmt.Errorf("staking address must be empty or exactly %d bytes", AddressHashSize)
 	}
 
-	header := addrType<<4 | networkId
-	addrBytes := append([]byte{header}, paymentAddr...)
-	if len(stakingAddr) > 0 {
-		addrBytes = append(addrBytes, stakingAddr...)
-	}
-
-	return NewAddressFromBytes(addrBytes)
+	return Address{
+		addressType:    addrType,
+		networkId:      networkId,
+		paymentAddress: paymentAddr,
+		stakingAddress: stakingAddr,
+	}, nil
 }
 
 func NewByronAddressFromParts(
@@ -433,23 +427,33 @@ func (a Address) Bytes() ([]byte, error) {
 			},
 			crc32.ChecksumIEEE(rawPayload),
 		}
-		ret, err := cbor.Encode(tmpData)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to encode Byron address data: %w",
-				err,
-			)
-		}
-		return ret, nil
+		return cbor.Encode(tmpData)
 	}
-	ret := []byte{}
-	ret = append(
-		ret,
-		(a.addressType<<4)|(a.networkId&AddressHeaderNetworkMask),
-	)
-	ret = append(ret, a.paymentAddress...)
-	ret = append(ret, a.stakingAddress...)
-	ret = append(ret, a.extraData...)
+
+	// Calculate header byte
+	header := (a.addressType << 4) | (a.networkId & AddressHeaderNetworkMask)
+
+	if a.addressType == AddressTypeNoneScript && a.networkId == AddressNetworkTestnet {
+		header = (AddressTypeNoneScript << 4) | 1
+	}
+
+	// Build address bytes
+	ret := []byte{header}
+	if a.addressType != AddressTypeNoneKey && a.addressType != AddressTypeNoneScript {
+		if len(a.paymentAddress) != AddressHashSize {
+			return nil, fmt.Errorf("invalid payment address length: %d (expected %d)",
+				len(a.paymentAddress), AddressHashSize)
+		}
+		ret = append(ret, a.paymentAddress...)
+	}
+
+	if len(a.stakingAddress) > 0 {
+		if len(a.stakingAddress) != AddressHashSize {
+			return nil, fmt.Errorf("invalid staking address length: %d (expected %d)",
+				len(a.stakingAddress), AddressHashSize)
+		}
+		ret = append(ret, a.stakingAddress...)
+	}
 	return ret, nil
 }
 
