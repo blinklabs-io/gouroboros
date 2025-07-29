@@ -16,6 +16,7 @@ package common
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/pkg/data"
@@ -108,10 +109,24 @@ type GovAnchor struct {
 	DataHash [32]byte
 }
 
+func (a *GovAnchor) ToPlutusData() data.PlutusData {
+	return data.NewConstr(0,
+		data.NewByteString([]byte(a.Url)),
+		data.NewByteString(a.DataHash[:]),
+	)
+}
+
 type GovActionId struct {
 	cbor.StructAsArray
 	TransactionId [32]byte
 	GovActionIdx  uint32
+}
+
+func (id *GovActionId) ToPlutusData() data.PlutusData {
+	return data.NewConstr(0,
+		data.NewByteString(id.TransactionId[:]),
+		data.NewInteger(big.NewInt(int64(id.GovActionIdx))),
+	)
 }
 
 type ProposalProcedure struct {
@@ -120,6 +135,14 @@ type ProposalProcedure struct {
 	RewardAccount Address
 	GovAction     GovActionWrapper
 	Anchor        GovAnchor
+}
+
+func (p *ProposalProcedure) ToPlutusData() data.PlutusData {
+	return data.NewConstr(0,
+		data.NewInteger(new(big.Int).SetUint64(p.Deposit)),
+		p.RewardAccount.ToPlutusData(),
+		p.GovAction.ToPlutusData(),
+	)
 }
 
 const (
@@ -135,6 +158,10 @@ const (
 type GovActionWrapper struct {
 	Type   uint
 	Action GovAction
+}
+
+func (g *GovActionWrapper) ToPlutusData() data.PlutusData {
+	return g.Action.ToPlutusData()
 }
 
 func (g *GovActionWrapper) UnmarshalCBOR(data []byte) error {
@@ -178,6 +205,7 @@ func (g *GovActionWrapper) MarshalCBOR() ([]byte, error) {
 
 type GovAction interface {
 	isGovAction()
+	ToPlutusData() data.PlutusData
 }
 
 type ParameterChangeGovAction struct {
@@ -186,6 +214,14 @@ type ParameterChangeGovAction struct {
 	ActionId    *GovActionId
 	ParamUpdate cbor.RawMessage // NOTE: we use raw to defer processing to account for per-era types
 	PolicyHash  []byte
+}
+
+func (a *ParameterChangeGovAction) ToPlutusData() data.PlutusData {
+	return data.NewConstr(0,
+		a.ActionId.ToPlutusData(),
+		data.NewByteString(a.ParamUpdate),
+		data.NewByteString(a.PolicyHash),
+	)
 }
 
 func (a ParameterChangeGovAction) isGovAction() {}
@@ -201,6 +237,16 @@ type HardForkInitiationGovAction struct {
 	}
 }
 
+func (a *HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
+	return data.NewConstr(1,
+		a.ActionId.ToPlutusData(),
+		data.NewConstr(0,
+			data.NewInteger(new(big.Int).SetUint64(uint64(a.ProtocolVersion.Major))),
+			data.NewInteger(new(big.Int).SetUint64(uint64(a.ProtocolVersion.Minor))),
+		),
+	)
+}
+
 func (a HardForkInitiationGovAction) isGovAction() {}
 
 type TreasuryWithdrawalGovAction struct {
@@ -208,6 +254,20 @@ type TreasuryWithdrawalGovAction struct {
 	Type        uint
 	Withdrawals map[*Address]uint64
 	PolicyHash  []byte
+}
+
+func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
+	pairs := make([][2]data.PlutusData, 0, len(a.Withdrawals))
+	for addr, amount := range a.Withdrawals {
+		pairs = append(pairs, [2]data.PlutusData{
+			data.NewConstr(0, addr.ToPlutusData()),
+			data.NewInteger(new(big.Int).SetUint64(amount)),
+		})
+	}
+	return data.NewConstr(2,
+		data.NewMap(pairs),
+		data.NewByteString(a.PolicyHash),
+	)
 }
 
 func (a TreasuryWithdrawalGovAction) isGovAction() {}
@@ -218,6 +278,12 @@ type NoConfidenceGovAction struct {
 	ActionId *GovActionId
 }
 
+func (a *NoConfidenceGovAction) ToPlutusData() data.PlutusData {
+	return data.NewConstr(3,
+		a.ActionId.ToPlutusData(),
+	)
+}
+
 func (a NoConfidenceGovAction) isGovAction() {}
 
 type UpdateCommitteeGovAction struct {
@@ -226,7 +292,40 @@ type UpdateCommitteeGovAction struct {
 	ActionId    *GovActionId
 	Credentials []Credential
 	CredEpochs  map[*Credential]uint
-	Unknown     cbor.Rat
+	Quorum      cbor.Rat
+}
+
+func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
+	removedItems := make([]data.PlutusData, 0, len(a.Credentials))
+	for _, cred := range a.Credentials {
+		removedItems = append(removedItems, cred.ToPlutusData())
+	}
+
+	addedPairs := make([][2]data.PlutusData, 0, len(a.CredEpochs))
+	for cred, epoch := range a.CredEpochs {
+		addedPairs = append(addedPairs, [2]data.PlutusData{
+			cred.ToPlutusData(),
+			data.NewInteger(new(big.Int).SetUint64(uint64(epoch))),
+		})
+	}
+
+	// Get numerator and denominator using Rat methods
+	var num, den *big.Int
+	if a.Quorum != (cbor.Rat{}) {
+		num = a.Quorum.Num()
+		den = a.Quorum.Denom()
+	} else {
+		num = big.NewInt(0)
+		den = big.NewInt(1)
+	}
+
+	return data.NewConstr(4,
+		a.ActionId.ToPlutusData(),
+		data.NewList(removedItems...),
+		data.NewMap(addedPairs),
+		data.NewInteger(num),
+		data.NewInteger(den),
+	)
 }
 
 func (a UpdateCommitteeGovAction) isGovAction() {}
@@ -242,11 +341,25 @@ type NewConstitutionGovAction struct {
 	}
 }
 
+func (a *NewConstitutionGovAction) ToPlutusData() data.PlutusData {
+	return data.NewConstr(5,
+		a.ActionId.ToPlutusData(),
+		data.NewConstr(0,
+			a.Constitution.Anchor.ToPlutusData(),
+			data.NewByteString(a.Constitution.ScriptHash),
+		),
+	)
+}
+
 func (a NewConstitutionGovAction) isGovAction() {}
 
 type InfoGovAction struct {
 	cbor.StructAsArray
 	Type uint
+}
+
+func (a *InfoGovAction) ToPlutusData() data.PlutusData {
+	return data.NewConstr(6)
 }
 
 func (a InfoGovAction) isGovAction() {}
