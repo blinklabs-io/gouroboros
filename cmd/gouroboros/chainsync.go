@@ -103,7 +103,7 @@ var eraIntersect = map[string]map[string][]any{
 			72316796,
 			"c58a24ba8203e7629422a24d9dc68ce2ed495420bf40d9dab124373655161a20",
 		},
-		// Last block of epoch 306 (Babbage era)
+		// Last block of epoch 506 (Babbage era)
 		"conway": []any{
 			133660799,
 			"e757d57eb8dc9500a61c60a39fadb63d9be6973ba96ae337fd24453d4d15c343",
