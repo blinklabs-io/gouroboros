@@ -295,22 +295,14 @@ func (a *Address) ToPlutusData() data.PlutusData {
 	var paymentPd data.PlutusData
 	switch a.addressType {
 	case AddressTypeKeyKey, AddressTypeKeyScript, AddressTypeKeyPointer, AddressTypeKeyNone:
-		tmpCred := &Credential{
-			CredType:   CredentialTypeAddrKeyHash,
-			Credential: NewBlake2b224(a.paymentAddress),
-		}
 		paymentPd = data.NewConstr(
 			0,
-			tmpCred.ToPlutusData(),
+			data.NewByteString(a.paymentAddress),
 		)
 	case AddressTypeScriptKey, AddressTypeScriptScript, AddressTypeScriptPointer, AddressTypeScriptNone:
-		tmpCred := &Credential{
-			CredType:   CredentialTypeScriptHash,
-			Credential: NewBlake2b224(a.paymentAddress),
-		}
 		paymentPd = data.NewConstr(
 			1,
-			tmpCred.ToPlutusData(),
+			data.NewByteString(a.paymentAddress),
 		)
 	default:
 		return nil
