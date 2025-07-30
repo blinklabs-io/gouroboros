@@ -330,28 +330,20 @@ func TestGenesisStaking(t *testing.T) {
 			t.Errorf("Expected 1 delegator, got %d", len(delegs))
 		} else {
 			// Verify address format
-			addrBytes, err := delegs[0].Bytes()
-			if err != nil {
-				t.Fatalf("Failed to get address bytes: %v", err)
+			// Verify address type and network
+			if delegs[0].NetworkId() != common.AddressNetworkTestnet {
+				t.Errorf("Expected testnet address, got network ID %d", delegs[0].NetworkId())
 			}
 
-			// Should be 29 bytes (1 header + 28 stake key)
-			if len(addrBytes) != 29 {
-				t.Errorf("Expected address length 29, got %d", len(addrBytes))
-			}
-
-			// Verify testnet script stake address header
-			// In TestInitialPools and TestPoolById, replace the header check with:
-			if addrBytes[0] != expectedTestnetScriptStakeHeader {
-				t.Errorf("Expected header byte %x, got %x",
-					expectedTestnetScriptStakeHeader, addrBytes[0])
+			if delegs[0].Type() != common.AddressTypeNoneScript {
+				t.Errorf("Expected script stake address type, got %d", delegs[0].Type())
 			}
 
 			// Verify stake key matches
-			stakeKey := hex.EncodeToString(addrBytes[1:])
-			if stakeKey != expectedStakeKey {
+			stakeKeyHash := delegs[0].StakeKeyHash()
+			if hex.EncodeToString(stakeKeyHash[:]) != expectedStakeKey {
 				t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
-					expectedStakeKey, stakeKey)
+					expectedStakeKey, hex.EncodeToString(stakeKeyHash[:]))
 			}
 		}
 	})
@@ -379,29 +371,20 @@ func TestGenesisStaking(t *testing.T) {
 		if len(delegators) != 1 {
 			t.Errorf("Expected 1 delegator, got %d", len(delegators))
 		} else {
-			// Verify address format
-			addrBytes, err := delegators[0].Bytes()
-			if err != nil {
-				t.Fatalf("Failed to get address bytes: %v", err)
+			// Verify address type and network
+			if delegators[0].NetworkId() != common.AddressNetworkTestnet {
+				t.Errorf("Expected testnet address, got network ID %d", delegators[0].NetworkId())
 			}
 
-			// Should be 29 bytes (1 header + 28 stake key)
-			if len(addrBytes) != 29 {
-				t.Errorf("Expected address length 29, got %d", len(addrBytes))
-			}
-
-			// Verify testnet script stake address header
-			// In TestInitialPools and TestPoolById, replace the header check with:
-			if addrBytes[0] != expectedTestnetScriptStakeHeader {
-				t.Errorf("Expected header byte %x, got %x",
-					expectedTestnetScriptStakeHeader, addrBytes[0])
+			if delegators[0].Type() != common.AddressTypeNoneScript {
+				t.Errorf("Expected script stake address type, got %d", delegators[0].Type())
 			}
 
 			// Verify stake key matches
-			stakeKey := hex.EncodeToString(addrBytes[1:])
-			if stakeKey != expectedStakeKey {
+			stakeKeyHash := delegators[0].StakeKeyHash()
+			if hex.EncodeToString(stakeKeyHash[:]) != expectedStakeKey {
 				t.Errorf("Delegator key mismatch:\nExpected: %s\nActual:   %s",
-					expectedStakeKey, stakeKey)
+					expectedStakeKey, hex.EncodeToString(stakeKeyHash[:]))
 			}
 		}
 

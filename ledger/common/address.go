@@ -436,22 +436,14 @@ func (a Address) Bytes() ([]byte, error) {
 		}
 		return ret, nil
 	}
-
-	header := (a.addressType << 4) | (a.networkId & AddressHeaderNetworkMask)
-
-	if a.addressType == AddressTypeNoneScript && a.networkId == AddressNetworkTestnet {
-		header = (AddressTypeNoneScript << 4) | 1
-	}
-
 	ret := []byte{}
 	ret = append(
 		ret,
-		header,
+		(a.addressType<<4)|(a.networkId&AddressHeaderNetworkMask),
 	)
 	ret = append(ret, a.paymentAddress...)
 	ret = append(ret, a.stakingAddress...)
 	ret = append(ret, a.extraData...)
-
 	return ret, nil
 }
 
