@@ -23,7 +23,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
-	"github.com/blinklabs-io/plutigo/pkg/data"
+	"github.com/blinklabs-io/plutigo/data"
 )
 
 func TestAssetFingerprint(t *testing.T) {

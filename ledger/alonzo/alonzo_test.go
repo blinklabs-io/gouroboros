@@ -23,7 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	"github.com/blinklabs-io/plutigo/pkg/data"
+	"github.com/blinklabs-io/plutigo/data"
 )
 
 func TestAlonzoTransactionOutputToPlutusDataCoinOnly(t *testing.T) {

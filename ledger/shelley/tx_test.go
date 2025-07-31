@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/pkg/data"
+	"github.com/blinklabs-io/plutigo/data"
 )
 
 func TestShelleyTransactionInputToPlutusData(t *testing.T) {
