@@ -19,9 +19,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -367,6 +369,14 @@ func (i ShelleyTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
 	}, nil
 }
 
+func (i ShelleyTransactionInput) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		0,
+		data.NewByteString(i.TxId.Bytes()),
+		data.NewInteger(big.NewInt(int64(i.OutputIndex))),
+	)
+}
+
 func (i ShelleyTransactionInput) String() string {
 	return fmt.Sprintf("%s#%d", i.TxId, i.OutputIndex)
 }
@@ -390,6 +400,11 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	}
 	*o = ShelleyTransactionOutput(tmp)
 	o.SetCbor(cborData)
+	return nil
+}
+
+func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
+	// A Shelley transaction output will never be used for Plutus scripts
 	return nil
 }
 

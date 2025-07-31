@@ -128,7 +128,9 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			return err
 		}
 		if !msgRequestTxIds.Blocking {
-			return errors.New("cannot stop server process during a non-blocking operation")
+			return errors.New(
+				"cannot stop server process during a non-blocking operation",
+			)
 		}
 		resp := NewMsgDone()
 		if err := c.SendMessage(resp); err != nil {

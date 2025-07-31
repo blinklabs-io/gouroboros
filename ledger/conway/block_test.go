@@ -35,7 +35,10 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	// Decode the hex string into CBOR bytes
 	dataBytes, err := hex.DecodeString(hexStr)
 	if err != nil {
-		t.Fatalf("Failed to decode Conway block hex string into CBOR bytes: %v", err)
+		t.Fatalf(
+			"Failed to decode Conway block hex string into CBOR bytes: %v",
+			err,
+		)
 	}
 
 	// Deserialize CBOR bytes into ConwayBlock struct
@@ -48,7 +51,10 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	// Re-encode using the cbor Encode function
 	encoded, err := cbor.Encode(block)
 	if err != nil {
-		t.Fatalf("Failed to marshal ConwayBlock using custom encode function: %v", err)
+		t.Fatalf(
+			"Failed to marshal ConwayBlock using custom encode function: %v",
+			err,
+		)
 	}
 	if encoded == nil || len(encoded) == 0 {
 		t.Fatal("Custom encoded CBOR from ConwayBlock is nil or empty")
@@ -56,7 +62,11 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 
 	// Ensure the original and re-encoded CBOR bytes are identical
 	if !bytes.Equal(dataBytes, encoded) {
-		t.Errorf("Custom CBOR round-trip mismatch for Conway block\nOriginal CBOR (hex): %x\nCustom Encoded CBOR (hex): %x", dataBytes, encoded)
+		t.Errorf(
+			"Custom CBOR round-trip mismatch for Conway block\nOriginal CBOR (hex): %x\nCustom Encoded CBOR (hex): %x",
+			dataBytes,
+			encoded,
+		)
 
 		// Check from which byte it differs
 		diffIndex := -1
@@ -68,9 +78,86 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 		}
 		if diffIndex != -1 {
 			t.Logf("First mismatch at byte index: %d", diffIndex)
-			t.Logf("Original byte: 0x%02x, Re-encoded byte: 0x%02x", dataBytes[diffIndex], encoded[diffIndex])
+			t.Logf(
+				"Original byte: 0x%02x, Re-encoded byte: 0x%02x",
+				dataBytes[diffIndex],
+				encoded[diffIndex],
+			)
 		} else {
 			t.Logf("Length mismatch: original length = %d, re-encoded length = %d", len(dataBytes), len(encoded))
 		}
 	}
+}
+
+func TestConwayBlockUtxorpc(t *testing.T) {
+	blockCbor, err := hex.DecodeString(conwayBlockHex)
+	if err != nil {
+		t.Fatalf("failed to decode test block hex: %v", err)
+	}
+
+	block, err := conway.NewConwayBlockFromCbor(blockCbor)
+	if err != nil {
+		t.Fatalf("failed to parse Conway block: %v", err)
+	}
+
+	utxoBlock, err := block.Utxorpc()
+	if err != nil {
+		t.Fatalf("failed to convert Conway block to utxorpc: %v", err)
+	}
+
+	if utxoBlock.Header == nil {
+		t.Fatal("block header is nil")
+	}
+
+	expectedHash := block.Hash().Bytes()
+	if !compareByteSlices(utxoBlock.Header.Hash, expectedHash) {
+		t.Errorf("block hash mismatch:\nexpected: %x\nactual: %x", expectedHash, utxoBlock.Header.Hash)
+	}
+
+	if utxoBlock.Header.Height != block.BlockNumber() {
+		t.Errorf("block height mismatch: expected %d, got %d", block.BlockNumber(), utxoBlock.Header.Height)
+	}
+
+	if utxoBlock.Header.Slot != block.SlotNumber() {
+		t.Errorf("block slot mismatch: expected %d, got %d", block.SlotNumber(), utxoBlock.Header.Slot)
+	}
+
+	if utxoBlock.Body == nil {
+		t.Fatal("block body is nil")
+	}
+
+	expectedTxCount := len(block.TransactionBodies)
+	if len(utxoBlock.Body.Tx) != expectedTxCount {
+		t.Errorf("transaction count mismatch: expected %d, got %d", expectedTxCount, len(utxoBlock.Body.Tx))
+	}
+
+	if expectedTxCount > 0 {
+		firstTx := block.Transactions()[0]
+		utxoFirstTx := utxoBlock.Body.Tx[0]
+
+		expectedTxHash := firstTx.Hash().Bytes()
+		if !compareByteSlices(utxoFirstTx.Hash, expectedTxHash) {
+			t.Errorf("first tx hash mismatch:\nexpected: %x\nactual: %x", expectedTxHash, utxoFirstTx.Hash)
+		}
+
+		if len(utxoFirstTx.Inputs) != len(firstTx.Inputs()) {
+			t.Errorf("first tx input count mismatch: expected %d, got %d", len(firstTx.Inputs()), len(utxoFirstTx.Inputs))
+		}
+
+		if len(utxoFirstTx.Outputs) != len(firstTx.Outputs()) {
+			t.Errorf("first tx output count mismatch: expected %d, got %d", len(firstTx.Outputs()), len(utxoFirstTx.Outputs))
+		}
+	}
+}
+
+func compareByteSlices(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

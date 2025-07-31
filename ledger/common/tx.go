@@ -16,6 +16,7 @@ package common
 
 import (
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -61,6 +62,7 @@ type TransactionInput interface {
 	Index() uint32
 	String() string
 	Utxorpc() (*utxorpc.TxInput, error)
+	ToPlutusData() data.PlutusData
 }
 
 type TransactionOutput interface {
@@ -72,6 +74,7 @@ type TransactionOutput interface {
 	Cbor() []byte
 	Utxorpc() (*utxorpc.TxOutput, error)
 	ScriptRef() Script
+	ToPlutusData() data.PlutusData
 }
 
 type TransactionWitnessSet interface {

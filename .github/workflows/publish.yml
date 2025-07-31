@@ -16,7 +16,7 @@ jobs:
       RELEASE_ID: ${{ steps.create-release.outputs.result }}
     steps:
       - run: "echo \"RELEASE_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1 https://github.com/actions/github-script/releases/tag/v7.0.1
         id: create-release
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -39,4 +39,4 @@ jobs:
 
       # This updates the documentation on pkg.go.dev and the latest version available via the Go module proxy
       - name: Pull new module version
-        uses: andrewslotin/go-proxy-pull-action@v1.3.0
+        uses: andrewslotin/go-proxy-pull-action@0ef95ea50ab6c03f2f095a5102bbdecad8fd7602 # v1.3.0 https://github.com/andrewslotin/go-proxy-pull-action/releases/tag/v1.3.0

@@ -24,7 +24,6 @@ linters:
     - musttag
     - nilerr
     - nilnesserr
-    - noctx
     - perfsprint
     - prealloc
     - protogetter
@@ -39,6 +38,7 @@ linters:
   disable:
     - asasalint
     - depguard
+    - noctx
     - recvcheck
     - unparam
   exclusions:
