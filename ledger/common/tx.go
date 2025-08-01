@@ -15,6 +15,8 @@
 package common
 
 import (
+	"iter"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
@@ -90,7 +92,8 @@ type TransactionWitnessSet interface {
 
 type TransactionWitnessRedeemers interface {
 	Indexes(RedeemerTag) []uint
-	Value(uint, RedeemerTag) (cbor.LazyValue, ExUnits)
+	Value(uint, RedeemerTag) RedeemerValue
+	Iter() iter.Seq2[RedeemerKey, RedeemerValue]
 }
 
 type Utxo struct {

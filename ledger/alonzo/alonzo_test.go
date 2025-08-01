@@ -164,3 +164,84 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
 	}
 }
+
+func TestAlonzoRedeemersIter(t *testing.T) {
+	testRedeemers := AlonzoRedeemers{
+		{
+			Tag:   common.RedeemerTagMint,
+			Index: 2,
+			ExUnits: common.ExUnits{
+				Memory: 1111,
+				Steps:  2222,
+			},
+		},
+		{
+			Tag:   common.RedeemerTagMint,
+			Index: 0,
+			ExUnits: common.ExUnits{
+				Memory: 1111,
+				Steps:  0,
+			},
+		},
+		{
+			Tag:   common.RedeemerTagSpend,
+			Index: 4,
+			ExUnits: common.ExUnits{
+				Memory: 0,
+				Steps:  4444,
+			},
+		},
+	}
+	expectedOrder := []struct {
+		Key   common.RedeemerKey
+		Value common.RedeemerValue
+	}{
+		{
+			Key: common.RedeemerKey{
+				Tag:   common.RedeemerTagSpend,
+				Index: 4,
+			},
+			Value: common.RedeemerValue{
+				ExUnits: common.ExUnits{
+					Memory: 0,
+					Steps:  4444,
+				},
+			},
+		},
+		{
+			Key: common.RedeemerKey{
+				Tag:   common.RedeemerTagMint,
+				Index: 0,
+			},
+			Value: common.RedeemerValue{
+				ExUnits: common.ExUnits{
+					Memory: 1111,
+					Steps:  0,
+				},
+			},
+		},
+		{
+			Key: common.RedeemerKey{
+				Tag:   common.RedeemerTagMint,
+				Index: 2,
+			},
+			Value: common.RedeemerValue{
+				ExUnits: common.ExUnits{
+					Memory: 1111,
+					Steps:  2222,
+				},
+			},
+		},
+	}
+	iterIdx := 0
+	for key, val := range testRedeemers.Iter() {
+		expected := expectedOrder[iterIdx]
+		if !reflect.DeepEqual(key, expected.Key) {
+			t.Fatalf("did not get expected key: got %#v, wanted %#v", key, expected.Key)
+		}
+		if !reflect.DeepEqual(val, expected.Value) {
+			t.Fatalf("did not get expected value: got %#v, wanted %#v", val, expected.Value)
+		}
+		iterIdx++
+	}
+}

@@ -17,7 +17,9 @@ package alonzo
 import (
 	"encoding/json"
 	"fmt"
+	"iter"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -453,6 +455,40 @@ type AlonzoRedeemer struct {
 
 type AlonzoRedeemers []AlonzoRedeemer
 
+func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
+	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
+		// Sort redeemers
+		sorted := make([]AlonzoRedeemer, len(r))
+		copy(sorted, r)
+		slices.SortFunc(
+			sorted,
+			func(a, b AlonzoRedeemer) int {
+				if a.Tag < b.Tag || (a.Tag == b.Tag && a.Index < b.Index) {
+					return -1
+				}
+				if a.Tag > b.Tag || (a.Tag == b.Tag && a.Index > b.Index) {
+					return 1
+				}
+				return 0
+			},
+		)
+		// Yield keys
+		for _, redeemer := range sorted {
+			tmpKey := common.RedeemerKey{
+				Tag:   redeemer.Tag,
+				Index: redeemer.Index,
+			}
+			tmpVal := common.RedeemerValue{
+				Data:    redeemer.Data,
+				ExUnits: redeemer.ExUnits,
+			}
+			if !yield(tmpKey, tmpVal) {
+				return
+			}
+		}
+	}
+}
+
 func (r AlonzoRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	ret := []uint{}
 	for _, redeemer := range r {
@@ -466,13 +502,16 @@ func (r AlonzoRedeemers) Indexes(tag common.RedeemerTag) []uint {
 func (r AlonzoRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
-) (cbor.LazyValue, common.ExUnits) {
+) common.RedeemerValue {
 	for _, redeemer := range r {
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
-			return redeemer.Data, redeemer.ExUnits
+			return common.RedeemerValue{
+				Data:    redeemer.Data,
+				ExUnits: redeemer.ExUnits,
+			}
 		}
 	}
-	return cbor.LazyValue{}, common.ExUnits{}
+	return common.RedeemerValue{}
 }
 
 type AlonzoTransactionWitnessSet struct {
