@@ -15,6 +15,7 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
 )
@@ -25,6 +26,16 @@ type GenesisRat struct {
 }
 
 func (r *GenesisRat) UnmarshalJSON(data []byte) error {
+	// Try as ratio
+	var tmpData struct {
+		Numerator   int64 `json:"numerator"`
+		Denominator int64 `json:"denominator"`
+	}
+	if err := json.Unmarshal(data, &tmpData); err == nil {
+		r.Rat = big.NewRat(tmpData.Numerator, tmpData.Denominator)
+		return nil
+	}
+	// Try as decimal value
 	r.Rat = new(big.Rat)
 	if _, ok := r.SetString(string(data)); !ok {
 		return fmt.Errorf("math/big: cannot unmarshal %q into a *big.Rat", data)
