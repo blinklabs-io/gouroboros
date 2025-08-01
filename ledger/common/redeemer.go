@@ -18,16 +18,25 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
-type VkeyWitness struct {
+type RedeemerTag uint8
+
+const (
+	RedeemerTagSpend     RedeemerTag = 0
+	RedeemerTagMint      RedeemerTag = 1
+	RedeemerTagCert      RedeemerTag = 2
+	RedeemerTagReward    RedeemerTag = 3
+	RedeemerTagVoting    RedeemerTag = 4
+	RedeemerTagProposing RedeemerTag = 5
+)
+
+type RedeemerKey struct {
 	cbor.StructAsArray
-	Vkey      []byte
-	Signature []byte
+	Tag   RedeemerTag
+	Index uint32
 }
 
-type BootstrapWitness struct {
+type RedeemerValue struct {
 	cbor.StructAsArray
-	PublicKey  []byte
-	Signature  []byte
-	ChainCode  []byte
-	Attributes []byte
+	Data    cbor.LazyValue
+	ExUnits ExUnits
 }

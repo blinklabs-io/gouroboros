@@ -967,7 +967,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		},
 		WitnessSet: conway.ConwayTransactionWitnessSet{
 			WsRedeemers: conway.ConwayRedeemers{
-				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 					// Placeholder entry
 					{}: {},
 				},
@@ -1063,7 +1063,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		},
 		WitnessSet: conway.ConwayTransactionWitnessSet{
 			WsRedeemers: conway.ConwayRedeemers{
-				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 					// Placeholder entry
 					{}: {},
 				},
@@ -1241,7 +1241,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 		Body: conway.ConwayTransactionBody{},
 		WitnessSet: conway.ConwayTransactionWitnessSet{
 			WsRedeemers: conway.ConwayRedeemers{
-				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 					// Placeholder entry
 					{}: {},
 				},
@@ -1314,13 +1314,13 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 }
 
 func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
-	testRedeemerSmall := conway.ConwayRedeemerValue{
+	testRedeemerSmall := common.RedeemerValue{
 		ExUnits: common.ExUnits{
 			Memory: 1_000_000,
 			Steps:  2_000,
 		},
 	}
-	testRedeemerLarge := conway.ConwayRedeemerValue{
+	testRedeemerLarge := common.RedeemerValue{
 		ExUnits: common.ExUnits{
 			Memory: 1_000_000_000,
 			Steps:  2_000_000,
@@ -1342,7 +1342,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits too large",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
-				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 					{}: testRedeemerLarge,
 				},
 			}
@@ -1374,7 +1374,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits under limit",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
-				Redeemers: map[conway.ConwayRedeemerKey]conway.ConwayRedeemerValue{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 					{}: testRedeemerSmall,
 				},
 			}

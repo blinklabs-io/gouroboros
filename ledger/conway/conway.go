@@ -17,6 +17,9 @@ package conway
 import (
 	"errors"
 	"fmt"
+	"iter"
+	"maps"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -154,20 +157,8 @@ func (h *ConwayBlockHeader) Era() common.Era {
 	return EraConway
 }
 
-type ConwayRedeemerKey struct {
-	cbor.StructAsArray
-	Tag   common.RedeemerTag
-	Index uint32
-}
-
-type ConwayRedeemerValue struct {
-	cbor.StructAsArray
-	Data    cbor.LazyValue
-	ExUnits common.ExUnits
-}
-
 type ConwayRedeemers struct {
-	Redeemers       map[ConwayRedeemerKey]ConwayRedeemerValue
+	Redeemers       map[common.RedeemerKey]common.RedeemerValue
 	legacyRedeemers alonzo.AlonzoRedeemers
 	legacy          bool
 }
@@ -190,6 +181,32 @@ func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(r.Redeemers)
 }
 
+func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
+	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
+		// Sort redeemers
+		sorted := slices.Collect(maps.Keys(r.Redeemers))
+		slices.SortFunc(
+			sorted,
+			func(a, b common.RedeemerKey) int {
+				if a.Tag < b.Tag || (a.Tag == b.Tag && a.Index < b.Index) {
+					return -1
+				}
+				if a.Tag > b.Tag || (a.Tag == b.Tag && a.Index > b.Index) {
+					return 1
+				}
+				return 0
+			},
+		)
+		// Yield keys
+		for _, redeemerKey := range sorted {
+			tmpVal := r.Redeemers[redeemerKey]
+			if !yield(redeemerKey, tmpVal) {
+				return
+			}
+		}
+	}
+}
+
 func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	if r.legacy {
 		return r.legacyRedeemers.Indexes(tag)
@@ -206,18 +223,18 @@ func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
 func (r ConwayRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
-) (cbor.LazyValue, common.ExUnits) {
+) common.RedeemerValue {
 	if r.legacy {
 		return r.legacyRedeemers.Value(index, tag)
 	}
-	redeemer, ok := r.Redeemers[ConwayRedeemerKey{
+	redeemerVal, ok := r.Redeemers[common.RedeemerKey{
 		Tag:   tag,
 		Index: uint32(index), // #nosec G115
 	}]
 	if ok {
-		return redeemer.Data, redeemer.ExUnits
+		return redeemerVal
 	}
-	return cbor.LazyValue{}, common.ExUnits{}
+	return common.RedeemerValue{}
 }
 
 type ConwayTransactionWitnessSet struct {
