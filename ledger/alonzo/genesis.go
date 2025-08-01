@@ -19,9 +19,10 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/big"
 	"os"
 	"strconv"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type AlonzoGenesis struct {
@@ -156,22 +157,6 @@ type AlonzoGenesisExUnits struct {
 }
 
 type AlonzoGenesisExecutionPrices struct {
-	Steps *AlonzoGenesisExecutionPricesRat `json:"prSteps"`
-	Mem   *AlonzoGenesisExecutionPricesRat `json:"prMem"`
-}
-
-type AlonzoGenesisExecutionPricesRat struct {
-	*big.Rat
-}
-
-func (r *AlonzoGenesisExecutionPricesRat) UnmarshalJSON(data []byte) error {
-	var tmpData struct {
-		Numerator   int64 `json:"numerator"`
-		Denominator int64 `json:"denominator"`
-	}
-	if err := json.Unmarshal(data, &tmpData); err != nil {
-		return err
-	}
-	r.Rat = big.NewRat(tmpData.Numerator, tmpData.Denominator)
-	return nil
+	Steps *common.GenesisRat `json:"prSteps"`
+	Mem   *common.GenesisRat `json:"prMem"`
 }

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const alonzoGenesisConfig = `
@@ -228,10 +229,10 @@ var expectedGenesisObj = alonzo.AlonzoGenesis{
 	CollateralPercentage: 150,
 	MaxCollateralInputs:  3,
 	ExecutionPrices: alonzo.AlonzoGenesisExecutionPrices{
-		Mem: &alonzo.AlonzoGenesisExecutionPricesRat{
+		Mem: &common.GenesisRat{
 			Rat: big.NewRat(577, 10000),
 		},
-		Steps: &alonzo.AlonzoGenesisExecutionPricesRat{
+		Steps: &common.GenesisRat{
 			Rat: big.NewRat(721, 10000000),
 		},
 	},
