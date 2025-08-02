@@ -108,23 +108,40 @@ func NewAddressFromParts(
 	paymentAddr []byte,
 	stakingAddr []byte,
 ) (Address, error) {
+	// Validate network ID
+	if networkId != AddressNetworkTestnet && networkId != AddressNetworkMainnet {
+		return Address{}, errors.New("invalid network ID")
+	}
+
+	// Handle stake-only addresses
+	if addrType == AddressTypeNoneKey || addrType == AddressTypeNoneScript {
+		if len(paymentAddr) > 0 {
+			return Address{}, errors.New("payment address must be empty for stake-only addresses")
+		}
+		if len(stakingAddr) != AddressHashSize {
+			return Address{}, fmt.Errorf("staking key must be exactly %d bytes", AddressHashSize)
+		}
+		return Address{
+			addressType:    addrType,
+			networkId:      networkId,
+			stakingAddress: stakingAddr,
+		}, nil
+	}
+
+	// Handle regular addresses
 	if len(paymentAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf(
-			"invalid payment address hash length: %d",
-			len(paymentAddr),
-		)
+		return Address{}, fmt.Errorf("payment address must be exactly %d bytes", AddressHashSize)
 	}
+
 	if len(stakingAddr) > 0 && len(stakingAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf(
-			"invalid staking address hash length: %d",
-			len(stakingAddr),
-		)
+		return Address{}, fmt.Errorf("staking address must be empty or exactly %d bytes", AddressHashSize)
 	}
+
 	return Address{
 		addressType:    addrType,
 		networkId:      networkId,
-		paymentAddress: paymentAddr[:],
-		stakingAddress: stakingAddr[:],
+		paymentAddress: paymentAddr,
+		stakingAddress: stakingAddr,
 	}, nil
 }
 

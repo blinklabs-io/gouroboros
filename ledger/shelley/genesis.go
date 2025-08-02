@@ -17,9 +17,11 @@ package shelley
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -42,7 +44,12 @@ type ShelleyGenesis struct {
 	ProtocolParameters ShelleyGenesisProtocolParams `json:"protocolParams"`
 	GenDelegs          map[string]map[string]string `json:"genDelegs"`
 	InitialFunds       map[string]uint64            `json:"initialFunds"`
-	Staking            any                          `json:"staking"`
+	Staking            GenesisStaking               `json:"staking"`
+}
+
+type GenesisStaking struct {
+	Pools map[string]common.PoolRegistrationCertificate `json:"pools"`
+	Stake map[string]string                             `json:"stake"`
 }
 
 func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
@@ -65,13 +72,46 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 			cbor.NewByteString(vrfBytes),
 		}
 	}
-	staking := []any{}
-	if g.Staking == nil {
-		staking = []any{
-			map[any]any{},
-			map[any]any{},
+
+	// Convert pools to CBOR format
+	cborPools := make(map[cbor.ByteString]any)
+	for poolId, pool := range g.Staking.Pools {
+		poolIdBytes, err := hex.DecodeString(poolId)
+		if err != nil {
+			return nil, err
+		}
+		vrfBytes := pool.VrfKeyHash.Bytes()
+		rewardAccountBytes := pool.RewardAccount.Bytes()
+		cborPools[cbor.NewByteString(poolIdBytes)] = []any{
+			pool.Cost,
+			pool.Margin,
+			pool.Pledge,
+			pool.Operator.Bytes(),
+			[]any{
+				[]byte{0},
+				rewardAccountBytes,
+			},
+			convertAddrKeyHashesToBytes(pool.PoolOwners),
+			convertPoolRelays(pool.Relays),
+			vrfBytes,
+			pool.PoolMetadata,
 		}
 	}
+
+	// Convert stake to CBOR format
+	cborStake := make(map[cbor.ByteString]cbor.ByteString)
+	for stakeAddr, poolId := range g.Staking.Stake {
+		stakeAddrBytes, err := hex.DecodeString(stakeAddr)
+		if err != nil {
+			return nil, err
+		}
+		poolIdBytes, err := hex.DecodeString(poolId)
+		if err != nil {
+			return nil, err
+		}
+		cborStake[cbor.NewByteString(stakeAddrBytes)] = cbor.NewByteString(poolIdBytes)
+	}
+
 	slotLengthMs := &big.Rat{}
 	tmpData := []any{
 		[]any{
@@ -95,9 +135,73 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		g.ProtocolParameters,
 		genDelegs,
 		g.InitialFunds,
-		staking,
+		[]any{
+			cborPools,
+			cborStake,
+		},
 	}
 	return cbor.Encode(tmpData)
+}
+
+func convertAddrKeyHashesToBytes(hashes []common.AddrKeyHash) [][]byte {
+	result := make([][]byte, len(hashes))
+	for i, h := range hashes {
+		result[i] = h.Bytes()
+	}
+	return result
+}
+
+func convertPoolRelays(relays []common.PoolRelay) []any {
+	result := make([]any, len(relays))
+	for i, relay := range relays {
+		switch relay.Type {
+		case 0: // SingleHostAddr
+			var ipv4, ipv6 []byte
+			var port uint32
+			if relay.Ipv4 != nil {
+				ipv4 = relay.Ipv4.To4()
+			}
+			if relay.Ipv6 != nil {
+				ipv6 = relay.Ipv6.To16()
+			}
+			if relay.Port != nil {
+				port = *relay.Port
+			}
+			result[i] = map[string]any{
+				"single host addr": []any{
+					ipv4,
+					ipv6,
+					port,
+				},
+			}
+		case 1: // SingleHostName
+			var hostname string
+			var port uint32
+			if relay.Hostname != nil {
+				hostname = *relay.Hostname
+			}
+			if relay.Port != nil {
+				port = *relay.Port
+			}
+			result[i] = map[string]any{
+				"single host name": []any{
+					hostname,
+					port,
+				},
+			}
+		case 2: // MultiHostName
+			var hostname string
+			if relay.Hostname != nil {
+				hostname = *relay.Hostname
+			}
+			result[i] = map[string]any{
+				"multi host name": hostname,
+			}
+		default:
+			result[i] = nil
+		}
+	}
+	return result
 }
 
 func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
@@ -126,6 +230,128 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 		)
 	}
 	return ret, nil
+}
+
+func (g *ShelleyGenesis) getNetworkId() (uint8, error) {
+	switch g.NetworkId {
+	case "Mainnet":
+		return common.AddressNetworkMainnet, nil
+	case "Testnet":
+		return common.AddressNetworkTestnet, nil
+	default:
+		return 0, errors.New("unknown network ID")
+	}
+}
+
+func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCertificate, map[string][]common.Address, error) {
+	pools := make(map[string]common.PoolRegistrationCertificate)
+	poolStake := make(map[string][]common.Address)
+
+	if reflect.DeepEqual(g.Staking, GenesisStaking{}) {
+		return pools, poolStake, nil
+	}
+
+	networkId, err := g.getNetworkId()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Process all stake addresses
+	for stakeAddr, poolId := range g.Staking.Stake {
+		stakeKey, err := hex.DecodeString(stakeAddr)
+		if err != nil {
+			return nil, nil, errors.New("failed to decode stake key")
+		}
+
+		addr, err := common.NewAddressFromParts(
+			common.AddressTypeNoneScript, // Script stake address
+			networkId,
+			nil,
+			stakeKey,
+		)
+		if err != nil {
+			return nil, nil, errors.New("failed to create address")
+		}
+
+		poolStake[poolId] = append(poolStake[poolId], addr)
+	}
+
+	// Process all stake pools
+	for poolId, pool := range g.Staking.Pools {
+		operatorBytes, err := hex.DecodeString(poolId)
+		if err != nil {
+			return nil, nil, errors.New("failed to decode pool ID")
+		}
+
+		pools[poolId] = common.PoolRegistrationCertificate{
+			Operator:      common.Blake2b224(operatorBytes),
+			VrfKeyHash:    pool.VrfKeyHash,
+			Pledge:        pool.Pledge,
+			Cost:          pool.Cost,
+			Margin:        pool.Margin,
+			RewardAccount: pool.RewardAccount,
+			PoolOwners:    pool.PoolOwners,
+			Relays:        pool.Relays,
+			PoolMetadata:  pool.PoolMetadata,
+		}
+	}
+
+	return pools, poolStake, nil
+}
+
+func (g *ShelleyGenesis) PoolById(poolId string) (*common.PoolRegistrationCertificate, []common.Address, error) {
+	if len(poolId) != 56 {
+		return nil, nil, errors.New("invalid pool ID length")
+	}
+
+	pool, exists := g.Staking.Pools[poolId]
+	if !exists {
+		return nil, nil, errors.New("pool  not found")
+	}
+
+	networkId, err := g.getNetworkId()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var delegators []common.Address
+	for stakeAddr, pId := range g.Staking.Stake {
+		if pId == poolId {
+			stakeKey, err := hex.DecodeString(stakeAddr)
+			if err != nil {
+				return nil, nil, errors.New("failed to decode stake key")
+			}
+
+			addr, err := common.NewAddressFromParts(
+				common.AddressTypeNoneScript,
+				networkId,
+				nil,
+				stakeKey,
+			)
+			if err != nil {
+				return nil, nil, errors.New("failed to create address")
+			}
+
+			delegators = append(delegators, addr)
+		}
+	}
+
+	operatorBytes, err := hex.DecodeString(poolId)
+	if err != nil {
+		return nil, nil, errors.New("failed to decode pool operator key")
+	}
+
+	return &common.PoolRegistrationCertificate{
+		Operator:      common.Blake2b224(operatorBytes),
+		VrfKeyHash:    pool.VrfKeyHash,
+		Pledge:        pool.Pledge,
+		Cost:          pool.Cost,
+		Margin:        pool.Margin,
+		RewardAccount: pool.RewardAccount,
+		PoolOwners:    pool.PoolOwners,
+		Relays:        pool.Relays,
+		PoolMetadata:  pool.PoolMetadata,
+	}, delegators, nil
 }
 
 type ShelleyGenesisProtocolParams struct {
