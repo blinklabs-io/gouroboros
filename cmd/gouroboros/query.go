@@ -278,6 +278,18 @@ func testQuery(f *globalFlags) {
 				fmt.Printf("Assets: %s\n", assetsJson)
 			}
 		}
+	case "utxo-whole-result":
+		result, err := o.LocalStateQuery().Client.GetUTxOWhole()
+		if err != nil {
+			fmt.Printf("ERROR: failure querying UTxO whole: %s\n", err)
+			os.Exit(1)
+		}
+		jsonData, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			fmt.Printf("ERROR: failed to marshal UTxO whole to JSON: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(jsonData))
 	default:
 		fmt.Printf("ERROR: unknown query: %s\n", queryFlags.flagset.Args()[0])
 		os.Exit(1)
