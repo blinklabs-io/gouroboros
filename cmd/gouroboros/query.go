@@ -279,17 +279,40 @@ func testQuery(f *globalFlags) {
 			}
 		}
 	case "utxo-whole-result":
-		result, err := o.LocalStateQuery().Client.GetUTxOWhole()
+		utxos, err := o.LocalStateQuery().Client.GetUTxOWhole()
 		if err != nil {
 			fmt.Printf("ERROR: failure querying UTxO whole: %s\n", err)
 			os.Exit(1)
 		}
-		jsonData, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			fmt.Printf("ERROR: failed to marshal UTxO whole to JSON: %s\n", err)
-			os.Exit(1)
+
+		for utxoId, utxo := range utxos.Results {
+			fmt.Println("---")
+			fmt.Printf("UTxO ID: %s#%d\n", utxoId.Hash.String(), utxoId.Idx)
+			fmt.Printf("Address: %x\n", utxo.Address)
+			fmt.Printf("Amount: %d\n", utxo.Amount)
+
+			// Handle assets
+			if utxo.Assets != nil {
+				assets := utxo.Assets()
+				fmt.Printf("Assests: %d\n", assets)
+				if assets != nil {
+					fmt.Printf("Assets: %s\n", assets)
+				}
+			}
+
+			// Handle datum
+			if utxo.Datum != nil {
+				datum := utxo.Datum()
+				fmt.Printf("Datum: %d\n", datum)
+				if datum != nil {
+					if cborData := datum.Cbor(); err == nil {
+						fmt.Printf("Datum CBOR: %x\n", cborData)
+					} else {
+						fmt.Printf("Datum present (error decoding: %v)\n", err)
+					}
+				}
+			}
 		}
-		fmt.Println(string(jsonData))
 	default:
 		fmt.Printf("ERROR: unknown query: %s\n", queryFlags.flagset.Args()[0])
 		os.Exit(1)

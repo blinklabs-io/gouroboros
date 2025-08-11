@@ -596,7 +596,10 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 /*
 result	[{* utxo => value }]
 */
-type UTxOWholeResult any
+type UTxOWholeResult struct {
+	cbor.StructAsArray
+	Results map[UtxoId]ledger.BabbageTransactionOutput
+}
 
 // TODO (#863)
 type DebugEpochStateResult any
