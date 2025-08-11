@@ -476,90 +476,6 @@ func (c *Client) GetUTxOByAddress(
 	return &result, nil
 }
 
-func (c *Client) GetUTxOWholeRaw() ([]byte, error) {
-	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-
-	currentEra, err := c.getCurrentEra()
-	if err != nil {
-		return nil, err
-	}
-
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyUtxoWhole,
-	)
-
-	msg := NewMsgQuery(query)
-	if !c.acquired {
-		if err := c.acquire(AcquireVolatileTip{}); err != nil {
-			return nil, err
-		}
-	}
-	if err := c.SendMessage(msg); err != nil {
-		return nil, err
-	}
-	resultCbor, ok := <-c.queryResultChan
-	if !ok {
-		return nil, protocol.ErrProtocolShuttingDown
-	}
-	return resultCbor, nil
-}
-
-func decodeSimpleUTxO(rawCBOR []byte) (map[string]map[string]interface{}, error) {
-	var cborData []interface{}
-	if _, err := cbor.Decode(rawCBOR, &cborData); err != nil {
-		return nil, fmt.Errorf("CBOR decode error: %v", err)
-	}
-
-	result := make(map[string]map[string]interface{})
-
-	for _, entry := range cborData {
-		entrySlice, ok := entry.([]interface{})
-		if !ok || len(entrySlice) != 2 {
-			continue
-		}
-
-		// Decode input (TxId + index)
-		input, ok := entrySlice[0].([]interface{})
-		if !ok || len(input) != 2 {
-			continue
-		}
-
-		txId, ok := input[0].([]byte)
-		if !ok {
-			continue
-		}
-
-		outputIdx, ok := input[1].(uint64)
-		if !ok {
-			continue
-		}
-
-		// Decode output (address + value)
-		output, ok := entrySlice[1].([]interface{})
-		if !ok || len(output) != 2 {
-			continue
-		}
-
-		address, ok := output[0].([]byte)
-		if !ok {
-			continue
-		}
-
-		value := output[1] // Could be uint64 (lovelace) or map (multi-asset)
-
-		// Create entry
-		key := fmt.Sprintf("%x#%d", txId, outputIdx)
-		result[key] = map[string]interface{}{
-			"address": address,
-			"value":   value,
-		}
-	}
-
-	return result, nil
-}
-
 // GetUTxOWhole returns the current UTxO set
 func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	c.Protocol.Logger().
@@ -583,12 +499,6 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
-	// jsonData, err := json.MarshalIndent(result, "", "  ")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error marshaling UTxOWhole result to JSON: %w", err)
-	// }
-	// fmt.Println("UTxOWhole Result:")
-	// fmt.Println(string(jsonData))
 	return &result, nil
 }
 
