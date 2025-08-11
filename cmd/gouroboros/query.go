@@ -288,28 +288,20 @@ func testQuery(f *globalFlags) {
 		for utxoId, utxo := range utxos.Results {
 			fmt.Println("---")
 			fmt.Printf("UTxO ID: %s#%d\n", utxoId.Hash.String(), utxoId.Idx)
-			fmt.Printf("Address: %x\n", utxo.Address)
-			fmt.Printf("Amount: %d\n", utxo.Amount)
+			fmt.Printf("Address: %x\n", utxo.Address())
+			fmt.Printf("Amount: %d\n", utxo.Amount())
 
-			// Handle assets
-			if utxo.Assets != nil {
-				assets := utxo.Assets()
-				fmt.Printf("Assests: %d\n", assets)
-				if assets != nil {
-					fmt.Printf("Assets: %s\n", assets)
-				}
+			assets := utxo.Assets()
+			if assets != nil {
+				fmt.Printf("Assets: %+v\n", assets)
 			}
 
-			// Handle datum
-			if utxo.Datum != nil {
-				datum := utxo.Datum()
-				fmt.Printf("Datum: %d\n", datum)
-				if datum != nil {
-					if cborData := datum.Cbor(); err == nil {
-						fmt.Printf("Datum CBOR: %x\n", cborData)
-					} else {
-						fmt.Printf("Datum present (error decoding: %v)\n", err)
-					}
+			datum := utxo.Datum()
+			if datum != nil {
+				if cborData := datum.Cbor(); cborData != nil {
+					fmt.Printf("Datum CBOR: %x\n", cborData)
+				} else {
+					fmt.Printf("Datum present (error decoding)")
 				}
 			}
 		}
