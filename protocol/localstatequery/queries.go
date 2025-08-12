@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -533,10 +533,15 @@ type StakeDistributionResult struct {
 	}
 }
 
-type UTxOByAddressResult struct {
+type UTxOsResult struct {
 	cbor.StructAsArray
 	Results map[UtxoId]ledger.BabbageTransactionOutput
 }
+
+type (
+	UTxOByAddressResult = UTxOsResult
+	UTxOWholeResult     = UTxOsResult
+)
 
 type UtxoId struct {
 	cbor.StructAsArray
@@ -590,15 +595,6 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 		}
 	}
 	return cbor.Encode(tmpData)
-}
-
-// TODO (#862)
-/*
-result	[{* utxo => value }]
-*/
-type UTxOWholeResult struct {
-	cbor.StructAsArray
-	Results map[UtxoId]ledger.BabbageTransactionOutput
 }
 
 // TODO (#863)

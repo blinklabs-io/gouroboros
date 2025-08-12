@@ -450,7 +450,7 @@ func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 // GetUTxOByAddress returns the UTxOs for a given list of ledger.Address structs
 func (c *Client) GetUTxOByAddress(
 	addrs []ledger.Address,
-) (*UTxOByAddressResult, error) {
+) (*UTxOsResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetUTxOByAddress(addrs: %+v)", addrs),
 			"component", "network",
@@ -469,7 +469,7 @@ func (c *Client) GetUTxOByAddress(
 		QueryTypeShelleyUtxoByAddress,
 		addrs,
 	)
-	var result UTxOByAddressResult
+	var result UTxOsResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
@@ -477,7 +477,7 @@ func (c *Client) GetUTxOByAddress(
 }
 
 // GetUTxOWhole returns the current UTxO set
-func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
+func (c *Client) GetUTxOWhole() (*UTxOsResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetUTxOWhole()",
 			"component", "network",
@@ -495,7 +495,7 @@ func (c *Client) GetUTxOWhole() (*UTxOWholeResult, error) {
 		currentEra,
 		QueryTypeShelleyUtxoWhole,
 	)
-	var result UTxOWholeResult
+	var result UTxOsResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
