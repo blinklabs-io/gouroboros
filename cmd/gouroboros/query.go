@@ -278,6 +278,33 @@ func testQuery(f *globalFlags) {
 				fmt.Printf("Assets: %s\n", assetsJson)
 			}
 		}
+	case "utxo-whole-result":
+		utxos, err := o.LocalStateQuery().Client.GetUTxOWhole()
+		if err != nil {
+			fmt.Printf("ERROR: failure querying UTxO whole: %s\n", err)
+			os.Exit(1)
+		}
+
+		for utxoId, utxo := range utxos.Results {
+			fmt.Println("---")
+			fmt.Printf("UTxO ID: %s#%d\n", utxoId.Hash.String(), utxoId.Idx)
+			fmt.Printf("Address: %x\n", utxo.Address())
+			fmt.Printf("Amount: %d\n", utxo.Amount())
+
+			assets := utxo.Assets()
+			if assets != nil {
+				fmt.Printf("Assets: %+v\n", assets)
+			}
+
+			datum := utxo.Datum()
+			if datum != nil {
+				if cborData := datum.Cbor(); cborData != nil {
+					fmt.Printf("Datum CBOR: %x\n", cborData)
+				} else {
+					fmt.Printf("Datum present (error decoding)")
+				}
+			}
+		}
 	default:
 		fmt.Printf("ERROR: unknown query: %s\n", queryFlags.flagset.Args()[0])
 		os.Exit(1)
