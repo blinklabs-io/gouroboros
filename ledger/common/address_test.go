@@ -370,7 +370,11 @@ func TestAddressToPlutusData(t *testing.T) {
 		}
 		tmpPd := tmpAddr.ToPlutusData()
 		if !reflect.DeepEqual(tmpPd, testDef.expectedData) {
-			t.Errorf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpPd, testDef.expectedData)
+			t.Errorf(
+				"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+				tmpPd,
+				testDef.expectedData,
+			)
 		}
 	}
 }

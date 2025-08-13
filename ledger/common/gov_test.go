@@ -26,8 +26,66 @@ import (
 // Ttests the ToPlutusData method for Voter types
 func TestVoterToPlutusData(t *testing.T) {
 	// Use the same hash value for all tests to avoid confusion
-	testHash := [28]byte{0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11}
-	testHashBytes := []byte{0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11}
+	testHash := [28]byte{
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+	}
+	testHashBytes := []byte{
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+		0x11,
+	}
 
 	testCases := []struct {
 		name         string
@@ -40,7 +98,10 @@ func TestVoterToPlutusData(t *testing.T) {
 				Type: VoterTypeConstitutionalCommitteeHotScriptHash,
 				Hash: testHash,
 			},
-			expectedData: data.NewConstr(0, data.NewConstr(1, data.NewByteString(testHashBytes))),
+			expectedData: data.NewConstr(
+				0,
+				data.NewConstr(1, data.NewByteString(testHashBytes)),
+			),
 		},
 		{
 			name: "ConstitutionalCommitteeHotKeyHash",
@@ -48,7 +109,10 @@ func TestVoterToPlutusData(t *testing.T) {
 				Type: VoterTypeConstitutionalCommitteeHotKeyHash,
 				Hash: testHash,
 			},
-			expectedData: data.NewConstr(0, data.NewConstr(0, data.NewByteString(testHashBytes))),
+			expectedData: data.NewConstr(
+				0,
+				data.NewConstr(0, data.NewByteString(testHashBytes)),
+			),
 		},
 		{
 			name: "DRepScriptHash",
@@ -56,7 +120,10 @@ func TestVoterToPlutusData(t *testing.T) {
 				Type: VoterTypeDRepScriptHash,
 				Hash: testHash,
 			},
-			expectedData: data.NewConstr(1, data.NewConstr(1, data.NewByteString(testHashBytes))),
+			expectedData: data.NewConstr(
+				1,
+				data.NewConstr(1, data.NewByteString(testHashBytes)),
+			),
 		},
 		{
 			name: "DRepKeyHash",
@@ -64,7 +131,10 @@ func TestVoterToPlutusData(t *testing.T) {
 				Type: VoterTypeDRepKeyHash,
 				Hash: testHash,
 			},
-			expectedData: data.NewConstr(1, data.NewConstr(0, data.NewByteString(testHashBytes))),
+			expectedData: data.NewConstr(
+				1,
+				data.NewConstr(0, data.NewByteString(testHashBytes)),
+			),
 		},
 		{
 			name: "StakingPoolKeyHash",
@@ -88,7 +158,11 @@ func TestVoterToPlutusData(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.voter.ToPlutusData()
 			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf("ToPlutusData() = %#v, want %#v", result, tc.expectedData)
+				t.Errorf(
+					"ToPlutusData() = %#v, want %#v",
+					result,
+					tc.expectedData,
+				)
 			}
 		})
 	}
@@ -127,7 +201,11 @@ func TestVoteToPlutusData(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.vote.ToPlutusData()
 			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf("ToPlutusData() = %#v, want %#v", result, tc.expectedData)
+				t.Errorf(
+					"ToPlutusData() = %#v, want %#v",
+					result,
+					tc.expectedData,
+				)
 			}
 		})
 	}
@@ -174,7 +252,11 @@ func TestVotingProcedureToPlutusData(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.procedure.ToPlutusData()
 			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf("ToPlutusData() = %#v, want %#v", result, tc.expectedData)
+				t.Errorf(
+					"ToPlutusData() = %#v, want %#v",
+					result,
+					tc.expectedData,
+				)
 			}
 		})
 	}

@@ -2857,7 +2857,11 @@ func TestBabbageTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 	)
 	tmpData := testTxOut.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
 	}
 }
 
@@ -2913,22 +2917,38 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 					),
 				},
 				{
-					data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+					data.NewByteString(
+						test.DecodeHexString(
+							"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
+						),
+					),
 					data.NewMap(
 						[][2]data.PlutusData{
 							{
-								data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+								data.NewByteString(
+									test.DecodeHexString(
+										"6675726e697368613239686e",
+									),
+								),
 								data.NewInteger(big.NewInt(123456)),
 							},
 						},
 					),
 				},
 				{
-					data.NewByteString(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")),
+					data.NewByteString(
+						test.DecodeHexString(
+							"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5",
+						),
+					),
 					data.NewMap(
 						[][2]data.PlutusData{
 							{
-								data.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")),
+								data.NewByteString(
+									test.DecodeHexString(
+										"426f7764757261436f6e63657074733638",
+									),
+								),
 								data.NewInteger(big.NewInt(234567)),
 							},
 						},
@@ -2943,6 +2963,10 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	)
 	tmpData := testTxOut.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
 	}
 }
