@@ -98,10 +98,18 @@ func TestConwayRedeemersIter(t *testing.T) {
 	for key, val := range testRedeemers.Iter() {
 		expected := expectedOrder[iterIdx]
 		if !reflect.DeepEqual(key, expected.Key) {
-			t.Fatalf("did not get expected key: got %#v, wanted %#v", key, expected.Key)
+			t.Fatalf(
+				"did not get expected key: got %#v, wanted %#v",
+				key,
+				expected.Key,
+			)
 		}
 		if !reflect.DeepEqual(val, expected.Value) {
-			t.Fatalf("did not get expected value: got %#v, wanted %#v", val, expected.Value)
+			t.Fatalf(
+				"did not get expected value: got %#v, wanted %#v",
+				val,
+				expected.Value,
+			)
 		}
 		iterIdx++
 	}

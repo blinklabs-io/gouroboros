@@ -375,8 +375,8 @@ func (p *PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 }
 
 type PoolRegistrationCertificate struct {
-	cbor.StructAsArray   `json:"-"`
-	cbor.DecodeStoreCbor `json:"-"`
+	cbor.StructAsArray   `              json:"-"`
+	cbor.DecodeStoreCbor `              json:"-"`
 	CertType             uint          `json:"certType,omitempty"`
 	Operator             PoolKeyHash   `json:"operator"`
 	VrfKeyHash           VrfKeyHash    `json:"vrfKeyHash"`
@@ -449,10 +449,17 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		if ra.Credential.KeyHash != "" {
 			hashBytes, err := hex.DecodeString(ra.Credential.KeyHash)
 			if err != nil {
-				return fmt.Errorf("failed to decode reward account key hash: %w", err)
+				return fmt.Errorf(
+					"failed to decode reward account key hash: %w",
+					err,
+				)
 			}
 			if len(hashBytes) != AddressHashSize {
-				return fmt.Errorf("invalid key hash length: expected %d, got %d", AddressHashSize, len(hashBytes))
+				return fmt.Errorf(
+					"invalid key hash length: expected %d, got %d",
+					AddressHashSize,
+					len(hashBytes),
+				)
 			}
 			p.RewardAccount = AddrKeyHash(NewBlake2b224(hashBytes))
 		}

@@ -240,9 +240,14 @@ type HardForkInitiationGovAction struct {
 func (a *HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
 	return data.NewConstr(1,
 		a.ActionId.ToPlutusData(),
-		data.NewConstr(0,
-			data.NewInteger(new(big.Int).SetUint64(uint64(a.ProtocolVersion.Major))),
-			data.NewInteger(new(big.Int).SetUint64(uint64(a.ProtocolVersion.Minor))),
+		data.NewConstr(
+			0,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(a.ProtocolVersion.Major)),
+			),
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(a.ProtocolVersion.Minor)),
+			),
 		),
 	)
 }

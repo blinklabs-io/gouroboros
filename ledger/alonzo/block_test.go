@@ -25,9 +25,24 @@ func TestAlonzoBlockUtxorpc(t *testing.T) {
 	assert.NotNil(t, block, "Parsed block is nil")
 
 	assert.NotEmpty(t, block.Hash(), "Block hash should not be empty")
-	assert.Greater(t, block.BlockNumber(), uint64(0), "Block number should be positive")
-	assert.Greater(t, block.SlotNumber(), uint64(0), "Slot number should be positive")
-	assert.Greater(t, len(block.Transactions()), 0, "Block should contain transactions")
+	assert.Greater(
+		t,
+		block.BlockNumber(),
+		uint64(0),
+		"Block number should be positive",
+	)
+	assert.Greater(
+		t,
+		block.SlotNumber(),
+		uint64(0),
+		"Slot number should be positive",
+	)
+	assert.Greater(
+		t,
+		len(block.Transactions()),
+		0,
+		"Block should contain transactions",
+	)
 
 	t.Run("UtxorpcConversion", func(t *testing.T) {
 		pbBlock, err := block.Utxorpc()
@@ -36,9 +51,29 @@ func TestAlonzoBlockUtxorpc(t *testing.T) {
 		}
 
 		assert.NotNil(t, pbBlock, "Converted block should not be nil")
-		assert.Equal(t, block.Hash().Bytes(), pbBlock.Header.Hash, "Block hash mismatch")
-		assert.Equal(t, block.BlockNumber(), pbBlock.Header.Height, "Block height mismatch")
-		assert.Equal(t, block.SlotNumber(), pbBlock.Header.Slot, "Block slot mismatch")
-		assert.Equal(t, len(block.Transactions()), len(pbBlock.Body.Tx), "Transaction count mismatch")
+		assert.Equal(
+			t,
+			block.Hash().Bytes(),
+			pbBlock.Header.Hash,
+			"Block hash mismatch",
+		)
+		assert.Equal(
+			t,
+			block.BlockNumber(),
+			pbBlock.Header.Height,
+			"Block height mismatch",
+		)
+		assert.Equal(
+			t,
+			block.SlotNumber(),
+			pbBlock.Header.Slot,
+			"Block slot mismatch",
+		)
+		assert.Equal(
+			t,
+			len(block.Transactions()),
+			len(pbBlock.Body.Tx),
+			"Transaction count mismatch",
+		)
 	})
 }

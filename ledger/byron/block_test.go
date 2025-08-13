@@ -24,7 +24,12 @@ func TestByronTransactionUtxorpc(t *testing.T) {
 	assert.NotNil(t, block)
 
 	txs := block.Transactions()
-	assert.Greater(t, len(txs), 0, "Expected at least one transaction in the block")
+	assert.Greater(
+		t,
+		len(txs),
+		0,
+		"Expected at least one transaction in the block",
+	)
 
 	for _, tx := range txs {
 		byronTx, ok := tx.(*byron.ByronTransaction)
@@ -35,20 +40,43 @@ func TestByronTransactionUtxorpc(t *testing.T) {
 		assert.NotNil(t, utxoTx, "Utxorpc() should not return nil")
 
 		txHash := byronTx.Hash()
-		assert.NotEmpty(t, txHash.String(), "Transaction hash should not be empty")
+		assert.NotEmpty(
+			t,
+			txHash.String(),
+			"Transaction hash should not be empty",
+		)
 
 		inputs := byronTx.Inputs()
-		assert.Equal(t, len(inputs), len(byronTx.Consumed()), "Consumed inputs should match Inputs() length")
+		assert.Equal(
+			t,
+			len(inputs),
+			len(byronTx.Consumed()),
+			"Consumed inputs should match Inputs() length",
+		)
 
 		produced := byronTx.Produced()
-		assert.Equal(t, len(produced), len(byronTx.Outputs()), "Produced should match Outputs() length")
+		assert.Equal(
+			t,
+			len(produced),
+			len(byronTx.Outputs()),
+			"Produced should match Outputs() length",
+		)
 
 		for _, utxo := range produced {
 			rpcOut, err := utxo.Output.Utxorpc()
 			assert.NoError(t, err)
 			assert.NotNil(t, rpcOut, "Utxorpc output should not be nil")
-			assert.Greater(t, rpcOut.Coin, uint64(0), "Coin amount should be greater than 0")
-			assert.NotEmpty(t, rpcOut.Address, "Address bytes should not be empty")
+			assert.Greater(
+				t,
+				rpcOut.Coin,
+				uint64(0),
+				"Coin amount should be greater than 0",
+			)
+			assert.NotEmpty(
+				t,
+				rpcOut.Address,
+				"Address bytes should not be empty",
+			)
 		}
 	}
 }

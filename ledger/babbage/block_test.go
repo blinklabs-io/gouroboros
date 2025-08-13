@@ -43,22 +43,38 @@ func TestBabbageBlockUtxorpc(t *testing.T) {
 	}
 
 	if !bytes.Equal(utxoBlock.Header.Hash, hashBytes) {
-		t.Errorf("unexpected block hash: got %x, want %x", utxoBlock.Header.Hash, hashBytes)
+		t.Errorf(
+			"unexpected block hash: got %x, want %x",
+			utxoBlock.Header.Hash,
+			hashBytes,
+		)
 	}
 
 	// Verify block number matches what's in the header body
 	if utxoBlock.Header.Height != block.BlockHeader.Body.BlockNumber {
-		t.Errorf("unexpected block height: got %d, want %d", utxoBlock.Header.Height, block.BlockHeader.Body.BlockNumber)
+		t.Errorf(
+			"unexpected block height: got %d, want %d",
+			utxoBlock.Header.Height,
+			block.BlockHeader.Body.BlockNumber,
+		)
 	}
 
 	// Verify slot number matches what's in the header body
 	if utxoBlock.Header.Slot != block.BlockHeader.Body.Slot {
-		t.Errorf("unexpected block slot: got %d, want %d", utxoBlock.Header.Slot, block.BlockHeader.Body.Slot)
+		t.Errorf(
+			"unexpected block slot: got %d, want %d",
+			utxoBlock.Header.Slot,
+			block.BlockHeader.Body.Slot,
+		)
 	}
 
 	// Verify transactions
 	if len(utxoBlock.Body.Tx) != len(block.TransactionBodies) {
-		t.Errorf("unexpected transaction count: got %d, want %d", len(utxoBlock.Body.Tx), len(block.TransactionBodies))
+		t.Errorf(
+			"unexpected transaction count: got %d, want %d",
+			len(utxoBlock.Body.Tx),
+			len(block.TransactionBodies),
+		)
 	}
 
 	// Verify the first transaction as a sample
@@ -69,11 +85,19 @@ func TestBabbageBlockUtxorpc(t *testing.T) {
 		}
 
 		if len(tx.Inputs) != len(block.TransactionBodies[0].TxInputs.Items()) {
-			t.Errorf("unexpected input count in first tx: got %d, want %d", len(tx.Inputs), len(block.TransactionBodies[0].TxInputs.Items()))
+			t.Errorf(
+				"unexpected input count in first tx: got %d, want %d",
+				len(tx.Inputs),
+				len(block.TransactionBodies[0].TxInputs.Items()),
+			)
 		}
 
 		if len(tx.Outputs) != len(block.TransactionBodies[0].TxOutputs) {
-			t.Errorf("unexpected output count in first tx: got %d, want %d", len(tx.Outputs), len(block.TransactionBodies[0].TxOutputs))
+			t.Errorf(
+				"unexpected output count in first tx: got %d, want %d",
+				len(tx.Outputs),
+				len(block.TransactionBodies[0].TxOutputs),
+			)
 		}
 	}
 }

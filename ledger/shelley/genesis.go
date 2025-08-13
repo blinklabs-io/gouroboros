@@ -109,7 +109,9 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		cborStake[cbor.NewByteString(stakeAddrBytes)] = cbor.NewByteString(poolIdBytes)
+		cborStake[cbor.NewByteString(stakeAddrBytes)] = cbor.NewByteString(
+			poolIdBytes,
+		)
 	}
 
 	slotLengthMs := &big.Rat{}
@@ -299,7 +301,9 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 	return pools, poolStake, nil
 }
 
-func (g *ShelleyGenesis) PoolById(poolId string) (*common.PoolRegistrationCertificate, []common.Address, error) {
+func (g *ShelleyGenesis) PoolById(
+	poolId string,
+) (*common.PoolRegistrationCertificate, []common.Address, error) {
 	if len(poolId) != 56 {
 		return nil, nil, errors.New("invalid pool ID length")
 	}

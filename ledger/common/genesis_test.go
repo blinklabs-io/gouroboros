@@ -32,7 +32,11 @@ func TestGenesisRatNumDenom(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if testData.TestRat.Cmp(expectedRat) != 0 {
-		t.Errorf("did not get expected value: got %s, wanted %s", testData.TestRat.String(), expectedRat.String())
+		t.Errorf(
+			"did not get expected value: got %s, wanted %s",
+			testData.TestRat.String(),
+			expectedRat.String(),
+		)
 	}
 }
 
@@ -46,6 +50,10 @@ func TestGenesisRatFloat(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if testData.TestRat.Cmp(expectedRat) != 0 {
-		t.Errorf("did not get expected value: got %s, wanted %s", testData.TestRat.String(), expectedRat.String())
+		t.Errorf(
+			"did not get expected value: got %s, wanted %s",
+			testData.TestRat.String(),
+			expectedRat.String(),
+		)
 	}
 }

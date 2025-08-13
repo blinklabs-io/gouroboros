@@ -207,13 +207,19 @@ func (m *MultiAsset[T]) ToPlutusData() data.PlutusData {
 	tmpData := make([][2]data.PlutusData, 0, len(m.data))
 	// Sort policy IDs
 	policyKeys := slices.Collect(maps.Keys(m.data))
-	slices.SortFunc(policyKeys, func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+	slices.SortFunc(
+		policyKeys,
+		func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+	)
 	for _, policyId := range policyKeys {
 		policyData := m.data[policyId]
 		tmpPolicyData := make([][2]data.PlutusData, 0, len(policyData))
 		// Sort asset names
 		assetKeys := slices.Collect(maps.Keys(policyData))
-		slices.SortFunc(assetKeys, func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+		slices.SortFunc(
+			assetKeys,
+			func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+		)
 		for _, assetName := range assetKeys {
 			amount := policyData[assetName]
 			tmpPolicyData = append(

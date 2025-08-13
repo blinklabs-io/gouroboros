@@ -109,17 +109,23 @@ func NewAddressFromParts(
 	stakingAddr []byte,
 ) (Address, error) {
 	// Validate network ID
-	if networkId != AddressNetworkTestnet && networkId != AddressNetworkMainnet {
+	if networkId != AddressNetworkTestnet &&
+		networkId != AddressNetworkMainnet {
 		return Address{}, errors.New("invalid network ID")
 	}
 
 	// Handle stake-only addresses
 	if addrType == AddressTypeNoneKey || addrType == AddressTypeNoneScript {
 		if len(paymentAddr) > 0 {
-			return Address{}, errors.New("payment address must be empty for stake-only addresses")
+			return Address{}, errors.New(
+				"payment address must be empty for stake-only addresses",
+			)
 		}
 		if len(stakingAddr) != AddressHashSize {
-			return Address{}, fmt.Errorf("staking key must be exactly %d bytes", AddressHashSize)
+			return Address{}, fmt.Errorf(
+				"staking key must be exactly %d bytes",
+				AddressHashSize,
+			)
 		}
 		return Address{
 			addressType:    addrType,
@@ -130,11 +136,17 @@ func NewAddressFromParts(
 
 	// Handle regular addresses
 	if len(paymentAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf("payment address must be exactly %d bytes", AddressHashSize)
+		return Address{}, fmt.Errorf(
+			"payment address must be exactly %d bytes",
+			AddressHashSize,
+		)
 	}
 
 	if len(stakingAddr) > 0 && len(stakingAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf("staking address must be empty or exactly %d bytes", AddressHashSize)
+		return Address{}, fmt.Errorf(
+			"staking address must be empty or exactly %d bytes",
+			AddressHashSize,
+		)
 	}
 
 	return Address{
@@ -311,12 +323,18 @@ func (a *Address) ToPlutusData() data.PlutusData {
 	// Build payment part
 	var paymentPd data.PlutusData
 	switch a.addressType {
-	case AddressTypeKeyKey, AddressTypeKeyScript, AddressTypeKeyPointer, AddressTypeKeyNone:
+	case AddressTypeKeyKey,
+		AddressTypeKeyScript,
+		AddressTypeKeyPointer,
+		AddressTypeKeyNone:
 		paymentPd = data.NewConstr(
 			0,
 			data.NewByteString(a.paymentAddress),
 		)
-	case AddressTypeScriptKey, AddressTypeScriptScript, AddressTypeScriptPointer, AddressTypeScriptNone:
+	case AddressTypeScriptKey,
+		AddressTypeScriptScript,
+		AddressTypeScriptPointer,
+		AddressTypeScriptNone:
 		paymentPd = data.NewConstr(
 			1,
 			data.NewByteString(a.paymentAddress),

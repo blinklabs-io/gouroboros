@@ -347,7 +347,9 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 					[][2]data.PlutusData{
 						{
 							data.NewByteString(nil),
-							data.NewInteger(new(big.Int).SetUint64(o.OutputAmount.Amount)),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount.Amount),
+							),
 						},
 					},
 				),

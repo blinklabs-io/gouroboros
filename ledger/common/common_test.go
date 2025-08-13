@@ -145,11 +145,19 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			expectedData: data.NewMap(
 				[][2]data.PlutusData{
 					{
-						data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+						data.NewByteString(
+							test.DecodeHexString(
+								"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
+							),
+						),
 						data.NewMap(
 							[][2]data.PlutusData{
 								{
-									data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+									data.NewByteString(
+										test.DecodeHexString(
+											"6675726e697368613239686e",
+										),
+									),
 									data.NewInteger(big.NewInt(123456)),
 								},
 							},
@@ -172,22 +180,38 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			expectedData: data.NewMap(
 				[][2]data.PlutusData{
 					{
-						data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+						data.NewByteString(
+							test.DecodeHexString(
+								"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
+							),
+						),
 						data.NewMap(
 							[][2]data.PlutusData{
 								{
-									data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+									data.NewByteString(
+										test.DecodeHexString(
+											"6675726e697368613239686e",
+										),
+									),
 									data.NewInteger(big.NewInt(123456)),
 								},
 							},
 						),
 					},
 					{
-						data.NewByteString(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")),
+						data.NewByteString(
+							test.DecodeHexString(
+								"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5",
+							),
+						),
 						data.NewMap(
 							[][2]data.PlutusData{
 								{
-									data.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")),
+									data.NewByteString(
+										test.DecodeHexString(
+											"426f7764757261436f6e63657074733638",
+										),
+									),
 									data.NewInteger(big.NewInt(234567)),
 								},
 							},
@@ -208,7 +232,11 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			t.Fatalf("test def multi-asset object was not expected type: %T", v)
 		}
 		if !reflect.DeepEqual(tmpData, testDef.expectedData) {
-			t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, testDef.expectedData)
+			t.Fatalf(
+				"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+				tmpData,
+				testDef.expectedData,
+			)
 		}
 	}
 }
@@ -334,14 +362,20 @@ func TestBlake2b224_String(t *testing.T) {
 func TestBlake2b224_ToPlutusData(t *testing.T) {
 	testData := []byte("blinklabs")
 	hash := Blake2b224Hash(testData)
-	expectedHash, err := hex.DecodeString("d33ef286551f50d455cfeb68b45b02622fb05ef21cfd1aabd0d7880c")
+	expectedHash, err := hex.DecodeString(
+		"d33ef286551f50d455cfeb68b45b02622fb05ef21cfd1aabd0d7880c",
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	expectedPd := data.NewByteString(expectedHash)
 	tmpPd := hash.ToPlutusData()
 	if !reflect.DeepEqual(tmpPd, expectedPd) {
-		t.Fatalf("did not get expected PlutusData:     got: %#v\n  wanted: %#v", tmpPd, expectedPd)
+		t.Fatalf(
+			"did not get expected PlutusData:     got: %#v\n  wanted: %#v",
+			tmpPd,
+			expectedPd,
+		)
 	}
 }
 

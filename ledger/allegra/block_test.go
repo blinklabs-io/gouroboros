@@ -110,8 +110,12 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 	assert.NotNil(t, utxorpcBlock, "RPC block is nil")
 
 	t.Run("BlockHeader", func(t *testing.T) {
-		assert.Equal(t, expectedHash, hex.EncodeToString(utxorpcBlock.Header.Hash),
-			"Block hash mismatch")
+		assert.Equal(
+			t,
+			expectedHash,
+			hex.EncodeToString(utxorpcBlock.Header.Hash),
+			"Block hash mismatch",
+		)
 
 		assert.Equal(t, expectedHeight, utxorpcBlock.Header.Height,
 			"Block height mismatch")
@@ -129,10 +133,29 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 
 		if len(rpcTxs) > 0 {
 			firstRpcTx := rpcTxs[0]
-			assert.NotEmpty(t, firstRpcTx.Hash, "Transaction hash should not be empty")
-			assert.Greater(t, len(firstRpcTx.Inputs), 0, "Transaction should have inputs")
-			assert.Greater(t, len(firstRpcTx.Outputs), 0, "Transaction should have outputs")
-			assert.Greater(t, firstRpcTx.Fee, uint64(0), "Transaction fee should be positive")
+			assert.NotEmpty(
+				t,
+				firstRpcTx.Hash,
+				"Transaction hash should not be empty",
+			)
+			assert.Greater(
+				t,
+				len(firstRpcTx.Inputs),
+				0,
+				"Transaction should have inputs",
+			)
+			assert.Greater(
+				t,
+				len(firstRpcTx.Outputs),
+				0,
+				"Transaction should have outputs",
+			)
+			assert.Greater(
+				t,
+				firstRpcTx.Fee,
+				uint64(0),
+				"Transaction fee should be positive",
+			)
 		}
 	})
 }
