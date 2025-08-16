@@ -243,7 +243,7 @@ type ConwayTransactionWitnessSet struct {
 	WsNativeScripts    cbor.SetType[common.NativeScript]     `cbor:"1,keyasint,omitempty,omitzero"`
 	BootstrapWitnesses cbor.SetType[common.BootstrapWitness] `cbor:"2,keyasint,omitempty,omitzero"`
 	WsPlutusV1Scripts  cbor.SetType[[]byte]                  `cbor:"3,keyasint,omitempty,omitzero"`
-	WsPlutusData       cbor.SetType[cbor.Value]              `cbor:"4,keyasint,omitempty,omitzero"`
+	WsPlutusData       cbor.SetType[common.Datum]            `cbor:"4,keyasint,omitempty,omitzero"`
 	WsRedeemers        ConwayRedeemers                       `cbor:"5,keyasint,omitempty,omitzero"`
 	WsPlutusV2Scripts  cbor.SetType[[]byte]                  `cbor:"6,keyasint,omitempty,omitzero"`
 	WsPlutusV3Scripts  cbor.SetType[[]byte]                  `cbor:"7,keyasint,omitempty,omitzero"`
@@ -284,7 +284,7 @@ func (w ConwayTransactionWitnessSet) PlutusV3Scripts() [][]byte {
 	return w.WsPlutusV3Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusData() []cbor.Value {
+func (w ConwayTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData.Items()
 }
 

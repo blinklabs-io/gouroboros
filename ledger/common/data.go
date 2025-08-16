@@ -16,27 +16,35 @@ package common
 
 import (
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/data"
 )
 
-type RedeemerTag uint8
+type DatumHash = Blake2b256
 
-const (
-	RedeemerTagSpend     RedeemerTag = 0
-	RedeemerTagMint      RedeemerTag = 1
-	RedeemerTagCert      RedeemerTag = 2
-	RedeemerTagReward    RedeemerTag = 3
-	RedeemerTagVoting    RedeemerTag = 4
-	RedeemerTagProposing RedeemerTag = 5
-)
-
-type RedeemerKey struct {
-	cbor.StructAsArray
-	Tag   RedeemerTag
-	Index uint32
+// Datum represents a Plutus datum
+type Datum struct {
+	cbor.DecodeStoreCbor
+	Data data.PlutusData `json:"data"`
 }
 
-type RedeemerValue struct {
-	cbor.StructAsArray
-	Data    Datum
-	ExUnits ExUnits
+func (d *Datum) UnmarshalCBOR(cborData []byte) error {
+	d.SetCbor(cborData)
+	tmpData, err := data.Decode(cborData)
+	if err != nil {
+		return err
+	}
+	d.Data = tmpData
+	return nil
+}
+
+func (d *Datum) MarshalCBOR() ([]byte, error) {
+	tmpCbor, err := data.Encode(d.Data)
+	if err != nil {
+		return nil, err
+	}
+	return tmpCbor, nil
+}
+
+func (d *Datum) Hash() DatumHash {
+	return Blake2b256Hash(d.Cbor())
 }

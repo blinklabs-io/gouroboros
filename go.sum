@@ -3,8 +3,8 @@ filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
 github.com/blinklabs-io/ouroboros-mock v0.3.8 h1:+DAt2rx0ouZUxee5DBMgZq3I1+ZdxFSHG9g3tYl/FKU=
 github.com/blinklabs-io/ouroboros-mock v0.3.8/go.mod h1:UwQIf4KqZwO13P9d90fbi3UL/X7JaJfeEbqk+bEeFQA=
-github.com/blinklabs-io/plutigo v0.0.4 h1:YhSt25yTqzfyUAzO0G/UihB16/lZNsvS6J7THO0f3ss=
-github.com/blinklabs-io/plutigo v0.0.4/go.mod h1:sXfzbcwvVS8AbyNNVnhyyIT18f88IZMqg5cwOBmiafU=
+github.com/blinklabs-io/plutigo v0.0.5 h1:d3q7CM4kdVGa2VRt9zZHrUkkwNwLJyuMLPP2kDrIriE=
+github.com/blinklabs-io/plutigo v0.0.5/go.mod h1:fXUCkc9l8lvkprHApub5HpNmakYHLNPhEuWK+49anHE=
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=
 github.com/btcsuite/btcd v0.22.0-beta.0.20220111032746-97732e52810c/go.mod h1:tjmYdS6MLJ5/s0Fj4DbLgSbDHbEqLJrtnHecBFkdz5M=
 github.com/btcsuite/btcd v0.23.5-0.20231215221805-96c9fd8078fd/go.mod h1:nm3Bko6zh6bWP60UxwoT5LzdGJsQJaPo6HjduXq9p6A=

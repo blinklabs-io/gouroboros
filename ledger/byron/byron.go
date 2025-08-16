@@ -446,7 +446,7 @@ func (o ByronTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o ByronTransactionOutput) Datum() *cbor.LazyValue {
+func (o ByronTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
