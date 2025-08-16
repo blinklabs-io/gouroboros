@@ -40,3 +40,13 @@ func TestScriptRefDecode(t *testing.T) {
 		)
 	}
 }
+
+func TestPlutusV3ScriptHash(t *testing.T) {
+	testScriptBytes, _ := hex.DecodeString("587f01010032323232323225333002323232323253330073370e900118041baa0011323232533300a3370e900018059baa00513232533300f301100214a22c6eb8c03c004c030dd50028b18069807001180600098049baa00116300a300b0023009001300900230070013004375400229309b2b2b9a5573aaae7955cfaba157441")
+	testScript := common.PlutusV3Script(testScriptBytes)
+	expectedScriptHash := "2909c3d0441e76cd6ae1fc09664bb209868902e191c2b8c30b82d331"
+	tmpHash := testScript.Hash()
+	if tmpHash.String() != expectedScriptHash {
+		t.Errorf("did not get expected script hash, got %s, wanted %s", tmpHash.String(), expectedScriptHash)
+	}
+}
