@@ -17,6 +17,7 @@ package common
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -28,8 +29,11 @@ const (
 	ScriptRefTypePlutusV3     = 3
 )
 
+type ScriptHash = Blake2b224
+
 type Script interface {
 	isScript()
+	Hash() ScriptHash
 }
 
 type ScriptRef struct {
@@ -82,15 +86,43 @@ type PlutusV1Script []byte
 
 func (PlutusV1Script) isScript() {}
 
+func (s PlutusV1Script) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV1},
+			[]byte(s),
+		),
+	)
+}
+
 type PlutusV2Script []byte
 
 func (PlutusV2Script) isScript() {}
+
+func (s PlutusV2Script) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV2},
+			[]byte(s),
+		),
+	)
+}
 
 type PlutusV3Script []byte
 
 func (PlutusV3Script) isScript() {}
 
+func (s PlutusV3Script) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV3},
+			[]byte(s),
+		),
+	)
+}
+
 type NativeScript struct {
+	cbor.DecodeStoreCbor
 	item any
 }
 
@@ -101,6 +133,7 @@ func (n *NativeScript) Item() any {
 }
 
 func (n *NativeScript) UnmarshalCBOR(data []byte) error {
+	n.SetCbor(data)
 	id, err := cbor.DecodeIdFromList(data)
 	if err != nil {
 		return err
@@ -126,6 +159,15 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (s NativeScript) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypeNativeScript},
+			[]byte(s.Cbor()),
+		),
+	)
 }
 
 type NativeScriptPubkey struct {
