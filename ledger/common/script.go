@@ -158,6 +158,7 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, tmpData); err != nil {
 		return err
 	}
+	n.item = tmpData
 	return nil
 }
 
