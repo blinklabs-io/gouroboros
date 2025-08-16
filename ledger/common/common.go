@@ -439,3 +439,6 @@ type ExUnits struct {
 	Memory uint64
 	Steps  uint64
 }
+
+// GenesisRat is a convenience type for cbor.Rat
+type GenesisRat = cbor.Rat

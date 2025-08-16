@@ -16,11 +16,13 @@ package cbor_test
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 var tagsTestDefs = []struct {
@@ -107,5 +109,33 @@ func TestTagsEncode(t *testing.T) {
 				testDef.cborHex,
 			)
 		}
+	}
+}
+
+func TestRatJsonUnmarshalNumDenom(t *testing.T) {
+	jsonData := `{"testRat": { "numerator": 721, "denominator": 10000 }}`
+	expectedRat := big.NewRat(721, 10000)
+	var testData struct {
+		TestRat common.GenesisRat `json:"testRat"`
+	}
+	if err := json.Unmarshal([]byte(jsonData), &testData); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if testData.TestRat.Cmp(expectedRat) != 0 {
+		t.Errorf("did not get expected value: got %s, wanted %s", testData.TestRat.String(), expectedRat.String())
+	}
+}
+
+func TestRatJsonUnmarshalFloat(t *testing.T) {
+	jsonData := `{"testRat": 0.0721}`
+	expectedRat := big.NewRat(721, 10000)
+	var testData struct {
+		TestRat common.GenesisRat `json:"testRat"`
+	}
+	if err := json.Unmarshal([]byte(jsonData), &testData); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if testData.TestRat.Cmp(expectedRat) != 0 {
+		t.Errorf("did not get expected value: got %s, wanted %s", testData.TestRat.String(), expectedRat.String())
 	}
 }
