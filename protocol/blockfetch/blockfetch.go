@@ -79,8 +79,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateDone: protocol.StateMapEntry{
-		Agency:      protocol.AgencyNone,
-		Transitions: []protocol.StateTransition{},
+		Agency: protocol.AgencyNone,
 	},
 }
 

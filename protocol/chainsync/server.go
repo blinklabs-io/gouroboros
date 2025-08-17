@@ -187,7 +187,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
 			ProtocolName,
-			msg.Type())
+			msg.Type(),
+		)
 	}
 	return err
 }
