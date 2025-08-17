@@ -79,6 +79,8 @@ func toPlutusData(val any) data.PlutusData {
 			tmpItems[i] = item.ToPlutusData()
 		}
 		return data.NewList(tmpItems...)
+	case data.PlutusData:
+		return v
 	default:
 		rv := reflect.ValueOf(v)
 		// nolint:exhaustive

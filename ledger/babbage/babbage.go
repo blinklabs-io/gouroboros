@@ -528,16 +528,38 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 			assetDataMap.Pairs...,
 		)
 	}
+	var datumOptionPd data.PlutusData
+	switch {
+	case o.DatumOption == nil:
+		datumOptionPd = data.NewConstr(0)
+	case o.DatumOption.hash != nil:
+		datumOptionPd = data.NewConstr(
+			1,
+			data.NewByteString(o.DatumOption.hash.Bytes()),
+		)
+	case o.DatumOption.data != nil:
+		datumOptionPd = data.NewConstr(
+			2,
+			o.DatumOption.data.Data,
+		)
+	}
+	var scriptRefPd data.PlutusData
+	if o.TxOutScriptRef == nil {
+		scriptRefPd = data.NewConstr(1)
+	} else {
+		scriptRefPd = data.NewConstr(
+			0,
+			data.NewByteString(
+				o.TxOutScriptRef.Script.Hash().Bytes(),
+			),
+		)
+	}
 	tmpData := data.NewConstr(
 		0,
 		o.OutputAddress.ToPlutusData(),
 		data.NewMap(valueData),
-		// Empty datum option
-		// TODO: implement this
-		data.NewConstr(0),
-		// Empty script ref
-		// TODO: implement this
-		data.NewConstr(1),
+		datumOptionPd,
+		scriptRefPd,
 	)
 	return tmpData
 }

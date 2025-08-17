@@ -20,6 +20,9 @@ import (
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/cek"
+	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/syn"
 )
 
 const (
@@ -135,6 +138,49 @@ func (s PlutusV3Script) Hash() ScriptHash {
 			[]byte(s),
 		),
 	)
+}
+
+func (s PlutusV3Script) Evaluate(scriptContext data.PlutusData, budget ExUnits) (ExUnits, error) {
+	var usedExUnits ExUnits
+	// Set budget
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: int64(budget.Steps),  // nolint: gosec
+			Mem: int64(budget.Memory), // nolint: gosec
+		}
+	}
+	// Decode raw script as bytestring to get actual script bytes
+	var innerScript []byte
+	if _, err := cbor.Decode([]byte(s), &innerScript); err != nil {
+		return usedExUnits, err
+	}
+	// Decode program
+	program, err := syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	// Apply script context to program
+	contextTerm := &syn.Constant{
+		Con: &syn.Data{
+			Inner: scriptContext,
+		},
+	}
+	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+		Function: program.Term,
+		Argument: contextTerm,
+	}
+	// Execute wrapped program
+	machine := cek.NewMachine[syn.DeBruijn](200)
+	machine.ExBudget = machineBudget
+	_, err = machine.Run(wrappedProgram)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", err)
+	}
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = uint64(consumedBudget.Mem) // nolint:gosec
+	usedExUnits.Steps = uint64(consumedBudget.Cpu)  // nolint:gosec
+	return usedExUnits, nil
 }
 
 type NativeScript struct {
