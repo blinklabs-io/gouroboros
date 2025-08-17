@@ -15,6 +15,9 @@
 package blockfetch
 
 import (
+	"errors"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -76,7 +79,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		Agency:      protocol.AgencyNone,
+		Transitions: []protocol.StateTransition{},
 	},
 }
 
@@ -116,6 +120,33 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 		Server: NewServer(protoOptions, cfg),
 	}
 	return b
+}
+
+func (b *BlockFetch) IsDone() bool {
+	if b.Client != nil && b.Client.IsDone() {
+		return true
+	}
+	if b.Server != nil && b.Server.IsDone() {
+		return true
+	}
+	return false
+}
+
+func (b *BlockFetch) HandleConnectionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, io.EOF) || isConnectionReset(err) {
+		if b.IsDone() {
+			return nil
+		}
+	}
+	return err
+}
+
+func isConnectionReset(err error) bool {
+	return strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "broken pipe")
 }
 
 type BlockFetchOptionFunc func(*Config)

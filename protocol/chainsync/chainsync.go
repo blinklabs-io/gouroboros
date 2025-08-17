@@ -16,6 +16,9 @@
 package chainsync
 
 import (
+	"errors"
+	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,8 +195,10 @@ var PipelineIsNotEmpty = func(context any, msg protocol.Message) bool {
 
 // ChainSync is a wrapper object that holds the client and server instances
 type ChainSync struct {
-	Client *Client
-	Server *Server
+	Client       *Client
+	Server       *Server
+	stateMutex   sync.Mutex
+	currentState protocol.State
 }
 
 // Config is used to configure the ChainSync protocol instance
@@ -328,4 +333,29 @@ func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RecvQueueSize = size
 	}
+}
+
+// HandleConnectionError handles connection errors and determines if they should be ignored
+func (c *ChainSync) HandleConnectionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, io.EOF) || isConnectionReset(err) {
+		if c.IsDone() {
+			return nil
+		}
+	}
+	return err
+}
+
+// IsDone returns true if the protocol is in the Done state
+func (c *ChainSync) IsDone() bool {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	return c.currentState.Id == stateDone.Id
+}
+
+func isConnectionReset(err error) bool {
+	return strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "broken pipe")
 }

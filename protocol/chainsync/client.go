@@ -45,6 +45,8 @@ type Client struct {
 	wantCurrentTipChan       chan chan<- Tip
 	wantFirstBlockChan       chan chan<- clientPointResult
 	wantIntersectFoundChan   chan chan<- clientPointResult
+	stateMutex               sync.Mutex
+	currentState             protocol.State
 }
 
 type clientPointResult struct {
@@ -79,6 +81,7 @@ func NewClient(
 		wantCurrentTipChan:       make(chan chan<- Tip, 1),
 		wantFirstBlockChan:       make(chan chan<- clientPointResult, 1),
 		wantIntersectFoundChan:   make(chan chan<- clientPointResult, 1),
+		currentState:             stateIdle,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -116,6 +119,19 @@ func NewClient(
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// Add state tracking methods
+func (c *Client) setState(newState protocol.State) {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.currentState = newState
+}
+
+func (c *Client) IsDone() bool {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	return c.currentState.Id == stateDone.Id
 }
 
 func (c *Client) Start() {
@@ -570,12 +586,13 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleIntersectFound(msg)
 	case MessageTypeIntersectNotFound:
 		err = c.handleIntersectNotFound(msg)
+	case MessageTypeDone:
+		c.setState(stateDone)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
 			ProtocolName,
-			msg.Type(),
-		)
+			msg.Type())
 	}
 	return err
 }

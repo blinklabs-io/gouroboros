@@ -28,6 +28,8 @@ type Client struct {
 	config          *Config
 	callbackContext CallbackContext
 	onceInit        sync.Once
+	stateMutex      sync.Mutex
+	currentState    protocol.State
 }
 
 // NewClient returns a new TxSubmission client object
@@ -37,7 +39,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config: cfg,
+		config:       cfg,
+		currentState: stateInit,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -83,6 +86,18 @@ func (c *Client) Init() {
 	})
 }
 
+func (c *Client) setState(newState protocol.State) {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.currentState = newState
+}
+
+func (c *Client) IsDone() bool {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	return c.currentState.Id == stateDone.Id
+}
+
 func (c *Client) messageHandler(msg protocol.Message) error {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("%s: client message for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
@@ -92,6 +107,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleRequestTxIds(msg)
 	case MessageTypeRequestTxs:
 		err = c.handleRequestTxs(msg)
+	case MessageTypeDone:
+		c.setState(stateDone)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",

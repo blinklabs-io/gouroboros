@@ -16,6 +16,10 @@
 package txsubmission
 
 import (
+	"errors"
+	"io"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -113,8 +117,10 @@ var StateMap = protocol.StateMap{
 
 // TxSubmission is a wrapper object that holds the client and server instances
 type TxSubmission struct {
-	Client *Client
-	Server *Server
+	Client       *Client
+	Server       *Server
+	stateMutex   sync.Mutex
+	currentState protocol.State
 }
 
 // Config is used to configure the TxSubmission protocol instance
@@ -200,4 +206,27 @@ func WithIdleTimeout(timeout time.Duration) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.IdleTimeout = timeout
 	}
+}
+
+func (t *TxSubmission) HandleConnectionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, io.EOF) || isConnectionReset(err) {
+		if t.IsDone() {
+			return nil
+		}
+	}
+	return err
+}
+
+func (t *TxSubmission) IsDone() bool {
+	t.stateMutex.Lock()
+	defer t.stateMutex.Unlock()
+	return t.currentState.Id == stateDone.Id
+}
+
+func isConnectionReset(err error) bool {
+	return strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "broken pipe")
 }

@@ -17,6 +17,7 @@ package blockfetch
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -27,6 +28,8 @@ type Server struct {
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
+	currentState    protocol.State
+	stateMutex      sync.Mutex
 }
 
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
@@ -34,6 +37,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config: cfg,
 		// Save this for re-use later
 		protoOptions: protoOptions,
+		currentState: StateIdle,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -41,6 +45,18 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 	s.initProtocol()
 	return s
+}
+
+func (s *Server) IsDone() bool {
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+	return s.currentState.Id == StateDone.Id
+}
+
+func (s *Server) setState(newState protocol.State) {
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+	s.currentState = newState
 }
 
 func (s *Server) initProtocol() {
@@ -126,6 +142,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeRequestRange:
 		err = s.handleRequestRange(msg)
 	case MessageTypeClientDone:
+		s.setState(StateDone)
 		err = s.handleClientDone()
 	default:
 		err = fmt.Errorf(
