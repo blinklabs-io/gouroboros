@@ -473,7 +473,7 @@ func (o MaryTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o MaryTransactionOutput) Datum() *cbor.LazyValue {
+func (o MaryTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 

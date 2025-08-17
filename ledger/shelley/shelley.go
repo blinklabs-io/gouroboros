@@ -428,7 +428,7 @@ func (o ShelleyTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Datum() *cbor.LazyValue {
+func (o ShelleyTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
@@ -474,7 +474,7 @@ func (w ShelleyTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusData() []cbor.Value {
+func (w ShelleyTransactionWitnessSet) PlutusData() []common.Datum {
 	// No plutus data in Shelley
 	return nil
 }

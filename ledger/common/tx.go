@@ -71,7 +71,7 @@ type TransactionOutput interface {
 	Address() Address
 	Amount() uint64
 	Assets() *MultiAsset[MultiAssetTypeOutput]
-	Datum() *cbor.LazyValue
+	Datum() *Datum
 	DatumHash() *Blake2b256
 	Cbor() []byte
 	Utxorpc() (*utxorpc.TxOutput, error)
@@ -83,7 +83,7 @@ type TransactionWitnessSet interface {
 	Vkey() []VkeyWitness
 	NativeScripts() []NativeScript
 	Bootstrap() []BootstrapWitness
-	PlutusData() []cbor.Value
+	PlutusData() []Datum
 	PlutusV1Scripts() [][]byte
 	PlutusV2Scripts() [][]byte
 	PlutusV3Scripts() [][]byte

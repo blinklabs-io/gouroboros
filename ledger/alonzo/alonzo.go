@@ -401,7 +401,7 @@ func (o AlonzoTransactionOutput) DatumHash() *common.Blake2b256 {
 	return o.OutputDatumHash
 }
 
-func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
+func (o AlonzoTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
@@ -451,7 +451,7 @@ type AlonzoRedeemer struct {
 	cbor.StructAsArray
 	Tag     common.RedeemerTag
 	Index   uint32
-	Data    cbor.LazyValue
+	Data    common.Datum
 	ExUnits common.ExUnits
 }
 
@@ -522,7 +522,7 @@ type AlonzoTransactionWitnessSet struct {
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []cbor.Value              `cbor:"4,keyasint,omitempty"`
+	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        AlonzoRedeemers           `cbor:"5,keyasint,omitempty"`
 }
 
@@ -563,7 +563,7 @@ func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() [][]byte {
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusData() []cbor.Value {
+func (w AlonzoTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData
 }
 
