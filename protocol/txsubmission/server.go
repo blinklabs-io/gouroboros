@@ -189,6 +189,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 		err = s.handleReplyTxs(msg)
 	case MessageTypeDone:
 		s.setState(stateDone)
+		err = s.handleDone()
 	case MessageTypeInit:
 		err = s.handleInit()
 
