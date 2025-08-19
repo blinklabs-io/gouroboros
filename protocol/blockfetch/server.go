@@ -126,7 +126,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeRequestRange:
 		err = s.handleRequestRange(msg)
 	case MessageTypeClientDone:
-		return s.handleClientDone()
+		err = s.handleClientDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
