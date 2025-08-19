@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -33,8 +32,6 @@ type Server struct {
 	ackCount               int
 	requestTxIdsResultChan chan requestTxIdsResult
 	requestTxsResultChan   chan []TxBody
-	stateMutex             sync.Mutex
-	currentState           protocol.State
 }
 
 type requestTxIdsResult struct {
@@ -50,7 +47,6 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		protoOptions:           protoOptions,
 		requestTxIdsResultChan: make(chan requestTxIdsResult),
 		requestTxsResultChan:   make(chan []TxBody),
-		currentState:           stateInit,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -168,18 +164,6 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 	}
 }
 
-func (s *Server) setState(newState protocol.State) {
-	s.stateMutex.Lock()
-	defer s.stateMutex.Unlock()
-	s.currentState = newState
-}
-
-func (s *Server) IsDone() bool {
-	s.stateMutex.Lock()
-	defer s.stateMutex.Unlock()
-	return s.currentState.Id == stateDone.Id
-}
-
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -188,11 +172,9 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeReplyTxs:
 		err = s.handleReplyTxs(msg)
 	case MessageTypeDone:
-		s.setState(stateDone)
-		err = s.handleDone()
+		return s.handleDone()
 	case MessageTypeInit:
 		err = s.handleInit()
-
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -232,7 +214,6 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() error {
-	s.setState(stateDone)
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",

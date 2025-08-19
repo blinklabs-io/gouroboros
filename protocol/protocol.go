@@ -102,8 +102,9 @@ type ProtocolOptions struct {
 }
 
 type protocolStateTransition struct {
-	msg       Message
-	errorChan chan<- error
+	msg           Message
+	errorChan     chan<- error
+	stateRespChan chan<- State
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
@@ -124,6 +125,34 @@ func New(config ProtocolConfig) *Protocol {
 		sendDoneChan: make(chan struct{}),
 	}
 	return p
+}
+
+// CurrentState returns the current protocol state
+func (p *Protocol) CurrentState() State {
+	stateChan := make(chan State, 1)
+	p.stateTransitionChan <- protocolStateTransition{
+		stateRespChan: stateChan,
+	}
+	return <-stateChan
+}
+
+// IsDone checks if the protocol is in a done/completed state
+func (p *Protocol) IsDone() bool {
+	currentState := p.CurrentState()
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		return entry.Agency == AgencyNone
+	}
+	return false
+}
+
+// GetDoneState returns the done state from the state map
+func (s StateMap) GetDoneState() State {
+	for state, entry := range s {
+		if entry.Agency == AgencyNone {
+			return state
+		}
+	}
+	return State{}
 }
 
 // Start initializes the mini-protocol
@@ -514,6 +543,12 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 	for {
 		select {
 		case t := <-ch:
+			if t.msg == nil && t.stateRespChan != nil {
+				// Handle state request
+				t.stateRespChan <- currentState
+				continue
+			}
+
 			nextState, err := p.nextState(currentState, t.msg)
 			if err != nil {
 				t.errorChan <- fmt.Errorf(
@@ -574,7 +609,7 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 
 func (p *Protocol) transitionState(msg Message) error {
 	errorChan := make(chan error, 1)
-	p.stateTransitionChan <- protocolStateTransition{msg, errorChan}
+	p.stateTransitionChan <- protocolStateTransition{msg, errorChan, nil}
 
 	return <-errorChan
 }

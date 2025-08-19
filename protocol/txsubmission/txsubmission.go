@@ -212,18 +212,14 @@ func (t *TxSubmission) HandleConnectionError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if t.Client.IsDone() || t.Server.IsDone() {
+		return nil
+	}
+
 	if errors.Is(err, io.EOF) || isConnectionReset(err) {
-		if t.IsDone() {
-			return nil
-		}
+		return err
 	}
 	return err
-}
-
-func (t *TxSubmission) IsDone() bool {
-	t.stateMutex.Lock()
-	defer t.stateMutex.Unlock()
-	return t.currentState.Id == stateDone.Id
 }
 
 func isConnectionReset(err error) bool {

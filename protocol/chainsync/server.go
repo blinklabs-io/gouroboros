@@ -17,7 +17,6 @@ package chainsync
 import (
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -31,8 +30,6 @@ type Server struct {
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
 	stateContext    any
-	stateMutex      sync.Mutex
-	currentState    protocol.State
 }
 
 // NewServer returns a new ChainSync server object
@@ -46,7 +43,6 @@ func NewServer(
 		// Save these for re-use later
 		protoOptions: protoOptions,
 		stateContext: stateContext,
-		currentState: stateIdle,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -54,18 +50,6 @@ func NewServer(
 	}
 	s.initProtocol()
 	return s
-}
-
-func (s *Server) setState(newState protocol.State) {
-	s.stateMutex.Lock()
-	defer s.stateMutex.Unlock()
-	s.currentState = newState
-}
-
-func (s *Server) IsDone() bool {
-	s.stateMutex.Lock()
-	defer s.stateMutex.Unlock()
-	return s.currentState.Id == stateDone.Id
 }
 
 func (s *Server) initProtocol() {
@@ -181,14 +165,9 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeFindIntersect:
 		err = s.handleFindIntersect(msg)
 	case MessageTypeDone:
-		s.setState(stateDone)
-		err = s.handleDone()
+		return s.handleDone()
 	default:
-		err = fmt.Errorf(
-			"%s: received unexpected message type %d",
-			ProtocolName,
-			msg.Type(),
-		)
+		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
 	}
 	return err
 }
@@ -247,7 +226,6 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() error {
-	s.setState(stateDone)
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",

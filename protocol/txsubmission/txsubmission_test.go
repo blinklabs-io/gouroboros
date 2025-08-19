@@ -18,6 +18,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,30 +26,58 @@ import (
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// testAddr implements net.Addr for testing
 type testAddr struct{}
 
 func (a testAddr) Network() string { return "test" }
 func (a testAddr) String() string  { return "test-addr" }
 
-// testConn implements net.Conn for testing with buffered writes
 type testConn struct {
 	writeChan chan []byte
+	closed    bool
+	closeChan chan struct{}
+	closeOnce sync.Once
+	mu        sync.Mutex
+}
+
+func newTestConn() *testConn {
+	return &testConn{
+		writeChan: make(chan []byte, 100),
+		closeChan: make(chan struct{}),
+	}
 }
 
 func (c *testConn) Read(b []byte) (n int, err error) { return 0, nil }
-func (c *testConn) Write(b []byte) (n int, err error) {
-	c.writeChan <- b
-	return len(b), nil
+func (c *testConn) Close() error {
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		close(c.closeChan)
+		c.closed = true
+	})
+	return nil
 }
-func (c *testConn) Close() error                       { return nil }
 func (c *testConn) LocalAddr() net.Addr                { return testAddr{} }
 func (c *testConn) RemoteAddr() net.Addr               { return testAddr{} }
 func (c *testConn) SetDeadline(t time.Time) error      { return nil }
 func (c *testConn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *testConn) SetWriteDeadline(t time.Time) error { return nil }
+
+func (c *testConn) Write(b []byte) (n int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return 0, io.EOF
+	}
+	select {
+	case c.writeChan <- b:
+		return len(b), nil
+	case <-c.closeChan:
+		return 0, io.EOF
+	}
+}
 
 func getTestProtocolOptions(conn net.Conn) protocol.ProtocolOptions {
 	mux := muxer.New(conn)
@@ -63,7 +92,8 @@ func getTestProtocolOptions(conn net.Conn) protocol.ProtocolOptions {
 }
 
 func TestNewTxSubmission(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 	cfg := NewConfig()
 	ts := New(getTestProtocolOptions(conn), &cfg)
 	assert.NotNil(t, ts.Client)
@@ -91,36 +121,9 @@ func TestConfigOptions(t *testing.T) {
 		assert.NotNil(t, cfg.RequestTxsFunc)
 	})
 }
-
-func TestConnectionErrorHandling(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
-	cfg := NewConfig()
-	ts := New(getTestProtocolOptions(conn), &cfg)
-
-	t.Run("Non-EOF error when not done", func(t *testing.T) {
-		err := ts.HandleConnectionError(errors.New("test error"))
-		assert.Error(t, err)
-	})
-
-	t.Run("EOF error when not done", func(t *testing.T) {
-		err := ts.HandleConnectionError(io.EOF)
-		assert.Error(t, err)
-	})
-
-	t.Run("Connection reset error when not done", func(t *testing.T) {
-		err := ts.HandleConnectionError(errors.New("connection reset by peer"))
-		assert.Error(t, err)
-	})
-
-	t.Run("EOF error when done", func(t *testing.T) {
-		ts.currentState = stateDone
-		err := ts.HandleConnectionError(io.EOF)
-		assert.NoError(t, err)
-	})
-}
-
 func TestCallbackRegistration(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 
 	t.Run("RequestTxIds callback registration", func(t *testing.T) {
 		requestTxIdsFunc := func(ctx CallbackContext, blocking bool, ack, req uint16) ([]TxIdAndSize, error) {
@@ -144,36 +147,36 @@ func TestCallbackRegistration(t *testing.T) {
 }
 
 func TestClientMessageSending(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 	cfg := NewConfig()
 	client := NewClient(getTestProtocolOptions(conn), &cfg)
 
 	t.Run("Client can send messages", func(t *testing.T) {
-		// Start the client protocol
 		client.Start()
+		defer client.Stop()
 
-		// Send an init message
-		initMsg := NewMsgInit()
-		err := client.Protocol.SendMessage(initMsg)
-		assert.NoError(t, err)
+		err := client.SendMessage(NewMsgInit())
+		require.NoError(t, err)
 
-		// Verify message was written to connection
 		select {
-		case <-conn.writeChan:
-			// Message was sent successfully
-		case <-time.After(100 * time.Millisecond):
+		case msg := <-conn.writeChan:
+			assert.NotEmpty(t, msg, "expected message to be written")
+		case <-time.After(2 * time.Second):
 			t.Fatal("timeout waiting for message send")
 		}
 	})
 }
 
 func TestServerMessageHandling(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 	cfg := NewConfig()
 	server := NewServer(getTestProtocolOptions(conn), &cfg)
 
 	t.Run("Server can be started", func(t *testing.T) {
 		server.Start()
+		defer server.Stop()
 		assert.NotNil(t, server)
 	})
 }

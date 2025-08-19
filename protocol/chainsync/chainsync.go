@@ -195,13 +195,10 @@ var PipelineIsNotEmpty = func(context any, msg protocol.Message) bool {
 
 // ChainSync is a wrapper object that holds the client and server instances
 type ChainSync struct {
-	Client       *Client
-	Server       *Server
-	stateMutex   sync.Mutex
-	currentState protocol.State
+	Client *Client
+	Server *Server
 }
 
-// Config is used to configure the ChainSync protocol instance
 type Config struct {
 	RollBackwardFunc   RollBackwardFunc
 	RollForwardFunc    RollForwardFunc
@@ -335,24 +332,18 @@ func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 	}
 }
 
-// HandleConnectionError handles connection errors and determines if they should be ignored
 func (c *ChainSync) HandleConnectionError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if c.Client.IsDone() || c.Server.IsDone() {
+		return nil
+	}
+
 	if errors.Is(err, io.EOF) || isConnectionReset(err) {
-		if c.IsDone() {
-			return nil
-		}
+		return err
 	}
 	return err
-}
-
-// IsDone returns true if the protocol is in the Done state
-func (c *ChainSync) IsDone() bool {
-	c.stateMutex.Lock()
-	defer c.stateMutex.Unlock()
-	return c.currentState.Id == stateDone.Id
 }
 
 func isConnectionReset(err error) bool {

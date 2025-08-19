@@ -35,8 +35,6 @@ type Client struct {
 	blockUseCallback     bool
 	onceStart            sync.Once
 	onceStop             sync.Once
-	currentState         protocol.State
-	stateMutex           sync.Mutex
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -48,7 +46,6 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		config:               cfg,
 		blockChan:            make(chan ledger.Block),
 		startBatchResultChan: make(chan error),
-		currentState:         StateIdle,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -85,18 +82,6 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
-func (c *Client) IsDone() bool {
-	c.stateMutex.Lock()
-	defer c.stateMutex.Unlock()
-	return c.currentState.Id == StateDone.Id
-}
-
-func (c *Client) setState(newState protocol.State) {
-	c.stateMutex.Lock()
-	defer c.stateMutex.Unlock()
-	c.currentState = newState
-}
-
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
@@ -124,12 +109,12 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		msg := NewMsgClientDone()
-		if sendErr := c.SendMessage(msg); sendErr != nil {
-			err = sendErr
-			return
+		if !c.IsDone() {
+			msg := NewMsgClientDone()
+			if err = c.SendMessage(msg); err != nil {
+				return
+			}
 		}
-		c.setState(StateDone)
 	})
 	return err
 }
@@ -216,7 +201,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	case MessageTypeBatchDone:
 		err = c.handleBatchDone()
 	case MessageTypeClientDone:
-		c.setState(StateDone)
+		return nil
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",

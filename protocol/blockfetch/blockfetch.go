@@ -121,24 +121,17 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	return b
 }
 
-func (b *BlockFetch) IsDone() bool {
-	if b.Client != nil && b.Client.IsDone() {
-		return true
-	}
-	if b.Server != nil && b.Server.IsDone() {
-		return true
-	}
-	return false
-}
-
 func (b *BlockFetch) HandleConnectionError(err error) error {
 	if err == nil {
 		return nil
 	}
+	// Check if protocol is done or if it's a normal connection closure
+	if b.Client.IsDone() || b.Server.IsDone() {
+		return nil
+	}
+
 	if errors.Is(err, io.EOF) || isConnectionReset(err) {
-		if b.IsDone() {
-			return nil
-		}
+		return err
 	}
 	return err
 }

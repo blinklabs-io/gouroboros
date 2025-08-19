@@ -38,14 +38,33 @@ func (a testAddr) String() string  { return "test-addr" }
 // testConn implements net.Conn for testing with buffered writes
 type testConn struct {
 	writeChan chan []byte
+	closed    bool
+	closeChan chan struct{}
+}
+
+func newTestConn() *testConn {
+	return &testConn{
+		writeChan: make(chan []byte, 100),
+		closeChan: make(chan struct{}),
+	}
 }
 
 func (c *testConn) Read(b []byte) (n int, err error) { return 0, nil }
 func (c *testConn) Write(b []byte) (n int, err error) {
-	c.writeChan <- b
-	return len(b), nil
+	select {
+	case c.writeChan <- b:
+		return len(b), nil
+	case <-c.closeChan:
+		return 0, io.EOF
+	}
 }
-func (c *testConn) Close() error                       { return nil }
+func (c *testConn) Close() error {
+	if !c.closed {
+		close(c.closeChan)
+		c.closed = true
+	}
+	return nil
+}
 func (c *testConn) LocalAddr() net.Addr                { return testAddr{} }
 func (c *testConn) RemoteAddr() net.Addr               { return testAddr{} }
 func (c *testConn) SetDeadline(t time.Time) error      { return nil }
@@ -54,6 +73,12 @@ func (c *testConn) SetWriteDeadline(t time.Time) error { return nil }
 
 func getTestProtocolOptions(conn net.Conn) protocol.ProtocolOptions {
 	mux := muxer.New(conn)
+	go mux.Start()
+	go func() {
+		<-conn.(*testConn).closeChan
+		mux.Stop()
+	}()
+
 	return protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
 			LocalAddr:  testAddr{},
@@ -65,7 +90,8 @@ func getTestProtocolOptions(conn net.Conn) protocol.ProtocolOptions {
 }
 
 func TestNewBlockFetch(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 	cfg := NewConfig()
 	bf := New(getTestProtocolOptions(conn), &cfg)
 	assert.NotNil(t, bf.Client)
@@ -92,9 +118,16 @@ func TestConfigOptions(t *testing.T) {
 }
 
 func TestConnectionErrorHandling(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 	cfg := NewConfig()
 	bf := New(getTestProtocolOptions(conn), &cfg)
+
+	// Start protocols
+	bf.Client.Start()
+	defer bf.Client.Stop()
+	bf.Server.Start()
+	defer bf.Server.Stop()
 
 	t.Run("Non-EOF error when not done", func(t *testing.T) {
 		err := bf.HandleConnectionError(errors.New("test error"))
@@ -110,10 +143,23 @@ func TestConnectionErrorHandling(t *testing.T) {
 		err := bf.HandleConnectionError(errors.New("connection reset by peer"))
 		assert.Error(t, err)
 	})
+
+	t.Run("EOF error when done", func(t *testing.T) {
+		// Send done message to properly transition to done state
+		err := bf.Client.SendMessage(NewMsgClientDone())
+		assert.NoError(t, err)
+
+		// Wait for state transition
+		time.Sleep(100 * time.Millisecond)
+
+		err = bf.HandleConnectionError(io.EOF)
+		assert.NoError(t, err, "expected no error when protocol is in done state")
+	})
 }
 
 func TestCallbackRegistration(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 
 	t.Run("Block callback registration", func(t *testing.T) {
 		blockFunc := func(ctx CallbackContext, slot uint, block ledger.Block) error {
@@ -137,16 +183,17 @@ func TestCallbackRegistration(t *testing.T) {
 }
 
 func TestClientMessageSending(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
+	conn := newTestConn()
+	defer conn.Close()
 	cfg := NewConfig()
 	client := NewClient(getTestProtocolOptions(conn), &cfg)
 
 	t.Run("Client can send messages", func(t *testing.T) {
-		// Start the client protocol
 		client.Start()
+		defer client.Stop()
 
 		// Send a done message
-		err := client.Protocol.SendMessage(NewMsgClientDone())
+		err := client.SendMessage(NewMsgClientDone())
 		assert.NoError(t, err)
 
 		// Verify message was written to connection
@@ -156,16 +203,5 @@ func TestClientMessageSending(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for message send")
 		}
-	})
-}
-
-func TestServerMessageHandling(t *testing.T) {
-	conn := &testConn{writeChan: make(chan []byte, 1)}
-	cfg := NewConfig()
-	server := NewServer(getTestProtocolOptions(conn), &cfg)
-
-	t.Run("Server can be started", func(t *testing.T) {
-		server.Start()
-
 	})
 }
