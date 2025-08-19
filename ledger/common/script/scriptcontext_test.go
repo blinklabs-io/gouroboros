@@ -69,7 +69,11 @@ func formatPlutusData(pd data.PlutusData) string {
 	return ret
 }
 
-func buildTxInfoV3(txHex string, inputsHex string, inputOutputsHex string) (TxInfo, error) {
+func buildTxInfoV3(
+	txHex string,
+	inputsHex string,
+	inputOutputsHex string,
+) (TxInfo, error) {
 	// Transaction
 	txBytes, err := hex.DecodeString(txHex)
 	if err != nil {
@@ -134,13 +138,19 @@ func TestScriptContextV3SimpleSend(t *testing.T) {
 	// Build script context
 	sc := NewScriptContextV3(txInfo, redeemer, purpose)
 	// Read expected structure from file
-	expectedBytes, err := os.ReadFile(`testdata/simple_send_expected_structure.txt`)
+	expectedBytes, err := os.ReadFile(
+		`testdata/simple_send_expected_structure.txt`,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	expected := strings.TrimSpace(string(expectedBytes))
 	scPd := strings.TrimSpace(formatPlutusData(sc.ToPlutusData()))
 	if scPd != expected {
-		t.Fatalf("did not get expected structure\n\n     got:\n\n%s\n\n  wanted:\n\n%s", scPd, expected)
+		t.Fatalf(
+			"did not get expected structure\n\n     got:\n\n%s\n\n  wanted:\n\n%s",
+			scPd,
+			expected,
+		)
 	}
 }

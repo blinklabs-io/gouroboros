@@ -27,7 +27,9 @@ import (
 )
 
 func TestDatumHash(t *testing.T) {
-	testDatumBytes, _ := hex.DecodeString("d8799fd8799fd8799f581cb255e2283f9b495dd663b841090c42bc5a5103283fc2aef5c6cd2f5cffd8799fd8799fd8799f581c07d8b4b15e9609e76a38b25637900d60cdf13a6abce984757bbc1349ffffffffd8799f581cf5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c582073e1518e92f367fd5820ac2da1d40ab24fbca1d6cb2c28121ad92f57aff8abceff1b0000000148f3f3579fd8799fd8799f4040ff1a094f78d8ffd8799fd8799f581cf13ac4d66b3ee19a6aa0f2a22298737bd907cc95121662fc971b527546535452494b45ff1af7c5c601ffffff")
+	testDatumBytes, _ := hex.DecodeString(
+		"d8799fd8799fd8799f581cb255e2283f9b495dd663b841090c42bc5a5103283fc2aef5c6cd2f5cffd8799fd8799fd8799f581c07d8b4b15e9609e76a38b25637900d60cdf13a6abce984757bbc1349ffffffffd8799f581cf5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c582073e1518e92f367fd5820ac2da1d40ab24fbca1d6cb2c28121ad92f57aff8abceff1b0000000148f3f3579fd8799fd8799f4040ff1a094f78d8ffd8799fd8799f581cf13ac4d66b3ee19a6aa0f2a22298737bd907cc95121662fc971b527546535452494b45ff1af7c5c601ffffff",
+	)
 	expectedHash := "4dfec91f63f946d7c91af0041e5d92a45531790a4a104637dd8691f46fdce842"
 	var tmpDatum common.Datum
 	if _, err := cbor.Decode(testDatumBytes, &tmpDatum); err != nil {
@@ -35,12 +37,18 @@ func TestDatumHash(t *testing.T) {
 	}
 	datumHash := tmpDatum.Hash()
 	if datumHash.String() != expectedHash {
-		t.Fatalf("did not get expected datum hash: got %s, wanted %s", datumHash.String(), expectedHash)
+		t.Fatalf(
+			"did not get expected datum hash: got %s, wanted %s",
+			datumHash.String(),
+			expectedHash,
+		)
 	}
 }
 
 func TestDatumDecode(t *testing.T) {
-	testDatumBytes, _ := hex.DecodeString("d8799fd8799fd8799f581cb255e2283f9b495dd663b841090c42bc5a5103283fc2aef5c6cd2f5cffd8799fd8799fd8799f581c07d8b4b15e9609e76a38b25637900d60cdf13a6abce984757bbc1349ffffffffd8799f581cf5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c582073e1518e92f367fd5820ac2da1d40ab24fbca1d6cb2c28121ad92f57aff8abceff1b0000000148f3f3579fd8799fd8799f4040ff1a094f78d8ffd8799fd8799f581cf13ac4d66b3ee19a6aa0f2a22298737bd907cc95121662fc971b527546535452494b45ff1af7c5c601ffffff")
+	testDatumBytes, _ := hex.DecodeString(
+		"d8799fd8799fd8799f581cb255e2283f9b495dd663b841090c42bc5a5103283fc2aef5c6cd2f5cffd8799fd8799fd8799f581c07d8b4b15e9609e76a38b25637900d60cdf13a6abce984757bbc1349ffffffffd8799f581cf5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c582073e1518e92f367fd5820ac2da1d40ab24fbca1d6cb2c28121ad92f57aff8abceff1b0000000148f3f3579fd8799fd8799f4040ff1a094f78d8ffd8799fd8799f581cf13ac4d66b3ee19a6aa0f2a22298737bd907cc95121662fc971b527546535452494b45ff1af7c5c601ffffff",
+	)
 	expectedDatum := common.Datum{
 		Data: data.NewConstr(
 			0,
@@ -49,7 +57,9 @@ func TestDatumDecode(t *testing.T) {
 				data.NewConstr(
 					0,
 					data.NewByteString(
-						test.DecodeHexString("b255e2283f9b495dd663b841090c42bc5a5103283fc2aef5c6cd2f5c"),
+						test.DecodeHexString(
+							"b255e2283f9b495dd663b841090c42bc5a5103283fc2aef5c6cd2f5c",
+						),
 					),
 				),
 				data.NewConstr(
@@ -59,7 +69,9 @@ func TestDatumDecode(t *testing.T) {
 						data.NewConstr(
 							0,
 							data.NewByteString(
-								test.DecodeHexString("07d8b4b15e9609e76a38b25637900d60cdf13a6abce984757bbc1349"),
+								test.DecodeHexString(
+									"07d8b4b15e9609e76a38b25637900d60cdf13a6abce984757bbc1349",
+								),
 							),
 						),
 					),
@@ -68,10 +80,14 @@ func TestDatumDecode(t *testing.T) {
 			data.NewConstr(
 				0,
 				data.NewByteString(
-					test.DecodeHexString("f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c"),
+					test.DecodeHexString(
+						"f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c",
+					),
 				),
 				data.NewByteString(
-					test.DecodeHexString("73e1518e92f367fd5820ac2da1d40ab24fbca1d6cb2c28121ad92f57aff8abce"),
+					test.DecodeHexString(
+						"73e1518e92f367fd5820ac2da1d40ab24fbca1d6cb2c28121ad92f57aff8abce",
+					),
 				),
 			),
 			data.NewInteger(big.NewInt(5518914391)),
@@ -90,7 +106,9 @@ func TestDatumDecode(t *testing.T) {
 					data.NewConstr(
 						0,
 						data.NewByteString(
-							test.DecodeHexString("f13ac4d66b3ee19a6aa0f2a22298737bd907cc95121662fc971b5275"),
+							test.DecodeHexString(
+								"f13ac4d66b3ee19a6aa0f2a22298737bd907cc95121662fc971b5275",
+							),
 						),
 						data.NewByteString(
 							test.DecodeHexString("535452494b45"),
@@ -106,6 +124,10 @@ func TestDatumDecode(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if !reflect.DeepEqual(tmpDatum.Data, expectedDatum.Data) {
-		t.Fatalf("did not get expected datum\n     got: %#v\n  wanted: %#v", tmpDatum.Data, expectedDatum.Data)
+		t.Fatalf(
+			"did not get expected datum\n     got: %#v\n  wanted: %#v",
+			tmpDatum.Data,
+			expectedDatum.Data,
+		)
 	}
 }

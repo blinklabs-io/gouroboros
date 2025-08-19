@@ -57,7 +57,11 @@ func (s ScriptContextV3) ToPlutusData() data.PlutusData {
 	)
 }
 
-func NewScriptContextV3(txInfo TxInfo, redeemer Redeemer, purpose ScriptInfo) ScriptContext {
+func NewScriptContextV3(
+	txInfo TxInfo,
+	redeemer Redeemer,
+	purpose ScriptInfo,
+) ScriptContext {
 	return ScriptContextV3{
 		TxInfo:   txInfo,
 		Redeemer: redeemer,
@@ -162,7 +166,10 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 	)
 }
 
-func NewTxInfoV3FromTransaction(tx lcommon.Transaction, resolvedInputs []lcommon.Utxo) TxInfoV3 {
+func NewTxInfoV3FromTransaction(
+	tx lcommon.Transaction,
+	resolvedInputs []lcommon.Utxo,
+) TxInfoV3 {
 	assetMint := tx.AssetMint()
 	if assetMint == nil {
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
@@ -180,11 +187,14 @@ func NewTxInfoV3FromTransaction(tx lcommon.Transaction, resolvedInputs []lcommon
 		),
 	)
 	ret := TxInfoV3{
-		Inputs:          expandInputs(inputs, resolvedInputs),
-		ReferenceInputs: expandInputs(sortInputs(tx.ReferenceInputs()), resolvedInputs),
-		Outputs:         collapseOutputs(tx.Produced()),
-		Fee:             tx.Fee(),
-		Mint:            *assetMint,
+		Inputs: expandInputs(inputs, resolvedInputs),
+		ReferenceInputs: expandInputs(
+			sortInputs(tx.ReferenceInputs()),
+			resolvedInputs,
+		),
+		Outputs: collapseOutputs(tx.Produced()),
+		Fee:     tx.Fee(),
+		Mint:    *assetMint,
 		ValidRange: TimeRange{
 			tx.TTL(),
 			tx.ValidityIntervalStart(),
@@ -350,7 +360,10 @@ func sortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
 	return ret
 }
 
-func expandInputs(inputs []lcommon.TransactionInput, resolvedInputs []lcommon.Utxo) []ResolvedInput {
+func expandInputs(
+	inputs []lcommon.TransactionInput,
+	resolvedInputs []lcommon.Utxo,
+) []ResolvedInput {
 	ret := make([]ResolvedInput, len(inputs))
 	for i, input := range inputs {
 		for _, resolvedInput := range resolvedInputs {
@@ -371,8 +384,17 @@ func collapseOutputs(outputs []lcommon.Utxo) []lcommon.TransactionOutput {
 	return ret
 }
 
-func sortedRedeemerKeys(redeemers lcommon.TransactionWitnessRedeemers) []lcommon.RedeemerKey {
-	tags := []lcommon.RedeemerTag{lcommon.RedeemerTagSpend, lcommon.RedeemerTagMint, lcommon.RedeemerTagCert, lcommon.RedeemerTagReward, lcommon.RedeemerTagVoting, lcommon.RedeemerTagProposing}
+func sortedRedeemerKeys(
+	redeemers lcommon.TransactionWitnessRedeemers,
+) []lcommon.RedeemerKey {
+	tags := []lcommon.RedeemerTag{
+		lcommon.RedeemerTagSpend,
+		lcommon.RedeemerTagMint,
+		lcommon.RedeemerTagCert,
+		lcommon.RedeemerTagReward,
+		lcommon.RedeemerTagVoting,
+		lcommon.RedeemerTagProposing,
+	}
 	ret := make([]lcommon.RedeemerKey, 0)
 	for _, tag := range tags {
 		idxs := redeemers.Indexes(tag)
@@ -391,7 +413,10 @@ func sortedRedeemerKeys(redeemers lcommon.TransactionWitnessRedeemers) []lcommon
 	return ret
 }
 
-func redeemersInfo(witnessSet lcommon.TransactionWitnessSet, toScriptPurpose toScriptPurposeFunc) KeyValuePairs[ScriptInfo, Redeemer] {
+func redeemersInfo(
+	witnessSet lcommon.TransactionWitnessSet,
+	toScriptPurpose toScriptPurposeFunc,
+) KeyValuePairs[ScriptInfo, Redeemer] {
 	var ret KeyValuePairs[ScriptInfo, Redeemer]
 	redeemers := witnessSet.Redeemers()
 	redeemerKeys := sortedRedeemerKeys(redeemers)
