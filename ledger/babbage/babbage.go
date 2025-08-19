@@ -377,7 +377,9 @@ type BabbageTransactionOutputDatumOption struct {
 	data *common.Datum
 }
 
-func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(cborData []byte) error {
+func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
+	cborData []byte,
+) error {
 	datumOptionType, err := cbor.DecodeIdFromList(cborData)
 	if err != nil {
 		return err

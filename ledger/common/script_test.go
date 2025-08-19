@@ -42,7 +42,9 @@ func TestScriptRefDecode(t *testing.T) {
 }
 
 func TestNativeScriptHash(t *testing.T) {
-	testScriptBytes, _ := hex.DecodeString("820181830301838200581c058a5ab0c66647dcce82d7244f80bfea41ba76c7c9ccaf86a41b00fe8200581c45cbc234959cb619ef54e36c16e7719318592e627cdf1a39bd3d64398200581c85fd53e110449649b709ef0fa93e86d99535bdce5db306ce0e7418fc")
+	testScriptBytes, _ := hex.DecodeString(
+		"820181830301838200581c058a5ab0c66647dcce82d7244f80bfea41ba76c7c9ccaf86a41b00fe8200581c45cbc234959cb619ef54e36c16e7719318592e627cdf1a39bd3d64398200581c85fd53e110449649b709ef0fa93e86d99535bdce5db306ce0e7418fc",
+	)
 	expectedScriptHash := "1c0053ec18e2c0f7bd4d007fe14243ca220563f9c124381f75c43704"
 	var testScript common.NativeScript
 	if err := testScript.UnmarshalCBOR(testScriptBytes); err != nil {
@@ -50,16 +52,26 @@ func TestNativeScriptHash(t *testing.T) {
 	}
 	tmpHash := testScript.Hash()
 	if tmpHash.String() != expectedScriptHash {
-		t.Errorf("did not get expected script hash, got %s, wanted %s", tmpHash.String(), expectedScriptHash)
+		t.Errorf(
+			"did not get expected script hash, got %s, wanted %s",
+			tmpHash.String(),
+			expectedScriptHash,
+		)
 	}
 }
 
 func TestPlutusV3ScriptHash(t *testing.T) {
-	testScriptBytes, _ := hex.DecodeString("587f01010032323232323225333002323232323253330073370e900118041baa0011323232533300a3370e900018059baa00513232533300f301100214a22c6eb8c03c004c030dd50028b18069807001180600098049baa00116300a300b0023009001300900230070013004375400229309b2b2b9a5573aaae7955cfaba157441")
+	testScriptBytes, _ := hex.DecodeString(
+		"587f01010032323232323225333002323232323253330073370e900118041baa0011323232533300a3370e900018059baa00513232533300f301100214a22c6eb8c03c004c030dd50028b18069807001180600098049baa00116300a300b0023009001300900230070013004375400229309b2b2b9a5573aaae7955cfaba157441",
+	)
 	testScript := common.PlutusV3Script(testScriptBytes)
 	expectedScriptHash := "2909c3d0441e76cd6ae1fc09664bb209868902e191c2b8c30b82d331"
 	tmpHash := testScript.Hash()
 	if tmpHash.String() != expectedScriptHash {
-		t.Errorf("did not get expected script hash, got %s, wanted %s", tmpHash.String(), expectedScriptHash)
+		t.Errorf(
+			"did not get expected script hash, got %s, wanted %s",
+			tmpHash.String(),
+			expectedScriptHash,
+		)
 	}
 }
