@@ -199,6 +199,7 @@ type ChainSync struct {
 	Server *Server
 }
 
+// Config is used to configure the ChainSync protocol instance
 type Config struct {
 	RollBackwardFunc   RollBackwardFunc
 	RollForwardFunc    RollForwardFunc

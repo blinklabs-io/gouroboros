@@ -575,7 +575,11 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	case MessageTypeDone:
 		return nil
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }

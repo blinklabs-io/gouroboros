@@ -94,7 +94,6 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	case MessageTypeRequestTxs:
 		err = c.handleRequestTxs(msg)
 	case MessageTypeDone:
-		// No need to set state here, base Protocol handles it
 		return nil
 	default:
 		err = fmt.Errorf(

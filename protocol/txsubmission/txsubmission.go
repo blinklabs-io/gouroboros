@@ -19,7 +19,6 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -117,10 +116,8 @@ var StateMap = protocol.StateMap{
 
 // TxSubmission is a wrapper object that holds the client and server instances
 type TxSubmission struct {
-	Client       *Client
-	Server       *Server
-	stateMutex   sync.Mutex
-	currentState protocol.State
+	Client *Client
+	Server *Server
 }
 
 // Config is used to configure the TxSubmission protocol instance

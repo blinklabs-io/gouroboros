@@ -165,9 +165,13 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeFindIntersect:
 		err = s.handleFindIntersect(msg)
 	case MessageTypeDone:
-		return s.handleDone()
+		err = s.handleDone()
 	default:
-		err = fmt.Errorf("%s: received unexpected message type %d", ProtocolName, msg.Type())
+		err = fmt.Errorf(
+			"%s: received unexpected message type %d",
+			ProtocolName,
+			msg.Type(),
+		)
 	}
 	return err
 }

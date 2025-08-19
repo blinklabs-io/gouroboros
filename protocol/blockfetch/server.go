@@ -126,7 +126,6 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeRequestRange:
 		err = s.handleRequestRange(msg)
 	case MessageTypeClientDone:
-		// State handled automatically by base protocol
 		return s.handleClientDone()
 	default:
 		err = fmt.Errorf(
