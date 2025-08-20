@@ -82,6 +82,22 @@ func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (s *ScriptRef) MarshalCBOR() ([]byte, error) {
+	tmpData := []any{
+		s.Type,
+		s.Script,
+	}
+	tmpDataCbor, err := cbor.Encode(tmpData)
+	if err != nil {
+		return nil, err
+	}
+	tmpTag := cbor.Tag{
+		Number:  24,
+		Content: tmpDataCbor,
+	}
+	return cbor.Encode(tmpTag)
+}
+
 type PlutusV1Script []byte
 
 func (PlutusV1Script) isScript() {}
