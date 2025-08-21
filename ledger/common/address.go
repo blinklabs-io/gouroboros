@@ -352,7 +352,10 @@ func (a *Address) ToPlutusData() data.PlutusData {
 		}
 		stakePd = data.NewConstr(
 			0,
-			tmpCred.ToPlutusData(),
+			data.NewConstr(
+				0,
+				tmpCred.ToPlutusData(),
+			),
 		)
 	case AddressTypeKeyScript, AddressTypeScriptScript, AddressTypeNoneScript:
 		tmpCred := &Credential{
@@ -361,7 +364,10 @@ func (a *Address) ToPlutusData() data.PlutusData {
 		}
 		stakePd = data.NewConstr(
 			0,
-			tmpCred.ToPlutusData(),
+			data.NewConstr(
+				0,
+				tmpCred.ToPlutusData(),
+			),
 		)
 	case AddressTypeKeyNone, AddressTypeScriptNone:
 		stakePd = data.NewConstr(1)
