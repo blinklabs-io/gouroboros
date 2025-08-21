@@ -97,6 +97,7 @@ type TransactionWitnessRedeemers interface {
 }
 
 type Utxo struct {
+	cbor.StructAsArray
 	Id     TransactionInput
 	Output TransactionOutput
 }
