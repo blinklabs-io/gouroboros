@@ -23,9 +23,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-func TestScriptRefDecode(t *testing.T) {
+func TestScriptRefDecodeEncode(t *testing.T) {
 	// 24_0(<<[3, h'480123456789abcdef']>>)
-	testCbor, _ := hex.DecodeString("d8184c820349480123456789abcdef")
+	testCborHex := "d8184c820349480123456789abcdef"
+	testCbor, _ := hex.DecodeString(testCborHex)
 	scriptCbor, _ := hex.DecodeString("480123456789abcdef")
 	expectedScript := common.PlutusV3Script(scriptCbor)
 	var testScriptRef common.ScriptRef
@@ -38,6 +39,13 @@ func TestScriptRefDecode(t *testing.T) {
 			testScriptRef.Script,
 			&expectedScript,
 		)
+	}
+	scriptRefCbor, err := cbor.Encode(testScriptRef)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if hex.EncodeToString(scriptRefCbor) != testCborHex {
+		t.Fatalf("did not get expected CBOR\n     got: %x\n  wanted: %s", scriptRefCbor, testCborHex)
 	}
 }
 
