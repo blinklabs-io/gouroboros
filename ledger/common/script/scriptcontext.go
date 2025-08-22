@@ -15,9 +15,9 @@
 package script
 
 import (
+	"bytes"
 	"math/big"
 	"slices"
-	"strings"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
@@ -139,6 +139,13 @@ type TxInfoV3 struct {
 func (TxInfoV3) isTxInfo() {}
 
 func (t TxInfoV3) ToPlutusData() data.PlutusData {
+	tmpRedeemers := make(KeyValuePairs[ScriptInfo, Redeemer], len(t.Redeemers))
+	for i, pair := range t.Redeemers {
+		tmpRedeemers[i] = KeyValuePair[ScriptInfo, Redeemer]{
+			Key:   scriptPurposeStripDatum(pair.Key),
+			Value: pair.Value,
+		}
+	}
 	return data.NewConstr(
 		0,
 		toPlutusData(t.Inputs),
@@ -150,9 +157,8 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 		toPlutusData([]any{}),
 		toPlutusData(t.Withdrawals),
 		t.ValidRange.ToPlutusData(),
-		// TODO: signatories
-		toPlutusData([]any{}),
-		t.Redeemers.ToPlutusData(),
+		toPlutusData(t.Signatories),
+		tmpRedeemers.ToPlutusData(),
 		t.Data.ToPlutusData(),
 		data.NewByteString(t.Id.Bytes()),
 		// TODO: votes
@@ -174,10 +180,11 @@ func NewTxInfoV3FromTransaction(
 	if assetMint == nil {
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
-	inputs := sortInputs(tx.Consumed())
+	inputs := sortInputs(tx.Inputs())
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
+			resolvedInputs,
 			inputs,
 			*assetMint,
 			// TODO: certificates
@@ -186,6 +193,7 @@ func NewTxInfoV3FromTransaction(
 			// TODO: votes
 		),
 	)
+	tmpData := dataInfo(tx.Witnesses())
 	ret := TxInfoV3{
 		Inputs: expandInputs(inputs, resolvedInputs),
 		ReferenceInputs: expandInputs(
@@ -200,10 +208,10 @@ func NewTxInfoV3FromTransaction(
 			tx.ValidityIntervalStart(),
 		},
 		Withdrawals: tx.Withdrawals(),
-		// TODO: Signatories
-		Redeemers: redeemers,
-		// TODO: Data
-		Id: tx.Hash(),
+		Signatories: signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:   redeemers,
+		Data:        tmpData,
+		Id:          tx.Hash(),
 		// TODO: Votes
 		// TODO: ProposalProcedures
 		// TODO: CurrentTreasuryAmount
@@ -345,10 +353,11 @@ func sortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
 		ret,
 		func(a, b lcommon.TransactionInput) int {
 			// Compare TX ID
-			x := strings.Compare(a.Id().String(), b.Id().String())
+			x := bytes.Compare(a.Id().Bytes(), b.Id().Bytes())
 			if x != 0 {
 				return x
 			}
+			// Compare index
 			if a.Index() < b.Index() {
 				return -1
 			} else if a.Index() > b.Index() {
@@ -413,6 +422,29 @@ func sortedRedeemerKeys(
 	return ret
 }
 
+func dataInfo(
+	witnessSet lcommon.TransactionWitnessSet,
+) KeyValuePairs[lcommon.DatumHash, data.PlutusData] {
+	var ret KeyValuePairs[lcommon.DatumHash, data.PlutusData]
+	for _, datum := range witnessSet.PlutusData() {
+		ret = append(
+			ret,
+			KeyValuePair[lcommon.DatumHash, data.PlutusData]{
+				Key:   datum.Hash(),
+				Value: datum.Data,
+			},
+		)
+	}
+	// Sort by datum hash
+	slices.SortFunc(
+		ret,
+		func(a, b KeyValuePair[lcommon.DatumHash, data.PlutusData]) int {
+			return bytes.Compare(a.Key.Bytes(), b.Key.Bytes())
+		},
+	)
+	return ret
+}
+
 func redeemersInfo(
 	witnessSet lcommon.TransactionWitnessSet,
 	toScriptPurpose toScriptPurposeFunc,
@@ -422,8 +454,7 @@ func redeemersInfo(
 	redeemerKeys := sortedRedeemerKeys(redeemers)
 	for _, key := range redeemerKeys {
 		redeemerValue := redeemers.Value(uint(key.Index), key.Tag)
-		datum := redeemerValue.Data.Data
-		purpose := toScriptPurpose(key, datum)
+		purpose := toScriptPurpose(key)
 		ret = append(
 			ret,
 			KeyValuePair[ScriptInfo, Redeemer]{
@@ -431,7 +462,7 @@ func redeemersInfo(
 				Value: Redeemer{
 					Tag:     key.Tag,
 					Index:   key.Index,
-					Data:    datum,
+					Data:    redeemerValue.Data.Data,
 					ExUnits: redeemerValue.ExUnits,
 				},
 			},
@@ -440,10 +471,25 @@ func redeemersInfo(
 	return ret
 }
 
-type toScriptPurposeFunc func(lcommon.RedeemerKey, data.PlutusData) ScriptInfo
+func signatoriesInfo(
+	requiredSigners []lcommon.Blake2b224,
+) []lcommon.Blake2b224 {
+	tmp := make([]lcommon.Blake2b224, len(requiredSigners))
+	copy(tmp, requiredSigners)
+	slices.SortFunc(
+		tmp,
+		func(a, b lcommon.Blake2b224) int {
+			return bytes.Compare(a.Bytes(), b.Bytes())
+		},
+	)
+	return tmp
+}
+
+type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptInfo
 
 // scriptPurposeBuilder creates a reusable function preloaded with information about a particular transaction
 func scriptPurposeBuilder(
+	resolvedInputs []lcommon.Utxo,
 	inputs []lcommon.TransactionInput,
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
 	// TODO: certificates
@@ -451,11 +497,21 @@ func scriptPurposeBuilder(
 	// TODO: proposal procedures
 	// TODO: votes
 ) toScriptPurposeFunc {
-	return func(redeemerKey lcommon.RedeemerKey, datum data.PlutusData) ScriptInfo {
+	return func(redeemerKey lcommon.RedeemerKey) ScriptInfo {
 		// TODO: implement additional redeemer tags
 		// https://github.com/aiken-lang/aiken/blob/af4e04b91e54dbba3340de03fc9e65a90f24a93b/crates/uplc/src/tx/script_context.rs#L771-L826
 		switch redeemerKey.Tag {
 		case lcommon.RedeemerTagSpend:
+			var datum data.PlutusData
+			tmpInput := inputs[redeemerKey.Index]
+			for _, resolvedInput := range resolvedInputs {
+				if resolvedInput.Id.String() == tmpInput.String() {
+					if tmpDatum := resolvedInput.Output.Datum(); tmpDatum != nil {
+						datum = tmpDatum.Data
+					}
+					break
+				}
+			}
 			return ScriptInfoSpending{
 				Input: inputs[redeemerKey.Index],
 				Datum: datum,
@@ -463,8 +519,12 @@ func scriptPurposeBuilder(
 		case lcommon.RedeemerTagMint:
 			// TODO: fix this to work for more than one minted policy
 			mintPolicies := mint.Policies()
+			slices.SortFunc(
+				mintPolicies,
+				func(a, b lcommon.Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+			)
 			return ScriptInfoMinting{
-				PolicyId: mintPolicies[0],
+				PolicyId: mintPolicies[redeemerKey.Index],
 			}
 		case lcommon.RedeemerTagCert:
 			return nil
@@ -477,4 +537,13 @@ func scriptPurposeBuilder(
 		}
 		return nil
 	}
+}
+
+func scriptPurposeStripDatum(purpose ScriptInfo) ScriptInfo {
+	switch p := purpose.(type) {
+	case ScriptInfoSpending:
+		p.Datum = nil
+		return p
+	}
+	return purpose
 }
