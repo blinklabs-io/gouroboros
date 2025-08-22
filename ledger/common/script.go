@@ -146,8 +146,8 @@ func (s PlutusV3Script) Evaluate(scriptContext data.PlutusData, budget ExUnits) 
 	machineBudget := cek.DefaultExBudget
 	if budget.Steps > 0 || budget.Memory > 0 {
 		machineBudget = cek.ExBudget{
-			Cpu: int64(budget.Steps),  // nolint: gosec
-			Mem: int64(budget.Memory), // nolint: gosec
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
 		}
 	}
 	// Decode raw script as bytestring to get actual script bytes
@@ -178,8 +178,8 @@ func (s PlutusV3Script) Evaluate(scriptContext data.PlutusData, budget ExUnits) 
 		return usedExUnits, fmt.Errorf("execute script: %w", err)
 	}
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
-	usedExUnits.Memory = uint64(consumedBudget.Mem) // nolint:gosec
-	usedExUnits.Steps = uint64(consumedBudget.Cpu)  // nolint:gosec
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
 	return usedExUnits, nil
 }
 

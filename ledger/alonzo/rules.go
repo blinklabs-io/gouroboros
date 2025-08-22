@@ -91,7 +91,7 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
-	var totalSteps, totalMemory uint64
+	var totalSteps, totalMemory int64
 	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers {
 		totalSteps += redeemer.ExUnits.Steps
 		totalMemory += redeemer.ExUnits.Memory

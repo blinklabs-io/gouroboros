@@ -436,8 +436,8 @@ func (i IssuerVkey) PoolId() string {
 // ExUnits represents the steps and memory usage for script execution
 type ExUnits struct {
 	cbor.StructAsArray
-	Memory uint64
-	Steps  uint64
+	Memory int64
+	Steps  int64
 }
 
 // GenesisRat is a convenience type for cbor.Rat
