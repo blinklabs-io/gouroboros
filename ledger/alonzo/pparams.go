@@ -165,12 +165,12 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 	p.CollateralPercentage = genesis.CollateralPercentage
 	p.MaxCollateralInputs = genesis.MaxCollateralInputs
 	p.MaxTxExUnits = common.ExUnits{
-		Memory: uint64(genesis.MaxTxExUnits.Mem),
-		Steps:  uint64(genesis.MaxTxExUnits.Steps),
+		Memory: int64(genesis.MaxTxExUnits.Mem),   // nolint:gosec
+		Steps:  int64(genesis.MaxTxExUnits.Steps), // nolint:gosec
 	}
 	p.MaxBlockExUnits = common.ExUnits{
-		Memory: uint64(genesis.MaxBlockExUnits.Mem),
-		Steps:  uint64(genesis.MaxBlockExUnits.Steps),
+		Memory: int64(genesis.MaxBlockExUnits.Mem),   // nolint:gosec
+		Steps:  int64(genesis.MaxBlockExUnits.Steps), // nolint:gosec
 	}
 
 	if genesis.ExecutionPrices.Mem != nil &&
@@ -347,12 +347,12 @@ func (p *AlonzoProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 			},
 		},
 		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
-			Memory: p.MaxTxExUnits.Memory,
-			Steps:  p.MaxTxExUnits.Steps,
+			Memory: uint64(p.MaxTxExUnits.Memory),
+			Steps:  uint64(p.MaxTxExUnits.Steps),
 		},
 		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
-			Memory: p.MaxBlockExUnits.Memory,
-			Steps:  p.MaxBlockExUnits.Steps,
+			Memory: uint64(p.MaxBlockExUnits.Memory),
+			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
 	}, nil
 }

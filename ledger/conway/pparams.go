@@ -132,12 +132,12 @@ func (p *ConwayProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 			},
 		},
 		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
-			Memory: p.MaxTxExUnits.Memory,
-			Steps:  p.MaxTxExUnits.Steps,
+			Memory: uint64(p.MaxTxExUnits.Memory),
+			Steps:  uint64(p.MaxTxExUnits.Steps),
 		},
 		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
-			Memory: p.MaxBlockExUnits.Memory,
-			Steps:  p.MaxBlockExUnits.Steps,
+			Memory: uint64(p.MaxBlockExUnits.Memory),
+			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
 	}, nil
 }
