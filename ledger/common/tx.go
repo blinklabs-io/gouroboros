@@ -84,9 +84,9 @@ type TransactionWitnessSet interface {
 	NativeScripts() []NativeScript
 	Bootstrap() []BootstrapWitness
 	PlutusData() []Datum
-	PlutusV1Scripts() [][]byte
-	PlutusV2Scripts() [][]byte
-	PlutusV3Scripts() [][]byte
+	PlutusV1Scripts() []PlutusV1Script
+	PlutusV2Scripts() []PlutusV2Script
+	PlutusV3Scripts() []PlutusV3Script
 	Redeemers() TransactionWitnessRedeemers
 }
 

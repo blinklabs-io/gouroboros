@@ -521,7 +521,7 @@ type AlonzoTransactionWitnessSet struct {
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
-	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
+	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
 	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        AlonzoRedeemers           `cbor:"5,keyasint,omitempty"`
 }
@@ -549,16 +549,16 @@ func (w AlonzoTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	// No plutus v2 scripts in Alonzo
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Alonzo
 	return nil
 }

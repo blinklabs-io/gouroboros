@@ -654,10 +654,10 @@ type BabbageTransactionWitnessSet struct {
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
-	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
+	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
 	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
-	WsPlutusV2Scripts  [][]byte                  `cbor:"6,keyasint,omitempty"`
+	WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
 }
 
 func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
@@ -683,15 +683,15 @@ func (w BabbageTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w BabbageTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w BabbageTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	return w.WsPlutusV2Scripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w BabbageTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Babbage
 	return nil
 }
