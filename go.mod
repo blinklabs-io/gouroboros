@@ -11,7 +11,7 @@ require (
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/fxamacker/cbor/v2 v2.9.0
 	github.com/jinzhu/copier v0.4.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	github.com/utxorpc/go-codegen v0.17.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.41.0
