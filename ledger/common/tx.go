@@ -444,15 +444,17 @@ func (s TransactionMetadataSet) MarshalCBOR() ([]byte, error) {
 			maxKey = k
 		}
 	}
-	if maxKey > uint64(math.MaxInt-1) {
+	// expectedCount64 is the length the array
+	expectedCount64 := maxKey + 1
+	if expectedCount64 > uint64(math.MaxInt) {
 		return nil, errors.New("metadata set too large to encode as array")
 	}
-	expectedCount := int(maxKey + 1)
+	expectedCount := int(expectedCount64) // #nosec G115 — bounded by check above
 	if len(s) != expectedCount {
 		contiguous = false
 	} else {
-		for i := 0; i < expectedCount; i++ {
-			if _, ok := s[uint64(i)]; !ok {
+		for i := uint64(0); i < expectedCount64; i++ {
+			if _, ok := s[i]; !ok {
 				contiguous = false
 				break
 			}
@@ -460,8 +462,8 @@ func (s TransactionMetadataSet) MarshalCBOR() ([]byte, error) {
 	}
 	if contiguous {
 		arr := make([]any, expectedCount)
-		for i := 0; i < expectedCount; i++ {
-			arr[i] = metadatumToInterface(s[uint64(i)])
+		for i := uint64(0); i < expectedCount64; i++ {
+			arr[i] = metadatumToInterface(s[i])
 		}
 		return cbor.Encode(&arr)
 	}
