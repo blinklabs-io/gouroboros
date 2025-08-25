@@ -242,11 +242,11 @@ type ConwayTransactionWitnessSet struct {
 	VkeyWitnesses      cbor.SetType[common.VkeyWitness]      `cbor:"0,keyasint,omitempty,omitzero"`
 	WsNativeScripts    cbor.SetType[common.NativeScript]     `cbor:"1,keyasint,omitempty,omitzero"`
 	BootstrapWitnesses cbor.SetType[common.BootstrapWitness] `cbor:"2,keyasint,omitempty,omitzero"`
-	WsPlutusV1Scripts  cbor.SetType[[]byte]                  `cbor:"3,keyasint,omitempty,omitzero"`
+	WsPlutusV1Scripts  cbor.SetType[common.PlutusV1Script]   `cbor:"3,keyasint,omitempty,omitzero"`
 	WsPlutusData       cbor.SetType[common.Datum]            `cbor:"4,keyasint,omitempty,omitzero"`
 	WsRedeemers        ConwayRedeemers                       `cbor:"5,keyasint,omitempty,omitzero"`
-	WsPlutusV2Scripts  cbor.SetType[[]byte]                  `cbor:"6,keyasint,omitempty,omitzero"`
-	WsPlutusV3Scripts  cbor.SetType[[]byte]                  `cbor:"7,keyasint,omitempty,omitzero"`
+	WsPlutusV2Scripts  cbor.SetType[common.PlutusV2Script]   `cbor:"6,keyasint,omitempty,omitzero"`
+	WsPlutusV3Scripts  cbor.SetType[common.PlutusV3Script]   `cbor:"7,keyasint,omitempty,omitzero"`
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
@@ -272,15 +272,15 @@ func (w ConwayTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w ConwayTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w ConwayTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	return w.WsPlutusV2Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w ConwayTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	return w.WsPlutusV3Scripts.Items()
 }
 

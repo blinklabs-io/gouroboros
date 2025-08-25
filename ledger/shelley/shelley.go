@@ -479,17 +479,17 @@ func (w ShelleyTransactionWitnessSet) PlutusData() []common.Datum {
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w ShelleyTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	// No plutus v1 scripts in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w ShelleyTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	// No plutus v2 scripts in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w ShelleyTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Shelley
 	return nil
 }
