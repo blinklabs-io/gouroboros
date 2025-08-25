@@ -55,7 +55,7 @@ type ConwayBlock struct {
 	BlockHeader            *ConwayBlockHeader
 	TransactionBodies      []ConwayTransactionBody
 	TransactionWitnessSets []ConwayTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.LazyValue
+	TransactionMetadataSet map[uint]common.TransactionMetadataSet
 	InvalidTransactions    []uint
 }
 
@@ -518,7 +518,7 @@ type ConwayTransaction struct {
 	Body       ConwayTransactionBody
 	WitnessSet ConwayTransactionWitnessSet
 	TxIsValid  bool
-	TxMetadata *cbor.LazyValue
+	TxMetadata common.TransactionMetadataSet
 }
 
 func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -632,7 +632,7 @@ func (t ConwayTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t ConwayTransaction) Metadata() *cbor.LazyValue {
+func (t ConwayTransaction) Metadata() common.TransactionMetadataSet {
 	return t.TxMetadata
 }
 
@@ -699,7 +699,7 @@ func (t *ConwayTransaction) Cbor() []byte {
 		t.TxIsValid,
 	}
 	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+		tmpObj = append(tmpObj, t.TxMetadata)
 	} else {
 		tmpObj = append(tmpObj, nil)
 	}

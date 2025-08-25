@@ -15,6 +15,7 @@
 package common
 
 import (
+	"fmt"
 	"iter"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -28,11 +29,42 @@ type Transaction interface {
 	Cbor() []byte
 	Hash() Blake2b256
 	LeiosHash() Blake2b256
-	Metadata() *cbor.LazyValue
+	Metadata() TransactionMetadataSet
 	IsValid() bool
 	Consumed() []TransactionInput
 	Produced() []Utxo
 	Witnesses() TransactionWitnessSet
+}
+
+type TransactionMetadataSet map[uint64]TransactionMetadatum
+
+type TransactionMetadatum interface {
+	TypeName() string
+}
+
+type MetaInt struct {
+	Value int64
+}
+
+type MetaBytes struct {
+	Value []byte
+}
+
+type MetaText struct {
+	Value string
+}
+
+type MetaList struct {
+	Items []TransactionMetadatum
+}
+
+type MetaPair struct {
+	Key   TransactionMetadatum
+	Value TransactionMetadatum
+}
+
+type MetaMap struct {
+	Pairs []MetaPair
 }
 
 type TransactionBody interface {
@@ -259,4 +291,202 @@ func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 	}
 
 	return ret, nil
+}
+
+func (m MetaInt) TypeName() string { return "int" }
+
+func (m MetaBytes) TypeName() string { return "bytes" }
+
+func (m MetaText) TypeName() string { return "text" }
+
+func (m MetaList) TypeName() string { return "list" }
+
+func (m MetaMap) TypeName() string { return "map" }
+
+// Tries Decoding CBOR into all TransactionMetadatum variants (int, text, bytes, list, map).
+func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
+	// Trying to decode as int64
+	{
+		var v int64
+		if _, err := cbor.Decode(b, &v); err == nil {
+			return MetaInt{Value: v}, nil
+		}
+	}
+	// Trying to decode as string
+	{
+		var s string
+		if _, err := cbor.Decode(b, &s); err == nil {
+			return MetaText{Value: s}, nil
+		}
+	}
+	// Trying to decode as []bytes
+	{
+		var bs []byte
+		if _, err := cbor.Decode(b, &bs); err == nil {
+			return MetaBytes{Value: bs}, nil
+		}
+	}
+	// Trying to decode as cbor.RawMessage first then recursively decode each value
+	{
+		var arr []cbor.RawMessage
+		if _, err := cbor.Decode(b, &arr); err == nil {
+			items := make([]TransactionMetadatum, 0, len(arr))
+			for _, it := range arr {
+				md, err := DecodeMetadatumRaw(it)
+				if err != nil {
+					return nil, fmt.Errorf("decode list item: %w", err)
+				}
+				items = append(items, md)
+			}
+			return MetaList{Items: items}, nil
+		}
+	}
+	// Trying to decode as map[uint64]cbor.RawMessage first.
+	// Next trying to decode key as MetaInt and value as MetaMap
+	{
+		var m map[uint64]cbor.RawMessage
+		if _, err := cbor.Decode(b, &m); err == nil && len(m) > 0 {
+			pairs := make([]MetaPair, 0, len(m))
+			for k, rv := range m {
+				val, err := DecodeMetadatumRaw(rv)
+				if err != nil {
+					return nil, fmt.Errorf("decode map(uint) value: %w", err)
+				}
+				pairs = append(pairs, MetaPair{
+					Key:   MetaInt{Value: int64(k)},
+					Value: val,
+				})
+			}
+			return MetaMap{Pairs: pairs}, nil
+		}
+	}
+	// Trying to decode as map[string]cbor.RawMessage first.
+	// Next trying to decode key as MetaText and value as MetaMap
+	{
+		var m map[string]cbor.RawMessage
+		if _, err := cbor.Decode(b, &m); err == nil && len(m) > 0 {
+			pairs := make([]MetaPair, 0, len(m))
+			for k, rv := range m {
+				val, err := DecodeMetadatumRaw(rv)
+				if err != nil {
+					return nil, fmt.Errorf("decode map(text) value: %w", err)
+				}
+				pairs = append(pairs, MetaPair{
+					Key:   MetaText{Value: k},
+					Value: val,
+				})
+			}
+			return MetaMap{Pairs: pairs}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("unsupported metadatum shape")
+}
+
+// Decodes the transaction metadata set.
+func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
+	// Trying to decode as map[uint64]cbor.RawMessage.
+	// Calling DecodeMetadatumRaw for each entry call to get the typed value.
+	{
+		var tmp map[uint64]cbor.RawMessage
+		if _, err := cbor.Decode(cborData, &tmp); err == nil {
+			out := make(TransactionMetadataSet, len(tmp))
+			for k, v := range tmp {
+				md, err := DecodeMetadatumRaw(v)
+				if err != nil {
+					return fmt.Errorf("decode metadata value for index %d: %w", k, err)
+				}
+				out[k] = md
+			}
+			*s = out
+			return nil
+		}
+	}
+	// Trying to decode as []cbor.RawMessage.
+	// Each element in array is decoded by calling DecodeMetadatumRaw
+	{
+		var arr []cbor.RawMessage
+		if _, err := cbor.Decode(cborData, &arr); err == nil {
+			out := make(TransactionMetadataSet)
+			for i, raw := range arr {
+				var probe any
+				// Skipping null values as well after decoding to cbor.RawMessage
+				if _, err := cbor.Decode(raw, &probe); err == nil {
+					continue
+				}
+				md, err := DecodeMetadatumRaw(raw)
+				if err != nil {
+					return fmt.Errorf("decode metadata list item %d: %w", i, err)
+				}
+				out[uint64(i)] = md
+			}
+			*s = out
+			return nil
+		}
+	}
+	return fmt.Errorf("unsupported TransactionMetadataSet encoding")
+}
+
+// Encodes the transaction metadata set as a CBOR map
+func (s TransactionMetadataSet) MarshalCBOR() ([]byte, error) {
+	if s == nil {
+		return cbor.Encode(&map[uint64]any{})
+	}
+	contiguous := true
+	var maxKey uint64
+	for k := range s {
+		if k > maxKey {
+			maxKey = k
+		}
+	}
+	expectedCount := int(maxKey + 1)
+	if len(s) != expectedCount {
+		contiguous = false
+	} else {
+		for i := 0; i < expectedCount; i++ {
+			if _, ok := s[uint64(i)]; !ok {
+				contiguous = false
+				break
+			}
+		}
+	}
+	if contiguous {
+		arr := make([]any, expectedCount)
+		for i := 0; i < expectedCount; i++ {
+			arr[i] = metadatumToInterface(s[uint64(i)])
+		}
+		return cbor.Encode(&arr)
+	}
+	// Otherwise Encode as a map.
+	tmpMap := make(map[uint64]any, len(s))
+	for k, v := range s {
+		tmpMap[k] = metadatumToInterface(v)
+	}
+	return cbor.Encode(&tmpMap)
+}
+
+// converting typed metadatum back into regular go values where the CBOR library can encode
+func metadatumToInterface(m TransactionMetadatum) any {
+	switch t := m.(type) {
+	case MetaInt:
+		return t.Value
+	case MetaBytes:
+		return []byte(t.Value)
+	case MetaText:
+		return t.Value
+	case MetaList:
+		out := make([]any, 0, len(t.Items))
+		for _, it := range t.Items {
+			out = append(out, metadatumToInterface(it))
+		}
+		return out
+	case MetaMap:
+		mm := make(map[any]any, len(t.Pairs))
+		for _, p := range t.Pairs {
+			mm[metadatumToInterface(p.Key)] = metadatumToInterface(p.Value)
+		}
+		return mm
+	default:
+		return nil
+	}
 }
