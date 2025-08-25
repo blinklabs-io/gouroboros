@@ -15,8 +15,10 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"iter"
+	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -352,6 +354,9 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 				if err != nil {
 					return nil, fmt.Errorf("decode map(uint) value: %w", err)
 				}
+				if k > math.MaxInt64 {
+					return nil, fmt.Errorf("metadata label %d exceeds int64", k)
+				}
 				pairs = append(pairs, MetaPair{
 					Key:   MetaInt{Value: int64(k)},
 					Value: val,
@@ -380,7 +385,7 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("unsupported metadatum shape")
+	return nil, errors.New("unsupported metadatum shape")
 }
 
 // Decodes the transaction metadata set.
@@ -411,20 +416,20 @@ func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
 			for i, raw := range arr {
 				var probe any
 				// Skipping null values as well after decoding to cbor.RawMessage
-				if _, err := cbor.Decode(raw, &probe); err == nil {
+				if _, err := cbor.Decode(raw, &probe); err == nil && probe == nil {
 					continue
 				}
 				md, err := DecodeMetadatumRaw(raw)
 				if err != nil {
 					return fmt.Errorf("decode metadata list item %d: %w", i, err)
 				}
-				out[uint64(i)] = md
+				out[uint64(i)] = md // #nosec G115 — i is 0..len(arr)-1
 			}
 			*s = out
 			return nil
 		}
 	}
-	return fmt.Errorf("unsupported TransactionMetadataSet encoding")
+	return errors.New("unsupported TransactionMetadataSet encoding")
 }
 
 // Encodes the transaction metadata set as a CBOR map
@@ -438,6 +443,9 @@ func (s TransactionMetadataSet) MarshalCBOR() ([]byte, error) {
 		if k > maxKey {
 			maxKey = k
 		}
+	}
+	if maxKey > uint64(math.MaxInt-1) {
+		return nil, errors.New("metadata set too large to encode as array")
 	}
 	expectedCount := int(maxKey + 1)
 	if len(s) != expectedCount {
