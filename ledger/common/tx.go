@@ -423,7 +423,7 @@ func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
 				if err != nil {
 					return fmt.Errorf("decode metadata list item %d: %w", i, err)
 				}
-				out[uint64(i)] = md // #nosec G115 — i is 0..len(arr)-1
+				out[uint64(i)] = md // #nosec G115
 			}
 			*s = out
 			return nil
@@ -449,7 +449,7 @@ func (s TransactionMetadataSet) MarshalCBOR() ([]byte, error) {
 	if expectedCount64 > uint64(math.MaxInt) {
 		return nil, errors.New("metadata set too large to encode as array")
 	}
-	expectedCount := int(expectedCount64) // #nosec G115 — bounded by check above
+	expectedCount := int(expectedCount64) // #nosec G115
 	if len(s) != expectedCount {
 		contiguous = false
 	} else {
