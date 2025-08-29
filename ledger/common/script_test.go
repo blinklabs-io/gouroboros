@@ -45,7 +45,11 @@ func TestScriptRefDecodeEncode(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	if hex.EncodeToString(scriptRefCbor) != testCborHex {
-		t.Fatalf("did not get expected CBOR\n     got: %x\n  wanted: %s", scriptRefCbor, testCborHex)
+		t.Fatalf(
+			"did not get expected CBOR\n     got: %x\n  wanted: %s",
+			scriptRefCbor,
+			testCborHex,
+		)
 	}
 }
 

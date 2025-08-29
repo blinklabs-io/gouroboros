@@ -193,7 +193,11 @@ func TestScriptContextV3(t *testing.T) {
 		t.Run(
 			testDef.name,
 			func(t *testing.T) {
-				txInfo, err := buildTxInfoV3(testDef.txHex, testDef.inputsHex, testDef.outputsHex)
+				txInfo, err := buildTxInfoV3(
+					testDef.txHex,
+					testDef.inputsHex,
+					testDef.outputsHex,
+				)
 				if err != nil {
 					t.Fatalf("unexpected error: %s", err)
 				}
@@ -217,7 +221,11 @@ func TestScriptContextV3(t *testing.T) {
 				}
 				scCborHex := hex.EncodeToString(scCbor)
 				if scCborHex != testDef.expectedCbor {
-					t.Fatalf("did not get expected ScriptContext CBOR\n     got: %s\n  wanted: %s", scCborHex, testDef.expectedCbor)
+					t.Fatalf(
+						"did not get expected ScriptContext CBOR\n     got: %s\n  wanted: %s",
+						scCborHex,
+						testDef.expectedCbor,
+					)
 				}
 			},
 		)

@@ -140,7 +140,10 @@ func (s PlutusV3Script) Hash() ScriptHash {
 	)
 }
 
-func (s PlutusV3Script) Evaluate(scriptContext data.PlutusData, budget ExUnits) (ExUnits, error) {
+func (s PlutusV3Script) Evaluate(
+	scriptContext data.PlutusData,
+	budget ExUnits,
+) (ExUnits, error) {
 	var usedExUnits ExUnits
 	// Set budget
 	machineBudget := cek.DefaultExBudget
