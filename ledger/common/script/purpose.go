@@ -16,6 +16,7 @@ package script
 
 import (
 	"bytes"
+	"math/big"
 	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -91,20 +92,58 @@ func (s ScriptInfoRewarding) ToPlutusData() data.PlutusData {
 }
 
 type ScriptInfoCertifying struct {
-	Size        uint64
+	Index       uint32
 	Certificate lcommon.Certificate
 }
 
 func (ScriptInfoCertifying) isScriptInfo() {}
 
 func (s ScriptInfoCertifying) ScriptHash() lcommon.ScriptHash {
-	// TODO
+	var cred *lcommon.Credential
+	switch c := s.Certificate.(type) {
+	case *lcommon.StakeDeregistrationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.RegistrationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.DeregistrationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.VoteDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.VoteRegistrationDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.StakeVoteDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.StakeRegistrationDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.StakeVoteRegistrationDelegationCertificate:
+		cred = &c.StakeCredential
+	case *lcommon.RegistrationDrepCertificate:
+		cred = &c.DrepCredential
+	case *lcommon.DeregistrationDrepCertificate:
+		cred = &c.DrepCredential
+	case *lcommon.UpdateDrepCertificate:
+		cred = &c.DrepCredential
+	case *lcommon.AuthCommitteeHotCertificate:
+		cred = &c.ColdCredential
+	case *lcommon.ResignCommitteeColdCertificate:
+		cred = &c.ColdCredential
+	case *lcommon.StakeDelegationCertificate:
+		cred = c.StakeCredential
+	}
+	if cred != nil {
+		if cred.CredType == lcommon.CredentialTypeScriptHash {
+			return cred.Credential
+		}
+	}
 	return lcommon.ScriptHash{}
 }
 
 func (s ScriptInfoCertifying) ToPlutusData() data.PlutusData {
-	// TODO
-	return nil
+	return data.NewConstr(
+		3,
+		data.NewInteger(new(big.Int).SetUint64(uint64(s.Index))),
+		certificateToPlutusData(s.Certificate),
+	)
 }
 
 type ScriptInfoVoting struct {
@@ -147,7 +186,7 @@ func scriptPurposeBuilder(
 	resolvedInputs []lcommon.Utxo,
 	inputs []lcommon.TransactionInput,
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
-	// TODO: certificates
+	certificates []lcommon.Certificate,
 	withdrawals map[*lcommon.Address]uint64,
 	// TODO: proposal procedures
 	// TODO: votes
@@ -184,7 +223,10 @@ func scriptPurposeBuilder(
 				PolicyId: mintPolicies[redeemerKey.Index],
 			}
 		case lcommon.RedeemerTagCert:
-			return nil
+			return ScriptInfoCertifying{
+				Index:       redeemerKey.Index,
+				Certificate: certificates[redeemerKey.Index],
+			}
 		case lcommon.RedeemerTagReward:
 			return nil
 		case lcommon.RedeemerTagVoting:
