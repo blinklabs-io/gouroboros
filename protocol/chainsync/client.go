@@ -147,9 +147,11 @@ func (c *Client) Stop() error {
 			)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+		if !c.IsDone() {
+			msg := NewMsgDone()
+			if err = c.SendMessage(msg); err != nil {
+				return
+			}
 		}
 	})
 	return err
@@ -570,6 +572,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleIntersectFound(msg)
 	case MessageTypeIntersectNotFound:
 		err = c.handleIntersectNotFound(msg)
+	case MessageTypeDone:
+		return nil
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",

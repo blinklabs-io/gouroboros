@@ -86,12 +86,15 @@ func (c *Client) Init() {
 func (c *Client) messageHandler(msg protocol.Message) error {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("%s: client message for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+
 	var err error
 	switch msg.Type() {
 	case MessageTypeRequestTxIds:
 		err = c.handleRequestTxIds(msg)
 	case MessageTypeRequestTxs:
 		err = c.handleRequestTxs(msg)
+	case MessageTypeDone:
+		return nil
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
