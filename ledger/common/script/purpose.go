@@ -82,13 +82,14 @@ type ScriptInfoRewarding struct {
 func (ScriptInfoRewarding) isScriptInfo() {}
 
 func (s ScriptInfoRewarding) ScriptHash() lcommon.ScriptHash {
-	// TODO
-	return lcommon.ScriptHash{}
+	return lcommon.ScriptHash(s.StakeCredential.Credential)
 }
 
 func (s ScriptInfoRewarding) ToPlutusData() data.PlutusData {
-	// TODO
-	return nil
+	return data.NewConstr(
+		2,
+		s.StakeCredential.ToPlutusData(),
+	)
 }
 
 type ScriptInfoCertifying struct {
@@ -187,7 +188,7 @@ func scriptPurposeBuilder(
 	inputs []lcommon.TransactionInput,
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
 	certificates []lcommon.Certificate,
-	withdrawals map[*lcommon.Address]uint64,
+	withdrawals KeyValuePairs[*lcommon.Address, uint64],
 	// TODO: proposal procedures
 	// TODO: votes
 ) toScriptPurposeFunc {
@@ -228,7 +229,12 @@ func scriptPurposeBuilder(
 				Certificate: certificates[redeemerKey.Index],
 			}
 		case lcommon.RedeemerTagReward:
-			return nil
+			return ScriptInfoRewarding{
+				StakeCredential: lcommon.Credential{
+					CredType:   lcommon.CredentialTypeScriptHash,
+					Credential: withdrawals[redeemerKey.Index].Key.StakeKeyHash(),
+				},
+			}
 		case lcommon.RedeemerTagVoting:
 			return nil
 		case lcommon.RedeemerTagProposing:

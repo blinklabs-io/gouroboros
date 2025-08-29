@@ -15,6 +15,8 @@
 package common
 
 import (
+	"time"
+
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
@@ -39,4 +41,10 @@ type LedgerState interface {
 // TipState defines the interface for querying the current tip
 type TipState interface {
 	Tip() (pcommon.Tip, error)
+}
+
+// SlotState defines the interface for querying slots
+type SlotState interface {
+	SlotToTime(uint64) (time.Time, error)
+	TimeToSlot(time.Time) (uint64, error)
 }

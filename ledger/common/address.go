@@ -311,6 +311,21 @@ func (a *Address) ToPlutusData() data.PlutusData {
 		// There is no PlutusData representation for Byron addresses
 		return nil
 	}
+	// Stake-only address
+	if a.paymentPayload == nil && a.stakingPayload != nil {
+		switch p := a.stakingPayload.(type) {
+		case AddressPayloadKeyHash:
+			return data.NewConstr(
+				0,
+				data.NewByteString(p.Hash.Bytes()),
+			)
+		case AddressPayloadScriptHash:
+			return data.NewConstr(
+				1,
+				data.NewByteString(p.Hash.Bytes()),
+			)
+		}
+	}
 	// Build payment part
 	var paymentPd data.PlutusData
 	switch p := a.paymentPayload.(type) {
@@ -324,8 +339,6 @@ func (a *Address) ToPlutusData() data.PlutusData {
 			1,
 			data.NewByteString(p.Hash[:]),
 		)
-	default:
-		return nil
 	}
 	// Build stake part
 	var stakePd data.PlutusData
@@ -359,15 +372,18 @@ func (a *Address) ToPlutusData() data.PlutusData {
 			)
 		case AddressPayloadPointer:
 			stakePd = data.NewConstr(
-				1,
-				data.NewInteger(
-					new(big.Int).SetUint64(p.Slot),
-				),
-				data.NewInteger(
-					new(big.Int).SetUint64(p.TxIndex),
-				),
-				data.NewInteger(
-					new(big.Int).SetUint64(p.CertIndex),
+				0,
+				data.NewConstr(
+					1,
+					data.NewInteger(
+						new(big.Int).SetUint64(p.Slot),
+					),
+					data.NewInteger(
+						new(big.Int).SetUint64(p.TxIndex),
+					),
+					data.NewInteger(
+						new(big.Int).SetUint64(p.CertIndex),
+					),
 				),
 			)
 		default:
