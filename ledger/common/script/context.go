@@ -124,7 +124,7 @@ type TxInfoV3 struct {
 	Fee                   uint64
 	Mint                  lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
 	Certificates          []lcommon.Certificate
-	Withdrawals           map[*lcommon.Address]uint64
+	Withdrawals           KeyValuePairs[lcommon.Address, uint64]
 	ValidRange            TimeRange
 	Signatories           []lcommon.Blake2b224
 	Redeemers             KeyValuePairs[ScriptInfo, Redeemer]
@@ -178,6 +178,7 @@ func NewTxInfoV3FromTransaction(
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
 	inputs := sortInputs(tx.Inputs())
+	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
@@ -185,7 +186,7 @@ func NewTxInfoV3FromTransaction(
 			inputs,
 			*assetMint,
 			tx.Certificates(),
-			tx.Withdrawals(),
+			withdrawals,
 			// TODO: proposal procedures
 			// TODO: votes
 		),
@@ -205,7 +206,7 @@ func NewTxInfoV3FromTransaction(
 			tx.ValidityIntervalStart(),
 		},
 		Certificates: tx.Certificates(),
-		Withdrawals:  tx.Withdrawals(),
+		Withdrawals:  withdrawals,
 		Signatories:  signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:    redeemers,
 		Data:         tmpData,
@@ -333,6 +334,31 @@ func sortedRedeemerKeys(
 			)
 		}
 	}
+	return ret
+}
+
+func withdrawalsInfo(
+	withdrawals map[*lcommon.Address]uint64,
+) KeyValuePairs[lcommon.Address, uint64] {
+	var ret KeyValuePairs[lcommon.Address, uint64]
+	for addr, amt := range withdrawals {
+		ret = append(
+			ret,
+			KeyValuePair[lcommon.Address, uint64]{
+				Key:   *addr,
+				Value: amt,
+			},
+		)
+	}
+	// Sort by address bytes
+	slices.SortFunc(
+		ret,
+		func(a, b KeyValuePair[lcommon.Address, uint64]) int {
+			aBytes, _ := a.Key.Bytes()
+			bBytes, _ := b.Key.Bytes()
+			return bytes.Compare(aBytes, bBytes)
+		},
+	)
 	return ret
 }
 
