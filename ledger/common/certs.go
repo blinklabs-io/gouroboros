@@ -22,6 +22,7 @@ import (
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -159,11 +160,37 @@ func (d *Drep) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (d *Drep) ToPlutusData() data.PlutusData {
+	switch d.Type {
+	case DrepTypeAddrKeyHash:
+		return data.NewConstr(
+			0,
+			data.NewConstr(
+				0,
+				data.NewByteString(d.Credential),
+			),
+		)
+	case DrepTypeScriptHash:
+		return data.NewConstr(
+			0,
+			data.NewConstr(
+				1,
+				data.NewByteString(d.Credential),
+			),
+		)
+	case DrepTypeAbstain:
+		return data.NewConstr(1)
+	case DrepTypeNoConfidence:
+		return data.NewConstr(2)
+	}
+	return nil
+}
+
 type StakeRegistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	CertType          uint
-	StakeRegistration Credential
+	CertType        uint
+	StakeCredential Credential
 }
 
 func (c StakeRegistrationCertificate) isCertificate() {}
@@ -180,7 +207,7 @@ func (c *StakeRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (c *StakeRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
-	stakeCred, err := c.StakeRegistration.Utxorpc()
+	stakeCred, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
 	}
@@ -198,8 +225,8 @@ func (c *StakeRegistrationCertificate) Type() uint {
 type StakeDeregistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	CertType            uint
-	StakeDeregistration Credential
+	CertType        uint
+	StakeCredential Credential
 }
 
 func (c StakeDeregistrationCertificate) isCertificate() {}
@@ -216,7 +243,7 @@ func (c *StakeDeregistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (c *StakeDeregistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
-	stakeDeReg, err := c.StakeDeregistration.Utxorpc()
+	stakeDeReg, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
 	}
@@ -1081,7 +1108,7 @@ type AuthCommitteeHotCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType       uint
 	ColdCredential Credential
-	HostCredential Credential
+	HotCredential  Credential
 }
 
 func (c AuthCommitteeHotCertificate) isCertificate() {}
@@ -1104,7 +1131,7 @@ func (c *AuthCommitteeHotCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	hostCred, err := c.HostCredential.Utxorpc()
+	hotCred, err := c.HotCredential.Utxorpc()
 	if err != nil {
 		return nil, err
 	}
@@ -1112,7 +1139,7 @@ func (c *AuthCommitteeHotCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 		Certificate: &utxorpc.Certificate_AuthCommitteeHotCert{
 			AuthCommitteeHotCert: &utxorpc.AuthCommitteeHotCert{
 				CommitteeColdCredential: coldCred,
-				CommitteeHotCredential:  hostCred,
+				CommitteeHotCredential:  hotCred,
 			},
 		},
 	}, nil

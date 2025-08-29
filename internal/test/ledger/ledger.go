@@ -52,7 +52,7 @@ func (ls MockLedgerState) StakeRegistration(
 	ret := []common.StakeRegistrationCertificate{}
 	for _, cert := range ls.MockStakeRegistration {
 		if string(
-			common.Blake2b224(cert.StakeRegistration.Credential).Bytes(),
+			common.Blake2b224(cert.StakeCredential.Credential).Bytes(),
 		) == string(
 			stakingKey,
 		) {

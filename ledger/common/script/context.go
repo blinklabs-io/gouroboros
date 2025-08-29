@@ -153,8 +153,7 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 		toPlutusData(t.Outputs),
 		data.NewInteger(new(big.Int).SetUint64(t.Fee)),
 		t.Mint.ToPlutusData(),
-		// TODO: certs
-		toPlutusData([]any{}),
+		certificatesToPlutusData(t.Certificates),
 		toPlutusData(t.Withdrawals),
 		t.ValidRange.ToPlutusData(),
 		toPlutusData(t.Signatories),
@@ -165,10 +164,8 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 		data.NewMap([][2]data.PlutusData{}),
 		// TODO: proposal procedures
 		toPlutusData([]any{}),
-		// TODO: current treasury amount
-		data.NewConstr(1),
-		// TODO: treasury donation
-		data.NewConstr(1),
+		t.CurrentTreasuryAmount.ToPlutusData(),
+		t.TreasuryDonation.ToPlutusData(),
 	)
 }
 
@@ -187,7 +184,7 @@ func NewTxInfoV3FromTransaction(
 			resolvedInputs,
 			inputs,
 			*assetMint,
-			// TODO: certificates
+			tx.Certificates(),
 			tx.Withdrawals(),
 			// TODO: proposal procedures
 			// TODO: votes
@@ -207,15 +204,20 @@ func NewTxInfoV3FromTransaction(
 			tx.TTL(),
 			tx.ValidityIntervalStart(),
 		},
-		Withdrawals: tx.Withdrawals(),
-		Signatories: signatoriesInfo(tx.RequiredSigners()),
-		Redeemers:   redeemers,
-		Data:        tmpData,
-		Id:          tx.Hash(),
+		Certificates: tx.Certificates(),
+		Withdrawals:  tx.Withdrawals(),
+		Signatories:  signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:    redeemers,
+		Data:         tmpData,
+		Id:           tx.Hash(),
 		// TODO: Votes
 		// TODO: ProposalProcedures
-		// TODO: CurrentTreasuryAmount
-		// TODO: TreasuryDonation
+	}
+	if amt := tx.CurrentTreasuryValue(); amt > 0 {
+		ret.CurrentTreasuryAmount.Value = amt
+	}
+	if amt := tx.Donation(); amt > 0 {
+		ret.TreasuryDonation.Value = amt
 	}
 	return ret
 }
@@ -395,4 +397,145 @@ func signatoriesInfo(
 		},
 	)
 	return tmp
+}
+
+func certificatesToPlutusData(
+	certificates []lcommon.Certificate,
+) data.PlutusData {
+	tmpCerts := make([]data.PlutusData, len(certificates))
+	for idx, cert := range certificates {
+		tmpCerts[idx] = certificateToPlutusData(cert)
+	}
+	return data.NewList(tmpCerts...)
+}
+
+func certificateToPlutusData(
+	certificate lcommon.Certificate,
+) data.PlutusData {
+	switch c := certificate.(type) {
+	case *lcommon.StakeRegistrationCertificate:
+		return data.NewConstr(
+			0,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(1),
+		)
+	case *lcommon.RegistrationCertificate:
+		return data.NewConstr(
+			0,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(1),
+		)
+	case *lcommon.StakeDeregistrationCertificate:
+		return data.NewConstr(
+			1,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(1),
+		)
+	case *lcommon.DeregistrationCertificate:
+		return data.NewConstr(
+			1,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(1),
+		)
+	case *lcommon.StakeDelegationCertificate:
+		return data.NewConstr(
+			2,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(
+				0,
+				c.PoolKeyHash.ToPlutusData(),
+			),
+		)
+	case *lcommon.VoteDelegationCertificate:
+		return data.NewConstr(
+			2,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(
+				1,
+				c.Drep.ToPlutusData(),
+			),
+		)
+	case *lcommon.StakeVoteDelegationCertificate:
+		return data.NewConstr(
+			2,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(
+				2,
+				toPlutusData(c.PoolKeyHash),
+				c.Drep.ToPlutusData(),
+			),
+		)
+	case *lcommon.StakeRegistrationDelegationCertificate:
+		return data.NewConstr(
+			3,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(
+				0,
+				toPlutusData(c.PoolKeyHash),
+			),
+			data.NewInteger(big.NewInt(c.Amount)),
+		)
+	case *lcommon.VoteRegistrationDelegationCertificate:
+		return data.NewConstr(
+			3,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(
+				1,
+				c.Drep.ToPlutusData(),
+			),
+			data.NewInteger(big.NewInt(c.Amount)),
+		)
+	case *lcommon.StakeVoteRegistrationDelegationCertificate:
+		return data.NewConstr(
+			3,
+			c.StakeCredential.ToPlutusData(),
+			data.NewConstr(
+				2,
+				c.PoolKeyHash.ToPlutusData(),
+				c.Drep.ToPlutusData(),
+			),
+			data.NewInteger(big.NewInt(c.Amount)),
+		)
+	case *lcommon.RegistrationDrepCertificate:
+		return data.NewConstr(
+			4,
+			c.DrepCredential.ToPlutusData(),
+			data.NewInteger(big.NewInt(c.Amount)),
+		)
+	case *lcommon.UpdateDrepCertificate:
+		return data.NewConstr(
+			5,
+			c.DrepCredential.ToPlutusData(),
+		)
+	case *lcommon.DeregistrationDrepCertificate:
+		return data.NewConstr(
+			6,
+			c.DrepCredential.ToPlutusData(),
+			data.NewInteger(big.NewInt(c.Amount)),
+		)
+	case *lcommon.PoolRegistrationCertificate:
+		return data.NewConstr(
+			7,
+			toPlutusData(c.Operator),
+			toPlutusData(c.VrfKeyHash),
+		)
+	case *lcommon.PoolRetirementCertificate:
+		return data.NewConstr(
+			8,
+			toPlutusData(c.PoolKeyHash),
+			data.NewInteger(new(big.Int).SetUint64(c.Epoch)),
+		)
+	case *lcommon.AuthCommitteeHotCertificate:
+		return data.NewConstr(
+			9,
+			c.ColdCredential.ToPlutusData(),
+			c.HotCredential.ToPlutusData(),
+		)
+	case *lcommon.ResignCommitteeColdCertificate:
+		return data.NewConstr(
+			10,
+			c.ColdCredential.ToPlutusData(),
+		)
+	}
+	return nil
 }
