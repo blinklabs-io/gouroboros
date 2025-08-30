@@ -65,6 +65,11 @@ func TestAddressFromBytes(t *testing.T) {
 			addressBytesHex: "82d818582483581c5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dda1024102001a36d41aba",
 			expectedAddress: "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth",
 		},
+		// Shelley address with stake pointer
+		{
+			addressBytesHex: "40000000000000000000000000000000000000000000000000000000008198bd431b03",
+			expectedAddress: "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrsxvt6scmqvvrw720",
+		},
 	}
 	for _, testDef := range testDefs {
 		addr, err := NewAddressFromBytes(
