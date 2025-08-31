@@ -124,7 +124,7 @@ type TxInfoV3 struct {
 	Fee                   uint64
 	Mint                  lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
 	Certificates          []lcommon.Certificate
-	Withdrawals           map[*lcommon.Address]uint64
+	Withdrawals           KeyValuePairs[*lcommon.Address, uint64]
 	ValidRange            TimeRange
 	Signatories           []lcommon.Blake2b224
 	Redeemers             KeyValuePairs[ScriptInfo, Redeemer]
@@ -170,14 +170,24 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 }
 
 func NewTxInfoV3FromTransaction(
+	slotState lcommon.SlotState,
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
-) TxInfoV3 {
+) (TxInfoV3, error) {
+	validityRange, err := validityRangeInfo(
+		slotState,
+		tx.ValidityIntervalStart(),
+		tx.TTL(),
+	)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
 	assetMint := tx.AssetMint()
 	if assetMint == nil {
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
 	inputs := sortInputs(tx.Inputs())
+	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
@@ -185,7 +195,7 @@ func NewTxInfoV3FromTransaction(
 			inputs,
 			*assetMint,
 			tx.Certificates(),
-			tx.Withdrawals(),
+			withdrawals,
 			// TODO: proposal procedures
 			// TODO: votes
 		),
@@ -197,15 +207,12 @@ func NewTxInfoV3FromTransaction(
 			sortInputs(tx.ReferenceInputs()),
 			resolvedInputs,
 		),
-		Outputs: collapseOutputs(tx.Produced()),
-		Fee:     tx.Fee(),
-		Mint:    *assetMint,
-		ValidRange: TimeRange{
-			tx.TTL(),
-			tx.ValidityIntervalStart(),
-		},
+		Outputs:      collapseOutputs(tx.Produced()),
+		Fee:          tx.Fee(),
+		Mint:         *assetMint,
+		ValidRange:   validityRange,
 		Certificates: tx.Certificates(),
-		Withdrawals:  tx.Withdrawals(),
+		Withdrawals:  withdrawals,
 		Signatories:  signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:    redeemers,
 		Data:         tmpData,
@@ -219,7 +226,7 @@ func NewTxInfoV3FromTransaction(
 	if amt := tx.Donation(); amt > 0 {
 		ret.TreasuryDonation.Value = amt
 	}
-	return ret
+	return ret, nil
 }
 
 type TimeRange struct {
@@ -333,6 +340,54 @@ func sortedRedeemerKeys(
 			)
 		}
 	}
+	return ret
+}
+
+func validityRangeInfo(
+	slotState lcommon.SlotState,
+	startSlot uint64,
+	endSlot uint64,
+) (TimeRange, error) {
+	var ret TimeRange
+	if startSlot > 0 {
+		startTime, err := slotState.SlotToTime(startSlot)
+		if err != nil {
+			return ret, err
+		}
+		ret.lowerBound = uint64(startTime.UnixMilli()) // nolint:gosec
+	}
+	if endSlot > 0 {
+		endTime, err := slotState.SlotToTime(endSlot)
+		if err != nil {
+			return ret, err
+		}
+		ret.upperBound = uint64(endTime.UnixMilli()) // nolint:gosec
+	}
+	return ret, nil
+}
+
+func withdrawalsInfo(
+	withdrawals map[*lcommon.Address]uint64,
+) KeyValuePairs[*lcommon.Address, uint64] {
+	var ret KeyValuePairs[*lcommon.Address, uint64]
+	for addr, amt := range withdrawals {
+		ret = append(
+			ret,
+			KeyValuePair[*lcommon.Address, uint64]{
+				Key:   addr,
+				Value: amt,
+			},
+		)
+	}
+	// Sort by address bytes
+	slices.SortFunc(
+		ret,
+		func(a, b KeyValuePair[*lcommon.Address, uint64]) int {
+			aBytes, _ := a.Key.Bytes()
+			bBytes, _ := b.Key.Bytes()
+			return bytes.Compare(aBytes, bBytes)
+		},
+	)
 	return ret
 }
 
