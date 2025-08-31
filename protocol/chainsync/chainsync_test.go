@@ -15,7 +15,6 @@
 package chainsync
 
 import (
-	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -115,46 +114,6 @@ func TestConfigOptions(t *testing.T) {
 		assert.Equal(t, 30*time.Second, cfg.BlockTimeout)
 		assert.Equal(t, 10, cfg.PipelineLimit)
 		assert.Equal(t, 100, cfg.RecvQueueSize)
-	})
-}
-
-func TestConnectionErrorHandling(t *testing.T) {
-	conn := newTestConn()
-	defer conn.Close()
-	cfg := NewConfig()
-	cs := New(getTestProtocolOptions(conn), &cfg)
-
-	// Start protocols
-	cs.Client.Start()
-	defer cs.Client.Stop()
-	cs.Server.Start()
-	defer cs.Server.Stop()
-
-	t.Run("Non-EOF error when not done", func(t *testing.T) {
-		err := cs.HandleConnectionError(errors.New("test error"))
-		assert.Error(t, err)
-	})
-
-	t.Run("EOF error when not done", func(t *testing.T) {
-		err := cs.HandleConnectionError(io.EOF)
-		assert.Error(t, err)
-	})
-
-	t.Run("Connection reset error", func(t *testing.T) {
-		err := cs.HandleConnectionError(errors.New("connection reset by peer"))
-		assert.Error(t, err)
-	})
-
-	t.Run("EOF error when done", func(t *testing.T) {
-		// Send done message to properly transition to done state
-		err := cs.Client.SendMessage(NewMsgDone())
-		assert.NoError(t, err)
-
-		// Wait for state transition
-		time.Sleep(100 * time.Millisecond)
-
-		err = cs.HandleConnectionError(io.EOF)
-		assert.NoError(t, err, "expected no error when protocol is in done state")
 	})
 }
 

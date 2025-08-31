@@ -16,9 +16,6 @@
 package txsubmission
 
 import (
-	"errors"
-	"io"
-	"strings"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -203,23 +200,4 @@ func WithIdleTimeout(timeout time.Duration) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.IdleTimeout = timeout
 	}
-}
-
-func (t *TxSubmission) HandleConnectionError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if t.Client.IsDone() || t.Server.IsDone() {
-		return nil
-	}
-
-	if errors.Is(err, io.EOF) || isConnectionReset(err) {
-		return err
-	}
-	return err
-}
-
-func isConnectionReset(err error) bool {
-	return strings.Contains(err.Error(), "connection reset") ||
-		strings.Contains(err.Error(), "broken pipe")
 }

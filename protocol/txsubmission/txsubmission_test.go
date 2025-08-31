@@ -14,7 +14,6 @@
 package txsubmission
 
 import (
-	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -179,34 +178,4 @@ func TestServerMessageHandling(t *testing.T) {
 		defer server.Stop()
 		assert.NotNil(t, server)
 	})
-}
-
-func TestIsConnectionReset(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{
-			name:     "connection reset",
-			err:      errors.New("connection reset by peer"),
-			expected: true,
-		},
-		{
-			name:     "broken pipe",
-			err:      errors.New("broken pipe"),
-			expected: true,
-		},
-		{
-			name:     "other error",
-			err:      errors.New("other error"),
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, isConnectionReset(tt.err))
-		})
-	}
 }

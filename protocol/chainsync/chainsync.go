@@ -16,9 +16,6 @@
 package chainsync
 
 import (
-	"errors"
-	"io"
-	"strings"
 	"sync"
 	"time"
 
@@ -331,23 +328,4 @@ func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.RecvQueueSize = size
 	}
-}
-
-func (c *ChainSync) HandleConnectionError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if c.Client.IsDone() || c.Server.IsDone() {
-		return nil
-	}
-
-	if errors.Is(err, io.EOF) || isConnectionReset(err) {
-		return err
-	}
-	return err
-}
-
-func isConnectionReset(err error) bool {
-	return strings.Contains(err.Error(), "connection reset") ||
-		strings.Contains(err.Error(), "broken pipe")
 }

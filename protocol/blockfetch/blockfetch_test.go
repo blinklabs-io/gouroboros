@@ -14,7 +14,6 @@
 package blockfetch
 
 import (
-	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -114,46 +113,6 @@ func TestConfigOptions(t *testing.T) {
 		assert.Equal(t, 10*time.Second, cfg.BatchStartTimeout)
 		assert.Equal(t, 30*time.Second, cfg.BlockTimeout)
 		assert.Equal(t, 100, cfg.RecvQueueSize)
-	})
-}
-
-func TestConnectionErrorHandling(t *testing.T) {
-	conn := newTestConn()
-	defer conn.Close()
-	cfg := NewConfig()
-	bf := New(getTestProtocolOptions(conn), &cfg)
-
-	// Start protocols
-	bf.Client.Start()
-	defer bf.Client.Stop()
-	bf.Server.Start()
-	defer bf.Server.Stop()
-
-	t.Run("Non-EOF error when not done", func(t *testing.T) {
-		err := bf.HandleConnectionError(errors.New("test error"))
-		assert.Error(t, err)
-	})
-
-	t.Run("EOF error when not done", func(t *testing.T) {
-		err := bf.HandleConnectionError(io.EOF)
-		assert.Error(t, err)
-	})
-
-	t.Run("Connection reset error", func(t *testing.T) {
-		err := bf.HandleConnectionError(errors.New("connection reset by peer"))
-		assert.Error(t, err)
-	})
-
-	t.Run("EOF error when done", func(t *testing.T) {
-		// Send done message to properly transition to done state
-		err := bf.Client.SendMessage(NewMsgClientDone())
-		assert.NoError(t, err)
-
-		// Wait for state transition
-		time.Sleep(100 * time.Millisecond)
-
-		err = bf.HandleConnectionError(io.EOF)
-		assert.NoError(t, err, "expected no error when protocol is in done state")
 	})
 }
 

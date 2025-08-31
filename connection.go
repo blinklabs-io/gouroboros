@@ -29,6 +29,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -250,6 +251,49 @@ func (c *Connection) shutdown() {
 	close(c.errorChan)
 }
 
+// isConnectionReset checks if an error is a connection reset error
+func (c *Connection) isConnectionReset(err error) bool {
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "broken pipe")
+}
+
+// checkProtocols checks if the protocols are explicitly stopped by the client- treat as normal connection closure
+func (c *Connection) checkProtocols() bool {
+	// Check chain-sync protocol
+	if c.chainSync != nil && (!c.chainSync.Client.IsDone() || !c.chainSync.Server.IsDone()) {
+		return false
+	}
+
+	// Check block-fetch protocol
+	if c.blockFetch != nil && (!c.blockFetch.Client.IsDone() || !c.blockFetch.Server.IsDone()) {
+		return false
+	}
+
+	// Check tx-submission protocol
+	if c.txSubmission != nil && (!c.txSubmission.Client.IsDone() || !c.txSubmission.Server.IsDone()) {
+		return false
+	}
+
+	return true
+}
+
+// HandleConnectionError handles connection-level errors centrally
+func (c *Connection) HandleConnectionError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if c.checkProtocols() {
+		return nil
+	}
+
+	if errors.Is(err, io.EOF) || c.isConnectionReset(err) {
+		return err
+	}
+	return err
+}
+
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
 func (c *Connection) setupConnection() error {
@@ -285,16 +329,20 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
-			var connErr *muxer.ConnectionClosedError
-			if errors.As(err, &connErr) {
-				// Pass through ConnectionClosedError from muxer
-				c.errorChan <- err
-			} else {
-				// Wrap error message to denote it comes from the muxer
-				c.errorChan <- fmt.Errorf("muxer error: %w", err)
+
+			// Use centralized connection error handling
+			if handledErr := c.HandleConnectionError(err); handledErr != nil {
+				var connErr *muxer.ConnectionClosedError
+				if errors.As(handledErr, &connErr) {
+					// Pass through ConnectionClosedError from muxer
+					c.errorChan <- handledErr
+				} else {
+					// Wrap error message to denote it comes from the muxer
+					c.errorChan <- fmt.Errorf("muxer error: %w", handledErr)
+				}
+				// Close connection on muxer errors
+				c.Close()
 			}
-			// Close connection on muxer errors
-			c.Close()
 		}
 	}()
 	protoOptions := protocol.ProtocolOptions{
