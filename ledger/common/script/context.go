@@ -161,8 +161,7 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 		t.Data.ToPlutusData(),
 		data.NewByteString(t.Id.Bytes()),
 		t.Votes.ToPlutusData(),
-		// TODO: proposal procedures
-		toPlutusData([]any{}),
+		toPlutusData(t.ProposalProcedures),
 		t.CurrentTreasuryAmount.ToPlutusData(),
 		t.TreasuryDonation.ToPlutusData(),
 	)
@@ -188,6 +187,7 @@ func NewTxInfoV3FromTransaction(
 	inputs := sortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	votes := votingInfo(tx.VotingProcedures())
+	proposalProcedures := tx.ProposalProcedures()
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
@@ -196,8 +196,8 @@ func NewTxInfoV3FromTransaction(
 			*assetMint,
 			tx.Certificates(),
 			withdrawals,
-			// TODO: proposal procedures
 			votes,
+			proposalProcedures,
 		),
 	)
 	tmpData := dataInfo(tx.Witnesses())
@@ -207,18 +207,18 @@ func NewTxInfoV3FromTransaction(
 			sortInputs(tx.ReferenceInputs()),
 			resolvedInputs,
 		),
-		Outputs:      collapseOutputs(tx.Produced()),
-		Fee:          tx.Fee(),
-		Mint:         *assetMint,
-		ValidRange:   validityRange,
-		Certificates: tx.Certificates(),
-		Withdrawals:  withdrawals,
-		Signatories:  signatoriesInfo(tx.RequiredSigners()),
-		Redeemers:    redeemers,
-		Data:         tmpData,
-		Id:           tx.Hash(),
-		Votes:        votes,
-		// TODO: ProposalProcedures
+		Outputs:            collapseOutputs(tx.Produced()),
+		Fee:                tx.Fee(),
+		Mint:               *assetMint,
+		ValidRange:         validityRange,
+		Certificates:       tx.Certificates(),
+		Withdrawals:        withdrawals,
+		Signatories:        signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:          redeemers,
+		Data:               tmpData,
+		Id:                 tx.Hash(),
+		Votes:              votes,
+		ProposalProcedures: proposalProcedures,
 	}
 	if amt := tx.CurrentTreasuryValue(); amt > 0 {
 		ret.CurrentTreasuryAmount.Value = amt

@@ -20,6 +20,7 @@ import (
 	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/plutigo/data"
 )
 
@@ -172,13 +173,21 @@ type ScriptInfoProposing struct {
 func (ScriptInfoProposing) isScriptInfo() {}
 
 func (s ScriptInfoProposing) ScriptHash() lcommon.ScriptHash {
-	// TODO
+	switch a := s.ProposalProcedure.GovAction().(type) {
+	case *conway.ConwayParameterChangeGovAction:
+		return lcommon.ScriptHash(a.PolicyHash)
+	case *lcommon.TreasuryWithdrawalGovAction:
+		return lcommon.ScriptHash(a.PolicyHash)
+	}
 	return lcommon.ScriptHash{}
 }
 
 func (s ScriptInfoProposing) ToPlutusData() data.PlutusData {
-	// TODO
-	return nil
+	return data.NewConstr(
+		5,
+		toPlutusData(uint64(s.Index)),
+		s.ProposalProcedure.ToPlutusData(),
+	)
 }
 
 type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptInfo
@@ -191,7 +200,7 @@ func scriptPurposeBuilder(
 	certificates []lcommon.Certificate,
 	withdrawals KeyValuePairs[*lcommon.Address, uint64],
 	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
-	// TODO: proposal procedures
+	proposalProcedures []lcommon.ProposalProcedure,
 ) toScriptPurposeFunc {
 	return func(redeemerKey lcommon.RedeemerKey) ScriptInfo {
 		// TODO: implement additional redeemer tags
@@ -241,7 +250,10 @@ func scriptPurposeBuilder(
 				Voter: *(votes[redeemerKey.Index].Key),
 			}
 		case lcommon.RedeemerTagProposing:
-			return nil
+			return ScriptInfoProposing{
+				Index:             redeemerKey.Index,
+				ProposalProcedure: proposalProcedures[redeemerKey.Index],
+			}
 		}
 		return nil
 	}
