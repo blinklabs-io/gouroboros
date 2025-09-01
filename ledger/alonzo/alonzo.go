@@ -447,6 +447,19 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
+func (o AlonzoTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil && len(o.OutputAmount.Assets.Policies()) > 0 {
+		assets = " assets=..."
+	}
+	return fmt.Sprintf(
+		"(AlonzoTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
+}
+
 type AlonzoRedeemer struct {
 	cbor.StructAsArray
 	Tag     common.RedeemerTag

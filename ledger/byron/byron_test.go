@@ -16,6 +16,7 @@ package byron_test
 
 import (
 	"reflect"
+	"regexp"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -102,5 +103,25 @@ func TestByronTransaction_Utxorpc_Empty(t *testing.T) {
 	}
 	if result.Fee != 0 {
 		t.Errorf("Expected fee = 0, got %d", result.Fee)
+	}
+}
+
+func TestByronTransactionOutputString(t *testing.T) {
+	addr, err := common.NewByronAddressFromParts(
+		0,
+		make([]byte, common.AddressHashSize),
+		common.ByronAddressAttributes{},
+	)
+	if err != nil {
+		t.Fatalf("address: %v", err)
+	}
+	out := byron.ByronTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount:  456,
+	}
+	s := out.String()
+	re := regexp.MustCompile(`^\(ByronTransactionOutput address=[1-9A-HJ-NP-Za-km-z]+ amount=456\)$`)
+	if !re.MatchString(s) {
+		t.Fatalf("unexpected string: %s", s)
 	}
 }

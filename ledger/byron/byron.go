@@ -462,6 +462,14 @@ func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
+func (o ByronTransactionOutput) String() string {
+	return fmt.Sprintf(
+		"(ByronTransactionOutput address=%s amount=%d)",
+		o.OutputAddress.String(),
+		o.OutputAmount,
+	)
+}
+
 type ByronBlockVersion struct {
 	cbor.StructAsArray
 	Major   uint16

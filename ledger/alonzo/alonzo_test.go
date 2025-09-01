@@ -17,6 +17,7 @@ package alonzo
 import (
 	"math/big"
 	"reflect"
+	"regexp"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -275,5 +276,25 @@ func TestAlonzoRedeemersIter(t *testing.T) {
 			)
 		}
 		iterIdx++
+	}
+}
+
+func TestAlonzoTransactionOutputString(t *testing.T) {
+	addr, _ := common.NewAddress(
+		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+	)
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.NewBlake2b224(make([]byte, 28)): {cbor.NewByteString([]byte("t")): 2},
+		},
+	)
+	out := AlonzoTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 456, Assets: &ma},
+	}
+	s := out.String()
+	re := regexp.MustCompile(`^\(AlonzoTransactionOutput address=addr1[0-9a-z]+ amount=456 assets=\.\.\.\)$`)
+	if !re.MatchString(s) {
+		t.Fatalf("unexpected string: %s", s)
 	}
 }
