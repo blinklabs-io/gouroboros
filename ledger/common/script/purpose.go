@@ -154,17 +154,18 @@ type ScriptInfoVoting struct {
 func (ScriptInfoVoting) isScriptInfo() {}
 
 func (s ScriptInfoVoting) ScriptHash() lcommon.ScriptHash {
-	// TODO
-	return lcommon.ScriptHash{}
+	return lcommon.ScriptHash(s.Voter.Hash[:])
 }
 
 func (s ScriptInfoVoting) ToPlutusData() data.PlutusData {
-	// TODO
-	return nil
+	return data.NewConstr(
+		4,
+		s.Voter.ToPlutusData(),
+	)
 }
 
 type ScriptInfoProposing struct {
-	Size              uint64
+	Index             uint32
 	ProposalProcedure lcommon.ProposalProcedure
 }
 
@@ -189,8 +190,8 @@ func scriptPurposeBuilder(
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
 	certificates []lcommon.Certificate,
 	withdrawals KeyValuePairs[*lcommon.Address, uint64],
+	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
 	// TODO: proposal procedures
-	// TODO: votes
 ) toScriptPurposeFunc {
 	return func(redeemerKey lcommon.RedeemerKey) ScriptInfo {
 		// TODO: implement additional redeemer tags
@@ -236,7 +237,9 @@ func scriptPurposeBuilder(
 				},
 			}
 		case lcommon.RedeemerTagVoting:
-			return nil
+			return ScriptInfoVoting{
+				Voter: *(votes[redeemerKey.Index].Key),
+			}
 		case lcommon.RedeemerTagProposing:
 			return nil
 		}
