@@ -16,6 +16,7 @@ package test_ledger
 
 import (
 	"errors"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -76,4 +77,14 @@ func (ls MockLedgerState) PoolRegistration(
 		}
 	}
 	return ret, nil
+}
+
+func (ls MockLedgerState) SlotToTime(slot uint64) (time.Time, error) {
+	// TODO
+	return time.Now(), nil
+}
+
+func (ls MockLedgerState) TimeToSlot(t time.Time) (uint64, error) {
+	// TODO
+	return 0, nil
 }
