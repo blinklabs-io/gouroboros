@@ -35,6 +35,7 @@ type CertState interface {
 type LedgerState interface {
 	UtxoState
 	CertState
+	SlotState
 	NetworkId() uint
 }
 
