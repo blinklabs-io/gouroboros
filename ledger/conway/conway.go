@@ -374,7 +374,7 @@ type ConwayTransactionBody struct {
 	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
 	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures    []common.ProposalProcedure                    `cbor:"20,keyasint,omitempty"`
+	TxProposalProcedures    []ConwayProposalProcedure                     `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue  int64                                         `cbor:"21,keyasint,omitempty"`
 	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
 }
@@ -492,7 +492,11 @@ func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
 }
 
 func (b *ConwayTransactionBody) ProposalProcedures() []common.ProposalProcedure {
-	return b.TxProposalProcedures
+	ret := make([]common.ProposalProcedure, len(b.TxProposalProcedures))
+	for i, item := range b.TxProposalProcedures {
+		ret[i] = item
+	}
+	return ret
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {

@@ -294,7 +294,7 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 	for _, proposal := range tx.ProposalProcedures() {
-		producedValue += proposal.Deposit
+		producedValue += proposal.Deposit()
 	}
 	if consumedValue == producedValue {
 		return nil
