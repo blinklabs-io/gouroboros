@@ -28,7 +28,14 @@ type UtxoState interface {
 // CertState defines the interface for querying the certificate state
 type CertState interface {
 	StakeRegistration([]byte) ([]StakeRegistrationCertificate, error)
-	PoolRegistration([]byte) ([]PoolRegistrationCertificate, error)
+}
+
+// PoolState defines the interface for querying the current pool state
+type PoolState interface {
+	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.
+	// It also returns the epoch of a pending retirement certificate, if one exists.
+	// If the pool is not registered, the registration certificate will be nil.
+	PoolCurrentState([]byte) (*PoolRegistrationCertificate, *uint64, error)
 }
 
 // LedgerState defines the interface for querying the ledger
@@ -36,6 +43,7 @@ type LedgerState interface {
 	UtxoState
 	CertState
 	SlotState
+	PoolState
 	NetworkId() uint
 }
 
