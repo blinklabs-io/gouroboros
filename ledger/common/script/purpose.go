@@ -20,6 +20,7 @@ import (
 	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/plutigo/data"
 )
 
@@ -154,30 +155,39 @@ type ScriptInfoVoting struct {
 func (ScriptInfoVoting) isScriptInfo() {}
 
 func (s ScriptInfoVoting) ScriptHash() lcommon.ScriptHash {
-	// TODO
-	return lcommon.ScriptHash{}
+	return lcommon.ScriptHash(s.Voter.Hash[:])
 }
 
 func (s ScriptInfoVoting) ToPlutusData() data.PlutusData {
-	// TODO
-	return nil
+	return data.NewConstr(
+		4,
+		s.Voter.ToPlutusData(),
+	)
 }
 
 type ScriptInfoProposing struct {
-	Size              uint64
+	Index             uint32
 	ProposalProcedure lcommon.ProposalProcedure
 }
 
 func (ScriptInfoProposing) isScriptInfo() {}
 
 func (s ScriptInfoProposing) ScriptHash() lcommon.ScriptHash {
-	// TODO
+	switch a := s.ProposalProcedure.GovAction().(type) {
+	case *conway.ConwayParameterChangeGovAction:
+		return lcommon.ScriptHash(a.PolicyHash)
+	case *lcommon.TreasuryWithdrawalGovAction:
+		return lcommon.ScriptHash(a.PolicyHash)
+	}
 	return lcommon.ScriptHash{}
 }
 
 func (s ScriptInfoProposing) ToPlutusData() data.PlutusData {
-	// TODO
-	return nil
+	return data.NewConstr(
+		5,
+		toPlutusData(uint64(s.Index)),
+		s.ProposalProcedure.ToPlutusData(),
+	)
 }
 
 type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptInfo
@@ -189,8 +199,8 @@ func scriptPurposeBuilder(
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
 	certificates []lcommon.Certificate,
 	withdrawals KeyValuePairs[*lcommon.Address, uint64],
-	// TODO: proposal procedures
-	// TODO: votes
+	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
+	proposalProcedures []lcommon.ProposalProcedure,
 ) toScriptPurposeFunc {
 	return func(redeemerKey lcommon.RedeemerKey) ScriptInfo {
 		// TODO: implement additional redeemer tags
@@ -236,9 +246,14 @@ func scriptPurposeBuilder(
 				},
 			}
 		case lcommon.RedeemerTagVoting:
-			return nil
+			return ScriptInfoVoting{
+				Voter: *(votes[redeemerKey.Index].Key),
+			}
 		case lcommon.RedeemerTagProposing:
-			return nil
+			return ScriptInfoProposing{
+				Index:             redeemerKey.Index,
+				ProposalProcedure: proposalProcedures[redeemerKey.Index],
+			}
 		}
 		return nil
 	}

@@ -130,7 +130,7 @@ type TxInfoV3 struct {
 	Redeemers             KeyValuePairs[ScriptInfo, Redeemer]
 	Data                  KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
 	Id                    lcommon.Blake2b256
-	Votes                 KeyValuePairs[lcommon.Voter, KeyValuePairs[lcommon.GovActionId, lcommon.VotingProcedure]]
+	Votes                 KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]]
 	ProposalProcedures    []lcommon.ProposalProcedure
 	CurrentTreasuryAmount Option[Coin]
 	TreasuryDonation      Option[PositiveCoin]
@@ -160,10 +160,8 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 		tmpRedeemers.ToPlutusData(),
 		t.Data.ToPlutusData(),
 		data.NewByteString(t.Id.Bytes()),
-		// TODO: votes
-		data.NewMap([][2]data.PlutusData{}),
-		// TODO: proposal procedures
-		toPlutusData([]any{}),
+		t.Votes.ToPlutusData(),
+		toPlutusData(t.ProposalProcedures),
 		t.CurrentTreasuryAmount.ToPlutusData(),
 		t.TreasuryDonation.ToPlutusData(),
 	)
@@ -188,6 +186,8 @@ func NewTxInfoV3FromTransaction(
 	}
 	inputs := sortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
+	votes := votingInfo(tx.VotingProcedures())
+	proposalProcedures := tx.ProposalProcedures()
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
@@ -196,8 +196,8 @@ func NewTxInfoV3FromTransaction(
 			*assetMint,
 			tx.Certificates(),
 			withdrawals,
-			// TODO: proposal procedures
-			// TODO: votes
+			votes,
+			proposalProcedures,
 		),
 	)
 	tmpData := dataInfo(tx.Witnesses())
@@ -207,18 +207,18 @@ func NewTxInfoV3FromTransaction(
 			sortInputs(tx.ReferenceInputs()),
 			resolvedInputs,
 		),
-		Outputs:      collapseOutputs(tx.Produced()),
-		Fee:          tx.Fee(),
-		Mint:         *assetMint,
-		ValidRange:   validityRange,
-		Certificates: tx.Certificates(),
-		Withdrawals:  withdrawals,
-		Signatories:  signatoriesInfo(tx.RequiredSigners()),
-		Redeemers:    redeemers,
-		Data:         tmpData,
-		Id:           tx.Hash(),
-		// TODO: Votes
-		// TODO: ProposalProcedures
+		Outputs:            collapseOutputs(tx.Produced()),
+		Fee:                tx.Fee(),
+		Mint:               *assetMint,
+		ValidRange:         validityRange,
+		Certificates:       tx.Certificates(),
+		Withdrawals:        withdrawals,
+		Signatories:        signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:          redeemers,
+		Data:               tmpData,
+		Id:                 tx.Hash(),
+		Votes:              votes,
+		ProposalProcedures: proposalProcedures,
 	}
 	if amt := tx.CurrentTreasuryValue(); amt > 0 {
 		ret.CurrentTreasuryAmount.Value = amt
@@ -452,6 +452,80 @@ func signatoriesInfo(
 		},
 	)
 	return tmp
+}
+
+func votingInfo(
+	votingProcedures lcommon.VotingProcedures,
+) KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]] {
+	var ret KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]]
+	for voter, voterData := range votingProcedures {
+		voterPairs := make(KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure], 0, len(votingProcedures))
+		for govActionId, votingProcedure := range voterData {
+			voterPairs = append(
+				voterPairs,
+				KeyValuePair[*lcommon.GovActionId, lcommon.VotingProcedure]{
+					Key:   govActionId,
+					Value: votingProcedure,
+				},
+			)
+		}
+		// Sort voter pairs by gov action ID
+		slices.SortFunc(
+			voterPairs,
+			func(a, b KeyValuePair[*lcommon.GovActionId, lcommon.VotingProcedure]) int {
+				// Compare TX ID
+				x := bytes.Compare(a.Key.TransactionId[:], b.Key.TransactionId[:])
+				if x != 0 {
+					return x
+				}
+				// Compare index
+				if a.Key.GovActionIdx < b.Key.GovActionIdx {
+					return -1
+				} else if a.Key.GovActionIdx > b.Key.GovActionIdx {
+					return 1
+				}
+				return 0
+			},
+		)
+		ret = append(
+			ret,
+			KeyValuePair[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]]{
+				Key:   voter,
+				Value: voterPairs,
+			},
+		)
+	}
+	// Sort by voter ID
+	slices.SortFunc(
+		ret,
+		func(a, b KeyValuePair[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]]) int {
+			voterTag := func(v *lcommon.Voter) int {
+				switch v.Type {
+				case lcommon.VoterTypeConstitutionalCommitteeHotScriptHash:
+					return 0
+				case lcommon.VoterTypeConstitutionalCommitteeHotKeyHash:
+					return 1
+				case lcommon.VoterTypeDRepScriptHash:
+					return 2
+				case lcommon.VoterTypeDRepKeyHash:
+					return 3
+				case lcommon.VoterTypeStakingPoolKeyHash:
+					return 4
+				}
+				return -1
+			}
+			tagA := voterTag(a.Key)
+			tagB := voterTag(b.Key)
+			if tagA == tagB {
+				return bytes.Compare(a.Key.Hash[:], b.Key.Hash[:])
+			}
+			if tagA < tagB {
+				return -1
+			}
+			return 1
+		},
+	)
+	return ret
 }
 
 func certificatesToPlutusData(
