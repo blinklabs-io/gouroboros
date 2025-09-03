@@ -17,7 +17,6 @@ package alonzo
 import (
 	"math/big"
 	"reflect"
-	"regexp"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -293,8 +292,8 @@ func TestAlonzoTransactionOutputString(t *testing.T) {
 		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 456, Assets: &ma},
 	}
 	s := out.String()
-	re := regexp.MustCompile(`^\(AlonzoTransactionOutput address=addr1[0-9a-z]+ amount=456 assets=\.\.\.\)$`)
-	if !re.MatchString(s) {
+	expected := "(AlonzoTransactionOutput address=" + addr.String() + " amount=456 assets=...)"
+	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}
 }

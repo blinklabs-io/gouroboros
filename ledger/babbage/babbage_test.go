@@ -17,7 +17,6 @@ package babbage
 import (
 	"math/big"
 	"reflect"
-	"regexp"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -2986,8 +2985,8 @@ func TestBabbageTransactionOutputString(t *testing.T) {
 		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 456, Assets: &ma},
 	}
 	s := out.String()
-	re := regexp.MustCompile(`^\(BabbageTransactionOutput address=addr1[0-9a-z]+ amount=456 assets=\.\.\.\)$`)
-	if !re.MatchString(s) {
+	expected := "(BabbageTransactionOutput address=" + addr.String() + " amount=456 assets=...)"
+	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}
 }

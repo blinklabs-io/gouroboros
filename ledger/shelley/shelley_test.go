@@ -1,7 +1,7 @@
 package shelley_test
 
 import (
-	"regexp"
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -15,8 +15,8 @@ func TestShelleyTransactionOutputString(t *testing.T) {
 		OutputAmount:  456,
 	}
 	s := out.String()
-	re := regexp.MustCompile(`^\(ShelleyTransactionOutput address=addr1[0-9a-z]+ amount=456\)$`)
-	if !re.MatchString(s) {
+	expected := fmt.Sprintf("(ShelleyTransactionOutput address=%s amount=456)", addr.String())
+	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}
 }
@@ -28,7 +28,8 @@ func TestShelleyOutputTooSmallErrorFormatting(t *testing.T) {
 		OutputAmount:  456,
 	}
 	errStr := shelley.OutputTooSmallUtxoError{Outputs: []common.TransactionOutput{out}}.Error()
-	if matched, _ := regexp.MatchString(`^output too small: \(ShelleyTransactionOutput address=addr1[0-9a-z]+ amount=456\)$`, errStr); !matched {
+	expected := fmt.Sprintf("output too small: (ShelleyTransactionOutput address=%s amount=456)", addr.String())
+	if errStr != expected {
 		t.Fatalf("unexpected error: %s", errStr)
 	}
 }

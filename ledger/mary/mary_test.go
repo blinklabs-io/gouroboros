@@ -16,8 +16,8 @@ package mary
 
 import (
 	"encoding/hex"
+	"fmt"
 	"reflect"
-	"regexp"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -129,8 +129,8 @@ func TestMaryTransactionOutputString(t *testing.T) {
 		OutputAmount:  MaryTransactionOutputValue{Amount: 456, Assets: &ma},
 	}
 	s := out.String()
-	re := regexp.MustCompile(`^\(MaryTransactionOutput address=addr1[0-9a-z]+ amount=456 assets=\.\.\.\)$`)
-	if !re.MatchString(s) {
+	expected := fmt.Sprintf("(MaryTransactionOutput address=%s amount=456 assets=...)", addr.String())
+	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}
 }
@@ -142,8 +142,8 @@ func TestMaryOutputTooBigErrorFormatting(t *testing.T) {
 		OutputAmount:  MaryTransactionOutputValue{Amount: 456},
 	}
 	errStr := OutputTooBigUtxoError{Outputs: []common.TransactionOutput{out}}.Error()
-	re := regexp.MustCompile(`^output value too large: \(MaryTransactionOutput address=addr1[0-9a-z]+ amount=456\)$`)
-	if !re.MatchString(errStr) {
+	expected := fmt.Sprintf("output value too large: (MaryTransactionOutput address=%s amount=456)", addr.String())
+	if errStr != expected {
 		t.Fatalf("unexpected error: %s", errStr)
 	}
 }
