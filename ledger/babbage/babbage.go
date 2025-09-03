@@ -408,9 +408,7 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 		if _, err := cbor.Decode(tmpDatumData.DataCbor, &datumValue); err != nil {
 			return err
 		}
-		d.data = &common.Datum{
-			Data: datumValue.Data,
-		}
+		d.data = &datumValue
 	default:
 		return fmt.Errorf("unsupported datum option type: %d", datumOptionType)
 	}
