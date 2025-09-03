@@ -43,7 +43,7 @@ type LedgerState interface {
 	UtxoState
 	CertState
 	SlotState
-  PoolState
+	PoolState
 	NetworkId() uint
 }
 
