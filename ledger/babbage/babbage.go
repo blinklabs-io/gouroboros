@@ -55,7 +55,7 @@ type BabbageBlock struct {
 	BlockHeader            *BabbageBlockHeader
 	TransactionBodies      []BabbageTransactionBody
 	TransactionWitnessSets []BabbageTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.LazyValue
+	TransactionMetadataSet map[uint]common.TransactionMetadataSet
 	InvalidTransactions    []uint
 }
 
@@ -708,7 +708,7 @@ type BabbageTransaction struct {
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
-	TxMetadata *cbor.LazyValue
+	TxMetadata common.TransactionMetadataSet
 }
 
 func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -810,7 +810,7 @@ func (t BabbageTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t BabbageTransaction) Metadata() *cbor.LazyValue {
+func (t BabbageTransaction) Metadata() common.TransactionMetadataSet {
 	return t.TxMetadata
 }
 
@@ -877,7 +877,7 @@ func (t *BabbageTransaction) Cbor() []byte {
 		t.TxIsValid,
 	}
 	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+		tmpObj = append(tmpObj, t.TxMetadata)
 	} else {
 		tmpObj = append(tmpObj, nil)
 	}
