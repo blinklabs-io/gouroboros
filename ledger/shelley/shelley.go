@@ -444,6 +444,14 @@ func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}, nil
 }
 
+func (o ShelleyTransactionOutput) String() string {
+	return fmt.Sprintf(
+		"(ShelleyTransactionOutput address=%s amount=%d)",
+		o.OutputAddress.String(),
+		o.OutputAmount,
+	)
+}
+
 type ShelleyTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`

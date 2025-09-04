@@ -15,7 +15,6 @@
 package mary
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -28,7 +27,7 @@ type OutputTooBigUtxoError struct {
 func (e OutputTooBigUtxoError) Error() string {
 	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
-		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
+		tmpOutputs[idx] = tmpOutput.String()
 	}
 	return "output value too large: " + strings.Join(tmpOutputs, ", ")
 }

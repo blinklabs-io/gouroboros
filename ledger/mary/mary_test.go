@@ -16,6 +16,7 @@ package mary
 
 import (
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -113,5 +114,36 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestMaryTransactionOutputString(t *testing.T) {
+	addr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.NewBlake2b224(make([]byte, 28)): {cbor.NewByteString([]byte("token")): 2},
+		},
+	)
+	out := MaryTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount:  MaryTransactionOutputValue{Amount: 456, Assets: &ma},
+	}
+	s := out.String()
+	expected := fmt.Sprintf("(MaryTransactionOutput address=%s amount=456 assets=...)", addr.String())
+	if s != expected {
+		t.Fatalf("unexpected string: %s", s)
+	}
+}
+
+func TestMaryOutputTooBigErrorFormatting(t *testing.T) {
+	addr, _ := common.NewAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd")
+	out := &MaryTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount:  MaryTransactionOutputValue{Amount: 456},
+	}
+	errStr := OutputTooBigUtxoError{Outputs: []common.TransactionOutput{out}}.Error()
+	expected := fmt.Sprintf("output value too large: (MaryTransactionOutput address=%s amount=456)", addr.String())
+	if errStr != expected {
+		t.Fatalf("unexpected error: %s", errStr)
 	}
 }

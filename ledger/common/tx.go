@@ -77,6 +77,7 @@ type TransactionOutput interface {
 	Utxorpc() (*utxorpc.TxOutput, error)
 	ScriptRef() Script
 	ToPlutusData() data.PlutusData
+	String() string
 }
 
 type TransactionWitnessSet interface {
