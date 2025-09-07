@@ -493,7 +493,7 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 func (o MaryTransactionOutput) String() string {
 	assets := ""
 	if o.OutputAmount.Assets != nil && len(o.OutputAmount.Assets.Policies()) > 0 {
-		assets = " assets=..."
+		assets = fmt.Sprintf(" assets=%s", o.OutputAmount.Assets.String())
 	}
 	return fmt.Sprintf(
 		"(MaryTransactionOutput address=%s amount=%d%s)",

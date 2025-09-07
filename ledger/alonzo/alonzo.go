@@ -450,7 +450,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 func (o AlonzoTransactionOutput) String() string {
 	assets := ""
 	if o.OutputAmount.Assets != nil && len(o.OutputAmount.Assets.Policies()) > 0 {
-		assets = " assets=..."
+		assets = fmt.Sprintf(" assets=%s", o.OutputAmount.Assets.String())
 	}
 	return fmt.Sprintf(
 		"(AlonzoTransactionOutput address=%s amount=%d%s)",

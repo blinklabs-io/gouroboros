@@ -114,12 +114,13 @@ func TestByronTransactionOutputString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("address: %v", err)
 	}
+	addrStr := addr.String()
 	out := byron.ByronTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount:  456,
 	}
 	s := out.String()
-	expected := "(ByronTransactionOutput address=" + addr.String() + " amount=456)"
+	expected := "(ByronTransactionOutput address=" + addrStr + " amount=456)"
 	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}

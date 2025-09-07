@@ -652,7 +652,7 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 func (o BabbageTransactionOutput) String() string {
 	assets := ""
 	if o.OutputAmount.Assets != nil && len(o.OutputAmount.Assets.Policies()) > 0 {
-		assets = " assets=..."
+		assets = fmt.Sprintf(" assets=%s", o.OutputAmount.Assets.String())
 	}
 	return fmt.Sprintf(
 		"(BabbageTransactionOutput address=%s amount=%d%s)",
