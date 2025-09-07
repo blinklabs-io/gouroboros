@@ -404,8 +404,35 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
-	// A Shelley transaction output will never be used for Plutus scripts
-	return nil
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o ShelleyTransactionOutput) Address() common.Address {

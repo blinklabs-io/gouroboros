@@ -17,6 +17,7 @@ package mary
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -449,8 +450,46 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 }
 
 func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
-	// A Mary transaction output will never be used for Plutus scripts
-	return nil
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount.Amount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount.Amount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	if o.OutputAmount.Assets != nil {
+		assetData := o.OutputAmount.Assets.ToPlutusData()
+		assetDataMap, ok := assetData.(*data.Map)
+		if !ok {
+			return nil
+		}
+		valueData = append(
+			valueData,
+			assetDataMap.Pairs...,
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o MaryTransactionOutput) Address() common.Address {
