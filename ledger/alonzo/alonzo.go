@@ -372,10 +372,8 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 		o.OutputAddress.ToPlutusData(),
 		data.NewMap(valueData),
 		// Empty datum option
-		// TODO: implement this
 		data.NewConstr(0),
 		// Empty script ref
-		// TODO: implement this
 		data.NewConstr(1),
 	)
 	return tmpData
