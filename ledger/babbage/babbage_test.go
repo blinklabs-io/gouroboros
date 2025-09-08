@@ -2970,3 +2970,22 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 		)
 	}
 }
+
+func TestBabbageTransactionOutputString(t *testing.T) {
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, _ := common.NewAddress(addrStr)
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.NewBlake2b224(make([]byte, 28)): {cbor.NewByteString([]byte("x")): 2},
+		},
+	)
+	out := BabbageTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 456, Assets: &ma},
+	}
+	s := out.String()
+	expected := "(BabbageTransactionOutput address=" + addrStr + " amount=456 assets=" + ma.String() + ")"
+	if s != expected {
+		t.Fatalf("unexpected string: %s", s)
+	}
+}

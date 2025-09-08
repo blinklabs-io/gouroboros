@@ -104,3 +104,24 @@ func TestByronTransaction_Utxorpc_Empty(t *testing.T) {
 		t.Errorf("Expected fee = 0, got %d", result.Fee)
 	}
 }
+
+func TestByronTransactionOutputString(t *testing.T) {
+	addr, err := common.NewByronAddressFromParts(
+		0,
+		make([]byte, common.AddressHashSize),
+		common.ByronAddressAttributes{},
+	)
+	if err != nil {
+		t.Fatalf("address: %v", err)
+	}
+	addrStr := addr.String()
+	out := byron.ByronTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount:  456,
+	}
+	s := out.String()
+	expected := "(ByronTransactionOutput address=" + addrStr + " amount=456)"
+	if s != expected {
+		t.Fatalf("unexpected string: %s", s)
+	}
+}

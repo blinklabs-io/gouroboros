@@ -22,6 +22,7 @@ import (
 	"maps"
 	"math/big"
 	"slices"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -323,6 +324,44 @@ func (m *MultiAsset[T]) normalize() map[Blake2b224]map[cbor.ByteString]T {
 		}
 	}
 	return ret
+}
+
+// String returns a stable, human-friendly representation of the MultiAsset.
+// Output format: [<policyId>.<assetNameHex>=<amount>, ...] sorted by policyId, then asset name
+func (m *MultiAsset[T]) String() string {
+	if m == nil {
+		return "[]"
+	}
+	norm := m.normalize()
+	if len(norm) == 0 {
+		return "[]"
+	}
+
+	policies := slices.Collect(maps.Keys(norm))
+	slices.SortFunc(policies, func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+
+	var b strings.Builder
+	b.WriteByte('[')
+	first := true
+	for _, pid := range policies {
+		assets := norm[pid]
+		names := slices.Collect(maps.Keys(assets))
+		slices.SortFunc(names, func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+
+		for _, name := range names {
+			if !first {
+				b.WriteString(", ")
+			}
+			first = false
+			b.WriteString(pid.String())
+			b.WriteByte('.')
+			b.WriteString(hex.EncodeToString(name.Bytes()))
+			b.WriteByte('=')
+			fmt.Fprintf(&b, "%d", assets[name])
+		}
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 type AssetFingerprint struct {

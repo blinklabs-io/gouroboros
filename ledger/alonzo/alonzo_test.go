@@ -15,6 +15,7 @@
 package alonzo
 
 import (
+	"encoding/hex"
 	"math/big"
 	"reflect"
 	"testing"
@@ -275,5 +276,26 @@ func TestAlonzoRedeemersIter(t *testing.T) {
 			)
 		}
 		iterIdx++
+	}
+}
+
+func TestAlonzoTransactionOutputString(t *testing.T) {
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, _ := common.NewAddress(addrStr)
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.NewBlake2b224(make([]byte, 28)): {cbor.NewByteString([]byte("t")): 2},
+		},
+	)
+	out := AlonzoTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 456, Assets: &ma},
+	}
+	s := out.String()
+	policyStr := common.NewBlake2b224(make([]byte, 28)).String()
+	assetsStr := "[" + policyStr + "." + hex.EncodeToString([]byte("t")) + "=2]"
+	expected := "(AlonzoTransactionOutput address=" + addrStr + " amount=456 assets=" + assetsStr + ")"
+	if s != expected {
+		t.Fatalf("unexpected string: %s", s)
 	}
 }

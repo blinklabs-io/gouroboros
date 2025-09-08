@@ -529,6 +529,21 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		err
 }
 
+func (o MaryTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(MaryTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
+}
+
 type MaryTransactionOutputValue struct {
 	cbor.StructAsArray
 	Amount uint64

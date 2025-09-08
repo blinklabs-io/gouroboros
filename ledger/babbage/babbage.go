@@ -647,6 +647,21 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
+func (o BabbageTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(BabbageTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
+}
+
 type BabbageTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
