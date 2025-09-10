@@ -46,6 +46,7 @@ const (
 	CertificateTypeRegistrationDrep                = 16
 	CertificateTypeDeregistrationDrep              = 17
 	CertificateTypeUpdateDrep                      = 18
+	CertificateTypeLeiosEb                         = 19
 )
 
 type CertificateWrapper struct {
@@ -99,6 +100,8 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 		tmpCert = &DeregistrationDrepCertificate{}
 	case CertificateTypeUpdateDrep:
 		tmpCert = &UpdateDrepCertificate{}
+	case CertificateTypeLeiosEb:
+		tmpCert = &LeiosEbCertificate{}
 	default:
 		return fmt.Errorf("unknown certificate type: %d", certType)
 	}
@@ -133,6 +136,29 @@ const (
 type Drep struct {
 	Type       int
 	Credential []byte
+}
+
+func (d *Drep) Utxorpc() (*utxorpc.DRep, error) {
+	switch d.Type {
+	case DrepTypeAddrKeyHash:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_AddrKeyHash{AddrKeyHash: d.Credential},
+		}, nil
+	case DrepTypeScriptHash:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_ScriptHash{ScriptHash: d.Credential},
+		}, nil
+	case DrepTypeAbstain:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_Abstain{Abstain: true},
+		}, nil
+	case DrepTypeNoConfidence:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_NoConfidence{NoConfidence: true},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown DRep type: %d", d.Type)
+	}
 }
 
 func (d *Drep) UnmarshalCBOR(data []byte) error {
@@ -1339,26 +1365,37 @@ func (c *UpdateDrepCertificate) Type() uint {
 	return c.CertType
 }
 
-// DRep implementation
-func (d *Drep) Utxorpc() (*utxorpc.DRep, error) {
-	switch d.Type {
-	case DrepTypeAddrKeyHash:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_AddrKeyHash{AddrKeyHash: d.Credential},
-		}, nil
-	case DrepTypeScriptHash:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_ScriptHash{ScriptHash: d.Credential},
-		}, nil
-	case DrepTypeAbstain:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_Abstain{Abstain: true},
-		}, nil
-	case DrepTypeNoConfidence:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_NoConfidence{NoConfidence: true},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown DRep type: %d", d.Type)
+type LeiosEbCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType            uint
+	ElectionId          Blake2b256
+	EndorserBlockHash   Blake2b256
+	PersistentVoters    []any
+	NonpersistentVoters map[Blake2b256]any
+	AggregateEligSig    *any
+	AggregateVoteSig    any
+}
+
+func (c LeiosEbCertificate) isCertificate() {}
+
+func (c *LeiosEbCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	type tLeiosEbCertificate LeiosEbCertificate
+	var tmp tLeiosEbCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
 	}
+	*c = LeiosEbCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
+}
+
+func (c *LeiosEbCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	return &utxorpc.Certificate{}, nil
+}
+
+func (c *LeiosEbCertificate) Type() uint {
+	return c.CertType
 }
