@@ -173,6 +173,8 @@ func (s PlutusV3Script) Evaluate(
 		Function: program.Term,
 		Argument: contextTerm,
 	}
+	prettyTerm := syn.PrettyTerm[syn.DeBruijn](wrappedProgram)
+	fmt.Printf("prettyTerm = %s\n", prettyTerm)
 	// Execute wrapped program
 	machine := cek.NewMachine[syn.DeBruijn](200)
 	machine.ExBudget = machineBudget

@@ -17,6 +17,8 @@ require (
 	golang.org/x/crypto v0.41.0
 )
 
+replace github.com/blinklabs-io/plutigo => ../plutigo
+
 require (
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.5 // indirect
