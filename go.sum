@@ -5,8 +5,8 @@ github.com/bits-and-blooms/bitset v1.20.0 h1:2F+rfL86jE2d/bmw7OhqUg2Sj/1rURkBn3M
 github.com/bits-and-blooms/bitset v1.20.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/blinklabs-io/ouroboros-mock v0.3.8 h1:+DAt2rx0ouZUxee5DBMgZq3I1+ZdxFSHG9g3tYl/FKU=
 github.com/blinklabs-io/ouroboros-mock v0.3.8/go.mod h1:UwQIf4KqZwO13P9d90fbi3UL/X7JaJfeEbqk+bEeFQA=
-github.com/blinklabs-io/plutigo v0.0.11 h1:6a4EURP+Gq5jhP5N/C4lTxPFAdR6wF89pDiKvOV2OLg=
-github.com/blinklabs-io/plutigo v0.0.11/go.mod h1:L639Q8i2cSRuBhjgCHttPR0nnYwwsYVT4Btz7KpQjSw=
+github.com/blinklabs-io/plutigo v0.0.12 h1:DxnYKvKYn9OlgiTJi5Ofd97znSJWUtVZjZFqxW9HW/A=
+github.com/blinklabs-io/plutigo v0.0.12/go.mod h1:L639Q8i2cSRuBhjgCHttPR0nnYwwsYVT4Btz7KpQjSw=
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=
 github.com/btcsuite/btcd v0.22.0-beta.0.20220111032746-97732e52810c/go.mod h1:tjmYdS6MLJ5/s0Fj4DbLgSbDHbEqLJrtnHecBFkdz5M=
 github.com/btcsuite/btcd v0.23.5-0.20231215221805-96c9fd8078fd/go.mod h1:nm3Bko6zh6bWP60UxwoT5LzdGJsQJaPo6HjduXq9p6A=
