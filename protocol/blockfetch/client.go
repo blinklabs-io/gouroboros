@@ -109,8 +109,12 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		msg := NewMsgClientDone()
-		err = c.SendMessage(msg)
+		if !c.IsDone() {
+			msg := NewMsgClientDone()
+			if err = c.SendMessage(msg); err != nil {
+				return
+			}
+		}
 	})
 	return err
 }
@@ -196,6 +200,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleBlock(msg)
 	case MessageTypeBatchDone:
 		err = c.handleBatchDone()
+	case MessageTypeClientDone:
+		return nil
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
