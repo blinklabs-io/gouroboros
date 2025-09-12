@@ -24,83 +24,92 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
+type ScriptPurpose interface {
+	isScriptPurpose()
+	ScriptHash() lcommon.ScriptHash
+	ToScriptInfo() ScriptInfo
+	ToPlutusData
+}
+
 type ScriptInfo interface {
 	isScriptInfo()
 	ScriptHash() lcommon.ScriptHash
 	ToPlutusData
 }
 
-type ScriptInfoMinting struct {
+type ScriptPurposeMinting struct {
 	PolicyId lcommon.Blake2b224
 }
 
-func (ScriptInfoMinting) isScriptInfo() {}
+func (ScriptPurposeMinting) isScriptPurpose() {}
 
-func (s ScriptInfoMinting) ScriptHash() lcommon.ScriptHash {
+func (s ScriptPurposeMinting) ScriptHash() lcommon.ScriptHash {
 	return s.PolicyId
 }
 
-func (s ScriptInfoMinting) ToPlutusData() data.PlutusData {
+func (s ScriptPurposeMinting) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		0,
 		data.NewByteString(s.PolicyId.Bytes()),
 	)
 }
 
-type ScriptInfoSpending struct {
+func (s ScriptPurposeMinting) ToScriptInfo() ScriptInfo {
+	return ScriptInfoMinting{s}
+}
+
+type ScriptPurposeSpending struct {
 	Input lcommon.Utxo
 	Datum data.PlutusData
 }
 
-func (ScriptInfoSpending) isScriptInfo() {}
+func (ScriptPurposeSpending) isScriptPurpose() {}
 
-func (s ScriptInfoSpending) ScriptHash() lcommon.ScriptHash {
+func (s ScriptPurposeSpending) ScriptHash() lcommon.ScriptHash {
 	tmpAddr := s.Input.Output.Address()
 	return tmpAddr.PaymentKeyHash()
 }
 
-func (s ScriptInfoSpending) ToPlutusData() data.PlutusData {
-	if s.Datum == nil {
-		return data.NewConstr(
-			1,
-			s.Input.Id.ToPlutusData(),
-		)
-	}
+func (s ScriptPurposeSpending) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		1,
 		s.Input.Id.ToPlutusData(),
-		data.NewConstr(
-			0,
-			s.Datum,
-		),
 	)
 }
 
-type ScriptInfoRewarding struct {
+func (s ScriptPurposeSpending) ToScriptInfo() ScriptInfo {
+	return ScriptInfoSpending{s}
+}
+
+type ScriptPurposeRewarding struct {
 	StakeCredential lcommon.Credential
 }
 
-func (ScriptInfoRewarding) isScriptInfo() {}
+func (ScriptPurposeRewarding) isScriptPurpose() {}
 
-func (s ScriptInfoRewarding) ScriptHash() lcommon.ScriptHash {
+func (s ScriptPurposeRewarding) ScriptHash() lcommon.ScriptHash {
 	return lcommon.ScriptHash(s.StakeCredential.Credential)
 }
 
-func (s ScriptInfoRewarding) ToPlutusData() data.PlutusData {
+func (s ScriptPurposeRewarding) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		2,
 		s.StakeCredential.ToPlutusData(),
 	)
 }
 
-type ScriptInfoCertifying struct {
+func (s ScriptPurposeRewarding) ToScriptInfo() ScriptInfo {
+	return ScriptInfoRewarding{s}
+}
+
+type ScriptPurposeCertifying struct {
 	Index       uint32
 	Certificate lcommon.Certificate
 }
 
-func (ScriptInfoCertifying) isScriptInfo() {}
+func (ScriptPurposeCertifying) isScriptPurpose() {}
 
-func (s ScriptInfoCertifying) ScriptHash() lcommon.ScriptHash {
+func (s ScriptPurposeCertifying) ScriptHash() lcommon.ScriptHash {
 	var cred *lcommon.Credential
 	switch c := s.Certificate.(type) {
 	case *lcommon.StakeDeregistrationCertificate:
@@ -140,7 +149,7 @@ func (s ScriptInfoCertifying) ScriptHash() lcommon.ScriptHash {
 	return lcommon.ScriptHash{}
 }
 
-func (s ScriptInfoCertifying) ToPlutusData() data.PlutusData {
+func (s ScriptPurposeCertifying) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		3,
 		data.NewInteger(new(big.Int).SetUint64(uint64(s.Index))),
@@ -148,31 +157,39 @@ func (s ScriptInfoCertifying) ToPlutusData() data.PlutusData {
 	)
 }
 
-type ScriptInfoVoting struct {
+func (s ScriptPurposeCertifying) ToScriptInfo() ScriptInfo {
+	return ScriptInfoCertifying{s}
+}
+
+type ScriptPurposeVoting struct {
 	Voter lcommon.Voter
 }
 
-func (ScriptInfoVoting) isScriptInfo() {}
+func (ScriptPurposeVoting) isScriptPurpose() {}
 
-func (s ScriptInfoVoting) ScriptHash() lcommon.ScriptHash {
+func (s ScriptPurposeVoting) ScriptHash() lcommon.ScriptHash {
 	return lcommon.ScriptHash(s.Voter.Hash[:])
 }
 
-func (s ScriptInfoVoting) ToPlutusData() data.PlutusData {
+func (s ScriptPurposeVoting) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		4,
 		s.Voter.ToPlutusData(),
 	)
 }
 
-type ScriptInfoProposing struct {
+func (s ScriptPurposeVoting) ToScriptInfo() ScriptInfo {
+	return ScriptInfoVoting{s}
+}
+
+type ScriptPurposeProposing struct {
 	Index             uint32
 	ProposalProcedure lcommon.ProposalProcedure
 }
 
-func (ScriptInfoProposing) isScriptInfo() {}
+func (ScriptPurposeProposing) isScriptPurpose() {}
 
-func (s ScriptInfoProposing) ScriptHash() lcommon.ScriptHash {
+func (s ScriptPurposeProposing) ScriptHash() lcommon.ScriptHash {
 	switch a := s.ProposalProcedure.GovAction().(type) {
 	case *conway.ConwayParameterChangeGovAction:
 		return lcommon.ScriptHash(a.PolicyHash)
@@ -182,7 +199,7 @@ func (s ScriptInfoProposing) ScriptHash() lcommon.ScriptHash {
 	return lcommon.ScriptHash{}
 }
 
-func (s ScriptInfoProposing) ToPlutusData() data.PlutusData {
+func (s ScriptPurposeProposing) ToPlutusData() data.PlutusData {
 	return data.NewConstr(
 		5,
 		toPlutusData(uint64(s.Index)),
@@ -190,7 +207,55 @@ func (s ScriptInfoProposing) ToPlutusData() data.PlutusData {
 	)
 }
 
-type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptInfo
+func (s ScriptPurposeProposing) ToScriptInfo() ScriptInfo {
+	return ScriptInfoProposing{s}
+}
+
+type ScriptInfoSpending struct {
+	ScriptPurposeSpending
+}
+
+func (ScriptInfoSpending) isScriptInfo() {}
+
+func (s ScriptInfoSpending) ToPlutusData() data.PlutusData {
+	return data.NewConstr(
+		1,
+		s.Input.Id.ToPlutusData(),
+		Option[data.PlutusData]{s.Datum}.ToPlutusData(),
+	)
+}
+
+type ScriptInfoMinting struct {
+	ScriptPurposeMinting
+}
+
+func (ScriptInfoMinting) isScriptInfo() {}
+
+type ScriptInfoRewarding struct {
+	ScriptPurposeRewarding
+}
+
+func (ScriptInfoRewarding) isScriptInfo() {}
+
+type ScriptInfoCertifying struct {
+	ScriptPurposeCertifying
+}
+
+func (ScriptInfoCertifying) isScriptInfo() {}
+
+type ScriptInfoVoting struct {
+	ScriptPurposeVoting
+}
+
+func (ScriptInfoVoting) isScriptInfo() {}
+
+type ScriptInfoProposing struct {
+	ScriptPurposeProposing
+}
+
+func (ScriptInfoProposing) isScriptInfo() {}
+
+type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptPurpose
 
 // scriptPurposeBuilder creates a reusable function preloaded with information about a particular transaction
 func scriptPurposeBuilder(
@@ -202,7 +267,7 @@ func scriptPurposeBuilder(
 	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
 	proposalProcedures []lcommon.ProposalProcedure,
 ) toScriptPurposeFunc {
-	return func(redeemerKey lcommon.RedeemerKey) ScriptInfo {
+	return func(redeemerKey lcommon.RedeemerKey) ScriptPurpose {
 		// TODO: implement additional redeemer tags
 		// https://github.com/aiken-lang/aiken/blob/af4e04b91e54dbba3340de03fc9e65a90f24a93b/crates/uplc/src/tx/script_context.rs#L771-L826
 		switch redeemerKey.Tag {
@@ -219,51 +284,41 @@ func scriptPurposeBuilder(
 					break
 				}
 			}
-			return ScriptInfoSpending{
+			return ScriptPurposeSpending{
 				Input: resolvedInput,
 				Datum: datum,
 			}
 		case lcommon.RedeemerTagMint:
-			// TODO: fix this to work for more than one minted policy
 			mintPolicies := mint.Policies()
 			slices.SortFunc(
 				mintPolicies,
 				func(a, b lcommon.Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
 			)
-			return ScriptInfoMinting{
+			return ScriptPurposeMinting{
 				PolicyId: mintPolicies[redeemerKey.Index],
 			}
 		case lcommon.RedeemerTagCert:
-			return ScriptInfoCertifying{
+			return ScriptPurposeCertifying{
 				Index:       redeemerKey.Index,
 				Certificate: certificates[redeemerKey.Index],
 			}
 		case lcommon.RedeemerTagReward:
-			return ScriptInfoRewarding{
+			return ScriptPurposeRewarding{
 				StakeCredential: lcommon.Credential{
 					CredType:   lcommon.CredentialTypeScriptHash,
 					Credential: withdrawals[redeemerKey.Index].Key.StakeKeyHash(),
 				},
 			}
 		case lcommon.RedeemerTagVoting:
-			return ScriptInfoVoting{
+			return ScriptPurposeVoting{
 				Voter: *(votes[redeemerKey.Index].Key),
 			}
 		case lcommon.RedeemerTagProposing:
-			return ScriptInfoProposing{
+			return ScriptPurposeProposing{
 				Index:             redeemerKey.Index,
 				ProposalProcedure: proposalProcedures[redeemerKey.Index],
 			}
 		}
 		return nil
 	}
-}
-
-func scriptPurposeStripDatum(purpose ScriptInfo) ScriptInfo {
-	switch p := purpose.(type) {
-	case ScriptInfoSpending:
-		p.Datum = nil
-		return p
-	}
-	return purpose
 }
