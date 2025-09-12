@@ -41,9 +41,9 @@ func (s ScriptContextV1V2) ToPlutusData() data.PlutusData {
 }
 
 type ScriptContextV3 struct {
-	TxInfo   TxInfo
-	Redeemer Redeemer
-	Purpose  ScriptInfo
+	TxInfo     TxInfo
+	Redeemer   Redeemer
+	ScriptInfo ScriptInfo
 }
 
 func (ScriptContextV3) isScriptContext() {}
@@ -53,19 +53,19 @@ func (s ScriptContextV3) ToPlutusData() data.PlutusData {
 		0,
 		s.TxInfo.ToPlutusData(),
 		s.Redeemer.ToPlutusData(),
-		s.Purpose.ToPlutusData(),
+		s.ScriptInfo.ToPlutusData(),
 	)
 }
 
 func NewScriptContextV3(
 	txInfo TxInfo,
 	redeemer Redeemer,
-	purpose ScriptInfo,
+	purpose ScriptPurpose,
 ) ScriptContext {
 	return ScriptContextV3{
-		TxInfo:   txInfo,
-		Redeemer: redeemer,
-		Purpose:  purpose,
+		TxInfo:     txInfo,
+		Redeemer:   redeemer,
+		ScriptInfo: purpose.ToScriptInfo(),
 	}
 }
 
@@ -84,7 +84,7 @@ type TxInfoV1 struct {
 	ValidRange   TimeRange
 	Signatories  []lcommon.Blake2b224
 	Data         KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
-	Redeemers    KeyValuePairs[ScriptInfo, Redeemer]
+	Redeemers    KeyValuePairs[ScriptPurpose, Redeemer]
 	Id           lcommon.Blake2b256
 }
 
@@ -105,7 +105,7 @@ type TxInfoV2 struct {
 	Withdrawals     KeyValuePairs[*lcommon.Address, Coin]
 	ValidRange      TimeRange
 	Signatories     []lcommon.Blake2b224
-	Redeemers       KeyValuePairs[ScriptInfo, Redeemer]
+	Redeemers       KeyValuePairs[ScriptPurpose, Redeemer]
 	Data            KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
 	Id              lcommon.Blake2b256
 }
@@ -127,7 +127,7 @@ type TxInfoV3 struct {
 	Withdrawals           KeyValuePairs[*lcommon.Address, uint64]
 	ValidRange            TimeRange
 	Signatories           []lcommon.Blake2b224
-	Redeemers             KeyValuePairs[ScriptInfo, Redeemer]
+	Redeemers             KeyValuePairs[ScriptPurpose, Redeemer]
 	Data                  KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
 	Id                    lcommon.Blake2b256
 	Votes                 KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]]
@@ -139,13 +139,6 @@ type TxInfoV3 struct {
 func (TxInfoV3) isTxInfo() {}
 
 func (t TxInfoV3) ToPlutusData() data.PlutusData {
-	tmpRedeemers := make(KeyValuePairs[ScriptInfo, Redeemer], len(t.Redeemers))
-	for i, pair := range t.Redeemers {
-		tmpRedeemers[i] = KeyValuePair[ScriptInfo, Redeemer]{
-			Key:   scriptPurposeStripDatum(pair.Key),
-			Value: pair.Value,
-		}
-	}
 	return data.NewConstr(
 		0,
 		toPlutusData(t.Inputs),
@@ -157,7 +150,7 @@ func (t TxInfoV3) ToPlutusData() data.PlutusData {
 		toPlutusData(t.Withdrawals),
 		t.ValidRange.ToPlutusData(),
 		toPlutusData(t.Signatories),
-		tmpRedeemers.ToPlutusData(),
+		t.Redeemers.ToPlutusData(),
 		t.Data.ToPlutusData(),
 		data.NewByteString(t.Id.Bytes()),
 		t.Votes.ToPlutusData(),
@@ -417,8 +410,8 @@ func dataInfo(
 func redeemersInfo(
 	witnessSet lcommon.TransactionWitnessSet,
 	toScriptPurpose toScriptPurposeFunc,
-) KeyValuePairs[ScriptInfo, Redeemer] {
-	var ret KeyValuePairs[ScriptInfo, Redeemer]
+) KeyValuePairs[ScriptPurpose, Redeemer] {
+	var ret KeyValuePairs[ScriptPurpose, Redeemer]
 	redeemers := witnessSet.Redeemers()
 	redeemerKeys := sortedRedeemerKeys(redeemers)
 	for _, key := range redeemerKeys {
@@ -426,7 +419,7 @@ func redeemersInfo(
 		purpose := toScriptPurpose(key)
 		ret = append(
 			ret,
-			KeyValuePair[ScriptInfo, Redeemer]{
+			KeyValuePair[ScriptPurpose, Redeemer]{
 				Key: purpose,
 				Value: Redeemer{
 					Tag:     key.Tag,
