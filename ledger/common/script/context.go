@@ -310,6 +310,9 @@ func collapseOutputs(outputs []lcommon.Utxo) []lcommon.TransactionOutput {
 func sortedRedeemerKeys(
 	redeemers lcommon.TransactionWitnessRedeemers,
 ) []lcommon.RedeemerKey {
+	if redeemers == nil {
+		return []lcommon.RedeemerKey{}
+	}
 	tags := []lcommon.RedeemerTag{
 		lcommon.RedeemerTagSpend,
 		lcommon.RedeemerTagMint,
@@ -411,9 +414,12 @@ func redeemersInfo(
 	witnessSet lcommon.TransactionWitnessSet,
 	toScriptPurpose toScriptPurposeFunc,
 ) KeyValuePairs[ScriptPurpose, Redeemer] {
-	var ret KeyValuePairs[ScriptPurpose, Redeemer]
 	redeemers := witnessSet.Redeemers()
+	if redeemers == nil {
+		return KeyValuePairs[ScriptPurpose, Redeemer]{}
+	}
 	redeemerKeys := sortedRedeemerKeys(redeemers)
+	ret := make(KeyValuePairs[ScriptPurpose, Redeemer], 0, len(redeemerKeys))
 	for _, key := range redeemerKeys {
 		redeemerValue := redeemers.Value(uint(key.Index), key.Tag)
 		purpose := toScriptPurpose(key)
