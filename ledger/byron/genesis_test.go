@@ -128,7 +128,7 @@ var expectedGenesisObj = byron.ByronGenesis{
 		UpdateProposalThd: 100000000000000,
 		UpdateVoteThd:     1000000000000,
 	},
-	FtsSeed: byron.ByronFtsSeed{
+	FtsSeed: byron.ByronGenesisFtsSeed{
 		Value:    "76617361206f7061736120736b6f766f726f64612047677572646120626f726f64612070726f766f6461",
 		IsObject: false,
 	},

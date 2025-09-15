@@ -26,14 +26,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-type ByronFtsSeed struct {
+type ByronGenesisFtsSeed struct {
 	Value    string
 	IsObject bool
 }
 type ByronGenesis struct {
 	AvvmDistr        map[string]string                      `json:"avvmDistr"`
 	BlockVersionData ByronGenesisBlockVersionData           `json:"blockVersionData"`
-	FtsSeed          ByronFtsSeed                           `json:"ftsSeed"`
+	FtsSeed          ByronGenesisFtsSeed                    `json:"ftsSeed"`
 	ProtocolConsts   ByronGenesisProtocolConsts             `json:"protocolConsts"`
 	StartTime        int                                    `json:"startTime"`
 	BootStakeholders map[string]int                         `json:"bootStakeholders"`
@@ -200,7 +200,7 @@ func NewByronGenesisFromFile(path string) (ByronGenesis, error) {
 }
 
 // UnmarshalJSON accepts: "string", {}, or null
-func (f *ByronFtsSeed) UnmarshalJSON(b []byte) error {
+func (f *ByronGenesisFtsSeed) UnmarshalJSON(b []byte) error {
 	var first byte
 	for _, c := range b {
 		if c > ' ' {
@@ -237,7 +237,7 @@ func (f *ByronFtsSeed) UnmarshalJSON(b []byte) error {
 	}
 }
 
-func (f ByronFtsSeed) MarshalJSON() ([]byte, error) {
+func (f ByronGenesisFtsSeed) MarshalJSON() ([]byte, error) {
 	if f.IsObject {
 		// serialize as empty object
 		return []byte(`{}`), nil
