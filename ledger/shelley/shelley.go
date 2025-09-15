@@ -290,7 +290,7 @@ func (b *ShelleyTransactionBody) AuxDataHash() *common.Blake2b256 {
 }
 
 func (b *ShelleyTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type ShelleyTransactionInputSet struct {

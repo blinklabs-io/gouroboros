@@ -364,7 +364,7 @@ func (b *BabbageTransactionBody) TotalCollateral() uint64 {
 }
 
 func (b *BabbageTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 const (

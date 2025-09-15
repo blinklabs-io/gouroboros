@@ -195,25 +195,25 @@ func (b *TransactionBodyBase) Donation() uint64 {
 	return 0
 }
 
-func (b *TransactionBodyBase) Utxorpc() *utxorpc.Tx {
-	return nil
+func (b *TransactionBodyBase) Utxorpc() (*utxorpc.Tx, error) {
+	return nil, nil
 }
 
 // TransactionBodyToUtxorpc is a common helper for converting TransactionBody to utxorpc.Tx
-func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
+func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 	txi := []*utxorpc.TxInput{}
 	txo := []*utxorpc.TxOutput{}
 	for _, i := range tx.Inputs() {
 		input, err := i.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		txi = append(txi, input)
 	}
 	for _, o := range tx.Outputs() {
 		output, err := o.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		txo = append(txo, output)
 	}
@@ -236,17 +236,17 @@ func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
 	for _, ri := range tx.ReferenceInputs() {
 		input, err := ri.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		ret.ReferenceInputs = append(ret.ReferenceInputs, input)
 	}
 	for _, c := range tx.Certificates() {
 		cert, err := c.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		ret.Certificates = append(ret.Certificates, cert)
 	}
 
-	return ret
+	return ret, nil
 }

@@ -214,7 +214,7 @@ func TestMaryTransactionBody_Utxorpc(t *testing.T) {
 
 	got, err := body.Utxorpc()
 	if err != nil {
-		t.Errorf("Could not get correct UTxorpc input")
+		t.Fatalf("Could not convert the transaction body to utxorpc format %v", err)
 	}
 
 	if got.Fee != 100 {
@@ -262,7 +262,7 @@ func TestMaryTransaction_Utxorpc(t *testing.T) {
 
 	got, err := tx.Utxorpc()
 	if err != nil {
-		t.Errorf("Could not get correct UTxorpc input")
+		t.Fatalf("Could not convert transaction to utxorpc format: %v", err)
 	}
 
 	if got.Fee != 25 {
