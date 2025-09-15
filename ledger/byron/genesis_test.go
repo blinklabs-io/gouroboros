@@ -55,7 +55,7 @@ const byronGenesisConfig = `
         "updateProposalThd": "100000000000000",
         "updateVoteThd": "1000000000000"
     },
-    "ftsSeed": "76617361206f7061736120736b6f766f726f64612047677572646120626f726f64612070726f766f6461",
+	"ftsSeed": "76617361206f7061736120736b6f766f726f64612047677572646120626f726f64612070726f766f6461",
     "protocolConsts": {
         "k": 2160,
         "protocolMagic": 764824073,
@@ -128,7 +128,10 @@ var expectedGenesisObj = byron.ByronGenesis{
 		UpdateProposalThd: 100000000000000,
 		UpdateVoteThd:     1000000000000,
 	},
-	FtsSeed: "76617361206f7061736120736b6f766f726f64612047677572646120626f726f64612070726f766f6461",
+	FtsSeed: byron.ByronFtsSeed{
+		Value:    "76617361206f7061736120736b6f766f726f64612047677572646120626f726f64612070726f766f6461",
+		IsObject: false,
+	},
 	ProtocolConsts: byron.ByronGenesisProtocolConsts{
 		K:             2160,
 		ProtocolMagic: 764824073,
@@ -429,5 +432,67 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 			result,
 			expected,
 		)
+	}
+}
+
+func TestGenesis_FtsSeed_EmptyObject(t *testing.T) {
+	jsonData := `{
+        "avvmDistr": { "addr1": "1000" },
+        "blockVersionData": {
+            "heavyDelThd": "1",
+            "maxBlockSize": "2",
+            "maxHeaderSize": "3",
+            "maxProposalSize": "4",
+            "maxTxSize": "5",
+            "mpcThd": "6",
+            "scriptVersion": 1,
+            "slotDuration": "7",
+            "softforkRule": {
+                "initThd": "8",
+                "minThd": "9",
+                "thdDecrement": "10"
+            },
+            "txFeePolicy": {
+                "multiplier": "11",
+                "summand": "12"
+            },
+            "unlockStakeEpoch": "13",
+            "updateImplicit": "14",
+            "updateProposalThd": "15",
+            "updateVoteThd": "16"
+        },
+        "ftsSeed": {},
+        "protocolConsts": {
+            "k": 1,
+            "protocolMagic": 42,
+            "vssMinTtl": 2,
+            "vssMaxTtl": 10
+        },
+        "startTime": 100000,
+        "bootStakeholders": { "stakeholder1": 1 },
+        "heavyDelegation": {
+            "key1": {
+                "cert": "cert-val",
+                "delegatePk": "delegate-pk",
+                "issuerPk": "issuer-pk",
+                "omega": 5
+            }
+        },
+        "nonAvvmBalances": { "addr2": "2000" },
+        "vssCerts": {
+            "cert1": {
+                "expiryEpoch": 5,
+                "signature": "sig",
+                "signingKey": "sign-key",
+                "vssKey": "vss-key"
+            }
+        }
+    }`
+	got, err := byron.NewByronGenesisFromReader(strings.NewReader(jsonData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.FtsSeed.Value != "" || !got.FtsSeed.IsObject {
+		t.Fatalf("ftsSeed not parsed as empty object; got=%#v", got.FtsSeed)
 	}
 }
