@@ -268,7 +268,7 @@ func (b *AlonzoTransactionBody) ScriptDataHash() *common.Blake2b256 {
 }
 
 func (b *AlonzoTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type AlonzoTransactionOutput struct {

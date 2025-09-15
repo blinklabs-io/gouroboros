@@ -238,7 +238,7 @@ func (b *MaryTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTy
 }
 
 func (b *MaryTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type MaryTransaction struct {

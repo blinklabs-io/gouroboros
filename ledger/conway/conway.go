@@ -508,7 +508,7 @@ func (b *ConwayTransactionBody) Donation() uint64 {
 }
 
 func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type ConwayTransaction struct {

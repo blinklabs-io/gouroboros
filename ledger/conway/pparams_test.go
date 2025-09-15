@@ -656,7 +656,7 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 
 	got, err := body.Utxorpc()
 	if err != nil {
-		t.Errorf("Could not get the transaction input")
+		t.Fatalf("Could not convert the transaction body to utxorpc format %v", err)
 	}
 
 	if got.Fee != 1000 {
@@ -733,7 +733,7 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 
 	got, err := tx.Utxorpc()
 	if err != nil {
-		t.Errorf("Could not get the transaction input")
+		t.Fatalf("Could not convert transaction to utxorpc format: %v", err)
 	}
 
 	if got.Fee != 1000 {

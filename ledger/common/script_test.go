@@ -54,9 +54,13 @@ func TestScriptRefDecodeEncode(t *testing.T) {
 }
 
 func TestNativeScriptHash(t *testing.T) {
-	testScriptBytes, _ := hex.DecodeString(
+	testScriptBytes, err := hex.DecodeString(
 		"820181830301838200581c058a5ab0c66647dcce82d7244f80bfea41ba76c7c9ccaf86a41b00fe8200581c45cbc234959cb619ef54e36c16e7719318592e627cdf1a39bd3d64398200581c85fd53e110449649b709ef0fa93e86d99535bdce5db306ce0e7418fc",
 	)
+	// Make nilaway happy
+	if err != nil {
+		t.Fatalf("failed to decode hex string: %v", err)
+	}
 	expectedScriptHash := "1c0053ec18e2c0f7bd4d007fe14243ca220563f9c124381f75c43704"
 	var testScript common.NativeScript
 	if err := testScript.UnmarshalCBOR(testScriptBytes); err != nil {
