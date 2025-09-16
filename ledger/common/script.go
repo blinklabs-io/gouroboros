@@ -145,6 +145,8 @@ func (s PlutusV3Script) Evaluate(
 	budget ExUnits,
 ) (ExUnits, error) {
 	var usedExUnits ExUnits
+	var err error
+	program := &syn.Program[syn.DeBruijn]{}
 	// Set budget
 	machineBudget := cek.DefaultExBudget
 	if budget.Steps > 0 || budget.Memory > 0 {
@@ -155,11 +157,11 @@ func (s PlutusV3Script) Evaluate(
 	}
 	// Decode raw script as bytestring to get actual script bytes
 	var innerScript []byte
-	if _, err := cbor.Decode([]byte(s), &innerScript); err != nil {
+	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
 		return usedExUnits, err
 	}
 	// Decode program
-	program, err := syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
