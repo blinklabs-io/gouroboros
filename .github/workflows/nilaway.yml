@@ -22,4 +22,4 @@ jobs:
       - name: install nilaway
         run: go install go.uber.org/nilaway/cmd/nilaway@latest
       - name: run nilaway
-        run: nilaway ./... || true
+        run: nilaway ./...
