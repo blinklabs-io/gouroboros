@@ -200,41 +200,36 @@ func NewByronGenesisFromFile(path string) (ByronGenesis, error) {
 }
 
 // UnmarshalJSON accepts: "string", {}, or null
+// Tries each expected shape and accepts the first that parses cleanly
 func (f *ByronGenesisFtsSeed) UnmarshalJSON(b []byte) error {
-	var first byte
-	for _, c := range b {
-		if c > ' ' {
-			first = c
-			break
-		}
-	}
-	switch first {
-	case '"':
-		// Normal string case
-		var s string
-		if err := json.Unmarshal(b, &s); err != nil {
-			return err
-		}
+	// Try string
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
 		f.Value = s
 		f.IsObject = false
 		return nil
-	case '{':
-		// empty object case
-		var m map[string]any
-		if err := json.Unmarshal(b, &m); err != nil {
-			return err
-		}
-		if len(m) > 0 {
-			return errors.New("ftsSeed: expected empty object or string")
-		}
-		f.Value = ""
-		f.IsObject = true
-		return nil
-	case 'n':
-		return nil
-	default:
-		return errors.New("ftsSeed: expected string, empty object, or null")
 	}
+
+	// Try empty object
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err == nil {
+		if len(m) == 0 {
+			f.Value = ""
+			f.IsObject = true
+			return nil
+		}
+		return errors.New("ftsSeed: non-empty object not supported")
+	}
+
+	// Try null
+	var v any
+	if err := json.Unmarshal(b, &v); err == nil && v == nil {
+		f.Value = ""
+		f.IsObject = false
+		return nil
+	}
+
+	return errors.New("ftsSeed: expected string, empty object, or null")
 }
 
 func (f ByronGenesisFtsSeed) MarshalJSON() ([]byte, error) {
