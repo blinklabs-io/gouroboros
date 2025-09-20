@@ -200,8 +200,6 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleBlock(msg)
 	case MessageTypeBatchDone:
 		err = c.handleBatchDone()
-	case MessageTypeClientDone:
-		return nil
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",

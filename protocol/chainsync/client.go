@@ -572,8 +572,6 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleIntersectFound(msg)
 	case MessageTypeIntersectNotFound:
 		err = c.handleIntersectNotFound(msg)
-	case MessageTypeDone:
-		return nil
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",

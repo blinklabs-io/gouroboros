@@ -93,8 +93,6 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleRequestTxIds(msg)
 	case MessageTypeRequestTxs:
 		err = c.handleRequestTxs(msg)
-	case MessageTypeDone:
-		return nil
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
