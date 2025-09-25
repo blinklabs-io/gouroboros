@@ -160,6 +160,29 @@ func (d *Drep) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (d *Drep) Utxorpc() (*utxorpc.DRep, error) {
+	switch d.Type {
+	case DrepTypeAddrKeyHash:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_AddrKeyHash{AddrKeyHash: d.Credential},
+		}, nil
+	case DrepTypeScriptHash:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_ScriptHash{ScriptHash: d.Credential},
+		}, nil
+	case DrepTypeAbstain:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_Abstain{Abstain: true},
+		}, nil
+	case DrepTypeNoConfidence:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_NoConfidence{NoConfidence: true},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown DRep type: %d", d.Type)
+	}
+}
+
 func (d *Drep) ToPlutusData() data.PlutusData {
 	switch d.Type {
 	case DrepTypeAddrKeyHash:
@@ -1337,28 +1360,4 @@ func (c *UpdateDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 
 func (c *UpdateDrepCertificate) Type() uint {
 	return c.CertType
-}
-
-// DRep implementation
-func (d *Drep) Utxorpc() (*utxorpc.DRep, error) {
-	switch d.Type {
-	case DrepTypeAddrKeyHash:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_AddrKeyHash{AddrKeyHash: d.Credential},
-		}, nil
-	case DrepTypeScriptHash:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_ScriptHash{ScriptHash: d.Credential},
-		}, nil
-	case DrepTypeAbstain:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_Abstain{Abstain: true},
-		}, nil
-	case DrepTypeNoConfidence:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_NoConfidence{NoConfidence: true},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown DRep type: %d", d.Type)
-	}
 }
