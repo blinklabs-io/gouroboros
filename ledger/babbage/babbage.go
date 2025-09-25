@@ -236,6 +236,7 @@ type BabbageTransactionPparamUpdate struct {
 
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
+	hash                    *common.Blake2b256
 	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
 	TxOutputs               []BabbageTransactionOutput                    `cbor:"1,keyasint,omitempty"`
 	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
@@ -264,6 +265,14 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	*b = BabbageTransactionBody(tmp)
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *BabbageTransactionBody) Id() common.Blake2b256 {
+	if b.hash == nil {
+		tmpHash := common.Blake2b256Hash(b.Cbor())
+		b.hash = &tmpHash
+	}
+	return *b.hash
 }
 
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
@@ -742,7 +751,11 @@ func (BabbageTransaction) Type() int {
 }
 
 func (t BabbageTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t BabbageTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
 }
 
 func (t BabbageTransaction) Inputs() []common.TransactionInput {

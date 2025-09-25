@@ -46,6 +46,7 @@ const (
 	CertificateTypeRegistrationDrep                = 16
 	CertificateTypeDeregistrationDrep              = 17
 	CertificateTypeUpdateDrep                      = 18
+	CertificateTypeLeiosEb                         = 19
 )
 
 type CertificateWrapper struct {
@@ -99,6 +100,8 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 		tmpCert = &DeregistrationDrepCertificate{}
 	case CertificateTypeUpdateDrep:
 		tmpCert = &UpdateDrepCertificate{}
+	case CertificateTypeLeiosEb:
+		tmpCert = &LeiosEbCertificate{}
 	default:
 		return fmt.Errorf("unknown certificate type: %d", certType)
 	}
@@ -1359,5 +1362,40 @@ func (c *UpdateDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 }
 
 func (c *UpdateDrepCertificate) Type() uint {
+	return c.CertType
+}
+
+type LeiosEbCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	CertType            uint
+	ElectionId          Blake2b256
+	EndorserBlockHash   Blake2b256
+	PersistentVoters    []any
+	NonpersistentVoters map[Blake2b256]any
+	AggregateEligSig    *any
+	AggregateVoteSig    any
+}
+
+func (c LeiosEbCertificate) isCertificate() {}
+
+func (c *LeiosEbCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	type tLeiosEbCertificate LeiosEbCertificate
+	var tmp tLeiosEbCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*c = LeiosEbCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
+}
+
+func (c *LeiosEbCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	return &utxorpc.Certificate{}, nil
+}
+
+func (c *LeiosEbCertificate) Type() uint {
 	return c.CertType
 }

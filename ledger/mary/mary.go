@@ -265,7 +265,11 @@ func (MaryTransaction) Type() int {
 }
 
 func (t MaryTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t MaryTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
 }
 
 func (t MaryTransaction) Inputs() []common.TransactionInput {

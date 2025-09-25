@@ -44,6 +44,10 @@ func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 		return NewBabbageBlockFromCbor(data)
 	case BlockTypeConway:
 		return NewConwayBlockFromCbor(data)
+	case BlockTypeLeiosEndorser:
+		return NewLeiosEndorserBlockFromCbor(data)
+	case BlockTypeLeiosRanking:
+		return NewLeiosRankingBlockFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
 }
@@ -66,6 +70,8 @@ func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {
 		return NewBabbageBlockHeaderFromCbor(data)
 	case BlockTypeConway:
 		return NewConwayBlockHeaderFromCbor(data)
+	case BlockTypeLeiosRanking:
+		return NewLeiosBlockHeaderFromCbor(data)
 	default:
 		return nil, fmt.Errorf("unknown node-to-node block type: %d", blockType)
 	}
