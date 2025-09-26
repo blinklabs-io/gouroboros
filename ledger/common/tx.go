@@ -26,6 +26,7 @@ type Transaction interface {
 	TransactionBody
 	Type() int
 	Cbor() []byte
+	Hash() Blake2b256
 	Metadata() *cbor.LazyValue
 	IsValid() bool
 	Consumed() []TransactionInput
@@ -36,7 +37,7 @@ type Transaction interface {
 type TransactionBody interface {
 	Cbor() []byte
 	Fee() uint64
-	Hash() Blake2b256
+	Id() Blake2b256
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
@@ -97,6 +98,14 @@ type TransactionWitnessRedeemers interface {
 	Iter() iter.Seq2[RedeemerKey, RedeemerValue]
 }
 
+// TxReference provides a reference to a transaction which includes a hash of the full transaction
+// body bytes and the total transaction size in bytes
+type TxReference struct {
+	cbor.StructAsArray
+	TxHash Blake2b256
+	TxSize uint16
+}
+
 type Utxo struct {
 	cbor.StructAsArray
 	Id     TransactionInput
@@ -111,7 +120,7 @@ type TransactionBodyBase struct {
 	hash *Blake2b256
 }
 
-func (b *TransactionBodyBase) Hash() Blake2b256 {
+func (b *TransactionBodyBase) Id() Blake2b256 {
 	if b.hash == nil {
 		tmpHash := Blake2b256Hash(b.Cbor())
 		b.hash = &tmpHash
@@ -230,7 +239,7 @@ func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 		// Validity:        tx.Validity(),
 		// Successful:      tx.Successful(),
 		// Auxiliary:       tx.AuxData(),
-		Hash: tx.Hash().Bytes(),
+		Hash: tx.Id().Bytes(),
 		// Proposals:       tx.ProposalProcedures(),
 	}
 	for _, ri := range tx.ReferenceInputs() {

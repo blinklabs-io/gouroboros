@@ -558,7 +558,11 @@ func (ShelleyTransaction) Type() int {
 }
 
 func (t ShelleyTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t ShelleyTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
 }
 
 func (t ShelleyTransaction) Inputs() []common.TransactionInput {

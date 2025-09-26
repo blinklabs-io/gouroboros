@@ -161,6 +161,10 @@ func (ByronTransaction) Type() int {
 }
 
 func (t *ByronTransaction) Hash() common.Blake2b256 {
+	return t.Id()
+}
+
+func (t *ByronTransaction) Id() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -289,7 +293,7 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewByronTransactionInput(t.Hash().String(), idx),
+				Id:     NewByronTransactionInput(t.Id().String(), idx),
 				Output: output,
 			},
 		)

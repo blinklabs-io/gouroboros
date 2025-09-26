@@ -536,7 +536,11 @@ func (ConwayTransaction) Type() int {
 }
 
 func (t ConwayTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t ConwayTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
 }
 
 func (t ConwayTransaction) Inputs() []common.TransactionInput {

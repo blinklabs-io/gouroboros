@@ -257,7 +257,11 @@ func (AllegraTransaction) Type() int {
 }
 
 func (t AllegraTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t AllegraTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
 }
 
 func (t AllegraTransaction) Inputs() []common.TransactionInput {
