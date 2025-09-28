@@ -609,7 +609,11 @@ func (AlonzoTransaction) Type() int {
 }
 
 func (t AlonzoTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t AlonzoTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
 }
 
 func (t AlonzoTransaction) Inputs() []common.TransactionInput {
