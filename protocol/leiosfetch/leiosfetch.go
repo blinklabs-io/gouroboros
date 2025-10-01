@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package leiosnotify
+package leiosfetch
 
 import (
 	"time"
@@ -22,14 +22,17 @@ import (
 )
 
 const (
-	ProtocolName        = "leios-notify"
-	ProtocolId   uint16 = 998 // NOTE: this is a dummy value and will need to be changed
+	ProtocolName        = "leios-fetch"
+	ProtocolId   uint16 = 999 // NOTE: this is a dummy value and will need to be changed
 )
 
 var (
-	StateIdle = protocol.NewState(1, "Idle")
-	StateBusy = protocol.NewState(2, "Busy")
-	StateDone = protocol.NewState(3, "Done")
+	StateIdle       = protocol.NewState(1, "Idle")
+	StateBlock      = protocol.NewState(2, "Block")
+	StateBlockTxs   = protocol.NewState(3, "BlockTxs")
+	StateVotes      = protocol.NewState(4, "Votes")
+	StateBlockRange = protocol.NewState(5, "BlockRange")
+	StateDone       = protocol.NewState(6, "Done")
 )
 
 var StateMap = protocol.StateMap{
@@ -37,8 +40,20 @@ var StateMap = protocol.StateMap{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeNotificationRequestNext,
-				NewState: StateBusy,
+				MsgType:  MessageTypeBlockRequest,
+				NewState: StateBlock,
+			},
+			{
+				MsgType:  MessageTypeBlockTxsRequest,
+				NewState: StateBlockTxs,
+			},
+			{
+				MsgType:  MessageTypeVotesRequest,
+				NewState: StateVote,
+			},
+			{
+				MsgType:  MessageTypeBlockRangeRequest,
+				NewState: StateBlockRange,
 			},
 			{
 				MsgType:  MessageTypeDone,
@@ -46,23 +61,42 @@ var StateMap = protocol.StateMap{
 			},
 		},
 	},
-	StateBusy: protocol.StateMapEntry{
+	StateBlock: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeBlockAnnouncement,
+				MsgType:  MessageTypeBlock,
 				NewState: StateIdle,
 			},
+		},
+	},
+	StateBlockTxs: protocol.StateMapEntry{
+		Agency: protocol.AgencyServer,
+		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeBlockOffer,
+				MsgType:  MessageTypeBlockTxs,
 				NewState: StateIdle,
 			},
+		},
+	},
+	StateVotes: protocol.StateMapEntry{
+		Agency: protocol.AgencyServer,
+		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeBlockTxsOffer,
+				MsgType:  MessageTypeVotes,
 				NewState: StateIdle,
 			},
+		},
+	},
+	StateBlockRange: protocol.StateMapEntry{
+		Agency: protocol.AgencyServer,
+		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeVotesOffer,
+				MsgType:  MessageTypeNextBlockAndTxsInRange,
+				NewState: StateBlockRange,
+			},
+			{
+				MsgType:  MessageTypeLastBlockAndTxsInRange,
 				NewState: StateIdle,
 			},
 		},
@@ -72,11 +106,12 @@ var StateMap = protocol.StateMap{
 	},
 }
 
-type LeiosNotify struct {
+type LeiosFetch struct {
 	Client *Client
 	Server *Server
 }
 
+// TODO
 type Config struct {
 	RequestNextFunc RequestNextFunc
 	Timeout         time.Duration
@@ -89,24 +124,25 @@ type CallbackContext struct {
 	Server       *Server
 }
 
+// TODO
 // Callback function types
 type (
 	RequestNextFunc func(CallbackContext) (protocol.Message, error)
 )
 
-func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LeiosNotify {
-	b := &LeiosNotify{
+func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LeiosFetch {
+	b := &LeiosFetch{
 		Client: NewClient(protoOptions, cfg),
 		Server: NewServer(protoOptions, cfg),
 	}
 	return b
 }
 
-type LeiosNotifyOptionFunc func(*Config)
+type LeiosFetchOptionFunc func(*Config)
 
-func NewConfig(options ...LeiosNotifyOptionFunc) Config {
+func NewConfig(options ...LeiosFetchOptionFunc) Config {
 	c := Config{
-		Timeout: 60 * time.Second,
+		Timeout: 5 * time.Second,
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -115,13 +151,14 @@ func NewConfig(options ...LeiosNotifyOptionFunc) Config {
 	return c
 }
 
-func WithRequestNextFunc(requestNextFunc RequestNextFunc) LeiosNotifyOptionFunc {
+// TODO
+func WithRequestNextFunc(requestNextFunc RequestNextFunc) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.RequestNextFunc = requestNextFunc
 	}
 }
 
-func WithTimeout(timeout time.Duration) LeiosNotifyOptionFunc {
+func WithTimeout(timeout time.Duration) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout
 	}
