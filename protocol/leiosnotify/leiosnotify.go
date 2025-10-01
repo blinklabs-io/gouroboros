@@ -29,7 +29,7 @@ const (
 var (
 	StateIdle = protocol.NewState(1, "Idle")
 	StateBusy = protocol.NewState(2, "Busy")
-	StateDone = protocol.NewState(4, "Done")
+	StateDone = protocol.NewState(3, "Done")
 )
 
 var StateMap = protocol.StateMap{
