@@ -23,13 +23,13 @@ import (
 
 const (
 	ProtocolName        = "leios-notify"
-	ProtocolId   uint16 = 998 // NOTE: this is a dummy value and will need to be changed
+	ProtocolId   uint16 = 18
 )
 
 var (
 	StateIdle = protocol.NewState(1, "Idle")
 	StateBusy = protocol.NewState(2, "Busy")
-	StateDone = protocol.NewState(4, "Done")
+	StateDone = protocol.NewState(3, "Done")
 )
 
 var StateMap = protocol.StateMap{
