@@ -64,7 +64,8 @@ type LeiosEndorserBlock struct {
 	cbor.DecodeStoreCbor
 	cbor.StructAsArray
 	hash         *common.Blake2b256
-	TxReferences []common.TxReference
+	transactions []common.Transaction
+	TxReferences []common.TxReference `cbor:"0,keyasint"`
 }
 
 func (h *LeiosBlockHeader) UnmarshalCBOR(cborData []byte) error {
@@ -153,9 +154,7 @@ func (b *LeiosEndorserBlock) PrevHash() common.Blake2b256 {
 }
 
 func (b *LeiosEndorserBlock) Transactions() []common.Transaction {
-	// TODO: convert TxReferences into []Transaction
-	// TxReferences []common.TxReference
-	return []common.Transaction{}
+	return b.transactions
 }
 
 func (b *LeiosEndorserBlock) Utxorpc() (*utxorpc.Block, error) {
