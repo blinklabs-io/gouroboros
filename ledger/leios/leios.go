@@ -65,7 +65,7 @@ type LeiosEndorserBlock struct {
 	cbor.StructAsArray
 	hash         *common.Blake2b256
 	transactions []common.Transaction
-	TxReferences []common.TxReference `cbor:"0,keyasint"`
+	TxReferences []common.TxReference
 }
 
 func (h *LeiosBlockHeader) UnmarshalCBOR(cborData []byte) error {
