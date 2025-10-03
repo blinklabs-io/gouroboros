@@ -180,7 +180,7 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 	}
 
 	expHash := tx.Hash().Bytes()
-	if !equalBytes(utxoTx.Hash, expHash) {
+	if !bytes.Equal(utxoTx.Hash, expHash) {
 		t.Errorf("tx hash mismatch\nexpected: %x\nactual  : %x", expHash, utxoTx.Hash)
 	}
 
@@ -190,16 +190,4 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 	if got, want := len(utxoTx.Outputs), len(tx.Outputs()); got != want {
 		t.Errorf("outputs count mismatch: got %d want %d", got, want)
 	}
-}
-
-func equalBytes(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
