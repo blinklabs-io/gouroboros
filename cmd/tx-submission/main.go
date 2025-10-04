@@ -141,7 +141,7 @@ func main() {
 	// Wait until we're done
 	<-doneChan
 
-	fmt.Printf("Successfully sent transaction %x\n", tx.Hash())
+	fmt.Printf("Successfully sent transaction %x\n", tx.Id())
 
 	if err := o.Close(); err != nil {
 		fmt.Printf("ERROR: failed to close connection: %s\n", err)

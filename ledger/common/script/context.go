@@ -209,7 +209,7 @@ func NewTxInfoV3FromTransaction(
 		Signatories:        signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:          redeemers,
 		Data:               tmpData,
-		Id:                 tx.Hash(),
+		Id:                 tx.Id(),
 		Votes:              votes,
 		ProposalProcedures: proposalProcedures,
 	}

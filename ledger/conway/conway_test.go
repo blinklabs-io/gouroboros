@@ -179,7 +179,7 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 		t.Fatalf("failed to convert Conway tx to utxorpc: %v", err)
 	}
 
-	expHash := tx.Hash().Bytes()
+	expHash := tx.Id().Bytes()
 	if !bytes.Equal(utxoTx.Hash, expHash) {
 		t.Errorf("tx hash mismatch\nexpected: %x\nactual  : %x", expHash, utxoTx.Hash)
 	}
