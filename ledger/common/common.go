@@ -338,7 +338,10 @@ func (m *MultiAsset[T]) String() string {
 	}
 
 	policies := slices.Collect(maps.Keys(norm))
-	slices.SortFunc(policies, func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+	slices.SortFunc(
+		policies,
+		func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+	)
 
 	var b strings.Builder
 	b.WriteByte('[')
@@ -346,7 +349,10 @@ func (m *MultiAsset[T]) String() string {
 	for _, pid := range policies {
 		assets := norm[pid]
 		names := slices.Collect(maps.Keys(assets))
-		slices.SortFunc(names, func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+		slices.SortFunc(
+			names,
+			func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+		)
 
 		for _, name := range names {
 			if !first {

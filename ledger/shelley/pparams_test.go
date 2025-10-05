@@ -271,7 +271,10 @@ func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 	// Convert the transaction body to utxorpc format
 	actual, err := txBody.Utxorpc()
 	if err != nil {
-		t.Fatalf("Could not convert the transaction body to utxorpc format %v", err)
+		t.Fatalf(
+			"Could not convert the transaction body to utxorpc format %v",
+			err,
+		)
 	}
 
 	// Check that the fee matches

@@ -16,7 +16,10 @@ func TestShelleyTransactionOutputString(t *testing.T) {
 		OutputAmount:  456,
 	}
 	s := out.String()
-	expected := fmt.Sprintf("(ShelleyTransactionOutput address=%s amount=456)", addrStr)
+	expected := fmt.Sprintf(
+		"(ShelleyTransactionOutput address=%s amount=456)",
+		addrStr,
+	)
 	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}
@@ -29,8 +32,13 @@ func TestShelleyOutputTooSmallErrorFormatting(t *testing.T) {
 		OutputAddress: addr,
 		OutputAmount:  456,
 	}
-	errStr := shelley.OutputTooSmallUtxoError{Outputs: []common.TransactionOutput{out}}.Error()
-	expected := fmt.Sprintf("output too small: (ShelleyTransactionOutput address=%s amount=456)", addrStr)
+	errStr := shelley.OutputTooSmallUtxoError{
+		Outputs: []common.TransactionOutput{out},
+	}.Error()
+	expected := fmt.Sprintf(
+		"output too small: (ShelleyTransactionOutput address=%s amount=456)",
+		addrStr,
+	)
 	if errStr != expected {
 		t.Fatalf("unexpected error: %s", errStr)
 	}

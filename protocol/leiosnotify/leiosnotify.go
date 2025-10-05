@@ -115,7 +115,9 @@ func NewConfig(options ...LeiosNotifyOptionFunc) Config {
 	return c
 }
 
-func WithRequestNextFunc(requestNextFunc RequestNextFunc) LeiosNotifyOptionFunc {
+func WithRequestNextFunc(
+	requestNextFunc RequestNextFunc,
+) LeiosNotifyOptionFunc {
 	return func(c *Config) {
 		c.RequestNextFunc = requestNextFunc
 	}

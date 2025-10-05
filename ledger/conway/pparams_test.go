@@ -656,7 +656,10 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 
 	got, err := body.Utxorpc()
 	if err != nil {
-		t.Fatalf("Could not convert the transaction body to utxorpc format %v", err)
+		t.Fatalf(
+			"Could not convert the transaction body to utxorpc format %v",
+			err,
+		)
 	}
 
 	if got.Fee != 1000 {

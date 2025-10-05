@@ -407,13 +407,23 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		push(1, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinFeeB))))
 	}
 	if u.MaxBlockBodySize != nil {
-		push(2, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxBlockBodySize))))
+		push(
+			2,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxBlockBodySize)),
+			),
+		)
 	}
 	if u.MaxTxSize != nil {
 		push(3, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxTxSize))))
 	}
 	if u.MaxBlockHeaderSize != nil {
-		push(4, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxBlockHeaderSize))))
+		push(
+			4,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxBlockHeaderSize)),
+			),
+		)
 	}
 	if u.KeyDeposit != nil {
 		push(5, data.NewInteger(new(big.Int).SetUint64(uint64(*u.KeyDeposit))))
@@ -452,10 +462,16 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		)
 	}
 	if u.MinPoolCost != nil {
-		push(16, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinPoolCost))))
+		push(
+			16,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinPoolCost))),
+		)
 	}
 	if u.AdaPerUtxoByte != nil {
-		push(17, data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))))
+		push(
+			17,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))),
+		)
 	}
 	// TODO: CostModels
 	if u.ExecutionCosts != nil {
@@ -489,13 +505,26 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		)
 	}
 	if u.MaxValueSize != nil {
-		push(22, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxValueSize))))
+		push(
+			22,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxValueSize))),
+		)
 	}
 	if u.CollateralPercentage != nil {
-		push(23, data.NewInteger(new(big.Int).SetUint64(uint64(*u.CollateralPercentage))))
+		push(
+			23,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.CollateralPercentage)),
+			),
+		)
 	}
 	if u.MaxCollateralInputs != nil {
-		push(24, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxCollateralInputs))))
+		push(
+			24,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxCollateralInputs)),
+			),
+		)
 	}
 	if u.PoolVotingThresholds != nil {
 		push(25, u.PoolVotingThresholds.ToPlutusData())
@@ -504,13 +533,21 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		push(26, u.DRepVotingThresholds.ToPlutusData())
 	}
 	if u.MinCommitteeSize != nil {
-		push(27, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinCommitteeSize))))
+		push(
+			27,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MinCommitteeSize)),
+			),
+		)
 	}
 	if u.CommitteeTermLimit != nil {
 		push(28, data.NewInteger(new(big.Int).SetUint64(*u.CommitteeTermLimit)))
 	}
 	if u.GovActionValidityPeriod != nil {
-		push(29, data.NewInteger(new(big.Int).SetUint64(*u.GovActionValidityPeriod)))
+		push(
+			29,
+			data.NewInteger(new(big.Int).SetUint64(*u.GovActionValidityPeriod)),
+		)
 	}
 	if u.GovActionDeposit != nil {
 		push(30, data.NewInteger(new(big.Int).SetUint64(*u.GovActionDeposit)))
@@ -519,7 +556,10 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		push(31, data.NewInteger(new(big.Int).SetUint64(*u.DRepDeposit)))
 	}
 	if u.DRepInactivityPeriod != nil {
-		push(32, data.NewInteger(new(big.Int).SetUint64(*u.DRepInactivityPeriod)))
+		push(
+			32,
+			data.NewInteger(new(big.Int).SetUint64(*u.DRepInactivityPeriod)),
+		)
 	}
 	if u.MinFeeRefScriptCostPerByte != nil {
 		push(33,

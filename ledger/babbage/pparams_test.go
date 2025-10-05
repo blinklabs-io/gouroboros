@@ -637,7 +637,10 @@ func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
 
 	got, err := body.Utxorpc()
 	if err != nil {
-		t.Fatalf("Could not convert transaction body to utxorpc format: %v", err)
+		t.Fatalf(
+			"Could not convert transaction body to utxorpc format: %v",
+			err,
+		)
 	}
 	if got.Fee != 100 {
 		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
