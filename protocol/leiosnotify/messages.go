@@ -75,7 +75,9 @@ type MsgBlockAnnouncement struct {
 	BlockHeaderRaw cbor.RawMessage
 }
 
-func NewMsgBlockAnnouncement(blockHeader cbor.RawMessage) *MsgBlockAnnouncement {
+func NewMsgBlockAnnouncement(
+	blockHeader cbor.RawMessage,
+) *MsgBlockAnnouncement {
 	m := &MsgBlockAnnouncement{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockAnnouncement,

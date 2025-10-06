@@ -122,7 +122,9 @@ func TestMaryTransactionOutputString(t *testing.T) {
 	addr, _ := common.NewAddress(addrStr)
 	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
-			common.NewBlake2b224(make([]byte, 28)): {cbor.NewByteString([]byte("token")): 2},
+			common.NewBlake2b224(make([]byte, 28)): {
+				cbor.NewByteString([]byte("token")): 2,
+			},
 		},
 	)
 	out := MaryTransactionOutput{
@@ -130,7 +132,11 @@ func TestMaryTransactionOutputString(t *testing.T) {
 		OutputAmount:  MaryTransactionOutputValue{Amount: 456, Assets: &ma},
 	}
 	s := out.String()
-	expected := fmt.Sprintf("(MaryTransactionOutput address=%s amount=456 assets=%s)", addrStr, ma.String())
+	expected := fmt.Sprintf(
+		"(MaryTransactionOutput address=%s amount=456 assets=%s)",
+		addrStr,
+		ma.String(),
+	)
 	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}
@@ -143,8 +149,13 @@ func TestMaryOutputTooBigErrorFormatting(t *testing.T) {
 		OutputAddress: addr,
 		OutputAmount:  MaryTransactionOutputValue{Amount: 456},
 	}
-	errStr := OutputTooBigUtxoError{Outputs: []common.TransactionOutput{out}}.Error()
-	expected := fmt.Sprintf("output value too large: (MaryTransactionOutput address=%s amount=456)", addrStr)
+	errStr := OutputTooBigUtxoError{
+		Outputs: []common.TransactionOutput{out},
+	}.Error()
+	expected := fmt.Sprintf(
+		"output value too large: (MaryTransactionOutput address=%s amount=456)",
+		addrStr,
+	)
 	if errStr != expected {
 		t.Fatalf("unexpected error: %s", errStr)
 	}

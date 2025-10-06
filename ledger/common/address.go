@@ -228,7 +228,10 @@ func (a *Address) populateFromBytes(data []byte) error {
 	// Payment payload
 	payload := data[1:]
 	switch a.addressType {
-	case AddressTypeKeyKey, AddressTypeKeyScript, AddressTypeKeyPointer, AddressTypeKeyNone:
+	case AddressTypeKeyKey,
+		AddressTypeKeyScript,
+		AddressTypeKeyPointer,
+		AddressTypeKeyNone:
 		if len(payload) < AddressHashSize {
 			return errors.New("invalid payment payload: key hash too small")
 		}
@@ -236,7 +239,10 @@ func (a *Address) populateFromBytes(data []byte) error {
 			Hash: AddrKeyHash(payload[0:AddressHashSize]),
 		}
 		payload = payload[AddressHashSize:]
-	case AddressTypeScriptKey, AddressTypeScriptScript, AddressTypeScriptPointer, AddressTypeScriptNone:
+	case AddressTypeScriptKey,
+		AddressTypeScriptScript,
+		AddressTypeScriptPointer,
+		AddressTypeScriptNone:
 		if len(payload) < AddressHashSize {
 			return errors.New("invalid payment payload: script hash too small")
 		}

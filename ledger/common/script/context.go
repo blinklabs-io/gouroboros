@@ -458,7 +458,11 @@ func votingInfo(
 ) KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]] {
 	var ret KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]]
 	for voter, voterData := range votingProcedures {
-		voterPairs := make(KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure], 0, len(votingProcedures))
+		voterPairs := make(
+			KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure],
+			0,
+			len(votingProcedures),
+		)
 		for govActionId, votingProcedure := range voterData {
 			voterPairs = append(
 				voterPairs,
@@ -473,7 +477,10 @@ func votingInfo(
 			voterPairs,
 			func(a, b KeyValuePair[*lcommon.GovActionId, lcommon.VotingProcedure]) int {
 				// Compare TX ID
-				x := bytes.Compare(a.Key.TransactionId[:], b.Key.TransactionId[:])
+				x := bytes.Compare(
+					a.Key.TransactionId[:],
+					b.Key.TransactionId[:],
+				)
 				if x != 0 {
 					return x
 				}

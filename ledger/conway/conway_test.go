@@ -145,7 +145,11 @@ func TestConwayTx_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 
 	if !bytes.Equal(orig, enc) {
-		t.Errorf("CBOR round-trip mismatch\noriginal: %x\nencoded : %x", orig, enc)
+		t.Errorf(
+			"CBOR round-trip mismatch\noriginal: %x\nencoded : %x",
+			orig,
+			enc,
+		)
 
 		i := -1
 		for j := 0; j < len(orig) && j < len(enc); j++ {
@@ -155,7 +159,12 @@ func TestConwayTx_CborRoundTrip_UsingCborEncode(t *testing.T) {
 			}
 		}
 		if i != -1 {
-			t.Logf("first diff at byte %d: orig=0x%02x enc=0x%02x", i, orig[i], enc[i])
+			t.Logf(
+				"first diff at byte %d: orig=0x%02x enc=0x%02x",
+				i,
+				orig[i],
+				enc[i],
+			)
 		} else {
 			t.Logf("length mismatch: orig=%d enc=%d", len(orig), len(enc))
 		}
@@ -181,7 +190,11 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 
 	expHash := tx.Id().Bytes()
 	if !bytes.Equal(utxoTx.Hash, expHash) {
-		t.Errorf("tx hash mismatch\nexpected: %x\nactual  : %x", expHash, utxoTx.Hash)
+		t.Errorf(
+			"tx hash mismatch\nexpected: %x\nactual  : %x",
+			expHash,
+			utxoTx.Hash,
+		)
 	}
 
 	if got, want := len(utxoTx.Inputs), len(tx.Inputs()); got != want {

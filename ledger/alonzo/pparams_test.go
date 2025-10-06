@@ -261,7 +261,8 @@ func TestScientificNotationInCostModels(t *testing.T) {
 	}
 
 	expected := []int64{2477736, 1500000, 1000000}
-	if params.CostModels == nil || params.CostModels[alonzo.PlutusV1Key] == nil {
+	if params.CostModels == nil ||
+		params.CostModels[alonzo.PlutusV1Key] == nil {
 		t.Fatal("CostModels not properly initialized")
 	}
 	for i := range 3 {
@@ -520,7 +521,10 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 	// Run Utxorpc conversion
 	got, err := body.Utxorpc()
 	if err != nil {
-		t.Fatalf("Could not convert transaction body to utxorpc format: %v", err)
+		t.Fatalf(
+			"Could not convert transaction body to utxorpc format: %v",
+			err,
+		)
 	}
 
 	// Assertion checks

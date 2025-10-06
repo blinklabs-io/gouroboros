@@ -284,12 +284,17 @@ func TestAlonzoTransactionOutputString(t *testing.T) {
 	addr, _ := common.NewAddress(addrStr)
 	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
-			common.NewBlake2b224(make([]byte, 28)): {cbor.NewByteString([]byte("t")): 2},
+			common.NewBlake2b224(make([]byte, 28)): {
+				cbor.NewByteString([]byte("t")): 2,
+			},
 		},
 	)
 	out := AlonzoTransactionOutput{
 		OutputAddress: addr,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 456, Assets: &ma},
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 456,
+			Assets: &ma,
+		},
 	}
 	s := out.String()
 	policyStr := common.NewBlake2b224(make([]byte, 28)).String()

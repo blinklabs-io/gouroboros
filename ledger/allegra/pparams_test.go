@@ -164,7 +164,10 @@ func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 	// Run Utxorpc conversion
 	actual, err := txBody.Utxorpc()
 	if err != nil {
-		t.Fatalf("Could not convert transaction body to utxorpc format: %v", err)
+		t.Fatalf(
+			"Could not convert transaction body to utxorpc format: %v",
+			err,
+		)
 	}
 
 	// Check that the fee matches
