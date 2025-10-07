@@ -15,11 +15,26 @@
 package leios
 
 import (
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 )
 
 type (
-	LeiosTransaction           = conway.ConwayTransaction
 	LeiosTransactionBody       = conway.ConwayTransactionBody
 	LeiosTransactionWitnessSet = conway.ConwayTransactionWitnessSet
 )
+
+type LeiosTransaction struct {
+	conway.ConwayTransaction
+	hash       *common.Blake2b256
+	Body       LeiosTransactionBody
+	WitnessSet LeiosTransactionWitnessSet
+}
+
+func (t *LeiosTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
+}

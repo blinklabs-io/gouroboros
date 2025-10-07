@@ -537,6 +537,7 @@ func (w ShelleyTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type ShelleyTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
@@ -563,6 +564,14 @@ func (t ShelleyTransaction) Hash() common.Blake2b256 {
 
 func (t ShelleyTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
+}
+
+func (t ShelleyTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t ShelleyTransaction) Inputs() []common.TransactionInput {

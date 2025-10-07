@@ -514,6 +514,7 @@ func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
 type ConwayTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       ConwayTransactionBody
 	WitnessSet ConwayTransactionWitnessSet
 	TxIsValid  bool
@@ -541,6 +542,14 @@ func (t ConwayTransaction) Hash() common.Blake2b256 {
 
 func (t ConwayTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
+}
+
+func (t ConwayTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t ConwayTransaction) Inputs() []common.TransactionInput {

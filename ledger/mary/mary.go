@@ -244,6 +244,7 @@ func (b *MaryTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
 type MaryTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       MaryTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
@@ -270,6 +271,14 @@ func (t MaryTransaction) Hash() common.Blake2b256 {
 
 func (t MaryTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
+}
+
+func (t MaryTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t MaryTransaction) Inputs() []common.TransactionInput {
