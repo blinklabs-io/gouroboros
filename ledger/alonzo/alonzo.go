@@ -587,6 +587,7 @@ func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeem
 type AlonzoTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
@@ -614,6 +615,14 @@ func (t AlonzoTransaction) Hash() common.Blake2b256 {
 
 func (t AlonzoTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
+}
+
+func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t AlonzoTransaction) Inputs() []common.TransactionInput {

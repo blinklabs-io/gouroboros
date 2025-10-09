@@ -27,6 +27,7 @@ type Transaction interface {
 	Type() int
 	Cbor() []byte
 	Hash() Blake2b256
+	LeiosHash() Blake2b256
 	Metadata() *cbor.LazyValue
 	IsValid() bool
 	Consumed() []TransactionInput

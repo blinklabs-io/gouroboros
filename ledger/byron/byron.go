@@ -279,6 +279,14 @@ func (t *ByronTransaction) Metadata() *cbor.LazyValue {
 	return t.Attributes
 }
 
+func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
+}
+
 func (t *ByronTransaction) IsValid() bool {
 	return true
 }

@@ -46,6 +46,8 @@ func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 		return NewBabbageTransactionFromCbor(data)
 	case TxTypeConway:
 		return NewConwayTransactionFromCbor(data)
+	case TxTypeLeios:
+		return NewLeiosTransactionFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
@@ -69,6 +71,8 @@ func NewTransactionBodyFromCbor(
 		return NewBabbageTransactionBodyFromCbor(data)
 	case TxTypeConway:
 		return NewConwayTransactionBodyFromCbor(data)
+	case TxTypeLeios:
+		return NewLeiosTransactionBodyFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
@@ -115,6 +119,9 @@ func DetermineTransactionType(data []byte) (uint, error) {
 	}
 	if _, err := NewConwayTransactionFromCbor(data); err == nil {
 		return TxTypeConway, nil
+	}
+	if _, err := NewLeiosTransactionFromCbor(data); err == nil {
+		return TxTypeLeios, nil
 	}
 	return 0, errors.New("unknown transaction type")
 }

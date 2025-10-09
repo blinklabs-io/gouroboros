@@ -729,6 +729,7 @@ func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type BabbageTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
@@ -756,6 +757,14 @@ func (t BabbageTransaction) Hash() common.Blake2b256 {
 
 func (t BabbageTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
+}
+
+func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t BabbageTransaction) Inputs() []common.TransactionInput {
