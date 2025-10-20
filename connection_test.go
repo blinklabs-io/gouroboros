@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2024 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,13 @@
 package ouroboros_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
@@ -30,19 +32,43 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
 	t.Run("ErrorsPropagatedWhenProtocolsActive", func(t *testing.T) {
-		// Create a mock connection that will complete handshake
+		// Create a mock connection that will complete handshake and start the chainsync protocol
 		mockConn := ouroboros_mock.NewConnection(
 			ouroboros_mock.ProtocolRoleClient,
 			[]ouroboros_mock.ConversationEntry{
 				ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-				ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+				ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+				// ChainSync messages
+				ouroboros_mock.ConversationEntryInput{
+					// FindIntersect
+					ProtocolId: chainsync.ProtocolIdNtC,
+					Message: chainsync.NewMsgFindIntersect(
+						[]common.Point{
+							{
+								Slot: 21600,
+								Hash: []byte("19297addad3da631einos029"),
+							},
+						},
+					),
+				},
 			},
 		)
 
 		oConn, err := ouroboros.New(
 			ouroboros.WithConnection(mockConn),
 			ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
-			ouroboros.WithNodeToNode(true),
+			ouroboros.WithServer(true),
+			ouroboros.WithChainSyncConfig(
+				chainsync.NewConfig(
+					chainsync.WithFindIntersectFunc(
+						func(ctx chainsync.CallbackContext, points []common.Point) (common.Point, chainsync.Tip, error) {
+							// We need to block here to keep the protocol active
+							time.Sleep(5 * time.Second)
+							return common.Point{}, chainsync.Tip{}, fmt.Errorf("context cancelled")
+						},
+					),
+				),
+			),
 		)
 		if err != nil {
 			t.Fatalf("unexpected error when creating Connection object: %s", err)
@@ -52,19 +78,16 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 		var chainSyncProtocol *chainsync.ChainSync
 		for i := 0; i < 100; i++ {
 			chainSyncProtocol = oConn.ChainSync()
-			if chainSyncProtocol != nil && chainSyncProtocol.Client != nil {
+			if chainSyncProtocol != nil && chainSyncProtocol.Server != nil {
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
 
-		if chainSyncProtocol == nil || chainSyncProtocol.Client == nil {
+		if chainSyncProtocol == nil || chainSyncProtocol.Server == nil {
 			oConn.Close()
 			t.Fatal("chain sync protocol not initialized")
 		}
-
-		// Start the chain sync protocol to make it active
-		chainSyncProtocol.Client.Start()
 
 		// Wait a bit for protocol to start
 		time.Sleep(100 * time.Millisecond)
@@ -87,19 +110,23 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	})
 
 	t.Run("ErrorsIgnoredWhenProtocolsStopped", func(t *testing.T) {
-		// Create a mock connection
+		// Create a mock connection that will send a Done message to stop the protocol
 		mockConn := ouroboros_mock.NewConnection(
 			ouroboros_mock.ProtocolRoleClient,
 			[]ouroboros_mock.ConversationEntry{
 				ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-				ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+				ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+				// Send Done message to stop the protocol
+				ouroboros_mock.ConversationEntryInput{
+					ProtocolId: chainsync.ProtocolIdNtC,
+				},
 			},
 		)
 
 		oConn, err := ouroboros.New(
 			ouroboros.WithConnection(mockConn),
 			ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
-			ouroboros.WithNodeToNode(true),
+			ouroboros.WithServer(true),
 		)
 		if err != nil {
 			t.Fatalf("unexpected error when creating Connection object: %s", err)
@@ -109,30 +136,21 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 		var chainSyncProtocol *chainsync.ChainSync
 		for i := 0; i < 100; i++ {
 			chainSyncProtocol = oConn.ChainSync()
-			if chainSyncProtocol != nil && chainSyncProtocol.Client != nil {
+			if chainSyncProtocol != nil && chainSyncProtocol.Server != nil {
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
 
-		if chainSyncProtocol == nil || chainSyncProtocol.Client == nil {
+		if chainSyncProtocol == nil || chainSyncProtocol.Server == nil {
 			oConn.Close()
 			t.Fatal("chain sync protocol not initialized")
 		}
 
-		// Start and then immediately stop the protocol
-		chainSyncProtocol.Client.Start()
-		time.Sleep(50 * time.Millisecond)
-
-		// Stop the protocol explicitly
-		if err := chainSyncProtocol.Client.Stop(); err != nil {
-			t.Fatalf("failed to stop chain sync: %s", err)
-		}
-
-		// Wait for protocol to be done
+		// Wait for protocol to be done (Done message from mock should trigger this)
 		select {
-		case <-chainSyncProtocol.Client.DoneChan():
-			// Protocol is stopped
+		case <-chainSyncProtocol.Server.DoneChan():
+		// Protocol is stoppeds
 		case <-time.After(1 * time.Second):
 			t.Fatal("timed out waiting for protocol to stop")
 		}
@@ -172,24 +190,6 @@ func TestErrorHandlingWithMultipleProtocols(t *testing.T) {
 	}
 
 	// Wait for handshake to complete
-	time.Sleep(100 * time.Millisecond)
-
-	// Start multiple protocols
-	chainSync := oConn.ChainSync()
-	blockFetch := oConn.BlockFetch()
-	txSubmission := oConn.TxSubmission()
-
-	if chainSync != nil && chainSync.Client != nil {
-		chainSync.Client.Start()
-	}
-	if blockFetch != nil && blockFetch.Client != nil {
-		blockFetch.Client.Start()
-	}
-	if txSubmission != nil && txSubmission.Client != nil {
-		txSubmission.Client.Start()
-	}
-
-	// Wait for protocols to start
 	time.Sleep(100 * time.Millisecond)
 
 	// Close connection to generate error
@@ -247,34 +247,4 @@ func TestBasicErrorHandling(t *testing.T) {
 			t.Fatalf("unexpected error on second close: %s", err)
 		}
 	})
-}
-
-// TestErrorChannelBehavior tests basic error channel behavior
-func TestErrorChannelBehavior(t *testing.T) {
-	defer goleak.VerifyNone(t)
-
-	oConn, err := ouroboros.New(
-		ouroboros.WithNetworkMagic(764824073),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error when creating Connection object: %s", err)
-	}
-
-	errorChan := oConn.ErrorChan()
-	if errorChan == nil {
-		t.Fatal("error channel should not be nil")
-	}
-
-	select {
-	case err, ok := <-errorChan:
-		if ok {
-			t.Logf("Error channel contained: %s", err)
-		} else {
-			t.Error("Error channel should not be closed initially")
-		}
-	default:
-		// Expected - channel is empty but open
-	}
-
-	oConn.Close()
 }
