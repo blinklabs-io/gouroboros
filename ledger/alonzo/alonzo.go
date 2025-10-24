@@ -55,7 +55,7 @@ type AlonzoBlock struct {
 	BlockHeader            *AlonzoBlockHeader
 	TransactionBodies      []AlonzoTransactionBody
 	TransactionWitnessSets []AlonzoTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.LazyValue
+	TransactionMetadataSet map[uint]common.TransactionMetadataSet
 	InvalidTransactions    []uint
 }
 
@@ -591,7 +591,7 @@ type AlonzoTransaction struct {
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
-	TxMetadata *cbor.LazyValue
+	TxMetadata common.TransactionMetadataSet
 }
 
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -705,7 +705,7 @@ func (t AlonzoTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t AlonzoTransaction) Metadata() *cbor.LazyValue {
+func (t AlonzoTransaction) Metadata() common.TransactionMetadataSet {
 	return t.TxMetadata
 }
 
@@ -765,7 +765,7 @@ func (t *AlonzoTransaction) Cbor() []byte {
 		t.TxIsValid,
 	}
 	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+		tmpObj = append(tmpObj, t.TxMetadata)
 	} else {
 		tmpObj = append(tmpObj, nil)
 	}

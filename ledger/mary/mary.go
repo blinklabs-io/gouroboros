@@ -52,7 +52,7 @@ type MaryBlock struct {
 	BlockHeader            *MaryBlockHeader
 	TransactionBodies      []MaryTransactionBody
 	TransactionWitnessSets []shelley.ShelleyTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.LazyValue
+	TransactionMetadataSet map[uint]common.TransactionMetadataSet
 }
 
 func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
@@ -247,7 +247,7 @@ type MaryTransaction struct {
 	hash       *common.Blake2b256
 	Body       MaryTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
-	TxMetadata *cbor.LazyValue
+	TxMetadata common.TransactionMetadataSet
 }
 
 func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -361,7 +361,7 @@ func (t MaryTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t MaryTransaction) Metadata() *cbor.LazyValue {
+func (t MaryTransaction) Metadata() common.TransactionMetadataSet {
 	return t.TxMetadata
 }
 
@@ -411,7 +411,7 @@ func (t *MaryTransaction) Cbor() []byte {
 		cbor.RawMessage(t.WitnessSet.Cbor()),
 	}
 	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+		tmpObj = append(tmpObj, t.TxMetadata)
 	} else {
 		tmpObj = append(tmpObj, nil)
 	}
