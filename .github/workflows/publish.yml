@@ -16,7 +16,7 @@ jobs:
       RELEASE_ID: ${{ steps.create-release.outputs.result }}
     steps:
       - run: "echo \"RELEASE_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
-      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1 https://github.com/actions/github-script/releases/tag/v7.0.1
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0 https://github.com/actions/github-script/releases/tag/v8.0.0
         id: create-release
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

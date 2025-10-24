@@ -161,6 +161,10 @@ func (ByronTransaction) Type() int {
 }
 
 func (t *ByronTransaction) Hash() common.Blake2b256 {
+	return t.Id()
+}
+
+func (t *ByronTransaction) Id() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -275,6 +279,14 @@ func (t *ByronTransaction) Metadata() common.TransactionMetadataSet {
 	return t.Attributes
 }
 
+func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
+}
+
 func (t *ByronTransaction) IsValid() bool {
 	return true
 }
@@ -289,7 +301,7 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewByronTransactionInput(t.Hash().String(), idx),
+				Id:     NewByronTransactionInput(t.Id().String(), idx),
 				Output: output,
 			},
 		)
@@ -422,8 +434,35 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 }
 
 func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
-	// A Byron transaction output will never be used for Plutus scripts
-	return nil
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o ByronTransactionOutput) Address() common.Address {
@@ -460,6 +499,14 @@ func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 			Coin:    o.Amount(),
 		},
 		nil
+}
+
+func (o ByronTransactionOutput) String() string {
+	return fmt.Sprintf(
+		"(ByronTransactionOutput address=%s amount=%d)",
+		o.OutputAddress.String(),
+		o.OutputAmount,
+	)
 }
 
 type ByronBlockVersion struct {

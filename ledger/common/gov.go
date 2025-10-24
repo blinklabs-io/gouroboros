@@ -15,7 +15,6 @@
 package common
 
 import (
-	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -129,21 +128,19 @@ func (id *GovActionId) ToPlutusData() data.PlutusData {
 	)
 }
 
-type ProposalProcedure struct {
-	cbor.StructAsArray
-	Deposit       uint64
-	RewardAccount Address
-	GovAction     GovActionWrapper
-	Anchor        GovAnchor
+type ProposalProcedure interface {
+	isProposalProcedure()
+	ToPlutusData() data.PlutusData
+	Deposit() uint64
+	RewardAccount() Address
+	GovAction() GovAction
+	Anchor() GovAnchor
 }
 
-func (p *ProposalProcedure) ToPlutusData() data.PlutusData {
-	return data.NewConstr(0,
-		data.NewInteger(new(big.Int).SetUint64(p.Deposit)),
-		p.RewardAccount.ToPlutusData(),
-		p.GovAction.ToPlutusData(),
-	)
-}
+type ProposalProcedureBase struct{}
+
+// nolint:unused
+func (ProposalProcedureBase) isProposalProcedure() {}
 
 const (
 	GovActionTypeParameterChange    = 0
@@ -155,76 +152,15 @@ const (
 	GovActionTypeInfo               = 6
 )
 
-type GovActionWrapper struct {
-	Type   uint
-	Action GovAction
-}
-
-func (g *GovActionWrapper) ToPlutusData() data.PlutusData {
-	return g.Action.ToPlutusData()
-}
-
-func (g *GovActionWrapper) UnmarshalCBOR(data []byte) error {
-	// Determine action type
-	actionType, err := cbor.DecodeIdFromList(data)
-	if err != nil {
-		return err
-	}
-	var tmpAction GovAction
-	switch actionType {
-	case GovActionTypeParameterChange:
-		tmpAction = &ParameterChangeGovAction{}
-	case GovActionTypeHardForkInitiation:
-		tmpAction = &HardForkInitiationGovAction{}
-	case GovActionTypeTreasuryWithdrawal:
-		tmpAction = &TreasuryWithdrawalGovAction{}
-	case GovActionTypeNoConfidence:
-		tmpAction = &NoConfidenceGovAction{}
-	case GovActionTypeUpdateCommittee:
-		tmpAction = &UpdateCommitteeGovAction{}
-	case GovActionTypeNewConstitution:
-		tmpAction = &NewConstitutionGovAction{}
-	case GovActionTypeInfo:
-		tmpAction = &InfoGovAction{}
-	default:
-		return fmt.Errorf("unknown governance action type: %d", actionType)
-	}
-	// Decode action
-	if _, err := cbor.Decode(data, tmpAction); err != nil {
-		return err
-	}
-	// action type is known within uint range
-	g.Type = uint(actionType) // #nosec G115
-	g.Action = tmpAction
-	return nil
-}
-
-func (g *GovActionWrapper) MarshalCBOR() ([]byte, error) {
-	return cbor.Encode(g.Action)
-}
-
 type GovAction interface {
 	isGovAction()
 	ToPlutusData() data.PlutusData
 }
 
-type ParameterChangeGovAction struct {
-	cbor.StructAsArray
-	Type        uint
-	ActionId    *GovActionId
-	ParamUpdate cbor.RawMessage // NOTE: we use raw to defer processing to account for per-era types
-	PolicyHash  []byte
-}
+type GovActionBase struct{}
 
-func (a *ParameterChangeGovAction) ToPlutusData() data.PlutusData {
-	return data.NewConstr(0,
-		a.ActionId.ToPlutusData(),
-		data.NewByteString(a.ParamUpdate),
-		data.NewByteString(a.PolicyHash),
-	)
-}
-
-func (a ParameterChangeGovAction) isGovAction() {}
+// nolint:unused
+func (GovActionBase) isGovAction() {}
 
 type HardForkInitiationGovAction struct {
 	cbor.StructAsArray
@@ -238,8 +174,12 @@ type HardForkInitiationGovAction struct {
 }
 
 func (a *HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
+	actionId := data.NewConstr(1)
+	if a.ActionId != nil {
+		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
+	}
 	return data.NewConstr(1,
-		a.ActionId.ToPlutusData(),
+		actionId,
 		data.NewConstr(
 			0,
 			data.NewInteger(
@@ -265,13 +205,20 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	pairs := make([][2]data.PlutusData, 0, len(a.Withdrawals))
 	for addr, amount := range a.Withdrawals {
 		pairs = append(pairs, [2]data.PlutusData{
-			data.NewConstr(0, addr.ToPlutusData()),
+			addr.ToPlutusData(),
 			data.NewInteger(new(big.Int).SetUint64(amount)),
 		})
 	}
+	policyHash := data.NewConstr(1)
+	if len(a.PolicyHash) > 0 {
+		policyHash = data.NewConstr(
+			0,
+			data.NewByteString(a.PolicyHash),
+		)
+	}
 	return data.NewConstr(2,
 		data.NewMap(pairs),
-		data.NewByteString(a.PolicyHash),
+		policyHash,
 	)
 }
 
@@ -284,8 +231,12 @@ type NoConfidenceGovAction struct {
 }
 
 func (a *NoConfidenceGovAction) ToPlutusData() data.PlutusData {
+	actionId := data.NewConstr(1)
+	if a.ActionId != nil {
+		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
+	}
 	return data.NewConstr(3,
-		a.ActionId.ToPlutusData(),
+		actionId,
 	)
 }
 
@@ -301,6 +252,10 @@ type UpdateCommitteeGovAction struct {
 }
 
 func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
+	actionId := data.NewConstr(1)
+	if a.ActionId != nil {
+		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
+	}
 	removedItems := make([]data.PlutusData, 0, len(a.Credentials))
 	for _, cred := range a.Credentials {
 		removedItems = append(removedItems, cred.ToPlutusData())
@@ -325,11 +280,14 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	}
 
 	return data.NewConstr(4,
-		a.ActionId.ToPlutusData(),
+		actionId,
 		data.NewList(removedItems...),
 		data.NewMap(addedPairs),
-		data.NewInteger(num),
-		data.NewInteger(den),
+		data.NewConstr(
+			0,
+			data.NewInteger(num),
+			data.NewInteger(den),
+		),
 	)
 }
 
@@ -347,11 +305,21 @@ type NewConstitutionGovAction struct {
 }
 
 func (a *NewConstitutionGovAction) ToPlutusData() data.PlutusData {
-	return data.NewConstr(5,
-		a.ActionId.ToPlutusData(),
-		data.NewConstr(0,
-			a.Constitution.Anchor.ToPlutusData(),
+	actionId := data.NewConstr(1)
+	if a.ActionId != nil {
+		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
+	}
+	scriptHash := data.NewConstr(1)
+	if len(a.Constitution.ScriptHash) > 0 {
+		scriptHash = data.NewConstr(
+			0,
 			data.NewByteString(a.Constitution.ScriptHash),
+		)
+	}
+	return data.NewConstr(5,
+		actionId,
+		data.NewConstr(0,
+			scriptHash,
 		),
 	)
 }

@@ -17,6 +17,7 @@ package byron
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"slices"
@@ -25,10 +26,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
+type ByronGenesisFtsSeed struct {
+	Value    string
+	IsObject bool
+}
 type ByronGenesis struct {
 	AvvmDistr        map[string]string                      `json:"avvmDistr"`
 	BlockVersionData ByronGenesisBlockVersionData           `json:"blockVersionData"`
-	FtsSeed          string                                 `json:"ftsSeed"`
+	FtsSeed          ByronGenesisFtsSeed                    `json:"ftsSeed"`
 	ProtocolConsts   ByronGenesisProtocolConsts             `json:"protocolConsts"`
 	StartTime        int                                    `json:"startTime"`
 	BootStakeholders map[string]int                         `json:"bootStakeholders"`
@@ -192,4 +197,49 @@ func NewByronGenesisFromFile(path string) (ByronGenesis, error) {
 	}
 	defer f.Close()
 	return NewByronGenesisFromReader(f)
+}
+
+// UnmarshalJSON accepts: "string", {}, or null
+// Tries each expected shape and accepts the first that parses cleanly
+func (f *ByronGenesisFtsSeed) UnmarshalJSON(b []byte) error {
+	// Try string
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		f.Value = s
+		f.IsObject = false
+		return nil
+	}
+
+	// Try empty object
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err == nil {
+		if len(m) == 0 {
+			f.Value = ""
+			f.IsObject = true
+			return nil
+		}
+		return errors.New("ftsSeed: non-empty object not supported")
+	}
+
+	// Try null
+	var v any
+	if err := json.Unmarshal(b, &v); err == nil && v == nil {
+		f.Value = ""
+		f.IsObject = false
+		return nil
+	}
+
+	return errors.New("ftsSeed: expected string, empty object, or null")
+}
+
+func (f ByronGenesisFtsSeed) MarshalJSON() ([]byte, error) {
+	if f.IsObject {
+		// serialize as empty object
+		return []byte(`{}`), nil
+	}
+	if f.Value == "" {
+		// serialize as null
+		return []byte(`null`), nil
+	}
+	return json.Marshal(f.Value)
 }

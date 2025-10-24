@@ -27,17 +27,17 @@ type ToPlutusData interface {
 	ToPlutusData() data.PlutusData
 }
 
-type Option[T ToPlutusData] struct {
-	Value ToPlutusData
+type Option[T any] struct {
+	Value any
 }
 
 func (o Option[T]) ToPlutusData() data.PlutusData {
 	if o.Value == nil {
-		return data.NewConstr(0)
+		return data.NewConstr(1)
 	}
 	return data.NewConstr(
-		1,
-		o.Value.ToPlutusData(),
+		0,
+		toPlutusData(o.Value),
 	)
 }
 
@@ -79,6 +79,8 @@ func toPlutusData(val any) data.PlutusData {
 			tmpItems[i] = item.ToPlutusData()
 		}
 		return data.NewList(tmpItems...)
+	case []byte:
+		return data.NewByteString(v)
 	case data.PlutusData:
 		return v
 	default:

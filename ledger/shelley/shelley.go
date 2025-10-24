@@ -290,7 +290,7 @@ func (b *ShelleyTransactionBody) AuxDataHash() *common.Blake2b256 {
 }
 
 func (b *ShelleyTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type ShelleyTransactionInputSet struct {
@@ -404,8 +404,35 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
-	// A Shelley transaction output will never be used for Plutus scripts
-	return nil
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o ShelleyTransactionOutput) Address() common.Address {
@@ -444,6 +471,14 @@ func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}, nil
 }
 
+func (o ShelleyTransactionOutput) String() string {
+	return fmt.Sprintf(
+		"(ShelleyTransactionOutput address=%s amount=%d)",
+		o.OutputAddress.String(),
+		o.OutputAmount,
+	)
+}
+
 type ShelleyTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
@@ -479,17 +514,17 @@ func (w ShelleyTransactionWitnessSet) PlutusData() []common.Datum {
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w ShelleyTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	// No plutus v1 scripts in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w ShelleyTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	// No plutus v2 scripts in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w ShelleyTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Shelley
 	return nil
 }
@@ -502,6 +537,7 @@ func (w ShelleyTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type ShelleyTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadataSet
@@ -523,7 +559,19 @@ func (ShelleyTransaction) Type() int {
 }
 
 func (t ShelleyTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t ShelleyTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t ShelleyTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t ShelleyTransaction) Inputs() []common.TransactionInput {

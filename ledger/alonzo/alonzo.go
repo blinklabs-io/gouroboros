@@ -268,7 +268,7 @@ func (b *AlonzoTransactionBody) ScriptDataHash() *common.Blake2b256 {
 }
 
 func (b *AlonzoTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type AlonzoTransactionOutput struct {
@@ -372,10 +372,8 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 		o.OutputAddress.ToPlutusData(),
 		data.NewMap(valueData),
 		// Empty datum option
-		// TODO: implement this
 		data.NewConstr(0),
 		// Empty script ref
-		// TODO: implement this
 		data.NewConstr(1),
 	)
 	return tmpData
@@ -445,6 +443,21 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 			},
 		},
 		nil
+}
+
+func (o AlonzoTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(AlonzoTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
 }
 
 type AlonzoRedeemer struct {
@@ -521,7 +534,7 @@ type AlonzoTransactionWitnessSet struct {
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
-	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
+	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
 	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        AlonzoRedeemers           `cbor:"5,keyasint,omitempty"`
 }
@@ -549,16 +562,16 @@ func (w AlonzoTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	// No plutus v2 scripts in Alonzo
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Alonzo
 	return nil
 }
@@ -574,6 +587,7 @@ func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeem
 type AlonzoTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
@@ -596,7 +610,19 @@ func (AlonzoTransaction) Type() int {
 }
 
 func (t AlonzoTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t AlonzoTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t AlonzoTransaction) Inputs() []common.TransactionInput {

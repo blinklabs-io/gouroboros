@@ -111,7 +111,7 @@ type OutputTooSmallUtxoError struct {
 func (e OutputTooSmallUtxoError) Error() string {
 	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
-		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
+		tmpOutputs[idx] = tmpOutput.String()
 	}
 	return "output too small: " + strings.Join(tmpOutputs, ", ")
 }
@@ -123,7 +123,7 @@ type OutputBootAddrAttrsTooBigError struct {
 func (e OutputBootAddrAttrsTooBigError) Error() string {
 	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
-		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
+		tmpOutputs[idx] = tmpOutput.String()
 	}
 	return "output bootstrap address attributes too big: " + strings.Join(
 		tmpOutputs,

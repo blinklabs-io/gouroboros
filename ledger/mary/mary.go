@@ -17,6 +17,7 @@ package mary
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -237,12 +238,13 @@ func (b *MaryTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTy
 }
 
 func (b *MaryTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type MaryTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       MaryTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadataSet
@@ -264,7 +266,19 @@ func (MaryTransaction) Type() int {
 }
 
 func (t MaryTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t MaryTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t MaryTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t MaryTransaction) Inputs() []common.TransactionInput {
@@ -449,8 +463,46 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 }
 
 func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
-	// A Mary transaction output will never be used for Plutus scripts
-	return nil
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount.Amount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount.Amount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	if o.OutputAmount.Assets != nil {
+		assetData := o.OutputAmount.Assets.ToPlutusData()
+		assetDataMap, ok := assetData.(*data.Map)
+		if !ok {
+			return nil
+		}
+		valueData = append(
+			valueData,
+			assetDataMap.Pairs...,
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o MaryTransactionOutput) Address() common.Address {
@@ -488,6 +540,21 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 			// Assets: o.Assets,
 		},
 		err
+}
+
+func (o MaryTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(MaryTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
 }
 
 type MaryTransactionOutputValue struct {

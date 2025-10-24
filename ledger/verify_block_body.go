@@ -423,7 +423,7 @@ func GetBlockOutput(
 	var regisCerts []RegisCert
 	var deRegisCerts []DeRegisCert
 	for txIndex, tx := range txBodies {
-		txHash := tx.Hash().String()
+		txId := tx.Id().String()
 		txOutputs := tx.Outputs()
 		for outputIndex, txOutput := range txOutputs {
 			cborDatum := []byte{}
@@ -441,7 +441,7 @@ func GetBlockOutput(
 				)
 			}
 			tmpOutput := UTXOOutput{
-				TxHash:      txHash,
+				TxHash:      txId,
 				OutputIndex: strconv.Itoa(outputIndex),
 				Tokens:      tokens,
 				DatumHex:    cborDatumHex,

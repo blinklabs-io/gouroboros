@@ -313,6 +313,14 @@ func (m *Muxer) readLoop() {
 			}
 			return
 		}
+		// Check for zero-byte payload
+		// This prevents certain types of DoS attacks
+		if header.PayloadLength == 0 {
+			m.sendError(
+				errors.New("received zero-byte segment payload"),
+			)
+			return
+		}
 		msg := &Segment{
 			SegmentHeader: header,
 			Payload:       make([]byte, header.PayloadLength),

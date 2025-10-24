@@ -29,6 +29,8 @@ type Transaction interface {
 	TransactionBody
 	Type() int
 	Cbor() []byte
+	Hash() Blake2b256
+	LeiosHash() Blake2b256
 	Metadata() TransactionMetadataSet
 	IsValid() bool
 	Consumed() []TransactionInput
@@ -70,7 +72,7 @@ type MetaMap struct {
 type TransactionBody interface {
 	Cbor() []byte
 	Fee() uint64
-	Hash() Blake2b256
+	Id() Blake2b256
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
@@ -111,6 +113,7 @@ type TransactionOutput interface {
 	Utxorpc() (*utxorpc.TxOutput, error)
 	ScriptRef() Script
 	ToPlutusData() data.PlutusData
+	String() string
 }
 
 type TransactionWitnessSet interface {
@@ -118,9 +121,9 @@ type TransactionWitnessSet interface {
 	NativeScripts() []NativeScript
 	Bootstrap() []BootstrapWitness
 	PlutusData() []Datum
-	PlutusV1Scripts() [][]byte
-	PlutusV2Scripts() [][]byte
-	PlutusV3Scripts() [][]byte
+	PlutusV1Scripts() []PlutusV1Script
+	PlutusV2Scripts() []PlutusV2Script
+	PlutusV3Scripts() []PlutusV3Script
 	Redeemers() TransactionWitnessRedeemers
 }
 
@@ -128,6 +131,14 @@ type TransactionWitnessRedeemers interface {
 	Indexes(RedeemerTag) []uint
 	Value(uint, RedeemerTag) RedeemerValue
 	Iter() iter.Seq2[RedeemerKey, RedeemerValue]
+}
+
+// TxReference provides a reference to a transaction which includes a hash of the full transaction
+// body bytes and the total transaction size in bytes
+type TxReference struct {
+	cbor.StructAsArray
+	TxHash Blake2b256
+	TxSize uint16
 }
 
 type Utxo struct {
@@ -144,7 +155,7 @@ type TransactionBodyBase struct {
 	hash *Blake2b256
 }
 
-func (b *TransactionBodyBase) Hash() Blake2b256 {
+func (b *TransactionBodyBase) Id() Blake2b256 {
 	if b.hash == nil {
 		tmpHash := Blake2b256Hash(b.Cbor())
 		b.hash = &tmpHash
@@ -228,25 +239,25 @@ func (b *TransactionBodyBase) Donation() uint64 {
 	return 0
 }
 
-func (b *TransactionBodyBase) Utxorpc() *utxorpc.Tx {
-	return nil
+func (b *TransactionBodyBase) Utxorpc() (*utxorpc.Tx, error) {
+	return nil, nil
 }
 
 // TransactionBodyToUtxorpc is a common helper for converting TransactionBody to utxorpc.Tx
-func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
+func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 	txi := []*utxorpc.TxInput{}
 	txo := []*utxorpc.TxOutput{}
 	for _, i := range tx.Inputs() {
 		input, err := i.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		txi = append(txi, input)
 	}
 	for _, o := range tx.Outputs() {
 		output, err := o.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		txo = append(txo, output)
 	}
@@ -263,25 +274,25 @@ func TransactionBodyToUtxorpc(tx TransactionBody) *utxorpc.Tx {
 		// Validity:        tx.Validity(),
 		// Successful:      tx.Successful(),
 		// Auxiliary:       tx.AuxData(),
-		Hash: tx.Hash().Bytes(),
+		Hash: tx.Id().Bytes(),
 		// Proposals:       tx.ProposalProcedures(),
 	}
 	for _, ri := range tx.ReferenceInputs() {
 		input, err := ri.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		ret.ReferenceInputs = append(ret.ReferenceInputs, input)
 	}
 	for _, c := range tx.Certificates() {
 		cert, err := c.Utxorpc()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		ret.Certificates = append(ret.Certificates, cert)
 	}
 
-	return ret
+	return ret, nil
 }
 
 func (m MetaInt) TypeName() string { return "int" }

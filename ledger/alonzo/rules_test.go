@@ -563,7 +563,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				{
 					Type: common.CertificateTypeStakeRegistration,
 					Certificate: &common.StakeRegistrationCertificate{
-						StakeRegistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}
@@ -590,7 +590,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				{
 					Type: common.CertificateTypeStakeRegistration,
 					Certificate: &common.StakeDeregistrationCertificate{
-						StakeDeregistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}

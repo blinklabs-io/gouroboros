@@ -207,6 +207,16 @@ func TestGetAvailableBlockRange(t *testing.T) {
 		testBlock.SlotNumber(),
 		testBlock.Hash().Bytes(),
 	)
+
+	rollForwardMsg, err := chainsync.NewMsgRollForwardNtC(
+		ledger.BlockTypeBabbage,
+		blockCbor,
+		expectedTip,
+	)
+	if err != nil {
+		t.Fatalf("failed to create RollForward message: %s", err)
+	}
+
 	conversation := append(
 		conversationHandshakeFindIntersect,
 		ouroboros_mock.ConversationEntryOutput{
@@ -235,11 +245,7 @@ func TestGetAvailableBlockRange(t *testing.T) {
 			ProtocolId: chainsync.ProtocolIdNtC,
 			IsResponse: true,
 			Messages: []protocol.Message{
-				chainsync.NewMsgRollForwardNtC(
-					ledger.BlockTypeBabbage,
-					blockCbor,
-					expectedTip,
-				),
+				rollForwardMsg,
 			},
 		},
 	)

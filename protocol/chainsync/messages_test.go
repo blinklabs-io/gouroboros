@@ -212,6 +212,15 @@ func TestMsgRollForwardNodeToNode_CorruptedCBOR(t *testing.T) {
 	}
 }
 func TestMsgRollForwardNodeToClient(t *testing.T) {
+	createMsg := func(t *testing.T, blockType uint, filePath string, tip Tip) *MsgRollForwardNtC {
+		blockData := hexDecode(string(readFile(filePath)))
+		msg, err := NewMsgRollForwardNtC(blockType, blockData, tip)
+		if err != nil {
+			t.Fatalf("failed to create NewMsgRollForwardNtC: %v", err)
+		}
+		return msg
+	}
+
 	tests := []testDefinition{
 		// Byron EBB (NtC)
 		{
@@ -220,15 +229,10 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 					"testdata/rollforward_ntc_byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 				),
 			),
-			Message: NewMsgRollForwardNtC(
+			Message: createMsg(
+				t,
 				0,
-				hexDecode(
-					string(
-						readFile(
-							"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
-						),
-					),
-				),
+				"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 				Tip{
 					Point: common.Point{
 						Slot: 49055,
@@ -249,15 +253,10 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 					"testdata/rollforward_ntc_byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
 				),
 			),
-			Message: NewMsgRollForwardNtC(
+			Message: createMsg(
+				t,
 				1,
-				hexDecode(
-					string(
-						readFile(
-							"testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
-						),
-					),
-				),
+				"testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
 				Tip{
 					Point: common.Point{
 						Slot: 49055,
@@ -278,15 +277,10 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 					"testdata/rollforward_ntc_shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
 				),
 			),
-			Message: NewMsgRollForwardNtC(
+			Message: createMsg(
+				t,
 				2,
-				hexDecode(
-					string(
-						readFile(
-							"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
-						),
-					),
-				),
+				"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
 				Tip{
 					Point: common.Point{
 						Slot: 55829927,

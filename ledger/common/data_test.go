@@ -50,11 +50,14 @@ func TestDatumDecode(t *testing.T) {
 		"d8799fd8799fd8799f581cb255e2283f9b495dd663b841090c42bc5a5103283fc2aef5c6cd2f5cffd8799fd8799fd8799f581c07d8b4b15e9609e76a38b25637900d60cdf13a6abce984757bbc1349ffffffffd8799f581cf5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c582073e1518e92f367fd5820ac2da1d40ab24fbca1d6cb2c28121ad92f57aff8abceff1b0000000148f3f3579fd8799fd8799f4040ff1a094f78d8ffd8799fd8799f581cf13ac4d66b3ee19a6aa0f2a22298737bd907cc95121662fc971b527546535452494b45ff1af7c5c601ffffff",
 	)
 	expectedDatum := common.Datum{
-		Data: data.NewConstr(
+		Data: data.NewConstrDefIndef(
+			true,
 			0,
-			data.NewConstr(
+			data.NewConstrDefIndef(
+				true,
 				0,
-				data.NewConstr(
+				data.NewConstrDefIndef(
+					true,
 					0,
 					data.NewByteString(
 						test.DecodeHexString(
@@ -62,11 +65,14 @@ func TestDatumDecode(t *testing.T) {
 						),
 					),
 				),
-				data.NewConstr(
+				data.NewConstrDefIndef(
+					true,
 					0,
-					data.NewConstr(
+					data.NewConstrDefIndef(
+						true,
 						0,
-						data.NewConstr(
+						data.NewConstrDefIndef(
+							true,
 							0,
 							data.NewByteString(
 								test.DecodeHexString(
@@ -77,7 +83,8 @@ func TestDatumDecode(t *testing.T) {
 					),
 				),
 			),
-			data.NewConstr(
+			data.NewConstrDefIndef(
+				true,
 				0,
 				data.NewByteString(
 					test.DecodeHexString(
@@ -91,19 +98,24 @@ func TestDatumDecode(t *testing.T) {
 				),
 			),
 			data.NewInteger(big.NewInt(5518914391)),
-			data.NewList(
-				data.NewConstr(
+			data.NewListDefIndef(
+				true,
+				data.NewConstrDefIndef(
+					true,
 					0,
-					data.NewConstr(
+					data.NewConstrDefIndef(
+						true,
 						0,
 						data.NewByteString(nil),
 						data.NewByteString(nil),
 					),
 					data.NewInteger(big.NewInt(156203224)),
 				),
-				data.NewConstr(
+				data.NewConstrDefIndef(
+					true,
 					0,
-					data.NewConstr(
+					data.NewConstrDefIndef(
+						true,
 						0,
 						data.NewByteString(
 							test.DecodeHexString(

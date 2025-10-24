@@ -16,6 +16,7 @@ package test_ledger
 
 import (
 	"errors"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -52,7 +53,7 @@ func (ls MockLedgerState) StakeRegistration(
 	ret := []common.StakeRegistrationCertificate{}
 	for _, cert := range ls.MockStakeRegistration {
 		if string(
-			common.Blake2b224(cert.StakeRegistration.Credential).Bytes(),
+			common.Blake2b224(cert.StakeCredential.Credential).Bytes(),
 		) == string(
 			stakingKey,
 		) {
@@ -62,18 +63,29 @@ func (ls MockLedgerState) StakeRegistration(
 	return ret, nil
 }
 
-func (ls MockLedgerState) PoolRegistration(
+func (ls MockLedgerState) PoolCurrentState(
 	poolKeyHash []byte,
-) ([]common.PoolRegistrationCertificate, error) {
-	ret := []common.PoolRegistrationCertificate{}
+) (*common.PoolRegistrationCertificate, *uint64, error) {
 	for _, cert := range ls.MockPoolRegistration {
 		if string(
 			common.Blake2b224(cert.Operator).Bytes(),
 		) == string(
 			poolKeyHash,
 		) {
-			ret = append(ret, cert)
+			// pretend latest registration is current; no retirement support in mock
+			c := cert
+			return &c, nil, nil
 		}
 	}
-	return ret, nil
+	return nil, nil, nil
+}
+
+func (ls MockLedgerState) SlotToTime(slot uint64) (time.Time, error) {
+	// TODO
+	return time.Now(), nil
+}
+
+func (ls MockLedgerState) TimeToSlot(t time.Time) (uint64, error) {
+	// TODO
+	return 0, nil
 }
