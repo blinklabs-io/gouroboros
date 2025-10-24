@@ -37,6 +37,7 @@ type ScriptHash = Blake2b224
 type Script interface {
 	isScript()
 	Hash() ScriptHash
+	RawScriptBytes() []byte
 }
 
 type ScriptRef struct {
@@ -114,6 +115,10 @@ func (s PlutusV1Script) Hash() ScriptHash {
 	)
 }
 
+func (s PlutusV1Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
 type PlutusV2Script []byte
 
 func (PlutusV2Script) isScript() {}
@@ -127,6 +132,10 @@ func (s PlutusV2Script) Hash() ScriptHash {
 	)
 }
 
+func (s PlutusV2Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
 type PlutusV3Script []byte
 
 func (PlutusV3Script) isScript() {}
@@ -138,6 +147,10 @@ func (s PlutusV3Script) Hash() ScriptHash {
 			[]byte(s),
 		),
 	)
+}
+
+func (s PlutusV3Script) RawScriptBytes() []byte {
+	return []byte(s)
 }
 
 func (s PlutusV3Script) Evaluate(
@@ -236,6 +249,10 @@ func (s NativeScript) Hash() ScriptHash {
 			[]byte(s.Cbor()),
 		),
 	)
+}
+
+func (s NativeScript) RawScriptBytes() []byte {
+	return s.Cbor()
 }
 
 type NativeScriptPubkey struct {
