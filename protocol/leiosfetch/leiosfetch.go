@@ -157,21 +157,27 @@ func NewConfig(options ...LeiosFetchOptionFunc) Config {
 }
 
 // WithBlockRequestFunc specifies a callback function for BlockRequest messages when acting as a server. The callback is expected to return the proper response message and an error
-func WithBlockRequestFunc(blockRequestFunc BlockRequestFunc) LeiosFetchOptionFunc {
+func WithBlockRequestFunc(
+	blockRequestFunc BlockRequestFunc,
+) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockRequestFunc = blockRequestFunc
 	}
 }
 
 // WithBlockTxsRequestFunc specifies a callback function for BlockTxsRequest messages when acting as a server. The callback is expected to return the proper response message and an error
-func WithBlockTxsRequestFunc(blockTxsRequestFunc BlockTxsRequestFunc) LeiosFetchOptionFunc {
+func WithBlockTxsRequestFunc(
+	blockTxsRequestFunc BlockTxsRequestFunc,
+) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockTxsRequestFunc = blockTxsRequestFunc
 	}
 }
 
 // WithVotesRequestFunc specifies a callback function for VotesRequest messages when acting as a server. The callback is expected to return the proper response message and an error
-func WithVotesRequestFunc(votesRequestFunc VotesRequestFunc) LeiosFetchOptionFunc {
+func WithVotesRequestFunc(
+	votesRequestFunc VotesRequestFunc,
+) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.VotesRequestFunc = votesRequestFunc
 	}
@@ -179,7 +185,9 @@ func WithVotesRequestFunc(votesRequestFunc VotesRequestFunc) LeiosFetchOptionFun
 
 // WithBlockRangeRequestFunc specifies a callback function for BlockRangeRequest messages when acting as a server. The callback is expected to return an error and start an async process
 // to generate and send LastBlockAndTxsInRange and NextBlockAndTxsInRange messages that satisfy the requested range
-func WithBlockRangeRequestFunc(blockRangeRequestFunc BlockRangeRequestFunc) LeiosFetchOptionFunc {
+func WithBlockRangeRequestFunc(
+	blockRangeRequestFunc BlockRangeRequestFunc,
+) LeiosFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockRangeRequestFunc = blockRangeRequestFunc
 	}

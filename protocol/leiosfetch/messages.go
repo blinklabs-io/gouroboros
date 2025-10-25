@@ -111,7 +111,11 @@ type MsgBlockTxsRequest struct {
 	TxBitmap [8]byte
 }
 
-func NewMsgBlockTxsRequest(slot uint64, hash []byte, txBitmap [8]byte) *MsgBlockTxsRequest {
+func NewMsgBlockTxsRequest(
+	slot uint64,
+	hash []byte,
+	txBitmap [8]byte,
+) *MsgBlockTxsRequest {
 	m := &MsgBlockTxsRequest{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockTxsRequest,
@@ -180,7 +184,10 @@ type MsgBlockRangeRequest struct {
 	End   pcommon.Point
 }
 
-func NewMsgBlockRangeRequest(start pcommon.Point, end pcommon.Point) *MsgBlockRangeRequest {
+func NewMsgBlockRangeRequest(
+	start pcommon.Point,
+	end pcommon.Point,
+) *MsgBlockRangeRequest {
 	m := &MsgBlockRangeRequest{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockRangeRequest,
@@ -197,7 +204,10 @@ type MsgNextBlockAndTxsInRange struct {
 	TxsRaw   []cbor.RawMessage
 }
 
-func NewMsgNextBlockAndTxsInRange(block cbor.RawMessage, txs []cbor.RawMessage) *MsgNextBlockAndTxsInRange {
+func NewMsgNextBlockAndTxsInRange(
+	block cbor.RawMessage,
+	txs []cbor.RawMessage,
+) *MsgNextBlockAndTxsInRange {
 	m := &MsgNextBlockAndTxsInRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeNextBlockAndTxsInRange,
@@ -214,7 +224,10 @@ type MsgLastBlockAndTxsInRange struct {
 	TxsRaw   []cbor.RawMessage
 }
 
-func NewMsgLastBlockAndTxsInRange(block cbor.RawMessage, txs []cbor.RawMessage) *MsgLastBlockAndTxsInRange {
+func NewMsgLastBlockAndTxsInRange(
+	block cbor.RawMessage,
+	txs []cbor.RawMessage,
+) *MsgLastBlockAndTxsInRange {
 	m := &MsgLastBlockAndTxsInRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeLastBlockAndTxsInRange,
