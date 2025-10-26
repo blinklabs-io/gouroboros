@@ -122,7 +122,10 @@ func (c *Client) Stop() error {
 }
 
 // BlockRequest fetches the requested EB identified by the slot and Leios hash
-func (c *Client) BlockRequest(slot uint64, hash []byte) (protocol.Message, error) {
+func (c *Client) BlockRequest(
+	slot uint64,
+	hash []byte,
+) (protocol.Message, error) {
 	msg := NewMsgBlockRequest(slot, hash)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
@@ -135,7 +138,11 @@ func (c *Client) BlockRequest(slot uint64, hash []byte) (protocol.Message, error
 }
 
 // BlockTxsRequest fetches the requested TXs identified by the slot, Leios hash, and TX bitmap
-func (c *Client) BlockTxsRequest(slot uint64, hash []byte, txBitmap [8]byte) (protocol.Message, error) {
+func (c *Client) BlockTxsRequest(
+	slot uint64,
+	hash []byte,
+	txBitmap [8]byte,
+) (protocol.Message, error) {
 	msg := NewMsgBlockTxsRequest(slot, hash, txBitmap)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
@@ -148,7 +155,9 @@ func (c *Client) BlockTxsRequest(slot uint64, hash []byte, txBitmap [8]byte) (pr
 }
 
 // VotesRequest fetches the requested votes
-func (c *Client) VotesRequest(voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
+func (c *Client) VotesRequest(
+	voteIds []MsgVotesRequestVoteId,
+) (protocol.Message, error) {
 	msg := NewMsgVotesRequest(voteIds)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
@@ -162,7 +171,10 @@ func (c *Client) VotesRequest(voteIds []MsgVotesRequestVoteId) (protocol.Message
 
 // BlockRangeRequest fetches a range of EBs and their TXs that are certified by RBs within the provided range.
 // This function will block until all EBs and TXs in the requested range have been received
-func (c *Client) BlockRangeRequest(start pcommon.Point, end pcommon.Point) ([]protocol.Message, error) {
+func (c *Client) BlockRangeRequest(
+	start pcommon.Point,
+	end pcommon.Point,
+) ([]protocol.Message, error) {
 	msg := NewMsgBlockRangeRequest(start, end)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
