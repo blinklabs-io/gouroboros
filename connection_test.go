@@ -20,8 +20,10 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
@@ -34,22 +36,46 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	t.Run("ErrorsPropagatedWhenProtocolsActive", func(t *testing.T) {
 		// Create a mock connection that will complete handshake and start the chainsync protocol
 		mockConn := ouroboros_mock.NewConnection(
-			ouroboros_mock.ProtocolRoleClient,
+			ouroboros_mock.ProtocolRoleServer,
 			[]ouroboros_mock.ConversationEntry{
-				ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-				ouroboros_mock.ConversationEntryHandshakeNtCResponse,
-				// ChainSync messages
-				ouroboros_mock.ConversationEntryInput{
-					// FindIntersect
-					ProtocolId: chainsync.ProtocolIdNtC,
-					Message: chainsync.NewMsgFindIntersect(
-						[]common.Point{
-							{
-								Slot: 21600,
-								Hash: []byte("19297addad3da631einos029"),
+				// MsgProposeVersions from mock client
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: handshake.ProtocolId,
+					Messages: []protocol.Message{
+						handshake.NewMsgProposeVersions(
+							protocol.ProtocolVersionMap{
+								(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+									ouroboros_mock.MockNetworkMagic,
+								),
 							},
-						},
+						),
+					},
+				},
+				// MsgAcceptVersion from server
+				ouroboros_mock.ConversationEntryInput{
+					ProtocolId:      handshake.ProtocolId,
+					IsResponse:      true,
+					MsgFromCborFunc: handshake.NewMsgFromCbor,
+					Message: handshake.NewMsgAcceptVersion(
+						(10 + protocol.ProtocolVersionNtCOffset),
+						protocol.VersionDataNtC9to14(
+							ouroboros_mock.MockNetworkMagic,
+						),
 					),
+				},
+				// ChainSync messages
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: chainsync.ProtocolIdNtC,
+					Messages: []protocol.Message{
+						chainsync.NewMsgFindIntersect(
+							[]common.Point{
+								{
+									Slot: 21600,
+									Hash: []byte("19297addad3da631einos029"),
+								},
+							},
+						),
+					},
 				},
 			},
 		)
@@ -112,13 +138,37 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	t.Run("ErrorsIgnoredWhenProtocolsStopped", func(t *testing.T) {
 		// Create a mock connection that will send a Done message to stop the protocol
 		mockConn := ouroboros_mock.NewConnection(
-			ouroboros_mock.ProtocolRoleClient,
+			ouroboros_mock.ProtocolRoleServer,
 			[]ouroboros_mock.ConversationEntry{
-				ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-				ouroboros_mock.ConversationEntryHandshakeNtCResponse,
-				// Send Done message to stop the protocol
+				// MsgProposeVersions from mock client
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: handshake.ProtocolId,
+					Messages: []protocol.Message{
+						handshake.NewMsgProposeVersions(
+							protocol.ProtocolVersionMap{
+								(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+									ouroboros_mock.MockNetworkMagic,
+								),
+							},
+						),
+					},
+				},
+				// MsgAcceptVersion from server
 				ouroboros_mock.ConversationEntryInput{
+					ProtocolId:      handshake.ProtocolId,
+					IsResponse:      true,
+					MsgFromCborFunc: handshake.NewMsgFromCbor,
+					Message: handshake.NewMsgAcceptVersion(
+						(10 + protocol.ProtocolVersionNtCOffset),
+						protocol.VersionDataNtC9to14(
+							ouroboros_mock.MockNetworkMagic,
+						),
+					),
+				},
+				// Send Done message to stop the protocol
+				ouroboros_mock.ConversationEntryOutput{
 					ProtocolId: chainsync.ProtocolIdNtC,
+					Messages:   []protocol.Message{chainsync.NewMsgDone()},
 				},
 			},
 		)
