@@ -4,6 +4,7 @@ run:
   tests: false
 linters:
   enable:
+    - asasalint
     - asciicheck
     - bidichk
     - bodyclose
@@ -36,7 +37,6 @@ linters:
     - whitespace
     - zerologlint
   disable:
-    - asasalint
     - depguard
     - noctx
     - recvcheck
