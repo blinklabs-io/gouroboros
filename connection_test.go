@@ -15,7 +15,6 @@
 package ouroboros_test
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -36,7 +35,7 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	t.Run("ErrorsPropagatedWhenProtocolsActive", func(t *testing.T) {
 		// Create a mock connection that will complete handshake and start the chainsync protocol
 		mockConn := ouroboros_mock.NewConnection(
-			ouroboros_mock.ProtocolRoleServer,
+			ouroboros_mock.ProtocolRoleClient,
 			[]ouroboros_mock.ConversationEntry{
 				// MsgProposeVersions from mock client
 				ouroboros_mock.ConversationEntryOutput{
@@ -88,9 +87,9 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 				chainsync.NewConfig(
 					chainsync.WithFindIntersectFunc(
 						func(ctx chainsync.CallbackContext, points []common.Point) (common.Point, chainsync.Tip, error) {
-							// We need to block here to keep the protocol active
-							time.Sleep(5 * time.Second)
-							return common.Point{}, chainsync.Tip{}, fmt.Errorf("context cancelled")
+							// Wait for shutdown instead of sleeping
+							<-ctx.Done()
+							return common.Point{}, chainsync.Tip{}, ctx.Err()
 						},
 					),
 				),
@@ -138,7 +137,7 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	t.Run("ErrorsIgnoredWhenProtocolsStopped", func(t *testing.T) {
 		// Create a mock connection that will send a Done message to stop the protocol
 		mockConn := ouroboros_mock.NewConnection(
-			ouroboros_mock.ProtocolRoleServer,
+			ouroboros_mock.ProtocolRoleClient,
 			[]ouroboros_mock.ConversationEntry{
 				// MsgProposeVersions from mock client
 				ouroboros_mock.ConversationEntryOutput{

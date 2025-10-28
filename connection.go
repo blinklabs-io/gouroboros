@@ -24,6 +24,7 @@
 package ouroboros
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -76,6 +77,8 @@ type Connection struct {
 	delayProtocolStart    bool
 	fullDuplex            bool
 	peerSharingEnabled    bool
+	ctx                   context.Context
+	cancelCtx             context.CancelFunc
 	// Mini-protocols
 	blockFetch              *blockfetch.BlockFetch
 	blockFetchConfig        *blockfetch.Config
@@ -306,10 +309,13 @@ func (c *Connection) setupConnection() error {
 			c.networkMagic,
 		)
 	}
+	// Create context for connection
+	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
 	// Start Goroutine to shutdown when doneChan is closed
 	c.doneChan = make(chan any)
 	go func() {
 		<-c.doneChan
+		c.cancelCtx()
 		c.shutdown()
 	}()
 	// Populate connection ID
@@ -352,6 +358,7 @@ func (c *Connection) setupConnection() error {
 		Muxer:        c.muxer,
 		Logger:       c.logger,
 		ErrorChan:    c.protoErrorChan,
+		Context:      c.ctx,
 	}
 	if c.useNodeToNodeProto {
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode

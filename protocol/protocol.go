@@ -17,6 +17,7 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -101,6 +102,7 @@ type ProtocolOptions struct {
 	// TODO: remove me
 	Role    ProtocolRole
 	Version uint16
+	Context context.Context
 }
 
 type protocolStateTransition struct {

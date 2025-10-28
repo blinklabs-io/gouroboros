@@ -81,6 +81,7 @@ func NewClient(
 		wantIntersectFoundChan:   make(chan chan<- clientPointResult, 1),
 	}
 	c.callbackContext = CallbackContext{
+		Context:      protoOptions.Context,
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
