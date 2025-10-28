@@ -73,12 +73,17 @@ type IssuerVkey = common.IssuerVkey
 
 // Pools
 type (
-	PoolRelay = common.PoolRelay
-	PoolId    = common.PoolId
+	PoolRelay      = common.PoolRelay
+	PoolId         = common.PoolId
+	GenesisKeyHash = common.GenesisKeyHash
 )
 
 func NewPoolIdFromBech32(poolId string) (PoolId, error) {
 	return common.NewPoolIdFromBech32(poolId)
+}
+
+func NewGenesisKeyHash(data []byte) GenesisKeyHash {
+	return common.NewGenesisKeyHash(data)
 }
 
 // Assets

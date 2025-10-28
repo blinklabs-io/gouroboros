@@ -446,6 +446,22 @@ func (p PoolId) String() string {
 	return encoded
 }
 
+type GenesisKeyHash [28]byte
+
+func NewGenesisKeyHash(data []byte) GenesisKeyHash {
+	var g GenesisKeyHash
+	copy(g[:], data)
+	return g
+}
+
+func (g GenesisKeyHash) String() string {
+	return hex.EncodeToString(g[:])
+}
+
+func (g GenesisKeyHash) Bytes() []byte {
+	return g[:]
+}
+
 // IssuerVkey represents the verification key for the stake pool that minted a block
 type IssuerVkey [32]byte
 

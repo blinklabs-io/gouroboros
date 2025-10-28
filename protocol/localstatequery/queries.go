@@ -24,6 +24,9 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
+// GenesisHash is a type alias for the Blake2b-224 hash used for genesis keys
+type GenesisHash = ledger.Blake2b224
+
 // Query types
 const (
 	QueryTypeBlock        = 0
@@ -522,7 +525,7 @@ type CurrentProtocolParamsResult interface {
 		any
 }
 
-type ProposedProtocolParamsUpdatesResult map[ledger.PoolId]common.ProtocolParameterUpdate
+type ProposedProtocolParamsUpdatesResult map[GenesisHash]common.ProtocolParameterUpdate
 
 type StakeDistributionResult struct {
 	cbor.StructAsArray
