@@ -17,6 +17,7 @@ package script
 import (
 	"math/big"
 	"reflect"
+	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
@@ -121,6 +122,12 @@ func (c PositiveCoin) ToPlutusData() data.PlutusData {
 	return data.NewInteger(new(big.Int).SetUint64(uint64(c)))
 }
 
+type Value struct {
+	Coin         uint64
+	AssetsMint   *lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
+	AssetsOutput *lcommon.MultiAsset[lcommon.MultiAssetTypeOutput]
+}
+
 type ResolvedInput lcommon.Utxo
 
 func (r ResolvedInput) ToPlutusData() data.PlutusData {
@@ -140,4 +147,297 @@ type Redeemer struct {
 
 func (r Redeemer) ToPlutusData() data.PlutusData {
 	return r.Data
+}
+
+type WithWrappedTransactionId struct {
+	Value any
+}
+
+func (w WithWrappedTransactionId) ToPlutusData() data.PlutusData {
+	switch v := w.Value.(type) {
+	case []lcommon.Utxo:
+		tmpItems := make([]data.PlutusData, len(v))
+		for i := range v {
+			tmpItems[i] = WithWrappedTransactionId{
+				v[i],
+			}.ToPlutusData()
+		}
+		return data.NewList(tmpItems...)
+	case lcommon.Utxo:
+		return data.NewConstr(
+			0,
+			data.NewConstr(
+				0,
+				data.NewByteString(v.Id.Id().Bytes()),
+			),
+			v.Output.ToPlutusData(),
+		)
+	case []ResolvedInput:
+		tmpItems := make([]data.PlutusData, len(v))
+		for i := range v {
+			tmpItems[i] = WithWrappedTransactionId{
+				v[i],
+			}.ToPlutusData()
+		}
+		return data.NewList(tmpItems...)
+	case ResolvedInput:
+		return data.NewConstr(
+			0,
+			data.NewConstr(
+				0,
+				data.NewByteString(v.Id.Id().Bytes()),
+			),
+			v.Output.ToPlutusData(),
+		)
+	case lcommon.TransactionInput:
+		return data.NewConstr(
+			0,
+			data.NewConstr(
+				0,
+				data.NewByteString(
+					v.Id().Bytes(),
+				),
+			),
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(v.Index())),
+			),
+		)
+	case KeyValuePairs[ScriptPurpose, Redeemer]:
+		// TODO: this can wait for TxInfoV2
+		/*
+			impl ToPlutusData for WithWrappedTransactionId<'_, KeyValuePairs<ScriptPurpose, Redeemer>> {
+			    fn to_plutus_data(&self) -> PlutusData {
+			        let mut data_vec: Vec<(PlutusData, PlutusData)> = vec![];
+			        for (key, value) in self.0.iter() {
+			            data_vec.push((
+			                WithWrappedTransactionId(key).to_plutus_data(),
+			                value.to_plutus_data(),
+			            ))
+			        }
+			        PlutusData::Map(KeyValuePairs::Def(data_vec))
+			    }
+			}
+		*/
+	case ScriptPurpose:
+		// NOTE: This is a _small_ abuse of the 'WithWrappedTransactionId'. We know the wrapped
+		// is needed for V1 and V2, and it also appears that for V1 and V2, the certifying
+		// purpose mustn't include the certificate index. So, we also short-circuit it here.
+		switch p := v.(type) {
+		case ScriptPurposeMinting:
+			return p.ToPlutusData()
+		case ScriptPurposeSpending:
+			return data.NewConstr(
+				1,
+				WithWrappedTransactionId{
+					p.Input.Id,
+				}.ToPlutusData(),
+			)
+		case ScriptPurposeRewarding:
+			return data.NewConstr(
+				2,
+				WithWrappedStakeCredential{
+					p.StakeCredential,
+				}.ToPlutusData(),
+			)
+		case ScriptPurposeCertifying:
+			return data.NewConstr(
+				3,
+				WithPartialCertificates{
+					p.Certificate,
+				}.ToPlutusData(),
+			)
+		}
+	}
+	return nil
+}
+
+type WithWrappedStakeCredential struct {
+	Value any
+}
+
+func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
+	switch v := w.Value.(type) {
+	case KeyValuePairs[*lcommon.Address, uint64]:
+		tmpItems := make([]data.PlutusData, len(v))
+		for i := range v {
+			tmpItems[i] = data.NewList(
+				data.NewConstr(
+					0,
+					v[i].Key.ToPlutusData(),
+				),
+				toPlutusData(v[i].Value),
+			)
+		}
+		return data.NewList(tmpItems...)
+	case lcommon.Credential:
+		return data.NewConstr(
+			0,
+			v.ToPlutusData(),
+		)
+	}
+	return nil
+}
+
+type WithOptionDatum struct {
+	Value any
+}
+
+func (w WithOptionDatum) ToPlutusData() data.PlutusData {
+	switch v := w.Value.(type) {
+	case WithZeroAdaAsset:
+		switch v2 := v.Value.(type) {
+		case []lcommon.TransactionOutput:
+			tmpItems := make([]data.PlutusData, len(v2))
+			for i := range v2 {
+				tmpItems[i] = WithOptionDatum{WithZeroAdaAsset{v2[i]}}.ToPlutusData()
+			}
+			return data.NewList(tmpItems...)
+		case lcommon.TransactionOutput:
+			// We need to assign to a var to call ToPlutusData() with pointer receiver below
+			addr := v2.Address()
+			var datumHash Option[*lcommon.Blake2b256]
+			if tmp := v2.DatumHash(); tmp != nil {
+				datumHash.Value = tmp
+			}
+			return data.NewConstr(
+				0,
+				addr.ToPlutusData(),
+				WithZeroAdaAsset{
+					Value{
+						Coin:         v2.Amount(),
+						AssetsOutput: v2.Assets(),
+					},
+				}.ToPlutusData(),
+				datumHash.ToPlutusData(),
+			)
+		case WithWrappedTransactionId:
+			switch v3 := v2.Value.(type) {
+			case []ResolvedInput:
+				tmpItems := make([]data.PlutusData, len(v3))
+				for i := range v3 {
+					tmpItems[i] = WithOptionDatum{
+						WithZeroAdaAsset{
+							WithWrappedTransactionId{
+								v3[i],
+							},
+						},
+					}.ToPlutusData()
+				}
+				return data.NewList(tmpItems...)
+			case ResolvedInput:
+				return data.NewConstr(
+					0,
+					WithWrappedTransactionId{v3.Id}.ToPlutusData(),
+					WithOptionDatum{WithZeroAdaAsset{v3.Output}}.ToPlutusData(),
+				)
+			}
+		}
+	}
+	return nil
+}
+
+type WithZeroAdaAsset struct {
+	Value any
+}
+
+func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
+	switch v := w.Value.(type) {
+	case Value:
+		tmpPairs := [][2]data.PlutusData{coinToPlutusDataMapPair(v.Coin)}
+		if v.AssetsOutput != nil {
+			tmpPairs = slices.Concat(
+				tmpPairs,
+				v.AssetsOutput.ToPlutusData().(*data.Map).Pairs,
+			)
+		}
+		if v.AssetsMint != nil {
+			tmpPairs = slices.Concat(
+				tmpPairs,
+				v.AssetsMint.ToPlutusData().(*data.Map).Pairs,
+			)
+		}
+		return data.NewMap(
+			tmpPairs,
+		)
+	case uint64:
+		return data.NewMap(
+			[][2]data.PlutusData{coinToPlutusDataMapPair(v)},
+		)
+	}
+	return nil
+}
+
+type WithPartialCertificates struct {
+	Value any
+}
+
+func (w WithPartialCertificates) ToPlutusData() data.PlutusData {
+	switch v := w.Value.(type) {
+	case []lcommon.Certificate:
+		tmpItems := make([]data.PlutusData, len(v))
+		for i := range v {
+			tmpItems[i] = WithPartialCertificates{
+				v[i],
+			}.ToPlutusData()
+		}
+		return data.NewList(tmpItems...)
+	case lcommon.Certificate:
+		switch c := v.(type) {
+		case *lcommon.StakeRegistrationCertificate:
+			return data.NewConstr(
+				0,
+				WithWrappedStakeCredential{c.StakeCredential}.ToPlutusData(),
+			)
+		case *lcommon.RegistrationCertificate:
+			return data.NewConstr(
+				0,
+				WithWrappedStakeCredential{c.StakeCredential}.ToPlutusData(),
+			)
+		case *lcommon.StakeDeregistrationCertificate:
+			return data.NewConstr(
+				1,
+				WithWrappedStakeCredential{c.StakeCredential}.ToPlutusData(),
+			)
+		case *lcommon.DeregistrationCertificate:
+			return data.NewConstr(
+				1,
+				WithWrappedStakeCredential{c.StakeCredential}.ToPlutusData(),
+			)
+		case *lcommon.StakeDelegationCertificate:
+			return data.NewConstr(
+				2,
+				WithWrappedStakeCredential{c.StakeCredential}.ToPlutusData(),
+				c.PoolKeyHash.ToPlutusData(),
+			)
+		case *lcommon.PoolRegistrationCertificate:
+			return data.NewConstr(
+				3,
+				toPlutusData(c.Operator),
+				toPlutusData(c.VrfKeyHash),
+			)
+		case *lcommon.PoolRetirementCertificate:
+			return data.NewConstr(
+				4,
+				toPlutusData(c.PoolKeyHash),
+				data.NewInteger(new(big.Int).SetUint64(c.Epoch)),
+			)
+		}
+	}
+	return nil
+}
+
+func coinToPlutusDataMapPair(val uint64) [2]data.PlutusData {
+	return [2]data.PlutusData{
+		data.NewByteString(nil),
+		data.NewMap(
+			[][2]data.PlutusData{
+				{
+					data.NewByteString(nil),
+					data.NewInteger(
+						new(big.Int).SetUint64(val),
+					),
+				},
+			},
+		),
+	}
 }
