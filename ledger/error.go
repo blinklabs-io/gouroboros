@@ -17,6 +17,7 @@ package ledger
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -197,12 +198,14 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 
 func (e *ApplyTxError) Error() string {
 	ret := "ApplyTxError (["
+	var retSb200 strings.Builder
 	for idx, failure := range e.Failures {
 		ret = fmt.Sprintf("%s%s", ret, failure)
 		if idx < (len(e.Failures) - 1) {
-			ret = ret + ", "
+			retSb200.WriteString(", ")
 		}
 	}
+	ret += retSb200.String()
 	ret = ret + "])"
 	return ret
 }
@@ -312,12 +315,14 @@ type BadInputsUtxo struct {
 
 func (e *BadInputsUtxo) Error() string {
 	ret := "BadInputsUtxo (["
+	var retSb315 strings.Builder
 	for idx, input := range e.Inputs {
 		ret = fmt.Sprintf("%s%s", ret, input.String())
 		if idx < (len(e.Inputs) - 1) {
-			ret = ret + ", "
+			retSb315.WriteString(", ")
 		}
 	}
+	ret += retSb315.String()
 	ret = ret + "])"
 	return ret
 }
@@ -405,12 +410,14 @@ type OutputTooSmallUtxo struct {
 
 func (e *OutputTooSmallUtxo) Error() string {
 	ret := "OutputTooSmallUtxo (["
+	var retSb408 strings.Builder
 	for idx, output := range e.Outputs {
 		ret = fmt.Sprintf("%s%s", ret, output.String())
 		if idx < (len(e.Outputs) - 1) {
-			ret = ret + ", "
+			retSb408.WriteString(", ")
 		}
 	}
+	ret += retSb408.String()
 	ret = ret + "])"
 	return ret
 }
@@ -467,12 +474,14 @@ type OutputBootAddrAttrsTooBig struct {
 
 func (e *OutputBootAddrAttrsTooBig) Error() string {
 	ret := "OutputBootAddrAttrsTooBig (["
+	var retSb470 strings.Builder
 	for idx, output := range e.Outputs {
 		ret = fmt.Sprintf("%s%s", ret, output.String())
 		if idx < (len(e.Outputs) - 1) {
-			ret = ret + ", "
+			retSb470.WriteString(", ")
 		}
 	}
+	ret += retSb470.String()
 	ret = ret + "])"
 	return ret
 }
@@ -496,6 +505,7 @@ type OutputTooBigUtxo struct {
 
 func (e *OutputTooBigUtxo) Error() string {
 	ret := "OutputTooBigUtxo (["
+	var retSb499 strings.Builder
 	for idx, output := range e.Outputs {
 		ret = fmt.Sprintf(
 			"%s(ActualSize %d, MaxSize %d, Output (%s))",
@@ -505,9 +515,10 @@ func (e *OutputTooBigUtxo) Error() string {
 			output.Output.String(),
 		)
 		if idx < (len(e.Outputs) - 1) {
-			ret = ret + ", "
+			retSb499.WriteString(", ")
 		}
 	}
+	ret += retSb499.String()
 	ret = ret + "])"
 	return ret
 }

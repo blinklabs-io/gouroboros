@@ -212,16 +212,18 @@ func generateAstJson(obj any) ([]byte, error) {
 
 func generateAstJsonList[T []any | Set](v T) ([]byte, error) {
 	tmpJson := `{"list":[`
+	var tmpJsonSb215 strings.Builder
 	for idx, val := range v {
 		tmpVal, err := generateAstJson(val)
 		if err != nil {
 			return nil, err
 		}
-		tmpJson += string(tmpVal)
+		tmpJsonSb215.WriteString(string(tmpVal))
 		if idx != (len(v) - 1) {
-			tmpJson += `,`
+			tmpJsonSb215.WriteString(`,`)
 		}
 	}
+	tmpJson += tmpJsonSb215.String()
 	tmpJson += `]}`
 	return []byte(tmpJson), nil
 }
@@ -352,12 +354,14 @@ func (v Constructor) MarshalJSON() ([]byte, error) {
 		}
 		tmpList = append(tmpList, tmpVal)
 	}
+	var tmpJsonSb355 strings.Builder
 	for idx, val := range tmpList {
-		tmpJson += string(val)
+		tmpJsonSb355.WriteString(string(val))
 		if idx != (len(tmpList) - 1) {
-			tmpJson += `,`
+			tmpJsonSb355.WriteString(`,`)
 		}
 	}
+	tmpJson += tmpJsonSb355.String()
 	tmpJson += `]}`
 	return []byte(tmpJson), nil
 }

@@ -228,6 +228,7 @@ func encodeHead(e *bytes.Buffer, t byte, n uint64) int {
 	if n <= math.MaxUint16 {
 		const headSize = 3
 		var scratch [headSize]byte
+		//nolint:gosec
 		scratch[0] = t | byte(additionalInformationWith2ByteArgument)
 		binary.BigEndian.PutUint16(scratch[1:], uint16(n))
 		e.Write(scratch[:])
@@ -237,6 +238,7 @@ func encodeHead(e *bytes.Buffer, t byte, n uint64) int {
 	if n <= math.MaxUint32 {
 		const headSize = 5
 		var scratch [headSize]byte
+		//nolint:gosec
 		scratch[0] = t | byte(additionalInformationWith4ByteArgument)
 		binary.BigEndian.PutUint32(scratch[1:], uint32(n))
 		e.Write(scratch[:])
@@ -245,6 +247,7 @@ func encodeHead(e *bytes.Buffer, t byte, n uint64) int {
 
 	const headSize = 9
 	var scratch [headSize]byte
+	//nolint:gosec
 	scratch[0] = t | byte(additionalInformationWith8ByteArgument)
 	binary.BigEndian.PutUint64(scratch[1:], n)
 	e.Write(scratch[:])
