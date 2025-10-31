@@ -177,15 +177,15 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleRequestNext() error {
-	// TODO: figure out why this one log message causes a panic (and only this one)
-	//   during tests (#857)
-	// s.Protocol.Logger().
-	//	Debug("request next",
-	//		"component", "network",
-	//		"protocol", ProtocolName,
-	//		"role", "server",
-	//		"connection_id", s.callbackContext.ConnectionId.String(),
-	//	)
+	if s.Protocol != nil {
+		s.Protocol.Logger().
+			Debug("request next",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+	}
 	if s.config == nil || s.config.RequestNextFunc == nil {
 		return errors.New(
 			"received chain-sync RequestNext message but no callback function is defined",
@@ -195,13 +195,15 @@ func (s *Server) handleRequestNext() error {
 }
 
 func (s *Server) handleFindIntersect(msg protocol.Message) error {
-	s.Protocol.Logger().
-		Debug("find intersect",
-			"component", "network",
-			"protocol", ProtocolName,
-			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
-		)
+	if s.Protocol != nil {
+		s.Protocol.Logger().
+			Debug("find intersect",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+	}
 	if s.config == nil || s.config.FindIntersectFunc == nil {
 		return errors.New(
 			"received chain-sync FindIntersect message but no callback function is defined",
@@ -230,13 +232,15 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() error {
-	s.Protocol.Logger().
-		Debug("done",
-			"component", "network",
-			"protocol", ProtocolName,
-			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
-		)
+	if s.Protocol != nil {
+		s.Protocol.Logger().
+			Debug("done",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+	}
 	// Restart protocol
 	s.Stop()
 	s.initProtocol()
