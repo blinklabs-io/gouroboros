@@ -456,6 +456,12 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		// Copy from temp legacy object to Babbage format
 		o.OutputAddress = tmpOutput.OutputAddress
 		o.OutputAmount = tmpOutput.OutputAmount
+		// Copy datum hash if present in legacy Alonzo output
+		if tmpOutput.OutputDatumHash != nil {
+			o.DatumOption = &BabbageTransactionOutputDatumOption{
+				hash: tmpOutput.OutputDatumHash,
+			}
+		}
 		o.legacyOutput = true
 	} else {
 		type tBabbageTransactionOutput BabbageTransactionOutput
@@ -475,6 +481,10 @@ func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
 		tmpOutput := alonzo.AlonzoTransactionOutput{
 			OutputAddress: o.OutputAddress,
 			OutputAmount:  o.OutputAmount,
+		}
+		// Copy datum hash if present
+		if o.DatumOption != nil && o.DatumOption.hash != nil {
+			tmpOutput.OutputDatumHash = o.DatumOption.hash
 		}
 		return cbor.Encode(&tmpOutput)
 	}
@@ -691,6 +701,49 @@ func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	*w = BabbageTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil
+}
+
+func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if w.Cbor() != nil {
+		return w.Cbor(), nil
+	}
+
+	// When encoding from scratch, we need to use indefinite-length encoding
+	// for WsPlutusData to match the original on-chain format
+
+	// Create a temporary witness set for encoding
+	type tempWitnessSet struct {
+		cbor.DecodeStoreCbor
+		VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
+		WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+		BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
+		WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
+		WsPlutusData       cbor.IndefLengthList      `cbor:"4,keyasint,omitempty"` // Use indefinite-length for Plutus data
+		WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
+		WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
+	}
+
+	// Convert WsPlutusData to IndefLengthList
+	var plutusDataIndefList cbor.IndefLengthList
+	if w.WsPlutusData != nil {
+		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData))
+		for i, datum := range w.WsPlutusData {
+			plutusDataIndefList[i] = datum
+		}
+	}
+
+	temp := tempWitnessSet{
+		VkeyWitnesses:      w.VkeyWitnesses,
+		WsNativeScripts:    w.WsNativeScripts,
+		BootstrapWitnesses: w.BootstrapWitnesses,
+		WsPlutusV1Scripts:  w.WsPlutusV1Scripts,
+		WsPlutusData:       plutusDataIndefList,
+		WsRedeemers:        w.WsRedeemers,
+		WsPlutusV2Scripts:  w.WsPlutusV2Scripts,
+	}
+
+	return cbor.Encode(&temp)
 }
 
 func (w BabbageTransactionWitnessSet) Vkey() []common.VkeyWitness {
