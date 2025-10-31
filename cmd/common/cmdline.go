@@ -26,10 +26,10 @@ type GlobalFlags struct {
 	Flagset      *flag.FlagSet
 	Socket       string
 	Address      string
-	UseTls       bool
-	NtnProto     bool
 	Network      string
 	NetworkMagic int
+	UseTls       bool
+	NtnProto     bool
 }
 
 func NewGlobalFlags() *GlobalFlags {
