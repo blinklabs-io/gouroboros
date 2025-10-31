@@ -17,6 +17,8 @@ package ledger
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -196,15 +198,16 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 }
 
 func (e *ApplyTxError) Error() string {
-	ret := "ApplyTxError (["
+	var sb strings.Builder
+	sb.WriteString("ApplyTxError ([")
 	for idx, failure := range e.Failures {
-		ret = fmt.Sprintf("%s%s", ret, failure)
+		sb.WriteString(failure.Error())
 		if idx < (len(e.Failures) - 1) {
-			ret = ret + ", "
+			sb.WriteString(", ")
 		}
 	}
-	ret = ret + "])"
-	return ret
+	sb.WriteString("])")
+	return sb.String()
 }
 
 type UtxowFailure struct {
@@ -311,15 +314,16 @@ type BadInputsUtxo struct {
 }
 
 func (e *BadInputsUtxo) Error() string {
-	ret := "BadInputsUtxo (["
+	var sb strings.Builder
+	sb.WriteString("BadInputsUtxo ([")
 	for idx, input := range e.Inputs {
-		ret = fmt.Sprintf("%s%s", ret, input.String())
+		sb.WriteString(input.String())
 		if idx < (len(e.Inputs) - 1) {
-			ret = ret + ", "
+			sb.WriteString(", ")
 		}
 	}
-	ret = ret + "])"
-	return ret
+	sb.WriteString("])")
+	return sb.String()
 }
 
 type TxIn struct {
@@ -404,15 +408,16 @@ type OutputTooSmallUtxo struct {
 }
 
 func (e *OutputTooSmallUtxo) Error() string {
-	ret := "OutputTooSmallUtxo (["
+	var sb strings.Builder
+	sb.WriteString("OutputTooSmallUtxo ([")
 	for idx, output := range e.Outputs {
-		ret = fmt.Sprintf("%s%s", ret, output.String())
+		sb.WriteString(output.String())
 		if idx < (len(e.Outputs) - 1) {
-			ret = ret + ", "
+			sb.WriteString(", ")
 		}
 	}
-	ret = ret + "])"
-	return ret
+	sb.WriteString("])")
+	return sb.String()
 }
 
 type TxOut struct {
@@ -466,15 +471,16 @@ type OutputBootAddrAttrsTooBig struct {
 }
 
 func (e *OutputBootAddrAttrsTooBig) Error() string {
-	ret := "OutputBootAddrAttrsTooBig (["
+	var sb strings.Builder
+	sb.WriteString("OutputBootAddrAttrsTooBig ([")
 	for idx, output := range e.Outputs {
-		ret = fmt.Sprintf("%s%s", ret, output.String())
+		sb.WriteString(output.String())
 		if idx < (len(e.Outputs) - 1) {
-			ret = ret + ", "
+			sb.WriteString(", ")
 		}
 	}
-	ret = ret + "])"
-	return ret
+	sb.WriteString("])")
+	return sb.String()
 }
 
 type TriesToForgeADA struct {
@@ -495,21 +501,22 @@ type OutputTooBigUtxo struct {
 }
 
 func (e *OutputTooBigUtxo) Error() string {
-	ret := "OutputTooBigUtxo (["
+	var sb strings.Builder
+	sb.WriteString("OutputTooBigUtxo ([")
 	for idx, output := range e.Outputs {
-		ret = fmt.Sprintf(
-			"%s(ActualSize %d, MaxSize %d, Output (%s))",
-			ret,
-			output.ActualSize,
-			output.MaxSize,
-			output.Output.String(),
-		)
+		sb.WriteString("(ActualSize ")
+		sb.WriteString(strconv.Itoa(output.ActualSize))
+		sb.WriteString(", MaxSize ")
+		sb.WriteString(strconv.Itoa(output.MaxSize))
+		sb.WriteString(", Output (")
+		sb.WriteString(output.Output.String())
+		sb.WriteString("))")
 		if idx < (len(e.Outputs) - 1) {
-			ret = ret + ", "
+			sb.WriteString(", ")
 		}
 	}
-	ret = ret + "])"
-	return ret
+	sb.WriteString("])")
+	return sb.String()
 }
 
 type InsufficientCollateral struct {

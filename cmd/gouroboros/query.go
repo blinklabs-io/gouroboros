@@ -305,6 +305,13 @@ func testQuery(f *globalFlags) {
 				}
 			}
 		}
+	case "proposed-protocol-params-updates":
+		proposedUpdates, err := o.LocalStateQuery().Client.GetProposedProtocolParamsUpdates()
+		if err != nil {
+			fmt.Printf("ERROR: failure querying proposed protocol params updates: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("proposed-protocol-params-updates: %v\n", *proposedUpdates)
 	default:
 		fmt.Printf("ERROR: unknown query: %s\n", queryFlags.flagset.Args()[0])
 		os.Exit(1)

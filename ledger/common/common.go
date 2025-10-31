@@ -110,6 +110,9 @@ func Blake2b224Hash(data []byte) Blake2b224 {
 	return Blake2b224(tmpHash.Sum(nil))
 }
 
+// GenesisHash is a type alias for the Blake2b-224 hash used for genesis keys
+type GenesisHash = Blake2b224
+
 type Blake2b160 [Blake2b160Size]byte
 
 func NewBlake2b160(data []byte) Blake2b160 {

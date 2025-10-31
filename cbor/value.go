@@ -211,19 +211,20 @@ func generateAstJson(obj any) ([]byte, error) {
 }
 
 func generateAstJsonList[T []any | Set](v T) ([]byte, error) {
-	tmpJson := `{"list":[`
+	var sb strings.Builder
+	sb.WriteString(`{"list":[`)
 	for idx, val := range v {
 		tmpVal, err := generateAstJson(val)
 		if err != nil {
 			return nil, err
 		}
-		tmpJson += string(tmpVal)
+		sb.WriteString(string(tmpVal))
 		if idx != (len(v) - 1) {
-			tmpJson += `,`
+			sb.WriteString(`,`)
 		}
 	}
-	tmpJson += `]}`
-	return []byte(tmpJson), nil
+	sb.WriteString(`]}`)
+	return []byte(sb.String()), nil
 }
 
 func generateAstJsonMap[T map[any]any | Map](v T) ([]byte, error) {
@@ -343,7 +344,8 @@ func (c Constructor) MarshalCBOR() ([]byte, error) {
 }
 
 func (v Constructor) MarshalJSON() ([]byte, error) {
-	tmpJson := fmt.Sprintf(`{"constructor":%d,"fields":[`, v.constructor)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf(`{"constructor":%d,"fields":[`, v.constructor))
 	tmpList := [][]byte{}
 	for _, val := range v.value.Value().([]any) {
 		tmpVal, err := generateAstJson(val)
@@ -353,13 +355,13 @@ func (v Constructor) MarshalJSON() ([]byte, error) {
 		tmpList = append(tmpList, tmpVal)
 	}
 	for idx, val := range tmpList {
-		tmpJson += string(val)
+		sb.WriteString(string(val))
 		if idx != (len(tmpList) - 1) {
-			tmpJson += `,`
+			sb.WriteString(`,`)
 		}
 	}
-	tmpJson += `]}`
-	return []byte(tmpJson), nil
+	sb.WriteString(`]}`)
+	return []byte(sb.String()), nil
 }
 
 type LazyValue struct {

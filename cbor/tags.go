@@ -181,8 +181,8 @@ type Map map[any]any
 
 // SetType is a generic type for wrapping other types in an optional CBOR set tag
 type SetType[T any] struct {
-	useTag bool
 	items  []T
+	useTag bool
 }
 
 func NewSetType[T any](items []T, useTag bool) SetType[T] {

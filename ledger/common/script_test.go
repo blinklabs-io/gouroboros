@@ -15,6 +15,7 @@
 package common_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"reflect"
 	"testing"
@@ -38,6 +39,13 @@ func TestScriptRefDecodeEncode(t *testing.T) {
 			"did not get expected script\n     got: %#v\n  wanted: %#v",
 			testScriptRef.Script,
 			&expectedScript,
+		)
+	}
+	if !bytes.Equal(testScriptRef.Script.RawScriptBytes(), scriptCbor) {
+		t.Fatalf(
+			"did not get expected raw script bytes\n     got: %x\n  wanted: %x",
+			testScriptRef.Script.RawScriptBytes(),
+			scriptCbor,
 		)
 	}
 	scriptRefCbor, err := cbor.Encode(testScriptRef)
