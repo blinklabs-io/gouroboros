@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // Query types
@@ -521,8 +522,7 @@ type CurrentProtocolParamsResult interface {
 		any
 }
 
-// TODO (#861)
-type ProposedProtocolParamsUpdatesResult any
+type ProposedProtocolParamsUpdatesResult map[common.GenesisHash]common.ProtocolParameterUpdate
 
 type StakeDistributionResult struct {
 	cbor.StructAsArray
