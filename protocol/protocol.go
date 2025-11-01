@@ -17,6 +17,7 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +39,7 @@ const DefaultRecvQueueSize = 50
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
 	config              ProtocolConfig
+	currentState        State
 	doneChan            chan struct{}
 	muxerSendChan       chan *muxer.Segment
 	muxerRecvChan       chan *muxer.Segment
@@ -51,6 +53,7 @@ type Protocol struct {
 	stateTransitionChan chan<- protocolStateTransition
 	onceStart           sync.Once
 	onceStop            sync.Once
+	stateMutex          sync.RWMutex
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -99,11 +102,13 @@ type ProtocolOptions struct {
 	// TODO: remove me
 	Role    ProtocolRole
 	Version uint16
+	Context context.Context
 }
 
 type protocolStateTransition struct {
-	msg       Message
-	errorChan chan<- error
+	msg           Message
+	errorChan     chan<- error
+	stateRespChan chan<- State
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
@@ -124,6 +129,36 @@ func New(config ProtocolConfig) *Protocol {
 		sendDoneChan: make(chan struct{}),
 	}
 	return p
+}
+
+// CurrentState returns the current protocol state
+func (p *Protocol) CurrentState() State {
+	p.stateMutex.RLock()
+	defer p.stateMutex.RUnlock()
+	return p.currentState
+}
+
+// IsDone checks if the protocol is in a done/completed state
+func (p *Protocol) IsDone() bool {
+	currentState := p.CurrentState()
+	// return true if current state has AgencyNone
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		if entry.Agency == AgencyNone {
+			return true
+		}
+	}
+	// return true if current state is the initial state
+	return currentState == p.config.InitialState
+}
+
+// GetDoneState returns the done state from the state map
+func (s StateMap) GetDoneState() State {
+	for state, entry := range s {
+		if entry.Agency == AgencyNone {
+			return state
+		}
+	}
+	return State{}
 }
 
 // Start initializes the mini-protocol
@@ -446,7 +481,6 @@ func (p *Protocol) recvLoop() {
 }
 
 func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
-	var currentState State
 	var transitionTimer *time.Timer
 
 	setState := func(s State) {
@@ -456,11 +490,18 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 		transitionTimer = nil
 
-		// Set the new state
-		currentState = s
+		// Set the new state with proper locking
+		p.stateMutex.Lock()
+		p.currentState = s
+		p.stateMutex.Unlock()
 
 		// Mark protocol as ready to send/receive based on role and agency of the new state
-		switch p.config.StateMap[currentState].Agency {
+		stateEntry, exists := p.config.StateMap[s]
+		if !exists {
+			return
+		}
+
+		switch stateEntry.Agency {
 		case AgencyNone:
 			return
 		case AgencyClient:
@@ -496,12 +537,11 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 
 		// Set timeout for state transition
-		if p.config.StateMap[currentState].Timeout > 0 {
-			transitionTimer = time.NewTimer(
-				p.config.StateMap[currentState].Timeout,
-			)
+		if stateEntry.Timeout > 0 {
+			transitionTimer = time.NewTimer(stateEntry.Timeout)
 		}
 	}
+
 	getTimerChan := func() <-chan time.Time {
 		if transitionTimer == nil {
 			return nil
@@ -509,11 +549,26 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		return transitionTimer.C
 	}
 
+	// Initialize current state
 	setState(p.config.InitialState)
 
 	for {
 		select {
 		case t := <-ch:
+			if t.msg == nil && t.stateRespChan != nil {
+				// Handle state request - use the field instead of local variable
+				p.stateMutex.RLock()
+				currentState := p.currentState
+				p.stateMutex.RUnlock()
+				t.stateRespChan <- currentState
+				continue
+			}
+
+			// Get current state for transition logic
+			p.stateMutex.RLock()
+			currentState := p.currentState
+			p.stateMutex.RUnlock()
+
 			nextState, err := p.nextState(currentState, t.msg)
 			if err != nil {
 				t.errorChan <- fmt.Errorf(
@@ -538,7 +593,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 				fmt.Errorf(
 					"%s: timeout waiting on transition from protocol state %s",
 					p.config.Name,
-					currentState,
+					p.CurrentState(),
 				),
 			)
 
@@ -574,7 +629,7 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 
 func (p *Protocol) transitionState(msg Message) error {
 	errorChan := make(chan error, 1)
-	p.stateTransitionChan <- protocolStateTransition{msg, errorChan}
+	p.stateTransitionChan <- protocolStateTransition{msg, errorChan, nil}
 
 	return <-errorChan
 }

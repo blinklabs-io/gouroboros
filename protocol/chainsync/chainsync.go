@@ -16,6 +16,7 @@
 package chainsync
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -211,6 +212,7 @@ type Config struct {
 
 // Callback context
 type CallbackContext struct {
+	context.Context
 	ConnectionId connection.ConnectionId
 	Client       *Client
 	Server       *Server

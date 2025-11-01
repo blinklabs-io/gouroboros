@@ -45,6 +45,7 @@ func NewServer(
 		stateContext: stateContext,
 	}
 	s.callbackContext = CallbackContext{
+		Context:      protoOptions.Context,
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}

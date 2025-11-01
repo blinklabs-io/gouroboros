@@ -81,6 +81,7 @@ func NewClient(
 		wantIntersectFoundChan:   make(chan chan<- clientPointResult, 1),
 	}
 	c.callbackContext = CallbackContext{
+		Context:      protoOptions.Context,
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
@@ -147,9 +148,11 @@ func (c *Client) Stop() error {
 			)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+		if !c.IsDone() {
+			msg := NewMsgDone()
+			if err = c.SendMessage(msg); err != nil {
+				return
+			}
 		}
 	})
 	return err
