@@ -171,17 +171,23 @@ func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 
 func (p *ShelleyProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 	// sanity check
-	if p.A0.Num().Int64() > math.MaxInt32 ||
+	if p.A0 == nil ||
+		p.A0.Num().Int64() < math.MinInt32 ||
+		p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid A0 rational number values")
 	}
-	if p.Rho.Num().Int64() > math.MaxInt32 ||
+	if p.Rho == nil ||
+		p.Rho.Num().Int64() < math.MinInt32 ||
+		p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Rho rational number values")
 	}
-	if p.Tau.Num().Int64() > math.MaxInt32 ||
+	if p.Tau == nil ||
+		p.Tau.Num().Int64() < math.MinInt32 ||
+		p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Tau rational number values")
