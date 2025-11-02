@@ -615,3 +615,455 @@ func TestAlonzoTransaction_Utxorpc(t *testing.T) {
 		t.Error("Expected non-empty transaction hash")
 	}
 }
+
+// ===================================================================
+// Tests for UpgradePParams with MinPoolCost
+// ===================================================================
+
+func TestAlonzoUpgradePParams(t *testing.T) {
+	testCases := []struct {
+		name       string
+		prevParams mary.MaryProtocolParameters
+		validate   func(*testing.T, alonzo.AlonzoProtocolParameters)
+	}{
+		{
+			name: "Upgrade with MinPoolCost zero",
+			prevParams: mary.MaryProtocolParameters{
+				MinFeeA:            44,
+				MinFeeB:            155381,
+				MaxBlockBodySize:   65536,
+				MaxTxSize:          16384,
+				MaxBlockHeaderSize: 1100,
+				KeyDeposit:         2000000,
+				PoolDeposit:        500000000,
+				MaxEpoch:           18,
+				NOpt:               500,
+				A0:                 &cbor.Rat{Rat: big.NewRat(3, 10)},
+				Rho:                &cbor.Rat{Rat: big.NewRat(3, 1000)},
+				Tau:                &cbor.Rat{Rat: big.NewRat(2, 10)},
+				Decentralization:   &cbor.Rat{Rat: big.NewRat(1, 2)},
+				ExtraEntropy:       common.Nonce{},
+				ProtocolMajor:      6,
+				ProtocolMinor:      0,
+				MinUtxoValue:       1000000,
+				MinPoolCost:        0,
+			},
+			validate: func(t *testing.T, alonzoParams alonzo.AlonzoProtocolParameters) {
+				if alonzoParams.MinPoolCost != 0 {
+					t.Errorf(
+						"MinPoolCost: got %d, want 0",
+						alonzoParams.MinPoolCost,
+					)
+				}
+				if alonzoParams.MinFeeA != 44 {
+					t.Errorf("MinFeeA: got %d, want 44", alonzoParams.MinFeeA)
+				}
+				if alonzoParams.ProtocolMajor != 6 {
+					t.Errorf(
+						"ProtocolMajor: got %d, want 6",
+						alonzoParams.ProtocolMajor,
+					)
+				}
+			},
+		},
+		{
+			name: "Upgrade with MinPoolCost standard value",
+			prevParams: mary.MaryProtocolParameters{
+				MinFeeA:            44,
+				MinFeeB:            155381,
+				MaxBlockBodySize:   65536,
+				MaxTxSize:          16384,
+				MaxBlockHeaderSize: 1100,
+				KeyDeposit:         2000000,
+				PoolDeposit:        500000000,
+				MaxEpoch:           18,
+				NOpt:               500,
+				A0:                 &cbor.Rat{Rat: big.NewRat(3, 10)},
+				Rho:                &cbor.Rat{Rat: big.NewRat(3, 1000)},
+				Tau:                &cbor.Rat{Rat: big.NewRat(2, 10)},
+				Decentralization:   &cbor.Rat{Rat: big.NewRat(1, 2)},
+				ExtraEntropy:       common.Nonce{},
+				ProtocolMajor:      6,
+				ProtocolMinor:      0,
+				MinUtxoValue:       1000000,
+				MinPoolCost:        340000000,
+			},
+			validate: func(t *testing.T, alonzoParams alonzo.AlonzoProtocolParameters) {
+				if alonzoParams.MinPoolCost != 340000000 {
+					t.Errorf(
+						"MinPoolCost: got %d, want 340000000",
+						alonzoParams.MinPoolCost,
+					)
+				}
+				if alonzoParams.MinFeeB != 155381 {
+					t.Errorf(
+						"MinFeeB: got %d, want 155381",
+						alonzoParams.MinFeeB,
+					)
+				}
+			},
+		},
+		{
+			name: "Upgrade with MinPoolCost maximum uint64",
+			prevParams: mary.MaryProtocolParameters{
+				MinFeeA:            100,
+				MinFeeB:            200,
+				MaxBlockBodySize:   1000,
+				MaxTxSize:          500,
+				MaxBlockHeaderSize: 100,
+				KeyDeposit:         1000,
+				PoolDeposit:        5000,
+				MaxEpoch:           100,
+				NOpt:               50,
+				A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
+				Rho:                &cbor.Rat{Rat: big.NewRat(1, 3)},
+				Tau:                &cbor.Rat{Rat: big.NewRat(1, 4)},
+				Decentralization:   &cbor.Rat{Rat: big.NewRat(1, 5)},
+				ExtraEntropy:       common.Nonce{},
+				ProtocolMajor:      5,
+				ProtocolMinor:      2,
+				MinUtxoValue:       500000,
+				MinPoolCost:        18446744073709551615,
+			},
+			validate: func(t *testing.T, alonzoParams alonzo.AlonzoProtocolParameters) {
+				if alonzoParams.MinPoolCost != 18446744073709551615 {
+					t.Errorf(
+						"MinPoolCost: got %d, want 18446744073709551615",
+						alonzoParams.MinPoolCost,
+					)
+				}
+				if alonzoParams.ProtocolMinor != 2 {
+					t.Errorf(
+						"ProtocolMinor: got %d, want 2",
+						alonzoParams.ProtocolMinor,
+					)
+				}
+			},
+		},
+		{
+			name: "Upgrade with all Mary fields",
+			prevParams: mary.MaryProtocolParameters{
+				MinFeeA:            44,
+				MinFeeB:            155381,
+				MaxBlockBodySize:   65536,
+				MaxTxSize:          16384,
+				MaxBlockHeaderSize: 1100,
+				KeyDeposit:         2000000,
+				PoolDeposit:        500000000,
+				MaxEpoch:           18,
+				NOpt:               500,
+				A0:                 &cbor.Rat{Rat: big.NewRat(3, 10)},
+				Rho:                &cbor.Rat{Rat: big.NewRat(3, 1000)},
+				Tau:                &cbor.Rat{Rat: big.NewRat(2, 10)},
+				Decentralization:   &cbor.Rat{Rat: big.NewRat(1, 2)},
+				ExtraEntropy:       common.Nonce{},
+				ProtocolMajor:      6,
+				ProtocolMinor:      0,
+				MinUtxoValue:       1000000,
+				MinPoolCost:        340000000,
+			},
+			validate: func(t *testing.T, alonzoParams alonzo.AlonzoProtocolParameters) {
+				if alonzoParams.MinFeeA != 44 {
+					t.Errorf("MinFeeA: got %d, want 44", alonzoParams.MinFeeA)
+				}
+				if alonzoParams.MinFeeB != 155381 {
+					t.Errorf(
+						"MinFeeB: got %d, want 155381",
+						alonzoParams.MinFeeB,
+					)
+				}
+				if alonzoParams.MaxBlockBodySize != 65536 {
+					t.Errorf(
+						"MaxBlockBodySize: got %d, want 65536",
+						alonzoParams.MaxBlockBodySize,
+					)
+				}
+				if alonzoParams.MaxTxSize != 16384 {
+					t.Errorf(
+						"MaxTxSize: got %d, want 16384",
+						alonzoParams.MaxTxSize,
+					)
+				}
+				if alonzoParams.MaxBlockHeaderSize != 1100 {
+					t.Errorf(
+						"MaxBlockHeaderSize: got %d, want 1100",
+						alonzoParams.MaxBlockHeaderSize,
+					)
+				}
+				if alonzoParams.KeyDeposit != 2000000 {
+					t.Errorf(
+						"KeyDeposit: got %d, want 2000000",
+						alonzoParams.KeyDeposit,
+					)
+				}
+				if alonzoParams.PoolDeposit != 500000000 {
+					t.Errorf(
+						"PoolDeposit: got %d, want 500000000",
+						alonzoParams.PoolDeposit,
+					)
+				}
+				if alonzoParams.MaxEpoch != 18 {
+					t.Errorf("MaxEpoch: got %d, want 18", alonzoParams.MaxEpoch)
+				}
+				if alonzoParams.NOpt != 500 {
+					t.Errorf("NOpt: got %d, want 500", alonzoParams.NOpt)
+				}
+				if alonzoParams.A0 == nil ||
+					alonzoParams.A0.Cmp(big.NewRat(3, 10)) != 0 {
+					t.Error("A0 not correctly copied")
+				}
+				if alonzoParams.Rho == nil ||
+					alonzoParams.Rho.Cmp(big.NewRat(3, 1000)) != 0 {
+					t.Error("Rho not correctly copied")
+				}
+				if alonzoParams.Tau == nil ||
+					alonzoParams.Tau.Cmp(big.NewRat(2, 10)) != 0 {
+					t.Error("Tau not correctly copied")
+				}
+				if alonzoParams.Decentralization == nil ||
+					alonzoParams.Decentralization.Cmp(big.NewRat(1, 2)) != 0 {
+					t.Error("Decentralization not correctly copied")
+				}
+				if alonzoParams.ProtocolMajor != 6 {
+					t.Errorf(
+						"ProtocolMajor: got %d, want 6",
+						alonzoParams.ProtocolMajor,
+					)
+				}
+				if alonzoParams.ProtocolMinor != 0 {
+					t.Errorf(
+						"ProtocolMinor: got %d, want 0",
+						alonzoParams.ProtocolMinor,
+					)
+				}
+				if alonzoParams.MinUtxoValue != 1000000 {
+					t.Errorf(
+						"MinUtxoValue: got %d, want 1000000",
+						alonzoParams.MinUtxoValue,
+					)
+				}
+				if alonzoParams.MinPoolCost != 340000000 {
+					t.Errorf(
+						"MinPoolCost: got %d, want 340000000",
+						alonzoParams.MinPoolCost,
+					)
+				}
+			},
+		},
+		{
+			name: "Upgrade with nil rational numbers",
+			prevParams: mary.MaryProtocolParameters{
+				MinFeeA:            100,
+				MinFeeB:            200,
+				MaxBlockBodySize:   1000,
+				MaxTxSize:          500,
+				MaxBlockHeaderSize: 100,
+				KeyDeposit:         1000,
+				PoolDeposit:        5000,
+				MaxEpoch:           100,
+				NOpt:               50,
+				A0:                 nil,
+				Rho:                nil,
+				Tau:                nil,
+				Decentralization:   nil,
+				ExtraEntropy:       common.Nonce{},
+				ProtocolMajor:      5,
+				ProtocolMinor:      0,
+				MinUtxoValue:       1000,
+				MinPoolCost:        123456789,
+			},
+			validate: func(t *testing.T, alonzoParams alonzo.AlonzoProtocolParameters) {
+				if alonzoParams.A0 != nil {
+					t.Error("A0 should be nil")
+				}
+				if alonzoParams.Rho != nil {
+					t.Error("Rho should be nil")
+				}
+				if alonzoParams.Tau != nil {
+					t.Error("Tau should be nil")
+				}
+				if alonzoParams.Decentralization != nil {
+					t.Error("Decentralization should be nil")
+				}
+				if alonzoParams.MinPoolCost != 123456789 {
+					t.Errorf(
+						"MinPoolCost: got %d, want 123456789",
+						alonzoParams.MinPoolCost,
+					)
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			alonzoParams := alonzo.UpgradePParams(tc.prevParams)
+			tc.validate(t, alonzoParams)
+		})
+	}
+}
+
+func TestAlonzoUpgradePParams_PointerIdentity(t *testing.T) {
+	// Test that pointers to rational numbers are correctly copied (not shared)
+	prevParams := mary.MaryProtocolParameters{
+		MinFeeA:            100,
+		MinFeeB:            200,
+		MaxBlockBodySize:   1000,
+		MaxTxSize:          500,
+		MaxBlockHeaderSize: 100,
+		KeyDeposit:         1000,
+		PoolDeposit:        5000,
+		MaxEpoch:           100,
+		NOpt:               50,
+		A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho:                &cbor.Rat{Rat: big.NewRat(1, 3)},
+		Tau:                &cbor.Rat{Rat: big.NewRat(1, 4)},
+		Decentralization:   &cbor.Rat{Rat: big.NewRat(1, 5)},
+		ExtraEntropy:       common.Nonce{},
+		ProtocolMajor:      5,
+		ProtocolMinor:      0,
+		MinUtxoValue:       1000,
+		MinPoolCost:        340000000,
+	}
+
+	alonzoParams := alonzo.UpgradePParams(prevParams)
+
+	// Verify that the pointers are the same (direct copy)
+	if alonzoParams.A0 != prevParams.A0 {
+		t.Error("A0 pointer should be the same")
+	}
+	if alonzoParams.Rho != prevParams.Rho {
+		t.Error("Rho pointer should be the same")
+	}
+	if alonzoParams.Tau != prevParams.Tau {
+		t.Error("Tau pointer should be the same")
+	}
+	if alonzoParams.Decentralization != prevParams.Decentralization {
+		t.Error("Decentralization pointer should be the same")
+	}
+}
+
+func TestAlonzoUpgradePParams_AlonzoSpecificFieldsZero(t *testing.T) {
+	// Verify that Alonzo-specific fields are initialized to zero values
+	prevParams := mary.MaryProtocolParameters{
+		MinFeeA:            100,
+		MinFeeB:            200,
+		MaxBlockBodySize:   1000,
+		MaxTxSize:          500,
+		MaxBlockHeaderSize: 100,
+		KeyDeposit:         1000,
+		PoolDeposit:        5000,
+		MaxEpoch:           100,
+		NOpt:               50,
+		A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho:                &cbor.Rat{Rat: big.NewRat(1, 3)},
+		Tau:                &cbor.Rat{Rat: big.NewRat(1, 4)},
+		Decentralization:   &cbor.Rat{Rat: big.NewRat(1, 5)},
+		ExtraEntropy:       common.Nonce{},
+		ProtocolMajor:      5,
+		ProtocolMinor:      0,
+		MinUtxoValue:       1000,
+		MinPoolCost:        340000000,
+	}
+
+	alonzoParams := alonzo.UpgradePParams(prevParams)
+
+	// Alonzo-specific fields should be zero/nil
+	if alonzoParams.AdaPerUtxoByte != 0 {
+		t.Errorf(
+			"AdaPerUtxoByte should be 0, got %d",
+			alonzoParams.AdaPerUtxoByte,
+		)
+	}
+	if alonzoParams.CostModels != nil {
+		t.Error("CostModels should be nil")
+	}
+	if alonzoParams.ExecutionCosts.MemPrice != nil {
+		t.Error("ExecutionCosts.MemPrice should be nil")
+	}
+	if alonzoParams.ExecutionCosts.StepPrice != nil {
+		t.Error("ExecutionCosts.StepPrice should be nil")
+	}
+	if alonzoParams.MaxTxExUnits.Memory != 0 {
+		t.Errorf(
+			"MaxTxExUnits.Memory should be 0, got %d",
+			alonzoParams.MaxTxExUnits.Memory,
+		)
+	}
+	if alonzoParams.MaxTxExUnits.Steps != 0 {
+		t.Errorf(
+			"MaxTxExUnits.Steps should be 0, got %d",
+			alonzoParams.MaxTxExUnits.Steps,
+		)
+	}
+	if alonzoParams.MaxBlockExUnits.Memory != 0 {
+		t.Errorf(
+			"MaxBlockExUnits.Memory should be 0, got %d",
+			alonzoParams.MaxBlockExUnits.Memory,
+		)
+	}
+	if alonzoParams.MaxBlockExUnits.Steps != 0 {
+		t.Errorf(
+			"MaxBlockExUnits.Steps should be 0, got %d",
+			alonzoParams.MaxBlockExUnits.Steps,
+		)
+	}
+	if alonzoParams.MaxValueSize != 0 {
+		t.Errorf("MaxValueSize should be 0, got %d", alonzoParams.MaxValueSize)
+	}
+	if alonzoParams.CollateralPercentage != 0 {
+		t.Errorf(
+			"CollateralPercentage should be 0, got %d",
+			alonzoParams.CollateralPercentage,
+		)
+	}
+	if alonzoParams.MaxCollateralInputs != 0 {
+		t.Errorf(
+			"MaxCollateralInputs should be 0, got %d",
+			alonzoParams.MaxCollateralInputs,
+		)
+	}
+}
+
+func TestAlonzoUpgradePParams_CompareWithExistingParams(t *testing.T) {
+	// Create Mary params that match existing test patterns
+	prevParams := mary.MaryProtocolParameters{
+		MinFeeA:            44,
+		MinFeeB:            155381,
+		MaxBlockBodySize:   65536,
+		MaxTxSize:          16384,
+		MaxBlockHeaderSize: 1100,
+		KeyDeposit:         2000000,
+		PoolDeposit:        500000000,
+		MaxEpoch:           18,
+		NOpt:               500,
+		A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho:                &cbor.Rat{Rat: big.NewRat(3, 4)},
+		Tau:                &cbor.Rat{Rat: big.NewRat(5, 6)},
+		ProtocolMajor:      8,
+		ProtocolMinor:      0,
+		MinUtxoValue:       1000000,
+		MinPoolCost:        340000000,
+	}
+
+	alonzoParams := alonzo.UpgradePParams(prevParams)
+
+	if alonzoParams.MinFeeA != prevParams.MinFeeA {
+		t.Error("MinFeeA mismatch after upgrade")
+	}
+	if alonzoParams.MinFeeB != prevParams.MinFeeB {
+		t.Error("MinFeeB mismatch after upgrade")
+	}
+	if alonzoParams.MinPoolCost != prevParams.MinPoolCost {
+		t.Errorf(
+			"MinPoolCost mismatch: got %d, want %d",
+			alonzoParams.MinPoolCost,
+			prevParams.MinPoolCost,
+		)
+	}
+
+	// Verify Alonzo-specific fields are zero (not from Mary)
+	if alonzoParams.AdaPerUtxoByte != 0 {
+		t.Error("AdaPerUtxoByte should be zero after upgrade, not base value")
+	}
+}

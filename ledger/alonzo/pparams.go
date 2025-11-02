@@ -378,5 +378,6 @@ func UpgradePParams(
 		ProtocolMajor:      prevPParams.ProtocolMajor,
 		ProtocolMinor:      prevPParams.ProtocolMinor,
 		MinUtxoValue:       prevPParams.MinUtxoValue,
+		MinPoolCost:        prevPParams.MinPoolCost,
 	}
 }
