@@ -95,16 +95,17 @@ func UtxoValidateFeeTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, ok := pp.(*MaryProtocolParameters)
-	if !ok {
-		return errors.New("pparams are not expected type")
+	minFee, err := MinFeeTx(tx, pp)
+	if err != nil {
+		return err
 	}
-	return shelley.UtxoValidateFeeTooSmallUtxo(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
-	)
+	if tx.Fee() >= minFee {
+		return nil
+	}
+	return shelley.FeeTooSmallUtxoError{
+		Provided: tx.Fee(),
+		Min:      minFee,
+	}
 }
 
 func UtxoValidateBadInputsUtxo(
@@ -144,12 +145,54 @@ func UtxoValidateValueNotConservedUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	return shelley.UtxoValidateValueNotConservedUtxo(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
-	)
+	// Calculate consumed value
+	// consumed = value from input(s) + withdrawals + refunds
+	var consumedValue uint64
+	for _, tmpInput := range tx.Inputs() {
+		tmpUtxo, err := ls.UtxoById(tmpInput)
+		// Ignore errors fetching the UTxO and exclude it from calculations
+		if err != nil {
+			continue
+		}
+		consumedValue += tmpUtxo.Output.Amount()
+	}
+	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
+		consumedValue += tmpWithdrawalAmount
+	}
+	for _, cert := range tx.Certificates() {
+		switch cert.(type) {
+		case *common.StakeDeregistrationCertificate:
+			consumedValue += uint64(tmpPparams.KeyDeposit)
+		}
+	}
+	// Calculate produced value
+	// produced = value from output(s) + fee + deposits
+	var producedValue uint64
+	for _, tmpOutput := range tx.Outputs() {
+		producedValue += tmpOutput.Amount()
+	}
+	producedValue += tx.Fee()
+	for _, cert := range tx.Certificates() {
+		switch tmpCert := cert.(type) {
+		case *common.PoolRegistrationCertificate:
+			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator).Bytes())
+			if err != nil {
+				return err
+			}
+			if reg == nil {
+				producedValue += uint64(tmpPparams.PoolDeposit)
+			}
+		case *common.StakeRegistrationCertificate:
+			producedValue += uint64(tmpPparams.KeyDeposit)
+		}
+	}
+	if consumedValue == producedValue {
+		return nil
+	}
+	return shelley.ValueNotConservedUtxoError{
+		Consumed: consumedValue,
+		Produced: producedValue,
+	}
 }
 
 func UtxoValidateOutputTooSmallUtxo(
@@ -158,16 +201,22 @@ func UtxoValidateOutputTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, ok := pp.(*MaryProtocolParameters)
-	if !ok {
-		return errors.New("pparams are not expected type")
+	minCoin, err := MinCoinTxOut(tx, pp)
+	if err != nil {
+		return err
 	}
-	return shelley.UtxoValidateOutputTooSmallUtxo(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
-	)
+	var badOutputs []common.TransactionOutput
+	for _, tmpOutput := range tx.Outputs() {
+		if tmpOutput.Amount() < minCoin {
+			badOutputs = append(badOutputs, tmpOutput)
+		}
+	}
+	if len(badOutputs) == 0 {
+		return nil
+	}
+	return shelley.OutputTooSmallUtxoError{
+		Outputs: badOutputs,
+	}
 }
 
 func UtxoValidateOutputBootAddrAttrsTooBig(
@@ -189,10 +238,57 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	return shelley.UtxoValidateMaxTxSizeUtxo(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
+	txBytes := tx.Cbor()
+	if len(txBytes) == 0 {
+		var err error
+		txBytes, err = cbor.Encode(tx)
+		if err != nil {
+			return err
+		}
+	}
+	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+		return nil
+	}
+	return shelley.MaxTxSizeUtxoError{
+		TxSize:    uint(len(txBytes)),
+		MaxTxSize: tmpPparams.MaxTxSize,
+	}
+}
+
+// MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
+func MinFeeTx(
+	tx common.Transaction,
+	pparams common.ProtocolParameters,
+) (uint64, error) {
+	tmpPparams, ok := pparams.(*MaryProtocolParameters)
+	if !ok {
+		return 0, errors.New("pparams are not expected type")
+	}
+	txBytes := tx.Cbor()
+	if len(txBytes) == 0 {
+		var err error
+		txBytes, err = cbor.Encode(tx)
+		if err != nil {
+			return 0, err
+		}
+	}
+	minFee := uint64(
+		// The TX size can never be negative, so casting to uint is safe
+		//nolint:gosec
+		(tmpPparams.MinFeeA * uint(len(txBytes))) + tmpPparams.MinFeeB,
 	)
+	return minFee, nil
+}
+
+// MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters
+func MinCoinTxOut(
+	_ common.Transaction,
+	pparams common.ProtocolParameters,
+) (uint64, error) {
+	tmpPparams, ok := pparams.(*MaryProtocolParameters)
+	if !ok {
+		return 0, errors.New("pparams are not expected type")
+	}
+	minCoinTxOut := uint64(tmpPparams.MinUtxoValue)
+	return minCoinTxOut, nil
 }
