@@ -572,13 +572,7 @@ type ByronUpdateProposalBlockVersionMod struct {
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	// TODO: split this to its own type (#853)
-	TxPayload []struct {
-		cbor.StructAsArray
-		Transaction ByronTransaction
-		// TODO: properly decode TX witnesses (#853)
-		Twit []cbor.Value
-	}
+	TxPayload  []ByronTxPayload
 	SscPayload cbor.Value
 	DlgPayload []any
 	UpdPayload ByronUpdatePayload
@@ -593,6 +587,77 @@ func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
 	*b = ByronMainBlockBody(tmp)
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	type tmpBody struct {
+		cbor.StructAsArray
+		cbor.DecodeStoreCbor
+		TxPayload  cbor.IndefLengthList
+		SscPayload cbor.Value
+		DlgPayload []any
+		UpdPayload ByronUpdatePayload
+	}
+	var txPayload cbor.IndefLengthList
+	if b.TxPayload != nil {
+		txPayload = make(cbor.IndefLengthList, len(b.TxPayload))
+		for i := range b.TxPayload {
+			txPayload[i] = &b.TxPayload[i]
+		}
+	}
+	temp := tmpBody{
+		TxPayload:  txPayload,
+		SscPayload: b.SscPayload,
+		DlgPayload: b.DlgPayload,
+		UpdPayload: b.UpdPayload,
+	}
+	return cbor.Encode(&temp)
+}
+
+type ByronTxPayload struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	Transaction ByronTransaction
+	Twit        []cbor.Value
+}
+
+func (b *ByronTxPayload) UnmarshalCBOR(cborData []byte) error {
+	type tByronTxPayload ByronTxPayload
+	var tmp tByronTxPayload
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ByronTxPayload(tmp)
+	b.SetCbor(cborData)
+	return nil
+}
+
+func (b *ByronTxPayload) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	type tmpPayload struct {
+		cbor.StructAsArray
+		cbor.DecodeStoreCbor
+		Transaction ByronTransaction
+		Twit        cbor.IndefLengthList
+	}
+	var twit cbor.IndefLengthList
+	if b.Twit != nil {
+		twit = make(cbor.IndefLengthList, len(b.Twit))
+		for i, wit := range b.Twit {
+			twit[i] = wit
+		}
+	}
+	temp := tmpPayload{
+		Transaction: b.Transaction,
+		Twit:        twit,
+	}
+	return cbor.Encode(&temp)
 }
 
 type ByronEpochBoundaryBlockHeader struct {
