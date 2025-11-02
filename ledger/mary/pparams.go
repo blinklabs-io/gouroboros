@@ -140,6 +140,15 @@ func (u *MaryProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (p *MaryProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
+	// Return the stored CBOR if available
+	if p.Cbor() != nil {
+		return p.Cbor(), nil
+	}
+	// Otherwise, encode generically
+	return cbor.EncodeGeneric(p)
+}
+
 func (p *MaryProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 	// sanity check
 	if p.A0 == nil ||

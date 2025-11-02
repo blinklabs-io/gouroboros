@@ -34,7 +34,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testZeroSlot uint64 = 0
 	testTx := &mary.MaryTransaction{
 		Body: mary.MaryTransactionBody{
-			TxValidityIntervalStart: testSlot,
+			TxValidityIntervalStart: &testSlot,
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -114,7 +114,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 		},
 	)
 	// Zero TTL
-	testTx.Body.TxValidityIntervalStart = testZeroSlot
+	testTx.Body.TxValidityIntervalStart = &testZeroSlot
 	testRun(
 		t,
 		"zero validity interval start",
