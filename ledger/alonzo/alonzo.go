@@ -70,6 +70,46 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+
+	// When encoding from scratch, we need to use indefinite-length encoding
+	// for InvalidTransactions to match the original on-chain format
+
+	// Create a temporary block for encoding
+	type tmpBlock struct {
+		cbor.StructAsArray
+		cbor.DecodeStoreCbor
+		BlockHeader            *AlonzoBlockHeader
+		TransactionBodies      []AlonzoTransactionBody
+		TransactionWitnessSets []AlonzoTransactionWitnessSet
+		TransactionMetadataSet map[uint]*cbor.LazyValue
+		InvalidTransactions    cbor.IndefLengthList
+	}
+
+	// Convert InvalidTransactions to IndefLengthList
+	var invalidTx cbor.IndefLengthList
+	if b.InvalidTransactions != nil {
+		invalidTx = make(cbor.IndefLengthList, len(b.InvalidTransactions))
+		for i, tx := range b.InvalidTransactions {
+			invalidTx[i] = tx
+		}
+	}
+
+	temp := tmpBlock{
+		BlockHeader:            b.BlockHeader,
+		TransactionBodies:      b.TransactionBodies,
+		TransactionWitnessSets: b.TransactionWitnessSets,
+		TransactionMetadataSet: b.TransactionMetadataSet,
+		InvalidTransactions:    invalidTx,
+	}
+
+	return cbor.Encode(&temp)
+}
+
 func (AlonzoBlock) Type() int {
 	return BlockTypeAlonzo
 }
