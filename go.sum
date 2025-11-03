@@ -3,8 +3,8 @@ filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
 github.com/bits-and-blooms/bitset v1.20.0 h1:2F+rfL86jE2d/bmw7OhqUg2Sj/1rURkBn3MdfoPyRVU=
 github.com/bits-and-blooms/bitset v1.20.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
-github.com/blinklabs-io/ouroboros-mock v0.3.8 h1:+DAt2rx0ouZUxee5DBMgZq3I1+ZdxFSHG9g3tYl/FKU=
-github.com/blinklabs-io/ouroboros-mock v0.3.8/go.mod h1:UwQIf4KqZwO13P9d90fbi3UL/X7JaJfeEbqk+bEeFQA=
+github.com/blinklabs-io/ouroboros-mock v0.3.9 h1:UnciDccJ5tZCR1xI0BcxGZcYjJ/PS5MpnjiiGtrZ680=
+github.com/blinklabs-io/ouroboros-mock v0.3.9/go.mod h1:uTkE8/LAYL7yQSntH48Pudf5Xn+jaBWMj+9udbzYXhI=
 github.com/blinklabs-io/plutigo v0.0.13 h1:JztPigFmknQmQ3Ti1+mdTY96ihOUDh6wJ3pPnN2YYBU=
 github.com/blinklabs-io/plutigo v0.0.13/go.mod h1:CoNpHHFifPV21KfnHlP3hEFOVj3yF6zgV5OPr058+Do=
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=
