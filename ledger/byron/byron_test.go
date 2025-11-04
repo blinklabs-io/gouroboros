@@ -21,7 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 // Unit test for ByronTransactionInput.Utxorpc()
@@ -35,7 +35,7 @@ func TestByronTransactionInput_Utxorpc(t *testing.T) {
 	if err != nil {
 		t.Fatal("Could not get transaction input")
 	}
-	want := &cardano.TxInput{
+	want := &utxorpc.TxInput{
 		TxHash:      input.Id().Bytes(),
 		OutputIndex: input.Index(),
 	}
@@ -61,9 +61,9 @@ func TestByronTransactionOutput_Utxorpc(t *testing.T) {
 	assert.NoError(t, err)
 	addr, err := address.Bytes()
 	assert.NoError(t, err)
-	want := &cardano.TxOutput{
+	want := &utxorpc.TxOutput{
 		Address: addr,
-		Coin:    output.OutputAmount,
+		Coin:    common.ToUtxorpcBigInt(output.OutputAmount),
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -89,7 +89,7 @@ func TestByronTransaction_Utxorpc_Empty(t *testing.T) {
 	// Validate it's not nil
 	if result == nil {
 		t.Fatal(
-			"ByronTransaction.Utxorpc() returned nil; expected empty cardano.Tx object",
+			"ByronTransaction.Utxorpc() returned nil; expected empty utxorpc.Tx object",
 		)
 	}
 
@@ -100,8 +100,8 @@ func TestByronTransaction_Utxorpc_Empty(t *testing.T) {
 	if len(result.Outputs) != 0 {
 		t.Errorf("Expected zero outputs, got %d", len(result.Outputs))
 	}
-	if result.Fee != 0 {
-		t.Errorf("Expected fee = 0, got %d", result.Fee)
+	if result.Fee.GetInt() != 0 {
+		t.Errorf("Expected fee = 0, got %d", result.Fee.GetInt())
 	}
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func TestAllegraProtocolParamsUpdate(t *testing.T) {
@@ -92,29 +92,29 @@ func TestAllegraUtxorpc(t *testing.T) {
 		MinUtxoValue:       1000000,
 	}
 
-	expectedUtxorpc := &cardano.PParams{
-		MinFeeCoefficient:        500,
-		MinFeeConstant:           2,
-		MaxBlockBodySize:         65536,
-		MaxTxSize:                16384,
-		MaxBlockHeaderSize:       1024,
-		StakeKeyDeposit:          2000,
-		PoolDeposit:              500000,
+	expectedUtxorpc := &utxorpc.PParams{
+		MinFeeCoefficient: common.ToUtxorpcBigInt(500),
+		MinFeeConstant:    common.ToUtxorpcBigInt(2),
+		MaxBlockBodySize:   65536,
+		MaxTxSize:          16384,
+		MaxBlockHeaderSize: 1024,
+		StakeKeyDeposit:    common.ToUtxorpcBigInt(2000),
+		PoolDeposit:        common.ToUtxorpcBigInt(500000),
 		PoolRetirementEpochBound: 2160,
 		DesiredNumberOfPools:     100,
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(1),
 			Denominator: uint32(2),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(3),
 			Denominator: uint32(4),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(5),
 			Denominator: uint32(6),
 		},
-		ProtocolVersion: &cardano.ProtocolVersion{
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: 8,
 			Minor: 0,
 		},
@@ -171,10 +171,10 @@ func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Check that the fee matches
-	if actual.Fee != txBody.Fee() {
+	if actual.Fee.GetInt() != int64(txBody.Fee()) {
 		t.Errorf(
 			"AllegraTransactionBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
-			actual.Fee,
+			actual.Fee.GetInt(),
 			txBody.Fee(),
 		)
 	}
@@ -233,10 +233,10 @@ func TestAllegraTransaction_Utxorpc(t *testing.T) {
 		t.Fatalf("Could not convert transaction to utxorpc format: %v", err)
 	}
 	// Assertion checks
-	if actual.Fee != tx.Fee() {
+	if actual.Fee.GetInt() != int64(tx.Fee()) {
 		t.Errorf(
 			"AllegraTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
-			actual.Fee,
+			actual.Fee.GetInt(),
 			tx.Fee(),
 		)
 	}

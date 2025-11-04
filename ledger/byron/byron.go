@@ -496,7 +496,7 @@ func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    o.Amount(),
+			Coin:    common.ToUtxorpcBigInt(o.Amount()),
 		},
 		nil
 }

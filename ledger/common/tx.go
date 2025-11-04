@@ -236,7 +236,7 @@ func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 		// ReferenceInputs: tx.ReferenceInputs(),
 		// Witnesses:       tx.Witnesses(),
 		// Collateral:      tx.Collateral(),
-		Fee: tx.Fee(),
+		Fee: ToUtxorpcBigInt(tx.Fee()),
 		// Validity:        tx.Validity(),
 		// Successful:      tx.Successful(),
 		// Auxiliary:       tx.AuxData(),

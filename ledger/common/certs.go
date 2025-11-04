@@ -586,12 +586,12 @@ func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_PoolRegistration{
+			// #nosec G115
 			PoolRegistration: &utxorpc.PoolRegistrationCert{
 				Operator:   c.Operator[:],
 				VrfKeyhash: c.VrfKeyHash[:],
-				Pledge:     c.Pledge,
-				Cost:       c.Cost,
-				// #nosec G115
+				Pledge:     ToUtxorpcBigInt(c.Pledge),
+				Cost:       ToUtxorpcBigInt(c.Cost),
 				Margin: &utxorpc.RationalNumber{
 					Numerator:   int32(c.Margin.Num().Int64()),
 					Denominator: uint32(c.Margin.Denom().Uint64()),
@@ -758,9 +758,7 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, e
 			tmpMirTargets,
 			&utxorpc.MirTarget{
 				StakeCredential: stakeCr,
-				// potential integer overflow
-				// #nosec G115
-				DeltaCoin: int64(deltaCoin),
+				DeltaCoin:       ToUtxorpcBigInt(deltaCoin),
 			},
 		)
 	}

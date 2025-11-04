@@ -557,7 +557,7 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    o.Amount(),
+			Coin:    common.ToUtxorpcBigInt(o.Amount()),
 			// Assets: o.Assets,
 		},
 		err

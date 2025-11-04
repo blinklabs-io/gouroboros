@@ -2791,7 +2791,13 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 	assert.NotNil(t, txOutput)
 	assert.Equal(t, []byte{}, txOutput.Datum.Hash)
 	assert.Equal(t, []byte{0x0}, txOutput.Address)
-	assert.Equal(t, uint64(1000), txOutput.Coin)
+	coin := txOutput.Coin
+	if bigUInt := coin.GetBigUInt(); bigUInt != nil {
+		coinValue := new(big.Int).SetBytes(bigUInt).Uint64()
+		assert.Equal(t, uint64(1000), coinValue)
+	} else {
+		assert.Equal(t, int64(1000), coin.GetInt())
+	}
 }
 
 func TestBabbageTransactionOutput_DatumHashReturnsNil(t *testing.T) {

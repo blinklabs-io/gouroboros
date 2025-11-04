@@ -17,6 +17,7 @@ package byron_test
 import (
 	"bytes"
 	"encoding/hex"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -143,12 +144,23 @@ func TestByronTransaction_Utxorpc(t *testing.T) {
 			rpcOut, err := utxo.Output.Utxorpc()
 			assert.NoError(t, err)
 			assert.NotNil(t, rpcOut, "Utxorpc output should not be nil")
-			assert.Greater(
-				t,
-				rpcOut.Coin,
-				uint64(0),
-				"Coin amount should be greater than 0",
-			)
+			coin := rpcOut.Coin
+			assert.NotNil(t, coin, "Coin should not be nil")
+			if coin.GetInt() != 0 {
+				assert.Greater(
+					t,
+					coin.GetInt(),
+					int64(0),
+					"Coin amount should be greater than 0",
+				)
+			} else {
+				assert.Greater(
+					t,
+					new(big.Int).SetBytes(coin.GetBigUInt()).Cmp(big.NewInt(0)),
+					0,
+					"Coin amount should be greater than 0",
+				)
+			}
 			assert.NotEmpty(
 				t,
 				rpcOut.Address,

@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"slices"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/btcsuite/btcd/btcutil/bech32"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -490,3 +492,17 @@ type ExUnits struct {
 
 // GenesisRat is a convenience type for cbor.Rat
 type GenesisRat = cbor.Rat
+
+// ToUtxorpcBigInt converts a uint64 into a *utxorpc.BigInt pointer
+func ToUtxorpcBigInt(v uint64) *utxorpc.BigInt {
+	if v <= math.MaxInt64 {
+		return &utxorpc.BigInt{
+			BigInt: &utxorpc.BigInt_Int{Int: int64(v)},
+		}
+	}
+	return &utxorpc.BigInt{
+		BigInt: &utxorpc.BigInt_BigUInt{
+			BigUInt: new(big.Int).SetUint64(v).Bytes(),
+		},
+	}
+}
