@@ -66,6 +66,17 @@ func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *MaryBlock) MarshalCBOR() ([]byte, error) {
+	// Return the stored CBOR if available
+	// Note: this is a workaround for an issue described here:
+	// https://github.com/blinklabs-io/gouroboros/pull/1093#discussion_r2491161964
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	// Otherwise, encode generically
+	return cbor.EncodeGeneric(b)
+}
+
 func (MaryBlock) Type() int {
 	return BlockTypeMary
 }
@@ -163,7 +174,7 @@ type MaryTransactionBody struct {
 	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
 	Update                  *MaryTransactionPparamUpdate                  `cbor:"6,keyasint,omitempty"`
 	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
-	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxValidityIntervalStart *uint64                                       `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
 }
 
@@ -176,6 +187,13 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	*b = MaryTransactionBody(tmp)
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *MaryTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return cbor.EncodeGeneric(b)
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
@@ -203,7 +221,10 @@ func (b *MaryTransactionBody) TTL() uint64 {
 }
 
 func (b *MaryTransactionBody) ValidityIntervalStart() uint64 {
-	return b.TxValidityIntervalStart
+	if b.TxValidityIntervalStart == nil {
+		return 0
+	}
+	return *b.TxValidityIntervalStart
 }
 
 func (b *MaryTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
