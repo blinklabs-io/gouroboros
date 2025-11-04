@@ -299,8 +299,9 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 }
 
 func (e *UtxoFailure) Error() string {
-	// TODO: lookup era name programmatically (#846)
-	return fmt.Sprintf("UtxoFailure (FromAlonzoUtxoFail (%s))", e.Err)
+	// Dynamically determine era name using the era ID from the struct
+	eraName := GetEraById(e.Era).Name
+	return fmt.Sprintf("UtxoFailure (From%sUtxoFail (%s))", eraName, e.Err)
 }
 
 type UtxoFailureErrorBase struct {
