@@ -24,6 +24,7 @@
 package ouroboros
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -78,6 +79,8 @@ type Connection struct {
 	delayProtocolStart    bool
 	fullDuplex            bool
 	peerSharingEnabled    bool
+	ctx                   context.Context
+	cancelCtx             context.CancelFunc
 	// Mini-protocols
 	blockFetch              *blockfetch.BlockFetch
 	blockFetchConfig        *blockfetch.Config
@@ -266,6 +269,52 @@ func (c *Connection) shutdown() {
 	close(c.errorChan)
 }
 
+// handleConnectionError handles connection-level errors centrally
+func (c *Connection) handleConnectionError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Only propagate EOF errors when acting as a client with active server-side protocols
+	if errors.Is(err, io.EOF) {
+		// Check if we have any active server-side protocols
+		if c.server {
+			return err
+		}
+
+		// For clients, only propagate EOF if we have active server protocols
+		hasActiveServerProtocols := false
+		if c.chainSync != nil && c.chainSync.Server != nil && !c.chainSync.Server.IsDone() {
+			hasActiveServerProtocols = true
+		}
+		if c.blockFetch != nil && c.blockFetch.Server != nil && !c.blockFetch.Server.IsDone() {
+			hasActiveServerProtocols = true
+		}
+		if c.txSubmission != nil && c.txSubmission.Server != nil && !c.txSubmission.Server.IsDone() {
+			hasActiveServerProtocols = true
+		}
+		if c.localStateQuery != nil && c.localStateQuery.Server != nil && !c.localStateQuery.Server.IsDone() {
+			hasActiveServerProtocols = true
+		}
+		if c.localTxMonitor != nil && c.localTxMonitor.Server != nil && !c.localTxMonitor.Server.IsDone() {
+			hasActiveServerProtocols = true
+		}
+		if c.localTxSubmission != nil && c.localTxSubmission.Server != nil && !c.localTxSubmission.Server.IsDone() {
+			hasActiveServerProtocols = true
+		}
+
+		if hasActiveServerProtocols {
+			return err
+		}
+
+		// EOF with no active server protocols is normal connection closure
+		return nil
+	}
+
+	// For non-EOF errors, always propagate
+	return err
+}
+
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
 func (c *Connection) setupConnection() error {
@@ -276,10 +325,13 @@ func (c *Connection) setupConnection() error {
 			c.networkMagic,
 		)
 	}
+	// Create context for connection
+	c.ctx, c.cancelCtx = context.WithCancel(context.Background())
 	// Start Goroutine to shutdown when doneChan is closed
 	c.doneChan = make(chan any)
 	go func() {
 		<-c.doneChan
+		c.cancelCtx()
 		c.shutdown()
 	}()
 	// Populate connection ID
@@ -301,16 +353,20 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
-			var connErr *muxer.ConnectionClosedError
-			if errors.As(err, &connErr) {
-				// Pass through ConnectionClosedError from muxer
-				c.errorChan <- err
-			} else {
-				// Wrap error message to denote it comes from the muxer
-				c.errorChan <- fmt.Errorf("muxer error: %w", err)
+
+			// Use centralized connection error handling
+			if handledErr := c.handleConnectionError(err); handledErr != nil {
+				var connErr *muxer.ConnectionClosedError
+				if errors.As(handledErr, &connErr) {
+					// Pass through ConnectionClosedError from muxer
+					c.errorChan <- handledErr
+				} else {
+					// Wrap error message to denote it comes from the muxer
+					c.errorChan <- fmt.Errorf("muxer error: %w", handledErr)
+				}
+				// Close connection on muxer errors
+				c.Close()
 			}
-			// Close connection on muxer errors
-			c.Close()
 		}
 	}()
 	protoOptions := protocol.ProtocolOptions{
@@ -318,6 +374,7 @@ func (c *Connection) setupConnection() error {
 		Muxer:        c.muxer,
 		Logger:       c.logger,
 		ErrorChan:    c.protoErrorChan,
+		Context:      c.ctx,
 	}
 	if c.useNodeToNodeProto {
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
