@@ -64,13 +64,13 @@ func (ls MockLedgerState) StakeRegistration(
 }
 
 func (ls MockLedgerState) PoolCurrentState(
-	poolKeyHash []byte,
+	poolKeyHash common.PoolKeyHash,
 ) (*common.PoolRegistrationCertificate, *uint64, error) {
 	for _, cert := range ls.MockPoolRegistration {
 		if string(
 			common.Blake2b224(cert.Operator).Bytes(),
 		) == string(
-			poolKeyHash,
+			common.Blake2b224(poolKeyHash).Bytes(),
 		) {
 			// pretend latest registration is current; no retirement support in mock
 			c := cert

@@ -272,7 +272,7 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator).Bytes())
+			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
 			if err != nil {
 				return err
 			}
