@@ -58,6 +58,17 @@ func (b Blake2b256) ToPlutusData() data.PlutusData {
 	return data.NewByteString(b[:])
 }
 
+func (b Blake2b256) MarshalJSON() ([]byte, error) {
+	return json.Marshal(b.String())
+}
+
+func (b Blake2b256) MarshalCBOR() ([]byte, error) {
+	// Ensure we always encode a full-sized bytestring, even if the hash is zero-valued
+	hashBytes := make([]byte, Blake2b256Size)
+	copy(hashBytes, b[:])
+	return cbor.Encode(hashBytes)
+}
+
 // Blake2b256Hash generates a Blake2b-256 hash from the provided data
 func Blake2b256Hash(data []byte) Blake2b256 {
 	tmpHash, err := blake2b.New(Blake2b256Size, nil)
@@ -97,6 +108,13 @@ func (b Blake2b224) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.String())
 }
 
+func (b Blake2b224) MarshalCBOR() ([]byte, error) {
+	// Ensure we always encode a full-sized bytestring, even if the hash is zero-valued
+	hashBytes := make([]byte, Blake2b224Size)
+	copy(hashBytes, b[:])
+	return cbor.Encode(hashBytes)
+}
+
 // Blake2b224Hash generates a Blake2b-224 hash from the provided data
 func Blake2b224Hash(data []byte) Blake2b224 {
 	tmpHash, err := blake2b.New(Blake2b224Size, nil)
@@ -133,6 +151,17 @@ func (b Blake2b160) Bytes() []byte {
 
 func (b Blake2b160) ToPlutusData() data.PlutusData {
 	return data.NewByteString(b[:])
+}
+
+func (b Blake2b160) MarshalJSON() ([]byte, error) {
+	return json.Marshal(b.String())
+}
+
+func (b Blake2b160) MarshalCBOR() ([]byte, error) {
+	// Ensure we always encode a full-sized bytestring, even if the hash is zero-valued
+	hashBytes := make([]byte, Blake2b160Size)
+	copy(hashBytes, b[:])
+	return cbor.Encode(hashBytes)
 }
 
 // Blake2b160Hash generates a Blake2b-160 hash from the provided data
