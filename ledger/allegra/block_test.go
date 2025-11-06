@@ -17,6 +17,7 @@ package allegra_test
 import (
 	"bytes"
 	"encoding/hex"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -150,12 +151,23 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 				0,
 				"Transaction should have outputs",
 			)
-			assert.Greater(
-				t,
-				firstRpcTx.Fee,
-				uint64(0),
-				"Transaction fee should be positive",
-			)
+			fee := firstRpcTx.Fee
+			if fee.GetInt() != 0 {
+				assert.Greater(
+					t,
+					fee.GetInt(),
+					int64(0),
+					"Transaction fee should be positive",
+				)
+			} else {
+				feeBigInt := new(big.Int).SetBytes(fee.GetBigUInt())
+				assert.Greater(
+					t,
+					feeBigInt.Sign(),
+					0,
+					"Transaction fee should be positive",
+				)
+			}
 		}
 	})
 }

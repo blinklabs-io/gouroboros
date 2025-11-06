@@ -22,7 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type MaryProtocolParameters struct {
@@ -149,7 +149,7 @@ func (p *MaryProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
 	return cbor.EncodeGeneric(p)
 }
 
-func (p *MaryProtocolParameters) Utxorpc() (*cardano.PParams, error) {
+func (p *MaryProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
 	if p.A0 == nil ||
 		p.A0.Num().Int64() < math.MinInt32 ||
@@ -173,30 +173,30 @@ func (p *MaryProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 		return nil, errors.New("invalid Tau rational number values")
 	}
 	// #nosec G115
-	return &cardano.PParams{
+	return &utxorpc.PParams{
 		MaxTxSize:                uint64(p.MaxTxSize),
-		MinFeeCoefficient:        uint64(p.MinFeeA),
-		MinFeeConstant:           uint64(p.MinFeeB),
+		MinFeeCoefficient:        common.ToUtxorpcBigInt(uint64(p.MinFeeA)),
+		MinFeeConstant:           common.ToUtxorpcBigInt(uint64(p.MinFeeB)),
 		MaxBlockBodySize:         uint64(p.MaxBlockBodySize),
 		MaxBlockHeaderSize:       uint64(p.MaxBlockHeaderSize),
-		StakeKeyDeposit:          uint64(p.KeyDeposit),
-		PoolDeposit:              uint64(p.PoolDeposit),
+		StakeKeyDeposit:          common.ToUtxorpcBigInt(uint64(p.KeyDeposit)),
+		PoolDeposit:              common.ToUtxorpcBigInt(uint64(p.PoolDeposit)),
+		MinPoolCost:              common.ToUtxorpcBigInt(p.MinPoolCost),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(p.A0.Num().Int64()),
 			Denominator: uint32(p.A0.Denom().Int64()),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Rho.Num().Int64()),
 			Denominator: uint32(p.Rho.Denom().Int64()),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Tau.Num().Int64()),
 			Denominator: uint32(p.Tau.Denom().Int64()),
 		},
-		MinPoolCost: p.MinPoolCost,
-		ProtocolVersion: &cardano.ProtocolVersion{
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: uint32(p.ProtocolMajor),
 			Minor: uint32(p.ProtocolMinor),
 		},

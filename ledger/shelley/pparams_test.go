@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func TestShelleyProtocolParamsUpdate(t *testing.T) {
@@ -126,29 +126,29 @@ func TestShelleyUtxorpc(t *testing.T) {
 		ProtocolMinor:      0,
 	}
 
-	expectedUtxorpc := &cardano.PParams{
-		MaxTxSize:                16384,
-		MinFeeCoefficient:        500,
-		MinFeeConstant:           2,
-		MaxBlockBodySize:         65536,
-		MaxBlockHeaderSize:       1024,
-		StakeKeyDeposit:          2000,
-		PoolDeposit:              500000,
+	expectedUtxorpc := &utxorpc.PParams{
+		MaxTxSize: 16384,
+		MinFeeCoefficient: common.ToUtxorpcBigInt(500),
+		MinFeeConstant: common.ToUtxorpcBigInt(2),
+		MaxBlockBodySize:   65536,
+		MaxBlockHeaderSize: 1024,
+		StakeKeyDeposit: common.ToUtxorpcBigInt(2000),
+		PoolDeposit: common.ToUtxorpcBigInt(500000),
 		PoolRetirementEpochBound: 2160,
 		DesiredNumberOfPools:     100,
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(1),
 			Denominator: uint32(2),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(3),
 			Denominator: uint32(4),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(5),
 			Denominator: uint32(6),
 		},
-		ProtocolVersion: &cardano.ProtocolVersion{
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: 8,
 			Minor: 0,
 		},
@@ -183,7 +183,7 @@ func TestShelleyTransactionInput_Utxorpc(t *testing.T) {
 	}
 
 	// Expected value with same hash and index
-	want := &cardano.TxInput{
+	want := &utxorpc.TxInput{
 		TxHash:      input.Id().Bytes(),
 		OutputIndex: input.Index(),
 	}
@@ -218,9 +218,9 @@ func TestShelleyTransactionOutput_Utxorpc(t *testing.T) {
 	}
 
 	// expected output in utxorpc format
-	expected := &cardano.TxOutput{
+	expected := &utxorpc.TxOutput{
 		Address: expectedAddressBytes,
-		Coin:    1000,
+		Coin:    common.ToUtxorpcBigInt(1000),
 	}
 
 	// Debug prints
@@ -278,10 +278,10 @@ func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Check that the fee matches
-	if actual.Fee != txBody.Fee() {
+	if actual.Fee.GetInt() != int64(txBody.Fee()) {
 		t.Errorf(
 			"TxBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
-			actual.Fee,
+			actual.Fee.GetInt(),
 			txBody.Fee(),
 		)
 	}
@@ -346,10 +346,10 @@ func TestShelleyTransaction_Utxorpc(t *testing.T) {
 	}
 
 	// Verify the fee
-	if got.Fee != tx.Body.Fee() {
+	if got.Fee.GetInt() != int64(tx.Body.Fee()) {
 		t.Errorf(
 			"ShelleyTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
-			got.Fee,
+			got.Fee.GetInt(),
 			tx.Body.Fee(),
 		)
 	}

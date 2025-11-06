@@ -25,7 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func TestMaryProtocolParamsUpdate(t *testing.T) {
@@ -93,34 +93,36 @@ func TestMaryUtxorpc(t *testing.T) {
 		ProtocolMajor:      8,
 		ProtocolMinor:      0,
 		MinUtxoValue:       1000000,
+		MinPoolCost:        340000000,
 	}
 
-	expectedUtxorpc := &cardano.PParams{
-		MinFeeCoefficient:        500,
-		MinFeeConstant:           2,
-		MaxBlockBodySize:         65536,
-		MaxTxSize:                16384,
-		MaxBlockHeaderSize:       1024,
-		StakeKeyDeposit:          2000,
-		PoolDeposit:              500000,
+	expectedUtxorpc := &utxorpc.PParams{
+		MinFeeCoefficient: common.ToUtxorpcBigInt(500),
+		MinFeeConstant: common.ToUtxorpcBigInt(2),
+		MaxBlockBodySize:   65536,
+		MaxTxSize:          16384,
+		MaxBlockHeaderSize: 1024,
+		StakeKeyDeposit: common.ToUtxorpcBigInt(2000),
+		PoolDeposit: common.ToUtxorpcBigInt(500000),
 		PoolRetirementEpochBound: 2160,
 		DesiredNumberOfPools:     100,
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(1),
 			Denominator: uint32(2),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(3),
 			Denominator: uint32(4),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(5),
 			Denominator: uint32(6),
 		},
-		ProtocolVersion: &cardano.ProtocolVersion{
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: 8,
 			Minor: 0,
 		},
+		MinPoolCost: common.ToUtxorpcBigInt(340000000),
 	}
 
 	result, err := inputParams.Utxorpc()
@@ -148,7 +150,7 @@ func TestMaryTransactionInput_Utxorpc(t *testing.T) {
 	if err != nil {
 		t.Errorf("Could not get correct UTxorpc input")
 	}
-	want := &cardano.TxInput{
+	want := &utxorpc.TxInput{
 		TxHash:      input.Id().Bytes(),
 		OutputIndex: input.Index(),
 	}
@@ -176,9 +178,9 @@ func TestMaryTransactionOutput_Utxorpc(t *testing.T) {
 	assert.NoError(t, err)
 	addr, err := address.Bytes()
 	assert.NoError(t, err)
-	want := &cardano.TxOutput{
+	want := &utxorpc.TxOutput{
 		Address: addr,
-		Coin:    amount,
+		Coin:    common.ToUtxorpcBigInt(amount),
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -220,17 +222,26 @@ func TestMaryTransactionBody_Utxorpc(t *testing.T) {
 		)
 	}
 
-	if got.Fee != 100 {
-		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
+	if got.Fee.GetInt() != 100 {
+		t.Errorf("Fee mismatch: got %d, want 100", got.Fee.GetInt())
 	}
 	if len(got.Inputs) != 1 {
 		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
 	}
 	if len(got.Outputs) != 1 {
-		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+		t.Fatalf("Expected 1 output, got %d", len(got.Outputs))
 	}
-	if got.Outputs[0].Coin != 5000 {
-		t.Errorf("Output coin mismatch: got %d, want 5000", got.Outputs[0].Coin)
+	coin := got.Outputs[0].Coin
+	if bigInt := coin.GetBigUInt(); bigInt != nil {
+		coinValue := new(big.Int).SetBytes(bigInt).Uint64()
+		if coinValue != uint64(5000) {
+			t.Errorf(
+				"Output coin mismatch: got %d, want 5000",
+				coinValue,
+			)
+		}
+	} else if coin.GetInt() != 5000 {
+		t.Errorf("Output coin mismatch: got %d, want 5000", coin.GetInt())
 	}
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")
@@ -268,17 +279,26 @@ func TestMaryTransaction_Utxorpc(t *testing.T) {
 		t.Fatalf("Could not convert transaction to utxorpc format: %v", err)
 	}
 
-	if got.Fee != 25 {
-		t.Errorf("Transaction fee mismatch: got %d, want 25", got.Fee)
+	if got.Fee.GetInt() != 25 {
+		t.Errorf("Transaction fee mismatch: got %d, want 25", got.Fee.GetInt())
 	}
 	if len(got.Inputs) != 1 {
 		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
 	}
 	if len(got.Outputs) != 1 {
-		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+		t.Fatalf("Expected 1 output, got %d", len(got.Outputs))
 	}
-	if got.Outputs[0].Coin != 8000 {
-		t.Errorf("Output coin mismatch: got %d, want 8000", got.Outputs[0].Coin)
+	coin := got.Outputs[0].Coin
+	if bigInt := coin.GetBigUInt(); bigInt != nil {
+		coinValue := new(big.Int).SetBytes(bigInt).Uint64()
+		if coinValue != uint64(8000) {
+			t.Errorf(
+				"Output coin mismatch: got %d, want 8000",
+				coinValue,
+			)
+		}
+	} else if coin.GetInt() != 8000 {
+		t.Errorf("Output coin mismatch: got %d, want 8000", coin.GetInt())
 	}
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")
@@ -477,10 +497,19 @@ func TestMaryUtxorpc_WithMinPoolCost(t *testing.T) {
 				t.Fatalf("Utxorpc() conversion failed: %v", err)
 			}
 
-			if result.MinPoolCost != tc.expectedMinPoolCost {
+			if bigUInt := result.MinPoolCost.GetBigUInt(); bigUInt != nil {
+				got := new(big.Int).SetBytes(bigUInt).Uint64()
+				if got != tc.expectedMinPoolCost {
+					t.Errorf(
+						"MinPoolCost mismatch: got %d, want %d",
+						got,
+						tc.expectedMinPoolCost,
+					)
+				}
+			} else if intVal := result.MinPoolCost.GetInt(); uint64(intVal) != tc.expectedMinPoolCost {
 				t.Errorf(
 					"MinPoolCost mismatch: got %d, want %d",
-					result.MinPoolCost,
+					intVal,
 					tc.expectedMinPoolCost,
 				)
 			}

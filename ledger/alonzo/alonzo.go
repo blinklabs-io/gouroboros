@@ -454,8 +454,10 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 			for _, assetName := range tmpAssets.Assets(policyId) {
 				amount := tmpAssets.Asset(policyId, assetName)
 				asset := &utxorpc.Asset{
-					Name:       assetName,
-					OutputCoin: amount,
+					Name: assetName,
+					Quantity: &utxorpc.Asset_OutputCoin{
+						OutputCoin: common.ToUtxorpcBigInt(amount),
+					},
 				}
 				ma.Assets = append(ma.Assets, asset)
 			}
@@ -476,7 +478,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    o.Amount(),
+			Coin:    common.ToUtxorpcBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,

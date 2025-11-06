@@ -30,7 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func newBaseProtocolParams() alonzo.AlonzoProtocolParameters {
@@ -373,63 +373,63 @@ func TestAlonzoUtxorpc(t *testing.T) {
 		},
 	}
 
-	expectedUtxorpc := &cardano.PParams{
-		CoinsPerUtxoByte:         44 / 8,
-		MaxTxSize:                16384,
-		MinFeeCoefficient:        500,
-		MinFeeConstant:           2,
-		MaxBlockBodySize:         65536,
-		MaxBlockHeaderSize:       1024,
-		StakeKeyDeposit:          2000,
-		PoolDeposit:              500000,
+	expectedUtxorpc := &utxorpc.PParams{
+		CoinsPerUtxoByte: common.ToUtxorpcBigInt(44 / 8),
+		MaxTxSize: 16384,
+		MinFeeCoefficient: common.ToUtxorpcBigInt(500),
+		MinFeeConstant: common.ToUtxorpcBigInt(2),
+		MaxBlockBodySize:   65536,
+		MaxBlockHeaderSize: 1024,
+		StakeKeyDeposit: common.ToUtxorpcBigInt(2000),
+		PoolDeposit: common.ToUtxorpcBigInt(500000),
 		PoolRetirementEpochBound: 2160,
 		DesiredNumberOfPools:     100,
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(1),
 			Denominator: uint32(2),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(3),
 			Denominator: uint32(4),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(5),
 			Denominator: uint32(6),
 		},
-		MinPoolCost: 340000000,
-		ProtocolVersion: &cardano.ProtocolVersion{
+		MinPoolCost: common.ToUtxorpcBigInt(340000000),
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: 8,
 			Minor: 0,
 		},
 		MaxValueSize:         1024,
 		CollateralPercentage: 150,
 		MaxCollateralInputs:  5,
-		CostModels: &cardano.CostModels{
-			PlutusV1: &cardano.CostModel{
+		CostModels: &utxorpc.CostModels{
+			PlutusV1: &utxorpc.CostModel{
 				Values: []int64{100, 200, 300},
 			},
-			PlutusV2: &cardano.CostModel{
+			PlutusV2: &utxorpc.CostModel{
 				Values: []int64{400, 500, 600},
 			},
-			PlutusV3: &cardano.CostModel{
+			PlutusV3: &utxorpc.CostModel{
 				Values: []int64{700, 800, 900},
 			},
 		},
-		Prices: &cardano.ExPrices{
-			Memory: &cardano.RationalNumber{
+		Prices: &utxorpc.ExPrices{
+			Memory: &utxorpc.RationalNumber{
 				Numerator:   int32(1),
 				Denominator: uint32(2),
 			},
-			Steps: &cardano.RationalNumber{
+			Steps: &utxorpc.RationalNumber{
 				Numerator:   int32(2),
 				Denominator: uint32(3),
 			},
 		},
-		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
+		MaxExecutionUnitsPerTransaction: &utxorpc.ExUnits{
 			Memory: 1000000,
 			Steps:  200000,
 		},
-		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
+		MaxExecutionUnitsPerBlock: &utxorpc.ExUnits{
 			Memory: 5000000,
 			Steps:  1000000,
 		},
@@ -474,11 +474,11 @@ func TestAlonzoTransactionOutput_Utxorpc(t *testing.T) {
 	assert.NoError(t, err)
 	addr, err := address.Bytes()
 	assert.NoError(t, err)
-	want := &cardano.TxOutput{
+	want := &utxorpc.TxOutput{
 		Address: addr,
-		Coin:    amount,
+		Coin:    common.ToUtxorpcBigInt(amount),
 		Assets:  nil,
-		Datum: &cardano.Datum{
+		Datum: &utxorpc.Datum{
 			Hash: datumHash.Bytes(),
 		},
 	}
@@ -528,8 +528,8 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Assertion checks
-	if got.Fee != 50 {
-		t.Errorf("Fee mismatch: got %d, want 50", got.Fee)
+	if got.Fee.GetInt() != 50 {
+		t.Errorf("Fee mismatch: got %d, want 50", got.Fee.GetInt())
 	}
 	if len(got.Inputs) != 1 {
 		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
@@ -542,10 +542,20 @@ func TestAlonzoTransactionBody_Utxorpc(t *testing.T) {
 		)
 	}
 	if len(got.Outputs) != 1 {
-		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+		t.Fatalf("Expected 1 output, got %d", len(got.Outputs))
 	}
-	if got.Outputs[0].Coin != 1000 {
-		t.Errorf("Output coin mismatch: got %d, want 1000", got.Outputs[0].Coin)
+	var coinValue uint64
+	coin := got.Outputs[0].Coin
+	if bigUInt := coin.GetBigUInt(); bigUInt != nil {
+		coinValue = new(big.Int).SetBytes(bigUInt).Uint64()
+	} else {
+		coinValue = uint64(coin.GetInt())
+	}
+	if coinValue != uint64(1000) {
+		t.Errorf(
+			"Output coin mismatch: got %d, want 1000",
+			coinValue,
+		)
 	}
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")
@@ -591,18 +601,29 @@ func TestAlonzoTransaction_Utxorpc(t *testing.T) {
 	}
 
 	// Assertion checks
-	if got.Fee != 75 {
-		t.Errorf("Transaction fee mismatch: got %d, want 75", got.Fee)
+	if got.Fee.GetInt() != 75 {
+		t.Errorf("Transaction fee mismatch: got %d, want 75", got.Fee.GetInt())
 	}
 	if len(got.Inputs) != 1 {
 		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
 	}
 	if len(got.Outputs) != 1 {
-		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+		t.Fatalf("Expected 1 output, got %d", len(got.Outputs))
 	}
-	if got.Outputs[0].Coin != 2000 {
-		t.Errorf("Output coin mismatch: got %d, want 2000", got.Outputs[0].Coin)
+	var coinValue uint64
+	coin := got.Outputs[0].Coin
+	if bigUInt := coin.GetBigUInt(); bigUInt != nil {
+		coinValue = new(big.Int).SetBytes(bigUInt).Uint64()
+	} else {
+		coinValue = uint64(coin.GetInt())
 	}
+	if coinValue != uint64(2000) {
+		t.Errorf(
+			"Output coin mismatch: got %d, want 2000",
+			coinValue,
+		)
+	}
+
 	expectedDatum := datumHash.Bytes()
 	if !reflect.DeepEqual(got.Outputs[0].Datum.Hash, expectedDatum) {
 		t.Errorf(
