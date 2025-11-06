@@ -127,13 +127,13 @@ func TestShelleyUtxorpc(t *testing.T) {
 	}
 
 	expectedUtxorpc := &utxorpc.PParams{
-		MaxTxSize: 16384,
-		MinFeeCoefficient: common.ToUtxorpcBigInt(500),
-		MinFeeConstant: common.ToUtxorpcBigInt(2),
-		MaxBlockBodySize:   65536,
-		MaxBlockHeaderSize: 1024,
-		StakeKeyDeposit: common.ToUtxorpcBigInt(2000),
-		PoolDeposit: common.ToUtxorpcBigInt(500000),
+		MaxTxSize:                16384,
+		MinFeeCoefficient:        common.ToUtxorpcBigInt(500),
+		MinFeeConstant:           common.ToUtxorpcBigInt(2),
+		MaxBlockBodySize:         65536,
+		MaxBlockHeaderSize:       1024,
+		StakeKeyDeposit:          common.ToUtxorpcBigInt(2000),
+		PoolDeposit:              common.ToUtxorpcBigInt(500000),
 		PoolRetirementEpochBound: 2160,
 		DesiredNumberOfPools:     100,
 		PoolInfluence: &utxorpc.RationalNumber{

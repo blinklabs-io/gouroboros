@@ -374,14 +374,14 @@ func TestAlonzoUtxorpc(t *testing.T) {
 	}
 
 	expectedUtxorpc := &utxorpc.PParams{
-		CoinsPerUtxoByte: common.ToUtxorpcBigInt(44 / 8),
-		MaxTxSize: 16384,
-		MinFeeCoefficient: common.ToUtxorpcBigInt(500),
-		MinFeeConstant: common.ToUtxorpcBigInt(2),
-		MaxBlockBodySize:   65536,
-		MaxBlockHeaderSize: 1024,
-		StakeKeyDeposit: common.ToUtxorpcBigInt(2000),
-		PoolDeposit: common.ToUtxorpcBigInt(500000),
+		CoinsPerUtxoByte:         common.ToUtxorpcBigInt(44 / 8),
+		MaxTxSize:                16384,
+		MinFeeCoefficient:        common.ToUtxorpcBigInt(500),
+		MinFeeConstant:           common.ToUtxorpcBigInt(2),
+		MaxBlockBodySize:         65536,
+		MaxBlockHeaderSize:       1024,
+		StakeKeyDeposit:          common.ToUtxorpcBigInt(2000),
+		PoolDeposit:              common.ToUtxorpcBigInt(500000),
 		PoolRetirementEpochBound: 2160,
 		DesiredNumberOfPools:     100,
 		PoolInfluence: &utxorpc.RationalNumber{
