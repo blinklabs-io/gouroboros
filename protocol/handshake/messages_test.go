@@ -80,7 +80,28 @@ var tests = []testDefinition{
 			},
 		),
 	},
-	// TODO: add more tests for other refusal types (#854)
+	{
+		CborHex:     "820283010163666f6f",
+		MessageType: MessageTypeRefuse,
+		Message: NewMsgRefuse(
+			[]any{
+				uint64(RefuseReasonDecodeError),
+				uint64(1),
+				"foo",
+			},
+		),
+	},
+	{
+		CborHex:     "820283020163666f6f",
+		MessageType: MessageTypeRefuse,
+		Message: NewMsgRefuse(
+			[]any{
+				uint64(RefuseReasonRefused),
+				uint64(1),
+				"foo",
+			},
+		),
+	},
 }
 
 func TestDecode(t *testing.T) {
