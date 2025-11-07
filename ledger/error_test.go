@@ -209,15 +209,19 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	originalByronMap := make(map[string]common.Utxo)
 	for _, utxo := range byronUtxos {
 		originalInput := utxo.Id.(byron.ByronTransactionInput)
-		key := originalInput.Id().String() + ":" + fmt.Sprint(originalInput.Index())
+		key := originalInput.Id().
+			String() +
+			":" + fmt.Sprint(
+			originalInput.Index(),
+		)
 		originalByronMap[key] = utxo
 	}
-	
+
 	for _, utxo := range decodedByron.Utxos {
 		// Accept either Byron or Shelley input types (era-agnostic decoding)
 		var decodedTxId string
 		var decodedIndex uint32
-		
+
 		switch input := utxo.Id.(type) {
 		case *byron.ByronTransactionInput:
 			decodedTxId = input.Id().String()
@@ -239,7 +243,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 		// Accept either Byron or Shelley output types (era-agnostic decoding)
 		var decodedAddr common.Address
 		var decodedAmount uint64
-		
+
 		switch output := utxo.Output.(type) {
 		case *shelley.ShelleyTransactionOutput:
 			decodedAddr = output.OutputAddress
@@ -265,22 +269,30 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 			t.Errorf("Byron UTxO with key %s not found in original UTxOs", key)
 			continue
 		}
-		
+
 		// Validate output addresses and amounts using era-agnostic approach
 		originalOutput := originalUtxo.Output.(*shelley.ShelleyTransactionOutput)
-		
+
 		// Compare address bytes
 		decodedAddrBytes, err := decodedAddr.Bytes()
 		if err != nil {
-			t.Errorf("Byron UTxO %s: failed to get decoded address bytes: %v", key, err)
+			t.Errorf(
+				"Byron UTxO %s: failed to get decoded address bytes: %v",
+				key,
+				err,
+			)
 			continue
 		}
 		originalAddrBytes, err := originalOutput.OutputAddress.Bytes()
 		if err != nil {
-			t.Errorf("Byron UTxO %s: failed to get original address bytes: %v", key, err)
+			t.Errorf(
+				"Byron UTxO %s: failed to get original address bytes: %v",
+				key,
+				err,
+			)
 			continue
 		}
-		
+
 		if !bytes.Equal(decodedAddrBytes, originalAddrBytes) {
 			t.Errorf(
 				"Byron UTxO %s: address mismatch. Expected %s, got %s",
@@ -361,15 +373,19 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	originalShelleyMap := make(map[string]common.Utxo)
 	for _, utxo := range shelleyUtxos {
 		originalInput := utxo.Id.(shelley.ShelleyTransactionInput)
-		key := originalInput.Id().String() + ":" + fmt.Sprint(originalInput.Index())
+		key := originalInput.Id().
+			String() +
+			":" + fmt.Sprint(
+			originalInput.Index(),
+		)
 		originalShelleyMap[key] = utxo
 	}
-	
+
 	for _, utxo := range decodedShelley.Utxos {
 		// Accept either Byron or Shelley input types (era-agnostic decoding)
 		var decodedTxId string
 		var decodedIndex uint32
-		
+
 		switch input := utxo.Id.(type) {
 		case *byron.ByronTransactionInput:
 			decodedTxId = input.Id().String()
@@ -391,7 +407,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 		// Accept either Byron or Shelley output types (era-agnostic decoding)
 		var decodedAddr common.Address
 		var decodedAmount uint64
-		
+
 		switch output := utxo.Output.(type) {
 		case *shelley.ShelleyTransactionOutput:
 			decodedAddr = output.OutputAddress
@@ -414,25 +430,36 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 		key := decodedTxId + ":" + fmt.Sprint(decodedIndex)
 		originalUtxo, found := originalShelleyMap[key]
 		if !found {
-			t.Errorf("Shelley UTxO with key %s not found in original UTxOs", key)
+			t.Errorf(
+				"Shelley UTxO with key %s not found in original UTxOs",
+				key,
+			)
 			continue
 		}
-		
+
 		// Validate output addresses and amounts using era-agnostic approach
 		originalOutput := originalUtxo.Output.(*shelley.ShelleyTransactionOutput)
-		
+
 		// Compare address bytes
 		decodedAddrBytes, err := decodedAddr.Bytes()
 		if err != nil {
-			t.Errorf("Shelley UTxO %s: failed to get decoded address bytes: %v", key, err)
+			t.Errorf(
+				"Shelley UTxO %s: failed to get decoded address bytes: %v",
+				key,
+				err,
+			)
 			continue
 		}
 		originalAddrBytes, err := originalOutput.OutputAddress.Bytes()
 		if err != nil {
-			t.Errorf("Shelley UTxO %s: failed to get original address bytes: %v", key, err)
+			t.Errorf(
+				"Shelley UTxO %s: failed to get original address bytes: %v",
+				key,
+				err,
+			)
 			continue
 		}
-		
+
 		if !bytes.Equal(decodedAddrBytes, originalAddrBytes) {
 			t.Errorf(
 				"Shelley UTxO %s: address mismatch. Expected %s, got %s",

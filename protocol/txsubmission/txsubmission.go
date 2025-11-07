@@ -126,6 +126,14 @@ type Config struct {
 	IdleTimeout      time.Duration
 }
 
+// Protocol limits per Ouroboros Network Specification
+const (
+	MaxRequestCount     = 65535 // Max transactions per request (uint16)
+	MaxAckCount         = 65535 // Max transaction acks (uint16)
+	DefaultRequestLimit = 1000  // Default request limit
+	DefaultAckLimit     = 1000  // Default ack limit
+)
+
 // Callback context
 type CallbackContext struct {
 	ConnectionId connection.ConnectionId

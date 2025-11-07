@@ -17,3 +17,19 @@ package protocol
 import "errors"
 
 var ErrProtocolShuttingDown = errors.New("protocol is shutting down")
+
+// Protocol violation errors cause connection termination per Ouroboros Network Spec
+var (
+	ErrProtocolViolationQueueExceeded = errors.New(
+		"protocol violation: message queue limit exceeded",
+	)
+	ErrProtocolViolationPipelineExceeded = errors.New(
+		"protocol violation: pipeline limit exceeded",
+	)
+	ErrProtocolViolationRequestExceeded = errors.New(
+		"protocol violation: request count limit exceeded",
+	)
+	ErrProtocolViolationInvalidMessage = errors.New(
+		"protocol violation: invalid message received",
+	)
+)

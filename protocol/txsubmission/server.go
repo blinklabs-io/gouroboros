@@ -17,7 +17,6 @@ package txsubmission
 import (
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -105,17 +104,33 @@ func (s *Server) RequestTxIds(
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	var ack, req uint16
-	if s.ackCount > 0 && s.ackCount <= math.MaxUint16 {
-		ack = uint16(s.ackCount)
-	} else if s.ackCount > math.MaxUint16 {
-		ack = math.MaxUint16
+	// Validate request counts
+	if reqCount < 0 {
+		s.Protocol.Logger().
+			Error("TxSubmission request count must be non-negative", "requested", reqCount)
+		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
-	if reqCount > 0 && reqCount <= math.MaxUint16 {
-		req = uint16(reqCount)
-	} else if reqCount > math.MaxUint16 {
-		req = math.MaxUint16
+	if reqCount > MaxRequestCount {
+		s.Protocol.Logger().
+			Error("TxSubmission request count exceeded", "requested", reqCount, "limit", MaxRequestCount)
+		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
+	if s.ackCount < 0 {
+		s.Protocol.Logger().
+			Error("TxSubmission ack count must be non-negative", "ack_count", s.ackCount)
+		return nil, protocol.ErrProtocolViolationRequestExceeded
+	}
+	if s.ackCount > MaxAckCount {
+		s.Protocol.Logger().
+			Error("TxSubmission ack count exceeded", "ack_count", s.ackCount, "limit", MaxAckCount)
+		return nil, protocol.ErrProtocolViolationRequestExceeded
+	}
+
+	// Safe conversions after validation
+	//nolint:gosec // Already validated above to be non-negative and within uint16 range
+	ack := uint16(s.ackCount)
+	//nolint:gosec // Already validated above to be non-negative and within uint16 range
+	req := uint16(reqCount)
 	msg := NewMsgRequestTxIds(blocking, ack, req)
 	if err := s.SendMessage(msg); err != nil {
 		return nil, err
@@ -135,13 +150,11 @@ func (s *Server) RequestTxIds(
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
 func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
-	txString := []string{}
+	// Pre-allocate slice to avoid repeated allocations
+	txString := make([]string, 0, len(txIds))
 	for _, t := range txIds {
-		ba := []byte{}
-		for _, b := range t.TxId {
-			ba = append(ba, b)
-		}
-		txString = append(txString, common.NewBlake2b256(ba).String())
+		// Convert TxId directly to Blake2b256 without intermediate slice
+		txString = append(txString, common.NewBlake2b256(t.TxId[:]).String())
 	}
 	s.Protocol.Logger().
 		Debug(

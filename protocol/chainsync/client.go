@@ -732,7 +732,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	return nil
 }
 
-func (c *Client) handleRollBackward(msg protocol.Message) error {
+func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
 		Debug("roll backward",
 			"component", "network",
@@ -740,7 +740,7 @@ func (c *Client) handleRollBackward(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	msgRollBackward := msg.(*MsgRollBackward)
+	msgRollBackward := msgGeneric.(*MsgRollBackward)
 	c.sendCurrentTip(msgRollBackward.Tip)
 	if len(c.wantFirstBlockChan) == 0 {
 		if c.config.RollBackwardFunc == nil {
