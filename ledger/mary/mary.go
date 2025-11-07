@@ -52,7 +52,7 @@ type MaryBlock struct {
 	BlockHeader            *MaryBlockHeader
 	TransactionBodies      []MaryTransactionBody
 	TransactionWitnessSets []shelley.ShelleyTransactionWitnessSet
-	TransactionMetadataSet map[uint]common.TransactionMetadataSet
+	TransactionMetadataSet common.TransactionMetadataSet
 }
 
 func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
@@ -268,7 +268,7 @@ type MaryTransaction struct {
 	hash       *common.Blake2b256
 	Body       MaryTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
-	TxMetadata common.TransactionMetadataSet
+	TxMetadata common.TransactionMetadatum
 }
 
 func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -382,7 +382,7 @@ func (t MaryTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t MaryTransaction) Metadata() common.TransactionMetadataSet {
+func (t MaryTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 

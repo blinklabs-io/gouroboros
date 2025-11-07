@@ -49,7 +49,7 @@ type AllegraBlock struct {
 	BlockHeader            *AllegraBlockHeader
 	TransactionBodies      []AllegraTransactionBody
 	TransactionWitnessSets []shelley.ShelleyTransactionWitnessSet
-	TransactionMetadataSet map[uint]common.TransactionMetadataSet
+	TransactionMetadataSet common.TransactionMetadataSet
 }
 
 func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
@@ -239,7 +239,7 @@ type AllegraTransaction struct {
 	hash       *common.Blake2b256
 	Body       AllegraTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
-	TxMetadata common.TransactionMetadataSet
+	TxMetadata common.TransactionMetadatum
 }
 
 func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -349,7 +349,7 @@ func (t AllegraTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t AllegraTransaction) Metadata() common.TransactionMetadataSet {
+func (t AllegraTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 

@@ -55,7 +55,7 @@ type AlonzoBlock struct {
 	BlockHeader            *AlonzoBlockHeader
 	TransactionBodies      []AlonzoTransactionBody
 	TransactionWitnessSets []AlonzoTransactionWitnessSet
-	TransactionMetadataSet map[uint]common.TransactionMetadataSet
+	TransactionMetadataSet common.TransactionMetadataSet
 	InvalidTransactions    []uint
 }
 
@@ -633,7 +633,7 @@ type AlonzoTransaction struct {
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
-	TxMetadata common.TransactionMetadataSet
+	TxMetadata common.TransactionMetadatum
 }
 
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -747,7 +747,7 @@ func (t AlonzoTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t AlonzoTransaction) Metadata() common.TransactionMetadataSet {
+func (t AlonzoTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 

@@ -53,7 +53,7 @@ type ShelleyBlock struct {
 	BlockHeader            *ShelleyBlockHeader
 	TransactionBodies      []ShelleyTransactionBody
 	TransactionWitnessSets []ShelleyTransactionWitnessSet
-	TransactionMetadataSet map[uint]common.TransactionMetadataSet
+	TransactionMetadataSet common.TransactionMetadataSet
 }
 
 func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
@@ -540,7 +540,7 @@ type ShelleyTransaction struct {
 	hash       *common.Blake2b256
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
-	TxMetadata common.TransactionMetadataSet
+	TxMetadata common.TransactionMetadatum
 }
 
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -650,7 +650,7 @@ func (t ShelleyTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t ShelleyTransaction) Metadata() common.TransactionMetadataSet {
+func (t ShelleyTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
