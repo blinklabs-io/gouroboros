@@ -21,6 +21,9 @@ import (
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
 const (
@@ -42,19 +45,87 @@ const (
 	UtxoFailureWrongNetworkWithdrawal      = 9
 	UtxoFailureOutputBootAddrAttrsTooBig   = 10
 	UtxoFailureTriesToForgeAda             = 11
-	UtxoFailureOutputTooBigUtxo            = 12
-	UtxoFailureInsufficientCollateral      = 13
-	UtxoFailureScriptsNotPaidUtxo          = 14
-	UtxoFailureExUnitsTooBigUtxo           = 15
-	UtxoFailureCollateralContainsNonAda    = 16
+	UtxoFailureInsufficientCollateral      = 12
 	UtxoFailureWrongNetworkInTxBody        = 17
 	UtxoFailureOutsideForecast             = 18
 	UtxoFailureTooManyCollateralInputs     = 19
 	UtxoFailureNoCollateralInputs          = 20
 )
 
+// Era-specific constants for errors that differ between Cardano eras
+const (
+	// Alonzo era error constants
+	UtxoFailureOutputTooBigUtxoAlonzo         = 12
+	UtxoFailureScriptsNotPaidUtxoAlonzo       = 14
+	UtxoFailureExUnitsTooBigUtxoAlonzo        = 15
+	UtxoFailureCollateralContainsNonAdaAlonzo = 16
+
+	// Babbage era error constants (same as Alonzo for these errors)
+	UtxoFailureOutputTooBigUtxoBabbage         = 12
+	UtxoFailureScriptsNotPaidUtxoBabbage       = 14
+	UtxoFailureExUnitsTooBigUtxoBabbage        = 15
+	UtxoFailureCollateralContainsNonAdaBabbage = 16
+
+	// Conway era error constants
+	UtxoFailureOutputTooBigUtxoConway         = 11
+	UtxoFailureScriptsNotPaidUtxoConway       = 13
+	UtxoFailureExUnitsTooBigUtxoConway        = 14
+	UtxoFailureCollateralContainsNonAdaConway = 15
+)
+
 // Helper type to make the code a little cleaner
 type NewErrorFromCborFunc func([]byte) (error, error)
+
+// getEraSpecificUtxoFailureConstants returns the correct error constants for the given era
+func getEraSpecificUtxoFailureConstants(eraId uint8) (map[int]any, int, int, int, int) {
+	baseMap := map[int]any{
+		UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
+		UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
+		UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
+		UtxoFailureInputSetEmpty:               &InputSetEmptyUtxo{},
+		UtxoFailureFeeTooSmallUtxo:             &FeeTooSmallUtxo{},
+		UtxoFailureValueNotConservedUtxo:       &ValueNotConservedUtxo{},
+		UtxoFailureOutputTooSmallUtxo:          &OutputTooSmallUtxo{},
+		UtxoFailureUtxosFailure:                &UtxosFailure{},
+		UtxoFailureWrongNetwork:                &WrongNetwork{},
+		UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+		UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
+		UtxoFailureTriesToForgeAda:             &TriesToForgeADA{},
+		UtxoFailureInsufficientCollateral:      &InsufficientCollateral{},
+		UtxoFailureWrongNetworkInTxBody:        &WrongNetworkInTxBody{},
+		UtxoFailureOutsideForecast:             &OutsideForecast{},
+		UtxoFailureTooManyCollateralInputs:     &TooManyCollateralInputs{},
+		UtxoFailureNoCollateralInputs:          &NoCollateralInputs{},
+	}
+
+	switch eraId {
+	case EraIdAlonzo:
+		baseMap[UtxoFailureOutputTooBigUtxoAlonzo] = &OutputTooBigUtxo{}
+		baseMap[UtxoFailureScriptsNotPaidUtxoAlonzo] = &ScriptsNotPaidUtxo{}
+		baseMap[UtxoFailureExUnitsTooBigUtxoAlonzo] = &ExUnitsTooBigUtxo{}
+		baseMap[UtxoFailureCollateralContainsNonAdaAlonzo] = &CollateralContainsNonADA{}
+		return baseMap, UtxoFailureOutputTooBigUtxoAlonzo, UtxoFailureScriptsNotPaidUtxoAlonzo, UtxoFailureExUnitsTooBigUtxoAlonzo, UtxoFailureCollateralContainsNonAdaAlonzo
+	case EraIdBabbage:
+		baseMap[UtxoFailureOutputTooBigUtxoBabbage] = &OutputTooBigUtxo{}
+		baseMap[UtxoFailureScriptsNotPaidUtxoBabbage] = &ScriptsNotPaidUtxo{}
+		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
+		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
+		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage
+	case EraIdConway:
+		baseMap[UtxoFailureOutputTooBigUtxoConway] = &OutputTooBigUtxo{}
+		baseMap[UtxoFailureScriptsNotPaidUtxoConway] = &ScriptsNotPaidUtxo{}
+		baseMap[UtxoFailureExUnitsTooBigUtxoConway] = &ExUnitsTooBigUtxo{}
+		baseMap[UtxoFailureCollateralContainsNonAdaConway] = &CollateralContainsNonADA{}
+		return baseMap, UtxoFailureOutputTooBigUtxoConway, UtxoFailureScriptsNotPaidUtxoConway, UtxoFailureExUnitsTooBigUtxoConway, UtxoFailureCollateralContainsNonAdaConway
+	default:
+		// For other eras (Byron, Shelley, Allegra, Mary), use Conway constants as fallback
+		baseMap[UtxoFailureOutputTooBigUtxoConway] = &OutputTooBigUtxo{}
+		baseMap[UtxoFailureScriptsNotPaidUtxoConway] = &ScriptsNotPaidUtxo{}
+		baseMap[UtxoFailureExUnitsTooBigUtxoConway] = &ExUnitsTooBigUtxo{}
+		baseMap[UtxoFailureCollateralContainsNonAdaConway] = &CollateralContainsNonADA{}
+		return baseMap, UtxoFailureOutputTooBigUtxoConway, UtxoFailureScriptsNotPaidUtxoConway, UtxoFailureExUnitsTooBigUtxoConway, UtxoFailureCollateralContainsNonAdaConway
+	}
+}
 
 func NewGenericErrorFromCbor(cborData []byte) (error, error) {
 	newErr := &GenericError{}
@@ -262,32 +333,8 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	e.Era = tmpData.Era
-	newErr, err := cbor.DecodeById(
-		tmpData.Err,
-		map[int]any{
-			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
-			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
-			UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
-			UtxoFailureInputSetEmpty:               &InputSetEmptyUtxo{},
-			UtxoFailureFeeTooSmallUtxo:             &FeeTooSmallUtxo{},
-			UtxoFailureValueNotConservedUtxo:       &ValueNotConservedUtxo{},
-			UtxoFailureOutputTooSmallUtxo:          &OutputTooSmallUtxo{},
-			UtxoFailureUtxosFailure:                &UtxosFailure{},
-			UtxoFailureWrongNetwork:                &WrongNetwork{},
-			UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
-			UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
-			UtxoFailureTriesToForgeAda:             &TriesToForgeADA{},
-			UtxoFailureOutputTooBigUtxo:            &OutputTooBigUtxo{},
-			UtxoFailureInsufficientCollateral:      &InsufficientCollateral{},
-			UtxoFailureScriptsNotPaidUtxo:          &ScriptsNotPaidUtxo{},
-			UtxoFailureExUnitsTooBigUtxo:           &ExUnitsTooBigUtxo{},
-			UtxoFailureCollateralContainsNonAda:    &CollateralContainsNonADA{},
-			UtxoFailureWrongNetworkInTxBody:        &WrongNetworkInTxBody{},
-			UtxoFailureOutsideForecast:             &OutsideForecast{},
-			UtxoFailureTooManyCollateralInputs:     &TooManyCollateralInputs{},
-			UtxoFailureNoCollateralInputs:          &NoCollateralInputs{},
-		},
-	)
+	errorMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(tmpData.Era)
+	newErr, err := cbor.DecodeById(tmpData.Err, errorMap)
 	if err != nil {
 		newErr, err = NewGenericErrorFromCbor(tmpData.Err)
 		if err != nil {
@@ -534,14 +581,147 @@ func (e *InsufficientCollateral) Error() string {
 	)
 }
 
+// ScriptsNotPaidUtxo represents the ScriptsNotPaidUTxO error from cardano-ledger.
+// Haskell: ScriptsNotPaidUTxO !(UTxO era) where UTxO era = Map TxIn TxOut
+// CBOR: [14, utxo_map]
 type ScriptsNotPaidUtxo struct {
 	UtxoFailureErrorBase
-	// TODO: determine content/structure of this value (#847)
-	Value cbor.Value
+	Utxos []common.Utxo // Each Utxo contains Id (input) and Output
+}
+
+func (e *ScriptsNotPaidUtxo) MarshalCBOR() ([]byte, error) {
+	// Use era-specific constant - we'll use Conway as default since it has the most recent structure
+	// In practice, this should be set when the error is created, but we provide a sensible fallback
+	constantToUse := UtxoFailureScriptsNotPaidUtxoConway
+	if e.Type != 0 {
+		constantToUse = int(e.Type)
+	}
+	// Bounds check to prevent integer overflow
+	if constantToUse < 0 || constantToUse > 255 {
+		return nil, fmt.Errorf("ScriptsNotPaidUtxo: invalid constructor index %d (must be 0-255)", constantToUse)
+	}
+	e.Type = uint8(constantToUse)
+
+	utxoMap := make(
+		map[common.TransactionInput]common.TransactionOutput,
+		len(e.Utxos),
+	)
+	for _, u := range e.Utxos {
+		// Return error for nil entries instead of silently skipping
+		if u.Id == nil || u.Output == nil {
+			return nil, errors.New(
+				"ScriptsNotPaidUtxo: cannot marshal UTxO with nil Id or Output",
+			)
+		}
+		utxoMap[u.Id] = u.Output
+	}
+	arr := []any{constantToUse, utxoMap}
+	return cbor.Encode(arr)
+}
+
+func (e *ScriptsNotPaidUtxo) UnmarshalCBOR(data []byte) error {
+	type tScriptsNotPaidUtxo struct {
+		cbor.StructAsArray
+		ConstructorIdx uint64
+		UtxoMapCbor    cbor.RawMessage
+	}
+	var tmp tScriptsNotPaidUtxo
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return fmt.Errorf("failed to decode ScriptsNotPaidUtxo: %w", err)
+	}
+
+	// Check if the constructor index matches any valid era-specific constant
+	validConstructors := []int{
+		UtxoFailureScriptsNotPaidUtxoAlonzo,
+		UtxoFailureScriptsNotPaidUtxoBabbage,
+		UtxoFailureScriptsNotPaidUtxoConway,
+	}
+
+	isValid := false
+	for _, valid := range validConstructors {
+		// Bounds check to prevent integer overflow
+		if valid < 0 || valid > 65535 {
+			continue // Skip invalid constants
+		}
+		if tmp.ConstructorIdx == uint64(valid) {
+			isValid = true
+			break
+		}
+	}
+
+	if !isValid {
+		return fmt.Errorf(
+			"ScriptsNotPaidUtxo: expected one of constructor indices %v, got %d",
+			validConstructors,
+			tmp.ConstructorIdx,
+		)
+	}
+
+	// Set the struct tag to match the decoded constructor
+	// Bounds check to prevent integer overflow
+	if tmp.ConstructorIdx > 255 {
+		return fmt.Errorf("ScriptsNotPaidUtxo: constructor index %d exceeds uint8 range (0-255)", tmp.ConstructorIdx)
+	}
+	e.Type = uint8(tmp.ConstructorIdx)
+
+	// For era-agnostic decoding, we need to handle the map structure carefully
+	// Since we can't use cbor.RawMessage as map keys, we'll decode to a concrete type first
+	// and then convert to era-agnostic types. Try different era input types until one works.
+
+	// Try Shelley-family transaction inputs first (most common from Shelley onwards)
+	var shelleyUtxoMap map[shelley.ShelleyTransactionInput]cbor.RawMessage
+	if _, err := cbor.Decode(tmp.UtxoMapCbor, &shelleyUtxoMap); err == nil {
+		// Successfully decoded as Shelley-family inputs
+		e.Utxos = make([]common.Utxo, 0, len(shelleyUtxoMap))
+		for input, outputCbor := range shelleyUtxoMap {
+			// Decode output using era-agnostic function (handles all eras)
+			output, err := NewTransactionOutputFromCbor(outputCbor)
+			if err != nil {
+				return fmt.Errorf(
+					"failed to decode transaction output: %w",
+					err,
+				)
+			}
+
+			e.Utxos = append(e.Utxos, common.Utxo{
+				Id:     input,
+				Output: output,
+			})
+		}
+		return nil
+	}
+
+	// Try Byron transaction inputs (for Byron era)
+	var byronUtxoMap map[byron.ByronTransactionInput]cbor.RawMessage
+	if _, err := cbor.Decode(tmp.UtxoMapCbor, &byronUtxoMap); err == nil {
+		// Successfully decoded as Byron inputs
+		e.Utxos = make([]common.Utxo, 0, len(byronUtxoMap))
+		for input, outputCbor := range byronUtxoMap {
+			// Decode output using era-agnostic function (handles all eras)
+			output, err := NewTransactionOutputFromCbor(outputCbor)
+			if err != nil {
+				return fmt.Errorf(
+					"failed to decode transaction output: %w",
+					err,
+				)
+			}
+
+			e.Utxos = append(e.Utxos, common.Utxo{
+				Id:     input,
+				Output: output,
+			})
+		}
+		return nil
+	}
+
+	// If both failed, return an error
+	return errors.New(
+		"failed to decode UTxO map as either Shelley-family or Byron transaction inputs",
+	)
 }
 
 func (e *ScriptsNotPaidUtxo) Error() string {
-	return fmt.Sprintf("ScriptsNotPaidUtxo (%v)", e.Value.Value())
+	return fmt.Sprintf("ScriptsNotPaidUtxo (%d UTxOs)", len(e.Utxos))
 }
 
 type ExUnitsTooBigUtxo struct {
