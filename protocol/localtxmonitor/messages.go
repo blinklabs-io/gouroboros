@@ -169,10 +169,13 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	if tmp == nil {
+	if len(tmp) == 0 {
 		return nil
 	}
-	messageType64 := tmp[0].(uint64)
+	messageType64, ok := tmp[0].(uint64)
+	if !ok {
+		return fmt.Errorf("message type must be uint64, got %T", tmp[0])
+	}
 	if messageType64 > math.MaxUint8 {
 		return errors.New("message type integer overflow")
 	}
@@ -180,14 +183,35 @@ func (m *MsgReplyNextTx) UnmarshalCBOR(data []byte) error {
 	m.MessageType = uint8(messageType64)
 	// The ReplyNextTx message has a variable number of arguments
 	if len(tmp) > 1 {
-		txWrapper := tmp[1].([]any)
-		eraId64 := txWrapper[0].(uint64)
+		txWrapper, ok := tmp[1].([]any)
+		if !ok {
+			return fmt.Errorf(
+				"transaction wrapper must be []any, got %T",
+				tmp[1],
+			)
+		}
+		if len(txWrapper) < 2 {
+			return errors.New(
+				"transaction wrapper must have at least 2 elements",
+			)
+		}
+		eraId64, ok := txWrapper[0].(uint64)
+		if !ok {
+			return fmt.Errorf("era ID must be uint64, got %T", txWrapper[0])
+		}
 		if eraId64 > math.MaxUint8 {
 			return errors.New("era id integer overflow")
 		}
+		txBytes, ok := txWrapper[1].(cbor.WrappedCbor)
+		if !ok {
+			return fmt.Errorf(
+				"transaction bytes must be WrappedCbor, got %T",
+				txWrapper[1],
+			)
+		}
 		m.Transaction = MsgReplyNextTxTransaction{
 			EraId: uint8(eraId64),
-			Tx:    txWrapper[1].(cbor.WrappedCbor).Bytes(),
+			Tx:    txBytes.Bytes(),
 		}
 	}
 	return nil

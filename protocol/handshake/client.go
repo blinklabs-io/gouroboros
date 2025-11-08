@@ -138,21 +138,47 @@ func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 		)
 	msg := msgGeneric.(*MsgRefuse)
 	var err error
-	switch msg.Reason[0].(uint64) {
-	case RefuseReasonVersionMismatch:
-		err = fmt.Errorf("%s: version mismatch", ProtocolName)
-	case RefuseReasonDecodeError:
+	if len(msg.Reason) == 0 {
 		err = fmt.Errorf(
-			"%s: decode error: %s",
+			"%s: malformed refuse message: empty reason",
 			ProtocolName,
-			msg.Reason[2].(string),
 		)
-	case RefuseReasonRefused:
-		err = fmt.Errorf(
-			"%s: refused: %s",
-			ProtocolName,
-			msg.Reason[2].(string),
-		)
+	} else {
+		reasonCode, ok := msg.Reason[0].(uint64)
+		if !ok {
+			err = fmt.Errorf("%s: malformed refuse message: reason code must be uint64, got %T", ProtocolName, msg.Reason[0])
+		} else {
+			switch reasonCode {
+			case RefuseReasonVersionMismatch:
+				err = fmt.Errorf("%s: version mismatch", ProtocolName)
+			case RefuseReasonDecodeError:
+				if len(msg.Reason) < 3 {
+					err = fmt.Errorf("%s: decode error: missing error message", ProtocolName)
+				} else if errMsg, ok := msg.Reason[2].(string); ok {
+					err = fmt.Errorf(
+						"%s: decode error: %s",
+						ProtocolName,
+						errMsg,
+					)
+				} else {
+					err = fmt.Errorf("%s: decode error: invalid error message type %T", ProtocolName, msg.Reason[2])
+				}
+			case RefuseReasonRefused:
+				if len(msg.Reason) < 3 {
+					err = fmt.Errorf("%s: refused: missing reason message", ProtocolName)
+				} else if errMsg, ok := msg.Reason[2].(string); ok {
+					err = fmt.Errorf(
+						"%s: refused: %s",
+						ProtocolName,
+						errMsg,
+					)
+				} else {
+					err = fmt.Errorf("%s: refused: invalid reason message type %T", ProtocolName, msg.Reason[2])
+				}
+			default:
+				err = fmt.Errorf("%s: unknown refuse reason: %d", ProtocolName, reasonCode)
+			}
+		}
 	}
 	return err
 }

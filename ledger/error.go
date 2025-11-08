@@ -77,7 +77,9 @@ const (
 type NewErrorFromCborFunc func([]byte) (error, error)
 
 // getEraSpecificUtxoFailureConstants returns the correct error constants for the given era
-func getEraSpecificUtxoFailureConstants(eraId uint8) (map[int]any, int, int, int, int) {
+func getEraSpecificUtxoFailureConstants(
+	eraId uint8,
+) (map[int]any, int, int, int, int) {
 	baseMap := map[int]any{
 		UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
 		UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
@@ -598,7 +600,10 @@ func (e *ScriptsNotPaidUtxo) MarshalCBOR() ([]byte, error) {
 	}
 	// Bounds check to prevent integer overflow
 	if constantToUse < 0 || constantToUse > 255 {
-		return nil, fmt.Errorf("ScriptsNotPaidUtxo: invalid constructor index %d (must be 0-255)", constantToUse)
+		return nil, fmt.Errorf(
+			"ScriptsNotPaidUtxo: invalid constructor index %d (must be 0-255)",
+			constantToUse,
+		)
 	}
 	e.Type = uint8(constantToUse)
 
@@ -639,10 +644,7 @@ func (e *ScriptsNotPaidUtxo) UnmarshalCBOR(data []byte) error {
 
 	isValid := false
 	for _, valid := range validConstructors {
-		// Bounds check to prevent integer overflow
-		if valid < 0 || valid > 65535 {
-			continue // Skip invalid constants
-		}
+		//nolint:gosec // Constants are within valid range for uint64
 		if tmp.ConstructorIdx == uint64(valid) {
 			isValid = true
 			break
@@ -660,7 +662,10 @@ func (e *ScriptsNotPaidUtxo) UnmarshalCBOR(data []byte) error {
 	// Set the struct tag to match the decoded constructor
 	// Bounds check to prevent integer overflow
 	if tmp.ConstructorIdx > 255 {
-		return fmt.Errorf("ScriptsNotPaidUtxo: constructor index %d exceeds uint8 range (0-255)", tmp.ConstructorIdx)
+		return fmt.Errorf(
+			"ScriptsNotPaidUtxo: constructor index %d exceeds uint8 range (0-255)",
+			tmp.ConstructorIdx,
+		)
 	}
 	e.Type = uint8(tmp.ConstructorIdx)
 
@@ -790,5 +795,5 @@ type NoCollateralInputs struct {
 }
 
 func (e *NoCollateralInputs) Error() string {
-	return "NoMollateralInputs"
+	return "NoCollateralInputs"
 }

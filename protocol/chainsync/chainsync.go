@@ -16,6 +16,7 @@
 package chainsync
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -209,6 +210,14 @@ type Config struct {
 	RecvQueueSize      int
 }
 
+// Protocol limits per Ouroboros Network Specification
+const (
+	MaxPipelineLimit     = 100 // Max pipelined requests
+	MaxRecvQueueSize     = 100 // Max receive queue size
+	DefaultPipelineLimit = 50  // Default pipeline limit
+	DefaultRecvQueueSize = 50  // Default queue size
+)
+
 // Callback context
 type CallbackContext struct {
 	ConnectionId connection.ConnectionId
@@ -245,7 +254,8 @@ type ChainSyncOptionFunc func(*Config)
 // NewConfig returns a new ChainSync config object with the provided options
 func NewConfig(options ...ChainSyncOptionFunc) Config {
 	c := Config{
-		PipelineLimit:    0,
+		PipelineLimit:    DefaultPipelineLimit,
+		RecvQueueSize:    DefaultRecvQueueSize,
 		IntersectTimeout: 5 * time.Second,
 		// We should really use something more useful like 30-60s, but we've seen 55s between blocks
 		// in the preview network and almost 240s in preprod
@@ -257,7 +267,44 @@ func NewConfig(options ...ChainSyncOptionFunc) Config {
 	for _, option := range options {
 		option(&c)
 	}
+
+	// Validate configuration against protocol limits
+	if err := c.validate(); err != nil {
+		panic("invalid ChainSync configuration: " + err.Error())
+	}
+
 	return c
+}
+
+// validate checks that the configuration values are within protocol limits
+func (c *Config) validate() error {
+	if c.PipelineLimit < 0 {
+		return fmt.Errorf(
+			"PipelineLimit %d must be non-negative",
+			c.PipelineLimit,
+		)
+	}
+	if c.PipelineLimit > MaxPipelineLimit {
+		return fmt.Errorf(
+			"PipelineLimit %d exceeds maximum allowed %d",
+			c.PipelineLimit,
+			MaxPipelineLimit,
+		)
+	}
+	if c.RecvQueueSize < 0 {
+		return fmt.Errorf(
+			"RecvQueueSize %d must be non-negative",
+			c.RecvQueueSize,
+		)
+	}
+	if c.RecvQueueSize > MaxRecvQueueSize {
+		return fmt.Errorf(
+			"RecvQueueSize %d exceeds maximum allowed %d",
+			c.RecvQueueSize,
+			MaxRecvQueueSize,
+		)
+	}
+	return nil
 }
 
 // WithRollBackwardFunc specifies the RollBackward callback function
@@ -318,14 +365,47 @@ func WithBlockTimeout(timeout time.Duration) ChainSyncOptionFunc {
 // WithPipelineLimit specifies the maximum number of block requests to pipeline
 func WithPipelineLimit(limit int) ChainSyncOptionFunc {
 	return func(c *Config) {
+		if limit < 0 {
+			panic(
+				fmt.Sprintf(
+					"PipelineLimit %d must be non-negative",
+					limit,
+				),
+			)
+		}
+		if limit > MaxPipelineLimit {
+			panic(
+				fmt.Sprintf(
+					"PipelineLimit %d exceeds maximum %d",
+					limit,
+					MaxPipelineLimit,
+				),
+			)
+		}
 		c.PipelineLimit = limit
 	}
 }
 
-// WithRecvQueueSize specifies the size of the received messages queue. This is useful to adjust
-// the number of pipelined messages that can be supported when acting as a server
+// WithRecvQueueSize specifies the size of the received messages queue
 func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 	return func(c *Config) {
+		if size < 0 {
+			panic(
+				fmt.Sprintf(
+					"RecvQueueSize %d must be non-negative",
+					size,
+				),
+			)
+		}
+		if size > MaxRecvQueueSize {
+			panic(
+				fmt.Sprintf(
+					"RecvQueueSize %d exceeds maximum %d",
+					size,
+					MaxRecvQueueSize,
+				),
+			)
+		}
 		c.RecvQueueSize = size
 	}
 }

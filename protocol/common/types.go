@@ -16,6 +16,8 @@
 package common
 
 import (
+	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
@@ -47,9 +49,17 @@ func (p *Point) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	if len(tmp) > 0 {
-		p.Slot = tmp[0].(uint64)
-		p.Hash = tmp[1].([]byte)
+	if len(tmp) == 2 {
+		slot, ok := tmp[0].(uint64)
+		if !ok {
+			return fmt.Errorf("Point slot must be uint64, got %T", tmp[0])
+		}
+		hash, ok := tmp[1].([]byte)
+		if !ok {
+			return fmt.Errorf("Point hash must be []byte, got %T", tmp[1])
+		}
+		p.Slot = slot
+		p.Hash = hash
 	}
 	return nil
 }
@@ -60,7 +70,7 @@ func (p *Point) MarshalCBOR() ([]byte, error) {
 	var data []any
 	if p.Slot == 0 && p.Hash == nil {
 		// Return an empty list if values are zero
-		data = make([]any, 0)
+		data = []any{}
 	} else {
 		data = []any{p.Slot, p.Hash}
 	}

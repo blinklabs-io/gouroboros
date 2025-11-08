@@ -116,6 +116,19 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 		)
 	}
 	msgRequestTxIds := msg.(*MsgRequestTxIds)
+
+	// Validate request counts
+	if msgRequestTxIds.Ack > MaxAckCount {
+		c.Protocol.Logger().
+			Error("TxSubmission ack count exceeded", "ack", msgRequestTxIds.Ack, "limit", MaxAckCount)
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
+	if msgRequestTxIds.Req > MaxRequestCount {
+		c.Protocol.Logger().
+			Error("TxSubmission request count exceeded", "req", msgRequestTxIds.Req, "limit", MaxRequestCount)
+		return protocol.ErrProtocolViolationRequestExceeded
+	}
+
 	// Call the user callback function
 	txIds, err := c.config.RequestTxIdsFunc(
 		c.callbackContext,

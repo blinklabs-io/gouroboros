@@ -15,6 +15,7 @@
 package blockfetch
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -95,6 +96,12 @@ type Config struct {
 	RecvQueueSize     int
 }
 
+// Protocol limits per Ouroboros Network Specification
+const (
+	MaxRecvQueueSize     = 512 // Max receive queue size
+	DefaultRecvQueueSize = 256 // Default queue size
+)
+
 // Callback context
 type CallbackContext struct {
 	ConnectionId connection.ConnectionId
@@ -124,12 +131,37 @@ func NewConfig(options ...BlockFetchOptionFunc) Config {
 	c := Config{
 		BatchStartTimeout: 5 * time.Second,
 		BlockTimeout:      60 * time.Second,
+		RecvQueueSize:     DefaultRecvQueueSize,
 	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
 	}
+
+	// Validate configuration against protocol limits
+	if err := c.validate(); err != nil {
+		panic("invalid BlockFetch configuration: " + err.Error())
+	}
+
 	return c
+}
+
+// validate checks that the configuration values are within protocol limits
+func (c *Config) validate() error {
+	if c.RecvQueueSize < 0 {
+		return fmt.Errorf(
+			"RecvQueueSize %d must be non-negative",
+			c.RecvQueueSize,
+		)
+	}
+	if c.RecvQueueSize > MaxRecvQueueSize {
+		return fmt.Errorf(
+			"RecvQueueSize %d exceeds maximum allowed %d",
+			c.RecvQueueSize,
+			MaxRecvQueueSize,
+		)
+	}
+	return nil
 }
 
 func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
@@ -170,10 +202,26 @@ func WithBlockTimeout(timeout time.Duration) BlockFetchOptionFunc {
 	}
 }
 
-// WithRecvQueueSize specifies the size of the received messages queue. This is useful to adjust
-// the number of blocks that can be fetched at once when acting as a client
+// WithRecvQueueSize specifies the size of the received messages queue
 func WithRecvQueueSize(size int) BlockFetchOptionFunc {
 	return func(c *Config) {
+		if size < 0 {
+			panic(
+				fmt.Sprintf(
+					"RecvQueueSize %d must be non-negative",
+					size,
+				),
+			)
+		}
+		if size > MaxRecvQueueSize {
+			panic(
+				fmt.Sprintf(
+					"RecvQueueSize %d exceeds maximum %d",
+					size,
+					MaxRecvQueueSize,
+				),
+			)
+		}
 		c.RecvQueueSize = size
 	}
 }
