@@ -16,10 +16,11 @@ package keepalive
 
 import (
 	"encoding/hex"
-	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/protocol"
 	"reflect"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type testDefinition struct {

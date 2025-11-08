@@ -51,6 +51,12 @@ type Protocol struct {
 	stateTransitionChan chan<- protocolStateTransition
 	onceStart           sync.Once
 	onceStop            sync.Once
+	pendingBytesMu      sync.Mutex
+	pendingSendBytes    int
+	pendingRecvBytes    int
+	pendingRecvSizes    []int // Track sizes of pending received messages for accurate decrement
+	currentStateMu      sync.RWMutex
+	currentState        State
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -204,8 +210,44 @@ func (p *Protocol) DoneChan() <-chan struct{} {
 	return p.doneChan
 }
 
+// getCurrentState returns the current protocol state in a thread-safe manner
+func (p *Protocol) getCurrentState() State {
+	p.currentStateMu.RLock()
+	defer p.currentStateMu.RUnlock()
+	return p.currentState
+}
+
 // SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
+	// Calculate message size and cache encoded data if necessary
+	var data []byte
+	if msg.Cbor() != nil {
+		data = msg.Cbor()
+	} else {
+		var err error
+		data, err = cbor.Encode(msg)
+		if err != nil {
+			return err
+		}
+		// Cache the encoded CBOR data to avoid re-encoding in sendLoop
+		msg.SetCbor(data)
+	}
+	msgLen := len(data)
+	// Check pending send bytes limit for current state
+	currentState := p.getCurrentState()
+	limit := 0
+	if entry, ok := p.config.StateMap[currentState]; ok {
+		limit = entry.PendingMessageByteLimit
+	}
+	p.pendingBytesMu.Lock()
+	if limit > 0 && p.pendingSendBytes+msgLen > limit {
+		p.pendingBytesMu.Unlock()
+		p.SendError(ErrProtocolViolationQueueExceeded)
+		p.Stop()
+		return ErrProtocolViolationQueueExceeded
+	}
+	p.pendingSendBytes += msgLen
+	p.pendingBytesMu.Unlock()
 	p.sendQueueChan <- msg
 	return nil
 }
@@ -243,7 +285,7 @@ func (p *Protocol) sendLoop() {
 		// Read queued messages and write into buffer
 		payloadBuf := bytes.NewBuffer(nil)
 		msgCount := 0
-		breakLoop := false
+	outer:
 		for {
 			// Get next message from send queue
 			select {
@@ -269,6 +311,18 @@ func (p *Protocol) sendLoop() {
 					}
 				}
 				payloadBuf.Write(data)
+				// After sending, decrement pendingSendBytes
+				p.pendingBytesMu.Lock()
+				p.pendingSendBytes -= len(data)
+				if p.pendingSendBytes < 0 {
+					p.Logger().Warn(
+						"negative pendingSendBytes reset",
+						"protocol", p.config.Name,
+						"value", p.pendingSendBytes,
+					)
+					p.pendingSendBytes = 0
+				}
+				p.pendingBytesMu.Unlock()
 
 				if err := p.transitionState(msg); err != nil {
 					p.SendError(
@@ -283,22 +337,16 @@ func (p *Protocol) sendLoop() {
 
 				// We don't want more than maxMessagesPerSegment messages in a segment
 				if msgCount >= maxMessagesPerSegment {
-					breakLoop = true
-					break
+					break outer
 				}
 				// We don't want to add more messages once we spill over into a second segment
 				if payloadBuf.Len() > muxer.SegmentMaxPayloadLength {
-					breakLoop = true
-					break
+					break outer
 				}
 				// Check if there are any more queued messages
 				if len(p.sendQueueChan) == 0 {
-					breakLoop = true
-					break
+					break outer
 				}
-			}
-			if breakLoop {
-				break
 			}
 		}
 
@@ -389,6 +437,24 @@ func (p *Protocol) readLoop() {
 			)
 			return
 		}
+		// Calculate message size
+		msgLen := len(msgData)
+		// Check pending recv bytes limit for current state
+		currentState := p.getCurrentState()
+		limit := 0
+		if entry, ok := p.config.StateMap[currentState]; ok {
+			limit = entry.PendingMessageByteLimit
+		}
+		p.pendingBytesMu.Lock()
+		if limit > 0 && p.pendingRecvBytes+msgLen > limit {
+			p.pendingBytesMu.Unlock()
+			p.SendError(ErrProtocolViolationQueueExceeded)
+			p.Stop()
+			return
+		}
+		p.pendingRecvBytes += msgLen
+		p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+		p.pendingBytesMu.Unlock()
 		// Add message to receive queue
 		select {
 		case p.recvQueueChan <- msg:
@@ -441,12 +507,22 @@ func (p *Protocol) recvLoop() {
 				p.SendError(err)
 				return
 			}
+			// After handling, decrement pendingRecvBytes by the actual message size
+			p.pendingBytesMu.Lock()
+			if len(p.pendingRecvSizes) > 0 {
+				size := p.pendingRecvSizes[0]
+				p.pendingRecvSizes = p.pendingRecvSizes[1:]
+				p.pendingRecvBytes -= size
+				if p.pendingRecvBytes < 0 {
+					p.pendingRecvBytes = 0
+				}
+			}
+			p.pendingBytesMu.Unlock()
 		}
 	}
 }
 
 func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
-	var currentState State
 	var transitionTimer *time.Timer
 
 	setState := func(s State) {
@@ -457,10 +533,12 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		transitionTimer = nil
 
 		// Set the new state
-		currentState = s
+		p.currentStateMu.Lock()
+		p.currentState = s
+		p.currentStateMu.Unlock()
 
 		// Mark protocol as ready to send/receive based on role and agency of the new state
-		switch p.config.StateMap[currentState].Agency {
+		switch p.config.StateMap[s].Agency {
 		case AgencyNone:
 			return
 		case AgencyClient:
@@ -496,9 +574,9 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 
 		// Set timeout for state transition
-		if p.config.StateMap[currentState].Timeout > 0 {
+		if p.config.StateMap[s].Timeout > 0 {
 			transitionTimer = time.NewTimer(
-				p.config.StateMap[currentState].Timeout,
+				p.config.StateMap[s].Timeout,
 			)
 		}
 	}
@@ -514,7 +592,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 	for {
 		select {
 		case t := <-ch:
-			nextState, err := p.nextState(currentState, t.msg)
+			nextState, err := p.nextState(p.getCurrentState(), t.msg)
 			if err != nil {
 				t.errorChan <- fmt.Errorf(
 					"%s: error handling protocol state transition: %w",
@@ -538,7 +616,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 				fmt.Errorf(
 					"%s: timeout waiting on transition from protocol state %s",
 					p.config.Name,
-					currentState,
+					p.getCurrentState(),
 				),
 			)
 

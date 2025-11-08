@@ -30,26 +30,60 @@ import (
 func TestChainSyncLimitsAreDefined(t *testing.T) {
 	// Test that all constants are positive
 	if chainsync.MaxPipelineLimit <= 0 {
-		t.Errorf("MaxPipelineLimit must be positive, got %d", chainsync.MaxPipelineLimit)
+		t.Errorf(
+			"MaxPipelineLimit must be positive, got %d",
+			chainsync.MaxPipelineLimit,
+		)
 	}
 	if chainsync.MaxRecvQueueSize <= 0 {
-		t.Errorf("MaxRecvQueueSize must be positive, got %d", chainsync.MaxRecvQueueSize)
+		t.Errorf(
+			"MaxRecvQueueSize must be positive, got %d",
+			chainsync.MaxRecvQueueSize,
+		)
 	}
 	if chainsync.DefaultPipelineLimit <= 0 {
-		t.Errorf("DefaultPipelineLimit must be positive, got %d", chainsync.DefaultPipelineLimit)
+		t.Errorf(
+			"DefaultPipelineLimit must be positive, got %d",
+			chainsync.DefaultPipelineLimit,
+		)
 	}
 	if chainsync.DefaultRecvQueueSize <= 0 {
-		t.Errorf("DefaultRecvQueueSize must be positive, got %d", chainsync.DefaultRecvQueueSize)
+		t.Errorf(
+			"DefaultRecvQueueSize must be positive, got %d",
+			chainsync.DefaultRecvQueueSize,
+		)
+	}
+	if chainsync.MaxPendingMessageBytes <= 0 {
+		t.Errorf(
+			"MaxPendingMessageBytes must be positive, got %d",
+			chainsync.MaxPendingMessageBytes,
+		)
 	}
 
 	// Test that constants match documented values
 	expectedMaxPipeline := 100
 	if chainsync.MaxPipelineLimit != expectedMaxPipeline {
-		t.Errorf("MaxPipelineLimit should be %d, got %d", expectedMaxPipeline, chainsync.MaxPipelineLimit)
+		t.Errorf(
+			"MaxPipelineLimit should be %d, got %d",
+			expectedMaxPipeline,
+			chainsync.MaxPipelineLimit,
+		)
 	}
 	expectedMaxQueue := 100
 	if chainsync.MaxRecvQueueSize != expectedMaxQueue {
-		t.Errorf("MaxRecvQueueSize should be %d, got %d", expectedMaxQueue, chainsync.MaxRecvQueueSize)
+		t.Errorf(
+			"MaxRecvQueueSize should be %d, got %d",
+			expectedMaxQueue,
+			chainsync.MaxRecvQueueSize,
+		)
+	}
+	expectedMaxBytes := 102400
+	if chainsync.MaxPendingMessageBytes != expectedMaxBytes {
+		t.Errorf(
+			"MaxPendingMessageBytes should be %d, got %d",
+			expectedMaxBytes,
+			chainsync.MaxPendingMessageBytes,
+		)
 	}
 }
 
@@ -96,7 +130,9 @@ func TestChainSyncConfigurationValidationExceedsMax(t *testing.T) {
 			t.Errorf("Expected panic for pipeline limit exceeding maximum")
 		}
 	}()
-	chainsync.NewConfig(chainsync.WithPipelineLimit(chainsync.MaxPipelineLimit + 1))
+	chainsync.NewConfig(
+		chainsync.WithPipelineLimit(chainsync.MaxPipelineLimit + 1),
+	)
 }
 
 func TestChainSyncQueueConfigurationValidation(t *testing.T) {
@@ -116,23 +152,49 @@ func TestChainSyncQueueConfigurationValidationExceedsMax(t *testing.T) {
 			t.Errorf("Expected panic for queue size exceeding maximum")
 		}
 	}()
-	chainsync.NewConfig(chainsync.WithRecvQueueSize(chainsync.MaxRecvQueueSize + 1))
+	chainsync.NewConfig(
+		chainsync.WithRecvQueueSize(chainsync.MaxRecvQueueSize + 1),
+	)
 }
 
 // TestBlockFetchLimitsAreDefined validates that BlockFetch limits are properly defined and positive
 func TestBlockFetchLimitsAreDefined(t *testing.T) {
 	// Test that all constants are positive
 	if blockfetch.MaxRecvQueueSize <= 0 {
-		t.Errorf("MaxRecvQueueSize must be positive, got %d", blockfetch.MaxRecvQueueSize)
+		t.Errorf(
+			"MaxRecvQueueSize must be positive, got %d",
+			blockfetch.MaxRecvQueueSize,
+		)
 	}
 	if blockfetch.DefaultRecvQueueSize <= 0 {
-		t.Errorf("DefaultRecvQueueSize must be positive, got %d", blockfetch.DefaultRecvQueueSize)
+		t.Errorf(
+			"DefaultRecvQueueSize must be positive, got %d",
+			blockfetch.DefaultRecvQueueSize,
+		)
+	}
+	if blockfetch.MaxPendingMessageBytes <= 0 {
+		t.Errorf(
+			"MaxPendingMessageBytes must be positive, got %d",
+			blockfetch.MaxPendingMessageBytes,
+		)
 	}
 
 	// Test that constants match documented values
 	expectedMaxQueue := 512
 	if blockfetch.MaxRecvQueueSize != expectedMaxQueue {
-		t.Errorf("MaxRecvQueueSize should be %d, got %d", expectedMaxQueue, blockfetch.MaxRecvQueueSize)
+		t.Errorf(
+			"MaxRecvQueueSize should be %d, got %d",
+			expectedMaxQueue,
+			blockfetch.MaxRecvQueueSize,
+		)
+	}
+	expectedMaxBytes := 5242880
+	if blockfetch.MaxPendingMessageBytes != expectedMaxBytes {
+		t.Errorf(
+			"MaxPendingMessageBytes should be %d, got %d",
+			expectedMaxBytes,
+			blockfetch.MaxPendingMessageBytes,
+		)
 	}
 }
 
@@ -170,32 +232,54 @@ func TestBlockFetchConfigurationValidationExceedsMax(t *testing.T) {
 			t.Errorf("Expected panic for queue size exceeding maximum")
 		}
 	}()
-	blockfetch.NewConfig(blockfetch.WithRecvQueueSize(blockfetch.MaxRecvQueueSize + 1))
+	blockfetch.NewConfig(
+		blockfetch.WithRecvQueueSize(blockfetch.MaxRecvQueueSize + 1),
+	)
 }
 
 // TestTxSubmissionLimitsAreDefined validates that TxSubmission limits are properly defined and positive
 func TestTxSubmissionLimitsAreDefined(t *testing.T) {
 	// Test that all constants are positive
 	if txsubmission.MaxRequestCount <= 0 {
-		t.Errorf("MaxRequestCount must be positive, got %d", txsubmission.MaxRequestCount)
+		t.Errorf(
+			"MaxRequestCount must be positive, got %d",
+			txsubmission.MaxRequestCount,
+		)
 	}
 	if txsubmission.MaxAckCount <= 0 {
-		t.Errorf("MaxAckCount must be positive, got %d", txsubmission.MaxAckCount)
+		t.Errorf(
+			"MaxAckCount must be positive, got %d",
+			txsubmission.MaxAckCount,
+		)
 	}
 	if txsubmission.DefaultRequestLimit <= 0 {
-		t.Errorf("DefaultRequestLimit must be positive, got %d", txsubmission.DefaultRequestLimit)
+		t.Errorf(
+			"DefaultRequestLimit must be positive, got %d",
+			txsubmission.DefaultRequestLimit,
+		)
 	}
 	if txsubmission.DefaultAckLimit <= 0 {
-		t.Errorf("DefaultAckLimit must be positive, got %d", txsubmission.DefaultAckLimit)
+		t.Errorf(
+			"DefaultAckLimit must be positive, got %d",
+			txsubmission.DefaultAckLimit,
+		)
 	}
 
 	// Test that constants match documented values (uint16 limit)
 	expectedMax := 65535
 	if txsubmission.MaxRequestCount != expectedMax {
-		t.Errorf("MaxRequestCount should be %d, got %d", expectedMax, txsubmission.MaxRequestCount)
+		t.Errorf(
+			"MaxRequestCount should be %d, got %d",
+			expectedMax,
+			txsubmission.MaxRequestCount,
+		)
 	}
 	if txsubmission.MaxAckCount != expectedMax {
-		t.Errorf("MaxAckCount should be %d, got %d", expectedMax, txsubmission.MaxAckCount)
+		t.Errorf(
+			"MaxAckCount should be %d, got %d",
+			expectedMax,
+			txsubmission.MaxAckCount,
+		)
 	}
 }
 
@@ -249,10 +333,15 @@ func TestProtocolViolationErrorsAreDefined(t *testing.T) {
 
 	for _, err := range errors {
 		if err.Error() == "" {
-			t.Errorf("Protocol violation error should have meaningful message, got empty string")
+			t.Errorf(
+				"Protocol violation error should have meaningful message, got empty string",
+			)
 		}
 		if len(err.Error()) < 10 {
-			t.Errorf("Protocol violation error message should be descriptive, got: %s", err.Error())
+			t.Errorf(
+				"Protocol violation error message should be descriptive, got: %s",
+				err.Error(),
+			)
 		}
 	}
 }
@@ -275,7 +364,7 @@ func TestProtocolViolationErrorMessages(t *testing.T) {
 			contains: "pipeline",
 		},
 		{
-			name:     "Request exceeded error", 
+			name:     "Request exceeded error",
 			err:      protocol.ErrProtocolViolationRequestExceeded,
 			contains: "request",
 		},
@@ -292,9 +381,50 @@ func TestProtocolViolationErrorMessages(t *testing.T) {
 			if errMsg == "" {
 				t.Fatalf("Error message should not be empty")
 			}
-			if !strings.Contains(strings.ToLower(errMsg), strings.ToLower(tc.contains)) {
-				t.Errorf("Error message %q should contain %q", errMsg, tc.contains)
+			if !strings.Contains(
+				strings.ToLower(errMsg),
+				strings.ToLower(tc.contains),
+			) {
+				t.Errorf(
+					"Error message %q should contain %q",
+					errMsg,
+					tc.contains,
+				)
 			}
 		})
+	}
+}
+
+// TestStateMapEntryHasPendingMessageByteLimit verifies that StateMapEntry includes the PendingMessageByteLimit field
+func TestStateMapEntryHasPendingMessageByteLimit(t *testing.T) {
+	// Create a StateMapEntry with a pending message byte limit
+	entry := protocol.StateMapEntry{
+		Agency:                  protocol.AgencyClient,
+		Transitions:             []protocol.StateTransition{},
+		Timeout:                 0,
+		PendingMessageByteLimit: 1000,
+	}
+
+	// Verify the field is set correctly
+	if entry.PendingMessageByteLimit != 1000 {
+		t.Errorf(
+			"PendingMessageByteLimit should be 1000, got %d",
+			entry.PendingMessageByteLimit,
+		)
+	}
+
+	// Test zero value (no limit)
+	entryZero := protocol.StateMapEntry{
+		Agency:                  protocol.AgencyClient,
+		Transitions:             []protocol.StateTransition{},
+		Timeout:                 0,
+		PendingMessageByteLimit: 0,
+	}
+
+	if entryZero.PendingMessageByteLimit != 0 {
+		t.Errorf(
+			"PendingMessageByteLimit should be 0, got %d",
+			entryZero.PendingMessageByteLimit,
+		)
 	}
 }

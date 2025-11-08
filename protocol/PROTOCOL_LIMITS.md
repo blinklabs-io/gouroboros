@@ -17,11 +17,13 @@ All limits are based on the [Ouroboros Network Specification](https://ouroboros-
 - `MaxRecvQueueSize = 100` - Maximum size of the receive message queue
 - `DefaultPipelineLimit = 50` - Conservative default for pipeline limit
 - `DefaultRecvQueueSize = 50` - Conservative default for receive queue size
+- `MaxPendingMessageBytes = 102400` - Maximum pending message bytes (100KB)
 
 **Enforcement:**
 - Client-side pipeline tracking with disconnect on violation
 - Configuration validation with panic on invalid values
 - Server-side queue size limits enforced by protocol framework
+- Per-state pending message byte limits enforced with connection teardown on violation
 
 **Files modified:**
 - `protocol/chainsync/chainsync.go` - Added constants, validation, and documentation
@@ -32,10 +34,12 @@ All limits are based on the [Ouroboros Network Specification](https://ouroboros-
 **Constants defined in `protocol/blockfetch/blockfetch.go`:**
 - `MaxRecvQueueSize = 512` - Maximum size of the receive message queue
 - `DefaultRecvQueueSize = 256` - Default receive queue size
+- `MaxPendingMessageBytes = 5242880` - Maximum pending message bytes (5MB)
 
 **Enforcement:**
 - Configuration validation with panic on invalid values
 - Queue size limits enforced by protocol framework
+- Per-state pending message byte limits enforced with connection teardown on violation
 
 **Files modified:**
 - `protocol/blockfetch/blockfetch.go` - Added constants, validation, and documentation
@@ -47,6 +51,7 @@ All limits are based on the [Ouroboros Network Specification](https://ouroboros-
 - `MaxAckCount = 65535` - Maximum number of transaction acknowledgments (uint16 limit)
 - `DefaultRequestLimit = 1000` - Reasonable default for transaction requests
 - `DefaultAckLimit = 1000` - Reasonable default for transaction acknowledgments
+- Pending message byte limits: Not enforced (0 = no limit)
 
 **Enforcement:**
 - Server-side validation with disconnect on excessive request counts
