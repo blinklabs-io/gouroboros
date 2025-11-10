@@ -28,6 +28,12 @@ const (
 	ProtocolId   = 0
 )
 
+// Protocol state timeout constants per network specification
+const (
+	ProposeTimeout = 5 * time.Second // Timeout for client to propose versions
+	ConfirmTimeout = 5 * time.Second // Timeout for server to accept or refuse versions
+)
+
 var (
 	statePropose = protocol.NewState(1, "Propose")
 	stateConfirm = protocol.NewState(2, "Confirm")
@@ -37,7 +43,8 @@ var (
 // Handshake protocol state machine
 var StateMap = protocol.StateMap{
 	statePropose: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:  protocol.AgencyClient,
+		Timeout: ProposeTimeout, // Timeout for client to propose versions
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeProposeVersions,
@@ -46,7 +53,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateConfirm: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:  protocol.AgencyServer,
+		Timeout: ConfirmTimeout, // Timeout for server to accept or refuse versions
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeAcceptVersion,

@@ -40,6 +40,7 @@ var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 IdleTimeout, // Timeout for client to send block range request
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestRange,
@@ -54,6 +55,7 @@ var StateMap = protocol.StateMap{
 	StateBusy: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 BusyTimeout, // Timeout for server to start batch or respond no blocks
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeStartBatch,
@@ -68,6 +70,7 @@ var StateMap = protocol.StateMap{
 	StateStreaming: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 StreamingTimeout, // Timeout for server to send next block in batch
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlock,
@@ -105,6 +108,13 @@ const (
 	MaxRecvQueueSize       = 512     // Max receive queue size (messages)
 	DefaultRecvQueueSize   = 256     // Default queue size
 	MaxPendingMessageBytes = 5242880 // Max pending message bytes (5MB)
+)
+
+// Protocol state timeout constants per network specification
+const (
+	IdleTimeout      = 60 * time.Second // Timeout for client to send block range request
+	BusyTimeout      = 5 * time.Second  // Timeout for server to start batch or respond no blocks
+	StreamingTimeout = 60 * time.Second // Timeout for server to send next block in batch
 )
 
 // Callback context

@@ -42,6 +42,7 @@ var StateMap = protocol.StateMap{
 	stateInit: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: 0,
+		Timeout:                 InitTimeout, // Timeout for client to send init message
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeInit,
@@ -52,6 +53,7 @@ var StateMap = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: 0,
+		Timeout:                 IdleTimeout, // Timeout for server to send tx request when idle
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestTxIds,
@@ -80,6 +82,7 @@ var StateMap = protocol.StateMap{
 	stateTxIdsBlocking: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: 0,
+		Timeout:                 TxIdsBlockingTimeout, // Timeout for client to reply with tx IDs (blocking)
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -94,6 +97,7 @@ var StateMap = protocol.StateMap{
 	stateTxIdsNonblocking: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: 0,
+		Timeout:                 TxIdsNonblockingTimeout, // Timeout for client to reply with tx IDs (non-blocking)
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -104,6 +108,7 @@ var StateMap = protocol.StateMap{
 	stateTxs: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: 0,
+		Timeout:                 TxsTimeout, // Timeout for client to reply with full transactions
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxs,
@@ -138,6 +143,15 @@ const (
 	MaxAckCount         = 65535 // Max transaction acks (uint16)
 	DefaultRequestLimit = 1000  // Default request limit
 	DefaultAckLimit     = 1000  // Default ack limit
+)
+
+// Protocol state timeout constants per network specification
+const (
+	InitTimeout             = 30 * time.Second  // Timeout for client to send init message
+	IdleTimeout             = 300 * time.Second // Timeout for server to send tx request when idle
+	TxIdsBlockingTimeout    = 60 * time.Second  // Timeout for client to reply with tx IDs (blocking)
+	TxIdsNonblockingTimeout = 30 * time.Second  // Timeout for client to reply with tx IDs (non-blocking)
+	TxsTimeout              = 120 * time.Second // Timeout for client to reply with full transactions
 )
 
 // Callback context

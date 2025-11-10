@@ -19,10 +19,19 @@ package protocol_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/blinklabs-io/gouroboros/protocol/handshake"
+	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
+	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 )
 
@@ -83,6 +92,29 @@ func TestChainSyncLimitsAreDefined(t *testing.T) {
 			"MaxPendingMessageBytes should be %d, got %d",
 			expectedMaxBytes,
 			chainsync.MaxPendingMessageBytes,
+		)
+	}
+
+	// Test timeout constants
+	if chainsync.IdleTimeout <= 0 {
+		t.Errorf("IdleTimeout must be positive, got %v", chainsync.IdleTimeout)
+	}
+	if chainsync.CanAwaitTimeout <= 0 {
+		t.Errorf(
+			"CanAwaitTimeout must be positive, got %v",
+			chainsync.CanAwaitTimeout,
+		)
+	}
+	if chainsync.IntersectTimeout <= 0 {
+		t.Errorf(
+			"IntersectTimeout must be positive, got %v",
+			chainsync.IntersectTimeout,
+		)
+	}
+	if chainsync.MustReplyTimeout <= 0 {
+		t.Errorf(
+			"MustReplyTimeout must be positive, got %v",
+			chainsync.MustReplyTimeout,
 		)
 	}
 }
@@ -196,6 +228,20 @@ func TestBlockFetchLimitsAreDefined(t *testing.T) {
 			blockfetch.MaxPendingMessageBytes,
 		)
 	}
+
+	// Test timeout constants
+	if blockfetch.IdleTimeout <= 0 {
+		t.Errorf("IdleTimeout must be positive, got %v", blockfetch.IdleTimeout)
+	}
+	if blockfetch.BusyTimeout <= 0 {
+		t.Errorf("BusyTimeout must be positive, got %v", blockfetch.BusyTimeout)
+	}
+	if blockfetch.StreamingTimeout <= 0 {
+		t.Errorf(
+			"StreamingTimeout must be positive, got %v",
+			blockfetch.StreamingTimeout,
+		)
+	}
 }
 
 // TestBlockFetchDefaultValuesAreReasonable ensures default values are within limits
@@ -280,6 +326,35 @@ func TestTxSubmissionLimitsAreDefined(t *testing.T) {
 			expectedMax,
 			txsubmission.MaxAckCount,
 		)
+	}
+
+	// Test timeout constants
+	if txsubmission.InitTimeout <= 0 {
+		t.Errorf(
+			"InitTimeout must be positive, got %v",
+			txsubmission.InitTimeout,
+		)
+	}
+	if txsubmission.IdleTimeout <= 0 {
+		t.Errorf(
+			"IdleTimeout must be positive, got %v",
+			txsubmission.IdleTimeout,
+		)
+	}
+	if txsubmission.TxIdsBlockingTimeout <= 0 {
+		t.Errorf(
+			"TxIdsBlockingTimeout must be positive, got %v",
+			txsubmission.TxIdsBlockingTimeout,
+		)
+	}
+	if txsubmission.TxIdsNonblockingTimeout <= 0 {
+		t.Errorf(
+			"TxIdsNonblockingTimeout must be positive, got %v",
+			txsubmission.TxIdsNonblockingTimeout,
+		)
+	}
+	if txsubmission.TxsTimeout <= 0 {
+		t.Errorf("TxsTimeout must be positive, got %v", txsubmission.TxsTimeout)
 	}
 }
 
@@ -427,4 +502,377 @@ func TestStateMapEntryHasPendingMessageByteLimit(t *testing.T) {
 			entryZero.PendingMessageByteLimit,
 		)
 	}
+}
+
+// TestProtocolStateTimeouts verifies that all protocol state timeout constants are properly defined
+func TestProtocolStateTimeouts(t *testing.T) {
+	t.Run("ChainSync timeouts", func(t *testing.T) {
+		// Test that all timeout constants are positive
+		if chainsync.IdleTimeout <= 0 {
+			t.Errorf(
+				"IdleTimeout must be positive, got %v",
+				chainsync.IdleTimeout,
+			)
+		}
+		if chainsync.CanAwaitTimeout <= 0 {
+			t.Errorf(
+				"CanAwaitTimeout must be positive, got %v",
+				chainsync.CanAwaitTimeout,
+			)
+		}
+		if chainsync.IntersectTimeout <= 0 {
+			t.Errorf(
+				"IntersectTimeout must be positive, got %v",
+				chainsync.IntersectTimeout,
+			)
+		}
+		if chainsync.MustReplyTimeout <= 0 {
+			t.Errorf(
+				"MustReplyTimeout must be positive, got %v",
+				chainsync.MustReplyTimeout,
+			)
+		}
+
+		// Test that timeout values are reasonable (between 1 second and 1 hour)
+		timeouts := map[string]time.Duration{
+			"IdleTimeout":      chainsync.IdleTimeout,
+			"CanAwaitTimeout":  chainsync.CanAwaitTimeout,
+			"IntersectTimeout": chainsync.IntersectTimeout,
+			"MustReplyTimeout": chainsync.MustReplyTimeout,
+		}
+		for name, timeout := range timeouts {
+			if timeout < time.Second || timeout > time.Hour {
+				t.Errorf(
+					"%s should be between 1 second and 1 hour, got %v",
+					name,
+					timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("BlockFetch timeouts", func(t *testing.T) {
+		// Test that all timeout constants are positive
+		if blockfetch.IdleTimeout <= 0 {
+			t.Errorf(
+				"IdleTimeout must be positive, got %v",
+				blockfetch.IdleTimeout,
+			)
+		}
+		if blockfetch.BusyTimeout <= 0 {
+			t.Errorf(
+				"BusyTimeout must be positive, got %v",
+				blockfetch.BusyTimeout,
+			)
+		}
+		if blockfetch.StreamingTimeout <= 0 {
+			t.Errorf(
+				"StreamingTimeout must be positive, got %v",
+				blockfetch.StreamingTimeout,
+			)
+		}
+
+		// Test that timeout values are reasonable
+		timeouts := map[string]time.Duration{
+			"IdleTimeout":      blockfetch.IdleTimeout,
+			"BusyTimeout":      blockfetch.BusyTimeout,
+			"StreamingTimeout": blockfetch.StreamingTimeout,
+		}
+		for name, timeout := range timeouts {
+			if timeout < time.Second || timeout > time.Hour {
+				t.Errorf(
+					"%s should be between 1 second and 1 hour, got %v",
+					name,
+					timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("TxSubmission timeouts", func(t *testing.T) {
+		// Test that all timeout constants are positive
+		if txsubmission.InitTimeout <= 0 {
+			t.Errorf(
+				"InitTimeout must be positive, got %v",
+				txsubmission.InitTimeout,
+			)
+		}
+		if txsubmission.IdleTimeout <= 0 {
+			t.Errorf(
+				"IdleTimeout must be positive, got %v",
+				txsubmission.IdleTimeout,
+			)
+		}
+		if txsubmission.TxIdsBlockingTimeout <= 0 {
+			t.Errorf(
+				"TxIdsBlockingTimeout must be positive, got %v",
+				txsubmission.TxIdsBlockingTimeout,
+			)
+		}
+		if txsubmission.TxIdsNonblockingTimeout <= 0 {
+			t.Errorf(
+				"TxIdsNonblockingTimeout must be positive, got %v",
+				txsubmission.TxIdsNonblockingTimeout,
+			)
+		}
+		if txsubmission.TxsTimeout <= 0 {
+			t.Errorf(
+				"TxsTimeout must be positive, got %v",
+				txsubmission.TxsTimeout,
+			)
+		}
+
+		// Test that timeout values are reasonable
+		timeouts := map[string]time.Duration{
+			"InitTimeout":             txsubmission.InitTimeout,
+			"IdleTimeout":             txsubmission.IdleTimeout,
+			"TxIdsBlockingTimeout":    txsubmission.TxIdsBlockingTimeout,
+			"TxIdsNonblockingTimeout": txsubmission.TxIdsNonblockingTimeout,
+			"TxsTimeout":              txsubmission.TxsTimeout,
+		}
+		for name, timeout := range timeouts {
+			if timeout < time.Second || timeout > time.Hour {
+				t.Errorf(
+					"%s should be between 1 second and 1 hour, got %v",
+					name,
+					timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("Handshake timeouts", func(t *testing.T) {
+		// Test that all timeout constants are positive
+		if handshake.ProposeTimeout <= 0 {
+			t.Errorf(
+				"ProposeTimeout must be positive, got %v",
+				handshake.ProposeTimeout,
+			)
+		}
+		if handshake.ConfirmTimeout <= 0 {
+			t.Errorf(
+				"ConfirmTimeout must be positive, got %v",
+				handshake.ConfirmTimeout,
+			)
+		}
+
+		// Test that timeout values are reasonable
+		timeouts := map[string]time.Duration{
+			"ProposeTimeout": handshake.ProposeTimeout,
+			"ConfirmTimeout": handshake.ConfirmTimeout,
+		}
+		for name, timeout := range timeouts {
+			if timeout < time.Second || timeout > time.Minute {
+				t.Errorf(
+					"%s should be between 1 second and 1 minute, got %v",
+					name,
+					timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("Keepalive timeouts", func(t *testing.T) {
+		// Test that all timeout constants are positive
+		if keepalive.ClientTimeout <= 0 {
+			t.Errorf(
+				"ClientTimeout must be positive, got %v",
+				keepalive.ClientTimeout,
+			)
+		}
+		if keepalive.ServerTimeout <= 0 {
+			t.Errorf(
+				"ServerTimeout must be positive, got %v",
+				keepalive.ServerTimeout,
+			)
+		}
+
+		// Test that timeout values are reasonable
+		timeouts := map[string]time.Duration{
+			"ClientTimeout": keepalive.ClientTimeout,
+			"ServerTimeout": keepalive.ServerTimeout,
+		}
+		for name, timeout := range timeouts {
+			if timeout < time.Second || timeout > time.Hour {
+				t.Errorf(
+					"%s should be between 1 second and 1 hour, got %v",
+					name,
+					timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("LocalStateQuery timeouts", func(t *testing.T) {
+		cfg := localstatequery.NewConfig()
+		timeouts := map[string]time.Duration{
+			"AcquireTimeout": cfg.AcquireTimeout,
+			"QueryTimeout":   cfg.QueryTimeout,
+		}
+		for name, timeout := range timeouts {
+			if timeout <= 0 {
+				t.Errorf("%s must be positive, got %v", name, timeout)
+			}
+			if timeout < time.Second || timeout > time.Hour {
+				t.Errorf(
+					"%s should be between 1 second and 1 hour, got %v",
+					name,
+					timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("LocalTxMonitor timeouts", func(t *testing.T) {
+		cfg := localtxmonitor.NewConfig()
+		timeouts := map[string]time.Duration{
+			"AcquireTimeout": cfg.AcquireTimeout,
+			"QueryTimeout":   cfg.QueryTimeout,
+		}
+		for name, timeout := range timeouts {
+			if timeout <= 0 {
+				t.Errorf("%s must be positive, got %v", name, timeout)
+			}
+			if timeout < time.Second || timeout > time.Hour {
+				t.Errorf(
+					"%s should be between 1 second and 1 hour, got %v",
+					name,
+					timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("LocalTxSubmission timeouts", func(t *testing.T) {
+		cfg := localtxsubmission.NewConfig()
+		if cfg.Timeout <= 0 {
+			t.Errorf("Timeout must be positive, got %v", cfg.Timeout)
+		}
+		if cfg.Timeout < time.Second || cfg.Timeout > time.Hour {
+			t.Errorf(
+				"Timeout should be between 1 second and 1 hour, got %v",
+				cfg.Timeout,
+			)
+		}
+	})
+
+	t.Run("PeerSharing timeouts", func(t *testing.T) {
+		cfg := peersharing.NewConfig()
+		if cfg.Timeout <= 0 {
+			t.Errorf("Timeout must be positive, got %v", cfg.Timeout)
+		}
+		if cfg.Timeout < time.Second || cfg.Timeout > time.Hour {
+			t.Errorf(
+				"Timeout should be between 1 second and 1 hour, got %v",
+				cfg.Timeout,
+			)
+		}
+	})
+
+	t.Run("LeiosFetch timeouts", func(t *testing.T) {
+		cfg := leiosfetch.NewConfig()
+		if cfg.Timeout <= 0 {
+			t.Errorf("Timeout must be positive, got %v", cfg.Timeout)
+		}
+		if cfg.Timeout < time.Second || cfg.Timeout > time.Hour {
+			t.Errorf(
+				"Timeout should be between 1 second and 1 hour, got %v",
+				cfg.Timeout,
+			)
+		}
+	})
+
+	t.Run("LeiosNotify timeouts", func(t *testing.T) {
+		cfg := leiosnotify.NewConfig()
+		if cfg.Timeout <= 0 {
+			t.Errorf("Timeout must be positive, got %v", cfg.Timeout)
+		}
+		if cfg.Timeout < time.Second || cfg.Timeout > time.Hour {
+			t.Errorf(
+				"Timeout should be between 1 second and 1 hour, got %v",
+				cfg.Timeout,
+			)
+		}
+	})
+}
+
+// TestStateMapTimeouts verifies that StateMap entries use the correct timeout constants
+func TestStateMapTimeouts(t *testing.T) {
+	t.Run("ChainSync StateMap timeouts", func(t *testing.T) {
+		stateIdle := protocol.NewState(1, "Idle")
+		stateCanAwait := protocol.NewState(2, "CanAwait")
+		stateIntersect := protocol.NewState(4, "Intersect")
+		stateMustReply := protocol.NewState(3, "MustReply")
+
+		if entry, exists := chainsync.StateMap[stateIdle]; exists {
+			if entry.Timeout != chainsync.IdleTimeout {
+				t.Errorf(
+					"stateIdle timeout should be %v, got %v",
+					chainsync.IdleTimeout,
+					entry.Timeout,
+				)
+			}
+		}
+		if entry, exists := chainsync.StateMap[stateCanAwait]; exists {
+			if entry.Timeout != chainsync.CanAwaitTimeout {
+				t.Errorf(
+					"stateCanAwait timeout should be %v, got %v",
+					chainsync.CanAwaitTimeout,
+					entry.Timeout,
+				)
+			}
+		}
+		if entry, exists := chainsync.StateMap[stateIntersect]; exists {
+			if entry.Timeout != chainsync.IntersectTimeout {
+				t.Errorf(
+					"stateIntersect timeout should be %v, got %v",
+					chainsync.IntersectTimeout,
+					entry.Timeout,
+				)
+			}
+		}
+		if entry, exists := chainsync.StateMap[stateMustReply]; exists {
+			if entry.Timeout != chainsync.MustReplyTimeout {
+				t.Errorf(
+					"stateMustReply timeout should be %v, got %v",
+					chainsync.MustReplyTimeout,
+					entry.Timeout,
+				)
+			}
+		}
+	})
+
+	t.Run("BlockFetch StateMap timeouts", func(t *testing.T) {
+		stateIdle := protocol.NewState(1, "Idle")
+		stateBusy := protocol.NewState(2, "Busy")
+		stateStreaming := protocol.NewState(3, "Streaming")
+
+		if entry, exists := blockfetch.StateMap[stateIdle]; exists {
+			if entry.Timeout != blockfetch.IdleTimeout {
+				t.Errorf(
+					"StateIdle timeout should be %v, got %v",
+					blockfetch.IdleTimeout,
+					entry.Timeout,
+				)
+			}
+		}
+		if entry, exists := blockfetch.StateMap[stateBusy]; exists {
+			if entry.Timeout != blockfetch.BusyTimeout {
+				t.Errorf(
+					"StateBusy timeout should be %v, got %v",
+					blockfetch.BusyTimeout,
+					entry.Timeout,
+				)
+			}
+		}
+		if entry, exists := blockfetch.StateMap[stateStreaming]; exists {
+			if entry.Timeout != blockfetch.StreamingTimeout {
+				t.Errorf(
+					"StateStreaming timeout should be %v, got %v",
+					blockfetch.StreamingTimeout,
+					entry.Timeout,
+				)
+			}
+		}
+	})
 }

@@ -32,6 +32,12 @@ const (
 	DefaultKeepAliveTimeout = 10
 )
 
+// Protocol state timeout constants per network specification
+const (
+	ClientTimeout = 60 * time.Second // Timeout for client to send keep-alive
+	ServerTimeout = 10 * time.Second // Timeout for server to respond to keep-alive
+)
+
 var (
 	StateClient = protocol.NewState(1, "Client")
 	StateServer = protocol.NewState(2, "Server")
@@ -40,7 +46,8 @@ var (
 
 var StateMap = protocol.StateMap{
 	StateClient: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:  protocol.AgencyClient,
+		Timeout: ClientTimeout, // Timeout for client to send keep-alive
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeKeepAlive,
@@ -53,7 +60,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateServer: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:  protocol.AgencyServer,
+		Timeout: ServerTimeout, // Timeout for server to respond to keep-alive
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeKeepAliveResponse,
