@@ -86,7 +86,7 @@ func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
 		BlockHeader            *AlonzoBlockHeader
 		TransactionBodies      []AlonzoTransactionBody
 		TransactionWitnessSets []AlonzoTransactionWitnessSet
-		TransactionMetadataSet map[uint]*cbor.LazyValue
+		TransactionMetadataSet common.TransactionMetadataSet
 		InvalidTransactions    cbor.IndefLengthList
 	}
 
