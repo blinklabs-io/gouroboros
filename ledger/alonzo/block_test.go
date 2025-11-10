@@ -22,7 +22,6 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
-
 	"github.com/stretchr/testify/assert"
 )
 

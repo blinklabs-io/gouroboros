@@ -43,7 +43,8 @@ var (
 // ChainSync protocol state machine
 var StateMap = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeRequestNext,
@@ -61,7 +62,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateCanAwait: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeRequestNext,
@@ -95,7 +97,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateIntersect: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeIntersectFound,
@@ -108,7 +111,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateMustReply: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeRollForward,
@@ -133,7 +137,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		Agency:                  protocol.AgencyNone,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 	},
 }
 
@@ -212,10 +217,11 @@ type Config struct {
 
 // Protocol limits per Ouroboros Network Specification
 const (
-	MaxPipelineLimit     = 100 // Max pipelined requests
-	MaxRecvQueueSize     = 100 // Max receive queue size
-	DefaultPipelineLimit = 50  // Default pipeline limit
-	DefaultRecvQueueSize = 50  // Default queue size
+	MaxPipelineLimit       = 100    // Max pipelined requests
+	MaxRecvQueueSize       = 100    // Max receive queue size (messages)
+	DefaultPipelineLimit   = 50     // Default pipeline limit
+	DefaultRecvQueueSize   = 50     // Default queue size
+	MaxPendingMessageBytes = 102400 // Max pending message bytes (100KB)
 )
 
 // Callback context

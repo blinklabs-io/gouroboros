@@ -60,9 +60,10 @@ type StateTransitionMatchFunc func(any, Message) bool
 
 // StateMapEntry represents a protocol state, it's possible state transitions, and an optional timeout
 type StateMapEntry struct {
-	Agency      ProtocolStateAgency
-	Transitions []StateTransition
-	Timeout     time.Duration
+	Agency                  ProtocolStateAgency
+	Transitions             []StateTransition
+	Timeout                 time.Duration
+	PendingMessageByteLimit int // Maximum pending message bytes allowed in this state (0 = no limit)
 }
 
 // StateMap represents the state machine definition for a mini-protocol

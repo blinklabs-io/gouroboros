@@ -40,7 +40,8 @@ var (
 // TxSubmission protocol state machine
 var StateMap = protocol.StateMap{
 	stateInit: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeInit,
@@ -49,7 +50,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: 0,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestTxIds,
@@ -76,7 +78,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateTxIdsBlocking: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -89,7 +92,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateTxIdsNonblocking: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -98,7 +102,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateTxs: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxs,
@@ -107,7 +112,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		Agency:                  protocol.AgencyNone,
+		PendingMessageByteLimit: 0,
 	},
 }
 

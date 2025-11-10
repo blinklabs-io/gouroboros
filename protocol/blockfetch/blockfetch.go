@@ -38,7 +38,8 @@ var (
 
 var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestRange,
@@ -51,7 +52,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateBusy: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeStartBatch,
@@ -64,7 +66,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateStreaming: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlock,
@@ -77,7 +80,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		Agency:                  protocol.AgencyNone,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 	},
 }
 
@@ -98,8 +102,9 @@ type Config struct {
 
 // Protocol limits per Ouroboros Network Specification
 const (
-	MaxRecvQueueSize     = 512 // Max receive queue size
-	DefaultRecvQueueSize = 256 // Default queue size
+	MaxRecvQueueSize       = 512     // Max receive queue size (messages)
+	DefaultRecvQueueSize   = 256     // Default queue size
+	MaxPendingMessageBytes = 5242880 // Max pending message bytes (5MB)
 )
 
 // Callback context
