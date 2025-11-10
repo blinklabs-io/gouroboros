@@ -45,6 +45,7 @@ var StateMap = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 IdleTimeout, // Timeout for client to send next request
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeRequestNext,
@@ -64,6 +65,7 @@ var StateMap = protocol.StateMap{
 	stateCanAwait: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 CanAwaitTimeout, // Timeout for server to provide next block or await
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeRequestNext,
@@ -99,6 +101,7 @@ var StateMap = protocol.StateMap{
 	stateIntersect: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 IntersectTimeout, // Timeout for server to respond to intersect request
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeIntersectFound,
@@ -113,6 +116,7 @@ var StateMap = protocol.StateMap{
 	stateMustReply: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 MustReplyTimeout, // Timeout for server to provide next block
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeRollForward,
@@ -222,6 +226,14 @@ const (
 	DefaultPipelineLimit   = 50     // Default pipeline limit
 	DefaultRecvQueueSize   = 50     // Default queue size
 	MaxPendingMessageBytes = 102400 // Max pending message bytes (100KB)
+)
+
+// Protocol state timeout constants per network specification
+const (
+	IdleTimeout      = 60 * time.Second  // Timeout for client to send next request
+	CanAwaitTimeout  = 300 * time.Second // Timeout for server to provide next block or await
+	IntersectTimeout = 5 * time.Second   // Timeout for server to respond to intersect request
+	MustReplyTimeout = 300 * time.Second // Timeout for server to provide next block
 )
 
 // Callback context
