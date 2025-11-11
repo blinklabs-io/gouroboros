@@ -22,11 +22,15 @@ import (
 )
 
 const (
-	MessageTypeKeepAlive         = 0
+	// MessageTypeKeepAlive is the message type for keep-alive requests.
+	MessageTypeKeepAlive = 0
+	// MessageTypeKeepAliveResponse is the message type for keep-alive responses.
 	MessageTypeKeepAliveResponse = 1
-	MessageTypeDone              = 2
+	// MessageTypeDone is the message type for done messages.
+	MessageTypeDone = 2
 )
 
+// NewMsgFromCbor decodes a CBOR-encoded message of the given type and returns the corresponding protocol.Message.
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
@@ -47,11 +51,13 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	return ret, nil
 }
 
+// MsgKeepAlive represents a keep-alive request message containing a cookie value.
 type MsgKeepAlive struct {
 	protocol.MessageBase
 	Cookie uint16
 }
 
+// NewMsgKeepAlive creates and returns a new keep-alive request message with the given cookie value.
 func NewMsgKeepAlive(cookie uint16) *MsgKeepAlive {
 	msg := &MsgKeepAlive{
 		MessageBase: protocol.MessageBase{
@@ -62,11 +68,13 @@ func NewMsgKeepAlive(cookie uint16) *MsgKeepAlive {
 	return msg
 }
 
+// MsgKeepAliveResponse represents a keep-alive response message containing a cookie value.
 type MsgKeepAliveResponse struct {
 	protocol.MessageBase
 	Cookie uint16
 }
 
+// NewMsgKeepAliveResponse creates and returns a new keep-alive response message with the given cookie value.
 func NewMsgKeepAliveResponse(cookie uint16) *MsgKeepAliveResponse {
 	msg := &MsgKeepAliveResponse{
 		MessageBase: protocol.MessageBase{
@@ -77,10 +85,12 @@ func NewMsgKeepAliveResponse(cookie uint16) *MsgKeepAliveResponse {
 	return msg
 }
 
+// MsgDone represents a done message in the keep-alive protocol, indicating the end of the session.
 type MsgDone struct {
 	protocol.MessageBase
 }
 
+// NewMsgDone creates and returns a new done message.
 func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{

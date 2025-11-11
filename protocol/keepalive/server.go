@@ -20,12 +20,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
+// Server implements the keep-alive protocol server, responsible for handling keep-alive requests and sending responses.
 type Server struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
 }
 
+// NewServer creates and returns a new keep-alive protocol server with the given options and configuration.
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
@@ -51,6 +53,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
+// messageHandler handles incoming protocol messages for the server.
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -68,6 +71,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	return err
 }
 
+// handleKeepAlive processes a keep-alive message from the client and sends a response.
 func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 	s.Protocol.Logger().
 		Debug("keep alive",
@@ -87,6 +91,7 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 	}
 }
 
+// handleDone processes a done message from the client and performs any necessary cleanup.
 func (s *Server) handleDone() error {
 	s.Protocol.Logger().
 		Debug("done",
