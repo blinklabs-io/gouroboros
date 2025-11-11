@@ -743,14 +743,67 @@ func (e *ExUnitsTooBigUtxo) Error() string {
 	)
 }
 
+// CollateralContainsNonADA represents the CollateralContainsNonADA error from cardano-ledger.
+// CBOR: [16, provided] (Alonzo/Babbage), [15, provided] (Conway)
 type CollateralContainsNonADA struct {
 	UtxoFailureErrorBase
-	// TODO: determine content/structure of this value (#848)
-	Value cbor.Value
+	Provided cbor.Value
+}
+
+func (e *CollateralContainsNonADA) MarshalCBOR() ([]byte, error) {
+	// Use era-specific constant - fallback to Conway if not set
+	constantToUse := UtxoFailureCollateralContainsNonAdaConway
+	if e.Type != 0 {
+		constantToUse = int(e.Type)
+	}
+	// Bounds check
+	if constantToUse < 0 || constantToUse > 255 {
+		return nil, fmt.Errorf("CollateralContainsNonADA: invalid constructor index %d (must be 0-255)", constantToUse)
+	}
+	e.Type = uint8(constantToUse)
+	arr := []any{constantToUse, e.Provided.Value()}
+	return cbor.Encode(arr)
+}
+
+func (e *CollateralContainsNonADA) UnmarshalCBOR(data []byte) error {
+	type tCollateralContainsNonADA struct {
+		cbor.StructAsArray
+		ConstructorIdx uint64
+		Provided       cbor.Value
+	}
+	var tmp tCollateralContainsNonADA
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return fmt.Errorf("failed to decode CollateralContainsNonADA: %w", err)
+	}
+
+	// Check if the constructor index matches any valid era-specific constant
+	validConstructors := []int{
+		UtxoFailureCollateralContainsNonAdaAlonzo,
+		UtxoFailureCollateralContainsNonAdaBabbage,
+		UtxoFailureCollateralContainsNonAdaConway,
+	}
+	isValid := false
+	for _, valid := range validConstructors {
+		//nolint:gosec // G115: integer overflow conversion int -> uint64
+		// Safe conversion since constants are small positive values (15, 16)
+		if tmp.ConstructorIdx == uint64(valid) {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return fmt.Errorf("CollateralContainsNonADA: expected one of constructor indices %v, got %d", validConstructors, tmp.ConstructorIdx)
+	}
+	if tmp.ConstructorIdx > uint64(255) {
+		return fmt.Errorf("CollateralContainsNonADA: constructor index %d exceeds uint8 range (0-255)", tmp.ConstructorIdx)
+	}
+	e.Type = uint8(tmp.ConstructorIdx)
+	e.Provided = tmp.Provided
+	return nil
 }
 
 func (e *CollateralContainsNonADA) Error() string {
-	return fmt.Sprintf("CollateralContainsNonADA (%v)", e.Value.Value())
+	return fmt.Sprintf("CollateralContainsNonADA (Provided %v)", e.Provided.Value())
 }
 
 type WrongNetworkInTxBody struct {
