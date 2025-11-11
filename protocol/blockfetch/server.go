@@ -22,13 +22,15 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
+// Server implements the Block Fetch protocol server, which serves blocks to clients.
 type Server struct {
 	*protocol.Protocol
-	config          *Config
-	callbackContext CallbackContext
-	protoOptions    protocol.ProtocolOptions
+	config          *Config                  // Protocol configuration
+	callbackContext CallbackContext          // Callback context for server
+	protoOptions    protocol.ProtocolOptions // Protocol options
 }
 
+// NewServer creates a new Block Fetch protocol server with the given options and configuration.
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	s := &Server{
 		config: cfg,
@@ -63,6 +65,7 @@ func (s *Server) initProtocol() {
 	s.Protocol = protocol.New(protoConfig)
 }
 
+// NoBlocks sends a NoBlocks message to the client, indicating no blocks are available.
 func (s *Server) NoBlocks() error {
 	s.Protocol.Logger().
 		Debug("calling NoBlocks()",
@@ -75,6 +78,7 @@ func (s *Server) NoBlocks() error {
 	return s.SendMessage(msg)
 }
 
+// StartBatch sends a StartBatch message to the client, indicating the start of a batch.
 func (s *Server) StartBatch() error {
 	s.Protocol.Logger().
 		Debug("calling StartBatch()",
@@ -87,6 +91,7 @@ func (s *Server) StartBatch() error {
 	return s.SendMessage(msg)
 }
 
+// Block sends a Block message to the client with the given block type and data.
 func (s *Server) Block(blockType uint, blockData []byte) error {
 	s.Protocol.Logger().
 		Debug(
@@ -108,6 +113,7 @@ func (s *Server) Block(blockType uint, blockData []byte) error {
 	return s.SendMessage(msg)
 }
 
+// BatchDone sends a BatchDone message to the client, indicating the end of a batch.
 func (s *Server) BatchDone() error {
 	s.Protocol.Logger().
 		Debug("calling BatchDone()",
@@ -120,6 +126,7 @@ func (s *Server) BatchDone() error {
 	return s.SendMessage(msg)
 }
 
+// messageHandler handles incoming protocol messages for the server.
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -137,6 +144,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	return err
 }
 
+// handleRequestRange handles the RequestRange message from the client.
 func (s *Server) handleRequestRange(msg protocol.Message) error {
 	s.Protocol.Logger().
 		Debug("request range",
@@ -158,6 +166,7 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 	)
 }
 
+// handleClientDone handles the ClientDone message from the client and restarts the protocol.
 func (s *Server) handleClientDone() error {
 	s.Protocol.Logger().
 		Debug("client done",
