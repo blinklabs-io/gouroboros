@@ -22,15 +22,25 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-const (
-	MessageTypeRequestRange = 0
-	MessageTypeClientDone   = 1
-	MessageTypeStartBatch   = 2
-	MessageTypeNoBlocks     = 3
-	MessageTypeBlock        = 4
-	MessageTypeBatchDone    = 5
-)
+// MessageTypeRequestRange is the message type for requesting a range of blocks.
+const MessageTypeRequestRange = 0
 
+// MessageTypeClientDone is the message type for client completion.
+const MessageTypeClientDone = 1
+
+// MessageTypeStartBatch is the message type for starting a batch.
+const MessageTypeStartBatch = 2
+
+// MessageTypeNoBlocks is the message type for indicating no blocks are available.
+const MessageTypeNoBlocks = 3
+
+// MessageTypeBlock is the message type for sending a block.
+const MessageTypeBlock = 4
+
+// MessageTypeBatchDone is the message type for indicating the end of a batch.
+const MessageTypeBatchDone = 5
+
+// NewMsgFromCbor decodes a protocol message from CBOR data based on the message type.
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
 	switch msgType {
@@ -57,12 +67,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	return ret, nil
 }
 
+// MsgRequestRange represents a request for a range of blocks.
 type MsgRequestRange struct {
 	protocol.MessageBase
-	Start common.Point
-	End   common.Point
+	Start common.Point // Start point of the range
+	End   common.Point // End point of the range
 }
 
+// NewMsgRequestRange creates a new MsgRequestRange with the given start and end points.
 func NewMsgRequestRange(start common.Point, end common.Point) *MsgRequestRange {
 	m := &MsgRequestRange{
 		MessageBase: protocol.MessageBase{
@@ -74,10 +86,12 @@ func NewMsgRequestRange(start common.Point, end common.Point) *MsgRequestRange {
 	return m
 }
 
+// MsgClientDone indicates the client is done with block fetching.
 type MsgClientDone struct {
 	protocol.MessageBase
 }
 
+// NewMsgClientDone creates a new MsgClientDone message.
 func NewMsgClientDone() *MsgClientDone {
 	m := &MsgClientDone{
 		MessageBase: protocol.MessageBase{
@@ -87,10 +101,12 @@ func NewMsgClientDone() *MsgClientDone {
 	return m
 }
 
+// MsgStartBatch indicates the start of a batch of blocks.
 type MsgStartBatch struct {
 	protocol.MessageBase
 }
 
+// NewMsgStartBatch creates a new MsgStartBatch message.
 func NewMsgStartBatch() *MsgStartBatch {
 	m := &MsgStartBatch{
 		MessageBase: protocol.MessageBase{
@@ -100,10 +116,12 @@ func NewMsgStartBatch() *MsgStartBatch {
 	return m
 }
 
+// MsgNoBlocks indicates that no blocks are available for the requested range.
 type MsgNoBlocks struct {
 	protocol.MessageBase
 }
 
+// NewMsgNoBlocks creates a new MsgNoBlocks message.
 func NewMsgNoBlocks() *MsgNoBlocks {
 	m := &MsgNoBlocks{
 		MessageBase: protocol.MessageBase{
@@ -113,11 +131,13 @@ func NewMsgNoBlocks() *MsgNoBlocks {
 	return m
 }
 
+// MsgBlock contains a block sent from the server to the client.
 type MsgBlock struct {
 	protocol.MessageBase
-	WrappedBlock []byte
+	WrappedBlock []byte // CBOR-encoded wrapped block
 }
 
+// NewMsgBlock creates a new MsgBlock with the given wrapped block data.
 func NewMsgBlock(wrappedBlock []byte) *MsgBlock {
 	m := &MsgBlock{
 		MessageBase: protocol.MessageBase{
@@ -128,6 +148,7 @@ func NewMsgBlock(wrappedBlock []byte) *MsgBlock {
 	return m
 }
 
+// MarshalCBOR encodes the MsgBlock as CBOR.
 func (m MsgBlock) MarshalCBOR() ([]byte, error) {
 	tmp := []any{
 		m.MessageType,
@@ -139,10 +160,12 @@ func (m MsgBlock) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(&tmp)
 }
 
+// MsgBatchDone indicates the end of a batch of blocks.
 type MsgBatchDone struct {
 	protocol.MessageBase
 }
 
+// NewMsgBatchDone creates a new MsgBatchDone message.
 func NewMsgBatchDone() *MsgBatchDone {
 	m := &MsgBatchDone{
 		MessageBase: protocol.MessageBase{
@@ -152,8 +175,9 @@ func NewMsgBatchDone() *MsgBatchDone {
 	return m
 }
 
+// WrappedBlock is a CBOR structure containing a block type and raw block data.
 type WrappedBlock struct {
 	cbor.StructAsArray
-	Type     uint
-	RawBlock cbor.RawMessage
+	Type     uint            // Block type identifier
+	RawBlock cbor.RawMessage // Raw block data
 }
