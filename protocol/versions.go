@@ -31,6 +31,7 @@ type ProtocolVersion struct {
 	EnableAlonzoEra            bool
 	EnableBabbageEra           bool
 	EnableConwayEra            bool
+	EnableLeiosEra             bool
 	// NtC only
 	EnableLocalQueryProtocol     bool
 	EnableLocalTxMonitorProtocol bool
@@ -161,8 +162,20 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableConwayEra:              true,
 		EnableLocalTxMonitorProtocol: true,
 	},
+	// added additional Conway governance queries
+	(20 + ProtocolVersionNtCOffset): {
+		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableLeiosEra:               true,
+		EnableLocalTxMonitorProtocol: true,
+	},
 
-	// NtN versions
 	//
 	// We don't bother supporting NtN protocol versions before 7 (when Alonzo was enabled)
 
@@ -248,6 +261,20 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableAlonzoEra:            true,
 		EnableBabbageEra:           true,
 		EnableConwayEra:            true,
+		EnableFullDuplex:           true,
+		EnablePeerSharingProtocol:  true,
+	},
+	// Enables Leios era
+	15: {
+		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
+		EnableShelleyEra:           true,
+		EnableKeepAliveProtocol:    true,
+		EnableAllegraEra:           true,
+		EnableMaryEra:              true,
+		EnableAlonzoEra:            true,
+		EnableBabbageEra:           true,
+		EnableConwayEra:            true,
+		EnableLeiosEra:             true,
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
 	},
