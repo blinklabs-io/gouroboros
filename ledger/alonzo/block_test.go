@@ -58,8 +58,8 @@ func TestAlonzoBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 			err,
 		)
 	}
-	if encoded == nil || len(encoded) == 0 {
-		t.Fatal("Custom encoded CBOR from AlonzoBlock is nil or empty")
+	if len(encoded) == 0 {
+		t.Fatal("Custom encoded CBOR from AlonzoBlock is empty")
 	}
 
 	// Ensure the original and re-encoded CBOR bytes are identical
