@@ -1366,13 +1366,12 @@ func (c *UpdateDrepCertificate) Type() uint {
 type LeiosEbCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	CertType            uint
 	ElectionId          Blake2b256
 	EndorserBlockHash   Blake2b256
-	PersistentVoters    []any
-	NonpersistentVoters map[Blake2b256]any
-	AggregateEligSig    *any
-	AggregateVoteSig    any
+	PersistentVoters    []uint
+	NonpersistentVoters map[Blake2b256][]byte
+	AggregateEligSig    *[]byte
+	AggregateVoteSig    []byte
 }
 
 func (c LeiosEbCertificate) isCertificate() {}
@@ -1395,5 +1394,32 @@ func (c *LeiosEbCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 }
 
 func (c *LeiosEbCertificate) Type() uint {
-	return c.CertType
+	return CertificateTypeLeiosEb
+}
+
+// GetAggregateEligSig returns the aggregate eligibility signature as a byte slice
+func (c *LeiosEbCertificate) GetAggregateEligSig() []byte {
+	if c.AggregateEligSig == nil {
+		return nil
+	}
+	return *c.AggregateEligSig
+}
+
+// GetAggregateVoteSig returns the aggregate vote signature as a byte slice
+func (c *LeiosEbCertificate) GetAggregateVoteSig() []byte {
+	return c.AggregateVoteSig
+}
+
+// SetAggregateEligSig sets the aggregate eligibility signature from a byte slice
+func (c *LeiosEbCertificate) SetAggregateEligSig(sig []byte) {
+	if sig == nil {
+		c.AggregateEligSig = nil
+	} else {
+		c.AggregateEligSig = &sig
+	}
+}
+
+// SetAggregateVoteSig sets the aggregate vote signature from a byte slice
+func (c *LeiosEbCertificate) SetAggregateVoteSig(sig []byte) {
+	c.AggregateVoteSig = sig
 }
