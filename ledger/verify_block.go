@@ -28,7 +28,7 @@ import (
 )
 
 //nolint:staticcheck
-func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
+func VerifyBlock(block BlockHexCbor) (bool, string, uint64, uint64, error) {
 	headerCborHex := block.HeaderCbor
 	epochNonceHex := block.Eta0
 	bodyHex := block.BlockBodyCbor
@@ -40,49 +40,49 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	// check is KES valid
 	headerCborByte, headerDecodeError := hex.DecodeString(headerCborHex)
 	if headerDecodeError != nil {
-		return fmt.Errorf(
+		return false, "", 0, 0, fmt.Errorf(
 			"VerifyBlock: headerCborByte decode error, %v",
 			headerDecodeError.Error(),
-		), false, "", 0, 0
+		)
 	}
 	header, headerUnmarshalError := NewBabbageBlockHeaderFromCbor(
 		headerCborByte,
 	)
 	if headerUnmarshalError != nil {
-		return fmt.Errorf(
+		return false, "", 0, 0, fmt.Errorf(
 			"VerifyBlock: header unmarshal error, %v",
 			headerUnmarshalError.Error(),
-		), false, "", 0, 0
+		)
 	}
 	if header == nil {
-		return errors.New("VerifyBlock: header returned empty"), false, "", 0, 0
+		return false, "", 0, 0, errors.New("VerifyBlock: header returned empty")
 	}
 	isKesValid, errKes := VerifyKes(header, slotPerKesPeriod)
 	if errKes != nil {
-		return fmt.Errorf(
+		return false, "", 0, 0, fmt.Errorf(
 			"VerifyBlock: KES invalid, %v",
 			errKes.Error(),
-		), false, "", 0, 0
+		)
 	}
 
 	// check is VRF valid
 	// Ref: https://github.com/IntersectMBO/ouroboros-consensus/blob/de74882102236fdc4dd25aaa2552e8b3e208448c/ouroboros-consensus-protocol/src/ouroboros-consensus-protocol/Ouroboros/Consensus/Protocol/Praos.hs#L541
 	epochNonceByte, epochNonceDecodeError := hex.DecodeString(epochNonceHex)
 	if epochNonceDecodeError != nil {
-		return fmt.Errorf(
+		return false, "", 0, 0, fmt.Errorf(
 			"VerifyBlock: epochNonceByte decode error, %v",
 			epochNonceDecodeError.Error(),
-		), false, "", 0, 0
+		)
 	}
 	vrfBytes := header.Body.VrfKey[:]
 	vrfResult := header.Body.VrfResult
 	seed := MkInputVrf(int64(header.Body.Slot), epochNonceByte) // #nosec G115
 	output, errVrf := VrfVerifyAndHash(vrfBytes, vrfResult.Proof, seed)
 	if errVrf != nil {
-		return fmt.Errorf(
+		return false, "", 0, 0, fmt.Errorf(
 			"VerifyBlock: vrf invalid, %v",
 			errVrf.Error(),
-		), false, "", 0, 0
+		)
 	}
 	isVrfValid := bytes.Equal(output, vrfResult.Output)
 
@@ -91,16 +91,16 @@ func VerifyBlock(block BlockHexCbor) (error, bool, string, uint64, uint64) {
 	blockBodyHashHex := hex.EncodeToString(blockBodyHash[:])
 	isBodyValid, isBodyValidError := VerifyBlockBody(bodyHex, blockBodyHashHex)
 	if isBodyValidError != nil {
-		return fmt.Errorf(
+		return false, "", 0, 0, fmt.Errorf(
 			"VerifyBlock: VerifyBlockBody error, %v",
 			isBodyValidError.Error(),
-		), false, "", 0, 0
+		)
 	}
 	isValid = isKesValid && isVrfValid && isBodyValid
 	vrfHex = hex.EncodeToString(vrfBytes)
 	blockNo := header.Body.BlockNumber
 	slotNo := header.Body.Slot
-	return nil, isValid, vrfHex, blockNo, slotNo
+	return isValid, vrfHex, blockNo, slotNo, nil
 }
 
 func ExtractBlockData(
@@ -143,7 +143,7 @@ func ExtractBlockData(
 // These are copied from types.go
 
 type BlockHexCbor struct {
-	_             struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Flag          int
 	HeaderCbor    string
 	Eta0          string
