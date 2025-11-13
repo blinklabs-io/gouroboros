@@ -35,6 +35,8 @@ type Client struct {
 	getSizesResultChan chan MsgReplyGetSizesResult
 	onceStart          sync.Once
 	onceStop           sync.Once
+	stateMutex         sync.Mutex
+	started            bool
 }
 
 // NewClient returns a new LocalTxMonitor client object
@@ -84,21 +86,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.started = true
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.acquireResultChan)
-			close(c.hasTxResultChan)
-			close(c.nextTxResultChan)
-			close(c.getSizesResultChan)
-		}()
 	})
 }
 
@@ -106,6 +104,9 @@ func (c *Client) Start() {
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
 				"component", "network",
@@ -117,6 +118,22 @@ func (c *Client) Stop() error {
 		msg := NewMsgDone()
 		if err = c.SendMessage(msg); err != nil {
 			return
+		}
+		// Defer closing channels until protocol fully shuts down (only if started)
+		if c.started {
+			go func() {
+				<-c.DoneChan()
+				close(c.acquireResultChan)
+				close(c.hasTxResultChan)
+				close(c.nextTxResultChan)
+				close(c.getSizesResultChan)
+			}()
+		} else {
+			// If protocol was never started, close channels immediately
+			close(c.acquireResultChan)
+			close(c.hasTxResultChan)
+			close(c.nextTxResultChan)
+			close(c.getSizesResultChan)
 		}
 	})
 	return err
@@ -263,7 +280,11 @@ func (c *Client) handleAcquired(msg protocol.Message) error {
 	msgAcquired := msg.(*MsgAcquired)
 	c.acquired = true
 	c.acquiredSlot = msgAcquired.SlotNo
-	c.acquireResultChan <- true
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.acquireResultChan <- true:
+	}
 	return nil
 }
 
@@ -276,7 +297,11 @@ func (c *Client) handleReplyHasTx(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyHasTx := msg.(*MsgReplyHasTx)
-	c.hasTxResultChan <- msgReplyHasTx.Result
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.hasTxResultChan <- msgReplyHasTx.Result:
+	}
 	return nil
 }
 
@@ -289,7 +314,11 @@ func (c *Client) handleReplyNextTx(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyNextTx := msg.(*MsgReplyNextTx)
-	c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx:
+	}
 	return nil
 }
 
@@ -302,7 +331,11 @@ func (c *Client) handleReplyGetSizes(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
-	c.getSizesResultChan <- msgReplyGetSizes.Result
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.getSizesResultChan <- msgReplyGetSizes.Result:
+	}
 	return nil
 }
 

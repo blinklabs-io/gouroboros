@@ -31,6 +31,8 @@ type Client struct {
 	submitResultChan chan error
 	onceStart        sync.Once
 	onceStop         sync.Once
+	stateMutex       sync.Mutex
+	started          bool
 }
 
 // NewClient returns a new LocalTxSubmission client object
@@ -73,18 +75,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.started = true
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.submitResultChan)
-		}()
 	})
 }
 
@@ -92,6 +93,9 @@ func (c *Client) Start() {
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
 				"component", "network",
@@ -103,6 +107,16 @@ func (c *Client) Stop() error {
 		msg := NewMsgDone()
 		if err = c.SendMessage(msg); err != nil {
 			return
+		}
+		// Defer closing channel until protocol fully shuts down (only if started)
+		if c.started {
+			go func() {
+				<-c.DoneChan()
+				close(c.submitResultChan)
+			}()
+		} else {
+			// If protocol was never started, close channel immediately
+			close(c.submitResultChan)
 		}
 	})
 	return err
@@ -155,13 +169,11 @@ func (c *Client) handleAcceptTx() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
 	select {
 	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
-	default:
+	case c.submitResultChan <- nil:
 	}
-	c.submitResultChan <- nil
 	return nil
 }
 
@@ -173,12 +185,6 @@ func (c *Client) handleRejectTx(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
-	select {
-	case <-c.DoneChan():
-		return protocol.ErrProtocolShuttingDown
-	default:
-	}
 	msgRejectTx := msg.(*MsgRejectTx)
 	rejectErr, err := ledger.NewTxSubmitErrorFromCbor(msgRejectTx.Reason)
 	if err != nil {
@@ -188,6 +194,10 @@ func (c *Client) handleRejectTx(msg protocol.Message) error {
 		Reason:     rejectErr,
 		ReasonCbor: []byte(msgRejectTx.Reason),
 	}
-	c.submitResultChan <- err
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.submitResultChan <- err:
+	}
 	return nil
 }

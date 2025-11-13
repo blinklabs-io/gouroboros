@@ -30,6 +30,8 @@ type Client struct {
 	timer           *time.Timer
 	timerMutex      sync.Mutex
 	onceStart       sync.Once
+	onceStop        sync.Once
+	stopErr         error
 }
 
 // NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
@@ -91,6 +93,23 @@ func (c *Client) Start() {
 		}()
 		c.sendKeepAlive()
 	})
+}
+
+// Stop stops the KeepAlive client protocol
+func (c *Client) Stop() error {
+	c.onceStop.Do(func() {
+		c.Protocol.Logger().
+			Debug("stopping client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
+		msg := NewMsgDone()
+		c.stopErr = c.SendMessage(msg)
+		// Ensure protocol shuts down completely
+		c.Protocol.Stop()
+	})
+	return c.stopErr
 }
 
 // sendKeepAlive sends a keep-alive message and schedules the next one.

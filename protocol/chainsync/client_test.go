@@ -80,6 +80,10 @@ func runTest(
 	}()
 	// Run test inner function
 	innerFunc(t, oConn)
+	// Stop the client to clean up goroutines
+	if client := oConn.ChainSync().Client; client != nil {
+		client.Stop()
+	}
 	// Wait for mock connection shutdown
 	select {
 	case err, ok := <-asyncErrChan:
@@ -274,4 +278,59 @@ func TestGetAvailableBlockRange(t *testing.T) {
 			}
 		},
 	)
+}
+
+func TestClientShutdown(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+	)
+	asyncErrChan := make(chan error, 1)
+	go func() {
+		err := <-mockConn.(*ouroboros_mock.Connection).ErrorChan()
+		if err != nil {
+			asyncErrChan <- fmt.Errorf("received unexpected error: %w", err)
+		}
+		close(asyncErrChan)
+	}()
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithChainSyncConfig(chainsync.NewConfig()),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	if oConn.ChainSync() == nil {
+		t.Fatalf("ChainSync client is nil")
+	}
+	// Start the client
+	oConn.ChainSync().Client.Start()
+	// Stop the client
+	if err := oConn.ChainSync().Client.Stop(); err != nil {
+		t.Fatalf("unexpected error when stopping client: %s", err)
+	}
+	// Wait for mock connection shutdown
+	select {
+	case err, ok := <-asyncErrChan:
+		if ok {
+			t.Fatal(err.Error())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("did not complete within timeout")
+	}
+	// Close Ouroboros connection
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Wait for connection shutdown
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
 }
