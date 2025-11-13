@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -36,6 +37,7 @@ type Client struct {
 	blockUseCallback     bool              // Whether to use callback for blocks
 	onceStart            sync.Once         // Ensures Start is only called once
 	onceStop             sync.Once         // Ensures Stop is only called once
+	started              atomic.Bool       // Whether the protocol has been started
 }
 
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
@@ -93,13 +95,8 @@ func (c *Client) Start() {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.started.Store(true)
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.blockChan)
-			close(c.startBatchResultChan)
-		}()
 	})
 }
 
@@ -114,7 +111,22 @@ func (c *Client) Stop() error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		msg := NewMsgClientDone()
-		err = c.SendMessage(msg)
+		if sendErr := c.SendMessage(msg); sendErr != nil {
+			err = sendErr
+		}
+		_ = c.Protocol.Stop() // Always stop to signal muxerDoneChan
+		// Defer closing channels until protocol fully shuts down (only if started)
+		if c.started.Load() {
+			go func() {
+				<-c.DoneChan()
+				close(c.blockChan)
+				close(c.startBatchResultChan)
+			}()
+		} else {
+			// If protocol was never started, close channels immediately
+			close(c.blockChan)
+			close(c.startBatchResultChan)
+		}
 	})
 	return err
 }
@@ -222,13 +234,11 @@ func (c *Client) handleStartBatch() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
 	select {
 	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
-	default:
+	case c.startBatchResultChan <- nil:
 	}
-	c.startBatchResultChan <- nil
 	return nil
 }
 
@@ -241,14 +251,12 @@ func (c *Client) handleNoBlocks() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
+	err := errors.New("block(s) not found")
 	select {
 	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
-	default:
+	case c.startBatchResultChan <- err:
 	}
-	err := errors.New("block(s) not found")
-	c.startBatchResultChan <- err
 	return nil
 }
 
@@ -298,7 +306,11 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			return errors.New("received block-fetch Block message but no callback function is defined")
 		}
 	} else {
-		c.blockChan <- block
+		select {
+		case <-c.DoneChan():
+			return protocol.ErrProtocolShuttingDown
+		case c.blockChan <- block:
+		}
 	}
 	return nil
 }

@@ -242,7 +242,9 @@ func (s *Server) handleDone() error {
 			)
 	}
 	// Restart protocol
-	s.Stop()
+	if err := s.Stop(); err != nil {
+		return err
+	}
 	s.initProtocol()
 	s.Start()
 	return nil

@@ -21,3 +21,6 @@ var ErrIntersectNotFound = errors.New("chain intersection not found")
 // StopChainSync is used as a special return value from a RollForward or RollBackward handler function
 // to signify that the sync process should be stopped
 var ErrStopSyncProcess = errors.New("stop sync process")
+
+// ErrSyncCancelled is returned when a sync operation is cancelled
+var ErrSyncCancelled = errors.New("sync cancelled")

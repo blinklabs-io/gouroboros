@@ -17,6 +17,7 @@ package peersharing
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -27,6 +28,7 @@ type Server struct {
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
+	onceStop        sync.Once
 }
 
 // NewServer returns a new PeerSharing server object
@@ -42,6 +44,14 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 	s.initProtocol()
 	return s
+}
+
+func (s *Server) Stop() error {
+	var err error
+	s.onceStop.Do(func() {
+		err = s.Protocol.Stop()
+	})
+	return err
 }
 
 func (s *Server) initProtocol() {
@@ -106,7 +116,7 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 	return nil
 }
 
-func (s *Server) handleDone(msg protocol.Message) error {
+func (s *Server) handleDone(_ protocol.Message) error {
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",
@@ -114,8 +124,12 @@ func (s *Server) handleDone(msg protocol.Message) error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	// Restart protocol
-	s.Stop()
+	// Stop current protocol instance before restarting
+	if s.Protocol != nil {
+		if err := s.Protocol.Stop(); err != nil {
+			return err
+		}
+	}
 	s.initProtocol()
 	s.Start()
 	return nil

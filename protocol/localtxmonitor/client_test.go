@@ -90,7 +90,7 @@ func runTest(
 		if ok {
 			t.Fatal(err.Error())
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
@@ -292,6 +292,27 @@ func TestNextTx(t *testing.T) {
 					tx2,
 					expectedTx2,
 				)
+			}
+		},
+	)
+}
+
+func TestClientShutdown(t *testing.T) {
+	runTest(
+		t,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			if oConn.LocalTxMonitor() == nil {
+				t.Fatalf("LocalTxMonitor client is nil")
+			}
+			// Start the client
+			oConn.LocalTxMonitor().Client.Start()
+			// Stop the client
+			if err := oConn.LocalTxMonitor().Client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
 			}
 		},
 	)

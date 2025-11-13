@@ -27,6 +27,7 @@ type Client struct {
 	config             *Config
 	callbackContext    CallbackContext
 	busyMutex          sync.Mutex
+	acquiredMutex      sync.Mutex
 	acquired           bool
 	acquiredSlot       uint64
 	acquireResultChan  chan bool
@@ -35,6 +36,9 @@ type Client struct {
 	getSizesResultChan chan MsgReplyGetSizesResult
 	onceStart          sync.Once
 	onceStop           sync.Once
+	stateMutex         sync.Mutex
+	started            bool
+	stopped            bool
 }
 
 // NewClient returns a new LocalTxMonitor client object
@@ -84,6 +88,15 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.stateMutex.Lock()
+		if c.stopped {
+			// Do not start a client that has already been stopped
+			c.stateMutex.Unlock()
+			return
+		}
+		c.started = true
+		c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
@@ -91,14 +104,6 @@ func (c *Client) Start() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.acquireResultChan)
-			close(c.hasTxResultChan)
-			close(c.nextTxResultChan)
-			close(c.getSizesResultChan)
-		}()
 	})
 }
 
@@ -106,17 +111,45 @@ func (c *Client) Start() {
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
+		c.stateMutex.Lock()
+		started := c.started
+		c.stopped = true
+		c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		c.busyMutex.Lock()
-		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+		if started {
+			c.busyMutex.Lock()
+			msg := NewMsgDone()
+			if err = c.SendMessage(msg); err != nil {
+				c.busyMutex.Unlock()
+				return
+			}
+			c.busyMutex.Unlock()
+		}
+
+		// Call Protocol.Stop() after releasing locks to avoid potential deadlocks
+		_ = c.Protocol.Stop()
+
+		// Defer closing channels until protocol fully shuts down (only if started)
+		if started {
+			go func() {
+				<-c.DoneChan()
+				close(c.acquireResultChan)
+				close(c.hasTxResultChan)
+				close(c.nextTxResultChan)
+				close(c.getSizesResultChan)
+			}()
+		} else {
+			// If protocol was never started, close channels immediately
+			close(c.acquireResultChan)
+			close(c.hasTxResultChan)
+			close(c.nextTxResultChan)
+			close(c.getSizesResultChan)
 		}
 	})
 	return err
@@ -124,6 +157,13 @@ func (c *Client) Stop() error {
 
 // Acquire starts the acquire process for a current mempool snapshot
 func (c *Client) Acquire() error {
+	c.stateMutex.Lock()
+	stopped := c.stopped
+	c.stateMutex.Unlock()
+	if stopped {
+		return protocol.ErrProtocolShuttingDown
+	}
+
 	c.Protocol.Logger().
 		Debug("calling Acquire()",
 			"component", "network",
@@ -138,6 +178,13 @@ func (c *Client) Acquire() error {
 
 // Release releases the previously acquired mempool snapshot
 func (c *Client) Release() error {
+	c.stateMutex.Lock()
+	stopped := c.stopped
+	c.stateMutex.Unlock()
+	if stopped {
+		return protocol.ErrProtocolShuttingDown
+	}
+
 	c.Protocol.Logger().
 		Debug("calling Release()",
 			"component", "network",
@@ -152,6 +199,13 @@ func (c *Client) Release() error {
 
 // HasTx returns whether or not the specified transaction ID exists in the mempool snapshot
 func (c *Client) HasTx(txId []byte) (bool, error) {
+	c.stateMutex.Lock()
+	stopped := c.stopped
+	c.stateMutex.Unlock()
+	if stopped {
+		return false, protocol.ErrProtocolShuttingDown
+	}
+
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling HasTx(txId: %x)", txId),
 			"component", "network",
@@ -161,7 +215,10 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	if !c.acquired {
+	c.acquiredMutex.Lock()
+	acquired := c.acquired
+	c.acquiredMutex.Unlock()
+	if !acquired {
 		if err := c.acquire(); err != nil {
 			return false, err
 		}
@@ -179,6 +236,13 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 
 // NextTx returns the next transaction in the mempool snapshot
 func (c *Client) NextTx() ([]byte, error) {
+	c.stateMutex.Lock()
+	stopped := c.stopped
+	c.stateMutex.Unlock()
+	if stopped {
+		return nil, protocol.ErrProtocolShuttingDown
+	}
+
 	c.Protocol.Logger().
 		Debug("calling NextTx()",
 			"component", "network",
@@ -188,7 +252,10 @@ func (c *Client) NextTx() ([]byte, error) {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	if !c.acquired {
+	c.acquiredMutex.Lock()
+	acquired := c.acquired
+	c.acquiredMutex.Unlock()
+	if !acquired {
 		if err := c.acquire(); err != nil {
 			return nil, err
 		}
@@ -206,6 +273,13 @@ func (c *Client) NextTx() ([]byte, error) {
 
 // GetSizes returns the capacity (in bytes), size (in bytes), and number of transactions in the mempool snapshot
 func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
+	c.stateMutex.Lock()
+	stopped := c.stopped
+	c.stateMutex.Unlock()
+	if stopped {
+		return 0, 0, 0, protocol.ErrProtocolShuttingDown
+	}
+
 	c.Protocol.Logger().
 		Debug("calling GetSizes()",
 			"component", "network",
@@ -215,7 +289,10 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	if !c.acquired {
+	c.acquiredMutex.Lock()
+	acquired := c.acquired
+	c.acquiredMutex.Unlock()
+	if !acquired {
 		if err := c.acquire(); err != nil {
 			return 0, 0, 0, err
 		}
@@ -261,9 +338,15 @@ func (c *Client) handleAcquired(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgAcquired := msg.(*MsgAcquired)
+	c.acquiredMutex.Lock()
 	c.acquired = true
 	c.acquiredSlot = msgAcquired.SlotNo
-	c.acquireResultChan <- true
+	c.acquiredMutex.Unlock()
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.acquireResultChan <- true:
+	}
 	return nil
 }
 
@@ -276,7 +359,11 @@ func (c *Client) handleReplyHasTx(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyHasTx := msg.(*MsgReplyHasTx)
-	c.hasTxResultChan <- msgReplyHasTx.Result
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.hasTxResultChan <- msgReplyHasTx.Result:
+	}
 	return nil
 }
 
@@ -289,7 +376,11 @@ func (c *Client) handleReplyNextTx(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyNextTx := msg.(*MsgReplyNextTx)
-	c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx:
+	}
 	return nil
 }
 
@@ -302,7 +393,11 @@ func (c *Client) handleReplyGetSizes(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
-	c.getSizesResultChan <- msgReplyGetSizes.Result
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.getSizesResultChan <- msgReplyGetSizes.Result:
+	}
 	return nil
 }
 
@@ -324,6 +419,8 @@ func (c *Client) release() error {
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
+	c.acquiredMutex.Lock()
 	c.acquired = false
+	c.acquiredMutex.Unlock()
 	return nil
 }

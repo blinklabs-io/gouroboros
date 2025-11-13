@@ -17,6 +17,8 @@ package txsubmission
 import (
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -28,9 +30,14 @@ type Server struct {
 	config                 *Config
 	callbackContext        CallbackContext
 	protoOptions           protocol.ProtocolOptions
-	ackCount               int
+	ackCount               int32
 	requestTxIdsResultChan chan requestTxIdsResult
 	requestTxsResultChan   chan []TxBody
+	done                   chan struct{}
+	doneMutex              sync.Mutex
+	onceStop               sync.Once
+	restartMutex           sync.Mutex
+	stopped                bool // indicates permanent stop has been requested
 }
 
 type requestTxIdsResult struct {
@@ -44,8 +51,9 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config: cfg,
 		// Save this for re-use later
 		protoOptions:           protoOptions,
-		requestTxIdsResultChan: make(chan requestTxIdsResult),
-		requestTxsResultChan:   make(chan []TxBody),
+		requestTxIdsResultChan: make(chan requestTxIdsResult, 1),
+		requestTxsResultChan:   make(chan []TxBody, 1),
+		done:                   make(chan struct{}),
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -80,15 +88,45 @@ func (s *Server) Start() {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	s.Protocol.Start()
-	// Start goroutine to cleanup resources on protocol shutdown
-	go func() {
-		// We create our own vars for these channels since they get replaced on restart
-		requestTxIdsResultChan := s.requestTxIdsResultChan
-		requestTxsResultChan := s.requestTxsResultChan
-		<-s.DoneChan()
-		close(requestTxIdsResultChan)
-		close(requestTxsResultChan)
-	}()
+}
+
+// Stop stops the server protocol.
+func (s *Server) Stop() error {
+	s.onceStop.Do(func() {
+		s.restartMutex.Lock()
+		defer s.restartMutex.Unlock()
+		s.Protocol.Logger().
+			Debug("stopping server protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+		s.stopped = true
+		s.doneMutex.Lock()
+		select {
+		case <-s.done:
+			// Already closed
+		default:
+			close(s.done)
+		}
+		s.doneMutex.Unlock()
+		_ = s.Protocol.Stop() // Error ignored - method returns nil by design
+	})
+	return nil
+}
+
+// doneChan returns the current done channel, safely accessed under mutex
+func (s *Server) doneChan() <-chan struct{} {
+	s.doneMutex.Lock()
+	defer s.doneMutex.Unlock()
+	return s.done
+}
+
+// IsStopped returns true if the server has been permanently stopped
+func (s *Server) IsStopped() bool {
+	s.restartMutex.Lock()
+	defer s.restartMutex.Unlock()
+	return s.stopped
 }
 
 // RequestTxIds requests the next set of TX identifiers from the remote node's mempool
@@ -115,20 +153,21 @@ func (s *Server) RequestTxIds(
 			Error("TxSubmission request count exceeded", "requested", reqCount, "limit", MaxRequestCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
-	if s.ackCount < 0 {
+	ackCount := atomic.LoadInt32(&s.ackCount)
+	if ackCount < 0 {
 		s.Protocol.Logger().
-			Error("TxSubmission ack count must be non-negative", "ack_count", s.ackCount)
+			Error("TxSubmission ack count must be non-negative", "ack_count", ackCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
-	if s.ackCount > MaxAckCount {
+	if ackCount > MaxAckCount {
 		s.Protocol.Logger().
-			Error("TxSubmission ack count exceeded", "ack_count", s.ackCount, "limit", MaxAckCount)
+			Error("TxSubmission ack count exceeded", "ack_count", ackCount, "limit", MaxAckCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
 
 	// Safe conversions after validation
 	//nolint:gosec // Already validated above to be non-negative and within uint16 range
-	ack := uint16(s.ackCount)
+	ack := uint16(ackCount)
 	//nolint:gosec // Already validated above to be non-negative and within uint16 range
 	req := uint16(reqCount)
 	msg := NewMsgRequestTxIds(blocking, ack, req)
@@ -136,16 +175,24 @@ func (s *Server) RequestTxIds(
 		return nil, err
 	}
 	// Wait for result
-	result, ok := <-s.requestTxIdsResultChan
-	if !ok {
+	s.restartMutex.Lock()
+	resultChan := s.requestTxIdsResultChan
+	s.restartMutex.Unlock()
+	select {
+	case result, ok := <-resultChan:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		if result.err != nil {
+			return nil, result.err
+		}
+		// Update ack count for next call
+		// #nosec G115 - len(result.txIds) is bounded by MaxRequestCount (65535) which fits in int32
+		atomic.StoreInt32(&s.ackCount, int32(len(result.txIds)))
+		return result.txIds, nil
+	case <-s.doneChan():
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	if result.err != nil {
-		return nil, result.err
-	}
-	// Update ack count for next call
-	s.ackCount = len(result.txIds)
-	return result.txIds, nil
 }
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool
@@ -169,10 +216,16 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 		return nil, err
 	}
 	// Wait for result
+	s.restartMutex.Lock()
+	resultChan := s.requestTxsResultChan
+	s.restartMutex.Unlock()
 	select {
-	case <-s.DoneChan():
+	case <-s.doneChan():
 		return nil, protocol.ErrProtocolShuttingDown
-	case txs := <-s.requestTxsResultChan:
+	case txs, ok := <-resultChan:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
 		return txs, nil
 	}
 }
@@ -207,9 +260,11 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msgReplyTxIds := msg.(*MsgReplyTxIds)
+	s.restartMutex.Lock()
 	s.requestTxIdsResultChan <- requestTxIdsResult{
 		txIds: msgReplyTxIds.TxIds,
 	}
+	s.restartMutex.Unlock()
 	return nil
 }
 
@@ -222,7 +277,9 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msgReplyTxs := msg.(*MsgReplyTxs)
+	s.restartMutex.Lock()
 	s.requestTxsResultChan <- msgReplyTxs.Txs
+	s.restartMutex.Unlock()
 	return nil
 }
 
@@ -234,9 +291,16 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	// Signal the RequestTxIds function to stop waiting
-	s.requestTxIdsResultChan <- requestTxIdsResult{
+	// Signal the RequestTxIds function to stop waiting (non-blocking)
+	s.restartMutex.Lock()
+	resultChan := s.requestTxIdsResultChan
+	s.restartMutex.Unlock()
+	select {
+	case resultChan <- requestTxIdsResult{
 		err: ErrStopServerProcess,
+	}:
+	default:
+		// No one is waiting, which is fine
 	}
 	// Call the user callback function
 	if s.config != nil && s.config.DoneFunc != nil {
@@ -245,13 +309,43 @@ func (s *Server) handleDone() error {
 		}
 	}
 	// Restart protocol
-	s.Stop()
+	s.restartMutex.Lock()
+	// Check if permanent stop has been requested
+	if s.stopped {
+		s.restartMutex.Unlock()
+		return nil
+	}
+	// Stop current protocol (without using onceStop since we're restarting)
+	s.Protocol.Logger().
+		Debug("stopping server protocol for restart",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
+	s.doneMutex.Lock()
+	select {
+	case <-s.done:
+		// Already closed by Stop()
+	default:
+		close(s.done)
+	}
+	s.doneMutex.Unlock()
+	stopErr := s.Protocol.Stop()
 	s.initProtocol()
-	s.requestTxIdsResultChan = make(chan requestTxIdsResult)
-	s.requestTxsResultChan = make(chan []TxBody)
-	s.ackCount = 0
+	s.requestTxIdsResultChan = make(chan requestTxIdsResult, 1)
+	s.requestTxsResultChan = make(chan []TxBody, 1)
+	s.doneMutex.Lock()
+	s.done = make(chan struct{})
+	s.doneMutex.Unlock()
+	atomic.StoreInt32(&s.ackCount, 0)
+	s.restartMutex.Unlock()
+	// Check again if permanent stop has been requested (TOCTOU protection)
+	if s.IsStopped() {
+		return nil
+	}
+	// Start the new protocol outside the lock for better responsiveness
 	s.Start()
-	return nil
+	return stopErr
 }
 
 func (s *Server) handleInit() error {

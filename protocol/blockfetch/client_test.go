@@ -207,3 +207,24 @@ func TestGetBlockNoBlocks(t *testing.T) {
 		},
 	)
 }
+
+func TestClientShutdown(t *testing.T) {
+	runTest(
+		t,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+		},
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			if oConn.BlockFetch() == nil {
+				t.Fatalf("BlockFetch client is nil")
+			}
+			// Start the client
+			oConn.BlockFetch().Client.Start()
+			// Stop the client
+			if err := oConn.BlockFetch().Client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
+			}
+		},
+	)
+}

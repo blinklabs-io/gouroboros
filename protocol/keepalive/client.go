@@ -17,6 +17,7 @@ package keepalive
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -30,6 +31,9 @@ type Client struct {
 	timer           *time.Timer
 	timerMutex      sync.Mutex
 	onceStart       sync.Once
+	onceStop        sync.Once
+	stopErr         error
+	started         atomic.Bool
 }
 
 // NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
@@ -72,6 +76,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 // Start begins the keep-alive protocol client and starts sending keep-alive messages at the configured interval.
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.started.Store(true)
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
@@ -91,6 +96,39 @@ func (c *Client) Start() {
 		}()
 		c.sendKeepAlive()
 	})
+}
+
+// Stop stops the KeepAlive client protocol
+func (c *Client) Stop() error {
+	c.onceStop.Do(func() {
+		c.Protocol.Logger().
+			Debug("stopping client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
+		// Stop the keep-alive timer to prevent any further sends
+		c.timerMutex.Lock()
+		if c.timer != nil {
+			c.timer.Stop()
+			c.timer = nil
+		}
+		c.timerMutex.Unlock()
+		// Only send MsgDone if the protocol was actually started; otherwise
+		// avoid blocking on a send queue that is not being drained.
+		if c.started.Load() {
+			msg := NewMsgDone()
+			sendErr := c.SendMessage(msg)
+			if sendErr != nil {
+				c.stopErr = sendErr
+			}
+			stopErr := c.Protocol.Stop()
+			if c.stopErr == nil {
+				c.stopErr = stopErr
+			}
+		}
+	})
+	return c.stopErr
 }
 
 // sendKeepAlive sends a keep-alive message and schedules the next one.

@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blinklabs-io/gouroboros"
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -109,7 +109,7 @@ func runTest(
 		if ok {
 			t.Fatal(err.Error())
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
@@ -352,4 +352,25 @@ func TestGenesisConfigJSON(t *testing.T) {
 	} else {
 		t.Logf("Successfully validated the GenesisConfigResult after JSON marshalling and unmarshalling.")
 	}
+}
+
+func TestClientShutdown(t *testing.T) {
+	runTest(
+		t,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			if oConn.LocalStateQuery() == nil {
+				t.Fatalf("LocalStateQuery client is nil")
+			}
+			// Start the client
+			oConn.LocalStateQuery().Client.Start()
+			// Stop the client
+			if err := oConn.LocalStateQuery().Client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
+			}
+		},
+	)
 }

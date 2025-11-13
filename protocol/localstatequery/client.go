@@ -35,11 +35,15 @@ type Client struct {
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
 	busyMutex                     sync.Mutex
+	acquiredMutex                 sync.Mutex
 	acquired                      bool
 	queryResultChan               chan []byte
 	acquireResultChan             chan error
 	currentEra                    int
 	onceStart                     sync.Once
+	onceStop                      sync.Once
+	stateMutex                    sync.Mutex
+	started                       bool
 }
 
 // NewClient returns a new LocalStateQuery client object
@@ -103,14 +107,45 @@ func (c *Client) Start() {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.stateMutex.Lock()
+		c.started = true
+		c.stateMutex.Unlock()
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
+	})
+}
+
+// Stop stops the LocalStateQuery client protocol.
+func (c *Client) Stop() error {
+	var err error
+	c.onceStop.Do(func() {
+		c.Protocol.Logger().
+			Debug("stopping client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
+
+		c.stateMutex.Lock()
+		started := c.started
+		c.stateMutex.Unlock()
+		if started {
+			msg := NewMsgDone()
+			if err = c.SendMessage(msg); err != nil {
+				return
+			}
+			_ = c.Protocol.Stop() // Error ignored - method returns SendMessage error
+			go func() {
+				<-c.DoneChan()
+				close(c.queryResultChan)
+				close(c.acquireResultChan)
+			}()
+		} else {
+			// If protocol was never started, close channels immediately
 			close(c.queryResultChan)
 			close(c.acquireResultChan)
-		}()
+		}
 	})
+	return err
 }
 
 // Acquire starts the acquire process for the specified chain point
@@ -875,14 +910,14 @@ func (c *Client) handleAcquired() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
+	c.acquiredMutex.Lock()
+	defer c.acquiredMutex.Unlock()
+	c.acquired = true
 	select {
 	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
-	default:
+	case c.acquireResultChan <- nil:
 	}
-	c.acquired = true
-	c.acquireResultChan <- nil
 	c.currentEra = -1
 	return nil
 }
@@ -895,18 +930,20 @@ func (c *Client) handleFailure(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
-	select {
-	case <-c.DoneChan():
-		return protocol.ErrProtocolShuttingDown
-	default:
-	}
 	msgFailure := msg.(*MsgFailure)
 	switch msgFailure.Failure {
 	case AcquireFailurePointTooOld:
-		c.acquireResultChan <- ErrAcquireFailurePointTooOld
+		select {
+		case <-c.DoneChan():
+			return protocol.ErrProtocolShuttingDown
+		case c.acquireResultChan <- ErrAcquireFailurePointTooOld:
+		}
 	case AcquireFailurePointNotOnChain:
-		c.acquireResultChan <- ErrAcquireFailurePointNotOnChain
+		select {
+		case <-c.DoneChan():
+			return protocol.ErrProtocolShuttingDown
+		case c.acquireResultChan <- ErrAcquireFailurePointNotOnChain:
+		}
 	default:
 		return fmt.Errorf("unknown failure type: %d", msgFailure.Failure)
 	}
@@ -921,20 +958,21 @@ func (c *Client) handleResult(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
+	msgResult := msg.(*MsgResult)
 	select {
 	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
-	default:
+	case c.queryResultChan <- msgResult.Result:
 	}
-	msgResult := msg.(*MsgResult)
-	c.queryResultChan <- msgResult.Result
 	return nil
 }
 
 func (c *Client) acquire(acquireTarget AcquireTarget) error {
+	c.acquiredMutex.Lock()
+	acquired := c.acquired
+	c.acquiredMutex.Unlock()
 	var msg protocol.Message
-	if c.acquired {
+	if acquired {
 		switch t := acquireTarget.(type) {
 		case AcquireSpecificPoint:
 			msg = NewMsgReAcquire(t.Point)
@@ -972,6 +1010,8 @@ func (c *Client) release() error {
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
+	c.acquiredMutex.Lock()
+	defer c.acquiredMutex.Unlock()
 	c.acquired = false
 	c.currentEra = -1
 	return nil
@@ -979,7 +1019,10 @@ func (c *Client) release() error {
 
 func (c *Client) runQuery(query any, result any) error {
 	msg := NewMsgQuery(query)
-	if !c.acquired {
+	c.acquiredMutex.Lock()
+	acquired := c.acquired
+	c.acquiredMutex.Unlock()
+	if !acquired {
 		if err := c.acquire(AcquireVolatileTip{}); err != nil {
 			return err
 		}

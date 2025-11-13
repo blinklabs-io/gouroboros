@@ -17,6 +17,7 @@ package leiosfetch
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -28,6 +29,8 @@ type Client struct {
 	callbackContext      CallbackContext
 	onceStart            sync.Once
 	onceStop             sync.Once
+	started              atomic.Bool // Used internally to track protocol lifecycle for Stop() behavior
+	stopped              atomic.Bool // Used to prevent Start() after Stop()
 	blockResultChan      chan protocol.Message
 	blockTxsResultChan   chan protocol.Message
 	votesResultChan      chan protocol.Message
@@ -88,21 +91,18 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		if c.stopped.Load() {
+			// Cannot start a client that has been stopped
+			return
+		}
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.started.Store(true)
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.blockResultChan)
-			close(c.blockTxsResultChan)
-			close(c.votesResultChan)
-			close(c.blockRangeResultChan)
-		}()
 	})
 }
 
@@ -116,7 +116,34 @@ func (c *Client) Stop() error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		msg := NewMsgDone()
-		err = c.SendMessage(msg)
+		// Only send MsgDone if the protocol was actually started; otherwise
+		// avoid blocking on a send queue that is not being drained.
+		if c.started.Load() {
+			if sendErr := c.SendMessage(msg); sendErr != nil {
+				// Preserve the SendMessage error but still shut down the protocol.
+				err = sendErr
+			}
+		}
+		// Always attempt to stop the protocol so DoneChan and muxer shutdown complete.
+		_ = c.Protocol.Stop() // Stop error ignored; err already reflects SendMessage failure if any
+		// Defer closing channels until protocol fully shuts down (only if started)
+		if c.started.Load() {
+			go func() {
+				<-c.DoneChan()
+				close(c.blockResultChan)
+				close(c.blockTxsResultChan)
+				close(c.votesResultChan)
+				close(c.blockRangeResultChan)
+			}()
+		} else {
+			// If protocol was never started, close channels immediately
+			close(c.blockResultChan)
+			close(c.blockTxsResultChan)
+			close(c.votesResultChan)
+			close(c.blockRangeResultChan)
+		}
+		c.started.Store(false)
+		c.stopped.Store(true)
 	})
 	return err
 }
@@ -217,26 +244,46 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 }
 
 func (c *Client) handleBlock(msg protocol.Message) error {
-	c.blockResultChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.blockResultChan <- msg:
+	}
 	return nil
 }
 
 func (c *Client) handleBlockTxs(msg protocol.Message) error {
-	c.blockTxsResultChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.blockTxsResultChan <- msg:
+	}
 	return nil
 }
 
 func (c *Client) handleVotes(msg protocol.Message) error {
-	c.votesResultChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.votesResultChan <- msg:
+	}
 	return nil
 }
 
 func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) error {
-	c.blockRangeResultChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.blockRangeResultChan <- msg:
+	}
 	return nil
 }
 
 func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) error {
-	c.blockRangeResultChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.blockRangeResultChan <- msg:
+	}
 	return nil
 }

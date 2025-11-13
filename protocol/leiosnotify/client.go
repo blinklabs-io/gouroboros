@@ -28,6 +28,9 @@ type Client struct {
 	requestNextChan chan protocol.Message
 	onceStart       sync.Once
 	onceStop        sync.Once
+	stateMutex      sync.Mutex
+	started         bool
+	stopped         bool
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -69,32 +72,53 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
+		if c.stopped {
+			return
+		}
+
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.started = true
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.requestNextChan)
-		}()
 	})
 }
 
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.stopped = true
 		msg := NewMsgDone()
-		err = c.SendMessage(msg)
+		if c.started {
+			if sendErr := c.SendMessage(msg); sendErr != nil {
+				err = sendErr
+			}
+		}
+		// Defer closing channel until protocol fully shuts down (only if started)
+		if c.started {
+			go func() {
+				<-c.DoneChan()
+				close(c.requestNextChan)
+			}()
+		} else {
+			// If protocol was never started, close channel immediately
+			close(c.requestNextChan)
+		}
 	})
 	return err
 }
@@ -134,21 +158,37 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 }
 
 func (c *Client) handleBlockAnnouncement(msg protocol.Message) error {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.requestNextChan <- msg:
+	}
 	return nil
 }
 
 func (c *Client) handleBlockOffer(msg protocol.Message) error {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.requestNextChan <- msg:
+	}
 	return nil
 }
 
 func (c *Client) handleBlockTxsOffer(msg protocol.Message) error {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.requestNextChan <- msg:
+	}
 	return nil
 }
 
 func (c *Client) handleVotesOffer(msg protocol.Message) error {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.requestNextChan <- msg:
+	}
 	return nil
 }

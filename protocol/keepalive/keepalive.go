@@ -74,6 +74,10 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeKeepAliveResponse,
 				NewState: StateClient,
 			},
+			{
+				MsgType:  MessageTypeDone,
+				NewState: StateDone,
+			},
 		},
 	},
 	StateDone: protocol.StateMapEntry{

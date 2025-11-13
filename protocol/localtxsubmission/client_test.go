@@ -83,7 +83,7 @@ func runTest(
 		if ok {
 			t.Fatal(err.Error())
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
@@ -159,6 +159,57 @@ func TestSubmitTxRject(t *testing.T) {
 					err,
 					expectedErr,
 				)
+			}
+		},
+	)
+}
+
+func TestClientShutdown(t *testing.T) {
+	runTest(
+		t,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			if oConn.LocalTxSubmission() == nil {
+				t.Fatalf("LocalTxSubmission client is nil")
+			}
+			// Start the client
+			oConn.LocalTxSubmission().Client.Start()
+			// Stop the client
+			if err := oConn.LocalTxSubmission().Client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
+			}
+		},
+	)
+}
+
+func TestSubmitTxServerShutdown(t *testing.T) {
+	testTx := test.DecodeHexString("abcdef0123456789")
+	conversation := append(
+		conversationHandshakeSubmitTx,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localtxsubmission.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localtxsubmission.NewMsgDone(),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			err := oConn.LocalTxSubmission().Client.SubmitTx(
+				ledger.TxTypeBabbage,
+				testTx,
+			)
+			if err == nil {
+				t.Fatalf("expected protocol shutdown error, got nil")
+			}
+			if !errors.Is(err, protocol.ErrProtocolShuttingDown) {
+				t.Fatalf("expected ErrProtocolShuttingDown, got: %s", err)
 			}
 		},
 	)

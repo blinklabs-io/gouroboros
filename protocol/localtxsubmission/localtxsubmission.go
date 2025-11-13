@@ -43,6 +43,10 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeSubmitTx,
 				NewState: stateBusy,
 			},
+			{
+				MsgType:  MessageTypeDone,
+				NewState: stateDone,
+			},
 		},
 	},
 	stateBusy: protocol.StateMapEntry{
@@ -55,6 +59,10 @@ var StateMap = protocol.StateMap{
 			{
 				MsgType:  MessageTypeRejectTx,
 				NewState: stateIdle,
+			},
+			{
+				MsgType:  MessageTypeDone,
+				NewState: stateDone,
 			},
 		},
 	},

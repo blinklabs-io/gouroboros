@@ -34,10 +34,9 @@ type Client struct {
 	readyForNextBlockChan    chan bool
 	onceStart                sync.Once
 	onceStop                 sync.Once
+	started                  atomic.Bool
+	stopped                  atomic.Bool // prevents Start() after Stop()
 	syncPipelinedRequestNext int
-
-	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
-	// is empty.
 	//
 	// want* only processes one request per message reply received from the server. If the message
 	// request fails, it is the responsibility of the caller to clear the channel.
@@ -120,18 +119,17 @@ func NewClient(
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		if c.stopped.Load() {
+			return
+		}
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.started.Store(true)
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.readyForNextBlockChan)
-		}()
 	})
 }
 
@@ -139,6 +137,7 @@ func (c *Client) Start() {
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
+		c.stopped.Store(true)
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
 				"component", "network",
@@ -148,8 +147,30 @@ func (c *Client) Stop() error {
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+		if c.started.Load() {
+			if sendErr := c.SendMessage(msg); sendErr != nil {
+				err = sendErr
+				// Still proceed to stopping the protocol
+			}
+		}
+		if stopErr := c.Protocol.Stop(); stopErr != nil {
+			c.Protocol.Logger().
+				Error("error stopping protocol",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+					"error", stopErr,
+				)
+		}
+		// Defer closing channel until protocol fully shuts down (only if started)
+		if c.started.Load() {
+			go func() {
+				<-c.DoneChan()
+				close(c.readyForNextBlockChan)
+			}()
+		} else {
+			// If protocol was never started, close channel immediately
+			close(c.readyForNextBlockChan)
 		}
 	})
 	return err
@@ -334,7 +355,15 @@ func (c *Client) GetAvailableBlockRange(
 				)
 			}
 			start = firstBlock.point
-		case <-c.readyForNextBlockChan:
+		case ready, ok := <-c.readyForNextBlockChan:
+			if !ok {
+				// Channel closed, protocol shutting down
+				return start, end, protocol.ErrProtocolShuttingDown
+			}
+			// Only proceed if ready is true
+			if !ready {
+				return start, end, ErrSyncCancelled
+			}
 			// Request the next block
 			msg := NewMsgRequestNext()
 			if err := c.SendMessage(msg); err != nil {
@@ -721,14 +750,22 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if callbackErr != nil {
 		if errors.Is(callbackErr, ErrStopSyncProcess) {
 			// Signal that we're cancelling the sync
-			c.readyForNextBlockChan <- false
+			select {
+			case <-c.DoneChan():
+				return protocol.ErrProtocolShuttingDown
+			case c.readyForNextBlockChan <- false:
+			}
 			return nil
 		} else {
 			return callbackErr
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.readyForNextBlockChan <- true:
+	}
 	return nil
 }
 
@@ -752,7 +789,11 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if errors.Is(callbackErr, ErrStopSyncProcess) {
 				// Signal that we're cancelling the sync
-				c.readyForNextBlockChan <- false
+				select {
+				case <-c.DoneChan():
+					return protocol.ErrProtocolShuttingDown
+				case c.readyForNextBlockChan <- false:
+				}
 				return nil
 			} else {
 				return callbackErr
@@ -760,7 +801,11 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.readyForNextBlockChan <- true:
+	}
 	return nil
 }
 

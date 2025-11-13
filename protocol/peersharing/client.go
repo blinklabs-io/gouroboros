@@ -16,6 +16,7 @@ package peersharing
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -26,6 +27,11 @@ type Client struct {
 	config          *Config
 	callbackContext CallbackContext
 	sharePeersChan  chan []PeerAddress
+	onceStart       sync.Once
+	onceStop        sync.Once
+	stateMutex      sync.Mutex
+	started         bool
+	stopped         bool
 }
 
 // NewClient returns a new PeerSharing client object
@@ -64,6 +70,58 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// Start starts the PeerSharing client protocol
+func (c *Client) Start() {
+	c.onceStart.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
+		if c.stopped {
+			// Cannot start a client that has been stopped
+			return
+		}
+
+		c.Protocol.Logger().
+			Debug("starting client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
+		c.started = true
+		c.Protocol.Start()
+	})
+}
+
+// Stop stops the PeerSharing client protocol
+func (c *Client) Stop() error {
+	var err error
+	c.onceStop.Do(func() {
+		c.stateMutex.Lock()
+		c.stopped = true
+		started := c.started
+		c.stateMutex.Unlock()
+
+		c.Protocol.Logger().
+			Debug("stopping client protocol",
+				"component", "network",
+				"protocol", ProtocolName,
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
+		// Defer closing channel until protocol fully shuts down (only if started)
+		if started {
+			go func() {
+				<-c.DoneChan()
+				close(c.sharePeersChan)
+			}()
+		} else {
+			// If protocol was never started, close channel immediately
+			close(c.sharePeersChan)
+		}
+		err = c.Protocol.Stop()
+	})
+	return err
 }
 
 func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
@@ -109,6 +167,10 @@ func (c *Client) handleSharePeers(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgSharePeers := msg.(*MsgSharePeers)
-	c.sharePeersChan <- msgSharePeers.PeerAddresses
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.sharePeersChan <- msgSharePeers.PeerAddresses:
+	}
 	return nil
 }

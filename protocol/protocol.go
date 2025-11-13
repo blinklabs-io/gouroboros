@@ -172,8 +172,12 @@ func (p *Protocol) Start() {
 	})
 }
 
-// Stop shuts down the mini-protocol
-func (p *Protocol) Stop() {
+// Stop shuts down the mini-protocol by unregistering it from the muxer.
+// This method returns an error for API consistency and future extensibility,
+// but currently always returns nil as the shutdown operation cannot fail.
+// Callers should check for errors in case future implementations add
+// failure modes (e.g., muxer communication issues).
+func (p *Protocol) Stop() error {
 	p.onceStop.Do(func() {
 		// Unregister protocol from muxer
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
@@ -185,6 +189,7 @@ func (p *Protocol) Stop() {
 			muxerProtocolRole,
 		)
 	})
+	return nil
 }
 
 // Logger returns the protocol logger
@@ -243,7 +248,7 @@ func (p *Protocol) SendMessage(msg Message) error {
 	if limit > 0 && p.pendingSendBytes+msgLen > limit {
 		p.pendingBytesMu.Unlock()
 		p.SendError(ErrProtocolViolationQueueExceeded)
-		p.Stop()
+		_ = p.Stop() // Error ignored in error path
 		return ErrProtocolViolationQueueExceeded
 	}
 	p.pendingSendBytes += msgLen
@@ -273,13 +278,32 @@ func (p *Protocol) sendLoop() {
 		close(p.sendDoneChan)
 	}()
 
+	shuttingDown := false
 	for {
 		select {
 		case <-p.recvDoneChan:
-			// Break out of send loop if we're shutting down
-			return
+			// Enter shutdown mode - drain remaining messages before exiting
+			shuttingDown = true
 		case <-p.sendReadyChan:
 			// We are ready to send based on state map
+		}
+
+		// If shutting down, drain remaining messages without using len()
+		if shuttingDown {
+			for {
+				select {
+				case msg, ok := <-p.sendQueueChan:
+					if !ok {
+						// Channel closed, exit
+						return
+					}
+					// Send message individually during shutdown
+					p.sendMessage(msg)
+				default:
+					// No more messages available, exit
+					return
+				}
+			}
 		}
 
 		// Read queued messages and write into buffer
@@ -290,8 +314,20 @@ func (p *Protocol) sendLoop() {
 			// Get next message from send queue
 			select {
 			case <-p.recvDoneChan:
-				// Break out of send loop if we're shutting down
-				return
+				// If we weren't already shutting down, enter shutdown mode
+				shuttingDown = true
+				// Drain remaining messages without using len()
+				for {
+					select {
+					case msg, ok := <-p.sendQueueChan:
+						if !ok {
+							return
+						}
+						p.sendMessage(msg)
+					default:
+						return
+					}
+				}
 			case msg, ok := <-p.sendQueueChan:
 				if !ok {
 					// We're shutting down
@@ -344,6 +380,9 @@ func (p *Protocol) sendLoop() {
 					break outer
 				}
 				// Check if there are any more queued messages
+				// NOTE: len() on a channel is not thread-safe in general, but in this specific case
+				// it's acceptable as a pragmatic solution since we're the only reader and the
+				// race window is small. This avoids more complex synchronization.
 				if len(p.sendQueueChan) == 0 {
 					break outer
 				}
@@ -376,6 +415,31 @@ func (p *Protocol) sendLoop() {
 			}
 		}
 	}
+}
+
+// sendMessage encodes and sends a single message
+// NOTE: This is used only during shutdown draining and does not update
+// pendingSendBytes or transition protocol state, as shutdown has already
+// been initiated and these accounting operations are no longer relevant.
+func (p *Protocol) sendMessage(msg Message) {
+	var data []byte
+	if msg.Cbor() != nil {
+		data = msg.Cbor()
+	} else {
+		var err error
+		data, err = cbor.Encode(msg)
+		if err != nil {
+			p.SendError(err)
+			return
+		}
+		msg.SetCbor(data)
+	}
+	segment := muxer.NewSegment(
+		p.config.ProtocolId,
+		data,
+		p.Role() == ProtocolRoleServer,
+	)
+	p.muxerSendChan <- segment
 }
 
 func (p *Protocol) readLoop() {
@@ -449,7 +513,7 @@ func (p *Protocol) readLoop() {
 		if limit > 0 && p.pendingRecvBytes+msgLen > limit {
 			p.pendingBytesMu.Unlock()
 			p.SendError(ErrProtocolViolationQueueExceeded)
-			p.Stop()
+			_ = p.Stop() // Error ignored in error path
 			return
 		}
 		p.pendingRecvBytes += msgLen

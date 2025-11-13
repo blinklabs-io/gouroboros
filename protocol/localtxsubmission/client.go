@@ -25,12 +25,15 @@ import (
 // Client implements the LocalTxSubmission client
 type Client struct {
 	*protocol.Protocol
-	config           *Config
-	callbackContext  CallbackContext
-	busyMutex        sync.Mutex
-	submitResultChan chan error
-	onceStart        sync.Once
-	onceStop         sync.Once
+	config                *Config
+	callbackContext       CallbackContext
+	busyMutex             sync.Mutex
+	submitResultChan      chan error
+	onceStart             sync.Once
+	onceStop              sync.Once
+	stateMutex            sync.Mutex
+	started               bool
+	closeSubmitResultOnce sync.Once
 }
 
 // NewClient returns a new LocalTxSubmission client object
@@ -73,18 +76,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("starting client protocol",
 				"component", "network",
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		c.started = true
 		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.submitResultChan)
-		}()
 	})
 }
 
@@ -92,6 +94,9 @@ func (c *Client) Start() {
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
+		c.stateMutex.Lock()
+		defer c.stateMutex.Unlock()
+
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
 				"component", "network",
@@ -101,8 +106,20 @@ func (c *Client) Stop() error {
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
 		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+		if sendErr := c.SendMessage(msg); sendErr != nil {
+			err = sendErr
+		}
+		// Always attempt to stop the protocol, even if SendMessage failed
+		_ = c.Protocol.Stop() // Error ignored - method returns SendMessage error if any
+		// Defer closing channel until protocol fully shuts down (only if started)
+		if c.started {
+			go func() {
+				<-c.DoneChan()
+				c.closeSubmitResultChan()
+			}()
+		} else {
+			// If protocol was never started, close channel immediately
+			c.closeSubmitResultChan()
 		}
 	})
 	return err
@@ -137,6 +154,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleAcceptTx()
 	case MessageTypeRejectTx:
 		err = c.handleRejectTx(msg)
+	case MessageTypeDone:
+		err = c.handleDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -155,13 +174,11 @@ func (c *Client) handleAcceptTx() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
 	select {
 	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
-	default:
+	case c.submitResultChan <- nil:
 	}
-	c.submitResultChan <- nil
 	return nil
 }
 
@@ -173,12 +190,6 @@ func (c *Client) handleRejectTx(msg protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
-	select {
-	case <-c.DoneChan():
-		return protocol.ErrProtocolShuttingDown
-	default:
-	}
 	msgRejectTx := msg.(*MsgRejectTx)
 	rejectErr, err := ledger.NewTxSubmitErrorFromCbor(msgRejectTx.Reason)
 	if err != nil {
@@ -188,6 +199,29 @@ func (c *Client) handleRejectTx(msg protocol.Message) error {
 		Reason:     rejectErr,
 		ReasonCbor: []byte(msgRejectTx.Reason),
 	}
-	c.submitResultChan <- err
+	select {
+	case <-c.DoneChan():
+		return protocol.ErrProtocolShuttingDown
+	case c.submitResultChan <- err:
+	}
 	return nil
+}
+
+func (c *Client) handleDone() error {
+	c.Protocol.Logger().
+		Debug("received done from server",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	// Server is shutting down, close the result channel to unblock any waiting operations
+	c.closeSubmitResultChan()
+	return nil
+}
+
+func (c *Client) closeSubmitResultChan() {
+	c.closeSubmitResultOnce.Do(func() {
+		close(c.submitResultChan)
+	})
 }
