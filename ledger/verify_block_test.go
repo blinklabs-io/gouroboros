@@ -50,7 +50,7 @@ func TestVerifyBlockBody(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err, isValid, _, _, _ := VerifyBlock(tc.blockHexCbor)
+			isValid, _, _, _, err := VerifyBlock(tc.blockHexCbor)
 			if tc.expectedValid != isValid {
 				t.Errorf("unexpected error: %v", err)
 			}
