@@ -758,7 +758,10 @@ func (e *CollateralContainsNonADA) MarshalCBOR() ([]byte, error) {
 	}
 	// Bounds check
 	if constantToUse < 0 || constantToUse > 255 {
-		return nil, fmt.Errorf("CollateralContainsNonADA: invalid constructor index %d (must be 0-255)", constantToUse)
+		return nil, fmt.Errorf(
+			"CollateralContainsNonADA: invalid constructor index %d (must be 0-255)",
+			constantToUse,
+		)
 	}
 	e.Type = uint8(constantToUse)
 	arr := []any{constantToUse, e.Provided.Value()}
@@ -792,10 +795,17 @@ func (e *CollateralContainsNonADA) UnmarshalCBOR(data []byte) error {
 		}
 	}
 	if !isValid {
-		return fmt.Errorf("CollateralContainsNonADA: expected one of constructor indices %v, got %d", validConstructors, tmp.ConstructorIdx)
+		return fmt.Errorf(
+			"CollateralContainsNonADA: expected one of constructor indices %v, got %d",
+			validConstructors,
+			tmp.ConstructorIdx,
+		)
 	}
 	if tmp.ConstructorIdx > uint64(255) {
-		return fmt.Errorf("CollateralContainsNonADA: constructor index %d exceeds uint8 range (0-255)", tmp.ConstructorIdx)
+		return fmt.Errorf(
+			"CollateralContainsNonADA: constructor index %d exceeds uint8 range (0-255)",
+			tmp.ConstructorIdx,
+		)
 	}
 	e.Type = uint8(tmp.ConstructorIdx)
 	e.Provided = tmp.Provided
@@ -803,7 +813,10 @@ func (e *CollateralContainsNonADA) UnmarshalCBOR(data []byte) error {
 }
 
 func (e *CollateralContainsNonADA) Error() string {
-	return fmt.Sprintf("CollateralContainsNonADA (Provided %v)", e.Provided.Value())
+	return fmt.Sprintf(
+		"CollateralContainsNonADA (Provided %v)",
+		e.Provided.Value(),
+	)
 }
 
 type WrongNetworkInTxBody struct {
