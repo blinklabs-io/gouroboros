@@ -163,3 +163,24 @@ func TestSubmitTxRject(t *testing.T) {
 		},
 	)
 }
+
+func TestClientShutdown(t *testing.T) {
+	runTest(
+		t,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			if oConn.LocalTxSubmission() == nil {
+				t.Fatalf("LocalTxSubmission client is nil")
+			}
+			// Start the client
+			oConn.LocalTxSubmission().Client.Start()
+			// Stop the client
+			if err := oConn.LocalTxSubmission().Client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
+			}
+		},
+	)
+}

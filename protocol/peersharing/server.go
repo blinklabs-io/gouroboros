@@ -106,7 +106,7 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 	return nil
 }
 
-func (s *Server) handleDone(msg protocol.Message) error {
+func (s *Server) handleDone(_ protocol.Message) error {
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",
