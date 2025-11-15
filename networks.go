@@ -18,7 +18,7 @@ import "github.com/blinklabs-io/gouroboros/ledger/common"
 
 // Network definitions
 var (
-	NetworkMainnet = Network{
+	NetworkCardanoMainnet = Network{
 		Id:           common.AddressNetworkMainnet,
 		Name:         "mainnet",
 		NetworkMagic: 764824073,
@@ -37,7 +37,7 @@ var (
 			},
 		},
 	}
-	NetworkPreprod = Network{
+	NetworkCardanoPreprod = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "preprod",
 		NetworkMagic: 1,
@@ -48,7 +48,7 @@ var (
 			},
 		},
 	}
-	NetworkPreview = Network{
+	NetworkCardanoPreview = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "preview",
 		NetworkMagic: 2,
@@ -59,7 +59,7 @@ var (
 			},
 		},
 	}
-	NetworkSancho = Network{
+	NetworkCardanoSancho = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "sanchonet",
 		NetworkMagic: 4,
@@ -70,15 +70,52 @@ var (
 			},
 		},
 	}
+	NetworkPrimeMainnet = Network{
+		Id:          common.AddressNetworkMainnet,
+		Name:         "prime-mainnet",
+		NetworkMagic: 764824073,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "bootstrap.prime.mainnet.apexfusion.org",
+				Port:    5521,
+			},
+		},
+	}
+	NetworkPrimeTestnet = Network{
+		Id:           common.AddressNetworkTestnet,
+		Name:         "prime-testnet",
+		NetworkMagic: 3311,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "relay-0.prime.testnet.apexfusion.org",
+				Port:    5521,
+			},
+			{
+				Address: "relay-1.prime.testnet.apexfusion.org",
+				Port:    5521,
+			},
+		},
+	}
 	NetworkDevnet = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "devnet",
 		NetworkMagic: 42,
 	}
+	// Compatibility assignments
+	NetworkMainnet = NetworkCardanoMainnet
+	NetworkPreprod = NetworkCardanoPreprod
+	NetworkPreview = NetworkCardanoPreview
+	NetworkSancho = NetworkCardanoSancho
 )
 
 // List of valid networks for use in lookup functions
 var networks = []Network{
+	NetworkCardanoMainnet,
+	NetworkCardanoPreprod,
+	NetworkCardanoPreview,
+	NetworkCardanoSancho,
+	NetworkPrimeMainnet,
+	NetworkPrimeTestnet,
 	NetworkMainnet,
 	NetworkPreprod,
 	NetworkPreview,
