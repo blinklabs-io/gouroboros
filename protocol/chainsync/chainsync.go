@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -223,8 +223,8 @@ type Config struct {
 const (
 	MaxPipelineLimit       = 100    // Max pipelined requests
 	MaxRecvQueueSize       = 100    // Max receive queue size (messages)
-	DefaultPipelineLimit   = 50     // Default pipeline limit
-	DefaultRecvQueueSize   = 50     // Default queue size
+	DefaultPipelineLimit   = 75     // Default pipeline limit
+	DefaultRecvQueueSize   = 75     // Default queue size
 	MaxPendingMessageBytes = 102400 // Max pending message bytes (100KB)
 )
 
