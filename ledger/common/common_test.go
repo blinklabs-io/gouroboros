@@ -753,125 +753,125 @@ func TestCertificateTypeMethods(t *testing.T) {
 		{
 			"StakeRegistration",
 			&StakeRegistrationCertificate{
-				CertType: CertificateTypeStakeRegistration,
+				CertType: uint(CertificateTypeStakeRegistration),
 			},
-			CertificateTypeStakeRegistration,
+			uint(CertificateTypeStakeRegistration),
 		},
 		{
 			"StakeDeregistration",
 			&StakeDeregistrationCertificate{
-				CertType: CertificateTypeStakeDeregistration,
+				CertType: uint(CertificateTypeStakeDeregistration),
 			},
-			CertificateTypeStakeDeregistration,
+			uint(CertificateTypeStakeDeregistration),
 		},
 		{
 			"StakeDelegation",
 			&StakeDelegationCertificate{
-				CertType: CertificateTypeStakeDelegation,
+				CertType: uint(CertificateTypeStakeDelegation),
 			},
-			CertificateTypeStakeDelegation,
+			uint(CertificateTypeStakeDelegation),
 		},
 		{
 			"PoolRegistration",
 			&PoolRegistrationCertificate{
-				CertType: CertificateTypePoolRegistration,
+				CertType: uint(CertificateTypePoolRegistration),
 			},
-			CertificateTypePoolRegistration,
+			uint(CertificateTypePoolRegistration),
 		},
 		{
 			"PoolRetirement",
-			&PoolRetirementCertificate{CertType: CertificateTypePoolRetirement},
-			CertificateTypePoolRetirement,
+			&PoolRetirementCertificate{CertType: uint(CertificateTypePoolRetirement)},
+			uint(CertificateTypePoolRetirement),
 		},
 		{
 			"GenesisKeyDelegation",
 			&GenesisKeyDelegationCertificate{
-				CertType: CertificateTypeGenesisKeyDelegation,
+				CertType: uint(CertificateTypeGenesisKeyDelegation),
 			},
-			CertificateTypeGenesisKeyDelegation,
+			uint(CertificateTypeGenesisKeyDelegation),
 		},
 		{
 			"MoveInstantaneousRewards",
 			&MoveInstantaneousRewardsCertificate{
-				CertType: CertificateTypeMoveInstantaneousRewards,
+				CertType: uint(CertificateTypeMoveInstantaneousRewards),
 			},
-			CertificateTypeMoveInstantaneousRewards,
+			uint(CertificateTypeMoveInstantaneousRewards),
 		},
 		{
 			"Registration",
-			&RegistrationCertificate{CertType: CertificateTypeRegistration},
-			CertificateTypeRegistration,
+			&RegistrationCertificate{CertType: uint(CertificateTypeRegistration)},
+			uint(CertificateTypeRegistration),
 		},
 		{
 			"Deregistration",
-			&DeregistrationCertificate{CertType: CertificateTypeDeregistration},
-			CertificateTypeDeregistration,
+			&DeregistrationCertificate{CertType: uint(CertificateTypeDeregistration)},
+			uint(CertificateTypeDeregistration),
 		},
 		{
 			"VoteDelegation",
-			&VoteDelegationCertificate{CertType: CertificateTypeVoteDelegation},
-			CertificateTypeVoteDelegation,
+			&VoteDelegationCertificate{CertType: uint(CertificateTypeVoteDelegation)},
+			uint(CertificateTypeVoteDelegation),
 		},
 		{
 			"StakeVoteDelegation",
 			&StakeVoteDelegationCertificate{
-				CertType: CertificateTypeStakeVoteDelegation,
+				CertType: uint(CertificateTypeStakeVoteDelegation),
 			},
-			CertificateTypeStakeVoteDelegation,
+			uint(CertificateTypeStakeVoteDelegation),
 		},
 		{
 			"StakeRegistrationDelegation",
 			&StakeRegistrationDelegationCertificate{
-				CertType: CertificateTypeStakeRegistrationDelegation,
+				CertType: uint(CertificateTypeStakeRegistrationDelegation),
 			},
-			CertificateTypeStakeRegistrationDelegation,
+			uint(CertificateTypeStakeRegistrationDelegation),
 		},
 		{
 			"VoteRegistrationDelegation",
 			&VoteRegistrationDelegationCertificate{
-				CertType: CertificateTypeVoteRegistrationDelegation,
+				CertType: uint(CertificateTypeVoteRegistrationDelegation),
 			},
-			CertificateTypeVoteRegistrationDelegation,
+			uint(CertificateTypeVoteRegistrationDelegation),
 		},
 		{
 			"StakeVoteRegistrationDelegation",
 			&StakeVoteRegistrationDelegationCertificate{
-				CertType: CertificateTypeStakeVoteRegistrationDelegation,
+				CertType: uint(CertificateTypeStakeVoteRegistrationDelegation),
 			},
-			CertificateTypeStakeVoteRegistrationDelegation,
+			uint(CertificateTypeStakeVoteRegistrationDelegation),
 		},
 		{
 			"AuthCommitteeHot",
 			&AuthCommitteeHotCertificate{
-				CertType: CertificateTypeAuthCommitteeHot,
+				CertType: uint(CertificateTypeAuthCommitteeHot),
 			},
-			CertificateTypeAuthCommitteeHot,
+			uint(CertificateTypeAuthCommitteeHot),
 		},
 		{
 			"ResignCommitteeCold",
 			&ResignCommitteeColdCertificate{
-				CertType: CertificateTypeResignCommitteeCold,
+				CertType: uint(CertificateTypeResignCommitteeCold),
 			},
-			CertificateTypeResignCommitteeCold,
+			uint(CertificateTypeResignCommitteeCold),
 		},
 		{
 			"RegistrationDrep",
 			&RegistrationDrepCertificate{
-				CertType: CertificateTypeRegistrationDrep,
+				CertType: uint(CertificateTypeRegistrationDrep),
 			},
-			CertificateTypeRegistrationDrep,
+			uint(CertificateTypeRegistrationDrep),
 		},
 		{
 			"DeregistrationDrep",
 			&DeregistrationDrepCertificate{
-				CertType: CertificateTypeDeregistrationDrep,
+				CertType: uint(CertificateTypeDeregistrationDrep),
 			},
-			CertificateTypeDeregistrationDrep,
+			uint(CertificateTypeDeregistrationDrep),
 		},
 		{
 			"UpdateDrep",
-			&UpdateDrepCertificate{CertType: CertificateTypeUpdateDrep},
-			CertificateTypeUpdateDrep,
+			&UpdateDrepCertificate{CertType: uint(CertificateTypeUpdateDrep)},
+			uint(CertificateTypeUpdateDrep),
 		},
 	}
 

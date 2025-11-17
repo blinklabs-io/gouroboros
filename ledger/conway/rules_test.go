@@ -559,7 +559,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeRegistration),
 					Certificate: &common.StakeRegistrationCertificate{
 						StakeCredential: common.Credential{},
 					},
@@ -586,7 +586,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeDeregistration),
 					Certificate: &common.StakeDeregistrationCertificate{
 						StakeCredential: common.Credential{},
 					},

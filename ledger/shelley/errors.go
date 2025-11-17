@@ -143,3 +143,16 @@ func (e MaxTxSizeUtxoError) Error() string {
 		e.MaxTxSize,
 	)
 }
+
+type InvalidCertificateDepositError struct {
+	CertificateType common.CertificateType
+	Amount          int64
+}
+
+func (e InvalidCertificateDepositError) Error() string {
+	return fmt.Sprintf(
+		"invalid certificate deposit amount: type %d, amount %d",
+		e.CertificateType,
+		e.Amount,
+	)
+}
