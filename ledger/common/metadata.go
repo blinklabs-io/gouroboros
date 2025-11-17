@@ -43,15 +43,20 @@ type TransactionMetadatum interface {
 }
 
 type MetaInt struct{ Value int64 }
+
 type MetaBytes struct{ Value []byte }
+
 type MetaText struct{ Value string }
+
 type MetaList struct {
 	Items []TransactionMetadatum
 }
+
 type MetaPair struct {
 	Key   TransactionMetadatum
 	Value TransactionMetadatum
 }
+
 type MetaMap struct {
 	Pairs []MetaPair
 }
@@ -136,7 +141,7 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 func decodeMapUint(b []byte) (TransactionMetadatum, bool, error) {
 	var m map[uint]cbor.RawMessage
 	if _, err := cbor.Decode(b, &m); err != nil {
-		return nil, false, nil // not this shape
+		return nil, false, nil //nolint:nilerr // not this shape
 	}
 	pairs := make([]MetaPair, 0, len(m))
 	for k, rv := range m {
@@ -155,7 +160,7 @@ func decodeMapUint(b []byte) (TransactionMetadatum, bool, error) {
 func decodeMapText(b []byte) (TransactionMetadatum, bool, error) {
 	var m map[string]cbor.RawMessage
 	if _, err := cbor.Decode(b, &m); err != nil {
-		return nil, false, nil // not this shape
+		return nil, false, nil //nolint:nilerr // not this shape
 	}
 	pairs := make([]MetaPair, 0, len(m))
 	for k, rv := range m {
@@ -171,7 +176,7 @@ func decodeMapText(b []byte) (TransactionMetadatum, bool, error) {
 func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
 	var m map[cbor.ByteString]cbor.RawMessage
 	if _, err := cbor.Decode(b, &m); err != nil {
-		return nil, false, nil
+		return nil, false, nil //nolint:nilerr // not this shape
 	}
 	pairs := make([]MetaPair, 0, len(m))
 	for k, rv := range m {
