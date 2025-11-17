@@ -26,6 +26,8 @@ type MockLedgerState struct {
 	MockUtxos             []common.Utxo
 	MockStakeRegistration []common.StakeRegistrationCertificate
 	MockPoolRegistration  []common.PoolRegistrationCertificate
+	MockAdaPots           common.AdaPots
+	MockRewardSnapshot    common.RewardSnapshot
 }
 
 func (ls MockLedgerState) NetworkId() uint {
@@ -88,4 +90,27 @@ func (ls MockLedgerState) SlotToTime(slot uint64) (time.Time, error) {
 func (ls MockLedgerState) TimeToSlot(t time.Time) (uint64, error) {
 	// TODO
 	return 0, nil
+}
+
+func (ls MockLedgerState) CalculateRewards(
+	pots common.AdaPots,
+	snapshot common.RewardSnapshot,
+	params common.RewardParameters,
+) (*common.RewardCalculationResult, error) {
+	return common.CalculateRewards(pots, snapshot, params)
+}
+
+func (ls MockLedgerState) GetAdaPots() common.AdaPots {
+	return ls.MockAdaPots
+}
+
+func (ls MockLedgerState) UpdateAdaPots(pots common.AdaPots) error {
+	// Mock implementation - doesn't modify state
+	return nil
+}
+
+func (ls MockLedgerState) GetRewardSnapshot(
+	epoch uint64,
+) (common.RewardSnapshot, error) {
+	return ls.MockRewardSnapshot, nil
 }
