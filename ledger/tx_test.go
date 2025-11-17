@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -154,6 +154,9 @@ func BenchmarkTransactionSerialization_Byron(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	if tx == nil {
+		b.Fatal("tx is nil")
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = tx.Cbor()
@@ -176,6 +179,9 @@ func BenchmarkTransactionSerialization_Conway(b *testing.B) {
 	tx, err := ledger.NewConwayTransactionFromCbor(txCbor)
 	if err != nil {
 		b.Fatal(err)
+	}
+	if tx == nil {
+		b.Fatal("tx is nil")
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

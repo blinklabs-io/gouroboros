@@ -276,17 +276,18 @@ func (b *BabbageTransactionBody) Id() common.Blake2b256 {
 }
 
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, input := range b.TxInputs.Items() {
-		ret = append(ret, input)
+	items := b.TxInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, input := range items {
+		ret[i] = input
 	}
 	return ret
 }
 
 func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
-	ret := []common.TransactionOutput{}
-	for _, output := range b.TxOutputs {
-		ret = append(ret, &output)
+	ret := make([]common.TransactionOutput, len(b.TxOutputs))
+	for i := range b.TxOutputs {
+		ret[i] = &b.TxOutputs[i]
 	}
 	return ret
 }
@@ -335,9 +336,10 @@ func (b *BabbageTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsse
 }
 
 func (b *BabbageTransactionBody) Collateral() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, collateral := range b.TxCollateral.Items() {
-		ret = append(ret, collateral)
+	items := b.TxCollateral.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, collateral := range items {
+		ret[i] = collateral
 	}
 	return ret
 }
@@ -351,9 +353,10 @@ func (b *BabbageTransactionBody) ScriptDataHash() *common.Blake2b256 {
 }
 
 func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, input := range b.TxReferenceInputs.Items() {
-		ret = append(ret, &input)
+	items := b.TxReferenceInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i := range items {
+		ret[i] = &items[i]
 	}
 	return ret
 }
