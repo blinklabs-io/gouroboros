@@ -195,7 +195,6 @@ func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
 }
 
 func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
-
 	// Map form: map[uint]cbor.RawMessage
 	{
 		var tmp map[uint]cbor.RawMessage
