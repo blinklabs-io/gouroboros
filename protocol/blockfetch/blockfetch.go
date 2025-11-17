@@ -119,7 +119,7 @@ type Config struct {
 const MaxRecvQueueSize = 512
 
 // DefaultRecvQueueSize is the default receive queue size.
-const DefaultRecvQueueSize = 256
+const DefaultRecvQueueSize = 384
 
 // MaxPendingMessageBytes is the maximum allowed pending message bytes (5MB).
 const MaxPendingMessageBytes = 5242880
