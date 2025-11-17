@@ -912,7 +912,7 @@ type StakeVoteDelegationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	PoolKeyHash     []byte
+	PoolKeyHash     PoolKeyHash
 	Drep            Drep
 }
 
@@ -937,25 +937,6 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert DRep: %w", err)
 	}
-	var drepBytes []byte
-
-	// Extract DRep credential if it exists (AddrKeyHash or ScriptHash)
-	if drepProto != nil {
-		switch drepProto.GetDrep().(type) {
-		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = drepProto.GetAddrKeyHash()
-		case *utxorpc.DRep_ScriptHash:
-			drepBytes = drepProto.GetScriptHash()
-		}
-	}
-
-	// Encode both PoolKeyHash and DRep in PoolKeyhash field
-	// Format: [1-byte type][poolKeyHash][drepBytes]
-	encodedKey := make([]byte, 0, 1+len(c.PoolKeyHash)+len(drepBytes))
-	encodedKey = append(encodedKey, byte(0x01)) // Version byte
-	encodedKey = append(encodedKey, c.PoolKeyHash...)
-	encodedKey = append(encodedKey, drepBytes...)
-
 	stakeCred, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
@@ -964,7 +945,7 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error)
 		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
 			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     encodedKey,
+				PoolKeyhash:     c.PoolKeyHash[:],
 				Drep:            drepProto,
 			},
 		},
@@ -980,7 +961,7 @@ type StakeRegistrationDelegationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	PoolKeyHash     []byte
+	PoolKeyHash     PoolKeyHash
 	Amount          int64
 }
 
@@ -1008,7 +989,7 @@ func (c *StakeRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate
 		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
 			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     c.PoolKeyHash,
+				PoolKeyhash:     c.PoolKeyHash[:],
 			},
 		},
 	}, nil
