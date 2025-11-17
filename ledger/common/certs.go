@@ -1005,8 +1005,8 @@ func (c *StakeRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate
 		return nil, err
 	}
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
-			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
+		Certificate: &utxorpc.Certificate_StakeRegDelegCert{
+			StakeRegDelegCert: &utxorpc.StakeRegDelegCert{
 				StakeCredential: stakeCred,
 				PoolKeyhash:     c.PoolKeyHash,
 			},
