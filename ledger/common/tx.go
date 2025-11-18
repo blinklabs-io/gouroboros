@@ -99,14 +99,6 @@ type TransactionWitnessRedeemers interface {
 	Iter() iter.Seq2[RedeemerKey, RedeemerValue]
 }
 
-// TxReference provides a reference to a transaction which includes a hash of the full transaction
-// body bytes and the total transaction size in bytes
-type TxReference struct {
-	cbor.StructAsArray
-	TxHash Blake2b256
-	TxSize uint16
-}
-
 type Utxo struct {
 	cbor.StructAsArray
 	Id     TransactionInput
