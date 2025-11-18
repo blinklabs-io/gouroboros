@@ -316,7 +316,8 @@ func testQuery(f *globalFlags) {
 		}
 		fmt.Printf("proposed-protocol-params-updates: %v\n", *proposedUpdates)
 	case "pool-distr":
-		poolDistr, err := o.LocalStateQuery().Client.GetPoolDistr([]any{})
+		// GetPoolDistr without specific pool IDs to get all pools distribution
+		poolDistr, err := o.LocalStateQuery().Client.GetPoolDistr(nil)
 		if err != nil {
 			fmt.Printf(
 				"ERROR: failure querying pool distribution: %s\n",
@@ -325,18 +326,19 @@ func testQuery(f *globalFlags) {
 			os.Exit(1)
 		}
 		fmt.Printf("pool-distr (raw): %#v\n", poolDistr)
-		// Convert to JSON-serializable format (PoolId keys need to be strings)
-		if poolDistr != nil && poolDistr.Results != nil {
-			jsonMap := make(map[string]any)
-			for poolId, distribution := range poolDistr.Results {
-				jsonMap[poolId.String()] = distribution
-			}
-			jsonData, err := json.Marshal(jsonMap)
-			if err != nil {
-				fmt.Printf("pool-distr (JSON marshaling failed): %s\n", err)
-			} else {
-				fmt.Printf("pool-distr (JSON): %s\n", string(jsonData))
-			}
+
+		// Build a JSON-friendly view: map pool ID (hex) -> entry
+		jsonResults := make(map[string]any, len(poolDistr.Results))
+		for poolID, entry := range poolDistr.Results {
+			// PoolId is [28]byte; represent as hex for debugging
+			jsonKey := hex.EncodeToString(poolID[:])
+			jsonResults[jsonKey] = entry
+		}
+		jsonData, err := json.Marshal(jsonResults)
+		if err != nil {
+			fmt.Printf("pool-distr (JSON marshaling failed): %s\n", err)
+		} else {
+			fmt.Printf("pool-distr (JSON): %s\n", string(jsonData))
 		}
 	default:
 		fmt.Printf("ERROR: unknown query: %s\n", queryFlags.flagset.Args()[0])
