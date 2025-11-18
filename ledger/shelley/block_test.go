@@ -139,3 +139,28 @@ func TestShelleyBlockUtxorpc(t *testing.T) {
 		)
 	}
 }
+
+func BenchmarkShelleyBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(shelleyBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block shelley.ShelleyBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkShelleyBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(shelleyBlockHex)
+	var block shelley.ShelleyBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
+}

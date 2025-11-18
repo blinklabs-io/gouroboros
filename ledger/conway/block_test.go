@@ -189,3 +189,28 @@ func compareByteSlices(a, b []byte) bool {
 	}
 	return true
 }
+
+func BenchmarkConwayBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(conwayBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block conway.ConwayBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkConwayBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(conwayBlockHex)
+	var block conway.ConwayBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
+}

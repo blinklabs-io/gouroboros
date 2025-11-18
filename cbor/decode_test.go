@@ -271,3 +271,52 @@ func TestDecodeById(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeMaryTransactionCbor(t *testing.T) {
+	// Mary transaction CBOR hex from real chain data
+	maryTxHex := "83a50081825820377732953cbd7eb824e58291dd08599cfcfe6eedb49f590633610674fc3c33c50001818258390187acac5a3d0b41cd1c5e8c03af5be782f261f21beed70970ddee0873ae34f9d442c7f1a01de9f2dd520791122d6fbf3968c5f8328e9091331a597dbcf1021a0002fd99031a025c094a04828a03581c27b1b4470c84db78ce1ffbfff77bb068abb4e47d43cb6009caaa352358204a7537ce9eeaba1c650261f167827b4e12dd403c4bf13c56b2cba06288f7e9ab1a59682f001a1443fd00d81e82011864581de1ae34f9d442c7f1a01de9f2dd520791122d6fbf3968c5f8328e90913381581cae34f9d442c7f1a01de9f2dd520791122d6fbf3968c5f8328e9091338183011917706e33342e3139382e3234312e323336827468747470733a2f2f6769742e696f2f4a7543786e5820fa77d30bb41e2998233245d269ff5763ecf4371388214943ecef277cae45492783028200581cae34f9d442c7f1a01de9f2dd520791122d6fbf3968c5f8328e909133581c27b1b4470c84db78ce1ffbfff77bb068abb4e47d43cb6009caaa3523a10083825820922a22d07c0ca148105760cb767ece603574ea465d6697c87da8207c8936ebea58405594a100197379c0de715de0b5304e0546e661dae2f36b12173cc150a42215356a5600bf0c02954f02ce3620cfb7f12c23a19328fd00dd1194b4f363675ef407825820727c1891d01cf29ccd1146528221827dcf00a093498509404af77a8b15d77c925840f52e0e1403167212b11fe5d87b7cfdb2f39e5384979ac3625917127ad46763d864a7fcb7147c7b85322ada7ba8fe91c0b5152c74ef4ff0c8132b125e681af50382582073c16f2b67ff85307c4c5935bad1389b9ead473419dbad20f5d5e6436982992b58400572eed773b9a199fd486ebe61b480f05803d107ea97ff649f28b8874d3117f890f80657cbb6eea0d833c21e4e8bc7f1a27cddb9e24fc1ed79b04ddbdcd11d0ff6"
+
+	cborData, err := hex.DecodeString(maryTxHex)
+	if err != nil {
+		t.Fatalf("failed to decode Mary transaction hex: %s", err)
+	}
+
+	var decoded any
+	bytesRead, err := cbor.Decode(cborData, &decoded)
+	if err != nil {
+		t.Fatalf("failed to decode Mary transaction CBOR: %s", err)
+	}
+
+	if bytesRead != len(cborData) {
+		t.Fatalf(
+			"did not read all bytes: read %d, expected %d",
+			bytesRead,
+			len(cborData),
+		)
+	}
+
+	// Verify it's an array (transactions are arrays)
+	decodedSlice, ok := decoded.([]any)
+	if !ok {
+		t.Fatal("decoded Mary transaction is not an array")
+	}
+
+	if len(decodedSlice) != 3 {
+		t.Fatalf(
+			"Mary transaction array length mismatch: got %d, expected 3",
+			len(decodedSlice),
+		)
+	}
+}
+
+func BenchmarkDecode(b *testing.B) {
+	cborData, _ := hex.DecodeString("83010203")
+	var dest any
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := cbor.Decode(cborData, &dest)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
