@@ -722,5 +722,13 @@ type PoolStateResult any
 // TODO (#869)
 type StakeSnapshotsResult any
 
-// TODO (#870)
-type PoolDistrResult any
+// PoolDistrResult represents the pool distribution result
+// It contains a map of pool IDs to their stake distribution (fraction and VRF hash)
+type PoolDistrResult struct {
+	cbor.StructAsArray
+	Results map[ledger.PoolId]struct {
+		cbor.StructAsArray
+		StakeFraction *cbor.Rat
+		VrfHash       ledger.Blake2b256
+	}
+}
