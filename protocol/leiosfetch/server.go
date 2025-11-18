@@ -104,6 +104,11 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 	if err != nil {
 		return err
 	}
+	if resp == nil {
+		return errors.New(
+			"received leios-fetch BlockRequest message but callback returned nil",
+		)
+	}
 	if err := s.SendMessage(resp); err != nil {
 		return err
 	}
@@ -133,6 +138,11 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 	if err != nil {
 		return err
 	}
+	if resp == nil {
+		return errors.New(
+			"received leios-fetch BlockTxsRequest message but callback returned nil",
+		)
+	}
 	if err := s.SendMessage(resp); err != nil {
 		return err
 	}
@@ -159,6 +169,11 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 	)
 	if err != nil {
 		return err
+	}
+	if resp == nil {
+		return errors.New(
+			"received leios-fetch VotesRequest message but callback returned nil",
+		)
 	}
 	if err := s.SendMessage(resp); err != nil {
 		return err
