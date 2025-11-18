@@ -255,7 +255,14 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.DeregistrationCertificate:
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			// CIP-0094 deregistration uses Amount field for refund (symmetric with registration deposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			consumedValue += uint64(tmpCert.Amount)
 		case *common.DeregistrationDrepCertificate:
 			if tmpCert.Amount <= 0 {
 				return shelley.InvalidCertificateDepositError{
@@ -265,6 +272,7 @@ func UtxoValidateValueNotConservedUtxo(
 			}
 			consumedValue += uint64(tmpCert.Amount)
 		case *common.StakeDeregistrationCertificate:
+			// Traditional stake deregistration uses protocol KeyDeposit parameter
 			consumedValue += uint64(tmpPparams.KeyDeposit)
 		}
 	}
@@ -286,6 +294,7 @@ func UtxoValidateValueNotConservedUtxo(
 				producedValue += uint64(tmpPparams.PoolDeposit)
 			}
 		case *common.RegistrationCertificate:
+			// CIP-0094 registration uses Amount field for deposit
 			if tmpCert.Amount <= 0 {
 				return shelley.InvalidCertificateDepositError{
 					CertificateType: common.CertificateType(tmpCert.CertType),
@@ -302,6 +311,7 @@ func UtxoValidateValueNotConservedUtxo(
 			}
 			producedValue += uint64(tmpCert.Amount)
 		case *common.StakeRegistrationCertificate:
+			// Traditional stake registration uses protocol KeyDeposit parameter
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		case *common.StakeRegistrationDelegationCertificate:
 			if tmpCert.Amount <= 0 {
