@@ -744,136 +744,151 @@ func TestBlake2b224_ToPlutusData(t *testing.T) {
 	}
 }
 
+var certificateTypeTests = []struct {
+	name     string
+	cert     Certificate
+	expected uint
+}{
+	{
+		"StakeRegistration",
+		&StakeRegistrationCertificate{
+			CertType: uint(CertificateTypeStakeRegistration),
+		},
+		uint(CertificateTypeStakeRegistration),
+	},
+	{
+		"StakeDeregistration",
+		&StakeDeregistrationCertificate{
+			CertType: uint(CertificateTypeStakeDeregistration),
+		},
+		uint(CertificateTypeStakeDeregistration),
+	},
+	{
+		"StakeDelegation",
+		&StakeDelegationCertificate{
+			CertType: uint(CertificateTypeStakeDelegation),
+		},
+		uint(CertificateTypeStakeDelegation),
+	},
+	{
+		"PoolRegistration",
+		&PoolRegistrationCertificate{
+			CertType: uint(CertificateTypePoolRegistration),
+		},
+		uint(CertificateTypePoolRegistration),
+	},
+	{
+		"PoolRetirement",
+		&PoolRetirementCertificate{
+			CertType: uint(CertificateTypePoolRetirement),
+		},
+		uint(CertificateTypePoolRetirement),
+	},
+	{
+		"GenesisKeyDelegation",
+		&GenesisKeyDelegationCertificate{
+			CertType: uint(CertificateTypeGenesisKeyDelegation),
+		},
+		uint(CertificateTypeGenesisKeyDelegation),
+	},
+	{
+		"MoveInstantaneousRewards",
+		&MoveInstantaneousRewardsCertificate{
+			CertType: uint(CertificateTypeMoveInstantaneousRewards),
+		},
+		uint(CertificateTypeMoveInstantaneousRewards),
+	},
+	{
+		"Registration",
+		&RegistrationCertificate{
+			CertType: uint(CertificateTypeRegistration),
+		},
+		uint(CertificateTypeRegistration),
+	},
+	{
+		"Deregistration",
+		&DeregistrationCertificate{
+			CertType: uint(CertificateTypeDeregistration),
+		},
+		uint(CertificateTypeDeregistration),
+	},
+	{
+		"VoteDelegation",
+		&VoteDelegationCertificate{
+			CertType: uint(CertificateTypeVoteDelegation),
+		},
+		uint(CertificateTypeVoteDelegation),
+	},
+	{
+		"StakeVoteDelegation",
+		&StakeVoteDelegationCertificate{
+			CertType: uint(CertificateTypeStakeVoteDelegation),
+		},
+		uint(CertificateTypeStakeVoteDelegation),
+	},
+	{
+		"StakeRegistrationDelegation",
+		&StakeRegistrationDelegationCertificate{
+			CertType: uint(CertificateTypeStakeRegistrationDelegation),
+		},
+		uint(CertificateTypeStakeRegistrationDelegation),
+	},
+	{
+		"VoteRegistrationDelegation",
+		&VoteRegistrationDelegationCertificate{
+			CertType: uint(CertificateTypeVoteRegistrationDelegation),
+		},
+		uint(CertificateTypeVoteRegistrationDelegation),
+	},
+	{
+		"StakeVoteRegistrationDelegation",
+		&StakeVoteRegistrationDelegationCertificate{
+			CertType: uint(CertificateTypeStakeVoteRegistrationDelegation),
+		},
+		uint(CertificateTypeStakeVoteRegistrationDelegation),
+	},
+	{
+		"AuthCommitteeHot",
+		&AuthCommitteeHotCertificate{
+			CertType: uint(CertificateTypeAuthCommitteeHot),
+		},
+		uint(CertificateTypeAuthCommitteeHot),
+	},
+	{
+		"ResignCommitteeCold",
+		&ResignCommitteeColdCertificate{
+			CertType: uint(CertificateTypeResignCommitteeCold),
+		},
+		uint(CertificateTypeResignCommitteeCold),
+	},
+	{
+		"RegistrationDrep",
+		&RegistrationDrepCertificate{
+			CertType: uint(CertificateTypeRegistrationDrep),
+		},
+		uint(CertificateTypeRegistrationDrep),
+	},
+	{
+		"DeregistrationDrep",
+		&DeregistrationDrepCertificate{
+			CertType: uint(CertificateTypeDeregistrationDrep),
+		},
+		uint(CertificateTypeDeregistrationDrep),
+	},
+	{
+		"UpdateDrep",
+		&UpdateDrepCertificate{CertType: uint(CertificateTypeUpdateDrep)},
+		uint(CertificateTypeUpdateDrep),
+	},
+	{
+		"LeiosEb",
+		&LeiosEbCertificate{},
+		uint(CertificateTypeLeiosEb),
+	},
+}
+
 func TestCertificateTypeMethods(t *testing.T) {
-	tests := []struct {
-		name     string
-		cert     Certificate
-		expected uint
-	}{
-		{
-			"StakeRegistration",
-			&StakeRegistrationCertificate{
-				CertType: uint(CertificateTypeStakeRegistration),
-			},
-			uint(CertificateTypeStakeRegistration),
-		},
-		{
-			"StakeDeregistration",
-			&StakeDeregistrationCertificate{
-				CertType: uint(CertificateTypeStakeDeregistration),
-			},
-			uint(CertificateTypeStakeDeregistration),
-		},
-		{
-			"StakeDelegation",
-			&StakeDelegationCertificate{
-				CertType: uint(CertificateTypeStakeDelegation),
-			},
-			uint(CertificateTypeStakeDelegation),
-		},
-		{
-			"PoolRegistration",
-			&PoolRegistrationCertificate{
-				CertType: uint(CertificateTypePoolRegistration),
-			},
-			uint(CertificateTypePoolRegistration),
-		},
-		{
-			"PoolRetirement",
-			&PoolRetirementCertificate{CertType: uint(CertificateTypePoolRetirement)},
-			uint(CertificateTypePoolRetirement),
-		},
-		{
-			"GenesisKeyDelegation",
-			&GenesisKeyDelegationCertificate{
-				CertType: uint(CertificateTypeGenesisKeyDelegation),
-			},
-			uint(CertificateTypeGenesisKeyDelegation),
-		},
-		{
-			"MoveInstantaneousRewards",
-			&MoveInstantaneousRewardsCertificate{
-				CertType: uint(CertificateTypeMoveInstantaneousRewards),
-			},
-			uint(CertificateTypeMoveInstantaneousRewards),
-		},
-		{
-			"Registration",
-			&RegistrationCertificate{CertType: uint(CertificateTypeRegistration)},
-			uint(CertificateTypeRegistration),
-		},
-		{
-			"Deregistration",
-			&DeregistrationCertificate{CertType: uint(CertificateTypeDeregistration)},
-			uint(CertificateTypeDeregistration),
-		},
-		{
-			"VoteDelegation",
-			&VoteDelegationCertificate{CertType: uint(CertificateTypeVoteDelegation)},
-			uint(CertificateTypeVoteDelegation),
-		},
-		{
-			"StakeVoteDelegation",
-			&StakeVoteDelegationCertificate{
-				CertType: uint(CertificateTypeStakeVoteDelegation),
-			},
-			uint(CertificateTypeStakeVoteDelegation),
-		},
-		{
-			"StakeRegistrationDelegation",
-			&StakeRegistrationDelegationCertificate{
-				CertType: uint(CertificateTypeStakeRegistrationDelegation),
-			},
-			uint(CertificateTypeStakeRegistrationDelegation),
-		},
-		{
-			"VoteRegistrationDelegation",
-			&VoteRegistrationDelegationCertificate{
-				CertType: uint(CertificateTypeVoteRegistrationDelegation),
-			},
-			uint(CertificateTypeVoteRegistrationDelegation),
-		},
-		{
-			"StakeVoteRegistrationDelegation",
-			&StakeVoteRegistrationDelegationCertificate{
-				CertType: uint(CertificateTypeStakeVoteRegistrationDelegation),
-			},
-			uint(CertificateTypeStakeVoteRegistrationDelegation),
-		},
-		{
-			"AuthCommitteeHot",
-			&AuthCommitteeHotCertificate{
-				CertType: uint(CertificateTypeAuthCommitteeHot),
-			},
-			uint(CertificateTypeAuthCommitteeHot),
-		},
-		{
-			"ResignCommitteeCold",
-			&ResignCommitteeColdCertificate{
-				CertType: uint(CertificateTypeResignCommitteeCold),
-			},
-			uint(CertificateTypeResignCommitteeCold),
-		},
-		{
-			"RegistrationDrep",
-			&RegistrationDrepCertificate{
-				CertType: uint(CertificateTypeRegistrationDrep),
-			},
-			uint(CertificateTypeRegistrationDrep),
-		},
-		{
-			"DeregistrationDrep",
-			&DeregistrationDrepCertificate{
-				CertType: uint(CertificateTypeDeregistrationDrep),
-			},
-			uint(CertificateTypeDeregistrationDrep),
-		},
-		{
-			"UpdateDrep",
-			&UpdateDrepCertificate{CertType: uint(CertificateTypeUpdateDrep)},
-			uint(CertificateTypeUpdateDrep),
-		},
-	}
+	tests := certificateTypeTests
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -887,5 +902,55 @@ func TestCertificateTypeMethods(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+// TestCertificateTypeCoverage ensures all CertificateType constants are tested
+func TestCertificateTypeCoverage(t *testing.T) {
+	// Get all CertificateType constants via reflection
+	certTypeType := reflect.TypeOf(CertificateTypeStakeRegistration)
+	if certTypeType.Kind() != reflect.Uint {
+		t.Fatalf("CertificateType is not uint, got %s", certTypeType.Kind())
+	}
+
+	// Collect all constants from the test table
+	testedTypes := make(map[uint]bool)
+	for _, tt := range certificateTypeTests {
+		testedTypes[tt.expected] = true
+	}
+
+	// Check that we have at least one test for each known certificate type constant
+	// This is a best-effort check - if new constants are added, this test will need updating
+	expectedTypes := map[uint]string{
+		uint(CertificateTypeStakeRegistration):               "CertificateTypeStakeRegistration",
+		uint(CertificateTypeStakeDeregistration):             "CertificateTypeStakeDeregistration",
+		uint(CertificateTypeStakeDelegation):                 "CertificateTypeStakeDelegation",
+		uint(CertificateTypePoolRegistration):                "CertificateTypePoolRegistration",
+		uint(CertificateTypePoolRetirement):                  "CertificateTypePoolRetirement",
+		uint(CertificateTypeGenesisKeyDelegation):            "CertificateTypeGenesisKeyDelegation",
+		uint(CertificateTypeMoveInstantaneousRewards):        "CertificateTypeMoveInstantaneousRewards",
+		uint(CertificateTypeRegistration):                    "CertificateTypeRegistration",
+		uint(CertificateTypeDeregistration):                  "CertificateTypeDeregistration",
+		uint(CertificateTypeVoteDelegation):                  "CertificateTypeVoteDelegation",
+		uint(CertificateTypeStakeVoteDelegation):             "CertificateTypeStakeVoteDelegation",
+		uint(CertificateTypeStakeRegistrationDelegation):     "CertificateTypeStakeRegistrationDelegation",
+		uint(CertificateTypeVoteRegistrationDelegation):      "CertificateTypeVoteRegistrationDelegation",
+		uint(CertificateTypeStakeVoteRegistrationDelegation): "CertificateTypeStakeVoteRegistrationDelegation",
+		uint(CertificateTypeAuthCommitteeHot):                "CertificateTypeAuthCommitteeHot",
+		uint(CertificateTypeResignCommitteeCold):             "CertificateTypeResignCommitteeCold",
+		uint(CertificateTypeRegistrationDrep):                "CertificateTypeRegistrationDrep",
+		uint(CertificateTypeDeregistrationDrep):              "CertificateTypeDeregistrationDrep",
+		uint(CertificateTypeUpdateDrep):                      "CertificateTypeUpdateDrep",
+		uint(CertificateTypeLeiosEb):                         "CertificateTypeLeiosEb",
+	}
+
+	for certType, name := range expectedTypes {
+		if !testedTypes[certType] {
+			t.Errorf(
+				"Certificate type %s (value %d) is not covered by TestCertificateTypeMethods",
+				name,
+				certType,
+			)
+		}
 	}
 }
