@@ -177,3 +177,28 @@ func TestBabbageBlock_Utxorpc(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkBabbageBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(babbageBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block babbage.BabbageBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkBabbageBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(babbageBlockHex)
+	var block babbage.BabbageBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
+}

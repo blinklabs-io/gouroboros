@@ -148,3 +148,28 @@ func compareByteSlices(a, b []byte) bool {
 	}
 	return true
 }
+
+func BenchmarkMaryBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(maryBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block mary.MaryBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkMaryBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(maryBlockHex)
+	var block mary.MaryBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
+}

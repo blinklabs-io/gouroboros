@@ -15,6 +15,7 @@
 package common
 
 import (
+	"encoding/hex"
 	"reflect"
 	"testing"
 
@@ -380,6 +381,33 @@ func TestAddressToPlutusData(t *testing.T) {
 				tmpPd,
 				testDef.expectedData,
 			)
+		}
+	}
+}
+
+func BenchmarkAddressFromBytes(b *testing.B) {
+	addrBytes, err := hex.DecodeString(
+		"11e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec1330952563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2",
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := NewAddressFromBytes(addrBytes)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAddressFromString(b *testing.B) {
+	addrStr := "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := NewAddress(addrStr)
+		if err != nil {
+			b.Fatal(err)
 		}
 	}
 }

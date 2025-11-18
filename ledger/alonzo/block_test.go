@@ -153,3 +153,28 @@ func TestAlonzoBlock_Utxorpc(t *testing.T) {
 		)
 	})
 }
+
+func BenchmarkAlonzoBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(alonzoBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block alonzo.AlonzoBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAlonzoBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(alonzoBlockHex)
+	var block alonzo.AlonzoBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
+}

@@ -169,3 +169,28 @@ func TestByronTransaction_Utxorpc(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkByronBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(byronBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block byron.ByronMainBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkByronBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(byronBlockHex)
+	var block byron.ByronMainBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
+}

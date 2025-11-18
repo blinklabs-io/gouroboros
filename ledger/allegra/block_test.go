@@ -171,3 +171,28 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 		}
 	})
 }
+
+func BenchmarkAllegraBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(allegraBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block allegra.AllegraBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAllegraBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(allegraBlockHex)
+	var block allegra.AllegraBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
+}
