@@ -26,27 +26,29 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
+type CertificateType uint
+
 const (
-	CertificateTypeStakeRegistration               = 0
-	CertificateTypeStakeDeregistration             = 1
-	CertificateTypeStakeDelegation                 = 2
-	CertificateTypePoolRegistration                = 3
-	CertificateTypePoolRetirement                  = 4
-	CertificateTypeGenesisKeyDelegation            = 5
-	CertificateTypeMoveInstantaneousRewards        = 6
-	CertificateTypeRegistration                    = 7
-	CertificateTypeDeregistration                  = 8
-	CertificateTypeVoteDelegation                  = 9
-	CertificateTypeStakeVoteDelegation             = 10
-	CertificateTypeStakeRegistrationDelegation     = 11
-	CertificateTypeVoteRegistrationDelegation      = 12
-	CertificateTypeStakeVoteRegistrationDelegation = 13
-	CertificateTypeAuthCommitteeHot                = 14
-	CertificateTypeResignCommitteeCold             = 15
-	CertificateTypeRegistrationDrep                = 16
-	CertificateTypeDeregistrationDrep              = 17
-	CertificateTypeUpdateDrep                      = 18
-	CertificateTypeLeiosEb                         = 19
+	CertificateTypeStakeRegistration               CertificateType = 0
+	CertificateTypeStakeDeregistration             CertificateType = 1
+	CertificateTypeStakeDelegation                 CertificateType = 2
+	CertificateTypePoolRegistration                CertificateType = 3
+	CertificateTypePoolRetirement                  CertificateType = 4
+	CertificateTypeGenesisKeyDelegation            CertificateType = 5
+	CertificateTypeMoveInstantaneousRewards        CertificateType = 6
+	CertificateTypeRegistration                    CertificateType = 7
+	CertificateTypeDeregistration                  CertificateType = 8
+	CertificateTypeVoteDelegation                  CertificateType = 9
+	CertificateTypeStakeVoteDelegation             CertificateType = 10
+	CertificateTypeStakeRegistrationDelegation     CertificateType = 11
+	CertificateTypeVoteRegistrationDelegation      CertificateType = 12
+	CertificateTypeStakeVoteRegistrationDelegation CertificateType = 13
+	CertificateTypeAuthCommitteeHot                CertificateType = 14
+	CertificateTypeResignCommitteeCold             CertificateType = 15
+	CertificateTypeRegistrationDrep                CertificateType = 16
+	CertificateTypeDeregistrationDrep              CertificateType = 17
+	CertificateTypeUpdateDrep                      CertificateType = 18
+	CertificateTypeLeiosEb                         CertificateType = 19
 )
 
 type CertificateWrapper struct {
@@ -60,8 +62,11 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if certType < 0 {
+		return fmt.Errorf("invalid certificate type: %d", certType)
+	}
 	var tmpCert Certificate
-	switch certType {
+	switch CertificateType(certType) {
 	case CertificateTypeStakeRegistration:
 		tmpCert = &StakeRegistrationCertificate{}
 	case CertificateTypeStakeDeregistration:
@@ -1375,7 +1380,7 @@ func (c *LeiosEbCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 }
 
 func (c *LeiosEbCertificate) Type() uint {
-	return CertificateTypeLeiosEb
+	return uint(CertificateTypeLeiosEb)
 }
 
 // GetAggregateEligSig returns the aggregate eligibility signature as a byte slice

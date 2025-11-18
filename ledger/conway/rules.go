@@ -253,11 +253,17 @@ func UtxoValidateValueNotConservedUtxo(
 		consumedValue += tmpWithdrawalAmount
 	}
 	for _, cert := range tx.Certificates() {
-		switch cert.(type) {
+		switch tmpCert := cert.(type) {
 		case *common.DeregistrationCertificate:
 			consumedValue += uint64(tmpPparams.KeyDeposit)
 		case *common.DeregistrationDrepCertificate:
-			consumedValue += uint64(tmpPparams.DRepDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			consumedValue += uint64(tmpCert.Amount)
 		case *common.StakeDeregistrationCertificate:
 			consumedValue += uint64(tmpPparams.KeyDeposit)
 		}
@@ -280,17 +286,47 @@ func UtxoValidateValueNotConservedUtxo(
 				producedValue += uint64(tmpPparams.PoolDeposit)
 			}
 		case *common.RegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.RegistrationDrepCertificate:
-			producedValue += uint64(tmpPparams.DRepDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.StakeRegistrationCertificate:
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		case *common.StakeRegistrationDelegationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.StakeVoteRegistrationDelegationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.VoteRegistrationDelegationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		}
 	}
 	for _, proposal := range tx.ProposalProcedures() {
