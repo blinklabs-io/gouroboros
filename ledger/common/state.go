@@ -38,12 +38,32 @@ type PoolState interface {
 	PoolCurrentState(PoolKeyHash) (*PoolRegistrationCertificate, *uint64, error)
 }
 
+// RewardState defines the interface for reward calculation and querying
+type RewardState interface {
+	// CalculateRewards calculates rewards for the given epoch based on stake snapshot
+	CalculateRewards(
+		pots AdaPots,
+		snapshot RewardSnapshot,
+		params RewardParameters,
+	) (*RewardCalculationResult, error)
+
+	// GetAdaPots returns the current ADA pots
+	GetAdaPots() AdaPots
+
+	// UpdateAdaPots updates the ADA pots (typically called after reward calculation)
+	UpdateAdaPots(pots AdaPots) error
+
+	// GetRewardSnapshot returns the stake snapshot for reward calculation
+	GetRewardSnapshot(epoch uint64) (RewardSnapshot, error)
+}
+
 // LedgerState defines the interface for querying the ledger
 type LedgerState interface {
 	UtxoState
 	CertState
 	SlotState
 	PoolState
+	RewardState
 	NetworkId() uint
 }
 
