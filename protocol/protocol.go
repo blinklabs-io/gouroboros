@@ -524,6 +524,7 @@ func (p *Protocol) recvLoop() {
 
 func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 	var transitionTimer *time.Timer
+	var initialStateSet bool
 
 	setState := func(s State) {
 		// Disable any previous state transition timer
@@ -573,6 +574,11 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			}
 		}
 
+		// Don't activate timeouts on initial protocol state
+		if !initialStateSet {
+			return
+		}
+
 		// Set timeout for state transition
 		if p.config.StateMap[s].Timeout > 0 {
 			transitionTimer = time.NewTimer(
@@ -587,7 +593,9 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		return transitionTimer.C
 	}
 
+	// Set initial state
 	setState(p.config.InitialState)
+	initialStateSet = true
 
 	for {
 		select {
