@@ -136,6 +136,10 @@ func (b *AllegraBlock) Utxorpc() (*utxorpc.Block, error) {
 	return block, nil
 }
 
+func (b *AllegraBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
 type AllegraBlockHeader struct {
 	shelley.ShelleyBlockHeader
 }

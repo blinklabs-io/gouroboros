@@ -380,3 +380,16 @@ func chi25519(z *field.Element) *field.Element {
 
 	return out
 }
+
+func VerifyVrf(
+	vrfKey []byte,
+	proof []byte,
+	expectedOutput []byte,
+	msg []byte,
+) (bool, error) {
+	output, err := VrfVerifyAndHash(vrfKey, proof, msg)
+	if err != nil {
+		return false, err
+	}
+	return subtle.ConstantTimeCompare(output, expectedOutput) == 1, nil
+}

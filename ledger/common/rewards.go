@@ -394,7 +394,10 @@ func calculatePoolShare(
 	stakeRatio := float64(poolStake) / float64(snapshot.TotalActiveStake)
 
 	// Calculate saturation (capped at 1.0)
-	saturation := math.Min(stakeRatio/0.05, 1.0) // TODO: consider wiring a param or helper for consistency with CalculatePoolSaturation
+	saturation := math.Min(
+		stakeRatio/0.05,
+		1.0,
+	) // TODO: consider wiring a param or helper for consistency with CalculatePoolSaturation
 
 	// Calculate pool reward share using leader stake influence formula
 	// R_pool = (stake_ratio * performance * (1 - margin)) / (1 + a0 * saturation)

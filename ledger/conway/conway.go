@@ -149,6 +149,10 @@ func (b *ConwayBlock) Utxorpc() (*utxorpc.Block, error) {
 	return block, nil
 }
 
+func (b *ConwayBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
 type ConwayBlockHeader struct {
 	babbage.BabbageBlockHeader
 }

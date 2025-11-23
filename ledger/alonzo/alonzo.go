@@ -189,6 +189,10 @@ func (b *AlonzoBlock) Utxorpc() (*utxorpc.Block, error) {
 	return block, nil
 }
 
+func (b *AlonzoBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
 type AlonzoBlockHeader struct {
 	shelley.ShelleyBlockHeader
 }
