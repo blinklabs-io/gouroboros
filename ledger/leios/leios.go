@@ -60,12 +60,27 @@ type LeiosBlockHeaderBody struct {
 	CertifiedEb     *bool
 }
 
+type LeiosEndorserBlockBody struct {
+	cbor.StructAsArray
+	transactions []common.Transaction
+	TxReferences map[common.Blake2b256]uint16
+}
+
+func (b *LeiosEndorserBlockBody) BlockBodyHash() common.Blake2b256 {
+	// Compute hash of the block body content
+	bodyCbor, err := cbor.Encode(b)
+	if err != nil {
+		// Return zero hash on encoding error
+		return common.Blake2b256{}
+	}
+	return common.Blake2b256Hash(bodyCbor)
+}
+
 type LeiosEndorserBlock struct {
 	cbor.DecodeStoreCbor
 	cbor.StructAsArray
-	hash         *common.Blake2b256
-	transactions []common.Transaction
-	TxReferences map[common.Blake2b256]uint16
+	hash *common.Blake2b256
+	Body *LeiosEndorserBlockBody
 }
 
 func (h *LeiosBlockHeader) UnmarshalCBOR(cborData []byte) error {
@@ -154,12 +169,22 @@ func (b *LeiosEndorserBlock) PrevHash() common.Blake2b256 {
 }
 
 func (b *LeiosEndorserBlock) Transactions() []common.Transaction {
-	return b.transactions
+	if b.Body == nil {
+		return nil
+	}
+	return b.Body.transactions
 }
 
 func (b *LeiosEndorserBlock) Utxorpc() (*utxorpc.Block, error) {
 	// TODO: figure out how this fits into UTxO RPC
 	return &utxorpc.Block{}, nil
+}
+
+func (b *LeiosEndorserBlock) BlockBodyHash() common.Blake2b256 {
+	if b.Body == nil {
+		return common.Blake2b256{}
+	}
+	return b.Body.BlockBodyHash()
 }
 
 type LeiosRankingBlock struct {
