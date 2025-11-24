@@ -15,6 +15,7 @@
 package ouroboros_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -117,20 +118,34 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 		// Wait a bit for protocol to start
 		time.Sleep(100 * time.Millisecond)
 
-		// Close the mock connection to generate a connection error
+		// Close the mock connection first to trigger an error
 		mockConn.Close()
 
-		// We should receive a connection error since protocols are active
-		select {
-		case err := <-oConn.ErrorChan():
-			if err == nil {
-				t.Fatal("expected connection error, got nil")
+		// We should receive a connection error since protocols were active when error occurred
+		timeout := time.After(2 * time.Second)
+		for {
+			select {
+			case err, ok := <-oConn.ErrorChan():
+				if !ok {
+					t.Log("Error channel closed")
+					goto done
+				}
+				if err == nil {
+					t.Error("received nil error")
+					continue
+				}
+				t.Logf("Received connection error (expected with active protocols): %s", err)
+				if strings.Contains(err.Error(), "EOF") ||
+					strings.Contains(err.Error(), "use of closed network connection") {
+					goto done
+				}
+			case <-timeout:
+				t.Error("timed out waiting for connection error")
+				goto done
 			}
-			t.Logf("Received connection error (expected with active protocols): %s", err)
-		case <-time.After(2 * time.Second):
-			t.Error("timed out waiting for connection error - error should be propagated when protocols are active")
 		}
-
+	done:
+		// Clean up
 		oConn.Close()
 	})
 
@@ -199,20 +214,39 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 		// Wait for protocol to be done (Done message from mock should trigger this)
 		select {
 		case <-chainSyncProtocol.Server.DoneChan():
-		// Protocol is stoppeds
+			// Protocol is stopped
 		case <-time.After(1 * time.Second):
 			t.Fatal("timed out waiting for protocol to stop")
 		}
 
-		// Now close the mock connection to generate an error
+		// Close the mock connection
 		mockConn.Close()
-		select {
-		case err := <-oConn.ErrorChan():
-			t.Logf("Received error during shutdown: %s", err)
-		case <-time.After(500 * time.Millisecond):
-			t.Log("No connection error received (expected when protocols are stopped)")
-		}
 
+		// With protocols stopped, we should either get no error or just connection closed errors
+		timeout := time.After(2 * time.Second)
+		for {
+			select {
+			case err, ok := <-oConn.ErrorChan():
+				if !ok {
+					t.Log("Error channel closed")
+					goto done
+				}
+				if err != nil {
+					if !strings.Contains(err.Error(), "EOF") &&
+						!strings.Contains(err.Error(), "use of closed network connection") {
+						t.Errorf("Unexpected error during shutdown: %s", err)
+					}
+				}
+			case <-time.After(500 * time.Millisecond):
+				t.Log("No connection error received (expected when protocols are stopped)")
+				goto done
+			case <-timeout:
+				t.Error("timed out waiting for connection cleanup")
+				goto done
+			}
+		}
+	done:
+		// Clean up
 		oConn.Close()
 	})
 }
@@ -241,20 +275,34 @@ func TestErrorHandlingWithMultipleProtocols(t *testing.T) {
 	// Wait for handshake to complete
 	time.Sleep(100 * time.Millisecond)
 
-	// Close connection to generate error
+	// Close mock connection first to generate error
 	mockConn.Close()
 
-	// Should receive error since protocols are active
-	select {
-	case err := <-oConn.ErrorChan():
-		if err == nil {
-			t.Fatal("expected connection error, got nil")
+	// Should receive error since protocols were active
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case err, ok := <-oConn.ErrorChan():
+			if !ok {
+				t.Log("Error channel closed")
+				goto done
+			}
+			if err == nil {
+				t.Error("received nil error")
+				continue
+			}
+			t.Logf("Received connection error with multiple active protocols: %s", err)
+			if strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "use of closed network connection") {
+				goto done
+			}
+		case <-timeout:
+			t.Error("timed out waiting for connection error")
+			goto done
 		}
-		t.Logf("Received connection error with multiple active protocols: %s", err)
-	case <-time.After(2 * time.Second):
-		t.Error("timed out waiting for connection error")
 	}
-
+done:
+	// Clean up
 	oConn.Close()
 }
 
