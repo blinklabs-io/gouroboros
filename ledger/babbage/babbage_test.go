@@ -2791,7 +2791,13 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 	assert.NotNil(t, txOutput)
 	assert.Equal(t, []byte{}, txOutput.Datum.Hash)
 	assert.Equal(t, []byte{0x0}, txOutput.Address)
-	assert.Equal(t, uint64(1000), txOutput.Coin)
+	coin := txOutput.Coin
+	if bigUInt := coin.GetBigUInt(); bigUInt != nil {
+		coinValue := new(big.Int).SetBytes(bigUInt).Uint64()
+		assert.Equal(t, uint64(1000), coinValue)
+	} else {
+		assert.Equal(t, int64(1000), coin.GetInt())
+	}
 }
 
 func TestBabbageTransactionOutput_DatumHashReturnsNil(t *testing.T) {
@@ -2857,7 +2863,11 @@ func TestBabbageTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 	)
 	tmpData := testTxOut.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
 	}
 }
 
@@ -2913,22 +2923,38 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 					),
 				},
 				{
-					data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+					data.NewByteString(
+						test.DecodeHexString(
+							"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
+						),
+					),
 					data.NewMap(
 						[][2]data.PlutusData{
 							{
-								data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+								data.NewByteString(
+									test.DecodeHexString(
+										"6675726e697368613239686e",
+									),
+								),
 								data.NewInteger(big.NewInt(123456)),
 							},
 						},
 					),
 				},
 				{
-					data.NewByteString(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")),
+					data.NewByteString(
+						test.DecodeHexString(
+							"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5",
+						),
+					),
 					data.NewMap(
 						[][2]data.PlutusData{
 							{
-								data.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")),
+								data.NewByteString(
+									test.DecodeHexString(
+										"426f7764757261436f6e63657074733638",
+									),
+								),
 								data.NewInteger(big.NewInt(234567)),
 							},
 						},
@@ -2943,6 +2969,34 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	)
 	tmpData := testTxOut.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
+	}
+}
+
+func TestBabbageTransactionOutputString(t *testing.T) {
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, _ := common.NewAddress(addrStr)
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.NewBlake2b224(make([]byte, 28)): {
+				cbor.NewByteString([]byte("x")): 2,
+			},
+		},
+	)
+	out := BabbageTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 456,
+			Assets: &ma,
+		},
+	}
+	s := out.String()
+	expected := "(BabbageTransactionOutput address=" + addrStr + " amount=456 assets=" + ma.String() + ")"
+	if s != expected {
+		t.Fatalf("unexpected string: %s", s)
 	}
 }

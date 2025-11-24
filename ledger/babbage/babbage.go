@@ -236,6 +236,7 @@ type BabbageTransactionPparamUpdate struct {
 
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
+	hash                    *common.Blake2b256
 	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
 	TxOutputs               []BabbageTransactionOutput                    `cbor:"1,keyasint,omitempty"`
 	TxFee                   uint64                                        `cbor:"2,keyasint,omitempty"`
@@ -266,18 +267,27 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *BabbageTransactionBody) Id() common.Blake2b256 {
+	if b.hash == nil {
+		tmpHash := common.Blake2b256Hash(b.Cbor())
+		b.hash = &tmpHash
+	}
+	return *b.hash
+}
+
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, input := range b.TxInputs.Items() {
-		ret = append(ret, input)
+	items := b.TxInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, input := range items {
+		ret[i] = input
 	}
 	return ret
 }
 
 func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
-	ret := []common.TransactionOutput{}
-	for _, output := range b.TxOutputs {
-		ret = append(ret, &output)
+	ret := make([]common.TransactionOutput, len(b.TxOutputs))
+	for i := range b.TxOutputs {
+		ret[i] = &b.TxOutputs[i]
 	}
 	return ret
 }
@@ -326,9 +336,10 @@ func (b *BabbageTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsse
 }
 
 func (b *BabbageTransactionBody) Collateral() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, collateral := range b.TxCollateral.Items() {
-		ret = append(ret, collateral)
+	items := b.TxCollateral.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, collateral := range items {
+		ret[i] = collateral
 	}
 	return ret
 }
@@ -342,9 +353,10 @@ func (b *BabbageTransactionBody) ScriptDataHash() *common.Blake2b256 {
 }
 
 func (b *BabbageTransactionBody) ReferenceInputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, input := range b.TxReferenceInputs.Items() {
-		ret = append(ret, &input)
+	items := b.TxReferenceInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i := range items {
+		ret[i] = &items[i]
 	}
 	return ret
 }
@@ -364,7 +376,7 @@ func (b *BabbageTransactionBody) TotalCollateral() uint64 {
 }
 
 func (b *BabbageTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 const (
@@ -374,11 +386,13 @@ const (
 
 type BabbageTransactionOutputDatumOption struct {
 	hash *common.Blake2b256
-	data *cbor.LazyValue
+	data *common.Datum
 }
 
-func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(data []byte) error {
-	datumOptionType, err := cbor.DecodeIdFromList(data)
+func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	datumOptionType, err := cbor.DecodeIdFromList(cborData)
 	if err != nil {
 		return err
 	}
@@ -389,7 +403,7 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(data []byte) error {
 			Type int
 			Hash common.Blake2b256
 		}
-		if _, err := cbor.Decode(data, &tmpDatumHash); err != nil {
+		if _, err := cbor.Decode(cborData, &tmpDatumHash); err != nil {
 			return err
 		}
 		d.hash = &(tmpDatumHash.Hash)
@@ -399,14 +413,14 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(data []byte) error {
 			Type     int
 			DataCbor []byte
 		}
-		if _, err := cbor.Decode(data, &tmpDatumData); err != nil {
+		if _, err := cbor.Decode(cborData, &tmpDatumData); err != nil {
 			return err
 		}
-		var datumValue cbor.LazyValue
+		var datumValue common.Datum
 		if _, err := cbor.Decode(tmpDatumData.DataCbor, &datumValue); err != nil {
 			return err
 		}
-		d.data = &(datumValue)
+		d.data = &datumValue
 	default:
 		return fmt.Errorf("unsupported datum option type: %d", datumOptionType)
 	}
@@ -418,7 +432,11 @@ func (d *BabbageTransactionOutputDatumOption) MarshalCBOR() ([]byte, error) {
 	if d.hash != nil {
 		tmpObj = []any{DatumOptionTypeHash, d.hash}
 	} else if d.data != nil {
-		tmpObj = []any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: d.data.Cbor()}}
+		tmpContent, err := cbor.Encode(d.data)
+		if err != nil {
+			return nil, err
+		}
+		tmpObj = []any{DatumOptionTypeData, cbor.Tag{Number: 24, Content: tmpContent}}
 	} else {
 		return nil, errors.New("unknown datum option type")
 	}
@@ -441,6 +459,12 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		// Copy from temp legacy object to Babbage format
 		o.OutputAddress = tmpOutput.OutputAddress
 		o.OutputAmount = tmpOutput.OutputAmount
+		// Copy datum hash if present in legacy Alonzo output
+		if tmpOutput.OutputDatumHash != nil {
+			o.DatumOption = &BabbageTransactionOutputDatumOption{
+				hash: tmpOutput.OutputDatumHash,
+			}
+		}
 		o.legacyOutput = true
 	} else {
 		type tBabbageTransactionOutput BabbageTransactionOutput
@@ -461,6 +485,10 @@ func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
 			OutputAddress: o.OutputAddress,
 			OutputAmount:  o.OutputAmount,
 		}
+		// Copy datum hash if present
+		if o.DatumOption != nil && o.DatumOption.hash != nil {
+			tmpOutput.OutputDatumHash = o.DatumOption.hash
+		}
 		return cbor.Encode(&tmpOutput)
 	}
 	return cbor.EncodeGeneric(o)
@@ -471,7 +499,7 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 		Address   common.Address                                  `json:"address"`
 		Amount    uint64                                          `json:"amount"`
 		Assets    *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
-		Datum     *cbor.LazyValue                                 `json:"datum,omitempty"`
+		Datum     *common.Datum                                   `json:"datum,omitempty"`
 		DatumHash string                                          `json:"datumHash,omitempty"`
 	}{
 		Address: o.OutputAddress,
@@ -500,7 +528,9 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 					[][2]data.PlutusData{
 						{
 							data.NewByteString(nil),
-							data.NewInteger(new(big.Int).SetUint64(o.OutputAmount.Amount)),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount.Amount),
+							),
 						},
 					},
 				),
@@ -518,16 +548,38 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 			assetDataMap.Pairs...,
 		)
 	}
+	var datumOptionPd data.PlutusData
+	switch {
+	case o.DatumOption == nil:
+		datumOptionPd = data.NewConstr(0)
+	case o.DatumOption.hash != nil:
+		datumOptionPd = data.NewConstr(
+			1,
+			data.NewByteString(o.DatumOption.hash.Bytes()),
+		)
+	case o.DatumOption.data != nil:
+		datumOptionPd = data.NewConstr(
+			2,
+			o.DatumOption.data.Data,
+		)
+	}
+	var scriptRefPd data.PlutusData
+	if o.TxOutScriptRef == nil {
+		scriptRefPd = data.NewConstr(1)
+	} else {
+		scriptRefPd = data.NewConstr(
+			0,
+			data.NewByteString(
+				o.TxOutScriptRef.Script.Hash().Bytes(),
+			),
+		)
+	}
 	tmpData := data.NewConstr(
 		0,
 		o.OutputAddress.ToPlutusData(),
 		data.NewMap(valueData),
-		// Empty datum option
-		// TODO: implement this
-		data.NewConstr(0),
-		// Empty script ref
-		// TODO: implement this
-		data.NewConstr(1),
+		datumOptionPd,
+		scriptRefPd,
 	)
 	return tmpData
 }
@@ -558,7 +610,7 @@ func (o BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
 	return &common.Blake2b256{}
 }
 
-func (o BabbageTransactionOutput) Datum() *cbor.LazyValue {
+func (o BabbageTransactionOutput) Datum() *common.Datum {
 	if o.DatumOption != nil {
 		return o.DatumOption.data
 	}
@@ -588,8 +640,10 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 			for _, assetName := range tmpAssets.Assets(policyId) {
 				amount := tmpAssets.Asset(policyId, assetName)
 				asset := &utxorpc.Asset{
-					Name:       assetName,
-					OutputCoin: amount,
+					Name: assetName,
+					Quantity: &utxorpc.Asset_OutputCoin{
+						OutputCoin: common.ToUtxorpcBigInt(amount),
+					},
 				}
 				ma.Assets = append(ma.Assets, asset)
 			}
@@ -606,7 +660,7 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 			Address: address,
-			Coin:    o.Amount(),
+			Coin:    common.ToUtxorpcBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,
@@ -617,15 +671,30 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
+func (o BabbageTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(BabbageTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
+}
+
 type BabbageTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
-	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []cbor.Value              `cbor:"4,keyasint,omitempty"`
+	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
+	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
-	WsPlutusV2Scripts  [][]byte                  `cbor:"6,keyasint,omitempty"`
+	WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
 }
 
 func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
@@ -637,6 +706,49 @@ func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	*w = BabbageTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil
+}
+
+func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if w.Cbor() != nil {
+		return w.Cbor(), nil
+	}
+
+	// When encoding from scratch, we need to use indefinite-length encoding
+	// for WsPlutusData to match the original on-chain format
+
+	// Create a temporary witness set for encoding
+	type tempWitnessSet struct {
+		cbor.DecodeStoreCbor
+		VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
+		WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
+		BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
+		WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
+		WsPlutusData       cbor.IndefLengthList      `cbor:"4,keyasint,omitempty"` // Use indefinite-length for Plutus data
+		WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
+		WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
+	}
+
+	// Convert WsPlutusData to IndefLengthList
+	var plutusDataIndefList cbor.IndefLengthList
+	if w.WsPlutusData != nil {
+		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData))
+		for i, datum := range w.WsPlutusData {
+			plutusDataIndefList[i] = datum
+		}
+	}
+
+	temp := tempWitnessSet{
+		VkeyWitnesses:      w.VkeyWitnesses,
+		WsNativeScripts:    w.WsNativeScripts,
+		BootstrapWitnesses: w.BootstrapWitnesses,
+		WsPlutusV1Scripts:  w.WsPlutusV1Scripts,
+		WsPlutusData:       plutusDataIndefList,
+		WsRedeemers:        w.WsRedeemers,
+		WsPlutusV2Scripts:  w.WsPlutusV2Scripts,
+	}
+
+	return cbor.Encode(&temp)
 }
 
 func (w BabbageTransactionWitnessSet) Vkey() []common.VkeyWitness {
@@ -651,20 +763,20 @@ func (w BabbageTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w BabbageTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w BabbageTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	return w.WsPlutusV2Scripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w BabbageTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Babbage
 	return nil
 }
 
-func (w BabbageTransactionWitnessSet) PlutusData() []cbor.Value {
+func (w BabbageTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData
 }
 
@@ -675,6 +787,7 @@ func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedee
 type BabbageTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       BabbageTransactionBody
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
@@ -697,7 +810,19 @@ func (BabbageTransaction) Type() int {
 }
 
 func (t BabbageTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t BabbageTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t BabbageTransaction) Inputs() []common.TransactionInput {

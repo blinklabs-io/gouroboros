@@ -230,12 +230,13 @@ func (b *AllegraTransactionBody) AuxDataHash() *common.Blake2b256 {
 }
 
 func (b *AllegraTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type AllegraTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       AllegraTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
@@ -257,7 +258,19 @@ func (AllegraTransaction) Type() int {
 }
 
 func (t AllegraTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t AllegraTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t AllegraTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t AllegraTransaction) Inputs() []common.TransactionInput {

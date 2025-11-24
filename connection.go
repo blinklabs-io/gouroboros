@@ -40,6 +40,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
@@ -87,6 +89,10 @@ type Connection struct {
 	handshake               *handshake.Handshake
 	keepAlive               *keepalive.KeepAlive
 	keepAliveConfig         *keepalive.Config
+	leiosFetch              *leiosfetch.LeiosFetch
+	leiosFetchConfig        *leiosfetch.Config
+	leiosNotify             *leiosnotify.LeiosNotify
+	leiosNotifyConfig       *leiosnotify.Config
 	localStateQuery         *localstatequery.LocalStateQuery
 	localStateQueryConfig   *localstatequery.Config
 	localTxMonitor          *localtxmonitor.LocalTxMonitor
@@ -207,6 +213,16 @@ func (c *Connection) Handshake() *handshake.Handshake {
 // KeepAlive returns the keep-alive protocol handler
 func (c *Connection) KeepAlive() *keepalive.KeepAlive {
 	return c.keepAlive
+}
+
+// LeiosFetch returns the leios-fetch protocol handler
+func (c *Connection) LeiosFetch() *leiosfetch.LeiosFetch {
+	return c.leiosFetch
+}
+
+// LeiosNotify returns the leios-notify protocol handler
+func (c *Connection) LeiosNotify() *leiosnotify.LeiosNotify {
+	return c.leiosNotify
 }
 
 // LocalStateQuery returns the local-state-query protocol handler
@@ -453,6 +469,8 @@ func (c *Connection) setupConnection() error {
 		if versionNtN.EnablePeerSharingProtocol {
 			c.peerSharing = peersharing.New(protoOptions, c.peerSharingConfig)
 		}
+		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
+		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
 		// Start protocols
 		if !c.delayProtocolStart {
 			if (c.fullDuplex && handshakeFullDuplex) || !c.server {
@@ -465,6 +483,8 @@ func (c *Connection) setupConnection() error {
 				if c.peerSharing != nil {
 					c.peerSharing.Client.Start()
 				}
+				c.leiosNotify.Client.Start()
+				c.leiosFetch.Client.Start()
 			}
 			if (c.fullDuplex && handshakeFullDuplex) || c.server {
 				c.blockFetch.Server.Start()
@@ -476,6 +496,8 @@ func (c *Connection) setupConnection() error {
 				if c.peerSharing != nil {
 					c.peerSharing.Server.Start()
 				}
+				c.leiosNotify.Server.Start()
+				c.leiosFetch.Server.Start()
 			}
 		}
 	} else {

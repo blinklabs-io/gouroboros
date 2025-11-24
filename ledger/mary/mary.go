@@ -17,6 +17,7 @@ package mary
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -63,6 +64,17 @@ func (b *MaryBlock) UnmarshalCBOR(cborData []byte) error {
 	*b = MaryBlock(tmp)
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *MaryBlock) MarshalCBOR() ([]byte, error) {
+	// Return the stored CBOR if available
+	// Note: this is a workaround for an issue described here:
+	// https://github.com/blinklabs-io/gouroboros/pull/1093#discussion_r2491161964
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	// Otherwise, encode generically
+	return cbor.EncodeGeneric(b)
 }
 
 func (MaryBlock) Type() int {
@@ -162,7 +174,7 @@ type MaryTransactionBody struct {
 	TxWithdrawals           map[*common.Address]uint64                    `cbor:"5,keyasint,omitempty"`
 	Update                  *MaryTransactionPparamUpdate                  `cbor:"6,keyasint,omitempty"`
 	TxAuxDataHash           *common.Blake2b256                            `cbor:"7,keyasint,omitempty"`
-	TxValidityIntervalStart uint64                                        `cbor:"8,keyasint,omitempty"`
+	TxValidityIntervalStart *uint64                                       `cbor:"8,keyasint,omitempty"`
 	TxMint                  *common.MultiAsset[common.MultiAssetTypeMint] `cbor:"9,keyasint,omitempty"`
 }
 
@@ -175,6 +187,13 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	*b = MaryTransactionBody(tmp)
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *MaryTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return cbor.EncodeGeneric(b)
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
@@ -202,7 +221,10 @@ func (b *MaryTransactionBody) TTL() uint64 {
 }
 
 func (b *MaryTransactionBody) ValidityIntervalStart() uint64 {
-	return b.TxValidityIntervalStart
+	if b.TxValidityIntervalStart == nil {
+		return 0
+	}
+	return *b.TxValidityIntervalStart
 }
 
 func (b *MaryTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
@@ -237,12 +259,13 @@ func (b *MaryTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTy
 }
 
 func (b *MaryTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type MaryTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       MaryTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata *cbor.LazyValue
@@ -264,7 +287,19 @@ func (MaryTransaction) Type() int {
 }
 
 func (t MaryTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t MaryTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t MaryTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t MaryTransaction) Inputs() []common.TransactionInput {
@@ -449,8 +484,46 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 }
 
 func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
-	// A Mary transaction output will never be used for Plutus scripts
-	return nil
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount.Amount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount.Amount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	if o.OutputAmount.Assets != nil {
+		assetData := o.OutputAmount.Assets.ToPlutusData()
+		assetDataMap, ok := assetData.(*data.Map)
+		if !ok {
+			return nil
+		}
+		valueData = append(
+			valueData,
+			assetDataMap.Pairs...,
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o MaryTransactionOutput) Address() common.Address {
@@ -473,7 +546,7 @@ func (o MaryTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o MaryTransactionOutput) Datum() *cbor.LazyValue {
+func (o MaryTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
@@ -484,10 +557,25 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    o.Amount(),
+			Coin:    common.ToUtxorpcBigInt(o.Amount()),
 			// Assets: o.Assets,
 		},
 		err
+}
+
+func (o MaryTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(MaryTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
 }
 
 type MaryTransactionOutputValue struct {

@@ -91,7 +91,7 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
-	var totalSteps, totalMemory uint64
+	var totalSteps, totalMemory int64
 	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers {
 		totalSteps += redeemer.ExUnits.Steps
 		totalMemory += redeemer.ExUnits.Memory
@@ -289,11 +289,11 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			certs, err := ls.PoolRegistration(common.Blake2b224(tmpCert.Operator).Bytes())
+			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
 			if err != nil {
 				return err
 			}
-			if len(certs) == 0 {
+			if reg == nil {
 				producedValue += uint64(tmpPparams.PoolDeposit)
 			}
 		case *common.StakeRegistrationCertificate:

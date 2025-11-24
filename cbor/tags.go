@@ -15,6 +15,7 @@
 package cbor
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -150,6 +151,24 @@ func (r *Rat) MarshalCBOR() ([]byte, error) {
 	return Encode(&tmpData)
 }
 
+func (r *Rat) UnmarshalJSON(data []byte) error {
+	// Try as ratio
+	var tmpData struct {
+		Numerator   int64 `json:"numerator"`
+		Denominator int64 `json:"denominator"`
+	}
+	if err := json.Unmarshal(data, &tmpData); err == nil {
+		r.Rat = big.NewRat(tmpData.Numerator, tmpData.Denominator)
+		return nil
+	}
+	// Try as decimal value
+	r.Rat = new(big.Rat)
+	if _, ok := r.SetString(string(data)); !ok {
+		return fmt.Errorf("math/big: cannot unmarshal %q into a *big.Rat", data)
+	}
+	return nil
+}
+
 func (r *Rat) ToBigRat() *big.Rat {
 	return r.Rat
 }
@@ -162,8 +181,8 @@ type Map map[any]any
 
 // SetType is a generic type for wrapping other types in an optional CBOR set tag
 type SetType[T any] struct {
-	useTag bool
 	items  []T
+	useTag bool
 }
 
 func NewSetType[T any](items []T, useTag bool) SetType[T] {

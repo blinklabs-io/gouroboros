@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"reflect"
+	"sort"
 	"sync"
 
 	_cbor "github.com/fxamacker/cbor/v2"
@@ -128,6 +129,57 @@ func (i IndefLengthByteString) MarshalCBOR() ([]byte, error) {
 	ret = append(
 		ret,
 		// End indefinite length bytestring
+		byte(0xff),
+	)
+	return ret, nil
+}
+
+type IndefLengthMap map[any]any
+
+func (i IndefLengthMap) MarshalCBOR() ([]byte, error) {
+	ret := []byte{
+		// Start indefinite-length map
+		0xbf,
+	}
+
+	// Collect keys and sort them by their CBOR encoding for deterministic output
+	type keyValue struct {
+		key     any
+		keyCbor []byte
+		value   any
+	}
+
+	kvPairs := make([]keyValue, 0, len(map[any]any(i)))
+	for key, value := range map[any]any(i) {
+		keyData, err := Encode(key)
+		if err != nil {
+			return nil, err
+		}
+		kvPairs = append(kvPairs, keyValue{
+			key:     key,
+			keyCbor: keyData,
+			value:   value,
+		})
+	}
+
+	// Sort by CBOR-encoded key for deterministic ordering
+	sort.Slice(kvPairs, func(a, b int) bool {
+		return bytes.Compare(kvPairs[a].keyCbor, kvPairs[b].keyCbor) < 0
+	})
+
+	// Encode in sorted order
+	for _, kv := range kvPairs {
+		ret = append(ret, kv.keyCbor...)
+		valueData, err := Encode(kv.value)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, valueData...)
+	}
+
+	ret = append(
+		ret,
+		// End indefinite length map
 		byte(0xff),
 	)
 	return ret, nil

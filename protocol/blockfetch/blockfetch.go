@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package blockfetch implements the Ouroboros Block Fetch mini-protocol.
+// It provides client and server implementations for requesting and serving
+// blocks over the network according to the Cardano Ouroboros specification.
 package blockfetch
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -23,21 +27,30 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-const (
-	ProtocolName        = "block-fetch"
-	ProtocolId   uint16 = 3
-)
+// ProtocolName is the name of the Block Fetch protocol.
+const ProtocolName = "block-fetch"
 
-var (
-	StateIdle      = protocol.NewState(1, "Idle")
-	StateBusy      = protocol.NewState(2, "Busy")
-	StateStreaming = protocol.NewState(3, "Streaming")
-	StateDone      = protocol.NewState(4, "Done")
-)
+// ProtocolId is the unique protocol identifier for Block Fetch.
+const ProtocolId uint16 = 3
 
+// StateIdle represents the Idle state in the Block Fetch protocol.
+var StateIdle = protocol.NewState(1, "Idle")
+
+// StateBusy represents the Busy state in the Block Fetch protocol.
+var StateBusy = protocol.NewState(2, "Busy")
+
+// StateStreaming represents the Streaming state in the Block Fetch protocol.
+var StateStreaming = protocol.NewState(3, "Streaming")
+
+// StateDone represents the Done state in the Block Fetch protocol.
+var StateDone = protocol.NewState(4, "Done")
+
+// StateMap defines the state transitions and agency for the Block Fetch protocol.
 var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 IdleTimeout, // Timeout for client to send block range request
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestRange,
@@ -50,7 +63,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateBusy: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 BusyTimeout, // Timeout for server to start batch or respond no blocks
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeStartBatch,
@@ -63,7 +78,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateStreaming: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Timeout:                 StreamingTimeout, // Timeout for server to send next block in batch
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlock,
@@ -76,40 +93,66 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		Agency:                  protocol.AgencyNone,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
 	},
 }
 
+// BlockFetch provides a combined client and server for the Block Fetch protocol.
 type BlockFetch struct {
-	Client *Client
-	Server *Server
+	Client *Client // Block Fetch client
+	Server *Server // Block Fetch server
 }
 
+// Config holds configuration options for the Block Fetch protocol.
 type Config struct {
-	BlockFunc         BlockFunc
-	BlockRawFunc      BlockRawFunc
-	BatchDoneFunc     BatchDoneFunc
-	RequestRangeFunc  RequestRangeFunc
-	BatchStartTimeout time.Duration
-	BlockTimeout      time.Duration
-	RecvQueueSize     int
+	BlockFunc         BlockFunc        // Callback for decoded blocks
+	BlockRawFunc      BlockRawFunc     // Callback for raw block data
+	BatchDoneFunc     BatchDoneFunc    // Callback when a batch is done
+	RequestRangeFunc  RequestRangeFunc // Callback for range requests
+	BatchStartTimeout time.Duration    // Timeout for starting a batch
+	BlockTimeout      time.Duration    // Timeout for receiving a block
+	RecvQueueSize     int              // Size of the receive queue
 }
 
-// Callback context
+// MaxRecvQueueSize is the maximum allowed receive queue size (messages).
+const MaxRecvQueueSize = 512
+
+// DefaultRecvQueueSize is the default receive queue size.
+const DefaultRecvQueueSize = 384
+
+// MaxPendingMessageBytes is the maximum allowed pending message bytes (5MB).
+const MaxPendingMessageBytes = 5242880
+
+// IdleTimeout is the timeout for the client to send a block range request.
+const IdleTimeout = 60 * time.Second
+
+// BusyTimeout is the timeout for the server to start a batch or respond no blocks.
+const BusyTimeout = 5 * time.Second
+
+// StreamingTimeout is the timeout for the server to send the next block in a batch.
+const StreamingTimeout = 60 * time.Second
+
+// CallbackContext provides context for Block Fetch callbacks.
 type CallbackContext struct {
-	ConnectionId connection.ConnectionId
-	Client       *Client
-	Server       *Server
+	ConnectionId connection.ConnectionId // Connection ID
+	Client       *Client                 // Client instance (if applicable)
+	Server       *Server                 // Server instance (if applicable)
 }
 
-// Callback function types
-type (
-	BlockFunc        func(CallbackContext, uint, ledger.Block) error
-	BlockRawFunc     func(CallbackContext, uint, []byte) error
-	BatchDoneFunc    func(CallbackContext) error
-	RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
-)
+// BlockFunc is a callback for handling decoded blocks.
+type BlockFunc func(CallbackContext, uint, ledger.Block) error
 
+// BlockRawFunc is a callback for handling raw block data.
+type BlockRawFunc func(CallbackContext, uint, []byte) error
+
+// BatchDoneFunc is a callback invoked when a batch is complete.
+type BatchDoneFunc func(CallbackContext) error
+
+// RequestRangeFunc is a callback for handling block range requests.
+type RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
+
+// New creates a new BlockFetch instance with the given protocol options and configuration.
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	b := &BlockFetch{
 		Client: NewClient(protoOptions, cfg),
@@ -118,38 +161,70 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 	return b
 }
 
+// BlockFetchOptionFunc is a function that modifies a BlockFetch Config.
 type BlockFetchOptionFunc func(*Config)
 
+// NewConfig creates a new Config for Block Fetch, applying any provided option functions.
+// It panics if the resulting configuration is invalid.
 func NewConfig(options ...BlockFetchOptionFunc) Config {
 	c := Config{
 		BatchStartTimeout: 5 * time.Second,
 		BlockTimeout:      60 * time.Second,
+		RecvQueueSize:     DefaultRecvQueueSize,
 	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
 	}
+
+	// Validate configuration against protocol limits
+	if err := c.validate(); err != nil {
+		panic("invalid BlockFetch configuration: " + err.Error())
+	}
+
 	return c
 }
 
+// validate checks that the configuration values are within protocol limits.
+func (c *Config) validate() error {
+	if c.RecvQueueSize < 0 {
+		return fmt.Errorf(
+			"RecvQueueSize %d must be non-negative",
+			c.RecvQueueSize,
+		)
+	}
+	if c.RecvQueueSize > MaxRecvQueueSize {
+		return fmt.Errorf(
+			"RecvQueueSize %d exceeds maximum allowed %d",
+			c.RecvQueueSize,
+			MaxRecvQueueSize,
+		)
+	}
+	return nil
+}
+
+// WithBlockFunc sets the BlockFunc callback in the Config.
 func WithBlockFunc(blockFunc BlockFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockFunc = blockFunc
 	}
 }
 
+// WithBlockRawFunc sets the BlockRawFunc callback in the Config.
 func WithBlockRawFunc(blockRawFunc BlockRawFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockRawFunc = blockRawFunc
 	}
 }
 
+// WithBatchDoneFunc sets the BatchDoneFunc callback in the Config.
 func WithBatchDoneFunc(batchDoneFunc BatchDoneFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BatchDoneFunc = batchDoneFunc
 	}
 }
 
+// WithRequestRangeFunc sets the RequestRangeFunc callback in the Config.
 func WithRequestRangeFunc(
 	requestRangeFunc RequestRangeFunc,
 ) BlockFetchOptionFunc {
@@ -158,22 +233,41 @@ func WithRequestRangeFunc(
 	}
 }
 
+// WithBatchStartTimeout sets the batch start timeout in the Config.
 func WithBatchStartTimeout(timeout time.Duration) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BatchStartTimeout = timeout
 	}
 }
 
+// WithBlockTimeout sets the block timeout in the Config.
 func WithBlockTimeout(timeout time.Duration) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockTimeout = timeout
 	}
 }
 
-// WithRecvQueueSize specifies the size of the received messages queue. This is useful to adjust
-// the number of blocks that can be fetched at once when acting as a client
+// WithRecvQueueSize specifies the size of the received messages queue in the Config.
+// Panics if the size is negative or exceeds MaxRecvQueueSize.
 func WithRecvQueueSize(size int) BlockFetchOptionFunc {
 	return func(c *Config) {
+		if size < 0 {
+			panic(
+				fmt.Sprintf(
+					"RecvQueueSize %d must be non-negative",
+					size,
+				),
+			)
+		}
+		if size > MaxRecvQueueSize {
+			panic(
+				fmt.Sprintf(
+					"RecvQueueSize %d exceeds maximum %d",
+					size,
+					MaxRecvQueueSize,
+				),
+			)
+		}
 		c.RecvQueueSize = size
 	}
 }

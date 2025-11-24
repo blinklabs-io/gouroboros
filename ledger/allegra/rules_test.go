@@ -23,7 +23,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-
 	"github.com/stretchr/testify/assert"
 )
 
@@ -552,9 +551,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount - testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeRegistration),
 					Certificate: &common.StakeRegistrationCertificate{
-						StakeRegistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}
@@ -579,9 +578,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount + testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeDeregistration),
 					Certificate: &common.StakeDeregistrationCertificate{
-						StakeDeregistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}

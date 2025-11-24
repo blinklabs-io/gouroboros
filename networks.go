@@ -18,7 +18,7 @@ import "github.com/blinklabs-io/gouroboros/ledger/common"
 
 // Network definitions
 var (
-	NetworkMainnet = Network{
+	NetworkCardanoMainnet = Network{
 		Id:           common.AddressNetworkMainnet,
 		Name:         "mainnet",
 		NetworkMagic: 764824073,
@@ -37,7 +37,7 @@ var (
 			},
 		},
 	}
-	NetworkPreprod = Network{
+	NetworkCardanoPreprod = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "preprod",
 		NetworkMagic: 1,
@@ -48,7 +48,7 @@ var (
 			},
 		},
 	}
-	NetworkPreview = Network{
+	NetworkCardanoPreview = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "preview",
 		NetworkMagic: 2,
@@ -59,7 +59,7 @@ var (
 			},
 		},
 	}
-	NetworkSancho = Network{
+	NetworkCardanoSancho = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "sanchonet",
 		NetworkMagic: 4,
@@ -70,19 +70,55 @@ var (
 			},
 		},
 	}
+	// NetworkPrimeMainnet intentionally shares the same NetworkMagic as NetworkCardanoMainnet
+	// because both networks use unaltered cardano-node binaries. Network differentiation
+	// occurs through the bootstrap peers configuration.
+	NetworkPrimeMainnet = Network{
+		Id:           common.AddressNetworkMainnet,
+		Name:         "prime-mainnet",
+		NetworkMagic: 764824073,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "bootstrap.prime.mainnet.apexfusion.org",
+				Port:    5521,
+			},
+		},
+	}
+	NetworkPrimeTestnet = Network{
+		Id:           common.AddressNetworkTestnet,
+		Name:         "prime-testnet",
+		NetworkMagic: 3311,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "relay-0.prime.testnet.apexfusion.org",
+				Port:    5521,
+			},
+			{
+				Address: "relay-1.prime.testnet.apexfusion.org",
+				Port:    5521,
+			},
+		},
+	}
 	NetworkDevnet = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "devnet",
 		NetworkMagic: 42,
 	}
+	// Compatibility assignments (deprecated: use NetworkCardano* variants)
+	NetworkMainnet = NetworkCardanoMainnet
+	NetworkPreprod = NetworkCardanoPreprod
+	NetworkPreview = NetworkCardanoPreview
+	NetworkSancho  = NetworkCardanoSancho
 )
 
 // List of valid networks for use in lookup functions
 var networks = []Network{
-	NetworkMainnet,
-	NetworkPreprod,
-	NetworkPreview,
-	NetworkSancho,
+	NetworkCardanoMainnet,
+	NetworkCardanoPreprod,
+	NetworkCardanoPreview,
+	NetworkCardanoSancho,
+	NetworkPrimeMainnet,
+	NetworkPrimeTestnet,
 	NetworkDevnet,
 }
 
@@ -107,6 +143,8 @@ func NetworkById(id uint8) (Network, bool) {
 }
 
 // NetworkByNetworkMagic returns a predefined network by network magic
+// This will return NetworkCardanoMainnet and not NetworkPrimeMainnet
+// for magic 764824073
 func NetworkByNetworkMagic(networkMagic uint32) (Network, bool) {
 	for _, network := range networks {
 		if network.NetworkMagic == networkMagic {

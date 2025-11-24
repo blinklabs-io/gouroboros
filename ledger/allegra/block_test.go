@@ -17,6 +17,7 @@ package allegra_test
 import (
 	"bytes"
 	"encoding/hex"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -110,8 +111,12 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 	assert.NotNil(t, utxorpcBlock, "RPC block is nil")
 
 	t.Run("BlockHeader", func(t *testing.T) {
-		assert.Equal(t, expectedHash, hex.EncodeToString(utxorpcBlock.Header.Hash),
-			"Block hash mismatch")
+		assert.Equal(
+			t,
+			expectedHash,
+			hex.EncodeToString(utxorpcBlock.Header.Hash),
+			"Block hash mismatch",
+		)
 
 		assert.Equal(t, expectedHeight, utxorpcBlock.Header.Height,
 			"Block height mismatch")
@@ -129,10 +134,65 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 
 		if len(rpcTxs) > 0 {
 			firstRpcTx := rpcTxs[0]
-			assert.NotEmpty(t, firstRpcTx.Hash, "Transaction hash should not be empty")
-			assert.Greater(t, len(firstRpcTx.Inputs), 0, "Transaction should have inputs")
-			assert.Greater(t, len(firstRpcTx.Outputs), 0, "Transaction should have outputs")
-			assert.Greater(t, firstRpcTx.Fee, uint64(0), "Transaction fee should be positive")
+			assert.NotEmpty(
+				t,
+				firstRpcTx.Hash,
+				"Transaction hash should not be empty",
+			)
+			assert.Greater(
+				t,
+				len(firstRpcTx.Inputs),
+				0,
+				"Transaction should have inputs",
+			)
+			assert.Greater(
+				t,
+				len(firstRpcTx.Outputs),
+				0,
+				"Transaction should have outputs",
+			)
+			fee := firstRpcTx.Fee
+			if fee.GetInt() != 0 {
+				assert.Greater(
+					t,
+					fee.GetInt(),
+					int64(0),
+					"Transaction fee should be positive",
+				)
+			} else {
+				feeBigInt := new(big.Int).SetBytes(fee.GetBigUInt())
+				assert.Greater(
+					t,
+					feeBigInt.Sign(),
+					0,
+					"Transaction fee should be positive",
+				)
+			}
 		}
 	})
+}
+
+func BenchmarkAllegraBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(allegraBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block allegra.AllegraBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAllegraBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(allegraBlockHex)
+	var block allegra.AllegraBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
 }

@@ -37,6 +37,6 @@ type RedeemerKey struct {
 
 type RedeemerValue struct {
 	cbor.StructAsArray
-	Data    cbor.LazyValue
+	Data    Datum
 	ExUnits ExUnits
 }

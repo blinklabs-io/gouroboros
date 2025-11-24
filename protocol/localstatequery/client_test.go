@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
-
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
@@ -234,7 +233,7 @@ func TestGetUTxOByAddress(t *testing.T) {
 		Hash: ledger.NewBlake2b256([]byte{0x1, 0x2}),
 		Idx:  7,
 	}
-	expectedResult := localstatequery.UTxOByAddressResult{
+	expectedResult := localstatequery.UTxOsResult{
 		Results: map[localstatequery.UtxoId]ledger.BabbageTransactionOutput{
 			expectedUtxoId: {
 				OutputAddress: testAddress,

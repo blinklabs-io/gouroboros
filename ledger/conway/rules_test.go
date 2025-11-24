@@ -28,7 +28,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-
 	"github.com/stretchr/testify/assert"
 )
 
@@ -503,6 +502,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	var testInputAmount uint64 = 555666777
 	var testFee uint64 = 123456
 	var testStakeDeposit uint64 = 2_000_000
+	var testDepositAmount uint64 = 1_500_000
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
@@ -560,9 +560,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeRegistration),
 					Certificate: &common.StakeRegistrationCertificate{
-						StakeRegistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}
@@ -587,9 +587,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeDeregistration),
 					Certificate: &common.StakeDeregistrationCertificate{
-						StakeDeregistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}
@@ -653,6 +653,136 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 				return
 			}
 			testErrType := shelley.ValueNotConservedUtxoError{}
+			assert.IsType(
+				t,
+				testErrType,
+				err,
+				"did not get expected error type: got %T, wanted %T",
+				err,
+				testErrType,
+			)
+		},
+	)
+	// CIP-0094 Registration certificate with valid deposit
+	t.Run(
+		"registration certificate valid deposit",
+		func(t *testing.T) {
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testDepositAmount // Subtract deposit from output
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeRegistration),
+					Certificate: &common.RegistrationCertificate{
+						StakeCredential: common.Credential{},
+						Amount:          int64(testDepositAmount),
+					},
+				},
+			}
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should succeed with valid registration deposit\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+	// CIP-0094 Registration certificate with invalid deposit (zero)
+	t.Run(
+		"registration certificate invalid deposit zero",
+		func(t *testing.T) {
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeRegistration),
+					Certificate: &common.RegistrationCertificate{
+						StakeCredential: common.Credential{},
+						Amount:          0,
+					},
+				},
+			}
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err == nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should fail with zero registration deposit",
+				)
+				return
+			}
+			testErrType := shelley.InvalidCertificateDepositError{}
+			assert.IsType(
+				t,
+				testErrType,
+				err,
+				"did not get expected error type: got %T, wanted %T",
+				err,
+				testErrType,
+			)
+		},
+	)
+	// CIP-0094 Deregistration certificate with valid refund
+	t.Run(
+		"deregistration certificate valid refund",
+		func(t *testing.T) {
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testDepositAmount // Add refund to output
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeDeregistration),
+					Certificate: &common.DeregistrationCertificate{
+						StakeCredential: common.Credential{},
+						Amount:          int64(testDepositAmount),
+					},
+				},
+			}
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should succeed with valid deregistration refund\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+	// CIP-0094 Deregistration certificate with invalid refund (zero)
+	t.Run(
+		"deregistration certificate invalid refund zero",
+		func(t *testing.T) {
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeDeregistration),
+					Certificate: &common.DeregistrationCertificate{
+						StakeCredential: common.Credential{},
+						Amount:          0,
+					},
+				},
+			}
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err == nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should fail with zero deregistration refund",
+				)
+				return
+			}
+			testErrType := shelley.InvalidCertificateDepositError{}
 			assert.IsType(
 				t,
 				testErrType,

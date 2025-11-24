@@ -25,18 +25,20 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
+// Client implements the Block Fetch protocol client, which requests blocks from a server.
 type Client struct {
 	*protocol.Protocol
-	config               *Config
-	callbackContext      CallbackContext
-	blockChan            chan ledger.Block
-	startBatchResultChan chan error
-	busyMutex            sync.Mutex
-	blockUseCallback     bool
-	onceStart            sync.Once
-	onceStop             sync.Once
+	config               *Config           // Protocol configuration
+	callbackContext      CallbackContext   // Callback context for client
+	blockChan            chan ledger.Block // Channel for received blocks
+	startBatchResultChan chan error        // Channel for batch start results
+	busyMutex            sync.Mutex        // Mutex for busy state
+	blockUseCallback     bool              // Whether to use callback for blocks
+	onceStart            sync.Once         // Ensures Start is only called once
+	onceStop             sync.Once         // Ensures Stop is only called once
 }
 
+// NewClient creates a new Block Fetch protocol client with the given options and configuration.
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
 		tmpCfg := NewConfig()
@@ -82,6 +84,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
+// Start begins the Block Fetch client protocol. Safe to call multiple times.
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
@@ -100,6 +103,7 @@ func (c *Client) Start() {
 	})
 }
 
+// Stop stops the Block Fetch client protocol and sends a ClientDone message.
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
@@ -119,7 +123,8 @@ func (c *Client) Stop() error {
 	return err
 }
 
-// GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive)
+// GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive).
+// The provided callbacks are used for each block and when the batch is done.
 func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 	c.Protocol.Logger().
 		Debug(
@@ -154,7 +159,8 @@ func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 	return nil
 }
 
-// GetBlock requests and returns a single block specified by the provided point
+// GetBlock requests and returns a single block specified by the provided point.
+// This is a synchronous call that returns the block or an error.
 func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	c.Protocol.Logger().
 		Debug(
@@ -189,6 +195,7 @@ func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
 	return block, nil
 }
 
+// messageHandler handles incoming protocol messages for the client.
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -210,6 +217,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
+// handleStartBatch handles the StartBatch message from the server.
 func (c *Client) handleStartBatch() error {
 	c.Protocol.Logger().
 		Debug("starting batch",
@@ -228,6 +236,7 @@ func (c *Client) handleStartBatch() error {
 	return nil
 }
 
+// handleNoBlocks handles the NoBlocks message from the server.
 func (c *Client) handleNoBlocks() error {
 	c.Protocol.Logger().
 		Debug("no blocks returned",
@@ -247,6 +256,7 @@ func (c *Client) handleNoBlocks() error {
 	return nil
 }
 
+// handleBlock handles the Block message from the server.
 func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
 		Debug("block returned",
@@ -297,6 +307,7 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	return nil
 }
 
+// handleBatchDone handles the BatchDone message from the server.
 func (c *Client) handleBatchDone() error {
 	c.Protocol.Logger().
 		Debug("batch done",

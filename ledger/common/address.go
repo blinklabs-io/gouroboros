@@ -15,9 +15,12 @@
 package common
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -57,8 +60,8 @@ type AddrKeyHash = Blake2b224
 type Address struct {
 	addressType      uint8
 	networkId        uint8
-	paymentAddress   []byte
-	stakingAddress   []byte
+	paymentPayload   AddressPayload
+	stakingPayload   AddressPayload
 	extraData        []byte
 	byronAddressType uint64
 	byronAddressAttr ByronAddressAttributes
@@ -109,40 +112,23 @@ func NewAddressFromParts(
 	stakingAddr []byte,
 ) (Address, error) {
 	// Validate network ID
-	if networkId != AddressNetworkTestnet && networkId != AddressNetworkMainnet {
+	if networkId != AddressNetworkTestnet &&
+		networkId != AddressNetworkMainnet {
 		return Address{}, errors.New("invalid network ID")
 	}
-
-	// Handle stake-only addresses
-	if addrType == AddressTypeNoneKey || addrType == AddressTypeNoneScript {
-		if len(paymentAddr) > 0 {
-			return Address{}, errors.New("payment address must be empty for stake-only addresses")
-		}
-		if len(stakingAddr) != AddressHashSize {
-			return Address{}, fmt.Errorf("staking key must be exactly %d bytes", AddressHashSize)
-		}
-		return Address{
-			addressType:    addrType,
-			networkId:      networkId,
-			stakingAddress: stakingAddr,
-		}, nil
+	// Build address bytes
+	buf := bytes.NewBuffer(nil)
+	header := (addrType << 4) | (networkId & AddressHeaderNetworkMask)
+	if err := buf.WriteByte(header); err != nil {
+		return Address{}, err
 	}
-
-	// Handle regular addresses
-	if len(paymentAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf("payment address must be exactly %d bytes", AddressHashSize)
+	if _, err := buf.Write(paymentAddr); err != nil {
+		return Address{}, err
 	}
-
-	if len(stakingAddr) > 0 && len(stakingAddr) != AddressHashSize {
-		return Address{}, fmt.Errorf("staking address must be empty or exactly %d bytes", AddressHashSize)
+	if _, err := buf.Write(stakingAddr); err != nil {
+		return Address{}, err
 	}
-
-	return Address{
-		addressType:    addrType,
-		networkId:      networkId,
-		paymentAddress: paymentAddr,
-		stakingAddress: stakingAddr,
-	}, nil
+	return NewAddressFromBytes(buf.Bytes())
 }
 
 func NewByronAddressFromParts(
@@ -157,8 +143,10 @@ func NewByronAddressFromParts(
 		)
 	}
 	return Address{
-		addressType:      AddressTypeByron,
-		paymentAddress:   paymentAddr,
+		addressType: AddressTypeByron,
+		paymentPayload: AddressPayloadKeyHash{
+			Hash: AddrKeyHash(paymentAddr),
+		},
 		byronAddressType: byronAddrType,
 		byronAddressAttr: attr,
 	}, nil
@@ -189,8 +177,10 @@ func NewByronAddressRedeem(
 	sha3Sum := sha3.Sum256(addrRootBytes)
 	addrHash := Blake2b224Hash(sha3Sum[:])
 	return Address{
-		addressType:      AddressTypeByron,
-		paymentAddress:   addrHash.Bytes(),
+		addressType: AddressTypeByron,
+		paymentPayload: AddressPayloadKeyHash{
+			Hash: AddrKeyHash(addrHash.Bytes()),
+		},
 		byronAddressType: ByronAddressTypeRedeem,
 		byronAddressAttr: attr,
 	}, nil
@@ -230,50 +220,69 @@ func (a *Address) populateFromBytes(data []byte) error {
 		}
 		a.byronAddressType = byronAddr.AddrType
 		a.byronAddressAttr = byronAddr.Attr
-		a.paymentAddress = byronAddr.Hash
+		a.paymentPayload = AddressPayloadKeyHash{
+			Hash: AddrKeyHash(byronAddr.Hash),
+		}
 		return nil
 	}
-	// Check length
-	// We exclude a few address types without fixed sizes that we don't properly support yet
-	if a.addressType != AddressTypeKeyPointer &&
-		a.addressType != AddressTypeScriptPointer {
-		dataLen := len(data)
-		// Addresses must be at least the address hash size plus header byte
-		if dataLen < (AddressHashSize + 1) {
-			return fmt.Errorf("invalid address length: %d", dataLen)
-		}
-		// Check bounds of second part if the address type is supposed to have one
-		if a.addressType != AddressTypeKeyNone &&
-			a.addressType != AddressTypeScriptNone {
-			if dataLen > (AddressHashSize + 1) {
-				if dataLen < (AddressHashSize + AddressHashSize + 1) {
-					return fmt.Errorf("invalid address length: %d", dataLen)
-				}
-			}
-		}
-	}
-	// Extract payload
+	// Payment payload
 	payload := data[1:]
-	a.paymentAddress = payload[:AddressHashSize]
-	payload = payload[AddressHashSize:]
-	if a.addressType != AddressTypeKeyNone &&
-		a.addressType != AddressTypeScriptNone {
-		if len(payload) >= AddressHashSize {
-			a.stakingAddress = payload[:AddressHashSize]
-			payload = payload[AddressHashSize:]
+	switch a.addressType {
+	case AddressTypeKeyKey,
+		AddressTypeKeyScript,
+		AddressTypeKeyPointer,
+		AddressTypeKeyNone:
+		if len(payload) < AddressHashSize {
+			return errors.New("invalid payment payload: key hash too small")
 		}
+		a.paymentPayload = AddressPayloadKeyHash{
+			Hash: AddrKeyHash(payload[0:AddressHashSize]),
+		}
+		payload = payload[AddressHashSize:]
+	case AddressTypeScriptKey,
+		AddressTypeScriptScript,
+		AddressTypeScriptPointer,
+		AddressTypeScriptNone:
+		if len(payload) < AddressHashSize {
+			return errors.New("invalid payment payload: script hash too small")
+		}
+		a.paymentPayload = AddressPayloadScriptHash{
+			Hash: ScriptHash(payload[0:AddressHashSize]),
+		}
+		payload = payload[AddressHashSize:]
+	}
+	// Staking payload
+	switch a.addressType {
+	case AddressTypeKeyKey, AddressTypeScriptKey, AddressTypeNoneKey:
+		if len(payload) < AddressHashSize {
+			return errors.New("invalid staking payload: key hash too small")
+		}
+		a.stakingPayload = AddressPayloadKeyHash{
+			Hash: AddrKeyHash(payload[0:AddressHashSize]),
+		}
+		payload = payload[AddressHashSize:]
+	case AddressTypeKeyScript, AddressTypeScriptScript, AddressTypeNoneScript:
+		if len(payload) < AddressHashSize {
+			return errors.New("invalid staking payload: script hash too small")
+		}
+		a.stakingPayload = AddressPayloadScriptHash{
+			Hash: ScriptHash(payload[0:AddressHashSize]),
+		}
+		payload = payload[AddressHashSize:]
+	case AddressTypeKeyPointer, AddressTypeScriptPointer:
+		var tmpPointer AddressPayloadPointer
+		n, err := tmpPointer.decode(payload)
+		if err != nil {
+			return err
+		}
+		a.stakingPayload = tmpPointer
+		payload = payload[n:]
 	}
 	// Store any extra address data
 	// This is needed to handle the case describe in:
 	// https://github.com/IntersectMBO/cardano-ledger/issues/2729
 	if len(payload) > 0 {
 		a.extraData = payload[:]
-	}
-	// Adjust stake addresses
-	if a.addressType == AddressTypeNoneKey ||
-		a.addressType == AddressTypeNoneScript {
-		a.stakingAddress = a.paymentAddress[:]
-		a.paymentAddress = make([]byte, 0)
 	}
 	return nil
 }
@@ -308,48 +317,84 @@ func (a *Address) ToPlutusData() data.PlutusData {
 		// There is no PlutusData representation for Byron addresses
 		return nil
 	}
+	// Stake-only address
+	if a.paymentPayload == nil && a.stakingPayload != nil {
+		switch p := a.stakingPayload.(type) {
+		case AddressPayloadKeyHash:
+			return data.NewConstr(
+				0,
+				data.NewByteString(p.Hash.Bytes()),
+			)
+		case AddressPayloadScriptHash:
+			return data.NewConstr(
+				1,
+				data.NewByteString(p.Hash.Bytes()),
+			)
+		}
+	}
 	// Build payment part
 	var paymentPd data.PlutusData
-	switch a.addressType {
-	case AddressTypeKeyKey, AddressTypeKeyScript, AddressTypeKeyPointer, AddressTypeKeyNone:
+	switch p := a.paymentPayload.(type) {
+	case AddressPayloadKeyHash:
 		paymentPd = data.NewConstr(
 			0,
-			data.NewByteString(a.paymentAddress),
+			data.NewByteString(p.Hash[:]),
 		)
-	case AddressTypeScriptKey, AddressTypeScriptScript, AddressTypeScriptPointer, AddressTypeScriptNone:
+	case AddressPayloadScriptHash:
 		paymentPd = data.NewConstr(
 			1,
-			data.NewByteString(a.paymentAddress),
+			data.NewByteString(p.Hash[:]),
 		)
-	default:
-		return nil
 	}
 	// Build stake part
 	var stakePd data.PlutusData
-	switch a.addressType {
-	case AddressTypeKeyKey, AddressTypeScriptKey, AddressTypeNoneKey:
-		tmpCred := &Credential{
-			CredType:   CredentialTypeAddrKeyHash,
-			Credential: NewBlake2b224(a.stakingAddress),
-		}
-		stakePd = data.NewConstr(
-			0,
-			tmpCred.ToPlutusData(),
-		)
-	case AddressTypeKeyScript, AddressTypeScriptScript, AddressTypeNoneScript:
-		tmpCred := &Credential{
-			CredType:   CredentialTypeScriptHash,
-			Credential: NewBlake2b224(a.stakingAddress),
-		}
-		stakePd = data.NewConstr(
-			0,
-			tmpCred.ToPlutusData(),
-		)
-	case AddressTypeKeyNone, AddressTypeScriptNone:
+	if a.stakingPayload == nil {
 		stakePd = data.NewConstr(1)
-	// TODO: add support for pointer addresses once we add it to Address
-	default:
-		return nil
+	} else {
+		switch p := a.stakingPayload.(type) {
+		case AddressPayloadKeyHash:
+			tmpCred := &Credential{
+				CredType:   CredentialTypeAddrKeyHash,
+				Credential: NewBlake2b224(p.Hash[:]),
+			}
+			stakePd = data.NewConstr(
+				0,
+				data.NewConstr(
+					0,
+					tmpCred.ToPlutusData(),
+				),
+			)
+		case AddressPayloadScriptHash:
+			tmpCred := &Credential{
+				CredType:   CredentialTypeScriptHash,
+				Credential: NewBlake2b224(p.Hash[:]),
+			}
+			stakePd = data.NewConstr(
+				0,
+				data.NewConstr(
+					0,
+					tmpCred.ToPlutusData(),
+				),
+			)
+		case AddressPayloadPointer:
+			stakePd = data.NewConstr(
+				0,
+				data.NewConstr(
+					1,
+					data.NewInteger(
+						new(big.Int).SetUint64(p.Slot),
+					),
+					data.NewInteger(
+						new(big.Int).SetUint64(p.TxIndex),
+					),
+					data.NewInteger(
+						new(big.Int).SetUint64(p.CertIndex),
+					),
+				),
+			)
+		default:
+			return nil
+		}
 	}
 	return data.NewConstr(
 		0,
@@ -395,18 +440,31 @@ func (a Address) PaymentAddress() *Address {
 	newAddr := &Address{
 		addressType:    addrType,
 		networkId:      a.networkId,
-		paymentAddress: a.paymentAddress[:],
+		paymentPayload: a.paymentPayload,
 	}
 	return newAddr
 }
 
 // PaymentKeyHash returns a new Blake2b224 hash of the payment key
 func (a *Address) PaymentKeyHash() Blake2b224 {
-	if len(a.paymentAddress) != AddressHashSize {
+	if a.paymentPayload == nil {
 		// Return empty hash
 		return Blake2b224([AddressHashSize]byte{})
 	}
-	return Blake2b224(a.paymentAddress[:])
+	switch p := a.paymentPayload.(type) {
+	case AddressPayloadKeyHash:
+		return Blake2b224(p.Hash[:])
+	case AddressPayloadScriptHash:
+		return Blake2b224(p.Hash[:])
+	default:
+		// Return empty hash
+		return Blake2b224([AddressHashSize]byte{})
+	}
+}
+
+// PaymentPayload returns the payment payload
+func (a *Address) PayloadPayload() AddressPayload {
+	return a.paymentPayload
 }
 
 // StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
@@ -424,18 +482,31 @@ func (a Address) StakeAddress() *Address {
 	newAddr := &Address{
 		addressType:    addrType,
 		networkId:      a.networkId,
-		stakingAddress: a.stakingAddress[:],
+		stakingPayload: a.stakingPayload,
 	}
 	return newAddr
 }
 
 // StakeKeyHash returns a new Blake2b224 hash of the stake key
 func (a *Address) StakeKeyHash() Blake2b224 {
-	if len(a.stakingAddress) != AddressHashSize {
+	if a.stakingPayload == nil {
 		// Return empty hash
 		return Blake2b224([AddressHashSize]byte{})
 	}
-	return Blake2b224(a.stakingAddress[:])
+	switch p := a.stakingPayload.(type) {
+	case AddressPayloadKeyHash:
+		return Blake2b224(p.Hash[:])
+	case AddressPayloadScriptHash:
+		return Blake2b224(p.Hash[:])
+	default:
+		// Return empty hash
+		return Blake2b224([AddressHashSize]byte{})
+	}
+}
+
+// StakingPayload returns the staking payload
+func (a *Address) StakingPayload() AddressPayload {
+	return a.stakingPayload
 }
 
 func (a *Address) ByronAttr() ByronAddressAttributes {
@@ -461,7 +532,7 @@ func (a Address) generateHRP() string {
 func (a Address) Bytes() ([]byte, error) {
 	if a.addressType == AddressTypeByron {
 		tmpPayload := []any{
-			a.paymentAddress,
+			a.paymentPayload.(AddressPayloadKeyHash).Hash.Bytes(),
 			a.byronAddressAttr,
 			a.byronAddressType,
 		}
@@ -488,15 +559,45 @@ func (a Address) Bytes() ([]byte, error) {
 		}
 		return ret, nil
 	}
-	ret := []byte{}
-	ret = append(
-		ret,
-		(a.addressType<<4)|(a.networkId&AddressHeaderNetworkMask),
-	)
-	ret = append(ret, a.paymentAddress...)
-	ret = append(ret, a.stakingAddress...)
-	ret = append(ret, a.extraData...)
-	return ret, nil
+	buf := bytes.NewBuffer(nil)
+	header := (a.addressType << 4) | (a.networkId & AddressHeaderNetworkMask)
+	if err := buf.WriteByte(header); err != nil {
+		return nil, err
+	}
+	if a.paymentPayload != nil {
+		var paymentPayload []byte
+		switch p := a.paymentPayload.(type) {
+		case AddressPayloadKeyHash:
+			paymentPayload = p.Hash.Bytes()
+		case AddressPayloadScriptHash:
+			paymentPayload = p.Hash.Bytes()
+		}
+		if _, err := buf.Write(paymentPayload); err != nil {
+			return nil, err
+		}
+	}
+	if a.stakingPayload != nil {
+		var stakingPayload []byte
+		switch p := a.stakingPayload.(type) {
+		case AddressPayloadKeyHash:
+			stakingPayload = p.Hash.Bytes()
+		case AddressPayloadScriptHash:
+			stakingPayload = p.Hash.Bytes()
+		case AddressPayloadPointer:
+			var err error
+			stakingPayload, err = p.encode()
+			if err != nil {
+				return nil, err
+			}
+		}
+		if _, err := buf.Write(stakingPayload); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := buf.Write(a.extraData); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // String returns the bech32-encoded version of the address
@@ -579,4 +680,91 @@ func (a *ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
 		tmpData[2] = networkRaw
 	}
 	return cbor.Encode(tmpData)
+}
+
+type AddressPayload interface {
+	isAddressPayload()
+}
+
+type AddressPayloadKeyHash struct {
+	Hash AddrKeyHash
+}
+
+func (AddressPayloadKeyHash) isAddressPayload() {}
+
+type AddressPayloadScriptHash struct {
+	Hash ScriptHash
+}
+
+func (AddressPayloadScriptHash) isAddressPayload() {}
+
+type AddressPayloadPointer struct {
+	Slot      uint64
+	TxIndex   uint64
+	CertIndex uint64
+}
+
+func (AddressPayloadPointer) isAddressPayload() {}
+
+func (a *AddressPayloadPointer) decode(data []byte) (int, error) {
+	readVarUint := func(buf *bytes.Reader) (uint64, error) {
+		var ret uint64
+		for {
+			byt, err := buf.ReadByte()
+			if err != nil {
+				return 0, err
+			}
+			ret = (ret << 7) | uint64(byt&0x7F)
+			if (byt & 0x80) == 0 {
+				return ret, nil
+			}
+		}
+	}
+	buf := bytes.NewReader(data)
+	var err error
+	a.Slot, err = readVarUint(buf)
+	if err != nil {
+		return 0, err
+	}
+	a.TxIndex, err = readVarUint(buf)
+	if err != nil {
+		return 0, err
+	}
+	a.CertIndex, err = readVarUint(buf)
+	if err != nil {
+		return 0, err
+	}
+	return buf.Len(), nil
+}
+
+func (a *AddressPayloadPointer) encode() ([]byte, error) {
+	writeVarUint := func(buf *bytes.Buffer, val uint64) error {
+		data := []byte{
+			byte(val & 0x7F),
+		}
+		val /= 128
+		for val > 0 {
+			data = append(
+				data,
+				byte((val&0x7F)|0x80),
+			)
+			val /= 128
+		}
+		slices.Reverse(data)
+		if _, err := buf.Write(data); err != nil {
+			return err
+		}
+		return nil
+	}
+	buf := bytes.NewBuffer(nil)
+	if err := writeVarUint(buf, a.Slot); err != nil {
+		return nil, err
+	}
+	if err := writeVarUint(buf, a.TxIndex); err != nil {
+		return nil, err
+	}
+	if err := writeVarUint(buf, a.CertIndex); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

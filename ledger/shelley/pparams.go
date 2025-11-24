@@ -21,7 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ShelleyProtocolParameters struct {
@@ -169,47 +169,53 @@ func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (p *ShelleyProtocolParameters) Utxorpc() (*cardano.PParams, error) {
+func (p *ShelleyProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
-	if p.A0.Num().Int64() > math.MaxInt32 ||
+	if p.A0 == nil ||
+		p.A0.Num().Int64() < math.MinInt32 ||
+		p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid A0 rational number values")
 	}
-	if p.Rho.Num().Int64() > math.MaxInt32 ||
+	if p.Rho == nil ||
+		p.Rho.Num().Int64() < math.MinInt32 ||
+		p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Rho rational number values")
 	}
-	if p.Tau.Num().Int64() > math.MaxInt32 ||
+	if p.Tau == nil ||
+		p.Tau.Num().Int64() < math.MinInt32 ||
+		p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Tau rational number values")
 	}
 	// #nosec G115
-	return &cardano.PParams{
+	return &utxorpc.PParams{
 		MaxTxSize:                uint64(p.MaxTxSize),
-		MinFeeCoefficient:        uint64(p.MinFeeA),
-		MinFeeConstant:           uint64(p.MinFeeB),
+		MinFeeCoefficient:        common.ToUtxorpcBigInt(uint64(p.MinFeeA)),
+		MinFeeConstant:           common.ToUtxorpcBigInt(uint64(p.MinFeeB)),
 		MaxBlockBodySize:         uint64(p.MaxBlockBodySize),
 		MaxBlockHeaderSize:       uint64(p.MaxBlockHeaderSize),
-		StakeKeyDeposit:          uint64(p.KeyDeposit),
-		PoolDeposit:              uint64(p.PoolDeposit),
+		StakeKeyDeposit:          common.ToUtxorpcBigInt(uint64(p.KeyDeposit)),
+		PoolDeposit:              common.ToUtxorpcBigInt(uint64(p.PoolDeposit)),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(p.A0.Num().Int64()),
 			Denominator: uint32(p.A0.Denom().Int64()),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Rho.Num().Int64()),
 			Denominator: uint32(p.Rho.Denom().Int64()),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Tau.Num().Int64()),
 			Denominator: uint32(p.Tau.Denom().Int64()),
 		},
-		ProtocolVersion: &cardano.ProtocolVersion{
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: uint32(p.ProtocolMajor),
 			Minor: uint32(p.ProtocolMinor),
 		},

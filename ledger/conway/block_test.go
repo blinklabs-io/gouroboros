@@ -111,15 +111,27 @@ func TestConwayBlockUtxorpc(t *testing.T) {
 
 	expectedHash := block.Hash().Bytes()
 	if !compareByteSlices(utxoBlock.Header.Hash, expectedHash) {
-		t.Errorf("block hash mismatch:\nexpected: %x\nactual: %x", expectedHash, utxoBlock.Header.Hash)
+		t.Errorf(
+			"block hash mismatch:\nexpected: %x\nactual: %x",
+			expectedHash,
+			utxoBlock.Header.Hash,
+		)
 	}
 
 	if utxoBlock.Header.Height != block.BlockNumber() {
-		t.Errorf("block height mismatch: expected %d, got %d", block.BlockNumber(), utxoBlock.Header.Height)
+		t.Errorf(
+			"block height mismatch: expected %d, got %d",
+			block.BlockNumber(),
+			utxoBlock.Header.Height,
+		)
 	}
 
 	if utxoBlock.Header.Slot != block.SlotNumber() {
-		t.Errorf("block slot mismatch: expected %d, got %d", block.SlotNumber(), utxoBlock.Header.Slot)
+		t.Errorf(
+			"block slot mismatch: expected %d, got %d",
+			block.SlotNumber(),
+			utxoBlock.Header.Slot,
+		)
 	}
 
 	if utxoBlock.Body == nil {
@@ -128,7 +140,11 @@ func TestConwayBlockUtxorpc(t *testing.T) {
 
 	expectedTxCount := len(block.TransactionBodies)
 	if len(utxoBlock.Body.Tx) != expectedTxCount {
-		t.Errorf("transaction count mismatch: expected %d, got %d", expectedTxCount, len(utxoBlock.Body.Tx))
+		t.Errorf(
+			"transaction count mismatch: expected %d, got %d",
+			expectedTxCount,
+			len(utxoBlock.Body.Tx),
+		)
 	}
 
 	if expectedTxCount > 0 {
@@ -137,15 +153,27 @@ func TestConwayBlockUtxorpc(t *testing.T) {
 
 		expectedTxHash := firstTx.Hash().Bytes()
 		if !compareByteSlices(utxoFirstTx.Hash, expectedTxHash) {
-			t.Errorf("first tx hash mismatch:\nexpected: %x\nactual: %x", expectedTxHash, utxoFirstTx.Hash)
+			t.Errorf(
+				"first tx hash mismatch:\nexpected: %x\nactual: %x",
+				expectedTxHash,
+				utxoFirstTx.Hash,
+			)
 		}
 
 		if len(utxoFirstTx.Inputs) != len(firstTx.Inputs()) {
-			t.Errorf("first tx input count mismatch: expected %d, got %d", len(firstTx.Inputs()), len(utxoFirstTx.Inputs))
+			t.Errorf(
+				"first tx input count mismatch: expected %d, got %d",
+				len(firstTx.Inputs()),
+				len(utxoFirstTx.Inputs),
+			)
 		}
 
 		if len(utxoFirstTx.Outputs) != len(firstTx.Outputs()) {
-			t.Errorf("first tx output count mismatch: expected %d, got %d", len(firstTx.Outputs()), len(utxoFirstTx.Outputs))
+			t.Errorf(
+				"first tx output count mismatch: expected %d, got %d",
+				len(firstTx.Outputs()),
+				len(utxoFirstTx.Outputs),
+			)
 		}
 	}
 }
@@ -160,4 +188,29 @@ func compareByteSlices(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+func BenchmarkConwayBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(conwayBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block conway.ConwayBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkConwayBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(conwayBlockHex)
+	var block conway.ConwayBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
+	}
 }

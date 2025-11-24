@@ -242,11 +242,11 @@ type ConwayTransactionWitnessSet struct {
 	VkeyWitnesses      cbor.SetType[common.VkeyWitness]      `cbor:"0,keyasint,omitempty,omitzero"`
 	WsNativeScripts    cbor.SetType[common.NativeScript]     `cbor:"1,keyasint,omitempty,omitzero"`
 	BootstrapWitnesses cbor.SetType[common.BootstrapWitness] `cbor:"2,keyasint,omitempty,omitzero"`
-	WsPlutusV1Scripts  cbor.SetType[[]byte]                  `cbor:"3,keyasint,omitempty,omitzero"`
-	WsPlutusData       cbor.SetType[cbor.Value]              `cbor:"4,keyasint,omitempty,omitzero"`
+	WsPlutusV1Scripts  cbor.SetType[common.PlutusV1Script]   `cbor:"3,keyasint,omitempty,omitzero"`
+	WsPlutusData       cbor.SetType[common.Datum]            `cbor:"4,keyasint,omitempty,omitzero"`
 	WsRedeemers        ConwayRedeemers                       `cbor:"5,keyasint,omitempty,omitzero"`
-	WsPlutusV2Scripts  cbor.SetType[[]byte]                  `cbor:"6,keyasint,omitempty,omitzero"`
-	WsPlutusV3Scripts  cbor.SetType[[]byte]                  `cbor:"7,keyasint,omitempty,omitzero"`
+	WsPlutusV2Scripts  cbor.SetType[common.PlutusV2Script]   `cbor:"6,keyasint,omitempty,omitzero"`
+	WsPlutusV3Scripts  cbor.SetType[common.PlutusV3Script]   `cbor:"7,keyasint,omitempty,omitzero"`
 }
 
 func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
@@ -272,19 +272,19 @@ func (w ConwayTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w ConwayTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w ConwayTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	return w.WsPlutusV2Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w ConwayTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	return w.WsPlutusV3Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusData() []cbor.Value {
+func (w ConwayTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData.Items()
 }
 
@@ -374,7 +374,7 @@ type ConwayTransactionBody struct {
 	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
 	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures    []common.ProposalProcedure                    `cbor:"20,keyasint,omitempty"`
+	TxProposalProcedures    []ConwayProposalProcedure                     `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue  int64                                         `cbor:"21,keyasint,omitempty"`
 	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
 }
@@ -492,7 +492,11 @@ func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
 }
 
 func (b *ConwayTransactionBody) ProposalProcedures() []common.ProposalProcedure {
-	return b.TxProposalProcedures
+	ret := make([]common.ProposalProcedure, len(b.TxProposalProcedures))
+	for i, item := range b.TxProposalProcedures {
+		ret[i] = item
+	}
+	return ret
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
@@ -504,12 +508,13 @@ func (b *ConwayTransactionBody) Donation() uint64 {
 }
 
 func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type ConwayTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       ConwayTransactionBody
 	WitnessSet ConwayTransactionWitnessSet
 	TxIsValid  bool
@@ -532,7 +537,19 @@ func (ConwayTransaction) Type() int {
 }
 
 func (t ConwayTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t ConwayTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t ConwayTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t ConwayTransaction) Inputs() []common.TransactionInput {

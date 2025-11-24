@@ -17,11 +17,13 @@ package conway
 import (
 	"errors"
 	"math"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	"github.com/blinklabs-io/plutigo/data"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 type ConwayProtocolParameters struct {
@@ -59,59 +61,73 @@ type ConwayProtocolParameters struct {
 	MinFeeRefScriptCostPerByte *cbor.Rat
 }
 
-func (p *ConwayProtocolParameters) Utxorpc() (*cardano.PParams, error) {
+func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
-	if p.A0.Num().Int64() > math.MaxInt32 ||
+	if p.A0 == nil ||
+		p.A0.Num().Int64() < math.MinInt32 ||
+		p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid A0 rational number values")
 	}
-	if p.Rho.Num().Int64() > math.MaxInt32 ||
+	if p.Rho == nil ||
+		p.Rho.Num().Int64() < math.MinInt32 ||
+		p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Rho rational number values")
 	}
-	if p.Tau.Num().Int64() > math.MaxInt32 ||
+	if p.Tau == nil ||
+		p.Tau.Num().Int64() < math.MinInt32 ||
+		p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Tau rational number values")
 	}
-	if p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
+	if p.ExecutionCosts.MemPrice == nil ||
+		p.ExecutionCosts.MemPrice.Num().Int64() < math.MinInt32 ||
+		p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid memory price rational number values")
 	}
-	if p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
+	if p.ExecutionCosts.StepPrice == nil ||
+		p.ExecutionCosts.StepPrice.Num().Int64() < math.MinInt32 ||
+		p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid step price rational number values")
 	}
+	if p.MaxTxExUnits.Memory < 0 || p.MaxTxExUnits.Steps < 0 ||
+		p.MaxBlockExUnits.Memory < 0 || p.MaxBlockExUnits.Steps < 0 {
+		return nil, errors.New("invalid execution unit values")
+	}
 	// #nosec G115
-	return &cardano.PParams{
-		CoinsPerUtxoByte:         p.AdaPerUtxoByte,
+	return &utxorpc.PParams{
+		CoinsPerUtxoByte:         common.ToUtxorpcBigInt(p.AdaPerUtxoByte),
 		MaxTxSize:                uint64(p.MaxTxSize),
-		MinFeeCoefficient:        uint64(p.MinFeeA),
-		MinFeeConstant:           uint64(p.MinFeeB),
+		MinFeeCoefficient:        common.ToUtxorpcBigInt(uint64(p.MinFeeA)),
+		MinFeeConstant:           common.ToUtxorpcBigInt(uint64(p.MinFeeB)),
 		MaxBlockBodySize:         uint64(p.MaxBlockBodySize),
 		MaxBlockHeaderSize:       uint64(p.MaxBlockHeaderSize),
-		StakeKeyDeposit:          uint64(p.KeyDeposit),
-		PoolDeposit:              uint64(p.PoolDeposit),
+		StakeKeyDeposit:          common.ToUtxorpcBigInt(uint64(p.KeyDeposit)),
+		PoolDeposit:              common.ToUtxorpcBigInt(uint64(p.PoolDeposit)),
+		MinPoolCost:              common.ToUtxorpcBigInt(p.MinPoolCost),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(p.A0.Num().Int64()),
 			Denominator: uint32(p.A0.Denom().Int64()),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Rho.Num().Int64()),
 			Denominator: uint32(p.Rho.Denom().Int64()),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Tau.Num().Int64()),
 			Denominator: uint32(p.Tau.Denom().Int64()),
 		},
-		MinPoolCost: p.MinPoolCost,
-		ProtocolVersion: &cardano.ProtocolVersion{
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: uint32(p.ProtocolVersion.Major),
 			Minor: uint32(p.ProtocolVersion.Minor),
 		},
@@ -121,23 +137,23 @@ func (p *ConwayProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 		CostModels: common.ConvertToUtxorpcCardanoCostModels(
 			p.CostModels,
 		),
-		Prices: &cardano.ExPrices{
-			Memory: &cardano.RationalNumber{
+		Prices: &utxorpc.ExPrices{
+			Memory: &utxorpc.RationalNumber{
 				Numerator:   int32(p.ExecutionCosts.MemPrice.Num().Int64()),
 				Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64()),
 			},
-			Steps: &cardano.RationalNumber{
+			Steps: &utxorpc.RationalNumber{
 				Numerator:   int32(p.ExecutionCosts.StepPrice.Num().Int64()),
 				Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64()),
 			},
 		},
-		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
-			Memory: p.MaxTxExUnits.Memory,
-			Steps:  p.MaxTxExUnits.Steps,
+		MaxExecutionUnitsPerTransaction: &utxorpc.ExUnits{
+			Memory: uint64(p.MaxTxExUnits.Memory),
+			Steps:  uint64(p.MaxTxExUnits.Steps),
 		},
-		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
-			Memory: p.MaxBlockExUnits.Memory,
-			Steps:  p.MaxBlockExUnits.Steps,
+		MaxExecutionUnitsPerBlock: &utxorpc.ExUnits{
+			Memory: uint64(p.MaxBlockExUnits.Memory),
+			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
 	}, nil
 }
@@ -342,16 +358,38 @@ func (p *ConwayProtocolParameters) UpdateFromGenesis(
 }
 
 type ConwayProtocolParameterUpdate struct {
-	babbage.BabbageProtocolParameterUpdate
-	PoolVotingThresholds       *PoolVotingThresholds `cbor:"25,keyasint"`
-	DRepVotingThresholds       *DRepVotingThresholds `cbor:"26,keyasint"`
-	MinCommitteeSize           *uint                 `cbor:"27,keyasint"`
-	CommitteeTermLimit         *uint64               `cbor:"28,keyasint"`
-	GovActionValidityPeriod    *uint64               `cbor:"29,keyasint"`
-	GovActionDeposit           *uint64               `cbor:"30,keyasint"`
-	DRepDeposit                *uint64               `cbor:"31,keyasint"`
-	DRepInactivityPeriod       *uint64               `cbor:"32,keyasint"`
-	MinFeeRefScriptCostPerByte *cbor.Rat             `cbor:"33,keyasint"`
+	cbor.DecodeStoreCbor
+	MinFeeA                    *uint                                     `cbor:"0,keyasint"`
+	MinFeeB                    *uint                                     `cbor:"1,keyasint"`
+	MaxBlockBodySize           *uint                                     `cbor:"2,keyasint"`
+	MaxTxSize                  *uint                                     `cbor:"3,keyasint"`
+	MaxBlockHeaderSize         *uint                                     `cbor:"4,keyasint"`
+	KeyDeposit                 *uint                                     `cbor:"5,keyasint"`
+	PoolDeposit                *uint                                     `cbor:"6,keyasint"`
+	MaxEpoch                   *uint                                     `cbor:"7,keyasint"`
+	NOpt                       *uint                                     `cbor:"8,keyasint"`
+	A0                         *cbor.Rat                                 `cbor:"9,keyasint"`
+	Rho                        *cbor.Rat                                 `cbor:"10,keyasint"`
+	Tau                        *cbor.Rat                                 `cbor:"11,keyasint"`
+	ProtocolVersion            *common.ProtocolParametersProtocolVersion `cbor:"14,keyasint"`
+	MinPoolCost                *uint64                                   `cbor:"16,keyasint"`
+	AdaPerUtxoByte             *uint64                                   `cbor:"17,keyasint"`
+	CostModels                 map[uint][]int64                          `cbor:"18,keyasint"`
+	ExecutionCosts             *common.ExUnitPrice                       `cbor:"19,keyasint"`
+	MaxTxExUnits               *common.ExUnits                           `cbor:"20,keyasint"`
+	MaxBlockExUnits            *common.ExUnits                           `cbor:"21,keyasint"`
+	MaxValueSize               *uint                                     `cbor:"22,keyasint"`
+	CollateralPercentage       *uint                                     `cbor:"23,keyasint"`
+	MaxCollateralInputs        *uint                                     `cbor:"24,keyasint"`
+	PoolVotingThresholds       *PoolVotingThresholds                     `cbor:"25,keyasint"`
+	DRepVotingThresholds       *DRepVotingThresholds                     `cbor:"26,keyasint"`
+	MinCommitteeSize           *uint                                     `cbor:"27,keyasint"`
+	CommitteeTermLimit         *uint64                                   `cbor:"28,keyasint"`
+	GovActionValidityPeriod    *uint64                                   `cbor:"29,keyasint"`
+	GovActionDeposit           *uint64                                   `cbor:"30,keyasint"`
+	DRepDeposit                *uint64                                   `cbor:"31,keyasint"`
+	DRepInactivityPeriod       *uint64                                   `cbor:"32,keyasint"`
+	MinFeeRefScriptCostPerByte *cbor.Rat                                 `cbor:"33,keyasint"`
 }
 
 func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
@@ -365,6 +403,189 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
+	tmpPairs := make([][2]data.PlutusData, 0, 33)
+	push := func(idx int, pd data.PlutusData) {
+		tmpPairs = append(
+			tmpPairs,
+			[2]data.PlutusData{
+				data.NewInteger(new(big.Int).SetInt64(int64(idx))),
+				pd,
+			},
+		)
+	}
+	if u.MinFeeA != nil {
+		push(0, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinFeeA))))
+	}
+	if u.MinFeeB != nil {
+		push(1, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinFeeB))))
+	}
+	if u.MaxBlockBodySize != nil {
+		push(
+			2,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxBlockBodySize)),
+			),
+		)
+	}
+	if u.MaxTxSize != nil {
+		push(3, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxTxSize))))
+	}
+	if u.MaxBlockHeaderSize != nil {
+		push(
+			4,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxBlockHeaderSize)),
+			),
+		)
+	}
+	if u.KeyDeposit != nil {
+		push(5, data.NewInteger(new(big.Int).SetUint64(uint64(*u.KeyDeposit))))
+	}
+	if u.PoolDeposit != nil {
+		push(6, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PoolDeposit))))
+	}
+	if u.MaxEpoch != nil {
+		push(7, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxEpoch))))
+	}
+	if u.NOpt != nil {
+		push(8, data.NewInteger(new(big.Int).SetUint64(uint64(*u.NOpt))))
+	}
+	if u.A0 != nil {
+		push(9,
+			data.NewList(
+				data.NewInteger(u.A0.Num()),
+				data.NewInteger(u.A0.Denom()),
+			),
+		)
+	}
+	if u.Rho != nil {
+		push(10,
+			data.NewList(
+				data.NewInteger(u.Rho.Num()),
+				data.NewInteger(u.Rho.Denom()),
+			),
+		)
+	}
+	if u.Tau != nil {
+		push(11,
+			data.NewList(
+				data.NewInteger(u.Tau.Num()),
+				data.NewInteger(u.Tau.Denom()),
+			),
+		)
+	}
+	if u.MinPoolCost != nil {
+		push(
+			16,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinPoolCost))),
+		)
+	}
+	if u.AdaPerUtxoByte != nil {
+		push(
+			17,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))),
+		)
+	}
+	// TODO: CostModels
+	if u.ExecutionCosts != nil {
+		push(19,
+			data.NewList(
+				data.NewList(
+					data.NewInteger(u.ExecutionCosts.MemPrice.Num()),
+					data.NewInteger(u.ExecutionCosts.MemPrice.Denom()),
+				),
+				data.NewList(
+					data.NewInteger(u.ExecutionCosts.StepPrice.Num()),
+					data.NewInteger(u.ExecutionCosts.StepPrice.Denom()),
+				),
+			),
+		)
+	}
+	if u.MaxTxExUnits != nil {
+		push(20,
+			data.NewList(
+				data.NewInteger(big.NewInt(u.MaxTxExUnits.Memory)),
+				data.NewInteger(big.NewInt(u.MaxTxExUnits.Steps)),
+			),
+		)
+	}
+	if u.MaxBlockExUnits != nil {
+		push(21,
+			data.NewList(
+				data.NewInteger(big.NewInt(u.MaxBlockExUnits.Memory)),
+				data.NewInteger(big.NewInt(u.MaxBlockExUnits.Steps)),
+			),
+		)
+	}
+	if u.MaxValueSize != nil {
+		push(
+			22,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxValueSize))),
+		)
+	}
+	if u.CollateralPercentage != nil {
+		push(
+			23,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.CollateralPercentage)),
+			),
+		)
+	}
+	if u.MaxCollateralInputs != nil {
+		push(
+			24,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxCollateralInputs)),
+			),
+		)
+	}
+	if u.PoolVotingThresholds != nil {
+		push(25, u.PoolVotingThresholds.ToPlutusData())
+	}
+	if u.DRepVotingThresholds != nil {
+		push(26, u.DRepVotingThresholds.ToPlutusData())
+	}
+	if u.MinCommitteeSize != nil {
+		push(
+			27,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MinCommitteeSize)),
+			),
+		)
+	}
+	if u.CommitteeTermLimit != nil {
+		push(28, data.NewInteger(new(big.Int).SetUint64(*u.CommitteeTermLimit)))
+	}
+	if u.GovActionValidityPeriod != nil {
+		push(
+			29,
+			data.NewInteger(new(big.Int).SetUint64(*u.GovActionValidityPeriod)),
+		)
+	}
+	if u.GovActionDeposit != nil {
+		push(30, data.NewInteger(new(big.Int).SetUint64(*u.GovActionDeposit)))
+	}
+	if u.DRepDeposit != nil {
+		push(31, data.NewInteger(new(big.Int).SetUint64(*u.DRepDeposit)))
+	}
+	if u.DRepInactivityPeriod != nil {
+		push(
+			32,
+			data.NewInteger(new(big.Int).SetUint64(*u.DRepInactivityPeriod)),
+		)
+	}
+	if u.MinFeeRefScriptCostPerByte != nil {
+		push(33,
+			data.NewList(
+				data.NewInteger(u.MinFeeRefScriptCostPerByte.Num()),
+				data.NewInteger(u.MinFeeRefScriptCostPerByte.Denom()),
+			),
+		)
+	}
+	return data.NewMap(tmpPairs)
+}
+
 type PoolVotingThresholds struct {
 	cbor.StructAsArray
 	MotionNoConfidence    cbor.Rat
@@ -372,6 +593,31 @@ type PoolVotingThresholds struct {
 	CommitteeNoConfidence cbor.Rat
 	HardForkInitiation    cbor.Rat
 	PpSecurityGroup       cbor.Rat
+}
+
+func (t PoolVotingThresholds) ToPlutusData() data.PlutusData {
+	return data.NewList(
+		data.NewList(
+			data.NewInteger(t.MotionNoConfidence.Num()),
+			data.NewInteger(t.MotionNoConfidence.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.CommitteeNormal.Num()),
+			data.NewInteger(t.CommitteeNormal.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.CommitteeNoConfidence.Num()),
+			data.NewInteger(t.CommitteeNoConfidence.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.HardForkInitiation.Num()),
+			data.NewInteger(t.HardForkInitiation.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.PpSecurityGroup.Num()),
+			data.NewInteger(t.PpSecurityGroup.Denom()),
+		),
+	)
 }
 
 type DRepVotingThresholds struct {
@@ -386,6 +632,51 @@ type DRepVotingThresholds struct {
 	PpTechnicalGroup      cbor.Rat
 	PpGovGroup            cbor.Rat
 	TreasuryWithdrawal    cbor.Rat
+}
+
+func (t DRepVotingThresholds) ToPlutusData() data.PlutusData {
+	return data.NewList(
+		data.NewList(
+			data.NewInteger(t.MotionNoConfidence.Num()),
+			data.NewInteger(t.MotionNoConfidence.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.CommitteeNormal.Num()),
+			data.NewInteger(t.CommitteeNormal.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.CommitteeNoConfidence.Num()),
+			data.NewInteger(t.CommitteeNoConfidence.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.UpdateToConstitution.Num()),
+			data.NewInteger(t.UpdateToConstitution.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.HardForkInitiation.Num()),
+			data.NewInteger(t.HardForkInitiation.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.PpNetworkGroup.Num()),
+			data.NewInteger(t.PpNetworkGroup.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.PpEconomicGroup.Num()),
+			data.NewInteger(t.PpEconomicGroup.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.PpTechnicalGroup.Num()),
+			data.NewInteger(t.PpTechnicalGroup.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.PpGovGroup.Num()),
+			data.NewInteger(t.PpGovGroup.Denom()),
+		),
+		data.NewList(
+			data.NewInteger(t.TreasuryWithdrawal.Num()),
+			data.NewInteger(t.TreasuryWithdrawal.Denom()),
+		),
+	)
 }
 
 func UpgradePParams(

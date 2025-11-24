@@ -25,7 +25,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,7 +33,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testZeroSlot uint64 = 0
 	testTx := &mary.MaryTransaction{
 		Body: mary.MaryTransactionBody{
-			TxValidityIntervalStart: testSlot,
+			TxValidityIntervalStart: &testSlot,
 		},
 	}
 	testLedgerState := test.MockLedgerState{}
@@ -114,7 +113,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 		},
 	)
 	// Zero TTL
-	testTx.Body.TxValidityIntervalStart = testZeroSlot
+	testTx.Body.TxValidityIntervalStart = &testZeroSlot
 	testRun(
 		t,
 		"zero validity interval start",
@@ -559,9 +558,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeRegistration),
 					Certificate: &common.StakeRegistrationCertificate{
-						StakeRegistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}
@@ -586,9 +585,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
-					Type: common.CertificateTypeStakeRegistration,
+					Type: uint(common.CertificateTypeStakeDeregistration),
 					Certificate: &common.StakeDeregistrationCertificate{
-						StakeDeregistration: common.Credential{},
+						StakeCredential: common.Credential{},
 					},
 				},
 			}

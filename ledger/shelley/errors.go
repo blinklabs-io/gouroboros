@@ -111,7 +111,7 @@ type OutputTooSmallUtxoError struct {
 func (e OutputTooSmallUtxoError) Error() string {
 	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
-		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
+		tmpOutputs[idx] = tmpOutput.String()
 	}
 	return "output too small: " + strings.Join(tmpOutputs, ", ")
 }
@@ -123,7 +123,7 @@ type OutputBootAddrAttrsTooBigError struct {
 func (e OutputBootAddrAttrsTooBigError) Error() string {
 	tmpOutputs := make([]string, len(e.Outputs))
 	for idx, tmpOutput := range e.Outputs {
-		tmpOutputs[idx] = fmt.Sprintf("%#v", tmpOutput)
+		tmpOutputs[idx] = tmpOutput.String()
 	}
 	return "output bootstrap address attributes too big: " + strings.Join(
 		tmpOutputs,
@@ -141,5 +141,18 @@ func (e MaxTxSizeUtxoError) Error() string {
 		"transaction size too large: size %d, max %d",
 		e.TxSize,
 		e.MaxTxSize,
+	)
+}
+
+type InvalidCertificateDepositError struct {
+	CertificateType common.CertificateType
+	Amount          int64
+}
+
+func (e InvalidCertificateDepositError) Error() string {
+	return fmt.Sprintf(
+		"invalid certificate deposit amount: type %d, amount %d",
+		e.CertificateType,
+		e.Amount,
 	)
 }

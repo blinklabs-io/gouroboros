@@ -17,8 +17,12 @@ package common
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/cek"
+	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/syn"
 )
 
 const (
@@ -28,8 +32,12 @@ const (
 	ScriptRefTypePlutusV3     = 3
 )
 
+type ScriptHash = Blake2b224
+
 type Script interface {
 	isScript()
+	Hash() ScriptHash
+	RawScriptBytes() []byte
 }
 
 type ScriptRef struct {
@@ -78,19 +86,123 @@ func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (s *ScriptRef) MarshalCBOR() ([]byte, error) {
+	tmpData := []any{
+		s.Type,
+		s.Script,
+	}
+	tmpDataCbor, err := cbor.Encode(tmpData)
+	if err != nil {
+		return nil, err
+	}
+	tmpTag := cbor.Tag{
+		Number:  24,
+		Content: tmpDataCbor,
+	}
+	return cbor.Encode(tmpTag)
+}
+
 type PlutusV1Script []byte
 
 func (PlutusV1Script) isScript() {}
+
+func (s PlutusV1Script) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV1},
+			[]byte(s),
+		),
+	)
+}
+
+func (s PlutusV1Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
 
 type PlutusV2Script []byte
 
 func (PlutusV2Script) isScript() {}
 
+func (s PlutusV2Script) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV2},
+			[]byte(s),
+		),
+	)
+}
+
+func (s PlutusV2Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
 type PlutusV3Script []byte
 
 func (PlutusV3Script) isScript() {}
 
+func (s PlutusV3Script) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV3},
+			[]byte(s),
+		),
+	)
+}
+
+func (s PlutusV3Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
+func (s PlutusV3Script) Evaluate(
+	scriptContext data.PlutusData,
+	budget ExUnits,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	program := &syn.Program[syn.DeBruijn]{}
+	// Set budget
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	// Decode raw script as bytestring to get actual script bytes
+	var innerScript []byte
+	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+		return usedExUnits, err
+	}
+	// Decode program
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	// Apply script context to program
+	contextTerm := &syn.Constant{
+		Con: &syn.Data{
+			Inner: scriptContext,
+		},
+	}
+	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+		Function: program.Term,
+		Argument: contextTerm,
+	}
+	// Execute wrapped program
+	machine := cek.NewMachine[syn.DeBruijn](200)
+	machine.ExBudget = machineBudget
+	_, err = machine.Run(wrappedProgram)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", err)
+	}
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	return usedExUnits, nil
+}
+
 type NativeScript struct {
+	cbor.DecodeStoreCbor
 	item any
 }
 
@@ -101,6 +213,7 @@ func (n *NativeScript) Item() any {
 }
 
 func (n *NativeScript) UnmarshalCBOR(data []byte) error {
+	n.SetCbor(data)
 	id, err := cbor.DecodeIdFromList(data)
 	if err != nil {
 		return err
@@ -125,7 +238,21 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, tmpData); err != nil {
 		return err
 	}
+	n.item = tmpData
 	return nil
+}
+
+func (s NativeScript) Hash() ScriptHash {
+	return Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypeNativeScript},
+			[]byte(s.Cbor()),
+		),
+	)
+}
+
+func (s NativeScript) RawScriptBytes() []byte {
+	return s.Cbor()
 }
 
 type NativeScriptPubkey struct {

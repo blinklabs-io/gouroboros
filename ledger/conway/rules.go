@@ -253,12 +253,26 @@ func UtxoValidateValueNotConservedUtxo(
 		consumedValue += tmpWithdrawalAmount
 	}
 	for _, cert := range tx.Certificates() {
-		switch cert.(type) {
+		switch tmpCert := cert.(type) {
 		case *common.DeregistrationCertificate:
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			// CIP-0094 deregistration uses Amount field for refund (symmetric with registration deposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			consumedValue += uint64(tmpCert.Amount)
 		case *common.DeregistrationDrepCertificate:
-			consumedValue += uint64(tmpPparams.DRepDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			consumedValue += uint64(tmpCert.Amount)
 		case *common.StakeDeregistrationCertificate:
+			// Traditional stake deregistration uses protocol KeyDeposit parameter
 			consumedValue += uint64(tmpPparams.KeyDeposit)
 		}
 	}
@@ -272,29 +286,61 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
-			certs, err := ls.PoolRegistration(common.Blake2b224(tmpCert.Operator).Bytes())
+			reg, _, err := ls.PoolCurrentState(common.Blake2b224(tmpCert.Operator))
 			if err != nil {
 				return err
 			}
-			if len(certs) == 0 {
+			if reg == nil {
 				producedValue += uint64(tmpPparams.PoolDeposit)
 			}
 		case *common.RegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			// CIP-0094 registration uses Amount field for deposit
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.RegistrationDrepCertificate:
-			producedValue += uint64(tmpPparams.DRepDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.StakeRegistrationCertificate:
+			// Traditional stake registration uses protocol KeyDeposit parameter
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		case *common.StakeRegistrationDelegationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.StakeVoteRegistrationDelegationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		case *common.VoteRegistrationDelegationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			if tmpCert.Amount <= 0 {
+				return shelley.InvalidCertificateDepositError{
+					CertificateType: common.CertificateType(tmpCert.CertType),
+					Amount:          tmpCert.Amount,
+				}
+			}
+			producedValue += uint64(tmpCert.Amount)
 		}
 	}
 	for _, proposal := range tx.ProposalProcedures() {
-		producedValue += proposal.Deposit
+		producedValue += proposal.Deposit()
 	}
 	if consumedValue == producedValue {
 		return nil
@@ -426,7 +472,7 @@ func UtxoValidateExUnitsTooBigUtxo(
 	if !ok {
 		return errors.New("transaction is not expected type")
 	}
-	var totalSteps, totalMemory uint64
+	var totalSteps, totalMemory int64
 	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
 		totalSteps += redeemer.ExUnits.Steps
 		totalMemory += redeemer.ExUnits.Memory

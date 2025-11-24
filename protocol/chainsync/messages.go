@@ -123,7 +123,7 @@ func NewMsgRollForwardNtC(
 	blockType uint,
 	blockCbor []byte,
 	tip Tip,
-) *MsgRollForwardNtC {
+) (*MsgRollForwardNtC, error) {
 	m := &MsgRollForwardNtC{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRollForward,
@@ -135,12 +135,11 @@ func NewMsgRollForwardNtC(
 	copy(m.blockCbor, blockCbor)
 	wb := NewWrappedBlock(blockType, blockCbor)
 	content, err := cbor.Encode(wb)
-	// TODO: figure out better way to handle error (#855)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to encode wrapped block: %w", err)
 	}
 	m.WrappedBlock = cbor.Tag{Number: 24, Content: content}
-	return m
+	return m, nil
 }
 
 func (m *MsgRollForwardNtC) UnmarshalCBOR(data []byte) error {

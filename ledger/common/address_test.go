@@ -15,6 +15,7 @@
 package common
 
 import (
+	"encoding/hex"
 	"reflect"
 	"testing"
 
@@ -64,6 +65,11 @@ func TestAddressFromBytes(t *testing.T) {
 		{
 			addressBytesHex: "82d818582483581c5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dda1024102001a36d41aba",
 			expectedAddress: "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth",
+		},
+		// Shelley address with stake pointer
+		{
+			addressBytesHex: "40000000000000000000000000000000000000000000000000000000008198bd431b03",
+			expectedAddress: "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrsxvt6scmqvvrw720",
 		},
 	}
 	for _, testDef := range testDefs {
@@ -370,7 +376,38 @@ func TestAddressToPlutusData(t *testing.T) {
 		}
 		tmpPd := tmpAddr.ToPlutusData()
 		if !reflect.DeepEqual(tmpPd, testDef.expectedData) {
-			t.Errorf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpPd, testDef.expectedData)
+			t.Errorf(
+				"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+				tmpPd,
+				testDef.expectedData,
+			)
+		}
+	}
+}
+
+func BenchmarkAddressFromBytes(b *testing.B) {
+	addrBytes, err := hex.DecodeString(
+		"11e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec1330952563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2",
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := NewAddressFromBytes(addrBytes)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAddressFromString(b *testing.B) {
+	addrStr := "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := NewAddress(addrStr)
+		if err != nil {
+			b.Fatal(err)
 		}
 	}
 }

@@ -161,6 +161,10 @@ func (ByronTransaction) Type() int {
 }
 
 func (t *ByronTransaction) Hash() common.Blake2b256 {
+	return t.Id()
+}
+
+func (t *ByronTransaction) Id() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -275,6 +279,14 @@ func (t *ByronTransaction) Metadata() *cbor.LazyValue {
 	return t.Attributes
 }
 
+func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
+}
+
 func (t *ByronTransaction) IsValid() bool {
 	return true
 }
@@ -289,7 +301,7 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewByronTransactionInput(t.Hash().String(), idx),
+				Id:     NewByronTransactionInput(t.Id().String(), idx),
 				Output: output,
 			},
 		)
@@ -422,8 +434,35 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 }
 
 func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
-	// A Byron transaction output will never be used for Plutus scripts
-	return nil
+	var valueData [][2]data.PlutusData
+	if o.OutputAmount > 0 {
+		valueData = append(
+			valueData,
+			[2]data.PlutusData{
+				data.NewByteString(nil),
+				data.NewMap(
+					[][2]data.PlutusData{
+						{
+							data.NewByteString(nil),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount),
+							),
+						},
+					},
+				),
+			},
+		)
+	}
+	tmpData := data.NewConstr(
+		0,
+		o.OutputAddress.ToPlutusData(),
+		data.NewMap(valueData),
+		// Empty datum option
+		data.NewConstr(0),
+		// Empty script ref
+		data.NewConstr(1),
+	)
+	return tmpData
 }
 
 func (o ByronTransactionOutput) Address() common.Address {
@@ -446,7 +485,7 @@ func (o ByronTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o ByronTransactionOutput) Datum() *cbor.LazyValue {
+func (o ByronTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
@@ -457,9 +496,17 @@ func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    o.Amount(),
+			Coin:    common.ToUtxorpcBigInt(o.Amount()),
 		},
 		nil
+}
+
+func (o ByronTransactionOutput) String() string {
+	return fmt.Sprintf(
+		"(ByronTransactionOutput address=%s amount=%d)",
+		o.OutputAddress.String(),
+		o.OutputAmount,
+	)
 }
 
 type ByronBlockVersion struct {
@@ -525,13 +572,7 @@ type ByronUpdateProposalBlockVersionMod struct {
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	// TODO: split this to its own type (#853)
-	TxPayload []struct {
-		cbor.StructAsArray
-		Transaction ByronTransaction
-		// TODO: properly decode TX witnesses (#853)
-		Twit []cbor.Value
-	}
+	TxPayload  []ByronTxPayload
 	SscPayload cbor.Value
 	DlgPayload []any
 	UpdPayload ByronUpdatePayload
@@ -546,6 +587,77 @@ func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
 	*b = ByronMainBlockBody(tmp)
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	type tmpBody struct {
+		cbor.StructAsArray
+		cbor.DecodeStoreCbor
+		TxPayload  cbor.IndefLengthList
+		SscPayload cbor.Value
+		DlgPayload []any
+		UpdPayload ByronUpdatePayload
+	}
+	var txPayload cbor.IndefLengthList
+	if b.TxPayload != nil {
+		txPayload = make(cbor.IndefLengthList, len(b.TxPayload))
+		for i := range b.TxPayload {
+			txPayload[i] = &b.TxPayload[i]
+		}
+	}
+	temp := tmpBody{
+		TxPayload:  txPayload,
+		SscPayload: b.SscPayload,
+		DlgPayload: b.DlgPayload,
+		UpdPayload: b.UpdPayload,
+	}
+	return cbor.Encode(&temp)
+}
+
+type ByronTxPayload struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	Transaction ByronTransaction
+	Twit        []cbor.Value
+}
+
+func (b *ByronTxPayload) UnmarshalCBOR(cborData []byte) error {
+	type tByronTxPayload ByronTxPayload
+	var tmp tByronTxPayload
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ByronTxPayload(tmp)
+	b.SetCbor(cborData)
+	return nil
+}
+
+func (b *ByronTxPayload) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	type tmpPayload struct {
+		cbor.StructAsArray
+		cbor.DecodeStoreCbor
+		Transaction ByronTransaction
+		Twit        cbor.IndefLengthList
+	}
+	var twit cbor.IndefLengthList
+	if b.Twit != nil {
+		twit = make(cbor.IndefLengthList, len(b.Twit))
+		for i, wit := range b.Twit {
+			twit[i] = wit
+		}
+	}
+	temp := tmpPayload{
+		Transaction: b.Transaction,
+		Twit:        twit,
+	}
+	return cbor.Encode(&temp)
 }
 
 type ByronEpochBoundaryBlockHeader struct {

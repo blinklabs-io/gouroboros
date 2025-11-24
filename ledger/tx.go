@@ -46,6 +46,8 @@ func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 		return NewBabbageTransactionFromCbor(data)
 	case TxTypeConway:
 		return NewConwayTransactionFromCbor(data)
+	case TxTypeLeios:
+		return NewLeiosTransactionFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
@@ -69,6 +71,8 @@ func NewTransactionBodyFromCbor(
 		return NewBabbageTransactionBodyFromCbor(data)
 	case TxTypeConway:
 		return NewConwayTransactionBodyFromCbor(data)
+	case TxTypeLeios:
+		return NewLeiosTransactionBodyFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
@@ -76,45 +80,71 @@ func NewTransactionBodyFromCbor(
 // NewTransactionOutputFromCbor attempts to parse the provided arbitrary CBOR data as a transaction output from
 // each of the eras, returning the first one that we can successfully decode
 func NewTransactionOutputFromCbor(data []byte) (TransactionOutput, error) {
-	if txOut, err := NewByronTransactionOutputFromCbor(data); err == nil {
-		return txOut, nil
+	if len(data) == 0 {
+		return nil, errors.New("unknown transaction output type")
 	}
-	if txOut, err := NewShelleyTransactionOutputFromCbor(data); err == nil {
-		return txOut, nil
-	}
-	if txOut, err := NewMaryTransactionOutputFromCbor(data); err == nil {
-		return txOut, nil
-	}
-	if txOut, err := NewAlonzoTransactionOutputFromCbor(data); err == nil {
-		return txOut, nil
-	}
-	if txOut, err := NewBabbageTransactionOutputFromCbor(data); err == nil {
-		return txOut, nil
+	// Check CBOR major type: 4 = array (Byron, Shelley, Mary, Alonzo), 5 = map (Babbage+)
+	majorType := data[0] >> 5
+	switch majorType {
+	case 4:
+		// Try array-encoded outputs: Byron, Shelley, Mary, Alonzo
+		if txOut, err := NewByronTransactionOutputFromCbor(data); err == nil {
+			return txOut, nil
+		}
+		if txOut, err := NewShelleyTransactionOutputFromCbor(data); err == nil {
+			return txOut, nil
+		}
+		if txOut, err := NewMaryTransactionOutputFromCbor(data); err == nil {
+			return txOut, nil
+		}
+		if txOut, err := NewAlonzoTransactionOutputFromCbor(data); err == nil {
+			return txOut, nil
+		}
+	case 5:
+		// Try map-encoded outputs: Babbage+
+		if txOut, err := NewBabbageTransactionOutputFromCbor(data); err == nil {
+			return txOut, nil
+		}
 	}
 	return nil, errors.New("unknown transaction output type")
 }
 
 func DetermineTransactionType(data []byte) (uint, error) {
-	if _, err := NewByronTransactionFromCbor(data); err == nil {
-		return TxTypeByron, nil
+	if len(data) == 0 {
+		return 0, errors.New("unknown transaction type")
 	}
-	if _, err := NewShelleyTransactionFromCbor(data); err == nil {
-		return TxTypeShelley, nil
+	// Fast path: check first byte to distinguish Byron from post-Shelley eras
+	firstByte := data[0]
+	switch firstByte {
+	case 0x83: // Byron, Shelley, Allegra, and Mary transactions are 3-element arrays
+		if _, err := NewByronTransactionFromCbor(data); err == nil {
+			return TxTypeByron, nil
+		}
+		if _, err := NewShelleyTransactionFromCbor(data); err == nil {
+			return TxTypeShelley, nil
+		}
+		if _, err := NewAllegraTransactionFromCbor(data); err == nil {
+			return TxTypeAllegra, nil
+		}
+		if _, err := NewMaryTransactionFromCbor(data); err == nil {
+			return TxTypeMary, nil
+		}
+	case 0x84: // Alonzo+ transactions are 4-element arrays
+		// Try most recent eras first for better performance
+		if _, err := NewConwayTransactionFromCbor(data); err == nil {
+			return TxTypeConway, nil
+		}
+		if _, err := NewBabbageTransactionFromCbor(data); err == nil {
+			return TxTypeBabbage, nil
+		}
+		if _, err := NewAlonzoTransactionFromCbor(data); err == nil {
+			return TxTypeAlonzo, nil
+		}
 	}
-	if _, err := NewAllegraTransactionFromCbor(data); err == nil {
-		return TxTypeAllegra, nil
-	}
-	if _, err := NewMaryTransactionFromCbor(data); err == nil {
-		return TxTypeMary, nil
-	}
-	if _, err := NewAlonzoTransactionFromCbor(data); err == nil {
-		return TxTypeAlonzo, nil
-	}
-	if _, err := NewBabbageTransactionFromCbor(data); err == nil {
-		return TxTypeBabbage, nil
-	}
-	if _, err := NewConwayTransactionFromCbor(data); err == nil {
-		return TxTypeConway, nil
+
+	// Fallback: try Leios in case our assumptions are wrong
+	if _, err := NewLeiosTransactionFromCbor(data); err == nil {
+		return TxTypeLeios, nil
 	}
 	return 0, errors.New("unknown transaction type")
 }

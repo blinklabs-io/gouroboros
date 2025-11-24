@@ -40,7 +40,9 @@ var (
 // TxSubmission protocol state machine
 var StateMap = protocol.StateMap{
 	stateInit: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
+		Timeout:                 InitTimeout, // Timeout for client to send init message
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeInit,
@@ -49,7 +51,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateIdle: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: 0,
+		Timeout:                 IdleTimeout, // Timeout for server to send tx request when idle
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestTxIds,
@@ -76,7 +80,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateTxIdsBlocking: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
+		Timeout:                 TxIdsBlockingTimeout, // Timeout for client to reply with tx IDs (blocking)
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -89,7 +95,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateTxIdsNonblocking: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
+		Timeout:                 TxIdsNonblockingTimeout, // Timeout for client to reply with tx IDs (non-blocking)
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -98,7 +106,9 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateTxs: protocol.StateMapEntry{
-		Agency: protocol.AgencyClient,
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: 0,
+		Timeout:                 TxsTimeout, // Timeout for client to reply with full transactions
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxs,
@@ -107,7 +117,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency: protocol.AgencyNone,
+		Agency:                  protocol.AgencyNone,
+		PendingMessageByteLimit: 0,
 	},
 }
 
@@ -125,6 +136,23 @@ type Config struct {
 	DoneFunc         DoneFunc
 	IdleTimeout      time.Duration
 }
+
+// Protocol limits per Ouroboros Network Specification
+const (
+	MaxRequestCount     = 65535 // Max transactions per request (uint16)
+	MaxAckCount         = 65535 // Max transaction acks (uint16)
+	DefaultRequestLimit = 1000  // Default request limit
+	DefaultAckLimit     = 1000  // Default ack limit
+)
+
+// Protocol state timeout constants per network specification
+const (
+	InitTimeout             = 30 * time.Second  // Timeout for client to send init message
+	IdleTimeout             = 300 * time.Second // Timeout for server to send tx request when idle
+	TxIdsBlockingTimeout    = 60 * time.Second  // Timeout for client to reply with tx IDs (blocking)
+	TxIdsNonblockingTimeout = 30 * time.Second  // Timeout for client to reply with tx IDs (non-blocking)
+	TxsTimeout              = 120 * time.Second // Timeout for client to reply with full transactions
+)
 
 // Callback context
 type CallbackContext struct {

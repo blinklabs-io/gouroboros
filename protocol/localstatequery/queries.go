@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // Query types
@@ -521,8 +522,7 @@ type CurrentProtocolParamsResult interface {
 		any
 }
 
-// TODO (#861)
-type ProposedProtocolParamsUpdatesResult any
+type ProposedProtocolParamsUpdatesResult map[common.GenesisHash]common.ProtocolParameterUpdate
 
 type StakeDistributionResult struct {
 	cbor.StructAsArray
@@ -533,10 +533,15 @@ type StakeDistributionResult struct {
 	}
 }
 
-type UTxOByAddressResult struct {
+type UTxOsResult struct {
 	cbor.StructAsArray
 	Results map[UtxoId]ledger.BabbageTransactionOutput
 }
+
+type (
+	UTxOByAddressResult = UTxOsResult
+	UTxOWholeResult     = UTxOsResult
+)
 
 type UtxoId struct {
 	cbor.StructAsArray
@@ -591,12 +596,6 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 	}
 	return cbor.Encode(tmpData)
 }
-
-// TODO (#862)
-/*
-result	[{* utxo => value }]
-*/
-type UTxOWholeResult any
 
 // TODO (#863)
 type DebugEpochStateResult any

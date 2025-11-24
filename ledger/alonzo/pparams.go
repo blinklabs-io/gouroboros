@@ -24,7 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	cardano "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 // Constants for Plutus version mapping
@@ -165,12 +165,12 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 	p.CollateralPercentage = genesis.CollateralPercentage
 	p.MaxCollateralInputs = genesis.MaxCollateralInputs
 	p.MaxTxExUnits = common.ExUnits{
-		Memory: uint64(genesis.MaxTxExUnits.Mem),
-		Steps:  uint64(genesis.MaxTxExUnits.Steps),
+		Memory: int64(genesis.MaxTxExUnits.Mem),   // nolint:gosec
+		Steps:  int64(genesis.MaxTxExUnits.Steps), // nolint:gosec
 	}
 	p.MaxBlockExUnits = common.ExUnits{
-		Memory: uint64(genesis.MaxBlockExUnits.Mem),
-		Steps:  uint64(genesis.MaxBlockExUnits.Steps),
+		Memory: int64(genesis.MaxBlockExUnits.Mem),   // nolint:gosec
+		Steps:  int64(genesis.MaxBlockExUnits.Steps), // nolint:gosec
 	}
 
 	if genesis.ExecutionPrices.Mem != nil &&
@@ -274,59 +274,73 @@ func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (p *AlonzoProtocolParameters) Utxorpc() (*cardano.PParams, error) {
+func (p *AlonzoProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
-	if p.A0.Num().Int64() > math.MaxInt32 ||
+	if p.A0 == nil ||
+		p.A0.Num().Int64() < math.MinInt32 ||
+		p.A0.Num().Int64() > math.MaxInt32 ||
 		p.A0.Denom().Int64() < 0 ||
 		p.A0.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid A0 rational number values")
 	}
-	if p.Rho.Num().Int64() > math.MaxInt32 ||
+	if p.Rho == nil ||
+		p.Rho.Num().Int64() < math.MinInt32 ||
+		p.Rho.Num().Int64() > math.MaxInt32 ||
 		p.Rho.Denom().Int64() < 0 ||
 		p.Rho.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Rho rational number values")
 	}
-	if p.Tau.Num().Int64() > math.MaxInt32 ||
+	if p.Tau == nil ||
+		p.Tau.Num().Int64() < math.MinInt32 ||
+		p.Tau.Num().Int64() > math.MaxInt32 ||
 		p.Tau.Denom().Int64() < 0 ||
 		p.Tau.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid Tau rational number values")
 	}
-	if p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
+	if p.ExecutionCosts.MemPrice == nil ||
+		p.ExecutionCosts.MemPrice.Num().Int64() < math.MinInt32 ||
+		p.ExecutionCosts.MemPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.MemPrice.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid memory price rational number values")
 	}
-	if p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
+	if p.ExecutionCosts.StepPrice == nil ||
+		p.ExecutionCosts.StepPrice.Num().Int64() < math.MinInt32 ||
+		p.ExecutionCosts.StepPrice.Num().Int64() > math.MaxInt32 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() < 0 ||
 		p.ExecutionCosts.StepPrice.Denom().Int64() > math.MaxUint32 {
 		return nil, errors.New("invalid step price rational number values")
 	}
+	if p.MaxTxExUnits.Memory < 0 || p.MaxTxExUnits.Steps < 0 ||
+		p.MaxBlockExUnits.Memory < 0 || p.MaxBlockExUnits.Steps < 0 {
+		return nil, errors.New("invalid execution unit values")
+	}
 	// #nosec G115
-	return &cardano.PParams{
-		CoinsPerUtxoByte:         p.AdaPerUtxoByte,
+	return &utxorpc.PParams{
+		CoinsPerUtxoByte:         common.ToUtxorpcBigInt(p.AdaPerUtxoByte),
 		MaxTxSize:                uint64(p.MaxTxSize),
-		MinFeeCoefficient:        uint64(p.MinFeeA),
-		MinFeeConstant:           uint64(p.MinFeeB),
+		MinFeeCoefficient:        common.ToUtxorpcBigInt(uint64(p.MinFeeA)),
+		MinFeeConstant:           common.ToUtxorpcBigInt(uint64(p.MinFeeB)),
 		MaxBlockBodySize:         uint64(p.MaxBlockBodySize),
 		MaxBlockHeaderSize:       uint64(p.MaxBlockHeaderSize),
-		StakeKeyDeposit:          uint64(p.KeyDeposit),
-		PoolDeposit:              uint64(p.PoolDeposit),
+		StakeKeyDeposit:          common.ToUtxorpcBigInt(uint64(p.KeyDeposit)),
+		PoolDeposit:              common.ToUtxorpcBigInt(uint64(p.PoolDeposit)),
+		MinPoolCost:              common.ToUtxorpcBigInt(p.MinPoolCost),
 		PoolRetirementEpochBound: uint64(p.MaxEpoch),
 		DesiredNumberOfPools:     uint64(p.NOpt),
-		PoolInfluence: &cardano.RationalNumber{
+		PoolInfluence: &utxorpc.RationalNumber{
 			Numerator:   int32(p.A0.Num().Int64()),
 			Denominator: uint32(p.A0.Denom().Int64()),
 		},
-		MonetaryExpansion: &cardano.RationalNumber{
+		MonetaryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Rho.Num().Int64()),
 			Denominator: uint32(p.Rho.Denom().Int64()),
 		},
-		TreasuryExpansion: &cardano.RationalNumber{
+		TreasuryExpansion: &utxorpc.RationalNumber{
 			Numerator:   int32(p.Tau.Num().Int64()),
 			Denominator: uint32(p.Tau.Denom().Int64()),
 		},
-		MinPoolCost: p.MinPoolCost,
-		ProtocolVersion: &cardano.ProtocolVersion{
+		ProtocolVersion: &utxorpc.ProtocolVersion{
 			Major: uint32(p.ProtocolMajor),
 			Minor: uint32(p.ProtocolMinor),
 		},
@@ -336,23 +350,23 @@ func (p *AlonzoProtocolParameters) Utxorpc() (*cardano.PParams, error) {
 		CostModels: common.ConvertToUtxorpcCardanoCostModels(
 			p.CostModels,
 		),
-		Prices: &cardano.ExPrices{
-			Memory: &cardano.RationalNumber{
+		Prices: &utxorpc.ExPrices{
+			Memory: &utxorpc.RationalNumber{
 				Numerator:   int32(p.ExecutionCosts.MemPrice.Num().Int64()),
 				Denominator: uint32(p.ExecutionCosts.MemPrice.Denom().Int64()),
 			},
-			Steps: &cardano.RationalNumber{
+			Steps: &utxorpc.RationalNumber{
 				Numerator:   int32(p.ExecutionCosts.StepPrice.Num().Int64()),
 				Denominator: uint32(p.ExecutionCosts.StepPrice.Denom().Int64()),
 			},
 		},
-		MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
-			Memory: p.MaxTxExUnits.Memory,
-			Steps:  p.MaxTxExUnits.Steps,
+		MaxExecutionUnitsPerTransaction: &utxorpc.ExUnits{
+			Memory: uint64(p.MaxTxExUnits.Memory),
+			Steps:  uint64(p.MaxTxExUnits.Steps),
 		},
-		MaxExecutionUnitsPerBlock: &cardano.ExUnits{
-			Memory: p.MaxBlockExUnits.Memory,
-			Steps:  p.MaxBlockExUnits.Steps,
+		MaxExecutionUnitsPerBlock: &utxorpc.ExUnits{
+			Memory: uint64(p.MaxBlockExUnits.Memory),
+			Steps:  uint64(p.MaxBlockExUnits.Steps),
 		},
 	}, nil
 }
@@ -378,5 +392,6 @@ func UpgradePParams(
 		ProtocolMajor:      prevPParams.ProtocolMajor,
 		ProtocolMinor:      prevPParams.ProtocolMinor,
 		MinUtxoValue:       prevPParams.MinUtxoValue,
+		MinPoolCost:        prevPParams.MinPoolCost,
 	}
 }

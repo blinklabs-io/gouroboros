@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,12 +20,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"slices"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/btcsuite/btcd/btcutil/bech32"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -53,6 +56,17 @@ func (b Blake2b256) Bytes() []byte {
 
 func (b Blake2b256) ToPlutusData() data.PlutusData {
 	return data.NewByteString(b[:])
+}
+
+func (b Blake2b256) MarshalJSON() ([]byte, error) {
+	return json.Marshal(b.String())
+}
+
+func (b Blake2b256) MarshalCBOR() ([]byte, error) {
+	// Ensure we always encode a full-sized bytestring, even if the hash is zero-valued
+	hashBytes := make([]byte, Blake2b256Size)
+	copy(hashBytes, b[:])
+	return cbor.Encode(hashBytes)
 }
 
 // Blake2b256Hash generates a Blake2b-256 hash from the provided data
@@ -94,6 +108,13 @@ func (b Blake2b224) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.String())
 }
 
+func (b Blake2b224) MarshalCBOR() ([]byte, error) {
+	// Ensure we always encode a full-sized bytestring, even if the hash is zero-valued
+	hashBytes := make([]byte, Blake2b224Size)
+	copy(hashBytes, b[:])
+	return cbor.Encode(hashBytes)
+}
+
 // Blake2b224Hash generates a Blake2b-224 hash from the provided data
 func Blake2b224Hash(data []byte) Blake2b224 {
 	tmpHash, err := blake2b.New(Blake2b224Size, nil)
@@ -108,6 +129,9 @@ func Blake2b224Hash(data []byte) Blake2b224 {
 	tmpHash.Write(data)
 	return Blake2b224(tmpHash.Sum(nil))
 }
+
+// GenesisHash is a type alias for the Blake2b-224 hash used for genesis keys
+type GenesisHash = Blake2b224
 
 type Blake2b160 [Blake2b160Size]byte
 
@@ -127,6 +151,17 @@ func (b Blake2b160) Bytes() []byte {
 
 func (b Blake2b160) ToPlutusData() data.PlutusData {
 	return data.NewByteString(b[:])
+}
+
+func (b Blake2b160) MarshalJSON() ([]byte, error) {
+	return json.Marshal(b.String())
+}
+
+func (b Blake2b160) MarshalCBOR() ([]byte, error) {
+	// Ensure we always encode a full-sized bytestring, even if the hash is zero-valued
+	hashBytes := make([]byte, Blake2b160Size)
+	copy(hashBytes, b[:])
+	return cbor.Encode(hashBytes)
 }
 
 // Blake2b160Hash generates a Blake2b-160 hash from the provided data
@@ -207,13 +242,19 @@ func (m *MultiAsset[T]) ToPlutusData() data.PlutusData {
 	tmpData := make([][2]data.PlutusData, 0, len(m.data))
 	// Sort policy IDs
 	policyKeys := slices.Collect(maps.Keys(m.data))
-	slices.SortFunc(policyKeys, func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+	slices.SortFunc(
+		policyKeys,
+		func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+	)
 	for _, policyId := range policyKeys {
 		policyData := m.data[policyId]
 		tmpPolicyData := make([][2]data.PlutusData, 0, len(policyData))
 		// Sort asset names
 		assetKeys := slices.Collect(maps.Keys(policyData))
-		slices.SortFunc(assetKeys, func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+		slices.SortFunc(
+			assetKeys,
+			func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+		)
 		for _, assetName := range assetKeys {
 			amount := policyData[assetName]
 			tmpPolicyData = append(
@@ -317,6 +358,50 @@ func (m *MultiAsset[T]) normalize() map[Blake2b224]map[cbor.ByteString]T {
 		}
 	}
 	return ret
+}
+
+// String returns a stable, human-friendly representation of the MultiAsset.
+// Output format: [<policyId>.<assetNameHex>=<amount>, ...] sorted by policyId, then asset name
+func (m *MultiAsset[T]) String() string {
+	if m == nil {
+		return "[]"
+	}
+	norm := m.normalize()
+	if len(norm) == 0 {
+		return "[]"
+	}
+
+	policies := slices.Collect(maps.Keys(norm))
+	slices.SortFunc(
+		policies,
+		func(a, b Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+	)
+
+	var b strings.Builder
+	b.WriteByte('[')
+	first := true
+	for _, pid := range policies {
+		assets := norm[pid]
+		names := slices.Collect(maps.Keys(assets))
+		slices.SortFunc(
+			names,
+			func(a, b cbor.ByteString) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+		)
+
+		for _, name := range names {
+			if !first {
+				b.WriteString(", ")
+			}
+			first = false
+			b.WriteString(pid.String())
+			b.WriteByte('.')
+			b.WriteString(hex.EncodeToString(name.Bytes()))
+			b.WriteByte('=')
+			fmt.Fprintf(&b, "%d", assets[name])
+		}
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 type AssetFingerprint struct {
@@ -430,6 +515,23 @@ func (i IssuerVkey) PoolId() string {
 // ExUnits represents the steps and memory usage for script execution
 type ExUnits struct {
 	cbor.StructAsArray
-	Memory uint64
-	Steps  uint64
+	Memory int64
+	Steps  int64
+}
+
+// GenesisRat is a convenience type for cbor.Rat
+type GenesisRat = cbor.Rat
+
+// ToUtxorpcBigInt converts a uint64 into a *utxorpc.BigInt pointer
+func ToUtxorpcBigInt(v uint64) *utxorpc.BigInt {
+	if v <= math.MaxInt64 {
+		return &utxorpc.BigInt{
+			BigInt: &utxorpc.BigInt_Int{Int: int64(v)},
+		}
+	}
+	return &utxorpc.BigInt{
+		BigInt: &utxorpc.BigInt_BigUInt{
+			BigUInt: new(big.Int).SetUint64(v).Bytes(),
+		},
+	}
 }

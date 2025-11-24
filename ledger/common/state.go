@@ -15,6 +15,8 @@
 package common
 
 import (
+	"time"
+
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
@@ -26,17 +28,52 @@ type UtxoState interface {
 // CertState defines the interface for querying the certificate state
 type CertState interface {
 	StakeRegistration([]byte) ([]StakeRegistrationCertificate, error)
-	PoolRegistration([]byte) ([]PoolRegistrationCertificate, error)
+}
+
+// PoolState defines the interface for querying the current pool state
+type PoolState interface {
+	// PoolCurrentState returns the latest active registration certificate for the given pool key hash.
+	// It also returns the epoch of a pending retirement certificate, if one exists.
+	// If the pool is not registered, the registration certificate will be nil.
+	PoolCurrentState(PoolKeyHash) (*PoolRegistrationCertificate, *uint64, error)
+}
+
+// RewardState defines the interface for reward calculation and querying
+type RewardState interface {
+	// CalculateRewards calculates rewards for the given epoch based on stake snapshot
+	CalculateRewards(
+		pots AdaPots,
+		snapshot RewardSnapshot,
+		params RewardParameters,
+	) (*RewardCalculationResult, error)
+
+	// GetAdaPots returns the current ADA pots
+	GetAdaPots() AdaPots
+
+	// UpdateAdaPots updates the ADA pots (typically called after reward calculation)
+	UpdateAdaPots(pots AdaPots) error
+
+	// GetRewardSnapshot returns the stake snapshot for reward calculation
+	GetRewardSnapshot(epoch uint64) (RewardSnapshot, error)
 }
 
 // LedgerState defines the interface for querying the ledger
 type LedgerState interface {
 	UtxoState
 	CertState
+	SlotState
+	PoolState
+	RewardState
 	NetworkId() uint
 }
 
 // TipState defines the interface for querying the current tip
 type TipState interface {
 	Tip() (pcommon.Tip, error)
+}
+
+// SlotState defines the interface for querying slots
+type SlotState interface {
+	SlotToTime(uint64) (time.Time, error)
+	TimeToSlot(time.Time) (uint64, error)
 }

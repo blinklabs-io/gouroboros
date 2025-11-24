@@ -349,3 +349,218 @@ func TestClientNtCRefuseRefused(t *testing.T) {
 		}
 	}
 }
+
+// Node-to-Node refusal tests
+
+func TestClientNtNRefuseVersionMismatch(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedErr := handshake.ProtocolName + ": version mismatch"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonVersionMismatch,
+							[]uint16{7, 8, 9, 10},
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	} else {
+		if err.Error() != expectedErr {
+			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
+		}
+	}
+}
+
+func TestClientNtNRefuseDecodeError(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedErr := handshake.ProtocolName + ": decode error: invalid protocol parameters"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonDecodeError,
+							mockProtocolVersionNtN,
+							"invalid protocol parameters",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	} else {
+		if err.Error() != expectedErr {
+			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
+		}
+	}
+}
+
+func TestClientNtNRefuseRefused(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedErr := handshake.ProtocolName + ": refused: connection not allowed"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonRefused,
+							mockProtocolVersionNtN,
+							"connection not allowed",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	} else {
+		if err.Error() != expectedErr {
+			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
+		}
+	}
+}
+
+// Additional edge case tests for refusal handling
+
+func TestClientNtCRefuseDecodeErrorEmptyMessage(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedErr := handshake.ProtocolName + ": decode error: "
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonDecodeError,
+							mockProtocolVersionNtC,
+							"",
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	} else {
+		if err.Error() != expectedErr {
+			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
+		}
+	}
+}
+
+func TestClientNtCRefuseVersionMismatchMultipleVersions(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedErr := handshake.ProtocolName + ": version mismatch"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonVersionMismatch,
+							[]uint16{10, 11, 12, 13, 14, 15},
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	} else {
+		if err.Error() != expectedErr {
+			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
+		}
+	}
+}
+
+func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	expectedErr := handshake.ProtocolName + ": version mismatch"
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgRefuse(
+						[]any{
+							handshake.RefuseReasonVersionMismatch,
+							[]uint16{5},
+						},
+					),
+				},
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+	)
+	if err == nil {
+		t.Fatalf("did not receive expected error")
+	} else {
+		if err.Error() != expectedErr {
+			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
+		}
+	}
+}

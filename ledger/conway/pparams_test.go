@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
 func TestConwayProtocolParamsUpdate(t *testing.T) {
@@ -482,7 +482,7 @@ func TestUtxorpc(t *testing.T) {
 	// Define test cases
 	testDefs := []struct {
 		startParams     conway.ConwayProtocolParameters
-		expectedUtxorpc *cardano.PParams
+		expectedUtxorpc *utxorpc.PParams
 	}{
 		{
 			startParams: conway.ConwayProtocolParameters{
@@ -525,63 +525,75 @@ func TestUtxorpc(t *testing.T) {
 					3: {700, 800, 900},
 				},
 			},
-			expectedUtxorpc: &cardano.PParams{
-				CoinsPerUtxoByte:         44,
-				MaxTxSize:                16384,
-				MinFeeCoefficient:        500,
-				MinFeeConstant:           2,
-				MaxBlockBodySize:         65536,
-				MaxBlockHeaderSize:       1024,
-				StakeKeyDeposit:          2000,
-				PoolDeposit:              500000,
+			expectedUtxorpc: &utxorpc.PParams{
+				CoinsPerUtxoByte: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 44},
+				},
+				MaxTxSize: 16384,
+				MinFeeCoefficient: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 500},
+				},
+				MinFeeConstant: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 2},
+				},
+				MaxBlockBodySize:   65536,
+				MaxBlockHeaderSize: 1024,
+				StakeKeyDeposit: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 2000},
+				},
+				PoolDeposit: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 500000},
+				},
 				PoolRetirementEpochBound: 2160,
 				DesiredNumberOfPools:     100,
-				PoolInfluence: &cardano.RationalNumber{
+				PoolInfluence: &utxorpc.RationalNumber{
 					Numerator:   int32(1),
 					Denominator: uint32(2),
 				},
-				MonetaryExpansion: &cardano.RationalNumber{
+				MonetaryExpansion: &utxorpc.RationalNumber{
 					Numerator:   int32(3),
 					Denominator: uint32(4),
 				},
-				TreasuryExpansion: &cardano.RationalNumber{
+				TreasuryExpansion: &utxorpc.RationalNumber{
 					Numerator:   int32(5),
 					Denominator: uint32(6),
 				},
-				MinPoolCost: 340000000,
-				ProtocolVersion: &cardano.ProtocolVersion{
+				MinPoolCost: &utxorpc.BigInt{
+					BigInt: &utxorpc.BigInt_Int{Int: 340000000},
+				},
+				ProtocolVersion: &utxorpc.ProtocolVersion{
 					Major: 8,
 					Minor: 0,
 				},
 				MaxValueSize:         1024,
 				CollateralPercentage: 150,
 				MaxCollateralInputs:  5,
-				CostModels: &cardano.CostModels{
-					PlutusV1: &cardano.CostModel{
+				CostModels: &utxorpc.CostModels{
+					PlutusV1: &utxorpc.CostModel{
 						Values: []int64{100, 200, 300},
 					},
-					PlutusV2: &cardano.CostModel{
+					PlutusV2: &utxorpc.CostModel{
 						Values: []int64{400, 500, 600},
 					},
-					PlutusV3: &cardano.CostModel{
+					PlutusV3: &utxorpc.CostModel{
 						Values: []int64{700, 800, 900},
 					},
 				},
-				Prices: &cardano.ExPrices{
-					Memory: &cardano.RationalNumber{
+				Prices: &utxorpc.ExPrices{
+					Memory: &utxorpc.RationalNumber{
 						Numerator:   int32(1),
 						Denominator: uint32(2),
 					},
-					Steps: &cardano.RationalNumber{
+					Steps: &utxorpc.RationalNumber{
 						Numerator:   int32(2),
 						Denominator: uint32(3),
 					},
 				},
-				MaxExecutionUnitsPerTransaction: &cardano.ExUnits{
+				MaxExecutionUnitsPerTransaction: &utxorpc.ExUnits{
 					Memory: 1000000,
 					Steps:  200000,
 				},
-				MaxExecutionUnitsPerBlock: &cardano.ExUnits{
+				MaxExecutionUnitsPerBlock: &utxorpc.ExUnits{
 					Memory: 5000000,
 					Steps:  1000000,
 				},
@@ -656,20 +668,32 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 
 	got, err := body.Utxorpc()
 	if err != nil {
-		t.Errorf("Could not get the transaction input")
+		t.Fatalf(
+			"Could not convert the transaction body to utxorpc format %v",
+			err,
+		)
 	}
 
-	if got.Fee != 1000 {
-		t.Errorf("Fee mismatch: got %d, want 100", got.Fee)
+	if got.Fee.GetInt() != 1000 {
+		t.Errorf("Fee mismatch: got %d, want 1000", got.Fee.GetInt())
 	}
 	if len(got.Inputs) != 1 {
 		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
 	}
 	if len(got.Outputs) != 1 {
-		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+		t.Fatalf("Expected 1 output, got %d", len(got.Outputs))
 	}
-	if got.Outputs[0].Coin != 5000 {
-		t.Errorf("Output coin mismatch: got %d, want 5000", got.Outputs[0].Coin)
+	coin := got.Outputs[0].Coin
+	if bigInt := coin.GetBigUInt(); bigInt != nil {
+		coinValue := new(big.Int).SetBytes(bigInt).Uint64()
+		if coinValue != uint64(5000) {
+			t.Errorf(
+				"Output coin mismatch: got %d, want 5000",
+				coinValue,
+			)
+		}
+	} else if coin.GetInt() != 5000 {
+		t.Errorf("Output coin mismatch: got %d, want 5000", coin.GetInt())
 	}
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")
@@ -733,20 +757,32 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 
 	got, err := tx.Utxorpc()
 	if err != nil {
-		t.Errorf("Could not get the transaction input")
+		t.Fatalf("Could not convert transaction to utxorpc format: %v", err)
 	}
 
-	if got.Fee != 1000 {
-		t.Errorf("Transaction fee mismatch: got %d, want 25", got.Fee)
+	if got.Fee.GetInt() != 1000 {
+		t.Errorf(
+			"Transaction fee mismatch: got %d, want 1000",
+			got.Fee.GetInt(),
+		)
 	}
 	if len(got.Inputs) != 1 {
 		t.Errorf("Expected 1 input, got %d", len(got.Inputs))
 	}
 	if len(got.Outputs) != 1 {
-		t.Errorf("Expected 1 output, got %d", len(got.Outputs))
+		t.Fatalf("Expected 1 output, got %d", len(got.Outputs))
 	}
-	if got.Outputs[0].Coin != 5000 {
-		t.Errorf("Output coin mismatch: got %d, want 8000", got.Outputs[0].Coin)
+	coin := got.Outputs[0].Coin
+	if bigInt := coin.GetBigUInt(); bigInt != nil {
+		coinValue := new(big.Int).SetBytes(bigInt).Uint64()
+		if coinValue != uint64(5000) {
+			t.Errorf(
+				"Output coin mismatch: got %d, want 5000",
+				coinValue,
+			)
+		}
+	} else if coin.GetInt() != 5000 {
+		t.Errorf("Output coin mismatch: got %d, want 5000", coin.GetInt())
 	}
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")

@@ -22,29 +22,33 @@ import (
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
+type CertificateType uint
+
 const (
-	CertificateTypeStakeRegistration               = 0
-	CertificateTypeStakeDeregistration             = 1
-	CertificateTypeStakeDelegation                 = 2
-	CertificateTypePoolRegistration                = 3
-	CertificateTypePoolRetirement                  = 4
-	CertificateTypeGenesisKeyDelegation            = 5
-	CertificateTypeMoveInstantaneousRewards        = 6
-	CertificateTypeRegistration                    = 7
-	CertificateTypeDeregistration                  = 8
-	CertificateTypeVoteDelegation                  = 9
-	CertificateTypeStakeVoteDelegation             = 10
-	CertificateTypeStakeRegistrationDelegation     = 11
-	CertificateTypeVoteRegistrationDelegation      = 12
-	CertificateTypeStakeVoteRegistrationDelegation = 13
-	CertificateTypeAuthCommitteeHot                = 14
-	CertificateTypeResignCommitteeCold             = 15
-	CertificateTypeRegistrationDrep                = 16
-	CertificateTypeDeregistrationDrep              = 17
-	CertificateTypeUpdateDrep                      = 18
+	CertificateTypeStakeRegistration               CertificateType = 0
+	CertificateTypeStakeDeregistration             CertificateType = 1
+	CertificateTypeStakeDelegation                 CertificateType = 2
+	CertificateTypePoolRegistration                CertificateType = 3
+	CertificateTypePoolRetirement                  CertificateType = 4
+	CertificateTypeGenesisKeyDelegation            CertificateType = 5
+	CertificateTypeMoveInstantaneousRewards        CertificateType = 6
+	CertificateTypeRegistration                    CertificateType = 7
+	CertificateTypeDeregistration                  CertificateType = 8
+	CertificateTypeVoteDelegation                  CertificateType = 9
+	CertificateTypeStakeVoteDelegation             CertificateType = 10
+	CertificateTypeStakeRegistrationDelegation     CertificateType = 11
+	CertificateTypeVoteRegistrationDelegation      CertificateType = 12
+	CertificateTypeStakeVoteRegistrationDelegation CertificateType = 13
+	CertificateTypeAuthCommitteeHot                CertificateType = 14
+	CertificateTypeResignCommitteeCold             CertificateType = 15
+	CertificateTypeRegistrationDrep                CertificateType = 16
+	CertificateTypeDeregistrationDrep              CertificateType = 17
+	CertificateTypeUpdateDrep                      CertificateType = 18
+	CertificateTypeLeiosEb                         CertificateType = 19
 )
 
 type CertificateWrapper struct {
@@ -58,8 +62,11 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if certType < 0 {
+		return fmt.Errorf("invalid certificate type: %d", certType)
+	}
 	var tmpCert Certificate
-	switch certType {
+	switch CertificateType(certType) {
 	case CertificateTypeStakeRegistration:
 		tmpCert = &StakeRegistrationCertificate{}
 	case CertificateTypeStakeDeregistration:
@@ -98,6 +105,8 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 		tmpCert = &DeregistrationDrepCertificate{}
 	case CertificateTypeUpdateDrep:
 		tmpCert = &UpdateDrepCertificate{}
+	case CertificateTypeLeiosEb:
+		tmpCert = &LeiosEbCertificate{}
 	default:
 		return fmt.Errorf("unknown certificate type: %d", certType)
 	}
@@ -159,11 +168,60 @@ func (d *Drep) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (d *Drep) Utxorpc() (*utxorpc.DRep, error) {
+	switch d.Type {
+	case DrepTypeAddrKeyHash:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_AddrKeyHash{AddrKeyHash: d.Credential},
+		}, nil
+	case DrepTypeScriptHash:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_ScriptHash{ScriptHash: d.Credential},
+		}, nil
+	case DrepTypeAbstain:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_Abstain{Abstain: true},
+		}, nil
+	case DrepTypeNoConfidence:
+		return &utxorpc.DRep{
+			Drep: &utxorpc.DRep_NoConfidence{NoConfidence: true},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown DRep type: %d", d.Type)
+	}
+}
+
+func (d *Drep) ToPlutusData() data.PlutusData {
+	switch d.Type {
+	case DrepTypeAddrKeyHash:
+		return data.NewConstr(
+			0,
+			data.NewConstr(
+				0,
+				data.NewByteString(d.Credential),
+			),
+		)
+	case DrepTypeScriptHash:
+		return data.NewConstr(
+			0,
+			data.NewConstr(
+				1,
+				data.NewByteString(d.Credential),
+			),
+		)
+	case DrepTypeAbstain:
+		return data.NewConstr(1)
+	case DrepTypeNoConfidence:
+		return data.NewConstr(2)
+	}
+	return nil
+}
+
 type StakeRegistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	CertType          uint
-	StakeRegistration Credential
+	CertType        uint
+	StakeCredential Credential
 }
 
 func (c StakeRegistrationCertificate) isCertificate() {}
@@ -180,7 +238,7 @@ func (c *StakeRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (c *StakeRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
-	stakeCred, err := c.StakeRegistration.Utxorpc()
+	stakeCred, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
 	}
@@ -198,8 +256,8 @@ func (c *StakeRegistrationCertificate) Type() uint {
 type StakeDeregistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	CertType            uint
-	StakeDeregistration Credential
+	CertType        uint
+	StakeCredential Credential
 }
 
 func (c StakeDeregistrationCertificate) isCertificate() {}
@@ -216,7 +274,7 @@ func (c *StakeDeregistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (c *StakeDeregistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
-	stakeDeReg, err := c.StakeDeregistration.Utxorpc()
+	stakeDeReg, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
 	}
@@ -375,8 +433,8 @@ func (p *PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 }
 
 type PoolRegistrationCertificate struct {
-	cbor.StructAsArray   `json:"-"`
-	cbor.DecodeStoreCbor `json:"-"`
+	cbor.StructAsArray   `              json:"-"`
+	cbor.DecodeStoreCbor `              json:"-"`
 	CertType             uint          `json:"certType,omitempty"`
 	Operator             PoolKeyHash   `json:"operator"`
 	VrfKeyHash           VrfKeyHash    `json:"vrfKeyHash"`
@@ -449,10 +507,17 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		if ra.Credential.KeyHash != "" {
 			hashBytes, err := hex.DecodeString(ra.Credential.KeyHash)
 			if err != nil {
-				return fmt.Errorf("failed to decode reward account key hash: %w", err)
+				return fmt.Errorf(
+					"failed to decode reward account key hash: %w",
+					err,
+				)
 			}
 			if len(hashBytes) != AddressHashSize {
-				return fmt.Errorf("invalid key hash length: expected %d, got %d", AddressHashSize, len(hashBytes))
+				return fmt.Errorf(
+					"invalid key hash length: expected %d, got %d",
+					AddressHashSize,
+					len(hashBytes),
+				)
 			}
 			p.RewardAccount = AddrKeyHash(NewBlake2b224(hashBytes))
 		}
@@ -526,12 +591,12 @@ func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	}
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_PoolRegistration{
+			// #nosec G115
 			PoolRegistration: &utxorpc.PoolRegistrationCert{
 				Operator:   c.Operator[:],
 				VrfKeyhash: c.VrfKeyHash[:],
-				Pledge:     c.Pledge,
-				Cost:       c.Cost,
-				// #nosec G115
+				Pledge:     ToUtxorpcBigInt(c.Pledge),
+				Cost:       ToUtxorpcBigInt(c.Cost),
 				Margin: &utxorpc.RationalNumber{
 					Numerator:   int32(c.Margin.Num().Int64()),
 					Denominator: uint32(c.Margin.Denom().Uint64()),
@@ -698,9 +763,7 @@ func (c *MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, e
 			tmpMirTargets,
 			&utxorpc.MirTarget{
 				StakeCredential: stakeCr,
-				// potential integer overflow
-				// #nosec G115
-				DeltaCoin: int64(deltaCoin),
+				DeltaCoin:       ToUtxorpcBigInt(deltaCoin),
 			},
 		)
 	}
@@ -854,7 +917,7 @@ type StakeVoteDelegationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	PoolKeyHash     []byte
+	PoolKeyHash     PoolKeyHash
 	Drep            Drep
 }
 
@@ -879,25 +942,6 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert DRep: %w", err)
 	}
-	var drepBytes []byte
-
-	// Extract DRep credential if it exists (AddrKeyHash or ScriptHash)
-	if drepProto != nil {
-		switch drepProto.GetDrep().(type) {
-		case *utxorpc.DRep_AddrKeyHash:
-			drepBytes = drepProto.GetAddrKeyHash()
-		case *utxorpc.DRep_ScriptHash:
-			drepBytes = drepProto.GetScriptHash()
-		}
-	}
-
-	// Encode both PoolKeyHash and DRep in PoolKeyhash field
-	// Format: [1-byte type][poolKeyHash][drepBytes]
-	encodedKey := make([]byte, 0, 1+len(c.PoolKeyHash)+len(drepBytes))
-	encodedKey = append(encodedKey, byte(0x01)) // Version byte
-	encodedKey = append(encodedKey, c.PoolKeyHash...)
-	encodedKey = append(encodedKey, drepBytes...)
-
 	stakeCred, err := c.StakeCredential.Utxorpc()
 	if err != nil {
 		return nil, err
@@ -906,7 +950,7 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error)
 		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
 			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     encodedKey,
+				PoolKeyhash:     c.PoolKeyHash[:],
 				Drep:            drepProto,
 			},
 		},
@@ -922,7 +966,7 @@ type StakeRegistrationDelegationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	PoolKeyHash     []byte
+	PoolKeyHash     PoolKeyHash
 	Amount          int64
 }
 
@@ -947,10 +991,10 @@ func (c *StakeRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate
 		return nil, err
 	}
 	return &utxorpc.Certificate{
-		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
-			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
+		Certificate: &utxorpc.Certificate_StakeRegDelegCert{
+			StakeRegDelegCert: &utxorpc.StakeRegDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     c.PoolKeyHash,
+				PoolKeyhash:     c.PoolKeyHash[:],
 			},
 		},
 	}, nil
@@ -1074,7 +1118,7 @@ type AuthCommitteeHotCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType       uint
 	ColdCredential Credential
-	HostCredential Credential
+	HotCredential  Credential
 }
 
 func (c AuthCommitteeHotCertificate) isCertificate() {}
@@ -1097,7 +1141,7 @@ func (c *AuthCommitteeHotCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	hostCred, err := c.HostCredential.Utxorpc()
+	hotCred, err := c.HotCredential.Utxorpc()
 	if err != nil {
 		return nil, err
 	}
@@ -1105,7 +1149,7 @@ func (c *AuthCommitteeHotCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 		Certificate: &utxorpc.Certificate_AuthCommitteeHotCert{
 			AuthCommitteeHotCert: &utxorpc.AuthCommitteeHotCert{
 				CommitteeColdCredential: coldCred,
-				CommitteeHotCredential:  hostCred,
+				CommitteeHotCredential:  hotCred,
 			},
 		},
 	}, nil
@@ -1305,26 +1349,63 @@ func (c *UpdateDrepCertificate) Type() uint {
 	return c.CertType
 }
 
-// DRep implementation
-func (d *Drep) Utxorpc() (*utxorpc.DRep, error) {
-	switch d.Type {
-	case DrepTypeAddrKeyHash:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_AddrKeyHash{AddrKeyHash: d.Credential},
-		}, nil
-	case DrepTypeScriptHash:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_ScriptHash{ScriptHash: d.Credential},
-		}, nil
-	case DrepTypeAbstain:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_Abstain{Abstain: true},
-		}, nil
-	case DrepTypeNoConfidence:
-		return &utxorpc.DRep{
-			Drep: &utxorpc.DRep_NoConfidence{NoConfidence: true},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown DRep type: %d", d.Type)
+type LeiosEbCertificate struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	ElectionId          Blake2b256
+	EndorserBlockHash   Blake2b256
+	PersistentVoters    []uint
+	NonpersistentVoters map[Blake2b256][]byte
+	AggregateEligSig    *[]byte
+	AggregateVoteSig    []byte
+}
+
+func (c LeiosEbCertificate) isCertificate() {}
+
+func (c *LeiosEbCertificate) UnmarshalCBOR(
+	cborData []byte,
+) error {
+	type tLeiosEbCertificate LeiosEbCertificate
+	var tmp tLeiosEbCertificate
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
 	}
+	*c = LeiosEbCertificate(tmp)
+	c.SetCbor(cborData)
+	return nil
+}
+
+func (c *LeiosEbCertificate) Utxorpc() (*utxorpc.Certificate, error) {
+	return &utxorpc.Certificate{}, nil
+}
+
+func (c *LeiosEbCertificate) Type() uint {
+	return uint(CertificateTypeLeiosEb)
+}
+
+// GetAggregateEligSig returns the aggregate eligibility signature as a byte slice
+func (c *LeiosEbCertificate) GetAggregateEligSig() []byte {
+	if c.AggregateEligSig == nil {
+		return nil
+	}
+	return *c.AggregateEligSig
+}
+
+// GetAggregateVoteSig returns the aggregate vote signature as a byte slice
+func (c *LeiosEbCertificate) GetAggregateVoteSig() []byte {
+	return c.AggregateVoteSig
+}
+
+// SetAggregateEligSig sets the aggregate eligibility signature from a byte slice
+func (c *LeiosEbCertificate) SetAggregateEligSig(sig []byte) {
+	if sig == nil {
+		c.AggregateEligSig = nil
+	} else {
+		c.AggregateEligSig = &sig
+	}
+}
+
+// SetAggregateVoteSig sets the aggregate vote signature from a byte slice
+func (c *LeiosEbCertificate) SetAggregateVoteSig(sig []byte) {
+	c.AggregateVoteSig = sig
 }

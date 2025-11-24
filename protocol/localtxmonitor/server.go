@@ -107,7 +107,7 @@ func (s *Server) handleAcquire() error {
 	}
 	s.mempoolCapacity = mempoolCapacity
 	s.mempoolNextTxIdx = 0
-	s.mempoolTxs = make([]TxAndEraId, 0)
+	s.mempoolTxs = make([]TxAndEraId, 0, len(mempoolTxs))
 	for _, mempoolTx := range mempoolTxs {
 		newTx := TxAndEraId{
 			EraId: mempoolTx.EraId,

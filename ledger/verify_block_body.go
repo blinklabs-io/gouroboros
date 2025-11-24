@@ -227,8 +227,9 @@ func encodeHead(e *bytes.Buffer, t byte, n uint64) int {
 
 	if n <= math.MaxUint16 {
 		const headSize = 3
-		var scratch [headSize]byte
-		scratch[0] = t | byte(additionalInformationWith2ByteArgument)
+		scratch := [headSize]byte{
+			t | byte(additionalInformationWith2ByteArgument),
+		}
 		binary.BigEndian.PutUint16(scratch[1:], uint16(n))
 		e.Write(scratch[:])
 		return headSize
@@ -236,16 +237,18 @@ func encodeHead(e *bytes.Buffer, t byte, n uint64) int {
 
 	if n <= math.MaxUint32 {
 		const headSize = 5
-		var scratch [headSize]byte
-		scratch[0] = t | byte(additionalInformationWith4ByteArgument)
+		scratch := [headSize]byte{
+			t | byte(additionalInformationWith4ByteArgument),
+		}
 		binary.BigEndian.PutUint32(scratch[1:], uint32(n))
 		e.Write(scratch[:])
 		return headSize
 	}
 
 	const headSize = 9
-	var scratch [headSize]byte
-	scratch[0] = t | byte(additionalInformationWith8ByteArgument)
+	scratch := [headSize]byte{
+		t | byte(additionalInformationWith8ByteArgument),
+	}
 	binary.BigEndian.PutUint64(scratch[1:], n)
 	e.Write(scratch[:])
 	return headSize
@@ -423,7 +426,7 @@ func GetBlockOutput(
 	var regisCerts []RegisCert
 	var deRegisCerts []DeRegisCert
 	for txIndex, tx := range txBodies {
-		txHash := tx.Hash().String()
+		txId := tx.Id().String()
 		txOutputs := tx.Outputs()
 		for outputIndex, txOutput := range txOutputs {
 			cborDatum := []byte{}
@@ -441,7 +444,7 @@ func GetBlockOutput(
 				)
 			}
 			tmpOutput := UTXOOutput{
-				TxHash:      txHash,
+				TxHash:      txId,
 				OutputIndex: strconv.Itoa(outputIndex),
 				Tokens:      tokens,
 				DatumHex:    cborDatumHex,

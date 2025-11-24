@@ -292,7 +292,9 @@ func TestGenesisStaking(t *testing.T) {
     }`
 
 	t.Run("TestInitialPools", func(t *testing.T) {
-		genesis, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(testGenesis))
+		genesis, err := shelley.NewShelleyGenesisFromReader(
+			strings.NewReader(testGenesis),
+		)
 		if err != nil {
 			t.Fatalf("Genesis parsing failed: %v", err)
 		}
@@ -349,7 +351,9 @@ func TestGenesisStaking(t *testing.T) {
 	})
 
 	t.Run("TestPoolById", func(t *testing.T) {
-		genesis, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(testGenesis))
+		genesis, err := shelley.NewShelleyGenesisFromReader(
+			strings.NewReader(testGenesis),
+		)
 		if err != nil {
 			t.Fatalf("Genesis parsing failed: %v", err)
 		}

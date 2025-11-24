@@ -42,6 +42,10 @@ func TestShelleyTransactionInputToPlutusData(t *testing.T) {
 	)
 	tmpData := testInput.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
 	}
 }

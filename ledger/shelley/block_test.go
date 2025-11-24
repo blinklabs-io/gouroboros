@@ -117,13 +117,50 @@ func TestShelleyBlockUtxorpc(t *testing.T) {
 
 	expectedTxCount := len(block.TransactionBodies)
 	if len(utxoBlock.Body.Tx) != expectedTxCount {
-		t.Errorf("expected %d transactions, got %d", expectedTxCount, len(utxoBlock.Body.Tx))
+		t.Errorf(
+			"expected %d transactions, got %d",
+			expectedTxCount,
+			len(utxoBlock.Body.Tx),
+		)
 	}
 
 	if utxoBlock.Header.Height != block.BlockNumber() {
-		t.Errorf("height mismatch: expected %d, got %d", block.BlockNumber(), utxoBlock.Header.Height)
+		t.Errorf(
+			"height mismatch: expected %d, got %d",
+			block.BlockNumber(),
+			utxoBlock.Header.Height,
+		)
 	}
 	if utxoBlock.Header.Slot != block.SlotNumber() {
-		t.Errorf("slot mismatch: expected %d, got %d", block.SlotNumber(), utxoBlock.Header.Slot)
+		t.Errorf(
+			"slot mismatch: expected %d, got %d",
+			block.SlotNumber(),
+			utxoBlock.Header.Slot,
+		)
+	}
+}
+
+func BenchmarkShelleyBlockDeserialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(shelleyBlockHex)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var block shelley.ShelleyBlock
+		err := block.UnmarshalCBOR(blockCbor)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkShelleyBlockSerialization(b *testing.B) {
+	blockCbor, _ := hex.DecodeString(shelleyBlockHex)
+	var block shelley.ShelleyBlock
+	err := block.UnmarshalCBOR(blockCbor)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = block.Cbor()
 	}
 }

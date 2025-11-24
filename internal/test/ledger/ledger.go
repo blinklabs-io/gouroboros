@@ -16,6 +16,7 @@ package test_ledger
 
 import (
 	"errors"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -25,6 +26,8 @@ type MockLedgerState struct {
 	MockUtxos             []common.Utxo
 	MockStakeRegistration []common.StakeRegistrationCertificate
 	MockPoolRegistration  []common.PoolRegistrationCertificate
+	MockAdaPots           common.AdaPots
+	MockRewardSnapshot    common.RewardSnapshot
 }
 
 func (ls MockLedgerState) NetworkId() uint {
@@ -52,7 +55,7 @@ func (ls MockLedgerState) StakeRegistration(
 	ret := []common.StakeRegistrationCertificate{}
 	for _, cert := range ls.MockStakeRegistration {
 		if string(
-			common.Blake2b224(cert.StakeRegistration.Credential).Bytes(),
+			common.Blake2b224(cert.StakeCredential.Credential).Bytes(),
 		) == string(
 			stakingKey,
 		) {
@@ -62,18 +65,52 @@ func (ls MockLedgerState) StakeRegistration(
 	return ret, nil
 }
 
-func (ls MockLedgerState) PoolRegistration(
-	poolKeyHash []byte,
-) ([]common.PoolRegistrationCertificate, error) {
-	ret := []common.PoolRegistrationCertificate{}
+func (ls MockLedgerState) PoolCurrentState(
+	poolKeyHash common.PoolKeyHash,
+) (*common.PoolRegistrationCertificate, *uint64, error) {
 	for _, cert := range ls.MockPoolRegistration {
 		if string(
 			common.Blake2b224(cert.Operator).Bytes(),
 		) == string(
-			poolKeyHash,
+			common.Blake2b224(poolKeyHash).Bytes(),
 		) {
-			ret = append(ret, cert)
+			// pretend latest registration is current; no retirement support in mock
+			c := cert
+			return &c, nil, nil
 		}
 	}
-	return ret, nil
+	return nil, nil, nil
+}
+
+func (ls MockLedgerState) SlotToTime(slot uint64) (time.Time, error) {
+	// TODO
+	return time.Now(), nil
+}
+
+func (ls MockLedgerState) TimeToSlot(t time.Time) (uint64, error) {
+	// TODO
+	return 0, nil
+}
+
+func (ls MockLedgerState) CalculateRewards(
+	pots common.AdaPots,
+	snapshot common.RewardSnapshot,
+	params common.RewardParameters,
+) (*common.RewardCalculationResult, error) {
+	return common.CalculateRewards(pots, snapshot, params)
+}
+
+func (ls MockLedgerState) GetAdaPots() common.AdaPots {
+	return ls.MockAdaPots
+}
+
+func (ls MockLedgerState) UpdateAdaPots(pots common.AdaPots) error {
+	// Mock implementation - doesn't modify state
+	return nil
+}
+
+func (ls MockLedgerState) GetRewardSnapshot(
+	epoch uint64,
+) (common.RewardSnapshot, error) {
+	return ls.MockRewardSnapshot, nil
 }

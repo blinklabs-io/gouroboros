@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
@@ -26,6 +27,370 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 )
 
+func TestBlake2b256_MarshalCBOR_ZeroHash(t *testing.T) {
+	// Test that a zero Blake2b256 encodes as a proper 32-byte bytestring, not null
+	var zeroHash Blake2b256
+
+	encoded, err := cbor.Encode(zeroHash)
+	if err != nil {
+		t.Fatalf("Failed to encode zero hash: %v", err)
+	}
+
+	// Verify the encoding starts with the correct CBOR bytestring tag for 32 bytes (0x58 0x20)
+	if len(encoded) < 2 || encoded[0] != 0x58 || encoded[1] != 0x20 {
+		t.Errorf(
+			"Zero hash not encoded as 32-byte bytestring. Expected prefix 0x5820, got: %x",
+			encoded[:min(4, len(encoded))],
+		)
+	}
+
+	// Verify total length is 34 bytes (2 bytes for CBOR tag + 32 bytes of data)
+	expectedLength := 34
+	if len(encoded) != expectedLength {
+		t.Errorf(
+			"Expected encoded length %d, got %d",
+			expectedLength,
+			len(encoded),
+		)
+	}
+
+	// Verify the data portion is all zeros
+	dataBytes := encoded[2:] // Skip the 2-byte CBOR header
+	for i, b := range dataBytes {
+		if b != 0x00 {
+			t.Errorf("Expected zero at data position %d, got 0x%02x", i, b)
+		}
+	}
+
+	// Verify round-trip decoding works
+	var decoded Blake2b256
+	_, err = cbor.Decode(encoded, &decoded)
+	if err != nil {
+		t.Fatalf("Failed to decode zero hash: %v", err)
+	}
+
+	if !bytes.Equal(zeroHash[:], decoded[:]) {
+		t.Errorf(
+			"Round-trip failed: original %x, decoded %x",
+			zeroHash,
+			decoded,
+		)
+	}
+}
+
+func TestBlake2b256_MarshalCBOR_NonZeroHash(t *testing.T) {
+	// Test that a non-zero Blake2b256 encodes correctly
+	nonZeroHash := Blake2b256Hash([]byte("test"))
+
+	encoded, err := cbor.Encode(nonZeroHash)
+	if err != nil {
+		t.Fatalf("Failed to encode non-zero hash: %v", err)
+	}
+
+	// Verify the encoding starts with the correct CBOR bytestring tag for 32 bytes
+	if len(encoded) < 2 || encoded[0] != 0x58 || encoded[1] != 0x20 {
+		t.Errorf(
+			"Non-zero hash not encoded as 32-byte bytestring. Expected prefix 0x5820, got: %x",
+			encoded[:min(4, len(encoded))],
+		)
+	}
+
+	// Verify total length is 34 bytes
+	expectedLength := 34
+	if len(encoded) != expectedLength {
+		t.Errorf(
+			"Expected encoded length %d, got %d",
+			expectedLength,
+			len(encoded),
+		)
+	}
+
+	// Verify round-trip decoding works
+	var decoded Blake2b256
+	_, err = cbor.Decode(encoded, &decoded)
+	if err != nil {
+		t.Fatalf("Failed to decode non-zero hash: %v", err)
+	}
+
+	if !bytes.Equal(nonZeroHash[:], decoded[:]) {
+		t.Errorf(
+			"Round-trip failed: original %x, decoded %x",
+			nonZeroHash,
+			decoded,
+		)
+	}
+}
+
+func TestBlake2b256_InBlockHeaderStruct(t *testing.T) {
+	// Test Blake2b256 in a struct similar to a block header to ensure no null values appear
+	type MockBlockHeader struct {
+		cbor.StructAsArray
+		ProtocolMagic uint32
+		PrevHash      Blake2b256
+		BodyProof     []byte
+		BlockNumber   uint64
+	}
+
+	var zeroHash Blake2b256
+	nonZeroHash := Blake2b256Hash([]byte("test"))
+
+	testCases := []struct {
+		name   string
+		header MockBlockHeader
+	}{
+		{
+			name: "Genesis block with zero prev hash",
+			header: MockBlockHeader{
+				ProtocolMagic: 764824073,
+				PrevHash:      zeroHash,
+				BodyProof:     []byte{0x01, 0x02, 0x03},
+				BlockNumber:   0,
+			},
+		},
+		{
+			name: "Normal block with non-zero prev hash",
+			header: MockBlockHeader{
+				ProtocolMagic: 764824073,
+				PrevHash:      nonZeroHash,
+				BodyProof:     []byte{0x04, 0x05, 0x06},
+				BlockNumber:   1,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(tc.header)
+			if err != nil {
+				t.Fatalf("Failed to encode header: %v", err)
+			}
+
+			// Verify round-trip decoding works (this ensures no semantic nulls)
+			var decoded MockBlockHeader
+			_, err = cbor.Decode(encoded, &decoded)
+			if err != nil {
+				t.Fatalf("Failed to decode header: %v", err)
+			}
+
+			// Verify all fields match and are properly typed (not null)
+			if decoded.ProtocolMagic != tc.header.ProtocolMagic {
+				t.Errorf(
+					"ProtocolMagic mismatch: expected %d, got %d",
+					tc.header.ProtocolMagic,
+					decoded.ProtocolMagic,
+				)
+			}
+
+			if !bytes.Equal(tc.header.PrevHash[:], decoded.PrevHash[:]) {
+				t.Errorf(
+					"PrevHash mismatch: expected %x, got %x",
+					tc.header.PrevHash,
+					decoded.PrevHash,
+				)
+			}
+
+			// Specifically verify zero hash is properly decoded as zero bytes, not null
+			if tc.name == "Genesis block with zero prev hash" {
+				for i, b := range decoded.PrevHash {
+					if b != 0 {
+						t.Errorf(
+							"Zero PrevHash not properly decoded: expected zero at position %d, got 0x%02x",
+							i,
+							b,
+						)
+					}
+				}
+			}
+
+			if !bytes.Equal(tc.header.BodyProof, decoded.BodyProof) {
+				t.Errorf(
+					"BodyProof mismatch: expected %x, got %x",
+					tc.header.BodyProof,
+					decoded.BodyProof,
+				)
+			}
+
+			if decoded.BlockNumber != tc.header.BlockNumber {
+				t.Errorf(
+					"BlockNumber mismatch: expected %d, got %d",
+					tc.header.BlockNumber,
+					decoded.BlockNumber,
+				)
+			}
+		})
+	}
+}
+
+func TestBlake2b224_MarshalCBOR_ZeroHash(t *testing.T) {
+	// Test that a zero Blake2b224 encodes as a proper 28-byte bytestring, not null
+	var zeroHash Blake2b224
+
+	encoded, err := cbor.Encode(zeroHash)
+	if err != nil {
+		t.Fatalf("Failed to encode zero Blake2b224 hash: %v", err)
+	}
+
+	// Verify the encoding starts with the correct CBOR bytestring tag for 28 bytes (0x58 0x1c)
+	if len(encoded) < 2 || encoded[0] != 0x58 || encoded[1] != 0x1c {
+		t.Errorf(
+			"Zero Blake2b224 hash not encoded as 28-byte bytestring. Expected prefix 0x581c, got: %x",
+			encoded[:min(4, len(encoded))],
+		)
+	}
+
+	// Verify total length is 30 bytes (2 bytes for CBOR tag + 28 bytes of data)
+	expectedLength := 30
+	if len(encoded) != expectedLength {
+		t.Errorf(
+			"Expected encoded length %d, got %d",
+			expectedLength,
+			len(encoded),
+		)
+	}
+
+	// Verify round-trip (ensures semantic correctness, not null)
+	var decoded Blake2b224
+	_, err = cbor.Decode(encoded, &decoded)
+	if err != nil {
+		t.Fatalf("Failed to decode zero Blake2b224 hash: %v", err)
+	}
+
+	if !bytes.Equal(zeroHash[:], decoded[:]) {
+		t.Errorf(
+			"Round-trip failed: original %x, decoded %x",
+			zeroHash,
+			decoded,
+		)
+	}
+}
+
+func TestBlake2b160_MarshalCBOR_ZeroHash(t *testing.T) {
+	// Test that a zero Blake2b160 encodes as a proper 20-byte bytestring, not null
+	var zeroHash Blake2b160
+
+	encoded, err := cbor.Encode(zeroHash)
+	if err != nil {
+		t.Fatalf("Failed to encode zero Blake2b160 hash: %v", err)
+	}
+
+	// Verify the encoding starts with the correct CBOR bytestring tag for 20 bytes (0x54)
+	if len(encoded) < 1 || encoded[0] != 0x54 {
+		t.Errorf(
+			"Zero Blake2b160 hash not encoded as 20-byte bytestring. Expected prefix 0x54, got: %x",
+			encoded[:min(2, len(encoded))],
+		)
+	}
+
+	// Verify total length is 21 bytes (1 byte for CBOR tag + 20 bytes of data)
+	expectedLength := 21
+	if len(encoded) != expectedLength {
+		t.Errorf(
+			"Expected encoded length %d, got %d",
+			expectedLength,
+			len(encoded),
+		)
+	}
+
+	// Verify round-trip (ensures semantic correctness, not null)
+	var decoded Blake2b160
+	_, err = cbor.Decode(encoded, &decoded)
+	if err != nil {
+		t.Fatalf("Failed to decode zero Blake2b160 hash: %v", err)
+	}
+
+	if !bytes.Equal(zeroHash[:], decoded[:]) {
+		t.Errorf(
+			"Round-trip failed: original %x, decoded %x",
+			zeroHash,
+			decoded,
+		)
+	}
+}
+
+// TestOriginalIssue_ZeroHashNotNull specifically tests the original issue:
+// empty prev hash should be encoded as a zero-filled bytestring, not null
+func TestOriginalIssue_ZeroHashNotNull(t *testing.T) {
+	// Simulate the original problem scenario from the user's example
+	type OriginalBlockData struct {
+		cbor.StructAsArray
+		Field1   int
+		Field2   int
+		PrevHash Blake2b256 // This was encoding as null when zero
+		Hash1    Blake2b256
+		Hash2    Blake2b256
+	}
+
+	var zeroHash Blake2b256
+	hash1Bytes, _ := hex.DecodeString(
+		"ae29c552228a08f3c563450b10a9f548f4602d598e4b78dd4d70edaf12ba548d",
+	)
+	hash2Bytes, _ := hex.DecodeString(
+		"7f69d32c32041f11992dff6d6b9445ba3e0997a074e4c700b504b359f1ef55b4",
+	)
+
+	var hash1, hash2 Blake2b256
+	copy(hash1[:], hash1Bytes)
+	copy(hash2[:], hash2Bytes)
+
+	blockData := OriginalBlockData{
+		Field1:   0,
+		Field2:   0,
+		PrevHash: zeroHash, // This should NOT encode as null
+		Hash1:    hash1,
+		Hash2:    hash2,
+	}
+
+	encoded, err := cbor.Encode(blockData)
+	if err != nil {
+		t.Fatalf("Failed to encode block data: %v", err)
+	}
+
+	// The key test: verify zero PrevHash is semantically correct through decoding
+	// (rather than scanning raw bytes which could false-positive on valid 0xF6 in bytestrings)
+
+	// Verify round-trip
+	var decoded OriginalBlockData
+	_, err = cbor.Decode(encoded, &decoded)
+	if err != nil {
+		t.Fatalf("Failed to decode block data: %v", err)
+	}
+
+	// Verify the zero hash decoded correctly (this ensures it wasn't encoded as null)
+	if !bytes.Equal(blockData.PrevHash[:], decoded.PrevHash[:]) {
+		t.Errorf(
+			"PrevHash round-trip failed: original %x, decoded %x",
+			blockData.PrevHash,
+			decoded.PrevHash,
+		)
+	}
+
+	// Verify all zero bytes are preserved (semantic validation that it's not null)
+	for i, b := range decoded.PrevHash {
+		if b != 0 {
+			t.Errorf("Expected zero at PrevHash position %d, got 0x%02x", i, b)
+		}
+	}
+
+	// Additional semantic check: verify the PrevHash field exists and has the expected type/size
+	if len(decoded.PrevHash) != Blake2b256Size {
+		t.Errorf(
+			"PrevHash has wrong size: expected %d bytes, got %d",
+			Blake2b256Size,
+			len(decoded.PrevHash),
+		)
+	}
+
+	t.Logf(
+		"SUCCESS: Zero PrevHash correctly encoded as zero-filled bytestring, not null",
+	)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 func TestAssetFingerprint(t *testing.T) {
 	testDefs := []struct {
 		policyIdHex         string
@@ -145,11 +510,19 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			expectedData: data.NewMap(
 				[][2]data.PlutusData{
 					{
-						data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+						data.NewByteString(
+							test.DecodeHexString(
+								"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
+							),
+						),
 						data.NewMap(
 							[][2]data.PlutusData{
 								{
-									data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+									data.NewByteString(
+										test.DecodeHexString(
+											"6675726e697368613239686e",
+										),
+									),
 									data.NewInteger(big.NewInt(123456)),
 								},
 							},
@@ -172,22 +545,38 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			expectedData: data.NewMap(
 				[][2]data.PlutusData{
 					{
-						data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+						data.NewByteString(
+							test.DecodeHexString(
+								"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
+							),
+						),
 						data.NewMap(
 							[][2]data.PlutusData{
 								{
-									data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+									data.NewByteString(
+										test.DecodeHexString(
+											"6675726e697368613239686e",
+										),
+									),
 									data.NewInteger(big.NewInt(123456)),
 								},
 							},
 						),
 					},
 					{
-						data.NewByteString(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")),
+						data.NewByteString(
+							test.DecodeHexString(
+								"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5",
+							),
+						),
 						data.NewMap(
 							[][2]data.PlutusData{
 								{
-									data.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")),
+									data.NewByteString(
+										test.DecodeHexString(
+											"426f7764757261436f6e63657074733638",
+										),
+									),
 									data.NewInteger(big.NewInt(234567)),
 								},
 							},
@@ -208,7 +597,11 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			t.Fatalf("test def multi-asset object was not expected type: %T", v)
 		}
 		if !reflect.DeepEqual(tmpData, testDef.expectedData) {
-			t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, testDef.expectedData)
+			t.Fatalf(
+				"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+				tmpData,
+				testDef.expectedData,
+			)
 		}
 	}
 }
@@ -334,147 +727,168 @@ func TestBlake2b224_String(t *testing.T) {
 func TestBlake2b224_ToPlutusData(t *testing.T) {
 	testData := []byte("blinklabs")
 	hash := Blake2b224Hash(testData)
-	expectedHash, err := hex.DecodeString("d33ef286551f50d455cfeb68b45b02622fb05ef21cfd1aabd0d7880c")
+	expectedHash, err := hex.DecodeString(
+		"d33ef286551f50d455cfeb68b45b02622fb05ef21cfd1aabd0d7880c",
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	expectedPd := data.NewByteString(expectedHash)
 	tmpPd := hash.ToPlutusData()
 	if !reflect.DeepEqual(tmpPd, expectedPd) {
-		t.Fatalf("did not get expected PlutusData:     got: %#v\n  wanted: %#v", tmpPd, expectedPd)
+		t.Fatalf(
+			"did not get expected PlutusData:     got: %#v\n  wanted: %#v",
+			tmpPd,
+			expectedPd,
+		)
 	}
 }
 
+var certificateTypeTests = []struct {
+	name     string
+	cert     Certificate
+	expected uint
+}{
+	{
+		"StakeRegistration",
+		&StakeRegistrationCertificate{
+			CertType: uint(CertificateTypeStakeRegistration),
+		},
+		uint(CertificateTypeStakeRegistration),
+	},
+	{
+		"StakeDeregistration",
+		&StakeDeregistrationCertificate{
+			CertType: uint(CertificateTypeStakeDeregistration),
+		},
+		uint(CertificateTypeStakeDeregistration),
+	},
+	{
+		"StakeDelegation",
+		&StakeDelegationCertificate{
+			CertType: uint(CertificateTypeStakeDelegation),
+		},
+		uint(CertificateTypeStakeDelegation),
+	},
+	{
+		"PoolRegistration",
+		&PoolRegistrationCertificate{
+			CertType: uint(CertificateTypePoolRegistration),
+		},
+		uint(CertificateTypePoolRegistration),
+	},
+	{
+		"PoolRetirement",
+		&PoolRetirementCertificate{
+			CertType: uint(CertificateTypePoolRetirement),
+		},
+		uint(CertificateTypePoolRetirement),
+	},
+	{
+		"GenesisKeyDelegation",
+		&GenesisKeyDelegationCertificate{
+			CertType: uint(CertificateTypeGenesisKeyDelegation),
+		},
+		uint(CertificateTypeGenesisKeyDelegation),
+	},
+	{
+		"MoveInstantaneousRewards",
+		&MoveInstantaneousRewardsCertificate{
+			CertType: uint(CertificateTypeMoveInstantaneousRewards),
+		},
+		uint(CertificateTypeMoveInstantaneousRewards),
+	},
+	{
+		"Registration",
+		&RegistrationCertificate{
+			CertType: uint(CertificateTypeRegistration),
+		},
+		uint(CertificateTypeRegistration),
+	},
+	{
+		"Deregistration",
+		&DeregistrationCertificate{
+			CertType: uint(CertificateTypeDeregistration),
+		},
+		uint(CertificateTypeDeregistration),
+	},
+	{
+		"VoteDelegation",
+		&VoteDelegationCertificate{
+			CertType: uint(CertificateTypeVoteDelegation),
+		},
+		uint(CertificateTypeVoteDelegation),
+	},
+	{
+		"StakeVoteDelegation",
+		&StakeVoteDelegationCertificate{
+			CertType: uint(CertificateTypeStakeVoteDelegation),
+		},
+		uint(CertificateTypeStakeVoteDelegation),
+	},
+	{
+		"StakeRegistrationDelegation",
+		&StakeRegistrationDelegationCertificate{
+			CertType: uint(CertificateTypeStakeRegistrationDelegation),
+		},
+		uint(CertificateTypeStakeRegistrationDelegation),
+	},
+	{
+		"VoteRegistrationDelegation",
+		&VoteRegistrationDelegationCertificate{
+			CertType: uint(CertificateTypeVoteRegistrationDelegation),
+		},
+		uint(CertificateTypeVoteRegistrationDelegation),
+	},
+	{
+		"StakeVoteRegistrationDelegation",
+		&StakeVoteRegistrationDelegationCertificate{
+			CertType: uint(CertificateTypeStakeVoteRegistrationDelegation),
+		},
+		uint(CertificateTypeStakeVoteRegistrationDelegation),
+	},
+	{
+		"AuthCommitteeHot",
+		&AuthCommitteeHotCertificate{
+			CertType: uint(CertificateTypeAuthCommitteeHot),
+		},
+		uint(CertificateTypeAuthCommitteeHot),
+	},
+	{
+		"ResignCommitteeCold",
+		&ResignCommitteeColdCertificate{
+			CertType: uint(CertificateTypeResignCommitteeCold),
+		},
+		uint(CertificateTypeResignCommitteeCold),
+	},
+	{
+		"RegistrationDrep",
+		&RegistrationDrepCertificate{
+			CertType: uint(CertificateTypeRegistrationDrep),
+		},
+		uint(CertificateTypeRegistrationDrep),
+	},
+	{
+		"DeregistrationDrep",
+		&DeregistrationDrepCertificate{
+			CertType: uint(CertificateTypeDeregistrationDrep),
+		},
+		uint(CertificateTypeDeregistrationDrep),
+	},
+	{
+		"UpdateDrep",
+		&UpdateDrepCertificate{CertType: uint(CertificateTypeUpdateDrep)},
+		uint(CertificateTypeUpdateDrep),
+	},
+	{
+		"LeiosEb",
+		&LeiosEbCertificate{},
+		uint(CertificateTypeLeiosEb),
+	},
+}
+
 func TestCertificateTypeMethods(t *testing.T) {
-	tests := []struct {
-		name     string
-		cert     Certificate
-		expected uint
-	}{
-		{
-			"StakeRegistration",
-			&StakeRegistrationCertificate{
-				CertType: CertificateTypeStakeRegistration,
-			},
-			CertificateTypeStakeRegistration,
-		},
-		{
-			"StakeDeregistration",
-			&StakeDeregistrationCertificate{
-				CertType: CertificateTypeStakeDeregistration,
-			},
-			CertificateTypeStakeDeregistration,
-		},
-		{
-			"StakeDelegation",
-			&StakeDelegationCertificate{
-				CertType: CertificateTypeStakeDelegation,
-			},
-			CertificateTypeStakeDelegation,
-		},
-		{
-			"PoolRegistration",
-			&PoolRegistrationCertificate{
-				CertType: CertificateTypePoolRegistration,
-			},
-			CertificateTypePoolRegistration,
-		},
-		{
-			"PoolRetirement",
-			&PoolRetirementCertificate{CertType: CertificateTypePoolRetirement},
-			CertificateTypePoolRetirement,
-		},
-		{
-			"GenesisKeyDelegation",
-			&GenesisKeyDelegationCertificate{
-				CertType: CertificateTypeGenesisKeyDelegation,
-			},
-			CertificateTypeGenesisKeyDelegation,
-		},
-		{
-			"MoveInstantaneousRewards",
-			&MoveInstantaneousRewardsCertificate{
-				CertType: CertificateTypeMoveInstantaneousRewards,
-			},
-			CertificateTypeMoveInstantaneousRewards,
-		},
-		{
-			"Registration",
-			&RegistrationCertificate{CertType: CertificateTypeRegistration},
-			CertificateTypeRegistration,
-		},
-		{
-			"Deregistration",
-			&DeregistrationCertificate{CertType: CertificateTypeDeregistration},
-			CertificateTypeDeregistration,
-		},
-		{
-			"VoteDelegation",
-			&VoteDelegationCertificate{CertType: CertificateTypeVoteDelegation},
-			CertificateTypeVoteDelegation,
-		},
-		{
-			"StakeVoteDelegation",
-			&StakeVoteDelegationCertificate{
-				CertType: CertificateTypeStakeVoteDelegation,
-			},
-			CertificateTypeStakeVoteDelegation,
-		},
-		{
-			"StakeRegistrationDelegation",
-			&StakeRegistrationDelegationCertificate{
-				CertType: CertificateTypeStakeRegistrationDelegation,
-			},
-			CertificateTypeStakeRegistrationDelegation,
-		},
-		{
-			"VoteRegistrationDelegation",
-			&VoteRegistrationDelegationCertificate{
-				CertType: CertificateTypeVoteRegistrationDelegation,
-			},
-			CertificateTypeVoteRegistrationDelegation,
-		},
-		{
-			"StakeVoteRegistrationDelegation",
-			&StakeVoteRegistrationDelegationCertificate{
-				CertType: CertificateTypeStakeVoteRegistrationDelegation,
-			},
-			CertificateTypeStakeVoteRegistrationDelegation,
-		},
-		{
-			"AuthCommitteeHot",
-			&AuthCommitteeHotCertificate{
-				CertType: CertificateTypeAuthCommitteeHot,
-			},
-			CertificateTypeAuthCommitteeHot,
-		},
-		{
-			"ResignCommitteeCold",
-			&ResignCommitteeColdCertificate{
-				CertType: CertificateTypeResignCommitteeCold,
-			},
-			CertificateTypeResignCommitteeCold,
-		},
-		{
-			"RegistrationDrep",
-			&RegistrationDrepCertificate{
-				CertType: CertificateTypeRegistrationDrep,
-			},
-			CertificateTypeRegistrationDrep,
-		},
-		{
-			"DeregistrationDrep",
-			&DeregistrationDrepCertificate{
-				CertType: CertificateTypeDeregistrationDrep,
-			},
-			CertificateTypeDeregistrationDrep,
-		},
-		{
-			"UpdateDrep",
-			&UpdateDrepCertificate{CertType: CertificateTypeUpdateDrep},
-			CertificateTypeUpdateDrep,
-		},
-	}
+	tests := certificateTypeTests
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -488,5 +902,55 @@ func TestCertificateTypeMethods(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+// TestCertificateTypeCoverage ensures all CertificateType constants are tested
+func TestCertificateTypeCoverage(t *testing.T) {
+	// Get all CertificateType constants via reflection
+	certTypeType := reflect.TypeOf(CertificateTypeStakeRegistration)
+	if certTypeType.Kind() != reflect.Uint {
+		t.Fatalf("CertificateType is not uint, got %s", certTypeType.Kind())
+	}
+
+	// Collect all constants from the test table
+	testedTypes := make(map[uint]bool)
+	for _, tt := range certificateTypeTests {
+		testedTypes[tt.expected] = true
+	}
+
+	// Check that we have at least one test for each known certificate type constant
+	// This is a best-effort check - if new constants are added, this test will need updating
+	expectedTypes := map[uint]string{
+		uint(CertificateTypeStakeRegistration):               "CertificateTypeStakeRegistration",
+		uint(CertificateTypeStakeDeregistration):             "CertificateTypeStakeDeregistration",
+		uint(CertificateTypeStakeDelegation):                 "CertificateTypeStakeDelegation",
+		uint(CertificateTypePoolRegistration):                "CertificateTypePoolRegistration",
+		uint(CertificateTypePoolRetirement):                  "CertificateTypePoolRetirement",
+		uint(CertificateTypeGenesisKeyDelegation):            "CertificateTypeGenesisKeyDelegation",
+		uint(CertificateTypeMoveInstantaneousRewards):        "CertificateTypeMoveInstantaneousRewards",
+		uint(CertificateTypeRegistration):                    "CertificateTypeRegistration",
+		uint(CertificateTypeDeregistration):                  "CertificateTypeDeregistration",
+		uint(CertificateTypeVoteDelegation):                  "CertificateTypeVoteDelegation",
+		uint(CertificateTypeStakeVoteDelegation):             "CertificateTypeStakeVoteDelegation",
+		uint(CertificateTypeStakeRegistrationDelegation):     "CertificateTypeStakeRegistrationDelegation",
+		uint(CertificateTypeVoteRegistrationDelegation):      "CertificateTypeVoteRegistrationDelegation",
+		uint(CertificateTypeStakeVoteRegistrationDelegation): "CertificateTypeStakeVoteRegistrationDelegation",
+		uint(CertificateTypeAuthCommitteeHot):                "CertificateTypeAuthCommitteeHot",
+		uint(CertificateTypeResignCommitteeCold):             "CertificateTypeResignCommitteeCold",
+		uint(CertificateTypeRegistrationDrep):                "CertificateTypeRegistrationDrep",
+		uint(CertificateTypeDeregistrationDrep):              "CertificateTypeDeregistrationDrep",
+		uint(CertificateTypeUpdateDrep):                      "CertificateTypeUpdateDrep",
+		uint(CertificateTypeLeiosEb):                         "CertificateTypeLeiosEb",
+	}
+
+	for certType, name := range expectedTypes {
+		if !testedTypes[certType] {
+			t.Errorf(
+				"Certificate type %s (value %d) is not covered by TestCertificateTypeMethods",
+				name,
+				certType,
+			)
+		}
 	}
 }

@@ -15,6 +15,7 @@
 package alonzo
 
 import (
+	"encoding/hex"
 	"math/big"
 	"reflect"
 	"testing"
@@ -75,14 +76,18 @@ func TestAlonzoTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 	)
 	tmpData := testTxOut.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
 	}
 }
 
 func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	testAddr := "addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6"
 	var testAmount uint64 = 123_456_789
-	testAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	testAssets := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
 				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
@@ -131,22 +136,38 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 					),
 				},
 				{
-					data.NewByteString(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")),
+					data.NewByteString(
+						test.DecodeHexString(
+							"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
+						),
+					),
 					data.NewMap(
 						[][2]data.PlutusData{
 							{
-								data.NewByteString(test.DecodeHexString("6675726e697368613239686e")),
+								data.NewByteString(
+									test.DecodeHexString(
+										"6675726e697368613239686e",
+									),
+								),
 								data.NewInteger(big.NewInt(123456)),
 							},
 						},
 					),
 				},
 				{
-					data.NewByteString(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")),
+					data.NewByteString(
+						test.DecodeHexString(
+							"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5",
+						),
+					),
 					data.NewMap(
 						[][2]data.PlutusData{
 							{
-								data.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")),
+								data.NewByteString(
+									test.DecodeHexString(
+										"426f7764757261436f6e63657074733638",
+									),
+								),
 								data.NewInteger(big.NewInt(234567)),
 							},
 						},
@@ -161,7 +182,11 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	)
 	tmpData := testTxOut.ToPlutusData()
 	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf("did not get expected PlutusData\n     got: %#v\n  wanted: %#v", tmpData, expectedData)
+		t.Fatalf(
+			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
+			tmpData,
+			expectedData,
+		)
 	}
 }
 
@@ -237,11 +262,45 @@ func TestAlonzoRedeemersIter(t *testing.T) {
 	for key, val := range testRedeemers.Iter() {
 		expected := expectedOrder[iterIdx]
 		if !reflect.DeepEqual(key, expected.Key) {
-			t.Fatalf("did not get expected key: got %#v, wanted %#v", key, expected.Key)
+			t.Fatalf(
+				"did not get expected key: got %#v, wanted %#v",
+				key,
+				expected.Key,
+			)
 		}
 		if !reflect.DeepEqual(val, expected.Value) {
-			t.Fatalf("did not get expected value: got %#v, wanted %#v", val, expected.Value)
+			t.Fatalf(
+				"did not get expected value: got %#v, wanted %#v",
+				val,
+				expected.Value,
+			)
 		}
 		iterIdx++
+	}
+}
+
+func TestAlonzoTransactionOutputString(t *testing.T) {
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, _ := common.NewAddress(addrStr)
+	ma := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]uint64{
+			common.NewBlake2b224(make([]byte, 28)): {
+				cbor.NewByteString([]byte("t")): 2,
+			},
+		},
+	)
+	out := AlonzoTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 456,
+			Assets: &ma,
+		},
+	}
+	s := out.String()
+	policyStr := common.NewBlake2b224(make([]byte, 28)).String()
+	assetsStr := "[" + policyStr + "." + hex.EncodeToString([]byte("t")) + "=2]"
+	expected := "(AlonzoTransactionOutput address=" + addrStr + " amount=456 assets=" + assetsStr + ")"
+	if s != expected {
+		t.Fatalf("unexpected string: %s", s)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
+// Client implements the keep-alive protocol client, responsible for sending keep-alive messages and handling responses.
 type Client struct {
 	*protocol.Protocol
 	config          *Config
@@ -31,6 +32,7 @@ type Client struct {
 	onceStart       sync.Once
 }
 
+// NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
 		tmpCfg := NewConfig()
@@ -67,6 +69,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
+// Start begins the keep-alive protocol client and starts sending keep-alive messages at the configured interval.
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
@@ -90,6 +93,7 @@ func (c *Client) Start() {
 	})
 }
 
+// sendKeepAlive sends a keep-alive message and schedules the next one.
 func (c *Client) sendKeepAlive() {
 	msg := NewMsgKeepAlive(c.config.Cookie)
 	if err := c.SendMessage(msg); err != nil {
@@ -99,6 +103,7 @@ func (c *Client) sendKeepAlive() {
 	c.startTimer()
 }
 
+// startTimer starts or resets the keep-alive timer for periodic keep-alive messages.
 func (c *Client) startTimer() {
 	c.timerMutex.Lock()
 	defer c.timerMutex.Unlock()
@@ -110,6 +115,7 @@ func (c *Client) startTimer() {
 	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)
 }
 
+// messageHandler handles incoming protocol messages for the client.
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -125,6 +131,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
+// handleKeepAliveResponse processes a keep-alive response message from the server.
 func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
 		Debug("keepalive response",

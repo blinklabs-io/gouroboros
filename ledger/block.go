@@ -15,7 +15,6 @@
 package ledger
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -45,6 +44,10 @@ func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
 		return NewBabbageBlockFromCbor(data)
 	case BlockTypeConway:
 		return NewConwayBlockFromCbor(data)
+	case BlockTypeLeiosEndorser:
+		return NewLeiosEndorserBlockFromCbor(data)
+	case BlockTypeLeiosRanking:
+		return NewLeiosRankingBlockFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
 }
@@ -67,35 +70,9 @@ func NewBlockHeaderFromCbor(blockType uint, data []byte) (BlockHeader, error) {
 		return NewBabbageBlockHeaderFromCbor(data)
 	case BlockTypeConway:
 		return NewConwayBlockHeaderFromCbor(data)
+	case BlockTypeLeiosRanking:
+		return NewLeiosBlockHeaderFromCbor(data)
 	default:
 		return nil, fmt.Errorf("unknown node-to-node block type: %d", blockType)
 	}
-}
-
-func DetermineBlockType(data []byte) (uint, error) {
-	if _, err := NewByronEpochBoundaryBlockFromCbor(data); err == nil {
-		return BlockTypeByronEbb, nil
-	}
-	if _, err := NewByronMainBlockFromCbor(data); err == nil {
-		return BlockTypeByronMain, nil
-	}
-	if _, err := NewShelleyBlockFromCbor(data); err == nil {
-		return BlockTypeShelley, nil
-	}
-	if _, err := NewAllegraBlockFromCbor(data); err == nil {
-		return BlockTypeAllegra, nil
-	}
-	if _, err := NewMaryBlockFromCbor(data); err == nil {
-		return BlockTypeMary, nil
-	}
-	if _, err := NewAlonzoBlockFromCbor(data); err == nil {
-		return BlockTypeAlonzo, nil
-	}
-	if _, err := NewBabbageBlockFromCbor(data); err == nil {
-		return BlockTypeBabbage, nil
-	}
-	if _, err := NewConwayBlockFromCbor(data); err == nil {
-		return BlockTypeConway, nil
-	}
-	return 0, errors.New("unknown block type")
 }

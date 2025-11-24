@@ -70,6 +70,46 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+
+	// When encoding from scratch, we need to use indefinite-length encoding
+	// for InvalidTransactions to match the original on-chain format
+
+	// Create a temporary block for encoding
+	type tmpBlock struct {
+		cbor.StructAsArray
+		cbor.DecodeStoreCbor
+		BlockHeader            *AlonzoBlockHeader
+		TransactionBodies      []AlonzoTransactionBody
+		TransactionWitnessSets []AlonzoTransactionWitnessSet
+		TransactionMetadataSet map[uint]*cbor.LazyValue
+		InvalidTransactions    cbor.IndefLengthList
+	}
+
+	// Convert InvalidTransactions to IndefLengthList
+	var invalidTx cbor.IndefLengthList
+	if b.InvalidTransactions != nil {
+		invalidTx = make(cbor.IndefLengthList, len(b.InvalidTransactions))
+		for i, tx := range b.InvalidTransactions {
+			invalidTx[i] = tx
+		}
+	}
+
+	temp := tmpBlock{
+		BlockHeader:            b.BlockHeader,
+		TransactionBodies:      b.TransactionBodies,
+		TransactionWitnessSets: b.TransactionWitnessSets,
+		TransactionMetadataSet: b.TransactionMetadataSet,
+		InvalidTransactions:    invalidTx,
+	}
+
+	return cbor.Encode(&temp)
+}
+
 func (AlonzoBlock) Type() int {
 	return BlockTypeAlonzo
 }
@@ -193,17 +233,18 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (b *AlonzoTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, input := range b.TxInputs.Items() {
-		ret = append(ret, input)
+	items := b.TxInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, input := range items {
+		ret[i] = input
 	}
 	return ret
 }
 
 func (b *AlonzoTransactionBody) Outputs() []common.TransactionOutput {
-	ret := []common.TransactionOutput{}
-	for _, output := range b.TxOutputs {
-		ret = append(ret, &output)
+	ret := make([]common.TransactionOutput, len(b.TxOutputs))
+	for i := range b.TxOutputs {
+		ret[i] = &b.TxOutputs[i]
 	}
 	return ret
 }
@@ -252,9 +293,10 @@ func (b *AlonzoTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsset
 }
 
 func (b *AlonzoTransactionBody) Collateral() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, collateral := range b.TxCollateral.Items() {
-		ret = append(ret, collateral)
+	items := b.TxCollateral.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i, collateral := range items {
+		ret[i] = collateral
 	}
 	return ret
 }
@@ -268,7 +310,7 @@ func (b *AlonzoTransactionBody) ScriptDataHash() *common.Blake2b256 {
 }
 
 func (b *AlonzoTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
-	return common.TransactionBodyToUtxorpc(b), nil
+	return common.TransactionBodyToUtxorpc(b)
 }
 
 type AlonzoTransactionOutput struct {
@@ -347,7 +389,9 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 					[][2]data.PlutusData{
 						{
 							data.NewByteString(nil),
-							data.NewInteger(new(big.Int).SetUint64(o.OutputAmount.Amount)),
+							data.NewInteger(
+								new(big.Int).SetUint64(o.OutputAmount.Amount),
+							),
 						},
 					},
 				),
@@ -370,10 +414,8 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 		o.OutputAddress.ToPlutusData(),
 		data.NewMap(valueData),
 		// Empty datum option
-		// TODO: implement this
 		data.NewConstr(0),
 		// Empty script ref
-		// TODO: implement this
 		data.NewConstr(1),
 	)
 	return tmpData
@@ -399,7 +441,7 @@ func (o AlonzoTransactionOutput) DatumHash() *common.Blake2b256 {
 	return o.OutputDatumHash
 }
 
-func (o AlonzoTransactionOutput) Datum() *cbor.LazyValue {
+func (o AlonzoTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
@@ -414,8 +456,10 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 			for _, assetName := range tmpAssets.Assets(policyId) {
 				amount := tmpAssets.Asset(policyId, assetName)
 				asset := &utxorpc.Asset{
-					Name:       assetName,
-					OutputCoin: amount,
+					Name: assetName,
+					Quantity: &utxorpc.Asset_OutputCoin{
+						OutputCoin: common.ToUtxorpcBigInt(amount),
+					},
 				}
 				ma.Assets = append(ma.Assets, asset)
 			}
@@ -436,7 +480,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    o.Amount(),
+			Coin:    common.ToUtxorpcBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,
@@ -445,11 +489,26 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
+func (o AlonzoTransactionOutput) String() string {
+	assets := ""
+	if o.OutputAmount.Assets != nil {
+		if as := o.OutputAmount.Assets.String(); as != "[]" {
+			assets = " assets=" + as
+		}
+	}
+	return fmt.Sprintf(
+		"(AlonzoTransactionOutput address=%s amount=%d%s)",
+		o.OutputAddress.String(),
+		o.OutputAmount.Amount,
+		assets,
+	)
+}
+
 type AlonzoRedeemer struct {
 	cbor.StructAsArray
 	Tag     common.RedeemerTag
 	Index   uint32
-	Data    cbor.LazyValue
+	Data    common.Datum
 	ExUnits common.ExUnits
 }
 
@@ -519,8 +578,8 @@ type AlonzoTransactionWitnessSet struct {
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
-	WsPlutusV1Scripts  [][]byte                  `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []cbor.Value              `cbor:"4,keyasint,omitempty"`
+	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
+	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        AlonzoRedeemers           `cbor:"5,keyasint,omitempty"`
 }
 
@@ -547,21 +606,21 @@ func (w AlonzoTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	// No plutus v2 scripts in Alonzo
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() [][]byte {
+func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Alonzo
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusData() []cbor.Value {
+func (w AlonzoTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData
 }
 
@@ -572,6 +631,7 @@ func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeem
 type AlonzoTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
 	Body       AlonzoTransactionBody
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
@@ -594,7 +654,19 @@ func (AlonzoTransaction) Type() int {
 }
 
 func (t AlonzoTransaction) Hash() common.Blake2b256 {
-	return t.Body.Hash()
+	return t.Id()
+}
+
+func (t AlonzoTransaction) Id() common.Blake2b256 {
+	return t.Body.Id()
+}
+
+func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
 }
 
 func (t AlonzoTransaction) Inputs() []common.TransactionInput {
