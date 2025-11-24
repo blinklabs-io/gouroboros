@@ -308,7 +308,8 @@ func metadatumToInterface(m TransactionMetadatum) any {
 			for _, p := range t.Pairs {
 				key := p.Key.(MetaInt).Value
 				if key == nil {
-					return nil
+					// Skip pairs with nil keys or return an error
+					continue
 				}
 				mm[newMetaIntKey(key)] = metadatumToInterface(p.Value)
 			}

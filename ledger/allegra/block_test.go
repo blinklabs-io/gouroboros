@@ -62,6 +62,7 @@ func TestAllegraBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 		t.Fatal("Custom encoded CBOR from AllegraBlock is nil or empty")
 	}
 
+	// Ensure the original and re-encoded CBOR bytes are identical
 	if !bytes.Equal(dataBytes, encoded) {
 		t.Errorf(
 			"Custom CBOR round-trip mismatch for Allegra block\nOriginal CBOR (hex): %x\nCustom Encoded CBOR (hex): %x",
