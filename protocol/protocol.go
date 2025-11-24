@@ -53,13 +53,11 @@ type Protocol struct {
 	stateTransitionChan chan<- protocolStateTransition
 	onceStart           sync.Once
 	onceStop            sync.Once
-	stateMutex          sync.RWMutex
 	pendingBytesMu      sync.Mutex
 	pendingSendBytes    int
 	pendingRecvBytes    int
 	pendingRecvSizes    []int // Track sizes of pending received messages for accurate decrement
 	currentStateMu      sync.RWMutex
-	currentState        State
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -139,8 +137,8 @@ func New(config ProtocolConfig) *Protocol {
 
 // CurrentState returns the current protocol state
 func (p *Protocol) CurrentState() State {
-	p.stateMutex.RLock()
-	defer p.stateMutex.RUnlock()
+	p.currentStateMu.RLock()
+	defer p.currentStateMu.RUnlock()
 	return p.currentState
 }
 
