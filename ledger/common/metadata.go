@@ -17,7 +17,7 @@ package common
 import (
 	"errors"
 	"fmt"
-	"math"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -42,7 +42,7 @@ type TransactionMetadatum interface {
 	TypeName() string
 }
 
-type MetaInt struct{ Value int64 }
+type MetaInt struct{ Value *big.Int }
 
 type MetaBytes struct{ Value []byte }
 
@@ -61,6 +61,10 @@ type MetaMap struct {
 	Pairs []MetaPair
 }
 
+type metaIntKey struct {
+	repr string
+}
+
 func (MetaInt) isTransactionMetadatum()   {}
 func (MetaBytes) isTransactionMetadatum() {}
 func (MetaText) isTransactionMetadatum()  {}
@@ -73,14 +77,32 @@ func (m MetaText) TypeName() string  { return "text" }
 func (m MetaList) TypeName() string  { return "list" }
 func (m MetaMap) TypeName() string   { return "map" }
 
+func newMetaIntKey(val *big.Int) metaIntKey {
+	if val == nil {
+		return metaIntKey{}
+	}
+	return metaIntKey{repr: val.String()}
+}
+
+func (k metaIntKey) MarshalCBOR() ([]byte, error) {
+	if k.repr == "" {
+		return nil, errors.New("metadata integer key missing value")
+	}
+	intVal, ok := new(big.Int).SetString(k.repr, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid metadata integer key %q", k.repr)
+	}
+	return cbor.Encode(intVal)
+}
+
 func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 	if len(b) == 0 {
 		return nil, errors.New("empty cbor")
 	}
 	switch b[0] & cborTypeMask {
 	case cborTypeUnsigned, cborTypeNegative:
-		var n int64
-		if _, err := cbor.Decode(b, &n); err != nil {
+		n := new(big.Int)
+		if _, err := cbor.Decode(b, n); err != nil {
 			return nil, err
 		}
 		return MetaInt{Value: n}, nil
@@ -127,11 +149,10 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 		return nil, errors.New("unsupported map key type in metadatum")
 
 	case cborTypeTag, cborTypeFloatSim:
-		var x any
-		if _, err := cbor.Decode(b, &x); err != nil {
-			return nil, err
-		}
-		return MetaText{Value: fmt.Sprintf("%v", x)}, nil
+		return nil, fmt.Errorf(
+			"unsupported CBOR major type 0x%x in metadata",
+			b[0]&cborTypeMask,
+		)
 
 	default:
 		return nil, errors.New("unknown CBOR major type")
@@ -149,10 +170,7 @@ func decodeMapUint(b []byte) (TransactionMetadatum, bool, error) {
 		if err != nil {
 			return nil, true, fmt.Errorf("decode map(uint) value: %w", err)
 		}
-		if k > math.MaxInt64 {
-			return nil, true, fmt.Errorf("metadata label %d exceeds int64", k)
-		}
-		pairs = append(pairs, MetaPair{Key: MetaInt{Value: int64(k)}, Value: val})
+		pairs = append(pairs, MetaPair{Key: MetaInt{Value: new(big.Int).SetUint64(uint64(k))}, Value: val})
 	}
 	return MetaMap{Pairs: pairs}, true, nil
 }
@@ -248,7 +266,10 @@ func (s TransactionMetadataSet) MarshalCBOR() ([]byte, error) {
 func metadatumToInterface(m TransactionMetadatum) any {
 	switch t := m.(type) {
 	case MetaInt:
-		return t.Value
+		if t.Value == nil {
+			return nil
+		}
+		return new(big.Int).Set(t.Value)
 	case MetaBytes:
 		return t.Value
 	case MetaText:
@@ -283,9 +304,13 @@ func metadatumToInterface(m TransactionMetadatum) any {
 			}
 		}
 		if allInt {
-			mm := make(map[int64]any, len(t.Pairs))
+			mm := make(map[metaIntKey]any, len(t.Pairs))
 			for _, p := range t.Pairs {
-				mm[p.Key.(MetaInt).Value] = metadatumToInterface(p.Value)
+				key := p.Key.(MetaInt).Value
+				if key == nil {
+					return nil
+				}
+				mm[newMetaIntKey(key)] = metadatumToInterface(p.Value)
 			}
 			return mm
 		}
