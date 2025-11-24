@@ -145,8 +145,10 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 			}
 		}
 	done:
-		// Clean up
+		// Clean up - wait for connection to fully shut down
 		oConn.Close()
+		// Give time for goroutines to clean up
+		time.Sleep(100 * time.Millisecond)
 	})
 
 	t.Run("ErrorsIgnoredWhenProtocolsStopped", func(t *testing.T) {
@@ -248,6 +250,8 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	done:
 		// Clean up
 		oConn.Close()
+		// Give time for goroutines to clean up
+		time.Sleep(100 * time.Millisecond)
 	})
 }
 
@@ -304,6 +308,8 @@ func TestErrorHandlingWithMultipleProtocols(t *testing.T) {
 done:
 	// Clean up
 	oConn.Close()
+	// Give time for goroutines to clean up
+	time.Sleep(100 * time.Millisecond)
 }
 
 // TestBasicErrorHandling tests basic error handling scenarios
