@@ -21,6 +21,7 @@ package ledger
 import (
 	"bytes"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"math"
 
@@ -35,6 +36,11 @@ const (
 	SIGMA_SIZE      = 64
 	PUBLIC_KEY_SIZE = 32
 	Sum0KesSig_SIZE = 64
+
+	// CardanoKesDepth is the fixed KES tree depth used in Cardano's consensus protocol
+	CardanoKesDepth = 6
+	// CardanoKesSignatureSize is the expected KES signature size: 64 + depth*64
+	CardanoKesSignatureSize = 448
 )
 
 type SumXKesSig struct {
@@ -140,16 +146,46 @@ func VerifyKes(
 	opCertVkHotBytes := header.Body.OpCert.HotVkey
 	startOfKesPeriod := uint64(opCert.KesPeriod)
 	currentSlot := header.Body.Slot
-	currentKesPeriod := currentSlot / slotsPerKesPeriod
-	t := uint64(0)
-	if currentKesPeriod >= startOfKesPeriod {
-		t = currentKesPeriod - startOfKesPeriod
+	return VerifyKesComponents(
+		msgBytes,
+		header.Signature,
+		opCertVkHotBytes,
+		startOfKesPeriod,
+		currentSlot,
+		slotsPerKesPeriod,
+	)
+}
+
+func VerifyKesComponents(
+	bodyCbor []byte,
+	signature []byte,
+	hotVkey []byte,
+	kesPeriod uint64,
+	slot uint64,
+	slotsPerKesPeriod uint64,
+) (bool, error) {
+	if slotsPerKesPeriod == 0 {
+		return false, errors.New("slotsPerKesPeriod must be greater than 0")
 	}
-	return verifySignedKES(opCertVkHotBytes, t, msgBytes, header.Signature), nil
+	// Validate KES signature length (CardanoKesDepth levels: 64 + CardanoKesDepth*64 = CardanoKesSignatureSize bytes)
+	if len(signature) != CardanoKesSignatureSize {
+		return false, fmt.Errorf(
+			"invalid KES signature length: expected %d bytes, got %d",
+			CardanoKesSignatureSize,
+			len(signature),
+		)
+	}
+	currentKesPeriod := slot / slotsPerKesPeriod
+	if currentKesPeriod < kesPeriod {
+		// Certificate start period is in the future - invalid operational certificate
+		return false, nil
+	}
+	t := currentKesPeriod - kesPeriod
+	return verifySignedKES(hotVkey, t, bodyCbor, signature), nil
 }
 
 func verifySignedKES(vkey []byte, period uint64, msg []byte, sig []byte) bool {
-	proof := NewSumKesFromByte(6, sig)
+	proof := NewSumKesFromByte(CardanoKesDepth, sig)
 	isValid := proof.Verify(period, vkey, msg)
 	return isValid
 }

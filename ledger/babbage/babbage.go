@@ -149,6 +149,10 @@ func (b *BabbageBlock) Utxorpc() (*utxorpc.Block, error) {
 	return block, nil
 }
 
+func (b *BabbageBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
 type BabbageBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -226,6 +230,10 @@ func (h *BabbageBlockHeader) BlockBodySize() uint64 {
 
 func (h *BabbageBlockHeader) Era() common.Era {
 	return EraBabbage
+}
+
+func (h *BabbageBlockHeader) BlockBodyHash() common.Blake2b256 {
+	return h.Body.BlockBodyHash
 }
 
 type BabbageTransactionPparamUpdate struct {

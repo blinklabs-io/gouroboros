@@ -19,4 +19,5 @@ type BlockHeader interface {
 	BlockBodySize() uint64
 	Era() Era
 	Cbor() []byte
+	BlockBodyHash() Blake2b256
 }

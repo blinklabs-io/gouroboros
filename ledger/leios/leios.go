@@ -14,6 +14,10 @@
 
 package leios
 
+// NOTE: Leios is still in development and experimental.
+// Block structures and validation logic may change as the protocol evolves.
+// It is acceptable to skip validation on Leios blocks, but tests must be maintained.
+
 import (
 	"fmt"
 
@@ -67,11 +71,14 @@ type LeiosEndorserBlockBody struct {
 }
 
 func (b *LeiosEndorserBlockBody) BlockBodyHash() common.Blake2b256 {
+	// NOTE: Leios is still in development and experimental.
+	// This implementation may change as the protocol evolves.
 	// Compute hash of the block body content
 	bodyCbor, err := cbor.Encode(b)
 	if err != nil {
-		// Return zero hash on encoding error
-		return common.Blake2b256{}
+		// CBOR encoding failure indicates a serious structural issue
+		// Panic loudly during development to catch problems early
+		panic(fmt.Sprintf("Leios block body CBOR encoding failed: %v", err))
 	}
 	return common.Blake2b256Hash(bodyCbor)
 }
@@ -124,6 +131,10 @@ func (h *LeiosBlockHeader) BlockBodySize() uint64 {
 
 func (h *LeiosBlockHeader) Era() common.Era {
 	return EraLeios
+}
+
+func (h *LeiosBlockHeader) BlockBodyHash() common.Blake2b256 {
+	return h.Body.BlockBodyHash
 }
 
 func (LeiosEndorserBlock) Type() int {
@@ -182,7 +193,8 @@ func (b *LeiosEndorserBlock) Utxorpc() (*utxorpc.Block, error) {
 
 func (b *LeiosEndorserBlock) BlockBodyHash() common.Blake2b256 {
 	if b.Body == nil {
-		return common.Blake2b256{}
+		// Panic on nil body to distinguish from empty body
+		panic("LeiosEndorserBlock has nil body")
 	}
 	return b.Body.BlockBodyHash()
 }
@@ -271,6 +283,13 @@ func (b *LeiosRankingBlock) Utxorpc() (*utxorpc.Block, error) {
 		Header: header,
 	}
 	return block, nil
+}
+
+func (b *LeiosRankingBlock) BlockBodyHash() common.Blake2b256 {
+	if b.BlockHeader == nil {
+		panic("LeiosRankingBlock has nil BlockHeader")
+	}
+	return b.Header().BlockBodyHash()
 }
 
 func NewLeiosEndorserBlockFromCbor(data []byte) (*LeiosEndorserBlock, error) {
