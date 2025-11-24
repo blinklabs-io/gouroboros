@@ -215,7 +215,9 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 }
 
 func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
-	return cbor.Encode(&(m.data))
+	// The CBOR library is configured with SortCoreDeterministic, so direct encoding
+	// of the map produces deterministic output without manual sorting
+	return cbor.Encode(m.data)
 }
 
 func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {

@@ -688,6 +688,190 @@ func TestMultiAssetCompare(t *testing.T) {
 	}
 }
 
+// Test CBOR round-trip encoding/decoding for MultiAsset
+func TestMultiAssetCborRoundTrip(t *testing.T) {
+	testDefs := []struct {
+		name       string
+		multiAsset MultiAsset[MultiAssetTypeOutput]
+	}{
+		{
+			name: "single policy, single asset",
+			multiAsset: MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+					},
+				},
+			},
+		},
+		{
+			name: "single policy, multiple assets",
+			multiAsset: MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             789,
+					},
+				},
+			},
+		},
+		{
+			name: "multiple policies",
+			multiAsset: MultiAsset[MultiAssetTypeOutput]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+					},
+					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): 234567,
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range testDefs {
+		t.Run(test.name, func(t *testing.T) {
+			// Test regular Encode
+			encoded, err := cbor.Encode(&test.multiAsset)
+			if err != nil {
+				t.Fatalf("Failed to encode MultiAsset: %v", err)
+			}
+
+			// Test EncodeGeneric
+			encodedGeneric, err := cbor.EncodeGeneric(&test.multiAsset)
+			if err != nil {
+				t.Fatalf("Failed to encode MultiAsset with EncodeGeneric: %v", err)
+			}
+
+			// EncodeGeneric may differ from Encode due to custom MarshalCBOR;
+			// verify that decoding EncodeGeneric also works
+			var decodedGeneric MultiAsset[MultiAssetTypeOutput]
+			_, err = cbor.Decode(encodedGeneric, &decodedGeneric)
+			if err != nil {
+				t.Fatalf("Failed to decode EncodeGeneric output: %v", err)
+			}
+
+			// Decode back
+			var decoded MultiAsset[MultiAssetTypeOutput]
+			_, err = cbor.Decode(encoded, &decoded)
+			if err != nil {
+				t.Fatalf("Failed to decode MultiAsset: %v", err)
+			}
+
+			// Re-encode
+			reEncoded, err := cbor.Encode(&decoded)
+			if err != nil {
+				t.Fatalf("Failed to re-encode MultiAsset: %v", err)
+			}
+
+			// Check round-trip fidelity
+			if !bytes.Equal(encoded, reEncoded) {
+				t.Errorf("CBOR round-trip failed: original and re-encoded don't match")
+				t.Logf("Original:   %x", encoded)
+				t.Logf("Re-encoded: %x", reEncoded)
+			}
+
+			// Also check semantic equality
+			if !test.multiAsset.Compare(&decoded) {
+				t.Errorf("Semantic comparison failed after round-trip")
+			}
+		})
+	}
+}
+
+// Test CBOR round-trip encoding/decoding for MultiAsset with mint (negative values)
+func TestMultiAssetCborRoundTripMint(t *testing.T) {
+	testDefs := []struct {
+		name       string
+		multiAsset MultiAsset[MultiAssetTypeMint]
+	}{
+		{
+			name: "mint single policy, single asset (burn)",
+			multiAsset: MultiAsset[MultiAssetTypeMint]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): -50000,
+					},
+				},
+			},
+		},
+		{
+			name: "mint single policy, mixed assets (mint and burn)",
+			multiAsset: MultiAsset[MultiAssetTypeMint]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 100000,
+						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             -25000,
+					},
+				},
+			},
+		},
+		{
+			name: "mint multiple policies with negative values",
+			multiAsset: MultiAsset[MultiAssetTypeMint]{
+				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
+					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): -75000,
+					},
+					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): -100000,
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range testDefs {
+		t.Run(test.name, func(t *testing.T) {
+			// Test regular Encode
+			encoded, err := cbor.Encode(&test.multiAsset)
+			if err != nil {
+				t.Fatalf("Failed to encode MultiAsset: %v", err)
+			}
+
+			// Test EncodeGeneric
+			encodedGeneric, err := cbor.EncodeGeneric(&test.multiAsset)
+			if err != nil {
+				t.Fatalf("Failed to encode MultiAsset with EncodeGeneric: %v", err)
+			}
+
+			// EncodeGeneric may differ from Encode due to custom MarshalCBOR;
+			// verify that decoding EncodeGeneric also works
+			var decodedGeneric MultiAsset[MultiAssetTypeMint]
+			_, err = cbor.Decode(encodedGeneric, &decodedGeneric)
+			if err != nil {
+				t.Fatalf("Failed to decode EncodeGeneric output: %v", err)
+			}
+
+			// Decode back
+			var decoded MultiAsset[MultiAssetTypeMint]
+			_, err = cbor.Decode(encoded, &decoded)
+			if err != nil {
+				t.Fatalf("Failed to decode MultiAsset: %v", err)
+			}
+
+			// Re-encode
+			reEncoded, err := cbor.Encode(&decoded)
+			if err != nil {
+				t.Fatalf("Failed to re-encode MultiAsset: %v", err)
+			}
+
+			// Check round-trip fidelity
+			if !bytes.Equal(encoded, reEncoded) {
+				t.Errorf("CBOR round-trip failed: original and re-encoded don't match")
+				t.Logf("Original:   %x", encoded)
+				t.Logf("Re-encoded: %x", reEncoded)
+			}
+
+			// Also check semantic equality
+			if !test.multiAsset.Compare(&decoded) {
+				t.Errorf("Semantic comparison failed after round-trip")
+			}
+		})
+	}
+}
+
 // Test the MarshalJSON method for Blake2b224 to ensure it properly converts to JSON.
 func TestBlake2b224_MarshalJSON(t *testing.T) {
 	// Example data to represent Blake2b224 hash
@@ -951,6 +1135,40 @@ func TestCertificateTypeCoverage(t *testing.T) {
 				name,
 				certType,
 			)
+		}
+	}
+}
+
+// Test deterministic encoding of MultiAsset
+func TestMultiAssetDeterministicEncoding(t *testing.T) {
+	multiAsset := MultiAsset[MultiAssetTypeOutput]{
+		data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+			NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
+				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+				cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             789,
+			},
+			NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
+				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): 234567,
+			},
+		},
+	}
+
+	// Encode multiple times
+	var encodings [][]byte
+	for i := range 10 {
+		encoded, err := cbor.Encode(&multiAsset)
+		if err != nil {
+			t.Fatalf("Failed to encode MultiAsset on attempt %d: %v", i, err)
+		}
+		encodings = append(encodings, encoded)
+	}
+
+	// Check all encodings are identical
+	for i := 1; i < len(encodings); i++ {
+		if !bytes.Equal(encodings[0], encodings[i]) {
+			t.Errorf("Encoding not deterministic: attempt 0 != attempt %d", i)
+			t.Logf("Attempt 0: %x", encodings[0])
+			t.Logf("Attempt %d: %x", i, encodings[i])
 		}
 	}
 }
