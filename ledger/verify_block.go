@@ -38,6 +38,19 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+const (
+	HeaderBodyLengthShelleyLike = 15
+	HeaderBodyLengthBabbageLike = 10
+	ProtoMajorShelley           = 2
+	ProtoMajorAllegra           = 3
+	ProtoMajorMary              = 4
+	ProtoMajorAlonzo            = 5
+	ProtoMajorBabbage           = 7
+	ProtoMajorConway            = 9
+)
+
+var allowMissingCbor = false
+
 // DetermineBlockType determines the block type from the header CBOR
 func DetermineBlockType(headerCbor []byte) (uint, error) {
 	var header any
@@ -54,20 +67,20 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 	}
 	lenBody := len(body)
 	switch lenBody {
-	case 15:
+	case HeaderBodyLengthShelleyLike:
 		// Shelley era
 		protoMajor, ok := body[13].(uint64)
 		if !ok {
 			return 0, errors.New("invalid proto major")
 		}
 		switch protoMajor {
-		case 2:
+		case ProtoMajorShelley:
 			return BlockTypeShelley, nil
-		case 3:
+		case ProtoMajorAllegra:
 			return BlockTypeAllegra, nil
-		case 4:
+		case ProtoMajorMary:
 			return BlockTypeMary, nil
-		case 5:
+		case ProtoMajorAlonzo:
 			return BlockTypeAlonzo, nil
 		default:
 			return 0, fmt.Errorf(
@@ -75,7 +88,7 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 				protoMajor,
 			)
 		}
-	case 10:
+	case HeaderBodyLengthBabbageLike:
 		// Babbage era
 		if len(body) <= 9 {
 			return 0, errors.New(
@@ -91,13 +104,13 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 			return 0, errors.New("invalid proto major")
 		}
 		switch protoMajor {
-		case 7:
+		case ProtoMajorBabbage:
 			return BlockTypeBabbage, nil
-		case 9:
+		case ProtoMajorConway:
 			return BlockTypeConway, nil
-		case 5:
+		case ProtoMajorAlonzo:
 			return BlockTypeAlonzo, nil
-		case 4:
+		case ProtoMajorMary:
 			return BlockTypeMary, nil
 		default:
 			return 0, fmt.Errorf(
@@ -283,8 +296,8 @@ func VerifyBlock(
 	if block.Era() != byron.EraByron {
 		rawCbor := block.Cbor()
 		if len(rawCbor) == 0 {
-			if os.Getenv("GOUROBOROS_TEST_ALLOW_MISSING_CBOR") == "1" {
-				// Allow missing CBOR for tests
+			if allowMissingCbor && os.Getenv("GOUROBOROS_TEST_ALLOW_MISSING_CBOR") == "1" {
+				// Allow missing CBOR for tests only
 				isBodyValid = true
 			} else {
 				return false, "", 0, 0, errors.New(

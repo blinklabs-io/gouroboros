@@ -15,6 +15,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
+func init() {
+	allowMissingCbor = true
+}
+
 // decodeTxBodyBytes extracts transaction body bytes from either []byte or hex string
 func decodeTxBodyBytes(t *testing.T, v interface{}) []byte {
 	t.Helper()
@@ -31,6 +35,23 @@ func decodeTxBodyBytes(t *testing.T, v interface{}) []byte {
 		t.Fatalf("unexpected type for tx body: %T", v)
 		return nil
 	}
+}
+
+// decodeTxBodies decodes transaction bodies for a specific era
+func decodeTxBodies[T any](t *testing.T, txs []interface{}, label string) []T {
+	t.Helper()
+	bodies := make([]T, len(txs))
+	for i, tx := range txs {
+		txArray, ok := tx.([]interface{})
+		if !ok {
+			t.Fatalf("unexpected %s tx element type %T", label, tx)
+		}
+		txBodyBytes := decodeTxBodyBytes(t, txArray[0])
+		if _, err := cbor.Decode(txBodyBytes, &bodies[i]); err != nil {
+			t.Fatalf("failed to decode %s transaction body %d: %v", label, i, err)
+		}
+	}
+	return bodies
 }
 
 func TestVerifyBlockBody(t *testing.T) {
@@ -125,25 +146,8 @@ func TestVerifyBlockBody(t *testing.T) {
 			}
 			switch blockType {
 			case BlockTypeShelley:
-				transactionBodies := make(
-					[]shelley.ShelleyTransactionBody,
-					len(txs),
-				)
+				transactionBodies := decodeTxBodies[shelley.ShelleyTransactionBody](t, txs, "Shelley")
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				for i, tx := range txs {
-					txArray, ok := tx.([]interface{})
-					if !ok {
-						t.Fatalf("unexpected Shelley tx element type %T", tx)
-					}
-					txBodyBytes := decodeTxBodyBytes(t, txArray[0])
-					if _, err := cbor.Decode(txBodyBytes, &transactionBodies[i]); err != nil {
-						t.Fatalf(
-							"failed to decode Shelley transaction body %d: %v",
-							i,
-							err,
-						)
-					}
-				}
 				shelleyHeader := header.(*shelley.ShelleyBlockHeader)
 				block = &shelley.ShelleyBlock{
 					BlockHeader:       shelleyHeader,
@@ -155,25 +159,8 @@ func TestVerifyBlockBody(t *testing.T) {
 					TransactionMetadataSet: transactionMetadataSet,
 				}
 			case BlockTypeAllegra:
-				transactionBodies := make(
-					[]allegra.AllegraTransactionBody,
-					len(txs),
-				)
+				transactionBodies := decodeTxBodies[allegra.AllegraTransactionBody](t, txs, "Allegra")
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				for i, tx := range txs {
-					txArray, ok := tx.([]interface{})
-					if !ok {
-						t.Fatalf("unexpected Allegra tx element type %T", tx)
-					}
-					txBodyBytes := decodeTxBodyBytes(t, txArray[0])
-					if _, err := cbor.Decode(txBodyBytes, &transactionBodies[i]); err != nil {
-						t.Fatalf(
-							"failed to decode Allegra transaction body %d: %v",
-							i,
-							err,
-						)
-					}
-				}
 				allegraHeader := header.(*allegra.AllegraBlockHeader)
 				block = &allegra.AllegraBlock{
 					BlockHeader:       allegraHeader,
@@ -185,25 +172,8 @@ func TestVerifyBlockBody(t *testing.T) {
 					TransactionMetadataSet: transactionMetadataSet,
 				}
 			case BlockTypeMary:
-				transactionBodies := make(
-					[]mary.MaryTransactionBody,
-					len(txs),
-				)
+				transactionBodies := decodeTxBodies[mary.MaryTransactionBody](t, txs, "Mary")
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				for i, tx := range txs {
-					txArray, ok := tx.([]interface{})
-					if !ok {
-						t.Fatalf("unexpected Mary tx element type %T", tx)
-					}
-					txBodyBytes := decodeTxBodyBytes(t, txArray[0])
-					if _, err := cbor.Decode(txBodyBytes, &transactionBodies[i]); err != nil {
-						t.Fatalf(
-							"failed to decode Mary transaction body %d: %v",
-							i,
-							err,
-						)
-					}
-				}
 				maryHeader := header.(*mary.MaryBlockHeader)
 				block = &mary.MaryBlock{
 					BlockHeader:       maryHeader,
@@ -215,25 +185,8 @@ func TestVerifyBlockBody(t *testing.T) {
 					TransactionMetadataSet: transactionMetadataSet,
 				}
 			case BlockTypeAlonzo:
-				transactionBodies := make(
-					[]alonzo.AlonzoTransactionBody,
-					len(txs),
-				)
+				transactionBodies := decodeTxBodies[alonzo.AlonzoTransactionBody](t, txs, "Alonzo")
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				for i, tx := range txs {
-					txArray, ok := tx.([]interface{})
-					if !ok {
-						t.Fatalf("unexpected Alonzo tx element type %T", tx)
-					}
-					txBodyBytes := decodeTxBodyBytes(t, txArray[0])
-					if _, err := cbor.Decode(txBodyBytes, &transactionBodies[i]); err != nil {
-						t.Fatalf(
-							"failed to decode Alonzo transaction body %d: %v",
-							i,
-							err,
-						)
-					}
-				}
 				alonzoHeader := header.(*alonzo.AlonzoBlockHeader)
 				block = &alonzo.AlonzoBlock{
 					BlockHeader:       alonzoHeader,
@@ -246,25 +199,8 @@ func TestVerifyBlockBody(t *testing.T) {
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeBabbage:
-				transactionBodies := make(
-					[]babbage.BabbageTransactionBody,
-					len(txs),
-				)
+				transactionBodies := decodeTxBodies[babbage.BabbageTransactionBody](t, txs, "Babbage")
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				for i, tx := range txs {
-					txArray, ok := tx.([]interface{})
-					if !ok {
-						t.Fatalf("unexpected Babbage tx element type %T", tx)
-					}
-					txBodyBytes := decodeTxBodyBytes(t, txArray[0])
-					if _, err := cbor.Decode(txBodyBytes, &transactionBodies[i]); err != nil {
-						t.Fatalf(
-							"failed to decode Babbage transaction body %d: %v",
-							i,
-							err,
-						)
-					}
-				}
 				babbageHeader := header.(*babbage.BabbageBlockHeader)
 				block = &babbage.BabbageBlock{
 					BlockHeader:       babbageHeader,
@@ -277,25 +213,8 @@ func TestVerifyBlockBody(t *testing.T) {
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeConway:
-				transactionBodies := make(
-					[]conway.ConwayTransactionBody,
-					len(txs),
-				)
+				transactionBodies := decodeTxBodies[conway.ConwayTransactionBody](t, txs, "Conway")
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				for i, tx := range txs {
-					txArray, ok := tx.([]interface{})
-					if !ok {
-						t.Fatalf("unexpected Conway tx element type %T", tx)
-					}
-					txBodyBytes := decodeTxBodyBytes(t, txArray[0])
-					if _, err := cbor.Decode(txBodyBytes, &transactionBodies[i]); err != nil {
-						t.Fatalf(
-							"failed to decode Conway transaction body %d: %v",
-							i,
-							err,
-						)
-					}
-				}
 				conwayHeader := header.(*conway.ConwayBlockHeader)
 				block = &conway.ConwayBlock{
 					BlockHeader:       conwayHeader,

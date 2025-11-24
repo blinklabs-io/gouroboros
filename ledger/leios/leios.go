@@ -287,7 +287,7 @@ func (b *LeiosRankingBlock) Utxorpc() (*utxorpc.Block, error) {
 
 func (b *LeiosRankingBlock) BlockBodyHash() common.Blake2b256 {
 	if b.BlockHeader == nil {
-		return common.Blake2b256{}
+		panic("LeiosRankingBlock has nil BlockHeader")
 	}
 	return b.Header().BlockBodyHash()
 }
