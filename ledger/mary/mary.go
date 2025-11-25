@@ -150,6 +150,10 @@ func (b *MaryBlock) Utxorpc() (*utxorpc.Block, error) {
 	return block, nil
 }
 
+func (b *MaryBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
 type MaryBlockHeader struct {
 	shelley.ShelleyBlockHeader
 }

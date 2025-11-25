@@ -136,6 +136,19 @@ func (h *ByronMainBlockHeader) Era() common.Era {
 	return EraByron
 }
 
+func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
+	// BodyProof is the hash of the block body, encoded as bytes in CBOR
+	if bodyProofBytes, ok := h.BodyProof.([]byte); ok &&
+		len(bodyProofBytes) == common.Blake2b256Size {
+		var hash common.Blake2b256
+		copy(hash[:], bodyProofBytes)
+		return hash
+	}
+	// Return zero hash instead of panicking to prevent DoS in verification path
+	// This will cause validation to fail gracefully rather than crash
+	return common.Blake2b256{}
+}
+
 type ByronTransaction struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -731,6 +744,19 @@ func (h *ByronEpochBoundaryBlockHeader) Era() common.Era {
 	return EraByron
 }
 
+func (h *ByronEpochBoundaryBlockHeader) BlockBodyHash() common.Blake2b256 {
+	// BodyProof is the hash of the block body, encoded as bytes in CBOR
+	if bodyProofBytes, ok := h.BodyProof.([]byte); ok &&
+		len(bodyProofBytes) == common.Blake2b256Size {
+		var hash common.Blake2b256
+		copy(hash[:], bodyProofBytes)
+		return hash
+	}
+	// Return zero hash instead of panicking to prevent DoS in verification path
+	// This will cause validation to fail gracefully rather than crash
+	return common.Blake2b256{}
+}
+
 type ByronMainBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -798,6 +824,10 @@ func (b *ByronMainBlock) Utxorpc() (*utxorpc.Block, error) {
 	return &utxorpc.Block{}, nil
 }
 
+func (b *ByronMainBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
 type ByronEpochBoundaryBlock struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -861,6 +891,10 @@ func (b *ByronEpochBoundaryBlock) Transactions() []common.Transaction {
 
 func (b *ByronEpochBoundaryBlock) Utxorpc() (*utxorpc.Block, error) {
 	return &utxorpc.Block{}, nil
+}
+
+func (b *ByronEpochBoundaryBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
 }
 
 func NewByronEpochBoundaryBlockFromCbor(

@@ -140,6 +140,10 @@ func (b *ShelleyBlock) Utxorpc() (*utxorpc.Block, error) {
 	return block, nil
 }
 
+func (b *ShelleyBlock) BlockBodyHash() common.Blake2b256 {
+	return b.Header().BlockBodyHash()
+}
+
 type ShelleyBlockHeader struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -207,6 +211,10 @@ func (h *ShelleyBlockHeader) BlockBodySize() uint64 {
 
 func (h *ShelleyBlockHeader) Era() common.Era {
 	return EraShelley
+}
+
+func (h *ShelleyBlockHeader) BlockBodyHash() common.Blake2b256 {
+	return h.Body.BlockBodyHash
 }
 
 type ShelleyTransactionPparamUpdate struct {
