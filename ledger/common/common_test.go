@@ -741,7 +741,10 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 			// Test EncodeGeneric
 			encodedGeneric, err := cbor.EncodeGeneric(&test.multiAsset)
 			if err != nil {
-				t.Fatalf("Failed to encode MultiAsset with EncodeGeneric: %v", err)
+				t.Fatalf(
+					"Failed to encode MultiAsset with EncodeGeneric: %v",
+					err,
+				)
 			}
 
 			// EncodeGeneric may differ from Encode due to custom MarshalCBOR;
@@ -767,7 +770,9 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 
 			// Check round-trip fidelity
 			if !bytes.Equal(encoded, reEncoded) {
-				t.Errorf("CBOR round-trip failed: original and re-encoded don't match")
+				t.Errorf(
+					"CBOR round-trip failed: original and re-encoded don't match",
+				)
 				t.Logf("Original:   %x", encoded)
 				t.Logf("Re-encoded: %x", reEncoded)
 			}
@@ -833,7 +838,10 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 			// Test EncodeGeneric
 			encodedGeneric, err := cbor.EncodeGeneric(&test.multiAsset)
 			if err != nil {
-				t.Fatalf("Failed to encode MultiAsset with EncodeGeneric: %v", err)
+				t.Fatalf(
+					"Failed to encode MultiAsset with EncodeGeneric: %v",
+					err,
+				)
 			}
 
 			// EncodeGeneric may differ from Encode due to custom MarshalCBOR;
@@ -859,7 +867,9 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 
 			// Check round-trip fidelity
 			if !bytes.Equal(encoded, reEncoded) {
-				t.Errorf("CBOR round-trip failed: original and re-encoded don't match")
+				t.Errorf(
+					"CBOR round-trip failed: original and re-encoded don't match",
+				)
 				t.Logf("Original:   %x", encoded)
 				t.Logf("Re-encoded: %x", reEncoded)
 			}

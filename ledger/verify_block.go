@@ -296,7 +296,8 @@ func VerifyBlock(
 	if block.Era() != byron.EraByron {
 		rawCbor := block.Cbor()
 		if len(rawCbor) == 0 {
-			if allowMissingCbor && os.Getenv("GOUROBOROS_TEST_ALLOW_MISSING_CBOR") == "1" {
+			if allowMissingCbor &&
+				os.Getenv("GOUROBOROS_TEST_ALLOW_MISSING_CBOR") == "1" {
 				// Allow missing CBOR for tests only
 				isBodyValid = true
 			} else {

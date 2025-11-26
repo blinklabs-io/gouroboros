@@ -60,14 +60,61 @@ type BabbageBlock struct {
 }
 
 func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
-	type tBabbageBlock BabbageBlock
-	var tmp tBabbageBlock
+	// Create a temporary struct for unmarshaling with []any for InvalidTransactions
+	type tmpBabbageBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *BabbageBlockHeader
+		TransactionBodies      []BabbageTransactionBody
+		TransactionWitnessSets []BabbageTransactionWitnessSet
+		TransactionMetadataSet map[uint]*cbor.LazyValue
+		InvalidTransactions    []any
+	}
+
+	var tmp tmpBabbageBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = BabbageBlock(tmp)
+
+	// Convert []any to []uint
+	b.BlockHeader = tmp.BlockHeader
+	b.TransactionBodies = tmp.TransactionBodies
+	b.TransactionWitnessSets = tmp.TransactionWitnessSets
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+	b.InvalidTransactions = common.ConvertAnySliceToUintSlice(tmp.InvalidTransactions)
+
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+
+	// When encoding from scratch, we need to ensure InvalidTransactions
+	// is encoded as indefinite-length to match on-chain format
+	// Create a temporary struct for encoding with the correct types
+	type tmpBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *BabbageBlockHeader
+		TransactionBodies      []BabbageTransactionBody
+		TransactionWitnessSets []BabbageTransactionWitnessSet
+		TransactionMetadataSet map[uint]*cbor.LazyValue
+		InvalidTransactions    cbor.IndefLengthList
+	}
+
+	tmp := tmpBlock{
+		BlockHeader:            b.BlockHeader,
+		TransactionBodies:      b.TransactionBodies,
+		TransactionWitnessSets: b.TransactionWitnessSets,
+		TransactionMetadataSet: b.TransactionMetadataSet,
+		InvalidTransactions: common.ConvertUintSliceToAnySlice(
+			b.InvalidTransactions,
+		),
+	}
+
+	return cbor.Encode(&tmp)
 }
 
 func (BabbageBlock) Type() int {
