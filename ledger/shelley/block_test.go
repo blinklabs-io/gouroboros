@@ -57,7 +57,7 @@ func TestShelleyBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 			err,
 		)
 	}
-	if encoded == nil || len(encoded) == 0 {
+	if len(encoded) == 0 {
 		t.Fatal("Custom encoded CBOR from ShelleyBlock is nil or empty")
 	}
 

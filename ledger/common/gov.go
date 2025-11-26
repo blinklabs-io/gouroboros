@@ -139,7 +139,7 @@ type ProposalProcedure interface {
 
 type ProposalProcedureBase struct{}
 
-// nolint:unused
+//nolint:all
 func (ProposalProcedureBase) isProposalProcedure() {}
 
 const (
@@ -159,7 +159,7 @@ type GovAction interface {
 
 type GovActionBase struct{}
 
-// nolint:unused
+//nolint:all
 func (GovActionBase) isGovAction() {}
 
 type HardForkInitiationGovAction struct {
