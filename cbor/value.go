@@ -176,13 +176,13 @@ func generateAstJson(obj any) ([]byte, error) {
 	case WrappedCbor:
 		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
 	case []any:
-		return generateAstJsonList[[]any](v)
+		return generateAstJsonList(v)
 	case Set:
-		return generateAstJsonList[Set](v)
+		return generateAstJsonList(v)
 	case map[any]any:
-		return generateAstJsonMap[map[any]any](v)
+		return generateAstJsonMap(v)
 	case Map:
-		return generateAstJsonMap[Map](v)
+		return generateAstJsonMap(v)
 	case Constructor:
 		return json.Marshal(obj)
 	case big.Int:

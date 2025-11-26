@@ -880,7 +880,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			cbor.NewByteString(tmpAssetName): 1,
 		}
 	}
-	tmpBadMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	tmpBadMultiAsset := common.NewMultiAsset(
 		tmpBadAssets,
 	)
 	var testOutputValueBad = mary.MaryTransactionOutputValue{
@@ -1128,7 +1128,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	t.Run(
 		"insufficient collateral",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
@@ -1161,7 +1161,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	t.Run(
 		"sufficient collateral",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 					shelley.NewShelleyTransactionInput(testInputTxId, 1),
@@ -1200,14 +1200,14 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	tmpMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	tmpMultiAsset := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
 			common.Blake2b224Hash([]byte("abcd")): {
 				cbor.NewByteString([]byte("efgh")): 123,
 			},
 		},
 	)
-	tmpZeroMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	tmpZeroMultiAsset := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
 			common.Blake2b224Hash([]byte("abcd")): {
 				cbor.NewByteString([]byte("efgh")): 0,
@@ -1248,7 +1248,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	t.Run(
 		"coin and assets",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 					shelley.NewShelleyTransactionInput(testInputTxId, 1),
@@ -1282,7 +1282,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	t.Run(
 		"coin only",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
@@ -1306,7 +1306,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	t.Run(
 		"coin and assets with return",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 					shelley.NewShelleyTransactionInput(testInputTxId, 1),
@@ -1337,7 +1337,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	t.Run(
 		"coin and zero assets with return",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 2),
 				},
@@ -1421,7 +1421,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	t.Run(
 		"collateral",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
@@ -1541,7 +1541,7 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
 			)
-			testTx.Body.TxReferenceInputs = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxReferenceInputs = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
@@ -1579,7 +1579,7 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
 			)
-			testTx.Body.TxReferenceInputs = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxReferenceInputs = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 1),
 				},
@@ -1610,7 +1610,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
 			TxTotalCollateral: testTotalCollateral,
-			TxCollateral: cbor.NewSetType[shelley.ShelleyTransactionInput](
+			TxCollateral: cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},
@@ -1704,7 +1704,7 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 	t.Run(
 		"too many collateral inputs",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 					shelley.NewShelleyTransactionInput(testInputTxId, 1),
@@ -1738,7 +1738,7 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 	t.Run(
 		"single collateral input",
 		func(t *testing.T) {
-			testTx.Body.TxCollateral = cbor.NewSetType[shelley.ShelleyTransactionInput](
+			testTx.Body.TxCollateral = cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
 					shelley.NewShelleyTransactionInput(testInputTxId, 0),
 				},

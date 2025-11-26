@@ -748,7 +748,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			cbor.NewByteString(tmpAssetName): 1,
 		}
 	}
-	tmpBadMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	tmpBadMultiAsset := common.NewMultiAsset(
 		tmpBadAssets,
 	)
 	var testOutputValueBad = mary.MaryTransactionOutputValue{

@@ -631,12 +631,12 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 		OutputAddress: address,
 		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
 	}
-	txCollateral := cbor.NewSetType[shelley.ShelleyTransactionInput](
+	txCollateral := cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
 	txTotalCollateral := uint64(200)
-	txReferenceInputs := cbor.NewSetType[shelley.ShelleyTransactionInput](
+	txReferenceInputs := cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
@@ -644,7 +644,7 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 	txValidityIntervalStart := uint64(4000)
 	var signer common.Blake2b224
 	copy(signer[:], []byte{0xab, 0xcd, 0xef})
-	txRequiredSigners := cbor.NewSetType[common.Blake2b224](
+	txRequiredSigners := cbor.NewSetType(
 		[]common.Blake2b224{signer},
 		false,
 	)
@@ -715,12 +715,12 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
 	}
 
-	txCollateral := cbor.NewSetType[shelley.ShelleyTransactionInput](
+	txCollateral := cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
 	txTotalCollateral := uint64(200)
-	txReferenceInputs := cbor.NewSetType[shelley.ShelleyTransactionInput](
+	txReferenceInputs := cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
@@ -728,7 +728,7 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 	txValidityIntervalStart := uint64(4000)
 	var signer common.Blake2b224
 	copy(signer[:], []byte{0xab, 0xcd, 0xef})
-	txRequiredSigners := cbor.NewSetType[common.Blake2b224](
+	txRequiredSigners := cbor.NewSetType(
 		[]common.Blake2b224{signer},
 		false,
 	)
