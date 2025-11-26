@@ -109,7 +109,8 @@ func TestListLen(t *testing.T) {
 			t.Fatalf("failed to decode CBOR hex: %s", err)
 		}
 		listLen, err := cbor.ListLength(cborData)
-		if !reflect.DeepEqual(err, test.Error) {
+		if (err == nil) != (test.Error == nil) ||
+			(err != nil && test.Error != nil && err.Error() != test.Error.Error()) {
 			t.Fatalf(
 				"did not find expected error\n  got: %#v\n  wanted:  %#v",
 				err,
@@ -167,7 +168,8 @@ func TestDecodeIdFromList(t *testing.T) {
 			t.Fatalf("failed to decode CBOR hex: %s", err)
 		}
 		id, err := cbor.DecodeIdFromList(cborData)
-		if !reflect.DeepEqual(err, test.Error) {
+		if (err == nil) != (test.Error == nil) ||
+			(err != nil && test.Error != nil && err.Error() != test.Error.Error()) {
 			t.Fatalf(
 				"did not find expected error\n  got: %#v\n  wanted:  %#v",
 				err,
@@ -255,7 +257,8 @@ func TestDecodeById(t *testing.T) {
 			t.Fatalf("failed to decode CBOR hex: %s", err)
 		}
 		obj, err := cbor.DecodeById(cborData, decodeByIdObjectMap)
-		if !reflect.DeepEqual(err, test.Error) {
+		if (err == nil) != (test.Error == nil) ||
+			(err != nil && test.Error != nil && err.Error() != test.Error.Error()) {
 			t.Fatalf(
 				"did not find expected error\n  got: %#v\n  wanted:  %#v",
 				err,
