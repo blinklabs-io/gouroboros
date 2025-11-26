@@ -193,7 +193,7 @@ func compareByteSlices(a, b []byte) bool {
 func BenchmarkConwayBlockDeserialization(b *testing.B) {
 	blockCbor, _ := hex.DecodeString(conwayBlockHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var block conway.ConwayBlock
 		err := block.UnmarshalCBOR(blockCbor)
 		if err != nil {
@@ -210,7 +210,7 @@ func BenchmarkConwayBlockSerialization(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = block.Cbor()
 	}
 }
