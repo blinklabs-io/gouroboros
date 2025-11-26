@@ -181,7 +181,7 @@ func TestBabbageBlock_Utxorpc(t *testing.T) {
 func BenchmarkBabbageBlockDeserialization(b *testing.B) {
 	blockCbor, _ := hex.DecodeString(babbageBlockHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var block babbage.BabbageBlock
 		err := block.UnmarshalCBOR(blockCbor)
 		if err != nil {
@@ -198,7 +198,7 @@ func BenchmarkBabbageBlockSerialization(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = block.Cbor()
 	}
 }

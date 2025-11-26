@@ -143,7 +143,7 @@ func TestShelleyBlockUtxorpc(t *testing.T) {
 func BenchmarkShelleyBlockDeserialization(b *testing.B) {
 	blockCbor, _ := hex.DecodeString(shelleyBlockHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var block shelley.ShelleyBlock
 		err := block.UnmarshalCBOR(blockCbor)
 		if err != nil {
@@ -160,7 +160,7 @@ func BenchmarkShelleyBlockSerialization(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = block.Cbor()
 	}
 }

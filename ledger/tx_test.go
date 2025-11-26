@@ -112,8 +112,9 @@ func TestMaryTransactionCborRoundTrip(t *testing.T) {
 
 func BenchmarkDetermineTransactionType_Conway(b *testing.B) {
 	txCbor, _ := hex.DecodeString(conwayTxCborHex)
+
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.DetermineTransactionType(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -128,8 +129,9 @@ func BenchmarkDetermineTransactionType_Conway(b *testing.B) {
 
 func BenchmarkDetermineTransactionType_Byron(b *testing.B) {
 	txCbor, _ := hex.DecodeString(byronTxCborHex)
+
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.DetermineTransactionType(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -139,8 +141,9 @@ func BenchmarkDetermineTransactionType_Byron(b *testing.B) {
 
 func BenchmarkTransactionDeserialization_Byron(b *testing.B) {
 	txCbor, _ := hex.DecodeString(byronTxCborHex)
+
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.NewByronTransactionFromCbor(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -157,16 +160,18 @@ func BenchmarkTransactionSerialization_Byron(b *testing.B) {
 	if tx == nil {
 		b.Fatal("tx is nil")
 	}
+
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = tx.Cbor()
 	}
 }
 
 func BenchmarkTransactionDeserialization_Conway(b *testing.B) {
 	txCbor, _ := hex.DecodeString(conwayTxCborHex)
+
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.NewConwayTransactionFromCbor(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -183,8 +188,9 @@ func BenchmarkTransactionSerialization_Conway(b *testing.B) {
 	if tx == nil {
 		b.Fatal("tx is nil")
 	}
+
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = tx.Cbor()
 	}
 }
@@ -192,7 +198,7 @@ func BenchmarkTransactionSerialization_Conway(b *testing.B) {
 func BenchmarkTransactionDeserialization_Shelley(b *testing.B) {
 	txCbor, _ := hex.DecodeString(shelleyTxCborHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.NewShelleyTransactionFromCbor(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -207,7 +213,7 @@ func BenchmarkTransactionSerialization_Shelley(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = tx.Cbor()
 	}
 }
@@ -215,7 +221,7 @@ func BenchmarkTransactionSerialization_Shelley(b *testing.B) {
 func BenchmarkTransactionDeserialization_Allegra(b *testing.B) {
 	txCbor, _ := hex.DecodeString(allegraTxCborHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.NewAllegraTransactionFromCbor(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -230,7 +236,7 @@ func BenchmarkTransactionSerialization_Allegra(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = tx.Cbor()
 	}
 }
@@ -238,7 +244,7 @@ func BenchmarkTransactionSerialization_Allegra(b *testing.B) {
 func BenchmarkTransactionDeserialization_Mary(b *testing.B) {
 	txCbor, _ := hex.DecodeString(maryTxCborHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.NewMaryTransactionFromCbor(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -253,7 +259,7 @@ func BenchmarkTransactionSerialization_Mary(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = tx.Cbor()
 	}
 }
@@ -261,7 +267,7 @@ func BenchmarkTransactionSerialization_Mary(b *testing.B) {
 func BenchmarkTransactionDeserialization_Alonzo(b *testing.B) {
 	txCbor, _ := hex.DecodeString(alonzoTxCborHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.NewAlonzoTransactionFromCbor(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -276,7 +282,7 @@ func BenchmarkTransactionSerialization_Alonzo(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = tx.Cbor()
 	}
 }
@@ -284,7 +290,7 @@ func BenchmarkTransactionSerialization_Alonzo(b *testing.B) {
 func BenchmarkTransactionDeserialization_Babbage(b *testing.B) {
 	txCbor, _ := hex.DecodeString(babbageTxCborHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := ledger.NewBabbageTransactionFromCbor(txCbor)
 		if err != nil {
 			b.Fatal(err)
@@ -299,7 +305,7 @@ func BenchmarkTransactionSerialization_Babbage(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = tx.Cbor()
 	}
 }

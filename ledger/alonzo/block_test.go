@@ -157,7 +157,7 @@ func TestAlonzoBlock_Utxorpc(t *testing.T) {
 func BenchmarkAlonzoBlockDeserialization(b *testing.B) {
 	blockCbor, _ := hex.DecodeString(alonzoBlockHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var block alonzo.AlonzoBlock
 		err := block.UnmarshalCBOR(blockCbor)
 		if err != nil {
@@ -174,7 +174,7 @@ func BenchmarkAlonzoBlockSerialization(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = block.Cbor()
 	}
 }
