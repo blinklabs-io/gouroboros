@@ -537,3 +537,47 @@ func ToUtxorpcBigInt(v uint64) *utxorpc.BigInt {
 		},
 	}
 }
+
+// convertUintSliceToAnySlice converts []uint to []any for CBOR encoding
+func ConvertUintSliceToAnySlice(uints []uint) []any {
+	result := make([]any, len(uints))
+	for i, v := range uints {
+		result[i] = v
+	}
+	return result
+}
+
+// ConvertAnySliceToUintSlice converts []any to []uint for internal use
+// Invalid entries (non-integers, negative numbers, or unreasonably large numbers) are skipped
+func ConvertAnySliceToUintSlice(anys []any) []uint {
+	const maxReasonableIndex = 1000000 // Reasonable upper bound for transaction indices
+	result := make([]uint, 0, len(anys))
+	for _, v := range anys {
+		switch val := v.(type) {
+		case uint:
+			if val > maxReasonableIndex {
+				continue // Skip unreasonably large indices
+			}
+			result = append(result, val)
+		case uint64:
+			if val > maxReasonableIndex {
+				continue // Skip unreasonably large indices
+			}
+			result = append(result, uint(val))
+		case int:
+			if val < 0 || val > maxReasonableIndex {
+				continue // Skip negative or unreasonably large indices
+			}
+			result = append(result, uint(val))
+		case int64:
+			if val < 0 || val > maxReasonableIndex {
+				continue // Skip negative or unreasonably large indices
+			}
+			result = append(result, uint(val))
+		default:
+			// Skip invalid types (strings, floats, etc.)
+			continue
+		}
+	}
+	return result
+}

@@ -60,14 +60,61 @@ type ConwayBlock struct {
 }
 
 func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
-	type tConwayBlock ConwayBlock
-	var tmp tConwayBlock
+	// Create a temporary struct for unmarshaling with []any for InvalidTransactions
+	type tmpConwayBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *ConwayBlockHeader
+		TransactionBodies      []ConwayTransactionBody
+		TransactionWitnessSets []ConwayTransactionWitnessSet
+		TransactionMetadataSet map[uint]*cbor.LazyValue
+		InvalidTransactions    []any
+	}
+
+	var tmp tmpConwayBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = ConwayBlock(tmp)
+
+	// Convert []any to []uint
+	b.BlockHeader = tmp.BlockHeader
+	b.TransactionBodies = tmp.TransactionBodies
+	b.TransactionWitnessSets = tmp.TransactionWitnessSets
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+	b.InvalidTransactions = common.ConvertAnySliceToUintSlice(tmp.InvalidTransactions)
+
 	b.SetCbor(cborData)
 	return nil
+}
+
+func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
+	// Return stored CBOR if available
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+
+	// When encoding from scratch, we need to ensure InvalidTransactions
+	// is encoded as indefinite-length to match on-chain format
+	// Create a temporary struct for encoding with the correct types
+	type tmpBlock struct {
+		cbor.StructAsArray
+		BlockHeader            *ConwayBlockHeader
+		TransactionBodies      []ConwayTransactionBody
+		TransactionWitnessSets []ConwayTransactionWitnessSet
+		TransactionMetadataSet map[uint]*cbor.LazyValue
+		InvalidTransactions    cbor.IndefLengthList
+	}
+
+	tmp := tmpBlock{
+		BlockHeader:            b.BlockHeader,
+		TransactionBodies:      b.TransactionBodies,
+		TransactionWitnessSets: b.TransactionWitnessSets,
+		TransactionMetadataSet: b.TransactionMetadataSet,
+		InvalidTransactions: common.ConvertUintSliceToAnySlice(
+			b.InvalidTransactions,
+		),
+	}
+
+	return cbor.Encode(&tmp)
 }
 
 func (ConwayBlock) Type() int {

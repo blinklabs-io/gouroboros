@@ -48,7 +48,12 @@ func decodeTxBodies[T any](t *testing.T, txs []interface{}, label string) []T {
 		}
 		txBodyBytes := decodeTxBodyBytes(t, txArray[0])
 		if _, err := cbor.Decode(txBodyBytes, &bodies[i]); err != nil {
-			t.Fatalf("failed to decode %s transaction body %d: %v", label, i, err)
+			t.Fatalf(
+				"failed to decode %s transaction body %d: %v",
+				label,
+				i,
+				err,
+			)
 		}
 	}
 	return bodies
@@ -146,7 +151,11 @@ func TestVerifyBlockBody(t *testing.T) {
 			}
 			switch blockType {
 			case BlockTypeShelley:
-				transactionBodies := decodeTxBodies[shelley.ShelleyTransactionBody](t, txs, "Shelley")
+				transactionBodies := decodeTxBodies[shelley.ShelleyTransactionBody](
+					t,
+					txs,
+					"Shelley",
+				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				shelleyHeader := header.(*shelley.ShelleyBlockHeader)
 				block = &shelley.ShelleyBlock{
@@ -159,7 +168,11 @@ func TestVerifyBlockBody(t *testing.T) {
 					TransactionMetadataSet: transactionMetadataSet,
 				}
 			case BlockTypeAllegra:
-				transactionBodies := decodeTxBodies[allegra.AllegraTransactionBody](t, txs, "Allegra")
+				transactionBodies := decodeTxBodies[allegra.AllegraTransactionBody](
+					t,
+					txs,
+					"Allegra",
+				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				allegraHeader := header.(*allegra.AllegraBlockHeader)
 				block = &allegra.AllegraBlock{
@@ -172,7 +185,11 @@ func TestVerifyBlockBody(t *testing.T) {
 					TransactionMetadataSet: transactionMetadataSet,
 				}
 			case BlockTypeMary:
-				transactionBodies := decodeTxBodies[mary.MaryTransactionBody](t, txs, "Mary")
+				transactionBodies := decodeTxBodies[mary.MaryTransactionBody](
+					t,
+					txs,
+					"Mary",
+				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				maryHeader := header.(*mary.MaryBlockHeader)
 				block = &mary.MaryBlock{
@@ -185,7 +202,11 @@ func TestVerifyBlockBody(t *testing.T) {
 					TransactionMetadataSet: transactionMetadataSet,
 				}
 			case BlockTypeAlonzo:
-				transactionBodies := decodeTxBodies[alonzo.AlonzoTransactionBody](t, txs, "Alonzo")
+				transactionBodies := decodeTxBodies[alonzo.AlonzoTransactionBody](
+					t,
+					txs,
+					"Alonzo",
+				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				alonzoHeader := header.(*alonzo.AlonzoBlockHeader)
 				block = &alonzo.AlonzoBlock{
@@ -199,7 +220,11 @@ func TestVerifyBlockBody(t *testing.T) {
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeBabbage:
-				transactionBodies := decodeTxBodies[babbage.BabbageTransactionBody](t, txs, "Babbage")
+				transactionBodies := decodeTxBodies[babbage.BabbageTransactionBody](
+					t,
+					txs,
+					"Babbage",
+				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				babbageHeader := header.(*babbage.BabbageBlockHeader)
 				block = &babbage.BabbageBlock{
@@ -213,7 +238,11 @@ func TestVerifyBlockBody(t *testing.T) {
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeConway:
-				transactionBodies := decodeTxBodies[conway.ConwayTransactionBody](t, txs, "Conway")
+				transactionBodies := decodeTxBodies[conway.ConwayTransactionBody](
+					t,
+					txs,
+					"Conway",
+				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				conwayHeader := header.(*conway.ConwayBlockHeader)
 				block = &conway.ConwayBlock{
