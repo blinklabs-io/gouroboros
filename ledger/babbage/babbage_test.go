@@ -2874,7 +2874,7 @@ func TestBabbageTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	testAddr := "addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6"
 	var testAmount uint64 = 123_456_789
-	testAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	testAssets := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
 				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
@@ -2980,7 +2980,7 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 func TestBabbageTransactionOutputString(t *testing.T) {
 	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 	addr, _ := common.NewAddress(addrStr)
-	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	ma := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
 			common.NewBlake2b224(make([]byte, 28)): {
 				cbor.NewByteString([]byte("x")): 2,

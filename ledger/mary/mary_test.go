@@ -37,7 +37,7 @@ func createMaryTransactionOutputValueAssets(
 	data[policyIdKey] = map[cbor.ByteString]uint64{
 		assetKey: amount,
 	}
-	ret := common.NewMultiAsset[common.MultiAssetTypeOutput](data)
+	ret := common.NewMultiAsset(data)
 	return &ret
 }
 
@@ -120,7 +120,7 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 func TestMaryTransactionOutputString(t *testing.T) {
 	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 	addr, _ := common.NewAddress(addrStr)
-	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+	ma := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]uint64{
 			common.NewBlake2b224(make([]byte, 28)): {
 				cbor.NewByteString([]byte("token")): 2,
