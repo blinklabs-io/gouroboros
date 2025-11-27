@@ -75,12 +75,43 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Convert []any to []uint
+	// Convert []any to []uint with validation
+	const maxReasonableIndex = 1000000 // Reasonable upper bound for transaction indices
+	result := make([]uint, 0, len(tmp.InvalidTransactions))
+	for _, v := range tmp.InvalidTransactions {
+		switch val := v.(type) {
+		case uint:
+			if val > maxReasonableIndex {
+				continue // Skip unreasonably large indices
+			}
+			result = append(result, val)
+		case uint64:
+			if val > maxReasonableIndex {
+				continue // Skip unreasonably large indices
+			}
+			result = append(result, uint(val))
+		case int:
+			if val < 0 || val > maxReasonableIndex {
+				continue // Skip negative or unreasonably large indices
+			}
+			result = append(result, uint(val))
+		case int64:
+			if val < 0 || val > maxReasonableIndex {
+				continue // Skip negative or unreasonably large indices
+			}
+			result = append(result, uint(val))
+		default:
+			// Skip invalid types (strings, floats, etc.)
+			continue
+		}
+	}
+	b.InvalidTransactions = result
+
+	// Assign the other fields
 	b.BlockHeader = tmp.BlockHeader
 	b.TransactionBodies = tmp.TransactionBodies
 	b.TransactionWitnessSets = tmp.TransactionWitnessSets
 	b.TransactionMetadataSet = tmp.TransactionMetadataSet
-	b.InvalidTransactions = common.ConvertAnySliceToUintSlice(tmp.InvalidTransactions)
 
 	b.SetCbor(cborData)
 	return nil
@@ -104,14 +135,21 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 		InvalidTransactions    cbor.IndefLengthList
 	}
 
+	// Convert InvalidTransactions to IndefLengthList
+	var invalidTx cbor.IndefLengthList
+	if b.InvalidTransactions != nil {
+		invalidTx = make(cbor.IndefLengthList, len(b.InvalidTransactions))
+		for i, tx := range b.InvalidTransactions {
+			invalidTx[i] = tx
+		}
+	}
+
 	tmp := tmpBlock{
 		BlockHeader:            b.BlockHeader,
 		TransactionBodies:      b.TransactionBodies,
 		TransactionWitnessSets: b.TransactionWitnessSets,
 		TransactionMetadataSet: b.TransactionMetadataSet,
-		InvalidTransactions: common.ConvertUintSliceToAnySlice(
-			b.InvalidTransactions,
-		),
+		InvalidTransactions:    invalidTx,
 	}
 
 	return cbor.Encode(&tmp)

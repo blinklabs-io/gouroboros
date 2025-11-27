@@ -57,7 +57,7 @@ func TestMaryBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 			err,
 		)
 	}
-	if encoded == nil || len(encoded) == 0 {
+	if len(encoded) == 0 {
 		t.Fatal("Custom encoded CBOR from MaryBlock is nil or empty")
 	}
 

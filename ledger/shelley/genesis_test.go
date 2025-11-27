@@ -97,9 +97,6 @@ const shelleyGenesisConfig = `
   "securityParam": 2160
 }
 `
-const (
-	expectedTestnetScriptStakeHeader = 0xF1
-)
 
 var expectedGenesisObj = shelley.ShelleyGenesis{
 	SystemStart: time.Date(
