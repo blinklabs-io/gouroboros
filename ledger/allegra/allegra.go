@@ -49,7 +49,7 @@ type AllegraBlock struct {
 	BlockHeader            *AllegraBlockHeader
 	TransactionBodies      []AllegraTransactionBody
 	TransactionWitnessSets []shelley.ShelleyTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.LazyValue
+	TransactionMetadataSet common.TransactionMetadataSet
 }
 
 func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
@@ -243,7 +243,7 @@ type AllegraTransaction struct {
 	hash       *common.Blake2b256
 	Body       AllegraTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
-	TxMetadata *cbor.LazyValue
+	TxMetadata common.TransactionMetadatum
 }
 
 func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -353,7 +353,7 @@ func (t AllegraTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t AllegraTransaction) Metadata() *cbor.LazyValue {
+func (t AllegraTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
@@ -415,7 +415,7 @@ func (t *AllegraTransaction) Cbor() []byte {
 		cbor.RawMessage(t.WitnessSet.Cbor()),
 	}
 	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+		tmpObj = append(tmpObj, t.TxMetadata)
 	} else {
 		tmpObj = append(tmpObj, nil)
 	}

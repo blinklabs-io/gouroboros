@@ -155,7 +155,7 @@ type ByronTransaction struct {
 	hash       *common.Blake2b256
 	TxInputs   []ByronTransactionInput
 	TxOutputs  []ByronTransactionOutput
-	Attributes *cbor.LazyValue
+	Attributes cbor.RawMessage
 }
 
 func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -288,8 +288,8 @@ func (t *ByronTransaction) Donation() uint64 {
 	return 0
 }
 
-func (t *ByronTransaction) Metadata() *cbor.LazyValue {
-	return t.Attributes
+func (t *ByronTransaction) Metadata() common.TransactionMetadatum {
+	return nil
 }
 
 func (t *ByronTransaction) LeiosHash() common.Blake2b256 {

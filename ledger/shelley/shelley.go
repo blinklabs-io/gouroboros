@@ -53,7 +53,7 @@ type ShelleyBlock struct {
 	BlockHeader            *ShelleyBlockHeader
 	TransactionBodies      []ShelleyTransactionBody
 	TransactionWitnessSets []ShelleyTransactionWitnessSet
-	TransactionMetadataSet map[uint]*cbor.LazyValue
+	TransactionMetadataSet common.TransactionMetadataSet
 }
 
 func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
@@ -549,7 +549,7 @@ type ShelleyTransaction struct {
 	hash       *common.Blake2b256
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
-	TxMetadata *cbor.LazyValue
+	TxMetadata common.TransactionMetadatum
 }
 
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -659,7 +659,7 @@ func (t ShelleyTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t ShelleyTransaction) Metadata() *cbor.LazyValue {
+func (t ShelleyTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
@@ -718,7 +718,7 @@ func (t *ShelleyTransaction) Cbor() []byte {
 		cbor.RawMessage(t.WitnessSet.Cbor()),
 	}
 	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+		tmpObj = append(tmpObj, t.TxMetadata)
 	} else {
 		tmpObj = append(tmpObj, nil)
 	}
