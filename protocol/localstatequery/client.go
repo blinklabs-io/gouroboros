@@ -836,11 +836,24 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	query := buildShelleyQuery(
-		currentEra,
-		QueryTypeShelleyPoolDistr,
-		// TODO: add args (#870)
-	)
+	// If no pool IDs specified, query without parameters (get all pools)
+	// Otherwise, query with specific pool IDs as a CBOR set
+	var query []any
+	if len(poolIds) == 0 {
+		query = buildShelleyQuery(
+			currentEra,
+			QueryTypeShelleyPoolDistr,
+		)
+	} else {
+		query = buildShelleyQuery(
+			currentEra,
+			QueryTypeShelleyPoolDistr,
+			cbor.Tag{
+				Number:  cbor.CborTagSet,
+				Content: poolIds,
+			},
+		)
+	}
 	var result PoolDistrResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
