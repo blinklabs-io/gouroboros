@@ -730,10 +730,20 @@ func (t *ShelleyTransaction) Cbor() []byte {
 	return cborData
 }
 
-func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {
+func NewShelleyBlockFromCbor(
+	data []byte,
+	opts ...common.BlockParseOption,
+) (*ShelleyBlock, error) {
 	var shelleyBlock ShelleyBlock
 	if _, err := cbor.Decode(data, &shelleyBlock); err != nil {
 		return nil, fmt.Errorf("decode Shelley block error: %w", err)
+	}
+	// Validate block body hash during parsing for security
+	if err := common.ValidateBlockBodyHash(&shelleyBlock, data, opts...); err != nil {
+		return nil, fmt.Errorf(
+			"shelley block body hash validation failed: %w",
+			err,
+		)
 	}
 	return &shelleyBlock, nil
 }

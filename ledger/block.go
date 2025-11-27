@@ -26,24 +26,28 @@ type (
 	BlockHeader = common.BlockHeader
 )
 
-func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
+func NewBlockFromCbor(
+	blockType uint,
+	data []byte,
+	opts ...common.BlockParseOption,
+) (Block, error) {
 	switch blockType {
 	case BlockTypeByronEbb:
 		return NewByronEpochBoundaryBlockFromCbor(data)
 	case BlockTypeByronMain:
 		return NewByronMainBlockFromCbor(data)
 	case BlockTypeShelley:
-		return NewShelleyBlockFromCbor(data)
+		return NewShelleyBlockFromCbor(data, opts...)
 	case BlockTypeAllegra:
-		return NewAllegraBlockFromCbor(data)
+		return NewAllegraBlockFromCbor(data, opts...)
 	case BlockTypeMary:
-		return NewMaryBlockFromCbor(data)
+		return NewMaryBlockFromCbor(data, opts...)
 	case BlockTypeAlonzo:
-		return NewAlonzoBlockFromCbor(data)
+		return NewAlonzoBlockFromCbor(data, opts...)
 	case BlockTypeBabbage:
-		return NewBabbageBlockFromCbor(data)
+		return NewBabbageBlockFromCbor(data, opts...)
 	case BlockTypeConway:
-		return NewConwayBlockFromCbor(data)
+		return NewConwayBlockFromCbor(data, opts...)
 	case BlockTypeLeiosEndorser:
 		return NewLeiosEndorserBlockFromCbor(data)
 	case BlockTypeLeiosRanking:

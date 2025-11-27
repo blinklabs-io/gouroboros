@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 )
 
@@ -42,10 +43,12 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 
 	// Deserialize CBOR bytes into ConwayBlock struct
-	var block conway.ConwayBlock
-	err = block.UnmarshalCBOR(dataBytes)
+	block, err := conway.NewConwayBlockFromCbor(
+		dataBytes,
+		common.SkipBodyHashValidation(),
+	)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal CBOR data into ConwayBlock: %v", err)
+		t.Fatalf("Failed to parse CBOR data into ConwayBlock: %v", err)
 	}
 
 	// Re-encode using the cbor Encode function
@@ -95,7 +98,10 @@ func TestConwayBlockUtxorpc(t *testing.T) {
 		t.Fatalf("failed to decode test block hex: %v", err)
 	}
 
-	block, err := conway.NewConwayBlockFromCbor(blockCbor)
+	block, err := conway.NewConwayBlockFromCbor(
+		blockCbor,
+		common.SkipBodyHashValidation(), // Skip validation since it's tested in verify_block_test.go
+	)
 	if err != nil {
 		t.Fatalf("failed to parse Conway block: %v", err)
 	}

@@ -22,6 +22,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // https://cexplorer.io/block/db19fcfaba30607e363113b0a13616e6a9da5aa48b86ec2c033786f0a2e13f7d
@@ -43,10 +44,12 @@ func TestBabbageBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 
 	// Deserialize CBOR bytes into BabbageBlock struct
-	var block babbage.BabbageBlock
-	err = block.UnmarshalCBOR(dataBytes)
+	block, err := babbage.NewBabbageBlockFromCbor(
+		dataBytes,
+		common.SkipBodyHashValidation(),
+	)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal CBOR data into BabbageBlock: %v", err)
+		t.Fatalf("Failed to parse CBOR data into BabbageBlock: %v", err)
 	}
 
 	// Re-encode using the cbor Encode function
@@ -97,7 +100,11 @@ func TestBabbageBlock_Utxorpc(t *testing.T) {
 		t.Fatalf("failed to decode block hex: %v", err)
 	}
 
-	block, err := babbage.NewBabbageBlockFromCbor(blockCbor)
+	// First validate we can parse the block
+	block, err := babbage.NewBabbageBlockFromCbor(
+		blockCbor,
+		common.SkipBodyHashValidation(), // Skip validation since it's tested in verify_block_test.go
+	)
 	if err != nil {
 		t.Fatalf("failed to parse block: %v", err)
 	}

@@ -833,10 +833,20 @@ func (t *AlonzoTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	return tx, nil
 }
 
-func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
+func NewAlonzoBlockFromCbor(
+	data []byte,
+	opts ...common.BlockParseOption,
+) (*AlonzoBlock, error) {
 	var alonzoBlock AlonzoBlock
 	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
 		return nil, fmt.Errorf("decode Alonzo block error: %w", err)
+	}
+	// Validate block body hash during parsing for security
+	if err := common.ValidateBlockBodyHash(&alonzoBlock, data, opts...); err != nil {
+		return nil, fmt.Errorf(
+			"alonzo block body hash validation failed: %w",
+			err,
+		)
 	}
 	return &alonzoBlock, nil
 }

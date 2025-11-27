@@ -427,10 +427,20 @@ func (t *AllegraTransaction) Cbor() []byte {
 	return cborData
 }
 
-func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {
+func NewAllegraBlockFromCbor(
+	data []byte,
+	opts ...common.BlockParseOption,
+) (*AllegraBlock, error) {
 	var allegraBlock AllegraBlock
 	if _, err := cbor.Decode(data, &allegraBlock); err != nil {
 		return nil, fmt.Errorf("decode Allegra block error: %w", err)
+	}
+	// Validate block body hash during parsing for security
+	if err := common.ValidateBlockBodyHash(&allegraBlock, data, opts...); err != nil {
+		return nil, fmt.Errorf(
+			"allegra block body hash validation failed: %w",
+			err,
+		)
 	}
 	return &allegraBlock, nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -156,7 +157,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Shelley",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				shelleyHeader := header.(*shelley.ShelleyBlockHeader)
 				block = &shelley.ShelleyBlock{
 					BlockHeader:       shelleyHeader,
@@ -165,7 +165,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]shelley.ShelleyTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: make(common.TransactionMetadataSet),
 				}
 			case BlockTypeAllegra:
 				transactionBodies := decodeTxBodies[allegra.AllegraTransactionBody](
@@ -173,7 +173,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Allegra",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				allegraHeader := header.(*allegra.AllegraBlockHeader)
 				block = &allegra.AllegraBlock{
 					BlockHeader:       allegraHeader,
@@ -182,7 +181,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]shelley.ShelleyTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: make(common.TransactionMetadataSet),
 				}
 			case BlockTypeMary:
 				transactionBodies := decodeTxBodies[mary.MaryTransactionBody](
@@ -190,7 +189,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Mary",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				maryHeader := header.(*mary.MaryBlockHeader)
 				block = &mary.MaryBlock{
 					BlockHeader:       maryHeader,
@@ -199,7 +197,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]shelley.ShelleyTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: make(common.TransactionMetadataSet),
 				}
 			case BlockTypeAlonzo:
 				transactionBodies := decodeTxBodies[alonzo.AlonzoTransactionBody](
@@ -207,7 +205,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Alonzo",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				alonzoHeader := header.(*alonzo.AlonzoBlockHeader)
 				block = &alonzo.AlonzoBlock{
 					BlockHeader:       alonzoHeader,
@@ -216,7 +213,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]alonzo.AlonzoTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: make(common.TransactionMetadataSet),
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeBabbage:
@@ -225,7 +222,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Babbage",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				babbageHeader := header.(*babbage.BabbageBlockHeader)
 				block = &babbage.BabbageBlock{
 					BlockHeader:       babbageHeader,
@@ -234,7 +230,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]babbage.BabbageTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: make(common.TransactionMetadataSet),
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeConway:
@@ -243,7 +239,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Conway",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
 				conwayHeader := header.(*conway.ConwayBlockHeader)
 				block = &conway.ConwayBlock{
 					BlockHeader:       conwayHeader,
@@ -252,7 +247,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]conway.ConwayTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: make(common.TransactionMetadataSet),
 					InvalidTransactions:    []uint{},
 				}
 			default:

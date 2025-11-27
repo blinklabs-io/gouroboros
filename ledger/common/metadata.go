@@ -170,7 +170,13 @@ func decodeMapUint(b []byte) (TransactionMetadatum, bool, error) {
 		if err != nil {
 			return nil, true, fmt.Errorf("decode map(uint) value: %w", err)
 		}
-		pairs = append(pairs, MetaPair{Key: MetaInt{Value: new(big.Int).SetUint64(uint64(k))}, Value: val})
+		pairs = append(
+			pairs,
+			MetaPair{
+				Key:   MetaInt{Value: new(big.Int).SetUint64(uint64(k))},
+				Value: val,
+			},
+		)
 	}
 	return MetaMap{Pairs: pairs}, true, nil
 }
@@ -221,7 +227,11 @@ func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
 			for k, v := range tmp {
 				md, err := DecodeMetadatumRaw(v)
 				if err != nil {
-					return fmt.Errorf("decode metadata value for index %d: %w", k, err)
+					return fmt.Errorf(
+						"decode metadata value for index %d: %w",
+						k,
+						err,
+					)
 				}
 				out[k] = md
 			}
@@ -236,12 +246,17 @@ func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
 			out := make(TransactionMetadataSet)
 			for i, raw := range arr {
 				var probe any
-				if _, err := cbor.Decode(raw, &probe); err == nil && probe == nil {
+				if _, err := cbor.Decode(raw, &probe); err == nil &&
+					probe == nil {
 					continue // skip nulls
 				}
 				md, err := DecodeMetadatumRaw(raw)
 				if err != nil {
-					return fmt.Errorf("decode metadata list item %d: %w", i, err)
+					return fmt.Errorf(
+						"decode metadata list item %d: %w",
+						i,
+						err,
+					)
 				}
 				out[uint(i)] = md // #nosec G115
 			}

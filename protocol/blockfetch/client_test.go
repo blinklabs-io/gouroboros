@@ -64,6 +64,13 @@ func runTest(
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 		ouroboros.WithNodeToNode(true),
+		ouroboros.WithBlockFetchConfig(
+			blockfetch.NewConfig(
+				blockfetch.WithSkipBodyHashValidation(
+					true,
+				), // Skip validation: these tests focus on protocol communication, not block content validation (tested in ledger/verify_block_test.go)
+			),
+		),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)

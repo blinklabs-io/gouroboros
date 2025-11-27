@@ -611,10 +611,20 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 	}
 }
 
-func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
+func NewMaryBlockFromCbor(
+	data []byte,
+	opts ...common.BlockParseOption,
+) (*MaryBlock, error) {
 	var maryBlock MaryBlock
 	if _, err := cbor.Decode(data, &maryBlock); err != nil {
 		return nil, fmt.Errorf("decode Mary block error: %w", err)
+	}
+	// Validate block body hash during parsing for security
+	if err := common.ValidateBlockBodyHash(&maryBlock, data, opts...); err != nil {
+		return nil, fmt.Errorf(
+			"mary block body hash validation failed: %w",
+			err,
+		)
 	}
 	return &maryBlock, nil
 }

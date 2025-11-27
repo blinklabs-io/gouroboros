@@ -60,14 +60,14 @@ type ConwayBlock struct {
 }
 
 func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
-	// Create a temporary struct for unmarshaling with []any for InvalidTransactions
+	// Create a temporary struct for unmarshaling with []uint for InvalidTransactions
 	type tmpConwayBlock struct {
 		cbor.StructAsArray
 		BlockHeader            *ConwayBlockHeader
 		TransactionBodies      []ConwayTransactionBody
 		TransactionWitnessSets []ConwayTransactionWitnessSet
 		TransactionMetadataSet map[uint]*cbor.LazyValue
-		InvalidTransactions    []any
+		InvalidTransactions    []uint
 	}
 
 	var tmp tmpConwayBlock
@@ -75,43 +75,33 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Convert []any to []uint with validation
-	const maxReasonableIndex = 1000000 // Reasonable upper bound for transaction indices
-	result := make([]uint, 0, len(tmp.InvalidTransactions))
-	for _, v := range tmp.InvalidTransactions {
-		switch val := v.(type) {
-		case uint:
-			if val > maxReasonableIndex {
-				continue // Skip unreasonably large indices
-			}
-			result = append(result, val)
-		case uint64:
-			if val > maxReasonableIndex {
-				continue // Skip unreasonably large indices
-			}
-			result = append(result, uint(val))
-		case int:
-			if val < 0 || val > maxReasonableIndex {
-				continue // Skip negative or unreasonably large indices
-			}
-			result = append(result, uint(val))
-		case int64:
-			if val < 0 || val > maxReasonableIndex {
-				continue // Skip negative or unreasonably large indices
-			}
-			result = append(result, uint(val))
-		default:
-			// Skip invalid types (strings, floats, etc.)
-			continue
-		}
-	}
-	b.InvalidTransactions = result
+	b.InvalidTransactions = tmp.InvalidTransactions
 
 	// Assign the other fields
 	b.BlockHeader = tmp.BlockHeader
 	b.TransactionBodies = tmp.TransactionBodies
 	b.TransactionWitnessSets = tmp.TransactionWitnessSets
-	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+
+	// Convert TransactionMetadataSet from LazyValue to TransactionMetadatum
+	if tmp.TransactionMetadataSet != nil {
+		b.TransactionMetadataSet = make(common.TransactionMetadataSet)
+		for k, v := range tmp.TransactionMetadataSet {
+			if v != nil {
+				md, err := common.DecodeMetadatumRaw(v.Cbor())
+				if err != nil {
+					return fmt.Errorf(
+						"failed to decode transaction metadata for key %d: %w",
+						k,
+						err,
+					)
+				}
+				b.TransactionMetadataSet[k] = md
+			}
+		}
+	} else {
+		// Clear metadata if CBOR omits it to prevent stale data from reused decoders
+		b.TransactionMetadataSet = nil
+	}
 
 	b.SetCbor(cborData)
 	return nil
@@ -144,11 +134,38 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 		}
 	}
 
+	// Convert TransactionMetadataSet to LazyValue map for encoding
+	var transactionMetadataSet map[uint]*cbor.LazyValue
+	if b.TransactionMetadataSet != nil {
+		transactionMetadataSet = make(map[uint]*cbor.LazyValue)
+		for k, md := range b.TransactionMetadataSet {
+			if md != nil {
+				cborData, err := cbor.Encode(md)
+				if err != nil {
+					return nil, fmt.Errorf(
+						"failed to encode transaction metadata for key %d: %w",
+						k,
+						err,
+					)
+				}
+				lazyVal := &cbor.LazyValue{}
+				if err := lazyVal.UnmarshalCBOR(cborData); err != nil {
+					return nil, fmt.Errorf(
+						"failed to create lazy value for key %d: %w",
+						k,
+						err,
+					)
+				}
+				transactionMetadataSet[k] = lazyVal
+			}
+		}
+	}
+
 	tmp := tmpBlock{
 		BlockHeader:            b.BlockHeader,
 		TransactionBodies:      b.TransactionBodies,
 		TransactionWitnessSets: b.TransactionWitnessSets,
-		TransactionMetadataSet: b.TransactionMetadataSet,
+		TransactionMetadataSet: transactionMetadataSet,
 		InvalidTransactions:    invalidTx,
 	}
 
@@ -808,10 +825,24 @@ func (t *ConwayTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	return tx, nil
 }
 
-func NewConwayBlockFromCbor(data []byte) (*ConwayBlock, error) {
+func NewConwayBlockFromCbor(
+	data []byte,
+	opts ...common.BlockParseOption,
+) (*ConwayBlock, error) {
 	var conwayBlock ConwayBlock
 	if _, err := cbor.Decode(data, &conwayBlock); err != nil {
 		return nil, fmt.Errorf("decode Conway block error: %w", err)
+	}
+	// Check that block has required header before validation
+	if conwayBlock.BlockHeader == nil {
+		return nil, errors.New("conway block missing header")
+	}
+	// Validate block body hash during parsing for security
+	if err := common.ValidateBlockBodyHash(&conwayBlock, data, opts...); err != nil {
+		return nil, fmt.Errorf(
+			"conway block body hash validation failed: %w",
+			err,
+		)
 	}
 	return &conwayBlock, nil
 }

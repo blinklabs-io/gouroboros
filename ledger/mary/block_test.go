@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 )
 
@@ -43,10 +44,12 @@ func TestMaryBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 
 	// Deserialize CBOR bytes into MaryBlock struct
-	var block mary.MaryBlock
-	err = block.UnmarshalCBOR(dataBytes)
+	block, err := mary.NewMaryBlockFromCbor(
+		dataBytes,
+		common.SkipBodyHashValidation(),
+	)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal CBOR data into MaryBlock: %v", err)
+		t.Fatalf("Failed to parse CBOR data into MaryBlock: %v", err)
 	}
 
 	// Re-encode using the cbor Encode function
@@ -96,7 +99,10 @@ func TestMaryBlock_Utxorpc(t *testing.T) {
 		t.Fatalf("failed to decode test block hex: %v", err)
 	}
 
-	block, err := mary.NewMaryBlockFromCbor(testBlockCbor)
+	block, err := mary.NewMaryBlockFromCbor(
+		testBlockCbor,
+		common.SkipBodyHashValidation(), // Skip validation since it's tested in verify_block_test.go
+	)
 	if err != nil {
 		t.Fatalf("failed to parse Mary block: %v", err)
 	}

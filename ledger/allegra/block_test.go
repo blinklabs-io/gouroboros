@@ -23,6 +23,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,10 +45,12 @@ func TestAllegraBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 
 	// Deserialize CBOR bytes into AllegraBlock struct
-	var block allegra.AllegraBlock
-	err = block.UnmarshalCBOR(dataBytes)
+	block, err := allegra.NewAllegraBlockFromCbor(
+		dataBytes,
+		common.SkipBodyHashValidation(),
+	)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal CBOR data into AllegraBlock: %v", err)
+		t.Fatalf("Failed to parse CBOR data into AllegraBlock: %v", err)
 	}
 
 	// Re-encode using the cbor Encode function
@@ -97,7 +100,10 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 	assert.NoError(t, err, "Failed to decode block hex")
 
 	// Parse the block
-	block, err := allegra.NewAllegraBlockFromCbor(blockCbor)
+	block, err := allegra.NewAllegraBlockFromCbor(
+		blockCbor,
+		common.SkipBodyHashValidation(), // Skip validation since it's tested in verify_block_test.go
+	)
 	assert.NoError(t, err, "Failed to parse block")
 	assert.NotNil(t, block, "Parsed block is nil")
 

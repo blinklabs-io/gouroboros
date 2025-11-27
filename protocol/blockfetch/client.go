@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledgercommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -269,10 +270,15 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	}
 	var block ledger.Block
 	if !c.blockUseCallback || c.config.BlockFunc != nil {
+		var opts []ledgercommon.BlockParseOption
+		if c.config.SkipBodyHashValidation {
+			opts = append(opts, ledgercommon.SkipBodyHashValidation())
+		}
 		var err error
 		block, err = ledger.NewBlockFromCbor(
 			wrappedBlock.Type,
 			wrappedBlock.RawBlock,
+			opts...,
 		)
 		if err != nil {
 			return err

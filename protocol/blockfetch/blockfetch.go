@@ -106,13 +106,14 @@ type BlockFetch struct {
 
 // Config holds configuration options for the Block Fetch protocol.
 type Config struct {
-	BlockFunc         BlockFunc        // Callback for decoded blocks
-	BlockRawFunc      BlockRawFunc     // Callback for raw block data
-	BatchDoneFunc     BatchDoneFunc    // Callback when a batch is done
-	RequestRangeFunc  RequestRangeFunc // Callback for range requests
-	BatchStartTimeout time.Duration    // Timeout for starting a batch
-	BlockTimeout      time.Duration    // Timeout for receiving a block
-	RecvQueueSize     int              // Size of the receive queue
+	BlockFunc              BlockFunc        // Callback for decoded blocks
+	BlockRawFunc           BlockRawFunc     // Callback for raw block data
+	BatchDoneFunc          BatchDoneFunc    // Callback when a batch is done
+	RequestRangeFunc       RequestRangeFunc // Callback for range requests
+	BatchStartTimeout      time.Duration    // Timeout for starting a batch
+	BlockTimeout           time.Duration    // Timeout for receiving a block
+	RecvQueueSize          int              // Size of the receive queue
+	SkipBodyHashValidation bool             // Skip body hash validation when parsing blocks
 }
 
 // MaxRecvQueueSize is the maximum allowed receive queue size (messages).
@@ -269,5 +270,14 @@ func WithRecvQueueSize(size int) BlockFetchOptionFunc {
 			)
 		}
 		c.RecvQueueSize = size
+	}
+}
+
+// WithSkipBodyHashValidation specifies whether to skip body hash validation when parsing blocks.
+// WARNING: This should only be used for testing or debugging purposes. Skipping validation
+// in production will accept blocks with mismatched body hashes, compromising security.
+func WithSkipBodyHashValidation(skip bool) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.SkipBodyHashValidation = skip
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
@@ -43,10 +44,12 @@ func TestShelleyBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 
 	// Deserialize CBOR bytes into ShelleyBlock struct
-	var block shelley.ShelleyBlock
-	err = block.UnmarshalCBOR(dataBytes)
+	block, err := shelley.NewShelleyBlockFromCbor(
+		dataBytes,
+		common.SkipBodyHashValidation(),
+	)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal CBOR data into ShelleyBlock: %v", err)
+		t.Fatalf("Failed to parse CBOR data into ShelleyBlock: %v", err)
 	}
 
 	// Re-encode using the cbor Encode function
@@ -97,7 +100,10 @@ func TestShelleyBlockUtxorpc(t *testing.T) {
 		t.Fatalf("failed to decode block hex: %v", err)
 	}
 
-	block, err := shelley.NewShelleyBlockFromCbor(blockCbor)
+	block, err := shelley.NewShelleyBlockFromCbor(
+		blockCbor,
+		common.SkipBodyHashValidation(), // Skip validation since it's tested in verify_block_test.go
+	)
 	if err != nil {
 		t.Fatalf("failed to parse block: %v", err)
 	}

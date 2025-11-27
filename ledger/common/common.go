@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -36,7 +37,35 @@ const (
 	Blake2b256Size = 32
 	Blake2b224Size = 28
 	Blake2b160Size = 20
+
+	// Era IDs for Cardano eras
+	EraIdShelley = 1
+	EraIdAllegra = 2
+	EraIdMary    = 3
+	EraIdAlonzo  = 4
+	EraIdBabbage = 5
+	EraIdConway  = 6
 )
+
+// emptyInvalidTransactionsCbor is the CBOR encoding of an empty indefinite-length list
+// used for default invalid transactions in body hash calculation. Computed once at package init.
+var emptyInvalidTransactionsCbor []byte
+
+func init() {
+	var err error
+	emptyInvalidTransactionsCbor, err = cbor.Encode(cbor.IndefLengthList([]any{}))
+	if err != nil {
+		panic(fmt.Sprintf("failed to encode empty invalid transactions CBOR: %v", err))
+	}
+}
+
+func convertToAnySlice[T any](slice []T) []any {
+	result := make([]any, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
+}
 
 type Blake2b256 [Blake2b256Size]byte
 
@@ -536,4 +565,143 @@ func ToUtxorpcBigInt(v uint64) *utxorpc.BigInt {
 			BigUInt: new(big.Int).SetUint64(v).Bytes(),
 		},
 	}
+}
+
+// BlockParseOption is a functional option for configuring block parsing behavior
+type BlockParseOption func(*blockParseOptions)
+
+// blockParseOptions holds configuration options for block parsing
+type blockParseOptions struct {
+	skipBodyHashValidation bool
+}
+
+// SkipBodyHashValidation disables body hash validation during block parsing.
+// This should only be used for debugging, testing, or when parsing blocks
+// from untrusted sources where validation is handled elsewhere.
+func SkipBodyHashValidation() BlockParseOption {
+	return func(opts *blockParseOptions) {
+		opts.skipBodyHashValidation = true
+	}
+}
+
+// ValidateBlockBodyHash validates that the block's body hash matches the computed hash
+// of its components (transactions, witnesses, auxiliary data, and invalid transactions)
+// as per the Cardano specification. This ensures block parsing integrity by validating
+// the body hash during block construction rather than only during verification.
+func ValidateBlockBodyHash(
+	block Block,
+	cborData []byte,
+	opts ...BlockParseOption,
+) error {
+	options := &blockParseOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	if options.skipBodyHashValidation {
+		return nil
+	}
+
+	expectedBodyHash := block.BlockBodyHash()
+	if len(cborData) == 0 {
+		return errors.New("block CBOR is required for body hash validation")
+	}
+
+	var raw []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &raw); err != nil {
+		return fmt.Errorf(
+			"failed to decode block CBOR for body hash validation: %w",
+			err,
+		)
+	}
+	if len(raw) < 4 {
+		return errors.New(
+			"invalid block CBOR structure for body hash validation",
+		)
+	}
+
+	// Compute body hash as per Cardano spec: blake2b_256(hash_tx || hash_wit || hash_aux || hash_invalid)
+	hashInvalidDefault := blake2b.Sum256(emptyInvalidTransactionsCbor)
+	var bodyHashes []byte
+
+	// Get era for encoding decisions
+	eraId := block.Header().Era().Id
+
+	// Hash transaction bodies - re-encode as definite-length list for Shelley, indefinite for later eras
+	var txBodies []cbor.RawMessage
+	if _, err := cbor.Decode(raw[1], &txBodies); err != nil {
+		return fmt.Errorf("failed to decode transaction bodies: %w", err)
+	}
+	var txBodiesEncoded []byte
+	var err error
+	// Block body hash must use definite-length canonical CBOR for all eras per Cardano spec
+	txBodiesEncoded, err = cbor.Encode(convertToAnySlice(txBodies))
+	if err != nil {
+		return fmt.Errorf("failed to re-encode transaction bodies: %w", err)
+	}
+	hashTx := blake2b.Sum256(txBodiesEncoded)
+	bodyHashes = append(bodyHashes, hashTx[:]...)
+
+	// Hash transaction witnesses - re-encode as definite-length list for Shelley, indefinite for later eras
+	var txWits []cbor.RawMessage
+	if _, err := cbor.Decode(raw[2], &txWits); err != nil {
+		return fmt.Errorf("failed to decode transaction witnesses: %w", err)
+	}
+	var txWitsEncoded []byte
+	// Block body hash must use definite-length canonical CBOR for all eras per Cardano spec
+	txWitsEncoded, err = cbor.Encode(convertToAnySlice(txWits))
+	if err != nil {
+		return fmt.Errorf("failed to re-encode transaction witnesses: %w", err)
+	}
+	hashWit := blake2b.Sum256(txWitsEncoded)
+	bodyHashes = append(bodyHashes, hashWit[:]...)
+
+	// Hash auxiliary data - re-encode as definite-length map for canonical form
+	var auxMap map[uint]any
+	if _, err := cbor.Decode(raw[3], &auxMap); err != nil {
+		return fmt.Errorf("failed to decode auxiliary data: %w", err)
+	}
+	auxDataEncoded, err := cbor.Encode(auxMap)
+	if err != nil {
+		return fmt.Errorf("failed to re-encode auxiliary data: %w", err)
+	}
+	hashAux := blake2b.Sum256(auxDataEncoded)
+	bodyHashes = append(bodyHashes, hashAux[:]...)
+
+	// Determine which invalid transaction logic to use based on era
+	switch eraId {
+	case EraIdShelley,
+		EraIdAllegra,
+		EraIdMary: // Shelley, Allegra, Mary - no invalid transactions in body hash
+		// Don't append hashInvalid for Shelley era
+	case EraIdAlonzo,
+		EraIdBabbage,
+		EraIdConway: // Alonzo, Babbage, Conway - use actual invalid transactions
+		if len(raw) < 5 {
+			// If no invalid transactions part, use empty list (matches CalculateBlockBodyHash behavior)
+			bodyHashes = append(bodyHashes, hashInvalidDefault[:]...)
+		} else {
+			// Re-encode invalid transactions as indefinite-length list per Cardano spec
+			var invalidTxs []cbor.RawMessage
+			if _, err := cbor.Decode(raw[4], &invalidTxs); err != nil {
+				return fmt.Errorf("failed to decode invalid transactions: %w", err)
+			}
+			invalidTxsEncoded, err := cbor.Encode(cbor.IndefLengthList(convertToAnySlice(invalidTxs)))
+			if err != nil {
+				return fmt.Errorf("failed to re-encode invalid transactions: %w", err)
+			}
+			hashInvalid := blake2b.Sum256(invalidTxsEncoded)
+			bodyHashes = append(bodyHashes, hashInvalid[:]...)
+		}
+	default:
+		return fmt.Errorf("unsupported era for body hash validation: %d", eraId)
+	}
+
+	actualBodyHash := blake2b.Sum256(bodyHashes)
+	if !bytes.Equal(actualBodyHash[:], expectedBodyHash.Bytes()) {
+		return fmt.Errorf("block body hash mismatch: expected %s, got %s",
+			expectedBodyHash.String(), hex.EncodeToString(actualBodyHash[:]))
+	}
+
+	return nil
 }

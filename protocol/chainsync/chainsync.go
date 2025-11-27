@@ -208,15 +208,16 @@ type ChainSync struct {
 
 // Config is used to configure the ChainSync protocol instance
 type Config struct {
-	RollBackwardFunc   RollBackwardFunc
-	RollForwardFunc    RollForwardFunc
-	RollForwardRawFunc RollForwardRawFunc
-	FindIntersectFunc  FindIntersectFunc
-	RequestNextFunc    RequestNextFunc
-	IntersectTimeout   time.Duration
-	BlockTimeout       time.Duration
-	PipelineLimit      int
-	RecvQueueSize      int
+	RollBackwardFunc       RollBackwardFunc
+	RollForwardFunc        RollForwardFunc
+	RollForwardRawFunc     RollForwardRawFunc
+	FindIntersectFunc      FindIntersectFunc
+	RequestNextFunc        RequestNextFunc
+	IntersectTimeout       time.Duration
+	BlockTimeout           time.Duration
+	PipelineLimit          int
+	RecvQueueSize          int
+	SkipBodyHashValidation bool
 }
 
 // Protocol limits per Ouroboros Network Specification
@@ -425,5 +426,14 @@ func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 			)
 		}
 		c.RecvQueueSize = size
+	}
+}
+
+// WithSkipBodyHashValidation specifies whether to skip body hash validation when parsing blocks.
+// WARNING: This should only be used for testing or debugging purposes. Skipping validation
+// in production will accept blocks with mismatched body hashes, compromising security.
+func WithSkipBodyHashValidation(skip bool) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.SkipBodyHashValidation = skip
 	}
 }
