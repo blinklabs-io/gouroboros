@@ -111,7 +111,20 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	b.BlockHeader = tmp.BlockHeader
 	b.TransactionBodies = tmp.TransactionBodies
 	b.TransactionWitnessSets = tmp.TransactionWitnessSets
-	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+	// Decode TransactionMetadataSet from LazyValue to TransactionMetadatum
+	b.TransactionMetadataSet = make(
+		common.TransactionMetadataSet,
+		len(tmp.TransactionMetadataSet),
+	)
+	for k, lv := range tmp.TransactionMetadataSet {
+		if lv != nil {
+			md, err := common.DecodeMetadatumRaw(lv.Cbor())
+			if err != nil {
+				return fmt.Errorf("decode metadata for index %d: %w", k, err)
+			}
+			b.TransactionMetadataSet[k] = md
+		}
+	}
 
 	b.SetCbor(cborData)
 	return nil
@@ -131,7 +144,7 @@ func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
 		BlockHeader            *BabbageBlockHeader
 		TransactionBodies      []BabbageTransactionBody
 		TransactionWitnessSets []BabbageTransactionWitnessSet
-		TransactionMetadataSet map[uint]*cbor.LazyValue
+		TransactionMetadataSet common.TransactionMetadataSet
 		InvalidTransactions    cbor.IndefLengthList
 	}
 

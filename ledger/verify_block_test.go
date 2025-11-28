@@ -10,6 +10,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -157,6 +158,21 @@ func TestVerifyBlockBody(t *testing.T) {
 					"Shelley",
 				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+				// Decode metadata
+				metadataSet := make(common.TransactionMetadataSet)
+				for k, lv := range transactionMetadataSet {
+					if lv != nil {
+						md, err := common.DecodeMetadatumRaw(lv.Cbor())
+						if err != nil {
+							t.Fatalf(
+								"failed to decode Shelley metadata for index %d: %v",
+								k,
+								err,
+							)
+						}
+						metadataSet[k] = md
+					}
+				}
 				shelleyHeader := header.(*shelley.ShelleyBlockHeader)
 				block = &shelley.ShelleyBlock{
 					BlockHeader:       shelleyHeader,
@@ -165,7 +181,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]shelley.ShelleyTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: metadataSet,
 				}
 			case BlockTypeAllegra:
 				transactionBodies := decodeTxBodies[allegra.AllegraTransactionBody](
@@ -174,6 +190,21 @@ func TestVerifyBlockBody(t *testing.T) {
 					"Allegra",
 				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+				// Decode metadata
+				metadataSet := make(common.TransactionMetadataSet)
+				for k, lv := range transactionMetadataSet {
+					if lv != nil {
+						md, err := common.DecodeMetadatumRaw(lv.Cbor())
+						if err != nil {
+							t.Fatalf(
+								"failed to decode Allegra metadata for index %d: %v",
+								k,
+								err,
+							)
+						}
+						metadataSet[k] = md
+					}
+				}
 				allegraHeader := header.(*allegra.AllegraBlockHeader)
 				block = &allegra.AllegraBlock{
 					BlockHeader:       allegraHeader,
@@ -182,7 +213,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]shelley.ShelleyTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: metadataSet,
 				}
 			case BlockTypeMary:
 				transactionBodies := decodeTxBodies[mary.MaryTransactionBody](
@@ -191,6 +222,21 @@ func TestVerifyBlockBody(t *testing.T) {
 					"Mary",
 				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+				// Decode metadata
+				metadataSet := make(common.TransactionMetadataSet)
+				for k, lv := range transactionMetadataSet {
+					if lv != nil {
+						md, err := common.DecodeMetadatumRaw(lv.Cbor())
+						if err != nil {
+							t.Fatalf(
+								"failed to decode Mary metadata for index %d: %v",
+								k,
+								err,
+							)
+						}
+						metadataSet[k] = md
+					}
+				}
 				maryHeader := header.(*mary.MaryBlockHeader)
 				block = &mary.MaryBlock{
 					BlockHeader:       maryHeader,
@@ -199,7 +245,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]shelley.ShelleyTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: metadataSet,
 				}
 			case BlockTypeAlonzo:
 				transactionBodies := decodeTxBodies[alonzo.AlonzoTransactionBody](
@@ -208,6 +254,21 @@ func TestVerifyBlockBody(t *testing.T) {
 					"Alonzo",
 				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+				// Decode metadata
+				metadataSet := make(common.TransactionMetadataSet)
+				for k, lv := range transactionMetadataSet {
+					if lv != nil {
+						md, err := common.DecodeMetadatumRaw(lv.Cbor())
+						if err != nil {
+							t.Fatalf(
+								"failed to decode Alonzo metadata for index %d: %v",
+								k,
+								err,
+							)
+						}
+						metadataSet[k] = md
+					}
+				}
 				alonzoHeader := header.(*alonzo.AlonzoBlockHeader)
 				block = &alonzo.AlonzoBlock{
 					BlockHeader:       alonzoHeader,
@@ -216,7 +277,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]alonzo.AlonzoTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: metadataSet,
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeBabbage:
@@ -226,6 +287,21 @@ func TestVerifyBlockBody(t *testing.T) {
 					"Babbage",
 				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+				// Decode metadata
+				metadataSet := make(common.TransactionMetadataSet)
+				for k, lv := range transactionMetadataSet {
+					if lv != nil {
+						md, err := common.DecodeMetadatumRaw(lv.Cbor())
+						if err != nil {
+							t.Fatalf(
+								"failed to decode Babbage metadata for index %d: %v",
+								k,
+								err,
+							)
+						}
+						metadataSet[k] = md
+					}
+				}
 				babbageHeader := header.(*babbage.BabbageBlockHeader)
 				block = &babbage.BabbageBlock{
 					BlockHeader:       babbageHeader,
@@ -234,7 +310,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]babbage.BabbageTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: metadataSet,
 					InvalidTransactions:    []uint{},
 				}
 			case BlockTypeConway:
@@ -244,6 +320,21 @@ func TestVerifyBlockBody(t *testing.T) {
 					"Conway",
 				)
 				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+				// Decode metadata
+				metadataSet := make(common.TransactionMetadataSet)
+				for k, lv := range transactionMetadataSet {
+					if lv != nil {
+						md, err := common.DecodeMetadatumRaw(lv.Cbor())
+						if err != nil {
+							t.Fatalf(
+								"failed to decode Conway metadata for index %d: %v",
+								k,
+								err,
+							)
+						}
+						metadataSet[k] = md
+					}
+				}
 				conwayHeader := header.(*conway.ConwayBlockHeader)
 				block = &conway.ConwayBlock{
 					BlockHeader:       conwayHeader,
@@ -252,7 +343,7 @@ func TestVerifyBlockBody(t *testing.T) {
 						[]conway.ConwayTransactionWitnessSet,
 						len(txs),
 					),
-					TransactionMetadataSet: transactionMetadataSet,
+					TransactionMetadataSet: metadataSet,
 					InvalidTransactions:    []uint{},
 				}
 			default:
