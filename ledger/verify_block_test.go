@@ -21,7 +21,7 @@ func init() {
 }
 
 // decodeTxBodyBytes extracts transaction body bytes from either []byte or hex string
-func decodeTxBodyBytes(t *testing.T, v interface{}) []byte {
+func decodeTxBodyBytes(t *testing.T, v any) []byte {
 	t.Helper()
 	switch b := v.(type) {
 	case []byte:
@@ -39,11 +39,11 @@ func decodeTxBodyBytes(t *testing.T, v interface{}) []byte {
 }
 
 // decodeTxBodies decodes transaction bodies for a specific era
-func decodeTxBodies[T any](t *testing.T, txs []interface{}, label string) []T {
+func decodeTxBodies[T any](t *testing.T, txs []any, label string) []T {
 	t.Helper()
 	bodies := make([]T, len(txs))
 	for i, tx := range txs {
-		txArray, ok := tx.([]interface{})
+		txArray, ok := tx.([]any)
 		if !ok {
 			t.Fatalf("unexpected %s tx element type %T", label, tx)
 		}
@@ -58,6 +58,40 @@ func decodeTxBodies[T any](t *testing.T, txs []interface{}, label string) []T {
 		}
 	}
 	return bodies
+}
+
+// decodeTransactionMetadataSet decodes transaction metadata set for a specific era
+func decodeTransactionMetadataSet(t *testing.T, txs []any, eraName string) common.TransactionMetadataSet {
+	t.Helper()
+	transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+	for i, tx := range txs {
+		txArray, ok := tx.([]any)
+		if !ok {
+			continue
+		}
+		if len(txArray) > 2 {
+			if lv, ok := txArray[2].(*cbor.LazyValue); ok && lv != nil {
+				transactionMetadataSet[uint(i)] = lv
+			}
+		}
+	}
+	// Decode metadata
+	metadataSet := make(common.TransactionMetadataSet)
+	for k, lv := range transactionMetadataSet {
+		if lv != nil {
+			md, err := common.DecodeMetadatumRaw(lv.Cbor())
+			if err != nil {
+				t.Fatalf(
+					"failed to decode %s metadata for index %d: %v",
+					eraName,
+					k,
+					err,
+				)
+			}
+			metadataSet[k] = md
+		}
+	}
+	return metadataSet
 }
 
 func TestVerifyBlockBody(t *testing.T) {
@@ -146,7 +180,7 @@ func TestVerifyBlockBody(t *testing.T) {
 
 			// Parse txs based on block type
 			var block Block
-			var txs []interface{}
+			var txs []any
 			if _, err := cbor.Decode(bodyCborBytes, &txs); err != nil {
 				t.Fatalf("failed to decode body CBOR: %v", err)
 			}
@@ -157,22 +191,7 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Shelley",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				// Decode metadata
-				metadataSet := make(common.TransactionMetadataSet)
-				for k, lv := range transactionMetadataSet {
-					if lv != nil {
-						md, err := common.DecodeMetadatumRaw(lv.Cbor())
-						if err != nil {
-							t.Fatalf(
-								"failed to decode Shelley metadata for index %d: %v",
-								k,
-								err,
-							)
-						}
-						metadataSet[k] = md
-					}
-				}
+				metadataSet := decodeTransactionMetadataSet(t, txs, shelley.EraNameShelley)
 				shelleyHeader := header.(*shelley.ShelleyBlockHeader)
 				block = &shelley.ShelleyBlock{
 					BlockHeader:       shelleyHeader,
@@ -189,22 +208,7 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Allegra",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				// Decode metadata
-				metadataSet := make(common.TransactionMetadataSet)
-				for k, lv := range transactionMetadataSet {
-					if lv != nil {
-						md, err := common.DecodeMetadatumRaw(lv.Cbor())
-						if err != nil {
-							t.Fatalf(
-								"failed to decode Allegra metadata for index %d: %v",
-								k,
-								err,
-							)
-						}
-						metadataSet[k] = md
-					}
-				}
+				metadataSet := decodeTransactionMetadataSet(t, txs, allegra.EraNameAllegra)
 				allegraHeader := header.(*allegra.AllegraBlockHeader)
 				block = &allegra.AllegraBlock{
 					BlockHeader:       allegraHeader,
@@ -221,22 +225,7 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Mary",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				// Decode metadata
-				metadataSet := make(common.TransactionMetadataSet)
-				for k, lv := range transactionMetadataSet {
-					if lv != nil {
-						md, err := common.DecodeMetadatumRaw(lv.Cbor())
-						if err != nil {
-							t.Fatalf(
-								"failed to decode Mary metadata for index %d: %v",
-								k,
-								err,
-							)
-						}
-						metadataSet[k] = md
-					}
-				}
+				metadataSet := decodeTransactionMetadataSet(t, txs, mary.EraNameMary)
 				maryHeader := header.(*mary.MaryBlockHeader)
 				block = &mary.MaryBlock{
 					BlockHeader:       maryHeader,
@@ -253,22 +242,7 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Alonzo",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				// Decode metadata
-				metadataSet := make(common.TransactionMetadataSet)
-				for k, lv := range transactionMetadataSet {
-					if lv != nil {
-						md, err := common.DecodeMetadatumRaw(lv.Cbor())
-						if err != nil {
-							t.Fatalf(
-								"failed to decode Alonzo metadata for index %d: %v",
-								k,
-								err,
-							)
-						}
-						metadataSet[k] = md
-					}
-				}
+				metadataSet := decodeTransactionMetadataSet(t, txs, alonzo.EraNameAlonzo)
 				alonzoHeader := header.(*alonzo.AlonzoBlockHeader)
 				block = &alonzo.AlonzoBlock{
 					BlockHeader:       alonzoHeader,
@@ -286,22 +260,7 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Babbage",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				// Decode metadata
-				metadataSet := make(common.TransactionMetadataSet)
-				for k, lv := range transactionMetadataSet {
-					if lv != nil {
-						md, err := common.DecodeMetadatumRaw(lv.Cbor())
-						if err != nil {
-							t.Fatalf(
-								"failed to decode Babbage metadata for index %d: %v",
-								k,
-								err,
-							)
-						}
-						metadataSet[k] = md
-					}
-				}
+				metadataSet := decodeTransactionMetadataSet(t, txs, babbage.EraNameBabbage)
 				babbageHeader := header.(*babbage.BabbageBlockHeader)
 				block = &babbage.BabbageBlock{
 					BlockHeader:       babbageHeader,
@@ -319,22 +278,7 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Conway",
 				)
-				transactionMetadataSet := make(map[uint]*cbor.LazyValue)
-				// Decode metadata
-				metadataSet := make(common.TransactionMetadataSet)
-				for k, lv := range transactionMetadataSet {
-					if lv != nil {
-						md, err := common.DecodeMetadatumRaw(lv.Cbor())
-						if err != nil {
-							t.Fatalf(
-								"failed to decode Conway metadata for index %d: %v",
-								k,
-								err,
-							)
-						}
-						metadataSet[k] = md
-					}
-				}
+				metadataSet := decodeTransactionMetadataSet(t, txs, conway.EraNameConway)
 				conwayHeader := header.(*conway.ConwayBlockHeader)
 				block = &conway.ConwayBlock{
 					BlockHeader:       conwayHeader,
