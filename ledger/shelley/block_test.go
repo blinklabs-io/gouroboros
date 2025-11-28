@@ -48,6 +48,8 @@ func TestShelleyBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to unmarshal CBOR data into ShelleyBlock: %v", err)
 	}
+	// Reset stored CBOR to nil
+	block.SetCbor(nil)
 
 	// Re-encode using the cbor Encode function
 	encoded, err := cbor.Encode(block)
