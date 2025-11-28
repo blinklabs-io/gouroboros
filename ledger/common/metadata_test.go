@@ -27,6 +27,10 @@ func Test_Metadata_RoundTrip_AllegraSample(t *testing.T) {
 	}
 
 	if hex.EncodeToString(enc) != allegraBlockHex {
-		t.Fatalf("mismatch:\n got: %s\nwant: %s", hex.EncodeToString(enc), allegraBlockHex)
+		t.Fatalf(
+			"mismatch:\n got: %s\nwant: %s",
+			hex.EncodeToString(enc),
+			allegraBlockHex,
+		)
 	}
 }
