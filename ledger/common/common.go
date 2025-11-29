@@ -115,6 +115,21 @@ func (b Blake2b224) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(hashBytes)
 }
 
+func (b Blake2b224) Bech32(prefix string) string {
+	// Convert data to base32 and encode as bech32
+	convData, err := bech32.ConvertBits(b[:], 8, 5, true)
+	if err != nil {
+		panic(
+			fmt.Sprintf("unexpected error converting data to base32: %s", err),
+		)
+	}
+	encoded, err := bech32.Encode(prefix, convData)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error encoding data as bech32: %s", err))
+	}
+	return encoded
+}
+
 // Blake2b224Hash generates a Blake2b-224 hash from the provided data
 func Blake2b224Hash(data []byte) Blake2b224 {
 	tmpHash, err := blake2b.New(Blake2b224Size, nil)

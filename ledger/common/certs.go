@@ -321,7 +321,7 @@ func (c *StakeDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 			Certificate: &utxorpc.Certificate_StakeDelegation{
 				StakeDelegation: &utxorpc.StakeDelegationCert{
 					StakeCredential: stakeCred,
-					PoolKeyhash:     c.PoolKeyHash[:],
+					PoolKeyhash:     c.PoolKeyHash.Bytes(),
 				},
 			},
 		},
@@ -519,7 +519,7 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 					len(hashBytes),
 				)
 			}
-			p.RewardAccount = AddrKeyHash(NewBlake2b224(hashBytes))
+			p.RewardAccount = AddrKeyHash(hashBytes)
 		}
 	}
 
@@ -529,7 +529,7 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid operator key: %w", err)
 		}
-		p.Operator = PoolKeyHash(NewBlake2b224(opBytes))
+		p.Operator = PoolKeyHash(opBytes)
 	}
 
 	// Convert VRF key hash
@@ -573,7 +573,7 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	tmpPoolOwners := make([][]byte, len(c.PoolOwners))
 	for i, owner := range c.PoolOwners {
-		tmpPoolOwners[i] = owner[:]
+		tmpPoolOwners[i] = owner.Bytes()
 	}
 	tmpRelays := make([]*utxorpc.Relay, len(c.Relays))
 	for i, relay := range c.Relays {
@@ -593,7 +593,7 @@ func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 		Certificate: &utxorpc.Certificate_PoolRegistration{
 			// #nosec G115
 			PoolRegistration: &utxorpc.PoolRegistrationCert{
-				Operator:   c.Operator[:],
+				Operator:   c.Operator.Bytes(),
 				VrfKeyhash: c.VrfKeyHash[:],
 				Pledge:     ToUtxorpcBigInt(c.Pledge),
 				Cost:       ToUtxorpcBigInt(c.Cost),
@@ -601,7 +601,7 @@ func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 					Numerator:   int32(c.Margin.Num().Int64()),
 					Denominator: uint32(c.Margin.Denom().Uint64()),
 				},
-				RewardAccount: c.RewardAccount[:],
+				RewardAccount: c.RewardAccount.Bytes(),
 				PoolOwners:    tmpPoolOwners,
 				Relays:        tmpRelays,
 				PoolMetadata:  poolMetadata,
@@ -639,7 +639,7 @@ func (c *PoolRetirementCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_PoolRetirement{
 			PoolRetirement: &utxorpc.PoolRetirementCert{
-				PoolKeyhash: c.PoolKeyHash[:],
+				PoolKeyhash: c.PoolKeyHash.Bytes(),
 				Epoch:       c.Epoch,
 			},
 		},
@@ -950,7 +950,7 @@ func (c *StakeVoteDelegationCertificate) Utxorpc() (*utxorpc.Certificate, error)
 		Certificate: &utxorpc.Certificate_StakeVoteDelegCert{
 			StakeVoteDelegCert: &utxorpc.StakeVoteDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     c.PoolKeyHash[:],
+				PoolKeyhash:     c.PoolKeyHash.Bytes(),
 				Drep:            drepProto,
 			},
 		},
@@ -994,7 +994,7 @@ func (c *StakeRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate
 		Certificate: &utxorpc.Certificate_StakeRegDelegCert{
 			StakeRegDelegCert: &utxorpc.StakeRegDelegCert{
 				StakeCredential: stakeCred,
-				PoolKeyhash:     c.PoolKeyHash[:],
+				PoolKeyhash:     c.PoolKeyHash.Bytes(),
 			},
 		},
 	}, nil
