@@ -105,7 +105,11 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 			continue
 		}
 	}
-	b.InvalidTransactions = result
+	if len(result) == 0 {
+		b.InvalidTransactions = nil
+	} else {
+		b.InvalidTransactions = result
+	}
 
 	// Assign the other fields
 	b.BlockHeader = tmp.BlockHeader
@@ -136,36 +140,19 @@ func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
 		return b.Cbor(), nil
 	}
 
-	// When encoding from scratch, we need to ensure InvalidTransactions
-	// is encoded as indefinite-length to match on-chain format
-	// Create a temporary struct for encoding with the correct types
-	type tmpBlock struct {
-		cbor.StructAsArray
-		BlockHeader            *BabbageBlockHeader
-		TransactionBodies      []BabbageTransactionBody
-		TransactionWitnessSets []BabbageTransactionWitnessSet
-		TransactionMetadataSet common.TransactionMetadataSet
-		InvalidTransactions    cbor.IndefLengthList
+	// Ensure InvalidTransactions is encoded as empty array if nil
+	invalidTxs := b.InvalidTransactions
+	if invalidTxs == nil {
+		invalidTxs = []uint{}
 	}
 
-	// Convert InvalidTransactions to IndefLengthList
-	var invalidTx cbor.IndefLengthList
-	if b.InvalidTransactions != nil {
-		invalidTx = make(cbor.IndefLengthList, len(b.InvalidTransactions))
-		for i, tx := range b.InvalidTransactions {
-			invalidTx[i] = tx
-		}
-	}
-
-	tmp := tmpBlock{
-		BlockHeader:            b.BlockHeader,
-		TransactionBodies:      b.TransactionBodies,
-		TransactionWitnessSets: b.TransactionWitnessSets,
-		TransactionMetadataSet: b.TransactionMetadataSet,
-		InvalidTransactions:    invalidTx,
-	}
-
-	return cbor.Encode(&tmp)
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		b.TransactionBodies,
+		b.TransactionWitnessSets,
+		b.TransactionMetadataSet,
+		invalidTxs,
+	})
 }
 
 func (BabbageBlock) Type() int {
