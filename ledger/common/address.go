@@ -179,7 +179,7 @@ func NewByronAddressRedeem(
 	return Address{
 		addressType: AddressTypeByron,
 		paymentPayload: AddressPayloadKeyHash{
-			Hash: AddrKeyHash(addrHash.Bytes()),
+			Hash: AddrKeyHash(addrHash),
 		},
 		byronAddressType: ByronAddressTypeRedeem,
 		byronAddressAttr: attr,
@@ -221,7 +221,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 		a.byronAddressType = byronAddr.AddrType
 		a.byronAddressAttr = byronAddr.Attr
 		a.paymentPayload = AddressPayloadKeyHash{
-			Hash: AddrKeyHash(byronAddr.Hash),
+			Hash: AddrKeyHash(NewBlake2b224(byronAddr.Hash)),
 		}
 		return nil
 	}
@@ -338,12 +338,12 @@ func (a *Address) ToPlutusData() data.PlutusData {
 	case AddressPayloadKeyHash:
 		paymentPd = data.NewConstr(
 			0,
-			data.NewByteString(p.Hash[:]),
+			data.NewByteString(p.Hash.Bytes()),
 		)
 	case AddressPayloadScriptHash:
 		paymentPd = data.NewConstr(
 			1,
-			data.NewByteString(p.Hash[:]),
+			data.NewByteString(p.Hash.Bytes()),
 		)
 	}
 	// Build stake part
@@ -355,7 +355,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 		case AddressPayloadKeyHash:
 			tmpCred := &Credential{
 				CredType:   CredentialTypeAddrKeyHash,
-				Credential: NewBlake2b224(p.Hash[:]),
+				Credential: NewBlake2b224(p.Hash.Bytes()),
 			}
 			stakePd = data.NewConstr(
 				0,
@@ -367,7 +367,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 		case AddressPayloadScriptHash:
 			tmpCred := &Credential{
 				CredType:   CredentialTypeScriptHash,
-				Credential: NewBlake2b224(p.Hash[:]),
+				Credential: NewBlake2b224(p.Hash.Bytes()),
 			}
 			stakePd = data.NewConstr(
 				0,
@@ -453,9 +453,9 @@ func (a *Address) PaymentKeyHash() Blake2b224 {
 	}
 	switch p := a.paymentPayload.(type) {
 	case AddressPayloadKeyHash:
-		return Blake2b224(p.Hash[:])
+		return p.Hash
 	case AddressPayloadScriptHash:
-		return Blake2b224(p.Hash[:])
+		return p.Hash
 	default:
 		// Return empty hash
 		return Blake2b224([AddressHashSize]byte{})
@@ -495,9 +495,9 @@ func (a *Address) StakeKeyHash() Blake2b224 {
 	}
 	switch p := a.stakingPayload.(type) {
 	case AddressPayloadKeyHash:
-		return Blake2b224(p.Hash[:])
+		return p.Hash
 	case AddressPayloadScriptHash:
-		return Blake2b224(p.Hash[:])
+		return p.Hash
 	default:
 		// Return empty hash
 		return Blake2b224([AddressHashSize]byte{})

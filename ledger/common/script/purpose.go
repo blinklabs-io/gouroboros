@@ -44,7 +44,7 @@ type ScriptPurposeMinting struct {
 func (ScriptPurposeMinting) isScriptPurpose() {}
 
 func (s ScriptPurposeMinting) ScriptHash() lcommon.ScriptHash {
-	return s.PolicyId
+	return lcommon.ScriptHash(s.PolicyId)
 }
 
 func (s ScriptPurposeMinting) ToPlutusData() data.PlutusData {
@@ -67,7 +67,7 @@ func (ScriptPurposeSpending) isScriptPurpose() {}
 
 func (s ScriptPurposeSpending) ScriptHash() lcommon.ScriptHash {
 	tmpAddr := s.Input.Output.Address()
-	return tmpAddr.PaymentKeyHash()
+	return lcommon.ScriptHash(tmpAddr.PaymentKeyHash())
 }
 
 func (s ScriptPurposeSpending) ToPlutusData() data.PlutusData {
@@ -143,7 +143,7 @@ func (s ScriptPurposeCertifying) ScriptHash() lcommon.ScriptHash {
 	}
 	if cred != nil {
 		if cred.CredType == lcommon.CredentialTypeScriptHash {
-			return cred.Credential
+			return lcommon.ScriptHash(cred.Credential)
 		}
 	}
 	return lcommon.ScriptHash{}
@@ -168,7 +168,7 @@ type ScriptPurposeVoting struct {
 func (ScriptPurposeVoting) isScriptPurpose() {}
 
 func (s ScriptPurposeVoting) ScriptHash() lcommon.ScriptHash {
-	return lcommon.ScriptHash(s.Voter.Hash[:])
+	return lcommon.ScriptHash(lcommon.NewBlake2b224(s.Voter.Hash[:]))
 }
 
 func (s ScriptPurposeVoting) ToPlutusData() data.PlutusData {

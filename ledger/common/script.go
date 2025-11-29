@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/syn"
+	"github.com/btcsuite/btcd/btcutil/bech32"
 )
 
 const (
@@ -38,6 +39,23 @@ type Script interface {
 	isScript()
 	Hash() ScriptHash
 	RawScriptBytes() []byte
+}
+
+func NewScriptHashFromBech32(scriptHash string) (ScriptHash, error) {
+	var s ScriptHash
+	_, data, err := bech32.DecodeNoLimit(scriptHash)
+	if err != nil {
+		return s, err
+	}
+	decoded, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return s, err
+	}
+	if len(decoded) != 28 {
+		return s, fmt.Errorf("invalid script hash length: %d", len(decoded))
+	}
+	s = ScriptHash(decoded)
+	return s, nil
 }
 
 type ScriptRef struct {
@@ -107,12 +125,12 @@ type PlutusV1Script []byte
 func (PlutusV1Script) isScript() {}
 
 func (s PlutusV1Script) Hash() ScriptHash {
-	return Blake2b224Hash(
+	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypePlutusV1},
 			[]byte(s),
 		),
-	)
+	))
 }
 
 func (s PlutusV1Script) RawScriptBytes() []byte {
@@ -124,12 +142,12 @@ type PlutusV2Script []byte
 func (PlutusV2Script) isScript() {}
 
 func (s PlutusV2Script) Hash() ScriptHash {
-	return Blake2b224Hash(
+	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypePlutusV2},
 			[]byte(s),
 		),
-	)
+	))
 }
 
 func (s PlutusV2Script) RawScriptBytes() []byte {
@@ -141,12 +159,12 @@ type PlutusV3Script []byte
 func (PlutusV3Script) isScript() {}
 
 func (s PlutusV3Script) Hash() ScriptHash {
-	return Blake2b224Hash(
+	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypePlutusV3},
 			[]byte(s),
 		),
-	)
+	))
 }
 
 func (s PlutusV3Script) RawScriptBytes() []byte {
@@ -243,12 +261,12 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 }
 
 func (s NativeScript) Hash() ScriptHash {
-	return Blake2b224Hash(
+	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypeNativeScript},
 			[]byte(s.Cbor()),
 		),
-	)
+	))
 }
 
 func (s NativeScript) RawScriptBytes() []byte {
