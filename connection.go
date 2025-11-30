@@ -260,6 +260,11 @@ func (c *Connection) shutdown() {
 	// Gracefully stop the muxer
 	if c.muxer != nil {
 		c.muxer.Stop()
+		// Wait for muxer to finish cleanup by draining its error channel
+		// The muxer closes this channel after all cleanup is complete
+		for range c.muxer.ErrorChan() {
+			// Drain any remaining errors
+		}
 	}
 	// Close channel to let Close() know that it can return
 	close(c.connClosedChan)
@@ -358,11 +363,21 @@ func (c *Connection) setupConnection() error {
 			if handledErr := c.handleConnectionError(err); handledErr != nil {
 				var connErr *muxer.ConnectionClosedError
 				if errors.As(handledErr, &connErr) {
-					// Pass through ConnectionClosedError from muxer
-					c.errorChan <- handledErr
+					// Pass through ConnectionClosedError from muxer (non-blocking)
+					select {
+					case c.errorChan <- handledErr:
+					case <-c.doneChan:
+						// Connection is shutting down, don't block
+						return
+					}
 				} else {
-					// Wrap error message to denote it comes from the muxer
-					c.errorChan <- fmt.Errorf("muxer error: %w", handledErr)
+					// Wrap error message to denote it comes from the muxer (non-blocking)
+					select {
+					case c.errorChan <- fmt.Errorf("muxer error: %w", handledErr):
+					case <-c.doneChan:
+						// Connection is shutting down, don't block
+						return
+					}
 				}
 				// Close connection on muxer errors
 				c.Close()
