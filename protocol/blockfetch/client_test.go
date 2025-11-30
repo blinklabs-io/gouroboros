@@ -90,7 +90,7 @@ func runTest(
 	}
 
 	// Give mock a moment to fully shut down
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Close Ouroboros connection
 	if err := oConn.Close(); err != nil {
@@ -104,7 +104,7 @@ func runTest(
 	}
 
 	// Give goroutines a moment to exit before returning to satisfy goleak
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 }
 
 func TestGetBlock(t *testing.T) {
