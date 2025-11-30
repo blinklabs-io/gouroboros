@@ -115,6 +115,9 @@ func TestServerKeepaliveHandling(t *testing.T) {
 		t.Fatalf("did not complete within timeout")
 	}
 
+	// Give mock a moment to fully shut down
+	time.Sleep(50 * time.Millisecond)
+
 	// Close connection
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)
@@ -125,6 +128,9 @@ func TestServerKeepaliveHandling(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("did not shutdown within timeout")
 	}
+
+	// Give goroutines a moment to exit before returning to satisfy goleak
+	time.Sleep(100 * time.Millisecond)
 }
 
 func TestServerKeepaliveHandlingWithWrongResponse(t *testing.T) {
@@ -175,6 +181,10 @@ func TestServerKeepaliveHandlingWithWrongResponse(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("did not complete within timeout")
 	}
+
+	// Give mock a moment to fully shut down
+	time.Sleep(50 * time.Millisecond)
+
 	// Close connection
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)
@@ -185,6 +195,9 @@ func TestServerKeepaliveHandlingWithWrongResponse(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("did not shutdown within timeout")
 	}
+
+	// Give goroutines a moment to exit before returning to satisfy goleak
+	time.Sleep(100 * time.Millisecond)
 }
 
 func TestServerKeepaliveHandlingWithDifferentCookie(t *testing.T) {
@@ -227,6 +240,10 @@ func TestServerKeepaliveHandlingWithDifferentCookie(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("did not complete within timeout")
 	}
+
+	// Give mock a moment to fully shut down
+	time.Sleep(50 * time.Millisecond)
+
 	// Close connection
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)
@@ -237,4 +254,7 @@ func TestServerKeepaliveHandlingWithDifferentCookie(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Errorf("did not shutdown within timeout")
 	}
+
+	// Give goroutines a moment to exit before returning to satisfy goleak
+	time.Sleep(100 * time.Millisecond)
 }
