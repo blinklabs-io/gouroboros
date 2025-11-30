@@ -17,6 +17,7 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +39,7 @@ const DefaultRecvQueueSize = 50
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
 	config              ProtocolConfig
+	currentState        State
 	doneChan            chan struct{}
 	muxerSendChan       chan *muxer.Segment
 	muxerRecvChan       chan *muxer.Segment
@@ -56,7 +58,6 @@ type Protocol struct {
 	pendingRecvBytes    int
 	pendingRecvSizes    []int // Track sizes of pending received messages for accurate decrement
 	currentStateMu      sync.RWMutex
-	currentState        State
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -105,11 +106,13 @@ type ProtocolOptions struct {
 	// TODO: remove me
 	Role    ProtocolRole
 	Version uint16
+	Context context.Context
 }
 
 type protocolStateTransition struct {
-	msg       Message
-	errorChan chan<- error
+	msg           Message
+	errorChan     chan<- error
+	stateRespChan chan<- State
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
@@ -130,6 +133,36 @@ func New(config ProtocolConfig) *Protocol {
 		sendDoneChan: make(chan struct{}),
 	}
 	return p
+}
+
+// CurrentState returns the current protocol state
+func (p *Protocol) CurrentState() State {
+	p.currentStateMu.RLock()
+	defer p.currentStateMu.RUnlock()
+	return p.currentState
+}
+
+// IsDone checks if the protocol is in a done/completed state
+func (p *Protocol) IsDone() bool {
+	currentState := p.CurrentState()
+	// return true if current state has AgencyNone
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		if entry.Agency == AgencyNone {
+			return true
+		}
+	}
+	// return true if current state is the initial state
+	return currentState == p.config.InitialState
+}
+
+// GetDoneState returns the done state from the state map
+func (s StateMap) GetDoneState() State {
+	for state, entry := range s {
+		if entry.Agency == AgencyNone {
+			return state
+		}
+	}
+	return State{}
 }
 
 // Start initializes the mini-protocol
@@ -586,6 +619,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			)
 		}
 	}
+
 	getTimerChan := func() <-chan time.Time {
 		if transitionTimer == nil {
 			return nil
@@ -660,7 +694,7 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 
 func (p *Protocol) transitionState(msg Message) error {
 	errorChan := make(chan error, 1)
-	p.stateTransitionChan <- protocolStateTransition{msg, errorChan}
+	p.stateTransitionChan <- protocolStateTransition{msg, errorChan, nil}
 
 	return <-errorChan
 }

@@ -86,6 +86,7 @@ func (c *Client) Init() {
 func (c *Client) messageHandler(msg protocol.Message) error {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("%s: client message for %+v", ProtocolName, c.callbackContext.ConnectionId.RemoteAddr))
+
 	var err error
 	switch msg.Type() {
 	case MessageTypeRequestTxIds:
