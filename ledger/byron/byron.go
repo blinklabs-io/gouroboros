@@ -194,9 +194,9 @@ func (t *ByronTransaction) Inputs() []common.TransactionInput {
 }
 
 func (t *ByronTransaction) Outputs() []common.TransactionOutput {
-	ret := []common.TransactionOutput{}
-	for _, output := range t.TxOutputs {
-		ret = append(ret, &output)
+	ret := make([]common.TransactionOutput, len(t.TxOutputs))
+	for i := range t.TxOutputs {
+		ret[i] = &t.TxOutputs[i]
 	}
 	return ret
 }
