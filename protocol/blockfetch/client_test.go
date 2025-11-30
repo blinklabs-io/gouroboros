@@ -88,10 +88,6 @@ func runTest(
 	case <-time.After(2 * time.Second):
 		t.Fatalf("did not complete within timeout")
 	}
-
-	// Give mock a moment to fully shut down
-	time.Sleep(100 * time.Millisecond)
-
 	// Close Ouroboros connection
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
@@ -102,9 +98,6 @@ func runTest(
 	case <-time.After(10 * time.Second):
 		t.Errorf("did not shutdown within timeout")
 	}
-
-	// Give goroutines a moment to exit before returning to satisfy goleak
-	time.Sleep(200 * time.Millisecond)
 }
 
 func TestGetBlock(t *testing.T) {

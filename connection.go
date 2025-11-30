@@ -187,6 +187,10 @@ func (c *Connection) Close() error {
 		if c.doneChan == nil {
 			return
 		}
+		// Stop the muxer to cleanly shutdown all protocol goroutines
+		if c.muxer != nil {
+			c.muxer.Stop()
+		}
 		// Close doneChan to signify that we're shutting down
 		close(c.doneChan)
 		// Wait for connection to be closed
