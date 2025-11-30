@@ -190,13 +190,10 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
-	var testExactFee uint64 = 74
-	var testBelowFee uint64 = 73
-	var testAboveFee uint64 = 75
 	testTxCbor, _ := hex.DecodeString("abcdef")
 	testTx := &shelley.ShelleyTransaction{
 		Body: shelley.ShelleyTransactionBody{
-			TxFee: testExactFee,
+			TxFee: 0, // Set to 0 to calculate minFee
 		},
 	}
 	testTx.SetCbor(testTxCbor)
@@ -204,6 +201,14 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 		MinFeeA: 7,
 		MinFeeB: 53,
 	}
+	// Calculate minFee dynamically
+	minFee, err := shelley.MinFeeTx(testTx, testProtocolParams)
+	if err != nil {
+		t.Fatalf("failed to calculate minFee: %v", err)
+	}
+	var testExactFee uint64 = minFee
+	var testBelowFee uint64 = minFee - 1
+	var testAboveFee uint64 = minFee + 1
 	testLedgerState := test.MockLedgerState{}
 	testSlot := uint64(0)
 	// Test helper function

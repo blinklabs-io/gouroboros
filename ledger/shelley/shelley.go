@@ -107,10 +107,12 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
+		// Note: Ignoring the presence flag; if distinguishing "missing" vs "present but empty/failed decode" is needed, plumb the second return value through
+		txMetadata, _ := b.TransactionMetadataSet.GetMetadata(uint(idx))
 		ret[idx] = &ShelleyTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
-			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+			TxMetadata: txMetadata,
 		}
 	}
 	return ret

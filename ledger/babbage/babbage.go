@@ -66,7 +66,7 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 		BlockHeader            *BabbageBlockHeader
 		TransactionBodies      []BabbageTransactionBody
 		TransactionWitnessSets []BabbageTransactionWitnessSet
-		TransactionMetadataSet map[uint]*cbor.LazyValue
+		TransactionMetadataSet common.TransactionMetadataSet
 		InvalidTransactions    []any
 	}
 
@@ -115,20 +115,7 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	b.BlockHeader = tmp.BlockHeader
 	b.TransactionBodies = tmp.TransactionBodies
 	b.TransactionWitnessSets = tmp.TransactionWitnessSets
-	// Decode TransactionMetadataSet from LazyValue to TransactionMetadatum
-	b.TransactionMetadataSet = make(
-		common.TransactionMetadataSet,
-		len(tmp.TransactionMetadataSet),
-	)
-	for k, lv := range tmp.TransactionMetadataSet {
-		if lv != nil {
-			md, err := common.DecodeMetadatumRaw(lv.Cbor())
-			if err != nil {
-				return fmt.Errorf("decode metadata for index %d: %w", k, err)
-			}
-			b.TransactionMetadataSet[k] = md
-		}
-	}
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet
 
 	b.SetCbor(cborData)
 	return nil
@@ -200,10 +187,12 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
+		// Note: Ignoring the presence flag; if distinguishing "missing" vs "present but empty/failed decode" is needed, plumb the second return value through
+		txMetadata, _ := b.TransactionMetadataSet.GetMetadata(uint(idx))
 		ret[idx] = &BabbageTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
-			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+			TxMetadata: txMetadata,
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
 	}

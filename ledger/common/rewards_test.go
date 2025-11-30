@@ -79,20 +79,20 @@ func TestCalculateRewards(t *testing.T) {
 	snapshot := RewardSnapshot{
 		TotalActiveStake: 50000000, // 50 million ADA total active stake (delegated to pools)
 		PoolStake: map[PoolKeyHash]uint64{
-			PoolKeyHash{1}: 30000000, // Pool 1: 30 million ADA
-			PoolKeyHash{2}: 20000000, // Pool 2: 20 million ADA
+			{1}: 30000000, // Pool 1: 30 million ADA
+			{2}: 20000000, // Pool 2: 20 million ADA
 		},
 		DelegatorStake: map[PoolKeyHash]map[AddrKeyHash]uint64{
-			PoolKeyHash{1}: {
+			{1}: {
 				AddrKeyHash{1}: 25000000, // Delegator 1: 25 million ADA
 				AddrKeyHash{2}: 5000000,  // Delegator 2: 5 million ADA
 			},
-			PoolKeyHash{2}: {
+			{2}: {
 				AddrKeyHash{3}: 20000000, // Delegator 3: 20 million ADA
 			},
 		},
 		PoolParams: map[PoolKeyHash]*PoolRegistrationCertificate{
-			Blake2b224{1}: {
+			{1}: {
 				Cost:   50000,                   // 50k ADA fixed cost
 				Margin: createGenesisRat(1, 20), // 5% margin
 				Pledge: 1000000,                 // 1M ADA pledge
@@ -101,7 +101,7 @@ func TestCalculateRewards(t *testing.T) {
 					{2}, // Owner 2
 				},
 			},
-			Blake2b224{2}: {
+			{2}: {
 				Cost:   30000,                   // 30k ADA fixed cost
 				Margin: createGenesisRat(1, 10), // 10% margin
 				Pledge: 500000,                  // 500k ADA pledge
@@ -111,8 +111,8 @@ func TestCalculateRewards(t *testing.T) {
 			},
 		},
 		StakeRegistrations: map[AddrKeyHash]bool{
-			Blake2b224{1}: true,
-			Blake2b224{2}: true,
+			{1}: true,
+			{2}: true,
 			{3}: true,
 		},
 		PoolBlocks: map[PoolKeyHash]uint32{
@@ -230,20 +230,20 @@ func TestRewardServiceIntegration(t *testing.T) {
 	snapshot := RewardSnapshot{
 		TotalActiveStake: 50000000, // 50 million ADA total active stake
 		PoolStake: map[PoolKeyHash]uint64{
-			Blake2b224{1}: 30000000, // Pool 1: 30 million ADA
-			Blake2b224{2}: 20000000, // Pool 2: 20 million ADA
+			{1}: 30000000, // Pool 1: 30 million ADA
+			{2}: 20000000, // Pool 2: 20 million ADA
 		},
 		DelegatorStake: map[PoolKeyHash]map[AddrKeyHash]uint64{
-			Blake2b224{1}: {
+			{1}: {
 				AddrKeyHash{1}: 25000000, // Delegator 1: 25 million ADA
 				AddrKeyHash{2}: 5000000,  // Delegator 2: 5 million ADA
 			},
-			Blake2b224{2}: {
+			{2}: {
 				AddrKeyHash{3}: 20000000, // Delegator 3: 20 million ADA
 			},
 		},
 		PoolParams: map[PoolKeyHash]*PoolRegistrationCertificate{
-			Blake2b224{1}: {
+			{1}: {
 				Cost:   50000,                   // 50k ADA fixed cost
 				Margin: createGenesisRat(1, 20), // 5% margin
 				Pledge: 1000000,                 // 1M ADA pledge
@@ -252,7 +252,7 @@ func TestRewardServiceIntegration(t *testing.T) {
 					{2}, // Owner 2
 				},
 			},
-			Blake2b224{2}: {
+			{2}: {
 				Cost:   30000,                   // 30k ADA fixed cost
 				Margin: createGenesisRat(1, 10), // 10% margin
 				Pledge: 500000,                  // 500k ADA pledge
@@ -262,8 +262,8 @@ func TestRewardServiceIntegration(t *testing.T) {
 			},
 		},
 		StakeRegistrations: map[AddrKeyHash]bool{
-			Blake2b224{1}: true,
-			Blake2b224{2}: true,
+			{1}: true,
+			{2}: true,
 			{3}: true,
 		},
 		PoolBlocks: map[PoolKeyHash]uint32{
