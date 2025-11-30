@@ -264,6 +264,10 @@ func (c *Connection) shutdown() {
 	// Gracefully stop the muxer
 	if c.muxer != nil {
 		c.muxer.Stop()
+		// Wait for muxer to finish cleanup by draining its error channel
+		for range c.muxer.ErrorChan() {
+			// Drain any remaining errors
+		}
 	}
 	// Close channel to let Close() know that it can return
 	close(c.connClosedChan)
