@@ -209,9 +209,9 @@ func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
 }
 
 func (b *MaryTransactionBody) Outputs() []common.TransactionOutput {
-	ret := []common.TransactionOutput{}
-	for _, output := range b.TxOutputs {
-		ret = append(ret, &output)
+	ret := make([]common.TransactionOutput, len(b.TxOutputs))
+	for i := range b.TxOutputs {
+		ret[i] = &b.TxOutputs[i]
 	}
 	return ret
 }

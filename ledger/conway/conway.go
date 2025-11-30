@@ -488,9 +488,9 @@ func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
 }
 
 func (b *ConwayTransactionBody) Outputs() []common.TransactionOutput {
-	ret := []common.TransactionOutput{}
-	for _, output := range b.TxOutputs {
-		ret = append(ret, &output)
+	ret := make([]common.TransactionOutput, len(b.TxOutputs))
+	for i := range b.TxOutputs {
+		ret[i] = &b.TxOutputs[i]
 	}
 	return ret
 }
@@ -555,9 +555,10 @@ func (b *ConwayTransactionBody) ScriptDataHash() *common.Blake2b256 {
 }
 
 func (b *ConwayTransactionBody) ReferenceInputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, input := range b.TxReferenceInputs.Items() {
-		ret = append(ret, &input)
+	items := b.TxReferenceInputs.Items()
+	ret := make([]common.TransactionInput, len(items))
+	for i := range items {
+		ret[i] = &items[i]
 	}
 	return ret
 }
