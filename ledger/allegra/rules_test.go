@@ -391,7 +391,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 		"correct network",
 		func(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAddress = testCorrectNetworkAddr
-			err := allegra.UtxoValidateBadInputsUtxo(
+			err := allegra.UtxoValidateWrongNetwork(
 				testTx,
 				testSlot,
 				testLedgerState,
