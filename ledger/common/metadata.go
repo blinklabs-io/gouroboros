@@ -254,7 +254,10 @@ func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
 		}
 		val, err := DecodeMetadatumRaw(rv)
 		if err != nil {
-			errors = append(errors, fmt.Errorf("decode map(generic) value for key %v: %w", k, err))
+			errors = append(
+				errors,
+				fmt.Errorf("decode map(generic) value for key %v: %w", k, err),
+			)
 			continue
 		}
 		pairs = append(pairs, MetaPair{Key: keyMd, Value: val})
@@ -263,7 +266,10 @@ func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
 		return MetaMap{Pairs: pairs}, true, nil
 	}
 	if len(errors) > 0 {
-		return nil, true, fmt.Errorf("failed to decode all map pairs: %v", errors)
+		return nil, true, fmt.Errorf(
+			"failed to decode all map pairs: %v",
+			errors,
+		)
 	}
 	return MetaMap{Pairs: pairs}, true, nil
 }

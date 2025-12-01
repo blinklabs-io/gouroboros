@@ -273,6 +273,16 @@ func (s NativeScript) RawScriptBytes() []byte {
 	return s.Cbor()
 }
 
+func (n NativeScript) MarshalCBOR() ([]byte, error) {
+	if raw := n.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if n.item == nil {
+		return nil, errors.New("native script has no backing item")
+	}
+	return cbor.Encode(n.item)
+}
+
 type NativeScriptPubkey struct {
 	cbor.StructAsArray
 	Type uint
