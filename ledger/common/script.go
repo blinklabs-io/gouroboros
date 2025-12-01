@@ -206,8 +206,8 @@ func (s PlutusV3Script) Evaluate(
 		Function: program.Term,
 		Argument: contextTerm,
 	}
-	// Execute wrapped program
-	machine := cek.NewMachine[syn.DeBruijn](200)
+	// Execute wrapped program (1.2.0 is Plutus V3)
+	machine := cek.NewMachine[syn.DeBruijn]([3]uint32{1, 2, 0}, 200)
 	machine.ExBudget = machineBudget
 	_, err = machine.Run(wrappedProgram)
 	if err != nil {
