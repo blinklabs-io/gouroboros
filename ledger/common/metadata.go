@@ -233,7 +233,7 @@ func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
 
 func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
 	// Try to decode as a generic map to handle unsupported key types
-	var m map[interface{}]cbor.RawMessage
+	var m map[any]cbor.RawMessage
 	if _, err := cbor.Decode(b, &m); err != nil {
 		return nil, false, nil //nolint:nilerr // not this shape
 	}
