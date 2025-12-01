@@ -269,11 +269,10 @@ func MinFeeTx(
 	if !ok {
 		return 0, errors.New("tx is not expected type")
 	}
-	// Temporarily set TxFee to 0 to calculate size without fee
-	originalFee := tmpTx.Body.TxFee
-	tmpTx.Body.TxFee = 0
-	txBytes, err := cbor.Encode(tmpTx.Body)
-	tmpTx.Body.TxFee = originalFee
+	// Encode a local copy of the body with TxFee set to 0 to calculate size without fee
+	body := tmpTx.Body
+	body.TxFee = 0
+	txBytes, err := cbor.Encode(body)
 	if err != nil {
 		return 0, err
 	}
