@@ -20,6 +20,17 @@ func init() {
 	allowMissingCbor = true
 }
 
+// eraNameMap maps block types to era names for improved error messages.
+// When adding a new era/block type, this map must be updated in lockstep.
+var eraNameMap = map[uint]string{
+	BlockTypeShelley: shelley.EraNameShelley,
+	BlockTypeAllegra: allegra.EraNameAllegra,
+	BlockTypeMary:    mary.EraNameMary,
+	BlockTypeAlonzo:  alonzo.EraNameAlonzo,
+	BlockTypeBabbage: babbage.EraNameBabbage,
+	BlockTypeConway:  conway.EraNameConway,
+}
+
 // decodeTxBodyBytes extracts transaction body bytes from either []byte or hex string
 func decodeTxBodyBytes(t *testing.T, v any) []byte {
 	t.Helper()
@@ -61,35 +72,41 @@ func decodeTxBodies[T any](t *testing.T, txs []any, label string) []T {
 }
 
 // decodeTransactionMetadataSet decodes transaction metadata set for a specific era
-func decodeTransactionMetadataSet(t *testing.T, txs []any, eraName string) common.TransactionMetadataSet {
+func decodeTransactionMetadataSet(
+	t *testing.T,
+	txs []any,
+	eraName string,
+) common.TransactionMetadataSet {
 	t.Helper()
-	transactionMetadataSet := make(map[uint]*cbor.LazyValue)
+	transactionMetadataSet := make(map[uint]cbor.RawMessage)
 	for i, tx := range txs {
 		txArray, ok := tx.([]any)
 		if !ok {
-			continue
+			t.Fatalf(
+				"unexpected %s tx element type %T while decoding metadata",
+				eraName,
+				tx,
+			)
 		}
 		if len(txArray) > 2 {
 			if lv, ok := txArray[2].(*cbor.LazyValue); ok && lv != nil {
-				transactionMetadataSet[uint(i)] = lv
+				// Key is the transaction index within the block, matching TransactionMetadataSet's internal maps
+				transactionMetadataSet[uint(i)] = lv.Cbor()
 			}
 		}
 	}
-	// Decode metadata
-	metadataSet := make(common.TransactionMetadataSet)
-	for k, lv := range transactionMetadataSet {
-		if lv != nil {
-			md, err := common.DecodeMetadatumRaw(lv.Cbor())
-			if err != nil {
-				t.Fatalf(
-					"failed to decode %s metadata for index %d: %v",
-					eraName,
-					k,
-					err,
-				)
-			}
-			metadataSet[k] = md
-		}
+	// Create TransactionMetadataSet by marshaling and unmarshaling
+	var metadataSet common.TransactionMetadataSet
+	metadataCbor, err := cbor.Encode(transactionMetadataSet)
+	if err != nil {
+		t.Fatalf("failed to encode metadata map for era %s: %v", eraName, err)
+	}
+	if err := metadataSet.UnmarshalCBOR(metadataCbor); err != nil {
+		t.Fatalf(
+			"failed to unmarshal metadata set for era %s: %v",
+			eraName,
+			err,
+		)
 	}
 	return metadataSet
 }
@@ -184,6 +201,14 @@ func TestVerifyBlockBody(t *testing.T) {
 			if _, err := cbor.Decode(bodyCborBytes, &txs); err != nil {
 				t.Fatalf("failed to decode body CBOR: %v", err)
 			}
+			eraName, ok := eraNameMap[blockType]
+			if !ok {
+				t.Fatalf(
+					"unsupported block type %d for metadata decoding",
+					blockType,
+				)
+			}
+			metadataSet := decodeTransactionMetadataSet(t, txs, eraName)
 			switch blockType {
 			case BlockTypeShelley:
 				transactionBodies := decodeTxBodies[shelley.ShelleyTransactionBody](
@@ -191,7 +216,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Shelley",
 				)
-				metadataSet := decodeTransactionMetadataSet(t, txs, shelley.EraNameShelley)
 				shelleyHeader := header.(*shelley.ShelleyBlockHeader)
 				block = &shelley.ShelleyBlock{
 					BlockHeader:       shelleyHeader,
@@ -208,7 +232,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Allegra",
 				)
-				metadataSet := decodeTransactionMetadataSet(t, txs, allegra.EraNameAllegra)
 				allegraHeader := header.(*allegra.AllegraBlockHeader)
 				block = &allegra.AllegraBlock{
 					BlockHeader:       allegraHeader,
@@ -225,7 +248,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Mary",
 				)
-				metadataSet := decodeTransactionMetadataSet(t, txs, mary.EraNameMary)
 				maryHeader := header.(*mary.MaryBlockHeader)
 				block = &mary.MaryBlock{
 					BlockHeader:       maryHeader,
@@ -242,7 +264,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Alonzo",
 				)
-				metadataSet := decodeTransactionMetadataSet(t, txs, alonzo.EraNameAlonzo)
 				alonzoHeader := header.(*alonzo.AlonzoBlockHeader)
 				block = &alonzo.AlonzoBlock{
 					BlockHeader:       alonzoHeader,
@@ -260,7 +281,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Babbage",
 				)
-				metadataSet := decodeTransactionMetadataSet(t, txs, babbage.EraNameBabbage)
 				babbageHeader := header.(*babbage.BabbageBlockHeader)
 				block = &babbage.BabbageBlock{
 					BlockHeader:       babbageHeader,
@@ -278,7 +298,6 @@ func TestVerifyBlockBody(t *testing.T) {
 					txs,
 					"Conway",
 				)
-				metadataSet := decodeTransactionMetadataSet(t, txs, conway.EraNameConway)
 				conwayHeader := header.(*conway.ConwayBlockHeader)
 				block = &conway.ConwayBlock{
 					BlockHeader:       conwayHeader,

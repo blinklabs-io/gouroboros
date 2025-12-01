@@ -103,10 +103,12 @@ func (b *AllegraBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
+		// Note: Ignoring the presence flag; if distinguishing "missing" vs "present but empty/failed decode" is needed, plumb the second return value through
+		txMetadata, _ := b.TransactionMetadataSet.GetMetadata(uint(idx))
 		ret[idx] = &AllegraTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
-			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+			TxMetadata: txMetadata,
 		}
 	}
 	return ret
@@ -357,14 +359,6 @@ func (t AllegraTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t AllegraTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	tx, err := t.Body.Utxorpc()
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert transaction body: %w", err)
-	}
-	return tx, nil
-}
-
 func (t AllegraTransaction) IsValid() bool {
 	return true
 }
@@ -396,6 +390,14 @@ func (t AllegraTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake
 
 func (t AllegraTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.WitnessSet
+}
+
+func (t AllegraTransaction) Utxorpc() (*utxorpc.Tx, error) {
+	tx, err := t.Body.Utxorpc()
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert Allegra transaction: %w", err)
+	}
+	return tx, nil
 }
 
 func (t *AllegraTransaction) Cbor() []byte {

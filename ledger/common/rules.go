@@ -15,3 +15,9 @@
 package common
 
 type UtxoValidationRuleFunc func(Transaction, uint64, LedgerState, ProtocolParameters) error
+
+// CalculateMinFee computes the minimum fee for a transaction body given its CBOR-encoded size
+// and the protocol parameters MinFeeA and MinFeeB
+func CalculateMinFee(bodySize int, minFeeA uint, minFeeB uint) uint64 {
+	return uint64(minFeeA*uint(bodySize) + minFeeB) //nolint:gosec
+}

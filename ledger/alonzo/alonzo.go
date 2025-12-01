@@ -155,10 +155,12 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
+		// Note: Ignoring the presence flag; if distinguishing "missing" vs "present but empty/failed decode" is needed, plumb the second return value through
+		txMetadata, _ := b.TransactionMetadataSet.GetMetadata(uint(idx))
 		ret[idx] = &AlonzoTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
-			TxMetadata: b.TransactionMetadataSet[uint(idx)],
+			TxMetadata: txMetadata,
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
 	}
