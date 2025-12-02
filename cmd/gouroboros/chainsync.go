@@ -128,6 +128,7 @@ func buildChainSyncConfig() chainsync.Config {
 	return chainsync.NewConfig(
 		chainsync.WithRollBackwardFunc(chainSyncRollBackwardHandler),
 		chainsync.WithRollForwardFunc(chainSyncRollForwardHandler),
+		chainsync.WithPipelineLimit(10),
 	)
 }
 
