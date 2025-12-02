@@ -98,6 +98,8 @@ func runTest(
 	case <-time.After(10 * time.Second):
 		t.Errorf("did not shutdown within timeout")
 	}
+	// Give muxer goroutines time to fully clean up
+	time.Sleep(100 * time.Millisecond)
 }
 
 func TestGetBlock(t *testing.T) {
