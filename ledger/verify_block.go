@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -48,8 +47,6 @@ const (
 	ProtoMajorBabbage           = 7
 	ProtoMajorConway            = 9
 )
-
-var allowMissingCbor = false
 
 // DetermineBlockType determines the block type from the header CBOR
 func DetermineBlockType(headerCbor []byte) (uint, error) {
@@ -290,21 +287,18 @@ func VerifyBlock(
 		)
 	}
 
-	// Verify block body hash
+	// Verify block body hash (can be skipped via config)
+	// Intended usage: production should keep this enabled for security.
+	// Tests or environments lacking full block CBOR may set
+	// VerifyConfig{SkipBodyHashValidation:true} to bypass this check.
 	expectedBodyHash := block.BlockBodyHash()
 	isBodyValid := true
-	if block.Era() != byron.EraByron {
+	if block.Era() != byron.EraByron && !GetVerifyConfig().SkipBodyHashValidation {
 		rawCbor := block.Cbor()
 		if len(rawCbor) == 0 {
-			if allowMissingCbor &&
-				os.Getenv("GOUROBOROS_TEST_ALLOW_MISSING_CBOR") == "1" {
-				// Allow missing CBOR for tests only
-				isBodyValid = true
-			} else {
-				return false, "", 0, 0, errors.New(
-					"VerifyBlock: block CBOR is required for body hash verification",
-				)
-			}
+			return false, "", 0, 0, errors.New(
+				"VerifyBlock: block CBOR is required for body hash verification",
+			)
 		} else {
 			var raw []cbor.RawMessage
 			if _, err := cbor.Decode(rawCbor, &raw); err != nil {

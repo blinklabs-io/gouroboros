@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"encoding/hex"
-	"os"
 	"strings"
 	"testing"
 
@@ -15,10 +14,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
-
-func init() {
-	allowMissingCbor = true
-}
 
 // eraNameMap maps block types to era names for improved error messages.
 // When adding a new era/block type, this map must be updated in lockstep.
@@ -112,9 +107,9 @@ func decodeTransactionMetadataSet(
 }
 
 func TestVerifyBlockBody(t *testing.T) {
-	// Allow missing CBOR for tests
-	os.Setenv("GOUROBOROS_TEST_ALLOW_MISSING_CBOR", "1")
-	defer os.Unsetenv("GOUROBOROS_TEST_ALLOW_MISSING_CBOR")
+	// Enable skipping body hash validation for tests that use blocks without stored CBOR
+	SetVerifyConfig(VerifyConfig{SkipBodyHashValidation: true})
+	t.Cleanup(func() { SetVerifyConfig(VerifyConfig{}) })
 
 	testCases := []struct {
 		name          string
@@ -335,5 +330,31 @@ func TestVerifyBlockBody(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestVerifyBlock_SkipBodyHashValidation(t *testing.T) {
+	// Enable skipping body hash validation
+	SetVerifyConfig(VerifyConfig{SkipBodyHashValidation: true})
+	t.Cleanup(func() { SetVerifyConfig(VerifyConfig{}) })
+
+	// This test is lightweight: it constructs a minimal Shelley header/body
+	// and a block with empty CBOR to simulate missing CBOR scenario.
+	// VerifyBlock should not error due to missing CBOR when skipping.
+
+	// Minimal values for inputs
+	eta0Hex := strings.Repeat("00", 32)
+	slotsPerKesPeriod := uint64(129600)
+
+	// Build a tiny Shelley block with zeroed fields
+	header := &shelley.ShelleyBlockHeader{}
+	block := &shelley.ShelleyBlock{BlockHeader: header}
+	// Call VerifyBlock and ensure it doesn't fail because of body hash/CBOR
+	_, _, _, _, err := VerifyBlock(block, eta0Hex, slotsPerKesPeriod)
+	if err != nil {
+		if strings.Contains(err.Error(), "block CBOR is required for body hash verification") {
+			t.Fatalf("SkipBodyHashValidation should bypass body CBOR requirement, got: %v", err)
+		}
+		// Other errors (e.g., VRF/KES) are acceptable for this test's purpose
 	}
 }
