@@ -17,7 +17,6 @@ package protocol
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -106,13 +105,11 @@ type ProtocolOptions struct {
 	// TODO: remove me
 	Role    ProtocolRole
 	Version uint16
-	Context context.Context
 }
 
 type protocolStateTransition struct {
-	msg           Message
-	errorChan     chan<- error
-	stateRespChan chan<- State
+	msg       Message
+	errorChan chan<- error
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
@@ -135,16 +132,9 @@ func New(config ProtocolConfig) *Protocol {
 	return p
 }
 
-// CurrentState returns the current protocol state
-func (p *Protocol) CurrentState() State {
-	p.currentStateMu.RLock()
-	defer p.currentStateMu.RUnlock()
-	return p.currentState
-}
-
 // IsDone checks if the protocol is in a done/completed state
 func (p *Protocol) IsDone() bool {
-	currentState := p.CurrentState()
+	currentState := p.getCurrentState()
 	// return true if current state has AgencyNone
 	if entry, exists := p.config.StateMap[currentState]; exists {
 		if entry.Agency == AgencyNone {
@@ -694,7 +684,7 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 
 func (p *Protocol) transitionState(msg Message) error {
 	errorChan := make(chan error, 1)
-	p.stateTransitionChan <- protocolStateTransition{msg, errorChan, nil}
+	p.stateTransitionChan <- protocolStateTransition{msg, errorChan}
 
 	return <-errorChan
 }

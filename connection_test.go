@@ -88,9 +88,9 @@ func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 				chainsync.NewConfig(
 					chainsync.WithFindIntersectFunc(
 						func(ctx chainsync.CallbackContext, points []common.Point) (common.Point, chainsync.Tip, error) {
-							// Wait for shutdown instead of sleeping
-							<-ctx.Done()
-							return common.Point{}, chainsync.Tip{}, ctx.Err()
+							// Wait for protocol shutdown
+							<-ctx.Server.DoneChan()
+							return common.Point{}, chainsync.Tip{}, nil
 						},
 					),
 				),
