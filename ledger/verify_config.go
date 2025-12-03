@@ -14,33 +14,10 @@
 
 package ledger
 
-import "sync"
-
 // VerifyConfig holds runtime verification toggles.
 // Default values favor safety; tests or specific flows can opt out.
 type VerifyConfig struct {
 	// SkipBodyHashValidation disables body hash verification in VerifyBlock().
 	// Useful for scenarios where full block CBOR is unavailable.
 	SkipBodyHashValidation bool
-}
-
-var (
-	verifyConfig   VerifyConfig
-	verifyConfigMu sync.RWMutex
-)
-
-// SetVerifyConfig sets global verification configuration.
-// Safe for concurrent use.
-func SetVerifyConfig(cfg VerifyConfig) {
-	verifyConfigMu.Lock()
-	defer verifyConfigMu.Unlock()
-	verifyConfig = cfg
-}
-
-// GetVerifyConfig returns current verification configuration.
-// Safe for concurrent use.
-func GetVerifyConfig() VerifyConfig {
-	verifyConfigMu.RLock()
-	defer verifyConfigMu.RUnlock()
-	return verifyConfig
 }

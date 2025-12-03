@@ -124,6 +124,7 @@ func VerifyBlock(
 	block Block,
 	eta0Hex string,
 	slotsPerKesPeriod uint64,
+	config VerifyConfig,
 ) (bool, string, uint64, uint64, error) {
 	isValid := false
 	vrfHex := ""
@@ -293,7 +294,7 @@ func VerifyBlock(
 	// VerifyConfig{SkipBodyHashValidation:true} to bypass this check.
 	expectedBodyHash := block.BlockBodyHash()
 	isBodyValid := true
-	if block.Era() != byron.EraByron && !GetVerifyConfig().SkipBodyHashValidation {
+	if block.Era() != byron.EraByron && !config.SkipBodyHashValidation {
 		rawCbor := block.Cbor()
 		if len(rawCbor) == 0 {
 			return false, "", 0, 0, errors.New(
