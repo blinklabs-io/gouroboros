@@ -47,6 +47,7 @@ func runTest(
 	t *testing.T,
 	conversation []ouroboros_mock.ConversationEntry,
 	innerFunc testInnerFunc,
+	options ...ouroboros.ConnectionOptionFunc,
 ) {
 	defer goleak.VerifyNone(t)
 	mockConn := ouroboros_mock.NewConnection(
@@ -62,10 +63,14 @@ func runTest(
 		}
 		close(asyncErrChan)
 	}()
-	oConn, err := ouroboros.New(
+	// Build options list
+	opts := []ouroboros.ConnectionOptionFunc{
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
-	)
+	}
+	opts = append(opts, options...)
+
+	oConn, err := ouroboros.New(opts...)
 	if err != nil {
 		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 	}
@@ -135,6 +140,9 @@ func TestIntersectNotFound(t *testing.T) {
 				)
 			}
 		},
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
 	)
 }
 
@@ -172,6 +180,9 @@ func TestGetCurrentTip(t *testing.T) {
 				)
 			}
 		},
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
 	)
 }
 
@@ -273,5 +284,8 @@ func TestGetAvailableBlockRange(t *testing.T) {
 				)
 			}
 		},
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
 	)
 }

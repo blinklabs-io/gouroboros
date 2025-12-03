@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
@@ -99,7 +100,10 @@ func TestShelleyBlockUtxorpc(t *testing.T) {
 		t.Fatalf("failed to decode block hex: %v", err)
 	}
 
-	block, err := shelley.NewShelleyBlockFromCbor(blockCbor)
+	block, err := shelley.NewShelleyBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	if err != nil {
 		t.Fatalf("failed to parse block: %v", err)
 	}

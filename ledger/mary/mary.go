@@ -16,6 +16,7 @@ package mary
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -613,11 +614,37 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 	}
 }
 
-func NewMaryBlockFromCbor(data []byte) (*MaryBlock, error) {
+func NewMaryBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*MaryBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var maryBlock MaryBlock
 	if _, err := cbor.Decode(data, &maryBlock); err != nil {
 		return nil, fmt.Errorf("decode Mary block error: %w", err)
 	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if maryBlock.BlockHeader == nil {
+			return nil, errors.New("mary block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			maryBlock.BlockHeader.BlockBodyHash(),
+			EraNameMary,
+			4,     // Mary has 4 elements: header, txs, witnesses, aux
+			false, // Mary doesn't have invalid transactions
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &maryBlock, nil
 }
 

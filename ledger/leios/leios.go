@@ -294,7 +294,10 @@ func (b *LeiosRankingBlock) BlockBodyHash() common.Blake2b256 {
 	return b.Header().BlockBodyHash()
 }
 
-func NewLeiosEndorserBlockFromCbor(data []byte) (*LeiosEndorserBlock, error) {
+func NewLeiosEndorserBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*LeiosEndorserBlock, error) {
 	var leiosEndorserBlock LeiosEndorserBlock
 	if _, err := cbor.Decode(data, &leiosEndorserBlock); err != nil {
 		return nil, fmt.Errorf("decode Leios endorser block error: %w", err)
@@ -302,7 +305,10 @@ func NewLeiosEndorserBlockFromCbor(data []byte) (*LeiosEndorserBlock, error) {
 	return &leiosEndorserBlock, nil
 }
 
-func NewLeiosRankingBlockFromCbor(data []byte) (*LeiosRankingBlock, error) {
+func NewLeiosRankingBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*LeiosRankingBlock, error) {
 	var leiosRankingBlock LeiosRankingBlock
 	if _, err := cbor.Decode(data, &leiosRankingBlock); err != nil {
 		return nil, fmt.Errorf("decode Leios ranking block error: %w", err)

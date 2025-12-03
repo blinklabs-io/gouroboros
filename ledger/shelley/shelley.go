@@ -732,11 +732,37 @@ func (t *ShelleyTransaction) Cbor() []byte {
 	return cborData
 }
 
-func NewShelleyBlockFromCbor(data []byte) (*ShelleyBlock, error) {
+func NewShelleyBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*ShelleyBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var shelleyBlock ShelleyBlock
 	if _, err := cbor.Decode(data, &shelleyBlock); err != nil {
 		return nil, fmt.Errorf("decode Shelley block error: %w", err)
 	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if shelleyBlock.BlockHeader == nil {
+			return nil, errors.New("shelley block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			shelleyBlock.BlockHeader.BlockBodyHash(),
+			EraNameShelley,
+			4,     // Shelley has 4 elements: header, txs, witnesses, aux
+			false, // Shelley doesn't have invalid transactions
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &shelleyBlock, nil
 }
 

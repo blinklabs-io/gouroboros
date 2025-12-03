@@ -15,6 +15,7 @@
 package allegra
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -429,11 +430,37 @@ func (t *AllegraTransaction) Cbor() []byte {
 	return cborData
 }
 
-func NewAllegraBlockFromCbor(data []byte) (*AllegraBlock, error) {
+func NewAllegraBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*AllegraBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var allegraBlock AllegraBlock
 	if _, err := cbor.Decode(data, &allegraBlock); err != nil {
 		return nil, fmt.Errorf("decode Allegra block error: %w", err)
 	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if allegraBlock.BlockHeader == nil {
+			return nil, errors.New("allegra block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			allegraBlock.BlockHeader.BlockBodyHash(),
+			EraNameAllegra,
+			4,     // Allegra has 4 elements: header, txs, witnesses, aux
+			false, // Allegra doesn't have invalid transactions
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &allegraBlock, nil
 }
 

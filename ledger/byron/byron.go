@@ -898,7 +898,7 @@ func (b *ByronEpochBoundaryBlock) BlockBodyHash() common.Blake2b256 {
 }
 
 func NewByronEpochBoundaryBlockFromCbor(
-	data []byte,
+	data []byte, config ...common.VerifyConfig,
 ) (*ByronEpochBoundaryBlock, error) {
 	var byronEbbBlock ByronEpochBoundaryBlock
 	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
@@ -917,7 +917,10 @@ func NewByronEpochBoundaryBlockHeaderFromCbor(
 	return &byronEbbBlockHeader, nil
 }
 
-func NewByronMainBlockFromCbor(data []byte) (*ByronMainBlock, error) {
+func NewByronMainBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*ByronMainBlock, error) {
 	var byronMainBlock ByronMainBlock
 	if _, err := cbor.Decode(data, &byronMainBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron main block error: %w", err)

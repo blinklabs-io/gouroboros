@@ -124,7 +124,7 @@ func VerifyBlock(
 	block Block,
 	eta0Hex string,
 	slotsPerKesPeriod uint64,
-	config VerifyConfig,
+	config common.VerifyConfig,
 ) (bool, string, uint64, uint64, error) {
 	isValid := false
 	vrfHex := ""

@@ -23,6 +23,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -99,7 +100,10 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 	assert.NoError(t, err, "Failed to decode block hex")
 
 	// Parse the block
-	block, err := allegra.NewAllegraBlockFromCbor(blockCbor)
+	block, err := allegra.NewAllegraBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	assert.NoError(t, err, "Failed to parse block")
 	assert.NotNil(t, block, "Parsed block is nil")
 
@@ -177,7 +181,7 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 func BenchmarkAllegraBlockDeserialization(b *testing.B) {
 	blockCbor, _ := hex.DecodeString(allegraBlockHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var block allegra.AllegraBlock
 		err := block.UnmarshalCBOR(blockCbor)
 		if err != nil {
@@ -194,7 +198,17 @@ func BenchmarkAllegraBlockSerialization(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = block.Cbor()
 	}
+}
+
+func TestAllegraBlock_Validation(t *testing.T) {
+	blockCbor, err := hex.DecodeString(allegraBlockHex)
+	assert.NoError(t, err, "Failed to decode block hex")
+
+	// Test that validation works by default (should pass for valid block)
+	block, err := allegra.NewAllegraBlockFromCbor(blockCbor)
+	assert.NoError(t, err, "Failed to parse and validate block")
+	assert.NotNil(t, block, "Parsed block is nil")
 }

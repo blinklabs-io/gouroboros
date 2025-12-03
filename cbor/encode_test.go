@@ -94,7 +94,7 @@ func TestEncodeIndefLengthByteString(t *testing.T) {
 func BenchmarkEncode(b *testing.B) {
 	obj := []any{1, 2, 3}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := cbor.Encode(obj)
 		if err != nil {
 			b.Fatal(err)

@@ -210,9 +210,9 @@ func TestCalculatePoolSaturation(t *testing.T) {
 // createGenesisRat creates a GenesisRat from numerator and denominator
 func createGenesisRat(num, denom int64) GenesisRat {
 	var r GenesisRat
-	jsonData := []byte(
-		fmt.Sprintf(`{"numerator": %d, "denominator": %d}`, num, denom),
-	)
+	jsonData :=
+		fmt.Appendf(nil, `{"numerator": %d, "denominator": %d}`, num, denom)
+
 	if err := r.UnmarshalJSON(jsonData); err != nil {
 		panic(fmt.Sprintf("failed to unmarshal GenesisRat JSON: %v", err))
 	}

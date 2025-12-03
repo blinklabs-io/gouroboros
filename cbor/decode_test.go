@@ -316,7 +316,7 @@ func BenchmarkDecode(b *testing.B) {
 	cborData, _ := hex.DecodeString("83010203")
 	var dest any
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := cbor.Decode(cborData, &dest)
 		if err != nil {
 			b.Fatal(err)

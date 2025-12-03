@@ -21,7 +21,9 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/stretchr/testify/assert"
 )
 
 // https://cexplorer.io/block/d36ab36f451e9fcbd4247daef45ce5be9a4b918fce5ee97a63b8aeac606fca03
@@ -98,7 +100,10 @@ func TestMaryBlock_Utxorpc(t *testing.T) {
 		t.Fatalf("failed to decode test block hex: %v", err)
 	}
 
-	block, err := mary.NewMaryBlockFromCbor(testBlockCbor)
+	block, err := mary.NewMaryBlockFromCbor(
+		testBlockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	if err != nil {
 		t.Fatalf("failed to parse Mary block: %v", err)
 	}
@@ -154,7 +159,7 @@ func compareByteSlices(a, b []byte) bool {
 func BenchmarkMaryBlockDeserialization(b *testing.B) {
 	blockCbor, _ := hex.DecodeString(maryBlockHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var block mary.MaryBlock
 		err := block.UnmarshalCBOR(blockCbor)
 		if err != nil {
@@ -171,7 +176,17 @@ func BenchmarkMaryBlockSerialization(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = block.Cbor()
 	}
+}
+
+func TestMaryBlock_Validation(t *testing.T) {
+	blockCbor, err := hex.DecodeString(maryBlockHex)
+	assert.NoError(t, err, "Failed to decode block hex")
+
+	// Test that validation works by default (should pass for valid block)
+	block, err := mary.NewMaryBlockFromCbor(blockCbor)
+	assert.NoError(t, err, "Failed to parse and validate block")
+	assert.NotNil(t, block, "Parsed block is nil")
 }

@@ -26,28 +26,38 @@ type (
 	BlockHeader = common.BlockHeader
 )
 
-func NewBlockFromCbor(blockType uint, data []byte) (Block, error) {
+func NewBlockFromCbor(
+	blockType uint,
+	data []byte,
+	config ...common.VerifyConfig,
+) (Block, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	switch blockType {
 	case BlockTypeByronEbb:
-		return NewByronEpochBoundaryBlockFromCbor(data)
+		return NewByronEpochBoundaryBlockFromCbor(data, cfg)
 	case BlockTypeByronMain:
-		return NewByronMainBlockFromCbor(data)
+		return NewByronMainBlockFromCbor(data, cfg)
 	case BlockTypeShelley:
-		return NewShelleyBlockFromCbor(data)
+		return NewShelleyBlockFromCbor(data, cfg)
 	case BlockTypeAllegra:
-		return NewAllegraBlockFromCbor(data)
+		return NewAllegraBlockFromCbor(data, cfg)
 	case BlockTypeMary:
-		return NewMaryBlockFromCbor(data)
+		return NewMaryBlockFromCbor(data, cfg)
 	case BlockTypeAlonzo:
-		return NewAlonzoBlockFromCbor(data)
+		return NewAlonzoBlockFromCbor(data, cfg)
 	case BlockTypeBabbage:
-		return NewBabbageBlockFromCbor(data)
+		return NewBabbageBlockFromCbor(data, cfg)
 	case BlockTypeConway:
-		return NewConwayBlockFromCbor(data)
+		return NewConwayBlockFromCbor(data, cfg)
 	case BlockTypeLeiosEndorser:
-		return NewLeiosEndorserBlockFromCbor(data)
+		return NewLeiosEndorserBlockFromCbor(data, cfg)
 	case BlockTypeLeiosRanking:
-		return NewLeiosRankingBlockFromCbor(data)
+		return NewLeiosRankingBlockFromCbor(data, cfg)
 	}
 	return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
 }

@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -273,6 +274,9 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		block, err = ledger.NewBlockFromCbor(
 			wrappedBlock.Type,
 			wrappedBlock.RawBlock,
+			lcommon.VerifyConfig{
+				SkipBodyHashValidation: c.config.SkipBlockValidation,
+			},
 		)
 		if err != nil {
 			return err

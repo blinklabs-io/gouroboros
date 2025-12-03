@@ -393,7 +393,7 @@ func BenchmarkAddressFromBytes(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := NewAddressFromBytes(addrBytes)
 		if err != nil {
 			b.Fatal(err)
@@ -404,7 +404,7 @@ func BenchmarkAddressFromBytes(b *testing.B) {
 func BenchmarkAddressFromString(b *testing.B) {
 	addrStr := "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha"
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := NewAddress(addrStr)
 		if err != nil {
 			b.Fatal(err)

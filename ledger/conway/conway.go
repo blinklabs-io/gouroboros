@@ -798,11 +798,37 @@ func (t *ConwayTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	return tx, nil
 }
 
-func NewConwayBlockFromCbor(data []byte) (*ConwayBlock, error) {
+func NewConwayBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*ConwayBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var conwayBlock ConwayBlock
 	if _, err := cbor.Decode(data, &conwayBlock); err != nil {
 		return nil, fmt.Errorf("decode Conway block error: %w", err)
 	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if conwayBlock.BlockHeader == nil {
+			return nil, errors.New("conway block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			conwayBlock.BlockHeader.BlockBodyHash(),
+			EraNameConway,
+			5,    // Conway has 5 elements: header, txs, witnesses, aux, invalid
+			true, // Conway has invalid transactions
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &conwayBlock, nil
 }
 

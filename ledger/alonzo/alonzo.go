@@ -16,6 +16,7 @@ package alonzo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"math/big"
@@ -835,11 +836,37 @@ func (t *AlonzoTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	return tx, nil
 }
 
-func NewAlonzoBlockFromCbor(data []byte) (*AlonzoBlock, error) {
+func NewAlonzoBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*AlonzoBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var alonzoBlock AlonzoBlock
 	if _, err := cbor.Decode(data, &alonzoBlock); err != nil {
 		return nil, fmt.Errorf("decode Alonzo block error: %w", err)
 	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if alonzoBlock.BlockHeader == nil {
+			return nil, errors.New("alonzo block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			alonzoBlock.BlockHeader.BlockBodyHash(),
+			EraNameAlonzo,
+			5,    // Alonzo has 5 elements: header, txs, witnesses, aux, invalid
+			true, // Alonzo has invalid transactions
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &alonzoBlock, nil
 }
 

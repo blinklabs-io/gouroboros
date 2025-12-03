@@ -23,6 +23,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -99,7 +100,10 @@ func TestByronTransaction_Utxorpc(t *testing.T) {
 	blockBytes, err := hex.DecodeString(byronBlockHex)
 	assert.NoError(t, err)
 
-	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
+	block, err := byron.NewByronMainBlockFromCbor(
+		blockBytes,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	assert.NoError(t, err)
 	assert.NotNil(t, block)
 
@@ -175,7 +179,7 @@ func TestByronTransaction_Utxorpc(t *testing.T) {
 func BenchmarkByronBlockDeserialization(b *testing.B) {
 	blockCbor, _ := hex.DecodeString(byronBlockHex)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var block byron.ByronMainBlock
 		err := block.UnmarshalCBOR(blockCbor)
 		if err != nil {
@@ -192,7 +196,7 @@ func BenchmarkByronBlockSerialization(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = block.Cbor()
 	}
 }
