@@ -798,6 +798,42 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			)
 		},
 	)
+	// Minting
+	t.Run(
+		"minting",
+		func(t *testing.T) {
+			mintData := map[common.Blake2b224]map[cbor.ByteString]int64{
+				common.Blake2b224{}: {cbor.ByteString{}: 7000000},
+			}
+			mint := common.NewMultiAsset[common.MultiAssetTypeMint](mintData)
+			mintTx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{}),
+					TxOutputs: []babbage.BabbageTransactionOutput{
+						{
+							OutputAmount: mary.MaryTransactionOutputValue{
+								Amount: 7000000,
+							},
+						},
+					},
+					TxFee:  0,
+					TxMint: &mint,
+				},
+			}
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				mintTx,
+				testSlot,
+				test.MockLedgerState{},
+				testProtocolParams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should succeed with minting\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
 }
 
 func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {

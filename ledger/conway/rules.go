@@ -276,6 +276,15 @@ func UtxoValidateValueNotConservedUtxo(
 			consumedValue += uint64(tmpPparams.KeyDeposit)
 		}
 	}
+	// Add minted/burned ADA
+	if tx.AssetMint() != nil {
+		mintedAda := tx.AssetMint().Asset(common.Blake2b224{}, []byte{})
+		if mintedAda > 0 {
+			consumedValue += uint64(mintedAda)
+		} else if mintedAda < 0 {
+			consumedValue -= uint64(-mintedAda)
+		}
+	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
 	var producedValue uint64
