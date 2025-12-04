@@ -803,12 +803,14 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		"minting",
 		func(t *testing.T) {
 			mintData := map[common.Blake2b224]map[cbor.ByteString]int64{
-				common.Blake2b224{}: {cbor.ByteString{}: 7000000},
+				{}: {cbor.ByteString{}: 7000000},
 			}
 			mint := common.NewMultiAsset[common.MultiAssetTypeMint](mintData)
 			mintTx := &conway.ConwayTransaction{
 				Body: conway.ConwayTransactionBody{
-					TxInputs: conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{}),
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{},
+					),
 					TxOutputs: []babbage.BabbageTransactionOutput{
 						{
 							OutputAmount: mary.MaryTransactionOutputValue{

@@ -280,9 +280,10 @@ func UtxoValidateValueNotConservedUtxo(
 	if tx.AssetMint() != nil {
 		mintedAda := tx.AssetMint().Asset(common.Blake2b224{}, []byte{})
 		if mintedAda > 0 {
-			consumedValue += uint64(mintedAda)
+			consumedValue += uint64(mintedAda) //nolint:gosec,G115
 		} else if mintedAda < 0 {
-			consumedValue -= uint64(-mintedAda)
+			burned := -mintedAda
+			consumedValue -= uint64(burned) //nolint:gosec,G115
 		}
 	}
 	// Calculate produced value

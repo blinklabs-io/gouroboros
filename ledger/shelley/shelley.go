@@ -756,8 +756,7 @@ func NewShelleyBlockFromCbor(
 			data,
 			shelleyBlock.BlockHeader.BlockBodyHash(),
 			EraNameShelley,
-			4,     // Shelley has 4 elements: header, txs, witnesses, aux
-			false, // Shelley doesn't have invalid transactions
+			4, // Shelley has 4 elements: header, txs, witnesses, aux
 		); err != nil {
 			return nil, err
 		}
