@@ -37,7 +37,6 @@ func ValidateBlockBodyHash(
 	expectedBodyHash Blake2b256,
 	eraName string,
 	minRawLength int,
-	hasInvalidTxs bool,
 ) error {
 	var raw []cbor.RawMessage
 	if _, err := cbor.Decode(data, &raw); err != nil {
@@ -52,21 +51,12 @@ func ValidateBlockBodyHash(
 			eraName,
 		)
 	}
-	// Compute body hash as per Cardano spec: blake2b_256(hash_tx || hash_wit || hash_aux || hash_invalid)
+	// Compute body hash as per Cardano spec: blake2b_256(hash_tx || hash_wit || hash_aux [|| hash_invalid])
 	var bodyHashes []byte
-	hashTx := blake2b.Sum256(raw[1])
-	bodyHashes = append(bodyHashes, hashTx[:]...)
-	hashWit := blake2b.Sum256(raw[2])
-	bodyHashes = append(bodyHashes, hashWit[:]...)
-	hashAux := blake2b.Sum256(raw[3])
-	bodyHashes = append(bodyHashes, hashAux[:]...)
-
-	// Handle invalid transactions hash based on era
-	if hasInvalidTxs {
-		hashInvalid := blake2b.Sum256(raw[4])
-		bodyHashes = append(bodyHashes, hashInvalid[:]...)
+	for i := 1; i < minRawLength; i++ {
+		tmpHash := blake2b.Sum256(raw[i])
+		bodyHashes = append(bodyHashes, tmpHash[:]...)
 	}
-	// Note: Pre-Alonzo eras don't include invalid transactions in body hash
 
 	actualBodyHash := blake2b.Sum256(bodyHashes)
 	if !bytes.Equal(actualBodyHash[:], expectedBodyHash.Bytes()) {

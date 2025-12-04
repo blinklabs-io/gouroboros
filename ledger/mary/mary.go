@@ -638,8 +638,7 @@ func NewMaryBlockFromCbor(
 			data,
 			maryBlock.BlockHeader.BlockBodyHash(),
 			EraNameMary,
-			4,     // Mary has 4 elements: header, txs, witnesses, aux
-			false, // Mary doesn't have invalid transactions
+			4, // Mary has 4 elements: header, txs, witnesses, aux
 		); err != nil {
 			return nil, err
 		}

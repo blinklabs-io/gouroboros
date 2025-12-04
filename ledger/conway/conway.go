@@ -822,8 +822,7 @@ func NewConwayBlockFromCbor(
 			data,
 			conwayBlock.BlockHeader.BlockBodyHash(),
 			EraNameConway,
-			5,    // Conway has 5 elements: header, txs, witnesses, aux, invalid
-			true, // Conway has invalid transactions
+			5, // Conway has 5 elements: header, txs, witnesses, aux, invalid
 		); err != nil {
 			return nil, err
 		}

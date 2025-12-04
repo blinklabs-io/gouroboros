@@ -860,8 +860,7 @@ func NewAlonzoBlockFromCbor(
 			data,
 			alonzoBlock.BlockHeader.BlockBodyHash(),
 			EraNameAlonzo,
-			5,    // Alonzo has 5 elements: header, txs, witnesses, aux, invalid
-			true, // Alonzo has invalid transactions
+			5, // Alonzo has 5 elements: header, txs, witnesses, aux, invalid
 		); err != nil {
 			return nil, err
 		}

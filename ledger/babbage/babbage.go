@@ -1098,8 +1098,7 @@ func NewBabbageBlockFromCbor(
 			data,
 			babbageBlock.BlockHeader.BlockBodyHash(),
 			EraNameBabbage,
-			5,    // Babbage+ has 5 elements: header, txs, witnesses, aux, invalid
-			true, // Babbage+ has invalid transactions
+			5, // Babbage+ has 5 elements: header, txs, witnesses, aux, invalid
 		); err != nil {
 			return nil, err
 		}

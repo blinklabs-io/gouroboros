@@ -454,8 +454,7 @@ func NewAllegraBlockFromCbor(
 			data,
 			allegraBlock.BlockHeader.BlockBodyHash(),
 			EraNameAllegra,
-			4,     // Allegra has 4 elements: header, txs, witnesses, aux
-			false, // Allegra doesn't have invalid transactions
+			4, // Allegra has 4 elements: header, txs, witnesses, aux
 		); err != nil {
 			return nil, err
 		}
