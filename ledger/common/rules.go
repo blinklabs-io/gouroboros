@@ -16,6 +16,24 @@ package common
 
 type UtxoValidationRuleFunc func(Transaction, uint64, LedgerState, ProtocolParameters) error
 
+// VerifyTransaction validates a transaction against the given validation rules.
+// It runs all provided UtxoValidationRuleFunc functions and returns the first error encountered,
+// or nil if all validations pass.
+func VerifyTransaction(
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
+	validationRules []UtxoValidationRuleFunc,
+) error {
+	for _, rule := range validationRules {
+		if err := rule(tx, slot, ledgerState, protocolParams); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CalculateMinFee computes the minimum fee for a transaction body given its CBOR-encoded size
 // and the protocol parameters MinFeeA and MinFeeB
 func CalculateMinFee(bodySize int, minFeeA uint, minFeeB uint) uint64 {
