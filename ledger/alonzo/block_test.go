@@ -22,6 +22,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -96,7 +97,10 @@ func TestAlonzoBlock_Utxorpc(t *testing.T) {
 	assert.NoError(t, err, "Failed to decode block hex")
 
 	// First validate we can parse the block
-	block, err := alonzo.NewAlonzoBlockFromCbor(blockCbor)
+	block, err := alonzo.NewAlonzoBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	assert.NoError(t, err, "Failed to parse block")
 	assert.NotNil(t, block, "Parsed block is nil")
 
@@ -177,4 +181,14 @@ func BenchmarkAlonzoBlockSerialization(b *testing.B) {
 	for b.Loop() {
 		_ = block.Cbor()
 	}
+}
+
+func TestAlonzoBlock_Validation(t *testing.T) {
+	blockCbor, err := hex.DecodeString(alonzoBlockHex)
+	assert.NoError(t, err, "Failed to decode block hex")
+
+	// Test that validation works by default (should pass for valid block)
+	block, err := alonzo.NewAlonzoBlockFromCbor(blockCbor)
+	assert.NoError(t, err, "Failed to parse and validate block")
+	assert.NotNil(t, block, "Parsed block is nil")
 }

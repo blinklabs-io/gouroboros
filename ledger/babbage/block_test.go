@@ -22,6 +22,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // https://cexplorer.io/block/db19fcfaba30607e363113b0a13616e6a9da5aa48b86ec2c033786f0a2e13f7d
@@ -99,7 +100,10 @@ func TestBabbageBlock_Utxorpc(t *testing.T) {
 		t.Fatalf("failed to decode block hex: %v", err)
 	}
 
-	block, err := babbage.NewBabbageBlockFromCbor(blockCbor)
+	block, err := babbage.NewBabbageBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	if err != nil {
 		t.Fatalf("failed to parse block: %v", err)
 	}

@@ -1074,11 +1074,37 @@ func (t *BabbageTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	return tx, nil
 }
 
-func NewBabbageBlockFromCbor(data []byte) (*BabbageBlock, error) {
+func NewBabbageBlockFromCbor(
+	data []byte,
+	config ...common.VerifyConfig,
+) (*BabbageBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var babbageBlock BabbageBlock
 	if _, err := cbor.Decode(data, &babbageBlock); err != nil {
 		return nil, fmt.Errorf("decode Babbage block error: %w", err)
 	}
+
+	// Validate body hash during parsing if not skipped
+	if !cfg.SkipBodyHashValidation {
+		if babbageBlock.BlockHeader == nil {
+			return nil, errors.New("babbage block header is nil")
+		}
+		if err := common.ValidateBlockBodyHash(
+			data,
+			babbageBlock.BlockHeader.BlockBodyHash(),
+			EraNameBabbage,
+			5,    // Babbage+ has 5 elements: header, txs, witnesses, aux, invalid
+			true, // Babbage+ has invalid transactions
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &babbageBlock, nil
 }
 

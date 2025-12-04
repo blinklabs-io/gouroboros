@@ -21,7 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
-	ledgercommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -335,7 +335,7 @@ func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, err
 }
 
 // GetCurrentProtocolParams returns the set of protocol params that are currently in effect
-func (c *Client) GetCurrentProtocolParams() (ledgercommon.ProtocolParameters, error) {
+func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) {
 	c.Protocol.Logger().
 		Debug("calling GetCurrentProtocolParams()",
 			"component", "network",

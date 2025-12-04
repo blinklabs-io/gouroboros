@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -683,7 +684,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
 			var err error
-			block, err = ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor())
+			block, err = ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor(), lcommon.VerifyConfig{SkipBodyHashValidation: c.config != nil && c.config.SkipBlockValidation})
 			if err != nil {
 				if firstBlockChan != nil {
 					firstBlockChan <- clientPointResult{error: err}

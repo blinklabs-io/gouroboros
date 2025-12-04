@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 )
 
@@ -97,7 +98,10 @@ func TestConwayBlockUtxorpc(t *testing.T) {
 		t.Fatalf("failed to decode test block hex: %v", err)
 	}
 
-	block, err := conway.NewConwayBlockFromCbor(blockCbor)
+	block, err := conway.NewConwayBlockFromCbor(
+		blockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	if err != nil {
 		t.Fatalf("failed to parse Conway block: %v", err)
 	}

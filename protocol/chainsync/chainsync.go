@@ -208,15 +208,16 @@ type ChainSync struct {
 
 // Config is used to configure the ChainSync protocol instance
 type Config struct {
-	RollBackwardFunc   RollBackwardFunc
-	RollForwardFunc    RollForwardFunc
-	RollForwardRawFunc RollForwardRawFunc
-	FindIntersectFunc  FindIntersectFunc
-	RequestNextFunc    RequestNextFunc
-	IntersectTimeout   time.Duration
-	BlockTimeout       time.Duration
-	PipelineLimit      int
-	RecvQueueSize      int
+	RollBackwardFunc    RollBackwardFunc
+	RollForwardFunc     RollForwardFunc
+	RollForwardRawFunc  RollForwardRawFunc
+	FindIntersectFunc   FindIntersectFunc
+	RequestNextFunc     RequestNextFunc
+	IntersectTimeout    time.Duration
+	BlockTimeout        time.Duration
+	PipelineLimit       int
+	RecvQueueSize       int
+	SkipBlockValidation bool // Skip block validation during parsing
 }
 
 // Protocol limits per Ouroboros Network Specification

@@ -108,7 +108,7 @@ func decodeTransactionMetadataSet(
 
 func TestVerifyBlockBody(t *testing.T) {
 	// Enable skipping body hash validation for tests that use blocks without stored CBOR
-	config := VerifyConfig{SkipBodyHashValidation: true}
+	config := common.VerifyConfig{SkipBodyHashValidation: true}
 
 	testCases := []struct {
 		name          string
@@ -335,7 +335,7 @@ func TestVerifyBlockBody(t *testing.T) {
 
 func TestVerifyBlock_SkipBodyHashValidation(t *testing.T) {
 	// Enable skipping body hash validation
-	config := VerifyConfig{SkipBodyHashValidation: true}
+	config := common.VerifyConfig{SkipBodyHashValidation: true}
 
 	// This test is lightweight: it constructs a minimal Shelley header/body
 	// and a block with empty CBOR to simulate missing CBOR scenario.
@@ -351,8 +351,14 @@ func TestVerifyBlock_SkipBodyHashValidation(t *testing.T) {
 	// Call VerifyBlock and ensure it doesn't fail because of body hash/CBOR
 	_, _, _, _, err := VerifyBlock(block, eta0Hex, slotsPerKesPeriod, config)
 	if err != nil {
-		if strings.Contains(err.Error(), "block CBOR is required for body hash verification") {
-			t.Fatalf("SkipBodyHashValidation should bypass body CBOR requirement, got: %v", err)
+		if strings.Contains(
+			err.Error(),
+			"block CBOR is required for body hash verification",
+		) {
+			t.Fatalf(
+				"SkipBodyHashValidation should bypass body CBOR requirement, got: %v",
+				err,
+			)
 		}
 		// Other errors (e.g., VRF/KES) are acceptable for this test's purpose
 	}
