@@ -17,6 +17,7 @@ package allegra
 import (
 	"errors"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -160,10 +161,23 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	return shelley.UtxoValidateMaxTxSizeUtxo(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
-	)
+	tmpTx, ok := tx.(*AllegraTransaction)
+	if !ok {
+		return errors.New("transaction is not expected type")
+	}
+	txBytes := tmpTx.Body.Cbor()
+	if len(txBytes) == 0 {
+		var err error
+		txBytes, err = cbor.Encode(tmpTx.Body)
+		if err != nil {
+			return err
+		}
+	}
+	if uint(len(txBytes)) <= tmpPparams.MaxTxSize {
+		return nil
+	}
+	return shelley.MaxTxSizeUtxoError{
+		TxSize:    uint(len(txBytes)),
+		MaxTxSize: tmpPparams.MaxTxSize,
+	}
 }

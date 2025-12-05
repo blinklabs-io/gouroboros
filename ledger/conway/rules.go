@@ -455,7 +455,11 @@ func UtxoValidateMaxTxSizeUtxo(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	txBytes, err := cbor.Encode(tx)
+	tmpTx, ok := tx.(*ConwayTransaction)
+	if !ok {
+		return errors.New("transaction is not expected type")
+	}
+	txBytes, err := cbor.Encode(tmpTx.Body)
 	if err != nil {
 		return err
 	}
