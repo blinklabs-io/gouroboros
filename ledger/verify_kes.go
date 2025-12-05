@@ -26,6 +26,14 @@ import (
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/leios"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -131,27 +139,100 @@ func (s Sum0KesSig) Verify(
 	return ed25519.Verify(pubKey, msg, s)
 }
 
-// TODO: make this work on anything from Shelley onward (#845)
+func extractKesFieldsShelleyAlonzo(
+	header interface{},
+) (bodyCbor []byte, sig []byte, hotVkey []byte, kesPeriod uint64, slot uint64, err error) {
+	switch h := header.(type) {
+	case *shelley.ShelleyBlockHeader:
+		bodyCbor, err = cbor.Encode(h.Body)
+		if err != nil {
+			return nil, nil, nil, 0, 0, err
+		}
+		return bodyCbor, h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), h.Body.Slot, nil
+	case *allegra.AllegraBlockHeader:
+		bodyCbor, err = cbor.Encode(h.Body)
+		if err != nil {
+			return nil, nil, nil, 0, 0, err
+		}
+		return bodyCbor, h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), h.Body.Slot, nil
+	case *mary.MaryBlockHeader:
+		bodyCbor, err = cbor.Encode(h.Body)
+		if err != nil {
+			return nil, nil, nil, 0, 0, err
+		}
+		return bodyCbor, h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), h.Body.Slot, nil
+	case *alonzo.AlonzoBlockHeader:
+		bodyCbor, err = cbor.Encode(h.Body)
+		if err != nil {
+			return nil, nil, nil, 0, 0, err
+		}
+		return bodyCbor, h.Signature, h.Body.OpCertHotVkey, uint64(h.Body.OpCertKesPeriod), h.Body.Slot, nil
+	default:
+		return nil, nil, nil, 0, 0, fmt.Errorf("unsupported header type: %T", header)
+	}
+}
+
+func extractKesFieldsBabbagePlus(
+	header interface{},
+) (bodyCbor []byte, sig []byte, hotVkey []byte, kesPeriod uint64, slot uint64, err error) {
+	switch h := header.(type) {
+	case *babbage.BabbageBlockHeader:
+		bodyCbor, err = cbor.Encode(h.Body)
+		if err != nil {
+			return nil, nil, nil, 0, 0, err
+		}
+		return bodyCbor, h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), h.Body.Slot, nil
+	case *conway.ConwayBlockHeader:
+		bodyCbor, err = cbor.Encode(h.Body)
+		if err != nil {
+			return nil, nil, nil, 0, 0, err
+		}
+		return bodyCbor, h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), h.Body.Slot, nil
+	case *leios.LeiosBlockHeader:
+		bodyCbor, err = cbor.Encode(h.Body)
+		if err != nil {
+			return nil, nil, nil, 0, 0, err
+		}
+		return bodyCbor, h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), h.Body.Slot, nil
+	default:
+		return nil, nil, nil, 0, 0, fmt.Errorf("unsupported header type: %T", header)
+	}
+}
+
 func VerifyKes(
-	header *BabbageBlockHeader,
+	header common.BlockHeader,
 	slotsPerKesPeriod uint64,
 ) (bool, error) {
 	// Ref: https://github.com/IntersectMBO/ouroboros-consensus/blob/de74882102236fdc4dd25aaa2552e8b3e208448c/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Protocol/Praos.hs#L125
 	// Ref: https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-protocol-tpraos/src/Cardano/Protocol/TPraos/BHeader.hs#L189
-	msgBytes, err := cbor.Encode(header.Body)
-	if err != nil {
-		return false, err
+	var msgBytes []byte
+	var signature []byte
+	var hotVkey []byte
+	var kesPeriod uint64
+	var slot uint64
+	var err error
+
+	switch h := header.(type) {
+	case *shelley.ShelleyBlockHeader, *allegra.AllegraBlockHeader, *mary.MaryBlockHeader, *alonzo.AlonzoBlockHeader:
+		msgBytes, signature, hotVkey, kesPeriod, slot, err = extractKesFieldsShelleyAlonzo(h)
+		if err != nil {
+			return false, fmt.Errorf("VerifyKes: %w", err)
+		}
+	case *babbage.BabbageBlockHeader, *conway.ConwayBlockHeader, *leios.LeiosBlockHeader:
+		msgBytes, signature, hotVkey, kesPeriod, slot, err = extractKesFieldsBabbagePlus(h)
+		if err != nil {
+			return false, fmt.Errorf("VerifyKes: %w", err)
+		}
+	default:
+		return false, fmt.Errorf("VerifyKes: unsupported block header type %T", header)
 	}
-	opCert := header.Body.OpCert
-	opCertVkHotBytes := header.Body.OpCert.HotVkey
-	startOfKesPeriod := uint64(opCert.KesPeriod)
-	currentSlot := header.Body.Slot
+
 	return VerifyKesComponents(
 		msgBytes,
-		header.Signature,
-		opCertVkHotBytes,
-		startOfKesPeriod,
-		currentSlot,
+		signature,
+		hotVkey,
+		kesPeriod,
+		slot,
 		slotsPerKesPeriod,
 	)
 }
@@ -188,4 +269,26 @@ func verifySignedKES(vkey []byte, period uint64, msg []byte, sig []byte) bool {
 	proof := NewSumKesFromByte(CardanoKesDepth, sig)
 	isValid := proof.Verify(period, vkey, msg)
 	return isValid
+}
+
+// GetHeaderBodyCbor returns the CBOR-encoded bytes of the block header body
+func GetHeaderBodyCbor(header common.BlockHeader) ([]byte, error) {
+	switch h := header.(type) {
+	case *shelley.ShelleyBlockHeader:
+		return cbor.Encode(h.Body)
+	case *allegra.AllegraBlockHeader:
+		return cbor.Encode(h.Body)
+	case *mary.MaryBlockHeader:
+		return cbor.Encode(h.Body)
+	case *alonzo.AlonzoBlockHeader:
+		return cbor.Encode(h.Body)
+	case *babbage.BabbageBlockHeader:
+		return cbor.Encode(h.Body)
+	case *conway.ConwayBlockHeader:
+		return cbor.Encode(h.Body)
+	case *leios.LeiosBlockHeader:
+		return cbor.Encode(h.Body)
+	default:
+		return nil, fmt.Errorf("GetHeaderBodyCbor: unsupported block header type %T", header)
+	}
 }
