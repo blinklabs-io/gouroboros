@@ -477,7 +477,7 @@ func TestDiffusionModes(t *testing.T) {
 				select {
 				case err := <-m.ErrorChan():
 					if tt.expectError {
-						if !containsString(err.Error(), tt.errorContains) {
+						if !strings.Contains(err.Error(), tt.errorContains) {
 							t.Errorf(
 								"expected error containing %q, got: %v",
 								tt.errorContains,
@@ -530,7 +530,7 @@ func TestErrorHandling(t *testing.T) {
 		select {
 		case err := <-m.ErrorChan():
 			if err == nil ||
-				!containsString(err.Error(), "zero-byte segment payload") {
+				!strings.Contains(err.Error(), "zero-byte segment payload") {
 				t.Errorf("expected zero-byte payload error, got: %v", err)
 			}
 		default:
@@ -556,7 +556,7 @@ func TestErrorHandling(t *testing.T) {
 		select {
 		case err := <-m.ErrorChan():
 			if err == nil ||
-				!containsString(err.Error(), "unknown protocol ID") {
+				!strings.Contains(err.Error(), "unknown protocol ID") {
 				t.Errorf("expected unknown protocol error, got: %v", err)
 			}
 		default:
@@ -680,9 +680,4 @@ func createSegmentData(segment *muxer.Segment) []byte {
 	) // error ignored: Buffer.Write never fails
 	buf.Write(segment.Payload)
 	return buf.Bytes()
-}
-
-// containsString checks if a string contains a substring
-func containsString(s, substr string) bool {
-	return strings.Contains(s, substr)
 }
