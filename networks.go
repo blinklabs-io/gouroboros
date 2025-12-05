@@ -83,19 +83,41 @@ var (
 				Port:    5521,
 			},
 		},
+		PublicRoots: []NetworkPublicRoot{
+			{
+				AccessPoints: []NetworkAccessPoint{
+					{
+						Address: "relay-g1.prime.mainnet.apexfusion.org",
+						Port:    5521,
+					},
+					{
+						Address: "relay-g2.prime.mainnet.apexfusion.org",
+						Port:    5521,
+					},
+				},
+				Advertise: true,
+				Valency:   1,
+			},
+		},
 	}
 	NetworkPrimeTestnet = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "prime-testnet",
 		NetworkMagic: 3311,
-		BootstrapPeers: []NetworkBootstrapPeer{
+		PublicRoots: []NetworkPublicRoot{
 			{
-				Address: "relay-0.prime.testnet.apexfusion.org",
-				Port:    5521,
-			},
-			{
-				Address: "relay-1.prime.testnet.apexfusion.org",
-				Port:    5521,
+				AccessPoints: []NetworkAccessPoint{
+					{
+						Address: "relay-0.prime.testnet.apexfusion.org",
+						Port:    5521,
+					},
+					{
+						Address: "relay-1.prime.testnet.apexfusion.org",
+						Port:    5521,
+					},
+				},
+				Advertise: true,
+				Valency:   1,
 			},
 		},
 	}
@@ -160,9 +182,21 @@ type Network struct {
 	Name           string
 	NetworkMagic   uint32
 	BootstrapPeers []NetworkBootstrapPeer
+	PublicRoots    []NetworkPublicRoot
 }
 
 type NetworkBootstrapPeer struct {
+	Address string
+	Port    uint
+}
+
+type NetworkPublicRoot struct {
+	AccessPoints []NetworkAccessPoint
+	Advertise    bool
+	Valency      int
+}
+
+type NetworkAccessPoint struct {
 	Address string
 	Port    uint
 }
