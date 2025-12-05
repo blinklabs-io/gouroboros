@@ -26,6 +26,15 @@ var eraNameMap = map[uint]string{
 	BlockTypeConway:  conway.EraNameConway,
 }
 
+// testSkipAllValidationConfig returns a VerifyConfig that skips both body hash and transaction validation.
+// Useful for tests that don't provide full CBOR or ledger state.
+func testSkipAllValidationConfig() common.VerifyConfig {
+	return common.VerifyConfig{
+		SkipBodyHashValidation:    true,
+		SkipTransactionValidation: true,
+	}
+}
+
 // decodeTxBodyBytes extracts transaction body bytes from either []byte or hex string
 func decodeTxBodyBytes(t *testing.T, v any) []byte {
 	t.Helper()
@@ -107,8 +116,8 @@ func decodeTransactionMetadataSet(
 }
 
 func TestVerifyBlockBody(t *testing.T) {
-	// Enable skipping body hash validation for tests that use blocks without stored CBOR
-	config := common.VerifyConfig{SkipBodyHashValidation: true}
+	// Skip body hash and transaction validation for tests that use blocks without stored CBOR and don't provide ledger state
+	config := testSkipAllValidationConfig()
 
 	testCases := []struct {
 		name          string
@@ -334,8 +343,8 @@ func TestVerifyBlockBody(t *testing.T) {
 }
 
 func TestVerifyBlock_SkipBodyHashValidation(t *testing.T) {
-	// Enable skipping body hash validation
-	config := common.VerifyConfig{SkipBodyHashValidation: true}
+	// Skip body hash and transaction validation
+	config := testSkipAllValidationConfig()
 
 	// This test is lightweight: it constructs a minimal Shelley header/body
 	// and a block with empty CBOR to simulate missing CBOR scenario.

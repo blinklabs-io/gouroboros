@@ -19,7 +19,6 @@
 package ledger
 
 import (
-	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -34,7 +33,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"golang.org/x/crypto/blake2b"
 )
 
 const (
@@ -300,45 +298,52 @@ func VerifyBlock(
 			return false, "", 0, 0, errors.New(
 				"VerifyBlock: block CBOR is required for body hash verification",
 			)
-		} else {
-			var raw []cbor.RawMessage
-			if _, err := cbor.Decode(rawCbor, &raw); err != nil {
+		}
+		era := block.Era()
+		eraName := era.Name
+		minLength := 4
+		if era.Id >= alonzo.EraAlonzo.Id {
+			minLength = 5
+		}
+		if err := common.ValidateBlockBodyHash(rawCbor, expectedBodyHash, eraName, minLength); err != nil {
+			return false, "", 0, 0, fmt.Errorf(
+				"VerifyBlock: %w",
+				err,
+			)
+		}
+	}
+
+	// Verify transactions (can be skipped via config)
+	// Requires LedgerState and ProtocolParameters in config if enabled.
+	if block.Era() != byron.EraByron && !config.SkipTransactionValidation {
+		var validationRules []common.UtxoValidationRuleFunc
+		switch block.Era().Id {
+		case shelley.EraShelley.Id:
+			validationRules = shelley.UtxoValidationRules
+		case allegra.EraAllegra.Id:
+			validationRules = allegra.UtxoValidationRules
+		case mary.EraMary.Id:
+			validationRules = mary.UtxoValidationRules
+		case alonzo.EraAlonzo.Id:
+			validationRules = alonzo.UtxoValidationRules
+		case babbage.EraBabbage.Id:
+			validationRules = babbage.UtxoValidationRules
+		case conway.EraConway.Id:
+			validationRules = conway.UtxoValidationRules
+		default:
+			return false, "", 0, 0, fmt.Errorf(
+				"VerifyBlock: unsupported era for transaction validation %s",
+				block.Era().Name,
+			)
+		}
+		if config.LedgerState == nil || config.ProtocolParameters == nil {
+			return false, "", 0, 0, errors.New("VerifyBlock: missing required config field: LedgerState and ProtocolParameters must be set")
+		}
+		for _, tx := range block.Transactions() {
+			if err := common.VerifyTransaction(tx, slot, config.LedgerState, config.ProtocolParameters, validationRules); err != nil {
 				return false, "", 0, 0, fmt.Errorf(
-					"VerifyBlock: failed to decode block CBOR for body hash, %w",
+					"VerifyBlock: transaction validation failed: %w",
 					err,
-				)
-			}
-			if len(raw) < 4 {
-				return false, "", 0, 0, errors.New(
-					"VerifyBlock: invalid block CBOR structure for body hash",
-				)
-			}
-			// Compute body hash as per Cardano spec: blake2b_256(hash_tx || hash_wit || hash_aux || hash_invalid)
-			emptyInvalidCbor, _ := cbor.Encode(cbor.IndefLengthList([]any{}))
-			hashInvalidDefault := blake2b.Sum256(emptyInvalidCbor)
-			var bodyHashes []byte
-			hashTx := blake2b.Sum256(raw[1])
-			bodyHashes = append(bodyHashes, hashTx[:]...)
-			hashWit := blake2b.Sum256(raw[2])
-			bodyHashes = append(bodyHashes, hashWit[:]...)
-			hashAux := blake2b.Sum256(raw[3])
-			bodyHashes = append(bodyHashes, hashAux[:]...)
-			switch block.Header().(type) {
-			case *shelley.ShelleyBlockHeader, *allegra.AllegraBlockHeader, *mary.MaryBlockHeader:
-				bodyHashes = append(bodyHashes, hashInvalidDefault[:]...)
-			case *alonzo.AlonzoBlockHeader, *babbage.BabbageBlockHeader, *conway.ConwayBlockHeader:
-				hashInvalid := blake2b.Sum256(raw[4])
-				bodyHashes = append(bodyHashes, hashInvalid[:]...)
-			default:
-				return false, "", 0, 0, fmt.Errorf(
-					"VerifyBlock: unsupported block type for body hash %T",
-					block.Header(),
-				)
-			}
-			actualBodyHash := blake2b.Sum256(bodyHashes)
-			if !bytes.Equal(actualBodyHash[:], expectedBodyHash.Bytes()) {
-				return false, "", 0, 0, errors.New(
-					"VerifyBlock: block body hash mismatch",
 				)
 			}
 		}
