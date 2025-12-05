@@ -732,7 +732,7 @@ func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
 
 func (h *ByronEpochBoundaryBlockHeader) IssuerVkey() common.IssuerVkey {
 	// Byron blocks don't have an issuer
-	return common.IssuerVkey([]byte{})
+	return common.IssuerVkey{}
 }
 
 func (h *ByronEpochBoundaryBlockHeader) BlockBodySize() uint64 {
