@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -219,6 +220,9 @@ func TestSegmentCreation(t *testing.T) {
 func TestSegmentHeaderMethods(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
+	// segmentProtocolIdResponseFlag mirrors the unexported constant in muxer package
+	const responseFlag uint16 = 0x8000
+
 	tests := []struct {
 		name       string
 		protocolId uint16
@@ -236,7 +240,7 @@ func TestSegmentHeaderMethods(t *testing.T) {
 				ProtocolId: tt.protocolId,
 			}
 			if tt.isResponse {
-				header.ProtocolId |= 0x8000
+				header.ProtocolId |= responseFlag
 			}
 
 			if header.IsResponse() != tt.isResponse {
@@ -308,7 +312,7 @@ func TestProtocolRegistration(t *testing.T) {
 		t.Fatal("expected non-nil channels from registration")
 	}
 
-	// Test duplicate registration (should work for different roles)
+	// Test registration of both roles for the same protocol ID
 	sendChan2, recvChan2, doneChan2 := m.RegisterProtocol(
 		0x01,
 		muxer.ProtocolRoleResponder,
@@ -344,11 +348,10 @@ func TestMuxerSendReceive(t *testing.T) {
 	defer m.Stop()
 
 	// Register a protocol
-	sendChan, recvChan, _ := m.RegisterProtocol(
+	sendChan, _, _ := m.RegisterProtocol(
 		0x01,
 		muxer.ProtocolRoleInitiator,
 	)
-	_ = recvChan // avoid unused variable warning
 
 	// Start the muxer
 	m.Start()
@@ -516,7 +519,9 @@ func TestErrorHandling(t *testing.T) {
 
 		// Write invalid segment to connection
 		buf := &bytes.Buffer{}
-		binary.Write(buf, binary.BigEndian, header)
+		if err := binary.Write(buf, binary.BigEndian, header); err != nil {
+			t.Fatalf("failed to write header: %v", err)
+		}
 		conn.WriteToReadBuf(buf.Bytes())
 
 		time.Sleep(10 * time.Millisecond)
@@ -668,13 +673,16 @@ func TestConcurrentAccess(t *testing.T) {
 // createSegmentData serializes a segment to bytes
 func createSegmentData(segment *muxer.Segment) []byte {
 	buf := &bytes.Buffer{}
-	binary.Write(buf, binary.BigEndian, segment.SegmentHeader)
+	_ = binary.Write(
+		buf,
+		binary.BigEndian,
+		segment.SegmentHeader,
+	) // error ignored: Buffer.Write never fails
 	buf.Write(segment.Payload)
 	return buf.Bytes()
 }
 
 // containsString checks if a string contains a substring
 func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
-		bytes.Contains([]byte(s), []byte(substr)))
+	return strings.Contains(s, substr)
 }
