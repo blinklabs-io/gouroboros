@@ -26,13 +26,17 @@ import (
 // Default values favor safety; tests or specific flows can opt out.
 type VerifyConfig struct {
 	// SkipBodyHashValidation disables body hash verification in VerifyBlock().
+	// When false (default), full block CBOR must be available for validation.
 	// Useful for scenarios where full block CBOR is unavailable.
 	SkipBodyHashValidation bool
 	// SkipTransactionValidation disables transaction validation in VerifyBlock().
 	// When false (default), LedgerState and ProtocolParameters must be set.
 	SkipTransactionValidation bool
+	// SkipStakePoolValidation disables stake pool registration validation in VerifyBlock().
+	// When false (default), LedgerState must be set.
+	SkipStakePoolValidation bool
 	// LedgerState provides the current ledger state for transaction validation.
-	// Required if SkipTransactionValidation is false.
+	// Required if SkipTransactionValidation or SkipStakePoolValidation is false.
 	LedgerState LedgerState
 	// ProtocolParameters provides the current protocol parameters for transaction validation.
 	// Required if SkipTransactionValidation is false.

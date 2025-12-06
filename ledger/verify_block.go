@@ -337,7 +337,9 @@ func VerifyBlock(
 			)
 		}
 		if config.LedgerState == nil || config.ProtocolParameters == nil {
-			return false, "", 0, 0, errors.New("VerifyBlock: missing required config field: LedgerState and ProtocolParameters must be set")
+			return false, "", 0, 0, errors.New(
+				"VerifyBlock: missing required config field: LedgerState and ProtocolParameters must be set",
+			)
 		}
 		for _, tx := range block.Transactions() {
 			if err := common.VerifyTransaction(tx, slot, config.LedgerState, config.ProtocolParameters, validationRules); err != nil {
@@ -346,6 +348,83 @@ func VerifyBlock(
 					err,
 				)
 			}
+		}
+	}
+
+	// Verify stake pool registration (can be skipped via config)
+	// Requires LedgerState in config if enabled.
+	if block.Era() != byron.EraByron && !config.SkipStakePoolValidation {
+		if config.LedgerState == nil {
+			return false, "", 0, 0, errors.New(
+				"VerifyBlock: missing required config field: LedgerState must be set for stake pool validation",
+			)
+		}
+
+		// Extract pool key hash from issuer vkey
+		var issuerVkey []byte
+		switch h := block.Header().(type) {
+		case *shelley.ShelleyBlockHeader:
+			issuerVkey = h.Body.IssuerVkey[:]
+		case *allegra.AllegraBlockHeader:
+			issuerVkey = h.Body.IssuerVkey[:]
+		case *mary.MaryBlockHeader:
+			issuerVkey = h.Body.IssuerVkey[:]
+		case *alonzo.AlonzoBlockHeader:
+			issuerVkey = h.Body.IssuerVkey[:]
+		case *babbage.BabbageBlockHeader:
+			issuerVkey = h.Body.IssuerVkey[:]
+		case *conway.ConwayBlockHeader:
+			issuerVkey = h.Body.IssuerVkey[:]
+		default:
+			return false, "", 0, 0, fmt.Errorf(
+				"VerifyBlock: unsupported block type for stake pool validation %T",
+				block.Header(),
+			)
+		}
+
+		poolKeyHash := common.Blake2b224Hash(issuerVkey)
+
+		// Check if pool is registered
+		poolCert, _, err := config.LedgerState.PoolCurrentState(poolKeyHash)
+		if err != nil {
+			return false, "", 0, 0, fmt.Errorf(
+				"VerifyBlock: failed to query pool state: %w",
+				err,
+			)
+		}
+		if poolCert == nil {
+			return false, "", 0, 0, fmt.Errorf(
+				"VerifyBlock: pool %s is not registered",
+				poolKeyHash.String(),
+			)
+		}
+
+		// Check if VRF key matches registered pool's VRF key
+		var blockVrfKey []byte
+		switch h := block.Header().(type) {
+		case *shelley.ShelleyBlockHeader:
+			blockVrfKey = h.Body.VrfKey
+		case *allegra.AllegraBlockHeader:
+			blockVrfKey = h.Body.VrfKey
+		case *mary.MaryBlockHeader:
+			blockVrfKey = h.Body.VrfKey
+		case *alonzo.AlonzoBlockHeader:
+			blockVrfKey = h.Body.VrfKey
+		case *babbage.BabbageBlockHeader:
+			blockVrfKey = h.Body.VrfKey
+		case *conway.ConwayBlockHeader:
+			blockVrfKey = h.Body.VrfKey
+		}
+
+		registeredVrfKeyHash := poolCert.VrfKeyHash
+		expectedVrfKeyHash := common.Blake2b256Hash(blockVrfKey)
+		if registeredVrfKeyHash != expectedVrfKeyHash {
+			return false, "", 0, 0, fmt.Errorf(
+				"VerifyBlock: VRF key mismatch for pool %s: expected %s, got %s",
+				poolKeyHash.String(),
+				registeredVrfKeyHash.String(),
+				expectedVrfKeyHash.String(),
+			)
 		}
 	}
 

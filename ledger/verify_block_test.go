@@ -26,12 +26,13 @@ var eraNameMap = map[uint]string{
 	BlockTypeConway:  conway.EraNameConway,
 }
 
-// testSkipAllValidationConfig returns a VerifyConfig that skips both body hash and transaction validation.
+// testSkipAllValidationConfig returns a VerifyConfig that skips body hash, stake pool, and transaction validation.
 // Useful for tests that don't provide full CBOR or ledger state.
 func testSkipAllValidationConfig() common.VerifyConfig {
 	return common.VerifyConfig{
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
+		SkipStakePoolValidation:   true,
 	}
 }
 
