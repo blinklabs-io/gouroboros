@@ -168,6 +168,68 @@ func TestVoterToPlutusData(t *testing.T) {
 	}
 }
 
+func TestVoterString(t *testing.T) {
+	var zeroHash [28]byte
+	var sequentialHash [28]byte
+	for i := range sequentialHash {
+		sequentialHash[i] = byte(i)
+	}
+	testCases := []struct {
+		name  string
+		voter Voter
+		want  string
+	}{
+		{
+			name: "CIP129CcHotKeyHash",
+			voter: Voter{
+				Type: VoterTypeConstitutionalCommitteeHotKeyHash,
+				Hash: zeroHash,
+			},
+			want: "cc_hot1qgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqvcdjk7",
+		},
+		{
+			name: "CIP129CcHotScriptHash",
+			voter: Voter{
+				Type: VoterTypeConstitutionalCommitteeHotScriptHash,
+				Hash: zeroHash,
+			},
+			want: "cc_hot1qvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv2arke",
+		},
+		{
+			name: "CIP129DRepKeyHash",
+			voter: Voter{
+				Type: VoterTypeDRepKeyHash,
+				Hash: zeroHash,
+			},
+			want: "drep1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7vlc9n",
+		},
+		{
+			name: "CIP129DRepScriptHash",
+			voter: Voter{
+				Type: VoterTypeDRepScriptHash,
+				Hash: zeroHash,
+			},
+			want: "drep1yvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq770f95",
+		},
+		{
+			name: "StakingPoolKeyHash",
+			voter: Voter{
+				Type: VoterTypeStakingPoolKeyHash,
+				Hash: sequentialHash,
+			},
+			want: "pool1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk35lkuk",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.voter.String())
+		})
+	}
+	assert.Panics(t, func() {
+		_ = Voter{Type: 99}.String()
+	})
+}
+
 // Tests the ToPlutusData method for Vote types
 func TestVoteToPlutusData(t *testing.T) {
 	testCases := []struct {
