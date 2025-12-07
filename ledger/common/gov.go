@@ -40,28 +40,19 @@ type Voter struct {
 	Hash [28]byte
 }
 
-const (
-	// CIP-129 key type identifiers and CIP-129 credential types mirror address.
-	cip129KeyTypeConstitutionalCommitteeHot uint8 = 0
-	cip129KeyTypeDRep                       uint8 = 2
-	cip129CredentialTypeKeyHash             uint8 = 0x02
-	cip129CredentialTypeScriptHash          uint8 = 0x03
-)
-
 func encodeCip129Voter(
 	prefix string,
 	keyType uint8,
 	credentialType uint8,
 	hash []byte,
 ) string {
-	header := byte((keyType << 4) | (credentialType & 0x0f))
+	// Header packs the 4-bit key type (per CIP-129) in the high nibble and the credential semantics in the low nibble.
+	// Since CIP-129 reserves values 0 and 1,we offset the existing credential constants (0 = key hash, 1 = script hash) by 2
+	// so the output nibble matches the spec's 0x2/0x3 tags.
+	header := byte((keyType << 4) | ((credentialType + 2) & 0x0f))
 	data := make([]byte, 1+len(hash))
 	data[0] = header
 	copy(data[1:], hash)
-	return encodeVoterBech32(prefix, data)
-}
-
-func encodeVoterBech32(prefix string, data []byte) string {
 	convData, err := bech32.ConvertBits(data, 8, 5, true)
 	if err != nil {
 		panic(fmt.Sprintf("unexpected error converting voter data to base32: %s", err))
@@ -79,29 +70,29 @@ func (v Voter) String() string {
 	case VoterTypeConstitutionalCommitteeHotKeyHash:
 		return encodeCip129Voter(
 			"cc_hot",
-			cip129KeyTypeConstitutionalCommitteeHot,
-			cip129CredentialTypeKeyHash,
+			VoterTypeConstitutionalCommitteeHotKeyHash,
+			CredentialTypeAddrKeyHash,
 			v.Hash[:],
 		)
 	case VoterTypeConstitutionalCommitteeHotScriptHash:
 		return encodeCip129Voter(
 			"cc_hot",
-			cip129KeyTypeConstitutionalCommitteeHot,
-			cip129CredentialTypeScriptHash,
+			VoterTypeConstitutionalCommitteeHotKeyHash,
+			CredentialTypeScriptHash,
 			v.Hash[:],
 		)
 	case VoterTypeDRepKeyHash:
 		return encodeCip129Voter(
 			"drep",
-			cip129KeyTypeDRep,
-			cip129CredentialTypeKeyHash,
+			VoterTypeDRepKeyHash,
+			CredentialTypeAddrKeyHash,
 			v.Hash[:],
 		)
 	case VoterTypeDRepScriptHash:
 		return encodeCip129Voter(
 			"drep",
-			cip129KeyTypeDRep,
-			cip129CredentialTypeScriptHash,
+			VoterTypeDRepKeyHash,
+			CredentialTypeScriptHash,
 			v.Hash[:],
 		)
 	case VoterTypeStakingPoolKeyHash:
