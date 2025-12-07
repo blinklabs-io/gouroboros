@@ -68,6 +68,17 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 	*b = AlonzoBlock(tmp)
 	b.SetCbor(cborData)
+
+	// Extract and store CBOR for each component
+	if err := common.ExtractAndSetTransactionCbor(
+		cborData,
+		func(i int, data []byte) { b.TransactionBodies[i].SetCbor(data) },
+		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCbor(data) },
+		len(b.TransactionBodies),
+		len(b.TransactionWitnessSets),
+	); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -156,14 +167,15 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
-		// Note: Ignoring the presence flag; if distinguishing "missing" vs "present but empty/failed decode" is needed, plumb the second return value through
-		txMetadata, _ := b.TransactionMetadataSet.GetMetadata(uint(idx))
-		ret[idx] = &AlonzoTransaction{
+		tx := &AlonzoTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
-			TxMetadata: txMetadata,
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
+			tx.TxMetadata = metadata
+		}
+		ret[idx] = tx
 	}
 	return ret
 }
@@ -646,14 +658,50 @@ type AlonzoTransaction struct {
 }
 
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
-	type tAlonzoTransaction AlonzoTransaction
-	var tmp tAlonzoTransaction
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	// Decode as raw array to preserve metadata bytes
+	var txArray []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &txArray); err != nil {
 		return err
 	}
-	*t = AlonzoTransaction(tmp)
+
+	// Ensure we have exactly 4 components (body, witness, isValid, metadata)
+	if len(txArray) != 4 {
+		return fmt.Errorf(
+			"invalid transaction: expected exactly 4 components, got %d",
+			len(txArray),
+		)
+	}
+
+	// Decode body
+	if _, err := cbor.Decode([]byte(txArray[0]), &t.Body); err != nil {
+		return fmt.Errorf("failed to decode transaction body: %w", err)
+	}
+
+	// Decode witness set
+	if _, err := cbor.Decode([]byte(txArray[1]), &t.WitnessSet); err != nil {
+		return fmt.Errorf("failed to decode transaction witness set: %w", err)
+	}
+
+	// Decode TxIsValid flag
+	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
+		return fmt.Errorf("failed to decode TxIsValid: %w", err)
+	}
+
+	// Handle metadata (component 4, always present - either data or CBOR nil)
+	// DecodeAuxiliaryDataToMetadata already preserves raw bytes via DecodeMetadatumRaw
+	if len(txArray) > 3 && len(txArray[3]) > 0 {
+		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
+		if err == nil && metadata != nil {
+			t.TxMetadata = metadata
+		}
+	}
+
 	t.SetCbor(cborData)
 	return nil
+}
+
+func (t *AlonzoTransaction) Metadata() common.TransactionMetadatum {
+	return t.TxMetadata
 }
 
 func (AlonzoTransaction) Type() int {
@@ -756,10 +804,6 @@ func (t AlonzoTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t AlonzoTransaction) Metadata() common.TransactionMetadatum {
-	return t.TxMetadata
-}
-
 func (t AlonzoTransaction) IsValid() bool {
 	return t.TxIsValid
 }
@@ -798,30 +842,38 @@ func (t AlonzoTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.WitnessSet
 }
 
+func (t *AlonzoTransaction) MarshalCBOR() ([]byte, error) {
+	// If we have stored CBOR (from decode), return it to preserve metadata bytes
+	cborData := t.DecodeStoreCbor.Cbor()
+	if len(cborData) > 0 {
+		return cborData, nil
+	}
+	// Otherwise, construct and encode
+	tmpObj := []any{
+		t.Body,
+		t.WitnessSet,
+		t.TxIsValid,
+	}
+	if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	return cbor.Encode(tmpObj)
+}
+
 func (t *AlonzoTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
-	if len(cborData) > 0 {
+	if cborData != nil {
 		return cborData[:]
 	}
 	// Return immediately if the body CBOR is also empty, which implies an empty TX object
 	if t.Body.Cbor() == nil {
 		return nil
 	}
-	// Generate our own CBOR
-	// This is necessary when a transaction is put together from pieces stored separately in a block
-	tmpObj := []any{
-		cbor.RawMessage(t.Body.Cbor()),
-		cbor.RawMessage(t.WitnessSet.Cbor()),
-		t.TxIsValid,
-	}
-	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, t.TxMetadata)
-	} else {
-		tmpObj = append(tmpObj, nil)
-	}
-	// This should never fail, since we're only encoding a list and a bool value
-	cborData, err := cbor.Encode(&tmpObj)
+	// Delegate to MarshalCBOR which handles encoding
+	cborData, err := t.MarshalCBOR()
 	if err != nil {
 		panic("CBOR encoding that should never fail has failed: " + err.Error())
 	}
