@@ -118,6 +118,30 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 	}
 }
 
+func extractHeaderFields(
+	header BlockHeader,
+) (issuerVkey, vrfKey []byte, err error) {
+	switch h := header.(type) {
+	case *shelley.ShelleyBlockHeader:
+		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
+	case *allegra.AllegraBlockHeader:
+		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
+	case *mary.MaryBlockHeader:
+		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
+	case *alonzo.AlonzoBlockHeader:
+		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
+	case *babbage.BabbageBlockHeader:
+		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
+	case *conway.ConwayBlockHeader:
+		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
+	default:
+		return nil, nil, fmt.Errorf(
+			"VerifyBlock: unsupported block type for stake pool validation %T",
+			header,
+		)
+	}
+}
+
 func VerifyBlock(
 	block Block,
 	eta0Hex string,
@@ -360,26 +384,9 @@ func VerifyBlock(
 			)
 		}
 
-		// Extract pool key hash from issuer vkey
-		var issuerVkey []byte
-		switch h := block.Header().(type) {
-		case *shelley.ShelleyBlockHeader:
-			issuerVkey = h.Body.IssuerVkey[:]
-		case *allegra.AllegraBlockHeader:
-			issuerVkey = h.Body.IssuerVkey[:]
-		case *mary.MaryBlockHeader:
-			issuerVkey = h.Body.IssuerVkey[:]
-		case *alonzo.AlonzoBlockHeader:
-			issuerVkey = h.Body.IssuerVkey[:]
-		case *babbage.BabbageBlockHeader:
-			issuerVkey = h.Body.IssuerVkey[:]
-		case *conway.ConwayBlockHeader:
-			issuerVkey = h.Body.IssuerVkey[:]
-		default:
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: unsupported block type for stake pool validation %T",
-				block.Header(),
-			)
+		issuerVkey, blockVrfKey, err := extractHeaderFields(block.Header())
+		if err != nil {
+			return false, "", 0, 0, err
 		}
 
 		poolKeyHash := common.Blake2b224Hash(issuerVkey)
@@ -400,22 +407,6 @@ func VerifyBlock(
 		}
 
 		// Check if VRF key matches registered pool's VRF key
-		var blockVrfKey []byte
-		switch h := block.Header().(type) {
-		case *shelley.ShelleyBlockHeader:
-			blockVrfKey = h.Body.VrfKey
-		case *allegra.AllegraBlockHeader:
-			blockVrfKey = h.Body.VrfKey
-		case *mary.MaryBlockHeader:
-			blockVrfKey = h.Body.VrfKey
-		case *alonzo.AlonzoBlockHeader:
-			blockVrfKey = h.Body.VrfKey
-		case *babbage.BabbageBlockHeader:
-			blockVrfKey = h.Body.VrfKey
-		case *conway.ConwayBlockHeader:
-			blockVrfKey = h.Body.VrfKey
-		}
-
 		registeredVrfKeyHash := poolCert.VrfKeyHash
 		expectedVrfKeyHash := common.Blake2b256Hash(blockVrfKey)
 		if registeredVrfKeyHash != expectedVrfKeyHash {
