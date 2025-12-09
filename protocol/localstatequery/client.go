@@ -843,7 +843,7 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	if poolIds == nil {
 		poolIds = []any{}
 	}
-	params = append(params, cbor.Set(poolIds))
+	params = append(params, poolIds)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolDistr,
