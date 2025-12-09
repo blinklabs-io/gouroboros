@@ -44,24 +44,37 @@ type TransactionMetadataSet struct {
 type TransactionMetadatum interface {
 	isTransactionMetadatum()
 	TypeName() string
+	Cbor() []byte
 }
 
-type MetaInt struct{ Value *big.Int }
+type MetaInt struct {
+	cbor.DecodeStoreCbor
+	Value *big.Int
+}
 
-type MetaBytes struct{ Value []byte }
+type MetaBytes struct {
+	cbor.DecodeStoreCbor
+	Value []byte
+}
 
-type MetaText struct{ Value string }
+type MetaText struct {
+	cbor.DecodeStoreCbor
+	Value string
+}
 
 type MetaList struct {
+	cbor.DecodeStoreCbor
 	Items []TransactionMetadatum
 }
 
 type MetaPair struct {
+	cbor.DecodeStoreCbor
 	Key   TransactionMetadatum
 	Value TransactionMetadatum
 }
 
 type MetaMap struct {
+	cbor.DecodeStoreCbor
 	Pairs []MetaPair
 }
 
@@ -87,21 +100,27 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 		if _, err := cbor.Decode(b, n); err != nil {
 			return nil, err
 		}
-		return MetaInt{Value: n}, nil
+		m := MetaInt{Value: n}
+		m.SetCbor(b)
+		return m, nil
 
 	case cborTypeTextString:
 		var s string
 		if _, err := cbor.Decode(b, &s); err != nil {
 			return nil, err
 		}
-		return MetaText{Value: s}, nil
+		m := MetaText{Value: s}
+		m.SetCbor(b)
+		return m, nil
 
 	case cborTypeByteString:
 		var bs []byte
 		if _, err := cbor.Decode(b, &bs); err != nil {
 			return nil, err
 		}
-		return MetaBytes{Value: bs}, nil
+		m := MetaBytes{Value: bs}
+		m.SetCbor(b)
+		return m, nil
 
 	case cborTypeArray:
 		var rawItems []cbor.RawMessage
@@ -116,7 +135,9 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 			}
 			items = append(items, md)
 		}
-		return MetaList{Items: items}, nil
+		m := MetaList{Items: items}
+		m.SetCbor(b)
+		return m, nil
 
 	case cborTypeMap:
 		if md, ok, err := decodeMapUint(b); ok || err != nil {
@@ -169,7 +190,9 @@ func decodeMapUint(b []byte) (TransactionMetadatum, bool, error) {
 			},
 		)
 	}
-	return MetaMap{Pairs: pairs}, true, nil
+	mm := MetaMap{Pairs: pairs}
+	mm.SetCbor(b)
+	return mm, true, nil
 }
 
 func decodeMapInt(b []byte) (TransactionMetadatum, bool, error) {
@@ -191,7 +214,9 @@ func decodeMapInt(b []byte) (TransactionMetadatum, bool, error) {
 			},
 		)
 	}
-	return MetaMap{Pairs: pairs}, true, nil
+	mm := MetaMap{Pairs: pairs}
+	mm.SetCbor(b)
+	return mm, true, nil
 }
 
 func decodeMapText(b []byte) (TransactionMetadatum, bool, error) {
@@ -207,7 +232,9 @@ func decodeMapText(b []byte) (TransactionMetadatum, bool, error) {
 		}
 		pairs = append(pairs, MetaPair{Key: MetaText{Value: k}, Value: val})
 	}
-	return MetaMap{Pairs: pairs}, true, nil
+	mm := MetaMap{Pairs: pairs}
+	mm.SetCbor(b)
+	return mm, true, nil
 }
 
 func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
@@ -228,7 +255,9 @@ func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
 			Value: val,
 		})
 	}
-	return MetaMap{Pairs: pairs}, true, nil
+	mm := MetaMap{Pairs: pairs}
+	mm.SetCbor(b)
+	return mm, true, nil
 }
 
 func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
@@ -238,24 +267,24 @@ func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
 		return nil, false, nil //nolint:nilerr // not this shape
 	}
 	pairs := make([]MetaPair, 0, len(m))
-	var errors []error
+	var errs []error
 	for k, rv := range m {
 		// Try to convert the key to a TransactionMetadatum
 		keyBytes, err := cbor.Encode(k)
 		if err != nil {
-			errors = append(errors, fmt.Errorf("encode map key %v: %w", k, err))
+			errs = append(errs, fmt.Errorf("encode map key %v: %w", k, err))
 			continue
 		}
 		keyMd, err := DecodeMetadatumRaw(keyBytes)
 		if err != nil {
 			// If key can't be decoded as metadatum, skip this pair
-			errors = append(errors, fmt.Errorf("decode map key %v: %w", k, err))
+			errs = append(errs, fmt.Errorf("decode map key %v: %w", k, err))
 			continue
 		}
 		val, err := DecodeMetadatumRaw(rv)
 		if err != nil {
-			errors = append(
-				errors,
+			errs = append(
+				errs,
 				fmt.Errorf("decode map(generic) value for key %v: %w", k, err),
 			)
 			continue
@@ -263,18 +292,28 @@ func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
 		pairs = append(pairs, MetaPair{Key: keyMd, Value: val})
 	}
 	if len(pairs) > 0 {
-		return MetaMap{Pairs: pairs}, true, nil
+		mm := MetaMap{Pairs: pairs}
+		mm.SetCbor(b)
+		// Partial success: Some pairs decoded successfully, others failed.
+		// Return the successfully decoded pairs with no error to preserve valid data.
+		// This allows clients to work with the valid metadata while silently skipping
+		// invalid pairs. The errs slice is not returned - only fully valid maps or
+		// complete decoding failures are reported. This behavior is intentional and
+		// prioritizes data availability over strictness.
+		return mm, true, nil
 	}
-	if len(errors) > 0 {
+	if len(errs) > 0 {
 		return nil, true, fmt.Errorf(
-			"failed to decode all map pairs: %v",
-			errors,
+			"failed to decode all map pairs: %w",
+			errors.Join(errs...),
 		)
 	}
-	return MetaMap{Pairs: pairs}, true, nil
+	mm := MetaMap{Pairs: pairs}
+	mm.SetCbor(b)
+	return mm, true, nil
 }
 
-func decodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
+func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("empty auxiliary data")
 	}
@@ -340,7 +379,7 @@ func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
 		if len(raw) == 0 {
 			continue
 		}
-		md, err := decodeAuxiliaryDataToMetadata(raw)
+		md, err := DecodeAuxiliaryDataToMetadata(raw)
 		if err != nil {
 			return fmt.Errorf(
 				"failed to decode metadata for key %d: %w",
@@ -368,5 +407,12 @@ func (s TransactionMetadataSet) GetMetadata(
 	key uint,
 ) (TransactionMetadatum, bool) {
 	val, ok := s.metadata[key]
+	return val, ok
+}
+
+func (s TransactionMetadataSet) GetRawMetadata(
+	key uint,
+) (cbor.RawMessage, bool) {
+	val, ok := s.data[key]
 	return val, ok
 }

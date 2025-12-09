@@ -57,6 +57,7 @@ type ShelleyBlock struct {
 }
 
 func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
+	// First, decode the block structure normally
 	type tShelleyBlock ShelleyBlock
 	var tmp tShelleyBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -64,6 +65,21 @@ func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 	*b = ShelleyBlock(tmp)
 	b.SetCbor(cborData)
+
+	// Extract and store CBOR for each component (bodies, witnesses, metadata)
+	// This ensures tx.Body.Cbor(), tx.WitnessSet.Cbor(), etc. return the original bytes
+	if err := common.ExtractAndSetTransactionCbor(
+		cborData,
+		func(i int, data []byte) { b.TransactionBodies[i].SetCbor(data) },
+		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCbor(data) },
+		len(b.TransactionBodies),
+		len(b.TransactionWitnessSets),
+	); err != nil {
+		return err
+	}
+
+	// Note: Metadata is stored in TransactionMetadataSet with raw CBOR already preserved
+
 	return nil
 }
 
@@ -107,13 +123,14 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {
-		// Note: Ignoring the presence flag; if distinguishing "missing" vs "present but empty/failed decode" is needed, plumb the second return value through
-		txMetadata, _ := b.TransactionMetadataSet.GetMetadata(uint(idx))
-		ret[idx] = &ShelleyTransaction{
+		tx := &ShelleyTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
-			TxMetadata: txMetadata,
 		}
+		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
+			tx.TxMetadata = metadata
+		}
+		ret[idx] = tx
 	}
 	return ret
 }
@@ -555,14 +572,45 @@ type ShelleyTransaction struct {
 }
 
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
-	type tShelleyTransaction ShelleyTransaction
-	var tmp tShelleyTransaction
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	// Decode as raw array to preserve metadata bytes
+	var txArray []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &txArray); err != nil {
 		return err
 	}
-	*t = ShelleyTransaction(tmp)
+
+	// Ensure we have at least 3 components (body, witness, metadata)
+	if len(txArray) < 3 {
+		return fmt.Errorf(
+			"invalid transaction: expected at least 3 components, got %d",
+			len(txArray),
+		)
+	}
+
+	// Decode body
+	if _, err := cbor.Decode([]byte(txArray[0]), &t.Body); err != nil {
+		return fmt.Errorf("failed to decode transaction body: %w", err)
+	}
+
+	// Decode witness set
+	if _, err := cbor.Decode([]byte(txArray[1]), &t.WitnessSet); err != nil {
+		return fmt.Errorf("failed to decode transaction witness set: %w", err)
+	}
+
+	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
+	// DecodeAuxiliaryDataToMetadata already preserves raw bytes via DecodeMetadatumRaw
+	if len(txArray) > 2 && len(txArray[2]) > 0 {
+		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+		if err == nil && metadata != nil {
+			t.TxMetadata = metadata
+		}
+	}
+
 	t.SetCbor(cborData)
 	return nil
+}
+
+func (t *ShelleyTransaction) Metadata() common.TransactionMetadatum {
+	return t.TxMetadata
 }
 
 func (ShelleyTransaction) Type() int {
@@ -661,10 +709,6 @@ func (t ShelleyTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t ShelleyTransaction) Metadata() common.TransactionMetadatum {
-	return t.TxMetadata
-}
-
 func (t ShelleyTransaction) IsValid() bool {
 	return true
 }
@@ -703,6 +747,25 @@ func (t *ShelleyTransaction) ProtocolParameterUpdates() (uint64, map[common.Blak
 	return t.Body.ProtocolParameterUpdates()
 }
 
+func (t *ShelleyTransaction) MarshalCBOR() ([]byte, error) {
+	// If we have stored CBOR (from decode), return it to preserve metadata bytes
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData, nil
+	}
+	// Otherwise, construct and encode
+	tmpObj := []any{
+		t.Body,
+		t.WitnessSet,
+	}
+	if t.TxMetadata != nil {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
+	} else {
+		tmpObj = append(tmpObj, nil)
+	}
+	return cbor.Encode(tmpObj)
+}
+
 func (t *ShelleyTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
@@ -713,19 +776,8 @@ func (t *ShelleyTransaction) Cbor() []byte {
 	if t.Body.Cbor() == nil {
 		return nil
 	}
-	// Generate our own CBOR
-	// This is necessary when a transaction is put together from pieces stored separately in a block
-	tmpObj := []any{
-		cbor.RawMessage(t.Body.Cbor()),
-		cbor.RawMessage(t.WitnessSet.Cbor()),
-	}
-	if t.TxMetadata != nil {
-		tmpObj = append(tmpObj, t.TxMetadata)
-	} else {
-		tmpObj = append(tmpObj, nil)
-	}
-	// This should never fail, since we're only encoding a list and a bool value
-	cborData, err := cbor.Encode(&tmpObj)
+	// Delegate to MarshalCBOR which handles encoding
+	cborData, err := cbor.Encode(t)
 	if err != nil {
 		panic("CBOR encoding that should never fail has failed: " + err.Error())
 	}

@@ -552,3 +552,63 @@ func ToUtxorpcBigInt(v uint64) *utxorpc.BigInt {
 		},
 	}
 }
+
+// ExtractAndSetTransactionCbor extracts raw CBOR bytes for transaction bodies and witness sets
+// from a block's CBOR data and calls the provided setters to store them. This preserves original
+// encoding for correct transaction size calculations when re-serialized.
+//
+// The setter functions receive the index and the raw CBOR bytes to store.
+// expectedBodies and expectedWitnesses provide bounds checking to prevent panics.
+func ExtractAndSetTransactionCbor(
+	cborData []byte,
+	setBodyCbor func(index int, data []byte),
+	setWitnessCbor func(index int, data []byte),
+	expectedBodies int,
+	expectedWitnesses int,
+) error {
+	var blockArray []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &blockArray); err != nil {
+		return err
+	}
+	if len(blockArray) < 3 {
+		return nil // Block doesn't have separated components
+	}
+
+	// Extract and store body CBOR
+	var txBodiesRaw []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(blockArray[1]), &txBodiesRaw); err != nil {
+		return fmt.Errorf(
+			"failed to extract transaction bodies from block: %w",
+			err,
+		)
+	}
+	if len(txBodiesRaw) != expectedBodies {
+		return fmt.Errorf(
+			"transaction body count mismatch: expected %d, got %d",
+			expectedBodies, len(txBodiesRaw),
+		)
+	}
+	for i, rawBody := range txBodiesRaw {
+		setBodyCbor(i, []byte(rawBody))
+	}
+
+	// Extract and store witness set CBOR
+	var txWitnessSetsRaw []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(blockArray[2]), &txWitnessSetsRaw); err != nil {
+		return fmt.Errorf(
+			"failed to extract transaction witnesses from block: %w",
+			err,
+		)
+	}
+	if len(txWitnessSetsRaw) != expectedWitnesses {
+		return fmt.Errorf(
+			"transaction witness set count mismatch: expected %d, got %d",
+			expectedWitnesses, len(txWitnessSetsRaw),
+		)
+	}
+	for i, rawWitness := range txWitnessSetsRaw {
+		setWitnessCbor(i, []byte(rawWitness))
+	}
+
+	return nil
+}

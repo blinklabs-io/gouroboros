@@ -140,7 +140,7 @@ func (s Sum0KesSig) Verify(
 }
 
 func extractKesFieldsShelleyAlonzo(
-	header interface{},
+	header any,
 ) (bodyCbor []byte, sig []byte, hotVkey []byte, kesPeriod uint64, slot uint64, err error) {
 	switch h := header.(type) {
 	case *shelley.ShelleyBlockHeader:
@@ -173,7 +173,7 @@ func extractKesFieldsShelleyAlonzo(
 }
 
 func extractKesFieldsBabbagePlus(
-	header interface{},
+	header any,
 ) (bodyCbor []byte, sig []byte, hotVkey []byte, kesPeriod uint64, slot uint64, err error) {
 	switch h := header.(type) {
 	case *babbage.BabbageBlockHeader:
