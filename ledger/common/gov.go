@@ -47,7 +47,7 @@ func encodeCip129Voter(
 	hash []byte,
 ) string {
 	// Header packs the 4-bit key type (per CIP-129) in the high nibble and the credential semantics in the low nibble.
-	// Since CIP-129 reserves values 0 and 1,we offset the existing credential constants (0 = key hash, 1 = script hash) by 2
+	// Since CIP-129 reserves values 0 and 1, we offset the existing credential constants (0 = key hash, 1 = script hash) by 2
 	// so the output nibble matches the spec's 0x2/0x3 tags.
 	header := byte((keyType << 4) | ((credentialType + 2) & 0x0f))
 	data := make([]byte, 1+len(hash))
