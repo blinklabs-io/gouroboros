@@ -3,6 +3,7 @@ package ledger
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -420,18 +421,19 @@ func TestVerifyBlock_TransactionValidation(t *testing.T) {
 				t.Fatalf("failed to determine block type: %v", err)
 			}
 
-			// For this test, we need the body CBOR. Since the test data doesn't have it, we'll skip for now
-			// and just test that transaction validation is called (it will fail due to missing body)
-			// In a real test, we'd need to provide the full block CBOR
-
-			// For now, create a minimal block to test the integration
+			// Create a minimal block to test the integration
+			// This test verifies that transaction validation is properly enabled and
+			// that VerifyBlock succeeds when there are no transactions to validate
 			header, err := NewBlockHeaderFromCbor(blockType, headerCborBytes)
 			if err != nil {
 				t.Fatalf("failed to parse header: %v", err)
 			}
 
 			// Create a minimal Conway block for testing
-			conwayHeader := header.(*conway.ConwayBlockHeader)
+			conwayHeader, ok := header.(*conway.ConwayBlockHeader)
+			if !ok {
+				t.Fatalf("expected Conway header, got %T", header)
+			}
 			block := &conway.ConwayBlock{
 				BlockHeader:            conwayHeader,
 				TransactionBodies:      []conway.ConwayTransactionBody{}, // Empty for this test
@@ -508,7 +510,10 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 			}
 
 			// Create a minimal Conway block for testing
-			conwayHeader := header.(*conway.ConwayBlockHeader)
+			conwayHeader, ok := header.(*conway.ConwayBlockHeader)
+			if !ok {
+				t.Fatalf("expected Conway header, got %T", header)
+			}
 			block := &conway.ConwayBlock{
 				BlockHeader:            conwayHeader,
 				TransactionBodies:      []conway.ConwayTransactionBody{}, // Empty for this test
@@ -566,9 +571,12 @@ func (m *mockLedgerStateVerifyBlock) PoolCurrentState(
 	poolKeyHash common.PoolKeyHash,
 ) (*common.PoolRegistrationCertificate, *uint64, error) {
 	// Return a mock pool registration with VRF key hash that matches the test block
-	vrfKeyHashBytes, _ := hex.DecodeString(
+	vrfKeyHashBytes, err := hex.DecodeString(
 		"e73e21246d4fffd38d24b4e77b643aeae35a700763fc1106d910293ec054aa12",
 	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to decode VRF key hash in test: %v", err))
+	}
 	var vrfKeyHash common.Blake2b256
 	copy(vrfKeyHash[:], vrfKeyHashBytes)
 
