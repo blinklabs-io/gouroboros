@@ -16,11 +16,58 @@ package common
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"golang.org/x/crypto/blake2b"
 )
+
+// ValidationError represents a structured validation error with additional context
+type ValidationError struct {
+	Type    ValidationErrorType
+	Message string
+	Details map[string]any
+	Cause   error
+}
+
+type ValidationErrorType string
+
+const (
+	ValidationErrorTypeBodyHash      ValidationErrorType = "body_hash"
+	ValidationErrorTypeTransaction   ValidationErrorType = "transaction"
+	ValidationErrorTypeStakePool     ValidationErrorType = "stake_pool"
+	ValidationErrorTypeVRF           ValidationErrorType = "vrf"
+	ValidationErrorTypeKES           ValidationErrorType = "kes"
+	ValidationErrorTypeProtocol      ValidationErrorType = "protocol"
+	ValidationErrorTypeConfiguration ValidationErrorType = "configuration"
+)
+
+func (e ValidationError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (%v)", e.Type, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Type, e.Message)
+}
+
+func (e ValidationError) Unwrap() error {
+	return e.Cause
+}
+
+// NewValidationError creates a new structured validation error
+func NewValidationError(
+	errType ValidationErrorType,
+	message string,
+	details map[string]any,
+	cause error,
+) *ValidationError {
+	return &ValidationError{
+		Type:    errType,
+		Message: message,
+		Details: details,
+		Cause:   cause,
+	}
+}
 
 // VerifyConfig holds runtime verification toggles.
 // Default values favor safety; tests or specific flows can opt out.
@@ -53,15 +100,28 @@ func ValidateBlockBodyHash(
 ) error {
 	var raw []cbor.RawMessage
 	if _, err := cbor.Decode(data, &raw); err != nil {
-		return fmt.Errorf(
-			"failed to decode block CBOR for body hash validation: %w",
+		return NewValidationError(
+			ValidationErrorTypeBodyHash,
+			"failed to decode block CBOR for body hash validation",
+			map[string]any{
+				"era": eraName,
+			},
 			err,
 		)
 	}
 	if len(raw) < minRawLength {
-		return fmt.Errorf(
-			"invalid %s block CBOR structure for body hash validation",
-			eraName,
+		return NewValidationError(
+			ValidationErrorTypeBodyHash,
+			fmt.Sprintf(
+				"invalid %s block CBOR structure for body hash validation",
+				eraName,
+			),
+			map[string]any{
+				"era":           eraName,
+				"expected_min":  minRawLength,
+				"actual_length": len(raw),
+			},
+			nil,
 		)
 	}
 	// Compute body hash as per Cardano spec: blake2b_256(hash_tx || hash_wit || hash_aux [|| hash_invalid])
@@ -73,11 +133,15 @@ func ValidateBlockBodyHash(
 
 	actualBodyHash := blake2b.Sum256(bodyHashes)
 	if !bytes.Equal(actualBodyHash[:], expectedBodyHash.Bytes()) {
-		return fmt.Errorf(
-			"%s block body hash mismatch during parsing: expected %x, got %x",
-			eraName,
-			expectedBodyHash.Bytes(),
-			actualBodyHash[:],
+		return NewValidationError(
+			ValidationErrorTypeBodyHash,
+			eraName+" block body hash mismatch during parsing",
+			map[string]any{
+				"era":           eraName,
+				"expected_hash": expectedBodyHash.String(),
+				"actual_hash":   hex.EncodeToString(actualBodyHash[:]),
+			},
+			nil,
 		)
 	}
 	return nil

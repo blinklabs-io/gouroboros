@@ -51,8 +51,19 @@ func TestVerifyTransaction(t *testing.T) {
 		}
 
 		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
-		if err != expectedErr {
-			t.Errorf("expected error %v, got %v", expectedErr, err)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var validationErr *ValidationError
+		if !errors.As(err, &validationErr) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+		if validationErr.Cause != expectedErr {
+			t.Errorf(
+				"expected cause %v, got %v",
+				expectedErr,
+				validationErr.Cause,
+			)
 		}
 	})
 
@@ -65,8 +76,19 @@ func TestVerifyTransaction(t *testing.T) {
 		}
 
 		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
-		if err != expectedErr {
-			t.Errorf("expected error %v, got %v", expectedErr, err)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var validationErr *ValidationError
+		if !errors.As(err, &validationErr) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+		if validationErr.Cause != expectedErr {
+			t.Errorf(
+				"expected cause %v, got %v",
+				expectedErr,
+				validationErr.Cause,
+			)
 		}
 	})
 
@@ -78,8 +100,19 @@ func TestVerifyTransaction(t *testing.T) {
 		}
 
 		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
-		if err != expectedErr {
-			t.Errorf("expected error %v, got %v", expectedErr, err)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var validationErr *ValidationError
+		if !errors.As(err, &validationErr) {
+			t.Fatalf("expected ValidationError, got %T", err)
+		}
+		if validationErr.Cause != expectedErr {
+			t.Errorf(
+				"expected cause %v, got %v",
+				expectedErr,
+				validationErr.Cause,
+			)
 		}
 	})
 
