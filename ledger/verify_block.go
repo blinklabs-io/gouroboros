@@ -483,7 +483,7 @@ func VerifyBlock(
 					map[string]any{
 						"block_slot":   slot,
 						"block_number": blockNo,
-						"era":          block.Era().Name,
+						"era":          era,
 					},
 					err,
 				)
@@ -517,6 +517,7 @@ func VerifyBlock(
 					"pool_key_hash": poolKeyHash.String(),
 					"block_slot":    slot,
 					"block_number":  blockNo,
+					"era":           era,
 				},
 				err,
 			)
@@ -529,6 +530,7 @@ func VerifyBlock(
 					"pool_key_hash": poolKeyHash.String(),
 					"block_slot":    slot,
 					"block_number":  blockNo,
+					"era":           era,
 				},
 				nil,
 			)
@@ -547,6 +549,7 @@ func VerifyBlock(
 					"block_vrf_hash":      expectedVrfKeyHash.String(),
 					"block_slot":          slot,
 					"block_number":        blockNo,
+					"era":                 era,
 				},
 				nil,
 			)
