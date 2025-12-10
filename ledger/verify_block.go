@@ -135,9 +135,15 @@ func extractHeaderFields(
 	case *conway.ConwayBlockHeader:
 		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
 	default:
-		return nil, nil, fmt.Errorf(
-			"VerifyBlock: unsupported block type for stake pool validation %T",
-			header,
+		return nil, nil, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"unsupported block type for stake pool validation",
+			map[string]any{
+				"block_type":   fmt.Sprintf("%T", header),
+				"slot":         header.SlotNumber(),
+				"block_number": header.BlockNumber(),
+			},
+			nil,
 		)
 	}
 }
@@ -154,9 +160,13 @@ func VerifyBlock(
 	// Decode eta0
 	eta0, err := hex.DecodeString(eta0Hex)
 	if err != nil {
-		return false, "", 0, 0, fmt.Errorf(
-			"VerifyBlock: eta0 decode error, %v",
-			err.Error(),
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"invalid eta0 parameter",
+			map[string]any{
+				"eta0_hex": eta0Hex,
+			},
+			err,
 		)
 	}
 
@@ -166,6 +176,7 @@ func VerifyBlock(
 	// Extract slot and block number from header
 	slot := header.SlotNumber()
 	blockNo := header.BlockNumber()
+	era := header.Era()
 
 	// VRF verification
 	var vrfValid bool
@@ -192,25 +203,48 @@ func VerifyBlock(
 		vrfResult = h.Body.VrfResult
 		vrfKey = h.Body.VrfKey
 	default:
-		return false, "", 0, 0, fmt.Errorf(
-			"VerifyBlock: unsupported block type for VRF %T",
-			block.Header(),
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"unsupported block type for VRF verification",
+			map[string]any{
+				"block_type":   fmt.Sprintf("%T", block.Header()),
+				"slot":         slot,
+				"block_number": blockNo,
+				"era":          era,
+			},
+			nil,
 		)
 	}
 
 	// Verify VRF
 	if slot > math.MaxInt64 {
-		return false, "", 0, 0, fmt.Errorf(
-			"VerifyBlock: slot value %d exceeds maximum int64 value",
-			slot,
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"slot value exceeds maximum int64 value",
+			map[string]any{
+				"slot":         slot,
+				"block_number": blockNo,
+				"era":          era,
+				"max_int64":    math.MaxInt64,
+			},
+			nil,
 		)
 	}
 	vrfMsg := MkInputVrf(int64(slot), eta0)
 	vrfValid, err = VerifyVrf(vrfKey, vrfResult.Proof, vrfResult.Output, vrfMsg)
 	if err != nil {
-		return false, "", 0, 0, fmt.Errorf(
-			"VerifyBlock: VRF verification error, %v",
-			err.Error(),
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeVRF,
+			"VRF verification failed",
+			map[string]any{
+				"slot":           slot,
+				"block_number":   blockNo,
+				"era":            era,
+				"vrf_key_len":    len(vrfKey),
+				"vrf_proof_len":  len(vrfResult.Proof),
+				"vrf_output_len": len(vrfResult.Output),
+			},
+			err,
 		)
 	}
 
@@ -225,8 +259,15 @@ func VerifyBlock(
 	case *shelley.ShelleyBlockHeader:
 		bodyCbor, err = cbor.Encode(h.Body)
 		if err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: failed to encode Shelley header body for KES, %w",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"failed to encode Shelley header body for KES verification",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+					"block_type":   "Shelley",
+				},
 				err,
 			)
 		}
@@ -236,8 +277,15 @@ func VerifyBlock(
 	case *allegra.AllegraBlockHeader:
 		bodyCbor, err = cbor.Encode(h.Body)
 		if err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: failed to encode Allegra header body for KES, %w",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"failed to encode Allegra header body for KES verification",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+					"block_type":   "Allegra",
+				},
 				err,
 			)
 		}
@@ -247,8 +295,15 @@ func VerifyBlock(
 	case *mary.MaryBlockHeader:
 		bodyCbor, err = cbor.Encode(h.Body)
 		if err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: failed to encode Mary header body for KES, %w",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"failed to encode Mary header body for KES verification",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+					"block_type":   "Mary",
+				},
 				err,
 			)
 		}
@@ -258,8 +313,15 @@ func VerifyBlock(
 	case *alonzo.AlonzoBlockHeader:
 		bodyCbor, err = cbor.Encode(h.Body)
 		if err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: failed to encode Alonzo header body for KES, %w",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"failed to encode Alonzo header body for KES verification",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+					"block_type":   "Alonzo",
+				},
 				err,
 			)
 		}
@@ -269,8 +331,15 @@ func VerifyBlock(
 	case *babbage.BabbageBlockHeader:
 		bodyCbor, err = cbor.Encode(h.Body)
 		if err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: failed to encode Babbage header body for KES, %w",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"failed to encode Babbage header body for KES verification",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+					"block_type":   "Babbage",
+				},
 				err,
 			)
 		}
@@ -280,8 +349,15 @@ func VerifyBlock(
 	case *conway.ConwayBlockHeader:
 		bodyCbor, err = cbor.Encode(h.Body)
 		if err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: failed to encode Conway header body for KES, %w",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"failed to encode Conway header body for KES verification",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+					"block_type":   "Conway",
+				},
 				err,
 			)
 		}
@@ -289,9 +365,16 @@ func VerifyBlock(
 		hotVkey = h.Body.OpCert.HotVkey
 		kesPeriod = uint64(h.Body.OpCert.KesPeriod)
 	default:
-		return false, "", 0, 0, fmt.Errorf(
-			"VerifyBlock: unsupported block type for KES %T",
-			block.Header(),
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"unsupported block type for KES verification",
+			map[string]any{
+				"block_type":   fmt.Sprintf("%T", block.Header()),
+				"slot":         slot,
+				"block_number": blockNo,
+				"era":          era,
+			},
+			nil,
 		)
 	}
 
@@ -304,9 +387,20 @@ func VerifyBlock(
 		slotsPerKesPeriod,
 	)
 	if err != nil {
-		return false, "", 0, 0, fmt.Errorf(
-			"VerifyBlock: KES verification error, %v",
-			err.Error(),
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeKES,
+			"KES verification failed",
+			map[string]any{
+				"slot":                 slot,
+				"block_number":         blockNo,
+				"era":                  era,
+				"kes_period":           kesPeriod,
+				"slots_per_kes_period": slotsPerKesPeriod,
+				"hot_vkey_len":         len(hotVkey),
+				"signature_len":        len(signature),
+				"body_cbor_len":        len(bodyCbor),
+			},
+			err,
 		)
 	}
 
@@ -319,8 +413,16 @@ func VerifyBlock(
 	if block.Era() != byron.EraByron && !config.SkipBodyHashValidation {
 		rawCbor := block.Cbor()
 		if len(rawCbor) == 0 {
-			return false, "", 0, 0, errors.New(
-				"VerifyBlock: block CBOR is required for body hash verification",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeConfiguration,
+				"block CBOR is required for body hash verification",
+				map[string]any{
+					"slot":                      slot,
+					"block_number":              blockNo,
+					"era":                       era,
+					"skip_body_hash_validation": config.SkipBodyHashValidation,
+				},
+				nil,
 			)
 		}
 		era := block.Era()
@@ -361,14 +463,28 @@ func VerifyBlock(
 			)
 		}
 		if config.LedgerState == nil || config.ProtocolParameters == nil {
-			return false, "", 0, 0, errors.New(
-				"VerifyBlock: missing required config field: LedgerState and ProtocolParameters must be set",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeConfiguration,
+				"missing required config fields for transaction validation",
+				map[string]any{
+					"has_ledger_state":     config.LedgerState != nil,
+					"has_protocol_params":  config.ProtocolParameters != nil,
+					"skip_tx_validation":   config.SkipTransactionValidation,
+					"skip_pool_validation": config.SkipStakePoolValidation,
+				},
+				nil,
 			)
 		}
 		for _, tx := range block.Transactions() {
 			if err := common.VerifyTransaction(tx, slot, config.LedgerState, config.ProtocolParameters, validationRules); err != nil {
-				return false, "", 0, 0, fmt.Errorf(
-					"VerifyBlock: transaction validation failed: %w",
+				return false, "", 0, 0, common.NewValidationError(
+					common.ValidationErrorTypeTransaction,
+					"block transaction validation failed",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+						"era":          block.Era().Name,
+					},
 					err,
 				)
 			}
@@ -394,15 +510,27 @@ func VerifyBlock(
 		// Check if pool is registered
 		poolCert, _, err := config.LedgerState.PoolCurrentState(poolKeyHash)
 		if err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: failed to query pool state: %w",
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeStakePool,
+				"failed to query pool state",
+				map[string]any{
+					"pool_key_hash": poolKeyHash.String(),
+					"block_slot":    slot,
+					"block_number":  blockNo,
+				},
 				err,
 			)
 		}
 		if poolCert == nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: pool %s is not registered",
-				poolKeyHash.String(),
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeStakePool,
+				"pool is not registered",
+				map[string]any{
+					"pool_key_hash": poolKeyHash.String(),
+					"block_slot":    slot,
+					"block_number":  blockNo,
+				},
+				nil,
 			)
 		}
 
@@ -410,11 +538,17 @@ func VerifyBlock(
 		registeredVrfKeyHash := poolCert.VrfKeyHash
 		expectedVrfKeyHash := common.Blake2b256Hash(blockVrfKey)
 		if registeredVrfKeyHash != expectedVrfKeyHash {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: VRF key mismatch for pool %s: expected %s, got %s",
-				poolKeyHash.String(),
-				registeredVrfKeyHash.String(),
-				expectedVrfKeyHash.String(),
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeVRF,
+				"VRF key mismatch for pool",
+				map[string]any{
+					"pool_key_hash":       poolKeyHash.String(),
+					"registered_vrf_hash": registeredVrfKeyHash.String(),
+					"block_vrf_hash":      expectedVrfKeyHash.String(),
+					"block_slot":          slot,
+					"block_number":        blockNo,
+				},
+				nil,
 			)
 		}
 	}

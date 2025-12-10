@@ -14,7 +14,14 @@
 
 package common
 
-type UtxoValidationRuleFunc func(Transaction, uint64, LedgerState, ProtocolParameters) error
+// UtxoValidationRuleFunc represents a function that validates a transaction
+// against a specific UTXO validation rule.
+type UtxoValidationRuleFunc func(
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
+) error
 
 // VerifyTransaction validates a transaction against the given validation rules.
 // It runs all provided UtxoValidationRuleFunc functions and returns the first error encountered,
@@ -26,9 +33,21 @@ func VerifyTransaction(
 	protocolParams ProtocolParameters,
 	validationRules []UtxoValidationRuleFunc,
 ) error {
-	for _, rule := range validationRules {
+	for i, rule := range validationRules {
 		if err := rule(tx, slot, ledgerState, protocolParams); err != nil {
-			return err
+			details := map[string]any{
+				"rule_index": i,
+				"slot":       slot,
+			}
+			if tx != nil {
+				details["tx_hash"] = tx.Hash().String()
+			}
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"transaction validation failed",
+				details,
+				err,
+			)
 		}
 	}
 	return nil
