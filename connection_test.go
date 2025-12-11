@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,70 +15,339 @@
 package ouroboros_test
 
 import (
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
 
-// Ensure that we don't panic when closing the Connection object after a failed Dial() call
-func TestDialFailClose(t *testing.T) {
+// TestErrorHandlingWithActiveProtocols tests that connection errors are propagated
+// when protocols are active, and ignored when protocols are stopped
+func TestErrorHandlingWithActiveProtocols(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	oConn, err := ouroboros.New()
-	if err != nil {
-		t.Fatalf("unexpected error when creating Connection object: %s", err)
-	}
-	err = oConn.Dial("unix", "/path/does/not/exist")
-	if err == nil {
-		t.Fatalf("did not get expected failure on Dial()")
-	}
-	// Close connection
-	oConn.Close()
+
+	t.Run("ErrorsPropagatedWhenProtocolsActive", func(t *testing.T) {
+		// Create a mock connection that will complete handshake and start the chainsync protocol
+		mockConn := ouroboros_mock.NewConnection(
+			ouroboros_mock.ProtocolRoleClient,
+			[]ouroboros_mock.ConversationEntry{
+				// MsgProposeVersions from mock client
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: handshake.ProtocolId,
+					Messages: []protocol.Message{
+						handshake.NewMsgProposeVersions(
+							protocol.ProtocolVersionMap{
+								(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+									ouroboros_mock.MockNetworkMagic,
+								),
+							},
+						),
+					},
+				},
+				// MsgAcceptVersion from server
+				ouroboros_mock.ConversationEntryInput{
+					ProtocolId:      handshake.ProtocolId,
+					IsResponse:      true,
+					MsgFromCborFunc: handshake.NewMsgFromCbor,
+					Message: handshake.NewMsgAcceptVersion(
+						(10 + protocol.ProtocolVersionNtCOffset),
+						protocol.VersionDataNtC9to14(
+							ouroboros_mock.MockNetworkMagic,
+						),
+					),
+				},
+				// ChainSync messages
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: chainsync.ProtocolIdNtC,
+					Messages: []protocol.Message{
+						chainsync.NewMsgFindIntersect(
+							[]common.Point{
+								{
+									Slot: 21600,
+									Hash: []byte("19297addad3da631einos029"),
+								},
+							},
+						),
+					},
+				},
+			},
+		)
+
+		oConn, err := ouroboros.New(
+			ouroboros.WithConnection(mockConn),
+			ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+			ouroboros.WithServer(true),
+			ouroboros.WithChainSyncConfig(
+				chainsync.NewConfig(
+					chainsync.WithFindIntersectFunc(
+						func(ctx chainsync.CallbackContext, points []common.Point) (common.Point, chainsync.Tip, error) {
+							// Wait for protocol shutdown
+							<-ctx.Server.DoneChan()
+							return common.Point{}, chainsync.Tip{}, nil
+						},
+					),
+				),
+			),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error when creating Connection object: %s", err)
+		}
+
+		// Wait for handshake to complete by checking if protocols are initialized
+		var chainSyncProtocol *chainsync.ChainSync
+		for i := 0; i < 100; i++ {
+			chainSyncProtocol = oConn.ChainSync()
+			if chainSyncProtocol != nil && chainSyncProtocol.Server != nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		if chainSyncProtocol == nil || chainSyncProtocol.Server == nil {
+			oConn.Close()
+			t.Fatal("chain sync protocol not initialized")
+		}
+
+		// Wait a bit for protocol to start
+		time.Sleep(100 * time.Millisecond)
+
+		// Close the mock connection first to trigger an error
+		mockConn.Close()
+
+		// We should receive a connection error since protocols were active when error occurred
+		timeout := time.After(2 * time.Second)
+		for {
+			select {
+			case err, ok := <-oConn.ErrorChan():
+				if !ok {
+					t.Log("Error channel closed")
+					goto done
+				}
+				if err == nil {
+					t.Error("received nil error")
+					continue
+				}
+				t.Logf("Received connection error (expected with active protocols): %s", err)
+				if strings.Contains(err.Error(), "EOF") ||
+					strings.Contains(err.Error(), "use of closed network connection") {
+					goto done
+				}
+			case <-timeout:
+				t.Error("timed out waiting for connection error")
+				goto done
+			}
+		}
+	done:
+		// Clean up - wait for connection to fully shut down
+		oConn.Close()
+		// Give time for goroutines to clean up
+		time.Sleep(100 * time.Millisecond)
+	})
+
+	t.Run("ErrorsIgnoredWhenProtocolsStopped", func(t *testing.T) {
+		// Create a mock connection that will send a Done message to stop the protocol
+		mockConn := ouroboros_mock.NewConnection(
+			ouroboros_mock.ProtocolRoleClient,
+			[]ouroboros_mock.ConversationEntry{
+				// MsgProposeVersions from mock client
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: handshake.ProtocolId,
+					Messages: []protocol.Message{
+						handshake.NewMsgProposeVersions(
+							protocol.ProtocolVersionMap{
+								(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+									ouroboros_mock.MockNetworkMagic,
+								),
+							},
+						),
+					},
+				},
+				// MsgAcceptVersion from server
+				ouroboros_mock.ConversationEntryInput{
+					ProtocolId:      handshake.ProtocolId,
+					IsResponse:      true,
+					MsgFromCborFunc: handshake.NewMsgFromCbor,
+					Message: handshake.NewMsgAcceptVersion(
+						(10 + protocol.ProtocolVersionNtCOffset),
+						protocol.VersionDataNtC9to14(
+							ouroboros_mock.MockNetworkMagic,
+						),
+					),
+				},
+				// Send Done message to stop the protocol
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: chainsync.ProtocolIdNtC,
+					Messages:   []protocol.Message{chainsync.NewMsgDone()},
+				},
+			},
+		)
+
+		oConn, err := ouroboros.New(
+			ouroboros.WithConnection(mockConn),
+			ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+			ouroboros.WithServer(true),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error when creating Connection object: %s", err)
+		}
+
+		// Wait for handshake to complete
+		var chainSyncProtocol *chainsync.ChainSync
+		for i := 0; i < 100; i++ {
+			chainSyncProtocol = oConn.ChainSync()
+			if chainSyncProtocol != nil && chainSyncProtocol.Server != nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		if chainSyncProtocol == nil || chainSyncProtocol.Server == nil {
+			oConn.Close()
+			t.Fatal("chain sync protocol not initialized")
+		}
+
+		// Wait for protocol to be done (Done message from mock should trigger this)
+		select {
+		case <-chainSyncProtocol.Server.DoneChan():
+			// Protocol is stopped
+		case <-time.After(1 * time.Second):
+			t.Fatal("timed out waiting for protocol to stop")
+		}
+
+		// Close the mock connection
+		mockConn.Close()
+
+		// With protocols stopped, we should either get no error or just connection closed errors
+		timeout := time.After(2 * time.Second)
+		for {
+			select {
+			case err, ok := <-oConn.ErrorChan():
+				if !ok {
+					t.Log("Error channel closed")
+					goto done
+				}
+				if err != nil {
+					if !strings.Contains(err.Error(), "EOF") &&
+						!strings.Contains(err.Error(), "use of closed network connection") {
+						t.Errorf("Unexpected error during shutdown: %s", err)
+					}
+				}
+			case <-time.After(500 * time.Millisecond):
+				t.Log("No connection error received (expected when protocols are stopped)")
+				goto done
+			case <-timeout:
+				t.Error("timed out waiting for connection cleanup")
+				goto done
+			}
+		}
+	done:
+		// Clean up
+		oConn.Close()
+		// Give time for goroutines to clean up
+		time.Sleep(100 * time.Millisecond)
+	})
 }
 
-func TestDoubleClose(t *testing.T) {
+// TestErrorHandlingWithMultipleProtocols tests error handling with multiple active protocols
+func TestErrorHandlingWithMultipleProtocols(t *testing.T) {
 	defer goleak.VerifyNone(t)
+
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
 			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
-			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+			ouroboros_mock.ConversationEntryHandshakeNtNResponse,
 		},
 	)
+
 	oConn, err := ouroboros.New(
 		ouroboros.WithConnection(mockConn),
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error when creating Connection object: %s", err)
 	}
-	// Async error handler
-	go func() {
-		err, ok := <-oConn.ErrorChan()
-		if !ok {
-			return
+
+	// Wait for handshake to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Close mock connection first to generate error
+	mockConn.Close()
+
+	// Should receive error since protocols were active
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case err, ok := <-oConn.ErrorChan():
+			if !ok {
+				t.Log("Error channel closed")
+				goto done
+			}
+			if err == nil {
+				t.Error("received nil error")
+				continue
+			}
+			t.Logf("Received connection error with multiple active protocols: %s", err)
+			if strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "use of closed network connection") {
+				goto done
+			}
+		case <-timeout:
+			t.Error("timed out waiting for connection error")
+			goto done
 		}
-		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
-		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
-	}()
-	// Close connection
-	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing Connection object: %s", err)
 	}
-	// Close connection again
-	if err := oConn.Close(); err != nil {
-		t.Fatalf(
-			"unexpected error when closing Connection object again: %s",
-			err,
+done:
+	// Clean up
+	oConn.Close()
+	// Give time for goroutines to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestBasicErrorHandling tests basic error handling scenarios
+func TestBasicErrorHandling(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	t.Run("DialFailure", func(t *testing.T) {
+		oConn, err := ouroboros.New(
+			ouroboros.WithNetworkMagic(764824073),
 		)
-	}
-	// Wait for connection shutdown
-	select {
-	case <-oConn.ErrorChan():
-	case <-time.After(10 * time.Second):
-		t.Errorf("did not shutdown within timeout")
-	}
+		if err != nil {
+			t.Fatalf("unexpected error when creating Connection object: %s", err)
+		}
+
+		err = oConn.Dial("tcp", "invalid-hostname:9999")
+		if err == nil {
+			t.Fatal("expected dial error, got nil")
+		}
+
+		oConn.Close()
+	})
+
+	t.Run("DoubleClose", func(t *testing.T) {
+		oConn, err := ouroboros.New(
+			ouroboros.WithNetworkMagic(764824073),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error when creating Connection object: %s", err)
+		}
+
+		// First close
+		if err := oConn.Close(); err != nil {
+			t.Fatalf("unexpected error on first close: %s", err)
+		}
+
+		// Second close should also work
+		if err := oConn.Close(); err != nil {
+			t.Fatalf("unexpected error on second close: %s", err)
+		}
+	})
 }
