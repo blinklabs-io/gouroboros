@@ -836,10 +836,18 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// GetPoolDistr always requires a pool set parameter according to the Haskell implementation
+	// The query expects (len=2, tag=21) format: [21, Set(poolIds)]
+	// If no pool IDs specified, use an empty set to query all pools
+	var params []any
+	if poolIds == nil {
+		poolIds = []any{}
+	}
+	params = append(params, poolIds)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolDistr,
-		// TODO: add args (#870)
+		params...,
 	)
 	var result PoolDistrResult
 	if err := c.runQuery(query, &result); err != nil {

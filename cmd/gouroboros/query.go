@@ -315,6 +315,31 @@ func testQuery(f *globalFlags) {
 			os.Exit(1)
 		}
 		fmt.Printf("proposed-protocol-params-updates: %v\n", *proposedUpdates)
+	case "pool-distr":
+		// GetPoolDistr without specific pool IDs to get all pools distribution
+		poolDistr, err := o.LocalStateQuery().Client.GetPoolDistr(nil)
+		if err != nil {
+			fmt.Printf(
+				"ERROR: failure querying pool distribution: %s\n",
+				err,
+			)
+			os.Exit(1)
+		}
+		fmt.Printf("pool-distr (raw): %#v\n", poolDistr)
+
+		// Build a JSON-friendly view: map pool ID (hex) -> entry
+		jsonResults := make(map[string]any, len(poolDistr.Results))
+		for poolID, entry := range poolDistr.Results {
+			// PoolId is [28]byte; represent as hex for debugging
+			jsonKey := hex.EncodeToString(poolID[:])
+			jsonResults[jsonKey] = entry
+		}
+		jsonData, err := json.Marshal(jsonResults)
+		if err != nil {
+			fmt.Printf("pool-distr (JSON marshaling failed): %s\n", err)
+		} else {
+			fmt.Printf("pool-distr (JSON): %s\n", string(jsonData))
+		}
 	default:
 		fmt.Printf("ERROR: unknown query: %s\n", queryFlags.flagset.Args()[0])
 		os.Exit(1)
