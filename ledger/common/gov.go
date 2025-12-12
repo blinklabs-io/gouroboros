@@ -15,10 +15,12 @@
 package common
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/btcsuite/btcd/btcutil/bech32"
 )
 
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
@@ -36,6 +38,69 @@ type Voter struct {
 	cbor.StructAsArray
 	Type uint8
 	Hash [28]byte
+}
+
+func encodeCip129Voter(
+	prefix string,
+	keyType uint8,
+	credentialType uint8,
+	hash []byte,
+) string {
+	// Header packs the 4-bit key type (per CIP-129) in the high nibble and the credential semantics in the low nibble.
+	// Since CIP-129 reserves values 0 and 1, we offset the existing credential constants (0 = key hash, 1 = script hash) by 2
+	// so the output nibble matches the spec's 0x2/0x3 tags.
+	header := byte((keyType << 4) | ((credentialType + 2) & 0x0f))
+	data := make([]byte, 1+len(hash))
+	data[0] = header
+	copy(data[1:], hash)
+	convData, err := bech32.ConvertBits(data, 8, 5, true)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error converting voter data to base32: %s", err))
+	}
+	encoded, err := bech32.Encode(prefix, convData)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error encoding voter data as bech32: %s", err))
+	}
+	return encoded
+}
+
+// Generates bech32-encoded identifier for the voter credential.
+func (v Voter) String() string {
+	switch v.Type {
+	case VoterTypeConstitutionalCommitteeHotKeyHash:
+		return encodeCip129Voter(
+			"cc_hot",
+			VoterTypeConstitutionalCommitteeHotKeyHash,
+			CredentialTypeAddrKeyHash,
+			v.Hash[:],
+		)
+	case VoterTypeConstitutionalCommitteeHotScriptHash:
+		return encodeCip129Voter(
+			"cc_hot",
+			VoterTypeConstitutionalCommitteeHotKeyHash,
+			CredentialTypeScriptHash,
+			v.Hash[:],
+		)
+	case VoterTypeDRepKeyHash:
+		return encodeCip129Voter(
+			"drep",
+			VoterTypeDRepKeyHash,
+			CredentialTypeAddrKeyHash,
+			v.Hash[:],
+		)
+	case VoterTypeDRepScriptHash:
+		return encodeCip129Voter(
+			"drep",
+			VoterTypeDRepKeyHash,
+			CredentialTypeScriptHash,
+			v.Hash[:],
+		)
+	case VoterTypeStakingPoolKeyHash:
+		poolId := PoolId(v.Hash)
+		return poolId.String()
+	default:
+		panic(fmt.Sprintf("unknown voter type: %d", v.Type))
+	}
 }
 
 func (v Voter) ToPlutusData() data.PlutusData {
