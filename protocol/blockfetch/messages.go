@@ -19,7 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // MessageTypeRequestRange is the message type for requesting a range of blocks.
@@ -70,12 +70,15 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 // MsgRequestRange represents a request for a range of blocks.
 type MsgRequestRange struct {
 	protocol.MessageBase
-	Start common.Point // Start point of the range
-	End   common.Point // End point of the range
+	Start pcommon.Point // Start point of the range
+	End   pcommon.Point // End point of the range
 }
 
 // NewMsgRequestRange creates a new MsgRequestRange with the given start and end points.
-func NewMsgRequestRange(start common.Point, end common.Point) *MsgRequestRange {
+func NewMsgRequestRange(
+	start pcommon.Point,
+	end pcommon.Point,
+) *MsgRequestRange {
 	m := &MsgRequestRange{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRequestRange,

@@ -23,7 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Client implements the LocalStateQuery client
@@ -114,7 +114,7 @@ func (c *Client) Start() {
 }
 
 // Acquire starts the acquire process for the specified chain point
-func (c *Client) Acquire(point *common.Point) error {
+func (c *Client) Acquire(point *pcommon.Point) error {
 	// Use volatile tip if no point provided
 	if point == nil {
 		return c.AcquireVolatileTip()
@@ -240,7 +240,7 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 }
 
 // GetChainPoint returns the current chain tip
-func (c *Client) GetChainPoint() (*common.Point, error) {
+func (c *Client) GetChainPoint() (*pcommon.Point, error) {
 	c.Protocol.Logger().
 		Debug("calling GetChainPoint()",
 			"component", "network",
@@ -253,7 +253,7 @@ func (c *Client) GetChainPoint() (*common.Point, error) {
 	query := buildQuery(
 		QueryTypeChainPoint,
 	)
-	var result common.Point
+	var result pcommon.Point
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}

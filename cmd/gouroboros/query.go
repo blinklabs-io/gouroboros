@@ -25,6 +25,7 @@ import (
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 )
 
@@ -180,13 +181,13 @@ func testQuery(f *globalFlags) {
 		}
 		fmt.Printf("genesis-config: %#v\n", *genesisConfig)
 	case "pool-params":
-		var tmpPools []ledger.PoolId
+		var tmpPools []lcommon.PoolId
 		if len(queryFlags.flagset.Args()) <= 1 {
 			fmt.Println("No pools specified")
 			os.Exit(1)
 		}
 		for _, pool := range queryFlags.flagset.Args()[1:] {
-			tmpPoolId, err := ledger.NewPoolIdFromBech32(pool)
+			tmpPoolId, err := lcommon.NewPoolIdFromBech32(pool)
 			if err != nil {
 				fmt.Printf("Invalid bech32 pool ID %q: %s", pool, err)
 				os.Exit(1)
@@ -202,13 +203,13 @@ func testQuery(f *globalFlags) {
 		}
 		fmt.Printf("pool-params: %#v\n", *poolParams)
 	case "utxos-by-address":
-		var tmpAddrs []ledger.Address
+		var tmpAddrs []lcommon.Address
 		if len(queryFlags.flagset.Args()) <= 1 {
 			fmt.Println("No addresses specified")
 			os.Exit(1)
 		}
 		for _, addr := range queryFlags.flagset.Args()[1:] {
-			tmpAddr, err := ledger.NewAddress(addr)
+			tmpAddr, err := lcommon.NewAddress(addr)
 			if err != nil {
 				fmt.Printf("Invalid address %q: %s", addr, err)
 				os.Exit(1)
@@ -234,7 +235,7 @@ func testQuery(f *globalFlags) {
 			}
 		}
 	case "utxos-by-txin":
-		var tmpTxIns []ledger.TransactionInput
+		var tmpTxIns []lcommon.TransactionInput
 		if len(queryFlags.flagset.Args()) <= 1 {
 			fmt.Println("No UTxO IDs specified")
 			os.Exit(1)

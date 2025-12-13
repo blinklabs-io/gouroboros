@@ -27,7 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
@@ -146,7 +146,7 @@ func TestGetCurrentEra(t *testing.T) {
 }
 
 func TestGetChainPoint(t *testing.T) {
-	expectedPoint := ocommon.NewPoint(123, []byte{0xa, 0xb, 0xc})
+	expectedPoint := pcommon.NewPoint(123, []byte{0xa, 0xb, 0xc})
 	cborData, err := cbor.Encode(expectedPoint)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)

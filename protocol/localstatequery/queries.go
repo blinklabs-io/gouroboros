@@ -21,7 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
-	"github.com/blinklabs-io/gouroboros/ledger/common"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // Query types
@@ -271,7 +271,7 @@ type ShelleyStakeDistributionQuery struct {
 type ShelleyUtxoByAddressQuery struct {
 	cbor.StructAsArray
 	Type  int
-	Addrs []ledger.Address
+	Addrs []lcommon.Address
 }
 
 type ShelleyUtxoWholeQuery struct {
@@ -522,7 +522,7 @@ type CurrentProtocolParamsResult interface {
 		any
 }
 
-type ProposedProtocolParamsUpdatesResult map[common.GenesisHash]common.ProtocolParameterUpdate
+type ProposedProtocolParamsUpdatesResult map[lcommon.GenesisHash]lcommon.ProtocolParameterUpdate
 
 type StakeDistributionResult struct {
 	cbor.StructAsArray

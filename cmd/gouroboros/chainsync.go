@@ -23,9 +23,10 @@ import (
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 var oConn *ouroboros.Connection
@@ -191,7 +192,7 @@ func testChainSync(f *globalFlags) {
 	}
 	oConn = o
 
-	var point common.Point
+	var point pcommon.Point
 	if chainSyncFlags.tip {
 		tip, err := oConn.ChainSync().Client.GetCurrentTip()
 		if err != nil {
@@ -204,13 +205,13 @@ func testChainSync(f *globalFlags) {
 		slot := uint64(intersectPoint[0].(int)) // #nosec G115
 		// Block hash
 		hash, _ := hex.DecodeString(intersectPoint[1].(string))
-		point = common.NewPoint(slot, hash)
+		point = pcommon.NewPoint(slot, hash)
 	} else {
-		point = common.NewPointOrigin()
+		point = pcommon.NewPointOrigin()
 	}
 	if chainSyncFlags.blockRange {
 		start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange(
-			[]common.Point{point},
+			[]pcommon.Point{point},
 		)
 		if err != nil {
 			fmt.Printf("ERROR: failed to get available block range: %s\n", err)
@@ -220,12 +221,12 @@ func testChainSync(f *globalFlags) {
 		fmt.Printf("End (tip): slot %d, hash %x\n", end.Slot, end.Hash)
 		return
 	} else if !f.ntnProto || !chainSyncFlags.bulk {
-		if err := oConn.ChainSync().Client.Sync([]common.Point{point}); err != nil {
+		if err := oConn.ChainSync().Client.Sync([]pcommon.Point{point}); err != nil {
 			fmt.Printf("ERROR: failed to start chain-sync: %s\n", err)
 			os.Exit(1)
 		}
 	} else {
-		start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange([]common.Point{point})
+		start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange([]pcommon.Point{point})
 		if err != nil {
 			fmt.Printf("ERROR: failed to get available block range: %s\n", err)
 			os.Exit(1)
@@ -246,7 +247,7 @@ func testChainSync(f *globalFlags) {
 
 func chainSyncRollBackwardHandler(
 	ctx chainsync.CallbackContext,
-	point common.Point,
+	point pcommon.Point,
 	tip chainsync.Tip,
 ) error {
 	fmt.Printf("roll backward: point = %#v, tip = %#v\n", point, tip)
@@ -259,18 +260,18 @@ func chainSyncRollForwardHandler(
 	blockData any,
 	tip chainsync.Tip,
 ) error {
-	var block ledger.Block
+	var block lcommon.Block
 	switch v := blockData.(type) {
-	case ledger.Block:
+	case lcommon.Block:
 		block = v
-	case ledger.BlockHeader:
+	case lcommon.BlockHeader:
 		blockSlot := v.SlotNumber()
 		blockHash := v.Hash().Bytes()
 		var err error
 		if oConn == nil {
 			return errors.New("empty ouroboros connection, aborting")
 		}
-		block, err = oConn.BlockFetch().Client.GetBlock(common.NewPoint(blockSlot, blockHash))
+		block, err = oConn.BlockFetch().Client.GetBlock(pcommon.NewPoint(blockSlot, blockHash))
 		if err != nil {
 			return err
 		}
@@ -313,14 +314,14 @@ func chainSyncRollForwardHandler(
 func blockFetchBlockHandler(
 	ctx blockfetch.CallbackContext,
 	blockType uint,
-	blockData ledger.Block,
+	blockData lcommon.Block,
 ) error {
 	switch block := blockData.(type) {
 	case *ledger.ByronEpochBoundaryBlock:
 		fmt.Printf("era = Byron (EBB), epoch = %d, slot = %d, block_no = %d, id = %s\n", block.BlockHeader.ConsensusData.Epoch, block.SlotNumber(), block.BlockNumber(), block.Hash())
 	case *ledger.ByronMainBlock:
 		fmt.Printf("era = Byron, epoch = %d, slot = %d, block_no = %d, id = %s\n", block.BlockHeader.ConsensusData.SlotId.Epoch, block.SlotNumber(), block.BlockNumber(), block.Hash())
-	case ledger.Block:
+	case lcommon.Block:
 		fmt.Printf("era = %s, slot = %d, block_no = %d, id = %s\n", block.Era().Name, block.SlotNumber(), block.BlockNumber(), block.Hash())
 	}
 	return nil

@@ -27,7 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
-	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
@@ -117,7 +117,7 @@ func TestIntersectNotFound(t *testing.T) {
 					chainsync.Tip{
 						// NOTE: these values don't matter
 						BlockNumber: 12345,
-						Point:       ocommon.NewPointOrigin(),
+						Point:       pcommon.NewPointOrigin(),
 					},
 				),
 			},
@@ -128,7 +128,7 @@ func TestIntersectNotFound(t *testing.T) {
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			// Start sync with "bad" intersect points
-			err := oConn.ChainSync().Client.Sync([]ocommon.Point{})
+			err := oConn.ChainSync().Client.Sync([]pcommon.Point{})
 			if err == nil {
 				t.Fatalf("did not receive expected error")
 			}
@@ -149,7 +149,7 @@ func TestIntersectNotFound(t *testing.T) {
 func TestGetCurrentTip(t *testing.T) {
 	expectedTip := chainsync.Tip{
 		BlockNumber: 12345,
-		Point: ocommon.NewPoint(
+		Point: pcommon.NewPoint(
 			23456,
 			test.DecodeHexString("0123456789abcdef"),
 		),
@@ -187,13 +187,13 @@ func TestGetCurrentTip(t *testing.T) {
 }
 
 func TestGetAvailableBlockRange(t *testing.T) {
-	expectedIntersect := ocommon.NewPoint(
+	expectedIntersect := pcommon.NewPoint(
 		20001,
 		test.DecodeHexString("123456789abcdef0"),
 	)
 	expectedTip := chainsync.Tip{
 		BlockNumber: 12345,
-		Point: ocommon.NewPoint(
+		Point: pcommon.NewPoint(
 			23456,
 			test.DecodeHexString("0123456789abcdef"),
 		),
@@ -213,7 +213,7 @@ func TestGetAvailableBlockRange(t *testing.T) {
 	if _, err := cbor.Decode(blockCbor, &testBlock); err != nil {
 		t.Fatalf("received unexpected error: %s", err)
 	}
-	expectedStart := ocommon.NewPoint(
+	expectedStart := pcommon.NewPoint(
 		testBlock.SlotNumber(),
 		testBlock.Hash().Bytes(),
 	)
@@ -264,7 +264,7 @@ func TestGetAvailableBlockRange(t *testing.T) {
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			start, end, err := oConn.ChainSync().Client.GetAvailableBlockRange(
-				[]ocommon.Point{expectedIntersect},
+				[]pcommon.Point{expectedIntersect},
 			)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
