@@ -55,11 +55,21 @@ func encodeCip129Voter(
 	copy(data[1:], hash)
 	convData, err := bech32.ConvertBits(data, 8, 5, true)
 	if err != nil {
-		panic(fmt.Sprintf("unexpected error converting voter data to base32: %s", err))
+		panic(
+			fmt.Sprintf(
+				"unexpected error converting voter data to base32: %s",
+				err,
+			),
+		)
 	}
 	encoded, err := bech32.Encode(prefix, convData)
 	if err != nil {
-		panic(fmt.Sprintf("unexpected error encoding voter data as bech32: %s", err))
+		panic(
+			fmt.Sprintf(
+				"unexpected error encoding voter data as bech32: %s",
+				err,
+			),
+		)
 	}
 	return encoded
 }

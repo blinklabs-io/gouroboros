@@ -24,7 +24,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 type testDefinition struct {
@@ -37,7 +37,7 @@ type testDefinition struct {
 var tests = []testDefinition{
 	{
 		CborHex:     "820080",
-		Message:     NewMsgAcquire(common.Point{}),
+		Message:     NewMsgAcquire(pcommon.Point{}),
 		MessageType: MessageTypeAcquire,
 	},
 	{
@@ -78,7 +78,7 @@ var tests = []testDefinition{
 	},
 	{
 		CborHex:     "820680",
-		Message:     NewMsgReAcquire(common.Point{}),
+		Message:     NewMsgReAcquire(pcommon.Point{}),
 		MessageType: MessageTypeReacquire,
 	},
 	{

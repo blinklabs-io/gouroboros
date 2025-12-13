@@ -20,7 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Server implements the ChainSync server
@@ -81,7 +81,7 @@ func (s *Server) initProtocol() {
 	s.Protocol = protocol.New(protoConfig)
 }
 
-func (s *Server) RollBackward(point common.Point, tip Tip) error {
+func (s *Server) RollBackward(point pcommon.Point, tip Tip) error {
 	s.Protocol.Logger().
 		Debug(
 			fmt.Sprintf("calling RollBackward(point: {Slot: %d, Hash: %x}, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})",

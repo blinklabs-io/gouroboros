@@ -19,7 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Message types
@@ -200,11 +200,11 @@ func NewMsgRollForwardNtN(
 
 type MsgRollBackward struct {
 	protocol.MessageBase
-	Point common.Point
+	Point pcommon.Point
 	Tip   Tip
 }
 
-func NewMsgRollBackward(point common.Point, tip Tip) *MsgRollBackward {
+func NewMsgRollBackward(point pcommon.Point, tip Tip) *MsgRollBackward {
 	m := &MsgRollBackward{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRollBackward,
@@ -217,10 +217,10 @@ func NewMsgRollBackward(point common.Point, tip Tip) *MsgRollBackward {
 
 type MsgFindIntersect struct {
 	protocol.MessageBase
-	Points []common.Point
+	Points []pcommon.Point
 }
 
-func NewMsgFindIntersect(points []common.Point) *MsgFindIntersect {
+func NewMsgFindIntersect(points []pcommon.Point) *MsgFindIntersect {
 	m := &MsgFindIntersect{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeFindIntersect,
@@ -232,11 +232,11 @@ func NewMsgFindIntersect(points []common.Point) *MsgFindIntersect {
 
 type MsgIntersectFound struct {
 	protocol.MessageBase
-	Point common.Point
+	Point pcommon.Point
 	Tip   Tip
 }
 
-func NewMsgIntersectFound(point common.Point, tip Tip) *MsgIntersectFound {
+func NewMsgIntersectFound(point pcommon.Point, tip Tip) *MsgIntersectFound {
 	m := &MsgIntersectFound{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeIntersectFound,
@@ -276,4 +276,4 @@ func NewMsgDone() *MsgDone {
 }
 
 // Tip is an alias to keep historical code from breaking after moving this elsewhere
-type Tip = common.Tip
+type Tip = pcommon.Tip
