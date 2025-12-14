@@ -23,7 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Client implements the Block Fetch protocol client, which requests blocks from a server.
@@ -122,7 +122,7 @@ func (c *Client) Stop() error {
 
 // GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive).
 // The provided callbacks are used for each block and when the batch is done.
-func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
+func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 	c.Protocol.Logger().
 		Debug(
 			fmt.Sprintf("calling GetBlockRange(start: {Slot: %d, Hash: %x}, end: {Slot: %d, Hash: %x})",
@@ -158,7 +158,7 @@ func (c *Client) GetBlockRange(start common.Point, end common.Point) error {
 
 // GetBlock requests and returns a single block specified by the provided point.
 // This is a synchronous call that returns the block or an error.
-func (c *Client) GetBlock(point common.Point) (ledger.Block, error) {
+func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 	c.Protocol.Logger().
 		Debug(
 			fmt.Sprintf("calling GetBlock(point: {Slot: %d, Hash: %x})", point.Slot, point.Hash),

@@ -25,7 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
-	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
 	"go.uber.org/goleak"
 )
@@ -151,7 +151,7 @@ func TestGetBlock(t *testing.T) {
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			blk, err := oConn.BlockFetch().Client.GetBlock(
-				ocommon.NewPoint(
+				pcommon.NewPoint(
 					testBlockSlot,
 					testBlockHash,
 				),
@@ -197,7 +197,7 @@ func TestGetBlockNoBlocks(t *testing.T) {
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			_, err := oConn.BlockFetch().Client.GetBlock(
-				ocommon.NewPoint(
+				pcommon.NewPoint(
 					12345,
 					test.DecodeHexString("abcdef0123456789"),
 				),

@@ -20,7 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Protocol identifiers
@@ -133,7 +133,7 @@ type AcquireTarget interface {
 }
 
 type AcquireSpecificPoint struct {
-	Point common.Point
+	Point pcommon.Point
 }
 
 func (AcquireSpecificPoint) isAcquireTarget() {}

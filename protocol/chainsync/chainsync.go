@@ -22,7 +22,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Protocol identifiers
@@ -246,13 +246,13 @@ type CallbackContext struct {
 
 // Callback function types
 type (
-	RollBackwardFunc   func(CallbackContext, common.Point, Tip) error
+	RollBackwardFunc   func(CallbackContext, pcommon.Point, Tip) error
 	RollForwardFunc    func(CallbackContext, uint, any, Tip) error
 	RollForwardRawFunc func(CallbackContext, uint, []byte, Tip) error
 )
 
 type (
-	FindIntersectFunc func(CallbackContext, []common.Point) (common.Point, Tip, error)
+	FindIntersectFunc func(CallbackContext, []pcommon.Point) (pcommon.Point, Tip, error)
 	RequestNextFunc   func(CallbackContext) error
 )
 

@@ -25,7 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 type testDefinition struct {
@@ -149,7 +149,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 				ledger.BlockHeaderTypeByron,
 				"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 55740899,
 						Hash: hexDecode(
 							"C89E652408EC269379751C8B2BF0137297BF9F5D0FB2E76E19ACF63D783C3A66",
@@ -173,7 +173,7 @@ func TestMsgRollForwardNodeToNode(t *testing.T) {
 				ledger.BlockHeaderTypeShelley,
 				"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 55770176,
 						Hash: hexDecode(
 							"EA90218C8606AAD58B90C2AD51E37FC35ED6D4C40D8944DF0BC60D22F1E6DD65",
@@ -197,7 +197,7 @@ func TestMsgRollForwardNodeToNode_CorruptedCBOR(t *testing.T) {
 		0,
 		badCBOR,
 		Tip{
-			Point: common.Point{
+			Point: pcommon.Point{
 				Slot: 1,
 				Hash: []byte{0xDE, 0xAD, 0xBE, 0xEF},
 			},
@@ -234,7 +234,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 				0,
 				"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 49055,
 						Hash: hexDecode(
 							"7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321",
@@ -258,7 +258,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 				1,
 				"testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 49055,
 						Hash: hexDecode(
 							"7C288E72BB8C10439308901F379C2821945ED58BD1058578E8376F959078B321",
@@ -282,7 +282,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 				2,
 				"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 55829927,
 						Hash: hexDecode(
 							"2809888408DD6F499ECDC868E10F635FA550AF3EBC3B5165C9DACC023D1F52C5",
@@ -303,9 +303,9 @@ func TestMsgRollBackward(t *testing.T) {
 		{
 			CborHex: "83038082821a03520ff458201979d7dd2c7211cb7ce393c83aceca09675ec7786741620676e16c3ad3ac81031a00351333",
 			Message: NewMsgRollBackward(
-				common.Point{},
+				pcommon.Point{},
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 55709684,
 						Hash: hexDecode(
 							"1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103",
@@ -326,7 +326,7 @@ func TestMsgFindIntersect(t *testing.T) {
 		{
 			CborHex: "82048180",
 			Message: NewMsgFindIntersect(
-				[]common.Point{
+				[]pcommon.Point{
 					{},
 				},
 			),
@@ -336,7 +336,7 @@ func TestMsgFindIntersect(t *testing.T) {
 		{
 			CborHex: "820481821a001863bf58207e16781b40ebf8b6da18f7b5e8ade855d6738095ef2f1c58c77e88b6e45997a4",
 			Message: NewMsgFindIntersect(
-				[]common.Point{
+				[]pcommon.Point{
 					{
 						Slot: 1598399,
 						Hash: hexDecode(
@@ -356,9 +356,9 @@ func TestMsgIntersectFound(t *testing.T) {
 		{
 			CborHex: "83058082821a03520ff458201979d7dd2c7211cb7ce393c83aceca09675ec7786741620676e16c3ad3ac81031a00351333",
 			Message: NewMsgIntersectFound(
-				common.Point{},
+				pcommon.Point{},
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 55709684,
 						Hash: hexDecode(
 							"1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103",
@@ -379,7 +379,7 @@ func TestMsgIntersectNotFound(t *testing.T) {
 			CborHex: "820682821a03520ff458201979d7dd2c7211cb7ce393c83aceca09675ec7786741620676e16c3ad3ac81031a00351333",
 			Message: NewMsgIntersectNotFound(
 				Tip{
-					Point: common.Point{
+					Point: pcommon.Point{
 						Slot: 55709684,
 						Hash: hexDecode(
 							"1979D7DD2C7211CB7CE393C83ACECA09675EC7786741620676E16C3AD3AC8103",

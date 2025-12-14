@@ -23,7 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Client implements the ChainSync client
@@ -50,7 +50,7 @@ type Client struct {
 
 type clientPointResult struct {
 	tip   Tip
-	point common.Point
+	point pcommon.Point
 	error error
 }
 
@@ -178,7 +178,7 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 		}
 
 		currentTipChan, cancelCurrentTip := c.wantCurrentTip()
-		msg := NewMsgFindIntersect([]common.Point{})
+		msg := NewMsgFindIntersect([]pcommon.Point{})
 		if err := c.SendMessage(msg); err != nil {
 			cancelCurrentTip()
 			requestErrorChan <- err
@@ -236,14 +236,14 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 // GetAvailableBlockRange returns the start and end of the range of available blocks given the provided intersect
 // point(s). Empty start/end points will be returned if there are no additional blocks available.
 func (c *Client) GetAvailableBlockRange(
-	intersectPoints []common.Point,
-) (common.Point, common.Point, error) {
+	intersectPoints []pcommon.Point,
+) (pcommon.Point, pcommon.Point, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 
 	// Use origin if no intersect points were specified
 	if len(intersectPoints) == 0 {
-		intersectPoints = []common.Point{common.NewPointOrigin()}
+		intersectPoints = []pcommon.Point{pcommon.NewPointOrigin()}
 	}
 
 	// Debug logging
@@ -293,14 +293,14 @@ func (c *Client) GetAvailableBlockRange(
 	// Find our chain intersection
 	result := c.requestFindIntersect(intersectPoints)
 	if result.error != nil {
-		return common.Point{}, common.Point{}, result.error
+		return pcommon.Point{}, pcommon.Point{}, result.error
 	}
 	start := result.point
 	end := result.tip.Point
 
 	// If we're already at the chain tip, return an empty range
 	if start.Slot >= end.Slot {
-		return common.Point{}, common.Point{}, nil
+		return pcommon.Point{}, pcommon.Point{}, nil
 	}
 
 	// Request the next block to get the first block after the intersect point. This should result in a rollback
@@ -348,20 +348,20 @@ func (c *Client) GetAvailableBlockRange(
 	}
 	// If we're already at the chain tip, return an empty range
 	if start.Slot >= end.Slot {
-		return common.Point{}, common.Point{}, nil
+		return pcommon.Point{}, pcommon.Point{}, nil
 	}
 	return start, end, nil
 }
 
 // Sync begins a chain-sync operation using the provided intersect point(s). Incoming blocks will be delivered
 // via the RollForward callback function specified in the protocol config
-func (c *Client) Sync(intersectPoints []common.Point) error {
+func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 
 	// Use origin if no intersect points were specified
 	if len(intersectPoints) == 0 {
-		intersectPoints = []common.Point{common.NewPointOrigin()}
+		intersectPoints = []pcommon.Point{pcommon.NewPointOrigin()}
 	}
 
 	// Debug logging
@@ -541,7 +541,7 @@ func (c *Client) wantIntersectFound() (<-chan clientPointResult, func()) {
 }
 
 func (c *Client) requestFindIntersect(
-	intersectPoints []common.Point,
+	intersectPoints []pcommon.Point,
 ) clientPointResult {
 	resultChan, cancel := c.wantIntersectFound()
 	msg := NewMsgFindIntersect(intersectPoints)
@@ -653,7 +653,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			point := common.NewPoint(
+			point := pcommon.NewPoint(
 				blockHeader.SlotNumber(),
 				blockHeader.Hash().Bytes(),
 			)
@@ -698,7 +698,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 				firstBlockChan <- clientPointResult{error: err}
 				return err
 			}
-			point := common.NewPoint(block.SlotNumber(), block.Hash().Bytes())
+			point := pcommon.NewPoint(block.SlotNumber(), block.Hash().Bytes())
 			firstBlockChan <- clientPointResult{tip: msg.Tip, point: point}
 			return nil
 		}

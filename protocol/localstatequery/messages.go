@@ -19,7 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // Message types
@@ -85,10 +85,10 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 
 type MsgAcquire struct {
 	protocol.MessageBase
-	Point common.Point
+	Point pcommon.Point
 }
 
-func NewMsgAcquire(point common.Point) *MsgAcquire {
+func NewMsgAcquire(point pcommon.Point) *MsgAcquire {
 	m := &MsgAcquire{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeAcquire,
@@ -199,10 +199,10 @@ func NewMsgRelease() *MsgRelease {
 
 type MsgReAcquire struct {
 	protocol.MessageBase
-	Point common.Point
+	Point pcommon.Point
 }
 
-func NewMsgReAcquire(point common.Point) *MsgReAcquire {
+func NewMsgReAcquire(point pcommon.Point) *MsgReAcquire {
 	m := &MsgReAcquire{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeReacquire,

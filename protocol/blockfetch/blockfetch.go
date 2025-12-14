@@ -24,7 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/common"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // ProtocolName is the name of the Block Fetch protocol.
@@ -151,7 +151,7 @@ type BlockRawFunc func(CallbackContext, uint, []byte) error
 type BatchDoneFunc func(CallbackContext) error
 
 // RequestRangeFunc is a callback for handling block range requests.
-type RequestRangeFunc func(CallbackContext, common.Point, common.Point) error
+type RequestRangeFunc func(CallbackContext, pcommon.Point, pcommon.Point) error
 
 // New creates a new BlockFetch instance with the given protocol options and configuration.
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
