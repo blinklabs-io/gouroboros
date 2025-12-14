@@ -612,3 +612,39 @@ func ExtractAndSetTransactionCbor(
 
 	return nil
 }
+
+// Metadata validation errors
+type MissingTransactionMetadataError struct {
+	Hash Blake2b256
+}
+
+func (e MissingTransactionMetadataError) Error() string {
+	return fmt.Sprintf(
+		"missing transaction metadata: body declares hash %x but no metadata provided",
+		e.Hash,
+	)
+}
+
+type MissingTransactionAuxiliaryDataHashError struct {
+	Hash Blake2b256
+}
+
+func (e MissingTransactionAuxiliaryDataHashError) Error() string {
+	return fmt.Sprintf(
+		"missing transaction auxiliary data hash: metadata provided with hash %x but body has no hash",
+		e.Hash,
+	)
+}
+
+type ConflictingMetadataHashError struct {
+	Supplied Blake2b256
+	Expected Blake2b256
+}
+
+func (e ConflictingMetadataHashError) Error() string {
+	return fmt.Sprintf(
+		"conflicting metadata hash: body declares %x, actual metadata hash is %x",
+		e.Supplied,
+		e.Expected,
+	)
+}

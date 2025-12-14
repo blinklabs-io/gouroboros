@@ -259,6 +259,7 @@ type AllegraTransaction struct {
 	Body       AllegraTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
+	RawAuxData []byte // Raw auxiliary data bytes (includes scripts)
 }
 
 func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -282,8 +283,10 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("failed to decode transaction witness set: %w", err)
 	}
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
-	// DecodeAuxiliaryDataToMetadata already preserves raw bytes via DecodeMetadatumRaw
-	if len(txArray) > 2 && len(txArray[2]) > 0 {
+	// Store raw auxiliary data bytes (including any scripts)
+	if len(txArray) > 2 && len(txArray[2]) > 0 && txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
+		t.RawAuxData = []byte(txArray[2])
+		// Also extract metadata
 		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
 		if err == nil && metadata != nil {
 			t.TxMetadata = metadata
@@ -391,6 +394,10 @@ func (t AllegraTransaction) Donation() uint64 {
 
 func (t *AllegraTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
+}
+
+func (t *AllegraTransaction) RawAuxiliaryData() []byte {
+	return t.RawAuxData
 }
 
 func (t AllegraTransaction) IsValid() bool {

@@ -43,3 +43,5 @@ func (e IncorrectTotalCollateralFieldError) Error() string {
 		e.TotalCollateral,
 	)
 }
+
+// Metadata validation errors are in the common package; use directly

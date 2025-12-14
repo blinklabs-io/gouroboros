@@ -655,6 +655,7 @@ type AlonzoTransaction struct {
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
+	rawAuxData []byte
 }
 
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -688,8 +689,8 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	// DecodeAuxiliaryDataToMetadata already preserves raw bytes via DecodeMetadatumRaw
-	if len(txArray) > 3 && len(txArray[3]) > 0 {
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
+		t.rawAuxData = []byte(txArray[3])
 		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
 		if err == nil && metadata != nil {
 			t.TxMetadata = metadata
@@ -702,6 +703,10 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 
 func (t *AlonzoTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
+}
+
+func (t *AlonzoTransaction) RawAuxiliaryData() []byte {
+	return t.rawAuxData
 }
 
 func (AlonzoTransaction) Type() int {

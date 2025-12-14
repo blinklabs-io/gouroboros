@@ -292,6 +292,10 @@ func (t *ByronTransaction) Metadata() common.TransactionMetadatum {
 	return nil
 }
 
+func (t *ByronTransaction) RawAuxiliaryData() []byte {
+	return nil
+}
+
 func (t *ByronTransaction) LeiosHash() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())

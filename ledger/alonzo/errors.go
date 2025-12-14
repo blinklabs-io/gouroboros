@@ -64,3 +64,5 @@ type NoCollateralInputsError struct{}
 func (NoCollateralInputsError) Error() string {
 	return "no collateral inputs"
 }
+
+// Metadata validation errors are in the common package; use directly
