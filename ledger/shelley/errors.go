@@ -164,3 +164,18 @@ type (
 	MissingTransactionAuxiliaryDataHashError = common.MissingTransactionAuxiliaryDataHashError
 	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
 )
+
+// Witness validation errors
+type MissingVKeyWitnessesError struct{}
+
+func (MissingVKeyWitnessesError) Error() string {
+	return "missing required vkey witnesses"
+}
+
+type MissingRequiredVKeyWitnessForSignerError struct {
+	Signer common.Blake2b224
+}
+
+func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
+	return "missing required vkey witness for required signer"
+}

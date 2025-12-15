@@ -23,6 +23,7 @@ import (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -33,6 +34,15 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputBootAddrAttrsTooBig,
 	UtxoValidateMaxTxSizeUtxo,
+}
+
+func UtxoValidateRequiredVKeyWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
 }
 
 // UtxoValidateOutsideValidityIntervalUtxo ensures that the current tip slot has reached the specified validity interval

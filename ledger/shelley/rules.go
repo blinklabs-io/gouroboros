@@ -23,6 +23,7 @@ import (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateTimeToLive,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -299,6 +300,39 @@ func UtxoValidateMaxTxSizeUtxo(
 		TxSize:    uint(len(txBytes)),
 		MaxTxSize: tmpPparams.MaxTxSize,
 	}
+}
+
+// UtxoValidateRequiredVKeyWitnesses ensures required signers are accompanied by vkey witnesses
+func UtxoValidateRequiredVKeyWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	required := tx.RequiredSigners()
+	if len(required) == 0 {
+		return nil
+	}
+
+	w := tx.Witnesses()
+	if w == nil || len(w.Vkey()) == 0 {
+		return MissingVKeyWitnessesError{}
+	}
+
+	// Build a set of hashes from the provided vkey witnesses for quick lookup
+	vkeyHashes := make(map[common.Blake2b224]struct{})
+	for _, vw := range w.Vkey() {
+		h := common.Blake2b224Hash(vw.Vkey)
+		vkeyHashes[h] = struct{}{}
+	}
+
+	// Ensure each required signer hash has a matching vkey witness
+	for _, req := range required {
+		if _, ok := vkeyHashes[req]; !ok {
+			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
+		}
+	}
+	return nil
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters

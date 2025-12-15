@@ -31,6 +31,187 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
+	// Required vkey witnesses
+	t.Run("no required signers", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("missing vkey witness", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing vkey witnesses")
+		}
+		assert.IsType(t, conway.MissingVKeyWitnessesError{}, err)
+	})
+
+	t.Run("mismatched vkey", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		tx.WitnessSet.VkeyWitnesses = cbor.NewSetType(
+			[]common.VkeyWitness{{Vkey: []byte{0x01, 0x02, 0x03}}},
+			false,
+		)
+		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for mismatched vkey witness")
+		}
+		assert.IsType(t, conway.MissingRequiredVKeyWitnessForSignerError{}, err)
+	})
+
+	t.Run("matching vkey", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		tx.WitnessSet.VkeyWitnesses = cbor.NewSetType(
+			[]common.VkeyWitness{{Vkey: []byte{}}},
+			false,
+		)
+		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	// Redeemer/script witness checks (Plutus V1+V2+V3)
+	t.Run("no script/redeemer", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("script hash present but no redeemer", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxScriptDataHash = new(common.Blake2b256)
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf(
+				"expected error for missing redeemers with script data hash",
+			)
+		}
+		assert.IsType(t, conway.MissingRedeemersForScriptDataHashError{}, err)
+	})
+
+	t.Run("redeemer without script", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for redeemer without script")
+		}
+		assert.IsType(t, conway.MissingPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("plutus v1 script without redeemer", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsPlutusV1Scripts = cbor.NewSetType(
+			[]common.PlutusV1Script{{}},
+			false,
+		)
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for Plutus v1 script without redeemer")
+		}
+		assert.IsType(t, conway.ExtraneousPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("plutus v2 script without redeemer", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsPlutusV2Scripts = cbor.NewSetType(
+			[]common.PlutusV2Script{{}},
+			false,
+		)
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for Plutus v2 script without redeemer")
+		}
+		assert.IsType(t, conway.ExtraneousPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("plutus v3 script without redeemer", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsPlutusV3Scripts = cbor.NewSetType(
+			[]common.PlutusV3Script{{}},
+			false,
+		)
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for Plutus v3 script without redeemer")
+		}
+		assert.IsType(t, conway.ExtraneousPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("both redeemer and plutus v1 script", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsPlutusV1Scripts = cbor.NewSetType(
+			[]common.PlutusV1Script{{}},
+			false,
+		)
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("both redeemer and plutus v2 script", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsPlutusV2Scripts = cbor.NewSetType(
+			[]common.PlutusV2Script{{}},
+			false,
+		)
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("both redeemer and plutus v3 script", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsPlutusV3Scripts = cbor.NewSetType(
+			[]common.PlutusV3Script{{}},
+			false,
+		)
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+}
+
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
