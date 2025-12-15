@@ -156,3 +156,11 @@ func (e InvalidCertificateDepositError) Error() string {
 		e.Amount,
 	)
 }
+
+// Metadata validation errors are now in common package
+// Type aliases for backward compatibility
+type (
+	MissingTransactionMetadataError          = common.MissingTransactionMetadataError
+	MissingTransactionAuxiliaryDataHashError = common.MissingTransactionAuxiliaryDataHashError
+	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
+)

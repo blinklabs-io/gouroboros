@@ -26,6 +26,7 @@ import (
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
+	UtxoValidateMetadata,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -498,4 +499,13 @@ func MinCoinTxOut(
 	}
 	minCoinTxOut := tmpPparams.AdaPerUtxoByte * uint64(len(txOutBytes))
 	return minCoinTxOut, nil
+}
+
+func UtxoValidateMetadata(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
 }

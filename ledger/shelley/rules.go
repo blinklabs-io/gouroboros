@@ -22,6 +22,7 @@ import (
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
+	UtxoValidateMetadata,
 	UtxoValidateTimeToLive,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -340,4 +341,58 @@ func MinCoinTxOut(
 	}
 	minCoinTxOut := uint64(tmpPparams.MinUtxoValue)
 	return minCoinTxOut, nil
+}
+
+// UtxoValidateMetadata validates that auxiliary data (metadata) matches the hash in transaction body
+// This is a cheap structural check that should run before expensive ledger lookups
+func UtxoValidateMetadata(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	bodyAuxDataHash := tx.AuxDataHash()
+	txAuxData := tx.Metadata()
+	rawAuxData := tx.RawAuxiliaryData()
+	// If metadata is present but raw auxiliary data bytes are missing,
+	// fall back to encoding the metadata so validation still runs.
+	if len(rawAuxData) == 0 && txAuxData != nil {
+		rawAuxData = txAuxData.Cbor()
+	}
+
+	// Case 1: Neither body hash nor aux data present - OK
+	if bodyAuxDataHash == nil && txAuxData == nil && len(rawAuxData) == 0 {
+		return nil
+	}
+
+	// Case 2: Body has hash but no aux data provided - error
+	// We rely on rawAuxData for hashing; if it's empty while body declares a hash,
+	// treat it as missing metadata regardless of txAuxData pointer presence.
+	if bodyAuxDataHash != nil && len(rawAuxData) == 0 {
+		return common.MissingTransactionMetadataError{
+			Hash: *bodyAuxDataHash,
+		}
+	}
+
+	// Case 3: Aux data provided but body has no hash - error
+	if bodyAuxDataHash == nil && len(rawAuxData) > 0 {
+		actualHash := common.Blake2b256Hash(rawAuxData)
+		return common.MissingTransactionAuxiliaryDataHashError{
+			Hash: actualHash,
+		}
+	}
+
+	// Case 4: Both present - verify hash matches
+	// Use raw auxiliary data (includes scripts) for hashing, not just metadata
+	if bodyAuxDataHash != nil && len(rawAuxData) > 0 {
+		actualHash := common.Blake2b256Hash(rawAuxData)
+		if *bodyAuxDataHash != actualHash {
+			return common.ConflictingMetadataHashError{
+				Supplied: *bodyAuxDataHash,
+				Expected: actualHash,
+			}
+		}
+	}
+
+	return nil
 }

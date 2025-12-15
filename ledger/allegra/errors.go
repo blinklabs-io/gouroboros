@@ -30,3 +30,5 @@ func (e OutsideValidityIntervalUtxoError) Error() string {
 		e.Slot,
 	)
 }
+
+// Metadata validation errors are in the common package; use directly
