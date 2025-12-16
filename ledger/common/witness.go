@@ -31,3 +31,66 @@ type BootstrapWitness struct {
 	ChainCode  []byte
 	Attributes []byte
 }
+
+// ValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses (payment key).
+// This is a shared helper used across Alonzo, Babbage, and Conway eras.
+func ValidateCollateralVKeyWitnesses(
+	tx Transaction,
+	ls LedgerState,
+) error {
+	collateral := tx.Collateral()
+	if len(collateral) == 0 {
+		return nil
+	}
+	// Collect vkey hashes from witnesses
+	w := tx.Witnesses()
+	if w == nil || len(w.Vkey()) == 0 {
+		return NewValidationError(
+			ValidationErrorTypeTransaction,
+			"missing vkey witnesses for collateral",
+			nil,
+			nil,
+		)
+	}
+	hashes := make(map[Blake2b224]struct{})
+	for _, vw := range w.Vkey() {
+		hashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
+	}
+	// Ensure each collateral input is owned by a provided vkey witness
+	for _, input := range collateral {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"UTxO not found for collateral input",
+				map[string]any{"input": input.String()},
+				err,
+			)
+		}
+		addr := utxo.Output.Address()
+		cred := addr.PayloadPayload()
+		pk, ok := cred.(AddressPayloadKeyHash)
+		if !ok {
+			// Collateral should be key-locked; scripts cannot serve
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"collateral input must be key-locked",
+				map[string]any{"input": input.String()},
+				nil,
+			)
+		}
+		h := pk.Hash
+		if _, ok := hashes[h]; !ok {
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"missing vkey witness for collateral input",
+				map[string]any{
+					"input":   input.String(),
+					"keyhash": h.String(),
+				},
+				nil,
+			)
+		}
+	}
+	return nil
+}

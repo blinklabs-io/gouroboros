@@ -26,8 +26,11 @@ import (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	UtxoValidateIsValidFlag,
 	UtxoValidateRequiredVKeyWitnesses,
+	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
+	UtxoValidateCostModelsPresent,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -121,6 +124,31 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 	return allegra.UtxoValidateOutsideValidityIntervalUtxo(tx, slot, ls, pp)
 }
 
+// UtxoValidateIsValidFlag ensures transactions marked invalid have Plutus scripts
+func UtxoValidateIsValidFlag(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// If IsValid is true, no check needed
+	if tx.IsValid() {
+		return nil
+	}
+
+	// If IsValid is false, transaction must have redeemers (indicating phase-2 validation)
+	w := tx.Witnesses()
+	if w != nil && w.Redeemers() != nil {
+		for range w.Redeemers().Iter() {
+			// Has at least one redeemer
+			return nil
+		}
+	}
+
+	// IsValid=false but no redeemers present
+	return common.InvalidIsValidFlagError{}
+}
+
 // UtxoValidateRequiredVKeyWitnesses ensures required signers are accompanied by vkey witnesses
 func UtxoValidateRequiredVKeyWitnesses(
 	tx common.Transaction,
@@ -149,6 +177,16 @@ func UtxoValidateRequiredVKeyWitnesses(
 		}
 	}
 	return nil
+}
+
+// UtxoValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses
+func UtxoValidateCollateralVKeyWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateCollateralVKeyWitnesses(tx, ls)
 }
 
 // UtxoValidateRedeemerAndScriptWitnesses performs lightweight UTXOW checks for presence/absence of scripts vs redeemers
@@ -187,6 +225,42 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	// If no redeemers are present but script witnesses are supplied, treat as extraneous
 	if redeemerCount == 0 && hasPlutus {
 		return ExtraneousPlutusScriptWitnessesError{}
+	}
+
+	return nil
+}
+
+// UtxoValidateCostModelsPresent ensures Plutus scripts have cost models in protocol parameters
+func UtxoValidateCostModelsPresent(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, ok := pp.(*AlonzoProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	tmpTx, ok := tx.(*AlonzoTransaction)
+	if !ok {
+		return errors.New("transaction is not expected type")
+	}
+
+	required := map[uint]struct{}{}
+	wits := tmpTx.WitnessSet
+	if len(wits.WsPlutusV1Scripts) > 0 {
+		required[0] = struct{}{}
+	}
+
+	if len(required) == 0 {
+		return nil
+	}
+
+	for version := range required {
+		model, ok := tmpPparams.CostModels[version]
+		if !ok || len(model) == 0 {
+			return common.MissingCostModelError{Version: version}
+		}
 	}
 
 	return nil
