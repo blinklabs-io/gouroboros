@@ -29,6 +29,7 @@ const (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -40,6 +41,15 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateOutputTooBigUtxo,
 	UtxoValidateOutputBootAddrAttrsTooBig,
 	UtxoValidateMaxTxSizeUtxo,
+}
+
+func UtxoValidateRequiredVKeyWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
 }
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large

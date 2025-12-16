@@ -1306,3 +1306,106 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		},
 	)
 }
+
+func TestUtxoValidateWitnessRules_Alonzo(t *testing.T) {
+	// Required vkey witnesses
+	t.Run("no required signers", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		err := alonzo.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("missing vkey witness", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		err := alonzo.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing vkey witnesses")
+		}
+		assert.IsType(t, alonzo.MissingVKeyWitnessesError{}, err)
+	})
+
+	t.Run("mismatched vkey", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		tx.WitnessSet.VkeyWitnesses = []common.VkeyWitness{
+			{Vkey: []byte{0x01, 0x02, 0x03}},
+		}
+		err := alonzo.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for mismatched vkey witness")
+		}
+		assert.IsType(t, alonzo.MissingRequiredVKeyWitnessForSignerError{}, err)
+	})
+
+	t.Run("matching vkey", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		tx.WitnessSet.VkeyWitnesses = []common.VkeyWitness{{Vkey: []byte{}}}
+		err := alonzo.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	// Redeemer/script witness checks
+	t.Run("no witness set", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("script hash present but no redeemer", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		tx.Body.TxScriptDataHash = new(common.Blake2b256)
+		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf(
+				"expected error for missing redeemers with script data hash",
+			)
+		}
+		assert.IsType(t, alonzo.MissingRedeemersForScriptDataHashError{}, err)
+	})
+
+	t.Run("redeemers present but no scripts", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+		}
+		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for redeemer without script")
+		}
+		assert.IsType(t, alonzo.MissingPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("scripts present but no redeemers", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		tx.WitnessSet.WsPlutusV1Scripts = []common.PlutusV1Script{{}}
+		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for scripts without redeemer")
+		}
+		assert.IsType(t, alonzo.ExtraneousPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("both redeemer and script present", func(t *testing.T) {
+		tx := &alonzo.AlonzoTransaction{}
+		tx.WitnessSet.WsPlutusV1Scripts = []common.PlutusV1Script{{}}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+		}
+		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+}

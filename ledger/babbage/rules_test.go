@@ -1390,6 +1390,123 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateWitnessRules_Babbage(t *testing.T) {
+	// Required vkey witnesses
+	t.Run("no required signers", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		err := babbage.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("missing vkey witness", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		err := babbage.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing vkey witnesses")
+		}
+		assert.IsType(t, babbage.MissingVKeyWitnessesError{}, err)
+	})
+
+	t.Run("mismatched vkey", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		tx.WitnessSet.VkeyWitnesses = []common.VkeyWitness{
+			{Vkey: []byte{0x01, 0x02, 0x03}},
+		}
+		err := babbage.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for mismatched vkey witness")
+		}
+		assert.IsType(
+			t,
+			babbage.MissingRequiredVKeyWitnessForSignerError{},
+			err,
+		)
+	})
+
+	t.Run("matching vkey", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		required := common.Blake2b224Hash([]byte{})
+		tx.Body.TxRequiredSigners = cbor.NewSetType(
+			[]common.Blake2b224{required},
+			false,
+		)
+		tx.WitnessSet.VkeyWitnesses = []common.VkeyWitness{{Vkey: []byte{}}}
+		err := babbage.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	// Redeemer/script witness checks (PlutusV1 + PlutusV2)
+	t.Run("no script/redeemer", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("script hash present but no redeemer", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.Body.TxScriptDataHash = new(common.Blake2b256)
+		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf(
+				"expected error for missing redeemers with script data hash",
+			)
+		}
+		assert.IsType(t, babbage.MissingRedeemersForScriptDataHashError{}, err)
+	})
+
+	t.Run("redeemer without script", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+		}
+		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for redeemer without script")
+		}
+		assert.IsType(t, babbage.MissingPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("plutus v1 script without redeemer", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.WitnessSet.WsPlutusV1Scripts = []common.PlutusV1Script{{}}
+		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for Plutus v1 script without redeemer")
+		}
+		assert.IsType(t, babbage.ExtraneousPlutusScriptWitnessesError{}, err)
+	})
+
+	t.Run("both redeemer and script", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.WitnessSet.WsPlutusV1Scripts = []common.PlutusV1Script{{}}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+		}
+		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("plutus v2 script with redeemer", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.WitnessSet.WsPlutusV2Scripts = []common.PlutusV2Script{{}}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+		}
+		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+}
+
 func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testInputAmount uint64 = 20_000_000

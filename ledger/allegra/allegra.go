@@ -284,7 +284,8 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	// Store raw auxiliary data bytes (including any scripts)
-	if len(txArray) > 2 && len(txArray[2]) > 0 && txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
+	if len(txArray) > 2 && len(txArray[2]) > 0 &&
+		txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
 		t.RawAuxData = []byte(txArray[2])
 		// Also extract metadata
 		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])

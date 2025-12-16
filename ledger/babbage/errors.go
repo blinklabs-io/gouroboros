@@ -16,6 +16,8 @@ package babbage
 
 import (
 	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type TooManyCollateralInputsError struct {
@@ -45,3 +47,37 @@ func (e IncorrectTotalCollateralFieldError) Error() string {
 }
 
 // Metadata validation errors are in the common package; use directly
+
+// Witness validation errors
+type MissingVKeyWitnessesError struct{}
+
+func (MissingVKeyWitnessesError) Error() string {
+	return "missing required vkey witnesses"
+}
+
+type MissingRequiredVKeyWitnessForSignerError struct {
+	Signer common.Blake2b224
+}
+
+func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
+	return "missing required vkey witness for required signer"
+}
+
+// Plutus script/redeemer relationship errors
+type MissingRedeemersForScriptDataHashError struct{}
+
+func (MissingRedeemersForScriptDataHashError) Error() string {
+	return "missing redeemers for script data hash"
+}
+
+type MissingPlutusScriptWitnessesError struct{}
+
+func (MissingPlutusScriptWitnessesError) Error() string {
+	return "missing Plutus script witnesses for redeemers"
+}
+
+type ExtraneousPlutusScriptWitnessesError struct{}
+
+func (ExtraneousPlutusScriptWitnessesError) Error() string {
+	return "extraneous Plutus script witnesses"
+}

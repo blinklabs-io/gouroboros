@@ -25,6 +25,58 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// shelleyTxWithRequired embeds a ShelleyTransaction but overrides RequiredSigners
+// to allow testing witness rules which don't exist in base Shelley body.
+type shelleyTxWithRequired struct {
+	shelley.ShelleyTransaction
+	req []common.Blake2b224
+}
+
+func (t shelleyTxWithRequired) RequiredSigners() []common.Blake2b224 { return t.req }
+
+func TestUtxoValidateWitnessRules_Shelley(t *testing.T) {
+	t.Run("no required signers", func(t *testing.T) {
+		tx := &shelley.ShelleyTransaction{}
+		err := shelley.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("missing vkey witness", func(t *testing.T) {
+		required := common.Blake2b224Hash([]byte{})
+		tx := &shelleyTxWithRequired{req: []common.Blake2b224{required}}
+		err := shelley.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing vkey witnesses")
+		}
+		assert.IsType(t, shelley.MissingVKeyWitnessesError{}, err)
+	})
+
+	t.Run("mismatched vkey", func(t *testing.T) {
+		required := common.Blake2b224Hash([]byte{})
+		tx := &shelleyTxWithRequired{req: []common.Blake2b224{required}}
+		tx.WitnessSet.VkeyWitnesses = []common.VkeyWitness{
+			{Vkey: []byte{0x01, 0x02, 0x03}},
+		}
+		err := shelley.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for mismatched vkey witness")
+		}
+		assert.IsType(
+			t,
+			shelley.MissingRequiredVKeyWitnessForSignerError{},
+			err,
+		)
+	})
+
+	t.Run("matching vkey", func(t *testing.T) {
+		required := common.Blake2b224Hash([]byte{})
+		tx := &shelleyTxWithRequired{req: []common.Blake2b224{required}}
+		tx.WitnessSet.VkeyWitnesses = []common.VkeyWitness{{Vkey: []byte{}}}
+		err := shelley.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+}
+
 func TestUtxoValidateTimeToLive(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
