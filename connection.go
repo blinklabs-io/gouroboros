@@ -350,7 +350,7 @@ func (c *Connection) setupConnection() error {
 			func(ctx handshake.CallbackContext, version uint16, versionData protocol.VersionData) error {
 				c.handshakeVersion = version
 				c.handshakeVersionData = versionData
-				if c.useNodeToNodeProto {
+				if c.useNodeToNodeProto && versionData != nil {
 					if versionData.DiffusionMode() == protocol.DiffusionModeInitiatorAndResponder {
 						handshakeFullDuplex = true
 					}

@@ -26,6 +26,7 @@ const (
 	MessageTypeProposeVersions = 0
 	MessageTypeAcceptVersion   = 1
 	MessageTypeRefuse          = 2
+	MessageTypeQueryReply      = 3
 )
 
 // Refusal reasons
@@ -45,6 +46,8 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgAcceptVersion{}
 	case MessageTypeRefuse:
 		ret = &MsgRefuse{}
+	case MessageTypeQueryReply:
+		ret = &MsgQueryReply{}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
@@ -112,6 +115,31 @@ func NewMsgRefuse(reason []any) *MsgRefuse {
 			MessageType: MessageTypeRefuse,
 		},
 		Reason: reason,
+	}
+	return m
+}
+
+type MsgQueryReply struct {
+	protocol.MessageBase
+	VersionMap map[uint16]cbor.RawMessage
+}
+
+func NewMsgQueryReply(
+	versionMap protocol.ProtocolVersionMap,
+) *MsgQueryReply {
+	rawVersionMap := map[uint16]cbor.RawMessage{}
+	for version, versionData := range versionMap {
+		cborData, err := cbor.Encode(&versionData)
+		if err != nil {
+			continue
+		}
+		rawVersionMap[version] = cbor.RawMessage(cborData)
+	}
+	m := &MsgQueryReply{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeQueryReply,
+		},
+		VersionMap: rawVersionMap,
 	}
 	return m
 }

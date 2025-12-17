@@ -17,6 +17,7 @@ package handshake_test
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,5 +164,59 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 			t.Errorf("did not shutdown within timeout")
 		}
 		t.Fatalf("did not receive expected error")
+	}
+}
+
+func TestServerQueryMode(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleServer,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				Messages: []protocol.Message{
+					handshake.NewMsgProposeVersions(
+						protocol.ProtocolVersionMap{
+							(15 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC15andUp{
+								CborNetworkMagic: ouroboros_mock.MockNetworkMagic,
+								CborQuery:        true,
+							},
+						},
+					),
+				},
+			},
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:      handshake.ProtocolId,
+				IsResponse:      true,
+				MsgFromCborFunc: handshake.NewMsgFromCbor,
+				MessageType:     handshake.MessageTypeQueryReply,
+				Message: handshake.NewMsgQueryReply(
+					protocol.GetProtocolVersionMap(
+						protocol.ProtocolModeNodeToClient,
+						ouroboros_mock.MockNetworkMagic,
+						protocol.DiffusionModeInitiatorOnly,
+						false,
+						false,
+					),
+				),
+			},
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithServer(true),
+	)
+	if err != nil {
+		if !strings.Contains(err.Error(), "handshake query mode") {
+			t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+		}
+	} else {
+		oConn.Close()
+		select {
+		case <-oConn.ErrorChan():
+		case <-time.After(10 * time.Second):
+			t.Errorf("did not shutdown within timeout")
+		}
 	}
 }
