@@ -90,6 +90,23 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 		)
 	}
 	msgProposeVersions := msg.(*MsgProposeVersions)
+
+	for proposedVersion, versionDataCbor := range msgProposeVersions.VersionMap {
+		versionInfo := protocol.GetProtocolVersion(proposedVersion)
+		if versionInfo.NewVersionDataFromCborFunc != nil {
+			proposedVersionData, err := versionInfo.NewVersionDataFromCborFunc(
+				versionDataCbor,
+			)
+			if err == nil && proposedVersionData != nil && proposedVersionData.Query() {
+				msgQueryReply := NewMsgQueryReply(s.config.ProtocolVersionMap)
+				if err := s.SendMessage(msgQueryReply); err != nil {
+					return err
+				}
+				return errors.New("handshake query mode: connection terminated after query reply")
+			}
+		}
+	}
+
 	// Compute intersection of supported and proposed protocol versions
 	var versionIntersect []uint16
 	for proposedVersion := range msgProposeVersions.VersionMap {

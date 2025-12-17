@@ -564,3 +564,43 @@ func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestClientQueryReply(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgQueryReply(
+						protocol.GetProtocolVersionMap(
+							protocol.ProtocolModeNodeToClient,
+							ouroboros_mock.MockNetworkMagic,
+							protocol.DiffusionModeInitiatorOnly,
+							false,
+							false,
+						),
+					),
+				},
+			},
+		},
+	)
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
+}

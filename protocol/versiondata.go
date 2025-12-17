@@ -39,7 +39,7 @@ const (
 
 type VersionData interface {
 	NetworkMagic() uint32
-	// Query() bool
+	Query() bool
 	// NtN only
 	DiffusionMode() bool
 	PeerSharing() bool
@@ -62,6 +62,10 @@ func (v VersionDataNtC9to14) DiffusionMode() bool {
 }
 
 func (v VersionDataNtC9to14) PeerSharing() bool {
+	return false
+}
+
+func (v VersionDataNtC9to14) Query() bool {
 	return false
 }
 
@@ -89,6 +93,10 @@ func (v VersionDataNtC15andUp) PeerSharing() bool {
 	return false
 }
 
+func (v VersionDataNtC15andUp) Query() bool {
+	return v.CborQuery
+}
+
 type VersionDataNtN7to10 struct {
 	cbor.StructAsArray
 	CborNetworkMagic                       uint32
@@ -110,6 +118,10 @@ func (v VersionDataNtN7to10) DiffusionMode() bool {
 }
 
 func (v VersionDataNtN7to10) PeerSharing() bool {
+	return false
+}
+
+func (v VersionDataNtN7to10) Query() bool {
 	return false
 }
 
@@ -139,6 +151,10 @@ func (v VersionDataNtN11to12) PeerSharing() bool {
 	return v.CborPeerSharing >= PeerSharingModeV11PeerSharingPublic
 }
 
+func (v VersionDataNtN11to12) Query() bool {
+	return v.CborQuery
+}
+
 // NOTE: the format stays the same, but the values for PeerSharing change
 type VersionDataNtN13andUp struct {
 	VersionDataNtN11to12
@@ -152,4 +168,8 @@ func NewVersionDataNtN13andUpFromCbor(cborData []byte) (VersionData, error) {
 
 func (v VersionDataNtN13andUp) PeerSharing() bool {
 	return v.CborPeerSharing >= PeerSharingModePeerSharingPublic
+}
+
+func (v VersionDataNtN13andUp) Query() bool {
+	return v.VersionDataNtN11to12.Query()
 }

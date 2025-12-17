@@ -64,6 +64,10 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeRefuse,
 				NewState: stateDone,
 			},
+			{
+				MsgType:  MessageTypeQueryReply,
+				NewState: stateDone,
+			},
 		},
 	},
 	stateDone: protocol.StateMapEntry{
@@ -81,6 +85,7 @@ type Handshake struct {
 type Config struct {
 	ProtocolVersionMap protocol.ProtocolVersionMap
 	FinishedFunc       FinishedFunc
+	QueryReplyFunc     QueryReplyFunc
 	Timeout            time.Duration
 }
 
@@ -93,6 +98,8 @@ type CallbackContext struct {
 
 // Callback function types
 type FinishedFunc func(CallbackContext, uint16, protocol.VersionData) error
+
+type QueryReplyFunc func(CallbackContext, protocol.ProtocolVersionMap) error
 
 // New returns a new Handshake object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *Handshake {
@@ -138,5 +145,12 @@ func WithFinishedFunc(finishedFunc FinishedFunc) HandshakeOptionFunc {
 func WithTimeout(timeout time.Duration) HandshakeOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout
+	}
+}
+
+// WithQueryReplyFunc specifies the QueryReply callback function
+func WithQueryReplyFunc(queryReplyFunc QueryReplyFunc) HandshakeOptionFunc {
+	return func(c *Config) {
+		c.QueryReplyFunc = queryReplyFunc
 	}
 }

@@ -90,6 +90,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleAcceptVersion(msg)
 	case MessageTypeRefuse:
 		err = c.handleRefuse(msg)
+	case MessageTypeQueryReply:
+		err = c.handleQueryReply(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -181,4 +183,40 @@ func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 		}
 	}
 	return err
+}
+
+func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
+	c.Protocol.Logger().
+		Debug("received query reply",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	msg := msgGeneric.(*MsgQueryReply)
+	if c.config.FinishedFunc == nil {
+		return errors.New(
+			"received handshake QueryReply message but no callback function is defined",
+		)
+	}
+	versionMap := protocol.ProtocolVersionMap{}
+	for version, versionDataCbor := range msg.VersionMap {
+		versionInfo := protocol.GetProtocolVersion(version)
+		if versionInfo.NewVersionDataFromCborFunc != nil {
+			versionData, err := versionInfo.NewVersionDataFromCborFunc(versionDataCbor)
+			if err == nil && versionData != nil {
+				versionMap[version] = versionData
+			}
+		}
+	}
+	if c.config.QueryReplyFunc != nil {
+		if err := c.config.QueryReplyFunc(c.callbackContext, versionMap); err != nil {
+			return err
+		}
+	}
+	return c.config.FinishedFunc(
+		c.callbackContext,
+		0,
+		nil,
+	)
 }
