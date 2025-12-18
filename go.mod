@@ -15,7 +15,7 @@ require (
 	github.com/utxorpc/go-codegen v0.18.1
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.45.0
-	google.golang.org/protobuf v1.36.10
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
