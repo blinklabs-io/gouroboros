@@ -67,3 +67,7 @@ type ExtraneousPlutusScriptWitnessesError struct{}
 func (ExtraneousPlutusScriptWitnessesError) Error() string {
 	return "extraneous Plutus script witnesses"
 }
+
+// Cost model and IsValid flag errors moved to ledger/common/era_errors.go
+
+// Reference input resolution errors moved to ledger/common/reference_errors.go

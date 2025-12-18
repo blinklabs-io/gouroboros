@@ -28,8 +28,11 @@ import (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	UtxoValidateIsValidFlag,
 	UtxoValidateRequiredVKeyWitnesses,
+	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
+	UtxoValidateCostModelsPresent,
 	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
@@ -73,6 +76,31 @@ func UtxoValidateDisjointRefInputs(
 	}
 }
 
+// UtxoValidateIsValidFlag ensures transactions marked invalid have Plutus scripts
+func UtxoValidateIsValidFlag(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// If IsValid is true, no check needed
+	if tx.IsValid() {
+		return nil
+	}
+
+	// If IsValid is false, transaction must have redeemers (indicating phase-2 validation)
+	w := tx.Witnesses()
+	if w != nil && w.Redeemers() != nil {
+		for range w.Redeemers().Iter() {
+			// Has at least one redeemer
+			return nil
+		}
+	}
+
+	// IsValid=false but no redeemers present
+	return common.InvalidIsValidFlagError{}
+}
+
 // UtxoValidateRequiredVKeyWitnesses ensures required signers are accompanied by vkey witnesses
 func UtxoValidateRequiredVKeyWitnesses(
 	tx common.Transaction,
@@ -100,6 +128,16 @@ func UtxoValidateRequiredVKeyWitnesses(
 	return nil
 }
 
+// UtxoValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses
+func UtxoValidateCollateralVKeyWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateCollateralVKeyWitnesses(tx, ls)
+}
+
 // UtxoValidateRedeemerAndScriptWitnesses performs lightweight UTXOW checks for presence/absence of scripts vs redeemers
 func UtxoValidateRedeemerAndScriptWitnesses(
 	tx common.Transaction,
@@ -118,11 +156,39 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			}
 		}
 	}
-	hasPlutus := false
+	// Detect Plutus availability separately for explicit witnesses and reference scripts.
+	// This prevents reference scripts from being treated the same as provided script witnesses
+	// when checking for extraneous witnesses.
+	hasPlutusWitness := false
+	hasPlutusReference := false
 	if wits != nil {
-		hasPlutus = len(wits.PlutusV1Scripts()) > 0 ||
+		hasPlutusWitness = len(wits.PlutusV1Scripts()) > 0 ||
 			len(wits.PlutusV2Scripts()) > 0 ||
 			len(wits.PlutusV3Scripts()) > 0
+	}
+
+	// Consider Plutus reference scripts on reference inputs. If a reference input
+	// cannot be resolved (UTxO lookup fails) validation should fail fast because
+	// we cannot determine script availability deterministically without the UTxO.
+	for _, refInput := range tx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			return common.ReferenceInputResolutionError{
+				Input: refInput,
+				Err:   err,
+			}
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
+			hasPlutusReference = true
+		}
+		if hasPlutusReference {
+			break
+		}
 	}
 
 	// If the body carries a script data hash, redeemers must be present
@@ -130,14 +196,82 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 		return MissingRedeemersForScriptDataHashError{}
 	}
 
-	// If redeemers are present, we expect at least one script witness available
-	if redeemerCount > 0 && !hasPlutus {
+	// If redeemers are present, we expect either a provided Plutus script witness
+	// or a Plutus reference script on a reference input.
+	if redeemerCount > 0 && (!hasPlutusWitness && !hasPlutusReference) {
 		return MissingPlutusScriptWitnessesError{}
 	}
 
-	// If no redeemers are present but script witnesses are supplied, treat as extraneous
-	if redeemerCount == 0 && hasPlutus {
+	// If no redeemers are present but explicit Plutus script witnesses are supplied,
+	// treat those supplied witnesses as extraneous. Reference scripts alone should
+	// not trigger an extraneous-witness error since they don't represent supplied
+	// script witnesses in the transaction.
+	if redeemerCount == 0 && hasPlutusWitness {
 		return ExtraneousPlutusScriptWitnessesError{}
+	}
+
+	return nil
+}
+
+// UtxoValidateCostModelsPresent ensures Plutus scripts have corresponding cost models in protocol parameters
+func UtxoValidateCostModelsPresent(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	tmpTx, ok := tx.(*ConwayTransaction)
+	if !ok {
+		return errors.New("transaction is not expected type")
+	}
+
+	required := map[uint]struct{}{}
+	wits := tmpTx.WitnessSet
+	if len(wits.WsPlutusV1Scripts.Items()) > 0 {
+		required[0] = struct{}{}
+	}
+	if len(wits.WsPlutusV2Scripts.Items()) > 0 {
+		required[1] = struct{}{}
+	}
+	if len(wits.WsPlutusV3Scripts.Items()) > 0 {
+		required[2] = struct{}{}
+	}
+	// Also include reference scripts on reference inputs
+	for _, refInput := range tmpTx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			return common.ReferenceInputResolutionError{
+				Input: refInput,
+				Err:   err,
+			}
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script:
+			required[0] = struct{}{}
+		case common.PlutusV2Script:
+			required[1] = struct{}{}
+		case common.PlutusV3Script:
+			required[2] = struct{}{}
+		}
+	}
+
+	if len(required) == 0 {
+		return nil
+	}
+
+	for version := range required {
+		model, ok := tmpPparams.CostModels[version]
+		if !ok || len(model) == 0 {
+			return common.MissingCostModelError{Version: version}
+		}
 	}
 
 	return nil
