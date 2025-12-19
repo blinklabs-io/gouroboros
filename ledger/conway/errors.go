@@ -32,8 +32,6 @@ func (e NonDisjointRefInputsError) Error() string {
 	return "non-disjoint reference inputs: " + strings.Join(tmpInputs, ", ")
 }
 
-// Metadata validation errors are in the common package; use directly
-
 // Witness validation errors (alias to common types)
 type MissingVKeyWitnessesError = common.MissingVKeyWitnessesError
 

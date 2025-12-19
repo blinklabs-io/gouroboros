@@ -157,7 +157,6 @@ func (e InvalidCertificateDepositError) Error() string {
 	)
 }
 
-// Metadata validation errors are now in common package
 // Type aliases for backward compatibility
 type (
 	MissingTransactionMetadataError          = common.MissingTransactionMetadataError

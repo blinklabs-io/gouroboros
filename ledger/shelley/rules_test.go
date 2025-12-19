@@ -19,7 +19,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	test "github.com/blinklabs-io/gouroboros/internal/test/ledger"
+	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
@@ -85,7 +85,7 @@ func TestUtxoValidateTimeToLive(t *testing.T) {
 			Ttl: testSlot,
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -189,7 +189,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Non-empty
@@ -261,7 +261,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -347,13 +347,8 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	testTx := &shelley.ShelleyTransaction{
 		Body: shelley.ShelleyTransactionBody{},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: testGoodInput,
-			},
-		},
-	}
+	utxos := []common.Utxo{{Id: testGoodInput}}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good input
@@ -425,8 +420,8 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockNetworkId: common.AddressNetworkMainnet,
+	testLedgerState := &test_ledger.MockLedgerState{
+		NetworkIdVal: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
@@ -491,8 +486,8 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockNetworkId: common.AddressNetworkMainnet,
+	testLedgerState := &test_ledger.MockLedgerState{
+		NetworkIdVal: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
@@ -567,16 +562,15 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				Output: shelley.ShelleyTransactionOutput{
-					OutputAmount: testInputAmount,
-				},
+	utxos := []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: testInputAmount,
 			},
 		},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -723,7 +717,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{
 		MinUtxoValue: 100000,
@@ -806,7 +800,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good
@@ -862,7 +856,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &shelley.ShelleyTransaction{}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Transaction under limit

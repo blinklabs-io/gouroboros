@@ -65,8 +65,6 @@ func (NoCollateralInputsError) Error() string {
 	return "no collateral inputs"
 }
 
-// Metadata validation errors are in the common package; use directly
-
 // Witness validation errors (alias to common types)
 type MissingVKeyWitnessesError = common.MissingVKeyWitnessesError
 

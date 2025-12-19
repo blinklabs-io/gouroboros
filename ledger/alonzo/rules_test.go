@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test "github.com/blinklabs-io/gouroboros/internal/test/ledger"
+	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -37,7 +37,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 			TxValidityIntervalStart: testSlot,
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -141,7 +141,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Non-empty
@@ -214,7 +214,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -300,13 +300,10 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: testGoodInput,
-			},
-		},
+	utxos := []common.Utxo{
+		{Id: testGoodInput},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Good input
@@ -380,8 +377,8 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockNetworkId: common.AddressNetworkMainnet,
+	testLedgerState := &test_ledger.MockLedgerState{
+		NetworkIdVal: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
@@ -446,8 +443,8 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockNetworkId: common.AddressNetworkMainnet,
+	testLedgerState := &test_ledger.MockLedgerState{
+		NetworkIdVal: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
@@ -525,16 +522,15 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				Output: shelley.ShelleyTransactionOutput{
-					OutputAmount: testInputAmount,
-				},
+	utxos := []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: testInputAmount,
 			},
 		},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -681,7 +677,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		MinUtxoValue: 100000,
@@ -765,12 +761,11 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
 			TxOutputs: []alonzo.AlonzoTransactionOutput{
-				// Empty placeholder output
 				{},
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		MaxValueSize: 4000,
@@ -853,7 +848,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Good
@@ -909,7 +904,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &alonzo.AlonzoTransaction{}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Transaction under limit
@@ -977,22 +972,21 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				Output: shelley.ShelleyTransactionOutput{
-					OutputAmount: testCollateralAmount1,
-				},
+	utxos := []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: testCollateralAmount1,
 			},
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
-				Output: shelley.ShelleyTransactionOutput{
-					OutputAmount: testCollateralAmount2,
-				},
+		},
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: testCollateralAmount2,
 			},
 		},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		CollateralPercentage: 150,
@@ -1072,25 +1066,24 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	tmpMultiAsset := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]uint64{},
 	)
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				Output: shelley.ShelleyTransactionOutput{
-					OutputAmount: testCollateralAmount,
-				},
+	utxos := []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: testCollateralAmount,
 			},
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
-				Output: alonzo.AlonzoTransactionOutput{
-					OutputAmount: mary.MaryTransactionOutputValue{
-						Amount: testCollateralAmount,
-						Assets: &tmpMultiAsset,
-					},
+		},
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
+			Output: alonzo.AlonzoTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: testCollateralAmount,
+					Assets: &tmpMultiAsset,
 				},
 			},
 		},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Coin and assets
@@ -1165,16 +1158,15 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				Output: shelley.ShelleyTransactionOutput{
-					OutputAmount: testCollateralAmount,
-				},
+	utxos := []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: testCollateralAmount,
 			},
 		},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// No collateral
@@ -1246,7 +1238,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		MaxTxExUnits: common.ExUnits{

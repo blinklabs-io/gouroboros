@@ -14,6 +14,8 @@
 
 package common
 
+import "fmt"
+
 // UtxoValidationRuleFunc represents a function that validates a transaction
 // against a specific UTXO validation rule.
 type UtxoValidationRuleFunc func(
@@ -62,8 +64,11 @@ func (MissingVKeyWitnessesError) Error() string { return "missing required vkey 
 
 type MissingRequiredVKeyWitnessForSignerError struct{ Signer Blake2b224 }
 
-func (MissingRequiredVKeyWitnessForSignerError) Error() string {
-	return "missing required vkey witness for required signer"
+func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
+	return fmt.Sprintf(
+		"missing required vkey witness for required signer %x",
+		e.Signer,
+	)
 }
 
 type MissingRedeemersForScriptDataHashError struct{}
@@ -107,7 +112,7 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 }
 
 // ValidateRedeemerAndScriptWitnesses performs lightweight checks between redeemers and Plutus scripts.
-func ValidateRedeemerAndScriptWitnesses(tx Transaction) error {
+func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 	wits := tx.Witnesses()
 	redeemerCount := 0
 	if wits != nil {
@@ -124,10 +129,38 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction) error {
 			hasPlutus = true
 		}
 	}
+
+	// If there are reference inputs and a LedgerState is provided, resolve them
+	// to detect Plutus reference scripts.
+	hasPlutusReference := false
+	if ls != nil {
+		for _, refInput := range tx.ReferenceInputs() {
+			utxo, err := ls.UtxoById(refInput)
+			if err != nil {
+				return ReferenceInputResolutionError{Input: refInput, Err: err}
+			}
+			// Skip if Output is nil (no script reference possible)
+			if utxo.Output == nil {
+				continue
+			}
+			script := utxo.Output.ScriptRef()
+			if script == nil {
+				continue
+			}
+			switch script.(type) {
+			case *PlutusV1Script, *PlutusV2Script, *PlutusV3Script:
+				hasPlutusReference = true
+			}
+			if hasPlutusReference {
+				break
+			}
+		}
+	}
+
 	if tx.ScriptDataHash() != nil && redeemerCount == 0 {
 		return MissingRedeemersForScriptDataHashError{}
 	}
-	if redeemerCount > 0 && !hasPlutus {
+	if redeemerCount > 0 && !hasPlutus && !hasPlutusReference {
 		return MissingPlutusScriptWitnessesError{}
 	}
 	if redeemerCount == 0 && hasPlutus {

@@ -121,25 +121,25 @@ func TestRewardCalculationAgainstReference(t *testing.T) {
 		},
 		PoolParams: map[PoolKeyHash]*PoolRegistrationCertificate{
 			{1}: {
-				Cost:   50000,                   // 50k ADA fixed cost
-				Margin: createGenesisRat(1, 20), // 5% margin
-				Pledge: 1000000,                 // 1M ADA pledge
+				Cost:   50000,                // 50k ADA fixed cost
+				Margin: NewGenesisRat(1, 20), // 5% margin
+				Pledge: 1000000,              // 1M ADA pledge
 				PoolOwners: []AddrKeyHash{
 					{1}, // Owner is also a delegator
 				},
 			},
 			{2}: {
-				Cost:   30000,                   // 30k ADA fixed cost
-				Margin: createGenesisRat(1, 10), // 10% margin
-				Pledge: 500000,                  // 500k ADA pledge
+				Cost:   30000,                // 30k ADA fixed cost
+				Margin: NewGenesisRat(1, 10), // 10% margin
+				Pledge: 500000,               // 500k ADA pledge
 				PoolOwners: []AddrKeyHash{
 					{3}, // Owner is also a delegator
 				},
 			},
 			{3}: {
-				Cost:   40000,                   // 40k ADA fixed cost
-				Margin: createGenesisRat(1, 25), // 4% margin
-				Pledge: 750000,                  // 750k ADA pledge
+				Cost:   40000,                // 40k ADA fixed cost
+				Margin: NewGenesisRat(1, 25), // 4% margin
+				Pledge: 750000,               // 750k ADA pledge
 				PoolOwners: []AddrKeyHash{
 					{4}, // Owner is also a delegator
 				},

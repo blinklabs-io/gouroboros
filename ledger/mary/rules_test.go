@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test "github.com/blinklabs-io/gouroboros/internal/test/ledger"
+	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
@@ -36,7 +36,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 			TxValidityIntervalStart: &testSlot,
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -140,7 +140,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Non-empty
@@ -212,7 +212,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -298,13 +298,10 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	testTx := &mary.MaryTransaction{
 		Body: mary.MaryTransactionBody{},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: testGoodInput,
-			},
-		},
+	utxos := []common.Utxo{
+		{Id: testGoodInput},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Good input
@@ -378,8 +375,8 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockNetworkId: common.AddressNetworkMainnet,
+	testLedgerState := &test_ledger.MockLedgerState{
+		NetworkIdVal: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
@@ -444,8 +441,8 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockNetworkId: common.AddressNetworkMainnet,
+	testLedgerState := &test_ledger.MockLedgerState{
+		NetworkIdVal: common.AddressNetworkMainnet,
 	}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
@@ -523,16 +520,15 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := test.MockLedgerState{
-		MockUtxos: []common.Utxo{
-			{
-				Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-				Output: shelley.ShelleyTransactionOutput{
-					OutputAmount: testInputAmount,
-				},
+	utxos := []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: testInputAmount,
 			},
 		},
 	}
+	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -679,7 +675,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{
 		MinUtxoValue: 100000,
@@ -768,7 +764,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Good
@@ -849,7 +845,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Good
@@ -905,7 +901,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &mary.MaryTransaction{}
-	testLedgerState := test.MockLedgerState{}
+	testLedgerState := &test_ledger.MockLedgerState{}
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Transaction under limit

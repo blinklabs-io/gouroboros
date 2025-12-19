@@ -122,6 +122,13 @@ func UtxoValidateCollateralVKeyWitnesses(
 }
 
 // UtxoValidateRedeemerAndScriptWitnesses performs lightweight UTXOW checks for presence/absence of scripts vs redeemers
+// Note: Conway needs custom handling for reference scripts. This function
+// intentionally performs its own reference-input-aware checks instead of
+// delegating to common.ValidateRedeemerAndScriptWitnesses because Conway
+// treats reference scripts differently for extraneous witness validation:
+// reference scripts alone do not trigger an extraneous witness error if no
+// redeemers are present, unlike the common helper which considers any Plutus
+// scripts (witnessed or referenced) as extraneous without redeemers.
 func UtxoValidateRedeemerAndScriptWitnesses(
 	tx common.Transaction,
 	slot uint64,

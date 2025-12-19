@@ -613,7 +613,6 @@ func ExtractAndSetTransactionCbor(
 	return nil
 }
 
-// Metadata validation errors
 type MissingTransactionMetadataError struct {
 	Hash Blake2b256
 }
@@ -647,4 +646,19 @@ func (e ConflictingMetadataHashError) Error() string {
 		e.Supplied,
 		e.Expected,
 	)
+}
+
+// NewGenesisRat creates a GenesisRat from numerator and denominator.
+// This is a helper for tests that need to construct genesis ratio values.
+func NewGenesisRat(num, denom int64) GenesisRat {
+	if denom == 0 {
+		panic("denominator cannot be zero")
+	}
+	var r GenesisRat
+	jsonData := fmt.Sprintf(`{"numerator": %d, "denominator": %d}`, num, denom)
+
+	if err := r.UnmarshalJSON([]byte(jsonData)); err != nil {
+		panic(fmt.Sprintf("failed to unmarshal GenesisRat JSON: %v", err))
+	}
+	return r
 }

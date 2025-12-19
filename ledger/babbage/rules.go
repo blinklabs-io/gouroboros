@@ -112,7 +112,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return common.ValidateRedeemerAndScriptWitnesses(tx)
+	return common.ValidateRedeemerAndScriptWitnesses(tx, ls)
 }
 
 // UtxoValidateCostModelsPresent ensures Plutus scripts have cost models in protocol parameters

@@ -20,8 +20,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-// Metadata validation errors are in the common package; use directly
-
 type OutputTooBigUtxoError struct {
 	Outputs []common.TransactionOutput
 }
