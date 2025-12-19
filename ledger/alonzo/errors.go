@@ -67,38 +67,23 @@ func (NoCollateralInputsError) Error() string {
 
 // Metadata validation errors are in the common package; use directly
 
-// Witness validation errors
-type MissingVKeyWitnessesError struct{}
+// Witness validation errors (alias to common types)
+type MissingVKeyWitnessesError = common.MissingVKeyWitnessesError
 
-func (MissingVKeyWitnessesError) Error() string {
-	return "missing required vkey witnesses"
-}
+type MissingRequiredVKeyWitnessForSignerError = common.MissingRequiredVKeyWitnessForSignerError
 
-type MissingRequiredVKeyWitnessForSignerError struct {
-	Signer common.Blake2b224
-}
+type MissingRedeemersForScriptDataHashError = common.MissingRedeemersForScriptDataHashError
 
-func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
-	return "missing required vkey witness for required signer"
-}
+type MissingPlutusScriptWitnessesError = common.MissingPlutusScriptWitnessesError
 
-// Plutus script/redeemer relationship errors
-type MissingRedeemersForScriptDataHashError struct{}
+type ExtraneousPlutusScriptWitnessesError = common.ExtraneousPlutusScriptWitnessesError
 
-func (MissingRedeemersForScriptDataHashError) Error() string {
-	return "missing redeemers for script data hash"
-}
+// Metadata / cost model / IsValid aliases
+type MissingTransactionMetadataError = common.MissingTransactionMetadataError
 
-type MissingPlutusScriptWitnessesError struct{}
-
-func (MissingPlutusScriptWitnessesError) Error() string {
-	return "missing Plutus script witnesses for redeemers"
-}
-
-type ExtraneousPlutusScriptWitnessesError struct{}
-
-func (ExtraneousPlutusScriptWitnessesError) Error() string {
-	return "extraneous Plutus script witnesses"
-}
-
-// Cost model and IsValid flag errors moved to ledger/common/era_errors.go
+type (
+	MissingTransactionAuxiliaryDataHashError = common.MissingTransactionAuxiliaryDataHashError
+	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
+	MissingCostModelError                    = common.MissingCostModelError
+	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
+)

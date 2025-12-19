@@ -108,24 +108,7 @@ func UtxoValidateRequiredVKeyWitnesses(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	required := tx.RequiredSigners()
-	if len(required) == 0 {
-		return nil
-	}
-	w := tx.Witnesses()
-	if w == nil || len(w.Vkey()) == 0 {
-		return MissingVKeyWitnessesError{}
-	}
-	vkeyHashes := make(map[common.Blake2b224]struct{})
-	for _, vw := range w.Vkey() {
-		vkeyHashes[common.Blake2b224Hash(vw.Vkey)] = struct{}{}
-	}
-	for _, req := range required {
-		if _, ok := vkeyHashes[req]; !ok {
-			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
-		}
-	}
-	return nil
+	return common.ValidateRequiredVKeyWitnesses(tx)
 }
 
 // UtxoValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses
