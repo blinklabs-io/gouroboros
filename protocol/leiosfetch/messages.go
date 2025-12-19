@@ -17,6 +17,7 @@ package leiosfetch
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -106,23 +107,26 @@ func NewMsgBlock(block cbor.RawMessage) *MsgBlock {
 
 type MsgBlockTxsRequest struct {
 	protocol.MessageBase
-	Slot     uint64
-	Hash     []byte
-	TxBitmap [8]byte
+	Slot uint64
+	Hash []byte
+	// Bitmaps identifies which transactions to fetch using a map
+	// from 16-bit index to a 64-bit bitmap (8 bytes) per CIP-0164.
+	// The offset of the first transaction bit is 64*index.
+	Bitmaps map[uint16][8]byte
 }
 
 func NewMsgBlockTxsRequest(
 	slot uint64,
 	hash []byte,
-	txBitmap [8]byte,
+	bitmaps map[uint16][8]byte,
 ) *MsgBlockTxsRequest {
 	m := &MsgBlockTxsRequest{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockTxsRequest,
 		},
-		Slot:     slot,
-		Hash:     bytes.Clone(hash),
-		TxBitmap: txBitmap,
+		Slot:    slot,
+		Hash:    bytes.Clone(hash),
+		Bitmaps: maps.Clone(bitmaps),
 	}
 	return m
 }

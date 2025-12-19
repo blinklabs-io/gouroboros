@@ -19,6 +19,7 @@ package leios
 // It is acceptable to skip validation on Leios blocks, but tests must be maintained.
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -64,10 +65,86 @@ type LeiosBlockHeaderBody struct {
 	CertifiedEb     *bool
 }
 
+// UnmarshalCBOR decodes the header body and supports optional fields per CIP-0164:
+//   - Optional tuple (announced_eb : hash32, announced_eb_size : uint32)
+//   - Optional certified_eb : bool
+//
+// This implementation is tolerant and minimally invasive: it decodes the embedded
+// Babbage header body first and then reads optional fields if present.
+func (b *LeiosBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
+	var items []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &items); err != nil {
+		return err
+	}
+	const baseLen = 10 // BabbageBlockHeaderBody array length
+	if len(items) < baseLen {
+		return fmt.Errorf(
+			"LeiosBlockHeaderBody: invalid header body length: %d",
+			len(items),
+		)
+	}
+	// Validate that length is one of the valid values: baseLen, baseLen+2, or baseLen+3
+	// Reject baseLen+1 (incomplete announced_eb tuple) and lengths > baseLen+3
+	if len(items) != baseLen && len(items) != baseLen+2 &&
+		len(items) != baseLen+3 {
+		return fmt.Errorf(
+			"LeiosBlockHeaderBody: invalid header body length %d, expected %d, %d, or %d",
+			len(items),
+			baseLen,
+			baseLen+2,
+			baseLen+3,
+		)
+	}
+	// Decode embedded Babbage header body from the first baseLen items
+	baseCbor, err := cbor.Encode(items[:baseLen])
+	if err != nil {
+		return err
+	}
+	if _, err := cbor.Decode(baseCbor, &b.BabbageBlockHeaderBody); err != nil {
+		return err
+	}
+	// Reset optional pointers
+	b.AnnouncedEb = nil
+	b.AnnouncedEbSize = nil
+	b.CertifiedEb = nil
+	// Optional tuple immediately following base fields
+	if len(items) >= baseLen+2 {
+		var ebHash common.Blake2b256
+		if _, err := cbor.Decode(items[baseLen], &ebHash); err != nil {
+			return fmt.Errorf(
+				"LeiosBlockHeaderBody: failed to decode announced_eb hash: %w",
+				err,
+			)
+		}
+		var ebSize uint32
+		if _, err := cbor.Decode(items[baseLen+1], &ebSize); err != nil {
+			return fmt.Errorf(
+				"LeiosBlockHeaderBody: failed to decode announced_eb_size: %w",
+				err,
+			)
+		}
+		b.AnnouncedEb = &ebHash
+		b.AnnouncedEbSize = &ebSize
+	}
+	// Optional certified_eb boolean
+	if len(items) >= baseLen+3 {
+		var cert bool
+		if _, err := cbor.Decode(items[baseLen+2], &cert); err != nil {
+			return fmt.Errorf(
+				"LeiosBlockHeaderBody: failed to decode certified_eb: %w",
+				err,
+			)
+		}
+		b.CertifiedEb = &cert
+	}
+	return nil
+}
+
 type LeiosEndorserBlockBody struct {
 	cbor.StructAsArray
 	transactions []common.Transaction
-	TxReferences map[common.Blake2b256]uint16
+	// TxReferences preserves insertion order to ensure deterministic serialization
+	TxReferences []TxReference
 }
 
 func (b *LeiosEndorserBlockBody) BlockBodyHash() common.Blake2b256 {
@@ -83,11 +160,68 @@ func (b *LeiosEndorserBlockBody) BlockBodyHash() common.Blake2b256 {
 	return common.Blake2b256Hash(bodyCbor)
 }
 
+// TxReference represents a single transaction reference entry
+// encoded as a two-element array [hash32, uint16]
+type TxReference struct {
+	cbor.StructAsArray
+	TxHash common.Blake2b256
+	TxSize uint16
+}
+
 type LeiosEndorserBlock struct {
 	cbor.DecodeStoreCbor
 	cbor.StructAsArray
 	hash *common.Blake2b256
 	Body *LeiosEndorserBlockBody
+}
+
+// MarshalCBOR encodes the EB as a single-element array containing transaction_references
+// per CIP-0164: endorser_block = [ transaction_references : omap<hash32, uint16> ]
+func (b *LeiosEndorserBlock) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	if b.Body == nil {
+		return nil, errors.New(
+			"LeiosEndorserBlock: cannot marshal with nil Body",
+		)
+	}
+	// Validate non-empty TxReferences per CIP-0164
+	if len(b.Body.TxReferences) == 0 {
+		return nil, errors.New(
+			"LeiosEndorserBlock: empty EB not allowed per CIP-0164",
+		)
+	}
+	// Encode as single-element array: [ TxReferences ]
+	return cbor.Encode([]any{b.Body.TxReferences})
+}
+
+// UnmarshalCBOR decodes the EB from a single-element array and validates non-empty
+func (b *LeiosEndorserBlock) UnmarshalCBOR(data []byte) error {
+	var items []cbor.RawMessage
+	if _, err := cbor.Decode(data, &items); err != nil {
+		return err
+	}
+	if len(items) != 1 {
+		return fmt.Errorf(
+			"LeiosEndorserBlock: expected 1-element array, got %d",
+			len(items),
+		)
+	}
+	// Decode TxReferences from the single element
+	var refs []TxReference
+	if _, err := cbor.Decode(items[0], &refs); err != nil {
+		return err
+	}
+	// Reject empty EBs per CIP-0164
+	if len(refs) == 0 {
+		return errors.New(
+			"LeiosEndorserBlock: empty EB not allowed per CIP-0164",
+		)
+	}
+	b.Body = &LeiosEndorserBlockBody{TxReferences: refs}
+	b.SetCbor(data)
+	return nil
 }
 
 func (h *LeiosBlockHeader) UnmarshalCBOR(cborData []byte) error {

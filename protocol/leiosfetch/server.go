@@ -133,7 +133,7 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 		s.callbackContext,
 		msgBlockTxsRequest.Slot,
 		msgBlockTxsRequest.Hash,
-		msgBlockTxsRequest.TxBitmap,
+		msgBlockTxsRequest.Bitmaps,
 	)
 	if err != nil {
 		return err
