@@ -204,10 +204,16 @@ func TestBlockFetchLimitsAreDefined(t *testing.T) {
 			blockfetch.DefaultRecvQueueSize,
 		)
 	}
-	if blockfetch.MaxPendingMessageBytes <= 0 {
+	if blockfetch.IdleBusyMaxPendingMessageBytes <= 0 {
 		t.Errorf(
-			"MaxPendingMessageBytes must be positive, got %d",
-			blockfetch.MaxPendingMessageBytes,
+			"IdleBusyMaxPendingMessageBytes must be positive, got %d",
+			blockfetch.IdleBusyMaxPendingMessageBytes,
+		)
+	}
+	if blockfetch.StreamingMaxPendingMessageBytes <= 0 {
+		t.Errorf(
+			"StreamingMaxPendingMessageBytes must be positive, got %d",
+			blockfetch.StreamingMaxPendingMessageBytes,
 		)
 	}
 
@@ -220,19 +226,16 @@ func TestBlockFetchLimitsAreDefined(t *testing.T) {
 			blockfetch.MaxRecvQueueSize,
 		)
 	}
-	expectedMaxBytes := 5242880
-	if blockfetch.MaxPendingMessageBytes != expectedMaxBytes {
+	expectedMaxBytes := 2500000
+	if blockfetch.StreamingMaxPendingMessageBytes != expectedMaxBytes {
 		t.Errorf(
-			"MaxPendingMessageBytes should be %d, got %d",
+			"StreamingMaxPendingMessageBytes should be %d, got %d",
 			expectedMaxBytes,
-			blockfetch.MaxPendingMessageBytes,
+			blockfetch.StreamingMaxPendingMessageBytes,
 		)
 	}
 
 	// Test timeout constants
-	if blockfetch.IdleTimeout <= 0 {
-		t.Errorf("IdleTimeout must be positive, got %v", blockfetch.IdleTimeout)
-	}
 	if blockfetch.BusyTimeout <= 0 {
 		t.Errorf("BusyTimeout must be positive, got %v", blockfetch.BusyTimeout)
 	}
@@ -553,12 +556,6 @@ func TestProtocolStateTimeouts(t *testing.T) {
 
 	t.Run("BlockFetch timeouts", func(t *testing.T) {
 		// Test that all timeout constants are positive
-		if blockfetch.IdleTimeout <= 0 {
-			t.Errorf(
-				"IdleTimeout must be positive, got %v",
-				blockfetch.IdleTimeout,
-			)
-		}
 		if blockfetch.BusyTimeout <= 0 {
 			t.Errorf(
 				"BusyTimeout must be positive, got %v",
@@ -574,7 +571,6 @@ func TestProtocolStateTimeouts(t *testing.T) {
 
 		// Test that timeout values are reasonable
 		timeouts := map[string]time.Duration{
-			"IdleTimeout":      blockfetch.IdleTimeout,
 			"BusyTimeout":      blockfetch.BusyTimeout,
 			"StreamingTimeout": blockfetch.StreamingTimeout,
 		}
@@ -843,19 +839,9 @@ func TestStateMapTimeouts(t *testing.T) {
 	})
 
 	t.Run("BlockFetch StateMap timeouts", func(t *testing.T) {
-		stateIdle := protocol.NewState(1, "Idle")
 		stateBusy := protocol.NewState(2, "Busy")
 		stateStreaming := protocol.NewState(3, "Streaming")
 
-		if entry, exists := blockfetch.StateMap[stateIdle]; exists {
-			if entry.Timeout != blockfetch.IdleTimeout {
-				t.Errorf(
-					"StateIdle timeout should be %v, got %v",
-					blockfetch.IdleTimeout,
-					entry.Timeout,
-				)
-			}
-		}
 		if entry, exists := blockfetch.StateMap[stateBusy]; exists {
 			if entry.Timeout != blockfetch.BusyTimeout {
 				t.Errorf(

@@ -49,8 +49,7 @@ var StateDone = protocol.NewState(4, "Done")
 var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IdleTimeout, // Timeout for client to send block range request
+		PendingMessageByteLimit: IdleBusyMaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestRange,
@@ -64,7 +63,7 @@ var StateMap = protocol.StateMap{
 	},
 	StateBusy: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: IdleBusyMaxPendingMessageBytes,
 		Timeout:                 BusyTimeout, // Timeout for server to start batch or respond no blocks
 		Transitions: []protocol.StateTransition{
 			{
@@ -79,7 +78,7 @@ var StateMap = protocol.StateMap{
 	},
 	StateStreaming: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		PendingMessageByteLimit: StreamingMaxPendingMessageBytes,
 		Timeout:                 StreamingTimeout, // Timeout for server to send next block in batch
 		Transitions: []protocol.StateTransition{
 			{
@@ -93,8 +92,7 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	StateDone: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyNone,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Agency: protocol.AgencyNone,
 	},
 }
 
@@ -122,14 +120,14 @@ const MaxRecvQueueSize = 512
 // DefaultRecvQueueSize is the default receive queue size.
 const DefaultRecvQueueSize = 384
 
-// MaxPendingMessageBytes is the maximum allowed pending message bytes (5MB).
-const MaxPendingMessageBytes = 5242880
+// StreamingMaxPendingMessageBytes is the maximum allowed pending message bytes when in the Streaming state
+const StreamingMaxPendingMessageBytes = 2500000
 
-// IdleTimeout is the timeout for the client to send a block range request.
-const IdleTimeout = 60 * time.Second
+// IdleBusyMaxPendingMessageBytes is the maximum allowed pending message bytes when in the Idle or Busy state.
+const IdleBusyMaxPendingMessageBytes = 65535
 
 // BusyTimeout is the timeout for the server to start a batch or respond no blocks.
-const BusyTimeout = 5 * time.Second
+const BusyTimeout = 60 * time.Second
 
 // StreamingTimeout is the timeout for the server to send the next block in a batch.
 const StreamingTimeout = 60 * time.Second
