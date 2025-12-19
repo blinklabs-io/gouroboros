@@ -595,8 +595,25 @@ func TestClientQueryReply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 	}
+	// Async error handler
+	go func() {
+		err, ok := <-oConn.ErrorChan()
+		if !ok {
+			return
+		}
+		// We can't call t.Fatalf() from a different Goroutine, so we panic instead
+		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
+	}()
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+	// Verify that the query reply was processed by checking the protocol version
+	protoVersion, protoVersionData := oConn.ProtocolVersion()
+	if protoVersion != 0 {
+		t.Fatalf("expected protocol version 0 for query reply, got %d", protoVersion)
+	}
+	if protoVersionData != nil {
+		t.Fatalf("expected nil protocol version data for query reply, got %v", protoVersionData)
 	}
 	select {
 	case <-oConn.ErrorChan():

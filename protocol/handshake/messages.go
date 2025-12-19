@@ -69,8 +69,10 @@ func NewMsgProposeVersions(
 ) *MsgProposeVersions {
 	rawVersionMap := map[uint16]cbor.RawMessage{}
 	for version, versionData := range versionMap {
-		// This should never fail with our known VersionData types
-		cborData, _ := cbor.Encode(&versionData)
+		cborData, err := cbor.Encode(&versionData)
+		if err != nil {
+			continue
+		}
 		rawVersionMap[version] = cbor.RawMessage(cborData)
 	}
 	m := &MsgProposeVersions{
