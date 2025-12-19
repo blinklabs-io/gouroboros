@@ -1,5 +1,5 @@
 // Copyright 2025 Blink Labs Software
-//
+
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -12,32 +12,78 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package common
+package common_test
 
 import (
 	"errors"
 	"testing"
-	"time"
 
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
+// mockTxEmpty implements the minimal Transaction interface used by the
+// helpers. It represents a transaction with no required signers and no
+// witnesses.
+type mockTxEmpty struct {
+	common.TransactionBodyBase
+}
+
+func (m *mockTxEmpty) Type() int    { return 0 }
+func (m *mockTxEmpty) Cbor() []byte { return nil }
+
+func (m *mockTxEmpty) Hash() common.Blake2b256 { return common.Blake2b256{} }
+
+func (m *mockTxEmpty) LeiosHash() common.Blake2b256            { return common.Blake2b256{} }
+func (m *mockTxEmpty) Metadata() common.TransactionMetadatum   { return nil }
+func (m *mockTxEmpty) RawAuxiliaryData() []byte                { return nil }
+func (m *mockTxEmpty) IsValid() bool                           { return true }
+func (m *mockTxEmpty) Consumed() []common.TransactionInput     { return nil }
+func (m *mockTxEmpty) Produced() []common.Utxo                 { return nil }
+func (m *mockTxEmpty) Witnesses() common.TransactionWitnessSet { return nil }
+
+func (m *mockTxEmpty) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	return 0, nil
+}
+
+func TestValidateRequiredVKeyWitnesses_Common(t *testing.T) {
+	tx := &mockTxEmpty{}
+	if err := common.ValidateRequiredVKeyWitnesses(tx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
+	tx := &mockTxEmpty{}
+	if err := common.ValidateRedeemerAndScriptWitnesses(tx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Tests for VerifyTransaction moved from verify_rules_test.go
 func TestVerifyTransaction(t *testing.T) {
-	// Mock transaction - we don't need a real one for this test
-	var tx Transaction
+	var tx common.Transaction
 
 	slot := uint64(1000)
-	ledgerState := &mockLedgerStateRules{}
-	protocolParams := &mockProtocolParamsRules{}
+	ledgerState := &common.MockLedgerStateRules{}
+	protocolParams := &common.MockProtocolParamsRules{}
 
 	t.Run("all_rules_pass", func(t *testing.T) {
-		rules := []UtxoValidationRuleFunc{
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return nil },
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return nil },
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return nil },
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
 		}
 
-		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -45,16 +91,24 @@ func TestVerifyTransaction(t *testing.T) {
 
 	t.Run("first_rule_fails", func(t *testing.T) {
 		expectedErr := errors.New("first rule failed")
-		rules := []UtxoValidationRuleFunc{
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return expectedErr },
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return nil },
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error {
+				return expectedErr
+			},
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
 		}
 
-		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var validationErr *ValidationError
+		var validationErr *common.ValidationError
 		if !errors.As(err, &validationErr) {
 			t.Fatalf("expected ValidationError, got %T", err)
 		}
@@ -69,17 +123,25 @@ func TestVerifyTransaction(t *testing.T) {
 
 	t.Run("middle_rule_fails", func(t *testing.T) {
 		expectedErr := errors.New("middle rule failed")
-		rules := []UtxoValidationRuleFunc{
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return nil },
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return expectedErr },
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return nil },
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error {
+				return expectedErr
+			},
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
 		}
 
-		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var validationErr *ValidationError
+		var validationErr *common.ValidationError
 		if !errors.As(err, &validationErr) {
 			t.Fatalf("expected ValidationError, got %T", err)
 		}
@@ -94,16 +156,24 @@ func TestVerifyTransaction(t *testing.T) {
 
 	t.Run("last_rule_fails", func(t *testing.T) {
 		expectedErr := errors.New("last rule failed")
-		rules := []UtxoValidationRuleFunc{
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return nil },
-			func(Transaction, uint64, LedgerState, ProtocolParameters) error { return expectedErr },
+		rules := []common.UtxoValidationRuleFunc{
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error { return nil },
+			func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error {
+				return expectedErr
+			},
 		}
 
-		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var validationErr *ValidationError
+		var validationErr *common.ValidationError
 		if !errors.As(err, &validationErr) {
 			t.Fatalf("expected ValidationError, got %T", err)
 		}
@@ -117,66 +187,56 @@ func TestVerifyTransaction(t *testing.T) {
 	})
 
 	t.Run("empty_rules", func(t *testing.T) {
-		rules := []UtxoValidationRuleFunc{}
+		rules := []common.UtxoValidationRuleFunc{}
 
-		err := VerifyTransaction(tx, slot, ledgerState, protocolParams, rules)
+		err := common.VerifyTransaction(
+			tx,
+			slot,
+			ledgerState,
+			protocolParams,
+			rules,
+		)
 		if err != nil {
 			t.Errorf("expected no error with empty rules, got %v", err)
 		}
 	})
 }
 
-// Mock types for testing
-type mockLedgerStateRules struct{}
+// Use centralized mocks from ledger/common/mock.go
 
-func (m *mockLedgerStateRules) UtxoById(
-	input TransactionInput,
-) (Utxo, error) {
-	return Utxo{}, nil
+// mockTxInput implements TransactionInput minimally for constructing
+// ReferenceInputResolutionError in tests.
+type mockTxInput struct{ id common.Blake2b256 }
+
+func (m *mockTxInput) Id() common.Blake2b256 { return m.id }
+func (m *mockTxInput) Index() uint32         { return 0 }
+
+func (m *mockTxInput) String() string                     { return m.id.String() }
+func (m *mockTxInput) Utxorpc() (*cardano.TxInput, error) { return nil, nil }
+func (m *mockTxInput) ToPlutusData() data.PlutusData      { return nil }
+
+func TestReferenceInputResolutionSentinel(t *testing.T) {
+	// Construct ReferenceInputResolutionError using the concrete type defined
+	// in common/errors.go. Provide a minimal mock input and inner error.
+	inner := errors.New("utxo not found")
+	rie := common.ReferenceInputResolutionError{
+		Input: &mockTxInput{id: common.Blake2b256{}},
+		Err:   inner,
+	}
+	err := rie
+
+	if !errors.Is(err, common.ErrReferenceInputResolution) {
+		t.Fatalf("expected errors.Is to match ErrReferenceInputResolution")
+	}
+
+	var out common.ReferenceInputResolutionError
+	if !errors.As(err, &out) {
+		t.Fatalf(
+			"expected errors.As to unwrap to ReferenceInputResolutionError",
+		)
+	}
+
+	if out.Err == nil || out.Err.Error() != "utxo not found" {
+		t.Fatalf("expected inner message 'utxo not found', got %q", out.Err)
+	}
 }
-
-func (m *mockLedgerStateRules) StakeRegistration(
-	key []byte,
-) ([]StakeRegistrationCertificate, error) {
-	return nil, nil
-}
-
-func (m *mockLedgerStateRules) SlotToTime(
-	slot uint64,
-) (time.Time, error) {
-	return time.Time{}, nil
-}
-
-func (m *mockLedgerStateRules) TimeToSlot(
-	t time.Time,
-) (uint64, error) {
-	return 0, nil
-}
-
-func (m *mockLedgerStateRules) PoolCurrentState(
-	poolKeyHash PoolKeyHash,
-) (*PoolRegistrationCertificate, *uint64, error) {
-	return nil, nil, nil
-}
-
-func (m *mockLedgerStateRules) CalculateRewards(
-	pots AdaPots,
-	snapshot RewardSnapshot,
-	params RewardParameters,
-) (*RewardCalculationResult, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockLedgerStateRules) GetAdaPots() AdaPots              { return AdaPots{} }
-func (m *mockLedgerStateRules) UpdateAdaPots(pots AdaPots) error { return nil }
-
-func (m *mockLedgerStateRules) GetRewardSnapshot(
-	epoch uint64,
-) (RewardSnapshot, error) {
-	return RewardSnapshot{}, nil
-}
-func (m *mockLedgerStateRules) NetworkId() uint { return 0 }
-
-type mockProtocolParamsRules struct{}
-
-func (m *mockProtocolParamsRules) Utxorpc() (*cardano.PParams, error) { return nil, nil }

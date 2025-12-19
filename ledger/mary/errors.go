@@ -33,3 +33,13 @@ func (e OutputTooBigUtxoError) Error() string {
 	}
 	return "output value too large: " + strings.Join(tmpOutputs, ", ")
 }
+
+// Metadata / cost model / IsValid aliases
+type MissingTransactionMetadataError = common.MissingTransactionMetadataError
+
+type (
+	MissingTransactionAuxiliaryDataHashError = common.MissingTransactionAuxiliaryDataHashError
+	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
+	MissingCostModelError                    = common.MissingCostModelError
+	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
+)

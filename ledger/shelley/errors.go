@@ -165,17 +165,7 @@ type (
 	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
 )
 
-// Witness validation errors
-type MissingVKeyWitnessesError struct{}
+// Witness validation errors (alias to common types)
+type MissingVKeyWitnessesError = common.MissingVKeyWitnessesError
 
-func (MissingVKeyWitnessesError) Error() string {
-	return "missing required vkey witnesses"
-}
-
-type MissingRequiredVKeyWitnessForSignerError struct {
-	Signer common.Blake2b224
-}
-
-func (e MissingRequiredVKeyWitnessForSignerError) Error() string {
-	return "missing required vkey witness for required signer"
-}
+type MissingRequiredVKeyWitnessForSignerError = common.MissingRequiredVKeyWitnessForSignerError

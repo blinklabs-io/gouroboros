@@ -92,25 +92,7 @@ func UtxoValidateRequiredVKeyWitnesses(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	required := tx.RequiredSigners()
-	if len(required) == 0 {
-		return nil
-	}
-	w := tx.Witnesses()
-	if w == nil || len(w.Vkey()) == 0 {
-		return MissingVKeyWitnessesError{}
-	}
-	// Build a set of vkey hashes for exact matching
-	vkeyHashes := make(map[common.Blake2b224]struct{})
-	for _, vw := range w.Vkey() {
-		vkeyHashes[common.Blake2b224Hash(vw.Vkey)] = struct{}{}
-	}
-	for _, req := range required {
-		if _, ok := vkeyHashes[req]; !ok {
-			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
-		}
-	}
-	return nil
+	return common.ValidateRequiredVKeyWitnesses(tx)
 }
 
 // UtxoValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses
@@ -130,39 +112,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// Consider Plutus scripts only for redeemer relationship checks.
-	// Native scripts do not require redeemers.
-	wits := tx.Witnesses()
-	redeemerCount := 0
-	if wits != nil {
-		if r := wits.Redeemers(); r != nil {
-			for range r.Iter() {
-				redeemerCount++
-			}
-		}
-	}
-	hasPlutus := false
-	if wits != nil {
-		hasPlutus = len(wits.PlutusV1Scripts()) > 0 ||
-			len(wits.PlutusV2Scripts()) > 0
-	}
-
-	// If the body carries a script data hash, redeemers must be present
-	if tx.ScriptDataHash() != nil && redeemerCount == 0 {
-		return MissingRedeemersForScriptDataHashError{}
-	}
-
-	// If redeemers are present, we expect at least one script witness available
-	if redeemerCount > 0 && !hasPlutus {
-		return MissingPlutusScriptWitnessesError{}
-	}
-
-	// If no redeemers are present but script witnesses are supplied, treat as extraneous
-	if redeemerCount == 0 && hasPlutus {
-		return ExtraneousPlutusScriptWitnessesError{}
-	}
-
-	return nil
+	return common.ValidateRedeemerAndScriptWitnesses(tx)
 }
 
 // UtxoValidateCostModelsPresent ensures Plutus scripts have cost models in protocol parameters
