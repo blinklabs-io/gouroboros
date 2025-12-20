@@ -137,13 +137,13 @@ func (c *Client) BlockRequest(
 	return resp, nil
 }
 
-// BlockTxsRequest fetches the requested TXs identified by the slot, Leios hash, and TX bitmap
+// BlockTxsRequest fetches the requested TXs identified by the slot, Leios hash, and TX bitmaps
 func (c *Client) BlockTxsRequest(
 	slot uint64,
 	hash []byte,
-	txBitmap [8]byte,
+	bitmaps map[uint16][8]byte,
 ) (protocol.Message, error) {
-	msg := NewMsgBlockTxsRequest(slot, hash, txBitmap)
+	msg := NewMsgBlockTxsRequest(slot, hash, bitmaps)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}

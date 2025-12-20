@@ -121,9 +121,9 @@ func TestLeiosRankingBlock_Era(t *testing.T) {
 func TestLeiosEndorserBlock_Hash(t *testing.T) {
 	block := &LeiosEndorserBlock{
 		Body: &LeiosEndorserBlockBody{
-			TxReferences: map[common.Blake2b256]uint16{
-				{0x01, 0x02}: 100,
-				{0x03, 0x04}: 200,
+			TxReferences: []TxReference{
+				{TxHash: common.Blake2b256{0x01, 0x02}, TxSize: 100},
+				{TxHash: common.Blake2b256{0x03, 0x04}, TxSize: 200},
 			},
 		},
 	}
@@ -164,9 +164,9 @@ func TestLeiosBlockHeader_Hash(t *testing.T) {
 func TestLeiosEndorserBlock_CborRoundTrip(t *testing.T) {
 	original := &LeiosEndorserBlock{
 		Body: &LeiosEndorserBlockBody{
-			TxReferences: map[common.Blake2b256]uint16{
-				{0x01, 0x02}: 100,
-				{0x03, 0x04}: 200,
+			TxReferences: []TxReference{
+				{TxHash: common.Blake2b256{0x01, 0x02}, TxSize: 100},
+				{TxHash: common.Blake2b256{0x03, 0x04}, TxSize: 200},
 			},
 		},
 	}
@@ -194,14 +194,10 @@ func TestLeiosEndorserBlock_CborRoundTrip(t *testing.T) {
 			len(decoded.Body.TxReferences),
 		)
 	}
-	for hash, size := range original.Body.TxReferences {
-		if decoded.Body.TxReferences[hash] != size {
-			t.Errorf(
-				"TxReference mismatch for hash %x: expected %d, got %d",
-				hash,
-				size,
-				decoded.Body.TxReferences[hash],
-			)
+	for i := range original.Body.TxReferences {
+		if decoded.Body.TxReferences[i].TxHash != original.Body.TxReferences[i].TxHash ||
+			decoded.Body.TxReferences[i].TxSize != original.Body.TxReferences[i].TxSize {
+			t.Errorf("TxReference mismatch at index %d", i)
 		}
 	}
 }
