@@ -136,16 +136,20 @@ func (s *Server) RequestTxIds(
 		return nil, err
 	}
 	// Wait for result
-	result, ok := <-s.requestTxIdsResultChan
-	if !ok {
+	select {
+	case result, ok := <-s.requestTxIdsResultChan:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		if result.err != nil {
+			return nil, result.err
+		}
+		// Update ack count for next call
+		s.ackCount = len(result.txIds)
+		return result.txIds, nil
+	case <-s.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	if result.err != nil {
-		return nil, result.err
-	}
-	// Update ack count for next call
-	s.ackCount = len(result.txIds)
-	return result.txIds, nil
 }
 
 // RequestTxs requests the content of the requested TX identifiers from the remote node's mempool

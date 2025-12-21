@@ -438,11 +438,17 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 func (c *Client) syncLoop() {
 	for {
 		// Wait for a block to be received
-		if ready, ok := <-c.readyForNextBlockChan; !ok {
-			// Channel is closed, which means we're shutting down
-			return
-		} else if !ready {
-			// Sync was cancelled
+		select {
+		case ready, ok := <-c.readyForNextBlockChan:
+			if !ok {
+				// Channel is closed, which means we're shutting down
+				return
+			} else if !ready {
+				// Sync was cancelled
+				return
+			}
+		case <-c.DoneChan():
+			// Protocol is shutting down
 			return
 		}
 		c.busyMutex.Lock()
