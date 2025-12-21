@@ -91,6 +91,26 @@ func TestEncodeIndefLengthByteString(t *testing.T) {
 	}
 }
 
+func TestEncodeIndefLengthMap(t *testing.T) {
+	expectedCborHex := "bf616101616202ff"
+	tmpData := cbor.IndefLengthMap{
+		"a": 1,
+		"b": 2,
+	}
+	cborData, err := cbor.Encode(tmpData)
+	if err != nil {
+		t.Fatalf("failed to encode object to CBOR: %s", err)
+	}
+	cborHex := hex.EncodeToString(cborData)
+	if cborHex != expectedCborHex {
+		t.Fatalf(
+			"object did not encode to expected CBOR\n  got %s\n  wanted: %s",
+			cborHex,
+			expectedCborHex,
+		)
+	}
+}
+
 func BenchmarkEncode(b *testing.B) {
 	obj := []any{1, 2, 3}
 	b.ResetTimer()
