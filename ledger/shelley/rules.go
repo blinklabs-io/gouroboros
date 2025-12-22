@@ -18,7 +18,7 @@ import (
 	"errors"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	common "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{

@@ -65,6 +65,9 @@ type LedgerState interface {
 	PoolState
 	RewardState
 	NetworkId() uint
+
+	// Plutus cost models
+	CostModels() map[PlutusLanguage]CostModel
 }
 
 // TipState defines the interface for querying the current tip
@@ -76,4 +79,34 @@ type TipState interface {
 type SlotState interface {
 	SlotToTime(uint64) (time.Time, error)
 	TimeToSlot(time.Time) (uint64, error)
+}
+
+// Minimal placeholder types used by the extended interface. These are intentionally
+// lightweight so tests and era packages can compile while we wire real parsing.
+type (
+	Constitution   struct{}
+	PlutusLanguage uint8
+	CostModel      struct{}
+)
+
+// Governance-related types required by the extended LedgerState.
+type CommitteeMember struct {
+	ColdKey     Blake2b224
+	HotKey      *Blake2b224 // nil if not authorized
+	ExpiryEpoch uint64
+	Resigned    bool
+}
+
+type DRepRegistration struct {
+	Credential Blake2b224
+	Anchor     *GovAnchor
+	Deposit    uint64
+}
+
+type DRepDelegation struct {
+	DRep Blake2b224
+}
+
+type PoolDelegation struct {
+	Pool Blake2b224
 }

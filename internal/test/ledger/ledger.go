@@ -15,66 +15,86 @@
 package test_ledger
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
+// MockLedgerState is the canonical internal mock used by tests. Tests should
+// construct &test_ledger.MockLedgerState{} and configure fields (e.g.
+// NetworkIdVal, UtxoByIdFunc) to control behavior. Keeping this in an
+// internal package prevents external consumers from depending on test-only
+// APIs while allowing in-repo tests to reuse the same mock.
 type MockLedgerState struct {
-	MockNetworkId         uint
-	MockUtxos             []common.Utxo
-	MockStakeRegistration []common.StakeRegistrationCertificate
-	MockPoolRegistration  []common.PoolRegistrationCertificate
-	MockAdaPots           common.AdaPots
-	MockRewardSnapshot    common.RewardSnapshot
+	NetworkIdVal      uint
+	AdaPotsVal        common.AdaPots
+	RewardSnapshotVal common.RewardSnapshot
+	PoolRegistrations []common.PoolRegistrationCertificate
+	UtxoByIdFunc      func(common.TransactionInput) (common.Utxo, error)
+	// CalculateRewardsFunc optionally overrides reward calculation behavior for tests.
+	// If nil, the mock will call common.CalculateRewards by default.
+	CalculateRewardsFunc func(common.AdaPots, common.RewardSnapshot, common.RewardParameters) (*common.RewardCalculationResult, error)
+	// StakeRegistrationFunc optionally overrides stake registration lookup.
+	// If nil, returns empty slice and nil error (no registrations found).
+	StakeRegistrationFunc func([]byte) ([]common.StakeRegistrationCertificate, error)
+	// SlotToTimeFunc optionally overrides slot-to-time conversion.
+	// If nil, returns error indicating mock is not configured.
+	SlotToTimeFunc func(uint64) (time.Time, error)
+	// TimeToSlotFunc optionally overrides time-to-slot conversion.
+	// If nil, returns error indicating mock is not configured.
+	TimeToSlotFunc func(time.Time) (uint64, error)
+	// CostModelsVal holds Plutus cost models for script execution validation.
+	CostModelsVal map[common.PlutusLanguage]common.CostModel
 }
 
-func (ls MockLedgerState) NetworkId() uint {
-	return ls.MockNetworkId
-}
-
-func (ls MockLedgerState) UtxoById(
+func (m *MockLedgerState) UtxoById(
 	id common.TransactionInput,
 ) (common.Utxo, error) {
-	for _, tmpUtxo := range ls.MockUtxos {
-		if id.Index() != tmpUtxo.Id.Index() {
-			continue
-		}
-		if string(id.Id().Bytes()) != string(tmpUtxo.Id.Id().Bytes()) {
-			continue
-		}
-		return tmpUtxo, nil
+	if m.UtxoByIdFunc != nil {
+		return m.UtxoByIdFunc(id)
 	}
 	return common.Utxo{}, errors.New("not found")
 }
 
-func (ls MockLedgerState) StakeRegistration(
-	stakingKey []byte,
+func (m *MockLedgerState) StakeRegistration(
+	key []byte,
 ) ([]common.StakeRegistrationCertificate, error) {
-	ret := []common.StakeRegistrationCertificate{}
-	for _, cert := range ls.MockStakeRegistration {
-		if string(
-			common.Blake2b224(cert.StakeCredential.Credential).Bytes(),
-		) == string(
-			stakingKey,
-		) {
-			ret = append(ret, cert)
-		}
+	if m.StakeRegistrationFunc != nil {
+		return m.StakeRegistrationFunc(key)
 	}
-	return ret, nil
+	return []common.StakeRegistrationCertificate{}, nil
 }
 
-func (ls MockLedgerState) PoolCurrentState(
+func (m *MockLedgerState) SlotToTime(
+	slot uint64,
+) (time.Time, error) {
+	if m.SlotToTimeFunc != nil {
+		return m.SlotToTimeFunc(slot)
+	}
+	return time.Time{}, fmt.Errorf(
+		"MockLedgerState.SlotToTimeFunc not configured for slot %d",
+		slot,
+	)
+}
+
+func (m *MockLedgerState) TimeToSlot(
+	t time.Time,
+) (uint64, error) {
+	if m.TimeToSlotFunc != nil {
+		return m.TimeToSlotFunc(t)
+	}
+	return 0, errors.New("MockLedgerState.TimeToSlotFunc not configured")
+}
+
+func (m *MockLedgerState) PoolCurrentState(
 	poolKeyHash common.PoolKeyHash,
 ) (*common.PoolRegistrationCertificate, *uint64, error) {
-	for _, cert := range ls.MockPoolRegistration {
-		if string(
-			common.Blake2b224(cert.Operator).Bytes(),
-		) == string(
-			common.Blake2b224(poolKeyHash).Bytes(),
-		) {
-			// pretend latest registration is current; no retirement support in mock
+	for _, cert := range m.PoolRegistrations {
+		if cert.Operator == poolKeyHash {
 			c := cert
 			return &c, nil, nil
 		}
@@ -82,35 +102,66 @@ func (ls MockLedgerState) PoolCurrentState(
 	return nil, nil, nil
 }
 
-func (ls MockLedgerState) SlotToTime(slot uint64) (time.Time, error) {
-	// TODO
-	return time.Now(), nil
-}
-
-func (ls MockLedgerState) TimeToSlot(t time.Time) (uint64, error) {
-	// TODO
-	return 0, nil
-}
-
-func (ls MockLedgerState) CalculateRewards(
+func (m *MockLedgerState) CalculateRewards(
 	pots common.AdaPots,
 	snapshot common.RewardSnapshot,
 	params common.RewardParameters,
 ) (*common.RewardCalculationResult, error) {
+	if m.CalculateRewardsFunc != nil {
+		return m.CalculateRewardsFunc(pots, snapshot, params)
+	}
 	return common.CalculateRewards(pots, snapshot, params)
 }
 
-func (ls MockLedgerState) GetAdaPots() common.AdaPots {
-	return ls.MockAdaPots
-}
+func (m *MockLedgerState) GetAdaPots() common.AdaPots { return m.AdaPotsVal }
 
-func (ls MockLedgerState) UpdateAdaPots(pots common.AdaPots) error {
-	// Mock implementation - doesn't modify state
+func (m *MockLedgerState) UpdateAdaPots(
+	pots common.AdaPots,
+) error {
+	m.AdaPotsVal = pots
 	return nil
 }
 
-func (ls MockLedgerState) GetRewardSnapshot(
+func (m *MockLedgerState) GetRewardSnapshot(
 	epoch uint64,
 ) (common.RewardSnapshot, error) {
-	return ls.MockRewardSnapshot, nil
+	return m.RewardSnapshotVal, nil
+}
+func (m *MockLedgerState) NetworkId() uint { return m.NetworkIdVal }
+
+func (m *MockLedgerState) CostModels() map[common.PlutusLanguage]common.CostModel {
+	if m.CostModelsVal != nil {
+		return m.CostModelsVal
+	}
+	return map[common.PlutusLanguage]common.CostModel{}
+}
+
+// MockProtocolParamsRules is a simple protocol params provider used in tests.
+// Utxorpc() returns a zero-value struct to prevent nil pointer dereferences.
+// Tests needing specific params should set PParams field.
+type MockProtocolParamsRules struct {
+	PParams *cardano.PParams
+}
+
+func (m *MockProtocolParamsRules) Utxorpc() (*cardano.PParams, error) {
+	if m.PParams != nil {
+		return m.PParams, nil
+	}
+	return &cardano.PParams{}, nil
+}
+
+// NewMockLedgerStateWithUtxos creates a MockLedgerState with lookup behavior for provided UTXOs.
+// This helper uses bytes.Equal for efficient byte array comparison.
+func NewMockLedgerStateWithUtxos(utxos []common.Utxo) *MockLedgerState {
+	return &MockLedgerState{
+		UtxoByIdFunc: func(id common.TransactionInput) (common.Utxo, error) {
+			for _, u := range utxos {
+				if id.Index() == u.Id.Index() &&
+					bytes.Equal(id.Id().Bytes(), u.Id.Id().Bytes()) {
+					return u, nil
+				}
+			}
+			return common.Utxo{}, errors.New("not found")
+		},
+	}
 }

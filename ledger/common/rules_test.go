@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
+	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
@@ -57,7 +58,7 @@ func TestValidateRequiredVKeyWitnesses_Common(t *testing.T) {
 
 func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
 	tx := &mockTxEmpty{}
-	if err := common.ValidateRedeemerAndScriptWitnesses(tx); err != nil {
+	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -67,8 +68,10 @@ func TestVerifyTransaction(t *testing.T) {
 	var tx common.Transaction
 
 	slot := uint64(1000)
-	ledgerState := &common.MockLedgerStateRules{}
-	protocolParams := &common.MockProtocolParamsRules{}
+	ledgerState := &test_ledger.MockLedgerState{
+		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) { return common.Utxo{}, nil },
+	}
+	protocolParams := &test_ledger.MockProtocolParamsRules{}
 
 	t.Run("all_rules_pass", func(t *testing.T) {
 		rules := []common.UtxoValidationRuleFunc{

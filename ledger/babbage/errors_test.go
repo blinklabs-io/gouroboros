@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -12,7 +13,11 @@ import (
 func TestCostModelsPresent_UnresolvedReferenceInputReturnsError(t *testing.T) {
 	// Create a BabbageTransaction with a single reference input so the lookup is attempted
 	var slot uint64 = 0
-	ls := &common.MockLedgerStateRefFail{}
+	ls := &test_ledger.MockLedgerState{
+		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("utxo not found")
+		},
+	}
 	var pp common.ProtocolParameters = &BabbageProtocolParameters{}
 
 	input := shelley.NewShelleyTransactionInput(
@@ -38,7 +43,11 @@ func TestCostModelsPresent_UnresolvedReferenceInputReturnsError(t *testing.T) {
 func TestCostModelsPresent_UnresolvedReferenceInputUnwraps(t *testing.T) {
 	// Create a BabbageTransaction with a single reference input so the lookup is attempted
 	var slot uint64 = 0
-	ls := &common.MockLedgerStateRefFail{}
+	ls := &test_ledger.MockLedgerState{
+		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("utxo not found")
+		},
+	}
 	var pp common.ProtocolParameters = &BabbageProtocolParameters{}
 
 	input := shelley.NewShelleyTransactionInput(

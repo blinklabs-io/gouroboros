@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -13,7 +14,11 @@ func TestConway_CostModelsPresent_UnresolvedReferenceInputReturnsError(
 	t *testing.T,
 ) {
 	var slot uint64 = 0
-	ls := &common.MockLedgerStateRefFail{}
+	ls := &test_ledger.MockLedgerState{
+		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("utxo not found")
+		},
+	}
 	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
 
 	input := shelley.NewShelleyTransactionInput(
@@ -40,7 +45,11 @@ func TestConway_CostModelsPresent_UnresolvedReferenceInputUnwraps(
 	t *testing.T,
 ) {
 	var slot uint64 = 0
-	ls := &common.MockLedgerStateRefFail{}
+	ls := &test_ledger.MockLedgerState{
+		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("utxo not found")
+		},
+	}
 	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
 
 	input := shelley.NewShelleyTransactionInput(

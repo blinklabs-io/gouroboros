@@ -2,13 +2,12 @@ package ledger
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -17,6 +16,20 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+)
+
+var (
+	// test-only VRF key hash, not a secret
+	testVRFKeyHashHex = "e73e21246d4fffd38d24b4e77b643aeae35a700763fc1106d910293ec054aa12"
+	testVRFKeyHash    = func() common.Blake2b256 {
+		vrfKeyHashBytes, err := hex.DecodeString(testVRFKeyHashHex)
+		if err != nil {
+			panic(fmt.Sprintf("failed to decode VRF key hash in test: %v", err))
+		}
+		var vrfKeyHash common.Blake2b256
+		copy(vrfKeyHash[:], vrfKeyHashBytes)
+		return vrfKeyHash
+	}()
 )
 
 // eraNameMap maps block types to era names for improved error messages.
@@ -541,73 +554,24 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 }
 
 // mockLedgerStateVerifyBlock provides a mock implementation of LedgerState for testing
-type mockLedgerStateVerifyBlock struct{}
-
-func (m *mockLedgerStateVerifyBlock) UtxoById(
-	input common.TransactionInput,
-) (common.Utxo, error) {
-	return common.Utxo{}, nil
-}
-
-func (m *mockLedgerStateVerifyBlock) StakeRegistration(
-	key []byte,
-) ([]common.StakeRegistrationCertificate, error) {
-	return nil, nil
-}
-
-func (m *mockLedgerStateVerifyBlock) SlotToTime(
-	slot uint64,
-) (time.Time, error) {
-	return time.Time{}, nil
-}
-
-func (m *mockLedgerStateVerifyBlock) TimeToSlot(
-	t time.Time,
-) (uint64, error) {
-	return 0, nil
-}
+// mockLedgerStateVerifyBlock embeds MockLedgerState to inherit all its default mock
+// behavior while allowing this test to override specific methods like PoolCurrentState.
+// Since we always pass &mockLedgerStateVerifyBlock{} into VerifyConfig, the promoted
+// pointer-receiver methods from MockLedgerState remain available on the interface.
+// Note: We embed the value (not the pointer) for convenience, which means the mock
+// is copied. For minimal copying, you could embed *test_ledger.MockLedgerState instead,
+// but it's not necessary for correctness here since this test doesn't mutate the mock.
+type mockLedgerStateVerifyBlock struct{ test_ledger.MockLedgerState }
 
 func (m *mockLedgerStateVerifyBlock) PoolCurrentState(
 	poolKeyHash common.PoolKeyHash,
 ) (*common.PoolRegistrationCertificate, *uint64, error) {
 	// Return a mock pool registration with VRF key hash that matches the test block
-	vrfKeyHashBytes, err := hex.DecodeString(
-		"e73e21246d4fffd38d24b4e77b643aeae35a700763fc1106d910293ec054aa12",
-	)
-	if err != nil {
-		panic(fmt.Sprintf("failed to decode VRF key hash in test: %v", err))
-	}
-	var vrfKeyHash common.Blake2b256
-	copy(vrfKeyHash[:], vrfKeyHashBytes)
-
 	return &common.PoolRegistrationCertificate{
 		Operator:   poolKeyHash,
-		VrfKeyHash: vrfKeyHash,
+		VrfKeyHash: testVRFKeyHash,
 	}, nil, nil
 }
-
-func (m *mockLedgerStateVerifyBlock) CalculateRewards(
-	pots common.AdaPots,
-	snapshot common.RewardSnapshot,
-	params common.RewardParameters,
-) (*common.RewardCalculationResult, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockLedgerStateVerifyBlock) GetAdaPots() common.AdaPots { return common.AdaPots{} }
-
-func (m *mockLedgerStateVerifyBlock) UpdateAdaPots(
-	pots common.AdaPots,
-) error {
-	return nil
-}
-
-func (m *mockLedgerStateVerifyBlock) GetRewardSnapshot(
-	epoch uint64,
-) (common.RewardSnapshot, error) {
-	return common.RewardSnapshot{}, nil
-}
-func (m *mockLedgerStateVerifyBlock) NetworkId() uint { return 0 }
 
 // mockProtocolParamsVerifyBlock provides a mock implementation of ProtocolParameters for testing
 type mockProtocolParamsVerifyBlock struct{}
