@@ -144,14 +144,20 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 		c.busyMutex.Unlock()
 		return err
 	}
-	err, ok := <-c.startBatchResultChan
-	if !ok {
+	// Wait for batch start
+	select {
+	case err, ok := <-c.startBatchResultChan:
+		if !ok {
+			c.busyMutex.Unlock()
+			return protocol.ErrProtocolShuttingDown
+		}
+		if err != nil {
+			c.busyMutex.Unlock()
+			return err
+		}
+	case <-c.DoneChan():
 		c.busyMutex.Unlock()
 		return protocol.ErrProtocolShuttingDown
-	}
-	if err != nil {
-		c.busyMutex.Unlock()
-		return err
 	}
 	return nil
 }
@@ -175,21 +181,33 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		c.busyMutex.Unlock()
 		return nil, err
 	}
-	err, ok := <-c.startBatchResultChan
-	if !ok {
+	// Wait for batch start
+	select {
+	case err, ok := <-c.startBatchResultChan:
+		if !ok {
+			c.busyMutex.Unlock()
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		if err != nil {
+			c.busyMutex.Unlock()
+			return nil, err
+		}
+	case <-c.DoneChan():
 		c.busyMutex.Unlock()
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	if err != nil {
-		c.busyMutex.Unlock()
-		return nil, err
-	}
-	block, ok := <-c.blockChan
-	if !ok {
+	// Wait for block
+	select {
+	case block, ok := <-c.blockChan:
+		if !ok {
+			c.busyMutex.Unlock()
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		return block, nil
+	case <-c.DoneChan():
 		c.busyMutex.Unlock()
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	return block, nil
 }
 
 // messageHandler handles incoming protocol messages for the client.
