@@ -771,9 +771,8 @@ func (t ConwayTransaction) IsValid() bool {
 func (t ConwayTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
-	} else {
-		return t.Collateral()
 	}
+	return t.Collateral()
 }
 
 func (t ConwayTransaction) Produced() []common.Utxo {
@@ -792,16 +791,18 @@ func (t ConwayTransaction) Produced() []common.Utxo {
 			)
 		}
 		return ret
-	} else {
-		if t.CollateralReturn() == nil {
-			return []common.Utxo{}
-		}
-		return []common.Utxo{
-			{
-				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), len(t.Outputs())),
-				Output: t.CollateralReturn(),
-			},
-		}
+	}
+	if t.CollateralReturn() == nil {
+		return []common.Utxo{}
+	}
+	return []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(
+				t.Hash().String(),
+				len(t.Outputs()),
+			),
+			Output: t.CollateralReturn(),
+		},
 	}
 }
 
