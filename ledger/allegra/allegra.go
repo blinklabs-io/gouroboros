@@ -260,6 +260,7 @@ type AllegraTransaction struct {
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
 	RawAuxData []byte // Raw auxiliary data bytes (includes scripts)
+	auxData    common.AuxiliaryData
 }
 
 func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -287,10 +288,22 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	if len(txArray) > 2 && len(txArray[2]) > 0 &&
 		txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
 		t.RawAuxData = []byte(txArray[2])
-		// Also extract metadata
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[2])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 	t.SetCbor(cborData)
@@ -399,6 +412,10 @@ func (t *AllegraTransaction) Metadata() common.TransactionMetadatum {
 
 func (t *AllegraTransaction) RawAuxiliaryData() []byte {
 	return t.RawAuxData
+}
+
+func (t *AllegraTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (t AllegraTransaction) IsValid() bool {

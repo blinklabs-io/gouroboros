@@ -289,6 +289,7 @@ type MaryTransaction struct {
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
 	RawAuxData []byte // Raw auxiliary data bytes (includes scripts)
+	auxData    common.AuxiliaryData
 }
 
 func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -320,9 +321,22 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 	if len(txArray) > 2 && len(txArray[2]) > 0 &&
 		txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
 		t.RawAuxData = []byte(txArray[2])
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[2])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 
@@ -336,6 +350,10 @@ func (t *MaryTransaction) Metadata() common.TransactionMetadatum {
 
 func (t *MaryTransaction) RawAuxiliaryData() []byte {
 	return t.RawAuxData
+}
+
+func (t *MaryTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (MaryTransaction) Type() int {
