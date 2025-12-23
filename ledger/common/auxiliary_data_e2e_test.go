@@ -297,29 +297,50 @@ func TestE2EBabbageTransactionAuxiliaryData(t *testing.T) {
 	bodyMap[0] = []interface{}{} // inputs
 	bodyMap[1] = []interface{}{} // outputs
 	bodyMap[2] = uint64(0)       // fee
-	bodyCbor, _ := cbor.Encode(bodyMap)
+	bodyCbor, err := cbor.Encode(bodyMap)
+	if err != nil {
+		t.Fatalf("failed to encode body: %v", err)
+	}
 
 	witnessMap := make(map[uint]interface{})
-	witnessCbor, _ := cbor.Encode(witnessMap)
+	witnessCbor, err := cbor.Encode(witnessMap)
+	if err != nil {
+		t.Fatalf("failed to encode witness: %v", err)
+	}
 
-	isValidCbor, _ := cbor.Encode(true)
+	isValidCbor, err := cbor.Encode(true)
+	if err != nil {
+		t.Fatalf("failed to encode is_valid: %v", err)
+	}
 
 	// Simple metadata
 	metadataMap := make(map[uint]string)
 	metadataMap[100] = "Babbage"
-	metadataCbor, _ := cbor.Encode(metadataMap)
+	metadataCbor, err := cbor.Encode(metadataMap)
+	if err != nil {
+		t.Fatalf("failed to encode metadata: %v", err)
+	}
 
 	auxMap := make(map[uint]cbor.RawMessage)
 	auxMap[0] = metadataCbor
 
-	mapCbor, _ := cbor.Encode(&auxMap)
+	mapCbor, err := cbor.Encode(&auxMap)
+	if err != nil {
+		t.Fatalf("failed to encode aux map: %v", err)
+	}
 	var tmpTag cbor.RawTag
 	tmpTag.Number = cbor.CborTagMap
 	tmpTag.Content = mapCbor
-	auxCbor, _ := cbor.Encode(&tmpTag)
+	auxCbor, err := cbor.Encode(&tmpTag)
+	if err != nil {
+		t.Fatalf("failed to encode auxiliary data: %v", err)
+	}
 
 	txArray := []cbor.RawMessage{bodyCbor, witnessCbor, isValidCbor, auxCbor}
-	txCbor, _ := cbor.Encode(&txArray)
+	txCbor, err := cbor.Encode(&txArray)
+	if err != nil {
+		t.Fatalf("failed to encode transaction: %v", err)
+	}
 
 	var tx babbage.BabbageTransaction
 	if _, err := cbor.Decode(txCbor, &tx); err != nil {
@@ -345,32 +366,56 @@ func TestE2EConwayTransactionAuxiliaryData(t *testing.T) {
 	bodyMap[0] = []interface{}{} // inputs
 	bodyMap[1] = []interface{}{} // outputs
 	bodyMap[2] = uint64(0)       // fee
-	bodyCbor, _ := cbor.Encode(bodyMap)
+	bodyCbor, err := cbor.Encode(bodyMap)
+	if err != nil {
+		t.Fatalf("failed to encode body: %v", err)
+	}
 
 	witnessMap := make(map[uint]interface{})
-	witnessCbor, _ := cbor.Encode(witnessMap)
+	witnessCbor, err := cbor.Encode(witnessMap)
+	if err != nil {
+		t.Fatalf("failed to encode witness: %v", err)
+	}
 
-	isValidCbor, _ := cbor.Encode(true)
+	isValidCbor, err := cbor.Encode(true)
+	if err != nil {
+		t.Fatalf("failed to encode is_valid: %v", err)
+	}
 
 	// Metadata with Plutus V3
 	metadataMap := make(map[uint]string)
 	metadataMap[200] = "Conway"
-	metadataCbor, _ := cbor.Encode(metadataMap)
+	metadataCbor, err := cbor.Encode(metadataMap)
+	if err != nil {
+		t.Fatalf("failed to encode metadata: %v", err)
+	}
 
-	emptyPlutusV3, _ := cbor.Encode([]common.PlutusV3Script{})
+	emptyPlutusV3, err := cbor.Encode([]common.PlutusV3Script{})
+	if err != nil {
+		t.Fatalf("failed to encode plutus v3 scripts: %v", err)
+	}
 
 	auxMap := make(map[uint]cbor.RawMessage)
 	auxMap[0] = metadataCbor
 	auxMap[4] = emptyPlutusV3 // Key 4 is Plutus V3
 
-	mapCbor, _ := cbor.Encode(&auxMap)
+	mapCbor, err := cbor.Encode(&auxMap)
+	if err != nil {
+		t.Fatalf("failed to encode aux map: %v", err)
+	}
 	var tmpTag cbor.RawTag
 	tmpTag.Number = cbor.CborTagMap
 	tmpTag.Content = mapCbor
-	auxCbor, _ := cbor.Encode(&tmpTag)
+	auxCbor, err := cbor.Encode(&tmpTag)
+	if err != nil {
+		t.Fatalf("failed to encode auxiliary data: %v", err)
+	}
 
 	txArray := []cbor.RawMessage{bodyCbor, witnessCbor, isValidCbor, auxCbor}
-	txCbor, _ := cbor.Encode(&txArray)
+	txCbor, err := cbor.Encode(&txArray)
+	if err != nil {
+		t.Fatalf("failed to encode transaction: %v", err)
+	}
 
 	var tx conway.ConwayTransaction
 	if _, err := cbor.Decode(txCbor, &tx); err != nil {
@@ -403,18 +448,33 @@ func TestE2ETransactionWithoutAuxiliaryData(t *testing.T) {
 	bodyMap[0] = []interface{}{} // inputs
 	bodyMap[1] = []interface{}{} // outputs
 	bodyMap[2] = uint64(0)       // fee
-	bodyCbor, _ := cbor.Encode(bodyMap)
+	bodyCbor, err := cbor.Encode(bodyMap)
+	if err != nil {
+		t.Fatalf("failed to encode body: %v", err)
+	}
 
 	witnessMap := make(map[uint]interface{})
-	witnessCbor, _ := cbor.Encode(witnessMap)
+	witnessCbor, err := cbor.Encode(witnessMap)
+	if err != nil {
+		t.Fatalf("failed to encode witness: %v", err)
+	}
 
-	isValidCbor, _ := cbor.Encode(true)
+	isValidCbor, err := cbor.Encode(true)
+	if err != nil {
+		t.Fatalf("failed to encode is_valid: %v", err)
+	}
 
 	// CBOR null for no auxiliary data
-	nullCbor, _ := hex.DecodeString("f6")
+	nullCbor, err := hex.DecodeString("f6")
+	if err != nil {
+		t.Fatalf("failed to decode hex: %v", err)
+	}
 
 	txArray := []cbor.RawMessage{bodyCbor, witnessCbor, isValidCbor, nullCbor}
-	txCbor, _ := cbor.Encode(&txArray)
+	txCbor, err := cbor.Encode(&txArray)
+	if err != nil {
+		t.Fatalf("failed to encode transaction: %v", err)
+	}
 
 	var tx alonzo.AlonzoTransaction
 	if _, err := cbor.Decode(txCbor, &tx); err != nil {

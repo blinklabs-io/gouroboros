@@ -338,7 +338,7 @@ func TestInvalidAuxiliaryData(t *testing.T) {
 			if tc.cborHex != "" {
 				cborData, err = hex.DecodeString(tc.cborHex)
 				if err != nil {
-					t.Skipf("failed to decode hex: %v", err)
+					t.Fatalf("failed to decode hex: %v", err)
 				}
 			}
 
