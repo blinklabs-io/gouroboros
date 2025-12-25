@@ -393,6 +393,10 @@ func (m *Muxer) readLoop() {
 			)
 			return
 		}
-		recvChan <- msg
+		select {
+		case <-m.doneChan:
+			return
+		case recvChan <- msg:
+		}
 	}
 }
