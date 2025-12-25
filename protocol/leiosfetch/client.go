@@ -197,15 +197,15 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeBlock:
-		err = c.handleBlock(msg)
+		c.handleBlock(msg)
 	case MessageTypeBlockTxs:
-		err = c.handleBlockTxs(msg)
+		c.handleBlockTxs(msg)
 	case MessageTypeVotes:
-		err = c.handleVotes(msg)
+		c.handleVotes(msg)
 	case MessageTypeNextBlockAndTxsInRange:
-		err = c.handleNextBlockAndTxsInRange(msg)
+		c.handleNextBlockAndTxsInRange(msg)
 	case MessageTypeLastBlockAndTxsInRange:
-		err = c.handleLastBlockAndTxsInRange(msg)
+		c.handleLastBlockAndTxsInRange(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -216,27 +216,22 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleBlock(msg protocol.Message) error {
+func (c *Client) handleBlock(msg protocol.Message) {
 	c.blockResultChan <- msg
-	return nil
 }
 
-func (c *Client) handleBlockTxs(msg protocol.Message) error {
+func (c *Client) handleBlockTxs(msg protocol.Message) {
 	c.blockTxsResultChan <- msg
-	return nil
 }
 
-func (c *Client) handleVotes(msg protocol.Message) error {
+func (c *Client) handleVotes(msg protocol.Message) {
 	c.votesResultChan <- msg
-	return nil
 }
 
-func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) error {
+func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
 	c.blockRangeResultChan <- msg
-	return nil
 }
 
-func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) error {
+func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
 	c.blockRangeResultChan <- msg
-	return nil
 }

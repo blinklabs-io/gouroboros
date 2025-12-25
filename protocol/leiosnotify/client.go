@@ -116,13 +116,13 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeBlockAnnouncement:
-		err = c.handleBlockAnnouncement(msg)
+		c.handleBlockAnnouncement(msg)
 	case MessageTypeBlockOffer:
-		err = c.handleBlockOffer(msg)
+		c.handleBlockOffer(msg)
 	case MessageTypeBlockTxsOffer:
-		err = c.handleBlockTxsOffer(msg)
+		c.handleBlockTxsOffer(msg)
 	case MessageTypeVotesOffer:
-		err = c.handleVotesOffer(msg)
+		c.handleVotesOffer(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -133,22 +133,18 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleBlockAnnouncement(msg protocol.Message) error {
+func (c *Client) handleBlockAnnouncement(msg protocol.Message) {
 	c.requestNextChan <- msg
-	return nil
 }
 
-func (c *Client) handleBlockOffer(msg protocol.Message) error {
+func (c *Client) handleBlockOffer(msg protocol.Message) {
 	c.requestNextChan <- msg
-	return nil
 }
 
-func (c *Client) handleBlockTxsOffer(msg protocol.Message) error {
+func (c *Client) handleBlockTxsOffer(msg protocol.Message) {
 	c.requestNextChan <- msg
-	return nil
 }
 
-func (c *Client) handleVotesOffer(msg protocol.Message) error {
+func (c *Client) handleVotesOffer(msg protocol.Message) {
 	c.requestNextChan <- msg
-	return nil
 }

@@ -185,9 +185,9 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeReplyTxIds:
-		err = s.handleReplyTxIds(msg)
+		s.handleReplyTxIds(msg)
 	case MessageTypeReplyTxs:
-		err = s.handleReplyTxs(msg)
+		s.handleReplyTxs(msg)
 	case MessageTypeDone:
 		err = s.handleDone()
 	case MessageTypeInit:
@@ -202,7 +202,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (s *Server) handleReplyTxIds(msg protocol.Message) error {
+func (s *Server) handleReplyTxIds(msg protocol.Message) {
 	s.Protocol.Logger().
 		Debug("reply tx ids",
 			"component", "network",
@@ -214,10 +214,9 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 	s.requestTxIdsResultChan <- requestTxIdsResult{
 		txIds: msgReplyTxIds.TxIds,
 	}
-	return nil
 }
 
-func (s *Server) handleReplyTxs(msg protocol.Message) error {
+func (s *Server) handleReplyTxs(msg protocol.Message) {
 	s.Protocol.Logger().
 		Debug("reply txs",
 			"component", "network",
@@ -227,7 +226,6 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 		)
 	msgReplyTxs := msg.(*MsgReplyTxs)
 	s.requestTxsResultChan <- msgReplyTxs.Txs
-	return nil
 }
 
 func (s *Server) handleDone() error {

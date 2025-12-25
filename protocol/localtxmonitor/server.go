@@ -66,9 +66,9 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeAcquire:
 		err = s.handleAcquire()
 	case MessageTypeDone:
-		err = s.handleDone()
+		s.handleDone()
 	case MessageTypeRelease:
-		err = s.handleRelease()
+		s.handleRelease()
 	case MessageTypeHasTx:
 		err = s.handleHasTx(msg)
 	case MessageTypeNextTx:
@@ -131,7 +131,7 @@ func (s *Server) handleAcquire() error {
 	return nil
 }
 
-func (s *Server) handleDone() error {
+func (s *Server) handleDone() {
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",
@@ -139,10 +139,9 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	return nil
 }
 
-func (s *Server) handleRelease() error {
+func (s *Server) handleRelease() {
 	s.Protocol.Logger().
 		Debug("release",
 			"component", "network",
@@ -152,7 +151,6 @@ func (s *Server) handleRelease() error {
 		)
 	s.mempoolCapacity = 0
 	s.mempoolTxs = nil
-	return nil
 }
 
 func (s *Server) handleHasTx(msg protocol.Message) error {
