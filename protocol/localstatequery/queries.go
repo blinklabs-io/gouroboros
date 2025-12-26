@@ -597,8 +597,7 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpData)
 }
 
-// TODO (#863)
-type DebugEpochStateResult any
+type DebugEpochStateResult cbor.RawMessage
 
 // TODO (#858)
 /*
@@ -654,34 +653,29 @@ type GenesisConfigResultProtocolParameters struct {
 	MinPoolCost           int
 }
 
-// TODO (#864)
-type DebugNewEpochStateResult any
+type DebugNewEpochStateResult cbor.RawMessage
 
-// TODO (#865)
-type DebugChainDepStateResult any
+type DebugChainDepStateResult cbor.RawMessage
 
-// TODO (#866)
-/*
-result	[ *Element ]	Expanded in order on the next rows.
-Element	CDDL	Comment
-epochLength
-poolMints	{ *poolid => block-count }
-maxLovelaceSupply
-NA
-NA
-NA
-?circulatingsupply?
-total-blocks
-?decentralization?	[num den]
-?available block entries
-success-rate	[num den]
-NA
-NA		??treasuryCut
-activeStakeGo
-nil
-nil
-*/
-type RewardProvenanceResult any
+type RewardProvenanceResult struct {
+	_                     struct{} `cbor:",toarray"`
+	EpochLength           int
+	PoolMints             map[ledger.PoolId]int
+	MaxLovelaceSupply     int64
+	DeltaR1               int64
+	DeltaR2               int64
+	R                     int64
+	TotalStake            int64
+	TotalBlocks           int
+	Decentralization      any
+	AvailableBlockEntries int
+	SuccessRate           any
+	RewardPot             int64
+	DeltaT1               int64
+	ActiveStake           int64
+	Pools                 any
+	Desirabilities        any
+}
 
 type UTxOByTxInResult struct {
 	cbor.StructAsArray
@@ -713,8 +707,18 @@ type StakePoolParamsResult struct {
 	}
 }
 
-// TODO (#867)
-type RewardInfoPoolsResult any
+type RewardInfoPoolsResult struct {
+	cbor.StructAsArray
+	Results map[ledger.PoolId]struct {
+		cbor.StructAsArray
+		Stake               uint
+		OwnerPledge         uint
+		OwnerStake          uint
+		Cost                uint
+		Margin              *cbor.Rat
+		PerformanceEstimate float64
+	}
+}
 
 // TODO (#868)
 type PoolStateResult any
