@@ -275,7 +275,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 		if err != nil {
 			return err
 		}
-		a.stakingPayload = tmpPointer
+		a.stakingPayload = &tmpPointer
 		payload = payload[n:]
 	}
 	// Store any extra address data
@@ -376,7 +376,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 					tmpCred.ToPlutusData(),
 				),
 			)
-		case AddressPayloadPointer:
+		case *AddressPayloadPointer:
 			stakePd = data.NewConstr(
 				0,
 				data.NewConstr(
@@ -403,7 +403,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 	)
 }
 
-func (a Address) NetworkId() uint {
+func (a *Address) NetworkId() uint {
 	if a.addressType == AddressTypeByron {
 		// Use Shelley network ID convention
 		if a.byronAddressAttr.Network == nil {
@@ -417,16 +417,16 @@ func (a Address) NetworkId() uint {
 	}
 }
 
-func (a Address) Type() uint8 {
+func (a *Address) Type() uint8 {
 	return a.addressType
 }
 
-func (a Address) ByronType() uint64 {
+func (a *Address) ByronType() uint64 {
 	return a.byronAddressType
 }
 
 // PaymentAddress returns a new Address with only the payment address portion. This will return nil for anything other than payment and script addresses
-func (a Address) PaymentAddress() *Address {
+func (a *Address) PaymentAddress() *Address {
 	var addrType uint8
 	switch a.addressType {
 	case AddressTypeKeyKey, AddressTypeKeyNone:
@@ -468,7 +468,7 @@ func (a *Address) PayloadPayload() AddressPayload {
 }
 
 // StakeAddress returns a new Address with only the stake key portion. This will return nil if the address is not a payment/staking key pair
-func (a Address) StakeAddress() *Address {
+func (a *Address) StakeAddress() *Address {
 	var addrType uint8
 	switch a.addressType {
 	case AddressTypeKeyKey, AddressTypeScriptKey:
@@ -513,7 +513,7 @@ func (a *Address) ByronAttr() ByronAddressAttributes {
 	return a.byronAddressAttr
 }
 
-func (a Address) generateHRP() string {
+func (a *Address) generateHRP() string {
 	var ret string
 	if a.addressType == AddressTypeNoneKey ||
 		a.addressType == AddressTypeNoneScript {
@@ -529,7 +529,7 @@ func (a Address) generateHRP() string {
 }
 
 // Bytes returns the underlying bytes for the address
-func (a Address) Bytes() ([]byte, error) {
+func (a *Address) Bytes() ([]byte, error) {
 	if a.addressType == AddressTypeByron {
 		tmpPayload := []any{
 			a.paymentPayload.(AddressPayloadKeyHash).Hash.Bytes(),
@@ -583,7 +583,7 @@ func (a Address) Bytes() ([]byte, error) {
 			stakingPayload = p.Hash.Bytes()
 		case AddressPayloadScriptHash:
 			stakingPayload = p.Hash.Bytes()
-		case AddressPayloadPointer:
+		case *AddressPayloadPointer:
 			var err error
 			stakingPayload, err = p.encode()
 			if err != nil {
@@ -601,7 +601,7 @@ func (a Address) Bytes() ([]byte, error) {
 }
 
 // String returns the bech32-encoded version of the address
-func (a Address) String() string {
+func (a *Address) String() string {
 	data, err := a.Bytes()
 	if err != nil {
 		panic(fmt.Sprintf("failed to get address bytes: %v", err))
@@ -626,7 +626,7 @@ func (a Address) String() string {
 	}
 }
 
-func (a Address) MarshalJSON() ([]byte, error) {
+func (a *Address) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
 }
 
@@ -704,7 +704,7 @@ type AddressPayloadPointer struct {
 	CertIndex uint64
 }
 
-func (AddressPayloadPointer) isAddressPayload() {}
+func (*AddressPayloadPointer) isAddressPayload() {}
 
 func (a *AddressPayloadPointer) decode(data []byte) (int, error) {
 	readVarUint := func(buf *bytes.Reader) (uint64, error) {

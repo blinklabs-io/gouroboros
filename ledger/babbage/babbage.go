@@ -153,7 +153,7 @@ func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (BabbageBlock) Type() int {
+func (*BabbageBlock) Type() int {
 	return BlockTypeBabbage
 }
 
@@ -404,7 +404,7 @@ func (b *BabbageTransactionBody) ProtocolParameterUpdates() (uint64, map[common.
 	}
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
-		updateMap[k] = v
+		updateMap[k] = &v
 	}
 	return b.Update.Epoch, updateMap
 }
@@ -588,7 +588,7 @@ func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
 	return cbor.EncodeGeneric(o)
 }
 
-func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
+func (o *BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
 		Address   common.Address                                  `json:"address"`
 		Amount    uint64                                          `json:"amount"`
@@ -611,7 +611,7 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
+func (o *BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
 	if o.OutputAmount.Amount > 0 {
 		valueData = append(
@@ -678,40 +678,40 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o BabbageTransactionOutput) Address() common.Address {
+func (o *BabbageTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (o BabbageTransactionOutput) ScriptRef() common.Script {
+func (o *BabbageTransactionOutput) ScriptRef() common.Script {
 	if o.TxOutScriptRef == nil {
 		return nil
 	}
 	return o.TxOutScriptRef.Script
 }
 
-func (o BabbageTransactionOutput) Amount() uint64 {
+func (o *BabbageTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
+func (o *BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
-func (o BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
+func (o *BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
 	if o.DatumOption != nil {
 		return o.DatumOption.hash
 	}
 	return &common.Blake2b256{}
 }
 
-func (o BabbageTransactionOutput) Datum() *common.Datum {
+func (o *BabbageTransactionOutput) Datum() *common.Datum {
 	if o.DatumOption != nil {
 		return o.DatumOption.data
 	}
 	return nil
 }
 
-func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+func (o *BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	// Handle address bytes
 	addressBytes, err := o.OutputAddress.Bytes()
 	if err != nil {
@@ -765,7 +765,7 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
-func (o BabbageTransactionOutput) String() string {
+func (o *BabbageTransactionOutput) String() string {
 	assets := ""
 	if o.OutputAmount.Assets != nil {
 		if as := o.OutputAmount.Assets.String(); as != "[]" {
@@ -845,36 +845,36 @@ func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(&temp)
 }
 
-func (w BabbageTransactionWitnessSet) Vkey() []common.VkeyWitness {
+func (w *BabbageTransactionWitnessSet) Vkey() []common.VkeyWitness {
 	return w.VkeyWitnesses
 }
 
-func (w BabbageTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+func (w *BabbageTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
 	return w.BootstrapWitnesses
 }
 
-func (w BabbageTransactionWitnessSet) NativeScripts() []common.NativeScript {
+func (w *BabbageTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
+func (w *BabbageTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
+func (w *BabbageTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	return w.WsPlutusV2Scripts
 }
 
-func (w BabbageTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
+func (w *BabbageTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Babbage
 	return nil
 }
 
-func (w BabbageTransactionWitnessSet) PlutusData() []common.Datum {
+func (w *BabbageTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData
 }
 
-func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+func (w *BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
 	return w.WsRedeemers
 }
 
@@ -940,19 +940,19 @@ func (t *BabbageTransaction) RawAuxiliaryData() []byte {
 	return t.rawAuxData
 }
 
-func (BabbageTransaction) Type() int {
+func (*BabbageTransaction) Type() int {
 	return TxTypeBabbage
 }
 
-func (t BabbageTransaction) Hash() common.Blake2b256 {
+func (t *BabbageTransaction) Hash() common.Blake2b256 {
 	return t.Id()
 }
 
-func (t BabbageTransaction) Id() common.Blake2b256 {
+func (t *BabbageTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
+func (t *BabbageTransaction) LeiosHash() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -960,91 +960,91 @@ func (t BabbageTransaction) LeiosHash() common.Blake2b256 {
 	return *t.hash
 }
 
-func (t BabbageTransaction) Inputs() []common.TransactionInput {
+func (t *BabbageTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t BabbageTransaction) Outputs() []common.TransactionOutput {
+func (t *BabbageTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t BabbageTransaction) Fee() uint64 {
+func (t *BabbageTransaction) Fee() uint64 {
 	return t.Body.Fee()
 }
 
-func (t BabbageTransaction) TTL() uint64 {
+func (t *BabbageTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
-func (t BabbageTransaction) ValidityIntervalStart() uint64 {
+func (t *BabbageTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t BabbageTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+func (t *BabbageTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return t.Body.ProtocolParameterUpdates()
 }
 
-func (t BabbageTransaction) ReferenceInputs() []common.TransactionInput {
+func (t *BabbageTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t BabbageTransaction) Collateral() []common.TransactionInput {
+func (t *BabbageTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t BabbageTransaction) CollateralReturn() common.TransactionOutput {
+func (t *BabbageTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t BabbageTransaction) TotalCollateral() uint64 {
+func (t *BabbageTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t BabbageTransaction) Certificates() []common.Certificate {
+func (t *BabbageTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t BabbageTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t *BabbageTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t BabbageTransaction) AuxDataHash() *common.Blake2b256 {
+func (t *BabbageTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t BabbageTransaction) ScriptDataHash() *common.Blake2b256 {
+func (t *BabbageTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t BabbageTransaction) VotingProcedures() common.VotingProcedures {
+func (t *BabbageTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t BabbageTransaction) RequiredSigners() []common.Blake2b224 {
+func (t *BabbageTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t BabbageTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+func (t *BabbageTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
-func (t BabbageTransaction) ProposalProcedures() []common.ProposalProcedure {
+func (t *BabbageTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t BabbageTransaction) CurrentTreasuryValue() int64 {
+func (t *BabbageTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t BabbageTransaction) Donation() uint64 {
+func (t *BabbageTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t BabbageTransaction) IsValid() bool {
+func (t *BabbageTransaction) IsValid() bool {
 	return t.TxIsValid
 }
 
-func (t BabbageTransaction) Consumed() []common.TransactionInput {
+func (t *BabbageTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
 	} else {
@@ -1052,7 +1052,7 @@ func (t BabbageTransaction) Consumed() []common.TransactionInput {
 	}
 }
 
-func (t BabbageTransaction) Produced() []common.Utxo {
+func (t *BabbageTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		var ret []common.Utxo
 		for idx, output := range t.Outputs() {
@@ -1081,8 +1081,8 @@ func (t BabbageTransaction) Produced() []common.Utxo {
 	}
 }
 
-func (t BabbageTransaction) Witnesses() common.TransactionWitnessSet {
-	return t.WitnessSet
+func (t *BabbageTransaction) Witnesses() common.TransactionWitnessSet {
+	return &t.WitnessSet
 }
 
 func (t *BabbageTransaction) MarshalCBOR() ([]byte, error) {

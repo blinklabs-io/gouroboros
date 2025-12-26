@@ -89,7 +89,7 @@ func (b *MaryBlock) MarshalCBOR() ([]byte, error) {
 	return cbor.EncodeGeneric(b)
 }
 
-func (MaryBlock) Type() int {
+func (*MaryBlock) Type() int {
 	return BlockTypeMary
 }
 
@@ -252,7 +252,7 @@ func (b *MaryTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Bla
 	}
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
-		updateMap[k] = v
+		updateMap[k] = &v
 	}
 	return b.Update.Epoch, updateMap
 }
@@ -338,19 +338,19 @@ func (t *MaryTransaction) RawAuxiliaryData() []byte {
 	return t.RawAuxData
 }
 
-func (MaryTransaction) Type() int {
+func (*MaryTransaction) Type() int {
 	return TxTypeMary
 }
 
-func (t MaryTransaction) Hash() common.Blake2b256 {
+func (t *MaryTransaction) Hash() common.Blake2b256 {
 	return t.Id()
 }
 
-func (t MaryTransaction) Id() common.Blake2b256 {
+func (t *MaryTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t MaryTransaction) LeiosHash() common.Blake2b256 {
+func (t *MaryTransaction) LeiosHash() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -358,95 +358,95 @@ func (t MaryTransaction) LeiosHash() common.Blake2b256 {
 	return *t.hash
 }
 
-func (t MaryTransaction) Inputs() []common.TransactionInput {
+func (t *MaryTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t MaryTransaction) Outputs() []common.TransactionOutput {
+func (t *MaryTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t MaryTransaction) Fee() uint64 {
+func (t *MaryTransaction) Fee() uint64 {
 	return t.Body.Fee()
 }
 
-func (t MaryTransaction) TTL() uint64 {
+func (t *MaryTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
-func (t MaryTransaction) ValidityIntervalStart() uint64 {
+func (t *MaryTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t MaryTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+func (t *MaryTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return t.Body.ProtocolParameterUpdates()
 }
 
-func (t MaryTransaction) ReferenceInputs() []common.TransactionInput {
+func (t *MaryTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t MaryTransaction) Collateral() []common.TransactionInput {
+func (t *MaryTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t MaryTransaction) CollateralReturn() common.TransactionOutput {
+func (t *MaryTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t MaryTransaction) TotalCollateral() uint64 {
+func (t *MaryTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t MaryTransaction) Certificates() []common.Certificate {
+func (t *MaryTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t MaryTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t *MaryTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t MaryTransaction) AuxDataHash() *common.Blake2b256 {
+func (t *MaryTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t MaryTransaction) RequiredSigners() []common.Blake2b224 {
+func (t *MaryTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t MaryTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+func (t *MaryTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
-func (t MaryTransaction) ScriptDataHash() *common.Blake2b256 {
+func (t *MaryTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t MaryTransaction) VotingProcedures() common.VotingProcedures {
+func (t *MaryTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t MaryTransaction) ProposalProcedures() []common.ProposalProcedure {
+func (t *MaryTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t MaryTransaction) CurrentTreasuryValue() int64 {
+func (t *MaryTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t MaryTransaction) Donation() uint64 {
+func (t *MaryTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t MaryTransaction) IsValid() bool {
+func (t *MaryTransaction) IsValid() bool {
 	return true
 }
 
-func (t MaryTransaction) Consumed() []common.TransactionInput {
+func (t *MaryTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
-func (t MaryTransaction) Produced() []common.Utxo {
+func (t *MaryTransaction) Produced() []common.Utxo {
 	ret := []common.Utxo{}
 	for idx, output := range t.Outputs() {
 		ret = append(
@@ -463,8 +463,8 @@ func (t MaryTransaction) Produced() []common.Utxo {
 	return ret
 }
 
-func (t MaryTransaction) Witnesses() common.TransactionWitnessSet {
-	return t.WitnessSet
+func (t *MaryTransaction) Witnesses() common.TransactionWitnessSet {
+	return &t.WitnessSet
 }
 
 func (t *MaryTransaction) MarshalCBOR() ([]byte, error) {
@@ -530,7 +530,7 @@ func (o *MaryTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
+func (o *MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
 		Address common.Address                                  `json:"address"`
 		Amount  uint64                                          `json:"amount"`
@@ -543,7 +543,7 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
+func (o *MaryTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
 	if o.OutputAmount.Amount > 0 {
 		valueData = append(
@@ -586,31 +586,31 @@ func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o MaryTransactionOutput) Address() common.Address {
+func (o *MaryTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (txo MaryTransactionOutput) ScriptRef() common.Script {
+func (txo *MaryTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o MaryTransactionOutput) Amount() uint64 {
+func (o *MaryTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o MaryTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
+func (o *MaryTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
-func (o MaryTransactionOutput) DatumHash() *common.Blake2b256 {
+func (o *MaryTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o MaryTransactionOutput) Datum() *common.Datum {
+func (o *MaryTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
-func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+func (o *MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	addressBytes, err := o.OutputAddress.Bytes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address bytes: %w", err)
@@ -623,7 +623,7 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		err
 }
 
-func (o MaryTransactionOutput) String() string {
+func (o *MaryTransactionOutput) String() string {
 	assets := ""
 	if o.OutputAmount.Assets != nil {
 		if as := o.OutputAmount.Assets.String(); as != "[]" {

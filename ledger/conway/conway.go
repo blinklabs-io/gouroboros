@@ -153,7 +153,7 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (ConwayBlock) Type() int {
+func (*ConwayBlock) Type() int {
 	return BlockTypeConway
 }
 
@@ -271,7 +271,7 @@ func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(r.Redeemers)
 }
 
-func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
+func (r *ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
 		// Sort redeemers
 		sorted := slices.Collect(maps.Keys(r.Redeemers))
@@ -297,7 +297,7 @@ func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerVal
 	}
 }
 
-func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
+func (r *ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	if r.legacy {
 		return r.legacyRedeemers.Indexes(tag)
 	}
@@ -310,7 +310,7 @@ func (r ConwayRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	return ret
 }
 
-func (r ConwayRedeemers) Value(
+func (r *ConwayRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
 ) common.RedeemerValue {
@@ -350,36 +350,36 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (w ConwayTransactionWitnessSet) Vkey() []common.VkeyWitness {
+func (w *ConwayTransactionWitnessSet) Vkey() []common.VkeyWitness {
 	return w.VkeyWitnesses.Items()
 }
 
-func (w ConwayTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+func (w *ConwayTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
 	return w.BootstrapWitnesses.Items()
 }
 
-func (w ConwayTransactionWitnessSet) NativeScripts() []common.NativeScript {
+func (w *ConwayTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
+func (w *ConwayTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
+func (w *ConwayTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	return w.WsPlutusV2Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
+func (w *ConwayTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	return w.WsPlutusV3Scripts.Items()
 }
 
-func (w ConwayTransactionWitnessSet) PlutusData() []common.Datum {
+func (w *ConwayTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData.Items()
 }
 
-func (w ConwayTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
-	return w.WsRedeemers
+func (w *ConwayTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+	return &w.WsRedeemers
 }
 
 type ConwayTransactionInputSet struct {
@@ -514,7 +514,7 @@ func (b *ConwayTransactionBody) ProtocolParameterUpdates() (uint64, map[common.B
 	}
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
-		updateMap[k] = v
+		updateMap[k] = &v
 	}
 	return b.Update.Epoch, updateMap
 }
@@ -664,19 +664,19 @@ func (t *ConwayTransaction) RawAuxiliaryData() []byte {
 	return t.rawAuxData
 }
 
-func (ConwayTransaction) Type() int {
+func (*ConwayTransaction) Type() int {
 	return TxTypeConway
 }
 
-func (t ConwayTransaction) Hash() common.Blake2b256 {
+func (t *ConwayTransaction) Hash() common.Blake2b256 {
 	return t.Id()
 }
 
-func (t ConwayTransaction) Id() common.Blake2b256 {
+func (t *ConwayTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t ConwayTransaction) LeiosHash() common.Blake2b256 {
+func (t *ConwayTransaction) LeiosHash() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -684,98 +684,98 @@ func (t ConwayTransaction) LeiosHash() common.Blake2b256 {
 	return *t.hash
 }
 
-func (t ConwayTransaction) Inputs() []common.TransactionInput {
+func (t *ConwayTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t ConwayTransaction) Outputs() []common.TransactionOutput {
+func (t *ConwayTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t ConwayTransaction) Fee() uint64 {
+func (t *ConwayTransaction) Fee() uint64 {
 	return t.Body.Fee()
 }
 
-func (t ConwayTransaction) TTL() uint64 {
+func (t *ConwayTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
-func (t ConwayTransaction) ValidityIntervalStart() uint64 {
+func (t *ConwayTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t ConwayTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+func (t *ConwayTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return t.Body.ProtocolParameterUpdates()
 }
 
-func (t ConwayTransaction) ReferenceInputs() []common.TransactionInput {
+func (t *ConwayTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t ConwayTransaction) Collateral() []common.TransactionInput {
+func (t *ConwayTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t ConwayTransaction) CollateralReturn() common.TransactionOutput {
+func (t *ConwayTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t ConwayTransaction) TotalCollateral() uint64 {
+func (t *ConwayTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t ConwayTransaction) Certificates() []common.Certificate {
+func (t *ConwayTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ConwayTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t *ConwayTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t ConwayTransaction) AuxDataHash() *common.Blake2b256 {
+func (t *ConwayTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t ConwayTransaction) RequiredSigners() []common.Blake2b224 {
+func (t *ConwayTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t ConwayTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+func (t *ConwayTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
-func (t ConwayTransaction) ScriptDataHash() *common.Blake2b256 {
+func (t *ConwayTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t ConwayTransaction) VotingProcedures() common.VotingProcedures {
+func (t *ConwayTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
+func (t *ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t ConwayTransaction) CurrentTreasuryValue() int64 {
+func (t *ConwayTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t ConwayTransaction) Donation() uint64 {
+func (t *ConwayTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t ConwayTransaction) IsValid() bool {
+func (t *ConwayTransaction) IsValid() bool {
 	return t.TxIsValid
 }
 
-func (t ConwayTransaction) Consumed() []common.TransactionInput {
+func (t *ConwayTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
 	}
 	return t.Collateral()
 }
 
-func (t ConwayTransaction) Produced() []common.Utxo {
+func (t *ConwayTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		var ret []common.Utxo
 		for idx, output := range t.Outputs() {
@@ -806,8 +806,8 @@ func (t ConwayTransaction) Produced() []common.Utxo {
 	}
 }
 
-func (t ConwayTransaction) Witnesses() common.TransactionWitnessSet {
-	return t.WitnessSet
+func (t *ConwayTransaction) Witnesses() common.TransactionWitnessSet {
+	return &t.WitnessSet
 }
 
 func (t *ConwayTransaction) MarshalCBOR() ([]byte, error) {

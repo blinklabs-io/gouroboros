@@ -122,7 +122,7 @@ func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(&temp)
 }
 
-func (AlonzoBlock) Type() int {
+func (*AlonzoBlock) Type() int {
 	return BlockTypeAlonzo
 }
 
@@ -286,7 +286,7 @@ func (b *AlonzoTransactionBody) ProtocolParameterUpdates() (uint64, map[common.B
 	}
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
-		updateMap[k] = v
+		updateMap[k] = &v
 	}
 	return b.Update.Epoch, updateMap
 }
@@ -380,7 +380,7 @@ func (o *AlonzoTransactionOutput) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpOutput)
 }
 
-func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
+func (o *AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
 		Address   common.Address                                  `json:"address"`
 		Amount    uint64                                          `json:"amount"`
@@ -397,7 +397,7 @@ func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&tmpObj)
 }
 
-func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
+func (o *AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
 	if o.OutputAmount.Amount > 0 {
 		valueData = append(
@@ -440,31 +440,31 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o AlonzoTransactionOutput) Address() common.Address {
+func (o *AlonzoTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (o AlonzoTransactionOutput) ScriptRef() common.Script {
+func (o *AlonzoTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o AlonzoTransactionOutput) Amount() uint64 {
+func (o *AlonzoTransactionOutput) Amount() uint64 {
 	return o.OutputAmount.Amount
 }
 
-func (o AlonzoTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
+func (o *AlonzoTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return o.OutputAmount.Assets
 }
 
-func (o AlonzoTransactionOutput) DatumHash() *common.Blake2b256 {
+func (o *AlonzoTransactionOutput) DatumHash() *common.Blake2b256 {
 	return o.OutputDatumHash
 }
 
-func (o AlonzoTransactionOutput) Datum() *common.Datum {
+func (o *AlonzoTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
-func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+func (o *AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	var assets []*utxorpc.Multiasset
 	if o.Assets() != nil {
 		tmpAssets := o.Assets()
@@ -508,7 +508,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
-func (o AlonzoTransactionOutput) String() string {
+func (o *AlonzoTransactionOutput) String() string {
 	assets := ""
 	if o.OutputAmount.Assets != nil {
 		if as := o.OutputAmount.Assets.String(); as != "[]" {
@@ -613,37 +613,37 @@ func (w *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) Vkey() []common.VkeyWitness {
+func (w *AlonzoTransactionWitnessSet) Vkey() []common.VkeyWitness {
 	return w.VkeyWitnesses
 }
 
-func (w AlonzoTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+func (w *AlonzoTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
 	return w.BootstrapWitnesses
 }
 
-func (w AlonzoTransactionWitnessSet) NativeScripts() []common.NativeScript {
+func (w *AlonzoTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
+func (w *AlonzoTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	return w.WsPlutusV1Scripts
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
+func (w *AlonzoTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	// No plutus v2 scripts in Alonzo
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
+func (w *AlonzoTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Alonzo
 	return nil
 }
 
-func (w AlonzoTransactionWitnessSet) PlutusData() []common.Datum {
+func (w *AlonzoTransactionWitnessSet) PlutusData() []common.Datum {
 	return w.WsPlutusData
 }
 
-func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+func (w *AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
 	return w.WsRedeemers
 }
 
@@ -709,19 +709,19 @@ func (t *AlonzoTransaction) RawAuxiliaryData() []byte {
 	return t.rawAuxData
 }
 
-func (AlonzoTransaction) Type() int {
+func (*AlonzoTransaction) Type() int {
 	return TxTypeAlonzo
 }
 
-func (t AlonzoTransaction) Hash() common.Blake2b256 {
+func (t *AlonzoTransaction) Hash() common.Blake2b256 {
 	return t.Id()
 }
 
-func (t AlonzoTransaction) Id() common.Blake2b256 {
+func (t *AlonzoTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
+func (t *AlonzoTransaction) LeiosHash() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -729,91 +729,91 @@ func (t AlonzoTransaction) LeiosHash() common.Blake2b256 {
 	return *t.hash
 }
 
-func (t AlonzoTransaction) Inputs() []common.TransactionInput {
+func (t *AlonzoTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t AlonzoTransaction) Outputs() []common.TransactionOutput {
+func (t *AlonzoTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t AlonzoTransaction) Fee() uint64 {
+func (t *AlonzoTransaction) Fee() uint64 {
 	return t.Body.Fee()
 }
 
-func (t AlonzoTransaction) TTL() uint64 {
+func (t *AlonzoTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
-func (t AlonzoTransaction) ValidityIntervalStart() uint64 {
+func (t *AlonzoTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t AlonzoTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+func (t *AlonzoTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return t.Body.ProtocolParameterUpdates()
 }
 
-func (t AlonzoTransaction) ReferenceInputs() []common.TransactionInput {
+func (t *AlonzoTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t AlonzoTransaction) Collateral() []common.TransactionInput {
+func (t *AlonzoTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t AlonzoTransaction) CollateralReturn() common.TransactionOutput {
+func (t *AlonzoTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t AlonzoTransaction) TotalCollateral() uint64 {
+func (t *AlonzoTransaction) TotalCollateral() uint64 {
 	return t.Body.TotalCollateral()
 }
 
-func (t AlonzoTransaction) Certificates() []common.Certificate {
+func (t *AlonzoTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AlonzoTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t *AlonzoTransaction) Withdrawals() map[*common.Address]uint64 {
 	return t.Body.Withdrawals()
 }
 
-func (t AlonzoTransaction) AuxDataHash() *common.Blake2b256 {
+func (t *AlonzoTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t AlonzoTransaction) RequiredSigners() []common.Blake2b224 {
+func (t *AlonzoTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t AlonzoTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+func (t *AlonzoTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
-func (t AlonzoTransaction) ScriptDataHash() *common.Blake2b256 {
+func (t *AlonzoTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t AlonzoTransaction) VotingProcedures() common.VotingProcedures {
+func (t *AlonzoTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t AlonzoTransaction) ProposalProcedures() []common.ProposalProcedure {
+func (t *AlonzoTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t AlonzoTransaction) CurrentTreasuryValue() int64 {
+func (t *AlonzoTransaction) CurrentTreasuryValue() int64 {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t AlonzoTransaction) Donation() uint64 {
+func (t *AlonzoTransaction) Donation() uint64 {
 	return t.Body.Donation()
 }
 
-func (t AlonzoTransaction) IsValid() bool {
+func (t *AlonzoTransaction) IsValid() bool {
 	return t.TxIsValid
 }
 
-func (t AlonzoTransaction) Consumed() []common.TransactionInput {
+func (t *AlonzoTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
 	} else {
@@ -821,7 +821,7 @@ func (t AlonzoTransaction) Consumed() []common.TransactionInput {
 	}
 }
 
-func (t AlonzoTransaction) Produced() []common.Utxo {
+func (t *AlonzoTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
 		var ret []common.Utxo
 		for idx, output := range t.Outputs() {
@@ -843,8 +843,8 @@ func (t AlonzoTransaction) Produced() []common.Utxo {
 	}
 }
 
-func (t AlonzoTransaction) Witnesses() common.TransactionWitnessSet {
-	return t.WitnessSet
+func (t *AlonzoTransaction) Witnesses() common.TransactionWitnessSet {
+	return &t.WitnessSet
 }
 
 func (t *AlonzoTransaction) MarshalCBOR() ([]byte, error) {

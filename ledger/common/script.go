@@ -224,7 +224,7 @@ type NativeScript struct {
 	item any
 }
 
-func (NativeScript) isScript() {}
+func (*NativeScript) isScript() {}
 
 func (n *NativeScript) Item() any {
 	return n.item
@@ -260,7 +260,7 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (s NativeScript) Hash() ScriptHash {
+func (s *NativeScript) Hash() ScriptHash {
 	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypeNativeScript},
@@ -269,11 +269,11 @@ func (s NativeScript) Hash() ScriptHash {
 	))
 }
 
-func (s NativeScript) RawScriptBytes() []byte {
+func (s *NativeScript) RawScriptBytes() []byte {
 	return s.Cbor()
 }
 
-func (n NativeScript) MarshalCBOR() ([]byte, error) {
+func (n *NativeScript) MarshalCBOR() ([]byte, error) {
 	if raw := n.Cbor(); len(raw) > 0 {
 		return raw, nil
 	}

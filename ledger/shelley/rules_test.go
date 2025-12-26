@@ -565,7 +565,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	utxos := []common.Utxo{
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			Output: shelley.ShelleyTransactionOutput{
+			Output: &shelley.ShelleyTransactionOutput{
 				OutputAmount: testInputAmount,
 			},
 		},

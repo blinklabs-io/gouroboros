@@ -169,7 +169,7 @@ func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (ByronTransaction) Type() int {
+func (*ByronTransaction) Type() int {
 	return TxTypeByron
 }
 
@@ -187,8 +187,8 @@ func (t *ByronTransaction) Id() common.Blake2b256 {
 
 func (t *ByronTransaction) Inputs() []common.TransactionInput {
 	ret := []common.TransactionInput{}
-	for _, input := range t.TxInputs {
-		ret = append(ret, input)
+	for i := range t.TxInputs {
+		ret = append(ret, &t.TxInputs[i])
 	}
 	return ret
 }
@@ -318,7 +318,10 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id:     NewByronTransactionInput(t.Id().String(), idx),
+				Id: func() *ByronTransactionInput {
+					tmp := NewByronTransactionInput(t.Id().String(), idx)
+					return &tmp
+				}(),
 				Output: output,
 			},
 		)
@@ -326,7 +329,7 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 	return ret
 }
 
-func (t ByronTransaction) Witnesses() common.TransactionWitnessSet {
+func (t *ByronTransaction) Witnesses() common.TransactionWitnessSet {
 	// TODO: implement once we properly support decoding Byron TX witnesses (#853)
 	return nil
 }
@@ -391,15 +394,15 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (i ByronTransactionInput) Id() common.Blake2b256 {
+func (i *ByronTransactionInput) Id() common.Blake2b256 {
 	return i.TxId
 }
 
-func (i ByronTransactionInput) Index() uint32 {
+func (i *ByronTransactionInput) Index() uint32 {
 	return i.OutputIndex
 }
 
-func (i ByronTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
+func (i *ByronTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
 	return &utxorpc.TxInput{
 		TxHash:      i.TxId.Bytes(),
 		OutputIndex: i.OutputIndex,
@@ -408,7 +411,7 @@ func (i ByronTransactionInput) Utxorpc() (*utxorpc.TxInput, error) {
 	}, nil
 }
 
-func (i ByronTransactionInput) ToPlutusData() data.PlutusData {
+func (i *ByronTransactionInput) ToPlutusData() data.PlutusData {
 	// This will never actually get called, but it's identical to Shelley
 	return data.NewConstr(
 		0,
@@ -417,11 +420,11 @@ func (i ByronTransactionInput) ToPlutusData() data.PlutusData {
 	)
 }
 
-func (i ByronTransactionInput) String() string {
+func (i *ByronTransactionInput) String() string {
 	return fmt.Sprintf("%s#%d", i.TxId, i.OutputIndex)
 }
 
-func (i ByronTransactionInput) MarshalJSON() ([]byte, error) {
+func (i *ByronTransactionInput) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + i.String() + "\""), nil
 }
 
@@ -450,7 +453,7 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
+func (o *ByronTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
 	if o.OutputAmount > 0 {
 		valueData = append(
@@ -482,31 +485,31 @@ func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o ByronTransactionOutput) Address() common.Address {
+func (o *ByronTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (o ByronTransactionOutput) ScriptRef() common.Script {
+func (o *ByronTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o ByronTransactionOutput) Amount() uint64 {
+func (o *ByronTransactionOutput) Amount() uint64 {
 	return o.OutputAmount
 }
 
-func (o ByronTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
+func (o *ByronTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return nil
 }
 
-func (o ByronTransactionOutput) DatumHash() *common.Blake2b256 {
+func (o *ByronTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o ByronTransactionOutput) Datum() *common.Datum {
+func (o *ByronTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
-func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+func (o *ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	addressBytes, err := o.OutputAddress.Bytes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address bytes: %w", err)
@@ -518,7 +521,7 @@ func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 		nil
 }
 
-func (o ByronTransactionOutput) String() string {
+func (o *ByronTransactionOutput) String() string {
 	return fmt.Sprintf(
 		"(ByronTransactionOutput address=%s amount=%d)",
 		o.OutputAddress.String(),
@@ -780,7 +783,7 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (ByronMainBlock) Type() int {
+func (*ByronMainBlock) Type() int {
 	return BlockTypeByronMain
 }
 
@@ -851,7 +854,7 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (ByronEpochBoundaryBlock) Type() int {
+func (*ByronEpochBoundaryBlock) Type() int {
 	return BlockTypeByronEbb
 }
 

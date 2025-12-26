@@ -424,7 +424,7 @@ type SystemStartResult struct {
 	Picoseconds big.Int
 }
 
-func (s SystemStartResult) String() string {
+func (s *SystemStartResult) String() string {
 	return fmt.Sprintf(
 		"SystemStart %s %d %s",
 		s.Year.String(),
@@ -433,7 +433,7 @@ func (s SystemStartResult) String() string {
 	)
 }
 
-func (s SystemStartResult) MarshalJSON() ([]byte, error) {
+func (s *SystemStartResult) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Year        string `json:"year"`
 		Day         int    `json:"day"`
@@ -614,7 +614,7 @@ type FilteredDelegationsAndRewardAccountsResult any
 type GenesisConfigResult struct {
 	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
 	_                 struct{} `cbor:",toarray"`
-	Start             SystemStartResult
+	Start             *SystemStartResult
 	NetworkMagic      int
 	NetworkId         uint8
 	ActiveSlotsCoeff  []any

@@ -261,7 +261,7 @@ type AlonzoProtocolParameterUpdate struct {
 	MaxCollateralInputs  *uint                                     `cbor:"24,keyasint"`
 }
 
-func (AlonzoProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+func (*AlonzoProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *AlonzoProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	type tAlonzoProtocolParameterUpdate AlonzoProtocolParameterUpdate
