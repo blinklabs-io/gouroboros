@@ -33,6 +33,7 @@ linters:
     - spancheck
     - sqlclosecheck
     - testifylint
+    - unparam
     - usestdlibvars
     - whitespace
     - zerologlint
