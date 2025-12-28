@@ -149,7 +149,7 @@ func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
 	return common.Blake2b256{}
 }
 
-type ByronTransaction struct {
+type ByronTransactionBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	hash       *common.Blake2b256
@@ -158,15 +158,206 @@ type ByronTransaction struct {
 	Attributes cbor.RawMessage
 }
 
-func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
-	type tByronTransaction ByronTransaction
+func (t *ByronTransactionBody) UnmarshalCBOR(cborData []byte) error {
+	type tByronTransaction ByronTransactionBody
 	var tmp tByronTransaction
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*t = ByronTransaction(tmp)
+	*t = ByronTransactionBody(tmp)
 	t.SetCbor(cborData)
 	return nil
+}
+
+func (t *ByronTransactionBody) Id() common.Blake2b256 {
+	if t.hash == nil {
+		tmpHash := common.Blake2b256Hash(t.Cbor())
+		t.hash = &tmpHash
+	}
+	return *t.hash
+}
+
+func (t *ByronTransactionBody) Inputs() []common.TransactionInput {
+	ret := []common.TransactionInput{}
+	for _, input := range t.TxInputs {
+		ret = append(ret, input)
+	}
+	return ret
+}
+
+func (t *ByronTransactionBody) Outputs() []common.TransactionOutput {
+	ret := make([]common.TransactionOutput, len(t.TxOutputs))
+	for i := range t.TxOutputs {
+		ret[i] = &t.TxOutputs[i]
+	}
+	return ret
+}
+
+func (t *ByronTransactionBody) Fee() uint64 {
+	// The fee is implicit in Byron, and we don't have enough information here to calculate it.
+	// You need to know the Lovelace in the inputs to determine the fee, and that information is
+	// not provided directly in the TX
+	return 0
+}
+
+func (t *ByronTransactionBody) TTL() uint64 {
+	// No TTL in Byron
+	return 0
+}
+
+func (t *ByronTransactionBody) ValidityIntervalStart() uint64 {
+	// No validity interval start in Byron
+	return 0
+}
+
+func (t *ByronTransactionBody) ReferenceInputs() []common.TransactionInput {
+	// No reference inputs in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) Collateral() []common.TransactionInput {
+	// No collateral in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) CollateralReturn() common.TransactionOutput {
+	// No collateral in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) TotalCollateral() uint64 {
+	// No collateral in Byron
+	return 0
+}
+
+func (t *ByronTransactionBody) Certificates() []common.Certificate {
+	// No certificates in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) Withdrawals() map[*common.Address]uint64 {
+	// No withdrawals in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) AuxDataHash() *common.Blake2b256 {
+	// No aux data hash in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) RequiredSigners() []common.Blake2b224 {
+	// No required signers in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+	// No asset mints in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) ScriptDataHash() *common.Blake2b256 {
+	// No script data hash in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) VotingProcedures() common.VotingProcedures {
+	// No voting procedures in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) ProposalProcedures() []common.ProposalProcedure {
+	// No proposal procedures in Byron
+	return nil
+}
+
+func (t *ByronTransactionBody) CurrentTreasuryValue() int64 {
+	// No current treasury value in Byron
+	return 0
+}
+
+func (t *ByronTransactionBody) Donation() uint64 {
+	// No donation in Byron
+	return 0
+}
+
+func (t *ByronTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
+	return &utxorpc.Tx{}, nil
+}
+
+func (t *ByronTransactionBody) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
+	return 0, updateMap
+}
+
+type ByronTransaction struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	hash       *common.Blake2b256
+	Body       ByronTransactionBody
+	Twit       []cbor.Value
+	witnessSet *ByronTransactionWitnessSet
+}
+
+func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
+	var txArray []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &txArray); err != nil {
+		return err
+	}
+
+	if len(txArray) < 2 {
+		return fmt.Errorf(
+			"invalid byron transaction: expected at least 2 components, got %d",
+			len(txArray),
+		)
+	}
+	// Decode body
+	if _, err := cbor.Decode([]byte(txArray[0]), &t.Body); err != nil {
+		return fmt.Errorf("failed to decode byron transaction body: %w", err)
+	}
+	// Decode witnesses (Twit)
+	if _, err := cbor.Decode([]byte(txArray[1]), &t.Twit); err != nil {
+		return fmt.Errorf("failed to decode byron transaction witnesses: %w", err)
+	}
+	t.SetCbor(cborData)
+	return nil
+}
+
+func (t *ByronTransaction) MarshalCBOR() ([]byte, error) {
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData, nil
+	}
+	type tmpTx struct {
+		cbor.StructAsArray
+		Body ByronTransactionBody
+		Twit cbor.IndefLengthList
+	}
+	var twit cbor.IndefLengthList
+	if t.Twit != nil {
+		twit = make(cbor.IndefLengthList, len(t.Twit))
+		for i := range t.Twit {
+			twit[i] = t.Twit[i]
+		}
+	}
+	return cbor.Encode(&tmpTx{
+		Body: t.Body,
+		Twit: twit,
+	})
+}
+
+func (t *ByronTransaction) Cbor() []byte {
+	cborData := t.DecodeStoreCbor.Cbor()
+	if cborData != nil {
+		return cborData[:]
+	}
+	if t.Body.Cbor() == nil {
+		return nil
+	}
+	cborData, err := cbor.Encode(t)
+	if err != nil {
+		panic("CBOR encoding that should never fail has failed: " + err.Error())
+	}
+	return cborData
 }
 
 func (ByronTransaction) Type() int {
@@ -178,114 +369,83 @@ func (t *ByronTransaction) Hash() common.Blake2b256 {
 }
 
 func (t *ByronTransaction) Id() common.Blake2b256 {
-	if t.hash == nil {
-		tmpHash := common.Blake2b256Hash(t.Cbor())
-		t.hash = &tmpHash
-	}
-	return *t.hash
+	return t.Body.Id()
 }
 
 func (t *ByronTransaction) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, input := range t.TxInputs {
-		ret = append(ret, input)
-	}
-	return ret
+	return t.Body.Inputs()
 }
 
 func (t *ByronTransaction) Outputs() []common.TransactionOutput {
-	ret := make([]common.TransactionOutput, len(t.TxOutputs))
-	for i := range t.TxOutputs {
-		ret[i] = &t.TxOutputs[i]
-	}
-	return ret
+	return t.Body.Outputs()
 }
 
 func (t *ByronTransaction) Fee() uint64 {
-	// The fee is implicit in Byron, and we don't have enough information here to calculate it.
-	// You need to know the Lovelace in the inputs to determine the fee, and that information is
-	// not provided directly in the TX
-	return 0
+	return t.Body.Fee()
 }
 
 func (t *ByronTransaction) TTL() uint64 {
-	// No TTL in Byron
-	return 0
+	return t.Body.TTL()
 }
 
 func (t *ByronTransaction) ValidityIntervalStart() uint64 {
-	// No validity interval start in Byron
-	return 0
+	return t.Body.ValidityIntervalStart()
 }
 
 func (t *ByronTransaction) ReferenceInputs() []common.TransactionInput {
-	// No reference inputs in Byron
-	return nil
+	return t.Body.ReferenceInputs()
 }
 
 func (t *ByronTransaction) Collateral() []common.TransactionInput {
-	// No collateral in Byron
-	return nil
+	return t.Body.Collateral()
 }
 
 func (t *ByronTransaction) CollateralReturn() common.TransactionOutput {
-	// No collateral in Byron
-	return nil
+	return t.Body.CollateralReturn()
 }
 
 func (t *ByronTransaction) TotalCollateral() uint64 {
-	// No collateral in Byron
-	return 0
+	return t.Body.TotalCollateral()
 }
 
 func (t *ByronTransaction) Certificates() []common.Certificate {
-	// No certificates in Byron
-	return nil
+	return t.Body.Certificates()
 }
 
 func (t *ByronTransaction) Withdrawals() map[*common.Address]uint64 {
-	// No withdrawals in Byron
-	return nil
+	return t.Body.Withdrawals()
 }
 
 func (t *ByronTransaction) AuxDataHash() *common.Blake2b256 {
-	// No aux data hash in Byron
-	return nil
+	return t.Body.AuxDataHash()
 }
 
 func (t *ByronTransaction) RequiredSigners() []common.Blake2b224 {
-	// No required signers in Byron
-	return nil
+	return t.Body.RequiredSigners()
 }
 
 func (t *ByronTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
-	// No asset mints in Byron
-	return nil
+	return t.Body.AssetMint()
 }
 
 func (t *ByronTransaction) ScriptDataHash() *common.Blake2b256 {
-	// No script data hash in Byron
-	return nil
+	return t.Body.ScriptDataHash()
 }
 
 func (t *ByronTransaction) VotingProcedures() common.VotingProcedures {
-	// No voting procedures in Byron
-	return nil
+	return t.Body.VotingProcedures()
 }
 
 func (t *ByronTransaction) ProposalProcedures() []common.ProposalProcedure {
-	// No proposal procedures in Byron
-	return nil
+	return t.Body.ProposalProcedures()
 }
 
 func (t *ByronTransaction) CurrentTreasuryValue() int64 {
-	// No current treasury value in Byron
-	return 0
+	return t.Body.CurrentTreasuryValue()
 }
 
 func (t *ByronTransaction) Donation() uint64 {
-	// No donation in Byron
-	return 0
+	return t.Body.Donation()
 }
 
 func (t *ByronTransaction) Metadata() common.TransactionMetadatum {
@@ -330,19 +490,189 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 	return ret
 }
 
-func (t ByronTransaction) Witnesses() common.TransactionWitnessSet {
-	// TODO: implement once we properly support decoding Byron TX witnesses (#853)
+func (t *ByronTransaction) Witnesses() common.TransactionWitnessSet {
+	if t.witnessSet == nil {
+		t.witnessSet = NewByronTransactionWitnessSet(t.Twit)
+	}
+	return *t.witnessSet
+}
+
+type ByronTransactionWitnessSet struct {
+	vkey      []common.VkeyWitness
+	bootstrap []common.BootstrapWitness
+}
+
+func NewByronTransactionWitnessSet(twit []cbor.Value) *ByronTransactionWitnessSet {
+	ws := &ByronTransactionWitnessSet{}
+	for i := range twit {
+		if vw, bw, ok := decodeByronWitness(twit[i]); ok {
+			if vw != nil {
+				ws.vkey = append(ws.vkey, *vw)
+			}
+			if bw != nil {
+				ws.bootstrap = append(ws.bootstrap, *bw)
+			}
+		}
+	}
+	return ws
+}
+
+func (w ByronTransactionWitnessSet) Vkey() []common.VkeyWitness {
+	return w.vkey
+}
+
+func (ByronTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return nil
 }
 
+func (w ByronTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return w.bootstrap
+}
+
+func (ByronTransactionWitnessSet) PlutusData() []common.Datum {
+	return nil
+}
+
+func (ByronTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
+	return nil
+}
+
+func (ByronTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
+	return nil
+}
+
+func (ByronTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
+	return nil
+}
+
+func (ByronTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+	return nil
+}
+
+func decodeByronWitness(
+	v cbor.Value,
+) (vkey *common.VkeyWitness, bootstrap *common.BootstrapWitness, ok bool) {
+	switch w := v.Value().(type) {
+	case cbor.Constructor:
+		fields := w.Fields()
+		return decodeByronWitnessFromConstructor(uint64(w.Constructor()), fields)
+	case []any:
+		if len(w) == 0 {
+			return nil, nil, false
+		}
+		if ctor, ok2 := asUint64(w[0]); ok2 {
+			return decodeByronWitnessFromConstructor(ctor, w[1:])
+		}
+		return decodeByronWitnessFromFields(w)
+	default:
+		return nil, nil, false
+	}
+}
+
+func decodeByronWitnessFromConstructor(
+	ctor uint64,
+	fields []any,
+) (vkey *common.VkeyWitness, bootstrap *common.BootstrapWitness, ok bool) {
+	switch ctor {
+	case 0, 2:
+		if len(fields) != 2 {
+			return nil, nil, false
+		}
+		pk, okPk := asBytes(fields[0])
+		sig, okSig := asBytes(fields[1])
+		if !okPk || !okSig {
+			return nil, nil, false
+		}
+		return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
+	case 3:
+		if len(fields) != 4 {
+			return nil, nil, false
+		}
+		pk, okPk := asBytes(fields[0])
+		sig, okSig := asBytes(fields[1])
+		chainCode, okCc := asBytes(fields[2])
+		attrs, okAttrs := asBytes(fields[3])
+		if !okPk || !okSig || !okCc || !okAttrs {
+			return nil, nil, false
+		}
+		return nil, &common.BootstrapWitness{
+			PublicKey:  pk,
+			Signature:  sig,
+			ChainCode:  chainCode,
+			Attributes: attrs,
+		}, true
+	default:
+		return decodeByronWitnessFromFields(fields)
+	}
+}
+
+func decodeByronWitnessFromFields(
+	fields []any,
+) (vkey *common.VkeyWitness, bootstrap *common.BootstrapWitness, ok bool) {
+	if len(fields) == 2 {
+		pk, okPk := asBytes(fields[0])
+		sig, okSig := asBytes(fields[1])
+		if okPk && okSig {
+			return &common.VkeyWitness{Vkey: pk, Signature: sig}, nil, true
+		}
+	}
+	if len(fields) == 4 {
+		pk, okPk := asBytes(fields[0])
+		sig, okSig := asBytes(fields[1])
+		chainCode, okCc := asBytes(fields[2])
+		attrs, okAttrs := asBytes(fields[3])
+		if okPk && okSig && okCc && okAttrs {
+			return nil, &common.BootstrapWitness{
+				PublicKey:  pk,
+				Signature:  sig,
+				ChainCode:  chainCode,
+				Attributes: attrs,
+			}, true
+		}
+	}
+	return nil, nil, false
+}
+
+func asUint64(v any) (uint64, bool) {
+	switch x := v.(type) {
+	case uint64:
+		return x, true
+	case uint32:
+		return uint64(x), true
+	case uint:
+		return uint64(x), true
+	case int:
+		if x < 0 {
+			return 0, false
+		}
+		return uint64(x), true
+	case int64:
+		if x < 0 {
+			return 0, false
+		}
+		return uint64(x), true
+	default:
+		return 0, false
+	}
+}
+
+func asBytes(v any) ([]byte, bool) {
+	switch x := v.(type) {
+	case []byte:
+		return x, true
+	case cbor.ByteString:
+		return x.Bytes(), true
+	default:
+		return nil, false
+	}
+}
+
 func (t *ByronTransaction) Utxorpc() (*utxorpc.Tx, error) {
-	return &utxorpc.Tx{}, nil
+	return t.Body.Utxorpc()
 }
 
 func (t *ByronTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
-	// No protocol parameter updates in Byron
-	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
-	return 0, updateMap
+	return t.Body.ProtocolParameterUpdates()
 }
 
 type ByronTransactionInput struct {
@@ -593,7 +923,7 @@ type ByronUpdateProposalBlockVersionMod struct {
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	TxPayload  []ByronTxPayload
+	TxPayload  []ByronTransaction
 	SscPayload cbor.Value
 	DlgPayload []any
 	UpdPayload ByronUpdatePayload
@@ -635,48 +965,6 @@ func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
 		SscPayload: b.SscPayload,
 		DlgPayload: b.DlgPayload,
 		UpdPayload: b.UpdPayload,
-	}
-	return cbor.Encode(&temp)
-}
-
-type ByronTxPayload struct {
-	cbor.StructAsArray
-	cbor.DecodeStoreCbor
-	Transaction ByronTransaction
-	Twit        []cbor.Value
-}
-
-func (b *ByronTxPayload) UnmarshalCBOR(cborData []byte) error {
-	type tByronTxPayload ByronTxPayload
-	var tmp tByronTxPayload
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
-		return err
-	}
-	*b = ByronTxPayload(tmp)
-	b.SetCbor(cborData)
-	return nil
-}
-
-func (b *ByronTxPayload) MarshalCBOR() ([]byte, error) {
-	if b.Cbor() != nil {
-		return b.Cbor(), nil
-	}
-	type tmpPayload struct {
-		cbor.StructAsArray
-		cbor.DecodeStoreCbor
-		Transaction ByronTransaction
-		Twit        cbor.IndefLengthList
-	}
-	var twit cbor.IndefLengthList
-	if b.Twit != nil {
-		twit = make(cbor.IndefLengthList, len(b.Twit))
-		for i, wit := range b.Twit {
-			twit[i] = wit
-		}
-	}
-	temp := tmpPayload{
-		Transaction: b.Transaction,
-		Twit:        twit,
 	}
 	return cbor.Encode(&temp)
 }
@@ -822,8 +1110,8 @@ func (b *ByronMainBlock) Era() common.Era {
 
 func (b *ByronMainBlock) Transactions() []common.Transaction {
 	ret := make([]common.Transaction, len(b.Body.TxPayload))
-	for idx, payload := range b.Body.TxPayload {
-		ret[idx] = &payload.Transaction
+	for idx := range b.Body.TxPayload {
+		ret[idx] = &b.Body.TxPayload[idx]
 	}
 	return ret
 }
