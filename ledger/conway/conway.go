@@ -611,6 +611,7 @@ type ConwayTransaction struct {
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
 	rawAuxData []byte
+	auxData    common.AuxiliaryData
 }
 
 func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -646,9 +647,22 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Handle metadata (component 4, always present - either data or CBOR nil)
 	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
 		t.rawAuxData = []byte(txArray[3])
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[3])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 
@@ -662,6 +676,10 @@ func (t *ConwayTransaction) Metadata() common.TransactionMetadatum {
 
 func (t *ConwayTransaction) RawAuxiliaryData() []byte {
 	return t.rawAuxData
+}
+
+func (t *ConwayTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (ConwayTransaction) Type() int {
