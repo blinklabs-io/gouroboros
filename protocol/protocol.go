@@ -33,7 +33,7 @@ import (
 const maxMessagesPerSegment = 20
 
 // DefaultRecvQueueSize is the default capacity for the recv queue channel
-const DefaultRecvQueueSize = 50
+const DefaultRecvQueueSize = 55
 
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
@@ -150,7 +150,7 @@ func (p *Protocol) Start() {
 		}
 
 		// Create channels
-		p.sendQueueChan = make(chan Message, 50)
+		p.sendQueueChan = make(chan Message, 80)
 		p.recvQueueChan = make(chan Message, p.config.RecvQueueSize)
 		p.recvReadyChan = make(chan bool, 1)
 		p.sendReadyChan = make(chan bool, 1)
