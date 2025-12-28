@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,8 +23,7 @@ import (
 
 // The Point type represents a point on the blockchain. It consists of a slot number and block hash
 type Point struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_    struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Slot uint64
 	Hash []byte
 }

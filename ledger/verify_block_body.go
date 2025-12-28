@@ -344,14 +344,14 @@ func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 // These are copied from types.go
 
 type UTXOOutputToken struct {
-	_              struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Flag           int
 	TokenAssetName string
 	TokenValue     string
 }
 
 type UTXOOutput struct {
-	_           struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Flag        int
 	TxHash      string
 	OutputIndex string
