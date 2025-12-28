@@ -40,7 +40,6 @@ linters:
     - depguard
     - noctx
     - recvcheck
-    - unparam
   exclusions:
     generated: lax
     presets:

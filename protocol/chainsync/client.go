@@ -568,15 +568,15 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeAwaitReply:
-		err = c.handleAwaitReply()
+		c.handleAwaitReply()
 	case MessageTypeRollForward:
 		err = c.handleRollForward(msg)
 	case MessageTypeRollBackward:
 		err = c.handleRollBackward(msg)
 	case MessageTypeIntersectFound:
-		err = c.handleIntersectFound(msg)
+		c.handleIntersectFound(msg)
 	case MessageTypeIntersectNotFound:
-		err = c.handleIntersectNotFound(msg)
+		c.handleIntersectNotFound(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -587,7 +587,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleAwaitReply() error {
+func (c *Client) handleAwaitReply() {
 	c.Protocol.Logger().
 		Debug("waiting for next reply",
 			"component", "network",
@@ -595,7 +595,6 @@ func (c *Client) handleAwaitReply() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	return nil
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
@@ -771,7 +770,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	return nil
 }
 
-func (c *Client) handleIntersectFound(msg protocol.Message) error {
+func (c *Client) handleIntersectFound(msg protocol.Message) {
 	c.Protocol.Logger().
 		Debug("chain intersect found",
 			"component", "network",
@@ -787,10 +786,9 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 		ch <- clientPointResult{tip: msgIntersectFound.Tip, point: msgIntersectFound.Point}
 	default:
 	}
-	return nil
 }
 
-func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
+func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {
 	c.Protocol.Logger().
 		Debug("chain intersect not found",
 			"component", "network",
@@ -806,5 +804,4 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
 		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
 	default:
 	}
-	return nil
 }

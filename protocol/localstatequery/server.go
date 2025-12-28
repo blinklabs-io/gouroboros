@@ -82,7 +82,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeReacquireVolatileTip:
 		err = s.handleReAcquire(msg)
 	case MessageTypeDone:
-		err = s.handleDone()
+		s.handleDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -233,7 +233,7 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 	return nil
 }
 
-func (s *Server) handleDone() error {
+func (s *Server) handleDone() {
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",
@@ -241,5 +241,4 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	return nil
 }

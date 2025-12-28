@@ -355,20 +355,13 @@ func CalculateRewards(
 			delegatorStake = make(map[AddrKeyHash]uint64)
 		}
 
-		poolRewards, err := distributePoolRewards(
+		poolRewards := distributePoolRewards(
 			poolID,
 			totalPoolRewards,
 			delegatorStake,
 			poolParams,
 			snapshot,
 		)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to distribute rewards for pool %s: %w",
-				poolID,
-				err,
-			)
-		}
 
 		result.PoolRewards[poolID] = *poolRewards
 	}
@@ -434,7 +427,7 @@ func distributePoolRewards(
 	delegatorStake map[AddrKeyHash]uint64,
 	poolParams *PoolRegistrationCertificate,
 	snapshot RewardSnapshot,
-) (*PoolRewards, error) {
+) *PoolRewards {
 	poolCost := poolParams.Cost
 	margin := marginFloat(poolParams.Margin)
 
@@ -503,7 +496,7 @@ func distributePoolRewards(
 		OperatorRewards:  operatorRewards,
 		DelegatorRewards: delegatorRewards,
 		TotalRewards:     totalPoolRewards,
-	}, nil
+	}
 }
 
 // marginFloat converts a GenesisRat margin to float64
