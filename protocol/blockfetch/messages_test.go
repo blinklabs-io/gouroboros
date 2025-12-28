@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 type testDefinition struct {
@@ -29,8 +30,39 @@ type testDefinition struct {
 	MessageType uint
 }
 
-// TODO: implement tests for more messages (#871)
 var tests = []testDefinition{
+	{
+		CborHex:     "830082187b480102030405060708821901c848090a0b0c0d0e0f10",
+		Message:     NewMsgRequestRange(pcommon.NewPoint(123, []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}), pcommon.NewPoint(456, []byte{0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10})),
+		MessageType: MessageTypeRequestRange,
+	},
+	{
+		CborHex:     "8101",
+		Message:     NewMsgClientDone(),
+		MessageType: MessageTypeClientDone,
+	},
+	{
+		CborHex:     "8102",
+		Message:     NewMsgStartBatch(),
+		MessageType: MessageTypeStartBatch,
+	},
+	{
+		CborHex:     "8103",
+		Message:     NewMsgNoBlocks(),
+		MessageType: MessageTypeNoBlocks,
+	},
+	{
+		CborHex: "8204d818458206820102",
+		Message: func() *MsgBlock {
+			wrappedBlock := WrappedBlock{
+				Type:     6,
+				RawBlock: cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
+			}
+			wrappedBlockCbor, _ := cbor.Encode(&wrappedBlock)
+			return NewMsgBlock(wrappedBlockCbor)
+		}(),
+		MessageType: MessageTypeBlock,
+	},
 	{
 		CborHex:     "8105",
 		Message:     NewMsgBatchDone(),
