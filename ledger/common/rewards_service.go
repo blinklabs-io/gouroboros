@@ -50,6 +50,7 @@ func (rs *RewardService) CalculateEpochRewards(
 
 	// Get protocol parameters (this would need to be implemented in the ledger state)
 	// For now, use default parameters
+	// TODO: Get protocol parameters from ledger state instead of using hardcoded defaults
 	params := RewardParameters{
 		MonetaryExpansion: 3000,             // 0.3%
 		TreasuryGrowth:    2000,             // 20%

@@ -1,3 +1,6 @@
 [submodule "cardano-blueprint"]
 	path = internal/test/cardano-blueprint
 	url = git@github.com:cardano-scaling/cardano-blueprint
+[submodule "internal/test/amaru"]
+	path = internal/test/amaru
+	url = git@github.com:pragma-org/amaru.git
