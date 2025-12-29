@@ -116,10 +116,11 @@ func DetermineTransactionType(data []byte) (uint, error) {
 	// Fast path: check first byte to distinguish Byron from post-Shelley eras
 	firstByte := data[0]
 	switch firstByte {
-	case 0x83: // Byron, Shelley, Allegra, and Mary transactions are 3-element arrays
+	case 0x82: // Byron signed transactions (TxAux) are 2-element arrays (body, witnesses)
 		if _, err := NewByronTransactionFromCbor(data); err == nil {
 			return TxTypeByron, nil
 		}
+	case 0x83: // Shelley, Allegra, and Mary transactions are 3-element arrays
 		if _, err := NewShelleyTransactionFromCbor(data); err == nil {
 			return TxTypeShelley, nil
 		}

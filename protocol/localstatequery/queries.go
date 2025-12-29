@@ -417,8 +417,7 @@ type SystemStartQuery struct {
 }
 
 type SystemStartResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Year        big.Int
 	Day         int
 	Picoseconds big.Int
@@ -477,29 +476,25 @@ type HardForkEraHistoryQuery struct {
 }
 
 type EraHistoryResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_      struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Begin  eraHistoryResultBeginEnd
 	End    eraHistoryResultBeginEnd
 	Params eraHistoryResultParams
 }
 
 type eraHistoryResultBeginEnd struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_        struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Timespan any
 	SlotNo   int
 	EpochNo  int
 }
 
 type eraHistoryResultParams struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_                 struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	EpochLength       int
 	SlotLength        int
 	SlotsPerKESPeriod struct {
-		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-		_      struct{} `cbor:",toarray"`
+		cbor.StructAsArray
 		Dummy1 int
 		Value  int
 		Dummy2 []int
@@ -633,7 +628,7 @@ type GenesisConfigResult struct {
 }
 
 type GenesisConfigResultProtocolParameters struct {
-	_                     struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	MinFeeA               int
 	MinFeeB               int
 	MaxBlockBodySize      int

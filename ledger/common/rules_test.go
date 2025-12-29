@@ -40,6 +40,7 @@ func (m *mockTxEmpty) Hash() common.Blake2b256 { return common.Blake2b256{} }
 func (m *mockTxEmpty) LeiosHash() common.Blake2b256            { return common.Blake2b256{} }
 func (m *mockTxEmpty) Metadata() common.TransactionMetadatum   { return nil }
 func (m *mockTxEmpty) RawAuxiliaryData() []byte                { return nil }
+func (m *mockTxEmpty) AuxiliaryData() common.AuxiliaryData     { return nil }
 func (m *mockTxEmpty) IsValid() bool                           { return true }
 func (m *mockTxEmpty) Consumed() []common.TransactionInput     { return nil }
 func (m *mockTxEmpty) Produced() []common.Utxo                 { return nil }

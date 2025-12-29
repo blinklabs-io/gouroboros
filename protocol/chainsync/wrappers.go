@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,8 +24,7 @@ import (
 
 // WrappedBlock represents a block returned via a NtC RollForward message
 type WrappedBlock struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_         struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	BlockType uint
 	BlockCbor cbor.RawMessage
 }
@@ -40,8 +39,7 @@ func NewWrappedBlock(blockType uint, blockCbor []byte) *WrappedBlock {
 
 // WrappedHeader represents a block header returned via NtN RollForward message
 type WrappedHeader struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_          struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Era        uint
 	RawMessage cbor.RawMessage
 	byronType  uint
@@ -82,8 +80,7 @@ func NewWrappedHeader(
 
 func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
 	var tmpHeader struct {
-		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-		_         struct{} `cbor:",toarray"`
+		cbor.StructAsArray
 		Era       uint
 		HeaderRaw cbor.RawMessage
 	}
@@ -152,11 +149,9 @@ func (w *WrappedHeader) ByronType() uint {
 }
 
 type wrappedHeaderByron struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_        struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Metadata struct {
-		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-		_    struct{} `cbor:",toarray"`
+		cbor.StructAsArray
 		Type uint
 		Size uint
 	}

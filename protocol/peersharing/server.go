@@ -67,7 +67,7 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 	case MessageTypeShareRequest:
 		err = s.handleShareRequest(msg)
 	case MessageTypeDone:
-		err = s.handleDone(msg)
+		s.handleDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -106,7 +106,7 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 	return nil
 }
 
-func (s *Server) handleDone(msg protocol.Message) error {
+func (s *Server) handleDone() {
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",
@@ -118,5 +118,4 @@ func (s *Server) handleDone(msg protocol.Message) error {
 	s.Stop()
 	s.initProtocol()
 	s.Start()
-	return nil
 }

@@ -416,3 +416,309 @@ func (s *TransactionMetadataSet) GetRawMetadata(
 	val, ok := s.data[key]
 	return val, ok
 }
+
+type AuxiliaryData interface {
+	// Metadata returns the transaction metadata, if present
+	Metadata() (TransactionMetadatum, error)
+	// NativeScripts returns the native scripts, if present
+	NativeScripts() ([]NativeScript, error)
+	// PlutusV1Scripts returns the Plutus V1 scripts, if present (Alonzo+ only)
+	PlutusV1Scripts() ([]PlutusV1Script, error)
+	// PlutusV2Scripts returns the Plutus V2 scripts, if present (Alonzo+ only)
+	PlutusV2Scripts() ([]PlutusV2Script, error)
+	// PlutusV3Scripts returns the Plutus V3 scripts, if present (Conway+ only)
+	PlutusV3Scripts() ([]PlutusV3Script, error)
+	// Cbor returns the raw CBOR encoding
+	Cbor() []byte
+}
+
+type ShelleyAuxiliaryData struct {
+	cbor.DecodeStoreCbor
+	metadata TransactionMetadatum
+}
+
+func (s *ShelleyAuxiliaryData) Metadata() (TransactionMetadatum, error) {
+	return s.metadata, nil
+}
+
+func (s *ShelleyAuxiliaryData) NativeScripts() ([]NativeScript, error) {
+	return nil, nil
+}
+
+func (s *ShelleyAuxiliaryData) PlutusV1Scripts() ([]PlutusV1Script, error) {
+	return nil, nil
+}
+
+func (s *ShelleyAuxiliaryData) PlutusV2Scripts() ([]PlutusV2Script, error) {
+	return nil, nil
+}
+
+func (s *ShelleyAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
+	return nil, nil
+}
+
+func (s *ShelleyAuxiliaryData) UnmarshalCBOR(data []byte) error {
+	s.SetCbor(data)
+	md, err := DecodeMetadatumRaw(data)
+	if err != nil {
+		return fmt.Errorf("failed to decode Shelley auxiliary data: %w", err)
+	}
+	s.metadata = md
+	return nil
+}
+
+func (s *ShelleyAuxiliaryData) MarshalCBOR() ([]byte, error) {
+	if raw := s.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if s.metadata == nil {
+		return cbor.Encode(nil)
+	}
+	return cbor.Encode(s.metadata)
+}
+
+type ShelleyMaAuxiliaryData struct {
+	cbor.DecodeStoreCbor
+	metadata      TransactionMetadatum
+	nativeScripts []NativeScript
+}
+
+func (s *ShelleyMaAuxiliaryData) Metadata() (TransactionMetadatum, error) {
+	return s.metadata, nil
+}
+
+func (s *ShelleyMaAuxiliaryData) NativeScripts() ([]NativeScript, error) {
+	return s.nativeScripts, nil
+}
+
+func (s *ShelleyMaAuxiliaryData) PlutusV1Scripts() ([]PlutusV1Script, error) {
+	return nil, nil
+}
+
+func (s *ShelleyMaAuxiliaryData) PlutusV2Scripts() ([]PlutusV2Script, error) {
+	return nil, nil
+}
+
+func (s *ShelleyMaAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
+	return nil, nil
+}
+
+func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
+	s.SetCbor(data)
+	var arr []cbor.RawMessage
+	if _, err := cbor.Decode(data, &arr); err != nil {
+		return fmt.Errorf("failed to decode Shelley-MA auxiliary data array: %w", err)
+	}
+	if len(arr) != 2 {
+		return fmt.Errorf("Shelley-MA auxiliary data must have 2 elements, got %d", len(arr))
+	}
+
+	// First element is metadata (may be null)
+	if len(arr[0]) > 0 && arr[0][0] != 0xF6 { // 0xF6 is CBOR null
+		md, err := DecodeMetadatumRaw(arr[0])
+		if err != nil {
+			return fmt.Errorf("failed to decode metadata: %w", err)
+		}
+		s.metadata = md
+	}
+
+	// Second element is array of native scripts
+	if _, err := cbor.Decode(arr[1], &s.nativeScripts); err != nil {
+		return fmt.Errorf("failed to decode native scripts: %w", err)
+	}
+
+	return nil
+}
+
+func (s *ShelleyMaAuxiliaryData) MarshalCBOR() ([]byte, error) {
+	if raw := s.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	return cbor.Encode([]any{s.metadata, s.nativeScripts})
+}
+
+type AlonzoAuxiliaryData struct {
+	cbor.DecodeStoreCbor
+	metadata        TransactionMetadatum
+	nativeScripts   []NativeScript
+	plutusV1Scripts []PlutusV1Script
+	plutusV2Scripts []PlutusV2Script
+	plutusV3Scripts []PlutusV3Script
+}
+
+func (a *AlonzoAuxiliaryData) Metadata() (TransactionMetadatum, error) {
+	return a.metadata, nil
+}
+
+func (a *AlonzoAuxiliaryData) NativeScripts() ([]NativeScript, error) {
+	return a.nativeScripts, nil
+}
+
+func (a *AlonzoAuxiliaryData) PlutusV1Scripts() ([]PlutusV1Script, error) {
+	return a.plutusV1Scripts, nil
+}
+
+func (a *AlonzoAuxiliaryData) PlutusV2Scripts() ([]PlutusV2Script, error) {
+	return a.plutusV2Scripts, nil
+}
+
+func (a *AlonzoAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
+	return a.plutusV3Scripts, nil
+}
+
+func (a *AlonzoAuxiliaryData) UnmarshalCBOR(data []byte) error {
+	a.SetCbor(data)
+
+	// Decode CBOR tag 259
+	var tmpTag cbor.RawTag
+	if _, err := cbor.Decode(data, &tmpTag); err != nil {
+		return fmt.Errorf("failed to decode Alonzo auxiliary data tag: %w", err)
+	}
+	if tmpTag.Number != cbor.CborTagMap {
+		return fmt.Errorf(
+			"expected CBOR tag %d for Alonzo auxiliary data, got %d",
+			cbor.CborTagMap,
+			tmpTag.Number,
+		)
+	}
+
+	// Decode the map
+	var auxMap map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(tmpTag.Content, &auxMap); err != nil {
+		return fmt.Errorf("failed to decode auxiliary data map: %w", err)
+	}
+
+	// Key 0: metadata
+	if metadataRaw, ok := auxMap[0]; ok {
+		md, err := DecodeMetadatumRaw(metadataRaw)
+		if err != nil {
+			return fmt.Errorf("failed to decode metadata: %w", err)
+		}
+		a.metadata = md
+	}
+
+	// Key 1: native scripts
+	if scriptsRaw, ok := auxMap[1]; ok {
+		if _, err := cbor.Decode(scriptsRaw, &a.nativeScripts); err != nil {
+			return fmt.Errorf("failed to decode native scripts: %w", err)
+		}
+	}
+
+	// Key 2: Plutus V1 scripts
+	if scriptsRaw, ok := auxMap[2]; ok {
+		if _, err := cbor.Decode(scriptsRaw, &a.plutusV1Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V1 scripts: %w", err)
+		}
+	}
+
+	// Key 3: Plutus V2 scripts
+	if scriptsRaw, ok := auxMap[3]; ok {
+		if _, err := cbor.Decode(scriptsRaw, &a.plutusV2Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V2 scripts: %w", err)
+		}
+	}
+
+	// Key 4: Plutus V3 scripts
+	if scriptsRaw, ok := auxMap[4]; ok {
+		if _, err := cbor.Decode(scriptsRaw, &a.plutusV3Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V3 scripts: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (a *AlonzoAuxiliaryData) MarshalCBOR() ([]byte, error) {
+	if raw := a.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+
+	auxMap := make(map[uint]cbor.RawMessage)
+	if a.metadata != nil {
+		metaCbor, err := cbor.Encode(a.metadata)
+		if err != nil {
+			return nil, err
+		}
+		auxMap[0] = metaCbor
+	}
+	if len(a.nativeScripts) > 0 {
+		scriptsCbor, err := cbor.Encode(a.nativeScripts)
+		if err != nil {
+			return nil, err
+		}
+		auxMap[1] = scriptsCbor
+	}
+	if len(a.plutusV1Scripts) > 0 {
+		scriptsCbor, err := cbor.Encode(a.plutusV1Scripts)
+		if err != nil {
+			return nil, err
+		}
+		auxMap[2] = scriptsCbor
+	}
+	if len(a.plutusV2Scripts) > 0 {
+		scriptsCbor, err := cbor.Encode(a.plutusV2Scripts)
+		if err != nil {
+			return nil, err
+		}
+		auxMap[3] = scriptsCbor
+	}
+	if len(a.plutusV3Scripts) > 0 {
+		scriptsCbor, err := cbor.Encode(a.plutusV3Scripts)
+		if err != nil {
+			return nil, err
+		}
+		auxMap[4] = scriptsCbor
+	}
+
+	// Encode the map directly, not the bytes
+	mapBytes, err := cbor.Encode(&auxMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a raw tag with the map bytes as content
+	var tmpTag cbor.RawTag
+	tmpTag.Number = cbor.CborTagMap
+	tmpTag.Content = mapBytes
+
+	return cbor.Encode(&tmpTag)
+}
+
+func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
+	if len(raw) == 0 {
+		return nil, errors.New("empty auxiliary data")
+	}
+
+	typeByte := raw[0] & cborTypeMask
+	switch typeByte {
+	case cborTypeMap:
+		// Shelley format: direct metadata
+		auxData := &ShelleyAuxiliaryData{}
+		if _, err := cbor.Decode(raw, auxData); err != nil {
+			return nil, err
+		}
+		return auxData, nil
+
+	case cborTypeArray:
+		// Shelley-MA format: [metadata, native_scripts]
+		auxData := &ShelleyMaAuxiliaryData{}
+		if _, err := cbor.Decode(raw, auxData); err != nil {
+			return nil, err
+		}
+		return auxData, nil
+
+	case cborTypeTag:
+		// Alonzo+ format: #6.259({...})
+		auxData := &AlonzoAuxiliaryData{}
+		if _, err := cbor.Decode(raw, auxData); err != nil {
+			return nil, err
+		}
+		return auxData, nil
+
+	default:
+		return nil, fmt.Errorf(
+			"unsupported auxiliary data type: 0x%x",
+			typeByte,
+		)
+	}
+}
