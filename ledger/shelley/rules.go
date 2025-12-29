@@ -387,10 +387,10 @@ func UtxoValidateMetadata(
 ) error {
 	bodyAuxDataHash := tx.AuxDataHash()
 	txAuxData := tx.Metadata()
-	rawAuxData := tx.RawAuxiliaryData()
-	// If metadata is present but raw auxiliary data bytes are missing,
-	// fall back to encoding the metadata so validation still runs.
-	if len(rawAuxData) == 0 && txAuxData != nil {
+	var rawAuxData []byte
+	if aux := tx.AuxiliaryData(); aux != nil {
+		rawAuxData = aux.Cbor()
+	} else if txAuxData != nil {
 		rawAuxData = txAuxData.Cbor()
 	}
 
