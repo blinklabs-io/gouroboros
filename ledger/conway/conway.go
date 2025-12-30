@@ -610,7 +610,6 @@ type ConwayTransaction struct {
 	WitnessSet ConwayTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
 	auxData    common.AuxiliaryData
 }
 
@@ -643,10 +642,9 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
-
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[3])
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
 		auxData, err := common.DecodeAuxiliaryData(txArray[3])
@@ -672,10 +670,6 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ConwayTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
-}
-
-func (t *ConwayTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
 }
 
 func (t *ConwayTransaction) AuxiliaryData() common.AuxiliaryData {

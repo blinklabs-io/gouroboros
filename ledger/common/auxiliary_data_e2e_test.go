@@ -492,9 +492,5 @@ func TestE2ETransactionWithoutAuxiliaryData(t *testing.T) {
 		t.Fatal("expected nil metadata")
 	}
 
-	if tx.RawAuxiliaryData() != nil {
-		t.Fatal("expected nil raw auxiliary data")
-	}
-
 	t.Logf("✓ E2E: Successfully handled transaction without auxiliary data")
 }
