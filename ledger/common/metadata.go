@@ -507,10 +507,16 @@ func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	s.SetCbor(data)
 	var arr []cbor.RawMessage
 	if _, err := cbor.Decode(data, &arr); err != nil {
-		return fmt.Errorf("failed to decode Shelley-MA auxiliary data array: %w", err)
+		return fmt.Errorf(
+			"failed to decode Shelley-MA auxiliary data array: %w",
+			err,
+		)
 	}
 	if len(arr) != 2 {
-		return fmt.Errorf("Shelley-MA auxiliary data must have 2 elements, got %d", len(arr))
+		return fmt.Errorf(
+			"Shelley-MA auxiliary data must have 2 elements, got %d",
+			len(arr),
+		)
 	}
 
 	// First element is metadata (may be null)

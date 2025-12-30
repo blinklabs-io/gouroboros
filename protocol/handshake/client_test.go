@@ -610,10 +610,16 @@ func TestClientQueryReply(t *testing.T) {
 	// Verify that the query reply was processed by checking the protocol version
 	protoVersion, protoVersionData := oConn.ProtocolVersion()
 	if protoVersion != 0 {
-		t.Fatalf("expected protocol version 0 for query reply, got %d", protoVersion)
+		t.Fatalf(
+			"expected protocol version 0 for query reply, got %d",
+			protoVersion,
+		)
 	}
 	if protoVersionData != nil {
-		t.Fatalf("expected nil protocol version data for query reply, got %v", protoVersionData)
+		t.Fatalf(
+			"expected nil protocol version data for query reply, got %v",
+			protoVersionData,
+		)
 	}
 	select {
 	case <-oConn.ErrorChan():

@@ -97,12 +97,15 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			proposedVersionData, err := versionInfo.NewVersionDataFromCborFunc(
 				versionDataCbor,
 			)
-			if err == nil && proposedVersionData != nil && proposedVersionData.Query() {
+			if err == nil && proposedVersionData != nil &&
+				proposedVersionData.Query() {
 				msgQueryReply := NewMsgQueryReply(s.config.ProtocolVersionMap)
 				if err := s.SendMessage(msgQueryReply); err != nil {
 					return err
 				}
-				return errors.New("handshake query mode: connection terminated after query reply")
+				return errors.New(
+					"handshake query mode: connection terminated after query reply",
+				)
 			}
 		}
 	}
