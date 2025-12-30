@@ -61,7 +61,7 @@ type ConwayGovAction struct {
 	Action common.GovAction
 }
 
-func (g ConwayGovAction) ToPlutusData() data.PlutusData {
+func (g *ConwayGovAction) ToPlutusData() data.PlutusData {
 	return g.Action.ToPlutusData()
 }
 

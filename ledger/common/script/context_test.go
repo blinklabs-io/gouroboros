@@ -72,7 +72,7 @@ func buildTxInfoV3(
 			resolvedInputs,
 			lcommon.Utxo{
 				Id:     tmpInputs[i],
-				Output: tmpOutputs[i],
+				Output: &tmpOutputs[i],
 			},
 		)
 	}

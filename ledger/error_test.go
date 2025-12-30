@@ -107,14 +107,14 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 				}
 
 				// Check the address using the interface method
-				if decodedUtxo.Output.Address().
-					String() !=
-					originalOutput.OutputAddress.String() {
+				decodedAddr := decodedUtxo.Output.Address()
+				originalAddr := originalOutput.OutputAddress
+				if (&decodedAddr).String() != (&originalAddr).String() {
 					t.Errorf(
 						"UTxO %d: Address mismatch - expected %s, got %s",
 						i,
-						originalOutput.OutputAddress.String(),
-						decodedUtxo.Output.Address().String(),
+						(&originalAddr).String(),
+						(&decodedAddr).String(),
 					)
 				}
 				break
@@ -172,14 +172,14 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	// Create test UTxOs with Byron inputs
 	byronUtxos := []common.Utxo{
 		{
-			Id: byronInput1,
+			Id: &byronInput1,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr1,
 				OutputAmount:  1000000,
 			},
 		},
 		{
-			Id: byronInput2,
+			Id: &byronInput2,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr2,
 				OutputAmount:  2500000,
@@ -208,7 +208,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	// Create a map of original UTxOs for lookup (map iteration order is not guaranteed)
 	originalByronMap := make(map[string]common.Utxo)
 	for _, utxo := range byronUtxos {
-		originalInput := utxo.Id.(byron.ByronTransactionInput)
+		originalInput := utxo.Id.(*byron.ByronTransactionInput)
 		key := originalInput.Id().
 			String() +
 			":" + fmt.Sprint(
@@ -232,9 +232,6 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 		case shelley.ShelleyTransactionInput:
 			decodedTxId = input.Id().String()
 			decodedIndex = input.Index()
-		case byron.ByronTransactionInput:
-			decodedTxId = input.Id().String()
-			decodedIndex = input.Index()
 		default:
 			t.Errorf("Unexpected input type: got %T", utxo.Id)
 			continue
@@ -249,12 +246,6 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 			decodedAddr = output.OutputAddress
 			decodedAmount = output.OutputAmount
 		case *byron.ByronTransactionOutput:
-			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
-		case shelley.ShelleyTransactionOutput:
-			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
-		case byron.ByronTransactionOutput:
 			decodedAddr = output.OutputAddress
 			decodedAmount = output.OutputAmount
 		default:
@@ -336,14 +327,14 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 
 	shelleyUtxos := []common.Utxo{
 		{
-			Id: shelleyInput1,
+			Id: &shelleyInput1,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr1,
 				OutputAmount:  1500000,
 			},
 		},
 		{
-			Id: shelleyInput2,
+			Id: &shelleyInput2,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr2,
 				OutputAmount:  3000000,
@@ -372,7 +363,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	// Create a map of original UTxOs for lookup (map iteration order is not guaranteed)
 	originalShelleyMap := make(map[string]common.Utxo)
 	for _, utxo := range shelleyUtxos {
-		originalInput := utxo.Id.(shelley.ShelleyTransactionInput)
+		originalInput := utxo.Id.(*shelley.ShelleyTransactionInput)
 		key := originalInput.Id().
 			String() +
 			":" + fmt.Sprint(
@@ -396,9 +387,6 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 		case shelley.ShelleyTransactionInput:
 			decodedTxId = input.Id().String()
 			decodedIndex = input.Index()
-		case byron.ByronTransactionInput:
-			decodedTxId = input.Id().String()
-			decodedIndex = input.Index()
 		default:
 			t.Errorf("Unexpected input type: got %T", utxo.Id)
 			continue
@@ -413,12 +401,6 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 			decodedAddr = output.OutputAddress
 			decodedAmount = output.OutputAmount
 		case *byron.ByronTransactionOutput:
-			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
-		case shelley.ShelleyTransactionOutput:
-			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
-		case byron.ByronTransactionOutput:
 			decodedAddr = output.OutputAddress
 			decodedAmount = output.OutputAmount
 		default:
@@ -514,7 +496,7 @@ func TestScriptsNotPaidUtxo_TypeFieldAssignment(t *testing.T) {
 	)
 	utxos := []common.Utxo{
 		{
-			Id: input1,
+			Id: &input1,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr1,
 				OutputAmount:  1000000,

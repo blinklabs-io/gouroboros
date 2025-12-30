@@ -291,10 +291,11 @@ func TestGenesisNonAvvmUtxos(t *testing.T) {
 			expectedTxId,
 		)
 	}
-	if tmpUtxo.Output.Address().String() != testAddr {
+	addr := tmpUtxo.Output.Address()
+	if (&addr).String() != testAddr {
 		t.Fatalf(
 			"did not get expected address: got %s, wanted %s",
-			tmpUtxo.Output.Address().String(),
+			(&addr).String(),
 			testAddr,
 		)
 	}
@@ -344,10 +345,11 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 			expectedTxId,
 		)
 	}
-	if tmpUtxo.Output.Address().String() != expectedAddr {
+	addr := tmpUtxo.Output.Address()
+	if (&addr).String() != expectedAddr {
 		t.Fatalf(
 			"did not get expected address: got %s, wanted %s",
-			tmpUtxo.Output.Address().String(),
+			(&addr).String(),
 			expectedAddr,
 		)
 	}

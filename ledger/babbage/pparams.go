@@ -150,7 +150,7 @@ type BabbageProtocolParameterUpdate struct {
 	MaxCollateralInputs  *uint                                     `cbor:"24,keyasint"`
 }
 
-func (BabbageProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+func (*BabbageProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *BabbageProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	type tBabbageProtocolParameterUpdate BabbageProtocolParameterUpdate

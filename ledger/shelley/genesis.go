@@ -52,7 +52,7 @@ type GenesisStaking struct {
 	Stake map[string]string                             `json:"stake"`
 }
 
-func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
+func (g *ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 	genDelegs := map[cbor.ByteString][]cbor.ByteString{}
 	for k, v := range g.GenDelegs {
 		keyBytes, err := hex.DecodeString(k)
@@ -224,7 +224,7 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 					TxId:        common.Blake2b256Hash(addrBytes),
 					OutputIndex: 0,
 				},
-				Output: ShelleyTransactionOutput{
+				Output: &ShelleyTransactionOutput{
 					OutputAddress: tmpAddr,
 					OutputAmount:  amount,
 				},

@@ -134,11 +134,11 @@ func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id: ByronTransactionInput{
+				Id: &ByronTransactionInput{
 					TxId:        common.Blake2b256Hash(addrBytes),
 					OutputIndex: 0,
 				},
-				Output: ByronTransactionOutput{
+				Output: &ByronTransactionOutput{
 					OutputAddress: tmpAddr,
 					OutputAmount:  tmpAmount,
 				},
@@ -166,11 +166,11 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 		ret = append(
 			ret,
 			common.Utxo{
-				Id: ByronTransactionInput{
+				Id: &ByronTransactionInput{
 					TxId:        common.Blake2b256Hash(addrBytes),
 					OutputIndex: 0,
 				},
-				Output: ByronTransactionOutput{
+				Output: &ByronTransactionOutput{
 					OutputAddress: tmpAddr,
 					OutputAmount:  tmpAmount,
 				},

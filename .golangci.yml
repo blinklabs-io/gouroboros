@@ -29,6 +29,7 @@ linters:
     - prealloc
     - protogetter
     - reassign
+    - recvcheck
     - rowserrcheck
     - spancheck
     - sqlclosecheck
@@ -40,7 +41,6 @@ linters:
   disable:
     - depguard
     - noctx
-    - recvcheck
   exclusions:
     generated: lax
     presets:

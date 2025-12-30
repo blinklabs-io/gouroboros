@@ -246,7 +246,7 @@ func (p *LeiosProtocolParameters) Update(
 	}
 }
 
-func (LeiosProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+func (*LeiosProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *LeiosProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	type tLeiosProtocolParameterUpdate LeiosProtocolParameterUpdate

@@ -289,7 +289,7 @@ func TestGetUTxOByAddress(t *testing.T) {
 
 func TestGenesisConfigJSON(t *testing.T) {
 	genesisConfig := localstatequery.GenesisConfigResult{
-		Start: localstatequery.SystemStartResult{
+		Start: &localstatequery.SystemStartResult{
 			Year:        *big.NewInt(2024),
 			Day:         35,
 			Picoseconds: *big.NewInt(1234567890123456),

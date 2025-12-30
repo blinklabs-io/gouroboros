@@ -93,15 +93,15 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (v Value) Cbor() []byte {
+func (v *Value) Cbor() []byte {
 	return []byte(v.cborData)
 }
 
-func (v Value) Value() any {
+func (v *Value) Value() any {
 	return v.value
 }
 
-func (v Value) MarshalJSON() ([]byte, error) {
+func (v *Value) MarshalJSON() ([]byte, error) {
 	var tmpJson string
 	if v.value != nil {
 		astJson, err := generateAstJson(v.value)
@@ -275,15 +275,15 @@ func NewConstructor(constructor uint, value any) Constructor {
 	return c
 }
 
-func (v Constructor) Constructor() uint {
+func (v *Constructor) Constructor() uint {
 	return v.constructor
 }
 
-func (v Constructor) Fields() []any {
+func (v *Constructor) Fields() []any {
 	return v.value.Value().([]any)
 }
 
-func (c Constructor) FieldsCbor() []byte {
+func (c *Constructor) FieldsCbor() []byte {
 	return c.value.Cbor()
 }
 
@@ -323,7 +323,7 @@ func (c *Constructor) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (c Constructor) MarshalCBOR() ([]byte, error) {
+func (c *Constructor) MarshalCBOR() ([]byte, error) {
 	var tmpTag Tag
 	if c.constructor <= 6 {
 		// Alternatives 0-6
@@ -343,7 +343,7 @@ func (c Constructor) MarshalCBOR() ([]byte, error) {
 	return Encode(&tmpTag)
 }
 
-func (v Constructor) MarshalJSON() ([]byte, error) {
+func (v *Constructor) MarshalJSON() ([]byte, error) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf(`{"constructor":%d,"fields":[`, v.constructor))
 	tmpList := [][]byte{}

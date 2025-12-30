@@ -403,7 +403,7 @@ func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
+func (u *ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 	tmpPairs := make([][2]data.PlutusData, 0, 33)
 	push := func(idx int, pd data.PlutusData) {
 		tmpPairs = append(
