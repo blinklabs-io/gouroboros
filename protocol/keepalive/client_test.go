@@ -114,7 +114,6 @@ func TestServerKeepaliveHandling(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("did not complete within timeout")
 	}
-
 	// Close connection
 	if err := oConn.Close(); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)

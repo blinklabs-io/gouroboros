@@ -38,6 +38,7 @@ const DefaultRecvQueueSize = 55
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
 	config              ProtocolConfig
+	currentState        State
 	doneChan            chan struct{}
 	muxerSendChan       chan *muxer.Segment
 	muxerRecvChan       chan *muxer.Segment
@@ -56,7 +57,6 @@ type Protocol struct {
 	pendingRecvBytes    int
 	pendingRecvSizes    []int // Track sizes of pending received messages for accurate decrement
 	currentStateMu      sync.RWMutex
-	currentState        State
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -130,6 +130,29 @@ func New(config ProtocolConfig) *Protocol {
 		sendDoneChan: make(chan struct{}),
 	}
 	return p
+}
+
+// IsDone checks if the protocol is in a done/completed state
+func (p *Protocol) IsDone() bool {
+	currentState := p.getCurrentState()
+	// return true if current state has AgencyNone
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		if entry.Agency == AgencyNone {
+			return true
+		}
+	}
+	// return true if current state is the initial state
+	return currentState == p.config.InitialState
+}
+
+// GetDoneState returns the done state from the state map
+func (s StateMap) GetDoneState() State {
+	for state, entry := range s {
+		if entry.Agency == AgencyNone {
+			return state
+		}
+	}
+	return State{}
 }
 
 // Start initializes the mini-protocol
@@ -586,6 +609,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			)
 		}
 	}
+
 	getTimerChan := func() <-chan time.Time {
 		if transitionTimer == nil {
 			return nil

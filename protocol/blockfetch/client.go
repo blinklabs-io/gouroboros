@@ -114,8 +114,12 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		msg := NewMsgClientDone()
-		err = c.SendMessage(msg)
+		if !c.IsDone() {
+			msg := NewMsgClientDone()
+			if err = c.SendMessage(msg); err != nil {
+				return
+			}
+		}
 	})
 	return err
 }
