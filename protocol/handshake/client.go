@@ -203,7 +203,9 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 	for version, versionDataCbor := range msg.VersionMap {
 		versionInfo := protocol.GetProtocolVersion(version)
 		if versionInfo.NewVersionDataFromCborFunc != nil {
-			versionData, err := versionInfo.NewVersionDataFromCborFunc(versionDataCbor)
+			versionData, err := versionInfo.NewVersionDataFromCborFunc(
+				versionDataCbor,
+			)
 			if err == nil && versionData != nil {
 				versionMap[version] = versionData
 			}

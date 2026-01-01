@@ -32,6 +32,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
+	UtxoValidateSignatures,
 	UtxoValidateCostModelsPresent,
 	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
@@ -42,6 +43,8 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateCollateralEqBalance,
 	UtxoValidateNoCollateralInputs,
 	UtxoValidateBadInputsUtxo,
+	// Ensure script witness presence/absence is validated after redeemer/script relation
+	UtxoValidateScriptWitnesses,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
@@ -203,6 +206,17 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	return nil
 }
 
+// UtxoValidateScriptWitnesses checks that script witnesses are provided for all script address inputs
+// and that there are no extraneous script witnesses.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateScriptWitnesses(tx, ls)
+}
+
 // UtxoValidateCostModelsPresent ensures Plutus scripts have corresponding cost models in protocol parameters
 func UtxoValidateCostModelsPresent(
 	tx common.Transaction,
@@ -265,6 +279,16 @@ func UtxoValidateCostModelsPresent(
 	}
 
 	return nil
+}
+
+// UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
+func UtxoValidateSignatures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.UtxoValidateSignatures(tx, slot, ls, pp)
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(
