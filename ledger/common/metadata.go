@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -251,7 +252,7 @@ func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
 
 		bs := k.Bytes()
 		pairs = append(pairs, MetaPair{
-			Key:   MetaBytes{Value: append([]byte(nil), bs...)},
+			Key:   MetaBytes{Value: slices.Clone(bs)},
 			Value: val,
 		})
 	}
