@@ -699,7 +699,13 @@ func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetT
 
 func (o BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
 	if o.DatumOption != nil {
-		return o.DatumOption.hash
+		if o.DatumOption.hash != nil {
+			return o.DatumOption.hash
+		}
+		if o.DatumOption.data != nil {
+			hash := o.DatumOption.data.Hash()
+			return &hash
+		}
 	}
 	return &common.Blake2b256{}
 }
@@ -746,10 +752,15 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 
 	var datumHash []byte
-	if o.DatumHash() == nil {
-		datumHash = []byte{}
-	} else {
+	if o.DatumOption == nil {
+		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
+	} else if o.DatumOption.hash != nil {
+		datumHash = o.DatumOption.hash.Bytes()
+	} else if o.DatumOption.data != nil {
 		datumHash = o.DatumHash().Bytes()
+	} else {
+		// DatumOption present but empty
+		datumHash = []byte{}
 	}
 
 	return &utxorpc.TxOutput{
