@@ -437,6 +437,36 @@ func TestBabbageProtocolParamsUpdate(t *testing.T) {
 	}
 }
 
+func TestBabbageProtocolParameters_UpdateCopiesFields(t *testing.T) {
+	base := &babbage.BabbageProtocolParameters{}
+	upd := &babbage.BabbageProtocolParameterUpdate{}
+	a := uint(42)
+	mtx := uint(12345)
+	ada := uint64(9999)
+	upd.MinFeeA = &a
+	upd.MaxTxSize = &mtx
+	upd.AdaPerUtxoByte = &ada
+	upd.CostModels = map[uint][]int64{0: {1, 2}, 1: {3}}
+	// call Update
+	base.Update(upd)
+	if base.MinFeeA != 42 {
+		t.Fatalf("MinFeeA not updated: got %d", base.MinFeeA)
+	}
+	if base.MaxTxSize != 12345 {
+		t.Fatalf("MaxTxSize not updated: got %d", base.MaxTxSize)
+	}
+	if base.AdaPerUtxoByte != 9999 {
+		t.Fatalf("AdaPerUtxoByte not updated: got %d", base.AdaPerUtxoByte)
+	}
+	if !reflect.DeepEqual(base.CostModels, upd.CostModels) {
+		t.Fatalf(
+			"CostModels not updated: got %+v want %+v",
+			base.CostModels,
+			upd.CostModels,
+		)
+	}
+}
+
 func TestBabbageUtxorpc(t *testing.T) {
 	testDefs := []struct {
 		startParams     babbage.BabbageProtocolParameters

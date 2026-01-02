@@ -143,3 +143,39 @@ func TestDatumDecode(t *testing.T) {
 		)
 	}
 }
+
+func TestDatumRoundtripAndHash(t *testing.T) {
+	// Simple byte-string datum
+	d := common.Datum{
+		Data: data.NewByteString([]byte("hello-datum")),
+	}
+	// Marshal to CBOR
+	cborBytes, err := d.MarshalCBOR()
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	// Unmarshal into a fresh Datum
+	var other common.Datum
+	if _, err := cbor.Decode(cborBytes, &other); err != nil {
+		t.Fatalf("unexpected decode error: %v", err)
+	}
+
+	if !reflect.DeepEqual(d.Data, other.Data) {
+		t.Fatalf(
+			"datum mismatch after roundtrip: got %#v wanted %#v",
+			other.Data,
+			d.Data,
+		)
+	}
+
+	// Hash should equal Blake2b256Hash of the CBOR
+	expected := common.Blake2b256Hash(cborBytes)
+	if other.Hash() != expected {
+		t.Fatalf(
+			"datum hash mismatch: got %s wanted %s",
+			other.Hash().String(),
+			expected.String(),
+		)
+	}
+}

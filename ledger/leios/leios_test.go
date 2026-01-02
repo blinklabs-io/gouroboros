@@ -201,3 +201,96 @@ func TestLeiosEndorserBlock_CborRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestLeiosBlockHeaderOptionalFields tests header optional fields per CIP-0164
+func TestLeiosBlockHeaderOptionalFields(t *testing.T) {
+	ebSize := uint32(2048)
+	certified := true
+	header := &LeiosBlockHeader{
+		Body: LeiosBlockHeaderBody{
+			BabbageBlockHeaderBody: babbage.BabbageBlockHeaderBody{
+				BlockNumber:   1,
+				Slot:          100,
+				PrevHash:      common.Blake2b256{1, 2, 3},
+				BlockBodySize: 1024,
+				BlockBodyHash: common.Blake2b256{13, 14, 15},
+			},
+			AnnouncedEb:     &common.Blake2b256{4, 5, 6},
+			AnnouncedEbSize: &ebSize,
+			CertifiedEb:     &certified,
+		},
+	}
+
+	// Test optional fields are present
+	if header.Body.AnnouncedEb == nil {
+		t.Error("AnnouncedEb should not be nil")
+	}
+	if header.Body.AnnouncedEbSize == nil {
+		t.Error("AnnouncedEbSize should not be nil")
+	}
+	if header.Body.CertifiedEb == nil {
+		t.Error("CertifiedEb should not be nil")
+	}
+	if *header.Body.AnnouncedEb != (common.Blake2b256{4, 5, 6}) {
+		t.Error("AnnouncedEb value mismatch")
+	}
+	if *header.Body.AnnouncedEbSize != 2048 {
+		t.Error("AnnouncedEbSize value mismatch")
+	}
+	if *header.Body.CertifiedEb != true {
+		t.Error("CertifiedEb value mismatch")
+	}
+}
+
+// TestLeiosEndorserBlockFormat tests EB format per CIP-0164
+func TestLeiosEndorserBlockFormat(t *testing.T) {
+	block := &LeiosEndorserBlock{
+		Body: &LeiosEndorserBlockBody{
+			TxReferences: []TxReference{
+				{TxHash: common.Blake2b256{1, 2, 3}, TxSize: 100},
+			},
+		},
+	}
+
+	if block.Type() != BlockTypeLeiosEndorser {
+		t.Errorf("Expected block type %d, got %d", BlockTypeLeiosEndorser, block.Type())
+	}
+	if len(block.Body.TxReferences) == 0 {
+		t.Error("TxReferences should not be empty")
+	}
+}
+
+// TestLeiosRankingBlockFormat tests ranking block format
+func TestLeiosRankingBlockFormat(t *testing.T) {
+	block := &LeiosRankingBlock{
+		BlockHeader: &LeiosBlockHeader{
+			Body: LeiosBlockHeaderBody{
+				BabbageBlockHeaderBody: babbage.BabbageBlockHeaderBody{
+					BlockNumber: 2,
+				},
+			},
+		},
+	}
+
+	if block.Type() != BlockTypeLeiosRanking {
+		t.Errorf("Expected block type %d, got %d", BlockTypeLeiosRanking, block.Type())
+	}
+}
+
+// TestLeiosEndorserBlockNonEmptyTxReferences tests non-empty TxReferences per CIP-0164
+func TestLeiosEndorserBlockNonEmptyTxReferences(t *testing.T) {
+	block := &LeiosEndorserBlock{
+		Body: &LeiosEndorserBlockBody{
+			TxReferences: []TxReference{
+				{TxHash: common.Blake2b256{1, 2, 3}, TxSize: 100},
+			},
+		},
+	}
+
+	if len(block.Body.TxReferences) == 0 {
+		t.Error("TxReferences should not be empty")
+	}
+	if block.Body.TxReferences[0].TxSize != 100 {
+		t.Error("TxSize mismatch")
+	}
+}
