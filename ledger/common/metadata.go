@@ -704,6 +704,7 @@ func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
+		auxData.SetCbor(raw)
 		return auxData, nil
 
 	case cborTypeArray:
@@ -712,6 +713,7 @@ func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
+		auxData.SetCbor(raw)
 		return auxData, nil
 
 	case cborTypeTag:
@@ -720,6 +722,7 @@ func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
+		auxData.SetCbor(raw)
 		return auxData, nil
 
 	default:
