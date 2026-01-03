@@ -18,6 +18,9 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"golang.org/x/crypto/sha3"
 )
 
 // VerifyVKeySignature verifies an ed25519 signature against the provided public key and message.
@@ -56,6 +59,45 @@ func ValidateVKeyWitnesses(tx Transaction) error {
 	return nil
 }
 
+// computeByronAddressRoot computes the address root for a Byron address
+// using the bootstrap witness public key and raw attributes bytes.
+// Byron address root = blake2b_224(sha3_256(cbor([addrType, [addrType, pubkey], attributes])))
+// The attributes must be used as-is (already CBOR-encoded) to preserve the original encoding.
+func computeByronAddressRoot(
+	pubkey []byte,
+	attrBytes []byte,
+	addrType uint64,
+) (Blake2b224, error) {
+	// Construct the address root payload using raw attribute bytes
+	// We must use cbor.RawMessage for attributes to preserve the exact encoding
+	payloadBytes, err := cbor.Encode([]any{addrType, pubkey})
+	if err != nil {
+		return Blake2b224{}, err
+	}
+
+	// Build the full structure: [addrType, [addrType, pubkey], attributes]
+	// We manually construct this to embed the raw attribute bytes
+	var buf []byte
+	buf = append(buf, 0x83) // CBOR array of 3 elements
+
+	// First element: addrType
+	addrTypeBytes, err := cbor.Encode(addrType)
+	if err != nil {
+		return Blake2b224{}, err
+	}
+	buf = append(buf, addrTypeBytes...)
+
+	// Second element: [addrType, pubkey]
+	buf = append(buf, payloadBytes...)
+
+	// Third element: raw attributes (already CBOR-encoded)
+	buf = append(buf, attrBytes...)
+
+	sha3Sum := sha3.Sum256(buf)
+	addrHash := Blake2b224Hash(sha3Sum[:])
+	return addrHash, nil
+}
+
 // ValidateInputVKeyWitnesses ensures that for each key-locked input, a vkey witness
 // exists and the corresponding signature is valid for the transaction body.
 func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
@@ -66,6 +108,12 @@ func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
 		for _, vw := range w.Vkey() {
 			provided[Blake2b224Hash(vw.Vkey)] = vw
 		}
+	}
+
+	// Collect bootstrap witnesses for Byron address validation
+	var bootstrapWitnesses []BootstrapWitness
+	if w != nil {
+		bootstrapWitnesses = w.Bootstrap()
 	}
 
 	for _, input := range tx.Inputs() {
@@ -83,17 +131,49 @@ func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
 		switch p := payload.(type) {
 		case AddressPayloadKeyHash:
 			h := p.Hash
+			// Check for regular vkey witness (Shelley+ addresses)
 			_, ok := provided[h]
 			if !ok {
-				return NewValidationError(
-					ValidationErrorTypeTransaction,
-					"missing vkey witness for input",
-					map[string]any{
-						"input":   input.String(),
-						"keyhash": h.String(),
-					},
-					nil,
-				)
+				// Check for bootstrap witness (Byron addresses)
+				if addr.Type() == AddressTypeByron {
+					byronType := addr.ByronType()
+					found := false
+					for _, bw := range bootstrapWitnesses {
+						// Compute address root using the witness pubkey, attributes, and the address's type
+						addrRoot, err := computeByronAddressRoot(bw.PublicKey, bw.Attributes, byronType)
+						if err != nil {
+							// Skip malformed witnesses that can't be processed
+							// TODO: Consider logging this for debugging
+							continue
+						}
+						if addrRoot == h {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return NewValidationError(
+							ValidationErrorTypeTransaction,
+							"missing bootstrap witness for Byron input",
+							map[string]any{
+								"input":   input.String(),
+								"keyhash": h.String(),
+							},
+							nil,
+						)
+					}
+				} else {
+					// Non-Byron address without matching vkey witness
+					return NewValidationError(
+						ValidationErrorTypeTransaction,
+						"missing vkey witness for input",
+						map[string]any{
+							"input":   input.String(),
+							"keyhash": h.String(),
+						},
+						nil,
+					)
+				}
 			}
 		default:
 			// script-locked inputs are handled elsewhere
