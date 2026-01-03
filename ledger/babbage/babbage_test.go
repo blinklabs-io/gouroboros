@@ -2850,7 +2850,7 @@ func TestBabbageTransactionOutput_Utxorpc_InlineDatum(t *testing.T) {
 	txOutput, err := output.Utxorpc()
 	assert.NoError(t, err)
 	assert.NotNil(t, txOutput)
-	
+
 	// Should return the computed hash of the inline datum
 	expectedHash := output.DatumHash()
 	assert.Equal(t, expectedHash.Bytes(), txOutput.Datum.Hash)
@@ -3209,7 +3209,11 @@ func TestBabbageInlineDatumRoundTrip(t *testing.T) {
 
 	// Verify all fields match
 	assert.Equal(t, originalOutput.OutputAddress, decodedOutput.OutputAddress)
-	assert.Equal(t, originalOutput.OutputAmount.Amount, decodedOutput.OutputAmount.Amount)
+	assert.Equal(
+		t,
+		originalOutput.OutputAmount.Amount,
+		decodedOutput.OutputAmount.Amount,
+	)
 	assert.NotNil(t, decodedOutput.DatumOption)
 	assert.NotNil(t, decodedOutput.DatumOption.data)
 

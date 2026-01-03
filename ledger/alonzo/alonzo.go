@@ -172,8 +172,16 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
