@@ -176,7 +176,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
+		case *common.PlutusV1Script, common.PlutusV1Script, *common.PlutusV2Script, common.PlutusV2Script, *common.PlutusV3Script, common.PlutusV3Script:
 			hasPlutusReference = true
 		}
 		if hasPlutusReference {
@@ -258,11 +258,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script, common.PlutusV1Script:
 			required[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script, common.PlutusV2Script:
 			required[1] = struct{}{}
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script, common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
