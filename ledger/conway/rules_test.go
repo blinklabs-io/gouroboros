@@ -1741,6 +1741,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateDisjointRefInputs(t *testing.T) {
+	// Test validation for reference inputs (CIP-0031)
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{},
