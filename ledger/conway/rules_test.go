@@ -15,8 +15,10 @@
 package conway_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -210,6 +212,96 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)
 	})
+
+	// Reference script tests (CIP-0033)
+	t.Run("redeemer with reference plutus v1 script", func(t *testing.T) {
+		// Create a mock ledger state with a reference input containing a Plutus script
+		refInput := shelley.NewShelleyTransactionInput(
+			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			0,
+		)
+		script := common.PlutusV1Script{0x01, 0x02, 0x03}
+		refOutput := babbage.BabbageTransactionOutput{
+			OutputAddress: common.Address{},
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   0,
+				Script: &script,
+			},
+		}
+		refUtxo := common.Utxo{
+			Id:     refInput,
+			Output: refOutput,
+		}
+
+		ls := &test_ledger.MockLedgerState{
+			UtxoByIdFunc: func(id common.TransactionInput) (common.Utxo, error) {
+				if id.Index() == refInput.Index() &&
+					bytes.Equal(id.Id().Bytes(), refInput.Id().Bytes()) {
+					return refUtxo, nil
+				}
+				return common.Utxo{}, errors.New("not found")
+			},
+		}
+
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxReferenceInputs = cbor.NewSetType(
+			[]shelley.ShelleyTransactionInput{refInput},
+			false,
+		)
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run(
+		"reference plutus script without redeemer should not error",
+		func(t *testing.T) {
+			// Reference scripts alone should not trigger extraneous witness errors
+			refInput := shelley.NewShelleyTransactionInput(
+				"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				0,
+			)
+			script := common.PlutusV1Script{0x01, 0x02, 0x03}
+			refOutput := babbage.BabbageTransactionOutput{
+				OutputAddress: common.Address{},
+				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+				TxOutScriptRef: &common.ScriptRef{
+					Type:   0,
+					Script: &script,
+				},
+			}
+			refUtxo := common.Utxo{
+				Id:     refInput,
+				Output: refOutput,
+			}
+
+			ls := &test_ledger.MockLedgerState{
+				UtxoByIdFunc: func(id common.TransactionInput) (common.Utxo, error) {
+					if id.Index() == refInput.Index() &&
+						bytes.Equal(id.Id().Bytes(), refInput.Id().Bytes()) {
+						return refUtxo, nil
+					}
+					return common.Utxo{}, errors.New("not found")
+				},
+			}
+
+			tx := &conway.ConwayTransaction{}
+			tx.Body.TxReferenceInputs = cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{refInput},
+				false,
+			)
+			// No redeemers, no explicit script witnesses
+			err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
+			assert.NoError(t, err)
+		},
+	)
 }
 
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
