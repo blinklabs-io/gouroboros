@@ -444,8 +444,21 @@ func UtxoValidateMetadata(
 	txAuxData := tx.Metadata()
 	var rawAuxData []byte
 	if aux := tx.AuxiliaryData(); aux != nil {
-		rawAuxData = aux.Cbor()
-	} else if txAuxData != nil {
+		ac := aux.Cbor()
+		// Treat single-byte CBOR simple-value placeholders as absence
+		// of auxiliary data so we can fall back to block-level
+		// metadata stored in TransactionMetadataSet. Historically some
+		// inputs used CBOR null (0xf6) as a placeholder; we've observed
+		// producers that use CBOR true (0xf5) or false (0xf4) as a
+		// placeholder as well. If the auxiliary-data is exactly one
+		// simple-value byte, ignore it here.
+		if len(ac) > 0 {
+			if len(ac) != 1 || (ac[0] != 0xF6 && ac[0] != 0xF5 && ac[0] != 0xF4) {
+				rawAuxData = ac
+			}
+		}
+	}
+	if len(rawAuxData) == 0 && txAuxData != nil {
 		rawAuxData = txAuxData.Cbor()
 	}
 
@@ -475,12 +488,14 @@ func UtxoValidateMetadata(
 	// Use raw auxiliary data (includes scripts) for hashing, not just metadata
 	if bodyAuxDataHash != nil && len(rawAuxData) > 0 {
 		actualHash := common.Blake2b256Hash(rawAuxData)
+
 		if *bodyAuxDataHash != actualHash {
 			return common.ConflictingMetadataHashError{
 				Supplied: *bodyAuxDataHash,
 				Expected: actualHash,
 			}
 		}
+
 		// Validate metadata content
 		if txAuxData != nil {
 			if err := validateMetadataContent(txAuxData); err != nil {
