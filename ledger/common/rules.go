@@ -357,7 +357,18 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 
-	if tx.ScriptDataHash() != nil && redeemerCount == 0 {
+	// Check witness PlutusData (datums)
+	hasWitnessPlutusData := false
+	if wits != nil {
+		if len(wits.PlutusData()) > 0 {
+			hasWitnessPlutusData = true
+		}
+	}
+
+	// ScriptDataHash covers redeemers, datums, and language views.
+	// It's valid to have ScriptDataHash with no redeemers if there are witness datums.
+	if tx.ScriptDataHash() != nil && redeemerCount == 0 &&
+		!hasWitnessPlutusData {
 		return MissingRedeemersForScriptDataHashError{}
 	}
 	if redeemerCount > 0 && !hasPlutus && !hasPlutusReference {
