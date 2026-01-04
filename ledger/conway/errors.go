@@ -52,3 +52,12 @@ type (
 	MissingCostModelError                    = common.MissingCostModelError
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
 )
+
+type WrongTransactionNetworkIdError struct {
+	TxNetworkId     uint8
+	LedgerNetworkId uint
+}
+
+func (e WrongTransactionNetworkIdError) Error() string {
+	return "wrong transaction network ID"
+}
