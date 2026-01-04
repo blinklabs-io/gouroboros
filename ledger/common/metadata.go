@@ -460,7 +460,17 @@ func (s *ShelleyAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
 
 func (s *ShelleyAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	s.SetCbor(data)
-	md, err := DecodeMetadatumRaw(data)
+
+	// Shelley auxiliary data may be wrapped in CBOR tag 259 (0xD90103)
+	// If present, we need to skip the tag and extract the inner content
+	// before passing to DecodeMetadatumRaw (which doesn't handle tags)
+	dataToUse := data
+	if len(data) >= 3 && data[0] == 0xD9 && data[1] == 0x01 && data[2] == 0x03 {
+		// Tag 259 (0xD90103) detected, skip the 3-byte tag header
+		dataToUse = data[3:]
+	}
+
+	md, err := DecodeMetadatumRaw(dataToUse)
 	if err != nil {
 		return fmt.Errorf("failed to decode Shelley auxiliary data: %w", err)
 	}
