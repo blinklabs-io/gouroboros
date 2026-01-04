@@ -16,6 +16,7 @@ package shelley
 
 import (
 	"errors"
+	"fmt"
 	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -408,8 +409,15 @@ func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
 		if !utf8.ValidString(m.Value) {
 			return errors.New("metadata contains invalid UTF-8 text")
 		}
+		// Cardano spec: metadata text strings must not exceed 64 bytes
+		if len(m.Value) > 64 {
+			return fmt.Errorf("metadata text exceeds 64 byte limit: %d bytes", len(m.Value))
+		}
 	case common.MetaBytes:
-		// Consider: validate against empty or excessively large byte arrays
+		// Cardano spec: metadata byte strings must not exceed 64 bytes
+		if len(m.Value) > 64 {
+			return fmt.Errorf("metadata bytes exceeds 64 byte limit: %d bytes", len(m.Value))
+		}
 	case common.MetaInt:
 		if m.Value == nil {
 			return errors.New("metadata contains nil integer value")
