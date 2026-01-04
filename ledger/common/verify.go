@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -60,35 +59,37 @@ func ValidateVKeyWitnesses(tx Transaction) error {
 }
 
 // computeByronAddressRoot computes the address root for a Byron address
-// using the bootstrap witness public key and raw attributes bytes.
-// Byron address root = blake2b_224(sha3_256(cbor([addrType, [addrType, pubkey], attributes])))
+// using the bootstrap witness public key, chain code, and raw attributes bytes.
+// Byron address root = blake2b_224(sha3_256(cbor([0, [0, bytes(pubkey || chainCode)], attributes])))
 // The attributes must be used as-is (already CBOR-encoded) to preserve the original encoding.
+// This matches the Amaru implementation.
 func computeByronAddressRoot(
 	pubkey []byte,
+	chainCode []byte,
 	attrBytes []byte,
-	addrType uint64,
 ) (Blake2b224, error) {
-	// Construct the address root payload using raw attribute bytes
-	// We must use cbor.RawMessage for attributes to preserve the exact encoding
-	payloadBytes, err := cbor.Encode([]any{addrType, pubkey})
-	if err != nil {
-		return Blake2b224{}, err
+	// Validate input sizes to ensure correct CBOR encoding
+	// Byron addresses require exactly 32 bytes for both pubkey and chain code
+	if len(pubkey) != 32 {
+		return Blake2b224{}, fmt.Errorf("invalid Byron pubkey size: expected 32 bytes, got %d", len(pubkey))
+	}
+	if len(chainCode) != 32 {
+		return Blake2b224{}, fmt.Errorf("invalid Byron chain code size: expected 32 bytes, got %d", len(chainCode))
 	}
 
-	// Build the full structure: [addrType, [addrType, pubkey], attributes]
-	// We manually construct this to embed the raw attribute bytes
+	// Build the CBOR structure: [0, [0, bytes(pubkey || chainCode)], attributes]
+	// Byron addresses always use addrType = 0 for public key addresses
+	// CBOR prefix: 0x83 (array of 3) 0x00 (int 0) 0x82 (array of 2) 0x00 (int 0) 0x5840 (bytes of 64)
 	var buf []byte
-	buf = append(buf, 0x83) // CBOR array of 3 elements
+	buf = append(buf, 0x83)       // CBOR array of 3 elements
+	buf = append(buf, 0x00)       // First element: addrType = 0
+	buf = append(buf, 0x82)       // Second element: array of 2
+	buf = append(buf, 0x00)       // addrType = 0
+	buf = append(buf, 0x58, 0x40) // CBOR bytes of 64 bytes (0x40 = 64)
 
-	// First element: addrType
-	addrTypeBytes, err := cbor.Encode(addrType)
-	if err != nil {
-		return Blake2b224{}, err
-	}
-	buf = append(buf, addrTypeBytes...)
-
-	// Second element: [addrType, pubkey]
-	buf = append(buf, payloadBytes...)
+	// Append pubkey (32 bytes) and chainCode (32 bytes)
+	buf = append(buf, pubkey...)
+	buf = append(buf, chainCode...)
 
 	// Third element: raw attributes (already CBOR-encoded)
 	buf = append(buf, attrBytes...)
@@ -136,11 +137,10 @@ func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
 			if !ok {
 				// Check for bootstrap witness (Byron addresses)
 				if addr.Type() == AddressTypeByron {
-					byronType := addr.ByronType()
 					found := false
 					for _, bw := range bootstrapWitnesses {
-						// Compute address root using the witness pubkey, attributes, and the address's type
-						addrRoot, err := computeByronAddressRoot(bw.PublicKey, bw.Attributes, byronType)
+						// Compute address root using the witness pubkey, chain code, and attributes
+						addrRoot, err := computeByronAddressRoot(bw.PublicKey, bw.ChainCode, bw.Attributes)
 						if err != nil {
 							// Skip malformed witnesses that can't be processed
 							// TODO: Consider logging this for debugging
