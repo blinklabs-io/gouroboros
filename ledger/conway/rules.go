@@ -51,6 +51,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateOutputBootAddrAttrsTooBig,
 	UtxoValidateWrongNetwork,
 	UtxoValidateWrongNetworkWithdrawal,
+	UtxoValidateTransactionNetworkId,
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateTooManyCollateralInputs,
@@ -664,6 +665,40 @@ func UtxoValidateWrongNetworkWithdrawal(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
+}
+
+// UtxoValidateTransactionNetworkId validates that if the transaction body
+// specifies a NetworkId field, it must match the ledger state's network
+func UtxoValidateTransactionNetworkId(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Only Conway transactions have the NetworkId field in the body
+	conwayTx, ok := tx.(*ConwayTransaction)
+	if !ok {
+		// Not a Conway transaction, skip this validation
+		return nil
+	}
+
+	// Get the transaction's optional NetworkId field
+	txNetworkId := conwayTx.NetworkId()
+	if txNetworkId == nil {
+		// NetworkId not specified in transaction, that's fine
+		return nil
+	}
+
+	// NetworkId is specified, must match ledger state
+	ledgerNetworkId := ls.NetworkId()
+	if uint(*txNetworkId) != ledgerNetworkId {
+		return WrongTransactionNetworkIdError{
+			TxNetworkId:     *txNetworkId,
+			LedgerNetworkId: ledgerNetworkId,
+		}
+	}
+
+	return nil
 }
 
 func UtxoValidateMaxTxSizeUtxo(
