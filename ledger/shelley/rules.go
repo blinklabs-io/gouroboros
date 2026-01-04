@@ -416,7 +416,7 @@ func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
 	case common.MetaBytes:
 		// Cardano spec: metadata byte strings must not exceed 64 bytes
 		if len(m.Value) > 64 {
-			return fmt.Errorf("metadata bytes exceeds 64 byte limit: %d bytes", len(m.Value))
+			return fmt.Errorf("metadata byte string exceeds 64 byte limit: %d bytes", len(m.Value))
 		}
 	case common.MetaInt:
 		if m.Value == nil {

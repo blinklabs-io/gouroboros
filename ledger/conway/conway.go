@@ -467,7 +467,7 @@ type ConwayTransactionBody struct {
 	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
 	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
 	TxRequiredSigners       cbor.SetType[common.Blake2b224]               `cbor:"14,keyasint,omitempty,omitzero"`
-	TxNetworkId             uint8                                         `cbor:"15,keyasint,omitempty"`
+	TxNetworkId             *uint8                                        `cbor:"15,keyasint,omitempty"`
 	TxCollateralReturn      *babbage.BabbageTransactionOutput             `cbor:"16,keyasint,omitempty"`
 	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
@@ -600,15 +600,9 @@ func (b *ConwayTransactionBody) ProposalProcedures() []common.ProposalProcedure 
 
 func (b *ConwayTransactionBody) NetworkId() *uint8 {
 	// TxNetworkId field is optional (omitempty in CBOR)
-	// Return nil if not set, pointer to value if set
-	// Note: Since the field is uint8 (not *uint8), we can't perfectly distinguish
-	// between "not present" and "present with value 0". However, we return the
-	// value if it's non-zero, as that indicates explicit presence.
-	// For value 0 (testnet), we treat it as "not present" since we can't tell.
-	if b.TxNetworkId != 0 {
-		return &b.TxNetworkId
-	}
-	return nil
+	// Since it's a pointer, nil means not present, non-nil means present
+	// This correctly handles testnet (network ID 0) as well as mainnet (ID 1)
+	return b.TxNetworkId
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
