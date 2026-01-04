@@ -17,6 +17,7 @@ package common
 import (
 	"encoding/hex"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test"
@@ -543,5 +544,85 @@ func BenchmarkAddressFromString(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestAddressCbor(t *testing.T) {
+	// Test CBOR encoding/decoding for CIP-0019 address format compliance
+	addrStr := "addr1qx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgse35a3x"
+
+	// Parse address from Bech32
+	addr, err := NewAddress(addrStr)
+	assert.NoError(t, err)
+
+	// Encode to CBOR
+	cborData, err := addr.MarshalCBOR()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back from CBOR
+	var decoded Address
+	err = decoded.UnmarshalCBOR(cborData)
+	assert.NoError(t, err)
+
+	// Verify the decoded address matches the original
+	assert.Equal(t, addr.String(), decoded.String())
+}
+
+func TestAddressBech32_CIP0005(t *testing.T) {
+	// Test Bech32 encoding/decoding for CIP-0005 Common Bech32 Prefixes compliance
+	testCases := []struct {
+		name        string
+		address     string
+		expectedHRP string
+		networkId   uint
+		addressType uint8
+	}{
+		{
+			name:        "Mainnet payment address",
+			address:     "addr1q9d66zzs27kppmx8qc8h43q7m4hkxp5d39377lvxefvxd8j7eukjsdqc5c97t2zg5guqadepqqx6rc9m7wtnxy6tajjvk4a0kze4ljyuvvrpexg5up2sqxj33363v35gtew",
+			expectedHRP: "addr",
+			networkId:   1, // mainnet
+			addressType: 0, // payment key hash
+		},
+		{
+			name:        "Testnet payment address",
+			address:     "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrsxvt6scmqvvrw720",
+			expectedHRP: "addr_test",
+			networkId:   0, // testnet
+			addressType: 4, // key pointer (this address is actually a pointer address)
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Parse address from Bech32 string
+			addr, err := NewAddress(tc.address)
+			assert.NoError(t, err)
+			assert.NotNil(t, addr)
+
+			// Verify the address string matches (round-trip)
+			assert.Equal(t, tc.address, addr.String())
+
+			// Verify network ID
+			assert.Equal(t, tc.networkId, addr.NetworkId())
+
+			// Verify address type
+			assert.Equal(t, tc.addressType, addr.Type())
+
+			// Verify Bech32 HRP prefix matches expected per CIP-0005
+			assert.True(
+				t,
+				strings.HasPrefix(addr.String(), tc.expectedHRP),
+				"expected HRP prefix %s",
+				tc.expectedHRP,
+			)
+
+			// Verify Bech32 encoding/decoding
+			// Parse the generated Bech32 string back
+			addr2, err := NewAddress(addr.String())
+			assert.NoError(t, err)
+			assert.Equal(t, addr, addr2)
+		})
 	}
 }

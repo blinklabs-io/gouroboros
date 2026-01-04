@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	common "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
@@ -76,4 +77,32 @@ func TestPoolRegistrationCertificateUtxorpcIncludesMetadata(t *testing.T) {
 		t,
 		bytes.Equal(pm.Hash[:], pr.PoolRegistration.PoolMetadata.Hash),
 	)
+}
+
+func TestPoolMetadataCbor(t *testing.T) {
+	// Test CBOR encoding/decoding for CIP-0006 compliance
+	hash := common.NewBlake2b256([]byte{1, 2, 3, 4, 5})
+	pm := &common.PoolMetadata{
+		Url:  "https://pool.example.com/metadata.json",
+		Hash: hash,
+	}
+
+	// Encode to CBOR
+	cborData, err := cbor.Encode(pm)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back from CBOR
+	var decoded common.PoolMetadata
+	_, err = cbor.Decode(cborData, &decoded)
+	assert.NoError(t, err)
+
+	// Verify fields match
+	assert.Equal(t, pm.Url, decoded.Url)
+	assert.Equal(t, pm.Hash, decoded.Hash)
+
+	// Re-encode and verify byte-identical round-trip
+	reEncodedData, err := cbor.Encode(&decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, cborData, reEncodedData, "CBOR round-trip should be byte-identical")
 }

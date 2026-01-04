@@ -17,9 +17,11 @@ package conway
 import (
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConwayProposalProcedureToPlutusData(t *testing.T) {
@@ -37,4 +39,65 @@ func TestConwayProposalProcedureToPlutusData(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, uint(0), constr.Tag)
 	assert.Len(t, constr.Fields, 3)
+}
+
+func TestConwayProposalProcedureCbor(t *testing.T) {
+	// Test CBOR encoding/decoding for CIP-1694 governance proposal procedures
+	addr, err := common.NewAddress(
+		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+	)
+	require.NoError(t, err)
+	action := &common.InfoGovAction{Type: common.GovActionTypeInfo}
+
+	pp := &ConwayProposalProcedure{
+		PPDeposit:       1000000,
+		PPRewardAccount: addr,
+		PPGovAction:     ConwayGovAction{Action: action},
+		PPAnchor:        common.GovAnchor{},
+	}
+
+	// Encode to CBOR
+	cborData, err := cbor.Encode(pp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back from CBOR
+	var decoded ConwayProposalProcedure
+	_, err = cbor.Decode(cborData, &decoded)
+	require.NoError(t, err)
+
+	// Verify fields match
+	assert.Equal(t, pp.PPDeposit, decoded.PPDeposit)
+	assert.Equal(
+		t,
+		pp.PPRewardAccount.String(),
+		decoded.PPRewardAccount.String(),
+	)
+	// Verify the gov action type
+	decodedAction, ok := decoded.PPGovAction.Action.(*common.InfoGovAction)
+	require.True(t, ok, "expected InfoGovAction type")
+	assert.Equal(t, uint(common.GovActionTypeInfo), decodedAction.Type)
+}
+
+func TestConwayGovActionCbor(t *testing.T) {
+	// Test CBOR encoding/decoding for CIP-1694 governance actions
+	action := &common.InfoGovAction{Type: common.GovActionTypeInfo}
+
+	ga := ConwayGovAction{Action: action}
+
+	// Encode to CBOR
+	cborData, err := ga.MarshalCBOR()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back from CBOR
+	var decoded ConwayGovAction
+	err = decoded.UnmarshalCBOR(cborData)
+	assert.NoError(t, err)
+
+	// Verify the action type matches
+	assert.IsType(t, &common.InfoGovAction{}, decoded.Action)
+	infoAction, ok := decoded.Action.(*common.InfoGovAction)
+	require.True(t, ok, "type assertion to *common.InfoGovAction failed")
+	assert.Equal(t, uint(common.GovActionTypeInfo), infoAction.Type)
 }
