@@ -64,6 +64,7 @@ type LedgerState interface {
 	SlotState
 	PoolState
 	RewardState
+	GovState
 	NetworkId() uint
 
 	// Plutus cost models
@@ -109,4 +110,21 @@ type DRepDelegation struct {
 
 type PoolDelegation struct {
 	Pool Blake2b224
+}
+
+// GovState defines the interface for querying governance state
+type GovState interface {
+	// Committee queries
+	CommitteeMember(coldKey Blake2b224) (*CommitteeMember, error)
+	CommitteeMembers() ([]CommitteeMember, error)
+
+	// DRep queries
+	DRepRegistration(credential Blake2b224) (*DRepRegistration, error)
+	DRepRegistrations() ([]DRepRegistration, error)
+
+	// Constitution
+	Constitution() (*Constitution, error)
+
+	// Treasury value
+	TreasuryValue() (uint64, error)
 }

@@ -49,6 +49,11 @@ type MockLedgerState struct {
 	TimeToSlotFunc func(time.Time) (uint64, error)
 	// CostModelsVal holds Plutus cost models for script execution validation.
 	CostModelsVal map[common.PlutusLanguage]common.CostModel
+	// Governance state
+	CommitteeMembersVal  []common.CommitteeMember
+	DRepRegistrationsVal []common.DRepRegistration
+	ConstitutionVal      *common.Constitution
+	TreasuryValueVal     uint64
 }
 
 func (m *MockLedgerState) UtxoById(
@@ -134,6 +139,42 @@ func (m *MockLedgerState) CostModels() map[common.PlutusLanguage]common.CostMode
 		return m.CostModelsVal
 	}
 	return map[common.PlutusLanguage]common.CostModel{}
+}
+
+// GovState interface implementation
+
+func (m *MockLedgerState) CommitteeMember(coldKey common.Blake2b224) (*common.CommitteeMember, error) {
+	for _, member := range m.CommitteeMembersVal {
+		if member.ColdKey == coldKey {
+			return &member, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockLedgerState) CommitteeMembers() ([]common.CommitteeMember, error) {
+	return m.CommitteeMembersVal, nil
+}
+
+func (m *MockLedgerState) DRepRegistration(credential common.Blake2b224) (*common.DRepRegistration, error) {
+	for _, drep := range m.DRepRegistrationsVal {
+		if drep.Credential == credential {
+			return &drep, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockLedgerState) DRepRegistrations() ([]common.DRepRegistration, error) {
+	return m.DRepRegistrationsVal, nil
+}
+
+func (m *MockLedgerState) Constitution() (*common.Constitution, error) {
+	return m.ConstitutionVal, nil
+}
+
+func (m *MockLedgerState) TreasuryValue() (uint64, error) {
+	return m.TreasuryValueVal, nil
 }
 
 // MockProtocolParamsRules is a simple protocol params provider used in tests.
