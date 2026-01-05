@@ -98,16 +98,11 @@ var tests = []testDefinition{
 		MessageType: MessageTypeReacquireVolatileTip,
 	},
 	{
-		CborHex: func() string {
-			msg := NewMsgQuery(
-				&SystemStartQuery{simpleQueryBase{Type: QueryTypeSystemStart}},
-			)
-			cborData, err := cbor.Encode(msg)
-			if err != nil {
-				panic(fmt.Sprintf("error encoding SystemStartQuery: %s", err))
-			}
-			return hex.EncodeToString(cborData)
-		}(),
+		CborHex: string(
+			readFileString(
+				"../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/query.cbor",
+			),
+		),
 		Message: NewMsgQuery(
 			&SystemStartQuery{simpleQueryBase{Type: QueryTypeSystemStart}},
 		),
@@ -115,27 +110,11 @@ var tests = []testDefinition{
 		Optional:    true,
 	},
 	{
-		CborHex: func() string {
-			result := SystemStartResult{
-				Year: unsafeBigInt(
-					[]byte(
-						"703941703872597091335551638723343370661404331303175992839224705786473148",
-					),
-				),
-				Day: -4205646576720553090,
-				Picoseconds: unsafeBigInt(
-					[]byte(
-						"-554918151390414980540174869115975093799476848534297657333456993160799627",
-					),
-				),
-			}
-			msg := NewMsgResult(unsafeCbor(result))
-			cborData, err := cbor.Encode(msg)
-			if err != nil {
-				panic(fmt.Sprintf("error encoding SystemStartResult: %s", err))
-			}
-			return hex.EncodeToString(cborData)
-		}(),
+		CborHex: string(
+			readFileString(
+				"../../internal/test/cardano-blueprint/src/client/node-to-client/state-query/examples/getSystemStart/result.cbor",
+			),
+		),
 		Message: NewMsgResult(unsafeCbor(
 			SystemStartResult{
 				Year: unsafeBigInt(
