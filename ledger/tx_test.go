@@ -88,6 +88,9 @@ func TestMaryTransactionCborRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to deserialize Mary transaction: %s", err)
 	}
+	if tx == nil {
+		t.Fatal("tx is nil")
+	}
 
 	// Serialize
 	serializedCbor := tx.Cbor()
@@ -212,6 +215,9 @@ func BenchmarkTransactionSerialization_Shelley(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	if tx == nil {
+		b.Fatal("tx is nil")
+	}
 	b.ResetTimer()
 	for b.Loop() {
 		_ = tx.Cbor()
@@ -234,6 +240,9 @@ func BenchmarkTransactionSerialization_Allegra(b *testing.B) {
 	tx, err := ledger.NewAllegraTransactionFromCbor(txCbor)
 	if err != nil {
 		b.Fatal(err)
+	}
+	if tx == nil {
+		b.Fatal("tx is nil")
 	}
 	b.ResetTimer()
 	for b.Loop() {
@@ -258,6 +267,9 @@ func BenchmarkTransactionSerialization_Mary(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	if tx == nil {
+		b.Fatal("tx is nil")
+	}
 	b.ResetTimer()
 	for b.Loop() {
 		_ = tx.Cbor()
@@ -281,6 +293,9 @@ func BenchmarkTransactionSerialization_Alonzo(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	if tx == nil {
+		b.Fatal("tx is nil")
+	}
 	b.ResetTimer()
 	for b.Loop() {
 		_ = tx.Cbor()
@@ -303,6 +318,9 @@ func BenchmarkTransactionSerialization_Babbage(b *testing.B) {
 	tx, err := ledger.NewBabbageTransactionFromCbor(txCbor)
 	if err != nil {
 		b.Fatal(err)
+	}
+	if tx == nil {
+		b.Fatal("tx is nil")
 	}
 	b.ResetTimer()
 	for b.Loop() {

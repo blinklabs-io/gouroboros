@@ -22,7 +22,12 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConwayRedeemersIter(t *testing.T) {
@@ -203,4 +208,135 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 	if got, want := len(utxoTx.Outputs), len(tx.Outputs()); got != want {
 		t.Errorf("outputs count mismatch: got %d want %d", got, want)
 	}
+}
+
+func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
+	// Test CBOR round-trip for transactions with reference inputs (CIP-0031)
+
+	// Create a transaction with reference inputs
+	tx := &ConwayTransaction{}
+	tx.Body.TxInputs = NewConwayTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{
+			shelley.NewShelleyTransactionInput(
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				0,
+			),
+		},
+	)
+	tx.Body.TxReferenceInputs = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{
+			shelley.NewShelleyTransactionInput(
+				"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				1,
+			),
+		},
+		false,
+	)
+	tx.Body.TxOutputs = []babbage.BabbageTransactionOutput{
+		{
+			OutputAddress: func() common.Address {
+				addr, _ := common.NewAddressFromBytes(
+					test.DecodeHexString(
+						"40000000000000000000000000000000000000000000000000000000008198bd431b03",
+					),
+				)
+				return addr
+			}(),
+			OutputAmount: mary.MaryTransactionOutputValue{
+				Amount: 1000000,
+			},
+		},
+	}
+	tx.Body.TxFee = 1000
+	tx.Body.Ttl = 1000000
+
+	// Encode to CBOR
+	cborData, err := cbor.Encode(tx)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back from CBOR
+	var decoded ConwayTransaction
+	_, err = cbor.Decode(cborData, &decoded)
+	assert.NoError(t, err)
+
+	// Verify reference inputs are preserved
+	refInputs := decoded.Body.TxReferenceInputs.Items()
+	assert.Len(t, refInputs, 1)
+	refInput := refInputs[0]
+	assert.Equal(
+		t,
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		hex.EncodeToString(refInput.Id().Bytes()),
+	)
+	assert.Equal(t, uint32(1), refInput.Index())
+
+	// Verify byte-identical round-trip
+	reEncoded, err := cbor.Encode(&decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, cborData, reEncoded, "CBOR round-trip should be byte-identical")
+}
+
+func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
+	// Test CBOR round-trip for transactions with reference scripts (CIP-0033)
+
+	// Create a transaction with reference scripts in outputs
+	tx := &ConwayTransaction{}
+	tx.Body.TxInputs = NewConwayTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{
+			shelley.NewShelleyTransactionInput(
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				0,
+			),
+		},
+	)
+	tx.Body.TxOutputs = []babbage.BabbageTransactionOutput{
+		{
+			OutputAddress: func() common.Address {
+				addr, _ := common.NewAddressFromBytes(
+					test.DecodeHexString(
+						"40000000000000000000000000000000000000000000000000000000008198bd431b03",
+					),
+				)
+				return addr
+			}(),
+			OutputAmount: mary.MaryTransactionOutputValue{
+				Amount: 1000000,
+			},
+			// Include a reference script (CIP-0033)
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   1, // PlutusV1
+				Script: &common.PlutusV1Script{0x01, 0x02, 0x03, 0x04},
+			},
+		},
+	}
+	tx.Body.TxFee = 1000
+	tx.Body.Ttl = 1000000
+
+	// Encode to CBOR
+	cborData, err := cbor.Encode(tx)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back from CBOR
+	var decoded ConwayTransaction
+	_, err = cbor.Decode(cborData, &decoded)
+	assert.NoError(t, err)
+
+	// Verify reference script is preserved
+	assert.Len(t, decoded.Body.TxOutputs, 1)
+	output := decoded.Body.TxOutputs[0]
+	assert.NotNil(t, output.TxOutScriptRef)
+	assert.Equal(t, uint(1), output.TxOutScriptRef.Type)
+	if plutusScript, ok := output.TxOutScriptRef.Script.(*common.PlutusV1Script); ok {
+		expectedScript := common.PlutusV1Script{0x01, 0x02, 0x03, 0x04}
+		assert.Equal(t, expectedScript, *plutusScript)
+	} else {
+		t.Fatalf("expected PlutusV1Script, got %T", output.TxOutScriptRef.Script)
+	}
+
+	// Verify byte-identical round-trip
+	reEncoded, err := cbor.Encode(&decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, cborData, reEncoded, "CBOR round-trip should be byte-identical")
 }

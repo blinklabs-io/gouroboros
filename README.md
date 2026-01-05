@@ -80,6 +80,12 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [ ] SPO stake distribution
         - [ ] Committee state
         - [ ] Treasury
+    - [X] LeiosFetch
+      - [X] Client support
+      - [X] Server support
+    - [X] LeiosNotify
+      - [X] Client support
+      - [X] Server support
 - [ ] Ledger
   - [ ] Eras
     - [X] Byron
@@ -122,7 +128,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
-      - [ ] Parameter updates
+      - [X] Parameter updates
   - [X] Transaction attributes
     - [X] Inputs
     - [X] Outputs
@@ -149,9 +155,9 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Test framework for mocking Ouroboros conversations
   - [ ] CBOR deserialization and serialization
     - [X] Protocol messages
-    - [ ] Ledger
-      - [ ] Block parsing
-      - [ ] Transaction parsing
+    - [X] Ledger
+      - [X] Block parsing
+      - [X] Transaction parsing
 - [ ] Misc
   - [X] Address handling
     - [X] Decode from bech32
