@@ -2862,7 +2862,7 @@ func TestBabbageTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 	testTxOut := BabbageTransactionOutput{
 		OutputAddress: func() common.Address { foo, _ := common.NewAddress(testAddr); return foo }(),
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: testAmount,
+			Amount: new(big.Int).SetUint64(testAmount),
 		},
 	}
 	expectedData := data.NewConstr(
@@ -2929,7 +2929,7 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	testTxOut := BabbageTransactionOutput{
 		OutputAddress: func() common.Address { foo, _ := common.NewAddress(testAddr); return foo }(),
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: testAmount,
+			Amount: new(big.Int).SetUint64(testAmount),
 			Assets: &testAssets,
 		},
 	}

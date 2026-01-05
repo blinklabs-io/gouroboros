@@ -15,7 +15,6 @@
 package common_test
 
 import (
-"math/big"
 	"testing"
 
 	_ "github.com/blinklabs-io/gouroboros/ledger" // This is needed to get the eras registered

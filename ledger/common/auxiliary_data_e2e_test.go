@@ -15,7 +15,6 @@
 package common_test
 
 import (
-"math/big"
 	"encoding/hex"
 	"testing"
 

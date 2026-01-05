@@ -523,7 +523,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testInputAmount,
+				OutputAmount: new(big.Int).SetUint64(testInputAmount),
 			},
 		},
 	}

@@ -778,7 +778,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"not too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueGood)
+			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueGood
 			err := babbage.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
@@ -797,7 +797,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueBad)
+			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueBad
 			err := babbage.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,

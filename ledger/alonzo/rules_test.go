@@ -527,7 +527,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testInputAmount,
+				OutputAmount: new(big.Int).SetUint64(testInputAmount),
 			},
 		},
 	}
@@ -775,7 +775,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"not too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueGood)
+			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueGood
 			err := alonzo.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
@@ -794,7 +794,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueBad)
+			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueBad
 			err := alonzo.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
@@ -977,13 +977,13 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount1,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount1),
 			},
 		},
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount2,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount2),
 			},
 		},
 	}
@@ -1071,7 +1071,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount),
 			},
 		},
 		{
@@ -1163,7 +1163,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount),
 			},
 		},
 	}
