@@ -33,7 +33,7 @@ func TestAlonzoTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 	testTxOut := AlonzoTransactionOutput{
 		OutputAddress: func() common.Address { foo, _ := common.NewAddress(testAddr); return foo }(),
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: testAmount,
+			Amount: new(big.Int).SetUint64(testAmount),
 		},
 	}
 	expectedData := data.NewConstr(
@@ -100,7 +100,7 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	testTxOut := AlonzoTransactionOutput{
 		OutputAddress: func() common.Address { foo, _ := common.NewAddress(testAddr); return foo }(),
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: testAmount,
+			Amount: new(big.Int).SetUint64(testAmount),
 			Assets: &testAssets,
 		},
 	}
@@ -292,7 +292,7 @@ func TestAlonzoTransactionOutputString(t *testing.T) {
 	out := AlonzoTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 456,
+			Amount: new(big.Int).SetUint64(456),
 			Assets: &ma,
 		},
 	}

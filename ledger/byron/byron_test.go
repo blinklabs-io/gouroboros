@@ -15,6 +15,7 @@
 package byron_test
 
 import (
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -54,7 +55,7 @@ func TestByronTransactionOutput_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := byron.ByronTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  5000,
+		OutputAmount:  new(big.Int).SetUint64(5000),
 	}
 
 	got, err := output.Utxorpc()
@@ -63,7 +64,7 @@ func TestByronTransactionOutput_Utxorpc(t *testing.T) {
 	assert.NoError(t, err)
 	want := &utxorpc.TxOutput{
 		Address: addr,
-		Coin:    common.ToUtxorpcBigInt(output.OutputAmount),
+		Coin:    common.ToUtxorpcBigIntFromBigInt(output.OutputAmount),
 	}
 
 	if !reflect.DeepEqual(got, want) {
@@ -117,7 +118,7 @@ func TestByronTransactionOutputString(t *testing.T) {
 	addrStr := addr.String()
 	out := byron.ByronTransactionOutput{
 		OutputAddress: addr,
-		OutputAmount:  456,
+		OutputAmount:  new(big.Int).SetUint64(456),
 	}
 	s := out.String()
 	expected := "(ByronTransactionOutput address=" + addrStr + " amount=456)"
