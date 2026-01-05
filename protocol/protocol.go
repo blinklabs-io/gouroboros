@@ -243,7 +243,6 @@ func (p *Protocol) SendMessage(msg Message) error {
 	if limit > 0 && p.pendingSendBytes+msgLen > limit {
 		p.pendingBytesMu.Unlock()
 		p.SendError(ErrProtocolViolationQueueExceeded)
-		p.Stop()
 		return ErrProtocolViolationQueueExceeded
 	}
 	p.pendingSendBytes += msgLen
@@ -252,8 +251,17 @@ func (p *Protocol) SendMessage(msg Message) error {
 	return nil
 }
 
-// SendError sends an error to the handler in the Ouroboros object
+// SendError sends an error to the handler in the Ouroboros object and stops the protocol.
+// This ensures that protocol errors immediately terminate the connection and prevent
+// further errors from being generated.
 func (p *Protocol) SendError(err error) {
+	// Immediately return if we're already shutting down
+	select {
+	case <-p.doneChan:
+		return
+	default:
+	}
+	// Send error to consumer
 	select {
 	case p.config.ErrorChan <- err:
 	default:
@@ -262,6 +270,9 @@ func (p *Protocol) SendError(err error) {
 		// additional errors are unnecessary
 		return
 	}
+	// Stop the protocol on any error to prevent further errors from being generated
+	// and to ensure the connection is properly terminated
+	p.Stop()
 }
 
 func (p *Protocol) sendLoop() {
@@ -474,7 +485,6 @@ func (p *Protocol) readLoop() {
 		if limit > 0 && p.pendingRecvBytes+msgLen > limit {
 			p.pendingBytesMu.Unlock()
 			p.SendError(ErrProtocolViolationQueueExceeded)
-			p.Stop()
 			return
 		}
 		p.pendingRecvBytes += msgLen
