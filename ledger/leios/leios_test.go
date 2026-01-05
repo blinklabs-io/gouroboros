@@ -15,7 +15,6 @@
 package leios
 
 import (
-"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"

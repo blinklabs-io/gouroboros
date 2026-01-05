@@ -1,7 +1,6 @@
 package conway
 
 import (
-"math/big"
 	"errors"
 	"testing"
 

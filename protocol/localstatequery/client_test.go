@@ -238,7 +238,7 @@ func TestGetUTxOByAddress(t *testing.T) {
 			expectedUtxoId: {
 				OutputAddress: testAddress,
 				OutputAmount: ledger.MaryTransactionOutputValue{
-					Amount: 234567,
+					Amount: new(big.Int).SetUint64(234567),
 				},
 			},
 		},

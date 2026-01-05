@@ -130,7 +130,7 @@ func TestMaryTransactionOutputString(t *testing.T) {
 	)
 	out := MaryTransactionOutput{
 		OutputAddress: addr,
-		OutputAmount:  MaryTransactionOutputValue{Amount: 456, Assets: &ma},
+		OutputAmount:  MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(456), Assets: &ma},
 	}
 	s := out.String()
 	expected := fmt.Sprintf(
