@@ -15,6 +15,7 @@
 package mary
 
 import (
+"math/big"
 	"encoding/hex"
 	"fmt"
 	"reflect"
@@ -58,7 +59,7 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 			CborHex: "821a003d0900a1581c00000002df633853f6a47465c9496721d2d5b1291b8398016c0e87aea1476e7574636f696e01",
 			// [4000000, {h'00000002DF633853F6A47465C9496721D2D5B1291B8398016C0E87AE': {h'6E7574636F696E': 1}}]
 			Object: MaryTransactionOutputValue{
-				Amount: 4000000,
+				Amount: new(big.Int).SetInt64(4000000),
 				Assets: createMaryTransactionOutputValueAssets(
 					test.DecodeHexString(
 						"00000002DF633853F6A47465C9496721D2D5B1291B8398016C0E87AE",
@@ -72,7 +73,7 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 			CborHex: "821a004986e3a1581c3a9241cd79895e3a8d65261b40077d4437ce71e9d7c8c6c00e3f658ea1494669727374636f696e01",
 			// [4818659, {h'3A9241CD79895E3A8D65261B40077D4437CE71E9D7C8C6C00E3F658E': {h'4669727374636F696E': 1}}]
 			Object: MaryTransactionOutputValue{
-				Amount: 4818659,
+				Amount: new(big.Int).SetInt64(4818659),
 				Assets: createMaryTransactionOutputValueAssets(
 					test.DecodeHexString(
 						"3A9241CD79895E3A8D65261B40077D4437CE71E9D7C8C6C00E3F658E",

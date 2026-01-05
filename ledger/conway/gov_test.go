@@ -15,6 +15,7 @@
 package conway
 
 import (
+"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"

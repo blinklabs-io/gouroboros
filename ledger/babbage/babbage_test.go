@@ -2778,7 +2778,7 @@ func TestBabbageTransactionOutput_Utxorpc_DatumOptionNil(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: common.Address{},
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 1000,
+			Amount: new(big.Int).SetInt64(1000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{},
 	}
@@ -2804,7 +2804,7 @@ func TestBabbageTransactionOutput_DatumHashReturnsNil(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: common.Address{},
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 1000,
+			Amount: new(big.Int).SetInt64(1000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{},
 	}
@@ -2820,7 +2820,7 @@ func TestBabbageTransactionOutput_Utxorpc_DatumHash(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: common.Address{},
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 1000,
+			Amount: new(big.Int).SetInt64(1000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{
 			hash: &hash,
@@ -2840,7 +2840,7 @@ func TestBabbageTransactionOutput_Utxorpc_InlineDatum(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: common.Address{},
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 1000,
+			Amount: new(big.Int).SetInt64(1000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{
 			data: &datum,
@@ -3032,7 +3032,7 @@ func TestBabbageTransactionOutputString(t *testing.T) {
 	out := BabbageTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 456,
+			Amount: new(big.Int).SetInt64(456),
 			Assets: &ma,
 		},
 	}
@@ -3059,7 +3059,7 @@ func TestBabbageInlineDatumSerialization(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 1000000,
+			Amount: new(big.Int).SetInt64(1000000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{
 			data: &testDatum,
@@ -3098,7 +3098,7 @@ func TestBabbageInlineDatumAccessor(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 2000000,
+			Amount: new(big.Int).SetInt64(2000000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{
 			data: &testDatum,
@@ -3136,7 +3136,7 @@ func TestBabbageInlineDatumHash(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 3000000,
+			Amount: new(big.Int).SetInt64(3000000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{
 			data: &testDatum,
@@ -3161,7 +3161,7 @@ func TestBabbageInlineDatumNil(t *testing.T) {
 	output := BabbageTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 1000000,
+			Amount: new(big.Int).SetInt64(1000000),
 		},
 		// DatumOption is nil
 	}
@@ -3191,7 +3191,7 @@ func TestBabbageInlineDatumRoundTrip(t *testing.T) {
 	originalOutput := BabbageTransactionOutput{
 		OutputAddress: addr,
 		OutputAmount: mary.MaryTransactionOutputValue{
-			Amount: 5000000,
+			Amount: new(big.Int).SetInt64(5000000),
 		},
 		DatumOption: &BabbageTransactionOutputDatumOption{
 			data: &simpleDatum,

@@ -15,6 +15,7 @@
 package conway_test
 
 import (
+"math/big"
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
@@ -645,7 +646,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			TxOutputs: []babbage.BabbageTransactionOutput{
 				{
 					OutputAmount: mary.MaryTransactionOutputValue{
-						Amount: 123456,
+						Amount: new(big.Int).SetInt64(123456),
 					},
 				},
 			},
@@ -811,7 +812,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"exact amount",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount)
 			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -830,7 +831,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake registration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount - testStakeDeposit)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeStakeRegistration),
@@ -857,7 +858,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake deregistration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount + testStakeDeposit)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeStakeDeregistration),
@@ -884,7 +885,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"output too low",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputUnderAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputUnderAmount)
 			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -912,7 +913,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"output too high",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputOverAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputOverAmount)
 			err := conway.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -968,13 +969,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"registration certificate invalid deposit zero",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeRegistration),
 					Certificate: &common.RegistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          0,
+						Amount: new(big.Int).SetInt64(0),
 					},
 				},
 			}
@@ -1033,13 +1034,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"deregistration certificate invalid refund zero",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeDeregistration),
 					Certificate: &common.DeregistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          0,
+						Amount: new(big.Int).SetInt64(0),
 					},
 				},
 			}
@@ -1082,7 +1083,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 					TxOutputs: []babbage.BabbageTransactionOutput{
 						{
 							OutputAmount: mary.MaryTransactionOutputValue{
-								Amount: 7000000,
+								Amount: new(big.Int).SetInt64(7000000),
 							},
 						},
 					},
@@ -1126,7 +1127,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	t.Run(
 		"sufficient coin",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountGood
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputAmountGood)
 			err := conway.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
@@ -1145,7 +1146,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	t.Run(
 		"insufficient coin",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountBad
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputAmountBad)
 			err := conway.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
@@ -1173,7 +1174,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 
 func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	var testOutputValueGood = mary.MaryTransactionOutputValue{
-		Amount: 1234567,
+		Amount: new(big.Int).SetInt64(1234567),
 	}
 	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]uint64{}
 	// Build too-large asset set
@@ -1195,7 +1196,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		tmpBadAssets,
 	)
 	var testOutputValueBad = mary.MaryTransactionOutputValue{
-		Amount: 1234567,
+		Amount: new(big.Int).SetInt64(1234567),
 		Assets: &tmpBadMultiAsset,
 	}
 	testTx := &conway.ConwayTransaction{
@@ -1215,7 +1216,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"not too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueGood
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueGood)
 			err := conway.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
@@ -1234,7 +1235,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueBad
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueBad)
 			err := conway.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,

@@ -15,6 +15,7 @@
 package common_test
 
 import (
+"math/big"
 	"testing"
 
 	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"

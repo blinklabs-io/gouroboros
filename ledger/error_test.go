@@ -1,6 +1,7 @@
 package ledger
 
 import (
+"math/big"
 	"bytes"
 	"fmt"
 	"testing"
@@ -39,7 +40,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 			),
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr1,
-				OutputAmount:  1000,
+				OutputAmount: new(big.Int).SetUint64(1000),
 			},
 		},
 		{
@@ -49,7 +50,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 			),
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr2,
-				OutputAmount:  2500,
+				OutputAmount: new(big.Int).SetUint64(2500),
 			},
 		},
 		{
@@ -59,7 +60,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 			),
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr3,
-				OutputAmount:  7500,
+				OutputAmount: new(big.Int).SetUint64(7500),
 			},
 		},
 	}
@@ -175,14 +176,14 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 			Id: byronInput1,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr1,
-				OutputAmount:  1000000,
+				OutputAmount: new(big.Int).SetUint64(1000000),
 			},
 		},
 		{
 			Id: byronInput2,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr2,
-				OutputAmount:  2500000,
+				OutputAmount: new(big.Int).SetUint64(2500000),
 			},
 		},
 	}
@@ -247,16 +248,16 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 		switch output := utxo.Output.(type) {
 		case *shelley.ShelleyTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		case *byron.ByronTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		case shelley.ShelleyTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		case byron.ByronTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		default:
 			t.Errorf("Unexpected output type: got %T", utxo.Output)
 			continue
@@ -301,7 +302,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 				decodedAddr.String(),
 			)
 		}
-		if decodedAmount != originalOutput.OutputAmount {
+		if decodedAmount != originalOutput.OutputAmount.Uint64() {
 			t.Errorf(
 				"Byron UTxO %s: amount mismatch. Expected %d, got %d",
 				key,
@@ -339,14 +340,14 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 			Id: shelleyInput1,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr1,
-				OutputAmount:  1500000,
+				OutputAmount: new(big.Int).SetUint64(1500000),
 			},
 		},
 		{
 			Id: shelleyInput2,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr2,
-				OutputAmount:  3000000,
+				OutputAmount: new(big.Int).SetUint64(3000000),
 			},
 		},
 	}
@@ -411,16 +412,16 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 		switch output := utxo.Output.(type) {
 		case *shelley.ShelleyTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		case *byron.ByronTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		case shelley.ShelleyTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		case byron.ByronTransactionOutput:
 			decodedAddr = output.OutputAddress
-			decodedAmount = output.OutputAmount
+			decodedAmount = output.OutputAmount.Uint64()
 		default:
 			t.Errorf("Unexpected output type: got %T", utxo.Output)
 			continue
@@ -468,7 +469,7 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 				decodedAddr.String(),
 			)
 		}
-		if decodedAmount != originalOutput.OutputAmount {
+		if decodedAmount != originalOutput.OutputAmount.Uint64() {
 			t.Errorf(
 				"Shelley UTxO %s: amount mismatch. Expected %d, got %d",
 				key,
@@ -517,7 +518,7 @@ func TestScriptsNotPaidUtxo_TypeFieldAssignment(t *testing.T) {
 			Id: input1,
 			Output: &shelley.ShelleyTransactionOutput{
 				OutputAddress: addr1,
-				OutputAmount:  1000000,
+				OutputAmount: new(big.Int).SetUint64(1000000),
 			},
 		},
 	}

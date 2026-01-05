@@ -149,7 +149,7 @@ func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 	// Define a transaction output
 	output := shelley.ShelleyTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  1000,
+		OutputAmount: new(big.Int).SetUint64(1000),
 	}
 
 	// Create transaction body
@@ -211,7 +211,7 @@ func TestAllegraTransaction_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := shelley.ShelleyTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  2000,
+		OutputAmount: new(big.Int).SetUint64(2000),
 	}
 
 	// Create transaction body

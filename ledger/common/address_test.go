@@ -15,6 +15,7 @@
 package common
 
 import (
+"math/big"
 	"encoding/hex"
 	"reflect"
 	"testing"

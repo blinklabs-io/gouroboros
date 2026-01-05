@@ -15,6 +15,7 @@
 package common_test
 
 import (
+"math/big"
 	"errors"
 	"testing"
 

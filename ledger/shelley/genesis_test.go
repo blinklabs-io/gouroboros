@@ -243,10 +243,10 @@ func TestGenesisUtxos(t *testing.T) {
 			expectedAddr,
 		)
 	}
-	if tmpUtxo.Output.Amount() != testAmount {
+	if tmpUtxo.Output.Amount().Cmp(new(big.Int).SetUint64(testAmount)) != 0 {
 		t.Fatalf(
-			"did not get expected amount: got %d, wanted %d",
-			tmpUtxo.Output.Amount(),
+			"did not get expected amount: got %s, wanted %d",
+			tmpUtxo.Output.Amount().String(),
 			testAmount,
 		)
 	}

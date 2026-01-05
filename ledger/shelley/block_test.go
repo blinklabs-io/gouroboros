@@ -15,6 +15,7 @@
 package shelley_test
 
 import (
+"math/big"
 	"bytes"
 	"encoding/hex"
 	"strings"

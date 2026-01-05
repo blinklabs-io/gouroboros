@@ -15,6 +15,7 @@
 package shelley_test
 
 import (
+"math/big"
 	"crypto/rand"
 	"encoding/hex"
 	"testing"
@@ -415,7 +416,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 		Body: shelley.ShelleyTransactionBody{
 			TxOutputs: []shelley.ShelleyTransactionOutput{
 				{
-					OutputAmount: 123456,
+					OutputAmount: new(big.Int).SetUint64(123456),
 				},
 			},
 		},
@@ -579,7 +580,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"exact amount",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputExactAmount)
 			err := shelley.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -598,7 +599,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake registration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount - testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputExactAmount - testStakeDeposit)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeStakeRegistration),
@@ -625,7 +626,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake deregistration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount + testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputExactAmount + testStakeDeposit)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeStakeDeregistration),
@@ -652,7 +653,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"output too low",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputUnderAmount
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputUnderAmount)
 			err := shelley.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -680,7 +681,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"output too high",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputOverAmount
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputOverAmount)
 			err := shelley.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -726,7 +727,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	t.Run(
 		"sufficient coin",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputAmountGood
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputAmountGood)
 			err := shelley.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
@@ -745,7 +746,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	t.Run(
 		"insufficient coin",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputAmountBad
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputAmountBad)
 			err := shelley.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,

@@ -15,6 +15,7 @@
 package conway
 
 import (
+"math/big"
 	"bytes"
 	"encoding/hex"
 	"reflect"

@@ -1,6 +1,7 @@
 package shelley_test
 
 import (
+"math/big"
 	"fmt"
 	"testing"
 
@@ -13,7 +14,7 @@ func TestShelleyTransactionOutputString(t *testing.T) {
 	addr, _ := common.NewAddress(addrStr)
 	out := shelley.ShelleyTransactionOutput{
 		OutputAddress: addr,
-		OutputAmount:  456,
+		OutputAmount: new(big.Int).SetUint64(456),
 	}
 	s := out.String()
 	expected := fmt.Sprintf(
@@ -30,7 +31,7 @@ func TestShelleyOutputTooSmallErrorFormatting(t *testing.T) {
 	addr, _ := common.NewAddress(addrStr)
 	out := &shelley.ShelleyTransactionOutput{
 		OutputAddress: addr,
-		OutputAmount:  456,
+		OutputAmount: new(big.Int).SetUint64(456),
 	}
 	errStr := shelley.OutputTooSmallUtxoError{
 		Outputs: []common.TransactionOutput{out},

@@ -202,7 +202,7 @@ func TestShelleyTransactionOutput_Utxorpc(t *testing.T) {
 	// Create a transaction output
 	output := shelley.ShelleyTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  1000,
+		OutputAmount: new(big.Int).SetUint64(1000),
 	}
 
 	// Convert it to utxorpc format
@@ -257,7 +257,7 @@ func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 	// Define a transaction output
 	output := shelley.ShelleyTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  2000,
+		OutputAmount: new(big.Int).SetUint64(2000),
 	}
 
 	// Create the transaction body
@@ -322,7 +322,7 @@ func TestShelleyTransaction_Utxorpc(t *testing.T) {
 	// Define a  transaction output
 	output := shelley.ShelleyTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  5000,
+		OutputAmount: new(big.Int).SetUint64(5000),
 	}
 
 	// Build the transaction body

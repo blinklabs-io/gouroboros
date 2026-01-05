@@ -15,6 +15,7 @@
 package alonzo_test
 
 import (
+"math/big"
 	"crypto/rand"
 	"encoding/hex"
 	"testing"
@@ -371,7 +372,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			TxOutputs: []alonzo.AlonzoTransactionOutput{
 				{
 					OutputAmount: mary.MaryTransactionOutputValue{
-						Amount: 123456,
+						Amount: new(big.Int).SetInt64(123456),
 					},
 				},
 			},
@@ -539,7 +540,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"exact amount",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount)
 			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -558,7 +559,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake registration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount - testStakeDeposit)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeStakeRegistration),
@@ -585,7 +586,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"stake deregistration",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testStakeDeposit
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount + testStakeDeposit)
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeStakeDeregistration),
@@ -612,7 +613,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"output too low",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputUnderAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputUnderAmount)
 			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -640,7 +641,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"output too high",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputOverAmount
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputOverAmount)
 			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
 				testSlot,
@@ -686,7 +687,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	t.Run(
 		"sufficient coin",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountGood
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputAmountGood)
 			err := alonzo.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
@@ -705,7 +706,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 	t.Run(
 		"insufficient coin",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputAmountBad
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputAmountBad)
 			err := alonzo.UtxoValidateOutputTooSmallUtxo(
 				testTx,
 				testSlot,
@@ -733,7 +734,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 
 func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	var testOutputValueGood = mary.MaryTransactionOutputValue{
-		Amount: 1234567,
+		Amount: new(big.Int).SetInt64(1234567),
 	}
 	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]uint64{}
 	// Build too-large asset set
@@ -755,7 +756,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		tmpBadAssets,
 	)
 	var testOutputValueBad = mary.MaryTransactionOutputValue{
-		Amount: 1234567,
+		Amount: new(big.Int).SetInt64(1234567),
 		Assets: &tmpBadMultiAsset,
 	}
 	testTx := &alonzo.AlonzoTransaction{
@@ -774,7 +775,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"not too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueGood
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueGood)
 			err := alonzo.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
@@ -793,7 +794,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	t.Run(
 		"too large",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount = testOutputValueBad
+			testTx.Body.TxOutputs[0].OutputAmount = new(big.Int).SetUint64(testOutputValueBad)
 			err := alonzo.UtxoValidateOutputTooBigUtxo(
 				testTx,
 				testSlot,
