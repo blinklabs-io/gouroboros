@@ -243,7 +243,6 @@ func (p *Protocol) SendMessage(msg Message) error {
 	if limit > 0 && p.pendingSendBytes+msgLen > limit {
 		p.pendingBytesMu.Unlock()
 		p.SendError(ErrProtocolViolationQueueExceeded)
-		p.Stop()
 		return ErrProtocolViolationQueueExceeded
 	}
 	p.pendingSendBytes += msgLen
@@ -252,8 +251,17 @@ func (p *Protocol) SendMessage(msg Message) error {
 	return nil
 }
 
-// SendError sends an error to the handler in the Ouroboros object
+// SendError sends an error to the handler in the Ouroboros object and stops the protocol.
+// This ensures that protocol errors immediately terminate the connection and prevent
+// further errors from being generated.
 func (p *Protocol) SendError(err error) {
+	// Immediately return if we're already shutting down
+	select {
+	case <-p.doneChan:
+		return
+	default:
+	}
+	// Send error to consumer
 	select {
 	case p.config.ErrorChan <- err:
 	default:
@@ -262,6 +270,9 @@ func (p *Protocol) SendError(err error) {
 		// additional errors are unnecessary
 		return
 	}
+	// Stop the protocol on any error to prevent further errors from being generated
+	// and to ensure the connection is properly terminated
+	p.Stop()
 }
 
 func (p *Protocol) sendLoop() {
@@ -401,6 +412,18 @@ func (p *Protocol) readLoop() {
 			}
 		}
 		leftoverData = false
+		// Check for zero-byte read before attempting to decode
+		if readBuffer.Len() == 0 {
+			// This can happen when the remote host closes the connection unexpectedly
+			// or sends an empty segment payload
+			p.SendError(
+				fmt.Errorf(
+					"%s: received zero-byte read, connection may have been closed",
+					p.config.Name,
+				),
+			)
+			return
+		}
 		// Decode message into generic list until we can determine what type of message it is.
 		// This also lets us determine how many bytes the message is. We use RawMessage here to
 		// avoid parsing things that we may not be able to parse
@@ -415,10 +438,23 @@ func (p *Protocol) readLoop() {
 			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
 			return
 		}
+		// Check for zero bytes read or empty message array after decoding
+		if numBytesRead == 0 || len(tmpMsg) == 0 {
+			// This can happen when the remote host closes the connection unexpectedly
+			// and we receive a segment that decodes to an empty array
+			p.SendError(
+				fmt.Errorf(
+					"%s: received empty message (zero bytes read or empty CBOR array), connection may have been closed",
+					p.config.Name,
+				),
+			)
+			return
+		}
 		// Decode first list item to determine message type
 		var msgType uint
 		if _, err := cbor.Decode(tmpMsg[0], &msgType); err != nil {
 			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
+			return
 		}
 		// Create Message object from CBOR
 		msgData := readBuffer.Bytes()[:numBytesRead]
@@ -449,7 +485,6 @@ func (p *Protocol) readLoop() {
 		if limit > 0 && p.pendingRecvBytes+msgLen > limit {
 			p.pendingBytesMu.Unlock()
 			p.SendError(ErrProtocolViolationQueueExceeded)
-			p.Stop()
 			return
 		}
 		p.pendingRecvBytes += msgLen
