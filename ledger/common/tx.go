@@ -29,7 +29,6 @@ type Transaction interface {
 	Hash() Blake2b256
 	LeiosHash() Blake2b256
 	Metadata() TransactionMetadatum
-	RawAuxiliaryData() []byte
 	AuxiliaryData() AuxiliaryData
 	IsValid() bool
 	Consumed() []TransactionInput

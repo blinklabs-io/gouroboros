@@ -76,10 +76,13 @@ func TestRealShelleyTransactionWithMetadata(t *testing.T) {
 		t.Fatalf("failed to decode re-encoded auxiliary data: %v", err)
 	}
 	if _, ok := auxData2.(*common.ShelleyAuxiliaryData); !ok {
-		t.Fatalf("expected ShelleyAuxiliaryData after roundtrip, got %T", auxData2)
+		t.Fatalf(
+			"expected ShelleyAuxiliaryData after roundtrip, got %T",
+			auxData2,
+		)
 	}
 
-	t.Logf("✓ Successfully decoded and validated Shelley auxiliary data")
+	t.Logf("Successfully decoded and validated Shelley auxiliary data")
 }
 
 // Test with Mary/Allegra transaction containing metadata and native scripts
@@ -142,16 +145,19 @@ func TestRealMaryTransactionWithMetadataAndScripts(t *testing.T) {
 		t.Fatalf("failed to decode re-encoded auxiliary data: %v", err)
 	}
 	if _, ok := auxData2.(*common.ShelleyMaAuxiliaryData); !ok {
-		t.Fatalf("expected ShelleyMaAuxiliaryData after roundtrip, got %T", auxData2)
+		t.Fatalf(
+			"expected ShelleyMaAuxiliaryData after roundtrip, got %T",
+			auxData2,
+		)
 	}
 
-	t.Logf("✓ Successfully decoded and validated Mary auxiliary data")
+	t.Logf("Successfully decoded and validated Mary auxiliary data")
 }
 
 // Test with Alonzo transaction containing metadata and all script types
 func TestRealAlonzoTransactionWithAllScriptTypes(t *testing.T) {
 	// Metadata
-	metadataMap := make(map[string]interface{})
+	metadataMap := make(map[string]any)
 	metadataMap["contract"] = "swap"
 	metadataMap["version"] = 1
 	metadataCbor, err := cbor.Encode(metadataMap)
@@ -256,10 +262,15 @@ func TestRealAlonzoTransactionWithAllScriptTypes(t *testing.T) {
 		t.Fatalf("failed to decode re-encoded auxiliary data: %v", err)
 	}
 	if _, ok := auxData2.(*common.AlonzoAuxiliaryData); !ok {
-		t.Fatalf("expected AlonzoAuxiliaryData after roundtrip, got %T", auxData2)
+		t.Fatalf(
+			"expected AlonzoAuxiliaryData after roundtrip, got %T",
+			auxData2,
+		)
 	}
 
-	t.Logf("✓ Successfully decoded and validated Alonzo auxiliary data with all script types")
+	t.Logf(
+		"Successfully decoded and validated Alonzo auxiliary data with all script types",
+	)
 }
 
 // Test with Conway transaction containing Plutus V3 scripts
@@ -320,18 +331,21 @@ func TestRealConwayTransactionWithPlutusV3(t *testing.T) {
 		t.Fatal("expected plutus v3 scripts array, got nil")
 	}
 
-	t.Logf("✓ Successfully decoded and validated Conway auxiliary data with Plutus V3 support")
+	t.Logf(
+		"Successfully decoded and validated Conway auxiliary data with Plutus V3 support",
+	)
+
 }
 
 // Test decoding metadata with complex nested structures
 func TestComplexMetadataStructure(t *testing.T) {
 	// Create complex nested metadata structure
 	// Simulating CIP-25 NFT metadata structure
-	innerMap := make(map[string]interface{})
+	innerMap := make(map[string]any)
 	innerMap["name"] = "Test NFT"
 	innerMap["image"] = "ipfs://test123"
 
-	outerMap := make(map[string]interface{})
+	outerMap := make(map[string]any)
 	outerMap["721"] = innerMap
 	outerMap["version"] = "1.0"
 
@@ -363,7 +377,7 @@ func TestComplexMetadataStructure(t *testing.T) {
 		t.Fatal("expected metadata pairs")
 	}
 
-	t.Logf("✓ Successfully decoded complex nested metadata structure")
+	t.Logf("Successfully decoded complex nested metadata structure")
 }
 
 // Benchmark auxiliary data decoding
@@ -383,8 +397,7 @@ func BenchmarkDecodeAuxiliaryData(b *testing.B) {
 
 	taggedCbor, _ := cbor.Encode(&tmpTag)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := common.DecodeAuxiliaryData(taggedCbor)
 		if err != nil {
 			b.Fatalf("decode failed: %v", err)

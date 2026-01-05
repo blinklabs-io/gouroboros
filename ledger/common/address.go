@@ -50,6 +50,8 @@ const (
 	AddressTypeNoneKey       = 0b1110
 	AddressTypeNoneScript    = 0b1111
 
+	AddressTypeScriptBit = 0x01
+
 	ByronAddressTypePubkey = 0
 	ByronAddressTypeScript = 1
 	ByronAddressTypeRedeem = 2

@@ -32,6 +32,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
+	UtxoValidateSignatures,
 	UtxoValidateCostModelsPresent,
 	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
@@ -42,12 +43,15 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateCollateralEqBalance,
 	UtxoValidateNoCollateralInputs,
 	UtxoValidateBadInputsUtxo,
+	// Ensure script witness presence/absence is validated after redeemer/script relation
+	UtxoValidateScriptWitnesses,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
 	UtxoValidateOutputBootAddrAttrsTooBig,
 	UtxoValidateWrongNetwork,
 	UtxoValidateWrongNetworkWithdrawal,
+	UtxoValidateTransactionNetworkId,
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateTooManyCollateralInputs,
@@ -173,7 +177,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
+		case *common.PlutusV1Script, common.PlutusV1Script, *common.PlutusV2Script, common.PlutusV2Script, *common.PlutusV3Script, common.PlutusV3Script:
 			hasPlutusReference = true
 		}
 		if hasPlutusReference {
@@ -201,6 +205,17 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	}
 
 	return nil
+}
+
+// UtxoValidateScriptWitnesses checks that script witnesses are provided for all script address inputs
+// and that there are no extraneous script witnesses.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateScriptWitnesses(tx, ls)
 }
 
 // UtxoValidateCostModelsPresent ensures Plutus scripts have corresponding cost models in protocol parameters
@@ -244,11 +259,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script, common.PlutusV1Script:
 			required[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script, common.PlutusV2Script:
 			required[1] = struct{}{}
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script, common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
@@ -265,6 +280,16 @@ func UtxoValidateCostModelsPresent(
 	}
 
 	return nil
+}
+
+// UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
+func UtxoValidateSignatures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.UtxoValidateSignatures(tx, slot, ls, pp)
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -640,6 +665,40 @@ func UtxoValidateWrongNetworkWithdrawal(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWrongNetworkWithdrawal(tx, slot, ls, pp)
+}
+
+// UtxoValidateTransactionNetworkId validates that if the transaction body
+// specifies a NetworkId field, it must match the ledger state's network
+func UtxoValidateTransactionNetworkId(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Only Conway transactions have the NetworkId field in the body
+	conwayTx, ok := tx.(*ConwayTransaction)
+	if !ok {
+		// Not a Conway transaction, skip this validation
+		return nil
+	}
+
+	// Get the transaction's optional NetworkId field
+	txNetworkId := conwayTx.NetworkId()
+	if txNetworkId == nil {
+		// NetworkId not specified in transaction, that's fine
+		return nil
+	}
+
+	// NetworkId is specified, must match ledger state
+	ledgerNetworkId := ls.NetworkId()
+	if uint(*txNetworkId) != ledgerNetworkId {
+		return WrongTransactionNetworkIdError{
+			TxNetworkId:     *txNetworkId,
+			LedgerNetworkId: ledgerNetworkId,
+		}
+	}
+
+	return nil
 }
 
 func UtxoValidateMaxTxSizeUtxo(

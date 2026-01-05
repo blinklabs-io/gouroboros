@@ -119,9 +119,22 @@ func TestByronTransaction_Utxorpc(t *testing.T) {
 		byronTx, ok := tx.(*byron.ByronTransaction)
 		assert.True(t, ok, "Transaction should be of type *ByronTransaction")
 
-		assert.NotNil(t, byronTx.Twit, "Byron witness list (Twit) should not be nil")
-		assert.Greater(t, len(byronTx.Twit), 0, "Byron witness list (Twit) should not be empty")
-		assert.NotNil(t, byronTx.Witnesses(), "Witnesses() should not return nil")
+		assert.NotNil(
+			t,
+			byronTx.Twit,
+			"Byron witness list (Twit) should not be nil",
+		)
+		assert.Greater(
+			t,
+			len(byronTx.Twit),
+			0,
+			"Byron witness list (Twit) should not be empty",
+		)
+		assert.NotNil(
+			t,
+			byronTx.Witnesses(),
+			"Witnesses() should not return nil",
+		)
 
 		utxoTx, err := byronTx.Utxorpc()
 		assert.NoError(t, err)

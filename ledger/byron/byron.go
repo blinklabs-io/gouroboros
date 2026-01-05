@@ -316,7 +316,10 @@ func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Decode witnesses (Twit)
 	if _, err := cbor.Decode([]byte(txArray[1]), &t.Twit); err != nil {
-		return fmt.Errorf("failed to decode byron transaction witnesses: %w", err)
+		return fmt.Errorf(
+			"failed to decode byron transaction witnesses: %w",
+			err,
+		)
 	}
 	t.SetCbor(cborData)
 	return nil
@@ -452,10 +455,6 @@ func (t *ByronTransaction) Metadata() common.TransactionMetadatum {
 	return nil
 }
 
-func (t *ByronTransaction) RawAuxiliaryData() []byte {
-	return nil
-}
-
 func (t *ByronTransaction) AuxiliaryData() common.AuxiliaryData {
 	return nil
 }
@@ -506,7 +505,9 @@ type ByronTransactionWitnessSet struct {
 	bootstrap []common.BootstrapWitness
 }
 
-func NewByronTransactionWitnessSet(twit []cbor.Value) *ByronTransactionWitnessSet {
+func NewByronTransactionWitnessSet(
+	twit []cbor.Value,
+) *ByronTransactionWitnessSet {
 	ws := &ByronTransactionWitnessSet{}
 	for i := range twit {
 		if vw, bw, ok := decodeByronWitness(twit[i]); ok {

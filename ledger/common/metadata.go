@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -251,7 +252,7 @@ func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
 
 		bs := k.Bytes()
 		pairs = append(pairs, MetaPair{
-			Key:   &MetaBytes{Value: append([]byte(nil), bs...)},
+			Key:   &MetaBytes{Value: slices.Clone(bs)},
 			Value: val,
 		})
 	}
@@ -459,7 +460,17 @@ func (s *ShelleyAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
 
 func (s *ShelleyAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	s.SetCbor(data)
-	md, err := DecodeMetadatumRaw(data)
+
+	// Shelley auxiliary data may be wrapped in CBOR tag 259 (0xD90103)
+	// If present, we need to skip the tag and extract the inner content
+	// before passing to DecodeMetadatumRaw (which doesn't handle tags)
+	dataToUse := data
+	if len(data) >= 3 && data[0] == 0xD9 && data[1] == 0x01 && data[2] == 0x03 {
+		// Tag 259 (0xD90103) detected, skip the 3-byte tag header
+		dataToUse = data[3:]
+	}
+
+	md, err := DecodeMetadatumRaw(dataToUse)
 	if err != nil {
 		return fmt.Errorf("failed to decode Shelley auxiliary data: %w", err)
 	}
@@ -507,10 +518,16 @@ func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	s.SetCbor(data)
 	var arr []cbor.RawMessage
 	if _, err := cbor.Decode(data, &arr); err != nil {
-		return fmt.Errorf("failed to decode Shelley-MA auxiliary data array: %w", err)
+		return fmt.Errorf(
+			"failed to decode Shelley-MA auxiliary data array: %w",
+			err,
+		)
 	}
 	if len(arr) != 2 {
-		return fmt.Errorf("Shelley-MA auxiliary data must have 2 elements, got %d", len(arr))
+		return fmt.Errorf(
+			"Shelley-MA auxiliary data must have 2 elements, got %d",
+			len(arr),
+		)
 	}
 
 	// First element is metadata (may be null)
@@ -697,6 +714,7 @@ func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
+		auxData.SetCbor(raw)
 		return auxData, nil
 
 	case cborTypeArray:
@@ -705,6 +723,7 @@ func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
+		auxData.SetCbor(raw)
 		return auxData, nil
 
 	case cborTypeTag:
@@ -713,6 +732,7 @@ func DecodeAuxiliaryData(raw []byte) (AuxiliaryData, error) {
 		if _, err := cbor.Decode(raw, auxData); err != nil {
 			return nil, err
 		}
+		auxData.SetCbor(raw)
 		return auxData, nil
 
 	default:

@@ -16,6 +16,8 @@ package shelley
 
 import (
 	"errors"
+	"fmt"
+	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -24,6 +26,7 @@ import (
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
 	UtxoValidateRequiredVKeyWitnesses,
+	UtxoValidateSignatures,
 	UtxoValidateTimeToLive,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -218,6 +221,16 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 }
 
+// UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
+func UtxoValidateSignatures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.UtxoValidateSignatures(tx, slot, ls, pp)
+}
+
 // UtxoValidateOutputTooSmallUtxo ensures that outputs have at least the minimum value
 func UtxoValidateOutputTooSmallUtxo(
 	tx common.Transaction,
@@ -377,8 +390,58 @@ func MinCoinTxOut(
 	return minCoinTxOut, nil
 }
 
+const maxMetadataDepth = 64
+
+// validateMetadataContent checks that metadata contains valid data according to Cardano rules
+func validateMetadataContent(metadata common.TransactionMetadatum) error {
+	if metadata == nil {
+		return nil
+	}
+	return validateMetadatumContent(metadata, 0)
+}
+
+func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
+	if depth >= maxMetadataDepth {
+		return errors.New("metadata nesting depth exceeds maximum")
+	}
+	switch m := md.(type) {
+	case *common.MetaText:
+		if !utf8.ValidString(m.Value) {
+			return errors.New("metadata contains invalid UTF-8 text")
+		}
+		// Cardano spec: metadata text strings must not exceed 64 bytes
+		if len(m.Value) > 64 {
+			return fmt.Errorf("metadata text exceeds 64 byte limit: %d bytes", len(m.Value))
+		}
+	case *common.MetaBytes:
+		// Cardano spec: metadata byte strings must not exceed 64 bytes
+		if len(m.Value) > 64 {
+			return fmt.Errorf("metadata byte string exceeds 64 byte limit: %d bytes", len(m.Value))
+		}
+	case *common.MetaInt:
+		if m.Value == nil {
+			return errors.New("metadata contains nil integer value")
+		}
+	case *common.MetaList:
+		for _, item := range m.Items {
+			if err := validateMetadatumContent(item, depth+1); err != nil {
+				return err
+			}
+		}
+	case *common.MetaMap:
+		for _, pair := range m.Pairs {
+			if err := validateMetadatumContent(pair.Key, depth+1); err != nil {
+				return err
+			}
+			if err := validateMetadatumContent(pair.Value, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // UtxoValidateMetadata validates that auxiliary data (metadata) matches the hash in transaction body
-// This is a cheap structural check that should run before expensive ledger lookups
 func UtxoValidateMetadata(
 	tx common.Transaction,
 	slot uint64,
@@ -387,9 +450,22 @@ func UtxoValidateMetadata(
 ) error {
 	bodyAuxDataHash := tx.AuxDataHash()
 	txAuxData := tx.Metadata()
-	rawAuxData := tx.RawAuxiliaryData()
-	// If metadata is present but raw auxiliary data bytes are missing,
-	// fall back to encoding the metadata so validation still runs.
+	var rawAuxData []byte
+	if aux := tx.AuxiliaryData(); aux != nil {
+		ac := aux.Cbor()
+		// Treat single-byte CBOR simple-value placeholders as absence
+		// of auxiliary data so we can fall back to block-level
+		// metadata stored in TransactionMetadataSet. Historically some
+		// inputs used CBOR null (0xf6) as a placeholder; we've observed
+		// producers that use CBOR true (0xf5) or false (0xf4) as a
+		// placeholder as well. If the auxiliary-data is exactly one
+		// simple-value byte, ignore it here.
+		if len(ac) > 0 {
+			if len(ac) != 1 || (ac[0] != 0xF6 && ac[0] != 0xF5 && ac[0] != 0xF4) {
+				rawAuxData = ac
+			}
+		}
+	}
 	if len(rawAuxData) == 0 && txAuxData != nil {
 		rawAuxData = txAuxData.Cbor()
 	}
@@ -420,10 +496,18 @@ func UtxoValidateMetadata(
 	// Use raw auxiliary data (includes scripts) for hashing, not just metadata
 	if bodyAuxDataHash != nil && len(rawAuxData) > 0 {
 		actualHash := common.Blake2b256Hash(rawAuxData)
+
 		if *bodyAuxDataHash != actualHash {
 			return common.ConflictingMetadataHashError{
 				Supplied: *bodyAuxDataHash,
 				Expected: actualHash,
+			}
+		}
+
+		// Validate metadata content
+		if txAuxData != nil {
+			if err := validateMetadataContent(txAuxData); err != nil {
+				return err
 			}
 		}
 	}

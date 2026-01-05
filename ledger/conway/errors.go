@@ -15,6 +15,7 @@
 package conway
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -52,3 +53,12 @@ type (
 	MissingCostModelError                    = common.MissingCostModelError
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
 )
+
+type WrongTransactionNetworkIdError struct {
+	TxNetworkId     uint8
+	LedgerNetworkId uint
+}
+
+func (e WrongTransactionNetworkIdError) Error() string {
+	return fmt.Sprintf("wrong transaction network ID: transaction has %d, ledger expects %d", e.TxNetworkId, e.LedgerNetworkId)
+}

@@ -203,8 +203,16 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -699,7 +707,13 @@ func (o *BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAsset
 
 func (o *BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
 	if o.DatumOption != nil {
-		return o.DatumOption.hash
+		if o.DatumOption.hash != nil {
+			return o.DatumOption.hash
+		}
+		if o.DatumOption.data != nil {
+			hash := o.DatumOption.data.Hash()
+			return &hash
+		}
 	}
 	return &common.Blake2b256{}
 }
@@ -746,10 +760,15 @@ func (o *BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 
 	var datumHash []byte
-	if o.DatumHash() == nil {
-		datumHash = []byte{}
-	} else {
+	if o.DatumOption == nil {
+		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
+	} else if o.DatumOption.hash != nil {
+		datumHash = o.DatumOption.hash.Bytes()
+	} else if o.DatumOption.data != nil {
 		datumHash = o.DatumHash().Bytes()
+	} else {
+		// DatumOption present but empty
+		datumHash = []byte{}
 	}
 
 	return &utxorpc.TxOutput{
@@ -886,7 +905,6 @@ type BabbageTransaction struct {
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
 	auxData    common.AuxiliaryData
 }
 
@@ -919,10 +937,9 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
-
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[3])
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
 		auxData, err := common.DecodeAuxiliaryData(txArray[3])
@@ -948,10 +965,6 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 
 func (t *BabbageTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
-}
-
-func (t *BabbageTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
 }
 
 func (t *BabbageTransaction) AuxiliaryData() common.AuxiliaryData {

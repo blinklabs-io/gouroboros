@@ -172,8 +172,16 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -655,7 +663,6 @@ type AlonzoTransaction struct {
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
 	auxData    common.AuxiliaryData
 }
 
@@ -688,10 +695,9 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
-
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[3])
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
 		auxData, err := common.DecodeAuxiliaryData(txArray[3])
@@ -717,10 +723,6 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 
 func (t *AlonzoTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
-}
-
-func (t *AlonzoTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
 }
 
 func (t *AlonzoTransaction) AuxiliaryData() common.AuxiliaryData {

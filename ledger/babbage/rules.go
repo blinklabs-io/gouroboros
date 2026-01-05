@@ -29,6 +29,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
 	UtxoValidateIsValidFlag,
 	UtxoValidateRequiredVKeyWitnesses,
+	UtxoValidateSignatures,
 	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
 	UtxoValidateCostModelsPresent,
@@ -324,6 +325,16 @@ func UtxoValidateCollateralEqBalance(
 		Provided:        collBalance,
 		TotalCollateral: totalCollateral,
 	}
+}
+
+// UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
+func UtxoValidateSignatures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.UtxoValidateSignatures(tx, slot, ls, pp)
 }
 
 func UtxoValidateNoCollateralInputs(

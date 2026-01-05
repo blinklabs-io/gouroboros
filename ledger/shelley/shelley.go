@@ -127,8 +127,17 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			// Decode auxiliary data from raw CBOR and set auxData for hashing
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -569,7 +578,6 @@ type ShelleyTransaction struct {
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
 	auxData    common.AuxiliaryData
 }
 
@@ -600,8 +608,8 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	if len(txArray) > 2 && len(txArray[2]) > 0 &&
-		txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[2])
+		txArray[2][0] != 0xF6 {
+		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
 		auxData, err := common.DecodeAuxiliaryData(txArray[2])
@@ -627,10 +635,6 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ShelleyTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
-}
-
-func (t *ShelleyTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
 }
 
 func (t *ShelleyTransaction) AuxiliaryData() common.AuxiliaryData {

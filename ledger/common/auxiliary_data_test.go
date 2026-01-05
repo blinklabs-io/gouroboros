@@ -311,7 +311,10 @@ func TestAlonzoAuxiliaryDataRoundtrip(t *testing.T) {
 
 	_, ok := auxData2.(*common.AlonzoAuxiliaryData)
 	if !ok {
-		t.Fatalf("expected AlonzoAuxiliaryData after roundtrip, got %T", auxData2)
+		t.Fatalf(
+			"expected AlonzoAuxiliaryData after roundtrip, got %T",
+			auxData2,
+		)
 	}
 }
 

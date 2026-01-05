@@ -397,6 +397,47 @@ func TestAssetFingerprint(t *testing.T) {
 		assetNameHex        string
 		expectedFingerprint string
 	}{
+		// CIP-0014 test vectors
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "",
+			expectedFingerprint: "asset1rjklcrnsdzqp65wjgrg55sy9723kw09mlgvlc3",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc37e",
+			assetNameHex:        "",
+			expectedFingerprint: "asset1nl0puwxmhas8fawxp8nx4e2q3wekg969n2auw3",
+		},
+		{
+			policyIdHex:         "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			assetNameHex:        "",
+			expectedFingerprint: "asset1uyuxku60yqe57nusqzjx38aan3f2wq6s93f6ea",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "504154415445",
+			expectedFingerprint: "asset13n25uv0yaf5kus35fm2k86cqy60z58d9xmde92",
+		},
+		{
+			policyIdHex:         "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			assetNameHex:        "504154415445",
+			expectedFingerprint: "asset1hv4p5tv2a837mzqrst04d0dcptdjmluqvdx9k3",
+		},
+		{
+			policyIdHex:         "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			assetNameHex:        "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			expectedFingerprint: "asset1aqrdypg669jgazruv5ah07nuyqe0wxjhe2el6f",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			expectedFingerprint: "asset17jd78wukhtrnmjh3fngzasxm8rck0l2r4hhyyt",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "0000000000000000000000000000000000000000000000000000000000000000",
+			expectedFingerprint: "asset1pkpwyknlvul7az0xx8czhl60pyel45rpje4z8w",
+		},
 		// NOTE: these test defs were created from a random sampling of recent assets on cexplorer.io
 		{
 			policyIdHex:         "29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",

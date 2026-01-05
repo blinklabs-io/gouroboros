@@ -401,6 +401,140 @@ func BenchmarkAddressFromBytes(b *testing.B) {
 	}
 }
 
+func TestCIP0019AddressParsing(t *testing.T) {
+	// Test vectors from CIP-0019
+	testDefs := []struct {
+		address         string
+		expectedType    uint8
+		expectedNetwork uint
+	}{
+		// Mainnet addresses
+		{
+			"addr1qx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgse35a3x",
+			AddressTypeKeyKey,
+			1,
+		},
+		{
+			"addr1z8phkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gten0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgs9yc0hh",
+			AddressTypeScriptKey,
+			1,
+		},
+		{
+			"addr1yx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzerkr0vd4msrxnuwnccdxlhdjar77j6lg0wypcc9uar5d2shs2z78ve",
+			AddressTypeKeyScript,
+			1,
+		},
+		{
+			"addr1x8phkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gt7r0vd4msrxnuwnccdxlhdjar77j6lg0wypcc9uar5d2shskhj42g",
+			AddressTypeScriptScript,
+			1,
+		},
+		{
+			"addr1gx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer5pnz75xxcrzqf96k",
+			AddressTypeKeyPointer,
+			1,
+		},
+		{
+			"addr128phkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gtupnz75xxcrtw79hu",
+			AddressTypeScriptPointer,
+			1,
+		},
+		{
+			"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+			AddressTypeKeyNone,
+			1,
+		},
+		{
+			"addr1w8phkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gtcyjy7wx",
+			AddressTypeScriptNone,
+			1,
+		},
+		{
+			"stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw",
+			AddressTypeNoneKey,
+			1,
+		},
+		{
+			"stake178phkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gtcccycj5",
+			AddressTypeNoneScript,
+			1,
+		},
+		// Testnet addresses
+		{
+			"addr_test1qz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgs68faae",
+			AddressTypeKeyKey,
+			0,
+		},
+		{
+			"addr_test1zrphkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gten0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgsxj90mg",
+			AddressTypeScriptKey,
+			0,
+		},
+		{
+			"addr_test1yz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzerkr0vd4msrxnuwnccdxlhdjar77j6lg0wypcc9uar5d2shsf5r8qx",
+			AddressTypeKeyScript,
+			0,
+		},
+		{
+			"addr_test1xrphkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gt7r0vd4msrxnuwnccdxlhdjar77j6lg0wypcc9uar5d2shs4p04xh",
+			AddressTypeScriptScript,
+			0,
+		},
+		{
+			"addr_test1gz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer5pnz75xxcrdw5vky",
+			AddressTypeKeyPointer,
+			0,
+		},
+		{
+			"addr_test12rphkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gtupnz75xxcryqrvmw",
+			AddressTypeScriptPointer,
+			0,
+		},
+		{
+			"addr_test1vz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzerspjrlsz",
+			AddressTypeKeyNone,
+			0,
+		},
+		{
+			"addr_test1wrphkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gtcl6szpr",
+			AddressTypeScriptNone,
+			0,
+		},
+		{
+			"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
+			AddressTypeNoneKey,
+			0,
+		},
+		{
+			"stake_test17rphkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gtcljw6kf",
+			AddressTypeNoneScript,
+			0,
+		},
+	}
+	for _, testDef := range testDefs {
+		addr, err := NewAddress(testDef.address)
+		if err != nil {
+			t.Fatalf("failed to parse address %s: %s", testDef.address, err)
+		}
+		if addr.Type() != testDef.expectedType {
+			t.Fatalf(
+				"address type mismatch for %s: got %d, wanted %d",
+				testDef.address,
+				addr.Type(),
+				testDef.expectedType,
+			)
+		}
+		if addr.NetworkId() != testDef.expectedNetwork {
+			t.Fatalf(
+				"network ID mismatch for %s: got %d, wanted %d",
+				testDef.address,
+				addr.NetworkId(),
+				testDef.expectedNetwork,
+			)
+		}
+	}
+}
+
 func BenchmarkAddressFromString(b *testing.B) {
 	addrStr := "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha"
 	b.ResetTimer()

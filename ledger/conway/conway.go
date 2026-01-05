@@ -203,8 +203,16 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -459,7 +467,7 @@ type ConwayTransactionBody struct {
 	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
 	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
 	TxRequiredSigners       cbor.SetType[common.Blake2b224]               `cbor:"14,keyasint,omitempty,omitzero"`
-	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
+	TxNetworkId             *uint8                                        `cbor:"15,keyasint,omitempty"`
 	TxCollateralReturn      *babbage.BabbageTransactionOutput             `cbor:"16,keyasint,omitempty"`
 	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
@@ -590,6 +598,13 @@ func (b *ConwayTransactionBody) ProposalProcedures() []common.ProposalProcedure 
 	return ret
 }
 
+func (b *ConwayTransactionBody) NetworkId() *uint8 {
+	// TxNetworkId field is optional (omitempty in CBOR)
+	// Since it's a pointer, nil means not present, non-nil means present
+	// This correctly handles testnet (network ID 0) as well as mainnet (ID 1)
+	return b.TxNetworkId
+}
+
 func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
 	return b.TxCurrentTreasuryValue
 }
@@ -610,7 +625,6 @@ type ConwayTransaction struct {
 	WitnessSet ConwayTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
 	auxData    common.AuxiliaryData
 }
 
@@ -643,10 +657,9 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
-
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[3])
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
 		auxData, err := common.DecodeAuxiliaryData(txArray[3])
@@ -672,10 +685,6 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 
 func (t *ConwayTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
-}
-
-func (t *ConwayTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
 }
 
 func (t *ConwayTransaction) AuxiliaryData() common.AuxiliaryData {
@@ -780,6 +789,10 @@ func (t *ConwayTransaction) CurrentTreasuryValue() int64 {
 
 func (t *ConwayTransaction) Donation() uint64 {
 	return t.Body.Donation()
+}
+
+func (t *ConwayTransaction) NetworkId() *uint8 {
+	return t.Body.NetworkId()
 }
 
 func (t *ConwayTransaction) IsValid() bool {

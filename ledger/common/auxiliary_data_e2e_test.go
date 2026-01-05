@@ -29,17 +29,17 @@ import (
 
 func TestE2EShelleyTransactionAuxiliaryData(t *testing.T) {
 	// Minimal body (just inputs and outputs)
-	bodyMap := make(map[uint]interface{})
-	bodyMap[0] = []interface{}{} // inputs
-	bodyMap[1] = []interface{}{} // outputs
-	bodyMap[2] = uint64(0)       // fee
+	bodyMap := make(map[uint]any)
+	bodyMap[0] = []any{}   // inputs
+	bodyMap[1] = []any{}   // outputs
+	bodyMap[2] = uint64(0) // fee
 	bodyCbor, err := cbor.Encode(bodyMap)
 	if err != nil {
 		t.Fatalf("failed to encode body: %v", err)
 	}
 
 	// Empty witness set
-	witnessMap := make(map[uint]interface{})
+	witnessMap := make(map[uint]any)
 	witnessCbor, err := cbor.Encode(witnessMap)
 	if err != nil {
 		t.Fatalf("failed to encode witness: %v", err)
@@ -92,22 +92,22 @@ func TestE2EShelleyTransactionAuxiliaryData(t *testing.T) {
 		t.Fatal("backward compatibility broken: Metadata() returned nil")
 	}
 
-	t.Logf("✓ E2E: Successfully decoded Shelley transaction with auxiliary data")
+	t.Logf("Successfully decoded Shelley transaction with auxiliary data")
 }
 
 func TestE2EMaryTransactionAuxiliaryData(t *testing.T) {
 	// Minimal body
-	bodyMap := make(map[uint]interface{})
-	bodyMap[0] = []interface{}{} // inputs
-	bodyMap[1] = []interface{}{} // outputs
-	bodyMap[2] = uint64(0)       // fee
+	bodyMap := make(map[uint]any)
+	bodyMap[0] = []any{}   // inputs
+	bodyMap[1] = []any{}   // outputs
+	bodyMap[2] = uint64(0) // fee
 	bodyCbor, err := cbor.Encode(bodyMap)
 	if err != nil {
 		t.Fatalf("failed to encode body: %v", err)
 	}
 
 	// Empty witness set
-	witnessMap := make(map[uint]interface{})
+	witnessMap := make(map[uint]any)
 	witnessCbor, err := cbor.Encode(witnessMap)
 	if err != nil {
 		t.Fatalf("failed to encode witness: %v", err)
@@ -173,22 +173,22 @@ func TestE2EMaryTransactionAuxiliaryData(t *testing.T) {
 		t.Fatal("expected native scripts array, got nil")
 	}
 
-	t.Logf("✓ E2E: Successfully decoded Mary transaction with auxiliary data")
+	t.Logf("Successfully decoded Mary transaction with auxiliary data")
 }
 
 func TestE2EAlonzoTransactionAuxiliaryData(t *testing.T) {
 	// Minimal body
-	bodyMap := make(map[uint]interface{})
-	bodyMap[0] = []interface{}{} // inputs
-	bodyMap[1] = []interface{}{} // outputs
-	bodyMap[2] = uint64(0)       // fee
+	bodyMap := make(map[uint]any)
+	bodyMap[0] = []any{}   // inputs
+	bodyMap[1] = []any{}   // outputs
+	bodyMap[2] = uint64(0) // fee
 	bodyCbor, err := cbor.Encode(bodyMap)
 	if err != nil {
 		t.Fatalf("failed to encode body: %v", err)
 	}
 
 	// Empty witness set
-	witnessMap := make(map[uint]interface{})
+	witnessMap := make(map[uint]any)
 	witnessCbor, err := cbor.Encode(witnessMap)
 	if err != nil {
 		t.Fatalf("failed to encode witness: %v", err)
@@ -288,21 +288,21 @@ func TestE2EAlonzoTransactionAuxiliaryData(t *testing.T) {
 		t.Fatal("expected plutus v2 scripts, got nil")
 	}
 
-	t.Logf("✓ E2E: Successfully decoded Alonzo transaction with auxiliary data")
+	t.Logf("Successfully decoded Alonzo transaction with auxiliary data")
 }
 
 func TestE2EBabbageTransactionAuxiliaryData(t *testing.T) {
 	// Minimal body
-	bodyMap := make(map[uint]interface{})
-	bodyMap[0] = []interface{}{} // inputs
-	bodyMap[1] = []interface{}{} // outputs
-	bodyMap[2] = uint64(0)       // fee
+	bodyMap := make(map[uint]any)
+	bodyMap[0] = []any{}   // inputs
+	bodyMap[1] = []any{}   // outputs
+	bodyMap[2] = uint64(0) // fee
 	bodyCbor, err := cbor.Encode(bodyMap)
 	if err != nil {
 		t.Fatalf("failed to encode body: %v", err)
 	}
 
-	witnessMap := make(map[uint]interface{})
+	witnessMap := make(map[uint]any)
 	witnessCbor, err := cbor.Encode(witnessMap)
 	if err != nil {
 		t.Fatalf("failed to encode witness: %v", err)
@@ -357,21 +357,21 @@ func TestE2EBabbageTransactionAuxiliaryData(t *testing.T) {
 		t.Fatal("expected metadata, got nil")
 	}
 
-	t.Logf("✓ E2E: Successfully decoded Babbage transaction with auxiliary data")
+	t.Logf("Successfully decoded Babbage transaction with auxiliary data")
 }
 
 func TestE2EConwayTransactionAuxiliaryData(t *testing.T) {
 	// Minimal body
-	bodyMap := make(map[uint]interface{})
-	bodyMap[0] = []interface{}{} // inputs
-	bodyMap[1] = []interface{}{} // outputs
-	bodyMap[2] = uint64(0)       // fee
+	bodyMap := make(map[uint]any)
+	bodyMap[0] = []any{}   // inputs
+	bodyMap[1] = []any{}   // outputs
+	bodyMap[2] = uint64(0) // fee
 	bodyCbor, err := cbor.Encode(bodyMap)
 	if err != nil {
 		t.Fatalf("failed to encode body: %v", err)
 	}
 
-	witnessMap := make(map[uint]interface{})
+	witnessMap := make(map[uint]any)
 	witnessCbor, err := cbor.Encode(witnessMap)
 	if err != nil {
 		t.Fatalf("failed to encode witness: %v", err)
@@ -438,22 +438,22 @@ func TestE2EConwayTransactionAuxiliaryData(t *testing.T) {
 		t.Fatal("expected plutus v3 scripts, got nil")
 	}
 
-	t.Logf("✓ E2E: Successfully decoded Conway transaction with Plutus V3 support")
+	t.Logf("Successfully decoded Conway transaction with Plutus V3 support")
 }
 
 // Test that transactions without auxiliary data work correctly
 func TestE2ETransactionWithoutAuxiliaryData(t *testing.T) {
 	// Minimal body
-	bodyMap := make(map[uint]interface{})
-	bodyMap[0] = []interface{}{} // inputs
-	bodyMap[1] = []interface{}{} // outputs
-	bodyMap[2] = uint64(0)       // fee
+	bodyMap := make(map[uint]any)
+	bodyMap[0] = []any{}   // inputs
+	bodyMap[1] = []any{}   // outputs
+	bodyMap[2] = uint64(0) // fee
 	bodyCbor, err := cbor.Encode(bodyMap)
 	if err != nil {
 		t.Fatalf("failed to encode body: %v", err)
 	}
 
-	witnessMap := make(map[uint]interface{})
+	witnessMap := make(map[uint]any)
 	witnessCbor, err := cbor.Encode(witnessMap)
 	if err != nil {
 		t.Fatalf("failed to encode witness: %v", err)
@@ -490,10 +490,6 @@ func TestE2ETransactionWithoutAuxiliaryData(t *testing.T) {
 	// Verify old methods also return nil
 	if tx.Metadata() != nil {
 		t.Fatal("expected nil metadata")
-	}
-
-	if tx.RawAuxiliaryData() != nil {
-		t.Fatal("expected nil raw auxiliary data")
 	}
 
 	t.Logf("✓ E2E: Successfully handled transaction without auxiliary data")
