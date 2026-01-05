@@ -171,7 +171,7 @@ func TestMaryTransactionOutput_Utxorpc(t *testing.T) {
 
 	output := mary.MaryTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: amount},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(amount)},
 	}
 
 	got, err := output.Utxorpc()
@@ -205,7 +205,7 @@ func TestMaryTransactionBody_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := mary.MaryTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(5000)},
 	}
 
 	body := mary.MaryTransactionBody{
@@ -261,7 +261,7 @@ func TestMaryTransaction_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := mary.MaryTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 8000},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(8000)},
 	}
 
 	body := mary.MaryTransactionBody{

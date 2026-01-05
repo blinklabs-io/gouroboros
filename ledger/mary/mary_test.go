@@ -49,11 +49,11 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 	}{
 		{
 			CborHex: "1a02d71996",
-			Object:  MaryTransactionOutputValue{Amount: 47651222},
+			Object:  MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(47651222)},
 		},
 		{
 			CborHex: "1b0000000129d2de56",
-			Object:  MaryTransactionOutputValue{Amount: 4996652630},
+			Object:  MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(4996652630)},
 		},
 		{
 			CborHex: "821a003d0900a1581c00000002df633853f6a47465c9496721d2d5b1291b8398016c0e87aea1476e7574636f696e01",
@@ -148,7 +148,7 @@ func TestMaryOutputTooBigErrorFormatting(t *testing.T) {
 	addr, _ := common.NewAddress(addrStr)
 	out := &MaryTransactionOutput{
 		OutputAddress: addr,
-		OutputAmount:  MaryTransactionOutputValue{Amount: 456},
+		OutputAmount:  MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(456)},
 	}
 	errStr := OutputTooBigUtxoError{
 		Outputs: []common.TransactionOutput{out},

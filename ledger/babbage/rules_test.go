@@ -529,7 +529,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testInputAmount,
+				OutputAmount: new(big.Int).SetUint64(testInputAmount),
 			},
 		},
 	}
@@ -980,13 +980,13 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount1,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount1),
 			},
 		},
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount2,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount2),
 			},
 		},
 	}
@@ -1087,14 +1087,14 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount),
 			},
 		},
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 					Assets: &tmpMultiAsset,
 				},
 			},
@@ -1103,7 +1103,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 2),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 					Assets: &tmpZeroMultiAsset,
 				},
 			},
@@ -1183,7 +1183,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			)
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 					Assets: &tmpMultiAsset,
 				},
 			}
@@ -1213,7 +1213,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			)
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 				},
 			}
 			err := babbage.UtxoValidateCollateralContainsNonAda(
@@ -1248,7 +1248,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testCollateralAmount,
+				OutputAmount: new(big.Int).SetUint64(testCollateralAmount),
 			},
 		},
 	}
@@ -1526,7 +1526,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				0,
 			),
 			Output: shelley.ShelleyTransactionOutput{
-				OutputAmount: testInputAmount,
+				OutputAmount: new(big.Int).SetUint64(testInputAmount),
 			},
 		},
 	}
@@ -1539,7 +1539,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralReturnAmountBad,
+					Amount: new(big.Int).SetUint64(testCollateralReturnAmountBad),
 				},
 			}
 			err := babbage.UtxoValidateCollateralEqBalance(
@@ -1571,7 +1571,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralReturnAmountGood,
+					Amount: new(big.Int).SetUint64(testCollateralReturnAmountGood),
 				},
 			}
 			err := babbage.UtxoValidateCollateralEqBalance(
@@ -1600,7 +1600,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 			}
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralReturnAmountBad,
+					Amount: new(big.Int).SetUint64(testCollateralReturnAmountBad),
 				},
 			}
 			err := babbage.UtxoValidateCollateralEqBalance(

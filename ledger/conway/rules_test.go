@@ -224,7 +224,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 		script := common.PlutusV1Script{0x01, 0x02, 0x03}
 		refOutput := babbage.BabbageTransactionOutput{
 			OutputAddress: common.Address{},
-			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(1000)},
 			TxOutScriptRef: &common.ScriptRef{
 				Type:   0,
 				Script: &script,
@@ -272,7 +272,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			script := common.PlutusV1Script{0x01, 0x02, 0x03}
 			refOutput := babbage.BabbageTransactionOutput{
 				OutputAddress: common.Address{},
-				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+				OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(1000)},
 				TxOutScriptRef: &common.ScriptRef{
 					Type:   0,
 					Script: &script,
@@ -941,13 +941,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"registration certificate valid deposit",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount - testDepositAmount // Subtract deposit from output
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount - testDepositAmount) // Subtract deposit from output
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeRegistration),
 					Certificate: &common.RegistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          int64(testDepositAmount),
+						Amount:          new(big.Int).SetInt64(int64(testDepositAmount)),
 					},
 				},
 			}
@@ -1006,13 +1006,13 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"deregistration certificate valid refund",
 		func(t *testing.T) {
-			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount + testDepositAmount // Add refund to output
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = new(big.Int).SetUint64(testOutputExactAmount + testDepositAmount) // Add refund to output
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
 				{
 					Type: uint(common.CertificateTypeDeregistration),
 					Certificate: &common.DeregistrationCertificate{
 						StakeCredential: common.Credential{},
-						Amount:          int64(testDepositAmount),
+						Amount:          new(big.Int).SetInt64(int64(testDepositAmount)),
 					},
 				},
 			}
@@ -1536,7 +1536,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 					Assets: &tmpMultiAsset,
 				},
 			},
@@ -1545,7 +1545,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 2),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 					Assets: &tmpZeroMultiAsset,
 				},
 			},
@@ -1625,7 +1625,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			)
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 					Assets: &tmpMultiAsset,
 				},
 			}
@@ -1655,7 +1655,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			)
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 				},
 			}
 			err := conway.UtxoValidateCollateralContainsNonAda(
@@ -1945,7 +1945,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralReturnAmountBad,
+					Amount: new(big.Int).SetUint64(testCollateralReturnAmountBad),
 				},
 			}
 			err := conway.UtxoValidateCollateralEqBalance(
@@ -1977,7 +1977,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		func(t *testing.T) {
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralReturnAmountGood,
+					Amount: new(big.Int).SetUint64(testCollateralReturnAmountGood),
 				},
 			}
 			err := conway.UtxoValidateCollateralEqBalance(

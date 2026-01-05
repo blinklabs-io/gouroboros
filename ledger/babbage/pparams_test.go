@@ -604,7 +604,7 @@ func TestBabbageTransactionOutput_Utxorpc(t *testing.T) {
 
 	output := babbage.BabbageTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: amount},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(amount)},
 	}
 
 	got, err := output.Utxorpc()
@@ -639,7 +639,7 @@ func TestBabbageTransactionBody_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := babbage.BabbageTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(5000)},
 	}
 
 	body := babbage.BabbageTransactionBody{
@@ -692,7 +692,7 @@ func TestBabbageTransaction_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := babbage.BabbageTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 9000},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(9000)},
 	}
 
 	body := babbage.BabbageTransactionBody{

@@ -1078,7 +1078,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
 			Output: alonzo.AlonzoTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
-					Amount: testCollateralAmount,
+					Amount: new(big.Int).SetUint64(testCollateralAmount),
 					Assets: &tmpMultiAsset,
 				},
 			},

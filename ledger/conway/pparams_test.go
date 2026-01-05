@@ -629,7 +629,7 @@ func TestConwayTransactionBody_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := babbage.BabbageTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(5000)},
 	}
 	txCollateral := cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
@@ -712,7 +712,7 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 	address := common.Address{}
 	output := babbage.BabbageTransactionOutput{
 		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 5000},
+		OutputAmount:  mary.MaryTransactionOutputValue{Amount: new(big.Int).SetUint64(5000)},
 	}
 
 	txCollateral := cbor.NewSetType(

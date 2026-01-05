@@ -15,7 +15,6 @@
 package babbage_test
 
 import (
-"math/big"
 	"bytes"
 	"encoding/hex"
 	"strings"
