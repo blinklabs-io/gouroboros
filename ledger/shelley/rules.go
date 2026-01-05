@@ -17,6 +17,7 @@ package shelley
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -173,31 +174,35 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds
-	var consumedValue uint64
+	consumedValue := new(big.Int)
 	for _, tmpInput := range tx.Inputs() {
 		tmpUtxo, err := ls.UtxoById(tmpInput)
 		// Ignore errors fetching the UTxO and exclude it from calculations
 		if err != nil {
 			continue
 		}
-		consumedValue += tmpUtxo.Output.Amount()
+		if tmpUtxo.Output.Amount() != nil {
+			consumedValue.Add(consumedValue, tmpUtxo.Output.Amount())
+		}
 	}
 	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
-		consumedValue += tmpWithdrawalAmount
+		consumedValue.Add(consumedValue, new(big.Int).SetUint64(tmpWithdrawalAmount))
 	}
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
-	var producedValue uint64
+	producedValue := new(big.Int)
 	for _, tmpOutput := range tx.Outputs() {
-		producedValue += tmpOutput.Amount()
+		if tmpOutput.Amount() != nil {
+			producedValue.Add(producedValue, tmpOutput.Amount())
+		}
 	}
-	producedValue += tx.Fee()
+	producedValue.Add(producedValue, new(big.Int).SetUint64(tx.Fee()))
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -206,13 +211,13 @@ func UtxoValidateValueNotConservedUtxo(
 				return err
 			}
 			if reg == nil {
-				producedValue += uint64(tmpPparams.PoolDeposit)
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
-	if consumedValue == producedValue {
+	if consumedValue.Cmp(producedValue) == 0 {
 		return nil
 	}
 	return ValueNotConservedUtxoError{
@@ -242,9 +247,10 @@ func UtxoValidateOutputTooSmallUtxo(
 	if err != nil {
 		return err
 	}
+	minCoinBig := new(big.Int).SetUint64(minCoin)
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
-		if tmpOutput.Amount() < minCoin {
+		if tmpOutput.Amount() == nil || tmpOutput.Amount().Cmp(minCoinBig) < 0 {
 			badOutputs = append(badOutputs, tmpOutput)
 		}
 	}

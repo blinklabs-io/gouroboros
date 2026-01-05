@@ -555,11 +555,11 @@ func (o *MaryTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
 		Address common.Address                                  `json:"address"`
-		Amount  uint64                                          `json:"amount"`
+		Amount  string                                          `json:"amount"`
 		Assets  *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
 	}{
 		Address: o.OutputAddress,
-		Amount:  o.OutputAmount.Amount,
+		Amount:  o.OutputAmount.Amount.String(),
 		Assets:  o.OutputAmount.Assets,
 	}
 	return json.Marshal(&tmpObj)
@@ -567,7 +567,7 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 
 func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
-	if o.OutputAmount.Amount > 0 {
+	if o.OutputAmount.Amount != nil && o.OutputAmount.Amount.Sign() > 0 {
 		valueData = append(
 			valueData,
 			[2]data.PlutusData{
@@ -576,9 +576,7 @@ func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
 					[][2]data.PlutusData{
 						{
 							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount.Amount),
-							),
+							data.NewInteger(o.OutputAmount.Amount),
 						},
 					},
 				),
@@ -616,7 +614,7 @@ func (txo MaryTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o MaryTransactionOutput) Amount() uint64 {
+func (o MaryTransactionOutput) Amount() *big.Int {
 	return o.OutputAmount.Amount
 }
 
@@ -637,9 +635,13 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address bytes: %w", err)
 	}
+	var coin *utxorpc.BigInt
+	if o.Amount() != nil {
+		coin = common.ToUtxorpcBigIntFromBigInt(o.Amount())
+	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    coin,
 			// Assets: o.Assets,
 		},
 		err
@@ -652,24 +654,30 @@ func (o MaryTransactionOutput) String() string {
 			assets = " assets=" + as
 		}
 	}
+	amountStr := "nil"
+	if o.OutputAmount.Amount != nil {
+		amountStr = o.OutputAmount.Amount.String()
+	}
 	return fmt.Sprintf(
-		"(MaryTransactionOutput address=%s amount=%d%s)",
+		"(MaryTransactionOutput address=%s amount=%s%s)",
 		o.OutputAddress.String(),
-		o.OutputAmount.Amount,
+		amountStr,
 		assets,
 	)
 }
 
 type MaryTransactionOutputValue struct {
 	cbor.StructAsArray
-	Amount uint64
+	Amount *big.Int
 	// We use a pointer here to allow it to be nil
 	Assets *common.MultiAsset[common.MultiAssetTypeOutput]
 }
 
 func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 	// Try to decode as simple amount first
-	if _, err := cbor.Decode(data, &(v.Amount)); err == nil {
+	var amount big.Int
+	if _, err := cbor.Decode(data, &amount); err == nil {
+		v.Amount = &amount
 		return nil
 	}
 	type tMaryTransactionOutputValue MaryTransactionOutputValue

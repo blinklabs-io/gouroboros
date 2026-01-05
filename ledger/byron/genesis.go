@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math/big"
 	"os"
 	"slices"
 	"strconv"
@@ -140,7 +141,7 @@ func (g *ByronGenesis) avvmUtxos() ([]common.Utxo, error) {
 				},
 				Output: ByronTransactionOutput{
 					OutputAddress: tmpAddr,
-					OutputAmount:  tmpAmount,
+					OutputAmount:  new(big.Int).SetUint64(tmpAmount),
 				},
 			},
 		)
@@ -172,7 +173,7 @@ func (g *ByronGenesis) nonAvvmUtxos() ([]common.Utxo, error) {
 				},
 				Output: ByronTransactionOutput{
 					OutputAddress: tmpAddr,
-					OutputAmount:  tmpAmount,
+					OutputAmount:  new(big.Int).SetUint64(tmpAmount),
 				},
 			},
 		)

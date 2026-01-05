@@ -553,6 +553,25 @@ func ToUtxorpcBigInt(v uint64) *utxorpc.BigInt {
 	}
 }
 
+// ToUtxorpcBigIntFromBigInt converts a *big.Int into a *utxorpc.BigInt pointer
+func ToUtxorpcBigIntFromBigInt(v *big.Int) *utxorpc.BigInt {
+	if v == nil {
+		return &utxorpc.BigInt{
+			BigInt: &utxorpc.BigInt_Int{Int: 0},
+		}
+	}
+	if v.IsInt64() {
+		return &utxorpc.BigInt{
+			BigInt: &utxorpc.BigInt_Int{Int: v.Int64()},
+		}
+	}
+	return &utxorpc.BigInt{
+		BigInt: &utxorpc.BigInt_BigUInt{
+			BigUInt: v.Bytes(),
+		},
+	}
+}
+
 // ExtractAndSetTransactionCbor extracts raw CBOR bytes for transaction bodies and witness sets
 // from a block's CBOR data and calls the provided setters to store them. This preserves original
 // encoding for correct transaction size calculations when re-serialized.

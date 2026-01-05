@@ -16,6 +16,7 @@ package common
 
 import (
 	"iter"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -72,7 +73,7 @@ type TransactionInput interface {
 
 type TransactionOutput interface {
 	Address() Address
-	Amount() uint64
+	Amount() *big.Int
 	Assets() *MultiAsset[MultiAssetTypeOutput]
 	Datum() *Datum
 	DatumHash() *Blake2b256

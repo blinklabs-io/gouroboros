@@ -764,7 +764,7 @@ type ByronTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	OutputAddress common.Address `json:"address"`
-	OutputAmount  uint64         `json:"amount"`
+	OutputAmount  *big.Int       `json:"amount"`
 }
 
 func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
@@ -773,12 +773,12 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 	var tmpData struct {
 		cbor.StructAsArray
 		WrappedAddress cbor.RawMessage
-		Amount         uint64
+		Amount         big.Int
 	}
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
-	o.OutputAmount = tmpData.Amount
+	o.OutputAmount = &tmpData.Amount
 	if _, err := cbor.Decode(tmpData.WrappedAddress, &o.OutputAddress); err != nil {
 		return err
 	}
@@ -787,7 +787,7 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 
 func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
-	if o.OutputAmount > 0 {
+	if o.OutputAmount != nil && o.OutputAmount.Sign() > 0 {
 		valueData = append(
 			valueData,
 			[2]data.PlutusData{
@@ -796,9 +796,7 @@ func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
 					[][2]data.PlutusData{
 						{
 							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount),
-							),
+							data.NewInteger(o.OutputAmount),
 						},
 					},
 				),
@@ -825,7 +823,7 @@ func (o ByronTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o ByronTransactionOutput) Amount() uint64 {
+func (o ByronTransactionOutput) Amount() *big.Int {
 	return o.OutputAmount
 }
 
@@ -848,16 +846,20 @@ func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.ToUtxorpcBigIntFromBigInt(o.Amount()),
 		},
 		nil
 }
 
 func (o ByronTransactionOutput) String() string {
+	amountStr := "nil"
+	if o.OutputAmount != nil {
+		amountStr = o.OutputAmount.String()
+	}
 	return fmt.Sprintf(
-		"(ByronTransactionOutput address=%s amount=%d)",
+		"(ByronTransactionOutput address=%s amount=%s)",
 		o.OutputAddress.String(),
-		o.OutputAmount,
+		amountStr,
 	)
 }
 

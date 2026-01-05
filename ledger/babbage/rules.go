@@ -16,6 +16,7 @@ package babbage
 
 import (
 	"errors"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -221,20 +222,28 @@ func UtxoValidateInsufficientCollateral(
 	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
 		return nil
 	}
-	var totalCollateral uint64
+	totalCollateral := new(big.Int)
 	for _, collateralInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
 		}
-		totalCollateral += utxo.Output.Amount()
+		if utxo.Output.Amount() != nil {
+			totalCollateral.Add(totalCollateral, utxo.Output.Amount())
+		}
 	}
 	minCollateral := tmpTx.Fee() * uint64(tmpPparams.CollateralPercentage) / 100
-	if totalCollateral >= minCollateral {
+	minCollateralBig := new(big.Int).SetUint64(minCollateral)
+	if totalCollateral.Cmp(minCollateralBig) >= 0 {
 		return nil
 	}
+	// Convert to uint64 for error, best effort
+	totalCollateralUint64 := uint64(0)
+	if totalCollateral.IsUint64() {
+		totalCollateralUint64 = totalCollateral.Uint64()
+	}
 	return alonzo.InsufficientCollateralError{
-		Provided: totalCollateral,
+		Provided: totalCollateralUint64,
 		Required: minCollateral,
 	}
 }
@@ -254,14 +263,16 @@ func UtxoValidateCollateralContainsNonAda(
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
-	var totalCollateral uint64
+	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
 		}
-		totalCollateral += utxo.Output.Amount()
+		if utxo.Output.Amount() != nil {
+			totalCollateral.Add(totalCollateral, utxo.Output.Amount())
+		}
 		totalAssets.Add(utxo.Output.Assets())
 		if utxo.Output.Assets() == nil ||
 			len(utxo.Output.Assets().Policies()) == 0 {
@@ -280,8 +291,13 @@ func UtxoValidateCollateralContainsNonAda(
 			return nil
 		}
 	}
+	// Convert to uint64 for error, best effort
+	totalCollateralUint64 := uint64(0)
+	if totalCollateral.IsUint64() {
+		totalCollateralUint64 = totalCollateral.Uint64()
+	}
 	return alonzo.CollateralContainsNonAdaError{
-		Provided: totalCollateral,
+		Provided: totalCollateralUint64,
 	}
 }
 
@@ -297,32 +313,42 @@ func UtxoValidateCollateralEqBalance(
 		return nil
 	}
 	// Collect collateral input amounts
-	var collBalance uint64
+	collBalance := new(big.Int)
 	for _, collInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collInput)
 		if err != nil {
 			continue
 		}
-		collBalance += utxo.Output.Amount()
+		if utxo.Output.Amount() != nil {
+			collBalance.Add(collBalance, utxo.Output.Amount())
+		}
 	}
 
 	// Skip validation if no valid collateral UTxOs were found
 	// This avoids subtracting from zero and prevents uint underflow
-	if collBalance == 0 {
+	if collBalance.Sign() == 0 {
 		return nil
 	}
 
 	// Subtract collateral return amount with underflow protection
 	collReturn := tx.CollateralReturn()
-	if collReturn != nil && collBalance >= collReturn.Amount() {
-		collBalance -= collReturn.Amount()
+	if collReturn != nil && collReturn.Amount() != nil {
+		if collBalance.Cmp(collReturn.Amount()) >= 0 {
+			collBalance.Sub(collBalance, collReturn.Amount())
+		}
 	}
 
-	if totalCollateral == collBalance {
+	totalCollateralBig := new(big.Int).SetUint64(totalCollateral)
+	if totalCollateralBig.Cmp(collBalance) == 0 {
 		return nil
 	}
+	// Convert to uint64 for error, best effort
+	collBalanceUint64 := uint64(0)
+	if collBalance.IsUint64() {
+		collBalanceUint64 = collBalance.Uint64()
+	}
 	return IncorrectTotalCollateralFieldError{
-		Provided:        collBalance,
+		Provided:        collBalanceUint64,
 		TotalCollateral: totalCollateral,
 	}
 }
@@ -378,31 +404,35 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds
-	var consumedValue uint64
+	consumedValue := new(big.Int)
 	for _, tmpInput := range tx.Inputs() {
 		tmpUtxo, err := ls.UtxoById(tmpInput)
 		// Ignore errors fetching the UTxO and exclude it from calculations
 		if err != nil {
 			continue
 		}
-		consumedValue += tmpUtxo.Output.Amount()
+		if tmpUtxo.Output.Amount() != nil {
+			consumedValue.Add(consumedValue, tmpUtxo.Output.Amount())
+		}
 	}
 	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
-		consumedValue += tmpWithdrawalAmount
+		consumedValue.Add(consumedValue, new(big.Int).SetUint64(tmpWithdrawalAmount))
 	}
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
-	var producedValue uint64
+	producedValue := new(big.Int)
 	for _, tmpOutput := range tx.Outputs() {
-		producedValue += tmpOutput.Amount()
+		if tmpOutput.Amount() != nil {
+			producedValue.Add(producedValue, tmpOutput.Amount())
+		}
 	}
-	producedValue += tx.Fee()
+	producedValue.Add(producedValue, new(big.Int).SetUint64(tx.Fee()))
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -411,13 +441,13 @@ func UtxoValidateValueNotConservedUtxo(
 				return err
 			}
 			if reg == nil {
-				producedValue += uint64(tmpPparams.PoolDeposit)
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
-	if consumedValue == producedValue {
+	if consumedValue.Cmp(producedValue) == 0 {
 		return nil
 	}
 	return shelley.ValueNotConservedUtxoError{
@@ -438,7 +468,8 @@ func UtxoValidateOutputTooSmallUtxo(
 		if err != nil {
 			return err
 		}
-		if tmpOutput.Amount() < minCoin {
+		minCoinBig := new(big.Int).SetUint64(minCoin)
+		if tmpOutput.Amount() == nil || tmpOutput.Amount().Cmp(minCoinBig) < 0 {
 			badOutputs = append(badOutputs, tmpOutput)
 		}
 	}

@@ -226,7 +226,7 @@ func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 				},
 				Output: ShelleyTransactionOutput{
 					OutputAddress: tmpAddr,
-					OutputAmount:  amount,
+					OutputAmount:  new(big.Int).SetUint64(amount),
 				},
 			},
 		)

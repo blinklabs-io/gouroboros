@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -789,7 +790,7 @@ type RegistrationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	Amount          int64
+	Amount          *big.Int
 }
 
 func (c RegistrationCertificate) isCertificate() {}
@@ -830,7 +831,7 @@ type DeregistrationCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType        uint
 	StakeCredential Credential
-	Amount          int64
+	Amount          *big.Int
 }
 
 func (c DeregistrationCertificate) isCertificate() {}
@@ -967,7 +968,7 @@ type StakeRegistrationDelegationCertificate struct {
 	CertType        uint
 	StakeCredential Credential
 	PoolKeyHash     PoolKeyHash
-	Amount          int64
+	Amount          *big.Int
 }
 
 func (c StakeRegistrationDelegationCertificate) isCertificate() {}
@@ -1010,7 +1011,7 @@ type VoteRegistrationDelegationCertificate struct {
 	CertType        uint
 	StakeCredential Credential
 	Drep            Drep
-	Amount          int64
+	Amount          *big.Int
 }
 
 func (c VoteRegistrationDelegationCertificate) isCertificate() {}
@@ -1059,7 +1060,7 @@ type StakeVoteRegistrationDelegationCertificate struct {
 	StakeCredential Credential
 	PoolKeyHash     PoolKeyHash
 	Drep            Drep
-	Amount          int64
+	Amount          *big.Int
 }
 
 func (c StakeVoteRegistrationDelegationCertificate) isCertificate() {}
@@ -1213,7 +1214,7 @@ type RegistrationDrepCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType       uint
 	DrepCredential Credential
-	Amount         int64
+	Amount         *big.Int
 	Anchor         *GovAnchor
 }
 
@@ -1264,7 +1265,7 @@ type DeregistrationDrepCertificate struct {
 	cbor.DecodeStoreCbor
 	CertType       uint
 	DrepCredential Credential
-	Amount         int64
+	Amount         *big.Int
 }
 
 func (c DeregistrationDrepCertificate) isCertificate() {}

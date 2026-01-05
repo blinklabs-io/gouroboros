@@ -599,13 +599,13 @@ func (o *BabbageTransactionOutput) MarshalCBOR() ([]byte, error) {
 func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 	tmpObj := struct {
 		Address   common.Address                                  `json:"address"`
-		Amount    uint64                                          `json:"amount"`
+		Amount    string                                          `json:"amount"`
 		Assets    *common.MultiAsset[common.MultiAssetTypeOutput] `json:"assets,omitempty"`
 		Datum     *common.Datum                                   `json:"datum,omitempty"`
 		DatumHash string                                          `json:"datumHash,omitempty"`
 	}{
 		Address: o.OutputAddress,
-		Amount:  o.OutputAmount.Amount,
+		Amount:  o.OutputAmount.Amount.String(),
 		Assets:  o.OutputAmount.Assets,
 	}
 	if o.DatumOption != nil {
@@ -621,7 +621,7 @@ func (o BabbageTransactionOutput) MarshalJSON() ([]byte, error) {
 
 func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
-	if o.OutputAmount.Amount > 0 {
+	if o.OutputAmount.Amount != nil && o.OutputAmount.Amount.Sign() > 0 {
 		valueData = append(
 			valueData,
 			[2]data.PlutusData{
@@ -630,9 +630,7 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 					[][2]data.PlutusData{
 						{
 							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount.Amount),
-							),
+							data.NewInteger(o.OutputAmount.Amount),
 						},
 					},
 				),
@@ -697,7 +695,7 @@ func (o BabbageTransactionOutput) ScriptRef() common.Script {
 	return o.TxOutScriptRef.Script
 }
 
-func (o BabbageTransactionOutput) Amount() uint64 {
+func (o BabbageTransactionOutput) Amount() *big.Int {
 	return o.OutputAmount.Amount
 }
 
@@ -773,7 +771,7 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 			Address: address,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.ToUtxorpcBigIntFromBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,
@@ -791,10 +789,14 @@ func (o BabbageTransactionOutput) String() string {
 			assets = " assets=" + as
 		}
 	}
+	amountStr := "nil"
+	if o.OutputAmount.Amount != nil {
+		amountStr = o.OutputAmount.Amount.String()
+	}
 	return fmt.Sprintf(
-		"(BabbageTransactionOutput address=%s amount=%d%s)",
+		"(BabbageTransactionOutput address=%s amount=%s%s)",
 		o.OutputAddress.String(),
-		o.OutputAmount.Amount,
+		amountStr,
 		assets,
 	)
 }

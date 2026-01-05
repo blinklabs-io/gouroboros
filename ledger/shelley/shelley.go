@@ -426,7 +426,7 @@ type ShelleyTransactionOutput struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	OutputAddress common.Address `json:"address"`
-	OutputAmount  uint64         `json:"amount"`
+	OutputAmount  *big.Int       `json:"amount"`
 }
 
 func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
@@ -442,7 +442,7 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 
 func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
-	if o.OutputAmount > 0 {
+	if o.OutputAmount != nil && o.OutputAmount.Sign() > 0 {
 		valueData = append(
 			valueData,
 			[2]data.PlutusData{
@@ -451,9 +451,7 @@ func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
 					[][2]data.PlutusData{
 						{
 							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount),
-							),
+							data.NewInteger(o.OutputAmount),
 						},
 					},
 				),
@@ -480,7 +478,7 @@ func (o ShelleyTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Amount() uint64 {
+func (o ShelleyTransactionOutput) Amount() *big.Int {
 	return o.OutputAmount
 }
 
@@ -504,15 +502,19 @@ func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 		Address: addressBytes,
-		Coin:    common.ToUtxorpcBigInt(o.Amount()),
+		Coin:    common.ToUtxorpcBigIntFromBigInt(o.Amount()),
 	}, nil
 }
 
 func (o ShelleyTransactionOutput) String() string {
+	amountStr := "nil"
+	if o.OutputAmount != nil {
+		amountStr = o.OutputAmount.String()
+	}
 	return fmt.Sprintf(
-		"(ShelleyTransactionOutput address=%s amount=%d)",
+		"(ShelleyTransactionOutput address=%s amount=%s)",
 		o.OutputAddress.String(),
-		o.OutputAmount,
+		amountStr,
 	)
 }
 

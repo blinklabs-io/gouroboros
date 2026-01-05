@@ -16,6 +16,7 @@ package shelley
 
 import (
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -92,15 +93,23 @@ func (e WrongNetworkWithdrawalError) Error() string {
 }
 
 type ValueNotConservedUtxoError struct {
-	Consumed uint64
-	Produced uint64
+	Consumed *big.Int
+	Produced *big.Int
 }
 
 func (e ValueNotConservedUtxoError) Error() string {
+	consumedStr := "nil"
+	producedStr := "nil"
+	if e.Consumed != nil {
+		consumedStr = e.Consumed.String()
+	}
+	if e.Produced != nil {
+		producedStr = e.Produced.String()
+	}
 	return fmt.Sprintf(
-		"value not conserved: consumed %d, produced %d",
-		e.Consumed,
-		e.Produced,
+		"value not conserved: consumed %s, produced %s",
+		consumedStr,
+		producedStr,
 	)
 }
 
@@ -146,14 +155,18 @@ func (e MaxTxSizeUtxoError) Error() string {
 
 type InvalidCertificateDepositError struct {
 	CertificateType common.CertificateType
-	Amount          int64
+	Amount          *big.Int
 }
 
 func (e InvalidCertificateDepositError) Error() string {
+	amountStr := "nil"
+	if e.Amount != nil {
+		amountStr = e.Amount.String()
+	}
 	return fmt.Sprintf(
-		"invalid certificate deposit amount: type %d, amount %d",
+		"invalid certificate deposit amount: type %d, amount %s",
 		e.CertificateType,
-		e.Amount,
+		amountStr,
 	)
 }
 
