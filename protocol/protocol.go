@@ -49,6 +49,7 @@ type Protocol struct {
 	sendDoneChan        chan struct{}
 	sendReadyChan       chan bool
 	stateTransitionChan chan<- protocolStateTransition
+	onceRegister        sync.Once
 	onceStart           sync.Once
 	onceStop            sync.Once
 	pendingBytesMu      sync.Mutex
@@ -132,10 +133,9 @@ func New(config ProtocolConfig) *Protocol {
 	return p
 }
 
-// Start initializes the mini-protocol
-func (p *Protocol) Start() {
-	p.onceStart.Do(func() {
-		// Register protocol with muxer
+// EnsureRegistered registers the protocol with the muxer if not already registered.
+func (p *Protocol) EnsureRegistered() {
+	p.onceRegister.Do(func() {
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
@@ -144,6 +144,14 @@ func (p *Protocol) Start() {
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
+	})
+}
+
+// Start initializes the mini-protocol
+func (p *Protocol) Start() {
+	p.onceStart.Do(func() {
+		p.EnsureRegistered()
+
 		if p.muxerDoneChan == nil {
 			p.SendError(errors.New("could not register protocol with muxer"))
 			return
