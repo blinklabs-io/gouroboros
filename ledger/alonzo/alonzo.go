@@ -448,8 +448,8 @@ func (o *AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o *AlonzoTransactionOutput) Address() common.Address {
-	return o.OutputAddress
+func (o *AlonzoTransactionOutput) Address() *common.Address {
+	return &o.OutputAddress
 }
 
 func (o *AlonzoTransactionOutput) ScriptRef() common.Script {

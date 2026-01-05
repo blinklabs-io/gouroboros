@@ -493,7 +493,6 @@ func (t *ByronTransaction) Produced() []common.Utxo {
 }
 
 func (t *ByronTransaction) Witnesses() common.TransactionWitnessSet {
-	// TODO: implement once we properly support decoding Byron TX witnesses (#853)
 	if t.witnessSet == nil {
 		t.witnessSet = NewByronTransactionWitnessSet(t.Twit)
 	}
@@ -821,8 +820,8 @@ func (o *ByronTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o *ByronTransactionOutput) Address() common.Address {
-	return o.OutputAddress
+func (o *ByronTransactionOutput) Address() *common.Address {
+	return &o.OutputAddress
 }
 
 func (o *ByronTransactionOutput) ScriptRef() common.Script {

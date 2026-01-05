@@ -607,8 +607,7 @@ It seems to be a requirement to sort the reward addresses on the query. Scriptha
 type FilteredDelegationsAndRewardAccountsResult any
 
 type GenesisConfigResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_                 struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Start             *SystemStartResult
 	NetworkMagic      int
 	NetworkId         uint8

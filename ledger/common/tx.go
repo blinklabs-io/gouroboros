@@ -71,7 +71,7 @@ type TransactionInput interface {
 }
 
 type TransactionOutput interface {
-	Address() Address
+	Address() *Address
 	Amount() uint64
 	Assets() *MultiAsset[MultiAssetTypeOutput]
 	Datum() *Datum

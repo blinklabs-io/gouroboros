@@ -686,8 +686,8 @@ func (o *BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o *BabbageTransactionOutput) Address() common.Address {
-	return o.OutputAddress
+func (o *BabbageTransactionOutput) Address() *common.Address {
+	return &o.OutputAddress
 }
 
 func (o *BabbageTransactionOutput) ScriptRef() common.Script {

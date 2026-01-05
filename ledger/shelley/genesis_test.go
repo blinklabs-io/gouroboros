@@ -237,10 +237,10 @@ func TestGenesisUtxos(t *testing.T) {
 		)
 	}
 	addr := tmpUtxo.Output.Address()
-	if (&addr).String() != expectedAddr {
+	if addr.String() != expectedAddr {
 		t.Fatalf(
 			"did not get expected address: got %s, wanted %s",
-			(&addr).String(),
+			addr.String(),
 			expectedAddr,
 		)
 	}

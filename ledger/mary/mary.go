@@ -608,8 +608,8 @@ func (o *MaryTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o *MaryTransactionOutput) Address() common.Address {
-	return o.OutputAddress
+func (o *MaryTransactionOutput) Address() *common.Address {
+	return &o.OutputAddress
 }
 
 func (txo *MaryTransactionOutput) ScriptRef() common.Script {

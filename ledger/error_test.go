@@ -109,12 +109,12 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 				// Check the address using the interface method
 				decodedAddr := decodedUtxo.Output.Address()
 				originalAddr := originalOutput.OutputAddress
-				if (&decodedAddr).String() != (&originalAddr).String() {
+				if decodedAddr.String() != originalAddr.String() {
 					t.Errorf(
 						"UTxO %d: Address mismatch - expected %s, got %s",
 						i,
-						(&originalAddr).String(),
-						(&decodedAddr).String(),
+						originalAddr.String(),
+						decodedAddr.String(),
 					)
 				}
 				break

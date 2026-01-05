@@ -125,7 +125,7 @@ func UtxoValidateWrongNetwork(
 		if addr.NetworkId() == networkId {
 			continue
 		}
-		badAddrs = append(badAddrs, addr)
+		badAddrs = append(badAddrs, *addr)
 	}
 	if len(badAddrs) == 0 {
 		return nil
