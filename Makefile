@@ -29,6 +29,9 @@ golines:
 test: mod-tidy
 	go test -v -race ./...
 
+lint:
+	golangci-lint run ./...
+
 # Build our program binaries
 # Depends on GO_FILES to determine when rebuild is needed
 $(BINARIES): mod-tidy $(GO_FILES)
