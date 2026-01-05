@@ -170,6 +170,14 @@ manual testing is required.
 make test
 ```
 
+### Running the linter
+
+gOuroboros uses [golangci-lint](https://golangci-lint.run/) for code quality checks. Install it following the [official installation guide](https://golangci-lint.run/docs/welcome/install/local/), then run:
+
+```
+make lint
+```
+
 ### Manual testing
 
 Various small test programs can be found in `cmd/` in this repo or in the [gOuroboros Starter Kit](https://github.com/blinklabs-io/gouroboros-starter-kit) repo.

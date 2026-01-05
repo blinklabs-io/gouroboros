@@ -7,7 +7,7 @@ GO_FILES=$(shell find $(ROOT_DIR) -name '*.go')
 # Gather list of expected binaries
 BINARIES=$(shell cd $(ROOT_DIR)/cmd && ls -1 | grep -v ^common)
 
-.PHONY: build mod-tidy clean test
+.PHONY: build mod-tidy clean test lint
 
 # Alias for building program binary
 build: $(BINARIES)
