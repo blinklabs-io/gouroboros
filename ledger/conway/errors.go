@@ -62,3 +62,12 @@ type WrongTransactionNetworkIdError struct {
 func (e WrongTransactionNetworkIdError) Error() string {
 	return fmt.Sprintf("wrong transaction network ID: transaction has %d, ledger expects %d", e.TxNetworkId, e.LedgerNetworkId)
 }
+
+type TreasuryDonationWithPlutusV1V2Error struct {
+	Donation      uint64
+	PlutusVersion string
+}
+
+func (e TreasuryDonationWithPlutusV1V2Error) Error() string {
+	return fmt.Sprintf("treasury donation (%d lovelace) cannot be used with %s scripts - treasury donation is a Conway feature only available for PlutusV3", e.Donation, e.PlutusVersion)
+}

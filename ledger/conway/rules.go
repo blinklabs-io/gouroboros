@@ -574,6 +574,54 @@ func UtxoValidateValueNotConservedUtxo(
 	for _, proposal := range tx.ProposalProcedures() {
 		producedValue += proposal.Deposit()
 	}
+	// Add treasury donation - value leaving the transaction to go to the treasury
+	// Treasury donations are a Conway feature and cannot be used with PlutusV1/V2 scripts
+	donation := tx.Donation()
+	if donation > 0 {
+		// Check if transaction uses PlutusV1 or PlutusV2 scripts in witnesses
+		witnesses := tx.Witnesses()
+		plutusVersion := ""
+		if witnesses != nil {
+			if len(witnesses.PlutusV1Scripts()) > 0 {
+				plutusVersion = "PlutusV1"
+			} else if len(witnesses.PlutusV2Scripts()) > 0 {
+				plutusVersion = "PlutusV2"
+			}
+		}
+		// Also check reference scripts on reference inputs
+		if plutusVersion == "" {
+			for _, refInput := range tx.ReferenceInputs() {
+				utxo, err := ls.UtxoById(refInput)
+				if err != nil {
+					return common.ReferenceInputResolutionError{
+						Input: refInput,
+						Err:   err,
+					}
+				}
+				script := utxo.Output.ScriptRef()
+				if script != nil {
+					switch script.(type) {
+					case *common.PlutusV1Script, common.PlutusV1Script:
+						plutusVersion = "PlutusV1"
+					case *common.PlutusV2Script, common.PlutusV2Script:
+						plutusVersion = "PlutusV2"
+					}
+					if plutusVersion != "" {
+						break
+					}
+				}
+			}
+		}
+		// Return explicit error if donation is used with PlutusV1/V2 scripts
+		if plutusVersion != "" {
+			return TreasuryDonationWithPlutusV1V2Error{
+				Donation:      donation,
+				PlutusVersion: plutusVersion,
+			}
+		}
+		// Only apply donation if not using PlutusV1/V2 scripts
+		producedValue += donation
+	}
 	if consumedValue == producedValue {
 		return nil
 	}
