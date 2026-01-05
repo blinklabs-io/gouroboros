@@ -608,7 +608,7 @@ func certificateToPlutusData(
 				0,
 				toPlutusData(c.PoolKeyHash),
 			),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(c.Amount),
 		)
 	case *lcommon.VoteRegistrationDelegationCertificate:
 		return data.NewConstr(
@@ -618,7 +618,7 @@ func certificateToPlutusData(
 				1,
 				c.Drep.ToPlutusData(),
 			),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(c.Amount),
 		)
 	case *lcommon.StakeVoteRegistrationDelegationCertificate:
 		return data.NewConstr(
@@ -629,13 +629,13 @@ func certificateToPlutusData(
 				c.PoolKeyHash.ToPlutusData(),
 				c.Drep.ToPlutusData(),
 			),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(c.Amount),
 		)
 	case *lcommon.RegistrationDrepCertificate:
 		return data.NewConstr(
 			4,
 			c.DrepCredential.ToPlutusData(),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(c.Amount),
 		)
 	case *lcommon.UpdateDrepCertificate:
 		return data.NewConstr(
@@ -646,7 +646,7 @@ func certificateToPlutusData(
 		return data.NewConstr(
 			6,
 			c.DrepCredential.ToPlutusData(),
-			data.NewInteger(big.NewInt(c.Amount)),
+			data.NewInteger(c.Amount),
 		)
 	case *lcommon.PoolRegistrationCertificate:
 		return data.NewConstr(
