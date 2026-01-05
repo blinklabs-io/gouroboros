@@ -146,7 +146,7 @@ func NewByronAddressFromParts(
 	}
 	return Address{
 		addressType: AddressTypeByron,
-		paymentPayload: AddressPayloadKeyHash{
+		paymentPayload: &AddressPayloadKeyHash{
 			Hash: AddrKeyHash(paymentAddr),
 		},
 		byronAddressType: byronAddrType,
@@ -180,7 +180,7 @@ func NewByronAddressRedeem(
 	addrHash := Blake2b224Hash(sha3Sum[:])
 	return Address{
 		addressType: AddressTypeByron,
-		paymentPayload: AddressPayloadKeyHash{
+		paymentPayload: &AddressPayloadKeyHash{
 			Hash: AddrKeyHash(addrHash),
 		},
 		byronAddressType: ByronAddressTypeRedeem,
@@ -222,7 +222,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 		}
 		a.byronAddressType = byronAddr.AddrType
 		a.byronAddressAttr = byronAddr.Attr
-		a.paymentPayload = AddressPayloadKeyHash{
+		a.paymentPayload = &AddressPayloadKeyHash{
 			Hash: AddrKeyHash(NewBlake2b224(byronAddr.Hash)),
 		}
 		return nil
@@ -237,7 +237,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 		if len(payload) < AddressHashSize {
 			return errors.New("invalid payment payload: key hash too small")
 		}
-		a.paymentPayload = AddressPayloadKeyHash{
+		a.paymentPayload = &AddressPayloadKeyHash{
 			Hash: AddrKeyHash(payload[0:AddressHashSize]),
 		}
 		payload = payload[AddressHashSize:]
@@ -248,7 +248,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 		if len(payload) < AddressHashSize {
 			return errors.New("invalid payment payload: script hash too small")
 		}
-		a.paymentPayload = AddressPayloadScriptHash{
+		a.paymentPayload = &AddressPayloadScriptHash{
 			Hash: ScriptHash(payload[0:AddressHashSize]),
 		}
 		payload = payload[AddressHashSize:]
@@ -259,7 +259,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 		if len(payload) < AddressHashSize {
 			return errors.New("invalid staking payload: key hash too small")
 		}
-		a.stakingPayload = AddressPayloadKeyHash{
+		a.stakingPayload = &AddressPayloadKeyHash{
 			Hash: AddrKeyHash(payload[0:AddressHashSize]),
 		}
 		payload = payload[AddressHashSize:]
@@ -267,7 +267,7 @@ func (a *Address) populateFromBytes(data []byte) error {
 		if len(payload) < AddressHashSize {
 			return errors.New("invalid staking payload: script hash too small")
 		}
-		a.stakingPayload = AddressPayloadScriptHash{
+		a.stakingPayload = &AddressPayloadScriptHash{
 			Hash: ScriptHash(payload[0:AddressHashSize]),
 		}
 		payload = payload[AddressHashSize:]
@@ -322,12 +322,12 @@ func (a *Address) ToPlutusData() data.PlutusData {
 	// Stake-only address
 	if a.paymentPayload == nil && a.stakingPayload != nil {
 		switch p := a.stakingPayload.(type) {
-		case AddressPayloadKeyHash:
+		case *AddressPayloadKeyHash:
 			return data.NewConstr(
 				0,
 				data.NewByteString(p.Hash.Bytes()),
 			)
-		case AddressPayloadScriptHash:
+		case *AddressPayloadScriptHash:
 			return data.NewConstr(
 				1,
 				data.NewByteString(p.Hash.Bytes()),
@@ -337,12 +337,12 @@ func (a *Address) ToPlutusData() data.PlutusData {
 	// Build payment part
 	var paymentPd data.PlutusData
 	switch p := a.paymentPayload.(type) {
-	case AddressPayloadKeyHash:
+	case *AddressPayloadKeyHash:
 		paymentPd = data.NewConstr(
 			0,
 			data.NewByteString(p.Hash.Bytes()),
 		)
-	case AddressPayloadScriptHash:
+	case *AddressPayloadScriptHash:
 		paymentPd = data.NewConstr(
 			1,
 			data.NewByteString(p.Hash.Bytes()),
@@ -354,7 +354,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 		stakePd = data.NewConstr(1)
 	} else {
 		switch p := a.stakingPayload.(type) {
-		case AddressPayloadKeyHash:
+		case *AddressPayloadKeyHash:
 			tmpCred := &Credential{
 				CredType:   CredentialTypeAddrKeyHash,
 				Credential: NewBlake2b224(p.Hash.Bytes()),
@@ -366,7 +366,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 					tmpCred.ToPlutusData(),
 				),
 			)
-		case AddressPayloadScriptHash:
+		case *AddressPayloadScriptHash:
 			tmpCred := &Credential{
 				CredType:   CredentialTypeScriptHash,
 				Credential: NewBlake2b224(p.Hash.Bytes()),
@@ -454,9 +454,9 @@ func (a *Address) PaymentKeyHash() Blake2b224 {
 		return Blake2b224([AddressHashSize]byte{})
 	}
 	switch p := a.paymentPayload.(type) {
-	case AddressPayloadKeyHash:
+	case *AddressPayloadKeyHash:
 		return p.Hash
-	case AddressPayloadScriptHash:
+	case *AddressPayloadScriptHash:
 		return p.Hash
 	default:
 		// Return empty hash
@@ -496,9 +496,9 @@ func (a *Address) StakeKeyHash() Blake2b224 {
 		return Blake2b224([AddressHashSize]byte{})
 	}
 	switch p := a.stakingPayload.(type) {
-	case AddressPayloadKeyHash:
+	case *AddressPayloadKeyHash:
 		return p.Hash
-	case AddressPayloadScriptHash:
+	case *AddressPayloadScriptHash:
 		return p.Hash
 	default:
 		// Return empty hash
@@ -534,7 +534,7 @@ func (a *Address) generateHRP() string {
 func (a *Address) Bytes() ([]byte, error) {
 	if a.addressType == AddressTypeByron {
 		tmpPayload := []any{
-			a.paymentPayload.(AddressPayloadKeyHash).Hash.Bytes(),
+			a.paymentPayload.(*AddressPayloadKeyHash).Hash.Bytes(),
 			a.byronAddressAttr,
 			a.byronAddressType,
 		}
@@ -569,9 +569,9 @@ func (a *Address) Bytes() ([]byte, error) {
 	if a.paymentPayload != nil {
 		var paymentPayload []byte
 		switch p := a.paymentPayload.(type) {
-		case AddressPayloadKeyHash:
+		case *AddressPayloadKeyHash:
 			paymentPayload = p.Hash.Bytes()
-		case AddressPayloadScriptHash:
+		case *AddressPayloadScriptHash:
 			paymentPayload = p.Hash.Bytes()
 		}
 		if _, err := buf.Write(paymentPayload); err != nil {
@@ -581,9 +581,9 @@ func (a *Address) Bytes() ([]byte, error) {
 	if a.stakingPayload != nil {
 		var stakingPayload []byte
 		switch p := a.stakingPayload.(type) {
-		case AddressPayloadKeyHash:
+		case *AddressPayloadKeyHash:
 			stakingPayload = p.Hash.Bytes()
-		case AddressPayloadScriptHash:
+		case *AddressPayloadScriptHash:
 			stakingPayload = p.Hash.Bytes()
 		case *AddressPayloadPointer:
 			var err error
@@ -692,13 +692,13 @@ type AddressPayloadKeyHash struct {
 	Hash AddrKeyHash
 }
 
-func (AddressPayloadKeyHash) isAddressPayload() {}
+func (*AddressPayloadKeyHash) isAddressPayload() {}
 
 type AddressPayloadScriptHash struct {
 	Hash ScriptHash
 }
 
-func (AddressPayloadScriptHash) isAddressPayload() {}
+func (*AddressPayloadScriptHash) isAddressPayload() {}
 
 type AddressPayloadPointer struct {
 	Slot      uint64

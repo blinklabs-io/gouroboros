@@ -130,7 +130,7 @@ func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
 		addr := utxo.Output.Address()
 		payload := addr.PayloadPayload()
 		switch p := payload.(type) {
-		case AddressPayloadKeyHash:
+		case *AddressPayloadKeyHash:
 			h := p.Hash
 			// Check for regular vkey witness (Shelley+ addresses)
 			_, ok := provided[h]

@@ -69,7 +69,7 @@ func ValidateCollateralVKeyWitnesses(
 		}
 		addr := utxo.Output.Address()
 		cred := addr.PayloadPayload()
-		pk, ok := cred.(AddressPayloadKeyHash)
+		pk, ok := cred.(*AddressPayloadKeyHash)
 		if !ok {
 			// Collateral should be key-locked; scripts cannot serve
 			return NewValidationError(
