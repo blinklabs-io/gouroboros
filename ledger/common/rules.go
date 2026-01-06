@@ -139,6 +139,13 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	if ls == nil {
 		return nil
 	}
+
+	// If IsValid=false, the transaction is expected to fail phase-2 validation.
+	// Phase-1 validation should still pass even without script witnesses.
+	if !tx.IsValid() {
+		return nil
+	}
+
 	wits := tx.Witnesses()
 
 	// Collect all script hashes required by script address inputs
