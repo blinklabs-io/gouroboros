@@ -33,9 +33,13 @@ type Client struct {
 	callbackContext          CallbackContext
 	busyMutex                sync.Mutex
 	readyForNextBlockChan    chan bool
-	onceStart                sync.Once
-	onceStop                 sync.Once
+	startMutex               sync.Mutex
+	started                  bool
+	stopMutex                sync.Mutex
+	stopped                  bool
 	syncPipelinedRequestNext int
+	protoOptions             protocol.ProtocolOptions
+	stateContext             any
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -60,31 +64,38 @@ func NewClient(
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Client {
-	// Use node-to-client protocol ID
-	ProtocolId := ProtocolIdNtC
-	msgFromCborFunc := NewMsgFromCborNtC
-	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
-		// Use node-to-node protocol ID
-		ProtocolId = ProtocolIdNtN
-		msgFromCborFunc = NewMsgFromCborNtN
-	}
 	if cfg == nil {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config:                cfg,
-		readyForNextBlockChan: make(chan bool),
-
-		waitingForCurrentTipChan: make(chan chan<- Tip, 20),
-		wantCurrentTipChan:       make(chan chan<- Tip, 1),
-		wantFirstBlockChan:       make(chan chan<- clientPointResult, 1),
-		wantIntersectFoundChan:   make(chan chan<- clientPointResult, 1),
+		config:       cfg,
+		protoOptions: protoOptions,
+		stateContext: stateContext,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	c.initProtocol()
+	return c
+}
+
+func (c *Client) initProtocol() {
+	// Use node-to-client protocol ID
+	ProtocolId := ProtocolIdNtC
+	msgFromCborFunc := NewMsgFromCborNtC
+	if c.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		// Use node-to-node protocol ID
+		ProtocolId = ProtocolIdNtN
+		msgFromCborFunc = NewMsgFromCborNtN
+	}
+	// Recreate channels (they may have been closed during shutdown)
+	c.readyForNextBlockChan = make(chan bool)
+	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
+	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
+	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
+	c.wantIntersectFoundChan = make(chan chan<- clientPointResult, 1)
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[stateIntersect]; ok {
@@ -101,59 +112,102 @@ func NewClient(
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               c.protoOptions.Muxer,
+		Logger:              c.protoOptions.Logger,
+		ErrorChan:           c.protoOptions.ErrorChan,
+		Mode:                c.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            stateMap,
-		StateContext:        stateContext,
+		StateContext:        c.stateContext,
 		InitialState:        stateIdle,
 	}
 	if c.config != nil {
 		protoConfig.RecvQueueSize = c.config.RecvQueueSize
 	}
 	c.Protocol = protocol.New(protoConfig)
-	return c
 }
 
 func (c *Client) Start() {
-	c.onceStart.Do(func() {
-		c.Protocol.Logger().
-			Debug("starting client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.readyForNextBlockChan)
+	c.startMutex.Lock()
+	defer c.startMutex.Unlock()
+	if c.started {
+		return
+	}
+	c.Protocol.Logger().
+		Debug("starting client protocol",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.Protocol.Start()
+	c.started = true
+	// Start goroutine to cleanup resources on protocol shutdown
+	go func() {
+		<-c.DoneChan()
+		// Close channel safely (may already be closed on restart)
+		defer func() {
+			if r := recover(); r != nil {
+				// Channel was already closed, ignore panic
+				_ = r
+			}
 		}()
-	})
+		close(c.readyForNextBlockChan)
+	}()
 }
 
-// Stop transitions the protocol to the Done state. No more protocol operations will be possible afterward
+// Stop transitions the protocol to the Done state. The protocol can be restarted using Restart()
 func (c *Client) Stop() error {
-	var err error
-	c.onceStop.Do(func() {
-		c.Protocol.Logger().
-			Debug("stopping client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		c.busyMutex.Lock()
-		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
-		}
-	})
+	c.stopMutex.Lock()
+	defer c.stopMutex.Unlock()
+	if c.stopped {
+		return nil
+	}
+	c.Protocol.Logger().
+		Debug("stopping client protocol",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	msg := NewMsgDone()
+	err := c.SendMessage(msg)
+	if err == nil {
+		c.stopped = true
+		c.started = false
+	}
 	return err
+}
+
+// Restart restarts the protocol after it has been stopped. This allows reusing the same connection
+// for multiple chain-sync operations.
+func (c *Client) Restart() error {
+	c.stopMutex.Lock()
+	defer c.stopMutex.Unlock()
+	if !c.stopped {
+		return nil
+	}
+	c.Protocol.Logger().
+		Debug("restarting client protocol",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	// Stop the old protocol instance
+	c.Protocol.Stop()
+	// Reinitialize the protocol
+	c.initProtocol()
+	// Reset state
+	c.stopped = false
+	c.syncPipelinedRequestNext = 0
+	// Start the new protocol instance
+	c.startMutex.Lock()
+	c.started = false
+	c.startMutex.Unlock()
+	c.Start()
+	return nil
 }
 
 // GetCurrentTip returns the current chain tip
