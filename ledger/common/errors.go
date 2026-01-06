@@ -59,3 +59,15 @@ var ErrReferenceInputResolution = errors.New(
 func (ReferenceInputResolutionError) Is(target error) bool {
 	return target == ErrReferenceInputResolution
 }
+
+// InlineDatumsNotSupportedError indicates inline datums used with PlutusV1 scripts
+type InlineDatumsNotSupportedError struct {
+	PlutusVersion string
+}
+
+func (e InlineDatumsNotSupportedError) Error() string {
+	return fmt.Sprintf(
+		"inline datums are not supported with %s scripts - inline datums are a Babbage feature only available for PlutusV2+",
+		e.PlutusVersion,
+	)
+}
