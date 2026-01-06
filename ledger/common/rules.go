@@ -292,6 +292,36 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 
+	// Collect script hashes required by voting procedures (script-type voters)
+	for voter := range tx.VotingProcedures() {
+		if voter == nil {
+			continue
+		}
+		// Check for script-type voters: CC script (1) or DRep script (3)
+		if voter.Type == VoterTypeConstitutionalCommitteeHotScriptHash ||
+			voter.Type == VoterTypeDRepScriptHash {
+			requiredScriptHashes[ScriptHash(NewBlake2b224(voter.Hash[:]))] = true
+		}
+	}
+
+	// Collect script hashes required by proposal procedures (governance policy scripts)
+	for _, proposal := range tx.ProposalProcedures() {
+		if proposal == nil {
+			continue
+		}
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+		// Check if governance action has a policy script
+		if actionWithPolicy, ok := govAction.(GovActionWithPolicy); ok {
+			policyHash := actionWithPolicy.GetPolicyHash()
+			if len(policyHash) > 0 {
+				requiredScriptHashes[ScriptHash(policyHash)] = true
+			}
+		}
+	}
+
 	// Check for missing script witnesses. A required script is satisfied if
 	// it appears in either explicit witnesses or reference scripts.
 	for required := range requiredScriptHashes {

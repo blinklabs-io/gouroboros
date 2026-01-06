@@ -131,3 +131,8 @@ func (a *ConwayParameterChangeGovAction) ToPlutusData() data.PlutusData {
 		policyHash,
 	)
 }
+
+// GetPolicyHash returns the policy script hash for this governance action
+func (a *ConwayParameterChangeGovAction) GetPolicyHash() []byte {
+	return a.PolicyHash
+}
