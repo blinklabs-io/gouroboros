@@ -34,6 +34,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateRedeemerAndScriptWitnesses,
 	UtxoValidateSignatures,
 	UtxoValidateCostModelsPresent,
+	UtxoValidateInlineDatumsWithPlutusV1,
 	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
@@ -695,6 +696,15 @@ func UtxoValidateOutputBootAddrAttrsTooBig(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateOutputBootAddrAttrsTooBig(tx, slot, ls, pp)
+}
+
+func UtxoValidateInlineDatumsWithPlutusV1(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return babbage.UtxoValidateInlineDatumsWithPlutusV1(tx, slot, ls, pp)
 }
 
 func UtxoValidateWrongNetwork(
