@@ -96,7 +96,7 @@ type MissingScriptWitnessesError struct {
 func (e MissingScriptWitnessesError) Error() string {
 	return fmt.Sprintf(
 		"missing script witness for script hash %x",
-		e.ScriptHash,
+		e.ScriptHash[:],
 	)
 }
 
@@ -107,7 +107,7 @@ type ExtraneousScriptWitnessesError struct {
 func (e ExtraneousScriptWitnessesError) Error() string {
 	return fmt.Sprintf(
 		"extraneous script witness for script hash %x",
-		e.ScriptHash,
+		e.ScriptHash[:],
 	)
 }
 
@@ -165,13 +165,9 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		// Check if this is a script address (payment part is script)
 		if (addr.Type() & AddressTypeScriptBit) != 0 {
 			paymentScriptHash := addr.PaymentKeyHash()
-			// Script references are only usable via reference inputs. A spent
-			// UTxO's own ScriptRef must not be considered as satisfying the
-			// script witness requirement for that same input. The
-			// UtxoValidateDisjointRefInputs rule ensures reference inputs are
-			// disjoint from spending inputs, so only reference inputs are
-			// resolved below when collecting `referenceProvided`.
-			// This is a script payment address that needs a script witness
+			// This is a script payment address that needs a script witness.
+			// The script can be provided via the witness set or via ScriptRef
+			// from any input (including the spent UTxO itself or reference inputs).
 			requiredScriptHashes[ScriptHash(paymentScriptHash)] = true
 		}
 		// Note: Staking script validation is handled separately in delegation rules
@@ -197,13 +193,31 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 
-	// Collect reference-provided scripts (from reference inputs' ScriptRef())
+	// Collect reference-provided scripts from both reference inputs AND regular inputs
+	// According to CIP-33, scripts can be provided via ScriptRef from any resolved UTxO
 	referenceProvided := make(map[ScriptHash]bool)
+
+	// From reference inputs
 	for _, refInput := range tx.ReferenceInputs() {
 		utxo, err := ls.UtxoById(refInput)
 		if err != nil {
 			// If we can't resolve the reference UTxO deterministically, fail
 			return ReferenceInputResolutionError{Input: refInput, Err: err}
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		if script := utxo.Output.ScriptRef(); script != nil {
+			referenceProvided[script.Hash()] = true
+		}
+	}
+
+	// From regular (spent) inputs - their ScriptRef can also satisfy script requirements
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			// If we can't resolve the UTxO, skip - BadInputsUtxo will catch this
+			continue
 		}
 		if utxo.Output == nil {
 			continue
@@ -221,12 +235,12 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	}
 
 	// Collect script hashes required by certificates
+	// Note: Registration certificates do NOT require script witnesses - anyone can register.
+	// Only operations that require authorization (deregistration, delegation, withdrawal) need witnesses.
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *StakeRegistrationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
-			}
+			// Registration does NOT require script witness
 		case *StakeDeregistrationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
 				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
@@ -236,9 +250,7 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
 			}
 		case *RegistrationCertificate:
-			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
-			}
+			// Registration does NOT require script witness
 		case *DeregistrationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
 				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
