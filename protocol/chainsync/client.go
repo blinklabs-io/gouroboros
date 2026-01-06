@@ -176,7 +176,9 @@ func (c *Client) Stop() error {
 	err := c.SendMessage(msg)
 	if err == nil {
 		c.stopped = true
+		c.startMutex.Lock()
 		c.started = false
+		c.startMutex.Unlock()
 	}
 	return err
 }
@@ -195,8 +197,10 @@ func (c *Client) Restart() error {
 			"protocol", ProtocolName,
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	oldDoneChan := c.DoneChan()
 	// Stop the old protocol instance
 	c.Protocol.Stop()
+	<-oldDoneChan
 	// Reinitialize the protocol
 	c.initProtocol()
 	// Reset state
