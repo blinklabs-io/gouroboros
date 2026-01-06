@@ -217,6 +217,24 @@ func (d *Drep) ToPlutusData() data.PlutusData {
 	return nil
 }
 
+// String returns a CIP-0129 bech32-encoded representation of the DRep.
+// Returns "drep_abstain" for abstain, "drep_no_confidence" for no confidence,
+// and a CIP-0129 encoded bech32 string with "drep" prefix for key/script hashes.
+func (d *Drep) String() string {
+	switch d.Type {
+	case DrepTypeAddrKeyHash:
+		return encodeCip129Credential("drep", CredentialTypeAddrKeyHash, d.Credential)
+	case DrepTypeScriptHash:
+		return encodeCip129Credential("drep", CredentialTypeScriptHash, d.Credential)
+	case DrepTypeAbstain:
+		return "drep_abstain"
+	case DrepTypeNoConfidence:
+		return "drep_no_confidence"
+	default:
+		return fmt.Sprintf("drep_unknown_%d", d.Type)
+	}
+}
+
 type StakeRegistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor

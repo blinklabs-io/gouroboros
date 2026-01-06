@@ -1223,3 +1223,119 @@ func TestMultiAssetDeterministicEncoding(t *testing.T) {
 		}
 	}
 }
+
+// TestNewPoolIdFromBech32_Negative tests error cases for PoolId bech32 decoding
+// CIP-0005: pool IDs use "pool" prefix with 28-byte payload
+func TestNewPoolIdFromBech32_Negative(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "InvalidBech32",
+			input: "not-valid-bech32!@#",
+		},
+		{
+			name:  "EmptyString",
+			input: "",
+		},
+		{
+			name: "WrongLength",
+			// Valid bech32 but only 20 bytes (address hash, not pool id)
+			input: "pool1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs5rx55",
+		},
+		{
+			name: "InvalidChecksum",
+			// Valid pool ID with corrupted checksum
+			input: "pool1pu5jlj4q9w9jlxeu370a3c9myx47md5j5m2str0xxxxyzkxewzq",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewPoolIdFromBech32(tc.input)
+			if err == nil {
+				t.Errorf("NewPoolIdFromBech32(%q) expected error, got nil", tc.input)
+			}
+		})
+	}
+}
+
+// TestPoolIdString tests encoding pool IDs to bech32
+// CIP-0005: pool IDs use "pool" prefix
+func TestPoolIdString(t *testing.T) {
+	testCases := []struct {
+		name   string
+		poolId PoolId
+		want   string
+	}{
+		{
+			name:   "ZeroHash",
+			poolId: PoolId{},
+			want:   "pool1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8a7a2d",
+		},
+		{
+			name: "SequentialBytes",
+			poolId: PoolId{
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+				0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+				0x19, 0x1a, 0x1b, 0x1c,
+			},
+			want: "pool1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5z5tpwxqergd3c6vr4kr",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.poolId.String()
+			if got != tc.want {
+				t.Errorf("PoolId.String() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPoolIdBech32RoundTrip tests that encoding and decoding a pool ID is lossless
+func TestPoolIdBech32RoundTrip(t *testing.T) {
+	testCases := []struct {
+		name   string
+		poolId PoolId
+	}{
+		{
+			name:   "ZeroHash",
+			poolId: PoolId{},
+		},
+		{
+			name: "SequentialBytes",
+			poolId: PoolId{
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+				0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+				0x19, 0x1a, 0x1b, 0x1c,
+			},
+		},
+		{
+			name: "MaxBytes",
+			poolId: PoolId{
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := tc.poolId.String()
+			decoded, err := NewPoolIdFromBech32(encoded)
+			if err != nil {
+				t.Fatalf("NewPoolIdFromBech32() unexpected error: %v", err)
+			}
+			if decoded != tc.poolId {
+				t.Errorf("Round-trip failed: got %x, want %x", decoded, tc.poolId)
+			}
+		})
+	}
+}
