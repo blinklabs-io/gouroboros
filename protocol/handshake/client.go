@@ -138,51 +138,188 @@ func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	msg := msgGeneric.(*MsgRefuse)
-	var err error
+	// Use checked type assertion
+	msg, ok := msgGeneric.(*MsgRefuse)
+	if !ok {
+		return fmt.Errorf(
+			"%s: malformed refuse message: expected *MsgRefuse, got %T",
+			ProtocolName,
+			msgGeneric,
+		)
+	}
+
+	// Check for empty reason array
 	if len(msg.Reason) == 0 {
-		err = fmt.Errorf(
+		return fmt.Errorf(
 			"%s: malformed refuse message: empty reason",
 			ProtocolName,
 		)
-	} else {
-		reasonCode, ok := msg.Reason[0].(uint64)
-		if !ok {
-			err = fmt.Errorf("%s: malformed refuse message: reason code must be uint64, got %T", ProtocolName, msg.Reason[0])
-		} else {
-			switch reasonCode {
-			case RefuseReasonVersionMismatch:
-				err = fmt.Errorf("%s: version mismatch", ProtocolName)
-			case RefuseReasonDecodeError:
-				if len(msg.Reason) < 3 {
-					err = fmt.Errorf("%s: decode error: missing error message", ProtocolName)
-				} else if errMsg, ok := msg.Reason[2].(string); ok {
-					err = fmt.Errorf(
-						"%s: decode error: %s",
-						ProtocolName,
-						errMsg,
-					)
-				} else {
-					err = fmt.Errorf("%s: decode error: invalid error message type %T", ProtocolName, msg.Reason[2])
-				}
-			case RefuseReasonRefused:
-				if len(msg.Reason) < 3 {
-					err = fmt.Errorf("%s: refused: missing reason message", ProtocolName)
-				} else if errMsg, ok := msg.Reason[2].(string); ok {
-					err = fmt.Errorf(
-						"%s: refused: %s",
-						ProtocolName,
-						errMsg,
-					)
-				} else {
-					err = fmt.Errorf("%s: refused: invalid reason message type %T", ProtocolName, msg.Reason[2])
-				}
-			default:
-				err = fmt.Errorf("%s: unknown refuse reason: %d", ProtocolName, reasonCode)
-			}
-		}
 	}
-	return err
+
+	// Extract and validate reason code
+	reasonCode, ok := msg.Reason[0].(uint64)
+	if !ok {
+		return fmt.Errorf(
+			"%s: malformed refuse message: reason code must be uint64, got %T",
+			ProtocolName,
+			msg.Reason[0],
+		)
+	}
+
+	// Parse based on reason code
+	switch reasonCode {
+	case RefuseReasonVersionMismatch:
+		// Format: [0, [*anyVersionNumber]]
+		if len(msg.Reason) < 2 {
+			return fmt.Errorf(
+				"%s: malformed version mismatch refusal: missing version numbers array",
+				ProtocolName,
+			)
+		}
+		var supportedVersions []uint16
+		switch v := msg.Reason[1].(type) {
+		case []uint16:
+			// Direct []uint16 array (from server encoding)
+			supportedVersions = v
+		case []any:
+			// []any array (from CBOR decoding)
+			supportedVersions = make([]uint16, 0, len(v))
+			for i, versionVal := range v {
+				var versionNum uint64
+				switch vv := versionVal.(type) {
+				case uint64:
+					versionNum = vv
+				case uint16:
+					versionNum = uint64(vv)
+				case uint32:
+					versionNum = uint64(vv)
+				case uint8:
+					versionNum = uint64(vv)
+				default:
+					return fmt.Errorf(
+						"%s: malformed version mismatch refusal: version number at index %d must be numeric, got %T",
+						ProtocolName,
+						i,
+						versionVal,
+					)
+				}
+				if versionNum > 65535 {
+					return fmt.Errorf(
+						"%s: malformed version mismatch refusal: version number at index %d exceeds uint16 max value",
+						ProtocolName,
+						i,
+					)
+				}
+				supportedVersions = append(supportedVersions, uint16(versionNum))
+			}
+		default:
+			return fmt.Errorf(
+				"%s: malformed version mismatch refusal: expected array of version numbers, got %T",
+				ProtocolName,
+				msg.Reason[1],
+			)
+		}
+		return &VersionMismatchError{
+			SupportedVersions: supportedVersions,
+		}
+
+	case RefuseReasonDecodeError:
+		// Format: [1, anyVersionNumber, tstr]
+		if len(msg.Reason) < 3 {
+			return fmt.Errorf(
+				"%s: malformed decode error refusal: expected 3 elements, got %d",
+				ProtocolName,
+				len(msg.Reason),
+			)
+		}
+		var versionNum uint64
+		switch v := msg.Reason[1].(type) {
+		case uint64:
+			versionNum = v
+		case uint16:
+			versionNum = uint64(v)
+		case uint32:
+			versionNum = uint64(v)
+		case uint8:
+			versionNum = uint64(v)
+		default:
+			return fmt.Errorf(
+				"%s: malformed decode error refusal: version number must be numeric, got %T",
+				ProtocolName,
+				msg.Reason[1],
+			)
+		}
+		if versionNum > 65535 {
+			return fmt.Errorf(
+				"%s: malformed decode error refusal: version number exceeds uint16 max value",
+				ProtocolName,
+			)
+		}
+		errMsg, ok := msg.Reason[2].(string)
+		if !ok {
+			return fmt.Errorf(
+				"%s: malformed decode error refusal: error message must be string, got %T",
+				ProtocolName,
+				msg.Reason[2],
+			)
+		}
+		return &DecodeError{
+			Version: uint16(versionNum),
+			Message: errMsg,
+		}
+
+	case RefuseReasonRefused:
+		// Format: [2, anyVersionNumber, tstr]
+		if len(msg.Reason) < 3 {
+			return fmt.Errorf(
+				"%s: malformed refused error: expected 3 elements, got %d",
+				ProtocolName,
+				len(msg.Reason),
+			)
+		}
+		var versionNum uint64
+		switch v := msg.Reason[1].(type) {
+		case uint64:
+			versionNum = v
+		case uint16:
+			versionNum = uint64(v)
+		case uint32:
+			versionNum = uint64(v)
+		case uint8:
+			versionNum = uint64(v)
+		default:
+			return fmt.Errorf(
+				"%s: malformed refused error: version number must be numeric, got %T",
+				ProtocolName,
+				msg.Reason[1],
+			)
+		}
+		if versionNum > 65535 {
+			return fmt.Errorf(
+				"%s: malformed refused error: version number exceeds uint16 max value",
+				ProtocolName,
+			)
+		}
+		errMsg, ok := msg.Reason[2].(string)
+		if !ok {
+			return fmt.Errorf(
+				"%s: malformed refused error: reason message must be string, got %T",
+				ProtocolName,
+				msg.Reason[2],
+			)
+		}
+		return &RefusedError{
+			Version: uint16(versionNum),
+			Message: errMsg,
+		}
+
+	default:
+		return fmt.Errorf(
+			"%s: unknown refuse reason: %d",
+			ProtocolName,
+			reasonCode,
+		)
+	}
 }
 
 func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
@@ -193,7 +330,15 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	msg := msgGeneric.(*MsgQueryReply)
+	// Use checked type assertion
+	msg, ok := msgGeneric.(*MsgQueryReply)
+	if !ok {
+		return fmt.Errorf(
+			"%s: malformed query reply message: expected *MsgQueryReply, got %T",
+			ProtocolName,
+			msgGeneric,
+		)
+	}
 	if c.config.FinishedFunc == nil {
 		return errors.New(
 			"received handshake QueryReply message but no callback function is defined",

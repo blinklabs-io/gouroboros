@@ -36,6 +36,56 @@ const (
 	RefuseReasonRefused         uint64 = 2
 )
 
+// RefusalError represents a handshake refusal error
+type RefusalError interface {
+	error
+	ReasonCode() uint64
+}
+
+// VersionMismatchError represents a version mismatch refusal
+// Format: [0, [*anyVersionNumber]]
+type VersionMismatchError struct {
+	SupportedVersions []uint16
+}
+
+func (e *VersionMismatchError) Error() string {
+	return fmt.Sprintf("%s: version mismatch (supported versions: %v)", ProtocolName, e.SupportedVersions)
+}
+
+func (e *VersionMismatchError) ReasonCode() uint64 {
+	return RefuseReasonVersionMismatch
+}
+
+// DecodeError represents a handshake decode error refusal
+// Format: [1, anyVersionNumber, tstr]
+type DecodeError struct {
+	Version uint16
+	Message string
+}
+
+func (e *DecodeError) Error() string {
+	return fmt.Sprintf("%s: decode error (version %d): %s", ProtocolName, e.Version, e.Message)
+}
+
+func (e *DecodeError) ReasonCode() uint64 {
+	return RefuseReasonDecodeError
+}
+
+// RefusedError represents a general refusal
+// Format: [2, anyVersionNumber, tstr]
+type RefusedError struct {
+	Version uint16
+	Message string
+}
+
+func (e *RefusedError) Error() string {
+	return fmt.Sprintf("%s: refused (version %d): %s", ProtocolName, e.Version, e.Message)
+}
+
+func (e *RefusedError) ReasonCode() uint64 {
+	return RefuseReasonRefused
+}
+
 // NewMsgFromCbor parses a Handshake message from CBOR
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	var ret protocol.Message
