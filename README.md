@@ -178,7 +178,8 @@ make test
 
 ### Running the linter
 
-gOuroboros uses [golangci-lint](https://golangci-lint.run/) for code quality checks. Install it following the [official installation guide](https://golangci-lint.run/docs/welcome/install/local/), then run:
+gOuroboros uses [golangci-lint](https://golangci-lint.run/) for code quality checks. Install it following the
+[official installation guide](https://golangci-lint.run/docs/welcome/install/local/), then run:
 
 ```
 make lint
@@ -186,7 +187,7 @@ make lint
 
 ### Manual testing
 
-Various small test programs can be found in `cmd/` in this repo or in the [gOuroboros Starter Kit](https://github.com/blinklabs-io/gouroboros-starter-kit) repo.
+Various small test programs can be found in the [gOuroboros Starter Kit](https://github.com/blinklabs-io/gouroboros-starter-kit) repo.
 Some of them can be run against public nodes via NtN protocols, but some may require access to the UNIX socket of a local node for NtC protocols.
 
 #### Run chain-sync from the start of a particular era
@@ -194,16 +195,12 @@ Some of them can be run against public nodes via NtN protocols, but some may req
 This is useful for testing changes to the handling of ledger types for a particular era. It will decode each block and either print
 a summary line for the block or an error.
 
-Start by building the test programs:
-
-```
-make
-```
+You can use the `chain-sync` program from `gouroboros-starter-kit` to start a ChainSync from a public node.
 
 Run the chain-sync test program against a public mainnet node, starting at the beginning of the Shelley era:
 
 ```
-./gouroboros -address backbone.cardano.iog.io:3001 -network mainnet -ntn chain-sync -bulk -start-era shelley
+CARDANO_NODE_ADDRESS=backbone.cardano.iog.io:3001 CARDANO_NODE_NETWORK=mainnet ./chain-sync -bulk -start-era shelley
 ```
 
 This will produce a LOT of output and take quite a few hours to reach chain tip. You're mostly looking for it to get through
