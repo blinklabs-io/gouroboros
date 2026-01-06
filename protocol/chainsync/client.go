@@ -26,17 +26,24 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
+type clientLifecycleState uint8
+
+const (
+	clientStateNew clientLifecycleState = iota
+	clientStateRunning
+	clientStateStopped
+)
+
 // Client implements the ChainSync client
 type Client struct {
 	*protocol.Protocol
-	config                   *Config
-	callbackContext          CallbackContext
-	busyMutex                sync.Mutex
-	readyForNextBlockChan    chan bool
-	startMutex               sync.Mutex
-	started                  bool
-	stopMutex                sync.Mutex
-	stopped                  bool
+	config                *Config
+	callbackContext       CallbackContext
+	busyMutex             sync.Mutex
+	lifecycleMutex        sync.Mutex
+	lifecycleState        clientLifecycleState
+	readyForNextBlockChan chan bool
+
 	syncPipelinedRequestNext int
 	protoOptions             protocol.ProtocolOptions
 	stateContext             any
@@ -69,9 +76,11 @@ func NewClient(
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config:       cfg,
-		protoOptions: protoOptions,
-		stateContext: stateContext,
+		config:                cfg,
+		protoOptions:          protoOptions,
+		stateContext:          stateContext,
+		lifecycleState:        clientStateNew,
+		readyForNextBlockChan: nil,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -129,12 +138,21 @@ func (c *Client) initProtocol() {
 	c.Protocol = protocol.New(protoConfig)
 }
 
+// Start starts the protocol.
 func (c *Client) Start() {
-	c.startMutex.Lock()
-	defer c.startMutex.Unlock()
-	if c.started {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+
+	if c.lifecycleState == clientStateRunning {
 		return
 	}
+
+	// Reinitialize protocol if stopped or first start
+	if c.lifecycleState == clientStateStopped || c.Protocol == nil {
+		c.initProtocol()
+		c.syncPipelinedRequestNext = 0
+	}
+
 	c.Protocol.Logger().
 		Debug("starting client protocol",
 			"component", "network",
@@ -142,8 +160,7 @@ func (c *Client) Start() {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.Protocol.Start()
-	c.started = true
-	// Start goroutine to cleanup resources on protocol shutdown
+	c.lifecycleState = clientStateRunning
 	go func() {
 		<-c.DoneChan()
 		// Close channel safely (may already be closed on restart)
@@ -157,59 +174,39 @@ func (c *Client) Start() {
 	}()
 }
 
-// Stop transitions the protocol to the Done state. The protocol can be restarted using Restart()
+// Stop transitions the protocol to the Done state.
 func (c *Client) Stop() error {
-	c.stopMutex.Lock()
-	defer c.stopMutex.Unlock()
-	if c.stopped {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+
+	if c.lifecycleState != clientStateRunning {
 		return nil
 	}
+
 	c.Protocol.Logger().
 		Debug("stopping client protocol",
 			"component", "network",
 			"protocol", ProtocolName,
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
 	msg := NewMsgDone()
 	err := c.SendMessage(msg)
-	if err == nil {
-		c.stopped = true
-		c.startMutex.Lock()
-		c.started = false
-		c.startMutex.Unlock()
+	c.busyMutex.Unlock()
+	if err != nil {
+		return err
 	}
-	return err
+
+	c.lifecycleState = clientStateStopped
+	return nil
 }
 
-// Restart restarts the protocol after it has been stopped. This allows reusing the same connection
-// for multiple chain-sync operations.
+// Restart restarts the protocol. It's just a convenience method that calls Stop() and Start() in sequence.
 func (c *Client) Restart() error {
-	c.stopMutex.Lock()
-	defer c.stopMutex.Unlock()
-	if !c.stopped {
-		return nil
+	if err := c.Stop(); err != nil {
+		return err
 	}
-	c.Protocol.Logger().
-		Debug("restarting client protocol",
-			"component", "network",
-			"protocol", ProtocolName,
-			"connection_id", c.callbackContext.ConnectionId.String(),
-		)
-	oldDoneChan := c.DoneChan()
-	// Stop the old protocol instance
-	c.Protocol.Stop()
-	<-oldDoneChan
-	// Reinitialize the protocol
-	c.initProtocol()
-	// Reset state
-	c.stopped = false
-	c.syncPipelinedRequestNext = 0
-	// Start the new protocol instance
-	c.startMutex.Lock()
-	c.started = false
-	c.startMutex.Unlock()
 	c.Start()
 	return nil
 }
