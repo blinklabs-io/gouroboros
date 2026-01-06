@@ -248,7 +248,7 @@ func TestClientNtNAcceptV11(t *testing.T) {
 
 func TestClientNtCRefuseVersionMismatch(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": version mismatch"
+	expectedVersions := []uint16{1, 2, 3}
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -260,7 +260,7 @@ func TestClientNtCRefuseVersionMismatch(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonVersionMismatch,
-							[]uint16{1, 2, 3},
+							[]any{uint64(1), uint64(2), uint64(3)},
 						},
 					),
 				},
@@ -273,16 +273,26 @@ func TestClientNtCRefuseVersionMismatch(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+	}
+	// Verify reason code
+	if versionMismatchErr.ReasonCode() != handshake.RefuseReasonVersionMismatch {
+		t.Fatalf("expected reason code %d, got %d", handshake.RefuseReasonVersionMismatch, versionMismatchErr.ReasonCode())
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
+		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
 	}
 }
 
 func TestClientNtCRefuseDecodeError(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": decode error: foo"
+	expectedVersion := mockProtocolVersionNtC
+	expectedMessage := "foo"
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -294,7 +304,7 @@ func TestClientNtCRefuseDecodeError(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonDecodeError,
-							mockProtocolVersionNtC,
+							uint64(mockProtocolVersionNtC),
 							"foo",
 						},
 					),
@@ -308,16 +318,29 @@ func TestClientNtCRefuseDecodeError(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	decodeErr, ok := err.(*handshake.DecodeError)
+	if !ok {
+		t.Fatalf("expected *handshake.DecodeError, got %T: %v", err, err)
+	}
+	// Verify reason code
+	if decodeErr.ReasonCode() != handshake.RefuseReasonDecodeError {
+		t.Fatalf("expected reason code %d, got %d", handshake.RefuseReasonDecodeError, decodeErr.ReasonCode())
+	}
+	// Verify version and message
+	if decodeErr.Version != expectedVersion {
+		t.Fatalf("expected version %d, got %d", expectedVersion, decodeErr.Version)
+	}
+	if decodeErr.Message != expectedMessage {
+		t.Fatalf("expected message %q, got %q", expectedMessage, decodeErr.Message)
 	}
 }
 
 func TestClientNtCRefuseRefused(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": refused: foo"
+	expectedVersion := mockProtocolVersionNtC
+	expectedMessage := "foo"
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -329,7 +352,7 @@ func TestClientNtCRefuseRefused(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonRefused,
-							mockProtocolVersionNtC,
+							uint64(mockProtocolVersionNtC),
 							"foo",
 						},
 					),
@@ -343,10 +366,22 @@ func TestClientNtCRefuseRefused(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	refusedErr, ok := err.(*handshake.RefusedError)
+	if !ok {
+		t.Fatalf("expected *handshake.RefusedError, got %T: %v", err, err)
+	}
+	// Verify reason code
+	if refusedErr.ReasonCode() != handshake.RefuseReasonRefused {
+		t.Fatalf("expected reason code %d, got %d", handshake.RefuseReasonRefused, refusedErr.ReasonCode())
+	}
+	// Verify version and message
+	if refusedErr.Version != expectedVersion {
+		t.Fatalf("expected version %d, got %d", expectedVersion, refusedErr.Version)
+	}
+	if refusedErr.Message != expectedMessage {
+		t.Fatalf("expected message %q, got %q", expectedMessage, refusedErr.Message)
 	}
 }
 
@@ -354,7 +389,7 @@ func TestClientNtCRefuseRefused(t *testing.T) {
 
 func TestClientNtNRefuseVersionMismatch(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": version mismatch"
+	expectedVersions := []uint16{7, 8, 9, 10}
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -366,7 +401,7 @@ func TestClientNtNRefuseVersionMismatch(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonVersionMismatch,
-							[]uint16{7, 8, 9, 10},
+							[]any{uint64(7), uint64(8), uint64(9), uint64(10)},
 						},
 					),
 				},
@@ -380,16 +415,22 @@ func TestClientNtNRefuseVersionMismatch(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
+		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
 	}
 }
 
 func TestClientNtNRefuseDecodeError(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": decode error: invalid protocol parameters"
+	expectedVersion := mockProtocolVersionNtN
+	expectedMessage := "invalid protocol parameters"
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -401,7 +442,7 @@ func TestClientNtNRefuseDecodeError(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonDecodeError,
-							mockProtocolVersionNtN,
+							uint64(mockProtocolVersionNtN),
 							"invalid protocol parameters",
 						},
 					),
@@ -416,16 +457,25 @@ func TestClientNtNRefuseDecodeError(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	decodeErr, ok := err.(*handshake.DecodeError)
+	if !ok {
+		t.Fatalf("expected *handshake.DecodeError, got %T: %v", err, err)
+	}
+	// Verify version and message
+	if decodeErr.Version != expectedVersion {
+		t.Fatalf("expected version %d, got %d", expectedVersion, decodeErr.Version)
+	}
+	if decodeErr.Message != expectedMessage {
+		t.Fatalf("expected message %q, got %q", expectedMessage, decodeErr.Message)
 	}
 }
 
 func TestClientNtNRefuseRefused(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": refused: connection not allowed"
+	expectedVersion := mockProtocolVersionNtN
+	expectedMessage := "connection not allowed"
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -437,7 +487,7 @@ func TestClientNtNRefuseRefused(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonRefused,
-							mockProtocolVersionNtN,
+							uint64(mockProtocolVersionNtN),
 							"connection not allowed",
 						},
 					),
@@ -452,10 +502,18 @@ func TestClientNtNRefuseRefused(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	refusedErr, ok := err.(*handshake.RefusedError)
+	if !ok {
+		t.Fatalf("expected *handshake.RefusedError, got %T: %v", err, err)
+	}
+	// Verify version and message
+	if refusedErr.Version != expectedVersion {
+		t.Fatalf("expected version %d, got %d", expectedVersion, refusedErr.Version)
+	}
+	if refusedErr.Message != expectedMessage {
+		t.Fatalf("expected message %q, got %q", expectedMessage, refusedErr.Message)
 	}
 }
 
@@ -463,7 +521,8 @@ func TestClientNtNRefuseRefused(t *testing.T) {
 
 func TestClientNtCRefuseDecodeErrorEmptyMessage(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": decode error: "
+	expectedVersion := mockProtocolVersionNtC
+	expectedMessage := ""
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -475,7 +534,7 @@ func TestClientNtCRefuseDecodeErrorEmptyMessage(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonDecodeError,
-							mockProtocolVersionNtC,
+							uint64(mockProtocolVersionNtC),
 							"",
 						},
 					),
@@ -489,16 +548,24 @@ func TestClientNtCRefuseDecodeErrorEmptyMessage(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	decodeErr, ok := err.(*handshake.DecodeError)
+	if !ok {
+		t.Fatalf("expected *handshake.DecodeError, got %T: %v", err, err)
+	}
+	// Verify version and message (even if empty)
+	if decodeErr.Version != expectedVersion {
+		t.Fatalf("expected version %d, got %d", expectedVersion, decodeErr.Version)
+	}
+	if decodeErr.Message != expectedMessage {
+		t.Fatalf("expected message %q, got %q", expectedMessage, decodeErr.Message)
 	}
 }
 
 func TestClientNtCRefuseVersionMismatchMultipleVersions(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": version mismatch"
+	expectedVersions := []uint16{10, 11, 12, 13, 14, 15}
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -510,7 +577,7 @@ func TestClientNtCRefuseVersionMismatchMultipleVersions(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonVersionMismatch,
-							[]uint16{10, 11, 12, 13, 14, 15},
+							[]any{uint64(10), uint64(11), uint64(12), uint64(13), uint64(14), uint64(15)},
 						},
 					),
 				},
@@ -523,16 +590,21 @@ func TestClientNtCRefuseVersionMismatchMultipleVersions(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
+		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
 	}
 }
 
 func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	expectedErr := handshake.ProtocolName + ": version mismatch"
+	expectedVersions := []uint16{5}
 	mockConn := ouroboros_mock.NewConnection(
 		ouroboros_mock.ProtocolRoleClient,
 		[]ouroboros_mock.ConversationEntry{
@@ -544,7 +616,7 @@ func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonVersionMismatch,
-							[]uint16{5},
+							[]any{uint64(5)},
 						},
 					),
 				},
@@ -558,10 +630,15 @@ func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("did not receive expected error")
-	} else {
-		if err.Error() != expectedErr {
-			t.Fatalf("received unexpected error\n  got:   %v\n  wanted: %v", err, expectedErr)
-		}
+	}
+	// Verify error type
+	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
+	if !ok {
+		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+	}
+	// Verify supported versions
+	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
+		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
 	}
 }
 
