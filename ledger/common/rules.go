@@ -139,6 +139,13 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	if ls == nil {
 		return nil
 	}
+
+	// If IsValid=false, the transaction is expected to fail phase-2 validation.
+	// Phase-1 validation should still pass even without script witnesses.
+	if !tx.IsValid() {
+		return nil
+	}
+
 	wits := tx.Witnesses()
 
 	// Collect all script hashes required by script address inputs
@@ -289,6 +296,36 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		if (addr.Type() & AddressTypeScriptBit) != 0 {
 			stakeScriptHash := addr.StakeKeyHash()
 			requiredScriptHashes[ScriptHash(stakeScriptHash)] = true
+		}
+	}
+
+	// Collect script hashes required by voting procedures (script-type voters)
+	for voter := range tx.VotingProcedures() {
+		if voter == nil {
+			continue
+		}
+		// Check for script-type voters: CC script (1) or DRep script (3)
+		if voter.Type == VoterTypeConstitutionalCommitteeHotScriptHash ||
+			voter.Type == VoterTypeDRepScriptHash {
+			requiredScriptHashes[ScriptHash(NewBlake2b224(voter.Hash[:]))] = true
+		}
+	}
+
+	// Collect script hashes required by proposal procedures (governance policy scripts)
+	for _, proposal := range tx.ProposalProcedures() {
+		if proposal == nil {
+			continue
+		}
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+		// Check if governance action has a policy script
+		if actionWithPolicy, ok := govAction.(GovActionWithPolicy); ok {
+			policyHash := actionWithPolicy.GetPolicyHash()
+			if len(policyHash) > 0 {
+				requiredScriptHashes[ScriptHash(policyHash)] = true
+			}
 		}
 	}
 

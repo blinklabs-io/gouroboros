@@ -33,6 +33,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
 	UtxoValidateCostModelsPresent,
+	UtxoValidateInlineDatumsWithPlutusV1,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -169,6 +170,71 @@ func UtxoValidateCostModelsPresent(
 		model, ok := tmpPparams.CostModels[version]
 		if !ok || len(model) == 0 {
 			return common.MissingCostModelError{Version: version}
+		}
+	}
+
+	return nil
+}
+
+// UtxoValidateInlineDatumsWithPlutusV1 rejects transactions that use inline datums with PlutusV1 scripts
+// Inline datums are a Babbage-era feature and are only supported with PlutusV2+
+func UtxoValidateInlineDatumsWithPlutusV1(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Check if transaction spends any UTxOs with inline datums
+	hasInlineDatums := false
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			// Input not found in ledger state, skip
+			continue
+		}
+		babbageOutput, ok := utxo.Output.(*BabbageTransactionOutput)
+		if !ok {
+			continue
+		}
+		if babbageOutput.DatumOption != nil && babbageOutput.DatumOption.data != nil {
+			hasInlineDatums = true
+			break
+		}
+	}
+
+	if !hasInlineDatums {
+		return nil
+	}
+
+	// Check if transaction uses PlutusV1 scripts in witnesses
+	witnesses := tx.Witnesses()
+	if witnesses != nil {
+		v1Scripts := witnesses.PlutusV1Scripts()
+		if len(v1Scripts) > 0 {
+			return common.InlineDatumsNotSupportedError{
+				PlutusVersion: "PlutusV1",
+			}
+		}
+	}
+
+	// Check reference scripts on reference inputs
+	for _, refInput := range tx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			return common.ReferenceInputResolutionError{
+				Input: refInput,
+				Err:   err,
+			}
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script, *common.PlutusV1Script:
+			return common.InlineDatumsNotSupportedError{
+				PlutusVersion: "PlutusV1",
+			}
 		}
 	}
 

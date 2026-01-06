@@ -232,6 +232,11 @@ type GovAction interface {
 	ToPlutusData() data.PlutusData
 }
 
+// GovActionWithPolicy is an optional interface for governance actions that have a policy script
+type GovActionWithPolicy interface {
+	GetPolicyHash() []byte
+}
+
 type GovActionBase struct{}
 
 //nolint:unused
@@ -298,6 +303,11 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 }
 
 func (a TreasuryWithdrawalGovAction) isGovAction() {}
+
+// GetPolicyHash returns the policy script hash for this governance action
+func (a *TreasuryWithdrawalGovAction) GetPolicyHash() []byte {
+	return a.PolicyHash
+}
 
 type NoConfidenceGovAction struct {
 	cbor.StructAsArray
