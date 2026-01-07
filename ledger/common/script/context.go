@@ -95,7 +95,7 @@ type TxInfoV1 struct {
 	Fee          uint64
 	Mint         lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
 	Certificates []lcommon.Certificate
-	Withdrawals  KeyValuePairs[*lcommon.Address, uint64]
+	Withdrawals  Pairs[*lcommon.Address, uint64]
 	ValidRange   TimeRange
 	Signatories  []lcommon.Blake2b224
 	Data         KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
@@ -195,7 +195,7 @@ func NewTxInfoV1FromTransaction(
 		Mint:         *assetMint,
 		ValidRange:   validityRange,
 		Certificates: tx.Certificates(),
-		Withdrawals:  withdrawals,
+		Withdrawals:  withdrawals.ToPairs(),
 		Signatories:  signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:    redeemers,
 		Data:         tmpData,
@@ -205,13 +205,13 @@ func NewTxInfoV1FromTransaction(
 }
 
 type TxInfoV2 struct {
-	Inputs          []lcommon.Utxo
-	ReferenceInputs []lcommon.Utxo
-	Outputs         []lcommon.Utxo
+	Inputs          []ResolvedInput
+	ReferenceInputs []ResolvedInput
+	Outputs         []lcommon.TransactionOutput
 	Fee             uint64
 	Mint            lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
 	Certificates    []lcommon.Certificate
-	Withdrawals     KeyValuePairs[*lcommon.Address, Coin]
+	Withdrawals     KeyValuePairs[*lcommon.Address, uint64]
 	ValidRange      TimeRange
 	Signatories     []lcommon.Blake2b224
 	Redeemers       KeyValuePairs[ScriptPurpose, Redeemer]
@@ -222,8 +222,100 @@ type TxInfoV2 struct {
 func (TxInfoV2) isTxInfo() {}
 
 func (t TxInfoV2) ToPlutusData() data.PlutusData {
-	// TODO
-	return nil
+	return data.NewConstr(
+		0,
+		WithZeroAdaAsset{
+			WithWrappedTransactionId{
+				t.Inputs,
+			},
+		}.ToPlutusData(),
+		WithZeroAdaAsset{
+			WithWrappedTransactionId{
+				t.ReferenceInputs,
+			},
+		}.ToPlutusData(),
+		WithZeroAdaAsset{
+			t.Outputs,
+		}.ToPlutusData(),
+		WithZeroAdaAsset{
+			Value{
+				Coin: t.Fee,
+			},
+		}.ToPlutusData(),
+		WithZeroAdaAsset{
+			Value{
+				AssetsMint: &t.Mint,
+			},
+		}.ToPlutusData(),
+		WithPartialCertificates{
+			t.Certificates,
+		}.ToPlutusData(),
+		WithWrappedStakeCredential{
+			t.Withdrawals,
+		}.ToPlutusData(),
+		t.ValidRange.ToPlutusData(),
+		toPlutusData(t.Signatories),
+		WithWrappedTransactionId{
+			t.Redeemers,
+		}.ToPlutusData(),
+		t.Data.ToPlutusData(),
+		data.NewConstr(
+			0,
+			data.NewByteString(t.Id.Bytes()),
+		),
+	)
+}
+
+func NewTxInfoV2FromTransaction(
+	slotState lcommon.SlotState,
+	tx lcommon.Transaction,
+	resolvedInputs []lcommon.Utxo,
+) (TxInfoV2, error) {
+	validityRange, err := validityRangeInfo(
+		slotState,
+		tx.ValidityIntervalStart(),
+		tx.TTL(),
+	)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
+	assetMint := tx.AssetMint()
+	if assetMint == nil {
+		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
+	}
+	inputs := sortInputs(tx.Inputs())
+	withdrawals := withdrawalsInfo(tx.Withdrawals())
+	redeemers := redeemersInfo(
+		tx.Witnesses(),
+		scriptPurposeBuilder(
+			resolvedInputs,
+			inputs,
+			*assetMint,
+			tx.Certificates(),
+			withdrawals,
+			nil, // votes
+			nil, // proposalProcedures,
+		),
+	)
+	tmpData := dataInfo(tx.Witnesses())
+	ret := TxInfoV2{
+		Inputs: expandInputs(inputs, resolvedInputs),
+		ReferenceInputs: expandInputs(
+			sortInputs(tx.ReferenceInputs()),
+			resolvedInputs,
+		),
+		Outputs:      collapseOutputs(tx.Produced()),
+		Fee:          tx.Fee(),
+		Mint:         *assetMint,
+		ValidRange:   validityRange,
+		Certificates: tx.Certificates(),
+		Withdrawals:  withdrawals,
+		Signatories:  signatoriesInfo(tx.RequiredSigners()),
+		Redeemers:    redeemers,
+		Data:         tmpData,
+		Id:           tx.Id(),
+	}
+	return ret, nil
 }
 
 type TxInfoV3 struct {

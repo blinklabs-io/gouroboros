@@ -87,6 +87,61 @@ func buildTxInfoV1(
 	return txInfo, nil
 }
 
+func buildTxInfoV2(
+	slotState lcommon.SlotState,
+	txHex string,
+	inputsHex string,
+	inputOutputsHex string,
+) (script.TxInfo, error) {
+	// Transaction
+	txBytes, err := hex.DecodeString(txHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode transaction hex: %w", err)
+	}
+	tx, err := babbage.NewBabbageTransactionFromCbor(txBytes)
+	if err != nil {
+		return nil, err
+	}
+	// Inputs
+	inputsBytes, err := hex.DecodeString(inputsHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode inputs hex: %w", err)
+	}
+	var tmpInputs []shelley.ShelleyTransactionInput
+	if _, err := cbor.Decode(inputsBytes, &tmpInputs); err != nil {
+		return nil, fmt.Errorf("decode inputs: %w", err)
+	}
+	// Input outputs
+	inputOutputsBytes, err := hex.DecodeString(inputOutputsHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode input outputs hex: %w", err)
+	}
+	var tmpOutputs []babbage.BabbageTransactionOutput
+	if _, err := cbor.Decode(inputOutputsBytes, &tmpOutputs); err != nil {
+		return nil, fmt.Errorf("decode input outputs: %w", err)
+	}
+	// Build resolved inputs
+	var resolvedInputs []lcommon.Utxo
+	if len(tmpInputs) != len(tmpOutputs) {
+		return nil, errors.New("input and output length don't match")
+	}
+	for i := range tmpInputs {
+		resolvedInputs = append(
+			resolvedInputs,
+			lcommon.Utxo{
+				Id:     tmpInputs[i],
+				Output: tmpOutputs[i],
+			},
+		)
+	}
+	// Build TxInfo
+	txInfo, err := script.NewTxInfoV2FromTransaction(slotState, tx, resolvedInputs)
+	if err != nil {
+		return nil, err
+	}
+	return txInfo, nil
+}
+
 func buildTxInfoV3(
 	slotState lcommon.SlotState,
 	txHex string,
@@ -218,6 +273,81 @@ func TestScriptContextV1(t *testing.T) {
 				// Extract purpose and redeemer from TxInfo
 				var purpose script.ScriptPurpose
 				for _, redeemerPair := range txInfo.(script.TxInfoV1).Redeemers {
+					if redeemerPair.Value.Tag == testDef.redeemerTag &&
+						redeemerPair.Value.Index == testDef.redeemerIndex {
+						purpose = redeemerPair.Key
+						break
+					}
+				}
+				// Build script context
+				sc := script.NewScriptContextV1V2(txInfo, purpose)
+				scCbor, err := data.Encode(sc.ToPlutusData())
+				if err != nil {
+					t.Fatalf("unexpected error: %s", err)
+				}
+				scCborHex := hex.EncodeToString(scCbor)
+				if scCborHex != testDef.expectedCbor {
+					t.Fatalf(
+						"did not get expected ScriptContext CBOR\n     got: %s\n  wanted: %s",
+						scCborHex,
+						testDef.expectedCbor,
+					)
+				}
+			},
+		)
+	}
+}
+
+var scriptContextV2TestDefs = []struct {
+	name          string
+	txHex         string
+	inputsHex     string
+	outputsHex    string
+	redeemerTag   common.RedeemerTag
+	redeemerIndex uint32
+	slotState     common.SlotState
+	expectedCbor  string
+}{
+	{
+		name: "SimpleSend",
+		// NOTE: this is the V3 SimpleSend with the witness V3 script changed to V2
+		txHex:         `84a70081825820000000000000000000000000000000000000000000000000000000000000000000018182581d60111111111111111111111111111111111111111111111111111111111a3b9aca0002182a0b5820ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0d818258200000000000000000000000000000000000000000000000000000000000000000001082581d60000000000000000000000000000000000000000000000000000000001a3b9aca001101a20581840000d87980821a000f42401a05f5e100068152510101003222253330044a229309b2b2b9a1f5f6`,
+		inputsHex:     `81825820000000000000000000000000000000000000000000000000000000000000000000`,
+		outputsHex:    `81a300581d7039f47fd3b388ef53c48f08de24766d3e55dade6cae908cc24e0f4f3e011a3b9aca00028201d81843d87980`,
+		redeemerTag:   lcommon.RedeemerTagSpend,
+		redeemerIndex: 0,
+		expectedCbor:  `d8799fd8799f9fd8799fd8799fd8799f58200000000000000000000000000000000000000000000000000000000000000000ff00ffd8799fd8799fd87a9f581c39f47fd3b388ef53c48f08de24766d3e55dade6cae908cc24e0f4f3effd87a80ffa140a1401a3b9aca00d87b9fd87980ffd87a80ffffff809fd8799fd8799fd8799f581c11111111111111111111111111111111111111111111111111111111ffd87a80ffa140a1401a3b9aca00d87980d87a80ffffa140a140182aa140a1400080a0d8799fd8799fd87980d87a80ffd8799fd87b80d87a80ffff80a1d87a9fd8799fd8799f58200000000000000000000000000000000000000000000000000000000000000000ff00ffffd87980a0d8799f582078ec148ea647cf9969446891af31939c5d57b275a2455706782c6183ef0b62f1ffffd87a9fd8799fd8799f58200000000000000000000000000000000000000000000000000000000000000000ff00ffffff`,
+	},
+	{
+		name: "Mint",
+		// NOTE: this is the V3 Mint with the witness V3 script changed to V2
+		txHex:         "84a900818258200000000000000000000000000000000000000000000000000000000000000000000183a300581d6000000000000000000000000000000000000000000000000000000000011a000f42400282005820923918e403bf43c34b4ef6b48eb2ee04babed17320d8d1b9ff9ad086e86f44eca200583900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001821a000f4240a2581c12593b4cbf7fdfd8636db99fe356437cd6af8539aadaa0a401964874a14474756e611b00005af3107a4000581c0c8eaf490c53afbf27e3d84a3b57da51fbafe5aa78443fcec2dc262ea14561696b656e182aa300583910000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001821a000f4240a1581c0c8eaf490c53afbf27e3d84a3b57da51fbafe5aa78443fcec2dc262ea14763617264616e6f0103d8184782034463666f6f02182a09a2581c12593b4cbf7fdfd8636db99fe356437cd6af8539aadaa0a401964874a14474756e611b00005af3107a4000581c0c8eaf490c53afbf27e3d84a3b57da51fbafe5aa78443fcec2dc262ea24763617264616e6f014561696b656e2d0b5820ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0d818258200000000000000000000000000000000000000000000000000000000000000000001082581d60000000000000000000000000000000000000000000000000000000001a3b9aca0011011281825820000000000000000000000000000000000000000000000000000000000000000000a30582840100d87980821a000f42401a05f5e100840101182a821a000f42401a05f5e1000481d879800682587d587b0101003232323232323225333333008001153330033370e900018029baa001153330073006375400224a66600894452615330054911856616c696461746f722072657475726e65642066616c73650013656002002002002002002153300249010b5f746d70323a20566f696400165734ae7155ceaab9e5573eae91589558930101003232323232323225333333008001153330033370e900018029baa001153330073006375400224a666008a6600a9201105f5f5f5f5f6d696e745f325f5f5f5f5f0014a22930a99802a4811856616c696461746f722072657475726e65642066616c73650013656002002002002002002153300249010b5f746d70323a20566f696400165734ae7155ceaab9e5573eae91f5f6",
+		inputsHex:     "81825820000000000000000000000000000000000000000000000000000000000000000000",
+		outputsHex:    "81a200581d6000000000000000000000000000000000000000000000000000000000011a000f4240",
+		redeemerTag:   lcommon.RedeemerTagMint,
+		redeemerIndex: 1,
+		expectedCbor:  "d8799fd8799f9fd8799fd8799fd8799f58200000000000000000000000000000000000000000000000000000000000000000ff00ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd87a80ffa140a1401a000f4240d87980d87a80ffffff9fd8799fd8799fd8799f58200000000000000000000000000000000000000000000000000000000000000000ff00ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd87a80ffa140a1401a000f4240d87980d87a80ffffff9fd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd87a80ffa140a1401a000f4240d87a9f5820923918e403bf43c34b4ef6b48eb2ee04babed17320d8d1b9ff9ad086e86f44ecffd87a80ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffffffffa340a1401a000f4240581c0c8eaf490c53afbf27e3d84a3b57da51fbafe5aa78443fcec2dc262ea14561696b656e182a581c12593b4cbf7fdfd8636db99fe356437cd6af8539aadaa0a401964874a14474756e611b00005af3107a4000d87980d87a80ffd8799fd8799fd87a9f581c00000000000000000000000000000000000000000000000000000000ffd8799fd8799fd8799f581c00000000000000000000000000000000000000000000000000000000ffffffffa240a1401a000f4240581c0c8eaf490c53afbf27e3d84a3b57da51fbafe5aa78443fcec2dc262ea14763617264616e6f01d87980d8799f581c68ad54b3a8124d9fe5caaaf2011a85d72096e696a2fb3d7f86c41717ffffffa140a140182aa340a14000581c0c8eaf490c53afbf27e3d84a3b57da51fbafe5aa78443fcec2dc262ea24561696b656e2d4763617264616e6f01581c12593b4cbf7fdfd8636db99fe356437cd6af8539aadaa0a401964874a14474756e611b00005af3107a400080a0d8799fd8799fd87980d87a80ffd8799fd87b80d87a80ffff80a2d8799f581c0c8eaf490c53afbf27e3d84a3b57da51fbafe5aa78443fcec2dc262effd87980d8799f581c12593b4cbf7fdfd8636db99fe356437cd6af8539aadaa0a401964874ff182aa15820923918e403bf43c34b4ef6b48eb2ee04babed17320d8d1b9ff9ad086e86f44ecd87980d8799f5820e757985e48e43a95a185ddba08c814bc20f81cb68544ac937a9b992e4e6c38a0ffffd8799f581c12593b4cbf7fdfd8636db99fe356437cd6af8539aadaa0a401964874ffff",
+	},
+}
+
+func TestScriptContextV2(t *testing.T) {
+	for _, testDef := range scriptContextV2TestDefs {
+		t.Run(
+			testDef.name,
+			func(t *testing.T) {
+				txInfo, err := buildTxInfoV2(
+					testDef.slotState,
+					testDef.txHex,
+					testDef.inputsHex,
+					testDef.outputsHex,
+				)
+				if err != nil {
+					t.Fatalf("unexpected error: %s", err)
+				}
+
+				// Extract purpose and redeemer from TxInfo
+				var purpose script.ScriptPurpose
+				for _, redeemerPair := range txInfo.(script.TxInfoV2).Redeemers {
 					if redeemerPair.Value.Tag == testDef.redeemerTag &&
 						redeemerPair.Value.Index == testDef.redeemerIndex {
 						purpose = redeemerPair.Key
