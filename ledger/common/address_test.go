@@ -386,6 +386,37 @@ func TestAddressToPlutusData(t *testing.T) {
 	}
 }
 
+func TestBech32Roundtrip_MainnetExamples(t *testing.T) {
+	examples := []string{
+		"addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha",
+		"addr1qyln2c2cx5jc4hw768pwz60n5245462dvp4auqcw09rl2xz07huw84puu6cea3qe0ce3apks7hjckqkh5ad4uax0l9ws0q9xty",
+		"addr1wysmmrpwphe0h6fpxlmcmw46frmzxz89yvpsf8cdv29kcnqsw3vw6",
+	}
+
+	for _, s := range examples {
+		a, err := NewAddress(s)
+		assert.Nil(t, err, "should decode example address: %s", s)
+		// Roundtrip
+		r := a.String()
+		assert.Equal(t, s, r, "roundtrip should preserve bech32 string")
+	}
+}
+
+func TestBech32Roundtrip_TestnetExample(t *testing.T) {
+	s := "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrsxvt6scmqvvrw720"
+	a, err := NewAddress(s)
+	assert.Nil(t, err)
+	assert.Equal(t, s, a.String())
+}
+
+func TestBech32MalformedInputs(t *testing.T) {
+	bad := []string{"", "not-bech32", "addr1xxxxzzzz..."}
+	for _, s := range bad {
+		_, err := NewAddress(s)
+		assert.Error(t, err, "expected error for malformed input: %s", s)
+	}
+}
+
 func BenchmarkAddressFromBytes(b *testing.B) {
 	addrBytes, err := hex.DecodeString(
 		"11e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec1330952563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2",
