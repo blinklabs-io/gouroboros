@@ -461,7 +461,8 @@ func UtxoValidateMetadata(
 		// placeholder as well. If the auxiliary-data is exactly one
 		// simple-value byte, ignore it here.
 		if len(ac) > 0 {
-			if len(ac) != 1 || (ac[0] != 0xF6 && ac[0] != 0xF5 && ac[0] != 0xF4) {
+			if len(ac) != 1 ||
+				(ac[0] != 0xF6 && ac[0] != 0xF5 && ac[0] != 0xF4) {
 				rawAuxData = ac
 			}
 		}
