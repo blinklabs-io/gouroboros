@@ -777,14 +777,20 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if callbackErr != nil {
 		if errors.Is(callbackErr, ErrStopSyncProcess) {
 			// Signal that we're cancelling the sync
-			c.readyForNextBlockChan <- false
+			select {
+			case c.readyForNextBlockChan <- false:
+			case <-c.DoneChan():
+			}
 			return nil
 		} else {
 			return callbackErr
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	select {
+	case c.readyForNextBlockChan <- true:
+	case <-c.DoneChan():
+	}
 	return nil
 }
 
@@ -808,7 +814,10 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if errors.Is(callbackErr, ErrStopSyncProcess) {
 				// Signal that we're cancelling the sync
-				c.readyForNextBlockChan <- false
+				select {
+				case c.readyForNextBlockChan <- false:
+				case <-c.DoneChan():
+				}
 				return nil
 			} else {
 				return callbackErr
@@ -816,7 +825,10 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	select {
+	case c.readyForNextBlockChan <- true:
+	case <-c.DoneChan():
+	}
 	return nil
 }
 
