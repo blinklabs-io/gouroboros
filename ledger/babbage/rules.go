@@ -16,6 +16,7 @@ package babbage
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -636,10 +637,20 @@ func UtxoValidateValueNotConservedUtxo(
 			if produced.IsUint64() {
 				producedU = produced.Uint64()
 			}
-			return shelley.ValueNotConservedUtxoError{
+			// Wrap with context if values don't fit in uint64
+			baseErr := shelley.ValueNotConservedUtxoError{
 				Consumed: consumedU,
 				Produced: producedU,
 			}
+			if !consumed.IsUint64() || !produced.IsUint64() {
+				return fmt.Errorf(
+					"multi-asset value not conserved: consumed %s, produced %s: %w",
+					consumed.String(),
+					produced.String(),
+					baseErr,
+				)
+			}
+			return baseErr
 		}
 	}
 
