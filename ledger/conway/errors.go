@@ -71,3 +71,42 @@ type TreasuryDonationWithPlutusV1V2Error struct {
 func (e TreasuryDonationWithPlutusV1V2Error) Error() string {
 	return fmt.Sprintf("treasury donation (%d lovelace) cannot be used with %s scripts - treasury donation is a Conway feature only available for PlutusV3", e.Donation, e.PlutusVersion)
 }
+
+// PlutusScriptFailedError indicates that a Plutus script execution failed
+type PlutusScriptFailedError struct {
+	ScriptHash common.ScriptHash
+	Tag        common.RedeemerTag
+	Index      uint32
+	Err        error
+}
+
+func (e PlutusScriptFailedError) Error() string {
+	return fmt.Sprintf("plutus script failed (hash=%x, tag=%d, index=%d): %v", e.ScriptHash[:], e.Tag, e.Index, e.Err)
+}
+
+func (e PlutusScriptFailedError) Unwrap() error {
+	return e.Err
+}
+
+// ScriptContextConstructionError indicates that the script context could not be built
+type ScriptContextConstructionError struct {
+	Err error
+}
+
+func (e ScriptContextConstructionError) Error() string {
+	return fmt.Sprintf("failed to construct script context: %v", e.Err)
+}
+
+func (e ScriptContextConstructionError) Unwrap() error {
+	return e.Err
+}
+
+// MissingDatumForSpendingScriptError indicates that a spending script requires a datum but none was provided
+type MissingDatumForSpendingScriptError struct {
+	ScriptHash common.ScriptHash
+	Input      common.TransactionInput
+}
+
+func (e MissingDatumForSpendingScriptError) Error() string {
+	return fmt.Sprintf("missing datum for spending script (hash=%x, input=%s)", e.ScriptHash[:], e.Input.String())
+}

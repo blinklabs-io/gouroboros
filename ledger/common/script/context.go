@@ -499,6 +499,9 @@ func dataInfo(
 	witnessSet lcommon.TransactionWitnessSet,
 ) KeyValuePairs[lcommon.DatumHash, data.PlutusData] {
 	var ret KeyValuePairs[lcommon.DatumHash, data.PlutusData]
+	if witnessSet == nil {
+		return ret
+	}
 	for _, datum := range witnessSet.PlutusData() {
 		ret = append(
 			ret,
@@ -522,6 +525,9 @@ func redeemersInfo(
 	witnessSet lcommon.TransactionWitnessSet,
 	toScriptPurpose toScriptPurposeFunc,
 ) KeyValuePairs[ScriptPurpose, Redeemer] {
+	if witnessSet == nil {
+		return KeyValuePairs[ScriptPurpose, Redeemer]{}
+	}
 	redeemers := witnessSet.Redeemers()
 	if redeemers == nil {
 		return KeyValuePairs[ScriptPurpose, Redeemer]{}

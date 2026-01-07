@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package script
+package script_test
 
 import (
 	"encoding/hex"
@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
@@ -36,7 +37,7 @@ func buildTxInfoV1(
 	txHex string,
 	inputsHex string,
 	inputOutputsHex string,
-) (TxInfo, error) {
+) (script.TxInfo, error) {
 	// Transaction
 	txBytes, err := hex.DecodeString(txHex)
 	if err != nil {
@@ -79,7 +80,7 @@ func buildTxInfoV1(
 		)
 	}
 	// Build TxInfo
-	txInfo, err := NewTxInfoV1FromTransaction(slotState, tx, resolvedInputs)
+	txInfo, err := script.NewTxInfoV1FromTransaction(slotState, tx, resolvedInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,7 @@ func buildTxInfoV3(
 	txHex string,
 	inputsHex string,
 	inputOutputsHex string,
-) (TxInfo, error) {
+) (script.TxInfo, error) {
 	// Transaction
 	txBytes, err := hex.DecodeString(txHex)
 	if err != nil {
@@ -134,7 +135,7 @@ func buildTxInfoV3(
 		)
 	}
 	// Build TxInfo
-	txInfo, err := NewTxInfoV3FromTransaction(slotState, tx, resolvedInputs)
+	txInfo, err := script.NewTxInfoV3FromTransaction(slotState, tx, resolvedInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +205,8 @@ func TestScriptContextV1(t *testing.T) {
 				}
 
 				// Extract purpose and redeemer from TxInfo
-				var purpose ScriptPurpose
-				for _, redeemerPair := range txInfo.(TxInfoV1).Redeemers {
+				var purpose script.ScriptPurpose
+				for _, redeemerPair := range txInfo.(script.TxInfoV1).Redeemers {
 					if redeemerPair.Value.Tag == testDef.redeemerTag &&
 						redeemerPair.Value.Index == testDef.redeemerIndex {
 						purpose = redeemerPair.Key
@@ -213,7 +214,7 @@ func TestScriptContextV1(t *testing.T) {
 					}
 				}
 				// Build script context
-				sc := NewScriptContextV1V2(txInfo, purpose)
+				sc := script.NewScriptContextV1V2(txInfo, purpose)
 				scCbor, err := data.Encode(sc.ToPlutusData())
 				if err != nil {
 					t.Fatalf("unexpected error: %s", err)
@@ -374,9 +375,9 @@ func TestScriptContextV3(t *testing.T) {
 				}
 
 				// Extract purpose and redeemer from TxInfo
-				var purpose ScriptPurpose
-				var redeemer Redeemer
-				for _, redeemerPair := range txInfo.(TxInfoV3).Redeemers {
+				var purpose script.ScriptPurpose
+				var redeemer script.Redeemer
+				for _, redeemerPair := range txInfo.(script.TxInfoV3).Redeemers {
 					if redeemerPair.Value.Tag == testDef.redeemerTag &&
 						redeemerPair.Value.Index == testDef.redeemerIndex {
 						purpose = redeemerPair.Key
@@ -385,7 +386,7 @@ func TestScriptContextV3(t *testing.T) {
 					}
 				}
 				// Build script context
-				sc := NewScriptContextV3(txInfo, redeemer, purpose)
+				sc := script.NewScriptContextV3(txInfo, redeemer, purpose)
 				scCbor, err := data.Encode(sc.ToPlutusData())
 				if err != nil {
 					t.Fatalf("unexpected error: %s", err)
