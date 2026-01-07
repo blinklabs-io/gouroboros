@@ -18,11 +18,13 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"math/big"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -210,18 +212,18 @@ func Blake2b160Hash(data []byte) Blake2b160 {
 }
 
 type (
-	MultiAssetTypeOutput = uint64
-	MultiAssetTypeMint   = int64
+	MultiAssetTypeOutput = *big.Int
+	MultiAssetTypeMint   = *big.Int
 )
 
 // MultiAsset represents a collection of policies, assets, and quantities. It's used for
 // TX outputs (uint64) and TX asset minting (int64 to allow for negative values for burning)
-type MultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
+type MultiAsset[T int64 | uint64 | *big.Int] struct {
 	data map[Blake2b224]map[cbor.ByteString]T
 }
 
 // NewMultiAsset creates a MultiAsset with the specified data
-func NewMultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint](
+func NewMultiAsset[T int64 | uint64 | *big.Int](
 	data map[Blake2b224]map[cbor.ByteString]T,
 ) MultiAsset[T] {
 	if data == nil {
@@ -231,12 +233,12 @@ func NewMultiAsset[T MultiAssetTypeOutput | MultiAssetTypeMint](
 }
 
 // multiAssetJson is a convenience type for marshaling/unmarshaling MultiAsset to/from JSON
-type multiAssetJson[T MultiAssetTypeOutput | MultiAssetTypeMint] struct {
+type multiAssetJson[T int64 | uint64 | *big.Int] struct {
 	Name        string `json:"name"`
 	NameHex     string `json:"nameHex"`
 	PolicyId    string `json:"policyId"`
 	Fingerprint string `json:"fingerprint"`
-	Amount      T      `json:"amount"`
+	Amount      string `json:"amount"`
 }
 
 func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
@@ -257,7 +259,7 @@ func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
 			tmpObj := multiAssetJson[T]{
 				Name:     string(assetName.Bytes()),
 				NameHex:  hex.EncodeToString(assetName.Bytes()),
-				Amount:   amount,
+				Amount:   amountToString(amount),
 				PolicyId: policyId.String(),
 				Fingerprint: NewAssetFingerprint(
 					policyId.Bytes(),
@@ -268,6 +270,37 @@ func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(&tmpAssets)
+}
+
+func (m *MultiAsset[T]) UnmarshalJSON(data []byte) error {
+	tmpAssets := []multiAssetJson[T]{}
+	if err := json.Unmarshal(data, &tmpAssets); err != nil {
+		return err
+	}
+	if m.data == nil {
+		m.data = make(map[Blake2b224]map[cbor.ByteString]T)
+	}
+	for _, tmp := range tmpAssets {
+		policyBytes, err := hex.DecodeString(tmp.PolicyId)
+		if err != nil {
+			return err
+		}
+		var policy Blake2b224
+		copy(policy[:], policyBytes)
+		nameBytes, err := hex.DecodeString(tmp.NameHex)
+		if err != nil {
+			return err
+		}
+		amount, err := parseAmount[T](tmp.Amount)
+		if err != nil {
+			return err
+		}
+		if _, ok := m.data[policy]; !ok {
+			m.data[policy] = make(map[cbor.ByteString]T)
+		}
+		m.data[policy][cbor.NewByteString(nameBytes)] = amount
+	}
+	return nil
 }
 
 func (m *MultiAsset[T]) ToPlutusData() data.PlutusData {
@@ -293,7 +326,7 @@ func (m *MultiAsset[T]) ToPlutusData() data.PlutusData {
 				tmpPolicyData,
 				[2]data.PlutusData{
 					data.NewByteString(assetName.Bytes()),
-					data.NewInteger(big.NewInt(int64(amount))),
+					data.NewInteger(amountToBigInt(amount)),
 				},
 			)
 		}
@@ -331,7 +364,8 @@ func (m *MultiAsset[T]) Assets(policyId Blake2b224) [][]byte {
 func (m *MultiAsset[T]) Asset(policyId Blake2b224, assetName []byte) T {
 	policy, ok := m.data[policyId]
 	if !ok {
-		return 0
+		var zero T
+		return zero
 	}
 	return policy[cbor.NewByteString(assetName)]
 }
@@ -342,7 +376,8 @@ func (m *MultiAsset[T]) Add(assets *MultiAsset[T]) {
 	}
 	for policy, assets := range assets.data {
 		for asset, amount := range assets {
-			newAmount := m.Asset(policy, asset.Bytes()) + amount
+			existing := m.Asset(policy, asset.Bytes())
+			newAmount := addAmounts(existing, amount)
 			if _, ok := m.data[policy]; !ok {
 				m.data[policy] = make(map[cbor.ByteString]T)
 			}
@@ -366,7 +401,7 @@ func (m *MultiAsset[T]) Compare(assets *MultiAsset[T]) bool {
 		}
 		for asset, amount := range assets {
 			// Compare quantity of specific asset
-			if amount != m.Asset(policy, asset.Bytes()) {
+			if !amountsEqual(amount, m.Asset(policy, asset.Bytes())) {
 				return false
 			}
 		}
@@ -381,11 +416,17 @@ func (m *MultiAsset[T]) normalize() map[Blake2b224]map[cbor.ByteString]T {
 	}
 	for policy, assets := range m.data {
 		for asset, amount := range assets {
-			if amount != 0 {
+			if !amountIsZero(amount) {
 				if _, ok := ret[policy]; !ok {
 					ret[policy] = make(map[cbor.ByteString]T)
 				}
-				ret[policy][asset] = amount
+				// copy amount for big.Int to avoid aliasing
+				switch v := any(amount).(type) {
+				case *big.Int:
+					ret[policy][asset] = any(new(big.Int).Set(v)).(T)
+				default:
+					ret[policy][asset] = amount
+				}
 			}
 		}
 	}
@@ -429,11 +470,136 @@ func (m *MultiAsset[T]) String() string {
 			b.WriteByte('.')
 			b.WriteString(hex.EncodeToString(name.Bytes()))
 			b.WriteByte('=')
-			fmt.Fprintf(&b, "%d", assets[name])
+			b.WriteString(amountToString(assets[name]))
 		}
 	}
 	b.WriteByte(']')
 	return b.String()
+}
+
+// Helper functions for generic amount handling
+
+func addAmounts[T int64 | uint64 | *big.Int](a, b T) T {
+	switch av := any(a).(type) {
+	case *big.Int:
+		var aInt, bInt *big.Int
+		if av != nil {
+			aInt = av
+		} else {
+			aInt = new(big.Int)
+		}
+		bv := any(b).(*big.Int)
+		if bv != nil {
+			bInt = bv
+		} else {
+			bInt = new(big.Int)
+		}
+		return any(new(big.Int).Add(aInt, bInt)).(T)
+	case int64:
+		return any(av + any(b).(int64)).(T)
+	case uint64:
+		return any(av + any(b).(uint64)).(T)
+	default:
+		var zero T
+		return zero
+	}
+}
+
+func amountsEqual[T int64 | uint64 | *big.Int](a, b T) bool {
+	switch av := any(a).(type) {
+	case *big.Int:
+		bv := any(b).(*big.Int)
+		if av == nil && bv == nil {
+			return true
+		}
+		if av == nil {
+			return bv.Sign() == 0
+		}
+		if bv == nil {
+			return av.Sign() == 0
+		}
+		return av.Cmp(bv) == 0
+	case int64:
+		return av == any(b).(int64)
+	case uint64:
+		return av == any(b).(uint64)
+	default:
+		return false
+	}
+}
+
+func amountIsZero[T int64 | uint64 | *big.Int](a T) bool {
+	switch av := any(a).(type) {
+	case *big.Int:
+		if av == nil {
+			return true
+		}
+		return av.Sign() == 0
+	case int64:
+		return av == 0
+	case uint64:
+		return av == 0
+	default:
+		return false
+	}
+}
+
+func amountToString[T int64 | uint64 | *big.Int](a T) string {
+	switch av := any(a).(type) {
+	case *big.Int:
+		if av == nil {
+			return "0"
+		}
+		return av.String()
+	case int64:
+		return strconv.FormatInt(av, 10)
+	case uint64:
+		return strconv.FormatUint(av, 10)
+	default:
+		return "0"
+	}
+}
+
+func amountToBigInt[T int64 | uint64 | *big.Int](a T) *big.Int {
+	switch av := any(a).(type) {
+	case *big.Int:
+		if av == nil {
+			return new(big.Int)
+		}
+		return new(big.Int).Set(av)
+	case int64:
+		return big.NewInt(av)
+	case uint64:
+		return new(big.Int).SetUint64(av)
+	default:
+		return new(big.Int)
+	}
+}
+
+func parseAmount[T int64 | uint64 | *big.Int](s string) (T, error) {
+	var zero T
+	switch any(zero).(type) {
+	case *big.Int:
+		v, ok := new(big.Int).SetString(s, 10)
+		if !ok {
+			return zero, fmt.Errorf("invalid big.Int: %s", s)
+		}
+		return any(v).(T), nil
+	case int64:
+		i, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return zero, err
+		}
+		return any(i).(T), nil
+	case uint64:
+		u, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return zero, err
+		}
+		return any(u).(T), nil
+	default:
+		return zero, errors.New("unsupported amount type")
+	}
 }
 
 type AssetFingerprint struct {
@@ -553,6 +719,27 @@ func ToUtxorpcBigInt(v uint64) *utxorpc.BigInt {
 	return &utxorpc.BigInt{
 		BigInt: &utxorpc.BigInt_BigUInt{
 			BigUInt: new(big.Int).SetUint64(v).Bytes(),
+		},
+	}
+}
+
+// BigIntToUtxorpcBigInt converts a *big.Int into a *utxorpc.BigInt pointer
+func BigIntToUtxorpcBigInt(v *big.Int) *utxorpc.BigInt {
+	if v == nil {
+		return &utxorpc.BigInt{
+			BigInt: &utxorpc.BigInt_Int{Int: 0},
+		}
+	}
+	// If it fits in int64, use the compact representation
+	if v.IsInt64() {
+		return &utxorpc.BigInt{
+			BigInt: &utxorpc.BigInt_Int{Int: v.Int64()},
+		}
+	}
+	// Otherwise use the big int bytes representation
+	return &utxorpc.BigInt{
+		BigInt: &utxorpc.BigInt_BigUInt{
+			BigUInt: v.Bytes(),
 		},
 	}
 }

@@ -17,6 +17,7 @@ package mary
 import (
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -28,13 +29,13 @@ import (
 func createMaryTransactionOutputValueAssets(
 	policyId []byte,
 	assetName []byte,
-	amount uint64,
+	amount *big.Int,
 ) *common.MultiAsset[common.MultiAssetTypeOutput] {
-	data := map[common.Blake2b224]map[cbor.ByteString]uint64{}
+	data := map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{}
 	policyIdKey := common.Blake2b224{}
 	copy(policyIdKey[:], policyId)
 	assetKey := cbor.NewByteString(assetName)
-	data[policyIdKey] = map[cbor.ByteString]uint64{
+	data[policyIdKey] = map[cbor.ByteString]common.MultiAssetTypeOutput{
 		assetKey: amount,
 	}
 	ret := common.NewMultiAsset(data)
@@ -64,7 +65,7 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 						"00000002DF633853F6A47465C9496721D2D5B1291B8398016C0E87AE",
 					),
 					test.DecodeHexString("6E7574636F696E"),
-					1,
+					big.NewInt(1),
 				),
 			},
 		},
@@ -78,7 +79,7 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 						"3A9241CD79895E3A8D65261B40077D4437CE71E9D7C8C6C00E3F658E",
 					),
 					test.DecodeHexString("4669727374636F696E"),
-					1,
+					big.NewInt(1),
 				),
 			},
 		},
@@ -120,10 +121,10 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 func TestMaryTransactionOutputString(t *testing.T) {
 	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 	addr, _ := common.NewAddress(addrStr)
-	ma := common.NewMultiAsset(
-		map[common.Blake2b224]map[cbor.ByteString]uint64{
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.NewBlake2b224(make([]byte, 28)): {
-				cbor.NewByteString([]byte("token")): 2,
+				cbor.NewByteString([]byte("token")): big.NewInt(2),
 			},
 		},
 	)

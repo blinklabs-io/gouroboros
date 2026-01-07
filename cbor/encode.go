@@ -29,7 +29,8 @@ func Encode(data any) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	opts := _cbor.EncOptions{
 		// Make sure that maps have ordered keys
-		Sort: _cbor.SortCoreDeterministic,
+		Sort:          _cbor.SortCoreDeterministic,
+		BigIntConvert: _cbor.BigIntConvertShortest,
 	}
 	em, err := opts.EncModeWithTags(customTagSet)
 	if err != nil {

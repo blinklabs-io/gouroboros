@@ -16,8 +16,7 @@ package conway
 
 import (
 	"errors"
-	"fmt"
-	"math"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -557,11 +556,23 @@ func UtxoValidateValueNotConservedUtxo(
 	// Add minted/burned ADA
 	if tx.AssetMint() != nil {
 		mintedAda := tx.AssetMint().Asset(common.Blake2b224{}, []byte{})
-		if mintedAda > 0 {
-			consumedValue += uint64(mintedAda) //nolint:gosec // G115
-		} else if mintedAda < 0 {
-			burned := -mintedAda
-			consumedValue -= uint64(burned) //nolint:gosec // G115
+		if mintedAda != nil && mintedAda.Sign() > 0 {
+			if !mintedAda.IsUint64() {
+				return shelley.ValueNotConservedUtxoError{
+					Consumed: consumedValue,
+					Produced: 0,
+				}
+			}
+			consumedValue += mintedAda.Uint64()
+		} else if mintedAda != nil && mintedAda.Sign() < 0 {
+			burned := new(big.Int).Neg(mintedAda)
+			if !burned.IsUint64() {
+				return shelley.ValueNotConservedUtxoError{
+					Consumed: consumedValue,
+					Produced: 0,
+				}
+			}
+			consumedValue -= burned.Uint64()
 		}
 	}
 	// Calculate produced value
@@ -692,8 +703,8 @@ func UtxoValidateValueNotConservedUtxo(
 		asset  string
 	}
 
-	consumedAssets := make(map[assetKey]int64)
-	producedAssets := make(map[assetKey]int64)
+	consumedAssets := make(map[assetKey]*big.Int)
+	producedAssets := make(map[assetKey]*big.Int)
 
 	// Collect consumed multi-assets from inputs
 	for _, tmpInput := range tx.Inputs() {
@@ -705,24 +716,14 @@ func UtxoValidateValueNotConservedUtxo(
 			for _, policy := range assets.Policies() {
 				for _, assetName := range assets.Assets(policy) {
 					amount := assets.Asset(policy, assetName)
+					if amount == nil {
+						continue
+					}
 					key := assetKey{policy: policy, asset: string(assetName)}
-					if amount > uint64(math.MaxInt64) {
-						return fmt.Errorf(
-							"consumed multi-asset amount for asset %s (policy %x) exceeds MaxInt64: %d",
-							string(assetName),
-							policy,
-							amount,
-						)
+					if consumedAssets[key] == nil {
+						consumedAssets[key] = new(big.Int)
 					}
-					// Check for overflow when accumulating
-					if consumedAssets[key] > math.MaxInt64-int64(amount) { //nolint:gosec // G115: overflow checked above
-						return fmt.Errorf(
-							"consumed multi-asset accumulation overflow for asset %s (policy %x)",
-							string(assetName),
-							policy,
-						)
-					}
-					consumedAssets[key] += int64(amount) //nolint:gosec // G115: overflow checked above
+					consumedAssets[key].Add(consumedAssets[key], amount)
 				}
 			}
 		}
@@ -737,26 +738,14 @@ func UtxoValidateValueNotConservedUtxo(
 			}
 			for _, assetName := range mint.Assets(policy) {
 				amount := mint.Asset(policy, assetName)
-				key := assetKey{policy: policy, asset: string(assetName)}
-				// Check for overflow when adding mint amount (can be negative for burns)
-				if amount > 0 {
-					if consumedAssets[key] > math.MaxInt64-amount {
-						return fmt.Errorf(
-							"consumed multi-asset accumulation overflow for minted asset %s (policy %x)",
-							string(assetName),
-							policy,
-						)
-					}
-				} else if amount < 0 {
-					if consumedAssets[key] < math.MinInt64-amount {
-						return fmt.Errorf(
-							"consumed multi-asset accumulation underflow for burned asset %s (policy %x)",
-							string(assetName),
-							policy,
-						)
-					}
+				if amount == nil {
+					continue
 				}
-				consumedAssets[key] += amount // Already int64
+				key := assetKey{policy: policy, asset: string(assetName)}
+				if consumedAssets[key] == nil {
+					consumedAssets[key] = new(big.Int)
+				}
+				consumedAssets[key].Add(consumedAssets[key], amount)
 			}
 		}
 	}
@@ -767,24 +756,14 @@ func UtxoValidateValueNotConservedUtxo(
 			for _, policy := range assets.Policies() {
 				for _, assetName := range assets.Assets(policy) {
 					amount := assets.Asset(policy, assetName)
+					if amount == nil {
+						continue
+					}
 					key := assetKey{policy: policy, asset: string(assetName)}
-					if amount > uint64(math.MaxInt64) {
-						return fmt.Errorf(
-							"produced multi-asset amount for asset %s (policy %x) exceeds MaxInt64: %d",
-							string(assetName),
-							policy,
-							amount,
-						)
+					if producedAssets[key] == nil {
+						producedAssets[key] = new(big.Int)
 					}
-					// Check for overflow when accumulating
-					if producedAssets[key] > math.MaxInt64-int64(amount) { //nolint:gosec // G115: overflow checked above
-						return fmt.Errorf(
-							"produced multi-asset accumulation overflow for asset %s (policy %x)",
-							string(assetName),
-							policy,
-						)
-					}
-					producedAssets[key] += int64(amount) //nolint:gosec // G115: overflow checked above
+					producedAssets[key].Add(producedAssets[key], amount)
 				}
 			}
 		}
@@ -802,29 +781,20 @@ func UtxoValidateValueNotConservedUtxo(
 	for key := range allKeys {
 		consumed := consumedAssets[key]
 		produced := producedAssets[key]
-		if consumed != produced {
-			// Multi-asset value not conserved - return error
-			// Use the same error type for consistency
+		if consumed == nil {
+			consumed = new(big.Int)
+		}
+		if produced == nil {
+			produced = new(big.Int)
+		}
+		if consumed.Cmp(produced) != 0 {
+			// For error reporting, convert to uint64 if possible
 			var consumedU, producedU uint64
-			if consumed < 0 {
-				if consumed == math.MinInt64 {
-					// Special case: MinInt64 cannot be negated in int64
-					consumedU = uint64(math.MaxInt64) + 1
-				} else {
-					consumedU = uint64(-consumed) //nolint:gosec // G115: safe for values > MinInt64
-				}
-			} else {
-				consumedU = uint64(consumed)
+			if consumed.IsUint64() {
+				consumedU = consumed.Uint64()
 			}
-			if produced < 0 {
-				if produced == math.MinInt64 {
-					// Special case: MinInt64 cannot be negated in int64
-					producedU = uint64(math.MaxInt64) + 1
-				} else {
-					producedU = uint64(-produced) //nolint:gosec // G115: safe for values > MinInt64
-				}
-			} else {
-				producedU = uint64(produced)
+			if produced.IsUint64() {
+				producedU = produced.Uint64()
 			}
 			return shelley.ValueNotConservedUtxoError{
 				Consumed: consumedU,

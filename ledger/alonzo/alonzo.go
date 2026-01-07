@@ -485,7 +485,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 				asset := &utxorpc.Asset{
 					Name: assetName,
 					Quantity: &utxorpc.Asset_OutputCoin{
-						OutputCoin: common.ToUtxorpcBigInt(amount),
+						OutputCoin: common.BigIntToUtxorpcBigInt(amount),
 					},
 				}
 				ma.Assets = append(ma.Assets, asset)
