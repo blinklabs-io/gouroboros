@@ -484,40 +484,42 @@ func TestMultiAssetJson(t *testing.T) {
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(123456),
 					},
 				},
 			},
-			expectedJson: `[{"name":"furnisha29hn","nameHex":"6675726e697368613239686e","policyId":"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61","fingerprint":"asset1jdu2xcrwlqsjqqjger6kj2szddz8dcpvcg4ksz","amount":123456}]`,
+			expectedJson: `[{"name":"furnisha29hn","nameHex":"6675726e697368613239686e","policyId":"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61","fingerprint":"asset1jdu2xcrwlqsjqqjger6kj2szddz8dcpvcg4ksz","amount":"123456"}]`,
 		},
 		{
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): 234567,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): big.NewInt(234567),
 					},
 				},
 			},
-			expectedJson: `[{"name":"BowduraConcepts68","nameHex":"426f7764757261436f6e63657074733638","policyId":"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5","fingerprint":"asset1kp7hdhqc7chmyqvtqrsljfdrdt6jz8mg5culpe","amount":234567}]`,
+			expectedJson: `[{"name":"BowduraConcepts68","nameHex":"426f7764757261436f6e63657074733638","policyId":"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5","fingerprint":"asset1kp7hdhqc7chmyqvtqrsljfdrdt6jz8mg5culpe","amount":"234567"}]`,
 		},
 		{
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("cf78aeb9736e8aa94ce8fab44da86b522fa9b1c56336b92a28420525")): {
-						cbor.NewByteString(test.DecodeHexString("363438346330393264363164373033656236333233346461")): 12345678,
+						cbor.NewByteString(test.DecodeHexString("363438346330393264363164373033656236333233346461")): big.NewInt(12345678),
 					},
 				},
 			},
-			expectedJson: `[{"name":"6484c092d61d703eb63234da","nameHex":"363438346330393264363164373033656236333233346461","policyId":"cf78aeb9736e8aa94ce8fab44da86b522fa9b1c56336b92a28420525","fingerprint":"asset1rx3cnlsvh3udka56wyqyed3u695zd5q2jck2yd","amount":12345678}]`,
+			expectedJson: `[{"name":"6484c092d61d703eb63234da","nameHex":"363438346330393264363164373033656236333233346461","policyId":"cf78aeb9736e8aa94ce8fab44da86b522fa9b1c56336b92a28420525","fingerprint":"asset1rx3cnlsvh3udka56wyqyed3u695zd5q2jck2yd","amount":"12345678"}]`,
 		},
 	}
 	for _, test := range testDefs {
 		var err error
 		var jsonData []byte
 		switch v := test.multiAssetObj.(type) {
-		case MultiAsset[MultiAssetTypeOutput]:
+		case MultiAsset[int64]:
 			jsonData, err = json.Marshal(&v)
-		case MultiAsset[MultiAssetTypeMint]:
+		case MultiAsset[uint64]:
+			jsonData, err = json.Marshal(&v)
+		case MultiAsset[*big.Int]:
 			jsonData, err = json.Marshal(&v)
 		default:
 			t.Fatalf("unexpected test object type: %T", test.multiAssetObj)
@@ -544,7 +546,7 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(123456),
 					},
 				},
 			},
@@ -576,10 +578,10 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(123456),
 					},
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): 234567,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): big.NewInt(234567),
 					},
 				},
 			},
@@ -630,9 +632,11 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 	for _, testDef := range testDefs {
 		var tmpData data.PlutusData
 		switch v := testDef.multiAssetObj.(type) {
-		case MultiAsset[MultiAssetTypeOutput]:
+		case MultiAsset[int64]:
 			tmpData = v.ToPlutusData()
-		case MultiAsset[MultiAssetTypeMint]:
+		case MultiAsset[uint64]:
+			tmpData = v.ToPlutusData()
+		case MultiAsset[*big.Int]:
 			tmpData = v.ToPlutusData()
 		default:
 			t.Fatalf("test def multi-asset object was not expected type: %T", v)
@@ -657,14 +661,14 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
 			asset2: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
@@ -674,14 +678,14 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
 			asset2: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 124,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(124),
 					},
 				},
 			},
@@ -691,7 +695,7 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 0,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(0),
 					},
 				},
 			},
@@ -702,15 +706,15 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
 			asset2: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
-						cbor.NewByteString([]byte("efgh")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
+						cbor.NewByteString([]byte("efgh")): big.NewInt(123),
 					},
 				},
 			},
@@ -740,7 +744,7 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(123456),
 					},
 				},
 			},
@@ -750,8 +754,8 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
-						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             789,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(123456),
+						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             big.NewInt(789),
 					},
 				},
 			},
@@ -761,10 +765,10 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(123456),
 					},
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): 234567,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): big.NewInt(234567),
 					},
 				},
 			},
@@ -837,7 +841,7 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeMint]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): -50000,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(-50000),
 					},
 				},
 			},
@@ -847,8 +851,8 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeMint]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 100000,
-						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             -25000,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(100000),
+						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             big.NewInt(-25000),
 					},
 				},
 			},
@@ -858,10 +862,10 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeMint]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): -75000,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(-75000),
 					},
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): -100000,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): big.NewInt(-100000),
 					},
 				},
 			},
@@ -1195,11 +1199,11 @@ func TestMultiAssetDeterministicEncoding(t *testing.T) {
 	multiAsset := MultiAsset[MultiAssetTypeOutput]{
 		data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 			NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
-				cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             789,
+				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(123456),
+				cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             big.NewInt(789),
 			},
 			NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): 234567,
+				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): big.NewInt(234567),
 			},
 		},
 	}

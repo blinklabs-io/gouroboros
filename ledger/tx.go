@@ -147,5 +147,6 @@ func DetermineTransactionType(data []byte) (uint, error) {
 	if _, err := NewLeiosTransactionFromCbor(data); err == nil {
 		return TxTypeLeios, nil
 	}
+
 	return 0, errors.New("unknown transaction type")
 }

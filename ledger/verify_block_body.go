@@ -329,11 +329,15 @@ func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 		for _, policyId := range tmpAssets.Policies() {
 			for _, assetName := range tmpAssets.Assets(policyId) {
 				amount := tmpAssets.Asset(policyId, assetName)
+				tokenValue := "0"
+				if amount != nil {
+					tokenValue = amount.String()
+				}
 				outputTokens = append(outputTokens, UTXOOutputToken{
 					TokenAssetName: policyId.String() + hex.EncodeToString(
 						assetName,
 					),
-					TokenValue: strconv.FormatUint(amount, 10),
+					TokenValue: tokenValue,
 				})
 			}
 		}

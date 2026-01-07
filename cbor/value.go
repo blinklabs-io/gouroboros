@@ -191,6 +191,13 @@ func generateAstJson(obj any) ([]byte, error) {
 			v.String(),
 		)
 		return []byte(tmpJson), nil
+	case *big.Int:
+		if v == nil {
+			tmpJson := `{"int":0}`
+			return []byte(tmpJson), nil
+		}
+		tmpJson := fmt.Sprintf(`{"int":%s}`, v.String())
+		return []byte(tmpJson), nil
 	case Rat:
 		return generateAstJson(
 			[]any{
