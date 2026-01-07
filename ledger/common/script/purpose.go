@@ -20,7 +20,6 @@ import (
 	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/plutigo/data"
 )
 
@@ -190,11 +189,12 @@ type ScriptPurposeProposing struct {
 func (ScriptPurposeProposing) isScriptPurpose() {}
 
 func (s ScriptPurposeProposing) ScriptHash() lcommon.ScriptHash {
-	switch a := s.ProposalProcedure.GovAction().(type) {
-	case *conway.ConwayParameterChangeGovAction:
-		return lcommon.ScriptHash(a.PolicyHash)
-	case *lcommon.TreasuryWithdrawalGovAction:
-		return lcommon.ScriptHash(a.PolicyHash)
+	// Use GovActionWithPolicy interface to get policy hash without importing conway
+	if ga, ok := s.ProposalProcedure.GovAction().(lcommon.GovActionWithPolicy); ok {
+		policyBytes := ga.GetPolicyHash()
+		if len(policyBytes) == 28 {
+			return lcommon.ScriptHash(lcommon.NewBlake2b224(policyBytes))
+		}
 	}
 	return lcommon.ScriptHash{}
 }
@@ -272,6 +272,9 @@ func scriptPurposeBuilder(
 		// https://github.com/aiken-lang/aiken/blob/af4e04b91e54dbba3340de03fc9e65a90f24a93b/crates/uplc/src/tx/script_context.rs#L771-L826
 		switch redeemerKey.Tag {
 		case lcommon.RedeemerTagSpend:
+			if int(redeemerKey.Index) >= len(inputs) {
+				return nil
+			}
 			var datum data.PlutusData
 			tmpInput := inputs[redeemerKey.Index]
 			var resolvedInput lcommon.Utxo
@@ -290,6 +293,9 @@ func scriptPurposeBuilder(
 			}
 		case lcommon.RedeemerTagMint:
 			mintPolicies := mint.Policies()
+			if int(redeemerKey.Index) >= len(mintPolicies) {
+				return nil
+			}
 			slices.SortFunc(
 				mintPolicies,
 				func(a, b lcommon.Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
@@ -298,11 +304,17 @@ func scriptPurposeBuilder(
 				PolicyId: mintPolicies[redeemerKey.Index],
 			}
 		case lcommon.RedeemerTagCert:
+			if int(redeemerKey.Index) >= len(certificates) {
+				return nil
+			}
 			return ScriptPurposeCertifying{
 				Index:       redeemerKey.Index,
 				Certificate: certificates[redeemerKey.Index],
 			}
 		case lcommon.RedeemerTagReward:
+			if int(redeemerKey.Index) >= len(withdrawals) {
+				return nil
+			}
 			return ScriptPurposeRewarding{
 				StakeCredential: lcommon.Credential{
 					CredType:   lcommon.CredentialTypeScriptHash,
@@ -310,10 +322,16 @@ func scriptPurposeBuilder(
 				},
 			}
 		case lcommon.RedeemerTagVoting:
+			if int(redeemerKey.Index) >= len(votes) {
+				return nil
+			}
 			return ScriptPurposeVoting{
 				Voter: *(votes[redeemerKey.Index].Key),
 			}
 		case lcommon.RedeemerTagProposing:
+			if int(redeemerKey.Index) >= len(proposalProcedures) {
+				return nil
+			}
 			return ScriptPurposeProposing{
 				Index:             redeemerKey.Index,
 				ProposalProcedure: proposalProcedures[redeemerKey.Index],
@@ -321,4 +339,114 @@ func scriptPurposeBuilder(
 		}
 		return nil
 	}
+}
+
+// BuildScriptPurpose creates a ScriptPurpose from a redeemer key using map-based inputs.
+// This variant accepts raw maps for withdrawals and votes and handles deterministic ordering internally.
+func BuildScriptPurpose(
+	redeemerKey lcommon.RedeemerKey,
+	resolvedInputs map[string]lcommon.Utxo,
+	inputs []lcommon.TransactionInput,
+	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
+	certificates []lcommon.Certificate,
+	withdrawals map[*lcommon.Address]uint64,
+	votes lcommon.VotingProcedures,
+	proposalProcedures []lcommon.ProposalProcedure,
+) ScriptPurpose {
+	switch redeemerKey.Tag {
+	case lcommon.RedeemerTagSpend:
+		if int(redeemerKey.Index) >= len(inputs) {
+			return nil
+		}
+		tmpInput := inputs[redeemerKey.Index]
+		utxo, ok := resolvedInputs[tmpInput.String()]
+		if !ok {
+			return nil
+		}
+		var datum data.PlutusData
+		if utxo.Output != nil {
+			if d := utxo.Output.Datum(); d != nil {
+				datum = d.Data
+			}
+		}
+		return ScriptPurposeSpending{
+			Input: utxo,
+			Datum: datum,
+		}
+	case lcommon.RedeemerTagMint:
+		policies := mint.Policies()
+		if int(redeemerKey.Index) >= len(policies) {
+			return nil
+		}
+		slices.SortFunc(
+			policies,
+			func(a, b lcommon.Blake2b224) int { return bytes.Compare(a.Bytes(), b.Bytes()) },
+		)
+		return ScriptPurposeMinting{
+			PolicyId: policies[redeemerKey.Index],
+		}
+	case lcommon.RedeemerTagCert:
+		if int(redeemerKey.Index) >= len(certificates) {
+			return nil
+		}
+		return ScriptPurposeCertifying{
+			Index:       redeemerKey.Index,
+			Certificate: certificates[redeemerKey.Index],
+		}
+	case lcommon.RedeemerTagReward:
+		// Extract and sort withdrawal addresses for deterministic ordering
+		sortedAddrs := make([]*lcommon.Address, 0, len(withdrawals))
+		for addr := range withdrawals {
+			sortedAddrs = append(sortedAddrs, addr)
+		}
+		slices.SortFunc(sortedAddrs, func(a, b *lcommon.Address) int {
+			if a.String() < b.String() {
+				return -1
+			}
+			if a.String() > b.String() {
+				return 1
+			}
+			return 0
+		})
+		if int(redeemerKey.Index) >= len(sortedAddrs) {
+			return nil
+		}
+		addr := sortedAddrs[redeemerKey.Index]
+		return ScriptPurposeRewarding{
+			StakeCredential: lcommon.Credential{
+				CredType:   lcommon.CredentialTypeScriptHash,
+				Credential: addr.StakeKeyHash(),
+			},
+		}
+	case lcommon.RedeemerTagVoting:
+		// Extract and sort voters for deterministic ordering
+		sortedVoters := make([]*lcommon.Voter, 0, len(votes))
+		for voter := range votes {
+			sortedVoters = append(sortedVoters, voter)
+		}
+		slices.SortFunc(sortedVoters, func(a, b *lcommon.Voter) int {
+			if a.String() < b.String() {
+				return -1
+			}
+			if a.String() > b.String() {
+				return 1
+			}
+			return 0
+		})
+		if int(redeemerKey.Index) >= len(sortedVoters) {
+			return nil
+		}
+		return ScriptPurposeVoting{
+			Voter: *sortedVoters[redeemerKey.Index],
+		}
+	case lcommon.RedeemerTagProposing:
+		if int(redeemerKey.Index) >= len(proposalProcedures) {
+			return nil
+		}
+		return ScriptPurposeProposing{
+			Index:             redeemerKey.Index,
+			ProposalProcedure: proposalProcedures[redeemerKey.Index],
+		}
+	}
+	return nil
 }

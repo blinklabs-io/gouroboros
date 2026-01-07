@@ -22,8 +22,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/plutigo/data"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
@@ -56,6 +58,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateTooManyCollateralInputs,
+	UtxoValidatePlutusScripts,
 }
 
 func UtxoValidateDisjointRefInputs(
@@ -937,4 +940,207 @@ func UtxoValidateMetadata(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+}
+
+// UtxoValidatePlutusScripts executes all Plutus scripts in the transaction
+// and validates that they pass. This is the phase-2 validation.
+func UtxoValidatePlutusScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Skip if transaction is marked as invalid (phase-2 failure already indicated)
+	if !tx.IsValid() {
+		return nil
+	}
+
+	// Check if there are any redeemers
+	witnesses := tx.Witnesses()
+	if witnesses == nil {
+		return nil
+	}
+	redeemers := witnesses.Redeemers()
+	if redeemers == nil {
+		return nil
+	}
+
+	// Count redeemers to see if we have any scripts to execute
+	redeemerCount := 0
+	for range redeemers.Iter() {
+		redeemerCount++
+	}
+	if redeemerCount == 0 {
+		return nil
+	}
+
+	// Resolve all inputs (regular + reference) for building script context
+	inputCount := len(tx.Inputs()) + len(tx.ReferenceInputs())
+	resolvedInputs := make([]common.Utxo, 0, inputCount)
+	resolvedInputsMap := make(map[string]common.Utxo)
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		resolvedInputs = append(resolvedInputs, utxo)
+		resolvedInputsMap[input.String()] = utxo
+	}
+	for _, refInput := range tx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			continue
+		}
+		resolvedInputs = append(resolvedInputs, utxo)
+		resolvedInputsMap[refInput.String()] = utxo
+	}
+
+	// Build TxInfoV3 for script context
+	txInfo, err := script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+	if err != nil {
+		return ScriptContextConstructionError{Err: err}
+	}
+
+	// Collect all available scripts (witness scripts + reference scripts)
+	availableScripts := make(map[common.ScriptHash]common.Script)
+
+	// Add witness scripts
+	for _, s := range witnesses.PlutusV1Scripts() {
+		sCopy := s
+		availableScripts[s.Hash()] = &sCopy
+	}
+	for _, s := range witnesses.PlutusV2Scripts() {
+		sCopy := s
+		availableScripts[s.Hash()] = &sCopy
+	}
+	for _, s := range witnesses.PlutusV3Scripts() {
+		sCopy := s
+		availableScripts[s.Hash()] = &sCopy
+	}
+
+	// Add reference scripts from resolved inputs
+	for _, utxo := range resolvedInputs {
+		if utxo.Output == nil {
+			continue
+		}
+		scriptRef := utxo.Output.ScriptRef()
+		if scriptRef == nil {
+			continue
+		}
+		availableScripts[scriptRef.Hash()] = scriptRef
+	}
+
+	// Get sorted inputs for redeemer index mapping
+	inputs := tx.Inputs()
+	assetMint := tx.AssetMint()
+	if assetMint == nil {
+		assetMint = &common.MultiAsset[common.MultiAssetTypeMint]{}
+	}
+	withdrawals := tx.Withdrawals()
+	votes := tx.VotingProcedures()
+	proposalProcedures := tx.ProposalProcedures()
+	certificates := tx.Certificates()
+
+	// Execute each redeemer's script
+	for redeemerKey, redeemerValue := range redeemers.Iter() {
+		// Build script purpose for this redeemer
+		purpose := script.BuildScriptPurpose(
+			redeemerKey,
+			resolvedInputsMap,
+			inputs,
+			*assetMint,
+			certificates,
+			withdrawals,
+			votes,
+			proposalProcedures,
+		)
+		if purpose == nil {
+			continue
+		}
+
+		// Find the script for this purpose
+		scriptHash := purpose.ScriptHash()
+		plutusScript, ok := availableScripts[scriptHash]
+		if !ok {
+			// Missing script should be caught by MissingScriptWitnesses
+			continue
+		}
+
+		// Build the redeemer for context
+		redeemer := script.Redeemer{
+			Tag:     redeemerKey.Tag,
+			Index:   redeemerKey.Index,
+			Data:    redeemerValue.Data.Data,
+			ExUnits: redeemerValue.ExUnits,
+		}
+
+		// Build script context
+		ctx := script.NewScriptContextV3(txInfo, redeemer, purpose)
+		ctxData := ctx.ToPlutusData()
+
+		// Get datum for V1/V2 scripts (spending purpose only)
+		var datum data.PlutusData
+		var spendInput common.TransactionInput
+		if spendPurpose, ok := purpose.(script.ScriptPurposeSpending); ok {
+			if spendPurpose.Datum != nil {
+				datum = spendPurpose.Datum
+			}
+			spendInput = spendPurpose.Input.Id
+		}
+
+		// Execute based on script version
+		var execErr error
+		switch s := plutusScript.(type) {
+		case *common.PlutusV3Script:
+			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
+		case common.PlutusV3Script:
+			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
+		case *common.PlutusV2Script:
+			// V1/V2 scripts require a datum for spending purposes
+			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
+				return MissingDatumForSpendingScriptError{
+					ScriptHash: scriptHash,
+					Input:      spendInput,
+				}
+			}
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
+		case common.PlutusV2Script:
+			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
+				return MissingDatumForSpendingScriptError{
+					ScriptHash: scriptHash,
+					Input:      spendInput,
+				}
+			}
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
+		case *common.PlutusV1Script:
+			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
+				return MissingDatumForSpendingScriptError{
+					ScriptHash: scriptHash,
+					Input:      spendInput,
+				}
+			}
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
+		case common.PlutusV1Script:
+			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
+				return MissingDatumForSpendingScriptError{
+					ScriptHash: scriptHash,
+					Input:      spendInput,
+				}
+			}
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
+		default:
+			continue
+		}
+
+		if execErr != nil {
+			return PlutusScriptFailedError{
+				ScriptHash: scriptHash,
+				Tag:        redeemerKey.Tag,
+				Index:      redeemerKey.Index,
+				Err:        execErr,
+			}
+		}
+	}
+
+	return nil
 }

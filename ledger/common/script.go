@@ -142,6 +142,63 @@ func (s PlutusV1Script) RawScriptBytes() []byte {
 	return []byte(s)
 }
 
+// Evaluate executes a PlutusV1 script with datum, redeemer, and script context
+// V1 scripts take 3 arguments applied in order: datum, redeemer, context
+func (s PlutusV1Script) Evaluate(
+	datum data.PlutusData,
+	redeemer data.PlutusData,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	var program *syn.Program[syn.DeBruijn]
+	// Set budget
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	// Decode raw script as bytestring to get actual script bytes
+	var innerScript []byte
+	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
+	}
+	// Decode program
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	// Apply arguments to program: datum, redeemer, context
+	datumTerm := &syn.Constant{Con: &syn.Data{Inner: datum}}
+	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
+	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
+
+	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+		Function: &syn.Apply[syn.DeBruijn]{
+			Function: &syn.Apply[syn.DeBruijn]{
+				Function: program.Term,
+				Argument: datumTerm,
+			},
+			Argument: redeemerTerm,
+		},
+		Argument: contextTerm,
+	}
+	// Execute wrapped program (1.0.0 is Plutus V1)
+	machine := cek.NewMachine[syn.DeBruijn]([3]uint32{1, 0, 0}, 200)
+	machine.ExBudget = machineBudget
+	_, err = machine.Run(wrappedProgram)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", err)
+	}
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	return usedExUnits, nil
+}
+
 type PlutusV2Script []byte
 
 func (PlutusV2Script) isScript() {}
@@ -157,6 +214,63 @@ func (s PlutusV2Script) Hash() ScriptHash {
 
 func (s PlutusV2Script) RawScriptBytes() []byte {
 	return []byte(s)
+}
+
+// Evaluate executes a PlutusV2 script with datum, redeemer, and script context
+// V2 scripts take 3 arguments applied in order: datum, redeemer, context
+func (s PlutusV2Script) Evaluate(
+	datum data.PlutusData,
+	redeemer data.PlutusData,
+	scriptContext data.PlutusData,
+	budget ExUnits,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	var program *syn.Program[syn.DeBruijn]
+	// Set budget
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	// Decode raw script as bytestring to get actual script bytes
+	var innerScript []byte
+	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
+	}
+	// Decode program
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	// Apply arguments to program: datum, redeemer, context
+	datumTerm := &syn.Constant{Con: &syn.Data{Inner: datum}}
+	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
+	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
+
+	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+		Function: &syn.Apply[syn.DeBruijn]{
+			Function: &syn.Apply[syn.DeBruijn]{
+				Function: program.Term,
+				Argument: datumTerm,
+			},
+			Argument: redeemerTerm,
+		},
+		Argument: contextTerm,
+	}
+	// Execute wrapped program (1.1.0 is Plutus V2)
+	machine := cek.NewMachine[syn.DeBruijn]([3]uint32{1, 1, 0}, 200)
+	machine.ExBudget = machineBudget
+	_, err = machine.Run(wrappedProgram)
+	if err != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", err)
+	}
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	return usedExUnits, nil
 }
 
 type PlutusV3Script []byte
@@ -182,7 +296,7 @@ func (s PlutusV3Script) Evaluate(
 ) (ExUnits, error) {
 	var usedExUnits ExUnits
 	var err error
-	program := &syn.Program[syn.DeBruijn]{}
+	var program *syn.Program[syn.DeBruijn]
 	// Set budget
 	machineBudget := cek.DefaultExBudget
 	if budget.Steps > 0 || budget.Memory > 0 {
@@ -194,7 +308,7 @@ func (s PlutusV3Script) Evaluate(
 	// Decode raw script as bytestring to get actual script bytes
 	var innerScript []byte
 	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
-		return usedExUnits, err
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
 	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
