@@ -234,13 +234,21 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 
+	// Track scripts that are optional (allowed but not required) for registration certificates.
+	// Registration doesn't require authorization, but if the script is provided, it's valid.
+	optionalScriptHashes := make(map[ScriptHash]bool)
+
 	// Collect script hashes required by certificates
-	// Note: Registration certificates do NOT require script witnesses - anyone can register.
-	// Only operations that require authorization (deregistration, delegation, withdrawal) need witnesses.
+	// Note: Registration certificates with script credentials do NOT require the script witness
+	// (registration doesn't need authorization), but providing the script is allowed.
+	// Deregistration, delegation, and withdrawal DO require both the script and a redeemer.
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *StakeRegistrationCertificate:
-			// Registration does NOT require script witness
+			// Registration: script is optional (allowed but not required)
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+			}
 		case *StakeDeregistrationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
 				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
@@ -250,7 +258,10 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
 			}
 		case *RegistrationCertificate:
-			// Registration does NOT require script witness
+			// Registration: script is optional (allowed but not required)
+			if c.StakeCredential.CredType == CredentialTypeScriptHash {
+				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+			}
 		case *DeregistrationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
 				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
@@ -351,8 +362,9 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 
 	// Check for extraneous explicit script witnesses. Reference scripts are
 	// not considered explicit witnesses and therefore are not extraneous.
+	// Scripts are allowed if they are either required OR optional (e.g., registration scripts).
 	for provided := range explicitProvided {
-		if !requiredScriptHashes[provided] {
+		if !requiredScriptHashes[provided] && !optionalScriptHashes[provided] {
 			return ExtraneousScriptWitnessesError{ScriptHash: provided}
 		}
 	}
@@ -379,16 +391,17 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 		}
 	}
 
-	// If there are reference inputs and a LedgerState is provided, resolve them
-	// to detect Plutus reference scripts.
+	// If there are inputs (reference or regular) and a LedgerState is provided,
+	// resolve them to detect Plutus reference scripts. Per CIP-33, ScriptRef can
+	// be provided via both reference inputs AND regular (spent) inputs.
 	hasPlutusReference := false
 	if ls != nil {
+		// Check reference inputs
 		for _, refInput := range tx.ReferenceInputs() {
 			utxo, err := ls.UtxoById(refInput)
 			if err != nil {
 				return ReferenceInputResolutionError{Input: refInput, Err: err}
 			}
-			// Skip if Output is nil (no script reference possible)
 			if utxo.Output == nil {
 				continue
 			}
@@ -399,9 +412,39 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 			switch script.(type) {
 			case *PlutusV1Script, *PlutusV2Script, *PlutusV3Script:
 				hasPlutusReference = true
+			case PlutusV1Script, PlutusV2Script, PlutusV3Script:
+				// Also handle non-pointer types
+				hasPlutusReference = true
 			}
 			if hasPlutusReference {
 				break
+			}
+		}
+		// Check regular inputs if not found in reference inputs
+		if !hasPlutusReference {
+			for _, input := range tx.Inputs() {
+				utxo, err := ls.UtxoById(input)
+				if err != nil {
+					// Skip errors - BadInputsUtxo will catch this
+					continue
+				}
+				if utxo.Output == nil {
+					continue
+				}
+				script := utxo.Output.ScriptRef()
+				if script == nil {
+					continue
+				}
+				switch script.(type) {
+				case *PlutusV1Script, *PlutusV2Script, *PlutusV3Script:
+					hasPlutusReference = true
+				case PlutusV1Script, PlutusV2Script, PlutusV3Script:
+					// Also handle non-pointer types
+					hasPlutusReference = true
+				}
+				if hasPlutusReference {
+					break
+				}
 			}
 		}
 	}
