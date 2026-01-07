@@ -34,3 +34,73 @@ func Test_Metadata_RoundTrip_AllegraSample(t *testing.T) {
 		)
 	}
 }
+
+// Test decoding a CIP-0025-like NFT metadata structure under label 721
+func TestCIP25_NFTMetadataDecode(t *testing.T) {
+	// Construct a simple CIP-25 style metadata map:
+	// {721: {"policyid": {"MyNFT": {"name":"Test NFT","image":"ipfs://abc"}}}}
+	innerAsset := make(map[string]any)
+	innerAsset["name"] = "Test NFT"
+	innerAsset["image"] = "ipfs://abc"
+
+	assets := make(map[string]any)
+	assets["MyNFT"] = innerAsset
+
+	policyMap := make(map[string]any)
+	policyMap["policyid"] = assets
+
+	outer := make(map[uint]any)
+	outer[721] = policyMap
+
+	data, err := cbor.Encode(outer)
+	if err != nil {
+		t.Fatalf("failed to encode CIP-25 test metadata: %v", err)
+	}
+
+	aux, err := DecodeAuxiliaryData(data)
+	if err != nil {
+		t.Fatalf("DecodeAuxiliaryData failed: %v", err)
+	}
+
+	md, err := aux.Metadata()
+	if err != nil {
+		t.Fatalf("Metadata() error: %v", err)
+	}
+	if md == nil {
+		t.Fatal("expected metadata, got nil")
+	}
+
+	// Expect a MetaMap
+	mm, ok := md.(MetaMap)
+	if !ok {
+		t.Fatalf("expected MetaMap, got %T", md)
+	}
+
+	// Find key 721 in pairs
+	var found bool
+	for _, p := range mm.Pairs {
+		if ki, ok := p.Key.(MetaInt); ok {
+			if ki.Value != nil && ki.Value.Uint64() == 721 {
+				found = true
+				// value should be a MetaMap representing policy map
+				if _, ok := p.Value.(MetaMap); !ok {
+					t.Fatalf("expected MetaMap for 721 value, got %T", p.Value)
+				}
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatal("did not find metadata label 721 in decoded pairs")
+	}
+
+	// Additional sanity: roundtrip encode/decode
+	re := aux.Cbor()
+	aux2, err := DecodeAuxiliaryData(re)
+	if err != nil {
+		t.Fatalf("roundtrip DecodeAuxiliaryData failed: %v", err)
+	}
+	if _, err := aux2.Metadata(); err != nil {
+		t.Fatalf("roundtrip metadata() failed: %v", err)
+	}
+}

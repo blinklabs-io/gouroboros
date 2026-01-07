@@ -442,6 +442,36 @@ func TestConwayProtocolParamsUpdate(t *testing.T) {
 	}
 }
 
+func TestConwayProtocolParameters_UpdateCopiesFields(t *testing.T) {
+	base := &conway.ConwayProtocolParameters{}
+	upd := &conway.ConwayProtocolParameterUpdate{}
+	a := uint(11)
+	mt := uint(2222)
+	ada := uint64(7777)
+	upd.MinFeeA = &a
+	upd.MaxTxSize = &mt
+	upd.AdaPerUtxoByte = &ada
+	upd.CostModels = map[uint][]int64{0: {9}, 2: {8, 7}}
+
+	base.Update(upd)
+	if base.MinFeeA != 11 {
+		t.Fatalf("MinFeeA not updated: got %d", base.MinFeeA)
+	}
+	if base.MaxTxSize != 2222 {
+		t.Fatalf("MaxTxSize not updated: got %d", base.MaxTxSize)
+	}
+	if base.AdaPerUtxoByte != 7777 {
+		t.Fatalf("AdaPerUtxoByte not updated: got %d", base.AdaPerUtxoByte)
+	}
+	if !reflect.DeepEqual(base.CostModels, upd.CostModels) {
+		t.Fatalf(
+			"CostModels not updated: got %+v want %+v",
+			base.CostModels,
+			upd.CostModels,
+		)
+	}
+}
+
 func TestConwayProtocolParamsUpdateFromGenesis(t *testing.T) {
 	testDefs := []struct {
 		startParams    conway.ConwayProtocolParameters
