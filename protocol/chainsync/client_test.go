@@ -289,3 +289,137 @@ func TestGetAvailableBlockRange(t *testing.T) {
 		),
 	)
 }
+
+func TestClientStartIdempotent(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+	)
+	opts := []ouroboros.ConnectionOptionFunc{
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+	}
+
+	oConn, err := ouroboros.New(opts...)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+
+	client := oConn.ChainSync().Client
+
+	// Calling it multiple times should not cause issues
+	client.Start()
+	client.Start()
+	client.Start()
+
+	// Stop should work
+	if err := client.Stop(); err != nil {
+		t.Fatalf("unexpected error when stopping client: %s", err)
+	}
+
+	// Start again after stop should work
+	client.Start()
+
+	// Cleanup
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+}
+
+func TestClientRestart(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+	)
+	opts := []ouroboros.ConnectionOptionFunc{
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+	}
+
+	oConn, err := ouroboros.New(opts...)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+
+	client := oConn.ChainSync().Client
+
+	// Start the client
+	client.Start()
+
+	// Restart should work
+	if err := client.Restart(); err != nil {
+		t.Fatalf("unexpected error when restarting client: %s", err)
+	}
+
+	// Restart again should work
+	if err := client.Restart(); err != nil {
+		t.Fatalf("unexpected error when restarting client again: %s", err)
+	}
+
+	// Cleanup
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+}
+
+func TestClientStopIdempotent(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+	)
+	opts := []ouroboros.ConnectionOptionFunc{
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+	}
+
+	oConn, err := ouroboros.New(opts...)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+
+	client := oConn.ChainSync().Client
+
+	// Stop before start should be a no-op
+	if err := client.Stop(); err != nil {
+		t.Fatalf("unexpected error when stopping client before start: %s", err)
+	}
+
+	// Start the client
+	client.Start()
+
+	// Stop should work
+	if err := client.Stop(); err != nil {
+		t.Fatalf("unexpected error when stopping client: %s", err)
+	}
+
+	// Stop again should be idempotent
+	if err := client.Stop(); err != nil {
+		t.Fatalf("unexpected error when stopping client again: %s", err)
+	}
+
+	// Cleanup
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
+	}
+}
