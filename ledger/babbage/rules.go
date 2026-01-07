@@ -16,6 +16,8 @@ package babbage
 
 import (
 	"errors"
+	"fmt"
+	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -218,7 +220,8 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 		if !ok {
 			continue
 		}
-		if babbageOutput.DatumOption != nil && babbageOutput.DatumOption.data != nil {
+		if babbageOutput.DatumOption != nil &&
+			babbageOutput.DatumOption.data != nil {
 			hasInlineDatums = true
 			break
 		}
@@ -527,13 +530,160 @@ func UtxoValidateValueNotConservedUtxo(
 			producedValue += uint64(tmpPparams.KeyDeposit)
 		}
 	}
-	if consumedValue == producedValue {
-		return nil
+	if consumedValue != producedValue {
+		return shelley.ValueNotConservedUtxoError{
+			Consumed: consumedValue,
+			Produced: producedValue,
+		}
 	}
-	return shelley.ValueNotConservedUtxoError{
-		Consumed: consumedValue,
-		Produced: producedValue,
+
+	// Multi-asset value conservation check
+	// For each policy and asset: consumed + minted == produced
+	type assetKey struct {
+		policy common.Blake2b224
+		asset  string
 	}
+
+	consumedAssets := make(map[assetKey]int64)
+	producedAssets := make(map[assetKey]int64)
+
+	// Collect consumed multi-assets from inputs
+	for _, tmpInput := range tx.Inputs() {
+		tmpUtxo, err := ls.UtxoById(tmpInput)
+		if err != nil {
+			continue
+		}
+		if assets := tmpUtxo.Output.Assets(); assets != nil {
+			for _, policy := range assets.Policies() {
+				for _, assetName := range assets.Assets(policy) {
+					amount := assets.Asset(policy, assetName)
+					key := assetKey{policy: policy, asset: string(assetName)}
+					if amount > uint64(math.MaxInt64) {
+						return fmt.Errorf(
+							"consumed multi-asset amount for asset %s (policy %x) exceeds MaxInt64: %d",
+							string(assetName),
+							policy,
+							amount,
+						)
+					}
+					// Check for overflow when accumulating
+					if consumedAssets[key] > math.MaxInt64-int64(amount) { //nolint:gosec // G115: overflow checked above
+						return fmt.Errorf(
+							"consumed multi-asset accumulation overflow for asset %s (policy %x)",
+							string(assetName),
+							policy,
+						)
+					}
+					consumedAssets[key] += int64(amount) //nolint:gosec // G115: overflow checked above
+				}
+			}
+		}
+	}
+
+	// Add minted/burned assets to consumed (positive for mint, negative for burn)
+	if mint := tx.AssetMint(); mint != nil {
+		for _, policy := range mint.Policies() {
+			// Skip ADA (empty policy ID) as it's tracked separately in consumed/produced value
+			if policy == (common.Blake2b224{}) {
+				continue
+			}
+			for _, assetName := range mint.Assets(policy) {
+				amount := mint.Asset(policy, assetName)
+				key := assetKey{policy: policy, asset: string(assetName)}
+				// Check for overflow when adding mint amount (can be negative for burns)
+				if amount > 0 {
+					if consumedAssets[key] > math.MaxInt64-amount {
+						return fmt.Errorf(
+							"consumed multi-asset accumulation overflow for minted asset %s (policy %x)",
+							string(assetName),
+							policy,
+						)
+					}
+				} else if amount < 0 {
+					if consumedAssets[key] < math.MinInt64-amount {
+						return fmt.Errorf(
+							"consumed multi-asset accumulation underflow for burned asset %s (policy %x)",
+							string(assetName),
+							policy,
+						)
+					}
+				}
+				consumedAssets[key] += amount // Already int64
+			}
+		}
+	}
+
+	// Collect produced multi-assets from outputs
+	for _, tmpOutput := range tx.Outputs() {
+		if assets := tmpOutput.Assets(); assets != nil {
+			for _, policy := range assets.Policies() {
+				for _, assetName := range assets.Assets(policy) {
+					amount := assets.Asset(policy, assetName)
+					key := assetKey{policy: policy, asset: string(assetName)}
+					if amount > uint64(math.MaxInt64) {
+						return fmt.Errorf(
+							"produced multi-asset amount for asset %s (policy %x) exceeds MaxInt64: %d",
+							string(assetName),
+							policy,
+							amount,
+						)
+					}
+					// Check for overflow when accumulating
+					if producedAssets[key] > math.MaxInt64-int64(amount) { //nolint:gosec // G115: overflow checked above
+						return fmt.Errorf(
+							"produced multi-asset accumulation overflow for asset %s (policy %x)",
+							string(assetName),
+							policy,
+						)
+					}
+					producedAssets[key] += int64(amount) //nolint:gosec // G115: overflow checked above
+				}
+			}
+		}
+	}
+
+	// Check that all consumed assets match produced assets
+	allKeys := make(map[assetKey]bool)
+	for k := range consumedAssets {
+		allKeys[k] = true
+	}
+	for k := range producedAssets {
+		allKeys[k] = true
+	}
+
+	for key := range allKeys {
+		consumed := consumedAssets[key]
+		produced := producedAssets[key]
+		if consumed != produced {
+			var consumedU, producedU uint64
+			if consumed < 0 {
+				if consumed == math.MinInt64 {
+					// Special case: MinInt64 cannot be negated in int64
+					consumedU = uint64(math.MaxInt64) + 1
+				} else {
+					consumedU = uint64(-consumed) //nolint:gosec // G115: safe for values > MinInt64
+				}
+			} else {
+				consumedU = uint64(consumed)
+			}
+			if produced < 0 {
+				if produced == math.MinInt64 {
+					// Special case: MinInt64 cannot be negated in int64
+					producedU = uint64(math.MaxInt64) + 1
+				} else {
+					producedU = uint64(-produced) //nolint:gosec // G115: safe for values > MinInt64
+				}
+			} else {
+				producedU = uint64(produced)
+			}
+			return shelley.ValueNotConservedUtxoError{
+				Consumed: consumedU,
+				Produced: producedU,
+			}
+		}
+	}
+
+	return nil
 }
 
 func UtxoValidateOutputTooSmallUtxo(
