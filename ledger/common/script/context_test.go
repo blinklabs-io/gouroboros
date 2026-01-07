@@ -22,12 +22,69 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
 )
+
+func buildTxInfoV1(
+	slotState lcommon.SlotState,
+	txHex string,
+	inputsHex string,
+	inputOutputsHex string,
+) (TxInfo, error) {
+	// Transaction
+	txBytes, err := hex.DecodeString(txHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode transaction hex: %w", err)
+	}
+	tx, err := alonzo.NewAlonzoTransactionFromCbor(txBytes)
+	if err != nil {
+		return nil, err
+	}
+	// Inputs
+	inputsBytes, err := hex.DecodeString(inputsHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode inputs hex: %w", err)
+	}
+	var tmpInputs []shelley.ShelleyTransactionInput
+	if _, err := cbor.Decode(inputsBytes, &tmpInputs); err != nil {
+		return nil, fmt.Errorf("decode inputs: %w", err)
+	}
+	// Input outputs
+	inputOutputsBytes, err := hex.DecodeString(inputOutputsHex)
+	if err != nil {
+		return nil, fmt.Errorf("decode input outputs hex: %w", err)
+	}
+	var tmpOutputs []alonzo.AlonzoTransactionOutput
+	if _, err := cbor.Decode(inputOutputsBytes, &tmpOutputs); err != nil {
+		return nil, fmt.Errorf("decode input outputs: %w", err)
+	}
+	// Build resolved inputs
+	var resolvedInputs []lcommon.Utxo
+	if len(tmpInputs) != len(tmpOutputs) {
+		return nil, errors.New("input and output length don't match")
+	}
+	for i := range tmpInputs {
+		resolvedInputs = append(
+			resolvedInputs,
+			lcommon.Utxo{
+				Id:     tmpInputs[i],
+				Output: tmpOutputs[i],
+			},
+		)
+	}
+	// Build TxInfo
+	txInfo, err := NewTxInfoV1FromTransaction(slotState, tx, resolvedInputs)
+	if err != nil {
+		return nil, err
+	}
+	return txInfo, nil
+}
 
 func buildTxInfoV3(
 	slotState lcommon.SlotState,
@@ -106,6 +163,72 @@ var preprodSlotState = mockSlotState{
 	// Shelley start
 	ZeroTime: time.UnixMilli(1596059091000),
 	ZeroSlot: 4492800,
+}
+
+var scriptContextV1TestDefs = []struct {
+	name          string
+	txHex         string
+	inputsHex     string
+	outputsHex    string
+	redeemerTag   common.RedeemerTag
+	redeemerIndex uint32
+	slotState     common.SlotState
+	expectedCbor  string
+}{
+	{
+		name: "SimpleSend",
+		// NOTE: this is the V3 SimpleSend with the collateral total/return fields removed and the witness V3 script changed to V1
+		txHex:     `84a50081825820000000000000000000000000000000000000000000000000000000000000000000018182581d60111111111111111111111111111111111111111111111111111111111a3b9aca0002182a0b5820ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0d81825820000000000000000000000000000000000000000000000000000000000000000000a20581840000d87980821a000f42401a05f5e100038152510101003222253330044a229309b2b2b9a1f5f6`,
+		inputsHex: `81825820000000000000000000000000000000000000000000000000000000000000000000`,
+		// NOTE: this is the V3 SimpleSend outputs reorganized as Alonzo outputs
+		outputsHex:    `8182581d7039f47fd3b388ef53c48f08de24766d3e55dade6cae908cc24e0f4f3e1a3b9aca00`,
+		redeemerTag:   common.RedeemerTagSpend,
+		redeemerIndex: 0,
+		expectedCbor:  `d8799fd8799f9fd8799fd8799fd8799f58200000000000000000000000000000000000000000000000000000000000000000ff00ffd8799fd8799fd87a9f581c39f47fd3b388ef53c48f08de24766d3e55dade6cae908cc24e0f4f3effd87a80ffa140a1401a3b9aca00d87a80ffffff9fd8799fd8799fd8799f581c11111111111111111111111111111111111111111111111111111111ffd87a80ffa140a1401a3b9aca00d87a80ffffa140a140182aa140a140008080d8799fd8799fd87980d87a80ffd8799fd87b80d87a80ffff8080d8799f5820c738ffa8fae57908f969f020bb79638ee6ac05bc036c1ff8acaede16cf24a136ffffd87a9fd8799fd8799f58200000000000000000000000000000000000000000000000000000000000000000ff00ffffff`,
+	},
+}
+
+func TestScriptContextV1(t *testing.T) {
+	for _, testDef := range scriptContextV1TestDefs {
+		t.Run(
+			testDef.name,
+			func(t *testing.T) {
+				txInfo, err := buildTxInfoV1(
+					testDef.slotState,
+					testDef.txHex,
+					testDef.inputsHex,
+					testDef.outputsHex,
+				)
+				if err != nil {
+					t.Fatalf("unexpected error: %s", err)
+				}
+
+				// Extract purpose and redeemer from TxInfo
+				var purpose ScriptPurpose
+				for _, redeemerPair := range txInfo.(TxInfoV1).Redeemers {
+					if redeemerPair.Value.Tag == testDef.redeemerTag &&
+						redeemerPair.Value.Index == testDef.redeemerIndex {
+						purpose = redeemerPair.Key
+						break
+					}
+				}
+				// Build script context
+				sc := NewScriptContextV1V2(txInfo, purpose)
+				scCbor, err := data.Encode(sc.ToPlutusData())
+				if err != nil {
+					t.Fatalf("unexpected error: %s", err)
+				}
+				scCborHex := hex.EncodeToString(scCbor)
+				if scCborHex != testDef.expectedCbor {
+					t.Fatalf(
+						"did not get expected ScriptContext CBOR\n     got: %s\n  wanted: %s",
+						scCborHex,
+						testDef.expectedCbor,
+					)
+				}
+			},
+		)
+	}
 }
 
 var scriptContextV3TestDefs = []struct {
