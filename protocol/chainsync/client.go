@@ -161,17 +161,6 @@ func (c *Client) Start() {
 		)
 	c.Protocol.Start()
 	c.lifecycleState = clientStateRunning
-	go func() {
-		<-c.DoneChan()
-		// Close channel safely (may already be closed on restart)
-		defer func() {
-			if r := recover(); r != nil {
-				// Channel was already closed, ignore panic
-				_ = r
-			}
-		}()
-		close(c.readyForNextBlockChan)
-	}()
 }
 
 // Stop transitions the protocol to the Done state.
@@ -196,6 +185,12 @@ func (c *Client) Stop() error {
 	c.busyMutex.Unlock()
 	if err != nil {
 		return err
+	}
+
+	// Close readyForNextBlockChan to signal syncLoop to exit
+	if c.readyForNextBlockChan != nil {
+		close(c.readyForNextBlockChan)
+		c.readyForNextBlockChan = nil
 	}
 
 	c.lifecycleState = clientStateStopped
