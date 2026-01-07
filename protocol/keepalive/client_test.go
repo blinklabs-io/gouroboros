@@ -136,8 +136,8 @@ func TestServerKeepaliveHandlingWithWrongResponse(t *testing.T) {
 
 	// Expected cookie is 0x3e8 instead of 0x3e7 based on the mock connection
 	expectedErr := "input error: parsed message does not match expected value: " +
-		"got &keepalive.MsgKeepAlive{MessageBase:protocol.MessageBase{_:struct {}{}, rawCbor:[]uint8(nil), MessageType:0x0}, Cookie:0x3e7}, " +
-		"expected &keepalive.MsgKeepAlive{MessageBase:protocol.MessageBase{_:struct {}{}, rawCbor:[]uint8(nil), MessageType:0x0}, Cookie:0x3e8}"
+		"got &keepalive.MsgKeepAlive{MessageBase:protocol.MessageBase{StructAsArray:cbor.StructAsArray{_:struct {}{}}, DecodeStoreCbor:cbor.DecodeStoreCbor{cborData:[]uint8(nil)}, MessageType:0x0}, Cookie:0x3e7}, " +
+		"expected &keepalive.MsgKeepAlive{MessageBase:protocol.MessageBase{StructAsArray:cbor.StructAsArray{_:struct {}{}}, DecodeStoreCbor:cbor.DecodeStoreCbor{cborData:[]uint8(nil)}, MessageType:0x0}, Cookie:0x3e8}"
 	// Async mock connection error handler
 	asyncErrChan := make(chan error, 1)
 	go func() {
