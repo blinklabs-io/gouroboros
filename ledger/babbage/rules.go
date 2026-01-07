@@ -155,9 +155,31 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script, common.PlutusV1Script:
 			required[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script, common.PlutusV2Script:
+			required[1] = struct{}{}
+		}
+	}
+
+	// Per CIP-33, also include reference scripts on regular (spent) inputs
+	for _, input := range tmpTx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			// Skip errors - BadInputsUtxo will catch this
+			continue
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case *common.PlutusV1Script, common.PlutusV1Script:
+			required[0] = struct{}{}
+		case *common.PlutusV2Script, common.PlutusV2Script:
 			required[1] = struct{}{}
 		}
 	}
@@ -225,6 +247,28 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 				Input: refInput,
 				Err:   err,
 			}
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script, *common.PlutusV1Script:
+			return common.InlineDatumsNotSupportedError{
+				PlutusVersion: "PlutusV1",
+			}
+		}
+	}
+
+	// Per CIP-33, also check reference scripts on regular (spent) inputs
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			// Skip errors - BadInputsUtxo will catch this
+			continue
+		}
+		if utxo.Output == nil {
+			continue
 		}
 		script := utxo.Output.ScriptRef()
 		if script == nil {

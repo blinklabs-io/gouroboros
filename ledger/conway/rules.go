@@ -186,6 +186,32 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 		}
 	}
 
+	// Per CIP-33, ScriptRef can also be provided via regular (spent) inputs.
+	// Check regular inputs if not found in reference inputs.
+	if !hasPlutusReference {
+		for _, input := range tx.Inputs() {
+			utxo, err := ls.UtxoById(input)
+			if err != nil {
+				// Skip errors - BadInputsUtxo will catch this
+				continue
+			}
+			if utxo.Output == nil {
+				continue
+			}
+			script := utxo.Output.ScriptRef()
+			if script == nil {
+				continue
+			}
+			switch script.(type) {
+			case *common.PlutusV1Script, common.PlutusV1Script, *common.PlutusV2Script, common.PlutusV2Script, *common.PlutusV3Script, common.PlutusV3Script:
+				hasPlutusReference = true
+			}
+			if hasPlutusReference {
+				break
+			}
+		}
+	}
+
 	// If the body carries a script data hash, redeemers must be present
 	if tx.ScriptDataHash() != nil && redeemerCount == 0 {
 		return MissingRedeemersForScriptDataHashError{}
@@ -254,6 +280,30 @@ func UtxoValidateCostModelsPresent(
 				Input: refInput,
 				Err:   err,
 			}
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case *common.PlutusV1Script, common.PlutusV1Script:
+			required[0] = struct{}{}
+		case *common.PlutusV2Script, common.PlutusV2Script:
+			required[1] = struct{}{}
+		case *common.PlutusV3Script, common.PlutusV3Script:
+			required[2] = struct{}{}
+		}
+	}
+
+	// Per CIP-33, also include reference scripts on regular (spent) inputs
+	for _, input := range tmpTx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			// Skip errors - BadInputsUtxo will catch this
+			continue
+		}
+		if utxo.Output == nil {
+			continue
 		}
 		script := utxo.Output.ScriptRef()
 		if script == nil {

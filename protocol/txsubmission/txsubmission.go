@@ -159,6 +159,7 @@ type CallbackContext struct {
 	ConnectionId connection.ConnectionId
 	Client       *Client
 	Server       *Server
+	DoneChan     <-chan struct{}
 }
 
 // Callback function types
