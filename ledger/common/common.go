@@ -69,6 +69,21 @@ func (b Blake2b256) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(hashBytes)
 }
 
+func (b Blake2b256) Bech32(prefix string) string {
+	// Convert data to base32 and encode as bech32
+	convData, err := bech32.ConvertBits(b[:], 8, 5, true)
+	if err != nil {
+		panic(
+			fmt.Sprintf("unexpected error converting data to base32: %s", err),
+		)
+	}
+	encoded, err := bech32.Encode(prefix, convData)
+	if err != nil {
+		panic(fmt.Sprintf("unexpected error encoding data as bech32: %s", err))
+	}
+	return encoded
+}
+
 // Blake2b256Hash generates a Blake2b-256 hash from the provided data
 func Blake2b256Hash(data []byte) Blake2b256 {
 	tmpHash, err := blake2b.New(Blake2b256Size, nil)
@@ -483,18 +498,7 @@ func NewPoolIdFromBech32(poolId string) (PoolId, error) {
 }
 
 func (p PoolId) String() string {
-	// Convert data to base32 and encode as bech32
-	convData, err := bech32.ConvertBits(p[:], 8, 5, true)
-	if err != nil {
-		panic(
-			fmt.Sprintf("unexpected error converting data to base32: %s", err),
-		)
-	}
-	encoded, err := bech32.Encode("pool", convData)
-	if err != nil {
-		panic(fmt.Sprintf("unexpected error encoding data as bech32: %s", err))
-	}
-	return encoded
+	return Blake2b224(p).Bech32("pool")
 }
 
 // IssuerVkey represents the verification key for the stake pool that minted a block

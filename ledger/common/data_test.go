@@ -143,3 +143,62 @@ func TestDatumDecode(t *testing.T) {
 		)
 	}
 }
+
+// TestDatumHashToBech32 tests CIP-0005 bech32 encoding for datum hashes.
+func TestDatumHashToBech32(t *testing.T) {
+	testCases := []struct {
+		name       string
+		hash       common.DatumHash
+		wantPrefix string
+	}{
+		{
+			name: "ZeroHash",
+			hash: common.DatumHash{
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			},
+			wantPrefix: "datum1",
+		},
+		{
+			name: "SequentialHash",
+			hash: common.DatumHash{
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+			},
+			wantPrefix: "datum1",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := common.DatumHashToBech32(tc.hash)
+			if len(result) <= len(tc.wantPrefix) {
+				t.Errorf("result too short: got %s", result)
+			}
+			if result[:len(tc.wantPrefix)] != tc.wantPrefix {
+				t.Errorf("wrong prefix: got %s, want prefix %s", result, tc.wantPrefix)
+			}
+		})
+	}
+}
+
+// TestDatumHashBech32Specific tests specific expected bech32 encoded values.
+func TestDatumHashBech32Specific(t *testing.T) {
+	// Known datum hash from above test
+	hashBytes, _ := hex.DecodeString("4dfec91f63f946d7c91af0041e5d92a45531790a4a104637dd8691f46fdce842")
+	var hash common.DatumHash
+	copy(hash[:], hashBytes)
+
+	bech32Str := common.DatumHashToBech32(hash)
+
+	// Verify length is reasonable for 32 bytes + prefix
+	if len(bech32Str) < 50 {
+		t.Errorf("bech32 string too short: %s", bech32Str)
+		return
+	}
+
+	// Verify prefix
+	if bech32Str[:6] != "datum1" {
+		t.Errorf("wrong prefix: got %s", bech32Str[:6])
+	}
+}

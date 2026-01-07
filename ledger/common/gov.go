@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -74,6 +74,38 @@ func encodeCip129Voter(
 	return encoded
 }
 
+// encodeCip129Credential encodes a credential hash with CIP-0129 format.
+// The header byte uses the credential type (0x22 for key hash, 0x23 for script hash)
+// following CIP-0129 specification where the low nibble encodes 0x2 for key hash
+// and 0x3 for script hash.
+func encodeCip129Credential(prefix string, credentialType uint8, hash []byte) string {
+	// CIP-0129: low nibble encodes credential type offset by 2
+	// (0x2 for key hash, 0x3 for script hash)
+	header := byte(0x20 | ((credentialType + 2) & 0x0f))
+	data := make([]byte, 1+len(hash))
+	data[0] = header
+	copy(data[1:], hash)
+	convData, err := bech32.ConvertBits(data, 8, 5, true)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error converting credential data to base32: %s",
+				err,
+			),
+		)
+	}
+	encoded, err := bech32.Encode(prefix, convData)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error encoding credential data as bech32: %s",
+				err,
+			),
+		)
+	}
+	return encoded
+}
+
 // Generates bech32-encoded identifier for the voter credential.
 func (v Voter) String() string {
 	switch v.Type {
@@ -109,7 +141,7 @@ func (v Voter) String() string {
 		poolId := PoolId(v.Hash)
 		return poolId.String()
 	default:
-		panic(fmt.Sprintf("unknown voter type: %d", v.Type))
+		return fmt.Sprintf("voter_unknown_%d", v.Type)
 	}
 }
 
@@ -201,6 +233,43 @@ func (id *GovActionId) ToPlutusData() data.PlutusData {
 		data.NewByteString(id.TransactionId[:]),
 		data.NewInteger(big.NewInt(int64(id.GovActionIdx))),
 	)
+}
+
+// String returns a CIP-0129 bech32-encoded representation of the governance action ID.
+// The format is: gov_action prefix with tx_id (32 bytes) + action_index (1 byte).
+// Per CIP-0129, the action index must fit in a single byte (0-255).
+func (id *GovActionId) String() string {
+	if id.GovActionIdx > 255 {
+		panic(
+			fmt.Sprintf(
+				"gov action index %d exceeds maximum value 255 allowed by CIP-0129",
+				id.GovActionIdx,
+			),
+		)
+	}
+
+	// Build payload: 32-byte transaction ID followed by 1-byte action index
+	payload := append(id.TransactionId[:], byte(id.GovActionIdx))
+
+	convData, err := bech32.ConvertBits(payload, 8, 5, true)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error converting gov action ID to base32: %s",
+				err,
+			),
+		)
+	}
+	encoded, err := bech32.Encode("gov_action", convData)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error encoding gov action ID as bech32: %s",
+				err,
+			),
+		)
+	}
+	return encoded
 }
 
 type ProposalProcedure interface {

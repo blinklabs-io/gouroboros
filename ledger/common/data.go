@@ -21,6 +21,11 @@ import (
 
 type DatumHash = Blake2b256
 
+// DatumHashToBech32 encodes a DatumHash as a CIP-0005 bech32 string with "datum" prefix.
+func DatumHashToBech32(d DatumHash) string {
+	return d.Bech32("datum")
+}
+
 // Datum represents a Plutus datum
 type Datum struct {
 	cbor.DecodeStoreCbor

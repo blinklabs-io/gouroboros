@@ -225,8 +225,10 @@ func TestVoterString(t *testing.T) {
 			assert.Equal(t, tc.want, tc.voter.String())
 		})
 	}
-	assert.Panics(t, func() {
-		_ = Voter{Type: 99}.String()
+	// Test unknown type returns descriptive string (doesn't panic)
+	t.Run("UnknownType", func(t *testing.T) {
+		result := Voter{Type: 99}.String()
+		assert.Equal(t, "voter_unknown_99", result)
 	})
 }
 
@@ -459,4 +461,76 @@ func TestInfoGovActionToPlutusData(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, uint(6), constr.Tag)
 	assert.Len(t, constr.Fields, 0)
+}
+
+// TestGovActionIdString tests CIP-0129 bech32 encoding for governance action IDs.
+func TestGovActionIdString(t *testing.T) {
+	testCases := []struct {
+		name        string
+		govActionId GovActionId
+		wantPrefix  string
+	}{
+		{
+			name: "ZeroTxIdZeroIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  0,
+			},
+			wantPrefix: "gov_action",
+		},
+		{
+			name: "NonZeroTxIdWithIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{
+					0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+					0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+					0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+					0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+				},
+				GovActionIdx: 42,
+			},
+			wantPrefix: "gov_action",
+		},
+		{
+			name: "MaxValidActionIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+					0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+					0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+					0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+				GovActionIdx: 255,
+			},
+			wantPrefix: "gov_action",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.govActionId.String()
+			assert.True(t, len(result) > len(tc.wantPrefix), "result should be longer than prefix")
+			assert.Equal(t, tc.wantPrefix+"1", result[:len(tc.wantPrefix)+1], "should have correct prefix")
+		})
+	}
+
+	// Test panic on index exceeding CIP-0129 limit (must fit in single byte)
+	t.Run("PanicOnIndexExceedsLimit", func(t *testing.T) {
+		assert.Panics(t, func() {
+			govActionId := GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  256,
+			}
+			_ = govActionId.String()
+		})
+	})
+
+	// Test panic on large index value
+	t.Run("PanicOnLargeIndex", func(t *testing.T) {
+		assert.Panics(t, func() {
+			govActionId := GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  65535,
+			}
+			_ = govActionId.String()
+		})
+	})
 }

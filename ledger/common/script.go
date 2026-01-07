@@ -58,6 +58,11 @@ func NewScriptHashFromBech32(scriptHash string) (ScriptHash, error) {
 	return s, nil
 }
 
+// ScriptHashToBech32 encodes a ScriptHash as a CIP-0005 bech32 string with "script" prefix.
+func ScriptHashToBech32(s ScriptHash) string {
+	return s.Bech32("script")
+}
+
 type ScriptRef struct {
 	Type   uint
 	Script Script
