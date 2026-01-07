@@ -108,7 +108,8 @@ func (TxInfoV1) isTxInfo() {}
 func (t TxInfoV1) ToPlutusData() data.PlutusData {
 	tmpDataItems := make([]data.PlutusData, len(t.Data))
 	for i, item := range t.Data {
-		tmpDataItems[i] = data.NewList(
+		tmpDataItems[i] = data.NewConstr(
+			0,
 			item.Key.ToPlutusData(),
 			item.Value,
 		)
