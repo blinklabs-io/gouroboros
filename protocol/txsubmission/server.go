@@ -70,6 +70,7 @@ func (s *Server) initProtocol() {
 		InitialState:        stateInit,
 	}
 	s.Protocol = protocol.New(protoConfig)
+	s.callbackContext.DoneChan = s.DoneChan()
 }
 
 func (s *Server) Start() {

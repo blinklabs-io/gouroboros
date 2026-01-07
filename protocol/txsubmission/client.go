@@ -64,6 +64,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		InitialState:        stateInit,
 	}
 	c.Protocol = protocol.New(protoConfig)
+	c.callbackContext.DoneChan = c.DoneChan()
 	return c
 }
 
