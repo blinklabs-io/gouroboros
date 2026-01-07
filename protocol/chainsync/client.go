@@ -777,20 +777,28 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if callbackErr != nil {
 		if errors.Is(callbackErr, ErrStopSyncProcess) {
 			// Signal that we're cancelling the sync
-			select {
-			case c.readyForNextBlockChan <- false:
-			case <-c.DoneChan():
+			c.lifecycleMutex.Lock()
+			if c.readyForNextBlockChan != nil {
+				select {
+				case c.readyForNextBlockChan <- false:
+				case <-c.DoneChan():
+				}
 			}
+			c.lifecycleMutex.Unlock()
 			return nil
 		} else {
 			return callbackErr
 		}
 	}
 	// Signal that we're ready for the next block
-	select {
-	case c.readyForNextBlockChan <- true:
-	case <-c.DoneChan():
+	c.lifecycleMutex.Lock()
+	if c.readyForNextBlockChan != nil {
+		select {
+		case c.readyForNextBlockChan <- true:
+		case <-c.DoneChan():
+		}
 	}
+	c.lifecycleMutex.Unlock()
 	return nil
 }
 
@@ -814,10 +822,14 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if errors.Is(callbackErr, ErrStopSyncProcess) {
 				// Signal that we're cancelling the sync
-				select {
-				case c.readyForNextBlockChan <- false:
-				case <-c.DoneChan():
+				c.lifecycleMutex.Lock()
+				if c.readyForNextBlockChan != nil {
+					select {
+					case c.readyForNextBlockChan <- false:
+					case <-c.DoneChan():
+					}
 				}
+				c.lifecycleMutex.Unlock()
 				return nil
 			} else {
 				return callbackErr
@@ -825,10 +837,14 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		}
 	}
 	// Signal that we're ready for the next block
-	select {
-	case c.readyForNextBlockChan <- true:
-	case <-c.DoneChan():
+	c.lifecycleMutex.Lock()
+	if c.readyForNextBlockChan != nil {
+		select {
+		case c.readyForNextBlockChan <- true:
+		case <-c.DoneChan():
+		}
 	}
+	c.lifecycleMutex.Unlock()
 	return nil
 }
 
