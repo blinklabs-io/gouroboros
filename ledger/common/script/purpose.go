@@ -263,7 +263,7 @@ func scriptPurposeBuilder(
 	inputs []lcommon.TransactionInput,
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
 	certificates []lcommon.Certificate,
-	withdrawals KeyValuePairs[*lcommon.Address, uint64],
+	withdrawals KeyValuePairs[*lcommon.Address, *big.Int],
 	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
 	proposalProcedures []lcommon.ProposalProcedure,
 ) toScriptPurposeFunc {
@@ -349,7 +349,7 @@ func BuildScriptPurpose(
 	inputs []lcommon.TransactionInput,
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
 	certificates []lcommon.Certificate,
-	withdrawals map[*lcommon.Address]uint64,
+	withdrawals map[*lcommon.Address]*big.Int,
 	votes lcommon.VotingProcedures,
 	proposalProcedures []lcommon.ProposalProcedure,
 ) ScriptPurpose {

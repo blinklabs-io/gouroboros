@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"math/big"
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -505,8 +506,8 @@ func (b *ConwayTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *ConwayTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *ConwayTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *ConwayTransactionBody) TTL() uint64 {
@@ -536,8 +537,15 @@ func (b *ConwayTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *ConwayTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *ConwayTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int, len(b.TxWithdrawals))
+	for addr, amount := range b.TxWithdrawals {
+		ret[addr] = new(big.Int).SetUint64(amount)
+	}
+	return ret
 }
 
 func (b *ConwayTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -584,8 +592,8 @@ func (b *ConwayTransactionBody) CollateralReturn() common.TransactionOutput {
 	return b.TxCollateralReturn
 }
 
-func (b *ConwayTransactionBody) TotalCollateral() uint64 {
-	return b.TxTotalCollateral
+func (b *ConwayTransactionBody) TotalCollateral() *big.Int {
+	return new(big.Int).SetUint64(b.TxTotalCollateral)
 }
 
 func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
@@ -607,12 +615,12 @@ func (b *ConwayTransactionBody) NetworkId() *uint8 {
 	return b.TxNetworkId
 }
 
-func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
-	return b.TxCurrentTreasuryValue
+func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
+	return big.NewInt(b.TxCurrentTreasuryValue)
 }
 
-func (b *ConwayTransactionBody) Donation() uint64 {
-	return b.TxDonation
+func (b *ConwayTransactionBody) Donation() *big.Int {
+	return new(big.Int).SetUint64(b.TxDonation)
 }
 
 func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
@@ -721,7 +729,7 @@ func (t ConwayTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t ConwayTransaction) Fee() uint64 {
+func (t ConwayTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -749,7 +757,7 @@ func (t ConwayTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t ConwayTransaction) TotalCollateral() uint64 {
+func (t ConwayTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -757,7 +765,7 @@ func (t ConwayTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ConwayTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t ConwayTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -785,11 +793,11 @@ func (t ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t ConwayTransaction) CurrentTreasuryValue() int64 {
+func (t ConwayTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t ConwayTransaction) Donation() uint64 {
+func (t ConwayTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 

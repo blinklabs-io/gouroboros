@@ -240,8 +240,8 @@ func (b *MaryTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *MaryTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *MaryTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *MaryTransactionBody) TTL() uint64 {
@@ -274,8 +274,15 @@ func (b *MaryTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *MaryTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *MaryTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for k, v := range b.TxWithdrawals {
+		ret[k] = new(big.Int).SetUint64(v)
+	}
+	return ret
 }
 
 func (b *MaryTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -389,7 +396,7 @@ func (t MaryTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t MaryTransaction) Fee() uint64 {
+func (t MaryTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -417,7 +424,7 @@ func (t MaryTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t MaryTransaction) TotalCollateral() uint64 {
+func (t MaryTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -425,7 +432,7 @@ func (t MaryTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t MaryTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t MaryTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -453,11 +460,11 @@ func (t MaryTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t MaryTransaction) CurrentTreasuryValue() int64 {
+func (t MaryTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t MaryTransaction) Donation() uint64 {
+func (t MaryTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -618,8 +625,8 @@ func (txo MaryTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o MaryTransactionOutput) Amount() uint64 {
-	return o.OutputAmount.Amount
+func (o MaryTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount.Amount)
 }
 
 func (o MaryTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -641,7 +648,7 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 			// Assets: o.Assets,
 		},
 		err

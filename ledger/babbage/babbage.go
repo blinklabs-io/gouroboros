@@ -395,8 +395,8 @@ func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *BabbageTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *BabbageTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *BabbageTransactionBody) TTL() uint64 {
@@ -426,8 +426,15 @@ func (b *BabbageTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *BabbageTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *BabbageTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for k, v := range b.TxWithdrawals {
+		ret[k] = new(big.Int).SetUint64(v)
+	}
+	return ret
 }
 
 func (b *BabbageTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -474,8 +481,8 @@ func (b *BabbageTransactionBody) CollateralReturn() common.TransactionOutput {
 	return b.TxCollateralReturn
 }
 
-func (b *BabbageTransactionBody) TotalCollateral() uint64 {
-	return b.TxTotalCollateral
+func (b *BabbageTransactionBody) TotalCollateral() *big.Int {
+	return new(big.Int).SetUint64(b.TxTotalCollateral)
 }
 
 func (b *BabbageTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
@@ -698,8 +705,8 @@ func (o BabbageTransactionOutput) ScriptRef() common.Script {
 	return o.TxOutScriptRef.Script
 }
 
-func (o BabbageTransactionOutput) Amount() uint64 {
-	return o.OutputAmount.Amount
+func (o BabbageTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount.Amount)
 }
 
 func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -774,7 +781,7 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 			Address: address,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,
@@ -1000,7 +1007,7 @@ func (t BabbageTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t BabbageTransaction) Fee() uint64 {
+func (t BabbageTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -1028,7 +1035,7 @@ func (t BabbageTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t BabbageTransaction) TotalCollateral() uint64 {
+func (t BabbageTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -1036,7 +1043,7 @@ func (t BabbageTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t BabbageTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t BabbageTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -1064,11 +1071,11 @@ func (t BabbageTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t BabbageTransaction) CurrentTreasuryValue() int64 {
+func (t BabbageTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t BabbageTransaction) Donation() uint64 {
+func (t BabbageTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
