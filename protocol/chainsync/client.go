@@ -213,15 +213,11 @@ func (c *Client) Stop() error {
 		)
 
 	var sendErr error
+	msg := NewMsgDone()
+	sendErr = c.SendMessage(msg)
+	_ = c.WaitSendQueueDrained(250 * time.Millisecond)
 	if busyLocked {
-		msg := NewMsgDone()
-		sendErr = c.SendMessage(msg)
-		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
 		c.busyMutex.Unlock()
-	} else {
-		msg := NewMsgDone()
-		sendErr = c.SendMessage(msg)
-		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
 	}
 
 	// Close readyForNextBlockChan to signal syncLoop to exit
