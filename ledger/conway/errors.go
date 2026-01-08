@@ -110,3 +110,20 @@ type MissingDatumForSpendingScriptError struct {
 func (e MissingDatumForSpendingScriptError) Error() string {
 	return fmt.Sprintf("missing datum for spending script (hash=%x, input=%s)", e.ScriptHash[:], e.Input.String())
 }
+
+// ProtocolParameterUpdateEmptyError indicates that a PPU has no fields set
+type ProtocolParameterUpdateEmptyError struct{}
+
+func (e ProtocolParameterUpdateEmptyError) Error() string {
+	return "protocol parameter update is empty (at least one field must be set)"
+}
+
+// ProtocolParameterUpdateFieldZeroError indicates that a PPU field cannot be zero
+type ProtocolParameterUpdateFieldZeroError struct {
+	FieldName string
+	Value     uint
+}
+
+func (e ProtocolParameterUpdateFieldZeroError) Error() string {
+	return fmt.Sprintf("protocol parameter update field %s cannot be 0, got %d", e.FieldName, e.Value)
+}

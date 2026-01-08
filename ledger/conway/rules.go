@@ -32,6 +32,7 @@ import (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	UtxoValidateProposalProcedures,
 	UtxoValidateIsValidFlag,
 	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateCollateralVKeyWitnesses,
@@ -84,6 +85,102 @@ func UtxoValidateDisjointRefInputs(
 	return NonDisjointRefInputsError{
 		Inputs: commonInputs,
 	}
+}
+
+// UtxoValidateProposalProcedures validates governance proposal contents
+func UtxoValidateProposalProcedures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	for _, proposal := range tx.ProposalProcedures() {
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+
+		// Check if this is a ParameterChangeGovAction
+		paramChangeAction, ok := govAction.(*ConwayParameterChangeGovAction)
+		if !ok {
+			continue
+		}
+
+		// Validate the protocol parameter update
+		if err := validateProtocolParameterUpdate(&paramChangeAction.ParamUpdate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateProtocolParameterUpdate validates that a PPU is well-formed
+func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
+	// Check if PPU is empty (no fields set)
+	if ppu.MinFeeA == nil &&
+		ppu.MinFeeB == nil &&
+		ppu.MaxBlockBodySize == nil &&
+		ppu.MaxTxSize == nil &&
+		ppu.MaxBlockHeaderSize == nil &&
+		ppu.KeyDeposit == nil &&
+		ppu.PoolDeposit == nil &&
+		ppu.MaxEpoch == nil &&
+		ppu.NOpt == nil &&
+		ppu.A0 == nil &&
+		ppu.Rho == nil &&
+		ppu.Tau == nil &&
+		ppu.ProtocolVersion == nil &&
+		ppu.MinPoolCost == nil &&
+		ppu.AdaPerUtxoByte == nil &&
+		len(ppu.CostModels) == 0 &&
+		ppu.ExecutionCosts == nil &&
+		ppu.MaxTxExUnits == nil &&
+		ppu.MaxBlockExUnits == nil &&
+		ppu.MaxValueSize == nil &&
+		ppu.CollateralPercentage == nil &&
+		ppu.MaxCollateralInputs == nil &&
+		ppu.PoolVotingThresholds == nil &&
+		ppu.DRepVotingThresholds == nil &&
+		ppu.MinCommitteeSize == nil &&
+		ppu.CommitteeTermLimit == nil &&
+		ppu.GovActionValidityPeriod == nil &&
+		ppu.GovActionDeposit == nil &&
+		ppu.DRepDeposit == nil &&
+		ppu.DRepInactivityPeriod == nil &&
+		ppu.MinFeeRefScriptCostPerByte == nil {
+		return ProtocolParameterUpdateEmptyError{}
+	}
+
+	// Validate individual fields that cannot be zero
+	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxBHSize",
+			Value:     *ppu.MaxBlockHeaderSize,
+		}
+	}
+
+	if ppu.MaxTxSize != nil && *ppu.MaxTxSize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxTxSize",
+			Value:     *ppu.MaxTxSize,
+		}
+	}
+
+	if ppu.MaxValueSize != nil && *ppu.MaxValueSize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxValSize",
+			Value:     *ppu.MaxValueSize,
+		}
+	}
+
+	if ppu.MaxBlockBodySize != nil && *ppu.MaxBlockBodySize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxBlockBodySize",
+			Value:     *ppu.MaxBlockBodySize,
+		}
+	}
+
+	return nil
 }
 
 // UtxoValidateIsValidFlag ensures transactions marked invalid have Plutus scripts
