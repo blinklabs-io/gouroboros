@@ -343,6 +343,8 @@ func scriptPurposeBuilder(
 
 // BuildScriptPurpose creates a ScriptPurpose from a redeemer key using map-based inputs.
 // This variant accepts raw maps for withdrawals and votes and handles deterministic ordering internally.
+// The witnessDatums parameter allows looking up datums from the transaction witness set
+// for outputs that have a datum hash but no inline datum.
 func BuildScriptPurpose(
 	redeemerKey lcommon.RedeemerKey,
 	resolvedInputs map[string]lcommon.Utxo,
@@ -352,6 +354,7 @@ func BuildScriptPurpose(
 	withdrawals map[*lcommon.Address]uint64,
 	votes lcommon.VotingProcedures,
 	proposalProcedures []lcommon.ProposalProcedure,
+	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
 ) ScriptPurpose {
 	switch redeemerKey.Tag {
 	case lcommon.RedeemerTagSpend:
@@ -366,7 +369,13 @@ func BuildScriptPurpose(
 		var datum data.PlutusData
 		if utxo.Output != nil {
 			if d := utxo.Output.Datum(); d != nil {
+				// Inline datum - use it directly
 				datum = d.Data
+			} else if datumHash := utxo.Output.DatumHash(); datumHash != nil {
+				// No inline datum - check witness datums by hash
+				if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
+					datum = witnessDatum.Data
+				}
 			}
 		}
 		return ScriptPurposeSpending{
