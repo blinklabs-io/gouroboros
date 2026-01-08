@@ -136,8 +136,9 @@ func (b *AllegraBlock) Transactions() []common.Transaction {
 }
 
 func (b *AllegraBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -202,7 +203,7 @@ func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (b *AllegraTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
+	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
 	for _, input := range b.TxInputs.Items() {
 		ret = append(ret, input)
 	}
@@ -430,8 +431,9 @@ func (t AllegraTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t AllegraTransaction) Produced() []common.Utxo {
-	ret := []common.Utxo{}
-	for idx, output := range t.Outputs() {
+	outputs := t.Outputs()
+	ret := make([]common.Utxo, 0, len(outputs))
+	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{

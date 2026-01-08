@@ -253,7 +253,7 @@ func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 }
 
 func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
-	tmpAssets := []multiAssetJson[T]{}
+	tmpAssets := make([]multiAssetJson[T], 0, len(m.data))
 	for policyId, policyData := range m.data {
 		for assetName, amount := range policyData {
 			tmpObj := multiAssetJson[T]{
@@ -342,7 +342,7 @@ func (m *MultiAsset[T]) ToPlutusData() data.PlutusData {
 }
 
 func (m *MultiAsset[T]) Policies() []Blake2b224 {
-	ret := []Blake2b224{}
+	ret := make([]Blake2b224, 0, len(m.data))
 	for policyId := range m.data {
 		ret = append(ret, policyId)
 	}
@@ -354,7 +354,7 @@ func (m *MultiAsset[T]) Assets(policyId Blake2b224) [][]byte {
 	if !ok {
 		return nil
 	}
-	ret := [][]byte{}
+	ret := make([][]byte, 0, len(assets))
 	for assetName := range assets {
 		ret = append(ret, assetName.Bytes())
 	}

@@ -178,7 +178,7 @@ func (t *ByronTransactionBody) Id() common.Blake2b256 {
 }
 
 func (t *ByronTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
+	ret := make([]common.TransactionInput, 0, len(t.TxInputs))
 	for _, input := range t.TxInputs {
 		ret = append(ret, input)
 	}
@@ -476,8 +476,9 @@ func (t *ByronTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t *ByronTransaction) Produced() []common.Utxo {
-	ret := []common.Utxo{}
-	for idx, output := range t.Outputs() {
+	outputs := t.Outputs()
+	ret := make([]common.Utxo, 0, len(outputs))
+	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{

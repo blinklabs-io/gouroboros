@@ -80,7 +80,7 @@ func computeByronAddressRoot(
 	// Build the CBOR structure: [0, [0, bytes(pubkey || chainCode)], attributes]
 	// Byron addresses always use addrType = 0 for public key addresses
 	// CBOR prefix: 0x83 (array of 3) 0x00 (int 0) 0x82 (array of 2) 0x00 (int 0) 0x5840 (bytes of 64)
-	var buf []byte
+	var buf []byte                // nolint:prealloc
 	buf = append(buf, 0x83)       // CBOR array of 3 elements
 	buf = append(buf, 0x00)       // First element: addrType = 0
 	buf = append(buf, 0x82)       // Second element: array of 2
