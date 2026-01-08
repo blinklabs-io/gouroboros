@@ -1270,6 +1270,14 @@ func UtxoValidatePlutusScripts(
 	proposalProcedures := tx.ProposalProcedures()
 	certificates := tx.Certificates()
 
+	// Build witness datums map for datum hash lookups
+	// This allows resolving datums from witness set when UTxOs have datum hashes
+	witnessDatums := make(map[common.Blake2b256]*common.Datum)
+	for _, datum := range witnesses.PlutusData() {
+		datumCopy := datum
+		witnessDatums[datum.Hash()] = &datumCopy
+	}
+
 	// Execute each redeemer's script
 	for redeemerKey, redeemerValue := range redeemers.Iter() {
 		// Build script purpose for this redeemer
@@ -1282,6 +1290,7 @@ func UtxoValidatePlutusScripts(
 			withdrawals,
 			votes,
 			proposalProcedures,
+			witnessDatums,
 		)
 		if purpose == nil {
 			continue
