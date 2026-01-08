@@ -171,17 +171,19 @@ func (s PlutusV1Script) Evaluate(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	// Apply arguments to program: datum, redeemer, context
-	datumTerm := &syn.Constant{Con: &syn.Data{Inner: datum}}
+	// Apply arguments to program: datum (optional), redeemer, context
 	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
 	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
-
-	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+	wrappedProgram := program.Term
+	if datum != nil {
+		wrappedProgram = &syn.Apply[syn.DeBruijn]{
+			Function: wrappedProgram,
+			Argument: &syn.Constant{Con: &syn.Data{Inner: datum}},
+		}
+	}
+	wrappedProgram = &syn.Apply[syn.DeBruijn]{
 		Function: &syn.Apply[syn.DeBruijn]{
-			Function: &syn.Apply[syn.DeBruijn]{
-				Function: program.Term,
-				Argument: datumTerm,
-			},
+			Function: wrappedProgram,
 			Argument: redeemerTerm,
 		},
 		Argument: contextTerm,
@@ -245,17 +247,19 @@ func (s PlutusV2Script) Evaluate(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	// Apply arguments to program: datum, redeemer, context
-	datumTerm := &syn.Constant{Con: &syn.Data{Inner: datum}}
+	// Apply arguments to program: datum (optional), redeemer, context
 	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
 	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
-
-	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+	wrappedProgram := program.Term
+	if datum != nil {
+		wrappedProgram = &syn.Apply[syn.DeBruijn]{
+			Function: wrappedProgram,
+			Argument: &syn.Constant{Con: &syn.Data{Inner: datum}},
+		}
+	}
+	wrappedProgram = &syn.Apply[syn.DeBruijn]{
 		Function: &syn.Apply[syn.DeBruijn]{
-			Function: &syn.Apply[syn.DeBruijn]{
-				Function: program.Term,
-				Argument: datumTerm,
-			},
+			Function: wrappedProgram,
 			Argument: redeemerTerm,
 		},
 		Argument: contextTerm,
