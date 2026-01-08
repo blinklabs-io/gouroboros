@@ -156,9 +156,9 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
 		}
 	}
@@ -178,9 +178,9 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
 		}
 	}
@@ -255,7 +255,7 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script, *common.PlutusV1Script:
+		case common.PlutusV1Script:
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
@@ -277,7 +277,7 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script, *common.PlutusV1Script:
+		case common.PlutusV1Script:
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}

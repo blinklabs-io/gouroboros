@@ -34,11 +34,11 @@ func TestScriptRefDecodeEncode(t *testing.T) {
 	if _, err := cbor.Decode(testCbor, &testScriptRef); err != nil {
 		t.Fatalf("unexpected error decoding script ref CBOR: %s", err)
 	}
-	if !reflect.DeepEqual(testScriptRef.Script, &expectedScript) {
+	if !reflect.DeepEqual(testScriptRef.Script, expectedScript) {
 		t.Fatalf(
 			"did not get expected script\n     got: %#v\n  wanted: %#v",
 			testScriptRef.Script,
-			&expectedScript,
+			expectedScript,
 		)
 	}
 	if !bytes.Equal(testScriptRef.Script.RawScriptBytes(), scriptCbor) {
