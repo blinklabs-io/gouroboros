@@ -17,6 +17,7 @@ package allegra
 import (
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -218,8 +219,8 @@ func (b *AllegraTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *AllegraTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *AllegraTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *AllegraTransactionBody) TTL() uint64 {
@@ -249,8 +250,15 @@ func (b *AllegraTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *AllegraTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *AllegraTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for addr, amount := range b.TxWithdrawals {
+		ret[addr] = new(big.Int).SetUint64(amount)
+	}
+	return ret
 }
 
 func (b *AllegraTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -346,7 +354,7 @@ func (t AllegraTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t AllegraTransaction) Fee() uint64 {
+func (t AllegraTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -370,7 +378,7 @@ func (t AllegraTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t AllegraTransaction) TotalCollateral() uint64 {
+func (t AllegraTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -378,7 +386,7 @@ func (t AllegraTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AllegraTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t AllegraTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -406,11 +414,11 @@ func (t AllegraTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t AllegraTransaction) CurrentTreasuryValue() int64 {
+func (t AllegraTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t AllegraTransaction) Donation() uint64 {
+func (t AllegraTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 

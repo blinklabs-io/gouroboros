@@ -277,8 +277,8 @@ func (b *AlonzoTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *AlonzoTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *AlonzoTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *AlonzoTransactionBody) TTL() uint64 {
@@ -308,8 +308,15 @@ func (b *AlonzoTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *AlonzoTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *AlonzoTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int, len(b.TxWithdrawals))
+	for k, v := range b.TxWithdrawals {
+		ret[k] = new(big.Int).SetUint64(v)
+	}
+	return ret
 }
 
 func (b *AlonzoTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -457,8 +464,8 @@ func (o AlonzoTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o AlonzoTransactionOutput) Amount() uint64 {
-	return o.OutputAmount.Amount
+func (o AlonzoTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount.Amount)
 }
 
 func (o AlonzoTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -508,7 +515,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,
@@ -758,7 +765,7 @@ func (t AlonzoTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t AlonzoTransaction) Fee() uint64 {
+func (t AlonzoTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -786,7 +793,7 @@ func (t AlonzoTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t AlonzoTransaction) TotalCollateral() uint64 {
+func (t AlonzoTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -794,7 +801,7 @@ func (t AlonzoTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AlonzoTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t AlonzoTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -822,11 +829,11 @@ func (t AlonzoTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t AlonzoTransaction) CurrentTreasuryValue() int64 {
+func (t AlonzoTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t AlonzoTransaction) Donation() uint64 {
+func (t AlonzoTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 

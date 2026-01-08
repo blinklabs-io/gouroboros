@@ -52,7 +52,7 @@ func init() {
 	// Wrapped CBOR
 	if err := customTagSet.Add(
 		tagOpts,
-		reflect.TypeOf(WrappedCbor{}),
+		reflect.TypeFor[WrappedCbor](),
 		CborTagCbor,
 	); err != nil {
 		panic(err)
@@ -60,7 +60,7 @@ func init() {
 	// Rational numbers
 	if err := customTagSet.Add(
 		tagOpts,
-		reflect.TypeOf(Rat{}),
+		reflect.TypeFor[Rat](),
 		CborTagRational,
 	); err != nil {
 		panic(err)
@@ -68,7 +68,7 @@ func init() {
 	// Sets
 	if err := customTagSet.Add(
 		tagOpts,
-		reflect.TypeOf(Set{}),
+		reflect.TypeFor[Set](),
 		CborTagSet,
 	); err != nil {
 		panic(err)
@@ -76,7 +76,7 @@ func init() {
 	// Maps
 	if err := customTagSet.Add(
 		tagOpts,
-		reflect.TypeOf(Map{}),
+		reflect.TypeFor[Map](),
 		CborTagMap,
 	); err != nil {
 		panic(err)

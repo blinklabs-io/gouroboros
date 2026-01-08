@@ -385,12 +385,6 @@ func TestOriginalIssue_ZeroHashNotNull(t *testing.T) {
 	)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 func TestAssetFingerprint(t *testing.T) {
 	testDefs := []struct {
 		policyIdHex         string
@@ -1147,7 +1141,7 @@ func TestCertificateTypeMethods(t *testing.T) {
 // TestCertificateTypeCoverage ensures all CertificateType constants are tested
 func TestCertificateTypeCoverage(t *testing.T) {
 	// Get all CertificateType constants via reflection
-	certTypeType := reflect.TypeOf(CertificateTypeStakeRegistration)
+	certTypeType := reflect.TypeFor[CertificateType]()
 	if certTypeType.Kind() != reflect.Uint {
 		t.Fatalf("CertificateType is not uint, got %s", certTypeType.Kind())
 	}

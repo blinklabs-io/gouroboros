@@ -45,6 +45,21 @@ type ShelleyProtocolParameters struct {
 	MinUtxoValue       uint
 }
 
+// KeyDepositAmount returns the key deposit as a *big.Int
+func (p *ShelleyProtocolParameters) KeyDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.KeyDeposit))
+}
+
+// PoolDepositAmount returns the pool deposit as a *big.Int
+func (p *ShelleyProtocolParameters) PoolDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.PoolDeposit))
+}
+
+// MinUtxoValueAmount returns the minimum UTxO value as a *big.Int
+func (p *ShelleyProtocolParameters) MinUtxoValueAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.MinUtxoValue))
+}
+
 func (p *ShelleyProtocolParameters) Update(
 	paramUpdate *ShelleyProtocolParameterUpdate,
 ) {

@@ -292,8 +292,8 @@ func (b *ShelleyTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *ShelleyTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *ShelleyTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *ShelleyTransactionBody) TTL() uint64 {
@@ -319,8 +319,15 @@ func (b *ShelleyTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *ShelleyTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *ShelleyTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for addr, amount := range b.TxWithdrawals {
+		ret[addr] = new(big.Int).SetUint64(amount)
+	}
+	return ret
 }
 
 func (b *ShelleyTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -481,8 +488,8 @@ func (o ShelleyTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Amount() uint64 {
-	return o.OutputAmount
+func (o ShelleyTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount)
 }
 
 func (o ShelleyTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -505,7 +512,7 @@ func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 		Address: addressBytes,
-		Coin:    common.ToUtxorpcBigInt(o.Amount()),
+		Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 	}, nil
 }
 
@@ -670,7 +677,7 @@ func (t ShelleyTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t ShelleyTransaction) Fee() uint64 {
+func (t ShelleyTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -694,7 +701,7 @@ func (t ShelleyTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t ShelleyTransaction) TotalCollateral() uint64 {
+func (t ShelleyTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -702,7 +709,7 @@ func (t ShelleyTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ShelleyTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t ShelleyTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -730,11 +737,11 @@ func (t ShelleyTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t ShelleyTransaction) CurrentTreasuryValue() int64 {
+func (t ShelleyTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t ShelleyTransaction) Donation() uint64 {
+func (t ShelleyTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
