@@ -189,8 +189,9 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 }
 
 func (b *AlonzoBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -843,8 +844,9 @@ func (t AlonzoTransaction) Consumed() []common.TransactionInput {
 
 func (t AlonzoTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []common.Utxo
-		for idx, output := range t.Outputs() {
+		outputs := t.Outputs()
+		ret := make([]common.Utxo, 0, len(outputs))
+		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{

@@ -229,7 +229,7 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqIsValidSum32Bytes := blake2b.Sum256(txSeqNonValidBytes)
 	txSeqIsValidSumBytes := txSeqIsValidSum32Bytes[:]
 
-	var serializeBytes []byte
+	serializeBytes := make([]byte, 0, len(txSeqBodySumBytes)+len(txSeqWitsSumBytes)+len(txSeqMetadataSumBytes)+len(txSeqIsValidSumBytes))
 	// Ref: https://github.com/IntersectMBO/cardano-ledger/blob/9cc766a31ad6fb31f88e25a770c902d24fa32499/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxSeq.hs#L183
 	serializeBytes = append(serializeBytes, txSeqBodySumBytes...)
 	serializeBytes = append(serializeBytes, txSeqWitsSumBytes...)
@@ -240,7 +240,7 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 }
 
 func GetTxBodies(txsRaw [][]string) ([]BabbageTransactionBody, error) {
-	bodies := []BabbageTransactionBody{}
+	bodies := make([]BabbageTransactionBody, 0, len(txsRaw))
 	for index, tx := range txsRaw {
 		var tmp BabbageTransactionBody
 		bodyTmpHex := tx[0]

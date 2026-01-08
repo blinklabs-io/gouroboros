@@ -26,6 +26,7 @@ linters:
     - nilerr
     - nilnesserr
     - perfsprint
+    - prealloc
     - protogetter
     - reassign
     - rowserrcheck
@@ -40,7 +41,6 @@ linters:
     - depguard
     - noctx
     - recvcheck
-    - prealloc
   exclusions:
     generated: lax
     presets:

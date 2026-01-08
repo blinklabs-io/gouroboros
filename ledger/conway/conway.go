@@ -220,8 +220,9 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 }
 
 func (b *ConwayBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -489,7 +490,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
+	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
 	for _, input := range b.TxInputs.Items() {
 		ret = append(ret, input)
 	}
@@ -548,8 +549,9 @@ func (b *ConwayTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsset
 }
 
 func (b *ConwayTransactionBody) Collateral() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, collateral := range b.TxCollateral.Items() {
+	items := b.TxCollateral.Items()
+	ret := make([]common.TransactionInput, 0, len(items))
+	for _, collateral := range items {
 		ret = append(ret, collateral)
 	}
 	return ret
@@ -808,8 +810,9 @@ func (t ConwayTransaction) Consumed() []common.TransactionInput {
 
 func (t ConwayTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []common.Utxo
-		for idx, output := range t.Outputs() {
+		outputs := t.Outputs()
+		ret := make([]common.Utxo, 0, len(outputs))
+		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{
