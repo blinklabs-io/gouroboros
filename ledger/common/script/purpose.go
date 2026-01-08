@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"math/big"
 	"slices"
+	"strings"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
@@ -258,6 +259,8 @@ func (ScriptInfoProposing) isScriptInfo() {}
 type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptPurpose
 
 // scriptPurposeBuilder creates a reusable function preloaded with information about a particular transaction
+// The witnessDatums parameter allows looking up datums from the transaction witness set
+// for outputs that have a datum hash but no inline datum.
 func scriptPurposeBuilder(
 	resolvedInputs []lcommon.Utxo,
 	inputs []lcommon.TransactionInput,
@@ -266,6 +269,7 @@ func scriptPurposeBuilder(
 	withdrawals KeyValuePairs[*lcommon.Address, *big.Int],
 	votes KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]],
 	proposalProcedures []lcommon.ProposalProcedure,
+	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
 ) toScriptPurposeFunc {
 	return func(redeemerKey lcommon.RedeemerKey) ScriptPurpose {
 		// TODO: implement additional redeemer tags
@@ -282,7 +286,13 @@ func scriptPurposeBuilder(
 				if tmpResolvedInput.Id.String() == tmpInput.String() {
 					resolvedInput = tmpResolvedInput
 					if tmpDatum := resolvedInput.Output.Datum(); tmpDatum != nil {
+						// Inline datum - use it directly
 						datum = tmpDatum.Data
+					} else if datumHash := resolvedInput.Output.DatumHash(); datumHash != nil {
+						// No inline datum - check witness datums by hash
+						if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
+							datum = witnessDatum.Data
+						}
 					}
 					break
 				}
@@ -409,13 +419,13 @@ func BuildScriptPurpose(
 			sortedAddrs = append(sortedAddrs, addr)
 		}
 		slices.SortFunc(sortedAddrs, func(a, b *lcommon.Address) int {
-			if a.String() < b.String() {
-				return -1
+			aBytes, aErr := a.Bytes()
+			bBytes, bErr := b.Bytes()
+			// Fall back to string comparison if Bytes() fails
+			if aErr != nil || bErr != nil {
+				return strings.Compare(a.String(), b.String())
 			}
-			if a.String() > b.String() {
-				return 1
-			}
-			return 0
+			return bytes.Compare(aBytes, bBytes)
 		})
 		if int(redeemerKey.Index) >= len(sortedAddrs) {
 			return nil
@@ -433,14 +443,32 @@ func BuildScriptPurpose(
 		for voter := range votes {
 			sortedVoters = append(sortedVoters, voter)
 		}
+		// Sort by voter type tag, then by hash bytes (matches votingInfo in context.go)
+		voterTag := func(v *lcommon.Voter) int {
+			switch v.Type {
+			case lcommon.VoterTypeConstitutionalCommitteeHotScriptHash:
+				return 0
+			case lcommon.VoterTypeConstitutionalCommitteeHotKeyHash:
+				return 1
+			case lcommon.VoterTypeDRepScriptHash:
+				return 2
+			case lcommon.VoterTypeDRepKeyHash:
+				return 3
+			case lcommon.VoterTypeStakingPoolKeyHash:
+				return 4
+			}
+			return -1
+		}
 		slices.SortFunc(sortedVoters, func(a, b *lcommon.Voter) int {
-			if a.String() < b.String() {
+			tagA := voterTag(a)
+			tagB := voterTag(b)
+			if tagA == tagB {
+				return bytes.Compare(a.Hash[:], b.Hash[:])
+			}
+			if tagA < tagB {
 				return -1
 			}
-			if a.String() > b.String() {
-				return 1
-			}
-			return 0
+			return 1
 		})
 		if int(redeemerKey.Index) >= len(sortedVoters) {
 			return nil

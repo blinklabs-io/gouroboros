@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"math/big"
 	"slices"
+	"strings"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
@@ -175,6 +176,7 @@ func NewTxInfoV1FromTransaction(
 	}
 	inputs := sortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
+	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
@@ -185,6 +187,7 @@ func NewTxInfoV1FromTransaction(
 			withdrawals,
 			nil,
 			nil,
+			witnessDatums,
 		),
 	)
 	tmpData := dataInfo(tx.Witnesses())
@@ -285,6 +288,7 @@ func NewTxInfoV2FromTransaction(
 	}
 	inputs := sortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
+	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
@@ -294,7 +298,8 @@ func NewTxInfoV2FromTransaction(
 			tx.Certificates(),
 			withdrawals,
 			nil, // votes
-			nil, // proposalProcedures,
+			nil, // proposalProcedures
+			witnessDatums,
 		),
 	)
 	tmpData := dataInfo(tx.Witnesses())
@@ -382,6 +387,7 @@ func NewTxInfoV3FromTransaction(
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	votes := votingInfo(tx.VotingProcedures())
 	proposalProcedures := tx.ProposalProcedures()
+	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
@@ -392,6 +398,7 @@ func NewTxInfoV3FromTransaction(
 			withdrawals,
 			votes,
 			proposalProcedures,
+			witnessDatums,
 		),
 	)
 	tmpData := dataInfo(tx.Witnesses())
@@ -580,8 +587,12 @@ func withdrawalsInfo(
 	slices.SortFunc(
 		ret,
 		func(a, b KeyValuePair[*lcommon.Address, *big.Int]) int {
-			aBytes, _ := a.Key.Bytes()
-			bBytes, _ := b.Key.Bytes()
+			aBytes, aErr := a.Key.Bytes()
+			bBytes, bErr := b.Key.Bytes()
+			// Fall back to string comparison if Bytes() fails
+			if aErr != nil || bErr != nil {
+				return strings.Compare(a.Key.String(), b.Key.String())
+			}
 			return bytes.Compare(aBytes, bBytes)
 		},
 	)
@@ -612,6 +623,19 @@ func dataInfo(
 		},
 	)
 	return ret
+}
+
+func buildWitnessDatums(
+	witnessSet lcommon.TransactionWitnessSet,
+) map[lcommon.Blake2b256]*lcommon.Datum {
+	witnessDatums := make(map[lcommon.Blake2b256]*lcommon.Datum)
+	if witnessSet == nil {
+		return witnessDatums
+	}
+	for _, datum := range witnessSet.PlutusData() {
+		witnessDatums[datum.Hash()] = &datum
+	}
+	return witnessDatums
 }
 
 func redeemersInfo(
