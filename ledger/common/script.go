@@ -87,25 +87,37 @@ func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(innerCbor, &rawScript); err != nil {
 		return err
 	}
-	var tmpScript Script
+	var script Script
 	switch rawScript.Type {
 	case ScriptRefTypeNativeScript:
-		tmpScript = &NativeScript{}
+		tmpScript := &NativeScript{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
 	case ScriptRefTypePlutusV1:
-		tmpScript = &PlutusV1Script{}
+		tmpScript := &PlutusV1Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
 	case ScriptRefTypePlutusV2:
-		tmpScript = &PlutusV2Script{}
+		tmpScript := &PlutusV2Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
 	case ScriptRefTypePlutusV3:
-		tmpScript = &PlutusV3Script{}
+		tmpScript := &PlutusV3Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
 	default:
 		return fmt.Errorf("unknown script type %d", rawScript.Type)
 	}
-	// Decode script
-	if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
-		return err
-	}
 	s.Type = rawScript.Type
-	s.Script = tmpScript
+	s.Script = script
 	return nil
 }
 

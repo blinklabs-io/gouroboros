@@ -328,9 +328,9 @@ func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
 	output := decoded.Body.TxOutputs[0]
 	assert.NotNil(t, output.TxOutScriptRef)
 	assert.Equal(t, uint(1), output.TxOutScriptRef.Type)
-	if plutusScript, ok := output.TxOutScriptRef.Script.(*common.PlutusV1Script); ok {
+	if plutusScript, ok := output.TxOutScriptRef.Script.(common.PlutusV1Script); ok {
 		expectedScript := common.PlutusV1Script{0x01, 0x02, 0x03, 0x04}
-		assert.Equal(t, expectedScript, *plutusScript)
+		assert.Equal(t, expectedScript, plutusScript)
 	} else {
 		t.Fatalf("expected PlutusV1Script, got %T", output.TxOutScriptRef.Script)
 	}

@@ -347,7 +347,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script, *common.PlutusV2Script, common.PlutusV2Script, *common.PlutusV3Script, common.PlutusV3Script:
+		case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
 			hasPlutusReference = true
 		}
 		if hasPlutusReference {
@@ -372,7 +372,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 				continue
 			}
 			switch script.(type) {
-			case *common.PlutusV1Script, common.PlutusV1Script, *common.PlutusV2Script, common.PlutusV2Script, *common.PlutusV3Script, common.PlutusV3Script:
+			case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
 				hasPlutusReference = true
 			}
 			if hasPlutusReference {
@@ -455,11 +455,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
-		case *common.PlutusV3Script, common.PlutusV3Script:
+		case common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
@@ -479,11 +479,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
-		case *common.PlutusV3Script, common.PlutusV3Script:
+		case common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
@@ -853,9 +853,9 @@ func UtxoValidateValueNotConservedUtxo(
 				script := utxo.Output.ScriptRef()
 				if script != nil {
 					switch script.(type) {
-					case *common.PlutusV1Script, common.PlutusV1Script:
+					case common.PlutusV1Script:
 						plutusVersion = "PlutusV1"
-					case *common.PlutusV2Script, common.PlutusV2Script:
+					case common.PlutusV2Script:
 						plutusVersion = "PlutusV2"
 					}
 					if plutusVersion != "" {
@@ -1314,15 +1314,15 @@ func UtxoValidatePlutusScripts(
 	// Add witness scripts
 	for _, s := range witnesses.PlutusV1Scripts() {
 		sCopy := s
-		availableScripts[s.Hash()] = &sCopy
+		availableScripts[s.Hash()] = sCopy
 	}
 	for _, s := range witnesses.PlutusV2Scripts() {
 		sCopy := s
-		availableScripts[s.Hash()] = &sCopy
+		availableScripts[s.Hash()] = sCopy
 	}
 	for _, s := range witnesses.PlutusV3Scripts() {
 		sCopy := s
-		availableScripts[s.Hash()] = &sCopy
+		availableScripts[s.Hash()] = sCopy
 	}
 
 	// Add reference scripts from resolved inputs
@@ -1407,28 +1407,9 @@ func UtxoValidatePlutusScripts(
 		// Execute based on script version
 		var execErr error
 		switch s := plutusScript.(type) {
-		case *common.PlutusV3Script:
-			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
 		case common.PlutusV3Script:
 			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
-		case *common.PlutusV2Script:
-			// V1/V2 scripts require a datum for spending purposes
-			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
-					ScriptHash: scriptHash,
-					Input:      spendInput,
-				}
-			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
 		case common.PlutusV2Script:
-			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
-					ScriptHash: scriptHash,
-					Input:      spendInput,
-				}
-			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
-		case *common.PlutusV1Script:
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
 				return MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,

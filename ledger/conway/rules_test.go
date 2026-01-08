@@ -227,7 +227,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
 			TxOutScriptRef: &common.ScriptRef{
 				Type:   0,
-				Script: &script,
+				Script: script,
 			},
 		}
 		refUtxo := common.Utxo{
@@ -275,7 +275,7 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
 				TxOutScriptRef: &common.ScriptRef{
 					Type:   0,
-					Script: &script,
+					Script: script,
 				},
 			}
 			refUtxo := common.Utxo{
