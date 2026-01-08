@@ -42,7 +42,25 @@ func (o Option[T]) ToPlutusData() data.PlutusData {
 	)
 }
 
+type Pairs[T1 any, T2 any] []Pair[T1, T2]
+
+type Pair[T1 any, T2 any] struct {
+	T1 T1
+	T2 T2
+}
+
 type KeyValuePairs[K any, V any] []KeyValuePair[K, V]
+
+func (k KeyValuePairs[K, V]) ToPairs() Pairs[K, V] {
+	ret := make(Pairs[K, V], len(k))
+	for i := range k {
+		ret[i] = Pair[K, V]{
+			T1: k[i].Key,
+			T2: k[i].Value,
+		}
+	}
+	return ret
+}
 
 func (k KeyValuePairs[K, V]) ToPlutusData() data.PlutusData {
 	pairs := make([][2]data.PlutusData, len(k))
@@ -203,21 +221,16 @@ func (w WithWrappedTransactionId) ToPlutusData() data.PlutusData {
 			),
 		)
 	case KeyValuePairs[ScriptPurpose, Redeemer]:
-		// TODO: this can wait for TxInfoV2
-		/*
-			impl ToPlutusData for WithWrappedTransactionId<'_, KeyValuePairs<ScriptPurpose, Redeemer>> {
-			    fn to_plutus_data(&self) -> PlutusData {
-			        let mut data_vec: Vec<(PlutusData, PlutusData)> = vec![];
-			        for (key, value) in self.0.iter() {
-			            data_vec.push((
-			                WithWrappedTransactionId(key).to_plutus_data(),
-			                value.to_plutus_data(),
-			            ))
-			        }
-			        PlutusData::Map(KeyValuePairs::Def(data_vec))
-			    }
+		tmpPairs := make([][2]data.PlutusData, len(v))
+		for i := range v {
+			tmpPairs[i] = [2]data.PlutusData{
+				WithWrappedTransactionId{
+					v[i].Key,
+				}.ToPlutusData(),
+				v[i].Value.ToPlutusData(),
 			}
-		*/
+		}
+		return data.NewMap(tmpPairs)
 	case ScriptPurpose:
 		// NOTE: This is a _small_ abuse of the 'WithWrappedTransactionId'. We know the wrapped
 		// is needed for V1 and V2, and it also appears that for V1 and V2, the certifying
@@ -258,14 +271,26 @@ type WithWrappedStakeCredential struct {
 func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 	switch v := w.Value.(type) {
 	case KeyValuePairs[*lcommon.Address, uint64]:
-		tmpItems := make([]data.PlutusData, len(v))
+		tmpPairs := make([][2]data.PlutusData, len(v))
 		for i := range v {
-			tmpItems[i] = data.NewList(
+			tmpPairs[i] = [2]data.PlutusData{
 				data.NewConstr(
 					0,
 					v[i].Key.ToPlutusData(),
 				),
 				toPlutusData(v[i].Value),
+			}
+		}
+		return data.NewMap(tmpPairs)
+	case Pairs[*lcommon.Address, uint64]:
+		tmpItems := make([]data.PlutusData, len(v))
+		for i := range v {
+			tmpItems[i] = data.NewList(
+				data.NewConstr(
+					0,
+					v[i].T1.ToPlutusData(),
+				),
+				toPlutusData(v[i].T2),
 			)
 		}
 		return data.NewList(tmpItems...)
@@ -363,6 +388,71 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 		return data.NewMap(
 			[][2]data.PlutusData{coinToPlutusDataMapPair(v)},
 		)
+	case []lcommon.TransactionOutput:
+		tmpItems := make([]data.PlutusData, len(v))
+		for i := range v {
+			tmpItems[i] = WithZeroAdaAsset{
+				v[i],
+			}.ToPlutusData()
+		}
+		return data.NewList(tmpItems...)
+	case lcommon.TransactionOutput:
+		// We need to assign to a var to call ToPlutusData() with pointer receiver below
+		addr := v.Address()
+		datumOption := data.NewConstr(0)
+		if tmp := v.Datum(); tmp != nil {
+			datumOption = data.NewConstr(
+				2,
+				tmp.Data.Clone(),
+			)
+		} else if tmp := v.DatumHash(); (tmp != nil && *tmp != lcommon.Blake2b256{}) {
+			datumOption = data.NewConstr(
+				1,
+				tmp.ToPlutusData(),
+			)
+		}
+		scriptRef := data.NewConstr(1)
+		if tmp := v.ScriptRef(); tmp != nil {
+			scriptRef = data.NewConstr(
+				0,
+				data.NewByteString(tmp.Hash().Bytes()),
+			)
+		}
+		return data.NewConstr(
+			0,
+			addr.ToPlutusData(),
+			WithZeroAdaAsset{
+				Value{
+					Coin:         v.Amount(),
+					AssetsOutput: v.Assets(),
+				},
+			}.ToPlutusData(),
+			datumOption,
+			scriptRef,
+		)
+	case WithWrappedTransactionId:
+		switch v2 := v.Value.(type) {
+		case []ResolvedInput:
+			tmpItems := make([]data.PlutusData, len(v2))
+			for i := range v2 {
+				tmpItems[i] = WithZeroAdaAsset{
+					WithWrappedTransactionId{
+						v2[i],
+					},
+				}.ToPlutusData()
+			}
+			return data.NewList(tmpItems...)
+		case ResolvedInput:
+			return data.NewConstr(
+				0,
+				WithWrappedTransactionId{
+					v2.Id,
+				}.ToPlutusData(),
+				WithZeroAdaAsset{
+					v2.Output,
+				}.ToPlutusData(),
+			)
+		}
 	}
 	return nil
 }
