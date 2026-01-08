@@ -127,3 +127,24 @@ type ProtocolParameterUpdateFieldZeroError struct {
 func (e ProtocolParameterUpdateFieldZeroError) Error() string {
 	return fmt.Sprintf("protocol parameter update field %s cannot be 0, got %d", e.FieldName, e.Value)
 }
+
+// EmptyTreasuryWithdrawalsError indicates that a TreasuryWithdrawalGovAction has an empty withdrawals map
+type EmptyTreasuryWithdrawalsError struct{}
+
+func (e EmptyTreasuryWithdrawalsError) Error() string {
+	return "treasury withdrawal governance action has empty withdrawals map"
+}
+
+// WrongNetworkProposalAddressError indicates that a proposal address has wrong network ID
+type WrongNetworkProposalAddressError struct {
+	NetId uint
+	Addrs []common.Address
+}
+
+func (e WrongNetworkProposalAddressError) Error() string {
+	tmpAddrs := make([]string, len(e.Addrs))
+	for idx, addr := range e.Addrs {
+		tmpAddrs[idx] = addr.String()
+	}
+	return fmt.Sprintf("wrong network ID in proposal address(es): expected %d, got %s", e.NetId, strings.Join(tmpAddrs, ", "))
+}
