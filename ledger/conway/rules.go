@@ -33,6 +33,8 @@ import (
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
 	UtxoValidateProposalProcedures,
+	UtxoValidateProposalNetworkIds,
+	UtxoValidateEmptyTreasuryWithdrawals,
 	UtxoValidateIsValidFlag,
 	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateCollateralVKeyWitnesses,
@@ -112,6 +114,72 @@ func UtxoValidateProposalProcedures(
 		}
 	}
 	return nil
+}
+
+// UtxoValidateEmptyTreasuryWithdrawals validates that TreasuryWithdrawalGovAction proposals
+// do not have empty withdrawal maps. This is distinct from transaction reward withdrawals.
+func UtxoValidateEmptyTreasuryWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	for _, proposal := range tx.ProposalProcedures() {
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+
+		// Check if this is a TreasuryWithdrawalGovAction with empty withdrawals
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+			if len(twAction.Withdrawals) == 0 {
+				return EmptyTreasuryWithdrawalsError{}
+			}
+		}
+	}
+	return nil
+}
+
+// UtxoValidateProposalNetworkIds validates that all addresses in proposal procedures use correct network ID
+func UtxoValidateProposalNetworkIds(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	networkId := ls.NetworkId()
+	badAddrs := []common.Address{}
+
+	for _, proposal := range tx.ProposalProcedures() {
+		// Check the return address (where deposit goes back)
+		returnAddr := proposal.RewardAccount()
+		if returnAddr.NetworkId() != networkId {
+			badAddrs = append(badAddrs, returnAddr)
+		}
+
+		// Check addresses within governance actions
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+
+		// TreasuryWithdrawalGovAction contains withdrawal addresses
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+			for addr := range twAction.Withdrawals {
+				if addr.NetworkId() != networkId {
+					badAddrs = append(badAddrs, *addr)
+				}
+			}
+		}
+	}
+
+	if len(badAddrs) == 0 {
+		return nil
+	}
+	return WrongNetworkProposalAddressError{
+		NetId: networkId,
+		Addrs: badAddrs,
+	}
 }
 
 // validateProtocolParameterUpdate validates that a PPU is well-formed
