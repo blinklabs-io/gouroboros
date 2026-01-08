@@ -318,8 +318,9 @@ type ShelleyStakePoolsQuery struct {
 }
 
 type ShelleyStakePoolParamsQuery struct {
-	simpleQueryBase
-	// TODO: add params (#859)
+	cbor.StructAsArray
+	Type    int
+	PoolIds cbor.SetType[ledger.PoolId]
 }
 
 type ShelleyRewardInfoPoolsQuery struct {
