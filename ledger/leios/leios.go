@@ -19,6 +19,7 @@ package leios
 // It is acceptable to skip validation on Leios blocks, but tests must be maintained.
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -177,6 +178,7 @@ type LeiosEndorserBlock struct {
 
 // MarshalCBOR encodes the EB as a single-element array containing transaction_references
 // per CIP-0164: endorser_block = [ transaction_references : omap<hash32, uint16> ]
+// where omap<K, V> = {* K => V} is a CBOR map
 func (b *LeiosEndorserBlock) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
@@ -192,11 +194,52 @@ func (b *LeiosEndorserBlock) MarshalCBOR() ([]byte, error) {
 			"LeiosEndorserBlock: empty EB not allowed per CIP-0164",
 		)
 	}
-	// Encode as single-element array: [ TxReferences ]
-	return cbor.Encode([]any{b.Body.TxReferences})
+	// Manually encode map preserving slice order per CIP-0164
+	// The omap<hash32, uint16> encodes as a CBOR map {* hash32 => uint16}
+	// Go maps don't preserve insertion order, so we build the CBOR manually
+	mapLen := len(b.Body.TxReferences)
+	// Build map header (definite-length)
+	var mapBytes []byte
+	if mapLen < 24 {
+		mapBytes = []byte{0xa0 + byte(mapLen)} // map(n) for n < 24
+	} else if mapLen < 256 {
+		mapBytes = []byte{0xb8, byte(mapLen)} // map with 1-byte length
+	} else if mapLen < 65536 {
+		mapBytes = []byte{0xb9, byte(mapLen >> 8), byte(mapLen)} // map with 2-byte length
+	} else {
+		// map with 4-byte length (0xba + 4 bytes)
+		mapBytes = []byte{
+			0xba,
+			byte(mapLen >> 24),
+			byte(mapLen >> 16),
+			byte(mapLen >> 8),
+			byte(mapLen),
+		}
+	}
+	for _, ref := range b.Body.TxReferences {
+		// Encode key: 32-byte bytestring (0x58 0x20 prefix)
+		mapBytes = append(mapBytes, 0x58, 0x20)
+		mapBytes = append(mapBytes, ref.TxHash[:]...)
+		// Encode value: uint16
+		if ref.TxSize < 24 {
+			mapBytes = append(mapBytes, byte(ref.TxSize))
+		} else if ref.TxSize < 256 {
+			mapBytes = append(mapBytes, 0x18, byte(ref.TxSize))
+		} else {
+			mapBytes = append(mapBytes, 0x19, byte(ref.TxSize>>8), byte(ref.TxSize))
+		}
+	}
+	// Encode as single-element array: [ map ]
+	// Use definite-length array header (0x81 = array of 1 element)
+	result := make([]byte, 0, 1+len(mapBytes))
+	result = append(result, 0x81)
+	result = append(result, mapBytes...)
+	return result, nil
 }
 
-// UnmarshalCBOR decodes the EB from a single-element array and validates non-empty
+// UnmarshalCBOR decodes the EB from a single-element array containing an ordered map
+// per CIP-0164: endorser_block = [ transaction_references : omap<hash32, uint16> ]
+// The map order is preserved as it represents transaction ordering (dependencies matter).
 func (b *LeiosEndorserBlock) UnmarshalCBOR(data []byte) error {
 	var items []cbor.RawMessage
 	if _, err := cbor.Decode(data, &items); err != nil {
@@ -208,12 +251,10 @@ func (b *LeiosEndorserBlock) UnmarshalCBOR(data []byte) error {
 			len(items),
 		)
 	}
-	// Decode TxReferences from the single element
-	var refs []TxReference
-	if _, err := cbor.Decode(items[0], &refs); err != nil {
+	refs, err := decodeTxRefMap(items[0])
+	if err != nil {
 		return err
 	}
-	// Reject empty EBs per CIP-0164
 	if len(refs) == 0 {
 		return errors.New(
 			"LeiosEndorserBlock: empty EB not allowed per CIP-0164",
@@ -222,6 +263,99 @@ func (b *LeiosEndorserBlock) UnmarshalCBOR(data []byte) error {
 	b.Body = &LeiosEndorserBlockBody{TxReferences: refs}
 	b.SetCbor(data)
 	return nil
+}
+
+// decodeTxRefMap decodes a CBOR map of hash32->uint16 preserving wire order.
+func decodeTxRefMap(data []byte) ([]TxReference, error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty data")
+	}
+	// Read map header
+	pos := 0
+	if data[pos]>>5 != 5 {
+		return nil, fmt.Errorf("expected map, got major type %d", data[pos]>>5)
+	}
+	mapLen, n := readCborUint(data[pos:])
+	if n == 0 {
+		return nil, errors.New("malformed CBOR map length")
+	}
+	pos += n
+	// Read key-value pairs in order
+	refs := make([]TxReference, 0, mapLen)
+	for range mapLen {
+		// Bounds check before reading key header
+		if pos >= len(data) {
+			return nil, errors.New("unexpected end of data reading key header")
+		}
+		// Read key (32-byte bytestring)
+		if data[pos]>>5 != 2 {
+			return nil, fmt.Errorf("expected bytestring, got major type %d", data[pos]>>5)
+		}
+		keyLen, n := readCborUint(data[pos:])
+		if n == 0 {
+			return nil, errors.New("malformed CBOR key length")
+		}
+		pos += n
+		if keyLen != 32 {
+			return nil, fmt.Errorf("expected 32-byte key, got %d", keyLen)
+		}
+		// Bounds check before reading key data
+		if pos+32 > len(data) {
+			return nil, errors.New("unexpected end of data reading key")
+		}
+		var hash common.Blake2b256
+		copy(hash[:], data[pos:pos+32])
+		pos += 32
+		// Bounds check before reading value header
+		if pos >= len(data) {
+			return nil, errors.New("unexpected end of data reading value header")
+		}
+		// Read value (uint)
+		if data[pos]>>5 != 0 {
+			return nil, fmt.Errorf("expected uint, got major type %d", data[pos]>>5)
+		}
+		size, n := readCborUint(data[pos:])
+		if n == 0 {
+			return nil, errors.New("malformed CBOR value")
+		}
+		pos += n
+		if size < 0 || size > 65535 {
+			return nil, fmt.Errorf("tx size %d out of uint16 range", size)
+		}
+		refs = append(refs, TxReference{TxHash: hash, TxSize: uint16(size)})
+	}
+	return refs, nil
+}
+
+// readCborUint reads a CBOR unsigned integer and returns the value and bytes consumed.
+// Returns (0, 0) on insufficient data to signal malformed input.
+func readCborUint(data []byte) (int, int) {
+	if len(data) == 0 {
+		return 0, 0
+	}
+	info := data[0] & 0x1f
+	if info < 24 {
+		return int(info), 1
+	}
+	switch info {
+	case 24:
+		if len(data) < 2 {
+			return 0, 0
+		}
+		return int(data[1]), 2
+	case 25:
+		if len(data) < 3 {
+			return 0, 0
+		}
+		return int(binary.BigEndian.Uint16(data[1:3])), 3
+	case 26:
+		if len(data) < 5 {
+			return 0, 0
+		}
+		return int(binary.BigEndian.Uint32(data[1:5])), 5
+	default:
+		return 0, 0
+	}
 }
 
 func (h *LeiosBlockHeader) UnmarshalCBOR(cborData []byte) error {
