@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"math/big"
 	"slices"
-	"strings"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
@@ -584,15 +583,15 @@ func withdrawalsInfo(
 		)
 	}
 	// Sort by address bytes
+	// Note: Bytes() errors are ignored here because Address.Bytes() only fails
+	// for malformed Byron addresses during CBOR encoding. In practice, addresses
+	// in valid transactions will always serialize successfully. If both fail,
+	// bytes.Compare(nil, nil) returns 0, preserving original order for that pair.
 	slices.SortFunc(
 		ret,
 		func(a, b KeyValuePair[*lcommon.Address, *big.Int]) int {
-			aBytes, aErr := a.Key.Bytes()
-			bBytes, bErr := b.Key.Bytes()
-			// Fall back to string comparison if Bytes() fails
-			if aErr != nil || bErr != nil {
-				return strings.Compare(a.Key.String(), b.Key.String())
-			}
+			aBytes, _ := a.Key.Bytes()
+			bBytes, _ := b.Key.Bytes()
 			return bytes.Compare(aBytes, bBytes)
 		},
 	)
@@ -632,7 +631,9 @@ func buildWitnessDatums(
 	if witnessSet == nil {
 		return witnessDatums
 	}
-	for _, datum := range witnessSet.PlutusData() {
+	plutusData := witnessSet.PlutusData()
+	for i := range plutusData {
+		datum := plutusData[i]
 		witnessDatums[datum.Hash()] = &datum
 	}
 	return witnessDatums

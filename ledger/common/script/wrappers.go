@@ -301,9 +301,11 @@ func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 		}
 		return data.NewMap(tmpPairs)
 	case Pairs[*lcommon.Address, *big.Int]:
+		// V1 withdrawals: List of tuples, each tuple is Constr(0, StakingCredential, Integer)
 		tmpItems := make([]data.PlutusData, len(v))
 		for i := range v {
-			tmpItems[i] = data.NewList(
+			tmpItems[i] = data.NewConstr(
+				0,
 				data.NewConstr(
 					0,
 					v[i].T1.ToPlutusData(),
@@ -313,9 +315,11 @@ func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 		}
 		return data.NewList(tmpItems...)
 	case Pairs[*lcommon.Address, uint64]:
+		// V1 withdrawals: List of tuples, each tuple is Constr(0, StakingCredential, Integer)
 		tmpItems := make([]data.PlutusData, len(v))
 		for i := range v {
-			tmpItems[i] = data.NewList(
+			tmpItems[i] = data.NewConstr(
+				0,
 				data.NewConstr(
 					0,
 					v[i].T1.ToPlutusData(),
@@ -325,6 +329,14 @@ func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 		}
 		return data.NewList(tmpItems...)
 	case lcommon.Credential:
+		return data.NewConstr(
+			0,
+			v.ToPlutusData(),
+		)
+	case *lcommon.Credential:
+		if v == nil {
+			return nil
+		}
 		return data.NewConstr(
 			0,
 			v.ToPlutusData(),
