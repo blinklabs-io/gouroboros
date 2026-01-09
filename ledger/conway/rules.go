@@ -236,7 +236,7 @@ func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
 	if ppu.MaxValueSize != nil && *ppu.MaxValueSize == 0 {
 		return ProtocolParameterUpdateFieldZeroError{
 			FieldName: "maxValSize",
-			Value:     *ppu.MaxValueSize,
+			Value:     uint(*ppu.MaxValueSize),
 		}
 	}
 
@@ -628,12 +628,13 @@ func UtxoValidateCollateralContainsNonAda(
 		if err != nil {
 			return err
 		}
-		if amount := utxo.Output.Amount(); amount != nil {
+		amount := utxo.Output.Amount()
+		if amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
-		totalAssets.Add(utxo.Output.Assets())
-		if utxo.Output.Assets() == nil ||
-			len(utxo.Output.Assets().Policies()) == 0 {
+		assets := utxo.Output.Assets()
+		totalAssets.Add(assets)
+		if assets == nil || len(assets.Policies()) == 0 {
 			continue
 		}
 		badOutputs = append(badOutputs, utxo.Output)
@@ -1302,27 +1303,24 @@ func UtxoValidatePlutusScripts(
 		resolvedInputsMap[refInput.String()] = utxo
 	}
 
-	// Build TxInfoV3 for script context
-	txInfo, err := script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
-	if err != nil {
-		return ScriptContextConstructionError{Err: err}
-	}
+	// Build TxInfo lazily based on script version
+	var txInfoV1 script.TxInfoV1
+	var txInfoV2 script.TxInfoV2
+	var txInfoV3 script.TxInfoV3
+	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	// Collect all available scripts (witness scripts + reference scripts)
 	availableScripts := make(map[common.ScriptHash]common.Script)
 
 	// Add witness scripts
 	for _, s := range witnesses.PlutusV1Scripts() {
-		sCopy := s
-		availableScripts[s.Hash()] = sCopy
+		availableScripts[s.Hash()] = s
 	}
 	for _, s := range witnesses.PlutusV2Scripts() {
-		sCopy := s
-		availableScripts[s.Hash()] = sCopy
+		availableScripts[s.Hash()] = s
 	}
 	for _, s := range witnesses.PlutusV3Scripts() {
-		sCopy := s
-		availableScripts[s.Hash()] = sCopy
+		availableScripts[s.Hash()] = s
 	}
 
 	// Add reference scripts from resolved inputs
@@ -1348,12 +1346,12 @@ func UtxoValidatePlutusScripts(
 	proposalProcedures := tx.ProposalProcedures()
 	certificates := tx.Certificates()
 
-	// Build witness datums map for datum hash lookups
-	// This allows resolving datums from witness set when UTxOs have datum hashes
+	// Build witness datums map for datum lookup
+	plutusData := witnesses.PlutusData()
 	witnessDatums := make(map[common.Blake2b256]*common.Datum)
-	for _, datum := range witnesses.PlutusData() {
-		datumCopy := datum
-		witnessDatums[datum.Hash()] = &datumCopy
+	for i := range plutusData {
+		datum := plutusData[i]
+		witnessDatums[datum.Hash()] = &datum
 	}
 
 	// Execute each redeemer's script
@@ -1382,18 +1380,6 @@ func UtxoValidatePlutusScripts(
 			continue
 		}
 
-		// Build the redeemer for context
-		redeemer := script.Redeemer{
-			Tag:     redeemerKey.Tag,
-			Index:   redeemerKey.Index,
-			Data:    redeemerValue.Data.Data,
-			ExUnits: redeemerValue.ExUnits,
-		}
-
-		// Build script context
-		ctx := script.NewScriptContextV3(txInfo, redeemer, purpose)
-		ctxData := ctx.ToPlutusData()
-
 		// Get datum for V1/V2 scripts (spending purpose only)
 		var datum data.PlutusData
 		var spendInput common.TransactionInput
@@ -1408,22 +1394,66 @@ func UtxoValidatePlutusScripts(
 		var execErr error
 		switch s := plutusScript.(type) {
 		case common.PlutusV3Script:
+			// Build V3 TxInfo lazily
+			if !txInfoV3Built {
+				var err error
+				txInfoV3, err = script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+				if err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
+				txInfoV3Built = true
+			}
+			// Build V3 context
+			redeemer := script.Redeemer{
+				Tag:     redeemerKey.Tag,
+				Index:   redeemerKey.Index,
+				Data:    redeemerValue.Data.Data,
+				ExUnits: redeemerValue.ExUnits,
+			}
+			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
+			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
 		case common.PlutusV2Script:
+			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
 				return MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
 			}
+			// Build V2 TxInfo lazily
+			if !txInfoV2Built {
+				var err error
+				txInfoV2, err = script.NewTxInfoV2FromTransaction(ls, tx, resolvedInputs)
+				if err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
+				txInfoV2Built = true
+			}
+			// Build V1V2 context
+			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
+			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
 		case common.PlutusV1Script:
+			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
 				return MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
 			}
+			// Build V1 TxInfo lazily
+			if !txInfoV1Built {
+				var err error
+				txInfoV1, err = script.NewTxInfoV1FromTransaction(ls, tx, resolvedInputs)
+				if err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
+				txInfoV1Built = true
+			}
+			// Build V1V2 context
+			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
+			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
 		default:
 			continue
