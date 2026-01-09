@@ -395,7 +395,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 				),
 			)
 		default:
-			return nil
+			panic(fmt.Sprintf("unsupported staking payload type: %T", p))
 		}
 	}
 	return data.NewConstr(
