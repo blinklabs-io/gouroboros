@@ -24,6 +24,17 @@ import (
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
+// Compile-time checks that MockLedgerState implements LedgerState and all child interfaces
+var (
+	_ common.LedgerState = (*MockLedgerState)(nil)
+	_ common.UtxoState   = (*MockLedgerState)(nil)
+	_ common.CertState   = (*MockLedgerState)(nil)
+	_ common.SlotState   = (*MockLedgerState)(nil)
+	_ common.PoolState   = (*MockLedgerState)(nil)
+	_ common.RewardState = (*MockLedgerState)(nil)
+	_ common.GovState    = (*MockLedgerState)(nil)
+)
+
 // MockLedgerState is the canonical internal mock used by tests. Tests should
 // construct &test_ledger.MockLedgerState{} and configure fields (e.g.
 // NetworkIdVal, UtxoByIdFunc) to control behavior. Keeping this in an
@@ -54,6 +65,12 @@ type MockLedgerState struct {
 	DRepRegistrationsVal []common.DRepRegistration
 	ConstitutionVal      *common.Constitution
 	TreasuryValueVal     uint64
+	// Stake credential registration state (credential hash -> registered)
+	StakeRegistrationsVal map[common.Blake2b224]bool
+	// Reward account balances (credential hash -> balance in lovelace)
+	RewardAccountsVal map[common.Blake2b224]uint64
+	// Governance action state (action id string -> state)
+	GovActionsVal map[string]*common.GovActionState
 }
 
 func (m *MockLedgerState) UtxoById(
@@ -143,7 +160,9 @@ func (m *MockLedgerState) CostModels() map[common.PlutusLanguage]common.CostMode
 
 // GovState interface implementation
 
-func (m *MockLedgerState) CommitteeMember(coldKey common.Blake2b224) (*common.CommitteeMember, error) {
+func (m *MockLedgerState) CommitteeMember(
+	coldKey common.Blake2b224,
+) (*common.CommitteeMember, error) {
 	for _, member := range m.CommitteeMembersVal {
 		if member.ColdKey == coldKey {
 			return &member, nil
@@ -156,7 +175,9 @@ func (m *MockLedgerState) CommitteeMembers() ([]common.CommitteeMember, error) {
 	return m.CommitteeMembersVal, nil
 }
 
-func (m *MockLedgerState) DRepRegistration(credential common.Blake2b224) (*common.DRepRegistration, error) {
+func (m *MockLedgerState) DRepRegistration(
+	credential common.Blake2b224,
+) (*common.DRepRegistration, error) {
 	for _, drep := range m.DRepRegistrationsVal {
 		if drep.Credential == credential {
 			return &drep, nil
@@ -175,6 +196,77 @@ func (m *MockLedgerState) Constitution() (*common.Constitution, error) {
 
 func (m *MockLedgerState) TreasuryValue() (uint64, error) {
 	return m.TreasuryValueVal, nil
+}
+
+// CertState interface - new methods
+
+func (m *MockLedgerState) IsStakeCredentialRegistered(
+	cred common.Credential,
+) bool {
+	if m.StakeRegistrationsVal == nil {
+		return false
+	}
+	return m.StakeRegistrationsVal[cred.Credential]
+}
+
+// PoolState interface - new methods
+
+func (m *MockLedgerState) IsPoolRegistered(
+	poolKeyHash common.PoolKeyHash,
+) bool {
+	for _, cert := range m.PoolRegistrations {
+		if cert.Operator == poolKeyHash {
+			return true
+		}
+	}
+	return false
+}
+
+// RewardState interface - new methods
+
+func (m *MockLedgerState) IsRewardAccountRegistered(
+	cred common.Credential,
+) bool {
+	// Reward account registration is tied to stake credential registration.
+	// A reward account exists if and only if the stake credential is registered.
+	return m.IsStakeCredentialRegistered(cred)
+}
+
+func (m *MockLedgerState) RewardAccountBalance(
+	cred common.Credential,
+) (*uint64, error) {
+	// Returns nil for unregistered accounts (absent from map).
+	// Returns a pointer to the balance (which may be 0) for registered accounts.
+	if m.RewardAccountsVal == nil {
+		return nil, nil
+	}
+	balance, exists := m.RewardAccountsVal[cred.Credential]
+	if !exists {
+		return nil, nil
+	}
+	return &balance, nil
+}
+
+// GovState interface - new methods
+
+func (m *MockLedgerState) GovActionById(
+	id common.GovActionId,
+) (*common.GovActionState, error) {
+	if m.GovActionsVal == nil {
+		return nil, nil
+	}
+	// Create key from action id
+	key := fmt.Sprintf("%x#%d", id.TransactionId[:], id.GovActionIdx)
+	state, exists := m.GovActionsVal[key]
+	if !exists {
+		return nil, nil
+	}
+	return state, nil
+}
+
+func (m *MockLedgerState) GovActionExists(id common.GovActionId) bool {
+	state, _ := m.GovActionById(id)
+	return state != nil
 }
 
 // MockProtocolParamsRules is a simple protocol params provider used in tests.

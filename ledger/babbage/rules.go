@@ -35,6 +35,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateRedeemerAndScriptWitnesses,
 	UtxoValidateCostModelsPresent,
 	UtxoValidateInlineDatumsWithPlutusV1,
+	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -43,6 +44,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateCollateralEqBalance,
 	UtxoValidateNoCollateralInputs,
 	UtxoValidateBadInputsUtxo,
+	UtxoValidateScriptWitnesses,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
@@ -52,6 +54,9 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateTooManyCollateralInputs,
+	UtxoValidateNativeScripts,
+	UtxoValidateDelegation,
+	UtxoValidateWithdrawals,
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -143,6 +148,8 @@ func UtxoValidateCostModelsPresent(
 		required[1] = struct{}{}
 	}
 	// Include reference scripts on reference inputs
+	// Note: Reference input errors must be caught here since there's no separate
+	// BadReferenceInputsUtxo rule, unlike regular inputs which are caught by BadInputsUtxo
 	for _, refInput := range tmpTx.ReferenceInputs() {
 		utxo, err := ls.UtxoById(refInput)
 		if err != nil {
@@ -150,6 +157,9 @@ func UtxoValidateCostModelsPresent(
 				Input: refInput,
 				Err:   err,
 			}
+		}
+		if utxo.Output == nil {
+			continue
 		}
 		script := utxo.Output.ScriptRef()
 		if script == nil {
@@ -250,6 +260,9 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 				Err:   err,
 			}
 		}
+		if utxo.Output == nil {
+			continue
+		}
 		script := utxo.Output.ScriptRef()
 		if script == nil {
 			continue
@@ -344,6 +357,9 @@ func UtxoValidateInsufficientCollateral(
 		if err != nil {
 			return err
 		}
+		if utxo.Output == nil {
+			continue
+		}
 		if amount := utxo.Output.Amount(); amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
@@ -394,6 +410,9 @@ func UtxoValidateCollateralContainsNonAda(
 		if err != nil {
 			return err
 		}
+		if utxo.Output == nil {
+			continue
+		}
 		if amount := utxo.Output.Amount(); amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
@@ -442,6 +461,9 @@ func UtxoValidateCollateralEqBalance(
 		if err != nil {
 			continue
 		}
+		if utxo.Output == nil {
+			continue
+		}
 		if amount := utxo.Output.Amount(); amount != nil {
 			collBalance.Add(collBalance, amount)
 		}
@@ -456,7 +478,8 @@ func UtxoValidateCollateralEqBalance(
 	// Subtract collateral return amount with underflow protection
 	collReturn := tx.CollateralReturn()
 	if collReturn != nil {
-		if returnAmount := collReturn.Amount(); returnAmount != nil && collBalance.Cmp(returnAmount) >= 0 {
+		if returnAmount := collReturn.Amount(); returnAmount != nil &&
+			collBalance.Cmp(returnAmount) >= 0 {
 			collBalance.Sub(collBalance, returnAmount)
 		}
 	}
@@ -901,4 +924,74 @@ func UtxoValidateMetadata(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+}
+
+func UtxoValidateDelegation(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateDelegation(tx, slot, ls, pp)
+}
+
+// UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs
+func UtxoValidateDisjointRefInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Build a set of regular input strings for O(1) lookup
+	inputSet := make(map[string]common.TransactionInput)
+	for _, input := range tx.Inputs() {
+		inputSet[input.String()] = input
+	}
+
+	// Check for overlaps with reference inputs
+	var commonInputs []common.TransactionInput
+	seen := make(map[string]bool)
+	for _, refInput := range tx.ReferenceInputs() {
+		key := refInput.String()
+		if input, exists := inputSet[key]; exists && !seen[key] {
+			commonInputs = append(commonInputs, input)
+			seen[key] = true // Avoid duplicates
+		}
+	}
+	if len(commonInputs) == 0 {
+		return nil
+	}
+	return NonDisjointRefInputsError{
+		Inputs: commonInputs,
+	}
+}
+
+// UtxoValidateScriptWitnesses checks that script witnesses are provided for all script address inputs.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+func UtxoValidateNativeScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return alonzo.UtxoValidateNativeScripts(tx, slot, ls, pp)
+}
+
+// UtxoValidateWithdrawals validates withdrawals against ledger state.
+func UtxoValidateWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
 }

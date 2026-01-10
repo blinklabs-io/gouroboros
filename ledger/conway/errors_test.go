@@ -264,3 +264,99 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 		t.Fatalf("expected no error after providing cost model, got %v", err)
 	}
 }
+
+func TestConway_ScriptDataHash_MissingScriptDataHashError_Is(t *testing.T) {
+	var slot uint64 = 0
+	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
+	pp := &ConwayProtocolParameters{}
+
+	// Create a transaction with redeemers but no script data hash
+	tmpTx := &ConwayTransaction{}
+	tmpTx.WitnessSet.WsRedeemers.Redeemers = map[common.RedeemerKey]common.RedeemerValue{
+		{Tag: 0, Index: 0}: {},
+	}
+	var tx common.Transaction = tmpTx
+
+	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	if err == nil {
+		t.Fatal("expected MissingScriptDataHashError, got nil")
+	}
+	if !errors.Is(err, common.ErrMissingScriptDataHash) {
+		t.Fatalf(
+			"expected errors.Is(err, ErrMissingScriptDataHash) to be true, got false: %v",
+			err,
+		)
+	}
+}
+
+func TestConway_ScriptDataHash_MissingScriptDataHashError_As(t *testing.T) {
+	var slot uint64 = 0
+	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
+	pp := &ConwayProtocolParameters{}
+
+	// Create a transaction with redeemers but no script data hash
+	tmpTx := &ConwayTransaction{}
+	tmpTx.WitnessSet.WsRedeemers.Redeemers = map[common.RedeemerKey]common.RedeemerValue{
+		{Tag: 0, Index: 0}: {},
+	}
+	var tx common.Transaction = tmpTx
+
+	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	if err == nil {
+		t.Fatal("expected MissingScriptDataHashError, got nil")
+	}
+	var mErr common.MissingScriptDataHashError
+	if !errors.As(err, &mErr) {
+		t.Fatalf(
+			"expected MissingScriptDataHashError via errors.As, got %T",
+			err,
+		)
+	}
+}
+
+func TestConway_ScriptDataHash_ExtraneousScriptDataHashError_Is(t *testing.T) {
+	var slot uint64 = 0
+	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
+	pp := &ConwayProtocolParameters{}
+
+	// Create a transaction with a script data hash but no Plutus scripts or redeemers
+	tmpTx := &ConwayTransaction{}
+	dummyHash := common.Blake2b256{}
+	tmpTx.Body.TxScriptDataHash = &dummyHash
+	var tx common.Transaction = tmpTx
+
+	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	if err == nil {
+		t.Fatal("expected ExtraneousScriptDataHashError, got nil")
+	}
+	if !errors.Is(err, common.ErrExtraneousScriptDataHash) {
+		t.Fatalf(
+			"expected errors.Is(err, ErrExtraneousScriptDataHash) to be true, got false: %v",
+			err,
+		)
+	}
+}
+
+func TestConway_ScriptDataHash_ExtraneousScriptDataHashError_As(t *testing.T) {
+	var slot uint64 = 0
+	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
+	pp := &ConwayProtocolParameters{}
+
+	// Create a transaction with a script data hash but no Plutus scripts or redeemers
+	tmpTx := &ConwayTransaction{}
+	dummyHash := common.Blake2b256{}
+	tmpTx.Body.TxScriptDataHash = &dummyHash
+	var tx common.Transaction = tmpTx
+
+	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	if err == nil {
+		t.Fatal("expected ExtraneousScriptDataHashError, got nil")
+	}
+	var eErr common.ExtraneousScriptDataHashError
+	if !errors.As(err, &eErr) {
+		t.Fatalf(
+			"expected ExtraneousScriptDataHashError via errors.As, got %T",
+			err,
+		)
+	}
+}

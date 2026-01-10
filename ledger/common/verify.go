@@ -71,10 +71,16 @@ func computeByronAddressRoot(
 	// Validate input sizes to ensure correct CBOR encoding
 	// Byron addresses require exactly 32 bytes for both pubkey and chain code
 	if len(pubkey) != 32 {
-		return Blake2b224{}, fmt.Errorf("invalid Byron pubkey size: expected 32 bytes, got %d", len(pubkey))
+		return Blake2b224{}, fmt.Errorf(
+			"invalid Byron pubkey size: expected 32 bytes, got %d",
+			len(pubkey),
+		)
 	}
 	if len(chainCode) != 32 {
-		return Blake2b224{}, fmt.Errorf("invalid Byron chain code size: expected 32 bytes, got %d", len(chainCode))
+		return Blake2b224{}, fmt.Errorf(
+			"invalid Byron chain code size: expected 32 bytes, got %d",
+			len(chainCode),
+		)
 	}
 
 	// Build the CBOR structure: [0, [0, bytes(pubkey || chainCode)], attributes]

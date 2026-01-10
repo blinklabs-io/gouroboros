@@ -454,3 +454,70 @@ type NativeScriptInvalidHereafter struct {
 	Type uint
 	Slot uint64
 }
+
+// Evaluate evaluates the native script against the given context.
+// It returns true if the script conditions are satisfied, false otherwise.
+// Parameters:
+//   - slot: The current slot number for time-based conditions
+//   - validityStart: The transaction's validity start slot (0 if not set)
+//   - validityEnd: The transaction's validity end slot (math.MaxUint64 if not set)
+//   - keyHashes: Set of key hashes from VKey witnesses in the transaction
+func (n *NativeScript) Evaluate(
+	slot uint64,
+	validityStart, validityEnd uint64,
+	keyHashes map[Blake2b224]bool,
+) bool {
+	if n.item == nil {
+		return false
+	}
+
+	switch s := n.item.(type) {
+	case *NativeScriptPubkey:
+		// Check if the required key hash is in the witness set
+		var hash Blake2b224
+		copy(hash[:], s.Hash)
+		return keyHashes[hash]
+
+	case *NativeScriptAll:
+		// All sub-scripts must pass
+		for i := range s.Scripts {
+			if !s.Scripts[i].Evaluate(slot, validityStart, validityEnd, keyHashes) {
+				return false
+			}
+		}
+		return true
+
+	case *NativeScriptAny:
+		// At least one sub-script must pass
+		for i := range s.Scripts {
+			if s.Scripts[i].Evaluate(slot, validityStart, validityEnd, keyHashes) {
+				return true
+			}
+		}
+		return false
+
+	case *NativeScriptNofK:
+		// At least N of K sub-scripts must pass
+		count := uint(0)
+		for i := range s.Scripts {
+			if s.Scripts[i].Evaluate(slot, validityStart, validityEnd, keyHashes) {
+				count++
+			}
+		}
+		return count >= s.N
+
+	case *NativeScriptInvalidBefore:
+		// Transaction is only valid at or after this slot
+		// For native scripts, we check against the transaction's validity interval
+		// The tx must start at or after the script's slot requirement
+		return validityStart >= s.Slot
+
+	case *NativeScriptInvalidHereafter:
+		// Transaction is only valid before this slot
+		// The tx must end before the script's slot requirement
+		return validityEnd < s.Slot
+
+	default:
+		return false
+	}
+}

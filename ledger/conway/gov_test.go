@@ -47,7 +47,7 @@ func TestConwayProposalProcedureCbor(t *testing.T) {
 		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
 	)
 	require.NoError(t, err)
-	action := &common.InfoGovAction{Type: common.GovActionTypeInfo}
+	action := &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)}
 
 	pp := &ConwayProposalProcedure{
 		PPDeposit:       1000000,
@@ -81,7 +81,7 @@ func TestConwayProposalProcedureCbor(t *testing.T) {
 
 func TestConwayGovActionCbor(t *testing.T) {
 	// Test CBOR encoding/decoding for CIP-1694 governance actions
-	action := &common.InfoGovAction{Type: common.GovActionTypeInfo}
+	action := &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)}
 
 	ga := ConwayGovAction{Action: action}
 

@@ -225,9 +225,17 @@ func (d *Drep) ToPlutusData() data.PlutusData {
 func (d *Drep) String() string {
 	switch d.Type {
 	case DrepTypeAddrKeyHash:
-		return encodeCip129Credential("drep", CredentialTypeAddrKeyHash, d.Credential)
+		return encodeCip129Credential(
+			"drep",
+			CredentialTypeAddrKeyHash,
+			d.Credential,
+		)
 	case DrepTypeScriptHash:
-		return encodeCip129Credential("drep", CredentialTypeScriptHash, d.Credential)
+		return encodeCip129Credential(
+			"drep",
+			CredentialTypeScriptHash,
+			d.Credential,
+		)
 	case DrepTypeAbstain:
 		return "drep_abstain"
 	case DrepTypeNoConfidence:

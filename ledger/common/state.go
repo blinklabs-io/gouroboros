@@ -28,6 +28,10 @@ type UtxoState interface {
 // CertState defines the interface for querying the certificate state
 type CertState interface {
 	StakeRegistration([]byte) ([]StakeRegistrationCertificate, error)
+	// IsStakeCredentialRegistered checks if a stake credential is currently registered.
+	// Returns true if the credential has an active registration (not deregistered).
+	// This is the authoritative check for stake credential presence in the ledger state.
+	IsStakeCredentialRegistered(Credential) bool
 }
 
 // PoolState defines the interface for querying the current pool state
@@ -36,6 +40,8 @@ type PoolState interface {
 	// It also returns the epoch of a pending retirement certificate, if one exists.
 	// If the pool is not registered, the registration certificate will be nil.
 	PoolCurrentState(PoolKeyHash) (*PoolRegistrationCertificate, *uint64, error)
+	// IsPoolRegistered checks if a pool is currently registered
+	IsPoolRegistered(PoolKeyHash) bool
 }
 
 // RewardState defines the interface for reward calculation and querying
@@ -55,6 +61,28 @@ type RewardState interface {
 
 	// GetRewardSnapshot returns the stake snapshot for reward calculation
 	GetRewardSnapshot(epoch uint64) (RewardSnapshot, error)
+
+	// IsRewardAccountRegistered checks if a reward account (by stake credential) is registered.
+	// Returns true if the stake credential has an active registration, meaning the reward
+	// account exists and can receive rewards or be withdrawn from.
+	// This is typically equivalent to IsStakeCredentialRegistered but exists on RewardState
+	// to allow checking registration without requiring full CertState access.
+	IsRewardAccountRegistered(Credential) bool
+
+	// RewardAccountBalance returns the current reward balance for a stake credential.
+	//
+	// Return value semantics:
+	//   - nil, nil: The reward account is not registered (credential never registered or
+	//     has been deregistered). Callers should use IsRewardAccountRegistered to
+	//     distinguish this from an error condition if needed.
+	//   - *uint64 (including 0), nil: The reward account is registered. The pointed-to
+	//     value is the current balance, which may be zero if no rewards have accrued
+	//     or if all rewards have been withdrawn.
+	//   - nil, error: An error occurred while querying the balance.
+	//
+	// Callers needing to distinguish "unregistered" from "registered with zero balance"
+	// should check for nil before examining the value.
+	RewardAccountBalance(Credential) (*uint64, error)
 }
 
 // LedgerState defines the interface for querying the ledger
@@ -112,6 +140,14 @@ type PoolDelegation struct {
 	Pool Blake2b224
 }
 
+// GovActionState holds the state of a governance proposal
+type GovActionState struct {
+	ActionId   GovActionId
+	ActionType GovActionType
+	ExpirySlot uint64
+	// Add more fields as needed for validation
+}
+
 // GovState defines the interface for querying governance state
 type GovState interface {
 	// Committee queries
@@ -127,4 +163,8 @@ type GovState interface {
 
 	// Treasury value
 	TreasuryValue() (uint64, error)
+
+	// Governance action queries
+	GovActionById(GovActionId) (*GovActionState, error)
+	GovActionExists(GovActionId) bool
 }

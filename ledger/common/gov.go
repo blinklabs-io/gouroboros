@@ -78,7 +78,11 @@ func encodeCip129Voter(
 // The header byte uses the credential type (0x22 for key hash, 0x23 for script hash)
 // following CIP-0129 specification where the low nibble encodes 0x2 for key hash
 // and 0x3 for script hash.
-func encodeCip129Credential(prefix string, credentialType uint8, hash []byte) string {
+func encodeCip129Credential(
+	prefix string,
+	credentialType uint8,
+	hash []byte,
+) string {
 	// CIP-0129: low nibble encodes credential type offset by 2
 	// (0x2 for key hash, 0x3 for script hash)
 	header := byte(0x20 | ((credentialType + 2) & 0x0f))
@@ -119,7 +123,7 @@ func (v Voter) String() string {
 	case VoterTypeConstitutionalCommitteeHotScriptHash:
 		return encodeCip129Voter(
 			"cc_hot",
-			VoterTypeConstitutionalCommitteeHotKeyHash,
+			VoterTypeConstitutionalCommitteeHotScriptHash,
 			CredentialTypeScriptHash,
 			v.Hash[:],
 		)
@@ -133,7 +137,7 @@ func (v Voter) String() string {
 	case VoterTypeDRepScriptHash:
 		return encodeCip129Voter(
 			"drep",
-			VoterTypeDRepKeyHash,
+			VoterTypeDRepScriptHash,
 			CredentialTypeScriptHash,
 			v.Hash[:],
 		)
@@ -286,14 +290,17 @@ type ProposalProcedureBase struct{}
 //nolint:unused
 func (ProposalProcedureBase) isProposalProcedure() {}
 
+// GovActionType represents the type of a governance action
+type GovActionType uint
+
 const (
-	GovActionTypeParameterChange    = 0
-	GovActionTypeHardForkInitiation = 1
-	GovActionTypeTreasuryWithdrawal = 2
-	GovActionTypeNoConfidence       = 3
-	GovActionTypeUpdateCommittee    = 4
-	GovActionTypeNewConstitution    = 5
-	GovActionTypeInfo               = 6
+	GovActionTypeParameterChange    GovActionType = 0
+	GovActionTypeHardForkInitiation GovActionType = 1
+	GovActionTypeTreasuryWithdrawal GovActionType = 2
+	GovActionTypeNoConfidence       GovActionType = 3
+	GovActionTypeUpdateCommittee    GovActionType = 4
+	GovActionTypeNewConstitution    GovActionType = 5
+	GovActionTypeInfo               GovActionType = 6
 )
 
 type GovAction interface {

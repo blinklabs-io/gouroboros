@@ -108,13 +108,71 @@ func TestScriptHashToBech32(t *testing.T) {
 		wantPrefix string
 	}{
 		{
-			name:       "ZeroHash",
-			hash:       common.ScriptHash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			name: "ZeroHash",
+			hash: common.ScriptHash{
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+			},
 			wantPrefix: "script1",
 		},
 		{
-			name:       "SequentialHash",
-			hash:       common.ScriptHash{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27},
+			name: "SequentialHash",
+			hash: common.ScriptHash{
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24,
+				25,
+				26,
+				27,
+			},
 			wantPrefix: "script1",
 		},
 	}
@@ -126,7 +184,11 @@ func TestScriptHashToBech32(t *testing.T) {
 				t.Fatalf("result too short: got %s", result)
 			}
 			if result[:len(tc.wantPrefix)] != tc.wantPrefix {
-				t.Errorf("wrong prefix: got %s, want prefix %s", result, tc.wantPrefix)
+				t.Errorf(
+					"wrong prefix: got %s, want prefix %s",
+					result,
+					tc.wantPrefix,
+				)
 			}
 		})
 	}
@@ -153,7 +215,11 @@ func TestScriptHashBech32RoundTrip(t *testing.T) {
 
 	// Verify round-trip
 	if decodedHash != originalHash {
-		t.Errorf("round-trip failed: got %x, want %x", decodedHash, originalHash)
+		t.Errorf(
+			"round-trip failed: got %x, want %x",
+			decodedHash,
+			originalHash,
+		)
 	}
 }
 

@@ -202,7 +202,10 @@ func TestLeiosEndorserBlock_CborRoundTrip(t *testing.T) {
 	// Verify all decoded refs exist in original
 	for _, ref := range decoded.Body.TxReferences {
 		if size, ok := origRefMap[ref.TxHash]; !ok {
-			t.Errorf("Decoded TxReference %x not found in original", ref.TxHash[:8])
+			t.Errorf(
+				"Decoded TxReference %x not found in original",
+				ref.TxHash[:8],
+			)
 		} else if size != ref.TxSize {
 			t.Errorf("TxSize mismatch for %x: expected %d, got %d", ref.TxHash[:8], size, ref.TxSize)
 		}
@@ -260,7 +263,11 @@ func TestLeiosEndorserBlockFormat(t *testing.T) {
 	}
 
 	if block.Type() != BlockTypeLeiosEndorser {
-		t.Errorf("Expected block type %d, got %d", BlockTypeLeiosEndorser, block.Type())
+		t.Errorf(
+			"Expected block type %d, got %d",
+			BlockTypeLeiosEndorser,
+			block.Type(),
+		)
 	}
 	if len(block.Body.TxReferences) == 0 {
 		t.Error("TxReferences should not be empty")
@@ -280,7 +287,11 @@ func TestLeiosRankingBlockFormat(t *testing.T) {
 	}
 
 	if block.Type() != BlockTypeLeiosRanking {
-		t.Errorf("Expected block type %d, got %d", BlockTypeLeiosRanking, block.Type())
+		t.Errorf(
+			"Expected block type %d, got %d",
+			BlockTypeLeiosRanking,
+			block.Type(),
+		)
 	}
 }
 
@@ -328,7 +339,10 @@ func TestLeiosEndorserBlockLargeMap(t *testing.T) {
 
 	// Verify the CBOR starts with 4-byte map length encoding (0xba)
 	if len(cborData) < 6 || cborData[1] != 0xba {
-		t.Errorf("Expected 4-byte map length encoding (0xba), got: %x", cborData[:min(10, len(cborData))])
+		t.Errorf(
+			"Expected 4-byte map length encoding (0xba), got: %x",
+			cborData[:min(10, len(cborData))],
+		)
 	}
 
 	// Test UnmarshalCBOR can decode it back
@@ -339,7 +353,10 @@ func TestLeiosEndorserBlockLargeMap(t *testing.T) {
 
 	// Verify the data is correct
 	if len(decoded.Body.TxReferences) != 65536 {
-		t.Errorf("Expected 65536 TxReferences, got %d", len(decoded.Body.TxReferences))
+		t.Errorf(
+			"Expected 65536 TxReferences, got %d",
+			len(decoded.Body.TxReferences),
+		)
 	}
 
 	for i, ref := range decoded.Body.TxReferences {
@@ -349,7 +366,12 @@ func TestLeiosEndorserBlockLargeMap(t *testing.T) {
 			break
 		}
 		if ref.TxSize != txRefs[i].TxSize {
-			t.Errorf("TxReference %d size mismatch: expected %d, got %d", i, txRefs[i].TxSize, ref.TxSize)
+			t.Errorf(
+				"TxReference %d size mismatch: expected %d, got %d",
+				i,
+				txRefs[i].TxSize,
+				ref.TxSize,
+			)
 			break
 		}
 	}

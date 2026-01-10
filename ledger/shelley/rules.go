@@ -38,6 +38,8 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputBootAddrAttrsTooBig,
 	UtxoValidateMaxTxSizeUtxo,
+	UtxoValidateDelegation,
+	UtxoValidateWithdrawals,
 }
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
@@ -532,5 +534,102 @@ func UtxoValidateMetadata(
 		}
 	}
 
+	return nil
+}
+
+// UtxoValidateDelegation validates delegation certificates against ledger state.
+// For Shelley, it checks StakeDelegationCertificate:
+// - Pool registration status
+// - Stake credential registration status
+func UtxoValidateDelegation(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Track credentials/pools registered within this transaction
+	inTxStakeRegs := make(map[common.Blake2b224]bool)
+	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
+
+	isStakeRegistered := func(cred common.Credential) bool {
+		return ls.IsStakeCredentialRegistered(cred) ||
+			inTxStakeRegs[cred.Credential]
+	}
+
+	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) bool {
+		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
+	}
+
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.StakeRegistrationCertificate:
+			inTxStakeRegs[c.StakeCredential.Credential] = true
+
+		case *common.StakeDeregistrationCertificate:
+			// Remove from in-tx registrations so subsequent delegations fail
+			delete(inTxStakeRegs, c.StakeCredential.Credential)
+
+		case *common.PoolRegistrationCertificate:
+			inTxPoolRegs[c.Operator] = true
+
+		case *common.PoolRetirementCertificate:
+			// Remove from in-tx registrations so subsequent delegations fail
+			delete(inTxPoolRegs, c.PoolKeyHash)
+
+		case *common.StakeDelegationCertificate:
+			if !isPoolRegistered(c.PoolKeyHash) {
+				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
+			}
+			if c.StakeCredential != nil && !isStakeRegistered(*c.StakeCredential) {
+				return DelegateUnregisteredStakeCredentialError{Credential: *c.StakeCredential}
+			}
+		}
+	}
+	return nil
+}
+
+// UtxoValidateWithdrawals validates withdrawals against ledger state.
+// It checks that reward accounts are registered.
+func UtxoValidateWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	withdrawals := tx.Withdrawals()
+	if withdrawals == nil {
+		return nil
+	}
+
+	for addr := range withdrawals {
+		// Extract credential from reward address staking payload
+		stakingPayload := addr.StakingPayload()
+		if stakingPayload == nil {
+			continue
+		}
+
+		var cred common.Credential
+		switch p := stakingPayload.(type) {
+		case common.AddressPayloadKeyHash:
+			cred = common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: common.NewBlake2b224(p.Hash.Bytes()),
+			}
+		case common.AddressPayloadScriptHash:
+			cred = common.Credential{
+				CredType:   common.CredentialTypeScriptHash,
+				Credential: common.NewBlake2b224(p.Hash.Bytes()),
+			}
+		default:
+			continue // Pointer addresses not supported
+		}
+
+		// Check if reward account is registered
+		if !ls.IsRewardAccountRegistered(cred) {
+			return WithdrawalFromUnregisteredRewardAccountError{
+				RewardAddress: *addr,
+			}
+		}
+	}
 	return nil
 }
