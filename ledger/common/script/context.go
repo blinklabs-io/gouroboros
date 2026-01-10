@@ -16,6 +16,7 @@ package script
 
 import (
 	"bytes"
+	"fmt"
 	"math/big"
 	"slices"
 
@@ -903,6 +904,12 @@ func certificateToPlutusData(
 			10,
 			c.ColdCredential.ToPlutusData(),
 		)
+	default:
+		panic(
+			fmt.Sprintf(
+				"unsupported certificate type: %T",
+				c,
+			),
+		)
 	}
-	return nil
 }

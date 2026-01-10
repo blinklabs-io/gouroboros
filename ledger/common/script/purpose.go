@@ -16,6 +16,7 @@ package script
 
 import (
 	"bytes"
+	"fmt"
 	"math/big"
 	"slices"
 	"strings"
@@ -272,12 +273,10 @@ func scriptPurposeBuilder(
 	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
 ) toScriptPurposeFunc {
 	return func(redeemerKey lcommon.RedeemerKey) ScriptPurpose {
-		// TODO: implement additional redeemer tags
-		// https://github.com/aiken-lang/aiken/blob/af4e04b91e54dbba3340de03fc9e65a90f24a93b/crates/uplc/src/tx/script_context.rs#L771-L826
 		switch redeemerKey.Tag {
 		case lcommon.RedeemerTagSpend:
 			if int(redeemerKey.Index) >= len(inputs) {
-				return nil
+				panic("redeemer index greater than input count")
 			}
 			var datum data.PlutusData
 			tmpInput := inputs[redeemerKey.Index]
@@ -304,7 +303,7 @@ func scriptPurposeBuilder(
 		case lcommon.RedeemerTagMint:
 			mintPolicies := mint.Policies()
 			if int(redeemerKey.Index) >= len(mintPolicies) {
-				return nil
+				panic("redeemer index greater than mint policy count")
 			}
 			slices.SortFunc(
 				mintPolicies,
@@ -315,7 +314,7 @@ func scriptPurposeBuilder(
 			}
 		case lcommon.RedeemerTagCert:
 			if int(redeemerKey.Index) >= len(certificates) {
-				return nil
+				panic("redeemer index greater than certificate count")
 			}
 			return ScriptPurposeCertifying{
 				Index:       redeemerKey.Index,
@@ -323,7 +322,7 @@ func scriptPurposeBuilder(
 			}
 		case lcommon.RedeemerTagReward:
 			if int(redeemerKey.Index) >= len(withdrawals) {
-				return nil
+				panic("redeemer index greater than withdrawal count")
 			}
 			return ScriptPurposeRewarding{
 				StakeCredential: lcommon.Credential{
@@ -333,21 +332,22 @@ func scriptPurposeBuilder(
 			}
 		case lcommon.RedeemerTagVoting:
 			if int(redeemerKey.Index) >= len(votes) {
-				return nil
+				panic("redeemer index greater than vote count")
 			}
 			return ScriptPurposeVoting{
 				Voter: *(votes[redeemerKey.Index].Key),
 			}
 		case lcommon.RedeemerTagProposing:
 			if int(redeemerKey.Index) >= len(proposalProcedures) {
-				return nil
+				panic("redeemer index greater than proposal procedure count")
 			}
 			return ScriptPurposeProposing{
 				Index:             redeemerKey.Index,
 				ProposalProcedure: proposalProcedures[redeemerKey.Index],
 			}
+		default:
+			panic(fmt.Sprintf("unsupported redeemer tag: %d", redeemerKey.Tag))
 		}
-		return nil
 	}
 }
 
@@ -369,12 +369,12 @@ func BuildScriptPurpose(
 	switch redeemerKey.Tag {
 	case lcommon.RedeemerTagSpend:
 		if int(redeemerKey.Index) >= len(inputs) {
-			return nil
+			panic("redeemer index greater than input count")
 		}
 		tmpInput := inputs[redeemerKey.Index]
 		utxo, ok := resolvedInputs[tmpInput.String()]
 		if !ok {
-			return nil
+			panic("UTxO not found in resolved inputs: " + tmpInput.String())
 		}
 		var datum data.PlutusData
 		if utxo.Output != nil {
@@ -395,7 +395,7 @@ func BuildScriptPurpose(
 	case lcommon.RedeemerTagMint:
 		policies := mint.Policies()
 		if int(redeemerKey.Index) >= len(policies) {
-			return nil
+			panic("redeemer index greater than mint policy count")
 		}
 		slices.SortFunc(
 			policies,
@@ -406,7 +406,7 @@ func BuildScriptPurpose(
 		}
 	case lcommon.RedeemerTagCert:
 		if int(redeemerKey.Index) >= len(certificates) {
-			return nil
+			panic("redeemer index greater than certificate count")
 		}
 		return ScriptPurposeCertifying{
 			Index:       redeemerKey.Index,
@@ -428,7 +428,7 @@ func BuildScriptPurpose(
 			return bytes.Compare(aBytes, bBytes)
 		})
 		if int(redeemerKey.Index) >= len(sortedAddrs) {
-			return nil
+			panic("redeemer index greater than withdrawal count")
 		}
 		addr := sortedAddrs[redeemerKey.Index]
 		return ScriptPurposeRewarding{
@@ -471,19 +471,20 @@ func BuildScriptPurpose(
 			return 1
 		})
 		if int(redeemerKey.Index) >= len(sortedVoters) {
-			return nil
+			panic("redeemer index greater than vote count")
 		}
 		return ScriptPurposeVoting{
 			Voter: *sortedVoters[redeemerKey.Index],
 		}
 	case lcommon.RedeemerTagProposing:
 		if int(redeemerKey.Index) >= len(proposalProcedures) {
-			return nil
+			panic("redeemer index greater than proposal procedure count")
 		}
 		return ScriptPurposeProposing{
 			Index:             redeemerKey.Index,
 			ProposalProcedure: proposalProcedures[redeemerKey.Index],
 		}
+	default:
+		panic(fmt.Sprintf("unsupported redeemer tag: %d", redeemerKey.Tag))
 	}
-	return nil
 }

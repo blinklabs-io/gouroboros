@@ -214,8 +214,9 @@ func (d *Drep) ToPlutusData() data.PlutusData {
 		return data.NewConstr(1)
 	case DrepTypeNoConfidence:
 		return data.NewConstr(2)
+	default:
+		panic(fmt.Sprintf("unsupported drep type: %d", d.Type))
 	}
-	return nil
 }
 
 // String returns a CIP-0129 bech32-encoded representation of the DRep.

@@ -15,6 +15,7 @@
 package script
 
 import (
+	"fmt"
 	"math/big"
 	"reflect"
 	"slices"
@@ -128,9 +129,10 @@ func toPlutusData(val any) data.PlutusData {
 				}
 			}
 			return data.NewMap(tmpPairs)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", v))
 		}
 	}
-	return nil
 }
 
 type Coin int64
@@ -265,9 +267,12 @@ func (w WithWrappedTransactionId) ToPlutusData() data.PlutusData {
 					p.Certificate,
 				}.ToPlutusData(),
 			)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", p))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithWrappedStakeCredential struct {
@@ -341,8 +346,9 @@ func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 			0,
 			v.ToPlutusData(),
 		)
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithOptionDatum struct {
@@ -397,10 +403,15 @@ func (w WithOptionDatum) ToPlutusData() data.PlutusData {
 					WithWrappedTransactionId{v3.Id}.ToPlutusData(),
 					WithOptionDatum{WithZeroAdaAsset{v3.Output}}.ToPlutusData(),
 				)
+			default:
+				panic(fmt.Sprintf("unsupported type: %T", v3))
 			}
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", v2))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithZeroAdaAsset struct {
@@ -499,9 +510,12 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 					v2.Output,
 				}.ToPlutusData(),
 			)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", v2))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithPartialCertificates struct {
@@ -558,9 +572,12 @@ func (w WithPartialCertificates) ToPlutusData() data.PlutusData {
 				toPlutusData(c.PoolKeyHash),
 				data.NewInteger(new(big.Int).SetUint64(c.Epoch)),
 			)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", c))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 func coinToPlutusDataMapPair(val uint64) [2]data.PlutusData {
