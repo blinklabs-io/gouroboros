@@ -224,7 +224,7 @@ func (c *Client) Start() {
 	}
 }
 
-// Stop transitions the protocol to the Done state.
+// Stop sends a Done message and transitions the client to the Stopped state.
 func (c *Client) Stop() error {
 	const busyLockTimeout = 5 * time.Second
 	deadline := time.Now().Add(busyLockTimeout)
