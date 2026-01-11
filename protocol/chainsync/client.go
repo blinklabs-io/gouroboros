@@ -31,6 +31,7 @@ type clientLifecycleState uint8
 
 const (
 	clientStateNew clientLifecycleState = iota
+	clientStateStarting
 	clientStateRunning
 	clientStateStopped
 )
@@ -43,6 +44,7 @@ type Client struct {
 	busyMutex                sync.Mutex
 	lifecycleMutex           sync.Mutex
 	lifecycleState           clientLifecycleState
+	startingDone             chan struct{}
 	readyForNextBlockChan    chan bool
 	syncPipelinedRequestNext int
 	protoOptions             protocol.ProtocolOptions
@@ -141,42 +143,85 @@ func (c *Client) initProtocol() {
 }
 
 func (c *Client) Start() {
-	c.lifecycleMutex.Lock()
-	if c.lifecycleState == clientStateRunning {
-		c.lifecycleMutex.Unlock()
-		return
-	}
-	// If we were stopped, wait for the old protocol to actually finish shutting down.
-	if c.lifecycleState == clientStateStopped && c.Protocol != nil {
-		oldProto := c.Protocol
-		done := oldProto.DoneChan()
-		c.lifecycleMutex.Unlock()
-		// Ensure the old instance is fully stopped before re-registering.
-		oldProto.Stop()
-		<-done
+	for {
 		c.lifecycleMutex.Lock()
-		// Another goroutine may have started us while we waited.
-		if c.lifecycleState == clientStateRunning {
+
+		switch c.lifecycleState {
+		case clientStateRunning:
 			c.lifecycleMutex.Unlock()
 			return
+
+		case clientStateStarting:
+			// Another goroutine is already starting. Wait for it to complete.
+			ch := c.startingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			// Re-check state after the in-flight start completes
+			continue
+
+		case clientStateStopped, clientStateNew:
+			// We will be the goroutine that performs initialization/start.
+			// Save previous state before transitioning to prevent other goroutines from also starting.
+			prevState := c.lifecycleState
+			c.lifecycleState = clientStateStarting
+			ch := make(chan struct{})
+			c.startingDone = ch
+
+			oldProto := c.Protocol
+			var oldDone <-chan struct{}
+			if prevState == clientStateStopped && oldProto != nil {
+				oldDone = oldProto.DoneChan()
+			}
+			c.lifecycleMutex.Unlock()
+
+			// If we were stopped, ensure the old instance is fully stopped before re-registering.
+			if oldDone != nil {
+				oldProto.Stop()
+				<-oldDone
+			}
+
+			c.lifecycleMutex.Lock()
+			// If we were stopped by someone else while waiting, don't continue.
+			if c.lifecycleState != clientStateStarting {
+				if c.startingDone == ch {
+					close(ch)
+					c.startingDone = nil
+				}
+				c.lifecycleMutex.Unlock()
+				return
+			}
+
+			// Reinitialize protocol when transitioning from stopped->start (or if nil).
+			// This recreates internal channels that may have been closed on Stop().
+			if c.Protocol == nil || prevState == clientStateStopped {
+				c.initProtocol()
+				c.syncPipelinedRequestNext = 0
+			}
+
+			c.Protocol.Logger().
+				Debug("starting client protocol",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
+			c.Protocol.Start()
+			c.lifecycleState = clientStateRunning
+			if c.startingDone == ch {
+				close(ch)
+				c.startingDone = nil
+			}
+			c.lifecycleMutex.Unlock()
+			return
+
+		default:
+			// Should not happen; treat as stopped.
+			c.lifecycleState = clientStateStopped
+			c.lifecycleMutex.Unlock()
+			continue
 		}
 	}
-
-	// Reinitialize protocol if stopped or first start.
-	if c.lifecycleState == clientStateStopped || c.Protocol == nil {
-		c.initProtocol()
-		c.syncPipelinedRequestNext = 0
-	}
-
-	c.Protocol.Logger().
-		Debug("starting client protocol",
-			"component", "network",
-			"protocol", ProtocolName,
-			"connection_id", c.callbackContext.ConnectionId.String(),
-		)
-	c.Protocol.Start()
-	c.lifecycleState = clientStateRunning
-	c.lifecycleMutex.Unlock()
 }
 
 // Stop transitions the protocol to the Done state.
@@ -229,6 +274,11 @@ func (c *Client) Stop() error {
 	// Stop/unregister the underlying protocol instance.
 	c.Protocol.Stop()
 	c.lifecycleState = clientStateStopped
+	// Unblock any goroutine waiting for an in-progress start.
+	if c.startingDone != nil {
+		close(c.startingDone)
+		c.startingDone = nil
+	}
 	return sendErr
 }
 
