@@ -16,7 +16,6 @@ package conway
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -32,6 +31,9 @@ import (
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
+	UtxoValidateProposalProcedures,
+	UtxoValidateProposalNetworkIds,
+	UtxoValidateEmptyTreasuryWithdrawals,
 	UtxoValidateIsValidFlag,
 	UtxoValidateRequiredVKeyWitnesses,
 	UtxoValidateCollateralVKeyWitnesses,
@@ -84,6 +86,168 @@ func UtxoValidateDisjointRefInputs(
 	return NonDisjointRefInputsError{
 		Inputs: commonInputs,
 	}
+}
+
+// UtxoValidateProposalProcedures validates governance proposal contents
+func UtxoValidateProposalProcedures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	for _, proposal := range tx.ProposalProcedures() {
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+
+		// Check if this is a ParameterChangeGovAction
+		paramChangeAction, ok := govAction.(*ConwayParameterChangeGovAction)
+		if !ok {
+			continue
+		}
+
+		// Validate the protocol parameter update
+		if err := validateProtocolParameterUpdate(&paramChangeAction.ParamUpdate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UtxoValidateEmptyTreasuryWithdrawals validates that TreasuryWithdrawalGovAction proposals
+// do not have empty withdrawal maps. This is distinct from transaction reward withdrawals.
+func UtxoValidateEmptyTreasuryWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	for _, proposal := range tx.ProposalProcedures() {
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+
+		// Check if this is a TreasuryWithdrawalGovAction with empty withdrawals
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+			if len(twAction.Withdrawals) == 0 {
+				return EmptyTreasuryWithdrawalsError{}
+			}
+		}
+	}
+	return nil
+}
+
+// UtxoValidateProposalNetworkIds validates that all addresses in proposal procedures use correct network ID
+func UtxoValidateProposalNetworkIds(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	networkId := ls.NetworkId()
+	badAddrs := []common.Address{}
+
+	for _, proposal := range tx.ProposalProcedures() {
+		// Check the return address (where deposit goes back)
+		returnAddr := proposal.RewardAccount()
+		if returnAddr.NetworkId() != networkId {
+			badAddrs = append(badAddrs, returnAddr)
+		}
+
+		// Check addresses within governance actions
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+
+		// TreasuryWithdrawalGovAction contains withdrawal addresses
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+			for addr := range twAction.Withdrawals {
+				if addr.NetworkId() != networkId {
+					badAddrs = append(badAddrs, *addr)
+				}
+			}
+		}
+	}
+
+	if len(badAddrs) == 0 {
+		return nil
+	}
+	return WrongNetworkProposalAddressError{
+		NetId: networkId,
+		Addrs: badAddrs,
+	}
+}
+
+// validateProtocolParameterUpdate validates that a PPU is well-formed
+func validateProtocolParameterUpdate(ppu *ConwayProtocolParameterUpdate) error {
+	// Check if PPU is empty (no fields set)
+	if ppu.MinFeeA == nil &&
+		ppu.MinFeeB == nil &&
+		ppu.MaxBlockBodySize == nil &&
+		ppu.MaxTxSize == nil &&
+		ppu.MaxBlockHeaderSize == nil &&
+		ppu.KeyDeposit == nil &&
+		ppu.PoolDeposit == nil &&
+		ppu.MaxEpoch == nil &&
+		ppu.NOpt == nil &&
+		ppu.A0 == nil &&
+		ppu.Rho == nil &&
+		ppu.Tau == nil &&
+		ppu.ProtocolVersion == nil &&
+		ppu.MinPoolCost == nil &&
+		ppu.AdaPerUtxoByte == nil &&
+		len(ppu.CostModels) == 0 &&
+		ppu.ExecutionCosts == nil &&
+		ppu.MaxTxExUnits == nil &&
+		ppu.MaxBlockExUnits == nil &&
+		ppu.MaxValueSize == nil &&
+		ppu.CollateralPercentage == nil &&
+		ppu.MaxCollateralInputs == nil &&
+		ppu.PoolVotingThresholds == nil &&
+		ppu.DRepVotingThresholds == nil &&
+		ppu.MinCommitteeSize == nil &&
+		ppu.CommitteeTermLimit == nil &&
+		ppu.GovActionValidityPeriod == nil &&
+		ppu.GovActionDeposit == nil &&
+		ppu.DRepDeposit == nil &&
+		ppu.DRepInactivityPeriod == nil &&
+		ppu.MinFeeRefScriptCostPerByte == nil {
+		return ProtocolParameterUpdateEmptyError{}
+	}
+
+	// Validate individual fields that cannot be zero
+	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxBHSize",
+			Value:     *ppu.MaxBlockHeaderSize,
+		}
+	}
+
+	if ppu.MaxTxSize != nil && *ppu.MaxTxSize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxTxSize",
+			Value:     *ppu.MaxTxSize,
+		}
+	}
+
+	if ppu.MaxValueSize != nil && *ppu.MaxValueSize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxValSize",
+			Value:     uint(*ppu.MaxValueSize),
+		}
+	}
+
+	if ppu.MaxBlockBodySize != nil && *ppu.MaxBlockBodySize == 0 {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxBlockBodySize",
+			Value:     *ppu.MaxBlockBodySize,
+		}
+	}
+
+	return nil
 }
 
 // UtxoValidateIsValidFlag ensures transactions marked invalid have Plutus scripts
@@ -183,7 +347,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script, *common.PlutusV2Script, common.PlutusV2Script, *common.PlutusV3Script, common.PlutusV3Script:
+		case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
 			hasPlutusReference = true
 		}
 		if hasPlutusReference {
@@ -208,7 +372,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 				continue
 			}
 			switch script.(type) {
-			case *common.PlutusV1Script, common.PlutusV1Script, *common.PlutusV2Script, common.PlutusV2Script, *common.PlutusV3Script, common.PlutusV3Script:
+			case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
 				hasPlutusReference = true
 			}
 			if hasPlutusReference {
@@ -291,11 +455,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
-		case *common.PlutusV3Script, common.PlutusV3Script:
+		case common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
@@ -315,11 +479,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
-		case *common.PlutusV3Script, common.PlutusV3Script:
+		case common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
@@ -376,12 +540,17 @@ func UtxoValidateFeeTooSmallUtxo(
 	if err != nil {
 		return err
 	}
-	if tx.Fee() >= minFee {
+	minFeeBigInt := new(big.Int).SetUint64(minFee)
+	fee := tx.Fee()
+	if fee == nil {
+		fee = new(big.Int)
+	}
+	if fee.Cmp(minFeeBigInt) >= 0 {
 		return nil
 	}
 	return shelley.FeeTooSmallUtxoError{
-		Provided: tx.Fee(),
-		Min:      minFee,
+		Provided: fee,
+		Min:      minFeeBigInt,
 	}
 }
 
@@ -403,21 +572,37 @@ func UtxoValidateInsufficientCollateral(
 	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
-	var totalCollateral uint64
+	totalCollateral := new(big.Int)
 	for _, collateralInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
 		}
-		totalCollateral += utxo.Output.Amount()
+		if amount := utxo.Output.Amount(); amount != nil {
+			totalCollateral.Add(totalCollateral, amount)
+		}
 	}
-	minCollateral := tmpTx.Fee() * uint64(tmpPparams.CollateralPercentage) / 100
-	if totalCollateral >= minCollateral {
+	// minCollateral = fee * collateralPercentage / 100
+	fee := tmpTx.Fee()
+	if fee == nil {
+		fee = new(big.Int)
+	}
+	minCollateral := new(big.Int).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
+	minCollateral.Div(minCollateral, big.NewInt(100))
+	if totalCollateral.Cmp(minCollateral) >= 0 {
 		return nil
 	}
+	// Convert to uint64 for error struct (best effort)
+	var providedU, requiredU uint64
+	if totalCollateral.IsUint64() {
+		providedU = totalCollateral.Uint64()
+	}
+	if minCollateral.IsUint64() {
+		requiredU = minCollateral.Uint64()
+	}
 	return alonzo.InsufficientCollateralError{
-		Provided: totalCollateral,
-		Required: minCollateral,
+		Provided: providedU,
+		Required: requiredU,
 	}
 }
 
@@ -436,17 +621,20 @@ func UtxoValidateCollateralContainsNonAda(
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
-	var totalCollateral uint64
+	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
 		}
-		totalCollateral += utxo.Output.Amount()
-		totalAssets.Add(utxo.Output.Assets())
-		if utxo.Output.Assets() == nil ||
-			len(utxo.Output.Assets().Policies()) == 0 {
+		amount := utxo.Output.Amount()
+		if amount != nil {
+			totalCollateral.Add(totalCollateral, amount)
+		}
+		assets := utxo.Output.Assets()
+		totalAssets.Add(assets)
+		if assets == nil || len(assets.Policies()) == 0 {
 			continue
 		}
 		badOutputs = append(badOutputs, utxo.Output)
@@ -462,8 +650,12 @@ func UtxoValidateCollateralContainsNonAda(
 			return nil
 		}
 	}
+	var providedU uint64
+	if totalCollateral.IsUint64() {
+		providedU = totalCollateral.Uint64()
+	}
 	return alonzo.CollateralContainsNonAdaError{
-		Provided: totalCollateral,
+		Provided: providedU,
 	}
 }
 
@@ -518,17 +710,21 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds
-	var consumedValue uint64
+	consumedValue := new(big.Int)
 	for _, tmpInput := range tx.Inputs() {
 		tmpUtxo, err := ls.UtxoById(tmpInput)
 		// Ignore errors fetching the UTxO and exclude it from calculations
 		if err != nil {
 			continue
 		}
-		consumedValue += tmpUtxo.Output.Amount()
+		if amount := tmpUtxo.Output.Amount(); amount != nil {
+			consumedValue.Add(consumedValue, amount)
+		}
 	}
 	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
-		consumedValue += tmpWithdrawalAmount
+		if tmpWithdrawalAmount != nil {
+			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
+		}
 	}
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
@@ -540,7 +736,7 @@ func UtxoValidateValueNotConservedUtxo(
 					Amount:          tmpCert.Amount,
 				}
 			}
-			consumedValue += uint64(tmpCert.Amount)
+			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
 		case *common.DeregistrationDrepCertificate:
 			if tmpCert.Amount <= 0 {
 				return shelley.InvalidCertificateDepositError{
@@ -548,41 +744,30 @@ func UtxoValidateValueNotConservedUtxo(
 					Amount:          tmpCert.Amount,
 				}
 			}
-			consumedValue += uint64(tmpCert.Amount)
+			consumedValue.Add(consumedValue, big.NewInt(tmpCert.Amount))
 		case *common.StakeDeregistrationCertificate:
 			// Traditional stake deregistration uses protocol KeyDeposit parameter
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
 	// Add minted/burned ADA
 	if tx.AssetMint() != nil {
 		mintedAda := tx.AssetMint().Asset(common.Blake2b224{}, []byte{})
-		if mintedAda != nil && mintedAda.Sign() > 0 {
-			if !mintedAda.IsUint64() {
-				return shelley.ValueNotConservedUtxoError{
-					Consumed: consumedValue,
-					Produced: 0,
-				}
-			}
-			consumedValue += mintedAda.Uint64()
-		} else if mintedAda != nil && mintedAda.Sign() < 0 {
-			burned := new(big.Int).Neg(mintedAda)
-			if !burned.IsUint64() {
-				return shelley.ValueNotConservedUtxoError{
-					Consumed: consumedValue,
-					Produced: 0,
-				}
-			}
-			consumedValue -= burned.Uint64()
+		if mintedAda != nil {
+			consumedValue.Add(consumedValue, mintedAda)
 		}
 	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
-	var producedValue uint64
+	producedValue := new(big.Int)
 	for _, tmpOutput := range tx.Outputs() {
-		producedValue += tmpOutput.Amount()
+		if amount := tmpOutput.Amount(); amount != nil {
+			producedValue.Add(producedValue, amount)
+		}
 	}
-	producedValue += tx.Fee()
+	if fee := tx.Fee(); fee != nil {
+		producedValue.Add(producedValue, fee)
+	}
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -591,7 +776,7 @@ func UtxoValidateValueNotConservedUtxo(
 				return err
 			}
 			if reg == nil {
-				producedValue += uint64(tmpPparams.PoolDeposit)
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.RegistrationCertificate:
 			// CIP-0094 registration uses Amount field for deposit
@@ -601,7 +786,7 @@ func UtxoValidateValueNotConservedUtxo(
 					Amount:          tmpCert.Amount,
 				}
 			}
-			producedValue += uint64(tmpCert.Amount)
+			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
 		case *common.RegistrationDrepCertificate:
 			if tmpCert.Amount <= 0 {
 				return shelley.InvalidCertificateDepositError{
@@ -609,10 +794,10 @@ func UtxoValidateValueNotConservedUtxo(
 					Amount:          tmpCert.Amount,
 				}
 			}
-			producedValue += uint64(tmpCert.Amount)
+			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
 		case *common.StakeRegistrationCertificate:
 			// Traditional stake registration uses protocol KeyDeposit parameter
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		case *common.StakeRegistrationDelegationCertificate:
 			if tmpCert.Amount <= 0 {
 				return shelley.InvalidCertificateDepositError{
@@ -620,7 +805,7 @@ func UtxoValidateValueNotConservedUtxo(
 					Amount:          tmpCert.Amount,
 				}
 			}
-			producedValue += uint64(tmpCert.Amount)
+			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
 		case *common.StakeVoteRegistrationDelegationCertificate:
 			if tmpCert.Amount <= 0 {
 				return shelley.InvalidCertificateDepositError{
@@ -628,7 +813,7 @@ func UtxoValidateValueNotConservedUtxo(
 					Amount:          tmpCert.Amount,
 				}
 			}
-			producedValue += uint64(tmpCert.Amount)
+			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
 		case *common.VoteRegistrationDelegationCertificate:
 			if tmpCert.Amount <= 0 {
 				return shelley.InvalidCertificateDepositError{
@@ -636,16 +821,16 @@ func UtxoValidateValueNotConservedUtxo(
 					Amount:          tmpCert.Amount,
 				}
 			}
-			producedValue += uint64(tmpCert.Amount)
+			producedValue.Add(producedValue, big.NewInt(tmpCert.Amount))
 		}
 	}
 	for _, proposal := range tx.ProposalProcedures() {
-		producedValue += proposal.Deposit()
+		producedValue.Add(producedValue, new(big.Int).SetUint64(proposal.Deposit()))
 	}
 	// Add treasury donation - value leaving the transaction to go to the treasury
 	// Treasury donations are a Conway feature and cannot be used with PlutusV1/V2 scripts
 	donation := tx.Donation()
-	if donation > 0 {
+	if donation != nil && donation.Sign() > 0 {
 		// Check if transaction uses PlutusV1 or PlutusV2 scripts in witnesses
 		witnesses := tx.Witnesses()
 		plutusVersion := ""
@@ -669,9 +854,9 @@ func UtxoValidateValueNotConservedUtxo(
 				script := utxo.Output.ScriptRef()
 				if script != nil {
 					switch script.(type) {
-					case *common.PlutusV1Script, common.PlutusV1Script:
+					case common.PlutusV1Script:
 						plutusVersion = "PlutusV1"
-					case *common.PlutusV2Script, common.PlutusV2Script:
+					case common.PlutusV2Script:
 						plutusVersion = "PlutusV2"
 					}
 					if plutusVersion != "" {
@@ -682,15 +867,19 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 		// Return explicit error if donation is used with PlutusV1/V2 scripts
 		if plutusVersion != "" {
+			var donationU uint64
+			if donation.IsUint64() {
+				donationU = donation.Uint64()
+			}
 			return TreasuryDonationWithPlutusV1V2Error{
-				Donation:      donation,
+				Donation:      donationU,
 				PlutusVersion: plutusVersion,
 			}
 		}
 		// Only apply donation if not using PlutusV1/V2 scripts
-		producedValue += donation
+		producedValue.Add(producedValue, donation)
 	}
-	if consumedValue != producedValue {
+	if consumedValue.Cmp(producedValue) != 0 {
 		return shelley.ValueNotConservedUtxoError{
 			Consumed: consumedValue,
 			Produced: producedValue,
@@ -789,28 +978,10 @@ func UtxoValidateValueNotConservedUtxo(
 			produced = new(big.Int)
 		}
 		if consumed.Cmp(produced) != 0 {
-			// For error reporting, convert to uint64 if possible
-			var consumedU, producedU uint64
-			if consumed.IsUint64() {
-				consumedU = consumed.Uint64()
+			return shelley.ValueNotConservedUtxoError{
+				Consumed: consumed,
+				Produced: produced,
 			}
-			if produced.IsUint64() {
-				producedU = produced.Uint64()
-			}
-			// Wrap with context if values don't fit in uint64
-			baseErr := shelley.ValueNotConservedUtxoError{
-				Consumed: consumedU,
-				Produced: producedU,
-			}
-			if !consumed.IsUint64() || !produced.IsUint64() {
-				return fmt.Errorf(
-					"multi-asset value not conserved: consumed %s, produced %s: %w",
-					consumed.String(),
-					produced.String(),
-					baseErr,
-				)
-			}
-			return baseErr
 		}
 	}
 
@@ -829,7 +1000,12 @@ func UtxoValidateOutputTooSmallUtxo(
 		if err != nil {
 			return err
 		}
-		if tmpOutput.Amount() < minCoin {
+		minCoinBig := new(big.Int).SetUint64(minCoin)
+		amount := tmpOutput.Amount()
+		if amount == nil {
+			amount = new(big.Int)
+		}
+		if amount.Cmp(minCoinBig) < 0 {
 			badOutputs = append(badOutputs, tmpOutput)
 		}
 	}
@@ -1127,27 +1303,24 @@ func UtxoValidatePlutusScripts(
 		resolvedInputsMap[refInput.String()] = utxo
 	}
 
-	// Build TxInfoV3 for script context
-	txInfo, err := script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
-	if err != nil {
-		return ScriptContextConstructionError{Err: err}
-	}
+	// Build TxInfo lazily based on script version
+	var txInfoV1 script.TxInfoV1
+	var txInfoV2 script.TxInfoV2
+	var txInfoV3 script.TxInfoV3
+	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	// Collect all available scripts (witness scripts + reference scripts)
 	availableScripts := make(map[common.ScriptHash]common.Script)
 
 	// Add witness scripts
 	for _, s := range witnesses.PlutusV1Scripts() {
-		sCopy := s
-		availableScripts[s.Hash()] = &sCopy
+		availableScripts[s.Hash()] = s
 	}
 	for _, s := range witnesses.PlutusV2Scripts() {
-		sCopy := s
-		availableScripts[s.Hash()] = &sCopy
+		availableScripts[s.Hash()] = s
 	}
 	for _, s := range witnesses.PlutusV3Scripts() {
-		sCopy := s
-		availableScripts[s.Hash()] = &sCopy
+		availableScripts[s.Hash()] = s
 	}
 
 	// Add reference scripts from resolved inputs
@@ -1173,6 +1346,14 @@ func UtxoValidatePlutusScripts(
 	proposalProcedures := tx.ProposalProcedures()
 	certificates := tx.Certificates()
 
+	// Build witness datums map for datum lookup
+	plutusData := witnesses.PlutusData()
+	witnessDatums := make(map[common.Blake2b256]*common.Datum)
+	for i := range plutusData {
+		datum := plutusData[i]
+		witnessDatums[datum.Hash()] = &datum
+	}
+
 	// Execute each redeemer's script
 	for redeemerKey, redeemerValue := range redeemers.Iter() {
 		// Build script purpose for this redeemer
@@ -1185,6 +1366,7 @@ func UtxoValidatePlutusScripts(
 			withdrawals,
 			votes,
 			proposalProcedures,
+			witnessDatums,
 		)
 		if purpose == nil {
 			continue
@@ -1197,18 +1379,6 @@ func UtxoValidatePlutusScripts(
 			// Missing script should be caught by MissingScriptWitnesses
 			continue
 		}
-
-		// Build the redeemer for context
-		redeemer := script.Redeemer{
-			Tag:     redeemerKey.Tag,
-			Index:   redeemerKey.Index,
-			Data:    redeemerValue.Data.Data,
-			ExUnits: redeemerValue.ExUnits,
-		}
-
-		// Build script context
-		ctx := script.NewScriptContextV3(txInfo, redeemer, purpose)
-		ctxData := ctx.ToPlutusData()
 
 		// Get datum for V1/V2 scripts (spending purpose only)
 		var datum data.PlutusData
@@ -1223,42 +1393,67 @@ func UtxoValidatePlutusScripts(
 		// Execute based on script version
 		var execErr error
 		switch s := plutusScript.(type) {
-		case *common.PlutusV3Script:
-			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
 		case common.PlutusV3Script:
+			// Build V3 TxInfo lazily
+			if !txInfoV3Built {
+				var err error
+				txInfoV3, err = script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+				if err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
+				txInfoV3Built = true
+			}
+			// Build V3 context
+			redeemer := script.Redeemer{
+				Tag:     redeemerKey.Tag,
+				Index:   redeemerKey.Index,
+				Data:    redeemerValue.Data.Data,
+				ExUnits: redeemerValue.ExUnits,
+			}
+			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
+			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
-		case *common.PlutusV2Script:
-			// V1/V2 scripts require a datum for spending purposes
-			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
-					ScriptHash: scriptHash,
-					Input:      spendInput,
-				}
-			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
 		case common.PlutusV2Script:
+			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
 				return MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
 			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
-		case *common.PlutusV1Script:
-			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return MissingDatumForSpendingScriptError{
-					ScriptHash: scriptHash,
-					Input:      spendInput,
+			// Build V2 TxInfo lazily
+			if !txInfoV2Built {
+				var err error
+				txInfoV2, err = script.NewTxInfoV2FromTransaction(ls, tx, resolvedInputs)
+				if err != nil {
+					return ScriptContextConstructionError{Err: err}
 				}
+				txInfoV2Built = true
 			}
+			// Build V1V2 context
+			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
+			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
 		case common.PlutusV1Script:
+			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
 				return MissingDatumForSpendingScriptError{
 					ScriptHash: scriptHash,
 					Input:      spendInput,
 				}
 			}
+			// Build V1 TxInfo lazily
+			if !txInfoV1Built {
+				var err error
+				txInfoV1, err = script.NewTxInfoV1FromTransaction(ls, tx, resolvedInputs)
+				if err != nil {
+					return ScriptContextConstructionError{Err: err}
+				}
+				txInfoV1Built = true
+			}
+			// Build V1V2 context
+			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
+			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
 		default:
 			continue

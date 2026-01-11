@@ -15,6 +15,7 @@
 package script
 
 import (
+	"fmt"
 	"math/big"
 	"reflect"
 	"slices"
@@ -92,6 +93,11 @@ func toPlutusData(val any) data.PlutusData {
 		return data.NewInteger(new(big.Int).SetInt64(v))
 	case uint64:
 		return data.NewInteger(new(big.Int).SetUint64(v))
+	case *big.Int:
+		if v == nil {
+			return data.NewInteger(new(big.Int))
+		}
+		return data.NewInteger(new(big.Int).Set(v))
 	case []ToPlutusData:
 		tmpItems := make([]data.PlutusData, len(v))
 		for i, item := range v {
@@ -123,9 +129,10 @@ func toPlutusData(val any) data.PlutusData {
 				}
 			}
 			return data.NewMap(tmpPairs)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", v))
 		}
 	}
-	return nil
 }
 
 type Coin int64
@@ -142,6 +149,7 @@ func (c PositiveCoin) ToPlutusData() data.PlutusData {
 
 type Value struct {
 	Coin         uint64
+	CoinBigInt   *big.Int
 	AssetsMint   *lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
 	AssetsOutput *lcommon.MultiAsset[lcommon.MultiAssetTypeOutput]
 }
@@ -259,9 +267,12 @@ func (w WithWrappedTransactionId) ToPlutusData() data.PlutusData {
 					p.Certificate,
 				}.ToPlutusData(),
 			)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", p))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithWrappedStakeCredential struct {
@@ -270,6 +281,18 @@ type WithWrappedStakeCredential struct {
 
 func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 	switch v := w.Value.(type) {
+	case KeyValuePairs[*lcommon.Address, *big.Int]:
+		tmpPairs := make([][2]data.PlutusData, len(v))
+		for i := range v {
+			tmpPairs[i] = [2]data.PlutusData{
+				data.NewConstr(
+					0,
+					v[i].Key.ToPlutusData(),
+				),
+				toPlutusData(v[i].Value),
+			}
+		}
+		return data.NewMap(tmpPairs)
 	case KeyValuePairs[*lcommon.Address, uint64]:
 		tmpPairs := make([][2]data.PlutusData, len(v))
 		for i := range v {
@@ -282,10 +305,26 @@ func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 			}
 		}
 		return data.NewMap(tmpPairs)
-	case Pairs[*lcommon.Address, uint64]:
+	case Pairs[*lcommon.Address, *big.Int]:
+		// V1 withdrawals: List of tuples, each tuple is Constr(0, StakingCredential, Integer)
 		tmpItems := make([]data.PlutusData, len(v))
 		for i := range v {
-			tmpItems[i] = data.NewList(
+			tmpItems[i] = data.NewConstr(
+				0,
+				data.NewConstr(
+					0,
+					v[i].T1.ToPlutusData(),
+				),
+				toPlutusData(v[i].T2),
+			)
+		}
+		return data.NewList(tmpItems...)
+	case Pairs[*lcommon.Address, uint64]:
+		// V1 withdrawals: List of tuples, each tuple is Constr(0, StakingCredential, Integer)
+		tmpItems := make([]data.PlutusData, len(v))
+		for i := range v {
+			tmpItems[i] = data.NewConstr(
+				0,
 				data.NewConstr(
 					0,
 					v[i].T1.ToPlutusData(),
@@ -299,8 +338,17 @@ func (w WithWrappedStakeCredential) ToPlutusData() data.PlutusData {
 			0,
 			v.ToPlutusData(),
 		)
+	case *lcommon.Credential:
+		if v == nil {
+			return nil
+		}
+		return data.NewConstr(
+			0,
+			v.ToPlutusData(),
+		)
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithOptionDatum struct {
@@ -329,7 +377,7 @@ func (w WithOptionDatum) ToPlutusData() data.PlutusData {
 				addr.ToPlutusData(),
 				WithZeroAdaAsset{
 					Value{
-						Coin:         v2.Amount(),
+						CoinBigInt:   v2.Amount(),
 						AssetsOutput: v2.Assets(),
 					},
 				}.ToPlutusData(),
@@ -355,10 +403,15 @@ func (w WithOptionDatum) ToPlutusData() data.PlutusData {
 					WithWrappedTransactionId{v3.Id}.ToPlutusData(),
 					WithOptionDatum{WithZeroAdaAsset{v3.Output}}.ToPlutusData(),
 				)
+			default:
+				panic(fmt.Sprintf("unsupported type: %T", v3))
 			}
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", v2))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithZeroAdaAsset struct {
@@ -368,7 +421,12 @@ type WithZeroAdaAsset struct {
 func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 	switch v := w.Value.(type) {
 	case Value:
-		tmpPairs := [][2]data.PlutusData{coinToPlutusDataMapPair(v.Coin)}
+		var tmpPairs [][2]data.PlutusData
+		if v.CoinBigInt != nil {
+			tmpPairs = [][2]data.PlutusData{coinBigIntToPlutusDataMapPair(v.CoinBigInt)}
+		} else {
+			tmpPairs = [][2]data.PlutusData{coinToPlutusDataMapPair(v.Coin)}
+		}
 		if v.AssetsOutput != nil {
 			tmpPairs = slices.Concat(
 				tmpPairs,
@@ -423,7 +481,7 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 			addr.ToPlutusData(),
 			WithZeroAdaAsset{
 				Value{
-					Coin:         v.Amount(),
+					CoinBigInt:   v.Amount(),
 					AssetsOutput: v.Assets(),
 				},
 			}.ToPlutusData(),
@@ -452,9 +510,12 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 					v2.Output,
 				}.ToPlutusData(),
 			)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", v2))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 type WithPartialCertificates struct {
@@ -511,9 +572,12 @@ func (w WithPartialCertificates) ToPlutusData() data.PlutusData {
 				toPlutusData(c.PoolKeyHash),
 				data.NewInteger(new(big.Int).SetUint64(c.Epoch)),
 			)
+		default:
+			panic(fmt.Sprintf("unsupported type: %T", c))
 		}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", v))
 	}
-	return nil
 }
 
 func coinToPlutusDataMapPair(val uint64) [2]data.PlutusData {
@@ -526,6 +590,23 @@ func coinToPlutusDataMapPair(val uint64) [2]data.PlutusData {
 					data.NewInteger(
 						new(big.Int).SetUint64(val),
 					),
+				},
+			},
+		),
+	}
+}
+
+func coinBigIntToPlutusDataMapPair(val *big.Int) [2]data.PlutusData {
+	if val == nil {
+		val = new(big.Int)
+	}
+	return [2]data.PlutusData{
+		data.NewByteString(nil),
+		data.NewMap(
+			[][2]data.PlutusData{
+				{
+					data.NewByteString(nil),
+					data.NewInteger(new(big.Int).Set(val)),
 				},
 			},
 		),

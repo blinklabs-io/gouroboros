@@ -298,10 +298,10 @@ func TestGenesisNonAvvmUtxos(t *testing.T) {
 			testAddr,
 		)
 	}
-	if tmpUtxo.Output.Amount() != testAmount {
+	if tmpUtxo.Output.Amount().Uint64() != testAmount {
 		t.Fatalf(
-			"did not get expected amount: got %d, wanted %d",
-			tmpUtxo.Output.Amount(),
+			"did not get expected amount: got %s, wanted %d",
+			tmpUtxo.Output.Amount().String(),
 			testAmount,
 		)
 	}
@@ -351,10 +351,10 @@ func TestGenesisAvvmUtxos(t *testing.T) {
 			expectedAddr,
 		)
 	}
-	if tmpUtxo.Output.Amount() != testAmount {
+	if tmpUtxo.Output.Amount().Uint64() != testAmount {
 		t.Fatalf(
-			"did not get expected amount: got %d, wanted %d",
-			tmpUtxo.Output.Amount(),
+			"did not get expected amount: got %s, wanted %d",
+			tmpUtxo.Output.Amount().String(),
 			testAmount,
 		)
 	}

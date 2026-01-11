@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"math/big"
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -69,6 +70,31 @@ type AlonzoProtocolParameters struct {
 	MaxValueSize         uint
 	CollateralPercentage uint
 	MaxCollateralInputs  uint
+}
+
+// KeyDepositAmount returns the key deposit as a *big.Int
+func (p *AlonzoProtocolParameters) KeyDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.KeyDeposit))
+}
+
+// PoolDepositAmount returns the pool deposit as a *big.Int
+func (p *AlonzoProtocolParameters) PoolDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.PoolDeposit))
+}
+
+// MinUtxoValueAmount returns the minimum UTxO value as a *big.Int
+func (p *AlonzoProtocolParameters) MinUtxoValueAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.MinUtxoValue))
+}
+
+// MinPoolCostAmount returns the minimum pool cost as a *big.Int
+func (p *AlonzoProtocolParameters) MinPoolCostAmount() *big.Int {
+	return new(big.Int).SetUint64(p.MinPoolCost)
+}
+
+// AdaPerUtxoByteAmount returns the ADA per UTxO byte as a *big.Int
+func (p *AlonzoProtocolParameters) AdaPerUtxoByteAmount() *big.Int {
+	return new(big.Int).SetUint64(p.AdaPerUtxoByte)
 }
 
 func (p *AlonzoProtocolParameters) Update(

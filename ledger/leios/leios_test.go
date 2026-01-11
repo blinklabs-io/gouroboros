@@ -171,7 +171,7 @@ func TestLeiosEndorserBlock_CborRoundTrip(t *testing.T) {
 		},
 	}
 
-	// Encode to CBOR
+	// Encode to CBOR (encodes as map per CIP-0164)
 	cborData, err := cbor.Encode(original)
 	if err != nil {
 		t.Fatalf("Failed to encode LeiosEndorserBlock: %v", err)
@@ -194,10 +194,17 @@ func TestLeiosEndorserBlock_CborRoundTrip(t *testing.T) {
 			len(decoded.Body.TxReferences),
 		)
 	}
-	for i := range original.Body.TxReferences {
-		if decoded.Body.TxReferences[i].TxHash != original.Body.TxReferences[i].TxHash ||
-			decoded.Body.TxReferences[i].TxSize != original.Body.TxReferences[i].TxSize {
-			t.Errorf("TxReference mismatch at index %d", i)
+	// Build map of original refs for comparison (order may differ after round-trip)
+	origRefMap := make(map[common.Blake2b256]uint16)
+	for _, ref := range original.Body.TxReferences {
+		origRefMap[ref.TxHash] = ref.TxSize
+	}
+	// Verify all decoded refs exist in original
+	for _, ref := range decoded.Body.TxReferences {
+		if size, ok := origRefMap[ref.TxHash]; !ok {
+			t.Errorf("Decoded TxReference %x not found in original", ref.TxHash[:8])
+		} else if size != ref.TxSize {
+			t.Errorf("TxSize mismatch for %x: expected %d, got %d", ref.TxHash[:8], size, ref.TxSize)
 		}
 	}
 }
@@ -292,5 +299,58 @@ func TestLeiosEndorserBlockNonEmptyTxReferences(t *testing.T) {
 	}
 	if block.Body.TxReferences[0].TxSize != 100 {
 		t.Error("TxSize mismatch")
+	}
+}
+
+// TestLeiosEndorserBlockLargeMap tests CBOR encoding/decoding with large map lengths (>= 65536)
+func TestLeiosEndorserBlockLargeMap(t *testing.T) {
+	// Create a block with exactly 65536 TxReferences to test 4-byte length encoding
+	// In practice this would be unrealistic, but tests the edge case
+	txRefs := make([]TxReference, 65536)
+	for i := range txRefs {
+		var hash common.Blake2b256
+		hash[0] = byte(i >> 8)
+		hash[1] = byte(i)
+		txRefs[i] = TxReference{TxHash: hash, TxSize: uint16(i % 65536)}
+	}
+
+	original := &LeiosEndorserBlock{
+		Body: &LeiosEndorserBlockBody{
+			TxReferences: txRefs,
+		},
+	}
+
+	// Test MarshalCBOR handles large maps correctly
+	cborData, err := original.MarshalCBOR()
+	if err != nil {
+		t.Fatalf("Failed to marshal large LeiosEndorserBlock: %v", err)
+	}
+
+	// Verify the CBOR starts with 4-byte map length encoding (0xba)
+	if len(cborData) < 6 || cborData[1] != 0xba {
+		t.Errorf("Expected 4-byte map length encoding (0xba), got: %x", cborData[:min(10, len(cborData))])
+	}
+
+	// Test UnmarshalCBOR can decode it back
+	var decoded LeiosEndorserBlock
+	if err := decoded.UnmarshalCBOR(cborData); err != nil {
+		t.Fatalf("Failed to unmarshal large LeiosEndorserBlock: %v", err)
+	}
+
+	// Verify the data is correct
+	if len(decoded.Body.TxReferences) != 65536 {
+		t.Errorf("Expected 65536 TxReferences, got %d", len(decoded.Body.TxReferences))
+	}
+
+	for i, ref := range decoded.Body.TxReferences {
+		expectedHash := txRefs[i].TxHash
+		if ref.TxHash != expectedHash {
+			t.Errorf("TxReference %d hash mismatch", i)
+			break
+		}
+		if ref.TxSize != txRefs[i].TxSize {
+			t.Errorf("TxReference %d size mismatch: expected %d, got %d", i, txRefs[i].TxSize, ref.TxSize)
+			break
+		}
 	}
 }

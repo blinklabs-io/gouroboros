@@ -3,6 +3,7 @@ package ledger
 import (
 	"bytes"
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
@@ -97,12 +98,13 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 				originalOutput := originalUtxo.Output.(*shelley.ShelleyTransactionOutput)
 
 				// Check the amount using the interface method
-				if decodedUtxo.Output.Amount() != originalOutput.OutputAmount {
+				originalAmount := new(big.Int).SetUint64(originalOutput.OutputAmount)
+				if decodedUtxo.Output.Amount().Cmp(originalAmount) != 0 {
 					t.Errorf(
-						"UTxO %d: Amount mismatch - expected %d, got %d",
+						"UTxO %d: Amount mismatch - expected %s, got %s",
 						i,
-						originalOutput.OutputAmount,
-						decodedUtxo.Output.Amount(),
+						originalAmount.String(),
+						decodedUtxo.Output.Amount().String(),
 					)
 				}
 

@@ -16,7 +16,6 @@ package babbage
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -157,9 +156,9 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
 		}
 	}
@@ -179,9 +178,9 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case *common.PlutusV1Script, common.PlutusV1Script:
+		case common.PlutusV1Script:
 			required[0] = struct{}{}
-		case *common.PlutusV2Script, common.PlutusV2Script:
+		case common.PlutusV2Script:
 			required[1] = struct{}{}
 		}
 	}
@@ -256,7 +255,7 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script, *common.PlutusV1Script:
+		case common.PlutusV1Script:
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
@@ -278,7 +277,7 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script, *common.PlutusV1Script:
+		case common.PlutusV1Script:
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
@@ -307,12 +306,17 @@ func UtxoValidateFeeTooSmallUtxo(
 	if err != nil {
 		return err
 	}
-	if tx.Fee() >= minFee {
+	minFeeBig := new(big.Int).SetUint64(minFee)
+	fee := tx.Fee()
+	if fee == nil {
+		fee = new(big.Int)
+	}
+	if fee.Cmp(minFeeBig) >= 0 {
 		return nil
 	}
 	return shelley.FeeTooSmallUtxoError{
-		Provided: tx.Fee(),
-		Min:      minFee,
+		Provided: fee,
+		Min:      minFeeBig,
 	}
 }
 
@@ -334,21 +338,37 @@ func UtxoValidateInsufficientCollateral(
 	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
 		return nil
 	}
-	var totalCollateral uint64
+	totalCollateral := new(big.Int)
 	for _, collateralInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
 		}
-		totalCollateral += utxo.Output.Amount()
+		if amount := utxo.Output.Amount(); amount != nil {
+			totalCollateral.Add(totalCollateral, amount)
+		}
 	}
-	minCollateral := tmpTx.Fee() * uint64(tmpPparams.CollateralPercentage) / 100
-	if totalCollateral >= minCollateral {
+	// minCollateral = fee * collateralPercentage / 100
+	fee := tmpTx.Fee()
+	if fee == nil {
+		fee = new(big.Int)
+	}
+	minCollateral := new(big.Int).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
+	minCollateral.Div(minCollateral, big.NewInt(100))
+	if totalCollateral.Cmp(minCollateral) >= 0 {
 		return nil
 	}
+	// Convert to uint64 for error struct (best effort)
+	var providedU, requiredU uint64
+	if totalCollateral.IsUint64() {
+		providedU = totalCollateral.Uint64()
+	}
+	if minCollateral.IsUint64() {
+		requiredU = minCollateral.Uint64()
+	}
 	return alonzo.InsufficientCollateralError{
-		Provided: totalCollateral,
-		Required: minCollateral,
+		Provided: providedU,
+		Required: requiredU,
 	}
 }
 
@@ -367,14 +387,16 @@ func UtxoValidateCollateralContainsNonAda(
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
-	var totalCollateral uint64
+	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
 		}
-		totalCollateral += utxo.Output.Amount()
+		if amount := utxo.Output.Amount(); amount != nil {
+			totalCollateral.Add(totalCollateral, amount)
+		}
 		totalAssets.Add(utxo.Output.Assets())
 		if utxo.Output.Assets() == nil ||
 			len(utxo.Output.Assets().Policies()) == 0 {
@@ -393,8 +415,12 @@ func UtxoValidateCollateralContainsNonAda(
 			return nil
 		}
 	}
+	var providedU uint64
+	if totalCollateral.IsUint64() {
+		providedU = totalCollateral.Uint64()
+	}
 	return alonzo.CollateralContainsNonAdaError{
-		Provided: totalCollateral,
+		Provided: providedU,
 	}
 }
 
@@ -406,37 +432,48 @@ func UtxoValidateCollateralEqBalance(
 	pp common.ProtocolParameters,
 ) error {
 	totalCollateral := tx.TotalCollateral()
-	if totalCollateral == 0 {
+	if totalCollateral == nil || totalCollateral.Sign() == 0 {
 		return nil
 	}
 	// Collect collateral input amounts
-	var collBalance uint64
+	collBalance := new(big.Int)
 	for _, collInput := range tx.Collateral() {
 		utxo, err := ls.UtxoById(collInput)
 		if err != nil {
 			continue
 		}
-		collBalance += utxo.Output.Amount()
+		if amount := utxo.Output.Amount(); amount != nil {
+			collBalance.Add(collBalance, amount)
+		}
 	}
 
 	// Skip validation if no valid collateral UTxOs were found
 	// This avoids subtracting from zero and prevents uint underflow
-	if collBalance == 0 {
+	if collBalance.Sign() == 0 {
 		return nil
 	}
 
 	// Subtract collateral return amount with underflow protection
 	collReturn := tx.CollateralReturn()
-	if collReturn != nil && collBalance >= collReturn.Amount() {
-		collBalance -= collReturn.Amount()
+	if collReturn != nil {
+		if returnAmount := collReturn.Amount(); returnAmount != nil && collBalance.Cmp(returnAmount) >= 0 {
+			collBalance.Sub(collBalance, returnAmount)
+		}
 	}
 
-	if totalCollateral == collBalance {
+	if totalCollateral.Cmp(collBalance) == 0 {
 		return nil
 	}
+	var providedU, totalCollU uint64
+	if collBalance.IsUint64() {
+		providedU = collBalance.Uint64()
+	}
+	if totalCollateral.IsUint64() {
+		totalCollU = totalCollateral.Uint64()
+	}
 	return IncorrectTotalCollateralFieldError{
-		Provided:        collBalance,
-		TotalCollateral: totalCollateral,
+		Provided:        providedU,
+		TotalCollateral: totalCollU,
 	}
 }
 
@@ -491,31 +528,39 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds
-	var consumedValue uint64
+	consumedValue := new(big.Int)
 	for _, tmpInput := range tx.Inputs() {
 		tmpUtxo, err := ls.UtxoById(tmpInput)
 		// Ignore errors fetching the UTxO and exclude it from calculations
 		if err != nil {
 			continue
 		}
-		consumedValue += tmpUtxo.Output.Amount()
+		if amount := tmpUtxo.Output.Amount(); amount != nil {
+			consumedValue.Add(consumedValue, amount)
+		}
 	}
 	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
-		consumedValue += tmpWithdrawalAmount
+		if tmpWithdrawalAmount != nil {
+			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
+		}
 	}
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
-	var producedValue uint64
+	producedValue := new(big.Int)
 	for _, tmpOutput := range tx.Outputs() {
-		producedValue += tmpOutput.Amount()
+		if amount := tmpOutput.Amount(); amount != nil {
+			producedValue.Add(producedValue, amount)
+		}
 	}
-	producedValue += tx.Fee()
+	if fee := tx.Fee(); fee != nil {
+		producedValue.Add(producedValue, fee)
+	}
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -524,13 +569,13 @@ func UtxoValidateValueNotConservedUtxo(
 				return err
 			}
 			if reg == nil {
-				producedValue += uint64(tmpPparams.PoolDeposit)
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
-	if consumedValue != producedValue {
+	if consumedValue.Cmp(producedValue) != 0 {
 		return shelley.ValueNotConservedUtxoError{
 			Consumed: consumedValue,
 			Produced: producedValue,
@@ -629,28 +674,10 @@ func UtxoValidateValueNotConservedUtxo(
 			produced = new(big.Int)
 		}
 		if consumed.Cmp(produced) != 0 {
-			// For error reporting, convert to uint64 if possible
-			var consumedU, producedU uint64
-			if consumed.IsUint64() {
-				consumedU = consumed.Uint64()
+			return shelley.ValueNotConservedUtxoError{
+				Consumed: consumed,
+				Produced: produced,
 			}
-			if produced.IsUint64() {
-				producedU = produced.Uint64()
-			}
-			// Wrap with context if values don't fit in uint64
-			baseErr := shelley.ValueNotConservedUtxoError{
-				Consumed: consumedU,
-				Produced: producedU,
-			}
-			if !consumed.IsUint64() || !produced.IsUint64() {
-				return fmt.Errorf(
-					"multi-asset value not conserved: consumed %s, produced %s: %w",
-					consumed.String(),
-					produced.String(),
-					baseErr,
-				)
-			}
-			return baseErr
 		}
 	}
 
@@ -669,7 +696,12 @@ func UtxoValidateOutputTooSmallUtxo(
 		if err != nil {
 			return err
 		}
-		if tmpOutput.Amount() < minCoin {
+		minCoinBig := new(big.Int).SetUint64(minCoin)
+		amount := tmpOutput.Amount()
+		if amount == nil {
+			amount = new(big.Int)
+		}
+		if amount.Cmp(minCoinBig) < 0 {
 			badOutputs = append(badOutputs, tmpOutput)
 		}
 	}

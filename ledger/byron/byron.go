@@ -193,11 +193,11 @@ func (t *ByronTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (t *ByronTransactionBody) Fee() uint64 {
+func (t *ByronTransactionBody) Fee() *big.Int {
 	// The fee is implicit in Byron, and we don't have enough information here to calculate it.
 	// You need to know the Lovelace in the inputs to determine the fee, and that information is
 	// not provided directly in the TX
-	return 0
+	return big.NewInt(0)
 }
 
 func (t *ByronTransactionBody) TTL() uint64 {
@@ -225,9 +225,9 @@ func (t *ByronTransactionBody) CollateralReturn() common.TransactionOutput {
 	return nil
 }
 
-func (t *ByronTransactionBody) TotalCollateral() uint64 {
+func (t *ByronTransactionBody) TotalCollateral() *big.Int {
 	// No collateral in Byron
-	return 0
+	return nil
 }
 
 func (t *ByronTransactionBody) Certificates() []common.Certificate {
@@ -235,7 +235,7 @@ func (t *ByronTransactionBody) Certificates() []common.Certificate {
 	return nil
 }
 
-func (t *ByronTransactionBody) Withdrawals() map[*common.Address]uint64 {
+func (t *ByronTransactionBody) Withdrawals() map[*common.Address]*big.Int {
 	// No withdrawals in Byron
 	return nil
 }
@@ -270,14 +270,14 @@ func (t *ByronTransactionBody) ProposalProcedures() []common.ProposalProcedure {
 	return nil
 }
 
-func (t *ByronTransactionBody) CurrentTreasuryValue() int64 {
+func (t *ByronTransactionBody) CurrentTreasuryValue() *big.Int {
 	// No current treasury value in Byron
-	return 0
+	return nil
 }
 
-func (t *ByronTransactionBody) Donation() uint64 {
+func (t *ByronTransactionBody) Donation() *big.Int {
 	// No donation in Byron
-	return 0
+	return nil
 }
 
 func (t *ByronTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
@@ -383,7 +383,7 @@ func (t *ByronTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t *ByronTransaction) Fee() uint64 {
+func (t *ByronTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -407,7 +407,7 @@ func (t *ByronTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t *ByronTransaction) TotalCollateral() uint64 {
+func (t *ByronTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -415,7 +415,7 @@ func (t *ByronTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t *ByronTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t *ByronTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -443,11 +443,11 @@ func (t *ByronTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t *ByronTransaction) CurrentTreasuryValue() int64 {
+func (t *ByronTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t *ByronTransaction) Donation() uint64 {
+func (t *ByronTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -826,8 +826,8 @@ func (o ByronTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o ByronTransactionOutput) Amount() uint64 {
-	return o.OutputAmount
+func (o ByronTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount)
 }
 
 func (o ByronTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -849,7 +849,7 @@ func (o ByronTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 		},
 		nil
 }

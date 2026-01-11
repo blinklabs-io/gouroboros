@@ -171,11 +171,11 @@ func TestAllegraTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Check that the fee matches
-	if actual.Fee.GetInt() != int64(txBody.Fee()) {
+	if actual.Fee.GetInt() != txBody.Fee().Int64() {
 		t.Errorf(
 			"AllegraTransactionBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
 			actual.Fee.GetInt(),
-			txBody.Fee(),
+			txBody.Fee().Int64(),
 		)
 	}
 	// Check number of inputs
@@ -233,11 +233,11 @@ func TestAllegraTransaction_Utxorpc(t *testing.T) {
 		t.Fatalf("Could not convert transaction to utxorpc format: %v", err)
 	}
 	// Assertion checks
-	if actual.Fee.GetInt() != int64(tx.Fee()) {
+	if actual.Fee.GetInt() != tx.Fee().Int64() {
 		t.Errorf(
 			"AllegraTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
 			actual.Fee.GetInt(),
-			tx.Fee(),
+			tx.Fee().Int64(),
 		)
 	}
 

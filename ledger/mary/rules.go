@@ -16,7 +16,6 @@ package mary
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -112,12 +111,17 @@ func UtxoValidateFeeTooSmallUtxo(
 	if err != nil {
 		return err
 	}
-	if tx.Fee() >= minFee {
+	minFeeBigInt := new(big.Int).SetUint64(minFee)
+	fee := tx.Fee()
+	if fee == nil {
+		fee = new(big.Int)
+	}
+	if fee.Cmp(minFeeBigInt) >= 0 {
 		return nil
 	}
 	return shelley.FeeTooSmallUtxoError{
-		Provided: tx.Fee(),
-		Min:      minFee,
+		Provided: fee,
+		Min:      minFeeBigInt,
 	}
 }
 
@@ -160,31 +164,39 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds
-	var consumedValue uint64
+	consumedValue := new(big.Int)
 	for _, tmpInput := range tx.Inputs() {
 		tmpUtxo, err := ls.UtxoById(tmpInput)
 		// Ignore errors fetching the UTxO and exclude it from calculations
 		if err != nil {
 			continue
 		}
-		consumedValue += tmpUtxo.Output.Amount()
+		if amount := tmpUtxo.Output.Amount(); amount != nil {
+			consumedValue.Add(consumedValue, amount)
+		}
 	}
 	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
-		consumedValue += tmpWithdrawalAmount
+		if tmpWithdrawalAmount != nil {
+			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
+		}
 	}
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
-	var producedValue uint64
+	producedValue := new(big.Int)
 	for _, tmpOutput := range tx.Outputs() {
-		producedValue += tmpOutput.Amount()
+		if amount := tmpOutput.Amount(); amount != nil {
+			producedValue.Add(producedValue, amount)
+		}
 	}
-	producedValue += tx.Fee()
+	if fee := tx.Fee(); fee != nil {
+		producedValue.Add(producedValue, fee)
+	}
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -193,13 +205,13 @@ func UtxoValidateValueNotConservedUtxo(
 				return err
 			}
 			if reg == nil {
-				producedValue += uint64(tmpPparams.PoolDeposit)
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
-	if consumedValue != producedValue {
+	if consumedValue.Cmp(producedValue) != 0 {
 		return shelley.ValueNotConservedUtxoError{
 			Consumed: consumedValue,
 			Produced: producedValue,
@@ -298,28 +310,10 @@ func UtxoValidateValueNotConservedUtxo(
 			produced = new(big.Int)
 		}
 		if consumed.Cmp(produced) != 0 {
-			// For error reporting, convert to uint64 if possible
-			var consumedU, producedU uint64
-			if consumed.IsUint64() {
-				consumedU = consumed.Uint64()
+			return shelley.ValueNotConservedUtxoError{
+				Consumed: consumed,
+				Produced: produced,
 			}
-			if produced.IsUint64() {
-				producedU = produced.Uint64()
-			}
-			// Wrap with context if values don't fit in uint64
-			baseErr := shelley.ValueNotConservedUtxoError{
-				Consumed: consumedU,
-				Produced: producedU,
-			}
-			if !consumed.IsUint64() || !produced.IsUint64() {
-				return fmt.Errorf(
-					"multi-asset value not conserved: consumed %s, produced %s: %w",
-					consumed.String(),
-					produced.String(),
-					baseErr,
-				)
-			}
-			return baseErr
 		}
 	}
 
@@ -336,9 +330,14 @@ func UtxoValidateOutputTooSmallUtxo(
 	if err != nil {
 		return err
 	}
+	minCoinBigInt := new(big.Int).SetUint64(minCoin)
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
-		if tmpOutput.Amount() < minCoin {
+		amount := tmpOutput.Amount()
+		if amount == nil {
+			amount = new(big.Int)
+		}
+		if amount.Cmp(minCoinBigInt) < 0 {
 			badOutputs = append(badOutputs, tmpOutput)
 		}
 	}

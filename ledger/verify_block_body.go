@@ -320,9 +320,13 @@ func GetBlockOutput(
 func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 	var outputTokens []UTXOOutputToken
 	// append lovelace first
+	tokenValue := "0"
+	if output.Amount() != nil {
+		tokenValue = output.Amount().String()
+	}
 	outputTokens = append(outputTokens, UTXOOutputToken{
 		TokenAssetName: LOVELACE_TOKEN,
-		TokenValue:     strconv.FormatUint(output.Amount(), 10),
+		TokenValue:     tokenValue,
 	})
 	if output.Assets() != nil {
 		tmpAssets := output.Assets()

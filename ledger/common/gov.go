@@ -174,7 +174,7 @@ func (v Voter) ToPlutusData() data.PlutusData {
 	case VoterTypeStakingPoolKeyHash:
 		return data.NewConstr(2, data.NewByteString(v.Hash[:]))
 	default:
-		return nil
+		panic(fmt.Sprintf("unsupported voter type: %d", v.Type))
 	}
 }
 
@@ -195,7 +195,7 @@ func (v Vote) ToPlutusData() data.PlutusData {
 	case Vote(GovVoteAbstain):
 		return data.NewConstr(2)
 	default:
-		return nil
+		panic(fmt.Sprintf("unsupported vote type: %d", v))
 	}
 }
 

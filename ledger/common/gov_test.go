@@ -88,9 +88,10 @@ func TestVoterToPlutusData(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name         string
-		voter        Voter
-		expectedData data.PlutusData
+		name          string
+		voter         Voter
+		expectedData  data.PlutusData
+		expectedPanic string
 	}{
 		{
 			name: "ConstitutionalCommitteeHotScriptHash",
@@ -150,20 +151,38 @@ func TestVoterToPlutusData(t *testing.T) {
 				Type: 255, // Unknown type
 				Hash: [28]byte{},
 			},
-			expectedData: nil,
+			expectedData:  nil,
+			expectedPanic: "unsupported voter type: 255",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.voter.ToPlutusData()
-			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf(
-					"ToPlutusData() = %#v, want %#v",
-					result,
-					tc.expectedData,
-				)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if tc.expectedPanic == "" {
+							t.Fatalf("unexpected panic: %v", r)
+						} else {
+							if r != tc.expectedPanic {
+								t.Errorf("did not get expected panic: got %v, wanted %s", r, tc.expectedPanic)
+							}
+						}
+					}
+				}()
+				result := tc.voter.ToPlutusData()
+				if tc.expectedPanic != "" {
+					t.Errorf("did not panic as expected")
+					return
+				}
+				if !reflect.DeepEqual(result, tc.expectedData) {
+					t.Errorf(
+						"ToPlutusData() = %#v, want %#v",
+						result,
+						tc.expectedData,
+					)
+				}
+			}()
 		})
 	}
 }
@@ -235,9 +254,10 @@ func TestVoterString(t *testing.T) {
 // Tests the ToPlutusData method for Vote types
 func TestVoteToPlutusData(t *testing.T) {
 	testCases := []struct {
-		name         string
-		vote         Vote
-		expectedData data.PlutusData
+		name          string
+		vote          Vote
+		expectedData  data.PlutusData
+		expectedPanic string
 	}{
 		{
 			name:         "No",
@@ -255,22 +275,40 @@ func TestVoteToPlutusData(t *testing.T) {
 			expectedData: data.NewConstr(2),
 		},
 		{
-			name:         "Unknown",
-			vote:         Vote(255), // Unknown vote
-			expectedData: nil,
+			name:          "Unknown",
+			vote:          Vote(255), // Unknown vote
+			expectedData:  nil,
+			expectedPanic: "unsupported vote type: 255",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.vote.ToPlutusData()
-			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf(
-					"ToPlutusData() = %#v, want %#v",
-					result,
-					tc.expectedData,
-				)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if tc.expectedPanic == "" {
+							t.Fatalf("unexpected panic: %v", r)
+						} else {
+							if r != tc.expectedPanic {
+								t.Errorf("did not get expected panic: got %v, wanted %s", r, tc.expectedPanic)
+							}
+						}
+					}
+				}()
+				result := tc.vote.ToPlutusData()
+				if tc.expectedPanic != "" {
+					t.Errorf("did not panic as expected")
+					return
+				}
+				if !reflect.DeepEqual(result, tc.expectedData) {
+					t.Errorf(
+						"ToPlutusData() = %#v, want %#v",
+						result,
+						tc.expectedData,
+					)
+				}
+			}()
 		})
 	}
 }
@@ -278,9 +316,10 @@ func TestVoteToPlutusData(t *testing.T) {
 // Tests the ToPlutusData method for VotingProcedure types
 func TestVotingProcedureToPlutusData(t *testing.T) {
 	testCases := []struct {
-		name         string
-		procedure    VotingProcedure
-		expectedData data.PlutusData
+		name          string
+		procedure     VotingProcedure
+		expectedData  data.PlutusData
+		expectedPanic string
 	}{
 		{
 			name: "NoVote",
@@ -308,20 +347,38 @@ func TestVotingProcedureToPlutusData(t *testing.T) {
 			procedure: VotingProcedure{
 				Vote: 255, // Unknown vote
 			},
-			expectedData: nil,
+			expectedData:  nil,
+			expectedPanic: "unsupported vote type: 255",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.procedure.ToPlutusData()
-			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf(
-					"ToPlutusData() = %#v, want %#v",
-					result,
-					tc.expectedData,
-				)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if tc.expectedPanic == "" {
+							t.Fatalf("unexpected panic: %v", r)
+						} else {
+							if r != tc.expectedPanic {
+								t.Errorf("did not get expected panic: got %v, wanted %s", r, tc.expectedPanic)
+							}
+						}
+					}
+				}()
+				result := tc.procedure.ToPlutusData()
+				if tc.expectedPanic != "" {
+					t.Errorf("did not panic as expected")
+					return
+				}
+				if !reflect.DeepEqual(result, tc.expectedData) {
+					t.Errorf(
+						"ToPlutusData() = %#v, want %#v",
+						result,
+						tc.expectedData,
+					)
+				}
+			}()
 		})
 	}
 }
