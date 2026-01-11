@@ -80,7 +80,11 @@ func buildTxInfoV1(
 		)
 	}
 	// Build TxInfo
-	txInfo, err := script.NewTxInfoV1FromTransaction(slotState, tx, resolvedInputs)
+	txInfo, err := script.NewTxInfoV1FromTransaction(
+		slotState,
+		tx,
+		resolvedInputs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +139,11 @@ func buildTxInfoV2(
 		)
 	}
 	// Build TxInfo
-	txInfo, err := script.NewTxInfoV2FromTransaction(slotState, tx, resolvedInputs)
+	txInfo, err := script.NewTxInfoV2FromTransaction(
+		slotState,
+		tx,
+		resolvedInputs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +198,11 @@ func buildTxInfoV3(
 		)
 	}
 	// Build TxInfo
-	txInfo, err := script.NewTxInfoV3FromTransaction(slotState, tx, resolvedInputs)
+	txInfo, err := script.NewTxInfoV3FromTransaction(
+		slotState,
+		tx,
+		resolvedInputs,
+	)
 	if err != nil {
 		return nil, err
 	}

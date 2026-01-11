@@ -24,6 +24,7 @@ import (
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
 	UtxoValidateRequiredVKeyWitnesses,
+	UtxoValidateSignatures,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -34,6 +35,9 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputBootAddrAttrsTooBig,
 	UtxoValidateMaxTxSizeUtxo,
+	UtxoValidateNativeScripts,
+	UtxoValidateDelegation,
+	UtxoValidateWithdrawals,
 }
 
 func UtxoValidateRequiredVKeyWitnesses(
@@ -186,4 +190,75 @@ func UtxoValidateMetadata(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+}
+
+func UtxoValidateDelegation(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateDelegation(tx, slot, ls, pp)
+}
+
+// UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
+func UtxoValidateSignatures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateSignatures(tx, slot, ls, pp)
+}
+
+// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+func UtxoValidateNativeScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	witnesses := tx.Witnesses()
+	if witnesses == nil {
+		return nil
+	}
+
+	nativeScripts := witnesses.NativeScripts()
+	if len(nativeScripts) == 0 {
+		return nil
+	}
+
+	// Collect key hashes from VKey witnesses
+	keyHashes := make(map[common.Blake2b224]bool)
+	for _, vkw := range witnesses.Vkey() {
+		keyHash := common.Blake2b224Hash(vkw.Vkey)
+		keyHashes[keyHash] = true
+	}
+
+	// Get transaction validity interval
+	validityStart := tx.ValidityIntervalStart()
+	validityEnd := tx.TTL()
+	if validityEnd == 0 {
+		validityEnd = ^uint64(0) // Max uint64 if not set
+	}
+
+	// Evaluate each native script
+	for _, nscript := range nativeScripts {
+		scriptHash := nscript.Hash()
+		if !nscript.Evaluate(slot, validityStart, validityEnd, keyHashes) {
+			return NativeScriptFailedError{ScriptHash: scriptHash}
+		}
+	}
+
+	return nil
+}
+
+// UtxoValidateWithdrawals validates withdrawals against ledger state.
+func UtxoValidateWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
 }

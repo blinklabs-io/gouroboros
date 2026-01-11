@@ -66,3 +66,15 @@ type (
 	MissingCostModelError                    = common.MissingCostModelError
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
 )
+
+// NonDisjointRefInputsError indicates reference inputs overlap with regular inputs
+type NonDisjointRefInputsError struct {
+	Inputs []common.TransactionInput
+}
+
+func (e NonDisjointRefInputsError) Error() string {
+	return fmt.Sprintf(
+		"non-disjoint reference inputs: %d common inputs",
+		len(e.Inputs),
+	)
+}

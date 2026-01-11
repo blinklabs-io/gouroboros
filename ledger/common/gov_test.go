@@ -212,7 +212,7 @@ func TestVoterString(t *testing.T) {
 				Type: VoterTypeConstitutionalCommitteeHotScriptHash,
 				Hash: zeroHash,
 			},
-			want: "cc_hot1qvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv2arke",
+			want: "cc_hot1zvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9zprpe",
 		},
 		{
 			name: "CIP129DRepKeyHash",
@@ -228,7 +228,7 @@ func TestVoterString(t *testing.T) {
 				Type: VoterTypeDRepScriptHash,
 				Hash: zeroHash,
 			},
-			want: "drep1yvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq770f95",
+			want: "drep1xvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqhknfj5",
 		},
 		{
 			name: "StakingPoolKeyHash",
@@ -551,10 +551,40 @@ func TestGovActionIdString(t *testing.T) {
 		{
 			name: "MaxValidActionIdx",
 			govActionId: GovActionId{
-				TransactionId: [32]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-					0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-					0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-					0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+				TransactionId: [32]byte{
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+				},
 				GovActionIdx: 255,
 			},
 			wantPrefix: "gov_action",
@@ -564,8 +594,17 @@ func TestGovActionIdString(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.govActionId.String()
-			assert.True(t, len(result) > len(tc.wantPrefix), "result should be longer than prefix")
-			assert.Equal(t, tc.wantPrefix+"1", result[:len(tc.wantPrefix)+1], "should have correct prefix")
+			assert.True(
+				t,
+				len(result) > len(tc.wantPrefix),
+				"result should be longer than prefix",
+			)
+			assert.Equal(
+				t,
+				tc.wantPrefix+"1",
+				result[:len(tc.wantPrefix)+1],
+				"should have correct prefix",
+			)
 		})
 	}
 

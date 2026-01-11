@@ -110,7 +110,11 @@ func (e ValueNotConservedUtxoError) Error() string {
 	if e.Produced != nil {
 		produced = e.Produced.String()
 	}
-	return fmt.Sprintf("value not conserved: consumed %s, produced %s", consumed, produced)
+	return fmt.Sprintf(
+		"value not conserved: consumed %s, produced %s",
+		consumed,
+		produced,
+	)
 }
 
 type OutputTooSmallUtxoError struct {
@@ -177,3 +181,33 @@ type (
 type MissingVKeyWitnessesError = common.MissingVKeyWitnessesError
 
 type MissingRequiredVKeyWitnessForSignerError = common.MissingRequiredVKeyWitnessForSignerError
+
+// DelegateToUnregisteredPoolError indicates delegation to a pool that is not registered
+type DelegateToUnregisteredPoolError struct {
+	PoolKeyHash common.PoolKeyHash
+}
+
+func (e DelegateToUnregisteredPoolError) Error() string {
+	return fmt.Sprintf("delegation to unregistered pool: %x", e.PoolKeyHash[:])
+}
+
+// DelegateUnregisteredStakeCredentialError indicates delegation from an unregistered stake credential
+type DelegateUnregisteredStakeCredentialError struct {
+	Credential common.Credential
+}
+
+func (e DelegateUnregisteredStakeCredentialError) Error() string {
+	return fmt.Sprintf(
+		"delegation from unregistered stake credential: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
+type WithdrawalFromUnregisteredRewardAccountError struct {
+	RewardAddress common.Address
+}
+
+func (e WithdrawalFromUnregisteredRewardAccountError) Error() string {
+	return "withdrawal from unregistered reward account: " + e.RewardAddress.String()
+}

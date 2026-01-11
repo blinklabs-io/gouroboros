@@ -98,7 +98,9 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 				originalOutput := originalUtxo.Output.(*shelley.ShelleyTransactionOutput)
 
 				// Check the amount using the interface method
-				originalAmount := new(big.Int).SetUint64(originalOutput.OutputAmount)
+				originalAmount := new(
+					big.Int,
+				).SetUint64(originalOutput.OutputAmount)
 				if decodedUtxo.Output.Amount().Cmp(originalAmount) != 0 {
 					t.Errorf(
 						"UTxO %d: Amount mismatch - expected %s, got %s",

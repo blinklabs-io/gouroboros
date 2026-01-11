@@ -274,7 +274,12 @@ func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
 	// Verify byte-identical round-trip
 	reEncoded, err := cbor.Encode(&decoded)
 	assert.NoError(t, err)
-	assert.Equal(t, cborData, reEncoded, "CBOR round-trip should be byte-identical")
+	assert.Equal(
+		t,
+		cborData,
+		reEncoded,
+		"CBOR round-trip should be byte-identical",
+	)
 }
 
 func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
@@ -338,5 +343,10 @@ func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
 	// Verify byte-identical round-trip
 	reEncoded, err := cbor.Encode(&decoded)
 	assert.NoError(t, err)
-	assert.Equal(t, cborData, reEncoded, "CBOR round-trip should be byte-identical")
+	assert.Equal(
+		t,
+		cborData,
+		reEncoded,
+		"CBOR round-trip should be byte-identical",
+	)
 }

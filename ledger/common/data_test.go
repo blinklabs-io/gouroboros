@@ -176,7 +176,11 @@ func TestDatumHashToBech32(t *testing.T) {
 				t.Errorf("result too short: got %s", result)
 			}
 			if result[:len(tc.wantPrefix)] != tc.wantPrefix {
-				t.Errorf("wrong prefix: got %s, want prefix %s", result, tc.wantPrefix)
+				t.Errorf(
+					"wrong prefix: got %s, want prefix %s",
+					result,
+					tc.wantPrefix,
+				)
 			}
 		})
 	}
@@ -185,7 +189,9 @@ func TestDatumHashToBech32(t *testing.T) {
 // TestDatumHashBech32Specific tests specific expected bech32 encoded values.
 func TestDatumHashBech32Specific(t *testing.T) {
 	// Known datum hash from above test
-	hashBytes, _ := hex.DecodeString("4dfec91f63f946d7c91af0041e5d92a45531790a4a104637dd8691f46fdce842")
+	hashBytes, _ := hex.DecodeString(
+		"4dfec91f63f946d7c91af0041e5d92a45531790a4a104637dd8691f46fdce842",
+	)
 	var hash common.DatumHash
 	copy(hash[:], hashBytes)
 

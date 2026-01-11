@@ -346,8 +346,17 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		// Check if governance action has a policy script
 		if actionWithPolicy, ok := govAction.(GovActionWithPolicy); ok {
 			policyHash := actionWithPolicy.GetPolicyHash()
-			if len(policyHash) > 0 {
-				requiredScriptHashes[ScriptHash(policyHash)] = true
+			if len(policyHash) == Blake2b224Size {
+				var hash ScriptHash
+				copy(hash[:], policyHash)
+				requiredScriptHashes[hash] = true
+			} else if len(policyHash) != 0 {
+				// Non-empty but invalid length - fail fast to surface upstream bugs
+				return fmt.Errorf(
+					"malformed governance policy hash: got %d bytes, want %d",
+					len(policyHash),
+					Blake2b224Size,
+				)
 			}
 		}
 	}

@@ -40,6 +40,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateCollateralContainsNonAda,
 	UtxoValidateNoCollateralInputs,
 	UtxoValidateBadInputsUtxo,
+	UtxoValidateScriptWitnesses,
 	UtxoValidateValueNotConservedUtxo,
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputTooBigUtxo,
@@ -48,6 +49,9 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateWrongNetworkWithdrawal,
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateExUnitsTooBigUtxo,
+	UtxoValidateNativeScripts,
+	UtxoValidateDelegation,
+	UtxoValidateWithdrawals,
 }
 
 // UtxoValidateOutputTooBigUtxo ensures that transaction output values are not too large
@@ -285,6 +289,9 @@ func UtxoValidateInsufficientCollateral(
 		if err != nil {
 			return err
 		}
+		if utxo.Output == nil {
+			continue
+		}
 		if amount := utxo.Output.Amount(); amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
@@ -334,6 +341,9 @@ func UtxoValidateCollateralContainsNonAda(
 		utxo, err := ls.UtxoById(collateralInput)
 		if err != nil {
 			return err
+		}
+		if utxo.Output == nil {
+			continue
 		}
 		if amount := utxo.Output.Amount(); amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
@@ -685,4 +695,43 @@ func UtxoValidateMetadata(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateMetadata(tx, slot, ls, pp)
+}
+
+func UtxoValidateDelegation(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateDelegation(tx, slot, ls, pp)
+}
+
+// UtxoValidateScriptWitnesses checks that script witnesses are provided for all script address inputs.
+func UtxoValidateScriptWitnesses(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateScriptWitnesses(tx, ls)
+}
+
+// UtxoValidateNativeScripts evaluates native scripts in the transaction.
+func UtxoValidateNativeScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return mary.UtxoValidateNativeScripts(tx, slot, ls, pp)
+}
+
+// UtxoValidateWithdrawals validates withdrawals against ledger state.
+func UtxoValidateWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
 }

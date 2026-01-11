@@ -289,7 +289,10 @@ func decodeTxRefMap(data []byte) ([]TxReference, error) {
 		}
 		// Read key (32-byte bytestring)
 		if data[pos]>>5 != 2 {
-			return nil, fmt.Errorf("expected bytestring, got major type %d", data[pos]>>5)
+			return nil, fmt.Errorf(
+				"expected bytestring, got major type %d",
+				data[pos]>>5,
+			)
 		}
 		keyLen, n := readCborUint(data[pos:])
 		if n == 0 {
@@ -308,11 +311,16 @@ func decodeTxRefMap(data []byte) ([]TxReference, error) {
 		pos += 32
 		// Bounds check before reading value header
 		if pos >= len(data) {
-			return nil, errors.New("unexpected end of data reading value header")
+			return nil, errors.New(
+				"unexpected end of data reading value header",
+			)
 		}
 		// Read value (uint)
 		if data[pos]>>5 != 0 {
-			return nil, fmt.Errorf("expected uint, got major type %d", data[pos]>>5)
+			return nil, fmt.Errorf(
+				"expected uint, got major type %d",
+				data[pos]>>5,
+			)
 		}
 		size, n := readCborUint(data[pos:])
 		if n == 0 {

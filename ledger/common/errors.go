@@ -71,3 +71,36 @@ func (e InlineDatumsNotSupportedError) Error() string {
 		e.PlutusVersion,
 	)
 }
+
+// MissingScriptDataHashError indicates the transaction is missing a required ScriptDataHash
+type MissingScriptDataHashError struct{}
+
+func (MissingScriptDataHashError) Error() string {
+	return "transaction requires a script data hash but none was provided"
+}
+
+// Sentinel error for missing script data hash so callers can use errors.Is
+var ErrMissingScriptDataHash = errors.New("missing script data hash")
+
+func (MissingScriptDataHashError) Is(target error) bool {
+	return target == ErrMissingScriptDataHash
+}
+
+// ExtraneousScriptDataHashError indicates the transaction has a ScriptDataHash when none is needed
+type ExtraneousScriptDataHashError struct {
+	Provided Blake2b256
+}
+
+func (e ExtraneousScriptDataHashError) Error() string {
+	return fmt.Sprintf(
+		"transaction has script data hash %x but no Plutus scripts require it",
+		e.Provided[:],
+	)
+}
+
+// Sentinel error for extraneous script data hash so callers can use errors.Is
+var ErrExtraneousScriptDataHash = errors.New("extraneous script data hash")
+
+func (ExtraneousScriptDataHashError) Is(target error) bool {
+	return target == ErrExtraneousScriptDataHash
+}

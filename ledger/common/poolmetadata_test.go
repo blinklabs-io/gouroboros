@@ -104,5 +104,10 @@ func TestPoolMetadataCbor(t *testing.T) {
 	// Re-encode and verify byte-identical round-trip
 	reEncodedData, err := cbor.Encode(&decoded)
 	assert.NoError(t, err)
-	assert.Equal(t, cborData, reEncodedData, "CBOR round-trip should be byte-identical")
+	assert.Equal(
+		t,
+		cborData,
+		reEncodedData,
+		"CBOR round-trip should be byte-identical",
+	)
 }
