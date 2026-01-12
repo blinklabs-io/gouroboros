@@ -305,13 +305,12 @@ func (c *Client) GetEpochNo() (int, error) {
 	return result[0], nil
 }
 
-// TODO (#860)
-/*
-query	[2 #6.258([*[0 int]])	int is the stake the user intends to delegate, the array must be sorted
-*/
-func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, error) {
+// GetNonMyopicMemberRewards returns the non-myopic member rewards for the given stakes
+// stakes should be an array of [tag, stake_amount] pairs where tag is 0 for KeyHash credentials
+// The array must be sorted by stake amount
+func (c *Client) GetNonMyopicMemberRewards(stakes []any) (*NonMyopicMemberRewardsResult, error) {
 	c.Protocol.Logger().
-		Debug("calling GetNonMyopicMemberRewards()",
+		Debug(fmt.Sprintf("calling GetNonMyopicMemberRewards(stakes: %+v)", stakes),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "client",
@@ -323,15 +322,22 @@ func (c *Client) GetNonMyopicMemberRewards() (*NonMyopicMemberRewardsResult, err
 	if err != nil {
 		return nil, err
 	}
+	// Wrap the stakes in a CBOR set (tag 258)
+	stakesSet := cbor.NewSetType(stakes, true)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyNonMyopicMemberRewards,
+		stakesSet,
 	)
-	var result NonMyopicMemberRewardsResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The result is wrapped in a single-element array
+	var wrappedResult []NonMyopicMemberRewardsResult
+	if err := c.runQuery(query, &wrappedResult); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(wrappedResult) == 0 {
+		return nil, fmt.Errorf("empty result from non-myopic member rewards query")
+	}
+	return &wrappedResult[0], nil
 }
 
 // GetCurrentProtocolParams returns the set of protocol params that are currently in effect
