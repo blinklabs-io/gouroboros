@@ -289,3 +289,206 @@ func TestGetAvailableBlockRange(t *testing.T) {
 		),
 	)
 }
+
+func TestClientStartStopStart(t *testing.T) {
+	conversation := append(
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		},
+		// Stop() should send Done once started
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeDone,
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			client := oConn.ChainSync().Client
+			// Start should be idempotent
+			client.Start()
+			client.Start()
+			// Stop should work
+			if err := client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
+			}
+			// Start again after stop should work (#597)
+			client.Start()
+		},
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+		// Ensure we control protocol startup in the test.
+		ouroboros.WithDelayProtocolStart(true),
+	)
+}
+
+func TestUseCase_GetCurrentTip_Stop_Start_GetCurrentTip(t *testing.T) {
+	expectedTip1 := chainsync.Tip{
+		BlockNumber: 111,
+		Point: pcommon.NewPoint(
+			222,
+			test.DecodeHexString("0123456789abcdef"),
+		),
+	}
+	expectedTip2 := chainsync.Tip{
+		BlockNumber: 333,
+		Point: pcommon.NewPoint(
+			444,
+			test.DecodeHexString("fedcba9876543210"),
+		),
+	}
+	conversation := []ouroboros_mock.ConversationEntry{
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		// First GetCurrentTip (FindIntersect -> IntersectNotFound(tip))
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeFindIntersect,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectNotFound(expectedTip1),
+			},
+		},
+		// Stop should send Done
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeDone,
+		},
+		// Second GetCurrentTip after restart
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeFindIntersect,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectNotFound(expectedTip2),
+			},
+		},
+	}
+
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			client := oConn.ChainSync().Client
+			// Ensure lifecycle state is running (connection may already auto-start).
+			client.Start()
+
+			tip1, err := client.GetCurrentTip()
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			if !reflect.DeepEqual(tip1, &expectedTip1) {
+				t.Fatalf("did not receive expected tip1\n  got:    %#v\n  wanted: %#v", tip1, &expectedTip1)
+			}
+
+			if err := client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
+			}
+			client.Start()
+
+			tip2, err := client.GetCurrentTip()
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			if !reflect.DeepEqual(tip2, &expectedTip2) {
+				t.Fatalf("did not receive expected tip2\n  got:    %#v\n  wanted: %#v", tip2, &expectedTip2)
+			}
+		},
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+	)
+}
+
+func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
+	expectedTip1 := chainsync.Tip{
+		BlockNumber: 1,
+		Point: pcommon.NewPoint(
+			10,
+			test.DecodeHexString("0102030405060708"),
+		),
+	}
+	expectedTip2 := chainsync.Tip{
+		BlockNumber: 2,
+		Point: pcommon.NewPoint(
+			20,
+			test.DecodeHexString("1112131415161718"),
+		),
+	}
+	expectedTip3 := chainsync.Tip{
+		BlockNumber: 3,
+		Point: pcommon.NewPoint(
+			30,
+			test.DecodeHexString("2122232425262728"),
+		),
+	}
+
+	conversation := []ouroboros_mock.ConversationEntry{
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		// cycle 1
+		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeFindIntersect},
+		ouroboros_mock.ConversationEntryOutput{ProtocolId: chainsync.ProtocolIdNtC, IsResponse: true, Messages: []protocol.Message{chainsync.NewMsgIntersectNotFound(expectedTip1)}},
+		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeDone},
+		// cycle 2
+		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeFindIntersect},
+		ouroboros_mock.ConversationEntryOutput{ProtocolId: chainsync.ProtocolIdNtC, IsResponse: true, Messages: []protocol.Message{chainsync.NewMsgIntersectNotFound(expectedTip2)}},
+		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeDone},
+		// cycle 3
+		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeFindIntersect},
+		ouroboros_mock.ConversationEntryOutput{ProtocolId: chainsync.ProtocolIdNtC, IsResponse: true, Messages: []protocol.Message{chainsync.NewMsgIntersectNotFound(expectedTip3)}},
+	}
+
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			client := oConn.ChainSync().Client
+			client.Start()
+
+			tip1, err := client.GetCurrentTip()
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			if !reflect.DeepEqual(tip1, &expectedTip1) {
+				t.Fatalf("unexpected tip1\n  got:    %#v\n  wanted: %#v", tip1, &expectedTip1)
+			}
+			if err := client.Stop(); err != nil {
+				t.Fatalf("unexpected stop error: %s", err)
+			}
+			client.Start()
+
+			tip2, err := client.GetCurrentTip()
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			if !reflect.DeepEqual(tip2, &expectedTip2) {
+				t.Fatalf("unexpected tip2\n  got:    %#v\n  wanted: %#v", tip2, &expectedTip2)
+			}
+			if err := client.Stop(); err != nil {
+				t.Fatalf("unexpected stop error: %s", err)
+			}
+			client.Start()
+
+			tip3, err := client.GetCurrentTip()
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			if !reflect.DeepEqual(tip3, &expectedTip3) {
+				t.Fatalf("unexpected tip3\n  got:    %#v\n  wanted: %#v", tip3, &expectedTip3)
+			}
+		},
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+	)
+}

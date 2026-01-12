@@ -19,11 +19,21 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+type clientLifecycleState uint8
+
+const (
+	clientStateNew clientLifecycleState = iota
+	clientStateStarting
+	clientStateRunning
+	clientStateStopped
 )
 
 // Client implements the ChainSync client
@@ -32,10 +42,13 @@ type Client struct {
 	config                   *Config
 	callbackContext          CallbackContext
 	busyMutex                sync.Mutex
+	lifecycleMutex           sync.Mutex
+	lifecycleState           clientLifecycleState
+	startingDone             chan struct{}
 	readyForNextBlockChan    chan bool
-	onceStart                sync.Once
-	onceStop                 sync.Once
 	syncPipelinedRequestNext int
+	protoOptions             protocol.ProtocolOptions
+	stateContext             any
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -60,31 +73,42 @@ func NewClient(
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Client {
-	// Use node-to-client protocol ID
-	ProtocolId := ProtocolIdNtC
-	msgFromCborFunc := NewMsgFromCborNtC
-	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
-		// Use node-to-node protocol ID
-		ProtocolId = ProtocolIdNtN
-		msgFromCborFunc = NewMsgFromCborNtN
-	}
 	if cfg == nil {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
 	}
 	c := &Client{
 		config:                cfg,
-		readyForNextBlockChan: make(chan bool),
-
-		waitingForCurrentTipChan: make(chan chan<- Tip, 20),
-		wantCurrentTipChan:       make(chan chan<- Tip, 1),
-		wantFirstBlockChan:       make(chan chan<- clientPointResult, 1),
-		wantIntersectFoundChan:   make(chan chan<- clientPointResult, 1),
+		protoOptions:          protoOptions,
+		stateContext:          stateContext,
+		lifecycleState:        clientStateNew,
+		readyForNextBlockChan: nil,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	c.initProtocol()
+	return c
+}
+
+func (c *Client) initProtocol() {
+	// Use node-to-client protocol ID
+	ProtocolId := ProtocolIdNtC
+	msgFromCborFunc := NewMsgFromCborNtC
+	if c.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		// Use node-to-node protocol ID
+		ProtocolId = ProtocolIdNtN
+		msgFromCborFunc = NewMsgFromCborNtN
+	}
+
+	// Recreate channels
+	c.readyForNextBlockChan = make(chan bool)
+	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
+	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
+	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
+	c.wantIntersectFoundChan = make(chan chan<- clientPointResult, 1)
+
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[stateIntersect]; ok {
@@ -101,59 +125,161 @@ func NewClient(
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               c.protoOptions.Muxer,
+		Logger:              c.protoOptions.Logger,
+		ErrorChan:           c.protoOptions.ErrorChan,
+		Mode:                c.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            stateMap,
-		StateContext:        stateContext,
+		StateContext:        c.stateContext,
 		InitialState:        stateIdle,
 	}
 	if c.config != nil {
 		protoConfig.RecvQueueSize = c.config.RecvQueueSize
 	}
 	c.Protocol = protocol.New(protoConfig)
-	return c
 }
 
 func (c *Client) Start() {
-	c.onceStart.Do(func() {
-		c.Protocol.Logger().
-			Debug("starting client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.readyForNextBlockChan)
-		}()
-	})
+	for {
+		c.lifecycleMutex.Lock()
+
+		switch c.lifecycleState {
+		case clientStateRunning:
+			c.lifecycleMutex.Unlock()
+			return
+
+		case clientStateStarting:
+			// Another goroutine is already starting. Wait for it to complete.
+			ch := c.startingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			// Re-check state after the in-flight start completes
+			continue
+
+		case clientStateStopped, clientStateNew:
+			// We will be the goroutine that performs initialization/start.
+			// Save previous state before transitioning to prevent other goroutines from also starting.
+			prevState := c.lifecycleState
+			c.lifecycleState = clientStateStarting
+			ch := make(chan struct{})
+			c.startingDone = ch
+
+			oldProto := c.Protocol
+			var oldDone <-chan struct{}
+			if prevState == clientStateStopped && oldProto != nil {
+				oldDone = oldProto.DoneChan()
+			}
+			c.lifecycleMutex.Unlock()
+
+			// If we were stopped, ensure the old instance is fully stopped before re-registering.
+			if oldDone != nil {
+				oldProto.Stop()
+				<-oldDone
+			}
+
+			c.lifecycleMutex.Lock()
+			// If we were stopped by someone else while waiting, don't continue.
+			if c.lifecycleState != clientStateStarting {
+				if c.startingDone == ch {
+					close(ch)
+					c.startingDone = nil
+				}
+				c.lifecycleMutex.Unlock()
+				return
+			}
+
+			// Reinitialize protocol when transitioning from stopped->start (or if nil).
+			// This recreates internal channels that may have been closed on Stop().
+			if c.Protocol == nil || prevState == clientStateStopped {
+				c.initProtocol()
+				c.syncPipelinedRequestNext = 0
+			}
+
+			c.Protocol.Logger().
+				Debug("starting client protocol",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
+			c.Protocol.Start()
+			c.lifecycleState = clientStateRunning
+			if c.startingDone == ch {
+				close(ch)
+				c.startingDone = nil
+			}
+			c.lifecycleMutex.Unlock()
+			return
+
+		default:
+			// Should not happen; treat as stopped.
+			c.lifecycleState = clientStateStopped
+			c.lifecycleMutex.Unlock()
+			continue
+		}
+	}
 }
 
-// Stop transitions the protocol to the Done state. No more protocol operations will be possible afterward
+// Stop sends a Done message and transitions the client to the Stopped state.
 func (c *Client) Stop() error {
-	var err error
-	c.onceStop.Do(func() {
-		c.Protocol.Logger().
-			Debug("stopping client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		c.busyMutex.Lock()
-		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+	const busyLockTimeout = 5 * time.Second
+	deadline := time.Now().Add(busyLockTimeout)
+	busyLocked := false
+	for {
+		if c.busyMutex.TryLock() {
+			busyLocked = true
+			break
 		}
-	})
-	return err
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+
+	if c.lifecycleState != clientStateRunning {
+		if busyLocked {
+			c.busyMutex.Unlock()
+		}
+		return nil
+	}
+
+	c.Protocol.Logger().
+		Debug("stopping client protocol",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+
+	var sendErr error
+	msg := NewMsgDone()
+	sendErr = c.SendMessage(msg)
+	_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+	if busyLocked {
+		c.busyMutex.Unlock()
+	}
+
+	// Close readyForNextBlockChan to signal syncLoop to exit
+	if c.readyForNextBlockChan != nil {
+		close(c.readyForNextBlockChan)
+		c.readyForNextBlockChan = nil
+	}
+
+	// Stop/unregister the underlying protocol instance.
+	c.Protocol.Stop()
+	c.lifecycleState = clientStateStopped
+	// Unblock any goroutine waiting for an in-progress start.
+	if c.startingDone != nil {
+		close(c.startingDone)
+		c.startingDone = nil
+	}
+	return sendErr
 }
 
 // GetCurrentTip returns the current chain tip
@@ -727,14 +853,28 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if callbackErr != nil {
 		if errors.Is(callbackErr, ErrStopSyncProcess) {
 			// Signal that we're cancelling the sync
-			c.readyForNextBlockChan <- false
+			c.lifecycleMutex.Lock()
+			if c.readyForNextBlockChan != nil {
+				select {
+				case c.readyForNextBlockChan <- false:
+				case <-c.DoneChan():
+				}
+			}
+			c.lifecycleMutex.Unlock()
 			return nil
 		} else {
 			return callbackErr
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	c.lifecycleMutex.Lock()
+	if c.readyForNextBlockChan != nil {
+		select {
+		case c.readyForNextBlockChan <- true:
+		case <-c.DoneChan():
+		}
+	}
+	c.lifecycleMutex.Unlock()
 	return nil
 }
 
@@ -758,7 +898,14 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if errors.Is(callbackErr, ErrStopSyncProcess) {
 				// Signal that we're cancelling the sync
-				c.readyForNextBlockChan <- false
+				c.lifecycleMutex.Lock()
+				if c.readyForNextBlockChan != nil {
+					select {
+					case c.readyForNextBlockChan <- false:
+					case <-c.DoneChan():
+					}
+				}
+				c.lifecycleMutex.Unlock()
 				return nil
 			} else {
 				return callbackErr
@@ -766,7 +913,14 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	c.lifecycleMutex.Lock()
+	if c.readyForNextBlockChan != nil {
+		select {
+		case c.readyForNextBlockChan <- true:
+		case <-c.DoneChan():
+		}
+	}
+	c.lifecycleMutex.Unlock()
 	return nil
 }
 
