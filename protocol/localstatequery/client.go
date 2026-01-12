@@ -335,7 +335,7 @@ func (c *Client) GetNonMyopicMemberRewards(stakes []any) (*NonMyopicMemberReward
 		return nil, err
 	}
 	if len(wrappedResult) == 0 {
-		return nil, fmt.Errorf("empty result from non-myopic member rewards query")
+		return nil, errors.New("empty result from non-myopic member rewards query")
 	}
 	return &wrappedResult[0], nil
 }
