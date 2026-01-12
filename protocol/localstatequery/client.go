@@ -799,6 +799,9 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
+	if len(result) == 0 {
+		return nil, errors.New("empty result from pool state query")
+	}
 	return &result[0], nil
 }
 
