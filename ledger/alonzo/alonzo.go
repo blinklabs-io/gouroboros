@@ -547,13 +547,27 @@ type AlonzoRedeemer struct {
 	ExUnits common.ExUnits
 }
 
-type AlonzoRedeemers []AlonzoRedeemer
+// AlonzoRedeemers wraps a slice of redeemers with CBOR preservation
+type AlonzoRedeemers struct {
+	cbor.DecodeStoreCbor
+	Redeemers []AlonzoRedeemer
+}
+
+func (r *AlonzoRedeemers) UnmarshalCBOR(cborData []byte) error {
+	r.SetCbor(cborData)
+	_, err := cbor.Decode(cborData, &r.Redeemers)
+	return err
+}
+
+func (r AlonzoRedeemers) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(r.Redeemers)
+}
 
 func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
 		// Sort redeemers
-		sorted := make([]AlonzoRedeemer, len(r))
-		copy(sorted, r)
+		sorted := make([]AlonzoRedeemer, len(r.Redeemers))
+		copy(sorted, r.Redeemers)
 		slices.SortFunc(
 			sorted,
 			func(a, b AlonzoRedeemer) int {
@@ -585,7 +599,7 @@ func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerVal
 
 func (r AlonzoRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	ret := []uint{}
-	for _, redeemer := range r {
+	for _, redeemer := range r.Redeemers {
 		if redeemer.Tag == tag {
 			ret = append(ret, uint(redeemer.Index))
 		}
@@ -597,7 +611,7 @@ func (r AlonzoRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
 ) common.RedeemerValue {
-	for _, redeemer := range r {
+	for _, redeemer := range r.Redeemers {
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
 			return common.RedeemerValue{
 				Data:    redeemer.Data,

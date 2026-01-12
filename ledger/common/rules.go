@@ -14,7 +14,11 @@
 
 package common
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+)
 
 // UtxoValidationRuleFunc represents a function that validates a transaction
 // against a specific UTXO validation rule.
@@ -479,4 +483,118 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 		return ExtraneousPlutusScriptWitnessesError{}
 	}
 	return nil
+}
+
+// EncodeLangViews encodes language views per the Cardano ledger specification.
+// For PlutusV1, the tag is double-serialized and the cost model uses indefinite-length list.
+// For PlutusV2+, the tag is single-serialized and the cost model uses definite-length list.
+// The map is sorted by "shortLex" order (length first, then lexicographic).
+func EncodeLangViews(
+	usedVersions map[uint]struct{},
+	costModels map[uint][]int64,
+) ([]byte, error) {
+	type langView struct {
+		tag    []byte
+		params []byte
+	}
+
+	views := make([]langView, 0, len(usedVersions))
+
+	for version := range usedVersions {
+		costModel, ok := costModels[version]
+		if !ok {
+			continue // Will be caught by cost model validation
+		}
+
+		var tag, params []byte
+		var err error
+
+		switch version {
+		case 0: // PlutusV1
+			// Tag is double-serialized: serialize(serialize(0))
+			// This encodes 0 -> 0x00, then wraps in bytestring -> 0x4100
+			innerTag, innerErr := cbor.Encode(uint64(0))
+			if innerErr != nil {
+				return nil, innerErr
+			}
+			tag, err = cbor.Encode(innerTag)
+			if err != nil {
+				return nil, err
+			}
+			// Cost model uses indefinite-length list, wrapped in a bytestring
+			// This is the "double bagging" for PlutusV1 compatibility
+			indefList := make(cbor.IndefLengthList, len(costModel))
+			for i, v := range costModel {
+				indefList[i] = any(v)
+			}
+			indefBytes, indefErr := cbor.Encode(indefList)
+			if indefErr != nil {
+				return nil, indefErr
+			}
+			// Wrap the indefinite list bytes in a CBOR bytestring
+			params, err = cbor.Encode(indefBytes)
+			if err != nil {
+				return nil, err
+			}
+
+		case 1, 2: // PlutusV2, PlutusV3
+			// Tag is single-serialized
+			tag, err = cbor.Encode(uint64(version))
+			if err != nil {
+				return nil, err
+			}
+			// Cost model uses definite-length list (no bytestring wrapper)
+			params, err = cbor.Encode(costModel)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		views = append(views, langView{tag: tag, params: params})
+	}
+
+	// Sort by "shortLex" order (length first, then lexicographic)
+	for i := 0; i < len(views); i++ {
+		for j := i + 1; j < len(views); j++ {
+			if ShortLex(views[i].tag, views[j].tag) > 0 {
+				views[i], views[j] = views[j], views[i]
+			}
+		}
+	}
+
+	// Encode as a map with map length prefix
+	result := make([]byte, 0, 128)
+	// Encode map length (definite-length map)
+	if len(views) < 24 {
+		result = append(result, 0xa0+byte(len(views)))
+	} else {
+		result = append(result, 0xb8, byte(len(views)))
+	}
+
+	// Append key-value pairs in sorted order
+	for _, v := range views {
+		result = append(result, v.tag...)
+		result = append(result, v.params...)
+	}
+
+	return result, nil
+}
+
+// ShortLex compares byte slices by length first, then lexicographically
+func ShortLex(a, b []byte) int {
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	for i := range a {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+	return 0
 }

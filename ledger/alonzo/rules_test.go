@@ -967,9 +967,11 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			TxFee: testFee,
 		},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -1058,9 +1060,11 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -1153,9 +1157,11 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -1252,7 +1258,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits too large",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerLarge,
+				Redeemers: []alonzo.AlonzoRedeemer{testRedeemerLarge},
 			}
 			err := alonzo.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
@@ -1282,7 +1288,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits under limit",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerSmall,
+				Redeemers: []alonzo.AlonzoRedeemer{testRedeemerSmall},
 			}
 			err := alonzo.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
@@ -1373,7 +1379,9 @@ func TestUtxoValidateWitnessRules_Alonzo(t *testing.T) {
 	t.Run("redeemers present but no scripts", func(t *testing.T) {
 		tx := &alonzo.AlonzoTransaction{}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			},
 		}
 		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		if err == nil {
@@ -1396,7 +1404,9 @@ func TestUtxoValidateWitnessRules_Alonzo(t *testing.T) {
 		tx := &alonzo.AlonzoTransaction{}
 		tx.WitnessSet.WsPlutusV1Scripts = []common.PlutusV1Script{{}}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			},
 		}
 		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)
