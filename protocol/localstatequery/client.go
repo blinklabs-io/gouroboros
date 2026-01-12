@@ -821,7 +821,7 @@ func (c *Client) GetStakeSnapshots(poolIds []any) (*StakeSnapshotsResult, error)
 		return nil, err
 	}
 	if len(wrappedResult) == 0 {
-		return nil, fmt.Errorf("empty result from stake snapshots query")
+		return nil, errors.New("empty result from stake snapshots query")
 	}
 	return &wrappedResult[0], nil
 }
