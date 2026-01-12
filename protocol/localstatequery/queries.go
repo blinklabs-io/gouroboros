@@ -711,8 +711,34 @@ type StakePoolParamsResult struct {
 // TODO (#867)
 type RewardInfoPoolsResult any
 
-// TODO (#868)
-type PoolStateResult any
+// PoolStateParams represents the pool registration parameters without the cert type
+type PoolStateParams struct {
+	cbor.StructAsArray
+	Operator      ledger.Blake2b224
+	VrfKeyHash    ledger.Blake2b256
+	Pledge        uint64
+	Cost          uint64
+	Margin        *cbor.Rat
+	RewardAccount ledger.Address
+	PoolOwners    []ledger.Blake2b224
+	Relays        []ledger.PoolRelay
+	PoolMetadata  *struct {
+		cbor.StructAsArray
+		Url          string
+		MetadataHash ledger.Blake2b256
+	}
+}
+
+// PoolStateResult represents the pool state result
+// The result is a 4-element array: [pstate, fstate, retiring, deposits]
+// where pstate maps pool IDs to their registration parameters
+type PoolStateResult struct {
+	cbor.StructAsArray
+	PState   map[ledger.Blake2b224]*PoolStateParams
+	FState   map[ledger.Blake2b224]*PoolStateParams // Future pool parameters
+	Retiring map[ledger.Blake2b224]uint64           // Pools scheduled to retire (epoch number)
+	Deposits map[ledger.Blake2b224]uint64           // Pool deposits
+}
 
 // TODO (#869)
 type StakeSnapshotsResult any
