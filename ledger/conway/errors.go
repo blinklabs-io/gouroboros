@@ -111,6 +111,20 @@ func (e VotingProceduresWithPlutusV1V2Error) Error() string {
 	)
 }
 
+// ConwayCertificateWithPlutusV1V2Error indicates Conway-era certificates cannot be used with V1/V2 scripts
+type ConwayCertificateWithPlutusV1V2Error struct {
+	PlutusVersion   string
+	CertificateType string
+}
+
+func (e ConwayCertificateWithPlutusV1V2Error) Error() string {
+	return fmt.Sprintf(
+		"%s certificate cannot be used with %s scripts - only available for PlutusV3",
+		e.CertificateType,
+		e.PlutusVersion,
+	)
+}
+
 // PlutusScriptFailedError indicates that a Plutus script execution failed
 type PlutusScriptFailedError struct {
 	ScriptHash common.ScriptHash
@@ -280,13 +294,7 @@ func (e DelegateVoteToUnregisteredDRepError) Error() string {
 }
 
 // WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
-type WithdrawalFromUnregisteredRewardAccountError struct {
-	RewardAddress common.Address
-}
-
-func (e WithdrawalFromUnregisteredRewardAccountError) Error() string {
-	return "withdrawal from unregistered reward account: " + e.RewardAddress.String()
-}
+type WithdrawalFromUnregisteredRewardAccountError = shelley.WithdrawalFromUnregisteredRewardAccountError
 
 // WithdrawalWrongAmountError indicates withdrawal of wrong amount from reward account
 type WithdrawalWrongAmountError struct {

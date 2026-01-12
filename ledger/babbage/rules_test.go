@@ -970,9 +970,11 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			TxFee: testFee,
 		},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -1063,9 +1065,11 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			TxTotalCollateral: testCollateralAmount,
 		},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -1238,9 +1242,11 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{},
 		WitnessSet: babbage.BabbageTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -1337,7 +1343,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits too large",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerLarge,
+				Redeemers: []alonzo.AlonzoRedeemer{testRedeemerLarge},
 			}
 			err := babbage.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
@@ -1367,7 +1373,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits under limit",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerSmall,
+				Redeemers: []alonzo.AlonzoRedeemer{testRedeemerSmall},
 			}
 			err := babbage.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
@@ -1462,7 +1468,9 @@ func TestUtxoValidateWitnessRules_Babbage(t *testing.T) {
 	t.Run("redeemer without script", func(t *testing.T) {
 		tx := &babbage.BabbageTransaction{}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			},
 		}
 		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		if err == nil {
@@ -1485,7 +1493,9 @@ func TestUtxoValidateWitnessRules_Babbage(t *testing.T) {
 		tx := &babbage.BabbageTransaction{}
 		tx.WitnessSet.WsPlutusV1Scripts = []common.PlutusV1Script{{}}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			},
 		}
 		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)
@@ -1495,7 +1505,9 @@ func TestUtxoValidateWitnessRules_Babbage(t *testing.T) {
 		tx := &babbage.BabbageTransaction{}
 		tx.WitnessSet.WsPlutusV2Scripts = []common.PlutusV2Script{{}}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			},
 		}
 		err := babbage.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)

@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/plutigo/syn"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
@@ -34,6 +35,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
 	UtxoValidateCostModelsPresent,
+	UtxoValidateScriptDataHash,
 	UtxoValidateInlineDatumsWithPlutusV1,
 	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
@@ -57,6 +59,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateNativeScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
+	UtxoValidateMalformedReferenceScripts,
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(
@@ -348,7 +351,7 @@ func UtxoValidateInsufficientCollateral(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	totalCollateral := new(big.Int)
@@ -369,7 +372,9 @@ func UtxoValidateInsufficientCollateral(
 	if fee == nil {
 		fee = new(big.Int)
 	}
-	minCollateral := new(big.Int).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
+	minCollateral := new(
+		big.Int,
+	).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
 	minCollateral.Div(minCollateral, big.NewInt(100))
 	if totalCollateral.Cmp(minCollateral) >= 0 {
 		return nil
@@ -399,7 +404,7 @@ func UtxoValidateCollateralContainsNonAda(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
@@ -521,7 +526,7 @@ func UtxoValidateNoCollateralInputs(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	if len(tx.Collateral()) > 0 {
@@ -834,7 +839,7 @@ func UtxoValidateExUnitsTooBigUtxo(
 		return errors.New("transaction is not expected type")
 	}
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
 		totalSteps += redeemer.ExUnits.Steps
 		totalMemory += redeemer.ExUnits.Memory
 	}
@@ -994,4 +999,218 @@ func UtxoValidateWithdrawals(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
+}
+
+// UtxoValidateScriptDataHash validates the transaction's ScriptDataHash against the expected hash
+// computed from redeemers, datums, and cost models (language views).
+// Babbage supports PlutusV1 and PlutusV2 scripts.
+func UtxoValidateScriptDataHash(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, ok := pp.(*BabbageProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	tmpTx, ok := tx.(*BabbageTransaction)
+	if !ok {
+		return errors.New("transaction is not expected type")
+	}
+
+	wits := tmpTx.WitnessSet
+	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
+	hasDatums := len(wits.WsPlutusData) > 0
+
+	// Determine which Plutus versions are used (Babbage has PlutusV1 and V2)
+	usedVersions := make(map[uint]struct{})
+	if len(wits.WsPlutusV1Scripts) > 0 {
+		usedVersions[0] = struct{}{}
+	}
+	if len(wits.WsPlutusV2Scripts) > 0 {
+		usedVersions[1] = struct{}{}
+	}
+
+	// Also check reference scripts on reference inputs
+	for _, refInput := range tmpTx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			return common.ReferenceInputResolutionError{
+				Input: refInput,
+				Err:   err,
+			}
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script:
+			usedVersions[0] = struct{}{}
+		case common.PlutusV2Script:
+			usedVersions[1] = struct{}{}
+		}
+	}
+
+	// Check scripts in regular inputs
+	for _, input := range tmpTx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script:
+			usedVersions[0] = struct{}{}
+		case common.PlutusV2Script:
+			usedVersions[1] = struct{}{}
+		}
+	}
+
+	hasPlutusScripts := len(usedVersions) > 0
+	declaredHash := tx.ScriptDataHash()
+
+	// If no Plutus scripts and no redeemers/datums, ScriptDataHash should be absent
+	if !hasPlutusScripts && !hasRedeemers && !hasDatums {
+		if declaredHash != nil {
+			return common.ExtraneousScriptDataHashError{Provided: *declaredHash}
+		}
+		return nil
+	}
+
+	// If there are Plutus scripts/redeemers/datums, ScriptDataHash is required
+	if hasPlutusScripts || hasRedeemers || hasDatums {
+		if declaredHash == nil {
+			return common.MissingScriptDataHashError{}
+		}
+	}
+
+	// Verify cost models are present for all used Plutus versions
+	for version := range usedVersions {
+		if _, ok := tmpPparams.CostModels[version]; !ok {
+			return common.MissingCostModelError{Version: version}
+		}
+	}
+
+	// Compute the expected ScriptDataHash
+	// ScriptDataHash = blake2b256(redeemers_cbor || datums_cbor || langviews_cbor)
+
+	// Get preserved CBOR bytes for redeemers
+	redeemersCbor := wits.WsRedeemers.Cbor()
+	if len(redeemersCbor) == 0 {
+		// Fall back to re-encoding if no preserved CBOR
+		var err error
+		redeemersCbor, err = cbor.Encode(wits.WsRedeemers)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Encode datums as CBOR (only if non-empty)
+	var datumsCbor []byte
+	if hasDatums {
+		var err error
+		datumsCbor, err = cbor.Encode(wits.WsPlutusData)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Encode language views per the Cardano spec
+	langViewsCbor, err := common.EncodeLangViews(
+		usedVersions,
+		tmpPparams.CostModels,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Concatenate and hash
+	hashInput := make(
+		[]byte,
+		0,
+		len(redeemersCbor)+len(datumsCbor)+len(langViewsCbor),
+	)
+	hashInput = append(hashInput, redeemersCbor...)
+	hashInput = append(hashInput, datumsCbor...)
+	hashInput = append(hashInput, langViewsCbor...)
+
+	computedHash := common.Blake2b256Hash(hashInput)
+
+	// Compare with declared hash
+	if *declaredHash != computedHash {
+		return common.ScriptDataHashMismatchError{
+			Declared: *declaredHash,
+			Computed: computedHash,
+		}
+	}
+
+	return nil
+}
+
+// UtxoValidateMalformedReferenceScripts checks that any reference scripts in
+// transaction outputs are well-formed and can be deserialized.
+func UtxoValidateMalformedReferenceScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	var malformedHashes []common.ScriptHash
+
+	for _, output := range tx.Outputs() {
+		scriptRef := output.ScriptRef()
+		if scriptRef == nil {
+			continue
+		}
+
+		// Check if the script can be decoded properly
+		var innerScript []byte
+		var isPlutus bool
+		var scriptBytes []byte
+		var scriptHash common.ScriptHash
+
+		switch s := scriptRef.(type) {
+		case common.PlutusV1Script:
+			isPlutus = true
+			scriptBytes = []byte(s)
+			scriptHash = s.Hash()
+		case common.PlutusV2Script:
+			isPlutus = true
+			scriptBytes = []byte(s)
+			scriptHash = s.Hash()
+		default:
+			// Native scripts don't need UPLC validation
+			continue
+		}
+
+		if isPlutus {
+			// Decode the outer CBOR wrapper to get the actual script bytes
+			if _, err := cbor.Decode(scriptBytes, &innerScript); err != nil {
+				malformedHashes = append(malformedHashes, scriptHash)
+				continue
+			}
+			// Try to decode as UPLC program
+			if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
+				malformedHashes = append(malformedHashes, scriptHash)
+			}
+		}
+	}
+
+	if len(malformedHashes) > 0 {
+		return common.MalformedReferenceScriptsError{
+			ScriptHashes: malformedHashes,
+		}
+	}
+	return nil
 }

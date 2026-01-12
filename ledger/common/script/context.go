@@ -177,13 +177,14 @@ func NewTxInfoV1FromTransaction(
 	inputs := sortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
+	certs := tx.Certificates()
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
 			resolvedInputs,
 			inputs,
 			*assetMint,
-			tx.Certificates(),
+			certs,
 			withdrawals,
 			nil,
 			nil,
@@ -197,7 +198,7 @@ func NewTxInfoV1FromTransaction(
 		Fee:          tx.Fee(),
 		Mint:         *assetMint,
 		ValidRange:   validityRange,
-		Certificates: tx.Certificates(),
+		Certificates: certs,
 		Withdrawals:  withdrawals.ToPairs(),
 		Signatories:  signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:    redeemers,
@@ -289,13 +290,14 @@ func NewTxInfoV2FromTransaction(
 	inputs := sortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
+	certs := tx.Certificates()
 	redeemers := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
 			resolvedInputs,
 			inputs,
 			*assetMint,
-			tx.Certificates(),
+			certs,
 			withdrawals,
 			nil, // votes
 			nil, // proposalProcedures
@@ -313,7 +315,7 @@ func NewTxInfoV2FromTransaction(
 		Fee:          tx.Fee(),
 		Mint:         *assetMint,
 		ValidRange:   validityRange,
-		Certificates: tx.Certificates(),
+		Certificates: certs,
 		Withdrawals:  withdrawals,
 		Signatories:  signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:    redeemers,

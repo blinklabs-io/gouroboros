@@ -181,6 +181,7 @@ type Map map[any]any
 
 // SetType is a generic type for wrapping other types in an optional CBOR set tag
 type SetType[T any] struct {
+	DecodeStoreCbor
 	items  []T
 	useTag bool
 }
@@ -193,6 +194,9 @@ func NewSetType[T any](items []T, useTag bool) SetType[T] {
 }
 
 func (t *SetType[T]) UnmarshalCBOR(data []byte) error {
+	// Store original CBOR for later retrieval
+	t.SetCbor(data)
+
 	// Check if the set is wrapped in a CBOR tag
 	// This is mostly needed so we can remember whether it was Set-wrapped for CBOR encoding
 	var tmpTag RawTag

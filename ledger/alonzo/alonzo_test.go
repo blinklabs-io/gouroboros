@@ -196,28 +196,30 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 
 func TestAlonzoRedeemersIter(t *testing.T) {
 	testRedeemers := AlonzoRedeemers{
-		{
-			Tag:   common.RedeemerTagMint,
-			Index: 2,
-			ExUnits: common.ExUnits{
-				Memory: 1111,
-				Steps:  2222,
+		Redeemers: []AlonzoRedeemer{
+			{
+				Tag:   common.RedeemerTagMint,
+				Index: 2,
+				ExUnits: common.ExUnits{
+					Memory: 1111,
+					Steps:  2222,
+				},
 			},
-		},
-		{
-			Tag:   common.RedeemerTagMint,
-			Index: 0,
-			ExUnits: common.ExUnits{
-				Memory: 1111,
-				Steps:  0,
+			{
+				Tag:   common.RedeemerTagMint,
+				Index: 0,
+				ExUnits: common.ExUnits{
+					Memory: 1111,
+					Steps:  0,
+				},
 			},
-		},
-		{
-			Tag:   common.RedeemerTagSpend,
-			Index: 4,
-			ExUnits: common.ExUnits{
-				Memory: 0,
-				Steps:  4444,
+			{
+				Tag:   common.RedeemerTagSpend,
+				Index: 4,
+				ExUnits: common.ExUnits{
+					Memory: 0,
+					Steps:  4444,
+				},
 			},
 		},
 	}
