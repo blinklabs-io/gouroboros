@@ -43,7 +43,15 @@ const (
 	MAX_LIST_LENGTH_CBOR        = 23
 )
 
-func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
+// VerifyBlockBody verifies that the block body hash matches the expected hash.
+// The invalidTxIndices parameter contains indices of transactions that failed
+// phase-2 validation (Plutus script failures). For blocks with no invalid
+// transactions, pass an empty slice.
+func VerifyBlockBody(
+	data string,
+	blockBodyHash string,
+	invalidTxIndices []uint,
+) (bool, error) {
 	rawDataBytes, _ := hex.DecodeString(data)
 	var txsRaw [][]string
 	_, err := cbor.Decode(rawDataBytes, &txsRaw)
@@ -75,7 +83,7 @@ func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
 		}
 		copy(calculateBlockBodyHashByte[:], zeroTxHash[:32])
 	} else {
-		calculateBlockBodyHash, calculateHashError := CalculateBlockBodyHash(txsRaw)
+		calculateBlockBodyHash, calculateHashError := CalculateBlockBodyHash(txsRaw, invalidTxIndices)
 		if calculateHashError != nil {
 			return false, fmt.Errorf("VerifyBlockBody: CalculateBlockBodyHash error, %v", calculateHashError.Error())
 		}
@@ -128,7 +136,14 @@ func encodeAuxData(data []AuxData) ([]byte, error) {
 	return cbor.Encode(cbor.IndefLengthMap(metadataMap))
 }
 
-func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
+// CalculateBlockBodyHash computes the block body hash from raw transaction data.
+// The invalidTxIndices parameter contains indices of transactions that failed
+// phase-2 validation (Plutus script failures). For blocks with no invalid
+// transactions, pass an empty slice.
+func CalculateBlockBodyHash(
+	txsRaw [][]string,
+	invalidTxIndices []uint,
+) ([]byte, error) {
 	txSeqBody := make([]cbor.RawMessage, 0)
 	txSeqWit := make([]cbor.RawMessage, 0)
 	auxRawData := make([]AuxData, 0)
@@ -179,7 +194,6 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 				data:  auxBytes,
 			})
 		}
-		// TODO: should form nonValid TX here
 	}
 	txSeqBodyBytes, txSeqBodyBytesError := cbor.Encode(
 		cbor.IndefLengthList(convertToAnySlice(txSeqBody)),
@@ -216,10 +230,10 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqMetadataSum32Bytes := blake2b.Sum256(txSeqMetadataBytes)
 	txSeqMetadataSumBytes := txSeqMetadataSum32Bytes[:]
 
-	// txSeqNonValid is always empty, so we encode an empty list
-	txSeqNonValidBytes, txSeqNonValidBytesError := cbor.Encode(
-		cbor.IndefLengthList([]any{}),
-	)
+	// Encode the list of invalid transaction indices (failed phase-2 validation)
+	// Use EncodeCborTxSeq to ensure correct encoding: definite-length for ≤23 items,
+	// indefinite-length for >23 items (per Cardano CBOR spec)
+	txSeqNonValidBytes, txSeqNonValidBytesError := EncodeCborTxSeq(invalidTxIndices)
 	if txSeqNonValidBytesError != nil {
 		return nil, fmt.Errorf(
 			"CalculateBlockBodyHash: encode txSeqNonValid error, %v",
