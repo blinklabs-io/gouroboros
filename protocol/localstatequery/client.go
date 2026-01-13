@@ -805,11 +805,9 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	return &result[0], nil
 }
 
-func (c *Client) GetStakeSnapshots(
-	poolId any,
-) (*StakeSnapshotsResult, error) {
+func (c *Client) GetStakeSnapshots(poolIds []any) (*StakeSnapshotsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("calling GetStakeSnapshots(poolId: %+v)", poolId),
+		Debug(fmt.Sprintf("calling GetStakeSnapshots(poolIds: %+v)", poolIds),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "client",
@@ -821,16 +819,22 @@ func (c *Client) GetStakeSnapshots(
 	if err != nil {
 		return nil, err
 	}
+	// Wrap the poolIds in a CBOR set (tag 258)
+	poolIdSet := cbor.NewSetType(poolIds, true)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyStakeSnapshots,
-		// TODO: add args (#869)
+		poolIdSet,
 	)
-	var result StakeSnapshotsResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The result is wrapped in a single-element array
+	var wrappedResult []StakeSnapshotsResult
+	if err := c.runQuery(query, &wrappedResult); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(wrappedResult) == 0 {
+		return nil, errors.New("empty result from stake snapshots query")
+	}
+	return &wrappedResult[0], nil
 }
 
 func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {

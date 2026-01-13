@@ -740,8 +740,24 @@ type PoolStateResult struct {
 	Deposits map[ledger.Blake2b224]uint64           // Pool deposits
 }
 
-// TODO (#869)
-type StakeSnapshotsResult any
+// PoolStakeSnapshot represents the stake distribution for a pool across different snapshots
+type PoolStakeSnapshot struct {
+	cbor.StructAsArray
+	StakeMark uint64 // Stake snapshot from mark
+	StakeSet  uint64 // Stake snapshot from set
+	StakeGo   uint64 // Stake snapshot from go
+}
+
+// StakeSnapshotsResult represents the stake snapshots result
+// The result is a 4-element array: [snapshots, total_stake_mark, total_stake_set, total_stake_go]
+// where snapshots maps pool IDs to their stake distribution across mark/set/go snapshots
+type StakeSnapshotsResult struct {
+	cbor.StructAsArray
+	PoolSnapshots  map[ledger.Blake2b224]*PoolStakeSnapshot
+	TotalStakeMark uint64
+	TotalStakeSet  uint64
+	TotalStakeGo   uint64
+}
 
 // PoolDistrResult represents the pool distribution result
 // It contains a map of pool IDs to their stake distribution (fraction and VRF hash)
