@@ -32,7 +32,7 @@ import (
 // Magic number chosen to represent unknown protocols
 const ProtocolUnknown uint16 = 0xabcd
 
-// DiffusionMode is an enum for the valid muxer difficusion modes
+// DiffusionMode is an enum for the valid muxer diffusion modes
 type DiffusionMode int
 
 // Diffusion modes
