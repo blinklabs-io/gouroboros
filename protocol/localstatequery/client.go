@@ -782,16 +782,27 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// GetPoolState requires a pool set parameter similar to GetPoolDistr
+	// If no pool IDs specified, use an empty set to query all pools
+	if poolIds == nil {
+		poolIds = []any{}
+	}
+	params := []any{
+		poolIds,
+	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolState,
-		// TODO: add args (#868)
+		params...,
 	)
-	var result PoolStateResult
+	result := []PoolStateResult{}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(result) == 0 {
+		return nil, errors.New("empty result from pool state query")
+	}
+	return &result[0], nil
 }
 
 func (c *Client) GetStakeSnapshots(
