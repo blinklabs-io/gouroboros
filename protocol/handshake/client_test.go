@@ -277,15 +277,30 @@ func TestClientNtCRefuseVersionMismatch(t *testing.T) {
 	// Verify error type
 	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
 	if !ok {
-		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
 	}
 	// Verify reason code
 	if versionMismatchErr.ReasonCode() != handshake.RefuseReasonVersionMismatch {
-		t.Fatalf("expected reason code %d, got %d", handshake.RefuseReasonVersionMismatch, versionMismatchErr.ReasonCode())
+		t.Fatalf(
+			"expected reason code %d, got %d",
+			handshake.RefuseReasonVersionMismatch,
+			versionMismatchErr.ReasonCode(),
+		)
 	}
 	// Verify supported versions
-	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
-		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
 	}
 }
 
@@ -326,14 +341,26 @@ func TestClientNtCRefuseDecodeError(t *testing.T) {
 	}
 	// Verify reason code
 	if decodeErr.ReasonCode() != handshake.RefuseReasonDecodeError {
-		t.Fatalf("expected reason code %d, got %d", handshake.RefuseReasonDecodeError, decodeErr.ReasonCode())
+		t.Fatalf(
+			"expected reason code %d, got %d",
+			handshake.RefuseReasonDecodeError,
+			decodeErr.ReasonCode(),
+		)
 	}
 	// Verify version and message
 	if decodeErr.Version != expectedVersion {
-		t.Fatalf("expected version %d, got %d", expectedVersion, decodeErr.Version)
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			decodeErr.Version,
+		)
 	}
 	if decodeErr.Message != expectedMessage {
-		t.Fatalf("expected message %q, got %q", expectedMessage, decodeErr.Message)
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			decodeErr.Message,
+		)
 	}
 }
 
@@ -374,14 +401,26 @@ func TestClientNtCRefuseRefused(t *testing.T) {
 	}
 	// Verify reason code
 	if refusedErr.ReasonCode() != handshake.RefuseReasonRefused {
-		t.Fatalf("expected reason code %d, got %d", handshake.RefuseReasonRefused, refusedErr.ReasonCode())
+		t.Fatalf(
+			"expected reason code %d, got %d",
+			handshake.RefuseReasonRefused,
+			refusedErr.ReasonCode(),
+		)
 	}
 	// Verify version and message
 	if refusedErr.Version != expectedVersion {
-		t.Fatalf("expected version %d, got %d", expectedVersion, refusedErr.Version)
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			refusedErr.Version,
+		)
 	}
 	if refusedErr.Message != expectedMessage {
-		t.Fatalf("expected message %q, got %q", expectedMessage, refusedErr.Message)
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			refusedErr.Message,
+		)
 	}
 }
 
@@ -419,11 +458,22 @@ func TestClientNtNRefuseVersionMismatch(t *testing.T) {
 	// Verify error type
 	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
 	if !ok {
-		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
 	}
 	// Verify supported versions
-	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
-		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
 	}
 }
 
@@ -465,10 +515,18 @@ func TestClientNtNRefuseDecodeError(t *testing.T) {
 	}
 	// Verify version and message
 	if decodeErr.Version != expectedVersion {
-		t.Fatalf("expected version %d, got %d", expectedVersion, decodeErr.Version)
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			decodeErr.Version,
+		)
 	}
 	if decodeErr.Message != expectedMessage {
-		t.Fatalf("expected message %q, got %q", expectedMessage, decodeErr.Message)
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			decodeErr.Message,
+		)
 	}
 }
 
@@ -510,10 +568,18 @@ func TestClientNtNRefuseRefused(t *testing.T) {
 	}
 	// Verify version and message
 	if refusedErr.Version != expectedVersion {
-		t.Fatalf("expected version %d, got %d", expectedVersion, refusedErr.Version)
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			refusedErr.Version,
+		)
 	}
 	if refusedErr.Message != expectedMessage {
-		t.Fatalf("expected message %q, got %q", expectedMessage, refusedErr.Message)
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			refusedErr.Message,
+		)
 	}
 }
 
@@ -556,10 +622,18 @@ func TestClientNtCRefuseDecodeErrorEmptyMessage(t *testing.T) {
 	}
 	// Verify version and message (even if empty)
 	if decodeErr.Version != expectedVersion {
-		t.Fatalf("expected version %d, got %d", expectedVersion, decodeErr.Version)
+		t.Fatalf(
+			"expected version %d, got %d",
+			expectedVersion,
+			decodeErr.Version,
+		)
 	}
 	if decodeErr.Message != expectedMessage {
-		t.Fatalf("expected message %q, got %q", expectedMessage, decodeErr.Message)
+		t.Fatalf(
+			"expected message %q, got %q",
+			expectedMessage,
+			decodeErr.Message,
+		)
 	}
 }
 
@@ -577,7 +651,14 @@ func TestClientNtCRefuseVersionMismatchMultipleVersions(t *testing.T) {
 					handshake.NewMsgRefuse(
 						[]any{
 							handshake.RefuseReasonVersionMismatch,
-							[]any{uint64(10), uint64(11), uint64(12), uint64(13), uint64(14), uint64(15)},
+							[]any{
+								uint64(10),
+								uint64(11),
+								uint64(12),
+								uint64(13),
+								uint64(14),
+								uint64(15),
+							},
 						},
 					),
 				},
@@ -594,11 +675,22 @@ func TestClientNtCRefuseVersionMismatchMultipleVersions(t *testing.T) {
 	// Verify error type
 	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
 	if !ok {
-		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
 	}
 	// Verify supported versions
-	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
-		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
 	}
 }
 
@@ -634,11 +726,22 @@ func TestClientNtNRefuseVersionMismatchSingleVersion(t *testing.T) {
 	// Verify error type
 	versionMismatchErr, ok := err.(*handshake.VersionMismatchError)
 	if !ok {
-		t.Fatalf("expected *handshake.VersionMismatchError, got %T: %v", err, err)
+		t.Fatalf(
+			"expected *handshake.VersionMismatchError, got %T: %v",
+			err,
+			err,
+		)
 	}
 	// Verify supported versions
-	if !reflect.DeepEqual(versionMismatchErr.SupportedVersions, expectedVersions) {
-		t.Fatalf("expected supported versions %v, got %v", expectedVersions, versionMismatchErr.SupportedVersions)
+	if !reflect.DeepEqual(
+		versionMismatchErr.SupportedVersions,
+		expectedVersions,
+	) {
+		t.Fatalf(
+			"expected supported versions %v, got %v",
+			expectedVersions,
+			versionMismatchErr.SupportedVersions,
+		)
 	}
 }
 
