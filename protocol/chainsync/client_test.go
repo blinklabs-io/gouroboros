@@ -387,7 +387,11 @@ func TestUseCase_GetCurrentTip_Stop_Start_GetCurrentTip(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tip1, &expectedTip1) {
-				t.Fatalf("did not receive expected tip1\n  got:    %#v\n  wanted: %#v", tip1, &expectedTip1)
+				t.Fatalf(
+					"did not receive expected tip1\n  got:    %#v\n  wanted: %#v",
+					tip1,
+					&expectedTip1,
+				)
 			}
 
 			if err := client.Stop(); err != nil {
@@ -400,7 +404,11 @@ func TestUseCase_GetCurrentTip_Stop_Start_GetCurrentTip(t *testing.T) {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tip2, &expectedTip2) {
-				t.Fatalf("did not receive expected tip2\n  got:    %#v\n  wanted: %#v", tip2, &expectedTip2)
+				t.Fatalf(
+					"did not receive expected tip2\n  got:    %#v\n  wanted: %#v",
+					tip2,
+					&expectedTip2,
+				)
 			}
 		},
 		ouroboros.WithChainSyncConfig(
@@ -436,16 +444,49 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
 		ouroboros_mock.ConversationEntryHandshakeNtCResponse,
 		// cycle 1
-		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeFindIntersect},
-		ouroboros_mock.ConversationEntryOutput{ProtocolId: chainsync.ProtocolIdNtC, IsResponse: true, Messages: []protocol.Message{chainsync.NewMsgIntersectNotFound(expectedTip1)}},
-		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeDone},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeFindIntersect,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectNotFound(expectedTip1),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeDone,
+		},
 		// cycle 2
-		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeFindIntersect},
-		ouroboros_mock.ConversationEntryOutput{ProtocolId: chainsync.ProtocolIdNtC, IsResponse: true, Messages: []protocol.Message{chainsync.NewMsgIntersectNotFound(expectedTip2)}},
-		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeDone},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeFindIntersect,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectNotFound(expectedTip2),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeDone,
+		},
 		// cycle 3
-		ouroboros_mock.ConversationEntryInput{ProtocolId: chainsync.ProtocolIdNtC, MessageType: chainsync.MessageTypeFindIntersect},
-		ouroboros_mock.ConversationEntryOutput{ProtocolId: chainsync.ProtocolIdNtC, IsResponse: true, Messages: []protocol.Message{chainsync.NewMsgIntersectNotFound(expectedTip3)}},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeFindIntersect,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectNotFound(expectedTip3),
+			},
+		},
 	}
 
 	runTest(
@@ -460,7 +501,11 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 				t.Fatalf("unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tip1, &expectedTip1) {
-				t.Fatalf("unexpected tip1\n  got:    %#v\n  wanted: %#v", tip1, &expectedTip1)
+				t.Fatalf(
+					"unexpected tip1\n  got:    %#v\n  wanted: %#v",
+					tip1,
+					&expectedTip1,
+				)
 			}
 			if err := client.Stop(); err != nil {
 				t.Fatalf("unexpected stop error: %s", err)
@@ -472,7 +517,11 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 				t.Fatalf("unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tip2, &expectedTip2) {
-				t.Fatalf("unexpected tip2\n  got:    %#v\n  wanted: %#v", tip2, &expectedTip2)
+				t.Fatalf(
+					"unexpected tip2\n  got:    %#v\n  wanted: %#v",
+					tip2,
+					&expectedTip2,
+				)
 			}
 			if err := client.Stop(); err != nil {
 				t.Fatalf("unexpected stop error: %s", err)
@@ -484,7 +533,11 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 				t.Fatalf("unexpected error: %s", err)
 			}
 			if !reflect.DeepEqual(tip3, &expectedTip3) {
-				t.Fatalf("unexpected tip3\n  got:    %#v\n  wanted: %#v", tip3, &expectedTip3)
+				t.Fatalf(
+					"unexpected tip3\n  got:    %#v\n  wanted: %#v",
+					tip3,
+					&expectedTip3,
+				)
 			}
 		},
 		ouroboros.WithChainSyncConfig(
