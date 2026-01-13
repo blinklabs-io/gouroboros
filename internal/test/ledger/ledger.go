@@ -12,6 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package test_ledger provides mock implementations of ledger state interfaces
+// for use in tests. The MockLedgerState type implements all required interfaces
+// (LedgerState, UtxoState, CertState, SlotState, PoolState, RewardState, GovState)
+// and uses function fields to allow tests to inject custom behavior.
+//
+// Design: Each lookup method checks for a corresponding Func field first, allowing
+// tests to override default behavior. If the Func is nil, a sensible default is used
+// (typically returning "not found" or empty results).
 package test_ledger
 
 import (
@@ -61,10 +69,11 @@ type MockLedgerState struct {
 	// CostModelsVal holds Plutus cost models for script execution validation.
 	CostModelsVal map[common.PlutusLanguage]common.CostModel
 	// Governance state
-	CommitteeMembersVal  []common.CommitteeMember
-	DRepRegistrationsVal []common.DRepRegistration
-	ConstitutionVal      *common.Constitution
-	TreasuryValueVal     uint64
+	CommitteeMembersVal         []common.CommitteeMember
+	ProposedCommitteeMembersVal map[common.Blake2b224]uint64 // proposed in pending UpdateCommittee proposals
+	DRepRegistrationsVal        []common.DRepRegistration
+	ConstitutionVal             *common.Constitution
+	TreasuryValueVal            uint64
 	// Stake credential registration state (credential hash -> registered)
 	StakeRegistrationsVal map[common.Blake2b224]bool
 	// Reward account balances (credential hash -> balance in lovelace)
@@ -112,6 +121,10 @@ func (m *MockLedgerState) TimeToSlot(
 	return 0, errors.New("MockLedgerState.TimeToSlotFunc not configured")
 }
 
+// PoolCurrentState returns the current registration certificate for a pool.
+// Returns (cert, nil, nil) if registered, (nil, nil, nil) if not found.
+// The second return value would be the retirement epoch if scheduled, but
+// this mock does not track retirements.
 func (m *MockLedgerState) PoolCurrentState(
 	poolKeyHash common.PoolKeyHash,
 ) (*common.PoolRegistrationCertificate, *uint64, error) {
@@ -158,14 +171,28 @@ func (m *MockLedgerState) CostModels() map[common.PlutusLanguage]common.CostMode
 	return map[common.PlutusLanguage]common.CostModel{}
 }
 
-// GovState interface implementation
+// GovState interface - committee and DRep lookups
 
 func (m *MockLedgerState) CommitteeMember(
 	coldKey common.Blake2b224,
 ) (*common.CommitteeMember, error) {
+	// Check current members first
 	for _, member := range m.CommitteeMembersVal {
 		if member.ColdKey == coldKey {
 			return &member, nil
+		}
+	}
+	// Also check proposed members from pending UpdateCommittee proposals
+	// According to Cardano ledger spec, AUTH_CC should succeed if the member is either
+	// a current member OR proposed in a pending UpdateCommittee action
+	if m.ProposedCommitteeMembersVal != nil {
+		if expiryEpoch, ok := m.ProposedCommitteeMembersVal[coldKey]; ok {
+			return &common.CommitteeMember{
+				ColdKey:     coldKey,
+				HotKey:      nil,
+				ExpiryEpoch: expiryEpoch,
+				Resigned:    false,
+			}, nil
 		}
 	}
 	return nil, nil
@@ -247,15 +274,18 @@ func (m *MockLedgerState) RewardAccountBalance(
 	return &balance, nil
 }
 
-// GovState interface - new methods
+// GovState interface - governance action lookups
 
+// GovActionById looks up a governance action by its ID.
+// The GovActionsVal map uses string keys in the format "txhash#index"
+// (e.g., "abc123...#0") to match how governance actions are typically
+// referenced in test vectors and debugging output.
 func (m *MockLedgerState) GovActionById(
 	id common.GovActionId,
 ) (*common.GovActionState, error) {
 	if m.GovActionsVal == nil {
 		return nil, nil
 	}
-	// Create key from action id
 	key := fmt.Sprintf("%x#%d", id.TransactionId[:], id.GovActionIdx)
 	state, exists := m.GovActionsVal[key]
 	if !exists {
