@@ -18,3 +18,4 @@
 
 # Temporary dir for testing
 /tmp/
+.idea/
