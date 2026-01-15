@@ -147,7 +147,7 @@ type MaryProtocolParameterUpdate struct {
 	MinPoolCost        *uint64                                   `cbor:"16,keyasint"`
 }
 
-func (MaryProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+func (*MaryProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *MaryProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	type tMaryProtocolParameterUpdate MaryProtocolParameterUpdate

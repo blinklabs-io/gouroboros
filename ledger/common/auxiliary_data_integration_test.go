@@ -55,7 +55,7 @@ func TestRealShelleyTransactionWithMetadata(t *testing.T) {
 	}
 
 	// Verify metadata type
-	metaMap, ok := metadata.(common.MetaMap)
+	metaMap, ok := metadata.(*common.MetaMap)
 	if !ok {
 		t.Fatalf("expected MetaMap, got %T", metadata)
 	}
@@ -369,7 +369,7 @@ func TestComplexMetadataStructure(t *testing.T) {
 	}
 
 	// Verify it's a map
-	metaMap, ok := metadata.(common.MetaMap)
+	metaMap, ok := metadata.(*common.MetaMap)
 	if !ok {
 		t.Fatalf("expected MetaMap, got %T", metadata)
 	}

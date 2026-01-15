@@ -689,7 +689,7 @@ func (e *ScriptsNotPaidUtxo) UnmarshalCBOR(data []byte) error {
 			}
 
 			e.Utxos = append(e.Utxos, common.Utxo{
-				Id:     input,
+				Id:     &input,
 				Output: output,
 			})
 		}
@@ -712,7 +712,7 @@ func (e *ScriptsNotPaidUtxo) UnmarshalCBOR(data []byte) error {
 			}
 
 			e.Utxos = append(e.Utxos, common.Utxo{
-				Id:     input,
+				Id:     &input,
 				Output: output,
 			})
 		}

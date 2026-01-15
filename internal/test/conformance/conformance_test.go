@@ -1073,7 +1073,7 @@ func (s *initialStateUtxos) UnmarshalCBOR(data []byte) error {
 						TxId:        utxoId.Hash,
 						OutputIndex: uint32(utxoId.Idx),
 					},
-					Output: output,
+					Output: &output,
 				})
 			}
 			continue
@@ -1103,7 +1103,7 @@ func (s *initialStateUtxos) UnmarshalCBOR(data []byte) error {
 						TxId:        utxoId.Hash,
 						OutputIndex: uint32(utxoId.Idx),
 					},
-					Output: output,
+					Output: &output,
 				})
 			}
 			continue
@@ -1130,7 +1130,7 @@ func (s *initialStateUtxos) UnmarshalCBOR(data []byte) error {
 							TxId:        hash,
 							OutputIndex: uint32(idx),
 						},
-						Output: output,
+						Output: &output,
 					})
 				}
 			}
@@ -1150,7 +1150,7 @@ func (s *initialStateUtxos) UnmarshalCBOR(data []byte) error {
 							TxId:        utxoId.Hash,
 							OutputIndex: uint32(utxoId.Idx),
 						},
-						Output: output,
+						Output: &output,
 					})
 				}
 				continue
@@ -1167,7 +1167,7 @@ func (s *initialStateUtxos) UnmarshalCBOR(data []byte) error {
 								TxId:        utxoId.Hash,
 								OutputIndex: uint32(utxoId.Idx),
 							},
-							Output: output,
+							Output: &output,
 						})
 					}
 				}
@@ -1222,7 +1222,7 @@ func (s *initialStateUtxos) UnmarshalCBOR(data []byte) error {
 									TxId:        hash,
 									OutputIndex: index,
 								},
-								Output: output,
+								Output: &output,
 							})
 						}
 					}

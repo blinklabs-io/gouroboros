@@ -413,7 +413,7 @@ func (h *LeiosBlockHeader) BlockBodyHash() common.Blake2b256 {
 	return h.Body.BlockBodyHash
 }
 
-func (LeiosEndorserBlock) Type() int {
+func (*LeiosEndorserBlock) Type() int {
 	return BlockTypeLeiosEndorser
 }
 
@@ -481,7 +481,7 @@ type LeiosRankingBlock struct {
 	EbCertificate *common.LeiosEbCertificate `cbor:"5,keyasint,omitempty,omitzero"`
 }
 
-func (LeiosRankingBlock) Type() int {
+func (*LeiosRankingBlock) Type() int {
 	return BlockTypeLeiosRanking
 }
 

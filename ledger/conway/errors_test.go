@@ -91,7 +91,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	amount := uint64(1000)
 
 	// PlutusV2Script is []byte
-	plutus := common.PlutusV2Script{0x01, 0x02}
+	plutus := &common.PlutusV2Script{0x01, 0x02}
 	scriptRef := &common.ScriptRef{
 		Type:   common.ScriptRefTypePlutusV2,
 		Script: plutus,
@@ -109,7 +109,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	)
 	utxo := common.Utxo{
 		Id:     input,
-		Output: output,
+		Output: &output,
 	}
 
 	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{utxo})
@@ -156,7 +156,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 
 	addr := common.Address{}
 	amount := uint64(500)
-	plutus := common.PlutusV1Script{0x0A}
+	plutus := &common.PlutusV1Script{0x0A}
 	scriptRef := &common.ScriptRef{
 		Type:   common.ScriptRefTypePlutusV1,
 		Script: plutus,
@@ -172,7 +172,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		0,
 	)
-	utxo := common.Utxo{Id: input, Output: output}
+	utxo := common.Utxo{Id: input, Output: &output}
 	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{utxo})
 	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
 
@@ -214,7 +214,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 
 	addr := common.Address{}
 	amount := uint64(750)
-	plutus := common.PlutusV3Script{0x0B}
+	plutus := &common.PlutusV3Script{0x0B}
 	scriptRef := &common.ScriptRef{
 		Type:   common.ScriptRefTypePlutusV3,
 		Script: plutus,
@@ -230,7 +230,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		0,
 	)
-	utxo := common.Utxo{Id: input, Output: output}
+	utxo := common.Utxo{Id: input, Output: &output}
 	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{utxo})
 	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
 

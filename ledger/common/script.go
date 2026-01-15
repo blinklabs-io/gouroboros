@@ -94,25 +94,25 @@ func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
 		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
 			return err
 		}
-		script = *tmpScript
+		script = tmpScript
 	case ScriptRefTypePlutusV1:
 		tmpScript := &PlutusV1Script{}
 		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
 			return err
 		}
-		script = *tmpScript
+		script = tmpScript
 	case ScriptRefTypePlutusV2:
 		tmpScript := &PlutusV2Script{}
 		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
 			return err
 		}
-		script = *tmpScript
+		script = tmpScript
 	case ScriptRefTypePlutusV3:
 		tmpScript := &PlutusV3Script{}
 		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
 			return err
 		}
-		script = *tmpScript
+		script = tmpScript
 	default:
 		return fmt.Errorf("unknown script type %d", rawScript.Type)
 	}
@@ -139,24 +139,24 @@ func (s *ScriptRef) MarshalCBOR() ([]byte, error) {
 
 type PlutusV1Script []byte
 
-func (PlutusV1Script) isScript() {}
+func (*PlutusV1Script) isScript() {}
 
-func (s PlutusV1Script) Hash() ScriptHash {
+func (s *PlutusV1Script) Hash() ScriptHash {
 	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypePlutusV1},
-			[]byte(s),
+			*s,
 		),
 	))
 }
 
-func (s PlutusV1Script) RawScriptBytes() []byte {
-	return []byte(s)
+func (s *PlutusV1Script) RawScriptBytes() []byte {
+	return *s
 }
 
 // Evaluate executes a PlutusV1 script with datum, redeemer, and script context
 // V1 scripts take 3 arguments applied in order: datum, redeemer, context
-func (s PlutusV1Script) Evaluate(
+func (s *PlutusV1Script) Evaluate(
 	datum data.PlutusData,
 	redeemer data.PlutusData,
 	scriptContext data.PlutusData,
@@ -175,7 +175,7 @@ func (s PlutusV1Script) Evaluate(
 	}
 	// Decode raw script as bytestring to get actual script bytes
 	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	if _, err = cbor.Decode(*s, &innerScript); err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
@@ -215,24 +215,24 @@ func (s PlutusV1Script) Evaluate(
 
 type PlutusV2Script []byte
 
-func (PlutusV2Script) isScript() {}
+func (*PlutusV2Script) isScript() {}
 
-func (s PlutusV2Script) Hash() ScriptHash {
+func (s *PlutusV2Script) Hash() ScriptHash {
 	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypePlutusV2},
-			[]byte(s),
+			*s,
 		),
 	))
 }
 
-func (s PlutusV2Script) RawScriptBytes() []byte {
-	return []byte(s)
+func (s *PlutusV2Script) RawScriptBytes() []byte {
+	return *s
 }
 
 // Evaluate executes a PlutusV2 script with datum, redeemer, and script context
 // V2 scripts take 3 arguments applied in order: datum, redeemer, context
-func (s PlutusV2Script) Evaluate(
+func (s *PlutusV2Script) Evaluate(
 	datum data.PlutusData,
 	redeemer data.PlutusData,
 	scriptContext data.PlutusData,
@@ -251,7 +251,7 @@ func (s PlutusV2Script) Evaluate(
 	}
 	// Decode raw script as bytestring to get actual script bytes
 	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	if _, err = cbor.Decode(*s, &innerScript); err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
@@ -291,22 +291,22 @@ func (s PlutusV2Script) Evaluate(
 
 type PlutusV3Script []byte
 
-func (PlutusV3Script) isScript() {}
+func (*PlutusV3Script) isScript() {}
 
-func (s PlutusV3Script) Hash() ScriptHash {
+func (s *PlutusV3Script) Hash() ScriptHash {
 	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypePlutusV3},
-			[]byte(s),
+			*s,
 		),
 	))
 }
 
-func (s PlutusV3Script) RawScriptBytes() []byte {
-	return []byte(s)
+func (s *PlutusV3Script) RawScriptBytes() []byte {
+	return *s
 }
 
-func (s PlutusV3Script) Evaluate(
+func (s *PlutusV3Script) Evaluate(
 	scriptContext data.PlutusData,
 	budget ExUnits,
 ) (ExUnits, error) {
@@ -323,7 +323,7 @@ func (s PlutusV3Script) Evaluate(
 	}
 	// Decode raw script as bytestring to get actual script bytes
 	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	if _, err = cbor.Decode(*s, &innerScript); err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
@@ -359,7 +359,7 @@ type NativeScript struct {
 	item any
 }
 
-func (NativeScript) isScript() {}
+func (*NativeScript) isScript() {}
 
 func (n *NativeScript) Item() any {
 	return n.item
@@ -395,7 +395,7 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (s NativeScript) Hash() ScriptHash {
+func (s *NativeScript) Hash() ScriptHash {
 	return ScriptHash(Blake2b224Hash(
 		slices.Concat(
 			[]byte{ScriptRefTypeNativeScript},
@@ -404,11 +404,11 @@ func (s NativeScript) Hash() ScriptHash {
 	))
 }
 
-func (s NativeScript) RawScriptBytes() []byte {
+func (s *NativeScript) RawScriptBytes() []byte {
 	return s.Cbor()
 }
 
-func (n NativeScript) MarshalCBOR() ([]byte, error) {
+func (n *NativeScript) MarshalCBOR() ([]byte, error) {
 	if raw := n.Cbor(); len(raw) > 0 {
 		return raw, nil
 	}

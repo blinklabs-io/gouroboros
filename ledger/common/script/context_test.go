@@ -75,7 +75,7 @@ func buildTxInfoV1(
 			resolvedInputs,
 			lcommon.Utxo{
 				Id:     tmpInputs[i],
-				Output: tmpOutputs[i],
+				Output: &tmpOutputs[i],
 			},
 		)
 	}
@@ -134,7 +134,7 @@ func buildTxInfoV2(
 			resolvedInputs,
 			lcommon.Utxo{
 				Id:     tmpInputs[i],
-				Output: tmpOutputs[i],
+				Output: &tmpOutputs[i],
 			},
 		)
 	}
@@ -193,7 +193,7 @@ func buildTxInfoV3(
 			resolvedInputs,
 			lcommon.Utxo{
 				Id:     tmpInputs[i],
-				Output: tmpOutputs[i],
+				Output: &tmpOutputs[i],
 			},
 		)
 	}

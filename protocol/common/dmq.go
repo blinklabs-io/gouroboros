@@ -143,7 +143,7 @@ type RejectReasonData struct {
 }
 
 // RejectReasonType implements the RejectReason interface.
-func (r RejectReasonData) RejectReasonType() uint8 {
+func (r *RejectReasonData) RejectReasonType() uint8 {
 	return r.Type
 }
 
@@ -161,8 +161,8 @@ func ToRejectReasonData(rr RejectReason) RejectReasonData {
 		return RejectReasonData{Type: 2}
 	case OtherReason:
 		return RejectReasonData{Type: 3, Message: v.Message}
-	case RejectReasonData:
-		return v
+	case *RejectReasonData:
+		return *v
 	default:
 		// Fallback: encode as OtherReason with type 3
 		return RejectReasonData{Type: 3}
@@ -170,7 +170,7 @@ func ToRejectReasonData(rr RejectReason) RejectReasonData {
 }
 
 // MarshalCBOR encodes RejectReasonData as an array [type, message?] for deterministic wire format.
-func (r RejectReasonData) MarshalCBOR() ([]byte, error) {
+func (r *RejectReasonData) MarshalCBOR() ([]byte, error) {
 	// Encode as array [type, message]
 	// If message is empty, it still appears in the array (empty string) to keep structure consistent
 	data := []any{r.Type, r.Message}

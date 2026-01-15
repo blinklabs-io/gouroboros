@@ -330,7 +330,7 @@ func TestGenesisConfigJSON(t *testing.T) {
 	}
 
 	// Marshal to JSON
-	jsonData, err := json.Marshal(genesisConfig)
+	jsonData, err := json.Marshal(&genesisConfig)
 	if err != nil {
 		t.Fatalf("Failed to marshal JSON: %v", err)
 	}

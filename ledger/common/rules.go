@@ -425,9 +425,6 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 			switch script.(type) {
 			case *PlutusV1Script, *PlutusV2Script, *PlutusV3Script:
 				hasPlutusReference = true
-			case PlutusV1Script, PlutusV2Script, PlutusV3Script:
-				// Also handle non-pointer types
-				hasPlutusReference = true
 			}
 			if hasPlutusReference {
 				break
@@ -450,9 +447,6 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 				}
 				switch script.(type) {
 				case *PlutusV1Script, *PlutusV2Script, *PlutusV3Script:
-					hasPlutusReference = true
-				case PlutusV1Script, PlutusV2Script, PlutusV3Script:
-					// Also handle non-pointer types
 					hasPlutusReference = true
 				}
 				if hasPlutusReference {

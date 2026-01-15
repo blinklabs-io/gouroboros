@@ -358,7 +358,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
+		case *common.PlutusV1Script, *common.PlutusV2Script, *common.PlutusV3Script:
 			hasPlutusReference = true
 		}
 		if hasPlutusReference {
@@ -383,7 +383,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 				continue
 			}
 			switch script.(type) {
-			case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
+			case *common.PlutusV1Script, *common.PlutusV2Script, *common.PlutusV3Script:
 				hasPlutusReference = true
 			}
 			if hasPlutusReference {
@@ -538,11 +538,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			required[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			required[1] = struct{}{}
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
@@ -562,11 +562,11 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			required[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			required[1] = struct{}{}
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script:
 			required[2] = struct{}{}
 		}
 	}
@@ -635,11 +635,11 @@ func UtxoValidateScriptDataHash(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			usedVersions[1] = struct{}{}
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script:
 			usedVersions[2] = struct{}{}
 		}
 	}
@@ -658,11 +658,11 @@ func UtxoValidateScriptDataHash(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			usedVersions[1] = struct{}{}
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script:
 			usedVersions[2] = struct{}{}
 		}
 	}
@@ -1113,9 +1113,9 @@ func UtxoValidateValueNotConservedUtxo(
 				script := utxo.Output.ScriptRef()
 				if script != nil {
 					switch script.(type) {
-					case common.PlutusV1Script:
+					case *common.PlutusV1Script:
 						plutusVersion = "PlutusV1"
-					case common.PlutusV2Script:
+					case *common.PlutusV2Script:
 						plutusVersion = "PlutusV2"
 					}
 					if plutusVersion != "" {
@@ -1364,9 +1364,9 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 			script := utxo.Output.ScriptRef()
 			if script != nil {
 				switch script.(type) {
-				case common.PlutusV1Script:
+				case *common.PlutusV1Script:
 					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
+				case *common.PlutusV2Script:
 					plutusVersion = "PlutusV2"
 				}
 				if plutusVersion != "" {
@@ -1389,9 +1389,9 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 			script := utxo.Output.ScriptRef()
 			if script != nil {
 				switch script.(type) {
-				case common.PlutusV1Script:
+				case *common.PlutusV1Script:
 					plutusVersion = "PlutusV1"
-				case common.PlutusV2Script:
+				case *common.PlutusV2Script:
 					plutusVersion = "PlutusV2"
 				}
 				if plutusVersion != "" {
@@ -1787,13 +1787,19 @@ func UtxoValidatePlutusScripts(
 	availableScripts := make(map[common.ScriptHash]common.Script)
 
 	// Add witness scripts
-	for _, s := range witnesses.PlutusV1Scripts() {
+	v1Scripts := witnesses.PlutusV1Scripts()
+	for i := range v1Scripts {
+		s := &v1Scripts[i]
 		availableScripts[s.Hash()] = s
 	}
-	for _, s := range witnesses.PlutusV2Scripts() {
+	v2Scripts := witnesses.PlutusV2Scripts()
+	for i := range v2Scripts {
+		s := &v2Scripts[i]
 		availableScripts[s.Hash()] = s
 	}
-	for _, s := range witnesses.PlutusV3Scripts() {
+	v3Scripts := witnesses.PlutusV3Scripts()
+	for i := range v3Scripts {
+		s := &v3Scripts[i]
 		availableScripts[s.Hash()] = s
 	}
 
@@ -1899,7 +1905,7 @@ func UtxoValidatePlutusScripts(
 		// Execute based on script version
 		var execErr error
 		switch s := plutusScript.(type) {
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script:
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
 				var err error
@@ -1919,7 +1925,7 @@ func UtxoValidatePlutusScripts(
 			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
 			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
 				return MissingDatumForSpendingScriptError{
@@ -1940,7 +1946,7 @@ func UtxoValidatePlutusScripts(
 			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
 			ctxData := ctx.ToPlutusData()
 			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
 				return MissingDatumForSpendingScriptError{
@@ -2219,12 +2225,12 @@ func UtxoValidateWithdrawals(
 
 		var cred common.Credential
 		switch p := stakingPayload.(type) {
-		case common.AddressPayloadKeyHash:
+		case *common.AddressPayloadKeyHash:
 			cred = common.Credential{
 				CredType:   common.CredentialTypeAddrKeyHash,
 				Credential: common.NewBlake2b224(p.Hash.Bytes()),
 			}
-		case common.AddressPayloadScriptHash:
+		case *common.AddressPayloadScriptHash:
 			cred = common.Credential{
 				CredType:   common.CredentialTypeScriptHash,
 				Credential: common.NewBlake2b224(p.Hash.Bytes()),
@@ -2310,17 +2316,17 @@ func UtxoValidateMalformedReferenceScripts(
 		var scriptHash common.ScriptHash
 
 		switch s := scriptRef.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			isPlutus = true
-			scriptBytes = []byte(s)
+			scriptBytes = *s
 			scriptHash = s.Hash()
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			isPlutus = true
-			scriptBytes = []byte(s)
+			scriptBytes = *s
 			scriptHash = s.Hash()
-		case common.PlutusV3Script:
+		case *common.PlutusV3Script:
 			isPlutus = true
-			scriptBytes = []byte(s)
+			scriptBytes = *s
 			scriptHash = s.Hash()
 		default:
 			// Native scripts don't need UPLC validation

@@ -76,7 +76,7 @@ func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (AllegraBlock) Type() int {
+func (*AllegraBlock) Type() int {
 	return BlockTypeAllegra
 }
 
@@ -237,7 +237,7 @@ func (b *AllegraTransactionBody) ProtocolParameterUpdates() (uint64, map[common.
 	}
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
-		updateMap[k] = v
+		updateMap[k] = &v
 	}
 	return b.Update.Epoch, updateMap
 }
@@ -326,19 +326,19 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (AllegraTransaction) Type() int {
+func (*AllegraTransaction) Type() int {
 	return TxTypeAllegra
 }
 
-func (t AllegraTransaction) Hash() common.Blake2b256 {
+func (t *AllegraTransaction) Hash() common.Blake2b256 {
 	return t.Id()
 }
 
-func (t AllegraTransaction) Id() common.Blake2b256 {
+func (t *AllegraTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t AllegraTransaction) LeiosHash() common.Blake2b256 {
+func (t *AllegraTransaction) LeiosHash() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -346,79 +346,79 @@ func (t AllegraTransaction) LeiosHash() common.Blake2b256 {
 	return *t.hash
 }
 
-func (t AllegraTransaction) Inputs() []common.TransactionInput {
+func (t *AllegraTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t AllegraTransaction) Outputs() []common.TransactionOutput {
+func (t *AllegraTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t AllegraTransaction) Fee() *big.Int {
+func (t *AllegraTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
-func (t AllegraTransaction) TTL() uint64 {
+func (t *AllegraTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
-func (t AllegraTransaction) ValidityIntervalStart() uint64 {
+func (t *AllegraTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t AllegraTransaction) ReferenceInputs() []common.TransactionInput {
+func (t *AllegraTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t AllegraTransaction) Collateral() []common.TransactionInput {
+func (t *AllegraTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t AllegraTransaction) CollateralReturn() common.TransactionOutput {
+func (t *AllegraTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t AllegraTransaction) TotalCollateral() *big.Int {
+func (t *AllegraTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
-func (t AllegraTransaction) Certificates() []common.Certificate {
+func (t *AllegraTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AllegraTransaction) Withdrawals() map[*common.Address]*big.Int {
+func (t *AllegraTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
-func (t AllegraTransaction) AuxDataHash() *common.Blake2b256 {
+func (t *AllegraTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t AllegraTransaction) RequiredSigners() []common.Blake2b224 {
+func (t *AllegraTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t AllegraTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+func (t *AllegraTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
-func (t AllegraTransaction) ScriptDataHash() *common.Blake2b256 {
+func (t *AllegraTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t AllegraTransaction) VotingProcedures() common.VotingProcedures {
+func (t *AllegraTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t AllegraTransaction) ProposalProcedures() []common.ProposalProcedure {
+func (t *AllegraTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t AllegraTransaction) CurrentTreasuryValue() *big.Int {
+func (t *AllegraTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t AllegraTransaction) Donation() *big.Int {
+func (t *AllegraTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -430,15 +430,15 @@ func (t *AllegraTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
-func (t AllegraTransaction) IsValid() bool {
+func (t *AllegraTransaction) IsValid() bool {
 	return true
 }
 
-func (t AllegraTransaction) Consumed() []common.TransactionInput {
+func (t *AllegraTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
-func (t AllegraTransaction) Produced() []common.Utxo {
+func (t *AllegraTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
@@ -456,15 +456,15 @@ func (t AllegraTransaction) Produced() []common.Utxo {
 	return ret
 }
 
-func (t AllegraTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+func (t *AllegraTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return t.Body.ProtocolParameterUpdates()
 }
 
-func (t AllegraTransaction) Witnesses() common.TransactionWitnessSet {
-	return t.WitnessSet
+func (t *AllegraTransaction) Witnesses() common.TransactionWitnessSet {
+	return &t.WitnessSet
 }
 
-func (t AllegraTransaction) Utxorpc() (*utxorpc.Tx, error) {
+func (t *AllegraTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := t.Body.Utxorpc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Allegra transaction: %w", err)

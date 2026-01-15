@@ -71,7 +71,7 @@ func TestCIP25_NFTMetadataDecode(t *testing.T) {
 	}
 
 	// Expect a MetaMap
-	mm, ok := md.(MetaMap)
+	mm, ok := md.(*MetaMap)
 	if !ok {
 		t.Fatalf("expected MetaMap, got %T", md)
 	}
@@ -79,11 +79,11 @@ func TestCIP25_NFTMetadataDecode(t *testing.T) {
 	// Find key 721 in pairs
 	var found bool
 	for _, p := range mm.Pairs {
-		if ki, ok := p.Key.(MetaInt); ok {
+		if ki, ok := p.Key.(*MetaInt); ok {
 			if ki.Value != nil && ki.Value.Uint64() == 721 {
 				found = true
 				// value should be a MetaMap representing policy map
-				if _, ok := p.Value.(MetaMap); !ok {
+				if _, ok := p.Value.(*MetaMap); !ok {
 					t.Fatalf("expected MetaMap for 721 value, got %T", p.Value)
 				}
 				break
