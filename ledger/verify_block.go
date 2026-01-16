@@ -33,6 +33,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/gouroboros/vrf"
 )
 
 const (
@@ -230,8 +231,13 @@ func VerifyBlock(
 			nil,
 		)
 	}
-	vrfMsg := MkInputVrf(int64(slot), eta0)
-	vrfValid, err = VerifyVrf(vrfKey, vrfResult.Proof, vrfResult.Output, vrfMsg)
+	vrfMsg := vrf.MkInputVrf(int64(slot), eta0)
+	vrfValid, err = vrf.Verify(
+		vrfKey,
+		vrfResult.Proof,
+		vrfResult.Output,
+		vrfMsg,
+	)
 	if err != nil {
 		return false, "", 0, 0, common.NewValidationError(
 			common.ValidationErrorTypeVRF,
