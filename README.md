@@ -70,20 +70,29 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [X] Stake pools
         - [X] Stake pool params
         - [ ] Reward info pools
-        - [ ] Pool state
-        - [ ] Stake snapshots
-        - [ ] Pool distribution
-        - [ ] Constitution
-        - [ ] Governance state
-        - [ ] DRep state
-        - [ ] DRep stake distribution
-        - [ ] SPO stake distribution
-        - [ ] Committee state
-        - [ ] Treasury
-    - [X] LeiosFetch
+        - [X] Pool state
+        - [X] Stake snapshots
+        - [X] Pool distribution
+        - [ ] Constitution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [ ] Governance state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [ ] DRep state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [ ] DRep stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [ ] SPO stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [ ] Committee state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [ ] Treasury ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] LeiosFetch ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
       - [X] Client support
       - [X] Server support
-    - [X] LeiosNotify
+    - [X] LeiosNotify ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
+      - [X] Client support
+      - [X] Server support
+    - [X] LocalMessageSubmission ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
+      - [X] Client support
+      - [X] Server support
+    - [X] MessageSubmission ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
+      - [X] Client support
+      - [X] Server support
+    - [X] LocalMessageNotification ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
       - [X] Client support
       - [X] Server support
 - [ ] Ledger
@@ -144,24 +153,51 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Script data hash
     - [X] Collateral inputs
     - [X] Required signers
-    - [X] Collateral return
-    - [X] Total collateral
-    - [X] Reference inputs
-    - [X] Voting procedures
-    - [X] Proposal procedures
-    - [X] Current treasury value
-    - [X] Donation
+    - [X] Collateral return ([CIP-0040](https://cips.cardano.org/cip/CIP-0040))
+    - [X] Total collateral ([CIP-0040](https://cips.cardano.org/cip/CIP-0040))
+    - [X] Reference inputs ([CIP-0031](https://cips.cardano.org/cip/CIP-0031))
+    - [X] Voting procedures ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] Proposal procedures ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] Current treasury value ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] Donation ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+- [X] Block Validation
+  - [X] Block body hash validation
+  - [X] VRF proof verification
+  - [X] KES signature verification
+  - [X] Transaction validation (UTxO rules)
+  - [X] Stake pool verification
+  - [X] Native script evaluation
+  - [X] Plutus script validation (via plutigo)
+  - [X] Structured error handling (ValidationError)
+  - [ ] Byron era validation
+- [ ] Cryptography
+  - [ ] KES (Key-Evolving Signatures)
+    - [X] Signature verification
+    - [ ] Key generation
+    - [ ] Key evolution
+  - [ ] VRF (Verifiable Random Function)
+    - [ ] Proof generation
+    - [X] Proof verification
+    - [X] Leader election input construction
+- [ ] Consensus
+  - [ ] Leader election
+  - [ ] Block construction
+  - [ ] Chain selection
+  - [ ] Threshold calculation
+  - [ ] Genesis configuration
+  - [ ] Byron consensus
 - [ ] Testing
   - [X] Test framework for mocking Ouroboros conversations
+  - [X] Conformance tests (314/314 passing)
   - [ ] CBOR deserialization and serialization
     - [X] Protocol messages
     - [X] Ledger
       - [X] Block parsing
       - [X] Transaction parsing
 - [ ] Misc
-  - [X] Address handling
-    - [X] Decode from bech32
-    - [X] Encode as bech32
+  - [X] Address handling ([CIP-0019](https://cips.cardano.org/cip/CIP-0019))
+    - [X] Decode from bech32 ([CIP-0005](https://cips.cardano.org/cip/CIP-0005))
+    - [X] Encode as bech32 ([CIP-0005](https://cips.cardano.org/cip/CIP-0005))
     - [X] Deserialize from CBOR
     - [X] Retrieve staking key
 
