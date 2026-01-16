@@ -38,8 +38,17 @@ func NewServer(
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Server {
+	// Apply defaults for zero values to handle Config{} created without NewConfig()
+	var config *Config
+	if cfg != nil {
+		configCopy := *cfg
+		if configCopy.RecvQueueSize == 0 {
+			configCopy.RecvQueueSize = DefaultRecvQueueSize
+		}
+		config = &configCopy
+	}
 	s := &Server{
-		config: cfg,
+		config: config,
 		// Save these for re-use later
 		protoOptions: protoOptions,
 		stateContext: stateContext,
