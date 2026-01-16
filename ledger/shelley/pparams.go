@@ -171,7 +171,7 @@ type ShelleyProtocolParameterUpdate struct {
 	MinUtxoValue       *uint                                     `cbor:"15,keyasint"`
 }
 
-func (ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
+func (*ShelleyProtocolParameterUpdate) IsProtocolParameterUpdate() {}
 
 func (u *ShelleyProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	type tShelleyProtocolParameterUpdate ShelleyProtocolParameterUpdate

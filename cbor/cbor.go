@@ -66,6 +66,6 @@ func (d *DecodeStoreCbor) SetCbor(cborData []byte) {
 }
 
 // Cbor returns the original CBOR for the object
-func (d DecodeStoreCbor) Cbor() []byte {
+func (d *DecodeStoreCbor) Cbor() []byte {
 	return d.cborData
 }

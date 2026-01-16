@@ -89,7 +89,7 @@ func TestCostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	amount := mary.MaryTransactionOutputValue{Amount: 1000}
 
 	// create a PlutusV1 script (PlutusV1Script is []byte)
-	plutus := common.PlutusV1Script{0x01, 0x02}
+	plutus := &common.PlutusV1Script{0x01, 0x02}
 	scriptRef := &common.ScriptRef{
 		Type:   common.ScriptRefTypePlutusV1,
 		Script: plutus,
@@ -108,7 +108,7 @@ func TestCostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	)
 	utxo := common.Utxo{
 		Id:     input,
-		Output: output,
+		Output: &output,
 	}
 
 	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{utxo})

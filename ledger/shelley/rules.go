@@ -426,7 +426,7 @@ func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
 		return errors.New("metadata nesting depth exceeds maximum")
 	}
 	switch m := md.(type) {
-	case common.MetaText:
+	case *common.MetaText:
 		if !utf8.ValidString(m.Value) {
 			return errors.New("metadata contains invalid UTF-8 text")
 		}
@@ -434,22 +434,22 @@ func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
 		if len(m.Value) > 64 {
 			return fmt.Errorf("metadata text exceeds 64 byte limit: %d bytes", len(m.Value))
 		}
-	case common.MetaBytes:
+	case *common.MetaBytes:
 		// Cardano spec: metadata byte strings must not exceed 64 bytes
 		if len(m.Value) > 64 {
 			return fmt.Errorf("metadata byte string exceeds 64 byte limit: %d bytes", len(m.Value))
 		}
-	case common.MetaInt:
+	case *common.MetaInt:
 		if m.Value == nil {
 			return errors.New("metadata contains nil integer value")
 		}
-	case common.MetaList:
+	case *common.MetaList:
 		for _, item := range m.Items {
 			if err := validateMetadatumContent(item, depth+1); err != nil {
 				return err
 			}
 		}
-	case common.MetaMap:
+	case *common.MetaMap:
 		for _, pair := range m.Pairs {
 			if err := validateMetadatumContent(pair.Key, depth+1); err != nil {
 				return err
@@ -610,12 +610,12 @@ func UtxoValidateWithdrawals(
 
 		var cred common.Credential
 		switch p := stakingPayload.(type) {
-		case common.AddressPayloadKeyHash:
+		case *common.AddressPayloadKeyHash:
 			cred = common.Credential{
 				CredType:   common.CredentialTypeAddrKeyHash,
 				Credential: common.NewBlake2b224(p.Hash.Bytes()),
 			}
-		case common.AddressPayloadScriptHash:
+		case *common.AddressPayloadScriptHash:
 			cred = common.Credential{
 				CredType:   common.CredentialTypeScriptHash,
 				Credential: common.NewBlake2b224(p.Hash.Bytes()),

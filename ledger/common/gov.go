@@ -288,7 +288,7 @@ type ProposalProcedure interface {
 type ProposalProcedureBase struct{}
 
 //nolint:unused
-func (ProposalProcedureBase) isProposalProcedure() {}
+func (*ProposalProcedureBase) isProposalProcedure() {}
 
 // GovActionType represents the type of a governance action
 type GovActionType uint
@@ -316,7 +316,7 @@ type GovActionWithPolicy interface {
 type GovActionBase struct{}
 
 //nolint:unused
-func (GovActionBase) isGovAction() {}
+func (*GovActionBase) isGovAction() {}
 
 type HardForkInitiationGovAction struct {
 	cbor.StructAsArray
@@ -348,7 +348,7 @@ func (a *HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
 	)
 }
 
-func (a HardForkInitiationGovAction) isGovAction() {}
+func (a *HardForkInitiationGovAction) isGovAction() {}
 
 type TreasuryWithdrawalGovAction struct {
 	cbor.StructAsArray
@@ -378,7 +378,7 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	)
 }
 
-func (a TreasuryWithdrawalGovAction) isGovAction() {}
+func (a *TreasuryWithdrawalGovAction) isGovAction() {}
 
 // GetPolicyHash returns the policy script hash for this governance action
 func (a *TreasuryWithdrawalGovAction) GetPolicyHash() []byte {
@@ -401,7 +401,7 @@ func (a *NoConfidenceGovAction) ToPlutusData() data.PlutusData {
 	)
 }
 
-func (a NoConfidenceGovAction) isGovAction() {}
+func (a *NoConfidenceGovAction) isGovAction() {}
 
 type UpdateCommitteeGovAction struct {
 	cbor.StructAsArray
@@ -452,7 +452,7 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	)
 }
 
-func (a UpdateCommitteeGovAction) isGovAction() {}
+func (a *UpdateCommitteeGovAction) isGovAction() {}
 
 type NewConstitutionGovAction struct {
 	cbor.StructAsArray
@@ -485,7 +485,7 @@ func (a *NewConstitutionGovAction) ToPlutusData() data.PlutusData {
 	)
 }
 
-func (a NewConstitutionGovAction) isGovAction() {}
+func (a *NewConstitutionGovAction) isGovAction() {}
 
 type InfoGovAction struct {
 	cbor.StructAsArray
@@ -496,4 +496,4 @@ func (a *InfoGovAction) ToPlutusData() data.PlutusData {
 	return data.NewConstr(6)
 }
 
-func (a InfoGovAction) isGovAction() {}
+func (a *InfoGovAction) isGovAction() {}

@@ -83,7 +83,7 @@ func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (ShelleyBlock) Type() int {
+func (*ShelleyBlock) Type() int {
 	return BlockTypeShelley
 }
 
@@ -306,7 +306,7 @@ func (b *ShelleyTransactionBody) ProtocolParameterUpdates() (uint64, map[common.
 	}
 	updateMap := make(map[common.Blake2b224]common.ProtocolParameterUpdate)
 	for k, v := range b.Update.ProtocolParamUpdates {
-		updateMap[k] = v
+		updateMap[k] = &v
 	}
 	return b.Update.Epoch, updateMap
 }
@@ -448,7 +448,7 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
+func (o *ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
 	if o.OutputAmount > 0 {
 		valueData = append(
@@ -480,31 +480,31 @@ func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
 	return tmpData
 }
 
-func (o ShelleyTransactionOutput) Address() common.Address {
+func (o *ShelleyTransactionOutput) Address() common.Address {
 	return o.OutputAddress
 }
 
-func (o ShelleyTransactionOutput) ScriptRef() common.Script {
+func (o *ShelleyTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Amount() *big.Int {
+func (o *ShelleyTransactionOutput) Amount() *big.Int {
 	return new(big.Int).SetUint64(o.OutputAmount)
 }
 
-func (o ShelleyTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
+func (o *ShelleyTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) DatumHash() *common.Blake2b256 {
+func (o *ShelleyTransactionOutput) DatumHash() *common.Blake2b256 {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Datum() *common.Datum {
+func (o *ShelleyTransactionOutput) Datum() *common.Datum {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
+func (o *ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	addressBytes, err := o.OutputAddress.Bytes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address bytes: %w", err)
@@ -516,7 +516,7 @@ func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}, nil
 }
 
-func (o ShelleyTransactionOutput) String() string {
+func (o *ShelleyTransactionOutput) String() string {
 	return fmt.Sprintf(
 		"(ShelleyTransactionOutput address=%s amount=%d)",
 		o.OutputAddress.String(),
@@ -542,39 +542,39 @@ func (w *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) Vkey() []common.VkeyWitness {
+func (w *ShelleyTransactionWitnessSet) Vkey() []common.VkeyWitness {
 	return w.VkeyWitnesses
 }
 
-func (w ShelleyTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
+func (w *ShelleyTransactionWitnessSet) Bootstrap() []common.BootstrapWitness {
 	return w.BootstrapWitnesses
 }
 
-func (w ShelleyTransactionWitnessSet) NativeScripts() []common.NativeScript {
+func (w *ShelleyTransactionWitnessSet) NativeScripts() []common.NativeScript {
 	return w.WsNativeScripts
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusData() []common.Datum {
+func (w *ShelleyTransactionWitnessSet) PlutusData() []common.Datum {
 	// No plutus data in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
+func (w *ShelleyTransactionWitnessSet) PlutusV1Scripts() []common.PlutusV1Script {
 	// No plutus v1 scripts in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
+func (w *ShelleyTransactionWitnessSet) PlutusV2Scripts() []common.PlutusV2Script {
 	// No plutus v2 scripts in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
+func (w *ShelleyTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 	// No plutus v3 scripts in Shelley
 	return nil
 }
 
-func (w ShelleyTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
+func (w *ShelleyTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
 	// No redeemers in Shelley
 	return nil
 }
@@ -649,19 +649,19 @@ func (t *ShelleyTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
-func (ShelleyTransaction) Type() int {
+func (*ShelleyTransaction) Type() int {
 	return TxTypeShelley
 }
 
-func (t ShelleyTransaction) Hash() common.Blake2b256 {
+func (t *ShelleyTransaction) Hash() common.Blake2b256 {
 	return t.Id()
 }
 
-func (t ShelleyTransaction) Id() common.Blake2b256 {
+func (t *ShelleyTransaction) Id() common.Blake2b256 {
 	return t.Body.Id()
 }
 
-func (t ShelleyTransaction) LeiosHash() common.Blake2b256 {
+func (t *ShelleyTransaction) LeiosHash() common.Blake2b256 {
 	if t.hash == nil {
 		tmpHash := common.Blake2b256Hash(t.Cbor())
 		t.hash = &tmpHash
@@ -669,91 +669,91 @@ func (t ShelleyTransaction) LeiosHash() common.Blake2b256 {
 	return *t.hash
 }
 
-func (t ShelleyTransaction) Inputs() []common.TransactionInput {
+func (t *ShelleyTransaction) Inputs() []common.TransactionInput {
 	return t.Body.Inputs()
 }
 
-func (t ShelleyTransaction) Outputs() []common.TransactionOutput {
+func (t *ShelleyTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t ShelleyTransaction) Fee() *big.Int {
+func (t *ShelleyTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
-func (t ShelleyTransaction) TTL() uint64 {
+func (t *ShelleyTransaction) TTL() uint64 {
 	return t.Body.TTL()
 }
 
-func (t ShelleyTransaction) ValidityIntervalStart() uint64 {
+func (t *ShelleyTransaction) ValidityIntervalStart() uint64 {
 	return t.Body.ValidityIntervalStart()
 }
 
-func (t ShelleyTransaction) ReferenceInputs() []common.TransactionInput {
+func (t *ShelleyTransaction) ReferenceInputs() []common.TransactionInput {
 	return t.Body.ReferenceInputs()
 }
 
-func (t ShelleyTransaction) Collateral() []common.TransactionInput {
+func (t *ShelleyTransaction) Collateral() []common.TransactionInput {
 	return t.Body.Collateral()
 }
 
-func (t ShelleyTransaction) CollateralReturn() common.TransactionOutput {
+func (t *ShelleyTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t ShelleyTransaction) TotalCollateral() *big.Int {
+func (t *ShelleyTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
-func (t ShelleyTransaction) Certificates() []common.Certificate {
+func (t *ShelleyTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ShelleyTransaction) Withdrawals() map[*common.Address]*big.Int {
+func (t *ShelleyTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
-func (t ShelleyTransaction) AuxDataHash() *common.Blake2b256 {
+func (t *ShelleyTransaction) AuxDataHash() *common.Blake2b256 {
 	return t.Body.AuxDataHash()
 }
 
-func (t ShelleyTransaction) RequiredSigners() []common.Blake2b224 {
+func (t *ShelleyTransaction) RequiredSigners() []common.Blake2b224 {
 	return t.Body.RequiredSigners()
 }
 
-func (t ShelleyTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
+func (t *ShelleyTransaction) AssetMint() *common.MultiAsset[common.MultiAssetTypeMint] {
 	return t.Body.AssetMint()
 }
 
-func (t ShelleyTransaction) ScriptDataHash() *common.Blake2b256 {
+func (t *ShelleyTransaction) ScriptDataHash() *common.Blake2b256 {
 	return t.Body.ScriptDataHash()
 }
 
-func (t ShelleyTransaction) VotingProcedures() common.VotingProcedures {
+func (t *ShelleyTransaction) VotingProcedures() common.VotingProcedures {
 	return t.Body.VotingProcedures()
 }
 
-func (t ShelleyTransaction) ProposalProcedures() []common.ProposalProcedure {
+func (t *ShelleyTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t ShelleyTransaction) CurrentTreasuryValue() *big.Int {
+func (t *ShelleyTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t ShelleyTransaction) Donation() *big.Int {
+func (t *ShelleyTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
-func (t ShelleyTransaction) IsValid() bool {
+func (t *ShelleyTransaction) IsValid() bool {
 	return true
 }
 
-func (t ShelleyTransaction) Consumed() []common.TransactionInput {
+func (t *ShelleyTransaction) Consumed() []common.TransactionInput {
 	return t.Inputs()
 }
 
-func (t ShelleyTransaction) Produced() []common.Utxo {
+func (t *ShelleyTransaction) Produced() []common.Utxo {
 	outputs := t.Outputs()
 	ret := make([]common.Utxo, 0, len(outputs))
 	for idx, output := range outputs {
@@ -768,11 +768,11 @@ func (t ShelleyTransaction) Produced() []common.Utxo {
 	return ret
 }
 
-func (t ShelleyTransaction) Witnesses() common.TransactionWitnessSet {
-	return t.WitnessSet
+func (t *ShelleyTransaction) Witnesses() common.TransactionWitnessSet {
+	return &t.WitnessSet
 }
 
-func (t ShelleyTransaction) Utxorpc() (*utxorpc.Tx, error) {
+func (t *ShelleyTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := t.Body.Utxorpc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Shelley transaction: %w", err)

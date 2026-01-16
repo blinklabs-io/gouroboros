@@ -252,7 +252,7 @@ type StakeRegistrationCertificate struct {
 	StakeCredential Credential
 }
 
-func (c StakeRegistrationCertificate) isCertificate() {}
+func (c *StakeRegistrationCertificate) isCertificate() {}
 
 func (c *StakeRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	type tStakeRegistrationCertificate StakeRegistrationCertificate
@@ -288,7 +288,7 @@ type StakeDeregistrationCertificate struct {
 	StakeCredential Credential
 }
 
-func (c StakeDeregistrationCertificate) isCertificate() {}
+func (c *StakeDeregistrationCertificate) isCertificate() {}
 
 func (c *StakeDeregistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	type tStakeDeregistrationCertificate StakeDeregistrationCertificate
@@ -327,7 +327,7 @@ type StakeDelegationCertificate struct {
 	PoolKeyHash     PoolKeyHash
 }
 
-func (c StakeDelegationCertificate) isCertificate() {}
+func (c *StakeDelegationCertificate) isCertificate() {}
 
 func (c *StakeDelegationCertificate) UnmarshalCBOR(cborData []byte) error {
 	type tStakeDelegationCertificate StakeDelegationCertificate
@@ -585,7 +585,7 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (c PoolRegistrationCertificate) isCertificate() {}
+func (c *PoolRegistrationCertificate) isCertificate() {}
 
 func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	type tPoolRegistrationCertificate PoolRegistrationCertificate
@@ -660,7 +660,7 @@ type PoolRetirementCertificate struct {
 	Epoch       uint64
 }
 
-func (c PoolRetirementCertificate) isCertificate() {}
+func (c *PoolRetirementCertificate) isCertificate() {}
 
 func (c *PoolRetirementCertificate) UnmarshalCBOR(cborData []byte) error {
 	type tPoolRetirementCertificate PoolRetirementCertificate
@@ -697,7 +697,7 @@ type GenesisKeyDelegationCertificate struct {
 	VrfKeyHash          VrfKeyHash
 }
 
-func (c GenesisKeyDelegationCertificate) isCertificate() {}
+func (c *GenesisKeyDelegationCertificate) isCertificate() {}
 
 func (c *GenesisKeyDelegationCertificate) UnmarshalCBOR(cborData []byte) error {
 	type tGenesisKeyDelegationCertificate GenesisKeyDelegationCertificate
@@ -775,7 +775,7 @@ type MoveInstantaneousRewardsCertificate struct {
 	Reward   MoveInstantaneousRewardsCertificateReward
 }
 
-func (c MoveInstantaneousRewardsCertificate) isCertificate() {}
+func (c *MoveInstantaneousRewardsCertificate) isCertificate() {}
 
 func (c *MoveInstantaneousRewardsCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -847,7 +847,7 @@ type RegistrationCertificate struct {
 	Amount          int64
 }
 
-func (c RegistrationCertificate) isCertificate() {}
+func (c *RegistrationCertificate) isCertificate() {}
 
 func (c *RegistrationCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -893,7 +893,7 @@ type DeregistrationCertificate struct {
 	Amount          int64
 }
 
-func (c DeregistrationCertificate) isCertificate() {}
+func (c *DeregistrationCertificate) isCertificate() {}
 
 func (c *DeregistrationCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -939,7 +939,7 @@ type VoteDelegationCertificate struct {
 	Drep            Drep
 }
 
-func (c VoteDelegationCertificate) isCertificate() {}
+func (c *VoteDelegationCertificate) isCertificate() {}
 
 func (c *VoteDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -986,7 +986,7 @@ type StakeVoteDelegationCertificate struct {
 	Drep            Drep
 }
 
-func (c StakeVoteDelegationCertificate) isCertificate() {}
+func (c *StakeVoteDelegationCertificate) isCertificate() {}
 
 func (c *StakeVoteDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1035,7 +1035,7 @@ type StakeRegistrationDelegationCertificate struct {
 	Amount          int64
 }
 
-func (c StakeRegistrationDelegationCertificate) isCertificate() {}
+func (c *StakeRegistrationDelegationCertificate) isCertificate() {}
 
 func (c *StakeRegistrationDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1083,7 +1083,7 @@ type VoteRegistrationDelegationCertificate struct {
 	Amount          int64
 }
 
-func (c VoteRegistrationDelegationCertificate) isCertificate() {}
+func (c *VoteRegistrationDelegationCertificate) isCertificate() {}
 
 func (c *VoteRegistrationDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1137,7 +1137,7 @@ type StakeVoteRegistrationDelegationCertificate struct {
 	Amount          int64
 }
 
-func (c StakeVoteRegistrationDelegationCertificate) isCertificate() {}
+func (c *StakeVoteRegistrationDelegationCertificate) isCertificate() {}
 
 func (c *StakeVoteRegistrationDelegationCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1201,7 +1201,7 @@ type AuthCommitteeHotCertificate struct {
 	HotCredential  Credential
 }
 
-func (c AuthCommitteeHotCertificate) isCertificate() {}
+func (c *AuthCommitteeHotCertificate) isCertificate() {}
 
 func (c *AuthCommitteeHotCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1247,7 +1247,7 @@ type ResignCommitteeColdCertificate struct {
 	Anchor         *GovAnchor
 }
 
-func (c ResignCommitteeColdCertificate) isCertificate() {}
+func (c *ResignCommitteeColdCertificate) isCertificate() {}
 
 func (c *ResignCommitteeColdCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1297,7 +1297,7 @@ type RegistrationDrepCertificate struct {
 	Anchor         *GovAnchor
 }
 
-func (c RegistrationDrepCertificate) isCertificate() {}
+func (c *RegistrationDrepCertificate) isCertificate() {}
 
 func (c *RegistrationDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1352,7 +1352,7 @@ type DeregistrationDrepCertificate struct {
 	Amount         int64
 }
 
-func (c DeregistrationDrepCertificate) isCertificate() {}
+func (c *DeregistrationDrepCertificate) isCertificate() {}
 
 func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1398,7 +1398,7 @@ type UpdateDrepCertificate struct {
 	Anchor         *GovAnchor
 }
 
-func (c UpdateDrepCertificate) isCertificate() {}
+func (c *UpdateDrepCertificate) isCertificate() {}
 
 func (c *UpdateDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
@@ -1449,7 +1449,7 @@ type LeiosEbCertificate struct {
 	AggregatedVoteSig   []byte
 }
 
-func (c LeiosEbCertificate) isCertificate() {}
+func (c *LeiosEbCertificate) isCertificate() {}
 
 func (c *LeiosEbCertificate) UnmarshalCBOR(
 	cborData []byte,

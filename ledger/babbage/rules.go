@@ -169,9 +169,9 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			required[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			required[1] = struct{}{}
 		}
 	}
@@ -191,9 +191,9 @@ func UtxoValidateCostModelsPresent(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			required[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			required[1] = struct{}{}
 		}
 	}
@@ -271,7 +271,7 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
@@ -293,7 +293,7 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
@@ -1049,9 +1049,9 @@ func UtxoValidateScriptDataHash(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			usedVersions[1] = struct{}{}
 		}
 	}
@@ -1070,9 +1070,9 @@ func UtxoValidateScriptDataHash(
 			continue
 		}
 		switch script.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			usedVersions[1] = struct{}{}
 		}
 	}
@@ -1181,13 +1181,13 @@ func UtxoValidateMalformedReferenceScripts(
 		var scriptHash common.ScriptHash
 
 		switch s := scriptRef.(type) {
-		case common.PlutusV1Script:
+		case *common.PlutusV1Script:
 			isPlutus = true
-			scriptBytes = []byte(s)
+			scriptBytes = *s
 			scriptHash = s.Hash()
-		case common.PlutusV2Script:
+		case *common.PlutusV2Script:
 			isPlutus = true
-			scriptBytes = []byte(s)
+			scriptBytes = *s
 			scriptHash = s.Hash()
 		default:
 			// Native scripts don't need UPLC validation

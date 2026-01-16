@@ -528,7 +528,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	utxos := []common.Utxo{
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			Output: shelley.ShelleyTransactionOutput{
+			Output: &shelley.ShelleyTransactionOutput{
 				OutputAmount: testInputAmount,
 			},
 		},
@@ -981,13 +981,13 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	utxos := []common.Utxo{
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			Output: shelley.ShelleyTransactionOutput{
+			Output: &shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount1,
 			},
 		},
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
-			Output: shelley.ShelleyTransactionOutput{
+			Output: &shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount2,
 			},
 		},
@@ -1090,13 +1090,13 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	utxos := []common.Utxo{
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			Output: shelley.ShelleyTransactionOutput{
+			Output: &shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount,
 			},
 		},
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 1),
-			Output: babbage.BabbageTransactionOutput{
+			Output: &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralAmount,
 					Assets: &tmpMultiAsset,
@@ -1105,7 +1105,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		},
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 2),
-			Output: babbage.BabbageTransactionOutput{
+			Output: &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralAmount,
 					Assets: &tmpZeroMultiAsset,
@@ -1253,7 +1253,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	utxos := []common.Utxo{
 		{
 			Id: shelley.NewShelleyTransactionInput(testInputTxId, 0),
-			Output: shelley.ShelleyTransactionOutput{
+			Output: &shelley.ShelleyTransactionOutput{
 				OutputAmount: testCollateralAmount,
 			},
 		},
@@ -1537,7 +1537,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				testInputTxId,
 				0,
 			),
-			Output: shelley.ShelleyTransactionOutput{
+			Output: &shelley.ShelleyTransactionOutput{
 				OutputAmount: testInputAmount,
 			},
 		},
