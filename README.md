@@ -171,20 +171,20 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Structured error handling (ValidationError)
   - [ ] Byron era validation
 - [ ] Cryptography
-  - [ ] KES (Key-Evolving Signatures)
+  - [X] KES (Key-Evolving Signatures)
     - [X] Signature verification
-    - [ ] Key generation
-    - [ ] Key evolution
+    - [X] Key generation
+    - [X] Key evolution
   - [ ] VRF (Verifiable Random Function)
     - [ ] Proof generation
     - [X] Proof verification
     - [X] Leader election input construction
 - [ ] Consensus
-  - [ ] Leader election
-  - [ ] Block construction
-  - [ ] Chain selection
-  - [ ] Threshold calculation
-  - [ ] Genesis configuration
+  - [X] Leader election
+  - [X] Block construction
+  - [X] Chain selection
+  - [X] Threshold calculation
+  - [X] Genesis configuration
   - [ ] Byron consensus
 - [ ] Testing
   - [X] Test framework for mocking Ouroboros conversations
