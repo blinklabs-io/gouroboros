@@ -1,10 +1,25 @@
 # Conformance Tests
 
-This package runs Conway ledger conformance tests against test vectors from the Cardano ledger specification.
+This package contains conformance tests for Gouroboros, validating our implementations against official Cardano test vectors and real blockchain data.
 
-**Status**: 314/314 tests passing (100%)
+## Test Status Summary
 
-## Test Vectors
+| Category | Tests | Source |
+|----------|-------|--------|
+| Ledger Rules (Conway) | 314 | Amaru test vectors |
+| VRF Cryptography | 58 | cardano-crypto-praos vectors |
+| KES Cryptography | 14 | input-output-hk/kes vectors |
+| Consensus | 22 | Real blocks + threshold calculation |
+| Byron Blocks | 6 | Real mainnet/testnet blocks |
+| **Total** | **414** | |
+
+All tests passing (100%).
+
+---
+
+## Ledger Rules Conformance
+
+### Test Vectors
 
 **Source**: `rules-conformance.tar.gz` in this directory
 
@@ -256,3 +271,171 @@ Conway-era witness set uses these CBOR map keys:
 | `ledger/conway/rules.go` | Conway validation rules including ScriptDataHash and malformed script validation |
 | `internal/test/conformance/conformance_test.go` | Test harness, state tracking |
 | `internal/test/ledger/ledger.go` | MockLedgerState implementation |
+
+---
+
+## VRF Conformance Tests
+
+**File**: `vrf_conformance_test.go`
+
+**Source**: [cardano-crypto-praos test vectors](https://github.com/IntersectMBO/cardano-base/tree/master/cardano-crypto-praos/test_vectors)
+
+Tests VRF (Verifiable Random Function) implementation against official Cardano test vectors using ECVRF-ED25519-SHA512-Elligator2 (IETF draft-03).
+
+### Test Vector Format
+
+**File**: `vrf_vectors.json` (58 vectors)
+
+```json
+{
+  "sk": "secret key (32 bytes hex)",
+  "pk": "public key (32 bytes hex)",
+  "alpha": "input message (variable hex)",
+  "pi": "proof (80 bytes hex)",
+  "beta": "output hash (64 bytes hex)"
+}
+```
+
+### Tests
+
+| Test | Description |
+|------|-------------|
+| `TestVRFVerifyConformance` | Verifies proofs against public keys |
+| `TestVRFProveConformance` | Generates proofs and compares to expected |
+
+---
+
+## KES Conformance Tests
+
+**File**: `kes_conformance_test.go`
+
+**Source**: [input-output-hk/kes test data](https://github.com/input-output-hk/kes/tree/master/tests/data)
+
+Tests KES (Key-Evolving Signatures) implementation using MMM Sum-Composition with depth 6.
+
+### Test Vector Format
+
+**File**: `kes_vectors.json` (14 tests)
+
+```json
+{
+  "source": "https://github.com/input-output-hk/kes",
+  "description": "KES (Key-Evolving Signature) test vectors for Sum6Kes (Cardano depth 6)",
+  "note": "Test vectors from Haskell KES implementation interoperability tests",
+  "parameters": {
+    "depth": 6,
+    "max_period": 64,
+    "signature_size": 448,
+    "seed": "32-byte seed string",
+    "seed_hex": "seed as hex",
+    "message": "message to sign",
+    "message_hex": "message as hex"
+  },
+  "vectors": [
+    {
+      "name": "sign_at_period_0",
+      "description": "Signature generated at initial period 0",
+      "period": 0,
+      "signature": "signature (448 bytes hex)"
+    }
+  ]
+}
+```
+
+### Tests
+
+| Test | Description |
+|------|-------------|
+| `TestKESKeyGenConformance` | Key generation from seed |
+| `TestKESSignConformance` | Signature generation at various periods |
+| `TestKESVerifyConformance` | Signature verification |
+| `TestKESUpdateConformance` | Key evolution between periods |
+
+---
+
+## Consensus Conformance Tests
+
+**File**: `consensus_conformance_test.go`
+
+Tests consensus-layer functionality including leader election threshold calculation and VRF verification using real blockchain data.
+
+### Tests
+
+| Test | Description |
+|------|-------------|
+| `TestShelleyBlockVRFExtraction` | Extracts VRF data from real Shelley testnet blocks |
+| `TestVRFProofToHashConsistency` | Verifies ProofToHash on real block proofs |
+| `TestLeaderThresholdKnownValues` | Tests threshold with 1%, 5%, 10%, 50%, 100% stake |
+| `TestLeaderThresholdMonotonicity` | Verifies threshold increases with stake |
+| `TestLeaderElectionProbability` | Validates probability math (f=0.05 → ~5%) |
+| `TestVRFInputGeneration` | Tests VRF input determinism |
+| `TestCardanoCryptoPraosVectors` | Tests against cardano-crypto-praos vectors |
+| `TestActiveSlotCoefficientImpact` | Tests f=0.01, 0.05, 0.10, 0.20 |
+| `TestVRFOutputEligibility` | Tests boundary cases (zero, max output) |
+
+### Leader Threshold Formula
+
+The certified natural threshold is computed as:
+
+```text
+T = 2^512 * (1 - (1-f)^σ)
+```
+
+Where:
+- `f` = active slot coefficient (0.05 on mainnet)
+- `σ` = poolStake / totalStake (relative stake)
+
+A pool is eligible if `VRF_output < T`.
+
+---
+
+## Byron Conformance Tests
+
+**File**: `byron_conformance_test.go`
+
+Tests Byron-era block parsing and validation using real mainnet and testnet blocks.
+
+### Test Data Sources
+
+| Block | Network | Hash |
+|-------|---------|------|
+| Main block slot 4471207 | Mainnet | `1451a0dbf16cfeddf4991a838961df1b08a68f43a19c0eb3b36cc4029c77a2d8` |
+| EBB | Testnet | `8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f` |
+| Main block | Testnet | `f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08` |
+
+### Tests
+
+| Test | Description |
+|------|-------------|
+| `TestByronMainBlockConformance` | Parses real mainnet Byron block, verifies hash |
+| `TestByronEBBConformance` | Parses Epoch Boundary Block |
+| `TestByronMainBlockFromTestnetFile` | Parses testnet block from file |
+| `TestByronHeaderFields` | Validates header field extraction |
+| `TestByronBlockBodyHash` | Tests body hash computation |
+| `TestByronSlotToEpoch` | Tests slot/epoch calculations |
+
+### Byron Constants
+
+| Parameter | Value |
+|-----------|-------|
+| Slots per epoch | 21,600 |
+| Slot duration | 20 seconds |
+| Security parameter (k) | 2,160 |
+| Protocol magic (mainnet) | 764824073 |
+| Protocol magic (testnet) | 1097911063 |
+
+---
+
+## Running All Conformance Tests
+
+```bash
+# Run all conformance tests
+go test -v ./internal/test/conformance/...
+
+# Run specific test categories
+go test -v ./internal/test/conformance/... -run "Rules"      # Ledger rules
+go test -v ./internal/test/conformance/... -run "VRF"        # VRF tests
+go test -v ./internal/test/conformance/... -run "KES"        # KES tests
+go test -v ./internal/test/conformance/... -run "Byron"      # Byron tests
+go test -v ./internal/test/conformance/... -run "Consensus"  # Consensus tests
+```
