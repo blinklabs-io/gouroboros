@@ -63,10 +63,15 @@ type Muxer struct {
 	waitGroup              sync.WaitGroup
 	waitGroupMutex         sync.Mutex
 	protocolSenders        map[uint16]map[ProtocolRole]chan *Segment
-	protocolReceivers      map[uint16]map[ProtocolRole]chan *Segment
+	protocolReceivers      map[uint16]map[ProtocolRole]*segmentChannel
 	protocolReceiversMutex sync.Mutex
 	diffusionMode          DiffusionMode
 	onceStop               sync.Once
+}
+
+type segmentChannel struct {
+	mu sync.Mutex
+	ch chan *Segment
 }
 
 type ConnectionClosedError struct {
@@ -94,7 +99,7 @@ func New(conn net.Conn) *Muxer {
 		doneChan:          make(chan bool),
 		errorChan:         make(chan error, 10),
 		protocolSenders:   make(map[uint16]map[ProtocolRole]chan *Segment),
-		protocolReceivers: make(map[uint16]map[ProtocolRole]chan *Segment),
+		protocolReceivers: make(map[uint16]map[ProtocolRole]*segmentChannel),
 	}
 	// Start read goroutine
 	m.waitGroup.Add(1)
@@ -181,14 +186,14 @@ func (m *Muxer) RegisterProtocol(
 	}
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
-	receiverChan := make(chan *Segment, 10)
+	receiverChan := &segmentChannel{ch: make(chan *Segment, 10)}
 	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
 		m.protocolSenders[protocolId] = make(map[ProtocolRole]chan *Segment)
 	}
 	if _, ok := m.protocolReceivers[protocolId]; !ok {
-		m.protocolReceivers[protocolId] = make(map[ProtocolRole]chan *Segment)
+		m.protocolReceivers[protocolId] = make(map[ProtocolRole]*segmentChannel)
 	}
 	m.protocolSenders[protocolId][protocolRole] = senderChan
 	m.protocolReceivers[protocolId][protocolRole] = receiverChan
@@ -215,7 +220,7 @@ func (m *Muxer) RegisterProtocol(
 			}
 		}
 	}()
-	return senderChan, receiverChan, m.doneChan
+	return senderChan, receiverChan.ch, m.doneChan
 }
 
 func (m *Muxer) UnregisterProtocol(
@@ -232,7 +237,14 @@ func (m *Muxer) UnregisterProtocol(
 		return
 	}
 	// Signal shutdown to protocol
-	close(recvChan)
+
+	recvChan.mu.Lock()
+	defer recvChan.mu.Unlock()
+	if recvChan.ch != nil {
+		close(recvChan.ch)
+		recvChan.ch = nil
+	}
+
 	// Remove mapping
 	delete(protocolRoles, protocolRole)
 	m.protocolReceiversMutex.Unlock()
@@ -273,7 +285,13 @@ func (m *Muxer) readLoop() {
 		for _, protocolRoles := range m.protocolReceivers {
 			for protocolRole, recvChan := range protocolRoles {
 				// Signal shutdown to protocol
-				close(recvChan)
+				recvChan.mu.Lock()
+				if recvChan.ch != nil {
+					close(recvChan.ch)
+					recvChan.ch = nil
+				}
+				recvChan.mu.Unlock()
+
 				// Remove mapping
 				delete(protocolRoles, protocolRole)
 			}
@@ -393,10 +411,19 @@ func (m *Muxer) readLoop() {
 			)
 			return
 		}
+
+		recvChan.mu.Lock()
+		if recvChan.ch == nil {
+			recvChan.mu.Unlock()
+			return
+		}
+
 		select {
 		case <-m.doneChan:
+			recvChan.mu.Unlock()
 			return
-		case recvChan <- msg:
+		case recvChan.ch <- msg:
+			recvChan.mu.Unlock()
 		}
 	}
 }
