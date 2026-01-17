@@ -872,6 +872,282 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	return &result, nil
 }
 
+// GetConstitution returns the current constitution (Conway era)
+// The constitution contains an anchor URL/hash and an optional guardrails script hash
+func (c *Client) GetConstitution() (*ConstitutionResult, error) {
+	c.Protocol.Logger().
+		Debug("calling GetConstitution()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf("GetConstitution requires Conway era or later (current era: %d)", currentEra)
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyConstitution,
+	)
+	var result ConstitutionResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetGovState returns the full governance state (Conway era)
+// This includes proposals, committee, constitution, and protocol parameters
+func (c *Client) GetGovState() (*GovStateResult, error) {
+	c.Protocol.Logger().
+		Debug("calling GetGovState()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf("GetGovState requires Conway era or later (current era: %d)", currentEra)
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyGovState,
+	)
+	var result GovStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetDRepState returns the state of specified DReps (Conway era)
+// If credentials is nil or empty, returns state for all DReps
+func (c *Client) GetDRepState(credentials []lcommon.Credential) (*DRepStateResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetDRepState(credentials: %d)", len(credentials)),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf("GetDRepState requires Conway era or later (current era: %d)", currentEra)
+	}
+	// Create a CBOR set from the credentials
+	if credentials == nil {
+		credentials = []lcommon.Credential{}
+	}
+	credSet := cbor.Tag{
+		Number:  cbor.CborTagSet,
+		Content: credentials,
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyDRepState,
+		credSet,
+	)
+	var result DRepStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetDRepStakeDistr returns the stake distribution for specified DReps (Conway era)
+// If dreps is nil or empty, returns distribution for all DReps
+func (c *Client) GetDRepStakeDistr(dreps []lcommon.Drep) (*DRepStakeDistrResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetDRepStakeDistr(dreps: %d)", len(dreps)),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf("GetDRepStakeDistr requires Conway era or later (current era: %d)", currentEra)
+	}
+	// Create a CBOR set from the dreps
+	if dreps == nil {
+		dreps = []lcommon.Drep{}
+	}
+	drepSet := cbor.Tag{
+		Number:  cbor.CborTagSet,
+		Content: dreps,
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyDRepStakeDistr,
+		drepSet,
+	)
+	var result DRepStakeDistrResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetCommitteeMembersState returns the state of committee members (Conway era)
+// The filter parameters allow querying by cold credentials, hot credentials, or member status
+// Pass nil/empty to query without that filter
+func (c *Client) GetCommitteeMembersState(
+	coldCreds []lcommon.Credential,
+	hotCreds []lcommon.Credential,
+	statuses []int,
+) (*CommitteeMembersStateResult, error) {
+	c.Protocol.Logger().
+		Debug("calling GetCommitteeMembersState()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf("GetCommitteeMembersState requires Conway era or later (current era: %d)", currentEra)
+	}
+	// Create CBOR sets for each filter
+	if coldCreds == nil {
+		coldCreds = []lcommon.Credential{}
+	}
+	if hotCreds == nil {
+		hotCreds = []lcommon.Credential{}
+	}
+	if statuses == nil {
+		statuses = []int{}
+	}
+	coldSet := cbor.Tag{
+		Number:  cbor.CborTagSet,
+		Content: coldCreds,
+	}
+	hotSet := cbor.Tag{
+		Number:  cbor.CborTagSet,
+		Content: hotCreds,
+	}
+	statusSet := cbor.Tag{
+		Number:  cbor.CborTagSet,
+		Content: statuses,
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyCommitteeMembersState,
+		coldSet,
+		hotSet,
+		statusSet,
+	)
+	var result CommitteeMembersStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetFilteredVoteDelegatees returns the DRep delegations for specified stake credentials (Conway era)
+// If credentials is nil or empty, returns delegations for all credentials
+func (c *Client) GetFilteredVoteDelegatees(credentials []lcommon.Credential) (*FilteredVoteDelegateesResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetFilteredVoteDelegatees(credentials: %d)", len(credentials)),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf("GetFilteredVoteDelegatees requires Conway era or later (current era: %d)", currentEra)
+	}
+	// Create a CBOR set from the credentials
+	if credentials == nil {
+		credentials = []lcommon.Credential{}
+	}
+	credSet := cbor.Tag{
+		Number:  cbor.CborTagSet,
+		Content: credentials,
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyFilteredVoteDelegatees,
+		credSet,
+	)
+	var result FilteredVoteDelegateesResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetSPOStakeDistr returns the SPO stake distribution for governance voting (Conway era)
+// If poolIds is nil or empty, returns distribution for all pools
+func (c *Client) GetSPOStakeDistr(poolIds []ledger.PoolId) (*SPOStakeDistrResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetSPOStakeDistr(poolIds: %d)", len(poolIds)),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf("GetSPOStakeDistr requires Conway era or later (current era: %d)", currentEra)
+	}
+	// Create a CBOR set from the pool IDs
+	if poolIds == nil {
+		poolIds = []ledger.PoolId{}
+	}
+	poolSet := cbor.Tag{
+		Number:  cbor.CborTagSet,
+		Content: poolIds,
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleySPOStakeDistr,
+		poolSet,
+	)
+	var result SPOStakeDistrResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {

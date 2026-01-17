@@ -73,12 +73,13 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [X] Pool state
         - [X] Stake snapshots
         - [X] Pool distribution
-        - [ ] Constitution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
-        - [ ] Governance state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
-        - [ ] DRep state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
-        - [ ] DRep stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
-        - [ ] SPO stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
-        - [ ] Committee state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Constitution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Governance state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] DRep state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] DRep stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] SPO stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Committee state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Filtered vote delegatees ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
         - [ ] Treasury ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
     - [X] LeiosFetch ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
       - [X] Client support
@@ -170,13 +171,13 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Plutus script validation (via plutigo)
   - [X] Structured error handling (ValidationError)
   - [ ] Byron era validation
-- [ ] Cryptography
+- [X] Cryptography
   - [X] KES (Key-Evolving Signatures)
     - [X] Signature verification
     - [X] Key generation
     - [X] Key evolution
-  - [ ] VRF (Verifiable Random Function)
-    - [ ] Proof generation
+  - [X] VRF (Verifiable Random Function)
+    - [X] Proof generation
     - [X] Proof verification
     - [X] Leader election input construction
 - [ ] Consensus
@@ -188,7 +189,12 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [ ] Byron consensus
 - [ ] Testing
   - [X] Test framework for mocking Ouroboros conversations
-  - [X] Conformance tests (314/314 passing)
+  - [X] Conformance tests (420+ passing)
+    - [X] Ledger rules (314 tests via Amaru vectors)
+    - [X] VRF cryptography (58 tests via cardano-crypto-praos vectors)
+    - [X] KES cryptography (14 tests via input-output-hk/kes vectors)
+    - [X] Consensus (22 tests for leader election, threshold)
+    - [X] Byron blocks (6 tests from mainnet/testnet)
   - [ ] CBOR deserialization and serialization
     - [X] Protocol messages
     - [X] Ledger
