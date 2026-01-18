@@ -16,6 +16,7 @@ package conway
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -26,7 +27,9 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
 )
 
@@ -1729,6 +1732,10 @@ func UtxoValidatePlutusScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	conwayPparams, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
 	// Skip if transaction is marked as invalid (phase-2 failure already indicated)
 	if !tx.IsValid() {
 		return nil
@@ -1918,7 +1925,11 @@ func UtxoValidatePlutusScripts(
 			}
 			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
 			ctxData := ctx.ToPlutusData()
-			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits)
+			costModel, err := cek.CostModelFromList(lang.LanguageVersionV3, conwayPparams.CostModels[2])
+			if err != nil {
+				return fmt.Errorf("build cost model: %w", err)
+			}
+			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits, costModel)
 		case common.PlutusV2Script:
 			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
@@ -1939,7 +1950,11 @@ func UtxoValidatePlutusScripts(
 			// Build V1V2 context
 			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
 			ctxData := ctx.ToPlutusData()
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
+			costModel, err := cek.CostModelFromList(lang.LanguageVersionV2, conwayPparams.CostModels[1])
+			if err != nil {
+				return fmt.Errorf("build cost model: %w", err)
+			}
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, costModel)
 		case common.PlutusV1Script:
 			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
@@ -1960,7 +1975,11 @@ func UtxoValidatePlutusScripts(
 			// Build V1V2 context
 			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
 			ctxData := ctx.ToPlutusData()
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits)
+			costModel, err := cek.CostModelFromList(lang.LanguageVersionV1, conwayPparams.CostModels[0])
+			if err != nil {
+				return fmt.Errorf("build cost model: %w", err)
+			}
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, costModel)
 		default:
 			continue
 		}
