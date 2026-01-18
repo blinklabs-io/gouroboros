@@ -18,12 +18,22 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+type clientLifecycleState uint8
+
+const (
+	clientStateNew clientLifecycleState = iota
+	clientStateStarting
+	clientStateRunning
+	clientStateStopped
 )
 
 // Client implements the Block Fetch protocol client, which requests blocks from a server.
@@ -34,9 +44,12 @@ type Client struct {
 	blockChan            chan ledger.Block // Channel for received blocks
 	startBatchResultChan chan error        // Channel for batch start results
 	busyMutex            sync.Mutex        // Mutex for busy state
-	blockUseCallback     bool              // Whether to use callback for blocks
-	onceStart            sync.Once         // Ensures Start is only called once
-	onceStop             sync.Once         // Ensures Stop is only called once
+	lifecycleMutex       sync.Mutex        // Mutex for lifecycle state
+	lifecycleState       clientLifecycleState
+	startingDone         chan struct{}
+	protoOptions         protocol.ProtocolOptions
+	blockUseCallback     bool // Whether to use callback for blocks
+	protoStarted         bool // Whether Protocol.Start() was called
 }
 
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
@@ -46,14 +59,24 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config:               cfg,
-		blockChan:            make(chan ledger.Block),
-		startBatchResultChan: make(chan error),
+		config:         cfg,
+		protoOptions:   protoOptions,
+		lifecycleState: clientStateNew,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	c.initProtocol()
+	return c
+}
+
+func (c *Client) initProtocol() {
+	// Recreate channels
+	c.blockChan = make(chan ledger.Block)
+	c.startBatchResultChan = make(chan error)
+	c.protoStarted = false
+
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {
@@ -68,10 +91,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               c.protoOptions.Muxer,
+		Logger:              c.protoOptions.Logger,
+		ErrorChan:           c.protoOptions.ErrorChan,
+		Mode:                c.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
@@ -82,42 +105,180 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		protoConfig.RecvQueueSize = c.config.RecvQueueSize
 	}
 	c.Protocol = protocol.New(protoConfig)
-	return c
 }
 
 // Start begins the Block Fetch client protocol. Safe to call multiple times.
 func (c *Client) Start() {
-	c.onceStart.Do(func() {
-		c.Protocol.Logger().
-			Debug("starting client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.blockChan)
-			close(c.startBatchResultChan)
-		}()
-	})
+	for {
+		c.lifecycleMutex.Lock()
+
+		switch c.lifecycleState {
+		case clientStateRunning:
+			c.lifecycleMutex.Unlock()
+			return
+
+		case clientStateStarting:
+			// Another goroutine is already starting. Wait for it to complete.
+			ch := c.startingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			// Re-check state after the in-flight start completes
+			continue
+
+		case clientStateStopped, clientStateNew:
+			// We will be the goroutine that performs initialization/start.
+			prevState := c.lifecycleState
+			c.lifecycleState = clientStateStarting
+			ch := make(chan struct{})
+			c.startingDone = ch
+
+			oldProto := c.Protocol
+			oldProtoStarted := c.protoStarted
+			var oldDone <-chan struct{}
+			// Only wait for old protocol if it was actually started.
+			// If Stop() was called during clientStateStarting before Protocol.Start(),
+			// the protocol's DoneChan will never close.
+			if prevState == clientStateStopped && oldProto != nil && oldProtoStarted {
+				oldDone = oldProto.DoneChan()
+			}
+			c.lifecycleMutex.Unlock()
+
+			// If we were stopped, ensure the old instance is fully stopped before re-registering.
+			if oldDone != nil {
+				oldProto.Stop()
+				<-oldDone
+			}
+
+			c.lifecycleMutex.Lock()
+			// If we were stopped by someone else while waiting, don't continue.
+			if c.lifecycleState != clientStateStarting {
+				if c.startingDone == ch {
+					close(ch)
+					c.startingDone = nil
+				}
+				c.lifecycleMutex.Unlock()
+				return
+			}
+
+			// Reinitialize protocol when transitioning from stopped->start (or if nil).
+			if c.Protocol == nil || prevState == clientStateStopped {
+				c.initProtocol()
+			}
+
+			c.Protocol.Logger().
+				Debug("starting client protocol",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
+			c.Protocol.Start()
+			c.protoStarted = true
+			c.lifecycleState = clientStateRunning
+			if c.startingDone == ch {
+				close(ch)
+				c.startingDone = nil
+			}
+			c.lifecycleMutex.Unlock()
+			return
+
+		default:
+			// Should not happen; treat as stopped.
+			c.lifecycleState = clientStateStopped
+			c.lifecycleMutex.Unlock()
+			continue
+		}
+	}
 }
 
 // Stop stops the Block Fetch client protocol and sends a ClientDone message.
 func (c *Client) Stop() error {
-	var err error
-	c.onceStop.Do(func() {
-		c.Protocol.Logger().
-			Debug("stopping client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		msg := NewMsgClientDone()
-		err = c.SendMessage(msg)
-	})
-	return err
+	const busyLockTimeout = 5 * time.Second
+	deadline := time.Now().Add(busyLockTimeout)
+	busyLocked := false
+	for {
+		if c.busyMutex.TryLock() {
+			busyLocked = true
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+
+	switch c.lifecycleState {
+	case clientStateNew, clientStateStopped:
+		if busyLocked {
+			c.busyMutex.Unlock()
+		}
+		return nil
+	case clientStateStarting:
+		// Mark as stopped so Start() will abort when it re-checks state
+		c.lifecycleState = clientStateStopped
+		// Unblock Start() if it's waiting
+		if c.startingDone != nil {
+			close(c.startingDone)
+			c.startingDone = nil
+		}
+		if busyLocked {
+			c.busyMutex.Unlock()
+		}
+		return nil
+	case clientStateRunning:
+		// Continue with normal stop logic below
+	}
+
+	c.Protocol.Logger().
+		Debug("stopping client protocol",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+
+	var sendErr error
+	msg := NewMsgClientDone()
+	sendErr = c.SendMessage(msg)
+	_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+	if busyLocked {
+		c.busyMutex.Unlock()
+	}
+
+	// Stop/unregister the underlying protocol instance first, then wait for
+	// message handlers to finish before closing channels to avoid send-on-closed panics.
+	doneChan := c.DoneChan()
+	c.Protocol.Stop()
+	c.lifecycleState = clientStateStopped
+
+	// Capture channel references before releasing lock to avoid closing
+	// channels recreated by a concurrent Start().
+	blockChanToClose := c.blockChan
+	startBatchResultChanToClose := c.startBatchResultChan
+	c.blockChan = nil
+	c.startBatchResultChan = nil
+
+	// Release lock while waiting for protocol shutdown to avoid deadlock
+	c.lifecycleMutex.Unlock()
+	<-doneChan
+
+	// Now safe to close captured channels - message handlers have stopped
+	if blockChanToClose != nil {
+		close(blockChanToClose)
+	}
+	if startBatchResultChanToClose != nil {
+		close(startBatchResultChanToClose)
+	}
+	c.lifecycleMutex.Lock()
+	// Unblock any goroutine waiting for an in-progress start.
+	if c.startingDone != nil {
+		close(c.startingDone)
+		c.startingDone = nil
+	}
+	return sendErr
 }
 
 // GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive).
