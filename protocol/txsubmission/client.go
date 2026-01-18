@@ -22,12 +22,26 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
+type clientLifecycleState uint8
+
+const (
+	clientStateNew clientLifecycleState = iota
+	clientStateStarting
+	clientStateRunning
+	clientStateStopped
+)
+
 // Client implements the TxSubmission client
 type Client struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
-	onceInit        sync.Once
+	protoOptions    protocol.ProtocolOptions
+	lifecycleMutex  sync.Mutex
+	lifecycleState  clientLifecycleState
+	startingDone    chan struct{}
+	initSent        bool // tracks whether Init message has been sent
+	protoStarted    bool // tracks whether Protocol.Start() was called
 }
 
 // NewClient returns a new TxSubmission client object
@@ -37,12 +51,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config: cfg,
+		config:         cfg,
+		protoOptions:   protoOptions,
+		lifecycleState: clientStateNew,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	c.initProtocol()
+	return c
+}
+
+func (c *Client) initProtocol() {
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[stateIdle]; ok {
@@ -53,10 +74,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               c.protoOptions.Muxer,
+		Logger:              c.protoOptions.Logger,
+		ErrorChan:           c.protoOptions.ErrorChan,
+		Mode:                c.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
@@ -65,23 +86,158 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c.Protocol = protocol.New(protoConfig)
 	c.callbackContext.DoneChan = c.DoneChan()
-	return c
+	// Reset state so Init() can be called again after restart
+	c.initSent = false
+	c.protoStarted = false
+}
+
+// Start begins the TxSubmission client protocol. Safe to call multiple times.
+func (c *Client) Start() {
+	for {
+		c.lifecycleMutex.Lock()
+
+		switch c.lifecycleState {
+		case clientStateRunning:
+			c.lifecycleMutex.Unlock()
+			return
+
+		case clientStateStarting:
+			// Another goroutine is already starting. Wait for it to complete.
+			ch := c.startingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			// Re-check state after the in-flight start completes
+			continue
+
+		case clientStateStopped, clientStateNew:
+			// We will be the goroutine that performs initialization/start.
+			prevState := c.lifecycleState
+			c.lifecycleState = clientStateStarting
+			ch := make(chan struct{})
+			c.startingDone = ch
+
+			oldProto := c.Protocol
+			oldProtoStarted := c.protoStarted
+			var oldDone <-chan struct{}
+			// Only wait for old protocol if it was actually started.
+			// If Stop() was called during clientStateStarting before Protocol.Start(),
+			// the protocol's DoneChan will never close.
+			if prevState == clientStateStopped && oldProto != nil && oldProtoStarted {
+				oldDone = oldProto.DoneChan()
+			}
+			c.lifecycleMutex.Unlock()
+
+			// If we were stopped, ensure the old instance is fully stopped before re-registering.
+			if oldDone != nil {
+				oldProto.Stop()
+				<-oldDone
+			}
+
+			c.lifecycleMutex.Lock()
+			// If we were stopped by someone else while waiting, don't continue.
+			if c.lifecycleState != clientStateStarting {
+				if c.startingDone == ch {
+					close(ch)
+					c.startingDone = nil
+				}
+				c.lifecycleMutex.Unlock()
+				return
+			}
+
+			// Reinitialize protocol when transitioning from stopped->start (or if nil).
+			if c.Protocol == nil || prevState == clientStateStopped {
+				c.initProtocol()
+			}
+
+			c.Protocol.Logger().
+				Debug("starting client protocol",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
+			c.Protocol.Start()
+			c.protoStarted = true
+			c.lifecycleState = clientStateRunning
+			if c.startingDone == ch {
+				close(ch)
+				c.startingDone = nil
+			}
+			c.lifecycleMutex.Unlock()
+			return
+
+		default:
+			// Should not happen; treat as stopped.
+			c.lifecycleState = clientStateStopped
+			c.lifecycleMutex.Unlock()
+			continue
+		}
+	}
+}
+
+// Stop stops the TxSubmission client protocol.
+// Note: Unlike other protocols, TxSubmission can only send Done from the TxIdsBlocking
+// state per protocol spec. This method stops the protocol without sending Done.
+// To send Done gracefully, use the callback mechanism with ErrStopServerProcess.
+func (c *Client) Stop() error {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+
+	switch c.lifecycleState {
+	case clientStateNew, clientStateStopped:
+		return nil
+	case clientStateStarting:
+		// Mark as stopped so Start() will abort when it re-checks state
+		c.lifecycleState = clientStateStopped
+		// Unblock Start() if it's waiting
+		if c.startingDone != nil {
+			close(c.startingDone)
+			c.startingDone = nil
+		}
+		return nil
+	case clientStateRunning:
+		// Continue with normal stop logic below
+	}
+
+	c.Protocol.Logger().
+		Debug("stopping client protocol",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+
+	// Stop/unregister the underlying protocol instance.
+	c.Protocol.Stop()
+	c.lifecycleState = clientStateStopped
+	// Unblock any goroutine waiting for an in-progress start.
+	if c.startingDone != nil {
+		close(c.startingDone)
+		c.startingDone = nil
+	}
+	return nil
 }
 
 // Init tells the server to begin asking us for transactions
 func (c *Client) Init() {
-	c.onceInit.Do(func() {
-		c.Protocol.Logger().
-			Debug("calling Init()",
-				"component", "network",
-				"protocol", ProtocolName,
-				"role", "client",
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		// Send our Init message
-		msg := NewMsgInit()
-		_ = c.SendMessage(msg)
-	})
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+
+	if c.initSent {
+		return
+	}
+
+	c.Protocol.Logger().
+		Debug("calling Init()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	// Send our Init message
+	msg := NewMsgInit()
+	_ = c.SendMessage(msg)
+	c.initSent = true
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
