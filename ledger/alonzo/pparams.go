@@ -17,10 +17,8 @@ package alonzo
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"math/big"
-	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -209,36 +207,23 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 
 	if genesis.CostModels != nil {
 		p.CostModels = make(map[uint][]int64)
-
 		for versionStr, model := range genesis.CostModels {
 			key, ok := plutusVersionToKey(versionStr)
 			if !ok {
 				continue
 			}
-
 			expectedCount, ok := plutusParamCounts[key]
 			if !ok {
 				continue
 			}
-
-			// The sort order of the keys in map form corresponds to the index in list form
-			paramKeys := slices.Sorted(maps.Keys(model))
-			if len(paramKeys) != expectedCount {
+			if len(model) != expectedCount {
 				return fmt.Errorf(
 					"incorrect param count for %s: %d",
 					versionStr,
-					len(paramKeys),
+					len(model),
 				)
 			}
-
-			// Copy values from map format into list format
-			values := make([]int64, expectedCount)
-			for index, paramName := range paramKeys {
-				val := model[paramName]
-				values[index] = int64(val)
-			}
-
-			p.CostModels[key] = values
+			p.CostModels[key] = model
 		}
 	}
 	return nil
