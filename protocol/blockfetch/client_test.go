@@ -218,3 +218,38 @@ func TestGetBlockNoBlocks(t *testing.T) {
 		),
 	)
 }
+
+func TestClientStartStopStart(t *testing.T) {
+	conversation := append(
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+		},
+		// Stop() should send ClientDone once started
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  blockfetch.ProtocolId,
+			MessageType: blockfetch.MessageTypeClientDone,
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			client := oConn.BlockFetch().Client
+			// Start should be idempotent
+			client.Start()
+			client.Start()
+			// Stop should work
+			if err := client.Stop(); err != nil {
+				t.Fatalf("unexpected error when stopping client: %s", err)
+			}
+			// Start again after stop should work (#597)
+			client.Start()
+		},
+		ouroboros.WithBlockFetchConfig(
+			blockfetch.Config{SkipBlockValidation: true},
+		),
+		// Ensure we control protocol startup in the test.
+		ouroboros.WithDelayProtocolStart(true),
+	)
+}
