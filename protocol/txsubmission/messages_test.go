@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/stretchr/testify/assert"
 )
 
 type testDefinition struct {
@@ -80,4 +81,69 @@ func TestEncode(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestMsgRequestTxIds(t *testing.T) {
+	msg := NewMsgRequestTxIds(true, 10, 20) // blocking, ack, req
+
+	// Test encoding
+	encoded, err := cbor.Encode(msg)
+	assert.NoError(t, err)
+
+	// Test decoding
+	decoded, err := NewMsgFromCbor(MessageTypeRequestTxIds, encoded)
+	assert.NoError(t, err)
+	assert.Equal(t, msg.Blocking, decoded.(*MsgRequestTxIds).Blocking)
+	assert.Equal(t, msg.Ack, decoded.(*MsgRequestTxIds).Ack)
+	assert.Equal(t, msg.Req, decoded.(*MsgRequestTxIds).Req)
+}
+
+func TestMsgReplyTxIds(t *testing.T) {
+	txIds := []TxIdAndSize{
+		{TxId: TxId{EraId: 1, TxId: [32]byte{0x01, 0x02}}, Size: 100},
+		{TxId: TxId{EraId: 2, TxId: [32]byte{0x03, 0x04}}, Size: 200},
+	}
+	msg := NewMsgReplyTxIds(txIds)
+
+	encoded, err := cbor.Encode(msg)
+	assert.NoError(t, err)
+
+	decoded, err := NewMsgFromCbor(MessageTypeReplyTxIds, encoded)
+	assert.NoError(t, err)
+	assert.Len(t, decoded.(*MsgReplyTxIds).TxIds, 2)
+	assert.Equal(t, txIds[0].TxId.EraId, decoded.(*MsgReplyTxIds).TxIds[0].TxId.EraId)
+	assert.Equal(t, txIds[0].Size, decoded.(*MsgReplyTxIds).TxIds[0].Size)
+}
+
+func TestMsgRequestTxs(t *testing.T) {
+	txIds := []TxId{
+		{EraId: 1, TxId: [32]byte{0x01}},
+		{EraId: 2, TxId: [32]byte{0x02}},
+	}
+	msg := NewMsgRequestTxs(txIds)
+
+	encoded, err := cbor.Encode(msg)
+	assert.NoError(t, err)
+
+	decoded, err := NewMsgFromCbor(MessageTypeRequestTxs, encoded)
+	assert.NoError(t, err)
+	assert.Len(t, decoded.(*MsgRequestTxs).TxIds, 2)
+	assert.Equal(t, txIds[0].EraId, decoded.(*MsgRequestTxs).TxIds[0].EraId)
+}
+
+func TestMsgReplyTxs(t *testing.T) {
+	txs := []TxBody{
+		{EraId: 1, TxBody: []byte{0x01, 0x02, 0x03}},
+		{EraId: 2, TxBody: []byte{0x04, 0x05, 0x06}},
+	}
+	msg := NewMsgReplyTxs(txs)
+
+	encoded, err := cbor.Encode(msg)
+	assert.NoError(t, err)
+
+	decoded, err := NewMsgFromCbor(MessageTypeReplyTxs, encoded)
+	assert.NoError(t, err)
+	assert.Len(t, decoded.(*MsgReplyTxs).Txs, 2)
+	assert.Equal(t, txs[0].EraId, decoded.(*MsgReplyTxs).Txs[0].EraId)
+	assert.Equal(t, txs[0].TxBody, decoded.(*MsgReplyTxs).Txs[0].TxBody)
 }
