@@ -233,7 +233,9 @@ func CalculateBlockBodyHash(
 	// Encode the list of invalid transaction indices (failed phase-2 validation)
 	// Use EncodeCborTxSeq to ensure correct encoding: definite-length for ≤23 items,
 	// indefinite-length for >23 items (per Cardano CBOR spec)
-	txSeqNonValidBytes, txSeqNonValidBytesError := EncodeCborTxSeq(invalidTxIndices)
+	txSeqNonValidBytes, txSeqNonValidBytesError := EncodeCborTxSeq(
+		invalidTxIndices,
+	)
 	if txSeqNonValidBytesError != nil {
 		return nil, fmt.Errorf(
 			"CalculateBlockBodyHash: encode txSeqNonValid error, %v",

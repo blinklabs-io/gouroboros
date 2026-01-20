@@ -202,7 +202,11 @@ func (s PlutusV1Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := cek.NewMachine[syn.DeBruijn](cek.LanguageVersionV1, 200, costModel)
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV1,
+		200,
+		costModel,
+	)
 	machine.ExBudget = machineBudget
 	_, err = machine.Run(wrappedProgram)
 	if err != nil {
@@ -279,7 +283,11 @@ func (s PlutusV2Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := cek.NewMachine[syn.DeBruijn](cek.LanguageVersionV2, 200, costModel)
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV2,
+		200,
+		costModel,
+	)
 	machine.ExBudget = machineBudget
 	_, err = machine.Run(wrappedProgram)
 	if err != nil {
@@ -345,7 +353,11 @@ func (s PlutusV3Script) Evaluate(
 		Argument: contextTerm,
 	}
 	// Execute wrapped program
-	machine := cek.NewMachine[syn.DeBruijn](cek.LanguageVersionV3, 200, costModel)
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV3,
+		200,
+		costModel,
+	)
 	machine.ExBudget = machineBudget
 	_, err = machine.Run(wrappedProgram)
 	if err != nil {

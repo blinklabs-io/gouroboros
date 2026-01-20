@@ -140,7 +140,8 @@ func (c *Client) Start() {
 			// Only wait for old protocol if it was actually started.
 			// If Stop() was called during clientStateStarting before Protocol.Start(),
 			// the protocol's DoneChan will never close.
-			if prevState == clientStateStopped && oldProto != nil && oldProtoStarted {
+			if prevState == clientStateStopped && oldProto != nil &&
+				oldProtoStarted {
 				oldDone = oldProto.DoneChan()
 			}
 			c.lifecycleMutex.Unlock()

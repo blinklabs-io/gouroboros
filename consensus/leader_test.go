@@ -302,7 +302,10 @@ func TestFindNextSlotLeadership(t *testing.T) {
 	for i := range epochNonce {
 		epochNonce[i] = byte(i * 3)
 	}
-	activeSlotCoeff := big.NewRat(9, 10) // 90% active slot coefficient for faster tests
+	activeSlotCoeff := big.NewRat(
+		9,
+		10,
+	) // 90% active slot coefficient for faster tests
 
 	// With 100% stake and f=0.9, probability per slot ≈ 0.9
 	// We should find eligibility very quickly

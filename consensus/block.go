@@ -147,16 +147,28 @@ func (b *BlockBuilder) BuildHeader(
 		return nil, nil, errors.New("blockBodyHash is empty")
 	}
 	if len(b.issuerVkey) != 32 {
-		return nil, nil, fmt.Errorf("issuerVkey: expected 32 bytes, got %d", len(b.issuerVkey))
+		return nil, nil, fmt.Errorf(
+			"issuerVkey: expected 32 bytes, got %d",
+			len(b.issuerVkey),
+		)
 	}
 	if len(input.PrevHash) != 32 {
-		return nil, nil, fmt.Errorf("prevHash: expected 32 bytes, got %d", len(input.PrevHash))
+		return nil, nil, fmt.Errorf(
+			"prevHash: expected 32 bytes, got %d",
+			len(input.PrevHash),
+		)
 	}
 	if len(input.EpochNonce) != 32 {
-		return nil, nil, fmt.Errorf("epochNonce: expected 32 bytes, got %d", len(input.EpochNonce))
+		return nil, nil, fmt.Errorf(
+			"epochNonce: expected 32 bytes, got %d",
+			len(input.EpochNonce),
+		)
 	}
 	if len(input.BlockBodyHash) != 32 {
-		return nil, nil, fmt.Errorf("blockBodyHash: expected 32 bytes, got %d", len(input.BlockBodyHash))
+		return nil, nil, fmt.Errorf(
+			"blockBodyHash: expected 32 bytes, got %d",
+			len(input.BlockBodyHash),
+		)
 	}
 	if b.activeSlotCoeff == nil {
 		return nil, nil, errors.New("activeSlotCoeff cannot be nil")
@@ -294,7 +306,10 @@ func (b *BlockBuilder) CheckSlotLeadership(
 	}
 	// Validate epochNonce length to prevent panic in vrf.MkInputVrf
 	if len(epochNonce) != 32 {
-		return nil, fmt.Errorf("epochNonce must be 32 bytes, got %d", len(epochNonce))
+		return nil, fmt.Errorf(
+			"epochNonce must be 32 bytes, got %d",
+			len(epochNonce),
+		)
 	}
 	return IsSlotLeader(
 		slot,
@@ -325,7 +340,10 @@ func ComputeVRFInput(slot uint64, epochNonce []byte) []byte {
 	if slot > math.MaxInt64 {
 		return nil
 	}
-	return vrf.MkInputVrf(int64(slot), epochNonce) //nolint:gosec // G115: validated above
+	return vrf.MkInputVrf(
+		int64(slot),
+		epochNonce,
+	) //nolint:gosec // G115: validated above
 }
 
 // Errors for block construction

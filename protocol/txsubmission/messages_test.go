@@ -111,7 +111,11 @@ func TestMsgReplyTxIds(t *testing.T) {
 	decoded, err := NewMsgFromCbor(MessageTypeReplyTxIds, encoded)
 	assert.NoError(t, err)
 	assert.Len(t, decoded.(*MsgReplyTxIds).TxIds, 2)
-	assert.Equal(t, txIds[0].TxId.EraId, decoded.(*MsgReplyTxIds).TxIds[0].TxId.EraId)
+	assert.Equal(
+		t,
+		txIds[0].TxId.EraId,
+		decoded.(*MsgReplyTxIds).TxIds[0].TxId.EraId,
+	)
 	assert.Equal(t, txIds[0].Size, decoded.(*MsgReplyTxIds).TxIds[0].Size)
 }
 

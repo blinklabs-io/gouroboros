@@ -65,7 +65,10 @@ func IsSlotLeader(
 	}
 	// Validate epochNonce is exactly 32 bytes to prevent panic in vrf.MkInputVrf
 	if len(epochNonce) != 32 {
-		return nil, fmt.Errorf("epochNonce must be 32 bytes, got %d", len(epochNonce))
+		return nil, fmt.Errorf(
+			"epochNonce must be 32 bytes, got %d",
+			len(epochNonce),
+		)
 	}
 	if activeSlotCoeff == nil {
 		return nil, errors.New("activeSlotCoeff is nil")
@@ -85,7 +88,10 @@ func IsSlotLeader(
 
 	// Step 1: Compute VRF input
 	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
-	vrfInput := vrf.MkInputVrf(int64(slot), epochNonce) //nolint:gosec // G115: slot values safe
+	vrfInput := vrf.MkInputVrf(
+		int64(slot), //nolint:gosec
+		epochNonce,
+	)
 
 	// Step 2: Generate VRF proof
 	proof, output, err := vrfSigner.Prove(vrfInput)
@@ -93,10 +99,16 @@ func IsSlotLeader(
 		return nil, err
 	}
 	if len(proof) != 80 {
-		return nil, fmt.Errorf("VRF proof: expected 80 bytes, got %d", len(proof))
+		return nil, fmt.Errorf(
+			"VRF proof: expected 80 bytes, got %d",
+			len(proof),
+		)
 	}
 	if len(output) != 64 {
-		return nil, fmt.Errorf("VRF output: expected 64 bytes, got %d", len(output))
+		return nil, fmt.Errorf(
+			"VRF output: expected 64 bytes, got %d",
+			len(output),
+		)
 	}
 
 	// Step 3: Compute threshold
@@ -192,7 +204,9 @@ func FindNextSlotLeadership(
 	vrfSigner VRFSigner,
 ) (uint64, []byte, []byte, error) {
 	if maxSlot == math.MaxUint64 {
-		return 0, nil, nil, errors.New("maxSlot cannot be math.MaxUint64 to prevent overflow")
+		return 0, nil, nil, errors.New(
+			"maxSlot cannot be math.MaxUint64 to prevent overflow",
+		)
 	}
 	for slot := startSlot; slot <= maxSlot; slot++ {
 		result, err := IsSlotLeader(

@@ -427,7 +427,10 @@ func hashToCurveElligator2(
 	}
 	result := &edwards25519.Point{}
 	if _, err := result.SetBytes(hBytes[:]); err != nil {
-		return nil, fmt.Errorf("invalid point encoding from Elligator2: %w", err)
+		return nil, fmt.Errorf(
+			"invalid point encoding from Elligator2: %w",
+			err,
+		)
 	}
 	return result, nil
 }

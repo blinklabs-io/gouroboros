@@ -67,7 +67,12 @@ func TestVerifyBlock_BodyHashTampering(t *testing.T) {
 		require.NoError(t, err, "failed to decode test block hex")
 
 		// Tamper with the block by modifying bytes in what would be the body area
-		require.Greater(t, len(blockBytes), 50, "block bytes too short for tampering test")
+		require.Greater(
+			t,
+			len(blockBytes),
+			50,
+			"block bytes too short for tampering test",
+		)
 
 		tamperedBytes := make([]byte, len(blockBytes))
 		copy(tamperedBytes, blockBytes)
@@ -141,7 +146,12 @@ func TestVerifyBlock_VRFEdgeCases(t *testing.T) {
 
 		// Verify that short proof data would be rejected
 		// TODO: Extend to call actual VRF verification with constructed test data
-		assert.Less(t, len(shortProof), 80, "test setup error: proof should be shorter than 80 bytes")
+		assert.Less(
+			t,
+			len(shortProof),
+			80,
+			"test setup error: proof should be shorter than 80 bytes",
+		)
 	})
 
 	t.Run("modified VRF output", func(t *testing.T) {
@@ -161,7 +171,12 @@ func TestVerifyBlock_VRFEdgeCases(t *testing.T) {
 
 		// The outputs should differ
 		// TODO: Extend to verify actual VRF output mismatch detection
-		assert.NotEqual(t, validOutput, modifiedOutput, "modification did not change output")
+		assert.NotEqual(
+			t,
+			validOutput,
+			modifiedOutput,
+			"modification did not change output",
+		)
 	})
 
 	t.Run("empty VRF key", func(t *testing.T) {
@@ -230,8 +245,13 @@ func TestVerifyBlock_KESEdgeCases(t *testing.T) {
 		keysAge := currentPeriod - keyStartPeriod
 		isExpired := keysAge > maxKESEvolutions
 
-		assert.True(t, isExpired, "KES key with age %d should be expired (max %d)",
-			keysAge, maxKESEvolutions)
+		assert.True(
+			t,
+			isExpired,
+			"KES key with age %d should be expired (max %d)",
+			keysAge,
+			maxKESEvolutions,
+		)
 	})
 }
 
@@ -254,7 +274,12 @@ func TestVerifyBlock_MalformedCBOR(t *testing.T) {
 			strings.Contains(errStr, "unexpected") ||
 			strings.Contains(errStr, "invalid") ||
 			strings.Contains(errStr, "eof")
-		assert.True(t, isExpectedError, "expected CBOR decode error, got: %v", err)
+		assert.True(
+			t,
+			isExpectedError,
+			"expected CBOR decode error, got: %v",
+			err,
+		)
 	})
 
 	t.Run("empty CBOR data", func(t *testing.T) {
@@ -282,7 +307,12 @@ func TestVerifyBlock_MalformedCBOR(t *testing.T) {
 			strings.Contains(errStr, "invalid") ||
 			strings.Contains(errStr, "type") ||
 			strings.Contains(errStr, "unmarshal")
-		assert.True(t, isExpectedError, "expected structure error, got: %v", err)
+		assert.True(
+			t,
+			isExpectedError,
+			"expected structure error, got: %v",
+			err,
+		)
 	})
 
 	t.Run("CBOR with wrong array length", func(t *testing.T) {
@@ -328,6 +358,11 @@ func TestVerifyBlock_BlockTypeEdgeCases(t *testing.T) {
 
 		_, err := ledger.NewBlockFromCbor(unknownBlockType, validCBOR)
 		require.Error(t, err, "expected error for unknown block type")
-		assert.Contains(t, err.Error(), "unknown", "expected 'unknown' in error")
+		assert.Contains(
+			t,
+			err.Error(),
+			"unknown",
+			"expected 'unknown' in error",
+		)
 	})
 }
