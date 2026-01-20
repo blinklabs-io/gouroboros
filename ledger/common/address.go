@@ -189,6 +189,9 @@ func NewByronAddressRedeem(
 }
 
 func (a *Address) populateFromBytes(data []byte) error {
+	if len(data) == 0 {
+		return errors.New("invalid address data: empty byte slice")
+	}
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
