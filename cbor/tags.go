@@ -101,7 +101,10 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if len(tmpRat) != 2 {
-		return fmt.Errorf("invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements", len(tmpRat))
+		return fmt.Errorf(
+			"invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements",
+			len(tmpRat),
+		)
 	}
 	// Convert numerator to big.Int
 	tmpNum := new(big.Int)
@@ -122,6 +125,10 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 		tmpDenom.SetUint64(v)
 	default:
 		return fmt.Errorf("unsupported denominator type for cbor.Rat: %T", v)
+	}
+	// Check for zero denominator
+	if tmpDenom.Sign() == 0 {
+		return errors.New("invalid cbor.Rat: denominator cannot be zero")
 	}
 	// Create new big.Rat with num/denom set to big.Int values above
 	r.Rat = new(big.Rat)
