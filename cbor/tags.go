@@ -100,6 +100,9 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 	if _, err := Decode(cborData, &tmpRat); err != nil {
 		return err
 	}
+	if len(tmpRat) != 2 {
+		return fmt.Errorf("invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements", len(tmpRat))
+	}
 	// Convert numerator to big.Int
 	tmpNum := new(big.Int)
 	switch v := tmpRat[0].(type) {
