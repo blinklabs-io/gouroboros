@@ -28,10 +28,12 @@ import (
 // testNetworkConfig returns a NetworkConfig for testing with mainnet-like parameters.
 func testNetworkConfig() NetworkConfig {
 	return NetworkConfig{
-		Name:              "test",
-		SecurityParam:     2160,
-		ActiveSlotCoeff:   common.GenesisRat{Rat: big.NewRat(1, 20)}, // 0.05
-		SlotLength:        common.GenesisRat{Rat: big.NewRat(1, 1)},  // 1 second
+		Name:            "test",
+		SecurityParam:   2160,
+		ActiveSlotCoeff: common.GenesisRat{Rat: big.NewRat(1, 20)}, // 0.05
+		SlotLength: common.GenesisRat{
+			Rat: big.NewRat(1, 1),
+		}, // 1 second
 		EpochLength:       432000,
 		SlotsPerKESPeriod: 129600,
 		MaxKESEvolutions:  62,
@@ -41,11 +43,13 @@ func testNetworkConfig() NetworkConfig {
 // testNetworkConfigPreview returns a NetworkConfig with preview-like parameters.
 func testNetworkConfigPreview() NetworkConfig {
 	return NetworkConfig{
-		Name:              "test-preview",
-		SecurityParam:     2160,
-		ActiveSlotCoeff:   common.GenesisRat{Rat: big.NewRat(1, 20)}, // 0.05
-		SlotLength:        common.GenesisRat{Rat: big.NewRat(1, 1)},  // 1 second
-		EpochLength:       86400,                                     // 1 day
+		Name:            "test-preview",
+		SecurityParam:   2160,
+		ActiveSlotCoeff: common.GenesisRat{Rat: big.NewRat(1, 20)}, // 0.05
+		SlotLength: common.GenesisRat{
+			Rat: big.NewRat(1, 1),
+		}, // 1 second
+		EpochLength:       86400, // 1 day
 		SlotsPerKESPeriod: 129600,
 		MaxKESEvolutions:  62,
 	}
@@ -501,7 +505,10 @@ func TestValidateHeaderFull(t *testing.T) {
 	// VRF verification fails because we use slot 0 for input but slot 1 in header
 	// The test validates the pipeline runs to completion without panics
 	if len(result.Errors) > 0 {
-		t.Logf("Validation errors (expected due to slot mismatch): %v", result.Errors)
+		t.Logf(
+			"Validation errors (expected due to slot mismatch): %v",
+			result.Errors,
+		)
 	}
 }
 

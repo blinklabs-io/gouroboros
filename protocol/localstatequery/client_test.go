@@ -379,9 +379,9 @@ func TestGetConstitutionPreConway(t *testing.T) {
 func TestGetGovState(t *testing.T) {
 	// GovState is complex, test basic decoding with minimal result
 	expectedResult := localstatequery.GovStateResult{
-		Proposals:        cbor.RawMessage([]byte{0x80}), // Empty list
-		Committee:        cbor.RawMessage([]byte{0xf6}), // null
-		Constitution:     localstatequery.ConstitutionResult{
+		Proposals: cbor.RawMessage([]byte{0x80}), // Empty list
+		Committee: cbor.RawMessage([]byte{0xf6}), // null
+		Constitution: localstatequery.ConstitutionResult{
 			Anchor: lcommon.GovAnchor{
 				Url:      "https://constitution.cardano.org",
 				DataHash: [32]byte{0xde, 0xad, 0xbe, 0xef},
@@ -482,7 +482,11 @@ func TestGetCommitteeMembersState(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			committeeState, err := oConn.LocalStateQuery().Client.GetCommitteeMembersState(nil, nil, nil)
+			committeeState, err := oConn.LocalStateQuery().Client.GetCommitteeMembersState(
+				nil,
+				nil,
+				nil,
+			)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
@@ -523,15 +527,21 @@ func TestGetSPOStakeDistr(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			spoDistr, err := oConn.LocalStateQuery().Client.GetSPOStakeDistr(nil)
+			spoDistr, err := oConn.LocalStateQuery().Client.GetSPOStakeDistr(
+				nil,
+			)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
 			if len(spoDistr.Results) != 1 {
 				t.Fatalf("expected 1 result, got %d", len(spoDistr.Results))
 			}
-			if stake, ok := spoDistr.Results[poolId]; !ok || stake != 1000000000000 {
-				t.Fatalf("unexpected stake distribution result: %v", spoDistr.Results)
+			if stake, ok := spoDistr.Results[poolId]; !ok ||
+				stake != 1000000000000 {
+				t.Fatalf(
+					"unexpected stake distribution result: %v",
+					spoDistr.Results,
+				)
 			}
 		},
 	)

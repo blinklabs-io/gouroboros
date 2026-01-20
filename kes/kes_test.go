@@ -52,7 +52,11 @@ func TestSignAndVerify(t *testing.T) {
 	// Verify
 	kesSig, err := NewSumKesFromBytes(CardanoKesDepth, sig)
 	require.NoError(t, err, "NewSumKesFromBytes failed")
-	require.True(t, kesSig.Verify(0, pk, message), "signature verification failed")
+	require.True(
+		t,
+		kesSig.Verify(0, pk, message),
+		"signature verification failed",
+	)
 }
 
 func TestSignWrongPeriod(t *testing.T) {
@@ -118,7 +122,12 @@ func TestPublicKeyAfterUpdate(t *testing.T) {
 
 func TestMaxPeriod(t *testing.T) {
 	expected := uint64(1 << CardanoKesDepth) // 64 for depth 6
-	require.Equal(t, expected, MaxPeriod(CardanoKesDepth), "max period mismatch")
+	require.Equal(
+		t,
+		expected,
+		MaxPeriod(CardanoKesDepth),
+		"max period mismatch",
+	)
 }
 
 func TestVerifySignedKES(t *testing.T) {
@@ -128,7 +137,11 @@ func TestVerifySignedKES(t *testing.T) {
 	message := []byte("test message")
 	sig, err := Sign(sk, 0, message)
 	require.NoError(t, err, "Sign failed")
-	require.True(t, VerifySignedKES(pk, 0, message, sig), "VerifySignedKES failed")
+	require.True(
+		t,
+		VerifySignedKES(pk, 0, message, sig),
+		"VerifySignedKES failed",
+	)
 }
 
 func TestHashPair(t *testing.T) {

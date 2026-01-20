@@ -74,10 +74,17 @@ func NewSumKesFromBytes(depth uint64, fromByte []byte) (SumXKesSig, error) {
 	}
 	kesSize := SigmaSize + depth*(PublicKeySize*2)
 	if kesSize > math.MaxInt {
-		return SumXKesSig{}, fmt.Errorf("kes size too large for depth %d", depth)
+		return SumXKesSig{}, fmt.Errorf(
+			"kes size too large for depth %d",
+			depth,
+		)
 	}
 	if len(fromByte) != int(kesSize) {
-		return SumXKesSig{}, fmt.Errorf("expected %d bytes, got %d", kesSize, len(fromByte))
+		return SumXKesSig{}, fmt.Errorf(
+			"expected %d bytes, got %d",
+			kesSize,
+			len(fromByte),
+		)
 	}
 	nextKesSize := SigmaSize + (depth-1)*(PublicKeySize*2)
 	var sigma any

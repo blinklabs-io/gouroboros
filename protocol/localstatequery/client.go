@@ -805,7 +805,9 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	return &result[0], nil
 }
 
-func (c *Client) GetStakeSnapshots(poolIds []any) (*StakeSnapshotsResult, error) {
+func (c *Client) GetStakeSnapshots(
+	poolIds []any,
+) (*StakeSnapshotsResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetStakeSnapshots(poolIds: %+v)", poolIds),
 			"component", "network",
@@ -889,7 +891,10 @@ func (c *Client) GetConstitution() (*ConstitutionResult, error) {
 		return nil, err
 	}
 	if currentEra < ledger.EraIdConway {
-		return nil, fmt.Errorf("GetConstitution requires Conway era or later (current era: %d)", currentEra)
+		return nil, fmt.Errorf(
+			"GetConstitution requires Conway era or later (current era: %d)",
+			currentEra,
+		)
 	}
 	query := buildShelleyQuery(
 		currentEra,
@@ -919,7 +924,10 @@ func (c *Client) GetGovState() (*GovStateResult, error) {
 		return nil, err
 	}
 	if currentEra < ledger.EraIdConway {
-		return nil, fmt.Errorf("GetGovState requires Conway era or later (current era: %d)", currentEra)
+		return nil, fmt.Errorf(
+			"GetGovState requires Conway era or later (current era: %d)",
+			currentEra,
+		)
 	}
 	query := buildShelleyQuery(
 		currentEra,
@@ -934,7 +942,9 @@ func (c *Client) GetGovState() (*GovStateResult, error) {
 
 // GetDRepState returns the state of specified DReps (Conway era)
 // If credentials is nil or empty, returns state for all DReps
-func (c *Client) GetDRepState(credentials []lcommon.Credential) (*DRepStateResult, error) {
+func (c *Client) GetDRepState(
+	credentials []lcommon.Credential,
+) (*DRepStateResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetDRepState(credentials: %d)", len(credentials)),
 			"component", "network",
@@ -949,7 +959,10 @@ func (c *Client) GetDRepState(credentials []lcommon.Credential) (*DRepStateResul
 		return nil, err
 	}
 	if currentEra < ledger.EraIdConway {
-		return nil, fmt.Errorf("GetDRepState requires Conway era or later (current era: %d)", currentEra)
+		return nil, fmt.Errorf(
+			"GetDRepState requires Conway era or later (current era: %d)",
+			currentEra,
+		)
 	}
 	// Create a CBOR set from the credentials
 	if credentials == nil {
@@ -973,7 +986,9 @@ func (c *Client) GetDRepState(credentials []lcommon.Credential) (*DRepStateResul
 
 // GetDRepStakeDistr returns the stake distribution for specified DReps (Conway era)
 // If dreps is nil or empty, returns distribution for all DReps
-func (c *Client) GetDRepStakeDistr(dreps []lcommon.Drep) (*DRepStakeDistrResult, error) {
+func (c *Client) GetDRepStakeDistr(
+	dreps []lcommon.Drep,
+) (*DRepStakeDistrResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetDRepStakeDistr(dreps: %d)", len(dreps)),
 			"component", "network",
@@ -988,7 +1003,10 @@ func (c *Client) GetDRepStakeDistr(dreps []lcommon.Drep) (*DRepStakeDistrResult,
 		return nil, err
 	}
 	if currentEra < ledger.EraIdConway {
-		return nil, fmt.Errorf("GetDRepStakeDistr requires Conway era or later (current era: %d)", currentEra)
+		return nil, fmt.Errorf(
+			"GetDRepStakeDistr requires Conway era or later (current era: %d)",
+			currentEra,
+		)
 	}
 	// Create a CBOR set from the dreps
 	if dreps == nil {
@@ -1032,7 +1050,10 @@ func (c *Client) GetCommitteeMembersState(
 		return nil, err
 	}
 	if currentEra < ledger.EraIdConway {
-		return nil, fmt.Errorf("GetCommitteeMembersState requires Conway era or later (current era: %d)", currentEra)
+		return nil, fmt.Errorf(
+			"GetCommitteeMembersState requires Conway era or later (current era: %d)",
+			currentEra,
+		)
 	}
 	// Create CBOR sets for each filter
 	if coldCreds == nil {
@@ -1072,7 +1093,9 @@ func (c *Client) GetCommitteeMembersState(
 
 // GetFilteredVoteDelegatees returns the DRep delegations for specified stake credentials (Conway era)
 // If credentials is nil or empty, returns delegations for all credentials
-func (c *Client) GetFilteredVoteDelegatees(credentials []lcommon.Credential) (*FilteredVoteDelegateesResult, error) {
+func (c *Client) GetFilteredVoteDelegatees(
+	credentials []lcommon.Credential,
+) (*FilteredVoteDelegateesResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetFilteredVoteDelegatees(credentials: %d)", len(credentials)),
 			"component", "network",
@@ -1087,7 +1110,10 @@ func (c *Client) GetFilteredVoteDelegatees(credentials []lcommon.Credential) (*F
 		return nil, err
 	}
 	if currentEra < ledger.EraIdConway {
-		return nil, fmt.Errorf("GetFilteredVoteDelegatees requires Conway era or later (current era: %d)", currentEra)
+		return nil, fmt.Errorf(
+			"GetFilteredVoteDelegatees requires Conway era or later (current era: %d)",
+			currentEra,
+		)
 	}
 	// Create a CBOR set from the credentials
 	if credentials == nil {
@@ -1111,7 +1137,9 @@ func (c *Client) GetFilteredVoteDelegatees(credentials []lcommon.Credential) (*F
 
 // GetSPOStakeDistr returns the SPO stake distribution for governance voting (Conway era)
 // If poolIds is nil or empty, returns distribution for all pools
-func (c *Client) GetSPOStakeDistr(poolIds []ledger.PoolId) (*SPOStakeDistrResult, error) {
+func (c *Client) GetSPOStakeDistr(
+	poolIds []ledger.PoolId,
+) (*SPOStakeDistrResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetSPOStakeDistr(poolIds: %d)", len(poolIds)),
 			"component", "network",
@@ -1126,7 +1154,10 @@ func (c *Client) GetSPOStakeDistr(poolIds []ledger.PoolId) (*SPOStakeDistrResult
 		return nil, err
 	}
 	if currentEra < ledger.EraIdConway {
-		return nil, fmt.Errorf("GetSPOStakeDistr requires Conway era or later (current era: %d)", currentEra)
+		return nil, fmt.Errorf(
+			"GetSPOStakeDistr requires Conway era or later (current era: %d)",
+			currentEra,
+		)
 	}
 	// Create a CBOR set from the pool IDs
 	if poolIds == nil {
