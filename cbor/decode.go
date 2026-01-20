@@ -66,8 +66,17 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	if _, err := Decode(cborData, &tmp); err != nil {
 		return 0, err
 	}
-	// Make sure that the value is actually numeric
-	switch v := tmp.Value().([]any)[0].(type) {
+	// Make sure that the value is actually a slice
+	val := tmp.Value()
+	list, ok := val.([]any)
+	if !ok {
+		return 0, fmt.Errorf("decoded value was not a list, found: %T", val)
+	}
+	if len(list) == 0 {
+		return 0, errors.New("cannot return first item from empty list")
+	}
+	// Make sure that the first item is actually numeric
+	switch v := list[0].(type) {
 	// The upstream CBOR library uses uint64 by default for numeric values
 	case uint64:
 		if v > uint64(math.MaxInt) {
