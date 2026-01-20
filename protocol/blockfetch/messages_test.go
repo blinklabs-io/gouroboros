@@ -20,8 +20,10 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/stretchr/testify/require"
 )
 
 type testDefinition struct {
@@ -115,5 +117,44 @@ func TestEncode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestMsgBlockAllEras(t *testing.T) {
+	testCases := []struct {
+		name      string
+		era       uint
+		blockCbor []byte
+	}{
+		{"Shelley", ledger.BlockTypeShelley, []byte{0x82, 0x01, 0x02}},
+		{"Allegra", ledger.BlockTypeAllegra, []byte{0x82, 0x01, 0x03}},
+		{"Mary", ledger.BlockTypeMary, []byte{0x82, 0x01, 0x04}},
+		{"Alonzo", ledger.BlockTypeAlonzo, []byte{0x82, 0x01, 0x05}},
+		{"Babbage", ledger.BlockTypeBabbage, []byte{0x82, 0x01, 0x06}},
+		{"Conway", ledger.BlockTypeConway, []byte{0x82, 0x01, 0x07}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			wrappedBlock := WrappedBlock{
+				Type:     tc.era,
+				RawBlock: cbor.RawMessage(tc.blockCbor),
+			}
+			wrappedBlockCbor, err := cbor.Encode(&wrappedBlock)
+			require.NoError(t, err)
+
+			msg := NewMsgBlock(wrappedBlockCbor)
+
+			encoded, err := cbor.Encode(msg)
+			require.NoError(t, err)
+
+			decoded, err := NewMsgFromCbor(MessageTypeBlock, encoded)
+			require.NoError(t, err)
+
+			reencoded, err := cbor.Encode(decoded)
+			require.NoError(t, err)
+
+			require.Equal(t, encoded, reencoded, "CBOR round-trip failed")
+		})
 	}
 }
