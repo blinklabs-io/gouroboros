@@ -2025,6 +2025,11 @@ func UtxoValidateNativeScripts(
 		keyHash := common.Blake2b224Hash(vkw.Vkey)
 		keyHashes[keyHash] = true
 	}
+	// Also collect key hashes from bootstrap witnesses (Byron-era)
+	for _, bw := range witnesses.Bootstrap() {
+		keyHash := common.Blake2b224Hash(bw.PublicKey)
+		keyHashes[keyHash] = true
+	}
 
 	// Get transaction validity interval
 	validityStart := tx.ValidityIntervalStart()

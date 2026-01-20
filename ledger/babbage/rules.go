@@ -940,13 +940,23 @@ func UtxoValidateDelegation(
 	return shelley.UtxoValidateDelegation(tx, slot, ls, pp)
 }
 
-// UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs
+// UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs.
+// This rule only applies after Babbage era (protocol version > 8).
 func UtxoValidateDisjointRefInputs(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	// This rule only applies after Babbage era (protocol version > 8)
+	// If the parameters are BabbageProtocolParameters and version <= 8, skip validation
+	if tmpPparams, ok := pp.(*BabbageProtocolParameters); ok {
+		if tmpPparams.ProtocolMajor <= 8 {
+			return nil
+		}
+	}
+	// For ConwayProtocolParameters or newer eras, always enforce the rule
+
 	// Build a set of regular input strings for O(1) lookup
 	inputSet := make(map[string]common.TransactionInput)
 	for _, input := range tx.Inputs() {
