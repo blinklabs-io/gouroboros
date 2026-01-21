@@ -77,8 +77,16 @@ func NewClient(
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
 	}
+	// Apply defaults for zero values to handle Config{} created without NewConfig()
+	config := *cfg
+	if config.PipelineLimit == 0 {
+		config.PipelineLimit = DefaultPipelineLimit
+	}
+	if config.RecvQueueSize == 0 {
+		config.RecvQueueSize = DefaultRecvQueueSize
+	}
 	c := &Client{
-		config:                cfg,
+		config:                &config,
 		protoOptions:          protoOptions,
 		stateContext:          stateContext,
 		lifecycleState:        clientStateNew,

@@ -104,3 +104,40 @@ var ErrExtraneousScriptDataHash = errors.New("extraneous script data hash")
 func (ExtraneousScriptDataHashError) Is(target error) bool {
 	return target == ErrExtraneousScriptDataHash
 }
+
+// ScriptDataHashMismatchError indicates the declared ScriptDataHash doesn't match the computed hash
+type ScriptDataHashMismatchError struct {
+	Declared Blake2b256
+	Computed Blake2b256
+}
+
+func (e ScriptDataHashMismatchError) Error() string {
+	return fmt.Sprintf(
+		"script data hash mismatch: declared %x, computed %x",
+		e.Declared[:],
+		e.Computed[:],
+	)
+}
+
+// Sentinel error for script data hash mismatch so callers can use errors.Is
+var ErrScriptDataHashMismatch = errors.New("script data hash mismatch")
+
+func (ScriptDataHashMismatchError) Is(target error) bool {
+	return target == ErrScriptDataHashMismatch
+}
+
+// MalformedReferenceScriptsError indicates reference scripts in outputs that cannot be deserialized
+type MalformedReferenceScriptsError struct {
+	ScriptHashes []ScriptHash
+}
+
+func (e MalformedReferenceScriptsError) Error() string {
+	return fmt.Sprintf("malformed reference scripts: %v", e.ScriptHashes)
+}
+
+// Sentinel error for malformed reference scripts so callers can use errors.Is
+var ErrMalformedReferenceScripts = errors.New("malformed reference scripts")
+
+func (MalformedReferenceScriptsError) Is(target error) bool {
+	return target == ErrMalformedReferenceScripts
+}

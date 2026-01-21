@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
@@ -281,6 +283,264 @@ func TestGetUTxOByAddress(t *testing.T) {
 					"did not receive expected result\n got:    %#v\n  wanted: %#v",
 					utxos,
 					expectedResult,
+				)
+			}
+		},
+	)
+}
+
+// Conway governance query tests
+
+// Create a conversation that starts with Conway era (6)
+var conversationConwayEra = append(
+	conversationHandshakeAcquire,
+	ouroboros_mock.ConversationEntryInput{
+		ProtocolId:  localstatequery.ProtocolId,
+		MessageType: localstatequery.MessageTypeQuery,
+	},
+	ouroboros_mock.ConversationEntryOutput{
+		ProtocolId: localstatequery.ProtocolId,
+		IsResponse: true,
+		Messages: []protocol.Message{
+			localstatequery.NewMsgResult([]byte{0x6}), // Conway era = 6
+		},
+	},
+)
+
+func TestGetConstitution(t *testing.T) {
+	// Constitution result: [anchor, script_hash]
+	// anchor: [url, data_hash]
+	expectedResult := localstatequery.ConstitutionResult{
+		Anchor: lcommon.GovAnchor{
+			Url:      "https://constitution.gov.cardano",
+			DataHash: [32]byte{0x1, 0x2, 0x3, 0x4},
+		},
+		ScriptHash: []byte{0xa, 0xb, 0xc},
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			constitution, err := oConn.LocalStateQuery().Client.GetConstitution()
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			if !reflect.DeepEqual(constitution, &expectedResult) {
+				t.Fatalf(
+					"did not receive expected result\n  got:    %#v\n  wanted: %#v",
+					constitution,
+					expectedResult,
+				)
+			}
+		},
+	)
+}
+
+func TestGetConstitutionPreConway(t *testing.T) {
+	// Test that GetConstitution returns an error on pre-Conway eras
+	runTest(
+		t,
+		conversationCurrentEra, // Era 5 (Babbage)
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetConstitution()
+			if err == nil {
+				t.Fatal("expected error for pre-Conway era, got nil")
+			}
+			expectedErrMsg := "GetConstitution requires Conway era or later"
+			if !strings.Contains(err.Error(), expectedErrMsg) {
+				t.Fatalf(
+					"expected error containing %q, got: %s",
+					expectedErrMsg,
+					err.Error(),
+				)
+			}
+		},
+	)
+}
+
+func TestGetGovState(t *testing.T) {
+	// GovState is complex, test basic decoding with minimal result
+	expectedResult := localstatequery.GovStateResult{
+		Proposals: cbor.RawMessage([]byte{0x80}), // Empty list
+		Committee: cbor.RawMessage([]byte{0xf6}), // null
+		Constitution: localstatequery.ConstitutionResult{
+			Anchor: lcommon.GovAnchor{
+				Url:      "https://constitution.cardano.org",
+				DataHash: [32]byte{0xde, 0xad, 0xbe, 0xef},
+			},
+			ScriptHash: nil,
+		},
+		CurrentPParams:   cbor.RawMessage([]byte{0xa0}), // Empty map
+		PrevPParams:      cbor.RawMessage([]byte{0xa0}),
+		FuturePParams:    cbor.RawMessage([]byte{0xa0}),
+		DRepPulsingState: cbor.RawMessage([]byte{0x80}),
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %s", err)
+	}
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			govState, err := oConn.LocalStateQuery().Client.GetGovState()
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			// Check constitution anchor was decoded correctly
+			if govState.Constitution.Anchor.Url != expectedResult.Constitution.Anchor.Url {
+				t.Fatalf(
+					"constitution URL mismatch: got %s, wanted %s",
+					govState.Constitution.Anchor.Url,
+					expectedResult.Constitution.Anchor.Url,
+				)
+			}
+		},
+	)
+}
+
+func TestGetGovStatePreConway(t *testing.T) {
+	// Test that GetGovState returns an error on pre-Conway eras
+	runTest(
+		t,
+		conversationCurrentEra, // Era 5 (Babbage)
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetGovState()
+			if err == nil {
+				t.Fatal("expected error for pre-Conway era, got nil")
+			}
+			expectedErrMsg := "GetGovState requires Conway era or later"
+			if !strings.Contains(err.Error(), expectedErrMsg) {
+				t.Fatalf(
+					"expected error containing %q, got: %s",
+					expectedErrMsg,
+					err.Error(),
+				)
+			}
+		},
+	)
+}
+
+func TestGetCommitteeMembersState(t *testing.T) {
+	// CommitteeMembersState result
+	threshold := &cbor.Rat{Rat: big.NewRat(2, 3)}
+	expectedResult := localstatequery.CommitteeMembersStateResult{
+		Members:   cbor.RawMessage([]byte{0xa0}), // Empty map
+		Threshold: threshold,
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %s", err)
+	}
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			committeeState, err := oConn.LocalStateQuery().Client.GetCommitteeMembersState(
+				nil,
+				nil,
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			if committeeState.Threshold == nil {
+				t.Fatal("expected threshold, got nil")
+			}
+		},
+	)
+}
+
+func TestGetSPOStakeDistr(t *testing.T) {
+	// SPOStakeDistr maps pool IDs to stake amounts
+	poolId := ledger.PoolId{0x1, 0x2, 0x3}
+	expectedResult := localstatequery.SPOStakeDistrResult{
+		Results: map[ledger.PoolId]uint64{
+			poolId: 1000000000000, // 1M ADA
+		},
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %s", err)
+	}
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			spoDistr, err := oConn.LocalStateQuery().Client.GetSPOStakeDistr(
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			if len(spoDistr.Results) != 1 {
+				t.Fatalf("expected 1 result, got %d", len(spoDistr.Results))
+			}
+			if stake, ok := spoDistr.Results[poolId]; !ok ||
+				stake != 1000000000000 {
+				t.Fatalf(
+					"unexpected stake distribution result: %v",
+					spoDistr.Results,
 				)
 			}
 		},

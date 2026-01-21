@@ -16,13 +16,13 @@ package alonzo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
-	"strconv"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/plutigo/lang"
 )
 
 type AlonzoGenesis struct {
@@ -33,100 +33,54 @@ type AlonzoGenesis struct {
 	ExecutionPrices      AlonzoGenesisExecutionPrices `json:"executionPrices"`
 	MaxTxExUnits         AlonzoGenesisExUnits         `json:"maxTxExUnits"`
 	MaxBlockExUnits      AlonzoGenesisExUnits         `json:"maxBlockExUnits"`
-	CostModels           map[string]CostModel         `json:"costModels"`
+	CostModels           AlonzoGenesisCostModels      `json:"costModels"`
 }
 
-type CostModel map[string]int
+type AlonzoGenesisCostModels map[string][]int64
 
-// NormalizeCostModels converts all cost model keys to consistent paramX format
-func (g *AlonzoGenesis) NormalizeCostModels() error {
-	if g.CostModels == nil {
-		return nil
-	}
-
-	for version, model := range g.CostModels {
-		normalized := make(CostModel)
-		for k, v := range model {
-			// Check if key is already in paramX format
-			var index int
-			if _, err := fmt.Sscanf(k, "param%d", &index); err == nil {
-				normalized[k] = v // Keep existing paramX keys
-				continue
-			}
-
-			// Check if key is a numeric index (from array format)
-			if _, err := fmt.Sscanf(k, "%d", &index); err == nil {
-				normalized[fmt.Sprintf("param%d", index)] = v
-				continue
-			}
-			normalized[k] = v
-		}
-		g.CostModels[version] = normalized
-	}
-	return nil
-}
-
-func (c *CostModel) UnmarshalJSON(data []byte) error {
-	tmpMap := make(map[string]any)
-	if err := json.Unmarshal(data, &tmpMap); err != nil {
-		// Try to unmarshal as array first
-		var tmpArray []any
-		if arrayErr := json.Unmarshal(data, &tmpArray); arrayErr == nil {
-			*c = make(CostModel)
-			for i, v := range tmpArray {
-				num, err := toInt(v)
-				if err != nil {
-					return fmt.Errorf("array index %d: %w", i, err)
-				}
-				(*c)[strconv.Itoa(i)] = num
-			}
-			return nil
-		}
+func (c *AlonzoGenesisCostModels) UnmarshalJSON(data []byte) error {
+	tmpCostModels := make(map[string][]int64)
+	// Decode top-level first
+	var tmpData map[string]json.RawMessage
+	if err := json.Unmarshal(data, &tmpData); err != nil {
 		return err
 	}
-
-	*c = make(CostModel)
-	for k, v := range tmpMap {
-		num, err := toInt(v)
-		if err != nil {
-			return fmt.Errorf("key %s: %w", k, err)
+	var langVer lang.LanguageVersion
+	for langKey, data := range tmpData {
+		switch langKey {
+		case "PlutusV1":
+			langVer = lang.LanguageVersionV1
+		case "PlutusV2":
+			langVer = lang.LanguageVersionV2
+		case "PlutusV3":
+			langVer = lang.LanguageVersionV3
+		default:
+			return errors.New("unknown language version key: " + langKey)
 		}
-		(*c)[k] = num
+		// Try to decode as list first
+		var tmpList []int64
+		if err := json.Unmarshal(data, &tmpList); err == nil {
+			tmpCostModels[langKey] = tmpList
+			continue
+		}
+		// Decode as map
+		tmpMap := make(map[string]int64)
+		if err := json.Unmarshal(data, &tmpMap); err != nil {
+			return fmt.Errorf("decode cost model: %w", err)
+		}
+		paramNames := lang.GetParamNamesForVersion(langVer)
+		for _, param := range paramNames {
+			val, ok := tmpMap[param]
+			// Stop processing if a param name is not present
+			if !ok {
+				break
+			}
+			tmpList = append(tmpList, val)
+		}
+		tmpCostModels[langKey] = tmpList
 	}
+	*c = AlonzoGenesisCostModels(tmpCostModels)
 	return nil
-}
-
-func toInt(v any) (int, error) {
-	switch val := v.(type) {
-	case float64:
-		if val > float64(math.MaxInt) || val < float64(math.MinInt) {
-			return 0, fmt.Errorf("float64 value %v overflows int", val)
-		}
-		return int(val), nil
-	case int:
-		return val, nil
-	case json.Number:
-		intVal, err := val.Int64()
-		if err != nil {
-			return 0, err
-		}
-		if intVal > math.MaxInt || intVal < math.MinInt {
-			return 0, fmt.Errorf("json.Number value %v overflows int", val)
-		}
-		return int(intVal), nil
-	case int64:
-		if val > math.MaxInt || val < math.MinInt {
-			return 0, fmt.Errorf("int64 value %v overflows int", val)
-		}
-		return int(val), nil
-	case uint64:
-		if val > math.MaxInt {
-			return 0, fmt.Errorf("uint64 value %v overflows int", val)
-		}
-		return int(val), nil
-	default:
-		return 0, fmt.Errorf("unsupported numeric type: %T", v)
-	}
 }
 
 func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {
@@ -134,9 +88,6 @@ func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&ret); err != nil {
-		return ret, err
-	}
-	if err := ret.NormalizeCostModels(); err != nil {
 		return ret, err
 	}
 	return ret, nil

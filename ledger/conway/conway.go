@@ -258,12 +258,14 @@ func (h *ConwayBlockHeader) Era() common.Era {
 }
 
 type ConwayRedeemers struct {
+	cbor.DecodeStoreCbor
 	Redeemers       map[common.RedeemerKey]common.RedeemerValue
 	legacyRedeemers alonzo.AlonzoRedeemers
 	legacy          bool
 }
 
 func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
+	r.SetCbor(cborData)
 	// Try to parse as legacy redeemer first
 	if _, err := cbor.Decode(cborData, &(r.legacyRedeemers)); err == nil {
 		r.legacy = true

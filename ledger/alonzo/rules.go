@@ -33,6 +33,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateCollateralVKeyWitnesses,
 	UtxoValidateRedeemerAndScriptWitnesses,
 	UtxoValidateCostModelsPresent,
+	UtxoValidateScriptDataHash,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
 	UtxoValidateFeeTooSmallUtxo,
@@ -104,7 +105,7 @@ func UtxoValidateExUnitsTooBigUtxo(
 		return errors.New("transaction is not expected type")
 	}
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
 		totalSteps += redeemer.ExUnits.Steps
 		totalMemory += redeemer.ExUnits.Memory
 	}
@@ -280,7 +281,7 @@ func UtxoValidateInsufficientCollateral(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	totalCollateral := new(big.Int)
@@ -301,7 +302,9 @@ func UtxoValidateInsufficientCollateral(
 	if fee == nil {
 		fee = new(big.Int)
 	}
-	minCollateral := new(big.Int).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
+	minCollateral := new(
+		big.Int,
+	).Mul(fee, new(big.Int).SetUint64(uint64(tmpPparams.CollateralPercentage)))
 	minCollateral.Div(minCollateral, big.NewInt(100))
 	if totalCollateral.Cmp(minCollateral) >= 0 {
 		return nil
@@ -332,7 +335,7 @@ func UtxoValidateCollateralContainsNonAda(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
@@ -377,7 +380,7 @@ func UtxoValidateNoCollateralInputs(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers) == 0 {
+	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
 		return nil
 	}
 	if len(tx.Collateral()) > 0 {
@@ -734,4 +737,116 @@ func UtxoValidateWithdrawals(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
+}
+
+// UtxoValidateScriptDataHash validates the transaction's ScriptDataHash against the expected hash
+// computed from redeemers, datums, and cost models (language views).
+// Alonzo only supports PlutusV1 scripts.
+func UtxoValidateScriptDataHash(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, ok := pp.(*AlonzoProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	tmpTx, ok := tx.(*AlonzoTransaction)
+	if !ok {
+		return errors.New("transaction is not expected type")
+	}
+
+	wits := tmpTx.WitnessSet
+	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
+	hasDatums := len(wits.WsPlutusData) > 0
+
+	// Determine which Plutus versions are used (Alonzo only has PlutusV1)
+	usedVersions := make(map[uint]struct{})
+	if len(wits.WsPlutusV1Scripts) > 0 {
+		usedVersions[0] = struct{}{}
+	}
+
+	hasPlutusScripts := len(usedVersions) > 0
+	declaredHash := tx.ScriptDataHash()
+
+	// If no Plutus scripts and no redeemers/datums, ScriptDataHash should be absent
+	if !hasPlutusScripts && !hasRedeemers && !hasDatums {
+		if declaredHash != nil {
+			return common.ExtraneousScriptDataHashError{Provided: *declaredHash}
+		}
+		return nil
+	}
+
+	// If there are Plutus scripts/redeemers/datums, ScriptDataHash is required
+	if hasPlutusScripts || hasRedeemers || hasDatums {
+		if declaredHash == nil {
+			return common.MissingScriptDataHashError{}
+		}
+	}
+
+	// Verify cost models are present for all used Plutus versions
+	for version := range usedVersions {
+		if _, ok := tmpPparams.CostModels[version]; !ok {
+			return common.MissingCostModelError{Version: version}
+		}
+	}
+
+	// Compute the expected ScriptDataHash
+	// ScriptDataHash = blake2b256(redeemers_cbor || datums_cbor || langviews_cbor)
+
+	// Get preserved CBOR bytes for redeemers
+	redeemersCbor := wits.WsRedeemers.Cbor()
+	if len(redeemersCbor) == 0 {
+		// Fall back to re-encoding if no preserved CBOR
+		var err error
+		redeemersCbor, err = cbor.Encode(wits.WsRedeemers)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Encode datums as CBOR (only if non-empty)
+	var datumsCbor []byte
+	if hasDatums {
+		var err error
+		datumsCbor, err = cbor.Encode(wits.WsPlutusData)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Encode language views per the Cardano spec
+	langViewsCbor, err := common.EncodeLangViews(
+		usedVersions,
+		tmpPparams.CostModels,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Concatenate and hash
+	hashInput := make(
+		[]byte,
+		0,
+		len(redeemersCbor)+len(datumsCbor)+len(langViewsCbor),
+	)
+	hashInput = append(hashInput, redeemersCbor...)
+	hashInput = append(hashInput, datumsCbor...)
+	hashInput = append(hashInput, langViewsCbor...)
+
+	computedHash := common.Blake2b256Hash(hashInput)
+
+	// Compare with declared hash (nil check for static analysis - logically unreachable)
+	if declaredHash == nil {
+		return common.MissingScriptDataHashError{}
+	}
+	if *declaredHash != computedHash {
+		return common.ScriptDataHashMismatchError{
+			Declared: *declaredHash,
+			Computed: computedHash,
+		}
+	}
+
+	return nil
 }

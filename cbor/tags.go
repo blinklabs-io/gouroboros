@@ -100,6 +100,12 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 	if _, err := Decode(cborData, &tmpRat); err != nil {
 		return err
 	}
+	if len(tmpRat) != 2 {
+		return fmt.Errorf(
+			"invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements",
+			len(tmpRat),
+		)
+	}
 	// Convert numerator to big.Int
 	tmpNum := new(big.Int)
 	switch v := tmpRat[0].(type) {
@@ -119,6 +125,10 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 		tmpDenom.SetUint64(v)
 	default:
 		return fmt.Errorf("unsupported denominator type for cbor.Rat: %T", v)
+	}
+	// Check for zero denominator
+	if tmpDenom.Sign() == 0 {
+		return errors.New("invalid cbor.Rat: denominator cannot be zero")
 	}
 	// Create new big.Rat with num/denom set to big.Int values above
 	r.Rat = new(big.Rat)
@@ -181,6 +191,7 @@ type Map map[any]any
 
 // SetType is a generic type for wrapping other types in an optional CBOR set tag
 type SetType[T any] struct {
+	DecodeStoreCbor
 	items  []T
 	useTag bool
 }
@@ -193,6 +204,9 @@ func NewSetType[T any](items []T, useTag bool) SetType[T] {
 }
 
 func (t *SetType[T]) UnmarshalCBOR(data []byte) error {
+	// Store original CBOR for later retrieval
+	t.SetCbor(data)
+
 	// Check if the set is wrapped in a CBOR tag
 	// This is mostly needed so we can remember whether it was Set-wrapped for CBOR encoding
 	var tmpTag RawTag

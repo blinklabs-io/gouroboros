@@ -49,7 +49,11 @@ type VersionMismatchError struct {
 }
 
 func (e *VersionMismatchError) Error() string {
-	return fmt.Sprintf("%s: version mismatch (supported versions: %v)", ProtocolName, e.SupportedVersions)
+	return fmt.Sprintf(
+		"%s: version mismatch (supported versions: %v)",
+		ProtocolName,
+		e.SupportedVersions,
+	)
 }
 
 func (e *VersionMismatchError) ReasonCode() uint64 {
@@ -64,7 +68,12 @@ type DecodeError struct {
 }
 
 func (e *DecodeError) Error() string {
-	return fmt.Sprintf("%s: decode error (version %d): %s", ProtocolName, e.Version, e.Message)
+	return fmt.Sprintf(
+		"%s: decode error (version %d): %s",
+		ProtocolName,
+		e.Version,
+		e.Message,
+	)
 }
 
 func (e *DecodeError) ReasonCode() uint64 {
@@ -79,7 +88,12 @@ type RefusedError struct {
 }
 
 func (e *RefusedError) Error() string {
-	return fmt.Sprintf("%s: refused (version %d): %s", ProtocolName, e.Version, e.Message)
+	return fmt.Sprintf(
+		"%s: refused (version %d): %s",
+		ProtocolName,
+		e.Version,
+		e.Message,
+	)
 }
 
 func (e *RefusedError) ReasonCode() uint64 {

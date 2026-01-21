@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/stretchr/testify/require"
 )
 
 type testDefinition struct {
@@ -403,4 +404,53 @@ func TestMsgDone(t *testing.T) {
 		},
 	}
 	runTests(tests, t)
+}
+
+// TestConfigDefaults verifies that when a Config is created directly without
+// using NewConfig(), the Client and Server apply default values for zero fields.
+// This fixes issue #1299 where PipelineLimit=0 caused sync to stall.
+func TestConfigDefaults(t *testing.T) {
+	stateContext := &StateContext{}
+	protoOptions := protocol.ProtocolOptions{
+		Mode: protocol.ProtocolModeNodeToClient,
+	}
+
+	t.Run("Client applies defaults for zero PipelineLimit", func(t *testing.T) {
+		// Create config directly without NewConfig() - PipelineLimit will be 0
+		cfg := &Config{SkipBlockValidation: true}
+		client := NewClient(stateContext, protoOptions, cfg)
+
+		require.Equal(t, DefaultPipelineLimit, client.config.PipelineLimit)
+	})
+
+	t.Run("Client applies defaults for zero RecvQueueSize", func(t *testing.T) {
+		cfg := &Config{SkipBlockValidation: true}
+		client := NewClient(stateContext, protoOptions, cfg)
+
+		require.Equal(t, DefaultRecvQueueSize, client.config.RecvQueueSize)
+	})
+
+	t.Run("Client preserves explicit non-zero values", func(t *testing.T) {
+		cfg := &Config{
+			PipelineLimit: 10,
+			RecvQueueSize: 20,
+		}
+		client := NewClient(stateContext, protoOptions, cfg)
+
+		require.Equal(t, 10, client.config.PipelineLimit)
+		require.Equal(t, 20, client.config.RecvQueueSize)
+	})
+
+	t.Run("Server applies defaults for zero RecvQueueSize", func(t *testing.T) {
+		cfg := &Config{SkipBlockValidation: true}
+		server := NewServer(stateContext, protoOptions, cfg)
+
+		require.Equal(t, DefaultRecvQueueSize, server.config.RecvQueueSize)
+	})
+
+	t.Run("Client with nil config uses NewConfig defaults", func(t *testing.T) {
+		client := NewClient(stateContext, protoOptions, nil)
+
+		require.Equal(t, DefaultPipelineLimit, client.config.PipelineLimit)
+	})
 }

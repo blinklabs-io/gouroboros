@@ -62,9 +62,19 @@ const (
 	QueryTypeShelleyPoolState                           = 19
 	QueryTypeShelleyStakeSnapshots                      = 20
 	QueryTypeShelleyPoolDistr                           = 21
+
+	// Conway governance queries (v8+)
+	QueryTypeShelleyConstitution           = 23
+	QueryTypeShelleyGovState               = 24
+	QueryTypeShelleyDRepState              = 25
+	QueryTypeShelleyDRepStakeDistr         = 26
+	QueryTypeShelleyCommitteeMembersState  = 27
+	QueryTypeShelleyFilteredVoteDelegatees = 28
+	QueryTypeShelleySPOStakeDistr          = 30
 )
 
-// simpleQueryBase is a helper type used for various query types to reduce repeat code
+// simpleQueryBase is a helper type used for various query types
+// to reduce repeat code
 type simpleQueryBase struct {
 	cbor.StructAsArray
 	Type int
@@ -196,6 +206,14 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 			QueryTypeShelleyPoolState:                           &ShelleyPoolStateQuery{},
 			QueryTypeShelleyStakeSnapshots:                      &ShelleyStakeSnapshotsQuery{},
 			QueryTypeShelleyPoolDistr:                           &ShelleyPoolDistrQuery{},
+			// Conway governance queries
+			QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
+			QueryTypeShelleyGovState:               &ShelleyGovStateQuery{},
+			QueryTypeShelleyDRepState:              &ShelleyDRepStateQuery{},
+			QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
+			QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
+			QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
+			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
 		},
 	)
 	if err != nil {
@@ -603,14 +621,14 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 type DebugEpochStateResult any
 
 // TODO (#858)
-/*
-rwdr	[flag bytestring]	bytestring is the keyhash of the staking vkey
-flag	0/1	0=keyhash 1=scripthash
-result	[[ delegation rewards] ]
-delegation	{ * rwdr => poolid }	poolid is a bytestring
-rewards	{ * rwdr => int }
-It seems to be a requirement to sort the reward addresses on the query. Scripthash addresses come first, then within a group the bytestring being a network order integer sort ascending.
-*/
+// rwdr: [flag bytestring] bytestring is the keyhash of the staking vkey
+// flag: 0/1 (0=keyhash 1=scripthash)
+// result: [[ delegation rewards] ]
+// delegation: { * rwdr => poolid } poolid is a bytestring
+// rewards: { * rwdr => int }
+// Note: It seems to be a requirement to sort the reward addresses on the
+// query. Scripthash addresses come first, then within a group the bytestring
+// being a network order integer sort ascending.
 type FilteredDelegationsAndRewardAccountsResult any
 
 type GenesisConfigResult struct {
@@ -717,14 +735,62 @@ type StakePoolParamsResult struct {
 // TODO (#867)
 type RewardInfoPoolsResult any
 
-// TODO (#868)
-type PoolStateResult any
+// PoolStateParams represents the pool registration parameters
+// without the cert type
+type PoolStateParams struct {
+	cbor.StructAsArray
+	Operator      ledger.Blake2b224
+	VrfKeyHash    ledger.Blake2b256
+	Pledge        uint64
+	Cost          uint64
+	Margin        *cbor.Rat
+	RewardAccount ledger.Address
+	PoolOwners    []ledger.Blake2b224
+	Relays        []ledger.PoolRelay
+	PoolMetadata  *struct {
+		cbor.StructAsArray
+		Url          string
+		MetadataHash ledger.Blake2b256
+	}
+}
 
-// TODO (#869)
-type StakeSnapshotsResult any
+// PoolStateResult represents the pool state result
+// The result is a 4-element array: [pstate, fstate, retiring, deposits]
+// where pstate maps pool IDs to their registration parameters
+type PoolStateResult struct {
+	cbor.StructAsArray
+	PState map[ledger.Blake2b224]*PoolStateParams
+	FState map[ledger.Blake2b224]*PoolStateParams // Future pool parameters
+	// Retiring contains pools scheduled to retire (epoch number)
+	Retiring map[ledger.Blake2b224]uint64
+	Deposits map[ledger.Blake2b224]uint64 // Pool deposits
+}
 
-// PoolDistrResult represents the pool distribution result
-// It contains a map of pool IDs to their stake distribution (fraction and VRF hash)
+// PoolStakeSnapshot represents the stake distribution for a pool
+// across different snapshots
+type PoolStakeSnapshot struct {
+	cbor.StructAsArray
+	StakeMark uint64 // Stake snapshot from mark
+	StakeSet  uint64 // Stake snapshot from set
+	StakeGo   uint64 // Stake snapshot from go
+}
+
+// StakeSnapshotsResult represents the stake snapshots result.
+// The result is a 4-element array:
+// [snapshots, total_stake_mark, total_stake_set, total_stake_go]
+// where snapshots maps pool IDs to their stake distribution
+// across mark/set/go snapshots
+type StakeSnapshotsResult struct {
+	cbor.StructAsArray
+	PoolSnapshots  map[ledger.Blake2b224]*PoolStakeSnapshot
+	TotalStakeMark uint64
+	TotalStakeSet  uint64
+	TotalStakeGo   uint64
+}
+
+// PoolDistrResult represents the pool distribution result.
+// It contains a map of pool IDs to their stake distribution
+// (fraction and VRF hash)
 type PoolDistrResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]struct {
@@ -732,4 +798,120 @@ type PoolDistrResult struct {
 		StakeFraction *cbor.Rat
 		VrfHash       ledger.Blake2b256
 	}
+}
+
+// Conway governance query types
+
+type ShelleyConstitutionQuery struct {
+	simpleQueryBase
+}
+
+type ShelleyGovStateQuery struct {
+	simpleQueryBase
+}
+
+type ShelleyDRepStateQuery struct {
+	cbor.StructAsArray
+	Type        int
+	Credentials cbor.SetType[lcommon.Credential]
+}
+
+type ShelleyDRepStakeDistrQuery struct {
+	cbor.StructAsArray
+	Type  int
+	DReps cbor.SetType[lcommon.Drep]
+}
+
+type ShelleyCommitteeMembersStateQuery struct {
+	cbor.StructAsArray
+	Type         int
+	ColdCreds    cbor.SetType[lcommon.Credential]
+	HotCreds     cbor.SetType[lcommon.Credential]
+	MemberStatus cbor.SetType[int]
+}
+
+type ShelleyFilteredVoteDelegateesQuery struct {
+	cbor.StructAsArray
+	Type        int
+	Credentials cbor.SetType[lcommon.Credential]
+}
+
+type ShelleySPOStakeDistrQuery struct {
+	cbor.StructAsArray
+	Type    int
+	PoolIds cbor.SetType[ledger.PoolId]
+}
+
+// Conway governance result types
+
+// ConstitutionResult represents the constitution query result.
+// The constitution contains an anchor (URL and hash) and an optional
+// guardrails script hash
+type ConstitutionResult struct {
+	cbor.StructAsArray
+	Anchor     lcommon.GovAnchor
+	ScriptHash []byte // Optional guardrails script hash (nil if no guardrails)
+}
+
+// GovStateResult represents the full governance state.
+// This includes proposals, committee, constitution, protocol parameters,
+// and DRep pulsing state.
+// The raw messages can be further decoded based on the era
+type GovStateResult struct {
+	cbor.StructAsArray
+	Proposals        cbor.RawMessage // Complex nested structure
+	Committee        cbor.RawMessage // StrictMaybe Committee
+	Constitution     ConstitutionResult
+	CurrentPParams   cbor.RawMessage // Era-specific protocol parameters
+	PrevPParams      cbor.RawMessage // Previous era protocol parameters
+	FuturePParams    cbor.RawMessage // Scheduled parameter changes
+	DRepPulsingState cbor.RawMessage // DRep pulsing state
+}
+
+// DRepStateEntry represents the state of a single DRep
+type DRepStateEntry struct {
+	cbor.StructAsArray
+	Expiry  uint64             // Epoch when DRep expires
+	Anchor  *lcommon.GovAnchor // Optional metadata anchor
+	Deposit uint64             // Deposit amount
+}
+
+// DRepStateResult represents the DRep state query result.
+// The result is raw CBOR that maps credentials to DRep state.
+// Consumers must decode the CBOR themselves based on the expected format.
+type DRepStateResult cbor.RawMessage
+
+// DRepStakeDistrResult represents the DRep stake distribution
+// The result is returned as raw CBOR that maps DReps to stake amounts
+type DRepStakeDistrResult cbor.RawMessage
+
+// CommitteeMemberState represents the state of a committee member
+type CommitteeMemberState struct {
+	cbor.StructAsArray
+	// Status: 0=Unrecognized, 1=Active, 2=Expired, 3=Resigned
+	Status        int
+	HotCredential *lcommon.Credential // Hot credential if authorized
+	Expiry        uint64              // Term expiry epoch
+	NextEpoch     *uint64             // Next epoch for cold key rotation
+}
+
+// CommitteeMembersStateResult represents the committee members state
+// query result. Contains the committee members and voting threshold
+// as raw CBOR
+type CommitteeMembersStateResult struct {
+	cbor.StructAsArray
+	Members   cbor.RawMessage // Map of cold credentials to member state
+	Threshold *cbor.Rat       // Voting threshold
+}
+
+// FilteredVoteDelegateesResult represents the vote delegatees
+// for stake credentials.
+// The result is raw CBOR that maps credentials to DRep delegations
+type FilteredVoteDelegateesResult cbor.RawMessage
+
+// SPOStakeDistrResult represents the SPO stake distribution for governance
+// Maps pool IDs to their governance voting power
+type SPOStakeDistrResult struct {
+	cbor.StructAsArray
+	Results map[ledger.PoolId]uint64
 }

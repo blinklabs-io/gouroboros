@@ -852,7 +852,7 @@ func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
 
 	// Convert WsPlutusData to IndefLengthList
 	var plutusDataIndefList cbor.IndefLengthList
-	if w.WsPlutusData != nil {
+	if len(w.WsPlutusData) > 0 {
 		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData))
 		for i, datum := range w.WsPlutusData {
 			plutusDataIndefList[i] = datum
