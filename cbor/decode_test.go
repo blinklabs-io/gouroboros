@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type decodeTestDefinition struct {
@@ -310,6 +312,61 @@ func TestDecodeMaryTransactionCbor(t *testing.T) {
 			len(decodedSlice),
 		)
 	}
+}
+
+// Test struct for DecodeGeneric
+type decodeGenericTestStruct struct {
+	Foo uint
+	Bar string
+}
+
+func TestDecodeGeneric(t *testing.T) {
+	// CBOR encoding of {"Bar": "ba", "Foo": 5} (keys sorted)
+	validCborHex := "a26342617262626163466f6f05"
+
+	t.Run("valid struct pointer", func(t *testing.T) {
+		cborData, err := hex.DecodeString(validCborHex)
+		require.NoError(t, err)
+
+		dest := &decodeGenericTestStruct{}
+		err = cbor.DecodeGeneric(cborData, dest)
+		require.NoError(t, err)
+
+		expected := &decodeGenericTestStruct{Foo: 5, Bar: "ba"}
+		assert.Equal(t, expected, dest)
+	})
+
+	t.Run("pointer to non-struct (int)", func(t *testing.T) {
+		cborData, _ := hex.DecodeString("05")
+		dest := new(int)
+		err := cbor.DecodeGeneric(cborData, dest)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "destination must be a pointer to a struct")
+	})
+
+	t.Run("pointer to non-struct (string)", func(t *testing.T) {
+		cborData, _ := hex.DecodeString("63666f6f")
+		dest := new(string)
+		err := cbor.DecodeGeneric(cborData, dest)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "destination must be a pointer to a struct")
+	})
+}
+
+func TestDecodeGenericTypeCache(t *testing.T) {
+	cborData, _ := hex.DecodeString("a26342617262626163466f6f05")
+	expected := &decodeGenericTestStruct{Foo: 5, Bar: "ba"}
+
+	// Decode twice to exercise type cache
+	dest1 := &decodeGenericTestStruct{}
+	err := cbor.DecodeGeneric(cborData, dest1)
+	require.NoError(t, err, "first decode failed")
+	assert.Equal(t, expected, dest1)
+
+	dest2 := &decodeGenericTestStruct{}
+	err = cbor.DecodeGeneric(cborData, dest2)
+	require.NoError(t, err, "second decode failed")
+	assert.Equal(t, expected, dest2)
 }
 
 func BenchmarkDecode(b *testing.B) {
