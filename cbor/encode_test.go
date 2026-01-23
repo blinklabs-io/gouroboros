@@ -19,6 +19,8 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type encodeTestDefinition struct {
@@ -109,6 +111,63 @@ func TestEncodeIndefLengthMap(t *testing.T) {
 			expectedCborHex,
 		)
 	}
+}
+
+// Test struct for EncodeGeneric
+type encodeGenericTestStruct struct {
+	Foo uint
+	Bar string
+}
+
+func TestEncodeGeneric(t *testing.T) {
+	t.Run("valid struct pointer", func(t *testing.T) {
+		src := &encodeGenericTestStruct{Foo: 5, Bar: "ba"}
+		result, err := cbor.EncodeGeneric(src)
+		require.NoError(t, err)
+		assert.NotEmpty(t, result, "expected non-empty CBOR data")
+	})
+
+	t.Run("pointer to non-struct (int)", func(t *testing.T) {
+		src := new(int)
+		_, err := cbor.EncodeGeneric(src)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "source must be a pointer to a struct")
+	})
+
+	t.Run("pointer to non-struct (string)", func(t *testing.T) {
+		src := new(string)
+		_, err := cbor.EncodeGeneric(src)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "source must be a pointer to a struct")
+	})
+}
+
+func TestEncodeGenericRoundTrip(t *testing.T) {
+	original := &encodeGenericTestStruct{Foo: 42, Bar: "hello"}
+
+	cborData, err := cbor.EncodeGeneric(original)
+	require.NoError(t, err, "EncodeGeneric failed")
+
+	decoded := &encodeGenericTestStruct{}
+	err = cbor.DecodeGeneric(cborData, decoded)
+	require.NoError(t, err, "DecodeGeneric failed")
+
+	assert.Equal(t, original.Foo, decoded.Foo)
+	assert.Equal(t, original.Bar, decoded.Bar)
+}
+
+func TestEncodeGenericTypeCache(t *testing.T) {
+	src := &encodeGenericTestStruct{Foo: 5, Bar: "ba"}
+
+	// Encode twice to exercise type cache
+	result1, err := cbor.EncodeGeneric(src)
+	require.NoError(t, err, "first encode failed")
+
+	result2, err := cbor.EncodeGeneric(src)
+	require.NoError(t, err, "second encode failed")
+
+	assert.Equal(t, hex.EncodeToString(result1), hex.EncodeToString(result2),
+		"encoded results should be identical after cache use")
 }
 
 func BenchmarkEncode(b *testing.B) {

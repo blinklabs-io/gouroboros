@@ -1158,6 +1158,11 @@ func UtxoValidateScriptDataHash(
 	computedHash := common.Blake2b256Hash(hashInput)
 
 	// Compare with declared hash
+	// Note: declaredHash is guaranteed non-nil here due to earlier checks,
+	// but we add an explicit check to satisfy static analysis
+	if declaredHash == nil {
+		return common.MissingScriptDataHashError{}
+	}
 	if *declaredHash != computedHash {
 		return common.ScriptDataHashMismatchError{
 			Declared: *declaredHash,
