@@ -187,7 +187,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Threshold calculation
   - [X] Genesis configuration
   - [ ] Byron consensus
-- [ ] Testing
+- [X] Testing
   - [X] Test framework for mocking Ouroboros conversations
   - [X] Conformance tests (420+ passing)
     - [X] Ledger rules (314 tests via Amaru vectors)
@@ -195,7 +195,8 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] KES cryptography (14 tests via input-output-hk/kes vectors)
     - [X] Consensus (22 tests for leader election, threshold)
     - [X] Byron blocks (6 tests from mainnet/testnet)
-  - [ ] CBOR deserialization and serialization
+  - [X] Fuzz testing (6 targets with nightly CI)
+  - [X] CBOR deserialization and serialization
     - [X] Protocol messages
     - [X] Ledger
       - [X] Block parsing
