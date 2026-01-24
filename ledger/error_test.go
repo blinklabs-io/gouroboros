@@ -6,9 +6,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
@@ -551,4 +554,515 @@ func TestScriptsNotPaidUtxo_TypeFieldAssignment(t *testing.T) {
 		"Type field correctly set to %d (Conway era) after CBOR unmarshaling",
 		decoded.Type,
 	)
+}
+
+// =============================================================================
+// Babbage Error Types Tests
+// =============================================================================
+
+func TestMalformedScriptWitnesses_Error(t *testing.T) {
+	hash1 := common.NewBlake2b224([]byte("12345678901234567890123456789012"))
+	hash2 := common.NewBlake2b224([]byte("abcdefghijklmnopqrstuvwxyz123456"))
+
+	err := &MalformedScriptWitnesses{
+		ScriptHashes: []common.Blake2b224{hash1, hash2},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MalformedScriptWitnesses")
+	assert.Contains(t, errStr, hash1.String())
+	assert.Contains(t, errStr, hash2.String())
+}
+
+func TestMalformedReferenceScripts_Error(t *testing.T) {
+	hash1 := common.NewBlake2b224([]byte("12345678901234567890123456789012"))
+
+	err := &MalformedReferenceScripts{
+		ScriptHashes: []common.Blake2b224{hash1},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MalformedReferenceScripts")
+	assert.Contains(t, errStr, hash1.String())
+}
+
+func TestIncorrectTotalCollateralField_Error(t *testing.T) {
+	err := &IncorrectTotalCollateralField{
+		BalanceComputed: -500,
+		TotalCollateral: 1000,
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "IncorrectTotalCollateralField")
+	assert.Contains(t, errStr, "-500")
+	assert.Contains(t, errStr, "1000")
+}
+
+func TestBabbageOutputTooSmallUTxO_Error(t *testing.T) {
+	err := &BabbageOutputTooSmallUTxO{
+		Outputs: []BabbageOutputTooSmallEntry{
+			{MinRequired: 1000000},
+			{MinRequired: 2000000},
+		},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "BabbageOutputTooSmallUTxO")
+	assert.Contains(t, errStr, "1000000")
+	assert.Contains(t, errStr, "2000000")
+}
+
+func TestBabbageNonDisjointRefInputs_Error(t *testing.T) {
+	err := &BabbageNonDisjointRefInputs{
+		Inputs: []TxIn{
+			{TxIx: 0},
+			{TxIx: 1},
+		},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "BabbageNonDisjointRefInputs")
+}
+
+// =============================================================================
+// Alonzo UTXOW Error Types Tests (wrapped by Babbage)
+// =============================================================================
+
+func TestMissingRedeemers_Error(t *testing.T) {
+	hash := common.NewBlake2b224([]byte("12345678901234567890123456789012"))
+
+	err := &MissingRedeemers{
+		Missing: []MissingRedeemerEntry{
+			{ScriptHash: hash},
+		},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MissingRedeemers")
+}
+
+func TestMissingRequiredDatums_Error(t *testing.T) {
+	hash1 := common.NewBlake2b256([]byte("12345678901234567890123456789012"))
+	hash2 := common.NewBlake2b256([]byte("abcdefghijklmnopqrstuvwxyz123456"))
+
+	err := &MissingRequiredDatums{
+		Missing:  []common.Blake2b256{hash1},
+		Received: []common.Blake2b256{hash2},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MissingRequiredDatums")
+	assert.Contains(t, errStr, "Missing 1")
+	assert.Contains(t, errStr, "Received 1")
+}
+
+func TestNotAllowedSupplementalDatums_Error(t *testing.T) {
+	hash1 := common.NewBlake2b256([]byte("12345678901234567890123456789012"))
+
+	err := &NotAllowedSupplementalDatums{
+		Unallowed:  []common.Blake2b256{hash1},
+		Acceptable: []common.Blake2b256{},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "NotAllowedSupplementalDatums")
+	assert.Contains(t, errStr, "Unallowed 1")
+	assert.Contains(t, errStr, "Acceptable 0")
+}
+
+func TestUnspendableUTxONoDatumHash_Error(t *testing.T) {
+	err := &UnspendableUTxONoDatumHash{
+		Inputs: []TxIn{
+			{TxIx: 0},
+			{TxIx: 1},
+		},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "UnspendableUTxONoDatumHash")
+}
+
+func TestExtraRedeemers_Error(t *testing.T) {
+	err := &ExtraRedeemers{
+		Redeemers: []ExtraRedeemerEntry{
+			{Tag: 0, Index: 0}, // Spend
+			{Tag: 1, Index: 1}, // Mint
+		},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "ExtraRedeemers")
+	assert.Contains(t, errStr, "Spend")
+	assert.Contains(t, errStr, "Mint")
+}
+
+// =============================================================================
+// Conway UTXOW Error Types Tests (Shelley-derived)
+// =============================================================================
+
+func TestInvalidWitnessesUTXOW_Error(t *testing.T) {
+	err := &InvalidWitnessesUTXOW{
+		VKeys: []cbor.ByteString{
+			cbor.NewByteString([]byte("key1")),
+			cbor.NewByteString([]byte("key2")),
+		},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "InvalidWitnessesUTXOW")
+	assert.Contains(t, errStr, "2 invalid witnesses")
+}
+
+func TestMissingVKeyWitnessesUTXOW_Error(t *testing.T) {
+	hash := common.NewBlake2b224([]byte("12345678901234567890123456789012"))
+
+	err := &MissingVKeyWitnessesUTXOW{
+		KeyHashes: []common.Blake2b224{hash},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MissingVKeyWitnessesUTXOW")
+	assert.Contains(t, errStr, hash.String())
+}
+
+func TestMissingScriptWitnessesUTXOW_Error(t *testing.T) {
+	hash := common.NewBlake2b224([]byte("12345678901234567890123456789012"))
+
+	err := &MissingScriptWitnessesUTXOW{
+		ScriptHashes: []common.Blake2b224{hash},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MissingScriptWitnessesUTXOW")
+}
+
+func TestScriptWitnessNotValidatingUTXOW_Error(t *testing.T) {
+	hash := common.NewBlake2b224([]byte("12345678901234567890123456789012"))
+
+	err := &ScriptWitnessNotValidatingUTXOW{
+		ScriptHashes: []common.Blake2b224{hash},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "ScriptWitnessNotValidatingUTXOW")
+}
+
+func TestMissingTxBodyMetadataHash_Error(t *testing.T) {
+	hash := common.NewBlake2b256([]byte("12345678901234567890123456789012"))
+
+	err := &MissingTxBodyMetadataHash{
+		Hash: hash,
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MissingTxBodyMetadataHash")
+	assert.Contains(t, errStr, hash.String())
+}
+
+func TestMissingTxMetadata_Error(t *testing.T) {
+	hash := common.NewBlake2b256([]byte("12345678901234567890123456789012"))
+
+	err := &MissingTxMetadata{
+		Hash: hash,
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "MissingTxMetadata")
+}
+
+func TestConflictingMetadataHash_Error(t *testing.T) {
+	expected := common.NewBlake2b256([]byte("12345678901234567890123456789012"))
+	found := common.NewBlake2b256([]byte("abcdefghijklmnopqrstuvwxyz123456"))
+
+	err := &ConflictingMetadataHash{
+		Expected: expected,
+		Found:    found,
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "ConflictingMetadataHash")
+	assert.Contains(t, errStr, "Expected")
+	assert.Contains(t, errStr, "Found")
+}
+
+func TestInvalidMetadata_Error(t *testing.T) {
+	err := &InvalidMetadata{}
+
+	errStr := err.Error()
+	assert.Equal(t, "InvalidMetadata", errStr)
+}
+
+func TestExtraneousScriptWitnessesUTXOW_Error(t *testing.T) {
+	hash := common.NewBlake2b224([]byte("12345678901234567890123456789012"))
+
+	err := &ExtraneousScriptWitnessesUTXOW{
+		ScriptHashes: []common.Blake2b224{hash},
+	}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "ExtraneousScriptWitnessesUTXOW")
+}
+
+// =============================================================================
+// Era-Aware Decoding Tests
+// =============================================================================
+
+func TestUtxowFailure_EraAwareDecoding_Babbage(t *testing.T) {
+	// Test that Babbage era uses the Babbage decoder
+	// Tag 3 in Babbage = MalformedScriptWitnesses
+
+	// Decode with Babbage era - use a generic error to test the switch logic
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdBabbage
+
+	// Verify the era is set correctly
+	assert.Equal(t, uint8(EraIdBabbage), utxowErr.era)
+}
+
+func TestUtxowFailure_EraAwareDecoding_Conway(t *testing.T) {
+	// Test that Conway era uses the Conway decoder
+	// Tag 3 in Conway = MissingScriptWitnessesUTXOW (different from Babbage!)
+
+	// Decode with Conway era
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdConway
+
+	// Verify the era is set correctly
+	assert.Equal(t, uint8(EraIdConway), utxowErr.era)
+}
+
+func TestUtxowFailure_InvalidMetadata_Conway(t *testing.T) {
+	// Test InvalidMetadata (tag 8) which has no payload
+	cborData, err := cbor.Encode([]interface{}{
+		uint(8), // Tag 8 = InvalidMetadata in Conway
+	})
+	require.NoError(t, err)
+
+	// Decode with Conway era
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdConway
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	// Verify it decoded as InvalidMetadata
+	_, ok := utxowErr.Err.(*InvalidMetadata)
+	assert.True(t, ok, "Expected InvalidMetadata, got %T", utxowErr.Err)
+}
+
+func TestConwayUtxowFailure_AllTags(t *testing.T) {
+	// Test that ConwayUtxowFailure can handle InvalidMetadata (tag 8, no payload)
+	cborData, err := cbor.Encode([]interface{}{uint(8)})
+	require.NoError(t, err)
+
+	conwayErr := &ConwayUtxowFailure{}
+	err = conwayErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	assert.NotNil(t, conwayErr.Err)
+	_, ok := conwayErr.Err.(*InvalidMetadata)
+	assert.True(t, ok, "Expected *InvalidMetadata, got %T", conwayErr.Err)
+}
+
+// =============================================================================
+// Wrapper Type Tests
+// =============================================================================
+
+func TestAlonzoUtxowFailure_Error(t *testing.T) {
+	innerErr := &MissingRedeemers{
+		Missing: []MissingRedeemerEntry{},
+	}
+	err := &AlonzoUtxowFailure{Err: innerErr}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "AlonzoInBabbageUtxowPredFailure")
+}
+
+func TestBabbageUtxoFailure_Error(t *testing.T) {
+	innerErr := &IncorrectTotalCollateralField{
+		BalanceComputed: 100,
+		TotalCollateral: 200,
+	}
+	err := &BabbageUtxoFailure{Err: innerErr}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "BabbageUtxoFailure")
+}
+
+func TestConwayUtxowFailure_Error(t *testing.T) {
+	innerErr := &InvalidMetadata{}
+	err := &ConwayUtxowFailure{Err: innerErr}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "ConwayUtxowFailure")
+}
+
+func TestShelleyUtxowFailure_Error(t *testing.T) {
+	innerErr := &MissingVKeyWitnessesUTXOW{
+		KeyHashes: []common.Blake2b224{},
+	}
+	err := &ShelleyUtxowFailure{Err: innerErr}
+
+	errStr := err.Error()
+	assert.Contains(t, errStr, "ShelleyInAlonzoUtxowPredFailure")
+}
+
+// =============================================================================
+// Era-Aware Decoding Tests for All Eras
+// =============================================================================
+
+func TestUtxowFailure_EraAwareDecoding_Shelley(t *testing.T) {
+	// Test Shelley era decoding (tag 8 = InvalidMetadata)
+	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdShelley
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	_, ok := utxowErr.Err.(*InvalidMetadata)
+	assert.True(t, ok, "Expected *InvalidMetadata, got %T", utxowErr.Err)
+}
+
+func TestUtxowFailure_EraAwareDecoding_Allegra(t *testing.T) {
+	// Test Allegra era uses same tags as Shelley (tag 8 = InvalidMetadata)
+	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdAllegra
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	_, ok := utxowErr.Err.(*InvalidMetadata)
+	assert.True(t, ok, "Expected *InvalidMetadata, got %T", utxowErr.Err)
+}
+
+func TestUtxowFailure_EraAwareDecoding_Mary(t *testing.T) {
+	// Test Mary era uses same tags as Shelley (tag 8 = InvalidMetadata)
+	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdMary
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	_, ok := utxowErr.Err.(*InvalidMetadata)
+	assert.True(t, ok, "Expected *InvalidMetadata, got %T", utxowErr.Err)
+}
+
+func TestUtxowFailure_EraAwareDecoding_Alonzo(t *testing.T) {
+	// Test that Alonzo era uses the Alonzo decoder
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdAlonzo
+
+	// Verify the era is set correctly
+	assert.Equal(t, uint8(EraIdAlonzo), utxowErr.era)
+}
+
+func TestShelleyUtxowFailure_UnmarshalCBOR_InvalidMetadata(t *testing.T) {
+	// Test ShelleyUtxowFailure can decode InvalidMetadata (no payload)
+	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	require.NoError(t, err)
+
+	shelleyErr := &ShelleyUtxowFailure{}
+	err = shelleyErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	_, ok := shelleyErr.Err.(*InvalidMetadata)
+	assert.True(t, ok, "Expected *InvalidMetadata, got %T", shelleyErr.Err)
+}
+
+func TestShelleyUtxowFailure_Constants(t *testing.T) {
+	// Verify Shelley UTXOW failure constants are defined correctly
+	// These should match the Cardano ledger specification
+
+	// Shelley constants should be 0-9
+	assert.Equal(t, 0, ShelleyUtxowInvalidWitnesses)
+	assert.Equal(t, 1, ShelleyUtxowMissingVKeyWitnesses)
+	assert.Equal(t, 2, ShelleyUtxowMissingScriptWitnesses)
+	assert.Equal(t, 3, ShelleyUtxowScriptWitnessNotValidating)
+	assert.Equal(t, 4, ShelleyUtxowUtxoFailure)
+	assert.Equal(t, 5, ShelleyUtxowMissingTxBodyMetadataHash)
+	assert.Equal(t, 6, ShelleyUtxowMissingTxMetadata)
+	assert.Equal(t, 7, ShelleyUtxowConflictingMetadataHash)
+	assert.Equal(t, 8, ShelleyUtxowInvalidMetadata)
+	assert.Equal(t, 9, ShelleyUtxowExtraneousScriptWitnesses)
+}
+
+func TestUtxowFailure_EraConstantsConsistency(t *testing.T) {
+	// Verify era constants are consistent
+	assert.Equal(t, uint8(1), uint8(EraIdShelley))
+	assert.Equal(t, uint8(2), uint8(EraIdAllegra))
+	assert.Equal(t, uint8(3), uint8(EraIdMary))
+	assert.Equal(t, uint8(4), uint8(EraIdAlonzo))
+	assert.Equal(t, uint8(5), uint8(EraIdBabbage))
+	assert.Equal(t, uint8(6), uint8(EraIdConway))
+}
+
+// TestConwayUtxoFailure_TagMappings verifies that Conway UTXO failures decode
+// correctly with the renumbered tag mappings (which differ from Alonzo/Babbage).
+func TestConwayUtxoFailure_TagMappings(t *testing.T) {
+	// Conway tag 0 = UtxosFailure (was tag 7 in Alonzo/Babbage)
+	// Conway tag 1 = BadInputsUTxO (was tag 0 in Alonzo/Babbage)
+	// This test verifies the fix for era-aware UTXO failure decoding.
+
+	testCases := []struct {
+		name        string
+		conwayTag   int
+		expectedErr string
+	}{
+		{
+			name:        "Conway tag 0 is UtxosFailure",
+			conwayTag:   ConwayUtxoUtxosFailure, // 0
+			expectedErr: "UtxosFailure",
+		},
+		{
+			name:        "Conway tag 1 is BadInputsUTxO",
+			conwayTag:   ConwayUtxoBadInputsUTxO, // 1
+			expectedErr: "BadInputsUtxo",
+		},
+		{
+			name:        "Conway tag 9 is OutputTooSmallUTxO",
+			conwayTag:   ConwayUtxoOutputTooSmallUTxO, // 9
+			expectedErr: "OutputTooSmallUtxo",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Verify the Conway-specific map is returned for Conway era
+			errorMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(EraIdConway)
+
+			// Check the tag maps to the expected error type
+			errType, exists := errorMap[tc.conwayTag]
+			require.True(t, exists, "Conway tag %d should exist in error map", tc.conwayTag)
+			assert.Contains(t, fmt.Sprintf("%T", errType), tc.expectedErr,
+				"Conway tag %d should map to %s", tc.conwayTag, tc.expectedErr)
+		})
+	}
+}
+
+// TestConwayVsAlonzoUtxoTagDifferences verifies that Conway and Alonzo/Babbage
+// have different tag mappings for the same error types.
+func TestConwayVsAlonzoUtxoTagDifferences(t *testing.T) {
+	conwayMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(EraIdConway)
+	alonzoMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(EraIdAlonzo)
+
+	// In Conway, tag 0 = UtxosFailure
+	// In Alonzo, tag 0 = BadInputsUtxo
+	conwayTag0 := conwayMap[0]
+	alonzoTag0 := alonzoMap[0]
+
+	assert.IsType(t, &UtxosFailure{}, conwayTag0, "Conway tag 0 should be UtxosFailure")
+	assert.IsType(t, &BadInputsUtxo{}, alonzoTag0, "Alonzo tag 0 should be BadInputsUtxo")
+
+	// In Conway, tag 1 = BadInputsUTxO
+	// In Alonzo, tag 1 = OutsideValidityIntervalUtxo
+	conwayTag1 := conwayMap[1]
+	alonzoTag1 := alonzoMap[1]
+
+	assert.IsType(t, &BadInputsUtxo{}, conwayTag1, "Conway tag 1 should be BadInputsUtxo")
+	assert.IsType(t, &OutsideValidityIntervalUtxo{}, alonzoTag1, "Alonzo tag 1 should be OutsideValidityIntervalUtxo")
 }
