@@ -154,7 +154,12 @@ func (p *AlonzoProtocolParameters) Update(
 		p.AdaPerUtxoByte = *paramUpdate.AdaPerUtxoByte
 	}
 	if paramUpdate.CostModels != nil {
-		p.CostModels = paramUpdate.CostModels
+		if p.CostModels == nil {
+			p.CostModels = make(map[uint][]int64)
+		}
+		for key, model := range paramUpdate.CostModels {
+			p.CostModels[key] = model
+		}
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts

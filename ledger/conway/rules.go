@@ -1925,11 +1925,18 @@ func UtxoValidatePlutusScripts(
 			}
 			ctx := script.NewScriptContextV3(txInfoV3, redeemer, purpose)
 			ctxData := ctx.ToPlutusData()
-			costModel, err := cek.CostModelFromList(lang.LanguageVersionV3, conwayPparams.CostModels[2])
+			evalContext, err := cek.NewEvalContext(
+				lang.LanguageVersionV3,
+				cek.ProtoVersion{
+					Major: conwayPparams.ProtocolVersion.Major,
+					Minor: conwayPparams.ProtocolVersion.Minor,
+				},
+				conwayPparams.CostModels[2],
+			)
 			if err != nil {
-				return fmt.Errorf("build cost model: %w", err)
+				return fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits, costModel)
+			_, execErr = s.Evaluate(ctxData, redeemerValue.ExUnits, evalContext)
 		case common.PlutusV2Script:
 			// V2 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
@@ -1950,11 +1957,18 @@ func UtxoValidatePlutusScripts(
 			// Build V1V2 context
 			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
 			ctxData := ctx.ToPlutusData()
-			costModel, err := cek.CostModelFromList(lang.LanguageVersionV2, conwayPparams.CostModels[1])
+			evalContext, err := cek.NewEvalContext(
+				lang.LanguageVersionV2,
+				cek.ProtoVersion{
+					Major: conwayPparams.ProtocolVersion.Major,
+					Minor: conwayPparams.ProtocolVersion.Minor,
+				},
+				conwayPparams.CostModels[0],
+			)
 			if err != nil {
-				return fmt.Errorf("build cost model: %w", err)
+				return fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, costModel)
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, evalContext)
 		case common.PlutusV1Script:
 			// V1 scripts require a datum for spending purposes
 			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
@@ -1975,11 +1989,18 @@ func UtxoValidatePlutusScripts(
 			// Build V1V2 context
 			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
 			ctxData := ctx.ToPlutusData()
-			costModel, err := cek.CostModelFromList(lang.LanguageVersionV1, conwayPparams.CostModels[0])
+			evalContext, err := cek.NewEvalContext(
+				lang.LanguageVersionV1,
+				cek.ProtoVersion{
+					Major: conwayPparams.ProtocolVersion.Major,
+					Minor: conwayPparams.ProtocolVersion.Minor,
+				},
+				conwayPparams.CostModels[0],
+			)
 			if err != nil {
-				return fmt.Errorf("build cost model: %w", err)
+				return fmt.Errorf("build evaluation context: %w", err)
 			}
-			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, costModel)
+			_, execErr = s.Evaluate(datum, redeemerValue.Data.Data, ctxData, redeemerValue.ExUnits, evalContext)
 		default:
 			continue
 		}

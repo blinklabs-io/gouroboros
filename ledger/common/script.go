@@ -161,7 +161,7 @@ func (s PlutusV1Script) Evaluate(
 	redeemer data.PlutusData,
 	scriptContext data.PlutusData,
 	budget ExUnits,
-	costModel cek.CostModel,
+	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
 	var usedExUnits ExUnits
 	var err error
@@ -205,7 +205,7 @@ func (s PlutusV1Script) Evaluate(
 	machine := cek.NewMachine[syn.DeBruijn](
 		cek.LanguageVersionV1,
 		200,
-		costModel,
+		evalContext,
 	)
 	machine.ExBudget = machineBudget
 	_, err = machine.Run(wrappedProgram)
@@ -242,7 +242,7 @@ func (s PlutusV2Script) Evaluate(
 	redeemer data.PlutusData,
 	scriptContext data.PlutusData,
 	budget ExUnits,
-	costModel cek.CostModel,
+	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
 	var usedExUnits ExUnits
 	var err error
@@ -286,7 +286,7 @@ func (s PlutusV2Script) Evaluate(
 	machine := cek.NewMachine[syn.DeBruijn](
 		cek.LanguageVersionV2,
 		200,
-		costModel,
+		evalContext,
 	)
 	machine.ExBudget = machineBudget
 	_, err = machine.Run(wrappedProgram)
@@ -319,7 +319,7 @@ func (s PlutusV3Script) RawScriptBytes() []byte {
 func (s PlutusV3Script) Evaluate(
 	scriptContext data.PlutusData,
 	budget ExUnits,
-	costModel cek.CostModel,
+	evalContext *cek.EvalContext,
 ) (ExUnits, error) {
 	var usedExUnits ExUnits
 	var err error
@@ -356,7 +356,7 @@ func (s PlutusV3Script) Evaluate(
 	machine := cek.NewMachine[syn.DeBruijn](
 		cek.LanguageVersionV3,
 		200,
-		costModel,
+		evalContext,
 	)
 	machine.ExBudget = machineBudget
 	_, err = machine.Run(wrappedProgram)
