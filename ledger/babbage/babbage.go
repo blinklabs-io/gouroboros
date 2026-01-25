@@ -813,7 +813,7 @@ type BabbageTransactionWitnessSet struct {
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
+	WsPlutusData       alonzo.PlutusDataList     `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
 	WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
 }
@@ -852,9 +852,9 @@ func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
 
 	// Convert WsPlutusData to IndefLengthList
 	var plutusDataIndefList cbor.IndefLengthList
-	if len(w.WsPlutusData) > 0 {
-		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData))
-		for i, datum := range w.WsPlutusData {
+	if len(w.WsPlutusData.Items) > 0 {
+		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData.Items))
+		for i, datum := range w.WsPlutusData.Items {
 			plutusDataIndefList[i] = datum
 		}
 	}
@@ -898,7 +898,7 @@ func (w BabbageTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script 
 }
 
 func (w BabbageTransactionWitnessSet) PlutusData() []common.Datum {
-	return w.WsPlutusData
+	return w.WsPlutusData.Items
 }
 
 func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {

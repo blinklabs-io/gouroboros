@@ -1031,7 +1031,7 @@ func UtxoValidateScriptDataHash(
 
 	wits := tmpTx.WitnessSet
 	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
-	hasDatums := len(wits.WsPlutusData) > 0
+	hasDatums := len(wits.WsPlutusData.Items) > 0
 
 	// Determine which Plutus versions are used (Babbage has PlutusV1 and V2)
 	usedVersions := make(map[uint]struct{})
@@ -1114,25 +1114,37 @@ func UtxoValidateScriptDataHash(
 
 	// Compute the expected ScriptDataHash
 	// ScriptDataHash = blake2b256(redeemers_cbor || datums_cbor || langviews_cbor)
+	//
+	// Use preserved CBOR bytes from the original transaction for exact byte-for-byte match.
+	// The hash was computed by the original submitter using their CBOR encoding.
 
-	// Get preserved CBOR bytes for redeemers
 	redeemersCbor := wits.WsRedeemers.Cbor()
 	if len(redeemersCbor) == 0 {
 		// Fall back to re-encoding if no preserved CBOR
+		// Note: Must encode empty slice explicitly, as nil encodes as 0xf6 (CBOR null)
+		// but the spec expects 0x80 (empty array) for empty redeemers
 		var err error
-		redeemersCbor, err = cbor.Encode(wits.WsRedeemers)
+		if wits.WsRedeemers.Redeemers == nil {
+			redeemersCbor, err = cbor.Encode([]alonzo.AlonzoRedeemer{})
+		} else {
+			redeemersCbor, err = cbor.Encode(wits.WsRedeemers.Redeemers)
+		}
 		if err != nil {
 			return err
 		}
 	}
 
-	// Encode datums as CBOR (only if non-empty)
+	// Get datums CBOR using preserved bytes (only if non-empty)
 	var datumsCbor []byte
 	if hasDatums {
-		var err error
-		datumsCbor, err = cbor.Encode(wits.WsPlutusData)
-		if err != nil {
-			return err
+		datumsCbor = wits.WsPlutusData.Cbor()
+		if len(datumsCbor) == 0 {
+			// Fall back to re-encoding if no preserved CBOR
+			var err error
+			datumsCbor, err = cbor.Encode(wits.WsPlutusData.Items)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
