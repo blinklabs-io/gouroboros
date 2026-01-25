@@ -29,7 +29,88 @@ import (
 const (
 	ApplyTxErrorUtxowFailure = 0
 
+	// Shelley UTXOW failure tags (also used by Allegra and Mary)
+	ShelleyUtxowInvalidWitnesses           = 0
+	ShelleyUtxowMissingVKeyWitnesses       = 1
+	ShelleyUtxowMissingScriptWitnesses     = 2
+	ShelleyUtxowScriptWitnessNotValidating = 3
+	ShelleyUtxowUtxoFailure                = 4
+	ShelleyUtxowMissingTxBodyMetadataHash  = 5
+	ShelleyUtxowMissingTxMetadata          = 6
+	ShelleyUtxowConflictingMetadataHash    = 7
+	ShelleyUtxowInvalidMetadata            = 8
+	ShelleyUtxowExtraneousScriptWitnesses  = 9
+
+	// Babbage UTXOW failure tags
+	BabbageUtxowAlonzoInBabbage             = 1
+	BabbageUtxowUtxoFailure                 = 2
+	BabbageUtxowMalformedScriptWitnesses    = 3
+	BabbageUtxowMalformedReferenceScripts   = 4
+	BabbageUtxowScriptIntegrityHashMismatch = 5
+
+	// Alonzo UTXOW failure tags (wrapped by Babbage tag 1)
+	AlonzoUtxowShelleyInAlonzo              = 0
+	AlonzoUtxowMissingRedeemers             = 1
+	AlonzoUtxowMissingRequiredDatums        = 2
+	AlonzoUtxowNotAllowedSupplementalDatums = 3
+	AlonzoUtxowPPViewHashesDontMatch        = 4
+	AlonzoUtxowUnspendableUTxONoDatumHash   = 6
+	AlonzoUtxowExtraRedeemers               = 7
+
+	// Legacy constant for backward compatibility
 	UTXOWFailureUtxoFailure = 2
+
+	// Babbage UTXO failure tags
+	BabbageUtxoAlonzoInBabbage          = 1
+	BabbageUtxoIncorrectTotalCollateral = 2
+	BabbageUtxoOutputTooSmallUTxO       = 3
+	BabbageUtxoNonDisjointRefInputs     = 4
+
+	// Conway UTXOW failure tags (flat enumeration - no wrapping)
+	ConwayUtxowUtxoFailure                  = 0
+	ConwayUtxowInvalidWitnesses             = 1
+	ConwayUtxowMissingVKeyWitnesses         = 2
+	ConwayUtxowMissingScriptWitnesses       = 3
+	ConwayUtxowScriptWitnessNotValidating   = 4
+	ConwayUtxowMissingTxBodyMetadataHash    = 5
+	ConwayUtxowMissingTxMetadata            = 6
+	ConwayUtxowConflictingMetadataHash      = 7
+	ConwayUtxowInvalidMetadata              = 8
+	ConwayUtxowExtraneousScriptWitnesses    = 9
+	ConwayUtxowMissingRedeemers             = 10
+	ConwayUtxowMissingRequiredDatums        = 11
+	ConwayUtxowNotAllowedSupplementalDatums = 12
+	ConwayUtxowPPViewHashesDontMatch        = 13
+	ConwayUtxowUnspendableUTxONoDatumHash   = 14
+	ConwayUtxowExtraRedeemers               = 15
+	ConwayUtxowMalformedScriptWitnesses     = 16
+	ConwayUtxowMalformedReferenceScripts    = 17
+	ConwayUtxowScriptIntegrityHashMismatch  = 18
+
+	// Conway UTXO failure tags (renumbered from Babbage)
+	ConwayUtxoUtxosFailure                = 0
+	ConwayUtxoBadInputsUTxO               = 1
+	ConwayUtxoOutsideValidityIntervalUTxO = 2
+	ConwayUtxoMaxTxSizeUTxO               = 3
+	ConwayUtxoInputSetEmptyUTxO           = 4
+	ConwayUtxoFeeTooSmallUTxO             = 5
+	ConwayUtxoValueNotConservedUTxO       = 6
+	ConwayUtxoWrongNetwork                = 7
+	ConwayUtxoWrongNetworkWithdrawal      = 8
+	ConwayUtxoOutputTooSmallUTxO          = 9
+	ConwayUtxoOutputBootAddrAttrsTooBig   = 10
+	ConwayUtxoOutputTooBigUTxO            = 11
+	ConwayUtxoInsufficientCollateral      = 12
+	ConwayUtxoScriptsNotPaidUTxO          = 13
+	ConwayUtxoExUnitsTooBigUTxO           = 14
+	ConwayUtxoCollateralContainsNonADA    = 15
+	ConwayUtxoWrongNetworkInTxBody        = 16
+	ConwayUtxoOutsideForecast             = 17
+	ConwayUtxoTooManyCollateralInputs     = 18
+	ConwayUtxoNoCollateralInputs          = 19
+	ConwayUtxoIncorrectTotalCollateral    = 20
+	ConwayUtxoBabbageOutputTooSmallUTxO   = 21
+	ConwayUtxoBabbageNonDisjointRefInputs = 22
 
 	UtxoFailureFromAlonzo = 1
 
@@ -114,18 +195,40 @@ func getEraSpecificUtxoFailureConstants(
 		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
 		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage
 	case EraIdConway:
-		baseMap[UtxoFailureOutputTooBigUtxoConway] = &OutputTooBigUtxo{}
-		baseMap[UtxoFailureScriptsNotPaidUtxoConway] = &ScriptsNotPaidUtxo{}
-		baseMap[UtxoFailureExUnitsTooBigUtxoConway] = &ExUnitsTooBigUtxo{}
-		baseMap[UtxoFailureCollateralContainsNonAdaConway] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoConway, UtxoFailureScriptsNotPaidUtxoConway, UtxoFailureExUnitsTooBigUtxoConway, UtxoFailureCollateralContainsNonAdaConway
+		// Conway completely renumbered UTXO failure tags - use Conway-specific map
+		conwayMap := map[int]any{
+			ConwayUtxoUtxosFailure:                &UtxosFailure{},
+			ConwayUtxoBadInputsUTxO:               &BadInputsUtxo{},
+			ConwayUtxoOutsideValidityIntervalUTxO: &OutsideValidityIntervalUtxo{},
+			ConwayUtxoMaxTxSizeUTxO:               &MaxTxSizeUtxo{},
+			ConwayUtxoInputSetEmptyUTxO:           &InputSetEmptyUtxo{},
+			ConwayUtxoFeeTooSmallUTxO:             &FeeTooSmallUtxo{},
+			ConwayUtxoValueNotConservedUTxO:       &ValueNotConservedUtxo{},
+			ConwayUtxoWrongNetwork:                &WrongNetwork{},
+			ConwayUtxoWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+			ConwayUtxoOutputTooSmallUTxO:          &OutputTooSmallUtxo{},
+			ConwayUtxoOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
+			ConwayUtxoOutputTooBigUTxO:            &OutputTooBigUtxo{},
+			ConwayUtxoInsufficientCollateral:      &InsufficientCollateral{},
+			ConwayUtxoScriptsNotPaidUTxO:          &ScriptsNotPaidUtxo{},
+			ConwayUtxoExUnitsTooBigUTxO:           &ExUnitsTooBigUtxo{},
+			ConwayUtxoCollateralContainsNonADA:    &CollateralContainsNonADA{},
+			ConwayUtxoWrongNetworkInTxBody:        &WrongNetworkInTxBody{},
+			ConwayUtxoOutsideForecast:             &OutsideForecast{},
+			ConwayUtxoTooManyCollateralInputs:     &TooManyCollateralInputs{},
+			ConwayUtxoNoCollateralInputs:          &NoCollateralInputs{},
+			ConwayUtxoIncorrectTotalCollateral:    &IncorrectTotalCollateralField{},
+			ConwayUtxoBabbageOutputTooSmallUTxO:   &BabbageOutputTooSmallUTxO{},
+			ConwayUtxoBabbageNonDisjointRefInputs: &BabbageNonDisjointRefInputs{},
+		}
+		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA
 	default:
-		// For other eras (Byron, Shelley, Allegra, Mary), use Conway constants as fallback
-		baseMap[UtxoFailureOutputTooBigUtxoConway] = &OutputTooBigUtxo{}
-		baseMap[UtxoFailureScriptsNotPaidUtxoConway] = &ScriptsNotPaidUtxo{}
-		baseMap[UtxoFailureExUnitsTooBigUtxoConway] = &ExUnitsTooBigUtxo{}
-		baseMap[UtxoFailureCollateralContainsNonAdaConway] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoConway, UtxoFailureScriptsNotPaidUtxoConway, UtxoFailureExUnitsTooBigUtxoConway, UtxoFailureCollateralContainsNonAdaConway
+		// For other eras (Byron, Shelley, Allegra, Mary), use Babbage constants as fallback
+		baseMap[UtxoFailureOutputTooBigUtxoBabbage] = &OutputTooBigUtxo{}
+		baseMap[UtxoFailureScriptsNotPaidUtxoBabbage] = &ScriptsNotPaidUtxo{}
+		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
+		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
+		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage
 	}
 }
 
@@ -213,14 +316,20 @@ func (e *ShelleyTxValidationError) UnmarshalCBOR(data []byte) error {
 		Inner struct {
 			cbor.StructAsArray
 			Era          uint8
-			ApplyTxError ApplyTxError
+			ApplyTxError cbor.RawMessage
 		}
 	}
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
 	e.Era = tmpData.Inner.Era
-	e.Err = tmpData.Inner.ApplyTxError
+	// Decode ApplyTxError with era context using wrapper
+	applyErr := &ApplyTxError{}
+	applyErr.era = tmpData.Inner.Era
+	if _, err := cbor.Decode(tmpData.Inner.ApplyTxError, applyErr); err != nil {
+		return err
+	}
+	e.Err = *applyErr
 	return nil
 }
 
@@ -235,6 +344,7 @@ func (e *ShelleyTxValidationError) Error() string {
 type ApplyTxError struct {
 	cbor.StructAsArray
 	Failures []error
+	era      uint8 // Era context for era-aware decoding (private, not CBOR-encoded)
 }
 
 func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
@@ -254,16 +364,21 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		var newErr error
 		switch failureType {
 		case ApplyTxErrorUtxowFailure:
-			newErr = &UtxowFailure{}
+			// Use era-aware UTXOW failure decoding
+			utxowErr := &UtxowFailure{era: e.era}
+			if _, err := cbor.Decode(tmpFailure[1], utxowErr); err != nil {
+				return err
+			}
+			newErr = utxowErr
 		default:
 			if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
 				return err
 			} else {
 				newErr = tmpErr
 			}
-		}
-		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
-			return err
+			if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+				return err
+			}
 		}
 		e.Failures = append(e.Failures, newErr)
 	}
@@ -286,6 +401,7 @@ func (e *ApplyTxError) Error() string {
 type UtxowFailure struct {
 	cbor.StructAsArray
 	Err error
+	era uint8 // Era context for era-aware decoding (private, not CBOR-encoded)
 }
 
 func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
@@ -293,14 +409,102 @@ func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
 		return err
 	}
+	if len(tmpFailure) < 1 {
+		return errors.New("UtxowFailure: expected at least 1 element")
+	}
 	failureType, err := cbor.DecodeIdFromList(data)
 	if err != nil {
 		return err
 	}
+
+	// Use era-aware decoding (oldest to newest)
+	switch e.era {
+	case EraIdShelley, EraIdAllegra, EraIdMary:
+		// Shelley, Allegra, and Mary share the same UTXOW failure structure
+		return e.unmarshalShelley(data, tmpFailure, failureType)
+	case EraIdAlonzo:
+		// Alonzo wraps Shelley failures in tag 0, adds Plutus-related tags
+		return e.unmarshalAlonzo(data, tmpFailure, failureType)
+	case EraIdBabbage:
+		// Babbage wraps Alonzo failures in tag 1, adds Babbage-specific tags
+		return e.unmarshalBabbage(data, tmpFailure, failureType)
+	case EraIdConway:
+		// Conway uses flat enumeration (no wrapping)
+		return e.unmarshalConway(data, tmpFailure, failureType)
+	default:
+		// For unknown eras (Byron or future eras), try Babbage as fallback
+		return e.unmarshalBabbage(data, tmpFailure, failureType)
+	}
+}
+
+// unmarshalShelley handles Shelley, Allegra, and Mary era UTXOW failures.
+// These eras share the same UTXOW failure structure (direct tags, no wrapping).
+func (e *UtxowFailure) unmarshalShelley(data []byte, tmpFailure []cbor.RawMessage, failureType int) error {
 	var newErr error
 	switch failureType {
-	case UTXOWFailureUtxoFailure:
+	case ShelleyUtxowInvalidWitnesses:
+		newErr = &InvalidWitnessesUTXOW{}
+	case ShelleyUtxowMissingVKeyWitnesses:
+		newErr = &MissingVKeyWitnessesUTXOW{}
+	case ShelleyUtxowMissingScriptWitnesses:
+		newErr = &MissingScriptWitnessesUTXOW{}
+	case ShelleyUtxowScriptWitnessNotValidating:
+		newErr = &ScriptWitnessNotValidatingUTXOW{}
+	case ShelleyUtxowUtxoFailure:
+		// UTXO failures - use era-aware UtxoFailure
 		newErr = &UtxoFailure{}
+	case ShelleyUtxowMissingTxBodyMetadataHash:
+		newErr = &MissingTxBodyMetadataHash{}
+	case ShelleyUtxowMissingTxMetadata:
+		newErr = &MissingTxMetadata{}
+	case ShelleyUtxowConflictingMetadataHash:
+		newErr = &ConflictingMetadataHash{}
+	case ShelleyUtxowInvalidMetadata:
+		newErr = &InvalidMetadata{}
+		// InvalidMetadata has no payload
+		e.Err = newErr
+		return nil
+	case ShelleyUtxowExtraneousScriptWitnesses:
+		newErr = &ExtraneousScriptWitnessesUTXOW{}
+	default:
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+	}
+	if len(tmpFailure) >= 2 {
+		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+			return err
+		}
+	}
+	e.Err = newErr
+	return nil
+}
+
+// unmarshalAlonzo handles Alonzo era UTXOW failures.
+// Alonzo wraps Shelley failures in tag 0 and adds Plutus-related tags.
+func (e *UtxowFailure) unmarshalAlonzo(data []byte, tmpFailure []cbor.RawMessage, failureType int) error {
+	if len(tmpFailure) < 2 {
+		return errors.New("UtxowFailure (Alonzo): expected at least 2 elements")
+	}
+	var newErr error
+	switch failureType {
+	case AlonzoUtxowShelleyInAlonzo:
+		// Shelley UTXOW failures wrapped in Alonzo
+		newErr = &ShelleyUtxowFailure{}
+	case AlonzoUtxowMissingRedeemers:
+		newErr = &MissingRedeemers{}
+	case AlonzoUtxowMissingRequiredDatums:
+		newErr = &MissingRequiredDatums{}
+	case AlonzoUtxowNotAllowedSupplementalDatums:
+		newErr = &NotAllowedSupplementalDatums{}
+	case AlonzoUtxowPPViewHashesDontMatch:
+		newErr = &PPViewHashesDontMatch{}
+	case AlonzoUtxowUnspendableUTxONoDatumHash:
+		newErr = &UnspendableUTxONoDatumHash{}
+	case AlonzoUtxowExtraRedeemers:
+		newErr = &ExtraRedeemers{}
 	default:
 		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
 			return err
@@ -310,6 +514,115 @@ func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
+	}
+	e.Err = newErr
+	return nil
+}
+
+// unmarshalBabbage handles Babbage era UTXOW failures.
+// Babbage wraps Alonzo failures in tag 1 and adds Babbage-specific tags.
+func (e *UtxowFailure) unmarshalBabbage(data []byte, tmpFailure []cbor.RawMessage, failureType int) error {
+	if len(tmpFailure) < 2 {
+		return errors.New("UtxowFailure (Babbage): expected at least 2 elements")
+	}
+	var newErr error
+	switch failureType {
+	case BabbageUtxowAlonzoInBabbage:
+		// Alonzo UTXOW failures wrapped in Babbage
+		newErr = &AlonzoUtxowFailure{}
+	case BabbageUtxowUtxoFailure:
+		// UTXO failures (may be Babbage-specific or wrapped Alonzo)
+		newErr = &BabbageUtxoFailure{}
+	case BabbageUtxowMalformedScriptWitnesses:
+		newErr = &MalformedScriptWitnesses{}
+	case BabbageUtxowMalformedReferenceScripts:
+		newErr = &MalformedReferenceScripts{}
+	case BabbageUtxowScriptIntegrityHashMismatch:
+		// Babbage script integrity hash mismatch - use generic for complex structure
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+		e.Err = newErr
+		return nil
+	default:
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+	}
+	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+		return err
+	}
+	e.Err = newErr
+	return nil
+}
+
+func (e *UtxowFailure) unmarshalConway(data []byte, tmpFailure []cbor.RawMessage, failureType int) error {
+	var newErr error
+	switch failureType {
+	case ConwayUtxowUtxoFailure:
+		// UTXO failures use Conway's renumbered tags
+		newErr = &UtxoFailure{}
+	case ConwayUtxowInvalidWitnesses:
+		newErr = &InvalidWitnessesUTXOW{}
+	case ConwayUtxowMissingVKeyWitnesses:
+		newErr = &MissingVKeyWitnessesUTXOW{}
+	case ConwayUtxowMissingScriptWitnesses:
+		newErr = &MissingScriptWitnessesUTXOW{}
+	case ConwayUtxowScriptWitnessNotValidating:
+		newErr = &ScriptWitnessNotValidatingUTXOW{}
+	case ConwayUtxowMissingTxBodyMetadataHash:
+		newErr = &MissingTxBodyMetadataHash{}
+	case ConwayUtxowMissingTxMetadata:
+		newErr = &MissingTxMetadata{}
+	case ConwayUtxowConflictingMetadataHash:
+		newErr = &ConflictingMetadataHash{}
+	case ConwayUtxowInvalidMetadata:
+		newErr = &InvalidMetadata{}
+		// InvalidMetadata has no payload
+		e.Err = newErr
+		return nil
+	case ConwayUtxowExtraneousScriptWitnesses:
+		newErr = &ExtraneousScriptWitnessesUTXOW{}
+	case ConwayUtxowMissingRedeemers:
+		newErr = &MissingRedeemers{}
+	case ConwayUtxowMissingRequiredDatums:
+		newErr = &MissingRequiredDatums{}
+	case ConwayUtxowNotAllowedSupplementalDatums:
+		newErr = &NotAllowedSupplementalDatums{}
+	case ConwayUtxowPPViewHashesDontMatch:
+		newErr = &PPViewHashesDontMatch{}
+	case ConwayUtxowUnspendableUTxONoDatumHash:
+		newErr = &UnspendableUTxONoDatumHash{}
+	case ConwayUtxowExtraRedeemers:
+		newErr = &ExtraRedeemers{}
+	case ConwayUtxowMalformedScriptWitnesses:
+		newErr = &MalformedScriptWitnesses{}
+	case ConwayUtxowMalformedReferenceScripts:
+		newErr = &MalformedReferenceScripts{}
+	case ConwayUtxowScriptIntegrityHashMismatch:
+		// Complex structure - use generic
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+		e.Err = newErr
+		return nil
+	default:
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+	}
+	if len(tmpFailure) >= 2 {
+		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+			return err
+		}
 	}
 	e.Err = newErr
 	return nil
@@ -862,4 +1175,670 @@ type NoCollateralInputs struct {
 
 func (e *NoCollateralInputs) Error() string {
 	return "NoCollateralInputs"
+}
+
+// =============================================================================
+// Babbage UTXOW Predicate Failures
+// =============================================================================
+
+// MalformedScriptWitnesses represents scripts in witnesses that failed well-formedness validation
+// CBOR: [3, [script_hash, ...]]
+type MalformedScriptWitnesses struct {
+	cbor.StructAsArray
+	Type         uint8
+	ScriptHashes []common.Blake2b224
+}
+
+func (e *MalformedScriptWitnesses) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MalformedScriptWitnesses ([")
+	for idx, hash := range e.ScriptHashes {
+		sb.WriteString(hash.String())
+		if idx < len(e.ScriptHashes)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// MalformedReferenceScripts represents reference scripts that failed well-formedness validation
+// CBOR: [4, [script_hash, ...]]
+type MalformedReferenceScripts struct {
+	cbor.StructAsArray
+	Type         uint8
+	ScriptHashes []common.Blake2b224
+}
+
+func (e *MalformedReferenceScripts) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MalformedReferenceScripts ([")
+	for idx, hash := range e.ScriptHashes {
+		sb.WriteString(hash.String())
+		if idx < len(e.ScriptHashes)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// =============================================================================
+// Babbage UTXO Predicate Failures
+// =============================================================================
+
+// IncorrectTotalCollateralField represents when the declared total collateral
+// doesn't match the actual collateral balance
+// CBOR: [2, delta_coin, coin]
+type IncorrectTotalCollateralField struct {
+	cbor.StructAsArray
+	Type            uint8
+	BalanceComputed int64  // DeltaCoin (can be negative)
+	TotalCollateral uint64 // Coin (declared in tx body)
+}
+
+func (e *IncorrectTotalCollateralField) Error() string {
+	return fmt.Sprintf(
+		"IncorrectTotalCollateralField (BalanceComputed %d, TotalCollateral %d)",
+		e.BalanceComputed,
+		e.TotalCollateral,
+	)
+}
+
+// BabbageOutputTooSmallUTxO represents outputs that don't meet minimum ADA requirement
+// Different from Alonzo's OutputTooSmallUtxo - includes the minimum required amount
+// CBOR: [3, [[txout, min_required], ...]]
+type BabbageOutputTooSmallUTxO struct {
+	cbor.StructAsArray
+	Type    uint8
+	Outputs []BabbageOutputTooSmallEntry
+}
+
+// BabbageOutputTooSmallEntry contains the output and its minimum required ADA
+type BabbageOutputTooSmallEntry struct {
+	cbor.StructAsArray
+	Output      TxOut
+	MinRequired uint64
+}
+
+func (e *BabbageOutputTooSmallUTxO) Error() string {
+	var sb strings.Builder
+	sb.WriteString("BabbageOutputTooSmallUTxO ([")
+	for idx, entry := range e.Outputs {
+		sb.WriteString(fmt.Sprintf("(Output %s, MinRequired %d)",
+			entry.Output.String(), entry.MinRequired))
+		if idx < len(e.Outputs)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// BabbageNonDisjointRefInputs represents when reference inputs overlap with regular inputs
+// CBOR: [4, [txin, ...]]
+type BabbageNonDisjointRefInputs struct {
+	cbor.StructAsArray
+	Type   uint8
+	Inputs []TxIn
+}
+
+func (e *BabbageNonDisjointRefInputs) Error() string {
+	var sb strings.Builder
+	sb.WriteString("BabbageNonDisjointRefInputs ([")
+	for idx, input := range e.Inputs {
+		sb.WriteString(input.String())
+		if idx < len(e.Inputs)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// =============================================================================
+// Alonzo UTXOW Predicate Failures (wrapped by Babbage)
+// =============================================================================
+
+// MissingRedeemers represents missing redeemers for script execution
+// CBOR: [1, [[purpose, script_hash], ...]]
+type MissingRedeemers struct {
+	cbor.StructAsArray
+	Type    uint8
+	Missing []MissingRedeemerEntry
+}
+
+// MissingRedeemerEntry contains purpose and script hash for a missing redeemer
+type MissingRedeemerEntry struct {
+	cbor.StructAsArray
+	Purpose    cbor.Value // PlutusPurpose as generic value
+	ScriptHash common.Blake2b224
+}
+
+func (e *MissingRedeemers) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MissingRedeemers ([")
+	for idx, entry := range e.Missing {
+		sb.WriteString(fmt.Sprintf("(Purpose %v, ScriptHash %s)",
+			entry.Purpose.Value(), entry.ScriptHash.String()))
+		if idx < len(e.Missing)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// MissingRequiredDatums represents required datums not provided in witness set
+// CBOR: [2, [missing_hashes], [received_hashes]]
+type MissingRequiredDatums struct {
+	cbor.StructAsArray
+	Type     uint8
+	Missing  []common.Blake2b256
+	Received []common.Blake2b256
+}
+
+func (e *MissingRequiredDatums) Error() string {
+	return fmt.Sprintf(
+		"MissingRequiredDatums (Missing %d datums, Received %d datums)",
+		len(e.Missing),
+		len(e.Received),
+	)
+}
+
+// NotAllowedSupplementalDatums represents supplemental datums that aren't allowed
+// CBOR: [3, [unallowed_hashes], [acceptable_hashes]]
+type NotAllowedSupplementalDatums struct {
+	cbor.StructAsArray
+	Type       uint8
+	Unallowed  []common.Blake2b256
+	Acceptable []common.Blake2b256
+}
+
+func (e *NotAllowedSupplementalDatums) Error() string {
+	return fmt.Sprintf(
+		"NotAllowedSupplementalDatums (Unallowed %d datums, Acceptable %d datums)",
+		len(e.Unallowed),
+		len(e.Acceptable),
+	)
+}
+
+// PPViewHashesDontMatch represents protocol parameter view hash mismatch
+// CBOR: [4, [expected, computed]]
+type PPViewHashesDontMatch struct {
+	cbor.StructAsArray
+	Type     uint8
+	Expected cbor.Value // StrictMaybe ScriptIntegrityHash
+	Computed cbor.Value // StrictMaybe ScriptIntegrityHash
+}
+
+func (e *PPViewHashesDontMatch) Error() string {
+	return fmt.Sprintf(
+		"PPViewHashesDontMatch (Expected %v, Computed %v)",
+		e.Expected.Value(),
+		e.Computed.Value(),
+	)
+}
+
+// UnspendableUTxONoDatumHash represents script-locked UTxOs missing datum hash
+// CBOR: [6, [txin, ...]]
+type UnspendableUTxONoDatumHash struct {
+	cbor.StructAsArray
+	Type   uint8
+	Inputs []TxIn
+}
+
+func (e *UnspendableUTxONoDatumHash) Error() string {
+	var sb strings.Builder
+	sb.WriteString("UnspendableUTxONoDatumHash ([")
+	for idx, input := range e.Inputs {
+		sb.WriteString(input.String())
+		if idx < len(e.Inputs)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// ExtraRedeemers represents redeemers provided for non-existent scripts
+// CBOR: [7, [[tag, index], ...]]
+type ExtraRedeemers struct {
+	cbor.StructAsArray
+	Type      uint8
+	Redeemers []ExtraRedeemerEntry
+}
+
+// ExtraRedeemerEntry contains the tag and index of an extra redeemer
+type ExtraRedeemerEntry struct {
+	cbor.StructAsArray
+	Tag   uint8 // 0=spend, 1=mint, 2=cert, 3=reward
+	Index uint64
+}
+
+func (e *ExtraRedeemers) Error() string {
+	var sb strings.Builder
+	sb.WriteString("ExtraRedeemers ([")
+	tagNames := []string{"Spend", "Mint", "Cert", "Reward"}
+	for idx, entry := range e.Redeemers {
+		tagName := "Unknown"
+		if int(entry.Tag) < len(tagNames) {
+			tagName = tagNames[entry.Tag]
+		}
+		sb.WriteString(fmt.Sprintf("(%s, Index %d)", tagName, entry.Index))
+		if idx < len(e.Redeemers)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// ShelleyUtxowFailure wraps Shelley-era UTXOW failures when encountered in Alonzo
+// (and transitively in Babbage via AlonzoUtxowFailure)
+type ShelleyUtxowFailure struct {
+	cbor.StructAsArray
+	Err error
+}
+
+func (e *ShelleyUtxowFailure) Error() string {
+	return fmt.Sprintf("ShelleyInAlonzoUtxowPredFailure (%s)", e.Err)
+}
+
+func (e *ShelleyUtxowFailure) UnmarshalCBOR(data []byte) error {
+	tmpFailure := []cbor.RawMessage{}
+	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+		return err
+	}
+	if len(tmpFailure) < 1 {
+		return errors.New("ShelleyUtxowFailure: expected at least 1 element")
+	}
+	failureType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	var newErr error
+	switch failureType {
+	case ShelleyUtxowInvalidWitnesses:
+		newErr = &InvalidWitnessesUTXOW{}
+	case ShelleyUtxowMissingVKeyWitnesses:
+		newErr = &MissingVKeyWitnessesUTXOW{}
+	case ShelleyUtxowMissingScriptWitnesses:
+		newErr = &MissingScriptWitnessesUTXOW{}
+	case ShelleyUtxowScriptWitnessNotValidating:
+		newErr = &ScriptWitnessNotValidatingUTXOW{}
+	case ShelleyUtxowUtxoFailure:
+		newErr = &UtxoFailure{}
+	case ShelleyUtxowMissingTxBodyMetadataHash:
+		newErr = &MissingTxBodyMetadataHash{}
+	case ShelleyUtxowMissingTxMetadata:
+		newErr = &MissingTxMetadata{}
+	case ShelleyUtxowConflictingMetadataHash:
+		newErr = &ConflictingMetadataHash{}
+	case ShelleyUtxowInvalidMetadata:
+		newErr = &InvalidMetadata{}
+		// InvalidMetadata has no payload
+		e.Err = newErr
+		return nil
+	case ShelleyUtxowExtraneousScriptWitnesses:
+		newErr = &ExtraneousScriptWitnessesUTXOW{}
+	default:
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+	}
+	if len(tmpFailure) >= 2 {
+		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+			return err
+		}
+	}
+	e.Err = newErr
+	return nil
+}
+
+// AlonzoUtxowFailure wraps Alonzo-era UTXOW failures when encountered in Babbage
+type AlonzoUtxowFailure struct {
+	cbor.StructAsArray
+	Err error
+}
+
+func (e *AlonzoUtxowFailure) Error() string {
+	return fmt.Sprintf("AlonzoInBabbageUtxowPredFailure (%s)", e.Err)
+}
+
+func (e *AlonzoUtxowFailure) UnmarshalCBOR(data []byte) error {
+	tmpFailure := []cbor.RawMessage{}
+	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+		return err
+	}
+	if len(tmpFailure) < 2 {
+		return errors.New("AlonzoUtxowFailure: expected at least 2 elements")
+	}
+	failureType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	var newErr error
+	switch failureType {
+	case AlonzoUtxowShelleyInAlonzo:
+		// Shelley failures wrapped in Alonzo - use ShelleyUtxowFailure
+		newErr = &ShelleyUtxowFailure{}
+	case AlonzoUtxowMissingRedeemers:
+		newErr = &MissingRedeemers{}
+	case AlonzoUtxowMissingRequiredDatums:
+		newErr = &MissingRequiredDatums{}
+	case AlonzoUtxowNotAllowedSupplementalDatums:
+		newErr = &NotAllowedSupplementalDatums{}
+	case AlonzoUtxowPPViewHashesDontMatch:
+		newErr = &PPViewHashesDontMatch{}
+	case AlonzoUtxowUnspendableUTxONoDatumHash:
+		newErr = &UnspendableUTxONoDatumHash{}
+	case AlonzoUtxowExtraRedeemers:
+		newErr = &ExtraRedeemers{}
+	default:
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+	}
+	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+		return err
+	}
+	e.Err = newErr
+	return nil
+}
+
+// BabbageUtxoFailure wraps Babbage-era UTXO failures
+type BabbageUtxoFailure struct {
+	cbor.StructAsArray
+	Err error
+}
+
+func (e *BabbageUtxoFailure) Error() string {
+	return fmt.Sprintf("BabbageUtxoFailure (%s)", e.Err)
+}
+
+func (e *BabbageUtxoFailure) UnmarshalCBOR(data []byte) error {
+	tmpFailure := []cbor.RawMessage{}
+	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+		return err
+	}
+	if len(tmpFailure) < 2 {
+		return errors.New("BabbageUtxoFailure: expected at least 2 elements")
+	}
+	failureType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	var newErr error
+	switch failureType {
+	case BabbageUtxoAlonzoInBabbage:
+		// Alonzo UTXO failures wrapped - delegate to existing UtxoFailure logic
+		newErr = &UtxoFailure{}
+	case BabbageUtxoIncorrectTotalCollateral:
+		newErr = &IncorrectTotalCollateralField{}
+	case BabbageUtxoOutputTooSmallUTxO:
+		newErr = &BabbageOutputTooSmallUTxO{}
+	case BabbageUtxoNonDisjointRefInputs:
+		newErr = &BabbageNonDisjointRefInputs{}
+	default:
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+	}
+	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+		return err
+	}
+	e.Err = newErr
+	return nil
+}
+
+// =============================================================================
+// Conway UTXOW Predicate Failures (Shelley-derived)
+// =============================================================================
+
+// InvalidWitnessesUTXOW represents invalid VKey witnesses
+// CBOR: [1, [vkey, ...]]
+type InvalidWitnessesUTXOW struct {
+	cbor.StructAsArray
+	Type  uint8
+	VKeys []cbor.ByteString
+}
+
+func (e *InvalidWitnessesUTXOW) Error() string {
+	return fmt.Sprintf("InvalidWitnessesUTXOW (%d invalid witnesses)", len(e.VKeys))
+}
+
+// MissingVKeyWitnessesUTXOW represents missing VKey witnesses
+// CBOR: [2, [keyhash, ...]]
+type MissingVKeyWitnessesUTXOW struct {
+	cbor.StructAsArray
+	Type      uint8
+	KeyHashes []common.Blake2b224
+}
+
+func (e *MissingVKeyWitnessesUTXOW) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MissingVKeyWitnessesUTXOW ([")
+	for idx, hash := range e.KeyHashes {
+		sb.WriteString(hash.String())
+		if idx < len(e.KeyHashes)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// MissingScriptWitnessesUTXOW represents missing script witnesses
+// CBOR: [3, [scripthash, ...]]
+type MissingScriptWitnessesUTXOW struct {
+	cbor.StructAsArray
+	Type         uint8
+	ScriptHashes []common.Blake2b224
+}
+
+func (e *MissingScriptWitnessesUTXOW) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MissingScriptWitnessesUTXOW ([")
+	for idx, hash := range e.ScriptHashes {
+		sb.WriteString(hash.String())
+		if idx < len(e.ScriptHashes)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// ScriptWitnessNotValidatingUTXOW represents scripts that failed validation
+// CBOR: [4, [scripthash, ...]]
+type ScriptWitnessNotValidatingUTXOW struct {
+	cbor.StructAsArray
+	Type         uint8
+	ScriptHashes []common.Blake2b224
+}
+
+func (e *ScriptWitnessNotValidatingUTXOW) Error() string {
+	var sb strings.Builder
+	sb.WriteString("ScriptWitnessNotValidatingUTXOW ([")
+	for idx, hash := range e.ScriptHashes {
+		sb.WriteString(hash.String())
+		if idx < len(e.ScriptHashes)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// MissingTxBodyMetadataHash represents missing metadata hash in tx body
+// CBOR: [5, auxdatahash]
+type MissingTxBodyMetadataHash struct {
+	cbor.StructAsArray
+	Type uint8
+	Hash common.Blake2b256
+}
+
+func (e *MissingTxBodyMetadataHash) Error() string {
+	return fmt.Sprintf("MissingTxBodyMetadataHash (%s)", e.Hash.String())
+}
+
+// MissingTxMetadata represents missing metadata when hash is present
+// CBOR: [6, auxdatahash]
+type MissingTxMetadata struct {
+	cbor.StructAsArray
+	Type uint8
+	Hash common.Blake2b256
+}
+
+func (e *MissingTxMetadata) Error() string {
+	return fmt.Sprintf("MissingTxMetadata (%s)", e.Hash.String())
+}
+
+// ConflictingMetadataHash represents metadata hash mismatch
+// CBOR: [7, [expected, found]]
+type ConflictingMetadataHash struct {
+	cbor.StructAsArray
+	Type     uint8
+	Expected common.Blake2b256
+	Found    common.Blake2b256
+}
+
+func (e *ConflictingMetadataHash) Error() string {
+	return fmt.Sprintf(
+		"ConflictingMetadataHash (Expected %s, Found %s)",
+		e.Expected.String(),
+		e.Found.String(),
+	)
+}
+
+// InvalidMetadata represents invalid metadata format
+// CBOR: [8]
+type InvalidMetadata struct {
+	cbor.StructAsArray
+	Type uint8
+}
+
+func (e *InvalidMetadata) Error() string {
+	return "InvalidMetadata"
+}
+
+// ExtraneousScriptWitnessesUTXOW represents unnecessary script witnesses
+// CBOR: [9, [scripthash, ...]]
+type ExtraneousScriptWitnessesUTXOW struct {
+	cbor.StructAsArray
+	Type         uint8
+	ScriptHashes []common.Blake2b224
+}
+
+func (e *ExtraneousScriptWitnessesUTXOW) Error() string {
+	var sb strings.Builder
+	sb.WriteString("ExtraneousScriptWitnessesUTXOW ([")
+	for idx, hash := range e.ScriptHashes {
+		sb.WriteString(hash.String())
+		if idx < len(e.ScriptHashes)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// =============================================================================
+// Conway UTXOW Failure Decoder
+// =============================================================================
+
+// ConwayUtxowFailure handles Conway-era UTXOW failures (flat enumeration)
+type ConwayUtxowFailure struct {
+	cbor.StructAsArray
+	Err error
+}
+
+func (e *ConwayUtxowFailure) Error() string {
+	return fmt.Sprintf("ConwayUtxowFailure (%s)", e.Err)
+}
+
+func (e *ConwayUtxowFailure) UnmarshalCBOR(data []byte) error {
+	tmpFailure := []cbor.RawMessage{}
+	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+		return err
+	}
+	if len(tmpFailure) < 1 {
+		return errors.New("ConwayUtxowFailure: expected at least 1 element")
+	}
+	failureType, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	var newErr error
+	switch failureType {
+	case ConwayUtxowUtxoFailure:
+		// UTXO failures use Conway's renumbered tags
+		newErr = &UtxoFailure{}
+	case ConwayUtxowInvalidWitnesses:
+		newErr = &InvalidWitnessesUTXOW{}
+	case ConwayUtxowMissingVKeyWitnesses:
+		newErr = &MissingVKeyWitnessesUTXOW{}
+	case ConwayUtxowMissingScriptWitnesses:
+		newErr = &MissingScriptWitnessesUTXOW{}
+	case ConwayUtxowScriptWitnessNotValidating:
+		newErr = &ScriptWitnessNotValidatingUTXOW{}
+	case ConwayUtxowMissingTxBodyMetadataHash:
+		newErr = &MissingTxBodyMetadataHash{}
+	case ConwayUtxowMissingTxMetadata:
+		newErr = &MissingTxMetadata{}
+	case ConwayUtxowConflictingMetadataHash:
+		newErr = &ConflictingMetadataHash{}
+	case ConwayUtxowInvalidMetadata:
+		newErr = &InvalidMetadata{}
+		// InvalidMetadata has no payload, just return
+		e.Err = newErr
+		return nil
+	case ConwayUtxowExtraneousScriptWitnesses:
+		newErr = &ExtraneousScriptWitnessesUTXOW{}
+	case ConwayUtxowMissingRedeemers:
+		newErr = &MissingRedeemers{}
+	case ConwayUtxowMissingRequiredDatums:
+		newErr = &MissingRequiredDatums{}
+	case ConwayUtxowNotAllowedSupplementalDatums:
+		newErr = &NotAllowedSupplementalDatums{}
+	case ConwayUtxowPPViewHashesDontMatch:
+		newErr = &PPViewHashesDontMatch{}
+	case ConwayUtxowUnspendableUTxONoDatumHash:
+		newErr = &UnspendableUTxONoDatumHash{}
+	case ConwayUtxowExtraRedeemers:
+		newErr = &ExtraRedeemers{}
+	case ConwayUtxowMalformedScriptWitnesses:
+		newErr = &MalformedScriptWitnesses{}
+	case ConwayUtxowMalformedReferenceScripts:
+		newErr = &MalformedReferenceScripts{}
+	case ConwayUtxowScriptIntegrityHashMismatch:
+		// Complex structure - use generic
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+		e.Err = newErr
+		return nil
+	default:
+		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
+			return err
+		} else {
+			newErr = tmpErr
+		}
+	}
+	if len(tmpFailure) >= 2 {
+		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+			return err
+		}
+	}
+	e.Err = newErr
+	return nil
 }
