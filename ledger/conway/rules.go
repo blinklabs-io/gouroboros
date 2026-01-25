@@ -1970,7 +1970,7 @@ func UtxoValidatePlutusScripts(
 					Major: conwayPparams.ProtocolVersion.Major,
 					Minor: conwayPparams.ProtocolVersion.Minor,
 				},
-				conwayPparams.CostModels[0],
+				conwayPparams.CostModels[1],
 			)
 			if err != nil {
 				return fmt.Errorf("build evaluation context: %w", err)
