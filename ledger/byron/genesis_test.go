@@ -22,6 +22,8 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const byronGenesisConfig = `
@@ -495,4 +497,70 @@ func TestGenesis_FtsSeed_EmptyObject(t *testing.T) {
 	if got.FtsSeed.Value != "" || !got.FtsSeed.IsObject {
 		t.Fatalf("ftsSeed not parsed as empty object; got=%#v", got.FtsSeed)
 	}
+}
+
+func TestGenesisDelegateKeyHashes(t *testing.T) {
+	// Use the mainnet-like test config which has real base64-encoded public keys
+	genesis, err := byron.NewByronGenesisFromReader(strings.NewReader(byronGenesisConfig))
+	require.NoError(t, err, "Failed to parse genesis")
+
+	// Get genesis delegate key hashes
+	keyHashes, err := genesis.GenesisDelegateKeyHashes()
+	require.NoError(t, err, "GenesisDelegateKeyHashes failed")
+
+	// Should have 7 delegates (matching the test config)
+	assert.Len(t, keyHashes, 7, "Expected 7 key hashes")
+
+	// Verify hashes are sorted (lexicographically by hex representation)
+	for i := 1; i < len(keyHashes); i++ {
+		assert.Less(t, keyHashes[i-1].String(), keyHashes[i].String(),
+			"Key hashes not sorted at index %d", i)
+	}
+
+	// Verify each hash is 28 bytes (Blake2b-224)
+	for i, h := range keyHashes {
+		assert.Equal(t, 28, len(h.Bytes()), "Key hash %d has wrong length", i)
+	}
+
+	t.Logf("Genesis delegate key hashes (%d total):", len(keyHashes))
+	for i, h := range keyHashes {
+		t.Logf("  [%d] %s", i, h.String())
+	}
+}
+
+func TestGenesisDelegateKeyHashes_Empty(t *testing.T) {
+	// Genesis with no heavy delegation
+	jsonData := `{
+        "avvmDistr": {},
+        "blockVersionData": {
+            "heavyDelThd": "1",
+            "maxBlockSize": "2",
+            "maxHeaderSize": "3",
+            "maxProposalSize": "4",
+            "maxTxSize": "5",
+            "mpcThd": "6",
+            "scriptVersion": 1,
+            "slotDuration": "7",
+            "softforkRule": {"initThd": "8", "minThd": "9", "thdDecrement": "10"},
+            "txFeePolicy": {"multiplier": "11", "summand": "12"},
+            "unlockStakeEpoch": "13",
+            "updateImplicit": "14",
+            "updateProposalThd": "15",
+            "updateVoteThd": "16"
+        },
+        "ftsSeed": "seed",
+        "protocolConsts": {"k": 1, "protocolMagic": 42, "vssMinTtl": 2, "vssMaxTtl": 10},
+        "startTime": 100000,
+        "bootStakeholders": {},
+        "heavyDelegation": {},
+        "nonAvvmBalances": {},
+        "vssCerts": {}
+    }`
+	genesis, err := byron.NewByronGenesisFromReader(strings.NewReader(jsonData))
+	require.NoError(t, err, "Failed to parse genesis")
+
+	keyHashes, err := genesis.GenesisDelegateKeyHashes()
+	require.NoError(t, err, "GenesisDelegateKeyHashes failed")
+
+	assert.Nil(t, keyHashes, "Expected nil for empty heavyDelegation")
 }

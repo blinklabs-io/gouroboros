@@ -16,8 +16,10 @@ package byron
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -66,8 +68,8 @@ type ByronGenesisBlockVersionDataSoftforkRule struct {
 }
 
 type ByronGenesisBlockVersionDataTxFeePolicy struct {
-	Multiplier int `json:"multiplier,string"`
-	Summand    int `json:"summand,string"`
+	Multiplier int64 `json:"multiplier,string"`
+	Summand    int64 `json:"summand,string"`
 }
 
 type ByronGenesisProtocolConsts struct {
@@ -242,4 +244,42 @@ func (f ByronGenesisFtsSeed) MarshalJSON() ([]byte, error) {
 		return []byte(`null`), nil
 	}
 	return json.Marshal(f.Value)
+}
+
+// GenesisDelegateKeyHashes returns the Blake2b-224 hashes of the genesis delegate
+// keys, sorted for deterministic OBFT slot leader assignment.
+//
+// The key hashes are extracted directly from the HeavyDelegation map keys,
+// which are hex-encoded Blake2b-224 hashes (same format as BootStakeholders).
+// The ordering is by the hex-encoded key hash (lexicographic), which matches
+// how Byron determines the slot leader rotation order.
+func (g *ByronGenesis) GenesisDelegateKeyHashes() ([]common.Blake2b224, error) {
+	if len(g.HeavyDelegation) == 0 {
+		return nil, nil
+	}
+
+	// Collect the map keys (which are hex-encoded Blake2b224 hashes)
+	hexKeys := make([]string, 0, len(g.HeavyDelegation))
+	for keyHex := range g.HeavyDelegation {
+		hexKeys = append(hexKeys, keyHex)
+	}
+
+	// Sort by hex representation for deterministic ordering
+	slices.Sort(hexKeys)
+
+	// Parse each hex key into a Blake2b224
+	result := make([]common.Blake2b224, len(hexKeys))
+	for i, keyHex := range hexKeys {
+		keyBytes, err := hex.DecodeString(keyHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid hex key in HeavyDelegation: %s: %w", keyHex, err)
+		}
+		if len(keyBytes) != common.Blake2b224Size {
+			return nil, fmt.Errorf("invalid key hash length in HeavyDelegation: expected %d bytes, got %d for key %s",
+				common.Blake2b224Size, len(keyBytes), keyHex)
+		}
+		result[i] = common.NewBlake2b224(keyBytes)
+	}
+
+	return result, nil
 }
