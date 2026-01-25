@@ -698,8 +698,10 @@ func UtxoValidateScriptDataHash(
 
 	// Compute the expected ScriptDataHash
 	// ScriptDataHash = blake2b256(redeemers_cbor || datums_cbor || langviews_cbor)
+	//
+	// Use preserved CBOR bytes from the original transaction for exact byte-for-byte match.
+	// The hash was computed by the original submitter using their CBOR encoding.
 
-	// Get preserved CBOR bytes for redeemers
 	redeemersCbor := wits.WsRedeemers.Cbor()
 	if len(redeemersCbor) == 0 {
 		// Fall back to re-encoding if no preserved CBOR

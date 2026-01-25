@@ -622,13 +622,30 @@ func (r AlonzoRedeemers) Value(
 	return common.RedeemerValue{}
 }
 
+// PlutusDataList wraps a slice of datums with CBOR preservation
+// This is necessary for accurate script data hash computation
+type PlutusDataList struct {
+	cbor.DecodeStoreCbor
+	Items []common.Datum
+}
+
+func (p *PlutusDataList) UnmarshalCBOR(cborData []byte) error {
+	p.SetCbor(cborData)
+	_, err := cbor.Decode(cborData, &p.Items)
+	return err
+}
+
+func (p PlutusDataList) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(p.Items)
+}
+
 type AlonzoTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
+	WsPlutusData       PlutusDataList            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        AlonzoRedeemers           `cbor:"5,keyasint,omitempty"`
 }
 
@@ -670,7 +687,7 @@ func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 }
 
 func (w AlonzoTransactionWitnessSet) PlutusData() []common.Datum {
-	return w.WsPlutusData
+	return w.WsPlutusData.Items
 }
 
 func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {

@@ -529,8 +529,9 @@ func (n *NativeScript) Evaluate(
 
 	case *NativeScriptInvalidHereafter:
 		// Transaction is only valid before this slot
-		// The tx must end before the script's slot requirement
-		return validityEnd < s.Slot
+		// The tx must end at or before the script's slot requirement
+		// TTL = X means tx valid at slots [start, X), which is entirely within [0, X)
+		return validityEnd <= s.Slot
 
 	default:
 		return false
