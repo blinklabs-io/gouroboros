@@ -134,11 +134,7 @@ func (t TxInfoV1) ToPlutusData() data.PlutusData {
 				CoinBigInt: t.Fee,
 			},
 		}.ToPlutusData(),
-		WithZeroAdaAsset{
-			Value{
-				AssetsMint: &t.Mint,
-			},
-		}.ToPlutusData(),
+		t.Mint.ToPlutusData(),
 		WithPartialCertificates{
 			t.Certificates,
 		}.ToPlutusData(),
@@ -246,11 +242,7 @@ func (t TxInfoV2) ToPlutusData() data.PlutusData {
 				CoinBigInt: t.Fee,
 			},
 		}.ToPlutusData(),
-		WithZeroAdaAsset{
-			Value{
-				AssetsMint: &t.Mint,
-			},
-		}.ToPlutusData(),
+		t.Mint.ToPlutusData(),
 		WithPartialCertificates{
 			t.Certificates,
 		}.ToPlutusData(),
