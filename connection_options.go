@@ -21,6 +21,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
@@ -138,6 +140,20 @@ func WithChainSyncConfig(cfg chainsync.Config) ConnectionOptionFunc {
 func WithKeepAliveConfig(cfg keepalive.Config) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.keepAliveConfig = &cfg
+	}
+}
+
+// WithLeiosFetchConfig specifies LeiosFetch protocol config
+func WithLeiosFetchConfig(cfg leiosfetch.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.leiosFetchConfig = &cfg
+	}
+}
+
+// WithLeiosNotifyConfig specifies LeiosNotify protocol config
+func WithLeiosNotifyConfig(cfg leiosnotify.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.leiosNotifyConfig = &cfg
 	}
 }
 
