@@ -600,11 +600,18 @@ func dataInfo(
 	if witnessSet == nil {
 		return ret
 	}
+	// Deduplicate by datum hash - same hash means same datum
+	seen := make(map[lcommon.DatumHash]struct{})
 	for _, datum := range witnessSet.PlutusData() {
+		hash := datum.Hash()
+		if _, found := seen[hash]; found {
+			continue // Skip duplicates
+		}
+		seen[hash] = struct{}{}
 		ret = append(
 			ret,
 			KeyValuePair[lcommon.DatumHash, data.PlutusData]{
-				Key:   datum.Hash(),
+				Key:   hash,
 				Value: datum.Data,
 			},
 		)
