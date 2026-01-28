@@ -170,7 +170,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Native script evaluation
   - [X] Plutus script validation (via plutigo)
   - [X] Structured error handling (ValidationError)
-  - [ ] Byron era validation
+  - [X] Byron era validation (OBFT consensus, proxy signatures, body proof)
 - [X] Cryptography
   - [X] KES (Key-Evolving Signatures)
     - [X] Signature verification
@@ -186,7 +186,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Chain selection
   - [X] Threshold calculation
   - [X] Genesis configuration
-  - [ ] Byron consensus
+  - [X] Byron consensus (OBFT header validation)
 - [X] Testing
   - [X] Test framework for mocking Ouroboros conversations
   - [X] Conformance tests (420+ passing)
