@@ -267,11 +267,7 @@ func (c *Client) Stop() error {
 
 	var sendErr error
 	// Check if protocol is already done before sending Done message
-	select {
-	case <-c.DoneChan():
-		// Protocol already done, skip sending Done message
-	default:
-		// Protocol still active, send Done message
+	if !c.IsDone() {
 		msg := NewMsgDone()
 		sendErr = c.SendMessage(msg)
 		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
