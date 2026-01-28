@@ -522,7 +522,7 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 			data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))),
 		)
 	}
-	// TODO: CostModels
+	// TODO(enhancement): Add CostModels serialization for Plutus data conversion
 	if u.ExecutionCosts != nil {
 		push(19,
 			data.NewList(

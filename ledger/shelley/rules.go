@@ -14,6 +14,13 @@
 
 package shelley
 
+// Related files:
+//   - errors.go: Error types returned by these validation rules
+//   - ledger/common/rules.go: Shared validation utilities and base rules
+//   - ledger/common/state.go: LedgerState interface used by validators
+//   - internal/test/conformance/: Test vectors for validation rules
+//   - Later eras (allegra, mary, alonzo, etc.) delegate to these rules
+
 import (
 	"errors"
 	"fmt"

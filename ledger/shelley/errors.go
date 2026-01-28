@@ -14,6 +14,11 @@
 
 package shelley
 
+// Related files:
+//   - rules.go: Validation rules that return these errors
+//   - ledger/common/errors.go: Shared error types across eras
+//   - Later eras (allegra, alonzo, etc.) have their own errors.go
+
 import (
 	"fmt"
 	"math/big"
