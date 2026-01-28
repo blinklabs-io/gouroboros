@@ -14,6 +14,12 @@
 
 package common
 
+// Related files:
+//   - tx.go: Transaction interface that validation rules operate on
+//   - rules.go: Validation rules that use LedgerState
+//   - internal/test/ledger/ledger.go: MockLedgerState for testing
+//   - ledger/{era}/rules.go: Era-specific validation using these interfaces
+
 import (
 	"time"
 

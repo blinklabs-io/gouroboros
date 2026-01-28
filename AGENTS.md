@@ -48,6 +48,50 @@ muxer/               # Protocol multiplexing
 internal/test/       # Test utilities and conformance tests
 ```
 
+## Package Dependencies
+
+```text
+                    ┌─────────────┐
+                    │ ledger/common │ ◄── Base types, interfaces
+                    └──────┬──────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+        ┌─────────┐  ┌─────────┐  ┌─────────┐
+        │  byron  │  │ shelley │  │  cbor   │
+        └─────────┘  └────┬────┘  └─────────┘
+                          │
+              ┌───────────┼───────────┐
+              ▼           ▼           ▼
+        ┌─────────┐ ┌─────────┐ ┌─────────┐
+        │ allegra │ │  mary   │ │   kes   │
+        └────┬────┘ └────┬────┘ └─────────┘
+             │           │
+             └─────┬─────┘
+                   ▼
+             ┌─────────┐
+             │  alonzo │ ◄── Plutus scripts
+             └────┬────┘
+                  │
+             ┌────┴────┐
+             ▼         ▼
+       ┌─────────┐ ┌─────────┐
+       │ babbage │ │   vrf   │
+       └────┬────┘ └─────────┘
+            │
+            ▼
+       ┌─────────┐
+       │ conway  │ ◄── Governance
+       └─────────┘
+
+Era lineages:
+  Byron (standalone, legacy format)
+  Shelley → Allegra → Mary → Alonzo → Babbage → Conway → Leios
+
+Crypto packages (kes, vrf, consensus) used by: ledger/verify_*.go
+Protocol packages independent of ledger (use ledger types for messages)
+```
+
 ## Architecture
 
 ### Era Inheritance Pattern
@@ -205,6 +249,81 @@ ls := &MockLedgerState{
 
 Located in `internal/test/conformance/`. Test vectors are from Cardano's official ledger specification. See `internal/test/conformance/README.md` for detailed structure.
 
+## Glossary
+
+| Term | Definition | Key Files |
+|------|------------|-----------|
+| **UTxO** | Unspent Transaction Output - fundamental unit of value | `ledger/common/utxo.go` |
+| **TTL** | Time-to-live - slot deadline for transaction validity | `tx.TTL()` method |
+| **Datum** | Data attached to script-locked UTxOs | `ledger/common/datum.go` |
+| **Redeemer** | Arguments passed to Plutus scripts during execution | `ledger/common/redeemer.go` |
+| **Cost Model** | Plutus execution cost parameters per version | `ledger/*/pparams.go` |
+| **Era** | Cardano protocol version (Byron, Shelley, etc.) | `ledger/{era}/` |
+| **Slot** | Time unit (~1 second on mainnet) | `SlotState` interface |
+| **Epoch** | Collection of slots (~5 days on mainnet) | `EpochState` interface |
+| **Collateral** | Ada locked to cover script failure costs | Alonzo+ transactions |
+| **Reference Input** | Input read but not consumed | `tx.ReferenceInputs()` |
+| **Reference Script** | Script stored in UTxO, referenced by hash | Babbage+ feature |
+| **DRep** | Delegated Representative for governance | Conway era |
+| **VRF** | Verifiable Random Function for leader election | `vrf/` package |
+| **KES** | Key-Evolving Signature for block signing | `kes/` package |
+| **CBOR** | Concise Binary Object Representation | `cbor/` package |
+
+## Decision Tree
+
+Use this to find where to make changes:
+
+```text
+What are you doing?
+│
+├─► Adding/fixing a validation rule?
+│   ├─► Which era? → ledger/{era}/rules.go
+│   ├─► Need new error type? → ledger/{era}/errors.go
+│   ├─► Shared across eras? → ledger/common/rules.go
+│   └─► Test it → internal/test/conformance/ (if vector exists)
+│
+├─► Working with transactions?
+│   ├─► Transaction interface → ledger/common/tx.go
+│   ├─► Transaction body fields → ledger/{era}/shelley.go (or era file)
+│   ├─► Witnesses → ledger/common/witness.go
+│   └─► Fee calculation → ledger/{era}/rules.go (MinFeeTx)
+│
+├─► Working with scripts?
+│   ├─► Native scripts → ledger/common/script/native.go
+│   ├─► Plutus scripts → ledger/common/script/plutus.go
+│   ├─► Script validation → ledger/common/script/validate.go
+│   └─► Script data hash → ledger/common/script_data_hash.go
+│
+├─► Working with certificates?
+│   ├─► Certificate types → ledger/common/certs.go
+│   ├─► Certificate validation → ledger/{era}/rules.go (UtxoValidateDelegation)
+│   └─► Governance certs (Conway) → ledger/conway/gov.go
+│
+├─► Working with protocol messages?
+│   ├─► Find protocol → protocol/{name}/
+│   ├─► Message types → protocol/{name}/messages.go
+│   ├─► Client implementation → protocol/{name}/client.go
+│   └─► Server implementation → protocol/{name}/server.go
+│
+├─► Fixing a conformance test failure?
+│   ├─► Find rule name in error output
+│   ├─► Grep: grep -r "UtxoValidate{RuleName}" ledger/
+│   ├─► Check spec: internal/test/cardano-blueprint/src/ledger/
+│   └─► Compare with test vector JSON in conformance/testdata/
+│
+├─► Working with CBOR?
+│   ├─► Encoding utilities → cbor/
+│   ├─► Type needs array encoding → embed cbor.StructAsArray
+│   ├─► Need original bytes for hash → embed cbor.DecodeStoreCbor
+│   └─► Deferred decoding → use cbor.RawMessage
+│
+└─► Working with block verification?
+    ├─► Main entry → ledger/verify_block.go
+    ├─► KES verification → ledger/verify_kes.go
+    ├─► VRF verification → vrf/vrf.go
+    └─► Validation config → ledger/common/verify_config.go
+```
+
 ## Common Tasks
 
 ### Adding a Validation Rule
@@ -311,6 +430,64 @@ func (n *NativeScript) Evaluate(
 Two-phase process at epoch boundaries:
 1. Enact proposals ratified in previous epoch
 2. Ratify new proposals using updated state
+
+## Error Catalog
+
+Common validation errors, their causes, and fixes:
+
+### Shelley Era (Base Errors)
+
+| Error | Rule | Cause | Fix |
+|-------|------|-------|-----|
+| `ExpiredUtxoError` | `UtxoValidateTimeToLive` | TTL < current slot | Increase TTL value |
+| `InputSetEmptyUtxoError` | `UtxoValidateInputSetEmptyUtxo` | No inputs in transaction | Add at least one input |
+| `FeeTooSmallUtxoError` | `UtxoValidateFeeTooSmallUtxo` | Fee < minimum required | Use `MinFeeTx()` to calculate |
+| `BadInputsUtxoError` | `UtxoValidateBadInputsUtxo` | Input not in UTxO set | Check input exists/not spent |
+| `WrongNetworkError` | `UtxoValidateWrongNetwork` | Output address wrong network | Match network ID |
+| `ValueNotConservedUtxoError` | `UtxoValidateValueNotConservedUtxo` | Inputs ≠ Outputs + Fee | Balance the transaction |
+| `OutputTooSmallUtxoError` | `UtxoValidateOutputTooSmallUtxo` | Output below min UTxO | Increase output Ada |
+| `MaxTxSizeUtxoError` | `UtxoValidateMaxTxSizeUtxo` | Transaction too large | Reduce inputs/outputs |
+
+### Allegra Era
+
+| Error | Rule | Cause | Fix |
+|-------|------|-------|-----|
+| `OutsideValidityIntervalUtxoError` | `UtxoValidateValidityInterval` | Slot outside validity range | Adjust validity interval |
+| `NativeScriptFailedError` | Script evaluation | Native script conditions not met | Check required signatures/slots |
+
+### Alonzo Era (Plutus)
+
+| Error | Rule | Cause | Fix |
+|-------|------|-------|-----|
+| `ExUnitsTooBigUtxoError` | `UtxoValidateExUnitsTooBig` | Execution units exceed max | Reduce script complexity |
+| `InsufficientCollateralError` | `UtxoValidateCollateral` | Collateral < required | Add more collateral |
+| `CollateralContainsNonAdaError` | `UtxoValidateCollateral` | Collateral has tokens | Use Ada-only UTxO |
+| `NoCollateralInputsError` | `UtxoValidateCollateral` | No collateral specified | Add collateral inputs |
+
+### Common/Shared Errors
+
+| Error | Rule | Cause | Fix |
+|-------|------|-------|-----|
+| `MissingCostModelError` | Script validation | No cost model for Plutus version | Ensure cost model in protocol params |
+| `ScriptDataHashMismatchError` | `UtxoValidateScriptDataHash` | Hash doesn't match witnesses | Recalculate script data hash |
+| `MissingVKeyWitnessesError` | `UtxoValidateRequiredVKeyWitnesses` | Required signature missing | Add VKey witness |
+| `MalformedReferenceScriptsError` | `UtxoValidateMalformedReferenceScripts` | Invalid UPLC bytecode | Fix script encoding |
+
+### Conway Era (Governance)
+
+| Error | Rule | Cause | Fix |
+|-------|------|-------|-----|
+| `DelegateVoteToUnregisteredDRepError` | `UtxoValidateDelegation` | DRep not registered | Register DRep first |
+| `StakeCredentialAlreadyRegisteredError` | `UtxoValidateDelegation` | Re-registering stake key | Deregister first or skip |
+| `PlutusScriptFailedError` | Script execution | Script returned False | Debug script logic |
+
+**Error files by era:**
+- `ledger/shelley/errors.go` - Base validation errors
+- `ledger/allegra/errors.go` - Validity interval, native scripts
+- `ledger/alonzo/errors.go` - Plutus execution, collateral
+- `ledger/babbage/errors.go` - Reference scripts, inline datums
+- `ledger/conway/errors.go` - Governance, DReps
+- `ledger/common/errors.go` - Shared across eras
 
 ## Common Pitfalls
 

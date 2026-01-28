@@ -104,7 +104,7 @@ type ProtocolOptions struct {
 	Logger       *slog.Logger
 	ErrorChan    chan error
 	Mode         ProtocolMode
-	// TODO: remove me
+	// TODO(cleanup): Role field may be redundant with Mode - evaluate removal
 	Role    ProtocolRole
 	Version uint16
 }

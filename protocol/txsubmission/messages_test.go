@@ -30,7 +30,7 @@ type testDefinition struct {
 	MessageType uint
 }
 
-// TODO: implement tests for more messages
+// TODO(testing): Expand test coverage for remaining message types (RequestTxIds, ReplyTxIds, etc.)
 var tests = []testDefinition{
 	{
 		CborHex:     "8104",

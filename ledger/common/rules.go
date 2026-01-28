@@ -14,6 +14,13 @@
 
 package common
 
+// Related files:
+//   - state.go: LedgerState interface used by validation rules
+//   - tx.go: Transaction interface that rules validate
+//   - errors.go: Common error types returned by rules
+//   - ledger/shelley/rules.go: Base validation rules (other eras delegate here)
+//   - ledger/{era}/rules.go: Era-specific validation rules
+
 import (
 	"fmt"
 

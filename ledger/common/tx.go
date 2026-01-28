@@ -14,6 +14,13 @@
 
 package common
 
+// Related files:
+//   - state.go: LedgerState interface for UTxO queries
+//   - witness.go: TransactionWitnessSet returned by Witnesses()
+//   - utxo.go: Utxo type returned by Produced()
+//   - ledger/{era}/shelley.go: Era-specific Transaction implementations
+//   - rules.go: Validation rules that operate on Transaction
+
 import (
 	"iter"
 	"math/big"
