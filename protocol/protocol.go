@@ -222,6 +222,49 @@ func (p *Protocol) DoneChan() <-chan struct{} {
 	return p.doneChan
 }
 
+// IsDone returns true if the protocol has finished (done channel is closed or in AgencyNone state).
+// Use this to check if the protocol should avoid sending messages (e.g., Done message in Stop()).
+func (p *Protocol) IsDone() bool {
+	// Check if done channel is closed
+	select {
+	case <-p.doneChan:
+		return true
+	default:
+	}
+	// Check if current state has AgencyNone (terminal state)
+	currentState := p.getCurrentState()
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		if entry.Agency == AgencyNone {
+			return true
+		}
+	}
+	return false
+}
+
+// isInTerminalOrIdleState returns true if the protocol is in a state where connection
+// close should not be treated as an error. This includes:
+// - Protocol stop/done channel is closed
+// - Current state has AgencyNone (terminal Done state after receiving Done message)
+// - Current state is the initial state (no messages exchanged yet)
+func (p *Protocol) isInTerminalOrIdleState() bool {
+	// Check if done channel is closed
+	select {
+	case <-p.doneChan:
+		return true
+	default:
+	}
+	// Check current state
+	currentState := p.getCurrentState()
+	// Return true if current state has AgencyNone (terminal state)
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		if entry.Agency == AgencyNone {
+			return true
+		}
+	}
+	// Return true if current state is the initial state (no messages sent yet)
+	return currentState == p.config.InitialState
+}
+
 // WaitSendQueueDrained blocks until the send queue has been drained (best-effort) or the protocol
 // begins shutting down, or the timeout expires.
 func (p *Protocol) WaitSendQueueDrained(timeout time.Duration) bool {
@@ -485,13 +528,17 @@ func (p *Protocol) readLoop() {
 		// Check for zero-byte read before attempting to decode
 		if readBuffer.Len() == 0 {
 			// This can happen when the remote host closes the connection unexpectedly
-			// or sends an empty segment payload
-			p.SendError(
-				fmt.Errorf(
-					"%s: received zero-byte read, connection may have been closed",
-					p.config.Name,
-				),
-			)
+			// or sends an empty segment payload.
+			// Don't report an error if we're in the Done state (AgencyNone) or initial state,
+			// as this is expected behavior when the remote client gracefully stopped the protocol.
+			if !p.isInTerminalOrIdleState() {
+				p.SendError(
+					fmt.Errorf(
+						"%s: received zero-byte read, connection may have been closed",
+						p.config.Name,
+					),
+				)
+			}
 			return
 		}
 		// Decode message into generic list until we can determine what type of message it is.
@@ -511,13 +558,17 @@ func (p *Protocol) readLoop() {
 		// Check for zero bytes read or empty message array after decoding
 		if numBytesRead == 0 || len(tmpMsg) == 0 {
 			// This can happen when the remote host closes the connection unexpectedly
-			// and we receive a segment that decodes to an empty array
-			p.SendError(
-				fmt.Errorf(
-					"%s: received empty message (zero bytes read or empty CBOR array), connection may have been closed",
-					p.config.Name,
-				),
-			)
+			// and we receive a segment that decodes to an empty array.
+			// Don't report an error if we're in the Done state (AgencyNone) or initial state,
+			// as this is expected behavior when the remote client gracefully stopped the protocol.
+			if !p.isInTerminalOrIdleState() {
+				p.SendError(
+					fmt.Errorf(
+						"%s: received empty message (zero bytes read or empty CBOR array), connection may have been closed",
+						p.config.Name,
+					),
+				)
+			}
 			return
 		}
 		// Decode first list item to determine message type
