@@ -521,12 +521,18 @@ type eraHistoryResultParams struct {
 	Unknown int
 }
 
-// TODO (#860)
-// result: [{ *[0 int] => non_myopic_rewards }] for each stake display reward
-// non_myopic_rewards: { *poolid => int }
-//
-//	int is the amount of lovelaces each pool would reward
-type NonMyopicMemberRewardsResult any
+// StakeCredential represents a stake credential as [tag, bytes]
+// where tag indicates the credential type (0 for KeyHash, 1 for ScriptHash)
+type StakeCredential struct {
+	cbor.StructAsArray
+	Tag   uint64
+	Bytes ledger.Blake2b224
+}
+
+// NonMyopicMemberRewardsResult represents the non-myopic member rewards result
+// The result is a map where each key is a stake credential
+// and each value is a map of pool IDs to their reward amounts in lovelaces
+type NonMyopicMemberRewardsResult map[StakeCredential]map[ledger.Blake2b224]uint64
 
 type CurrentProtocolParamsResult interface {
 	ledger.AlonzoProtocolParameters |
