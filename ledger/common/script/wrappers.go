@@ -190,11 +190,20 @@ func (w WithWrappedTransactionId) ToPlutusData() data.PlutusData {
 		}
 		return data.NewList(tmpItems...)
 	case lcommon.Utxo:
+		// TxInInfo = Constr 0 [TxOutRef, TxOut]
+		// TxOutRef (V2) = Constr 0 [TxId, Integer]
+		// TxId (V2) = Constr 0 [ByteString]
 		return data.NewConstr(
 			0,
-			data.NewConstr(
+			data.NewConstr( // TxOutRef
 				0,
-				data.NewByteString(v.Id.Id().Bytes()),
+				data.NewConstr( // TxId (wrapped for V2)
+					0,
+					data.NewByteString(v.Id.Id().Bytes()),
+				),
+				data.NewInteger( // output index
+					new(big.Int).SetUint64(uint64(v.Id.Index())),
+				),
 			),
 			v.Output.ToPlutusData(),
 		)
@@ -207,11 +216,20 @@ func (w WithWrappedTransactionId) ToPlutusData() data.PlutusData {
 		}
 		return data.NewList(tmpItems...)
 	case ResolvedInput:
+		// TxInInfo = Constr 0 [TxOutRef, TxOut]
+		// TxOutRef (V2) = Constr 0 [TxId, Integer]
+		// TxId (V2) = Constr 0 [ByteString]
 		return data.NewConstr(
 			0,
-			data.NewConstr(
+			data.NewConstr( // TxOutRef
 				0,
-				data.NewByteString(v.Id.Id().Bytes()),
+				data.NewConstr( // TxId (wrapped for V2)
+					0,
+					data.NewByteString(v.Id.Id().Bytes()),
+				),
+				data.NewInteger( // output index
+					new(big.Int).SetUint64(uint64(v.Id.Index())),
+				),
 			),
 			v.Output.ToPlutusData(),
 		)
@@ -422,10 +440,15 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 	switch v := w.Value.(type) {
 	case Value:
 		var tmpPairs [][2]data.PlutusData
-		if v.CoinBigInt != nil {
-			tmpPairs = [][2]data.PlutusData{coinBigIntToPlutusDataMapPair(v.CoinBigInt)}
-		} else {
-			tmpPairs = [][2]data.PlutusData{coinToPlutusDataMapPair(v.Coin)}
+		// For mint-only Values (txInfoMint), don't add ADA entry since you cannot mint ADA.
+		// For output Values, always include ADA entry (even if 0).
+		isMintOnly := v.AssetsMint != nil && v.AssetsOutput == nil
+		if !isMintOnly {
+			if v.CoinBigInt != nil {
+				tmpPairs = [][2]data.PlutusData{coinBigIntToPlutusDataMapPair(v.CoinBigInt)}
+			} else {
+				tmpPairs = [][2]data.PlutusData{coinToPlutusDataMapPair(v.Coin)}
+			}
 		}
 		if v.AssetsOutput != nil {
 			tmpPairs = slices.Concat(
