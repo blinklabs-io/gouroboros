@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -15,7 +14,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 )
 
 var (
@@ -397,8 +396,15 @@ func TestVerifyBlock_TransactionValidation(t *testing.T) {
 		SkipBodyHashValidation:    true,  // Skip to focus on transaction validation
 		SkipTransactionValidation: false, // Enable transaction validation
 		SkipStakePoolValidation:   true,  // Skip stake pool validation
-		LedgerState:               &mockLedgerStateVerifyBlock{},
-		ProtocolParameters:        &mockProtocolParamsVerifyBlock{},
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithPoolCurrentState(func(poolKeyHash common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
+				return &common.PoolRegistrationCertificate{
+					Operator:   poolKeyHash,
+					VrfKeyHash: testVRFKeyHash,
+				}, nil, nil
+			}).
+			Build(),
+		ProtocolParameters: &mockledger.MockProtocolParamsRules{},
 	}
 
 	testCases := []struct {
@@ -479,8 +485,15 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 		SkipBodyHashValidation:    true,  // Skip to focus on stake pool validation
 		SkipTransactionValidation: true,  // Skip transaction validation
 		SkipStakePoolValidation:   false, // Enable stake pool validation
-		LedgerState:               &mockLedgerStateVerifyBlock{},
-		ProtocolParameters:        &mockProtocolParamsVerifyBlock{},
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithPoolCurrentState(func(poolKeyHash common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
+				return &common.PoolRegistrationCertificate{
+					Operator:   poolKeyHash,
+					VrfKeyHash: testVRFKeyHash,
+				}, nil, nil
+			}).
+			Build(),
+		ProtocolParameters: &mockledger.MockProtocolParamsRules{},
 	}
 
 	testCases := []struct {
@@ -553,27 +566,3 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 	}
 }
 
-// mockLedgerStateVerifyBlock provides a mock implementation of LedgerState for testing
-// mockLedgerStateVerifyBlock embeds MockLedgerState to inherit all its default mock
-// behavior while allowing this test to override specific methods like PoolCurrentState.
-// Since we always pass &mockLedgerStateVerifyBlock{} into VerifyConfig, the promoted
-// pointer-receiver methods from MockLedgerState remain available on the interface.
-// Note: We embed the value (not the pointer) for convenience, which means the mock
-// is copied. For minimal copying, you could embed *test_ledger.MockLedgerState instead,
-// but it's not necessary for correctness here since this test doesn't mutate the mock.
-type mockLedgerStateVerifyBlock struct{ test_ledger.MockLedgerState }
-
-func (m *mockLedgerStateVerifyBlock) PoolCurrentState(
-	poolKeyHash common.PoolKeyHash,
-) (*common.PoolRegistrationCertificate, *uint64, error) {
-	// Return a mock pool registration with VRF key hash that matches the test block
-	return &common.PoolRegistrationCertificate{
-		Operator:   poolKeyHash,
-		VrfKeyHash: testVRFKeyHash,
-	}, nil, nil
-}
-
-// mockProtocolParamsVerifyBlock provides a mock implementation of ProtocolParameters for testing
-type mockProtocolParamsVerifyBlock struct{}
-
-func (m *mockProtocolParamsVerifyBlock) Utxorpc() (*cardano.PParams, error) { return nil, nil }

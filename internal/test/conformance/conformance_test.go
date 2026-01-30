@@ -16,13 +16,13 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 )
 
 // rulesConformanceTarball is the path to the conformance test vectors.
@@ -2002,23 +2002,23 @@ func executeTransaction(
 	}
 
 	// Create mock ledger state with the UTxOs from initial_state
-	ls := &test_ledger.MockLedgerState{
-		NetworkIdVal:                networkId,
-		PoolRegistrations:           poolRegistrations,
-		CommitteeMembersVal:         govState.CommitteeMembers,
-		ProposedCommitteeMembersVal: proposedCommitteeMembers,
-		DRepRegistrationsVal:        govState.DRepRegistrations,
-		StakeRegistrationsVal:       govState.StakeRegistrations,
-		RewardAccountsVal:           govState.RewardAccounts,
-		UtxoByIdFunc: func(id common.TransactionInput) (common.Utxo, error) {
+	ls := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(networkId).
+		WithPoolRegistrations(poolRegistrations).
+		WithCommitteeMembers(govState.CommitteeMembers).
+		WithProposedCommitteeMembers(proposedCommitteeMembers).
+		WithDRepRegistrations(govState.DRepRegistrations).
+		WithStakeCredentials(govState.StakeRegistrations).
+		WithRewardAccounts(govState.RewardAccounts).
+		WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
 			for _, u := range utxos {
 				if utxosMatch(u.Id, id) {
 					return u, nil
 				}
 			}
 			return common.Utxo{}, fmt.Errorf("utxo not found for %v", id)
-		},
-	}
+		}).
+		Build()
 
 	// Validate governance voting restrictions before running regular validation
 	votingProcs := tx.VotingProcedures()

@@ -55,5 +55,5 @@
 //
 // # Testing
 //
-// Use MockLedgerState from internal/test/ledger/ledger.go for testing validation rules.
+// Use MockLedgerState from github.com/blinklabs-io/ouroboros-mock/ledger for testing validation rules.
 package common
