@@ -75,16 +75,90 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
 	UtxoValidateCommitteeCertificates,
+	UtxoValidateCCVotingRestrictions,
 	UtxoValidateMalformedReferenceScripts,
 }
 
+// UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs.
+// For PV11+, this check is skipped when PlutusV1/V2 scripts are present, as the
+// NonDisjointRefInputs restriction is reverted for backwards compatibility.
 func UtxoValidateDisjointRefInputs(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	conwayPp, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
+	}
+	// PV11+ skips this check for transactions with PlutusV1/V2 scripts
+	if common.IsProtocolVersionAtLeast(
+		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
+	) {
+		usesV1V2, err := transactionUsesPlutusV1V2(tx, ls)
+		if err != nil {
+			return err
+		}
+		if usesV1V2 {
+			return nil
+		}
+	}
 	return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
+}
+
+// transactionUsesPlutusV1V2 checks if the transaction uses PlutusV1 or PlutusV2 scripts,
+// either in the witness set or as reference scripts.
+// Returns an error if a reference input cannot be resolved.
+func transactionUsesPlutusV1V2(tx common.Transaction, ls common.LedgerState) (bool, error) {
+	ws := tx.Witnesses()
+	if ws != nil {
+		if len(ws.PlutusV1Scripts()) > 0 || len(ws.PlutusV2Scripts()) > 0 {
+			return true, nil
+		}
+	}
+	// Also check reference scripts on reference inputs
+	// For reference inputs, propagate resolution errors
+	for _, refInput := range tx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			return false, common.ReferenceInputResolutionError{
+				Input: refInput,
+				Err:   err,
+			}
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script, common.PlutusV2Script:
+			return true, nil
+		}
+	}
+	// Check reference scripts on regular inputs
+	// For regular inputs, skip on errors (existing behavior)
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script, common.PlutusV2Script:
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // UtxoValidateProposalProcedures validates governance proposal contents
@@ -2336,6 +2410,101 @@ func UtxoValidateCommitteeCertificates(
 			}
 		}
 	}
+	return nil
+}
+
+// PoolValidateVrfKeyUniqueness ensures no two pools use the same VRF key.
+// Enforced only for Protocol Version 11+.
+func PoolValidateVrfKeyUniqueness(
+	cert *common.PoolRegistrationCertificate,
+	protocolMajor uint,
+	ls common.LedgerState,
+) error {
+	if !common.IsProtocolVersionAtLeast(protocolMajor, 0, common.ProtocolVersionVanRossem) {
+		return nil
+	}
+	inUse, existingPoolId, err := ls.IsVrfKeyInUse(cert.VrfKeyHash)
+	if err != nil {
+		return err
+	}
+	if !inUse || existingPoolId == cert.Operator {
+		return nil
+	}
+	return DuplicateVrfKeyError{
+		VrfKeyHash:     cert.VrfKeyHash,
+		NewPoolId:      cert.Operator,
+		ExistingPoolId: existingPoolId,
+	}
+}
+
+// UtxoValidateCCVotingRestrictions validates CC voting restrictions per cardano-ledger spec.
+// Constitutional Committee members cannot vote on NoConfidence or UpdateCommittee actions.
+// Enforced at ledger level for PV11+ (ProtocolVersionVanRossem).
+func UtxoValidateCCVotingRestrictions(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	conwayPp, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return nil // Not Conway params, skip validation
+	}
+	if !common.IsProtocolVersionAtLeast(
+		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
+	) {
+		return nil // Pre-PV11: checked by mempool sanitizer only
+	}
+
+	votes := tx.VotingProcedures()
+	if len(votes) == 0 {
+		return nil
+	}
+
+	for voter, actionVotes := range votes {
+		// Only check CC voters
+		if voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
+			voter.Type != common.VoterTypeConstitutionalCommitteeHotScriptHash {
+			continue
+		}
+
+		for actionId := range actionVotes {
+			// Guard against nil action ID (malformed transaction)
+			if actionId == nil {
+				return CCVotingRestrictionError{
+					VoterId:     voter.Hash,
+					ActionId:    common.GovActionId{}, // zero value for nil action ID
+					Restriction: "nil action ID in voting procedures",
+				}
+			}
+
+			// Look up the action type from governance state
+			actionState, err := ls.GovActionById(*actionId)
+			if err != nil {
+				// If we can't look up the action, skip this check
+				// (unknown action ID is handled by other validation rules)
+				continue
+			}
+			if actionState == nil {
+				continue
+			}
+
+			// CC members cannot vote on NoConfidence or UpdateCommittee
+			if actionState.ActionType == common.GovActionTypeNoConfidence ||
+				actionState.ActionType == common.GovActionTypeUpdateCommittee {
+				restriction := "CC cannot vote on NoConfidence"
+				if actionState.ActionType == common.GovActionTypeUpdateCommittee {
+					restriction = "CC cannot vote on UpdateCommittee"
+				}
+				return CCVotingRestrictionError{
+					VoterId:     voter.Hash,
+					ActionId:    *actionId,
+					Restriction: restriction,
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

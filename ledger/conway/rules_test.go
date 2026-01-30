@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -1911,6 +1912,101 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.T) {
+	// Test that reference input resolution errors are propagated when using PV11+
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	refInputTxId := "a228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee33"
+
+	// PV11+ protocol params (triggers the transactionUsesPlutusV1V2 check)
+	pv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 11,
+			Minor: 0,
+		},
+	}
+
+	// Ledger state that returns an error for reference input lookups
+	refInputResolutionErr := errors.New("utxo not found")
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+			// Return error for the reference input
+			if hex.EncodeToString(input.Id().Bytes()) == refInputTxId {
+				return common.Utxo{}, refInputResolutionErr
+			}
+			// Return valid utxo for regular inputs
+			return common.Utxo{
+				Output: babbage.BabbageTransactionOutput{
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: 1_000_000,
+					},
+				},
+			}, nil
+		}).
+		Build()
+
+	t.Run("reference input resolution error is propagated", func(t *testing.T) {
+		testTx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					},
+				),
+				TxReferenceInputs: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(refInputTxId, 0),
+					},
+					false,
+				),
+			},
+		}
+		err := conway.UtxoValidateDisjointRefInputs(
+			testTx,
+			0,
+			testLedgerState,
+			pv11Params,
+		)
+		assert.Error(t, err)
+		var refErr common.ReferenceInputResolutionError
+		assert.True(t, errors.As(err, &refErr), "expected ReferenceInputResolutionError, got %T", err)
+		assert.ErrorIs(t, refErr.Err, refInputResolutionErr)
+	})
+
+	t.Run("pre-PV11 does not check reference inputs for PlutusV1V2", func(t *testing.T) {
+		// Pre-PV11 skips the transactionUsesPlutusV1V2 check entirely
+		prePv11Params := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: 9,
+				Minor: 0,
+			},
+		}
+		testTx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					},
+				),
+				TxReferenceInputs: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(refInputTxId, 1), // different index to avoid disjoint error
+					},
+					false,
+				),
+			},
+		}
+		err := conway.UtxoValidateDisjointRefInputs(
+			testTx,
+			0,
+			testLedgerState,
+			prePv11Params,
+		)
+		// Pre-PV11 should not trigger the reference input resolution check
+		// (it delegates directly to babbage.UtxoValidateDisjointRefInputs)
+		assert.NoError(t, err)
+	})
+}
+
 func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testInputAmount uint64 = 20_000_000
@@ -2064,4 +2160,208 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 			}
 		},
 	)
+}
+
+func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
+	// Create test action IDs
+	noConfidenceActionId := common.GovActionId{
+		TransactionId: common.Blake2b256{0x01},
+		GovActionIdx:  0,
+	}
+	updateCommitteeActionId := common.GovActionId{
+		TransactionId: common.Blake2b256{0x02},
+		GovActionIdx:  0,
+	}
+	infoActionId := common.GovActionId{
+		TransactionId: common.Blake2b256{0x03},
+		GovActionIdx:  0,
+	}
+
+	// Helper to format key as "hex#index" (mockledger expects this format)
+	govActionKey := func(id common.GovActionId) string {
+		return fmt.Sprintf("%x#%d", id.TransactionId[:], id.GovActionIdx)
+	}
+
+	// Set up governance actions
+	govActions := map[string]*common.GovActionState{
+		govActionKey(noConfidenceActionId): {
+			ActionId:   noConfidenceActionId,
+			ActionType: common.GovActionTypeNoConfidence,
+		},
+		govActionKey(updateCommitteeActionId): {
+			ActionId:   updateCommitteeActionId,
+			ActionType: common.GovActionTypeUpdateCommittee,
+		},
+		govActionKey(infoActionId): {
+			ActionId:   infoActionId,
+			ActionType: common.GovActionTypeInfo,
+		},
+	}
+
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govActions).
+		Build()
+
+	// PV11+ protocol params (enforces CC voting restrictions)
+	pv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 11,
+			Minor: 0,
+		},
+	}
+
+	// Pre-PV11 protocol params (does not enforce CC voting restrictions)
+	prePv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 9,
+			Minor: 0,
+		},
+	}
+
+	testSlot := uint64(0)
+
+	t.Run("no voting procedures", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("DRep can vote on NoConfidence", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeDRepKeyHash,
+			Hash: common.Blake2b224{0x10},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("CC can vote on Info action", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x20},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&infoActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("CC cannot vote on NoConfidence (key hash)", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x30},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "NoConfidence")
+	})
+
+	t.Run("CC cannot vote on NoConfidence (script hash)", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			Hash: common.Blake2b224{0x31},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "NoConfidence")
+	})
+
+	t.Run("CC cannot vote on UpdateCommittee", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x40},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&updateCommitteeActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
+	})
+
+	t.Run("pre-PV11 allows CC to vote on NoConfidence", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x50},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
+		assert.NoError(t, err, "pre-PV11 should not enforce CC voting restrictions at ledger level")
+	})
+
+	t.Run("nil action ID returns error", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x60},
+		}
+		// Create voting procedures with a nil GovActionId key
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						nil: common.VotingProcedure{Vote: 1}, // nil action ID
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "nil action ID")
+	})
 }

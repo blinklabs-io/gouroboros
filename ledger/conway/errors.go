@@ -379,3 +379,67 @@ func (e CommitteeMemberLookupError) Error() string {
 func (e CommitteeMemberLookupError) Unwrap() error {
 	return e.Err
 }
+
+// DuplicateVrfKeyError indicates a pool registration attempted to use a VRF key
+// already registered by another pool. Introduced in Protocol Version 11.
+type DuplicateVrfKeyError struct {
+	VrfKeyHash     common.Blake2b256
+	NewPoolId      common.PoolKeyHash
+	ExistingPoolId common.PoolKeyHash
+}
+
+func (e DuplicateVrfKeyError) Error() string {
+	return fmt.Sprintf(
+		"duplicate VRF key: pool %x attempted to register VRF key %x already in use by pool %x",
+		e.NewPoolId[:8], e.VrfKeyHash[:8], e.ExistingPoolId[:8],
+	)
+}
+
+// CCVotingRestrictionError indicates a Constitutional Committee member violated
+// voting restrictions. In PV11+, this is a ledger predicate failure.
+type CCVotingRestrictionError struct {
+	VoterId     common.Blake2b224
+	ActionId    common.GovActionId
+	Restriction string
+}
+
+func (e CCVotingRestrictionError) Error() string {
+	return fmt.Sprintf(
+		"constitutional committee voting restriction: voter %x on action %x#%d - %s",
+		e.VoterId[:8], e.ActionId.TransactionId[:8], e.ActionId.GovActionIdx, e.Restriction,
+	)
+}
+
+// NonMatchingWithdrawalError indicates a withdrawal amount doesn't match the
+// actual reward account balance. Enhanced in PV11 for clearer diagnostics.
+type NonMatchingWithdrawalError struct {
+	RewardAccount common.Address
+	Expected      uint64
+	Actual        uint64
+}
+
+func (e NonMatchingWithdrawalError) Error() string {
+	return fmt.Sprintf(
+		"non-matching withdrawal for %s: expected %d, actual %d",
+		e.RewardAccount.String(), e.Expected, e.Actual,
+	)
+}
+
+// PPViewHashesDontMatchError indicates protocol parameter hash mismatch.
+// PV11 enhances with expected data for better diagnostics.
+type PPViewHashesDontMatchError struct {
+	ProvidedHash   common.Blake2b256
+	ComputedHash   common.Blake2b256
+	ExpectedPPData []byte
+}
+
+func (e PPViewHashesDontMatchError) Error() string {
+	dataPreview := e.ExpectedPPData
+	if len(dataPreview) > 32 {
+		dataPreview = dataPreview[:32]
+	}
+	return fmt.Sprintf(
+		"protocol parameter view hashes don't match: provided %x, computed %x, expected data: %x...",
+		e.ProvidedHash[:8], e.ComputedHash[:8], dataPreview,
+	)
+}
