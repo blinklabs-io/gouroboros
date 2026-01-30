@@ -39,6 +39,10 @@ const (
 	TxTypeByron = 0
 
 	ByronSlotsPerEpoch = 21600
+
+	// Protocol magic values for different networks
+	MainnetProtocolMagic = 764824073
+	TestnetProtocolMagic = 1097911063
 )
 
 var EraByron = common.Era{
@@ -137,7 +141,22 @@ func (h *ByronMainBlockHeader) Era() common.Era {
 }
 
 func (h *ByronMainBlockHeader) BlockBodyHash() common.Blake2b256 {
-	// BodyProof is the hash of the block body, encoded as bytes in CBOR
+	// Byron BodyProof is an array: [tx_proof, ssc_proof, dlg_proof, upd_proof]
+	// tx_proof is: [txCount, txBodyMerkleRoot, txWitnessMerkleRoot]
+	// We return the txBodyMerkleRoot as the representative body hash
+	if proofSlice, ok := h.BodyProof.([]any); ok && len(proofSlice) >= 1 {
+		// Extract tx_proof which is the first element
+		if txProof, ok := proofSlice[0].([]any); ok && len(txProof) >= 2 {
+			// txProof[1] is the txBodyMerkleRoot
+			if txBodyRoot, ok := txProof[1].([]byte); ok &&
+				len(txBodyRoot) == common.Blake2b256Size {
+				var hash common.Blake2b256
+				copy(hash[:], txBodyRoot)
+				return hash
+			}
+		}
+	}
+	// Fallback: check if BodyProof is raw bytes (shouldn't happen for main blocks)
 	if bodyProofBytes, ok := h.BodyProof.([]byte); ok &&
 		len(bodyProofBytes) == common.Blake2b256Size {
 		var hash common.Blake2b256
@@ -295,6 +314,7 @@ type ByronTransaction struct {
 	hash       *common.Blake2b256
 	Body       ByronTransactionBody
 	Twit       []cbor.Value
+	twitCbor   []byte // Original CBOR of witnesses for merkle tree computation
 	witnessSet *ByronTransactionWitnessSet
 }
 
@@ -314,6 +334,8 @@ func (t *ByronTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[0]), &t.Body); err != nil {
 		return fmt.Errorf("failed to decode byron transaction body: %w", err)
 	}
+	// Store raw witness CBOR for merkle tree computation
+	t.twitCbor = []byte(txArray[1])
 	// Decode witnesses (Twit)
 	if _, err := cbor.Decode([]byte(txArray[1]), &t.Twit); err != nil {
 		return fmt.Errorf(
@@ -495,6 +517,12 @@ func (t *ByronTransaction) Witnesses() common.TransactionWitnessSet {
 		t.witnessSet = NewByronTransactionWitnessSet(t.Twit)
 	}
 	return *t.witnessSet
+}
+
+// WitnessesCbor returns the raw CBOR bytes of the transaction witnesses.
+// This is used for merkle tree computation in body hash validation.
+func (t *ByronTransaction) WitnessesCbor() []byte {
+	return t.twitCbor
 }
 
 type ByronTransactionWitnessSet struct {
@@ -925,21 +953,51 @@ type ByronUpdateProposalBlockVersionMod struct {
 type ByronMainBlockBody struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	TxPayload  []ByronTransaction
-	SscPayload cbor.Value
-	DlgPayload []any
-	UpdPayload ByronUpdatePayload
+	TxPayload     []ByronTransaction
+	SscPayload    cbor.Value
+	DlgPayload    []any
+	UpdPayload    ByronUpdatePayload
+	dlgPayloadRaw []byte // Original CBOR for hash validation
+	updPayloadRaw []byte // Original CBOR for hash validation
 }
 
 func (b *ByronMainBlockBody) UnmarshalCBOR(cborData []byte) error {
+	// First, decode the body as raw messages to preserve original CBOR
+	var rawParts []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+		return err
+	}
+	if len(rawParts) >= 4 {
+		b.dlgPayloadRaw = []byte(rawParts[2])
+		b.updPayloadRaw = []byte(rawParts[3])
+	}
+
+	// Then decode the full structure
 	type tByronMainBlockBody ByronMainBlockBody
 	var tmp tByronMainBlockBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
 	*b = ByronMainBlockBody(tmp)
+	// Restore the raw CBOR fields that were lost in the copy
+	if len(rawParts) >= 4 {
+		b.dlgPayloadRaw = []byte(rawParts[2])
+		b.updPayloadRaw = []byte(rawParts[3])
+	}
 	b.SetCbor(cborData)
 	return nil
+}
+
+// DlgPayloadCbor returns the original CBOR bytes of the delegation payload.
+// This is used for hash validation.
+func (b *ByronMainBlockBody) DlgPayloadCbor() []byte {
+	return b.dlgPayloadRaw
+}
+
+// UpdPayloadCbor returns the original CBOR bytes of the update payload.
+// This is used for hash validation.
+func (b *ByronMainBlockBody) UpdPayloadCbor() []byte {
+	return b.updPayloadRaw
 }
 
 func (b *ByronMainBlockBody) MarshalCBOR() ([]byte, error) {
