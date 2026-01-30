@@ -11,6 +11,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConway_CostModelsPresent_UnresolvedReferenceInputReturnsError(
@@ -360,4 +361,43 @@ func TestConway_ScriptDataHash_ExtraneousScriptDataHashError_As(t *testing.T) {
 			err,
 		)
 	}
+}
+
+func TestDuplicateVrfKeyError(t *testing.T) {
+	err := conway.DuplicateVrfKeyError{
+		VrfKeyHash:     common.Blake2b256{0x01},
+		NewPoolId:      common.PoolKeyHash{0x02},
+		ExistingPoolId: common.PoolKeyHash{0x03},
+	}
+	assert.Contains(t, err.Error(), "duplicate VRF key")
+}
+
+func TestCCVotingRestrictionError(t *testing.T) {
+	err := conway.CCVotingRestrictionError{
+		VoterId:     common.Blake2b224{0x01},
+		ActionId:    common.GovActionId{TransactionId: common.Blake2b256{0x02}, GovActionIdx: 1},
+		Restriction: "CC cannot vote on this action type",
+	}
+	assert.Contains(t, err.Error(), "voting restriction")
+}
+
+func TestNonMatchingWithdrawalError(t *testing.T) {
+	err := conway.NonMatchingWithdrawalError{
+		RewardAccount: common.Address{},
+		Expected:      1000,
+		Actual:        500,
+	}
+	assert.Contains(t, err.Error(), "non-matching withdrawal")
+	assert.Contains(t, err.Error(), "expected 1000")
+}
+
+func TestPPViewHashesDontMatchError(t *testing.T) {
+	err := conway.PPViewHashesDontMatchError{
+		ProvidedHash:   common.Blake2b256{0x01},
+		ComputedHash:   common.Blake2b256{0x02},
+		ExpectedPPData: []byte{0x03, 0x04},
+	}
+	assert.Contains(t, err.Error(), "protocol parameter")
+	assert.Contains(t, err.Error(), "provided")
+	assert.Contains(t, err.Error(), "computed")
 }

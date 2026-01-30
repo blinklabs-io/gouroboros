@@ -78,13 +78,74 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMalformedReferenceScripts,
 }
 
+// UtxoValidateDisjointRefInputs ensures reference inputs don't overlap with regular inputs.
+// For PV11+, this check is skipped when PlutusV1/V2 scripts are present, as the
+// NonDisjointRefInputs restriction is reverted for backwards compatibility.
 func UtxoValidateDisjointRefInputs(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	conwayPp, ok := pp.(*ConwayProtocolParameters)
+	if !ok {
+		return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
+	}
+	// PV11+ skips this check for transactions with PlutusV1/V2 scripts
+	if common.IsProtocolVersionAtLeast(
+		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
+	) && transactionUsesPlutusV1V2(tx, ls) {
+		return nil
+	}
 	return babbage.UtxoValidateDisjointRefInputs(tx, slot, ls, pp)
+}
+
+// transactionUsesPlutusV1V2 checks if the transaction uses PlutusV1 or PlutusV2 scripts,
+// either in the witness set or as reference scripts.
+func transactionUsesPlutusV1V2(tx common.Transaction, ls common.LedgerState) bool {
+	ws := tx.Witnesses()
+	if ws != nil {
+		if len(ws.PlutusV1Scripts()) > 0 || len(ws.PlutusV2Scripts()) > 0 {
+			return true
+		}
+	}
+	// Also check reference scripts on reference inputs
+	for _, refInput := range tx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(refInput)
+		if err != nil {
+			continue
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script, common.PlutusV2Script:
+			return true
+		}
+	}
+	// Check reference scripts on regular inputs
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		if utxo.Output == nil {
+			continue
+		}
+		script := utxo.Output.ScriptRef()
+		if script == nil {
+			continue
+		}
+		switch script.(type) {
+		case common.PlutusV1Script, common.PlutusV2Script:
+			return true
+		}
+	}
+	return false
 }
 
 // UtxoValidateProposalProcedures validates governance proposal contents
@@ -2336,6 +2397,48 @@ func UtxoValidateCommitteeCertificates(
 			}
 		}
 	}
+	return nil
+}
+
+// PoolValidateVrfKeyUniqueness ensures no two pools use the same VRF key.
+// Enforced only for Protocol Version 11+.
+func PoolValidateVrfKeyUniqueness(
+	cert *common.PoolRegistrationCertificate,
+	protocolMajor uint,
+	ls common.LedgerState,
+) error {
+	if !common.IsProtocolVersionAtLeast(protocolMajor, 0, common.ProtocolVersionVanRossem) {
+		return nil
+	}
+	inUse, existingPoolId, err := ls.IsVrfKeyInUse(cert.VrfKeyHash)
+	if err != nil {
+		return err
+	}
+	if !inUse || existingPoolId == cert.Operator {
+		return nil
+	}
+	return DuplicateVrfKeyError{
+		VrfKeyHash:     cert.VrfKeyHash,
+		NewPoolId:      cert.Operator,
+		ExistingPoolId: existingPoolId,
+	}
+}
+
+// GovValidateCCVotingRestrictions validates CC voting restrictions.
+// Enforced at ledger level for PV11+.
+// TODO: Implement per cardano-ledger spec (ccCanVoteOnActionType logic)
+func GovValidateCCVotingRestrictions(
+	vote common.VotingProcedure,
+	protocolMajor uint,
+	gs common.GovState,
+) error {
+	if !common.IsProtocolVersionAtLeast(protocolMajor, 0, common.ProtocolVersionVanRossem) {
+		return nil // Pre-PV11: checked by mempool sanitizer only
+	}
+	// TODO: Implement CC voting restrictions per cardano-ledger spec
+	// - CC cannot vote on NoConfidence
+	// - CC cannot vote on UpdateCommittee
+	// - etc.
 	return nil
 }
 
