@@ -208,13 +208,14 @@ func (s PlutusV1Script) Evaluate(
 		evalContext,
 	)
 	machine.ExBudget = machineBudget
-	_, err = machine.Run(wrappedProgram)
-	if err != nil {
-		return usedExUnits, fmt.Errorf("execute script: %w", err)
-	}
+	_, runErr := machine.Run(wrappedProgram)
+	// Always calculate consumed budget, even on error
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
 	return usedExUnits, nil
 }
 
@@ -289,13 +290,14 @@ func (s PlutusV2Script) Evaluate(
 		evalContext,
 	)
 	machine.ExBudget = machineBudget
-	_, err = machine.Run(wrappedProgram)
-	if err != nil {
-		return usedExUnits, fmt.Errorf("execute script: %w", err)
-	}
+	_, runErr := machine.Run(wrappedProgram)
+	// Always calculate consumed budget, even on error
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
 	return usedExUnits, nil
 }
 
@@ -359,13 +361,14 @@ func (s PlutusV3Script) Evaluate(
 		evalContext,
 	)
 	machine.ExBudget = machineBudget
-	_, err = machine.Run(wrappedProgram)
-	if err != nil {
-		return usedExUnits, fmt.Errorf("execute script: %w", err)
-	}
+	_, runErr := machine.Run(wrappedProgram)
+	// Always calculate consumed budget, even on error
 	consumedBudget := machineBudget.Sub(&machine.ExBudget)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
 	return usedExUnits, nil
 }
 
