@@ -19,7 +19,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
@@ -85,7 +85,7 @@ func TestUtxoValidateTimeToLive(t *testing.T) {
 			Ttl: testSlot,
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -189,7 +189,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Non-empty
@@ -261,7 +261,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -348,7 +348,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		Body: shelley.ShelleyTransactionBody{},
 	}
 	utxos := []common.Utxo{{Id: testGoodInput}}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good input
@@ -420,9 +420,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Correct network
@@ -486,9 +484,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Correct network
@@ -570,7 +566,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -717,7 +713,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{
 		MinUtxoValue: 100000,
@@ -800,7 +796,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good
@@ -856,7 +852,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &shelley.ShelleyTransaction{}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Transaction under limit

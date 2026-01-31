@@ -23,7 +23,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -235,15 +235,15 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			Output: refOutput,
 		}
 
-		ls := &test_ledger.MockLedgerState{
-			UtxoByIdFunc: func(id common.TransactionInput) (common.Utxo, error) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
 				if id.Index() == refInput.Index() &&
 					bytes.Equal(id.Id().Bytes(), refInput.Id().Bytes()) {
 					return refUtxo, nil
 				}
 				return common.Utxo{}, errors.New("not found")
-			},
-		}
+			}).
+			Build()
 
 		tx := &conway.ConwayTransaction{}
 		tx.Body.TxReferenceInputs = cbor.NewSetType(
@@ -283,15 +283,15 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 				Output: refOutput,
 			}
 
-			ls := &test_ledger.MockLedgerState{
-				UtxoByIdFunc: func(id common.TransactionInput) (common.Utxo, error) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
 					if id.Index() == refInput.Index() &&
 						bytes.Equal(id.Id().Bytes(), refInput.Id().Bytes()) {
 						return refUtxo, nil
 					}
 					return common.Utxo{}, errors.New("not found")
-				},
-			}
+				}).
+				Build()
 
 			tx := &conway.ConwayTransaction{}
 			tx.Body.TxReferenceInputs = cbor.NewSetType(
@@ -313,7 +313,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 			TxValidityIntervalStart: testSlot,
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -417,7 +417,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Non-empty
@@ -490,7 +490,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -577,7 +577,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		Body: conway.ConwayTransactionBody{},
 	}
 	utxos := []common.Utxo{{Id: testGoodInput}}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
@@ -652,9 +652,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Correct network
@@ -718,9 +718,9 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Correct network
@@ -803,7 +803,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -1094,7 +1094,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			err := conway.UtxoValidateValueNotConservedUtxo(
 				mintTx,
 				testSlot,
-				&test_ledger.MockLedgerState{},
+				mockledger.NewLedgerStateBuilder().Build(),
 				testProtocolParams,
 			)
 			if err != nil {
@@ -1118,7 +1118,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		AdaPerUtxoByte: 50,
@@ -1207,7 +1207,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxValueSize: 4000,
@@ -1290,7 +1290,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Good
@@ -1346,7 +1346,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &conway.ConwayTransaction{}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Transaction under limit
@@ -1430,7 +1430,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		CollateralPercentage: 150,
@@ -1551,7 +1551,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Coin and assets
@@ -1696,7 +1696,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// No collateral
@@ -1768,7 +1768,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	testTx := &conway.ConwayTransaction{
 		WitnessSet: conway.ConwayTransactionWitnessSet{},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxTxExUnits: common.ExUnits{
@@ -1839,7 +1839,7 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Non-disjoint ref inputs
@@ -1936,7 +1936,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Too much collateral return
@@ -2001,7 +2001,7 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxCollateralInputs: 1,

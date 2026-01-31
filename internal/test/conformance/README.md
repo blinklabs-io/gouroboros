@@ -270,7 +270,7 @@ Conway-era witness set uses these CBOR map keys:
 | `ledger/common/errors.go` | Error types (ScriptDataHashMismatch, MalformedReferenceScripts, etc.) |
 | `ledger/conway/rules.go` | Conway validation rules including ScriptDataHash and malformed script validation |
 | `internal/test/conformance/conformance_test.go` | Test harness, state tracking |
-| `internal/test/ledger/ledger.go` | MockLedgerState implementation |
+| `github.com/blinklabs-io/ouroboros-mock/ledger` | MockLedgerState implementation (external) |
 
 ---
 

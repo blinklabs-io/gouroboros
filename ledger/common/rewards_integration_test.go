@@ -17,7 +17,7 @@ package common_test
 import (
 	"testing"
 
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,10 +72,10 @@ func TestRewardServiceIntegration(t *testing.T) {
 		TotalBlocksInEpoch: 2500,
 	}
 
-	mockState := &test_ledger.MockLedgerState{
-		AdaPotsVal:        pots,
-		RewardSnapshotVal: snapshot,
-	}
+	mockState := mockledger.NewLedgerStateBuilder().
+		WithAdaPots(pots).
+		WithRewardSnapshot(snapshot).
+		Build()
 
 	rewardService := common.NewRewardService(mockState)
 

@@ -1,40 +1,41 @@
-package conway
+package conway_test
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 )
 
 func TestConway_CostModelsPresent_UnresolvedReferenceInputReturnsError(
 	t *testing.T,
 ) {
 	var slot uint64 = 0
-	ls := &test_ledger.MockLedgerState{
-		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) {
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
 			return common.Utxo{}, errors.New("utxo not found")
-		},
-	}
-	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
+		}).
+		Build()
+	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
 	input := shelley.NewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	tmpTx.Body.TxReferenceInputs = cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -47,25 +48,25 @@ func TestConway_CostModelsPresent_UnresolvedReferenceInputUnwraps(
 	t *testing.T,
 ) {
 	var slot uint64 = 0
-	ls := &test_ledger.MockLedgerState{
-		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) {
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
 			return common.Utxo{}, errors.New("utxo not found")
-		},
-	}
-	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
+		}).
+		Build()
+	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
 	input := shelley.NewShelleyTransactionInput(
 		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		0,
 	)
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	tmpTx.Body.TxReferenceInputs = cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -112,11 +113,11 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 		Output: output,
 	}
 
-	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{utxo})
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
 
-	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
+	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	tmpTx.Body.TxReferenceInputs = cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
@@ -124,7 +125,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	var tx common.Transaction = tmpTx
 
 	// First: missing cost models should return a MissingCostModelError
-	err := UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected error due to missing cost model, got nil")
 	}
@@ -134,7 +135,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	}
 
 	// Now provide a dummy cost model for PlutusV2 (version 1)
-	if cp, ok := pp.(*ConwayProtocolParameters); ok {
+	if cp, ok := pp.(*conway.ConwayProtocolParameters); ok {
 		if cp.CostModels == nil {
 			cp.CostModels = make(map[uint][]int64)
 		}
@@ -143,7 +144,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 		t.Fatalf("protocol parameters not ConwayProtocolParameters: %T", pp)
 	}
 
-	err = UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err = conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
 		t.Fatalf("expected no error after providing cost model, got %v", err)
 	}
@@ -173,17 +174,17 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 		0,
 	)
 	utxo := common.Utxo{Id: input, Output: output}
-	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{utxo})
-	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	tmpTx.Body.TxReferenceInputs = cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected error due to missing cost model, got nil")
 	}
@@ -192,7 +193,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 		t.Fatalf("expected MissingCostModelError, got %T", err)
 	}
 
-	if cp, ok := pp.(*ConwayProtocolParameters); ok {
+	if cp, ok := pp.(*conway.ConwayProtocolParameters); ok {
 		if cp.CostModels == nil {
 			cp.CostModels = make(map[uint][]int64)
 		}
@@ -201,7 +202,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 		t.Fatalf("protocol parameters not ConwayProtocolParameters: %T", pp)
 	}
 
-	err = UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err = conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
 		t.Fatalf("expected no error after providing cost model, got %v", err)
 	}
@@ -231,17 +232,17 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 		0,
 	)
 	utxo := common.Utxo{Id: input, Output: output}
-	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{utxo})
-	var pp common.ProtocolParameters = &ConwayProtocolParameters{}
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	tmpTx.Body.TxReferenceInputs = cbor.NewSetType(
 		[]shelley.ShelleyTransactionInput{input},
 		false,
 	)
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected error due to missing cost model, got nil")
 	}
@@ -250,7 +251,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 		t.Fatalf("expected MissingCostModelError, got %T", err)
 	}
 
-	if cp, ok := pp.(*ConwayProtocolParameters); ok {
+	if cp, ok := pp.(*conway.ConwayProtocolParameters); ok {
 		if cp.CostModels == nil {
 			cp.CostModels = make(map[uint][]int64)
 		}
@@ -259,7 +260,7 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 		t.Fatalf("protocol parameters not ConwayProtocolParameters: %T", pp)
 	}
 
-	err = UtxoValidateCostModelsPresent(tx, slot, ls, pp)
+	err = conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
 		t.Fatalf("expected no error after providing cost model, got %v", err)
 	}
@@ -267,17 +268,17 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 
 func TestConway_ScriptDataHash_MissingScriptDataHashError_Is(t *testing.T) {
 	var slot uint64 = 0
-	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
-	pp := &ConwayProtocolParameters{}
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{}).Build()
+	pp := &conway.ConwayProtocolParameters{}
 
 	// Create a transaction with redeemers but no script data hash
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	tmpTx.WitnessSet.WsRedeemers.Redeemers = map[common.RedeemerKey]common.RedeemerValue{
 		{Tag: 0, Index: 0}: {},
 	}
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	err := conway.UtxoValidateScriptDataHash(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected MissingScriptDataHashError, got nil")
 	}
@@ -291,17 +292,17 @@ func TestConway_ScriptDataHash_MissingScriptDataHashError_Is(t *testing.T) {
 
 func TestConway_ScriptDataHash_MissingScriptDataHashError_As(t *testing.T) {
 	var slot uint64 = 0
-	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
-	pp := &ConwayProtocolParameters{}
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{}).Build()
+	pp := &conway.ConwayProtocolParameters{}
 
 	// Create a transaction with redeemers but no script data hash
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	tmpTx.WitnessSet.WsRedeemers.Redeemers = map[common.RedeemerKey]common.RedeemerValue{
 		{Tag: 0, Index: 0}: {},
 	}
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	err := conway.UtxoValidateScriptDataHash(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected MissingScriptDataHashError, got nil")
 	}
@@ -316,16 +317,16 @@ func TestConway_ScriptDataHash_MissingScriptDataHashError_As(t *testing.T) {
 
 func TestConway_ScriptDataHash_ExtraneousScriptDataHashError_Is(t *testing.T) {
 	var slot uint64 = 0
-	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
-	pp := &ConwayProtocolParameters{}
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{}).Build()
+	pp := &conway.ConwayProtocolParameters{}
 
 	// Create a transaction with a script data hash but no Plutus scripts or redeemers
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	dummyHash := common.Blake2b256{}
 	tmpTx.Body.TxScriptDataHash = &dummyHash
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	err := conway.UtxoValidateScriptDataHash(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected ExtraneousScriptDataHashError, got nil")
 	}
@@ -339,16 +340,16 @@ func TestConway_ScriptDataHash_ExtraneousScriptDataHashError_Is(t *testing.T) {
 
 func TestConway_ScriptDataHash_ExtraneousScriptDataHashError_As(t *testing.T) {
 	var slot uint64 = 0
-	ls := test_ledger.NewMockLedgerStateWithUtxos([]common.Utxo{})
-	pp := &ConwayProtocolParameters{}
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{}).Build()
+	pp := &conway.ConwayProtocolParameters{}
 
 	// Create a transaction with a script data hash but no Plutus scripts or redeemers
-	tmpTx := &ConwayTransaction{}
+	tmpTx := &conway.ConwayTransaction{}
 	dummyHash := common.Blake2b256{}
 	tmpTx.Body.TxScriptDataHash = &dummyHash
 	var tx common.Transaction = tmpTx
 
-	err := UtxoValidateScriptDataHash(tx, slot, ls, pp)
+	err := conway.UtxoValidateScriptDataHash(tx, slot, ls, pp)
 	if err == nil {
 		t.Fatal("expected ExtraneousScriptDataHashError, got nil")
 	}
