@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -171,4 +171,323 @@ func DecodeGeneric(cborData []byte, dest any) error {
 		return err
 	}
 	return nil
+}
+
+// StreamDecoder provides sequential CBOR decoding with position tracking.
+// It wraps the underlying decoder to track byte offsets of each decoded item.
+type StreamDecoder struct {
+	dec      *_cbor.Decoder
+	data     []byte
+	consumed int // bytes consumed by Advance() calls
+}
+
+// NewStreamDecoder creates a decoder for sequential CBOR item extraction with position tracking.
+func NewStreamDecoder(data []byte) (*StreamDecoder, error) {
+	decOptions := _cbor.DecOptions{
+		ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+		MaxNestedLevels:   256,
+	}
+	decMode, err := decOptions.DecModeWithTags(customTagSet)
+	if err != nil {
+		return nil, err
+	}
+	return &StreamDecoder{
+		dec:  decMode.NewDecoder(bytes.NewReader(data)),
+		data: data,
+	}, nil
+}
+
+// Position returns the current byte position in the stream.
+func (d *StreamDecoder) Position() int {
+	return d.consumed + d.dec.NumBytesRead()
+}
+
+// Decode decodes the next CBOR item into dest and returns its byte range.
+// Returns (startOffset, length, error).
+func (d *StreamDecoder) Decode(dest any) (int, int, error) {
+	start := d.consumed + d.dec.NumBytesRead()
+	if err := d.dec.Decode(dest); err != nil {
+		return 0, 0, err
+	}
+	end := d.consumed + d.dec.NumBytesRead()
+	return start, end - start, nil
+}
+
+// Skip skips the next CBOR item and returns its byte range.
+// Returns (startOffset, length, error).
+func (d *StreamDecoder) Skip() (int, int, error) {
+	start := d.consumed + d.dec.NumBytesRead()
+	if err := d.dec.Skip(); err != nil {
+		return 0, 0, err
+	}
+	end := d.consumed + d.dec.NumBytesRead()
+	return start, end - start, nil
+}
+
+// DecodeRaw decodes the next CBOR item and returns both its value and raw bytes.
+// Returns (startOffset, rawBytes, error).
+func (d *StreamDecoder) DecodeRaw(dest any) (int, []byte, error) {
+	absStart := d.consumed + d.dec.NumBytesRead()
+	relStart := d.dec.NumBytesRead()
+	if err := d.dec.Decode(dest); err != nil {
+		return 0, nil, err
+	}
+	relEnd := d.dec.NumBytesRead()
+	return absStart, d.data[d.consumed+relStart : d.consumed+relEnd], nil
+}
+
+// RawBytes returns the raw bytes for the given offset and length.
+func (d *StreamDecoder) RawBytes(offset, length int) []byte {
+	if offset+length > len(d.data) {
+		return nil
+	}
+	return d.data[offset : offset+length]
+}
+
+// Data returns the underlying byte slice.
+func (d *StreamDecoder) Data() []byte {
+	return d.data
+}
+
+// EOF returns true if the decoder has reached the end of the data.
+func (d *StreamDecoder) EOF() bool {
+	return d.consumed+d.dec.NumBytesRead() >= len(d.data)
+}
+
+// Advance moves the decoder position forward by n bytes without decoding.
+// This is useful for skipping past headers that were parsed manually.
+// Returns an error if n would advance past the end of data.
+func (d *StreamDecoder) Advance(n int) error {
+	if n < 0 {
+		return errors.New("cannot advance by negative amount")
+	}
+	newPos := d.consumed + d.dec.NumBytesRead() + n
+	if newPos > len(d.data) {
+		return errors.New("advance would exceed data bounds")
+	}
+	d.consumed = newPos
+	// Reinitialize decoder with remaining data
+	decOptions := _cbor.DecOptions{
+		ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+		MaxNestedLevels:   256,
+	}
+	decMode, err := decOptions.DecModeWithTags(customTagSet)
+	if err != nil {
+		return err
+	}
+	d.dec = decMode.NewDecoder(bytes.NewReader(d.data[d.consumed:]))
+	return nil
+}
+
+// DecodeArrayHeader decodes a CBOR array header and returns the number of elements.
+// This advances the position past the header only, not the array contents.
+// Returns (arrayLength, headerOffset, headerLength, error).
+func (d *StreamDecoder) DecodeArrayHeader() (int, int, int, error) {
+	relStart := d.dec.NumBytesRead()
+	absStart := d.consumed + relStart
+	if absStart >= len(d.data) {
+		return 0, 0, 0, errors.New("unexpected end of data")
+	}
+
+	// Parse array header manually to avoid consuming content
+	firstByte := d.data[absStart]
+	majorType := firstByte & CborTypeMask
+
+	if majorType != CborTypeArray {
+		return 0, 0, 0, fmt.Errorf("expected array (0x%x), got 0x%x", CborTypeArray, majorType)
+	}
+
+	additionalInfo := firstByte & 0x1f
+	var length int
+	var headerLen int
+
+	switch {
+	case additionalInfo < 24:
+		// Length encoded in the first byte
+		length = int(additionalInfo)
+		headerLen = 1
+	case additionalInfo == 24:
+		// 1-byte length follows
+		if absStart+2 > len(d.data) {
+			return 0, 0, 0, errors.New("unexpected end of data reading array length")
+		}
+		length = int(d.data[absStart+1])
+		headerLen = 2
+	case additionalInfo == 25:
+		// 2-byte length follows (big-endian)
+		if absStart+3 > len(d.data) {
+			return 0, 0, 0, errors.New("unexpected end of data reading array length")
+		}
+		length = int(d.data[absStart+1])<<8 | int(d.data[absStart+2])
+		headerLen = 3
+	case additionalInfo == 26:
+		// 4-byte length follows (big-endian)
+		if absStart+5 > len(d.data) {
+			return 0, 0, 0, errors.New("unexpected end of data reading array length")
+		}
+		length = int(d.data[absStart+1])<<24 | int(d.data[absStart+2])<<16 |
+			int(d.data[absStart+3])<<8 | int(d.data[absStart+4])
+		headerLen = 5
+	case additionalInfo == 31:
+		// Indefinite length array - need to count elements
+		return 0, 0, 0, errors.New("indefinite length arrays not supported in header-only decode")
+	default:
+		return 0, 0, 0, fmt.Errorf("invalid array additional info: %d", additionalInfo)
+	}
+
+	// Advance the decoder position past the header
+	if err := d.Advance(headerLen); err != nil {
+		return 0, 0, 0, err
+	}
+
+	return length, absStart, headerLen, nil
+}
+
+// DecodeMapHeader decodes a CBOR map header and returns the number of key-value pairs.
+// This advances the position past the header only, not the map contents.
+// Returns (mapLength, headerOffset, headerLength, error).
+func (d *StreamDecoder) DecodeMapHeader() (int, int, int, error) {
+	relStart := d.dec.NumBytesRead()
+	absStart := d.consumed + relStart
+	if absStart >= len(d.data) {
+		return 0, 0, 0, errors.New("unexpected end of data")
+	}
+
+	firstByte := d.data[absStart]
+	majorType := firstByte & CborTypeMask
+
+	if majorType != CborTypeMap {
+		return 0, 0, 0, fmt.Errorf("expected map (0x%x), got 0x%x", CborTypeMap, majorType)
+	}
+
+	additionalInfo := firstByte & 0x1f
+	var length int
+	var headerLen int
+
+	switch {
+	case additionalInfo < 24:
+		length = int(additionalInfo)
+		headerLen = 1
+	case additionalInfo == 24:
+		if absStart+2 > len(d.data) {
+			return 0, 0, 0, errors.New("unexpected end of data reading map length")
+		}
+		length = int(d.data[absStart+1])
+		headerLen = 2
+	case additionalInfo == 25:
+		if absStart+3 > len(d.data) {
+			return 0, 0, 0, errors.New("unexpected end of data reading map length")
+		}
+		length = int(d.data[absStart+1])<<8 | int(d.data[absStart+2])
+		headerLen = 3
+	case additionalInfo == 26:
+		if absStart+5 > len(d.data) {
+			return 0, 0, 0, errors.New("unexpected end of data reading map length")
+		}
+		length = int(d.data[absStart+1])<<24 | int(d.data[absStart+2])<<16 |
+			int(d.data[absStart+3])<<8 | int(d.data[absStart+4])
+		headerLen = 5
+	case additionalInfo == 31:
+		return 0, 0, 0, errors.New("indefinite length maps not supported in header-only decode")
+	default:
+		return 0, 0, 0, fmt.Errorf("invalid map additional info: %d", additionalInfo)
+	}
+
+	// Advance the decoder position past the header
+	if err := d.Advance(headerLen); err != nil {
+		return 0, 0, 0, err
+	}
+
+	return length, absStart, headerLen, nil
+}
+
+// SkipN skips n CBOR items and returns the total byte range skipped.
+// Returns (startOffset, totalLength, error).
+func (d *StreamDecoder) SkipN(n int) (int, int, error) {
+	if n <= 0 {
+		pos := d.consumed + d.dec.NumBytesRead()
+		return pos, 0, nil
+	}
+
+	start := d.consumed + d.dec.NumBytesRead()
+	for i := 0; i < n; i++ {
+		if err := d.dec.Skip(); err != nil {
+			return 0, 0, fmt.Errorf("skip item %d: %w", i, err)
+		}
+	}
+	end := d.consumed + d.dec.NumBytesRead()
+	return start, end - start, nil
+}
+
+// DecodeArrayItems decodes all items in an array, calling the callback for each.
+// The callback receives the item index, start offset, and length.
+// Returns the total array byte range (including header).
+func (d *StreamDecoder) DecodeArrayItems(
+	callback func(index int, offset int, length int, data []byte) error,
+) (int, int, error) {
+	arrayStart := d.consumed + d.dec.NumBytesRead()
+
+	// Decode as array of RawMessage to get each item's bytes
+	var items []RawMessage
+	if _, _, err := d.Decode(&items); err != nil {
+		return 0, 0, fmt.Errorf("decode array: %w", err)
+	}
+
+	arrayEnd := d.consumed + d.dec.NumBytesRead()
+
+	// Calculate actual header size from the raw bytes to handle non-canonical encodings
+	headerLen, err := cborArrayHeaderSizeFromBytes(d.data, arrayStart)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse array header: %w", err)
+	}
+
+	// Calculate positions for each item
+	// The array header is followed by consecutive items
+	pos := arrayStart + headerLen
+	for i, item := range items {
+		itemLen := len(item)
+		if callback != nil {
+			if err := callback(i, pos, itemLen, []byte(item)); err != nil {
+				return 0, 0, err
+			}
+		}
+		pos += itemLen
+	}
+
+	return arrayStart, arrayEnd - arrayStart, nil
+}
+
+// cborArrayHeaderSizeFromBytes returns the actual size of a CBOR array header by
+// reading the bytes at the given offset. This handles non-canonical encodings correctly.
+// Returns an error for indefinite-length arrays.
+func cborArrayHeaderSizeFromBytes(data []byte, offset int) (int, error) {
+	if offset >= len(data) {
+		return 0, errors.New("unexpected end of data reading array header")
+	}
+
+	firstByte := data[offset]
+	majorType := firstByte & CborTypeMask
+
+	if majorType != CborTypeArray {
+		return 0, fmt.Errorf("expected array (0x%x), got 0x%x", CborTypeArray, majorType)
+	}
+
+	additionalInfo := firstByte & 0x1f
+
+	switch {
+	case additionalInfo < 24:
+		return 1, nil
+	case additionalInfo == 24:
+		return 2, nil
+	case additionalInfo == 25:
+		return 3, nil
+	case additionalInfo == 26:
+		return 5, nil
+	case additionalInfo == 27:
+		return 9, nil
+	case additionalInfo == 31:
+		return 0, errors.New("indefinite length arrays not supported")
+	default:
+		return 0, fmt.Errorf("invalid array additional info: %d", additionalInfo)
+	}
 }
