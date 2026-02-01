@@ -914,8 +914,14 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 		Transactions: make([]TransactionLocation, len(txBodiesRaw)),
 	}
 
-	// Calculate body offsets within the tx bodies array
-	bodiesArrayHeader := cborArrayHeaderSize(len(txBodiesRaw))
+	// Calculate body offsets within the tx bodies array.
+	// Check for indefinite-length array (0x9f) which uses 1-byte header.
+	var bodiesArrayHeader uint32
+	if int(txBodiesOffset) < len(cborData) && cborData[txBodiesOffset] == 0x9f {
+		bodiesArrayHeader = 1
+	} else {
+		bodiesArrayHeader = cborArrayHeaderSize(len(txBodiesRaw))
+	}
 	bodyPos := txBodiesOffset + bodiesArrayHeader
 	for i, rawBody := range txBodiesRaw {
 		bodyLen := uint32(len(rawBody)) // #nosec G115 -- Cardano block segments are <<4GiB
@@ -930,8 +936,14 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 		bodyPos += bodyLen
 	}
 
-	// Calculate witness offsets within the witnesses array
-	witnessArrayHeader := cborArrayHeaderSize(len(witnessesRaw))
+	// Calculate witness offsets within the witnesses array.
+	// Check for indefinite-length array (0x9f) which uses 1-byte header.
+	var witnessArrayHeader uint32
+	if int(witnessesOffset) < len(cborData) && cborData[witnessesOffset] == 0x9f {
+		witnessArrayHeader = 1
+	} else {
+		witnessArrayHeader = cborArrayHeaderSize(len(witnessesRaw))
+	}
 	witnessPos := witnessesOffset + witnessArrayHeader
 	for i, rawWitness := range witnessesRaw {
 		if i < len(result.Transactions) {
@@ -1032,7 +1044,17 @@ func extractOutputOffsets(
 			// Calculate the absolute offset of the outputs array
 			// #nosec G115 -- valueStart is position within a Cardano tx body, well under 4GiB
 			outputsArrayOffset := bodyOffset + headerSize + uint32(valueStart)
-			outputsArrayHeader := uint32(cborArrayHeaderSize(len(outputsRaw)))
+
+			// Determine actual array header size from the data.
+			// For indefinite-length arrays (0x9f), header is 1 byte.
+			// For definite-length arrays, use cborArrayHeaderSize.
+			arrayStartIdx := int(headerSize) + valueStart
+			var outputsArrayHeader uint32
+			if arrayStartIdx < len(bodyData) && bodyData[arrayStartIdx] == 0x9f {
+				outputsArrayHeader = 1 // indefinite-length array
+			} else {
+				outputsArrayHeader = uint32(cborArrayHeaderSize(len(outputsRaw)))
+			}
 
 			// Track position within outputs array
 			outputPos := outputsArrayOffset + outputsArrayHeader
@@ -1041,8 +1063,31 @@ func extractOutputOffsets(
 			loc.Outputs = make([]ByteRange, len(outputsRaw))
 			for j, rawOutput := range outputsRaw {
 				outputLen := uint32(len(rawOutput)) // #nosec G115 -- Cardano outputs are <<4GiB
+
+				// Validate offset by checking for valid CBOR type byte.
+				// Transaction outputs are either arrays (0x80-0x9f) or maps (0xa0-0xbf).
+				// If the byte at outputPos doesn't match, adjust backward to find the
+				// correct position. This handles edge cases in CBOR array decoding.
+				adjustedOffset := outputPos
+				bodyIdx := int(adjustedOffset - bodyOffset)
+				if bodyIdx >= 0 && bodyIdx < len(bodyData) {
+					byteAtPos := bodyData[bodyIdx]
+					// Check if this is a valid output type byte
+					isValidOutputStart := (byteAtPos >= 0x80 && byteAtPos <= 0x9f) || // array
+						(byteAtPos >= 0xa0 && byteAtPos <= 0xbf) // map
+					if !isValidOutputStart && bodyIdx > 0 {
+						// Check if the previous byte is a valid start
+						prevByte := bodyData[bodyIdx-1]
+						isPrevValid := (prevByte >= 0x80 && prevByte <= 0x9f) ||
+							(prevByte >= 0xa0 && prevByte <= 0xbf)
+						if isPrevValid {
+							adjustedOffset--
+						}
+					}
+				}
+
 				loc.Outputs[j] = ByteRange{
-					Offset: outputPos,
+					Offset: adjustedOffset,
 					Length: outputLen,
 				}
 				outputPos += outputLen
