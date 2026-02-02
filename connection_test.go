@@ -24,6 +24,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
@@ -120,6 +122,8 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithLocalTxSubmissionConfig", ouroboros.WithLocalTxSubmissionConfig(localtxsubmission.Config{})},
 		{"WithPeerSharingConfig", ouroboros.WithPeerSharingConfig(peersharing.Config{})},
 		{"WithTxSubmissionConfig", ouroboros.WithTxSubmissionConfig(txsubmission.Config{})},
+		{"WithLeiosFetchConfig", ouroboros.WithLeiosFetchConfig(leiosfetch.Config{})},
+		{"WithLeiosNotifyConfig", ouroboros.WithLeiosNotifyConfig(leiosnotify.Config{})},
 	}
 
 	for _, tc := range testCases {
