@@ -576,6 +576,8 @@ func UtxoValidateValueNotConservedUtxo(
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
 			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
+			// Pool deposits are refunded to the reward account at the end of the retiring epoch.
 		}
 	}
 	// Calculate produced value

@@ -2237,7 +2237,7 @@ func executeTransaction(
 			}
 
 		case *common.ResignCommitteeColdCertificate:
-			// Haskell validation: isCurrentMember || isPotentialFutureMember
+			// Cardano spec: resign is only valid for current CC members or proposed members
 			// Check that the cold credential is a current committee member
 			coldHash := c.ColdCredential.Credential
 			isCurrentMember := false
@@ -2259,7 +2259,7 @@ func executeTransaction(
 			}
 			if !isCurrentMember && !isPotentialFutureMember {
 				return false, fmt.Errorf(
-					"cannot resign: cold credential %x is not a committee member",
+					"cannot resign non-member %x",
 					coldHash[:],
 				)
 			}
