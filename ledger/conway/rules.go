@@ -1631,7 +1631,13 @@ func MinFeeTx(
 	return minFee, nil
 }
 
-// MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters
+// MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters.
+// Per CIP-55, the formula includes a 160-byte constant overhead to account for the transaction
+// input and UTxO map entry overhead that is not captured in the CBOR serialization.
+// Formula: minCoin = coinsPerUTxOByte * (160 + serializedOutputSize)
+// Reference: https://cips.cardano.org/cip/CIP-55
+const minUtxoOverheadBytes = 160
+
 func MinCoinTxOut(
 	txOut common.TransactionOutput,
 	pparams common.ProtocolParameters,
@@ -1644,7 +1650,7 @@ func MinCoinTxOut(
 	if err != nil {
 		return 0, err
 	}
-	minCoinTxOut := tmpPparams.AdaPerUtxoByte * uint64(len(txOutBytes))
+	minCoinTxOut := tmpPparams.AdaPerUtxoByte * (minUtxoOverheadBytes + uint64(len(txOutBytes)))
 	return minCoinTxOut, nil
 }
 
