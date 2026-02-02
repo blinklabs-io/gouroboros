@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAddressFromBytes(t *testing.T) {
@@ -654,6 +655,740 @@ func TestAddressBech32_CIP0005(t *testing.T) {
 			addr2, err := NewAddress(addr.String())
 			assert.NoError(t, err)
 			assert.Equal(t, addr, addr2)
+		})
+	}
+}
+
+// CIP-0019 Address Edge Case Tests
+// These tests verify correct handling of malformed, edge case, and boundary condition addresses
+// as specified in CIP-0019 (Cardano Address Format).
+
+func TestCIP0019_MalformedAddressBytes(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       []byte
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "empty input",
+			input:       []byte{},
+			expectError: true,
+			errorMsg:    "invalid address data: empty byte slice",
+		},
+		{
+			name:        "single byte only (header)",
+			input:       []byte{0x01},
+			expectError: true,
+			errorMsg:    "invalid payment payload",
+		},
+		{
+			name:        "truncated key hash (too short)",
+			input:       []byte{0x01, 0x02, 0x03, 0x04},
+			expectError: true,
+			errorMsg:    "invalid payment payload",
+		},
+		{
+			name:        "truncated type 0 address (27 bytes instead of 57)",
+			input:       append([]byte{0x01}, make([]byte, 26)...),
+			expectError: true,
+			errorMsg:    "invalid payment payload",
+		},
+		{
+			name:        "truncated type 0 address (29 bytes - missing staking)",
+			input:       append([]byte{0x01}, make([]byte, 28)...),
+			expectError: true,
+			errorMsg:    "invalid staking payload",
+		},
+		{
+			name:        "valid type 6 enterprise address (29 bytes total)",
+			input:       append([]byte{0x61}, make([]byte, 28)...),
+			expectError: false,
+		},
+		{
+			name:        "truncated script hash",
+			input:       append([]byte{0x11}, make([]byte, 20)...), // type 1, needs 28 bytes
+			expectError: true,
+			errorMsg:    "invalid payment payload",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewAddressFromBytes(tt.input)
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCIP0019_AllAddressTypes(t *testing.T) {
+	// Test all 8 Shelley address types (0-7) plus reward types (14-15)
+	// Create valid test data for each address type
+	paymentHash := make([]byte, 28)
+	stakingHash := make([]byte, 28)
+	for i := 0; i < 28; i++ {
+		paymentHash[i] = byte(i)
+		stakingHash[i] = byte(i + 28)
+	}
+
+	tests := []struct {
+		name        string
+		addrType    uint8
+		networkId   uint8
+		hasPayment  bool
+		hasStaking  bool
+		isPointer   bool
+		expectError bool
+	}{
+		{
+			name:       "Type 0: KeyKey (payment key + stake key)",
+			addrType:   AddressTypeKeyKey,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: true,
+		},
+		{
+			name:       "Type 1: ScriptKey (payment script + stake key)",
+			addrType:   AddressTypeScriptKey,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: true,
+		},
+		{
+			name:       "Type 2: KeyScript (payment key + stake script)",
+			addrType:   AddressTypeKeyScript,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: true,
+		},
+		{
+			name:       "Type 3: ScriptScript (payment script + stake script)",
+			addrType:   AddressTypeScriptScript,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: true,
+		},
+		{
+			name:       "Type 4: KeyPointer (payment key + stake pointer)",
+			addrType:   AddressTypeKeyPointer,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: true,
+			isPointer:  true,
+		},
+		{
+			name:       "Type 5: ScriptPointer (payment script + stake pointer)",
+			addrType:   AddressTypeScriptPointer,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: true,
+			isPointer:  true,
+		},
+		{
+			name:       "Type 6: KeyNone (enterprise key address)",
+			addrType:   AddressTypeKeyNone,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: false,
+		},
+		{
+			name:       "Type 7: ScriptNone (enterprise script address)",
+			addrType:   AddressTypeScriptNone,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: true,
+			hasStaking: false,
+		},
+		{
+			name:       "Type 14: NoneKey (reward key address)",
+			addrType:   AddressTypeNoneKey,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: false,
+			hasStaking: true,
+		},
+		{
+			name:       "Type 15: NoneScript (reward script address)",
+			addrType:   AddressTypeNoneScript,
+			networkId:  AddressNetworkMainnet,
+			hasPayment: false,
+			hasStaking: true,
+		},
+		// Testnet variants
+		{
+			name:       "Type 0: KeyKey (testnet)",
+			addrType:   AddressTypeKeyKey,
+			networkId:  AddressNetworkTestnet,
+			hasPayment: true,
+			hasStaking: true,
+		},
+		{
+			name:       "Type 6: KeyNone (testnet)",
+			addrType:   AddressTypeKeyNone,
+			networkId:  AddressNetworkTestnet,
+			hasPayment: true,
+			hasStaking: false,
+		},
+		{
+			name:       "Type 14: NoneKey (testnet)",
+			addrType:   AddressTypeNoneKey,
+			networkId:  AddressNetworkTestnet,
+			hasPayment: false,
+			hasStaking: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var addr Address
+			var err error
+
+			if tt.isPointer {
+				// Build pointer address manually
+				header := (tt.addrType << 4) | (tt.networkId & AddressHeaderNetworkMask)
+				data := []byte{header}
+				data = append(data, paymentHash...)
+				// Add pointer data (slot=1, tx=0, cert=0 -> minimal encoding)
+				data = append(data, 0x01, 0x00, 0x00)
+				addr, err = NewAddressFromBytes(data)
+			} else if tt.hasPayment && tt.hasStaking {
+				addr, err = NewAddressFromParts(tt.addrType, tt.networkId, paymentHash, stakingHash)
+			} else if tt.hasPayment {
+				addr, err = NewAddressFromParts(tt.addrType, tt.networkId, paymentHash, nil)
+			} else {
+				// Reward address - build directly from bytes
+				header := (tt.addrType << 4) | (tt.networkId & AddressHeaderNetworkMask)
+				data := []byte{header}
+				data = append(data, stakingHash...)
+				addr, err = NewAddressFromBytes(data)
+			}
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.addrType, addr.Type())
+			assert.Equal(t, uint(tt.networkId), addr.NetworkId())
+
+			// Round-trip test
+			addrBytes, err := addr.Bytes()
+			require.NoError(t, err)
+			addr2, err := NewAddressFromBytes(addrBytes)
+			require.NoError(t, err)
+			assert.Equal(t, addr.String(), addr2.String())
+		})
+	}
+}
+
+func TestCIP0019_NetworkIdEdgeCases(t *testing.T) {
+	paymentHash := make([]byte, 28)
+	stakingHash := make([]byte, 28)
+
+	tests := []struct {
+		name              string
+		networkId         uint8
+		expectError       bool
+		expectedNetworkId uint
+	}{
+		{
+			name:              "testnet (0)",
+			networkId:         AddressNetworkTestnet,
+			expectError:       false,
+			expectedNetworkId: AddressNetworkTestnet,
+		},
+		{
+			name:              "mainnet (1)",
+			networkId:         AddressNetworkMainnet,
+			expectError:       false,
+			expectedNetworkId: AddressNetworkMainnet,
+		},
+		{
+			name:        "invalid network id (2)",
+			networkId:   2,
+			expectError: true,
+		},
+		{
+			name:        "invalid network id (15)",
+			networkId:   15,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr, err := NewAddressFromParts(
+				AddressTypeKeyKey,
+				tt.networkId,
+				paymentHash,
+				stakingHash,
+			)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedNetworkId, addr.NetworkId())
+			}
+		})
+	}
+}
+
+func TestCIP0019_ByronAddressCRC32Validation(t *testing.T) {
+	tests := []struct {
+		name          string
+		addressHex    string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:        "valid Byron mainnet address",
+			addressHex:  "82d818584283581caf56de241bcca83d72c51e74d18487aa5bc68b45e2caa170fa329d3aa101581e581cea1425ccdd649b25af5deb7e6335da2eb8167353a55e77925122e95f001a3a858621",
+			expectError: false,
+		},
+		{
+			name:        "valid Byron testnet address",
+			addressHex:  "82d818582483581c5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dda1024102001a36d41aba",
+			expectError: false,
+		},
+		{
+			name:          "Byron address with invalid CRC32 (modified checksum)",
+			addressHex:   "82d818582483581c5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dda1024102001a00000000",
+			expectError:   true,
+			errorContains: "checksum",
+		},
+		{
+			name:          "Byron address with corrupted payload",
+			addressHex:   "82d818582483581c0000000000000000000000000000000000000000000000000000000000a1024102001a36d41aba",
+			expectError:   true,
+			errorContains: "checksum",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addrBytes, err := hex.DecodeString(tt.addressHex)
+			require.NoError(t, err)
+
+			_, err = NewAddressFromBytes(addrBytes)
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorContains != "" {
+					assert.Contains(t, err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCIP0019_EmptyAndNilInputHandling(t *testing.T) {
+	t.Run("empty bytes", func(t *testing.T) {
+		_, err := NewAddressFromBytes([]byte{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty byte slice")
+	})
+
+	t.Run("nil bytes", func(t *testing.T) {
+		_, err := NewAddressFromBytes(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty byte slice")
+	})
+
+	t.Run("empty string", func(t *testing.T) {
+		_, err := NewAddress("")
+		require.Error(t, err)
+	})
+
+	t.Run("whitespace only string", func(t *testing.T) {
+		_, err := NewAddress("   ")
+		require.Error(t, err)
+	})
+}
+
+func TestCIP0019_MaximumLengthAddresses(t *testing.T) {
+	// Test addresses with extra data (as seen in the wild)
+	// Reference: https://github.com/IntersectMBO/cardano-ledger/issues/2729
+
+	tests := []struct {
+		name       string
+		addressHex string
+		expectLen  int
+	}{
+		{
+			name:       "long address with extra data",
+			addressHex: "015bad085057ac10ecc7060f7ac41edd6f63068d8963ef7d86ca58669e5ecf2d283418a60be5a848a2380eb721000da1e0bbf39733134beca4cb57afb0b35fc89c63061c9914e055001a518c7516",
+			expectLen:  78, // This address has extra data beyond standard 57 bytes
+		},
+		{
+			name:       "enterprise address with extra trailing data",
+			addressHex: "61549b5a20e449a3e394b762705f64b9a26b99013003a2bfdba239967c00",
+			expectLen:  30,
+		},
+		{
+			name:       "standard type 0 address",
+			addressHex: "013f35615835258addded1c2e169f3a2ab4ae94d606bde030e7947f5184ff5f8e3d43ce6b19ec4197e331e86d0f5e58b02d7a75b5e74cff95d",
+			expectLen:  57,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addrBytes, err := hex.DecodeString(tt.addressHex)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectLen, len(addrBytes))
+
+			addr, err := NewAddressFromBytes(addrBytes)
+			require.NoError(t, err)
+
+			// Round-trip should preserve the data
+			roundTrip, err := addr.Bytes()
+			require.NoError(t, err)
+			assert.Equal(t, addrBytes, roundTrip)
+
+			// String encoding should work
+			addrStr := addr.String()
+			assert.NotEmpty(t, addrStr)
+
+			// Should be able to parse back from string
+			addr2, err := NewAddress(addrStr)
+			require.NoError(t, err)
+			assert.Equal(t, addr.String(), addr2.String())
+		})
+	}
+}
+
+func TestCIP0019_PointerAddressEdgeCases(t *testing.T) {
+	paymentHash := make([]byte, 28)
+
+	tests := []struct {
+		name         string
+		slot         uint64
+		txIndex      uint64
+		certIndex    uint64
+		expectError  bool
+		expectedLen  int
+	}{
+		{
+			name:        "minimal pointer (0,0,0)",
+			slot:        0,
+			txIndex:     0,
+			certIndex:   0,
+			expectedLen: 32, // 1 + 28 + 3 (one byte each)
+		},
+		{
+			name:        "small values (1,1,1)",
+			slot:        1,
+			txIndex:     1,
+			certIndex:   1,
+			expectedLen: 32,
+		},
+		{
+			name:        "values requiring 2 bytes (128,128,128)",
+			slot:        128,
+			txIndex:     128,
+			certIndex:   128,
+			expectedLen: 35, // 1 + 28 + 6 (two bytes each)
+		},
+		{
+			name:        "large slot value",
+			slot:        0xFFFFFFFF,
+			txIndex:     0,
+			certIndex:   0,
+			expectedLen: 36, // 1 + 28 + 5 + 1 + 1
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Build the pointer encoding manually
+			encodeVarUint := func(val uint64) []byte {
+				if val == 0 {
+					return []byte{0x00}
+				}
+				result := []byte{byte(val & 0x7F)}
+				val /= 128
+				for val > 0 {
+					result = append([]byte{byte((val & 0x7F) | 0x80)}, result...)
+					val /= 128
+				}
+				return result
+			}
+
+			header := byte((AddressTypeKeyPointer << 4) | (AddressNetworkMainnet & AddressHeaderNetworkMask))
+			data := []byte{header}
+			data = append(data, paymentHash...)
+			data = append(data, encodeVarUint(tt.slot)...)
+			data = append(data, encodeVarUint(tt.txIndex)...)
+			data = append(data, encodeVarUint(tt.certIndex)...)
+
+			addr, err := NewAddressFromBytes(data)
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, uint8(AddressTypeKeyPointer), addr.Type())
+
+			// Verify the pointer data is preserved
+			stakingPayload := addr.StakingPayload()
+			require.NotNil(t, stakingPayload)
+			pointer, ok := stakingPayload.(AddressPayloadPointer)
+			require.True(t, ok)
+			assert.Equal(t, tt.slot, pointer.Slot)
+			assert.Equal(t, tt.txIndex, pointer.TxIndex)
+			assert.Equal(t, tt.certIndex, pointer.CertIndex)
+		})
+	}
+}
+
+func TestCIP0019_InvalidBech32Inputs(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectError bool
+	}{
+		{
+			name:        "invalid characters",
+			input:       "addr1qx!@#$%^&*()",
+			expectError: true,
+		},
+		{
+			name:        "wrong HRP",
+			input:       "wrong1qx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgse35a3x",
+			expectError: true,
+		},
+		{
+			name:        "truncated address",
+			input:       "addr1qx2fxv2",
+			expectError: true,
+		},
+		{
+			name:        "invalid checksum",
+			input:       "addr1qx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgsXXXXXX",
+			expectError: true,
+		},
+		{
+			name:        "mixed case (should be interpreted as base58)",
+			input:       "Ae2tdPwUPEYwFx4dmJheyNPPYXtvHbJLeCaA96o6Y2iiUL18cAt7AizN2zG",
+			expectError: false, // This is a valid Byron address
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewAddress(tt.input)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCIP0019_PaymentAndStakeAddressExtraction(t *testing.T) {
+	tests := []struct {
+		name              string
+		address           string
+		hasPaymentAddress bool
+		hasStakeAddress   bool
+	}{
+		{
+			name:              "Type 0 (KeyKey) - has both",
+			address:           "addr1qx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgse35a3x",
+			hasPaymentAddress: true,
+			hasStakeAddress:   true,
+		},
+		{
+			name:              "Type 6 (KeyNone) - payment only",
+			address:           "addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+			hasPaymentAddress: true,
+			hasStakeAddress:   false,
+		},
+		{
+			name:              "Type 14 (NoneKey) - stake only",
+			address:           "stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw",
+			hasPaymentAddress: false,
+			hasStakeAddress:   false, // StakeAddress() returns nil for reward addresses
+		},
+		{
+			name:              "Type 4 (KeyPointer) - no payment/stake address extraction",
+			address:           "addr1gx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer5pnz75xxcrzqf96k",
+			hasPaymentAddress: false, // PaymentAddress() returns nil for pointer addresses
+			hasStakeAddress:   false, // Pointer addresses don't extract stake address
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr, err := NewAddress(tt.address)
+			require.NoError(t, err)
+
+			if tt.hasPaymentAddress {
+				assert.NotNil(t, addr.PaymentAddress())
+			} else {
+				assert.Nil(t, addr.PaymentAddress())
+			}
+
+			if tt.hasStakeAddress {
+				assert.NotNil(t, addr.StakeAddress())
+			} else {
+				assert.Nil(t, addr.StakeAddress())
+			}
+		})
+	}
+}
+
+func TestCIP0019_HeaderByteParsing(t *testing.T) {
+	// Test that address type and network ID are correctly extracted from header byte
+	tests := []struct {
+		name              string
+		headerByte        byte
+		expectedType      uint8
+		expectedNetworkId uint8
+	}{
+		{
+			name:              "Type 0, Testnet",
+			headerByte:        0x00,
+			expectedType:      0,
+			expectedNetworkId: 0,
+		},
+		{
+			name:              "Type 0, Mainnet",
+			headerByte:        0x01,
+			expectedType:      0,
+			expectedNetworkId: 1,
+		},
+		{
+			name:              "Type 1, Mainnet",
+			headerByte:        0x11,
+			expectedType:      1,
+			expectedNetworkId: 1,
+		},
+		{
+			name:              "Type 6, Mainnet (enterprise)",
+			headerByte:        0x61,
+			expectedType:      6,
+			expectedNetworkId: 1,
+		},
+		{
+			name:              "Type 7, Testnet (enterprise script)",
+			headerByte:        0x70,
+			expectedType:      7,
+			expectedNetworkId: 0,
+		},
+		{
+			name:              "Type 14, Mainnet (stake key)",
+			headerByte:        0xE1,
+			expectedType:      14,
+			expectedNetworkId: 1,
+		},
+		{
+			name:              "Type 15, Testnet (stake script)",
+			headerByte:        0xF0,
+			expectedType:      15,
+			expectedNetworkId: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify header byte parsing
+			parsedType := (tt.headerByte & AddressHeaderTypeMask) >> 4
+			parsedNetwork := tt.headerByte & AddressHeaderNetworkMask
+
+			assert.Equal(t, tt.expectedType, parsedType)
+			assert.Equal(t, tt.expectedNetworkId, parsedNetwork)
+		})
+	}
+}
+
+func TestCIP0019_CBORRoundTrip(t *testing.T) {
+	testAddresses := []string{
+		// Type 0 - KeyKey
+		"addr1qx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgse35a3x",
+		// Type 1 - ScriptKey
+		"addr1z8phkx6acpnf78fuvxn0mkew3l0fd058hzquvz7w36x4gten0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgs9yc0hh",
+		// Type 6 - KeyNone
+		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+		// Type 14 - NoneKey (stake)
+		"stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw",
+		// Testnet
+		"addr_test1qz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgs68faae",
+	}
+
+	for _, addrStr := range testAddresses {
+		t.Run(addrStr[:20]+"...", func(t *testing.T) {
+			addr, err := NewAddress(addrStr)
+			require.NoError(t, err)
+
+			// Marshal to CBOR
+			cborData, err := addr.MarshalCBOR()
+			require.NoError(t, err)
+			assert.NotEmpty(t, cborData)
+
+			// Unmarshal from CBOR
+			var decoded Address
+			err = decoded.UnmarshalCBOR(cborData)
+			require.NoError(t, err)
+
+			// Verify round-trip
+			assert.Equal(t, addr.String(), decoded.String())
+			assert.Equal(t, addr.Type(), decoded.Type())
+			assert.Equal(t, addr.NetworkId(), decoded.NetworkId())
+		})
+	}
+}
+
+func TestCIP0019_ByronAddressAttributes(t *testing.T) {
+	// Test Byron addresses with various attribute configurations
+	tests := []struct {
+		name              string
+		address           string
+		expectMainnet     bool
+		hasDerivationPath bool
+	}{
+		{
+			name:              "mainnet with derivation path",
+			address:           "DdzFFzCqrht2ii4Vc7KRchSkVvQtCqdGkQt4nF4Yxg1NpsubFBity2Tpt2eSEGrxBH1eva8qCFKM2Y5QkwM1SFBizRwZgz1N452WYvgG",
+			expectMainnet:     true,
+			hasDerivationPath: true,
+		},
+		{
+			name:              "testnet (preview) without derivation path",
+			address:           "FHnt4NL7yPXvDWHa8bVs73UEUdJd64VxWXSFNqetECtYfTd9TtJguJ14Lu3feth",
+			expectMainnet:     false,
+			hasDerivationPath: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr, err := NewAddress(tt.address)
+			require.NoError(t, err)
+
+			assert.Equal(t, uint8(AddressTypeByron), addr.Type())
+
+			if tt.expectMainnet {
+				assert.Equal(t, uint(AddressNetworkMainnet), addr.NetworkId())
+			} else {
+				assert.Equal(t, uint(AddressNetworkTestnet), addr.NetworkId())
+			}
+
+			// Check Byron attributes
+			attr := addr.ByronAttr()
+			if tt.hasDerivationPath {
+				assert.NotEmpty(t, attr.Payload)
+			}
 		})
 	}
 }
