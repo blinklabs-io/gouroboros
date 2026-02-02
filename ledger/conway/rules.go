@@ -1011,6 +1011,8 @@ func UtxoValidateValueNotConservedUtxo(
 		case *common.StakeDeregistrationCertificate:
 			// Traditional stake deregistration uses protocol KeyDeposit parameter
 			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
+			// Pool deposits are refunded at epoch boundary after the retirement epoch has passed.
 		}
 	}
 	// Add minted/burned ADA

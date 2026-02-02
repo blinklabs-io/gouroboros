@@ -1105,6 +1105,62 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}
 		},
 	)
+	// Pool retirement and re-registration in same transaction
+	t.Run(
+		"pool retire and re-register",
+		func(t *testing.T) {
+			var poolDeposit uint64 = 500_000_000 // 500 ADA
+			poolKeyHash := common.Blake2b224{1, 2, 3, 4, 5}
+
+			// Create a ledger state with a registered pool and UTxOs
+			poolCert := &common.PoolRegistrationCertificate{
+				Operator: poolKeyHash,
+			}
+			ledgerState := mockledger.NewLedgerStateBuilder().
+				WithUtxos(utxos).
+				WithPools([]*common.PoolRegistrationCertificate{poolCert}).
+				Build()
+
+			pparams := &conway.ConwayProtocolParameters{
+				KeyDeposit:  uint(testStakeDeposit),
+				PoolDeposit: uint(poolDeposit),
+			}
+
+			// Transaction with pool retirement followed by re-registration
+			// Pool retirement does NOT refund deposit in transaction (refund happens at epoch boundary)
+			// Pool re-registration does NOT require deposit (pool already registered)
+			// Consumed: input = 555666777
+			// Produced: output + fee = (input - fee) + fee = input = 555666777
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testInputAmount - testFee
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypePoolRetirement),
+					Certificate: &common.PoolRetirementCertificate{
+						PoolKeyHash: poolKeyHash,
+						Epoch:       100,
+					},
+				},
+				{
+					Type: uint(common.CertificateTypePoolRegistration),
+					Certificate: &common.PoolRegistrationCertificate{
+						Operator: poolKeyHash,
+					},
+				},
+			}
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				ledgerState,
+				pparams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should succeed with pool retire and re-register\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
 }
 
 func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
