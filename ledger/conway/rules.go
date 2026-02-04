@@ -2456,7 +2456,7 @@ func UtxoValidateCCVotingRestrictions(
 ) error {
 	conwayPp, ok := pp.(*ConwayProtocolParameters)
 	if !ok {
-		return nil // Not Conway params, skip validation
+		return errors.New("pparams are not expected type")
 	}
 	if !common.IsProtocolVersionAtLeast(
 		conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem,
