@@ -48,6 +48,9 @@ type PoolState interface {
 	PoolCurrentState(PoolKeyHash) (*PoolRegistrationCertificate, *uint64, error)
 	// IsPoolRegistered checks if a pool is currently registered
 	IsPoolRegistered(PoolKeyHash) bool
+	// IsVrfKeyInUse checks if a VRF key hash is registered by another pool.
+	// Returns (inUse, owningPoolId, error). Used for PV11+ VRF uniqueness validation.
+	IsVrfKeyInUse(vrfKeyHash Blake2b256) (bool, PoolKeyHash, error)
 }
 
 // RewardState defines the interface for reward calculation and querying
