@@ -21,20 +21,34 @@ All tests passing (100%).
 
 ### Test Vectors
 
-**Source**: `rules-conformance.tar.gz` in this directory
+**Source**: `github.com/blinklabs-io/ouroboros-mock/conformance/testdata`
 
-Sourced from [Amaru](https://github.com/pragma-org/amaru) commit `930c14b6bdf8197bc7d9397d872949e108b28eb4`
-(original path: `crates/amaru-ledger/tests/data/rules-conformance.tar.gz`)
+The test vectors are sourced from [Amaru](https://github.com/pragma-org/amaru) and are maintained in the
+ouroboros-mock repository's conformance package.
 
-The tarball is extracted to a temp directory at test runtime. It contains:
-- 320 test vector files (CBOR binary) in `eras/conway/impl/dump/Conway/`
-- 44 protocol parameter files in `pparams-by-hash/`
+The testdata directory contains:
+- 314+ test vector files (CBOR binary) in `eras/conway/impl/dump/Conway/`
+- Protocol parameter files in `pparams-by-hash/`
 
-## Running Tests
+### Running Tests
+
+The test vectors are embedded in the ouroboros-mock module, so no external setup is required:
 
 ```bash
+# Run all conformance tests
 go test -v ./internal/test/conformance/...
+
+# Run only the rules conformance tests
+go test -v ./internal/test/conformance/... -run TestRulesConformance
 ```
+
+### Shared Harness
+
+The test implementation uses the shared conformance harness from `github.com/blinklabs-io/ouroboros-mock/conformance`:
+
+- `conformance.NewMockStateManager()` - Creates a state manager for test execution
+- `conformance.NewHarness(sm, config)` - Creates the test harness
+- `harness.RunAllVectors(t)` - Runs all test vectors
 
 ## Test Vector CBOR Structure
 
@@ -433,9 +447,9 @@ Tests Byron-era block parsing and validation using real mainnet and testnet bloc
 go test -v ./internal/test/conformance/...
 
 # Run specific test categories
-go test -v ./internal/test/conformance/... -run "Rules"      # Ledger rules
-go test -v ./internal/test/conformance/... -run "VRF"        # VRF tests
-go test -v ./internal/test/conformance/... -run "KES"        # KES tests
-go test -v ./internal/test/conformance/... -run "Byron"      # Byron tests
-go test -v ./internal/test/conformance/... -run "Consensus"  # Consensus tests
+go test -v ./internal/test/conformance/... -run "TestRulesConformance"  # Ledger rules
+go test -v ./internal/test/conformance/... -run "VRF"                   # VRF tests
+go test -v ./internal/test/conformance/... -run "KES"                   # KES tests
+go test -v ./internal/test/conformance/... -run "Byron"                 # Byron tests
+go test -v ./internal/test/conformance/... -run "Consensus"             # Consensus tests
 ```
