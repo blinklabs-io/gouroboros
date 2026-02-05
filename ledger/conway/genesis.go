@@ -69,8 +69,8 @@ type ConwayGenesisConstitutionAnchor struct {
 }
 
 type ConwayGenesisCommittee struct {
-	Members   map[string]int `json:"members"`
-	Threshold map[string]int `json:"threshold"`
+	Members   map[string]int     `json:"members"`
+	Threshold *common.GenesisRat `json:"threshold"`
 }
 
 func NewConwayGenesisFromReader(r io.Reader) (ConwayGenesis, error) {

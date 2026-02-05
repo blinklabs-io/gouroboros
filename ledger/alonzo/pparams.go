@@ -221,9 +221,9 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 			if !ok {
 				continue
 			}
-			if len(model) != expectedCount {
+			if len(model) < expectedCount {
 				return fmt.Errorf(
-					"incorrect param count for %s: %d",
+					"insufficient param count for %s: %d",
 					versionStr,
 					len(model),
 				)
