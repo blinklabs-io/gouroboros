@@ -15,6 +15,7 @@
 package alonzo
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,7 +108,63 @@ type AlonzoGenesisExUnits struct {
 	Steps uint `json:"exUnitsSteps"`
 }
 
+func (u *AlonzoGenesisExUnits) UnmarshalJSON(data []byte) error {
+	// We need some custom unmarshal logic to handle alternate key names
+	tmpData := struct {
+		ExUnitsMem   uint `json:"exUnitsMem"`
+		ExUnitsSteps uint `json:"exUnitsSteps"`
+		Memory       uint `json:"memory"`
+		Steps        uint `json:"steps"`
+	}{}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&tmpData); err != nil {
+		return err
+	}
+	if tmpData.ExUnitsMem > 0 {
+		u.Mem = tmpData.ExUnitsMem
+	}
+	if tmpData.ExUnitsSteps > 0 {
+		u.Steps = tmpData.ExUnitsSteps
+	}
+	if tmpData.Memory > 0 {
+		u.Mem = tmpData.Memory
+	}
+	if tmpData.Steps > 0 {
+		u.Steps = tmpData.Steps
+	}
+	return nil
+}
+
 type AlonzoGenesisExecutionPrices struct {
 	Steps *common.GenesisRat `json:"prSteps"`
 	Mem   *common.GenesisRat `json:"prMem"`
+}
+
+func (p *AlonzoGenesisExecutionPrices) UnmarshalJSON(data []byte) error {
+	// We need some custom unmarshal logic to handle alternate key names
+	tmpData := struct {
+		PrSteps     *common.GenesisRat `json:"prSteps"`
+		PrMem       *common.GenesisRat `json:"prMem"`
+		PriceSteps  *common.GenesisRat `json:"priceSteps"`
+		PriceMemory *common.GenesisRat `json:"priceMemory"`
+	}{}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&tmpData); err != nil {
+		return err
+	}
+	if tmpData.PrSteps != nil {
+		p.Steps = tmpData.PrSteps
+	}
+	if tmpData.PrMem != nil {
+		p.Mem = tmpData.PrMem
+	}
+	if tmpData.PriceSteps != nil {
+		p.Steps = tmpData.PriceSteps
+	}
+	if tmpData.PriceMemory != nil {
+		p.Mem = tmpData.PriceMemory
+	}
+	return nil
 }

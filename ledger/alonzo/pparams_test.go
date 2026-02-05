@@ -151,7 +151,7 @@ func TestInvalidCostModelFormats(t *testing.T) {
                     "addInteger-cpu-arguments-slope": 0
 		  }
                 }`,
-			expectError: "incorrect param count for PlutusV1: 4",
+			expectError: "insufficient param count for PlutusV1: 4",
 		},
 	}
 
