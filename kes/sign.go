@@ -32,9 +32,10 @@ const (
 // SecretKey represents a KES secret key for a given depth.
 // For depth 6 (Cardano), the key is 608 bytes.
 type SecretKey struct {
-	Depth  uint64
-	Period uint64
-	Data   []byte // The raw key bytes
+	Depth     uint64
+	Period    uint64
+	Data      []byte // The raw key bytes
+	publicKey []byte // Cached public key (computed once, never changes)
 }
 
 // secretKeySize returns the size of a KES secret key for a given depth
@@ -72,9 +73,10 @@ func KeyGen(depth uint64, seed []byte) (*SecretKey, []byte, error) {
 	}
 
 	sk := &SecretKey{
-		Depth:  depth,
-		Period: 0,
-		Data:   data,
+		Depth:     depth,
+		Period:    0,
+		Data:      data,
+		publicKey: pubKey, // Cache the public key
 	}
 
 	return sk, pubKey, nil
@@ -156,13 +158,12 @@ func publicKeyFromSeed(depth uint64, seed []byte) ([]byte, error) {
 // expandSeed expands a seed using Blake2b with a domain separator
 // The domain separator is prepended to match the Haskell/Rust implementations
 func expandSeed(seed []byte, separator byte) []byte {
-	h, err := blake2b.New256(nil)
-	if err != nil {
-		panic(fmt.Sprintf("unexpected error creating blake2b hash: %s", err))
-	}
-	h.Write([]byte{separator})
-	h.Write(seed)
-	return h.Sum(nil)
+	// Stack-allocate input buffer: 1 byte separator + 32 byte seed
+	var input [33]byte
+	input[0] = separator
+	copy(input[1:], seed)
+	sum := blake2b.Sum256(input[:])
+	return sum[:]
 }
 
 // Sign signs a message at the given period.
@@ -287,9 +288,10 @@ func Update(sk *SecretKey) (*SecretKey, error) {
 	}
 
 	return &SecretKey{
-		Depth:  sk.Depth,
-		Period: newPeriod,
-		Data:   newData,
+		Depth:     sk.Depth,
+		Period:    newPeriod,
+		Data:      newData,
+		publicKey: sk.publicKey, // Preserve the cached public key (it never changes)
 	}, nil
 }
 
@@ -315,15 +317,12 @@ func updateInternal(depth uint64, period uint64, data []byte) error {
 		return updateInternal(depth-1, period, data[0:childKeySize])
 	} else if period == halfPeriod-1 {
 		// Transitioning from left to right subtree
-		// Generate the right subtree key from the stored seed
-		rightSubtreeData := make([]byte, childKeySize)
-		_, err := keyGenInternal(depth-1, seed, rightSubtreeData)
+		// Generate the right subtree key from the stored seed directly into data
+		// This avoids an intermediate allocation
+		_, err := keyGenInternal(depth-1, seed, data[0:childKeySize])
 		if err != nil {
 			return err
 		}
-
-		// Copy the new subtree key into place
-		copy(data[0:childKeySize], rightSubtreeData)
 
 		// Zero out the seed (it's been used)
 		for i := range 32 {
@@ -337,12 +336,21 @@ func updateInternal(depth uint64, period uint64, data []byte) error {
 	}
 }
 
-// PublicKey extracts the public key from a secret key
+// PublicKey extracts the public key from a secret key.
+// If the public key was cached during KeyGen, it returns the cached value.
+// Otherwise, it computes the public key (for backwards compatibility with
+// keys that were created before caching was implemented).
 func PublicKey(sk *SecretKey) []byte {
 	if sk == nil {
 		return nil
 	}
 
+	// Return cached public key if available
+	if sk.publicKey != nil {
+		return sk.publicKey
+	}
+
+	// Fallback to computing the public key for backwards compatibility
 	return publicKeyInternal(sk.Depth, sk.Data)
 }
 
