@@ -162,18 +162,12 @@ func (s Sum0KesSig) Verify(
 
 // HashPair computes the Blake2b-256 hash of two public keys concatenated
 func HashPair(l ed25519.PublicKey, r ed25519.PublicKey) ed25519.PublicKey {
-	h, err := blake2b.New(32, nil)
-	if err != nil {
-		panic(
-			fmt.Sprintf(
-				"unexpected error creating empty blake2b hash: %s",
-				err,
-			),
-		)
-	}
-	h.Write(l[:])
-	h.Write(r[:])
-	return h.Sum(nil)
+	// Stack-allocate input buffer: 32 bytes left + 32 bytes right
+	var input [64]byte
+	copy(input[:32], l)
+	copy(input[32:], r)
+	sum := blake2b.Sum256(input[:])
+	return sum[:]
 }
 
 // SignatureSize returns the size of a KES signature for a given depth.
