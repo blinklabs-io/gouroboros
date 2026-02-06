@@ -51,6 +51,11 @@ var twoTo256 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsCPraos), 
 // it as a read-only constant. Create new big.Int instances for calculations.
 var twoTo512 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsTPraos), nil)
 
+// oneRat is the constant 1/1 for reuse in calculations.
+// WARNING: This package-level big.Rat value must not be mutated. Always use
+// it as a read-only constant. Create new big.Rat instances for calculations.
+var oneRat = big.NewRat(1, 1)
+
 // CertifiedNatThreshold computes the leadership threshold for a pool using CPRAOS.
 // For TPraos compatibility, use CertifiedNatThresholdWithMode.
 //
@@ -121,7 +126,7 @@ func CertifiedNatThresholdWithMode(
 	)
 
 	// Calculate 1 - (1-f)^σ
-	probability := new(big.Rat).Sub(big.NewRat(1, 1), oneMinusFPowerSigma)
+	probability := new(big.Rat).Sub(oneRat, oneMinusFPowerSigma)
 
 	// Select the appropriate upper bound based on consensus mode
 	var upperBound *big.Int
@@ -150,10 +155,13 @@ func lnOneMinus(x *big.Rat) *big.Rat {
 
 	result := new(big.Rat)
 	xPower := new(big.Rat).Set(x) // x^n starting with x^1
+	term := new(big.Rat)
+	denom := new(big.Rat)
 
 	for n := 1; n <= terms; n++ {
 		// Add -x^n / n to result
-		term := new(big.Rat).Quo(xPower, big.NewRat(int64(n), 1))
+		denom.SetFrac64(int64(n), 1)
+		term.Quo(xPower, denom)
 		result.Sub(result, term)
 
 		// xPower = xPower * x for next iteration
@@ -170,13 +178,15 @@ func expRational(x *big.Rat) *big.Rat {
 	// 20 terms provides sufficient precision for Cardano's typical values
 	const terms = 20
 
-	result := big.NewRat(1, 1) // Start with 1
-	term := big.NewRat(1, 1)   // Current term (x^n / n!)
+	result := new(big.Rat).Set(oneRat) // Start with 1
+	term := new(big.Rat).Set(oneRat)   // Current term (x^n / n!)
+	denom := new(big.Rat)
 
 	for n := 1; n <= terms; n++ {
 		// term = term * x / n
 		term.Mul(term, x)
-		term.Quo(term, big.NewRat(int64(n), 1))
+		denom.SetFrac64(int64(n), 1)
+		term.Quo(term, denom)
 
 		// Add term to result
 		result.Add(result, term)
