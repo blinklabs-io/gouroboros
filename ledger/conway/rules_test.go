@@ -33,6 +33,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
@@ -2419,5 +2420,224 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 		var ccErr conway.CCVotingRestrictionError
 		assert.True(t, errors.As(err, &ccErr))
 		assert.Contains(t, ccErr.Restriction, "nil action ID")
+	})
+}
+
+func TestPoolValidateVrfKeyUniqueness(t *testing.T) {
+	existingPoolId := common.PoolKeyHash{0x01, 0x02, 0x03}
+	newPoolId := common.PoolKeyHash{0x04, 0x05, 0x06}
+	vrfKeyHash := common.Blake2b256{0x10, 0x11, 0x12}
+
+	t.Run("PV10 allows duplicate VRF keys", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, existingPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// PV10 should allow duplicate VRF keys (pre-PV11)
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 10, ls)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV11 rejects duplicate VRF keys", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, existingPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// PV11 should reject duplicate VRF keys
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		assert.Error(t, err)
+		var dupErr conway.DuplicateVrfKeyError
+		assert.True(t, errors.As(err, &dupErr))
+		assert.Equal(t, vrfKeyHash, dupErr.VrfKeyHash)
+		assert.Equal(t, newPoolId, dupErr.NewPoolId)
+		assert.Equal(t, existingPoolId, dupErr.ExistingPoolId)
+	})
+
+	t.Run("PV11 allows same pool to update with same VRF key", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				// VRF key is in use by the same pool
+				return true, newPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// Same pool updating with same VRF key should be allowed
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV11 allows new VRF key", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				// VRF key is not in use
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// New VRF key should be allowed
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV12 also enforces VRF key uniqueness", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, existingPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// PV12+ should also enforce VRF key uniqueness
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 12, ls)
+		assert.Error(t, err)
+		var dupErr conway.DuplicateVrfKeyError
+		assert.True(t, errors.As(err, &dupErr))
+	})
+
+	t.Run("PV11 propagates ledger state errors", func(t *testing.T) {
+		expectedErr := fmt.Errorf("ledger state lookup failed")
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, expectedErr
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// Error from ledger state should be propagated
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, expectedErr)
+	})
+}
+
+func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
+	pool1 := common.PoolKeyHash{0x01, 0x02, 0x03}
+	pool2 := common.PoolKeyHash{0x04, 0x05, 0x06}
+	vrfKeyHash := common.Blake2b256{0x10, 0x11, 0x12}
+
+	pv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11, Minor: 0},
+	}
+	pv10Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 10, Minor: 0},
+	}
+
+	t.Run("PV11 rejects in-tx duplicate VRF keys from different pools", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		// Two pool registrations with the same VRF key
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash,
+					}},
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool2,
+						VrfKeyHash: vrfKeyHash, // Same VRF key, different pool
+					}},
+				},
+			},
+		}
+
+		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
+		require.Error(t, err)
+		var dupErr conway.DuplicateVrfKeyError
+		require.True(t, errors.As(err, &dupErr))
+		assert.Equal(t, vrfKeyHash, dupErr.VrfKeyHash)
+		assert.Equal(t, pool2, dupErr.NewPoolId)
+		assert.Equal(t, pool1, dupErr.ExistingPoolId)
+	})
+
+	t.Run("PV11 allows same pool to register multiple times with same VRF key", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		// Same pool registering twice with same VRF key (update scenario)
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash,
+					}},
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash, // Same pool, same VRF key
+					}},
+				},
+			},
+		}
+
+		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV10 allows in-tx duplicate VRF keys", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		// Two pool registrations with the same VRF key
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash,
+					}},
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool2,
+						VrfKeyHash: vrfKeyHash,
+					}},
+				},
+			},
+		}
+
+		// PV10 doesn't enforce VRF key uniqueness
+		err := conway.UtxoValidateDelegation(tx, 0, ls, pv10Params)
+		assert.NoError(t, err)
 	})
 }

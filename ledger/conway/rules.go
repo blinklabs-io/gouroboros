@@ -2176,6 +2176,8 @@ func UtxoValidateDelegation(
 	inTxStakeRegs := make(map[common.Blake2b224]bool)
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
 	inTxDRepRegs := make(map[common.Blake2b224]bool)
+	// Track VRF keys seen in this transaction (for PV11+ duplicate detection)
+	inTxVrfKeys := make(map[common.Blake2b256]common.PoolKeyHash)
 
 	// Helper to check if stake credential is registered (in state or in-tx)
 	isStakeRegistered := func(cred common.Credential) bool {
@@ -2234,6 +2236,27 @@ func UtxoValidateDelegation(
 
 		case *common.PoolRegistrationCertificate:
 			inTxPoolRegs[c.Operator] = true
+			// PV11+: Validate VRF key uniqueness for pool registrations
+			conwayPp, ok := pp.(*ConwayProtocolParameters)
+			if ok && common.IsProtocolVersionAtLeast(conwayPp.ProtocolVersion.Major, 0, common.ProtocolVersionVanRossem) {
+				// Check for in-tx VRF key duplicates first
+				if existingPoolId, exists := inTxVrfKeys[c.VrfKeyHash]; exists {
+					// Allow same pool to re-register with same VRF key
+					if existingPoolId != c.Operator {
+						return DuplicateVrfKeyError{
+							VrfKeyHash:     c.VrfKeyHash,
+							NewPoolId:      c.Operator,
+							ExistingPoolId: existingPoolId,
+						}
+					}
+				}
+				// Check against ledger state
+				if err := PoolValidateVrfKeyUniqueness(c, conwayPp.ProtocolVersion.Major, ls); err != nil {
+					return err
+				}
+				// Track this VRF key for subsequent pool registrations in this tx
+				inTxVrfKeys[c.VrfKeyHash] = c.Operator
+			}
 
 		case *common.RegistrationDrepCertificate:
 			inTxDRepRegs[c.DrepCredential.Credential] = true
