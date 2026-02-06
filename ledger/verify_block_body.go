@@ -144,9 +144,9 @@ func CalculateBlockBodyHash(
 	txsRaw [][]string,
 	invalidTxIndices []uint,
 ) ([]byte, error) {
-	txSeqBody := make([]cbor.RawMessage, 0)
-	txSeqWit := make([]cbor.RawMessage, 0)
-	auxRawData := make([]AuxData, 0)
+	txSeqBody := make([]cbor.RawMessage, 0, len(txsRaw))
+	txSeqWit := make([]cbor.RawMessage, 0, len(txsRaw))
+	auxRawData := make([]AuxData, 0, len(txsRaw))
 	for index, tx := range txsRaw {
 		if len(tx) != 3 {
 			return nil, fmt.Errorf(
