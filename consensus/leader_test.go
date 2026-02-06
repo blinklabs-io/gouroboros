@@ -17,6 +17,9 @@ package consensus
 import (
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Test seed (exactly 32 bytes)
@@ -24,33 +27,21 @@ var testVRFSeed = []byte("test_vrf_seed_for_consensus!!!!!")
 
 func TestNewSimpleVRFSigner(t *testing.T) {
 	signer, err := NewSimpleVRFSigner(testVRFSeed)
-	if err != nil {
-		t.Fatalf("NewSimpleVRFSigner failed: %v", err)
-	}
+	require.NoError(t, err, "NewSimpleVRFSigner failed")
 
-	if len(signer.PublicKey()) != 32 {
-		t.Errorf("expected 32-byte public key, got %d", len(signer.PublicKey()))
-	}
+	assert.Len(t, signer.PublicKey(), 32, "expected 32-byte public key")
 }
 
 func TestSimpleVRFSignerProve(t *testing.T) {
 	signer, err := NewSimpleVRFSigner(testVRFSeed)
-	if err != nil {
-		t.Fatalf("NewSimpleVRFSigner failed: %v", err)
-	}
+	require.NoError(t, err, "NewSimpleVRFSigner failed")
 
 	input := []byte("test input")
 	proof, output, err := signer.Prove(input)
-	if err != nil {
-		t.Fatalf("Prove failed: %v", err)
-	}
+	require.NoError(t, err, "Prove failed")
 
-	if len(proof) != 80 {
-		t.Errorf("expected 80-byte proof, got %d", len(proof))
-	}
-	if len(output) != 64 {
-		t.Errorf("expected 64-byte output, got %d", len(output))
-	}
+	assert.Len(t, proof, 80, "expected 80-byte proof")
+	assert.Len(t, output, 64, "expected 64-byte output")
 }
 
 func TestIsSlotLeader(t *testing.T) {
@@ -206,9 +197,18 @@ func TestIsSlotLeaderNilActiveSlotCoeff(t *testing.T) {
 func TestIsSlotLeaderFromComponents(t *testing.T) {
 	activeSlotCoeff := big.NewRat(1, 20)
 
-	// Test with a VRF output that should definitely be below threshold for 100% stake
-	// (output of all zeros would be 0, which is below any positive threshold)
+	// With CPRAOS, the VRF output is first hashed with VrfLeaderValue (BLAKE2b-256
+	// with "L" prefix) before comparison against the threshold. This means the
+	// leader value is deterministic but not directly related to the raw VRF output.
+
+	// Test with zero VRF output - the leader value is a specific hash
 	zeroOutput := make([]byte, 64)
+	leaderValue := VrfLeaderValue(zeroOutput)
+	leaderValueInt := new(big.Int).SetBytes(leaderValue)
+
+	// With 100% stake, threshold is about 5% of 2^256
+	threshold := CertifiedNatThreshold(1000000000000, 1000000000000, activeSlotCoeff)
+	expectedEligible := leaderValueInt.Cmp(threshold) < 0
 
 	eligible := IsSlotLeaderFromComponents(
 		zeroOutput,
@@ -217,15 +217,24 @@ func TestIsSlotLeaderFromComponents(t *testing.T) {
 		activeSlotCoeff,
 	)
 
-	if !eligible {
-		t.Error("output of zeros with 100% stake should be eligible")
+	if eligible != expectedEligible {
+		t.Errorf("IsSlotLeaderFromComponents result (%v) does not match expected (%v) for zero output",
+			eligible, expectedEligible)
 	}
 
-	// Test with maximum output (all 0xFF bytes)
+	// Test with maximum VRF output (all 0xFF bytes)
+	// The leader value is still a hash, so it won't necessarily be max value
 	maxOutput := make([]byte, 64)
 	for i := range maxOutput {
 		maxOutput[i] = 0xFF
 	}
+
+	maxLeaderValue := VrfLeaderValue(maxOutput)
+	maxLeaderValueInt := new(big.Int).SetBytes(maxLeaderValue)
+
+	// With tiny stake (1/1e12) and f=0.05, threshold is very small
+	tinyThreshold := CertifiedNatThreshold(1, 1000000000000, activeSlotCoeff)
+	expectedEligibleMax := maxLeaderValueInt.Cmp(tinyThreshold) < 0
 
 	eligible = IsSlotLeaderFromComponents(
 		maxOutput,
@@ -234,12 +243,21 @@ func TestIsSlotLeaderFromComponents(t *testing.T) {
 		activeSlotCoeff,
 	)
 
-	// Maximum VRF output (2^512 - 1) with tiny stake (1/1e12) should NOT be eligible.
-	// IsSlotLeaderFromComponents is deterministic: the threshold calculation
-	// for 1/1e12 stake with f=0.05 gives T ≈ 2^512 * 5e-14, which is much less
-	// than 2^512 - 1. So the max output should never be below this threshold.
-	if eligible {
-		t.Error("maximum VRF output with tiny stake should not be eligible")
+	// The eligibility depends on the hash of maxOutput, not maxOutput itself
+	if eligible != expectedEligibleMax {
+		t.Errorf("IsSlotLeaderFromComponents result (%v) does not match expected (%v) for max output with tiny stake",
+			eligible, expectedEligibleMax)
+	}
+
+	// Verify determinism - same inputs should give same results
+	eligible2 := IsSlotLeaderFromComponents(
+		zeroOutput,
+		1000000000000,
+		1000000000000,
+		activeSlotCoeff,
+	)
+	if eligible2 != expectedEligible {
+		t.Error("IsSlotLeaderFromComponents should be deterministic")
 	}
 }
 

@@ -18,6 +18,9 @@ import (
 	"bytes"
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/blake2b"
 )
 
 func TestCertifiedNatThresholdZeroStake(t *testing.T) {
@@ -42,18 +45,18 @@ func TestCertifiedNatThresholdFullStake(t *testing.T) {
 	// Pool with 100% stake
 	threshold := CertifiedNatThreshold(1000000, 1000000, activeSlotCoeff)
 
-	// With 100% stake and f=0.05, threshold should be approximately 0.05 * 2^512
+	// With 100% stake and f=0.05, threshold should be approximately 0.05 * 2^256
 	// The threshold should be positive and substantial
 	if threshold.Sign() <= 0 {
 		t.Error("expected positive threshold for full stake")
 	}
 
-	// Check it's in the right ballpark: should be roughly 5% of 2^512
-	// 2^512 is a 513-bit number, 5% of it should be around 509-510 bits
+	// Check it's in the right ballpark: should be roughly 5% of 2^256
+	// 2^256 is a 257-bit number, 5% of it should be around 252-256 bits
 	bitLen := threshold.BitLen()
-	if bitLen < 500 || bitLen > 512 {
+	if bitLen < 248 || bitLen > 256 {
 		t.Errorf(
-			"threshold bit length %d not in expected range [500, 512]",
+			"threshold bit length %d not in expected range [248, 256]",
 			bitLen,
 		)
 	}
@@ -134,30 +137,43 @@ func TestVRFOutputToInt(t *testing.T) {
 }
 
 func TestIsVRFOutputBelowThreshold(t *testing.T) {
-	threshold := big.NewInt(1000000)
+	// Note: IsVRFOutputBelowThreshold now uses CPRAOS algorithm which
+	// hashes the VRF output with VrfLeaderValue first (BLAKE2b-256 with "L" prefix)
+	// before comparing against the threshold.
 
-	// Output below threshold
-	lowOutput := make([]byte, 64)
-	lowOutput[63] = 0x01 // value = 1
-	if !IsVRFOutputBelowThreshold(lowOutput, threshold) {
-		t.Error("output 1 should be below threshold 1000000")
+	// Create a VRF output and compute its leader value
+	vrfOutput := make([]byte, 64)
+	vrfOutput[0] = 0x42 // Some arbitrary data
+	leaderValue := VrfLeaderValue(vrfOutput)
+	leaderValueInt := new(big.Int).SetBytes(leaderValue)
+
+	// Test with threshold just above the leader value
+	thresholdAbove := new(big.Int).Add(leaderValueInt, big.NewInt(1))
+	if !IsVRFOutputBelowThreshold(vrfOutput, thresholdAbove) {
+		t.Error("VRF output should be below threshold when threshold > leader value")
 	}
 
-	// Output above threshold (very large value)
-	highOutput := make([]byte, 64)
-	for i := range highOutput {
-		highOutput[i] = 0xFF
-	}
-	if IsVRFOutputBelowThreshold(highOutput, threshold) {
-		t.Error("maximum output should not be below small threshold")
+	// Test with threshold equal to the leader value (should not be below)
+	if IsVRFOutputBelowThreshold(vrfOutput, leaderValueInt) {
+		t.Error("VRF output should not be below threshold when threshold == leader value")
 	}
 
-	// Output exactly at threshold (should not be below)
-	exactOutput := make([]byte, 64)
-	thresholdBytes := threshold.Bytes()
-	copy(exactOutput[64-len(thresholdBytes):], thresholdBytes)
-	if IsVRFOutputBelowThreshold(exactOutput, threshold) {
-		t.Error("output equal to threshold should not be below")
+	// Test with threshold below the leader value
+	if leaderValueInt.Sign() > 0 {
+		thresholdBelow := new(big.Int).Sub(leaderValueInt, big.NewInt(1))
+		if IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
+			t.Error("VRF output should not be below threshold when threshold < leader value")
+		}
+	}
+
+	// Test with nil threshold
+	if IsVRFOutputBelowThreshold(vrfOutput, nil) {
+		t.Error("should return false for nil threshold")
+	}
+
+	// Test with empty output
+	if IsVRFOutputBelowThreshold([]byte{}, big.NewInt(1000000)) {
+		t.Error("should return false for empty output")
 	}
 }
 
@@ -277,23 +293,44 @@ func TestVRFOutputConversionRoundTrip(t *testing.T) {
 	}
 }
 
-func TestZeroOutputAlwaysEligible(t *testing.T) {
-	activeSlotCoeff := big.NewRat(1, 20)
+func TestZeroOutputLeaderValue(t *testing.T) {
+	// With CPRAOS, the VRF output is hashed with VrfLeaderValue before comparison.
+	// Zero VRF output produces a specific leader value from the hash.
+	// Test that the leader value is computed correctly and can be compared.
 
-	// Any pool with non-zero stake should be eligible with zero VRF output
 	zeroOutput := make([]byte, 64)
+	leaderValue := VrfLeaderValue(zeroOutput)
 
-	eligible := IsSlotLeaderFromComponents(
+	// The leader value should be 32 bytes
+	if len(leaderValue) != 32 {
+		t.Errorf("expected 32-byte leader value, got %d bytes", len(leaderValue))
+	}
+
+	// The leader value should be deterministic
+	leaderValue2 := VrfLeaderValue(zeroOutput)
+	if !bytes.Equal(leaderValue, leaderValue2) {
+		t.Error("VrfLeaderValue should be deterministic")
+	}
+
+	// Test that IsSlotLeaderFromComponents uses the hashed value
+	activeSlotCoeff := big.NewRat(1, 20)
+	leaderValueInt := new(big.Int).SetBytes(leaderValue)
+
+	// With 100% stake, the threshold is about 5% of 2^256
+	// Check if the zero output's leader value is below or above
+	threshold := CertifiedNatThreshold(1000000000, 1000000000, activeSlotCoeff)
+	eligible := leaderValueInt.Cmp(threshold) < 0
+
+	// Verify IsSlotLeaderFromComponents matches
+	eligibleFromFunc := IsSlotLeaderFromComponents(
 		zeroOutput,
-		1,          // minimal stake
-		1000000000, // large total
+		1000000000,
+		1000000000,
 		activeSlotCoeff,
 	)
 
-	if !eligible {
-		t.Error(
-			"zero VRF output should always be eligible for any non-zero stake",
-		)
+	if eligible != eligibleFromFunc {
+		t.Error("IsSlotLeaderFromComponents result should match manual comparison")
 	}
 }
 
@@ -306,8 +343,10 @@ func TestMaxOutputNeverEligible(t *testing.T) {
 		maxOutput[i] = 0xFF
 	}
 
-	// Even with 100% stake, max output should not be eligible
-	// because threshold is 1 - (1-f)^1 = f ≈ 0.05, and max output / 2^512 = ~1
+	// With CPRAOS, the VRF output is hashed via VrfLeaderValue (BLAKE2b-256 with "L" prefix)
+	// before comparison. The resulting leader value is deterministic but unpredictable.
+	// With f=0.05, threshold ≈ 0.05 * 2^256, so only ~5% of possible leader values are eligible.
+	// The hash of all-0xFF input produces a specific value that happens to be ineligible.
 	eligible := IsSlotLeaderFromComponents(
 		maxOutput,
 		1000000000,
@@ -315,11 +354,8 @@ func TestMaxOutputNeverEligible(t *testing.T) {
 		activeSlotCoeff,
 	)
 
-	if eligible {
-		t.Error(
-			"maximum VRF output should not be eligible even with 100% stake",
-		)
-	}
+	require.False(t, eligible,
+		"maximum VRF output should not be eligible with the deterministic hash result")
 }
 
 func TestVRFOutputOrder(t *testing.T) {
@@ -377,5 +413,432 @@ func TestThresholdDeterministicBytes(t *testing.T) {
 	// on stake and activeSlotCoeff. This test verifies byte-level determinism.
 	if !bytes.Equal(threshold1.Bytes(), threshold2.Bytes()) {
 		t.Error("threshold should be the same for same stake parameters")
+	}
+}
+
+// =============================================================================
+// CPRAOS Leader Election Tests
+// =============================================================================
+
+// TestVrfLeaderValueReturns32Bytes verifies that VrfLeaderValue returns exactly
+// 32 bytes (BLAKE2b-256 output).
+func TestVrfLeaderValueReturns32Bytes(t *testing.T) {
+	// Test with various VRF output sizes
+	testCases := []struct {
+		name       string
+		inputSize  int
+	}{
+		{"64-byte VRF output", 64},
+		{"32-byte input", 32},
+		{"empty input", 0},
+		{"single byte", 1},
+		{"100-byte input", 100},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := make([]byte, tc.inputSize)
+			// Fill with some non-zero data for non-empty inputs
+			for i := range input {
+				input[i] = byte(i % 256)
+			}
+
+			result := VrfLeaderValue(input)
+			if len(result) != 32 {
+				t.Errorf("VrfLeaderValue should return 32 bytes, got %d", len(result))
+			}
+		})
+	}
+}
+
+// TestVrfLeaderValueAppliesLPrefix verifies that VrfLeaderValue computes
+// BLAKE2b-256 with "L" (0x4C) prefix as specified by CPRAOS.
+func TestVrfLeaderValueAppliesLPrefix(t *testing.T) {
+	// The VRF leader value is computed as:
+	// BLAKE2b-256(0x4C || vrfOutput)
+	// where 0x4C is ASCII "L"
+
+	testData := []byte{0x01, 0x02, 0x03, 0x04}
+	result := VrfLeaderValue(testData)
+
+	// Compute expected result manually using golang.org/x/crypto/blake2b
+	// with the "L" prefix (0x4C)
+	prefixedData := append([]byte{0x4C}, testData...)
+	hasher, err := blake2b.New256(nil)
+	if err != nil {
+		t.Fatalf("failed to create blake2b hasher: %v", err)
+	}
+	hasher.Write(prefixedData)
+	expected := hasher.Sum(nil)
+
+	if !bytes.Equal(result, expected) {
+		t.Errorf("VrfLeaderValue did not apply 'L' (0x4C) prefix correctly\nexpected: %x\ngot: %x", expected, result)
+	}
+}
+
+// TestVrfLeaderValueKnownVector tests VrfLeaderValue against a known test vector.
+// The test vector is computed by manually calculating BLAKE2b-256(0x4C || input).
+func TestVrfLeaderValueKnownVector(t *testing.T) {
+	// Test vector: 64 bytes of zeros (typical VRF output size)
+	zeroInput := make([]byte, 64)
+
+	// Compute expected: BLAKE2b-256(0x4C || zeros(64))
+	prefixedData := append([]byte{0x4C}, zeroInput...)
+	hasher, err := blake2b.New256(nil)
+	if err != nil {
+		t.Fatalf("failed to create blake2b hasher: %v", err)
+	}
+	hasher.Write(prefixedData)
+	expected := hasher.Sum(nil)
+
+	result := VrfLeaderValue(zeroInput)
+	if !bytes.Equal(result, expected) {
+		t.Errorf("VrfLeaderValue failed for known vector\nexpected: %x\ngot: %x", expected, result)
+	}
+
+	// The result should be deterministic
+	result2 := VrfLeaderValue(zeroInput)
+	if !bytes.Equal(result, result2) {
+		t.Error("VrfLeaderValue should be deterministic")
+	}
+}
+
+// TestVrfLeaderValueDifferentInputsProduceDifferentOutputs verifies that
+// different inputs produce different outputs (basic collision resistance check).
+func TestVrfLeaderValueDifferentInputsProduceDifferentOutputs(t *testing.T) {
+	input1 := make([]byte, 64)
+	input2 := make([]byte, 64)
+	input2[0] = 0x01 // Single bit difference
+
+	result1 := VrfLeaderValue(input1)
+	result2 := VrfLeaderValue(input2)
+
+	if bytes.Equal(result1, result2) {
+		t.Error("different inputs should produce different VrfLeaderValue outputs")
+	}
+}
+
+// TestVrfLeaderValueEmptyInput tests handling of empty input.
+func TestVrfLeaderValueEmptyInput(t *testing.T) {
+	// Empty input should still work - BLAKE2b-256(0x4C)
+	result := VrfLeaderValue(nil)
+	if len(result) != 32 {
+		t.Errorf("VrfLeaderValue(nil) should return 32 bytes, got %d", len(result))
+	}
+
+	// Also test empty slice
+	result2 := VrfLeaderValue([]byte{})
+	if len(result2) != 32 {
+		t.Errorf("VrfLeaderValue(empty) should return 32 bytes, got %d", len(result2))
+	}
+
+	// nil and empty slice should produce the same result
+	if !bytes.Equal(result, result2) {
+		t.Error("VrfLeaderValue(nil) and VrfLeaderValue(empty) should be equal")
+	}
+}
+
+// =============================================================================
+// 256-bit Threshold Tests
+// =============================================================================
+
+// TestCertifiedNatThreshold256BitBased verifies that the threshold is now
+// calculated using 2^256 instead of 2^512.
+func TestCertifiedNatThreshold256BitBased(t *testing.T) {
+	activeSlotCoeff := big.NewRat(1, 20) // 0.05
+
+	// Pool with 100% stake
+	threshold := CertifiedNatThreshold(1000000, 1000000, activeSlotCoeff)
+
+	// With 100% stake and f=0.05, threshold should be approximately 0.05 * 2^256
+	// The threshold should be positive and substantial
+	if threshold.Sign() <= 0 {
+		t.Error("expected positive threshold for full stake")
+	}
+
+	// Check it's in the right ballpark: should be roughly 5% of 2^256
+	// 2^256 is a 257-bit number, 5% of it should be around 252-256 bits
+	bitLen := threshold.BitLen()
+	if bitLen < 248 || bitLen > 256 {
+		t.Errorf(
+			"256-bit threshold bit length %d not in expected range [248, 256] for 100%% stake",
+			bitLen,
+		)
+	}
+
+	// Verify it's NOT in the 512-bit range
+	if bitLen > 300 {
+		t.Errorf("threshold appears to be 512-bit based, not 256-bit (bitLen=%d)", bitLen)
+	}
+}
+
+// TestCertifiedNatThresholdWith32ByteLeaderValue verifies that a 32-byte leader
+// value works correctly with the threshold.
+func TestCertifiedNatThresholdWith32ByteLeaderValue(t *testing.T) {
+	activeSlotCoeff := big.NewRat(1, 20)
+
+	// Create a 32-byte leader value (simulating VrfLeaderValue output)
+	leaderValue := make([]byte, 32)
+
+	// Zero leader value should always be below threshold for non-zero stake
+	threshold := CertifiedNatThreshold(500000, 1000000, activeSlotCoeff)
+	leaderValueInt := new(big.Int).SetBytes(leaderValue)
+
+	if leaderValueInt.Cmp(threshold) >= 0 {
+		t.Error("zero leader value should be below threshold for 50% stake")
+	}
+
+	// Maximum 32-byte value
+	maxLeaderValue := make([]byte, 32)
+	for i := range maxLeaderValue {
+		maxLeaderValue[i] = 0xFF
+	}
+	maxLeaderValueInt := new(big.Int).SetBytes(maxLeaderValue)
+
+	// Maximum leader value should not be below threshold (even with 100% stake at f=0.05)
+	threshold100 := CertifiedNatThreshold(1000000, 1000000, activeSlotCoeff)
+	if maxLeaderValueInt.Cmp(threshold100) < 0 {
+		t.Error("maximum 32-byte leader value should not be below threshold")
+	}
+}
+
+// TestThreshold256BitUpperBound verifies the threshold never exceeds 2^256.
+func TestThreshold256BitUpperBound(t *testing.T) {
+	// Even with 100% stake and high active slot coefficient, threshold should be < 2^256
+	highActiveSlotCoeff := big.NewRat(9, 10) // 0.9 (90% - unrealistic but good for testing)
+
+	threshold := CertifiedNatThreshold(1000000000, 1000000000, highActiveSlotCoeff)
+
+	twoTo256 := new(big.Int).Exp(big.NewInt(2), big.NewInt(256), nil)
+	if threshold.Cmp(twoTo256) >= 0 {
+		t.Error("threshold should never exceed 2^256")
+	}
+}
+
+// =============================================================================
+// IsVRFOutputBelowThreshold with Hashing Tests
+// =============================================================================
+
+// TestIsVRFOutputBelowThresholdHashesFirst verifies that IsVRFOutputBelowThreshold
+// hashes the 64-byte VRF output first before comparing.
+func TestIsVRFOutputBelowThresholdHashesFirst(t *testing.T) {
+	// When IsVRFOutputBelowThreshold receives a 64-byte VRF output,
+	// it should first compute VrfLeaderValue (32 bytes) then compare
+
+	// Create a 64-byte VRF output
+	vrfOutput := make([]byte, 64)
+	for i := range vrfOutput {
+		vrfOutput[i] = byte(i)
+	}
+
+	// Compute what the leader value should be
+	expectedLeaderValue := VrfLeaderValue(vrfOutput)
+	leaderValueInt := new(big.Int).SetBytes(expectedLeaderValue)
+
+	// Create a threshold just above the leader value
+	thresholdAbove := new(big.Int).Add(leaderValueInt, big.NewInt(1))
+	// Create a threshold just below the leader value
+	thresholdBelow := new(big.Int).Sub(leaderValueInt, big.NewInt(1))
+
+	// Should be below when threshold is above
+	if !IsVRFOutputBelowThreshold(vrfOutput, thresholdAbove) {
+		t.Error("VRF output should be below threshold when threshold > leader value")
+	}
+
+	// Should NOT be below when threshold is below
+	if leaderValueInt.Sign() > 0 && IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
+		t.Error("VRF output should not be below threshold when threshold < leader value")
+	}
+}
+
+// TestIsVRFOutputBelowThresholdNilThreshold tests handling of nil threshold.
+func TestIsVRFOutputBelowThresholdNilThreshold(t *testing.T) {
+	vrfOutput := make([]byte, 64)
+
+	result := IsVRFOutputBelowThreshold(vrfOutput, nil)
+	if result {
+		t.Error("IsVRFOutputBelowThreshold should return false for nil threshold")
+	}
+}
+
+// TestIsVRFOutputBelowThresholdEmptyOutput tests handling of empty VRF output.
+func TestIsVRFOutputBelowThresholdEmptyOutput(t *testing.T) {
+	threshold := big.NewInt(1000000)
+
+	// Empty output should return false (invalid input)
+	result := IsVRFOutputBelowThreshold([]byte{}, threshold)
+	if result {
+		t.Error("IsVRFOutputBelowThreshold should return false for empty output")
+	}
+
+	// Nil output should also return false
+	result = IsVRFOutputBelowThreshold(nil, threshold)
+	if result {
+		t.Error("IsVRFOutputBelowThreshold should return false for nil output")
+	}
+}
+
+// TestIsVRFOutputBelowThresholdZeroThreshold tests handling of zero threshold.
+func TestIsVRFOutputBelowThresholdZeroThreshold(t *testing.T) {
+	vrfOutput := make([]byte, 64)
+
+	// Zero threshold - nothing should be below it (leader value is always >= 0)
+	result := IsVRFOutputBelowThreshold(vrfOutput, big.NewInt(0))
+	if result {
+		t.Error("IsVRFOutputBelowThreshold should return false for zero threshold")
+	}
+}
+
+// TestIsVRFOutputBelowThresholdMaxThreshold tests with maximum 256-bit threshold.
+func TestIsVRFOutputBelowThresholdMaxThreshold(t *testing.T) {
+	vrfOutput := make([]byte, 64)
+	for i := range vrfOutput {
+		vrfOutput[i] = 0xFF // Max value
+	}
+
+	// Maximum 256-bit threshold (2^256 - 1)
+	maxThreshold := new(big.Int).Exp(big.NewInt(2), big.NewInt(256), nil)
+	maxThreshold.Sub(maxThreshold, big.NewInt(1))
+
+	// With CPRAOS, the leader value is BLAKE2b-256("L" || vrfOutput), which produces
+	// a 256-bit value. This value will always be < 2^256 - 1 (the max threshold),
+	// so the result should always be true.
+	result := IsVRFOutputBelowThreshold(vrfOutput, maxThreshold)
+	require.True(t, result, "leader value should always be below max 256-bit threshold")
+}
+
+// TestIsVRFOutputBelowThresholdDeterminism verifies deterministic behavior.
+func TestIsVRFOutputBelowThresholdDeterminism(t *testing.T) {
+	vrfOutput := make([]byte, 64)
+	for i := range vrfOutput {
+		vrfOutput[i] = byte(i * 7 % 256)
+	}
+	threshold := big.NewInt(1000000000)
+
+	result1 := IsVRFOutputBelowThreshold(vrfOutput, threshold)
+	result2 := IsVRFOutputBelowThreshold(vrfOutput, threshold)
+
+	if result1 != result2 {
+		t.Error("IsVRFOutputBelowThreshold should be deterministic")
+	}
+}
+
+// =============================================================================
+// Integration Tests for CPRAOS Leader Election
+// =============================================================================
+
+// TestCPRAOSLeaderElectionIntegration tests the full CPRAOS leader election flow.
+func TestCPRAOSLeaderElectionIntegration(t *testing.T) {
+	activeSlotCoeff := big.NewRat(1, 20) // 0.05
+
+	// Simulate a 64-byte VRF output
+	vrfOutput := make([]byte, 64)
+	// Use deterministic test data
+	for i := range vrfOutput {
+		vrfOutput[i] = byte(i)
+	}
+
+	// Step 1: Compute leader value (32 bytes)
+	leaderValue := VrfLeaderValue(vrfOutput)
+	if len(leaderValue) != 32 {
+		t.Fatalf("leaderValue should be 32 bytes, got %d", len(leaderValue))
+	}
+
+	// Step 2: Compute threshold for various stake ratios
+	for _, stakePercent := range []uint64{1, 10, 25, 50, 75, 100} {
+		poolStake := stakePercent * 10000
+		totalStake := uint64(1000000)
+
+		threshold := CertifiedNatThreshold(poolStake, totalStake, activeSlotCoeff)
+
+		// Threshold should be positive for non-zero stake
+		if threshold.Sign() <= 0 {
+			t.Errorf("threshold should be positive for %d%% stake", stakePercent)
+		}
+
+		// Threshold bit length should be in 256-bit range
+		if threshold.BitLen() > 256 {
+			t.Errorf("threshold bit length %d exceeds 256 for %d%% stake", threshold.BitLen(), stakePercent)
+		}
+
+		// Step 3: Check if leader value is below threshold
+		leaderValueInt := new(big.Int).SetBytes(leaderValue)
+		isLeader := leaderValueInt.Cmp(threshold) < 0
+
+		// Verify IsVRFOutputBelowThreshold matches manual comparison
+		isLeaderFunc := IsVRFOutputBelowThreshold(vrfOutput, threshold)
+		if isLeader != isLeaderFunc {
+			t.Errorf("IsVRFOutputBelowThreshold result mismatch for %d%% stake", stakePercent)
+		}
+	}
+}
+
+// TestCPRAOSZeroOutputLeaderValueComparison tests that comparing a zero VRF output's
+// leader value against a threshold works correctly without panics.
+func TestCPRAOSZeroOutputLeaderValueComparison(t *testing.T) {
+	activeSlotCoeff := big.NewRat(1, 20)
+
+	// VRF output of all zeros
+	vrfOutput := make([]byte, 64)
+
+	// Any pool with non-zero stake should have a positive threshold
+	threshold := CertifiedNatThreshold(1, 1000000000000, activeSlotCoeff)
+	require.True(t, threshold.Sign() > 0, "threshold should be positive for tiny but non-zero stake")
+
+	// The leader value for zero VRF output (deterministic hash result)
+	leaderValue := VrfLeaderValue(vrfOutput)
+	require.Len(t, leaderValue, 32, "leader value should be 32 bytes")
+
+	leaderValueInt := new(big.Int).SetBytes(leaderValue)
+
+	// Verify the comparison works without panic and produces a deterministic result
+	cmpResult := leaderValueInt.Cmp(threshold)
+	// Run again to verify determinism
+	require.Equal(t, cmpResult, leaderValueInt.Cmp(threshold), "comparison should be deterministic")
+}
+
+// TestCPRAOSHighStakeIncreasesEligibility verifies higher stake increases election probability.
+func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
+	activeSlotCoeff := big.NewRat(1, 20)
+	totalStake := uint64(1000000000)
+
+	// Generate many VRF outputs and count how many are eligible at different stake levels
+	// Note: This is a statistical test - we use a deterministic seed for reproducibility
+
+	lowStakeThreshold := CertifiedNatThreshold(100000000, totalStake, activeSlotCoeff) // 10%
+	highStakeThreshold := CertifiedNatThreshold(500000000, totalStake, activeSlotCoeff) // 50%
+
+	// Higher stake should have higher threshold (more likely to be eligible)
+	if highStakeThreshold.Cmp(lowStakeThreshold) <= 0 {
+		t.Error("higher stake should result in higher threshold")
+	}
+
+	// Count eligible outputs
+	lowStakeEligible := 0
+	highStakeEligible := 0
+	numSamples := 100
+
+	for i := 0; i < numSamples; i++ {
+		vrfOutput := make([]byte, 64)
+		// Deterministic pseudo-random data based on index
+		for j := range vrfOutput {
+			vrfOutput[j] = byte((i*j + i + j) % 256)
+		}
+
+		leaderValue := VrfLeaderValue(vrfOutput)
+		leaderValueInt := new(big.Int).SetBytes(leaderValue)
+
+		if leaderValueInt.Cmp(lowStakeThreshold) < 0 {
+			lowStakeEligible++
+		}
+		if leaderValueInt.Cmp(highStakeThreshold) < 0 {
+			highStakeEligible++
+		}
+	}
+
+	// High stake should have at least as many eligible slots as low stake
+	if highStakeEligible < lowStakeEligible {
+		t.Errorf("high stake eligibility (%d) should be >= low stake eligibility (%d)",
+			highStakeEligible, lowStakeEligible)
 	}
 }

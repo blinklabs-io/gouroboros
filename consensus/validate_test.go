@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/vrf"
+	"github.com/stretchr/testify/require"
 )
 
 // testNetworkConfig returns a NetworkConfig for testing with mainnet-like parameters.
@@ -309,19 +310,30 @@ func TestValidateVRFProof(t *testing.T) {
 func TestValidateLeadership(t *testing.T) {
 	validator := NewHeaderValidator(testNetworkConfig())
 
-	// Zero VRF output should always be below threshold
+	// With CPRAOS, VRF output is first hashed with VrfLeaderValue (BLAKE2b-256
+	// with "L" prefix) before comparison. The leader value is deterministic
+	// but not directly related to the raw VRF output bytes.
+
+	// Test with zero VRF output
 	zeroOutput := make([]byte, 64)
+	leaderValue := VrfLeaderValue(zeroOutput)
+	leaderValueInt := new(big.Int).SetBytes(leaderValue)
+
+	// Compute threshold for 100% stake with mainnet active slot coefficient
+	activeSlotCoeff := big.NewRat(1, 20) // 0.05
+	threshold := CertifiedNatThreshold(1000000000, 1000000000, activeSlotCoeff)
+	expectedEligible := leaderValueInt.Cmp(threshold) < 0
 
 	input := &ValidateHeaderInput{
 		PoolStake:  1000000000,
 		TotalStake: 1000000000, // 100% stake
 	}
 	err := validator.validateLeadership(input, zeroOutput)
-	if err != nil {
-		t.Errorf(
-			"expected no error for zero VRF output with 100%% stake, got %v",
-			err,
-		)
+
+	if expectedEligible {
+		require.NoError(t, err, "expected no error for eligible VRF output with 100%% stake")
+	} else {
+		require.Error(t, err, "expected error for non-eligible VRF output")
 	}
 
 	// Invalid: zero total stake
@@ -330,23 +342,27 @@ func TestValidateLeadership(t *testing.T) {
 		TotalStake: 0,
 	}
 	err = validator.validateLeadership(input, zeroOutput)
-	if err == nil {
-		t.Error("expected error for zero total stake")
-	}
+	require.Error(t, err, "expected error for zero total stake")
 
-	// Max VRF output should not be below threshold
+	// Test with max VRF output - the leader value is a hash, not max value
 	maxOutput := make([]byte, 64)
 	for i := range maxOutput {
 		maxOutput[i] = 0xFF
 	}
+	maxLeaderValue := VrfLeaderValue(maxOutput)
+	maxLeaderValueInt := new(big.Int).SetBytes(maxLeaderValue)
+	maxExpectedEligible := maxLeaderValueInt.Cmp(threshold) < 0
 
 	input = &ValidateHeaderInput{
 		PoolStake:  1000000000,
 		TotalStake: 1000000000,
 	}
 	err = validator.validateLeadership(input, maxOutput)
-	if err == nil {
-		t.Error("expected error for max VRF output")
+
+	if maxExpectedEligible {
+		require.NoError(t, err, "expected no error for eligible max VRF output")
+	} else {
+		require.Error(t, err, "expected error for non-eligible max VRF output")
 	}
 }
 
