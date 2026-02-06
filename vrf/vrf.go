@@ -53,7 +53,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 
 	"filippo.io/edwards25519"
 	"filippo.io/edwards25519/field"
@@ -76,17 +75,6 @@ const (
 	// PublicKeySize is the size of a VRF public key in bytes
 	PublicKeySize = 32
 )
-
-// curveOrder is the order L of the ed25519 curve:
-// L = 2^252 + 27742317777372353535851937790883648493
-var curveOrder = func() *big.Int {
-	order := new(big.Int)
-	order.SetString(
-		"7237005577332262213973186563042994240857116359379907606001950938285454250989",
-		10,
-	)
-	return order
-}()
 
 // KeyGen generates a new VRF keypair from a 32-byte seed.
 // Returns (publicKey, secretKey) where secretKey is the original seed.
@@ -152,24 +140,14 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	Gamma := (&edwards25519.Point{}).ScalarMult(xScalar, H)
 
 	// Step 5: Generate nonce k from SHA512(SHA512(sk)[32:64] || H_bytes) mod ORDER
-	truncatedHash := skHash[32:64]
-	nonceInput := make([]byte, 32+32)
-	copy(nonceInput[:32], truncatedHash)
+	var nonceInput [64]byte
+	copy(nonceInput[:32], skHash[32:64])
 	copy(nonceInput[32:], H.Bytes())
 
-	nonceHash := sha512.Sum512(nonceInput)
-	kBig := new(big.Int).SetBytes(reverseBytes(nonceHash[:]))
-	kBig.Mod(kBig, curveOrder)
-
-	// Convert k to scalar (little-endian, 32 bytes)
-	kBytes := kBig.Bytes()
-	kBytesLE := make([]byte, 32)
-	for i, b := range kBytes {
-		kBytesLE[len(kBytes)-1-i] = b
-	}
-
+	nonceHash := sha512.Sum512(nonceInput[:])
+	// SetUniformBytes takes a 64-byte slice and reduces mod L automatically
 	kScalar := edwards25519.NewScalar()
-	if _, err := kScalar.SetCanonicalBytes(kBytesLE); err != nil {
+	if _, err := kScalar.SetUniformBytes(nonceHash[:]); err != nil {
 		return nil, nil, err
 	}
 
@@ -182,36 +160,27 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	cBytes := cScalar.Bytes()
 
 	// Step 8: Compute s = (k + c * x) mod ORDER
-	// Convert scalars to big.Int for modular arithmetic
-	kBigInt := new(big.Int).SetBytes(reverseBytes(kScalar.Bytes()))
-	cBigInt := new(big.Int).SetBytes(reverseBytes(cBytes))
-	xBigInt := new(big.Int).SetBytes(reverseBytes(xScalar.Bytes()))
-
-	// s = k + c * x mod L
-	sBigInt := new(big.Int).Mul(cBigInt, xBigInt)
-	sBigInt.Add(sBigInt, kBigInt)
-	sBigInt.Mod(sBigInt, curveOrder)
-
-	// Convert s back to little-endian bytes
-	sBytesRaw := sBigInt.Bytes()
-	sBytes := make([]byte, 32)
-	for i, b := range sBytesRaw {
-		sBytes[len(sBytesRaw)-1-i] = b
-	}
+	// Use native scalar operations: MultiplyAdd computes c*x + k mod L
+	sScalar := edwards25519.NewScalar()
+	sScalar.MultiplyAdd(cScalar, xScalar, kScalar)
+	sBytes := sScalar.Bytes()
 
 	// Step 9: Encode proof: Gamma_bytes (32) || c_bytes (16) || s_bytes (32) = 80 bytes
-	proof := make([]byte, ProofSize)
+	var proof [ProofSize]byte
 	copy(proof[0:32], Gamma.Bytes())
 	copy(proof[32:48], cBytes[:16]) // c is only 16 bytes in the proof
 	copy(proof[48:80], sBytes)
 
 	// Step 10: Get output using proof to hash
-	output, err := ProofToHash(proof)
+	output, err := ProofToHash(proof[:])
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return proof, output, nil
+	// Return slices for API compatibility
+	proofSlice := make([]byte, ProofSize)
+	copy(proofSlice, proof[:])
+	return proofSlice, output, nil
 }
 
 // VerifyAndHash verifies a VRF proof and returns the hash output.
@@ -289,7 +258,8 @@ func MkInputVrf(slot int64, eta0 []byte) []byte {
 // ProofToHash extracts the hash output from a VRF proof.
 func ProofToHash(pi []byte) ([]byte, error) {
 	var hashInput [34]byte
-	Gamma, _, _, err := decodeProof(pi)
+	var cArr, sArr [32]byte
+	Gamma, err := decodeProofArrays(pi, &cArr, &sArr)
 	if err != nil {
 		return nil, err
 	}
@@ -298,22 +268,17 @@ func ProofToHash(pi []byte) ([]byte, error) {
 	hashInput[1] = 0x03
 	Gamma.MultByCofactor(Gamma)
 	copy(hashInput[2:], Gamma.Bytes())
-	h := sha512.New()
-	h.Write(hashInput[:])
-	result := h.Sum(nil)
-	// sha512.Sum always returns non-nil, but nilaway needs reassurance
-	if result == nil {
-		panic("sha512.Sum returned nil")
-	}
-	return result, nil
+	result := sha512.Sum512(hashInput[:])
+	return result[:], nil
 }
 
 // verify performs the core VRF verification
 func verify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
 	var U, V *edwards25519.Point
 	var tmp1, tmp2 *edwards25519.Point
+	var cScalarArr, sScalarArr [32]byte
 
-	Gamma, cScalar, sScalar, err := decodeProof(pi)
+	Gamma, err := decodeProofArrays(pi, &cScalarArr, &sScalarArr)
 	if err != nil {
 		return false, err
 	}
@@ -324,19 +289,19 @@ func verify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
 
 	// calculate U = s*B - c*Y
 	tmp1 = &edwards25519.Point{}
-	// SetBytes needs 32 bytes while c_scalar is only 16 bytes long.
-	cScalarBytes := make([]byte, 64)
-	copy(cScalarBytes, cScalar)
+	// SetUniformBytes needs 64 bytes while cScalarArr is only 32 bytes long (with 16 bytes of data).
+	var cScalarBytes [64]byte
+	copy(cScalarBytes[:], cScalarArr[:])
 	c := edwards25519.NewScalar()
 	// SetUniformBytes always succeeds with 64 bytes; it reduces mod L
-	_, _ = c.SetUniformBytes(cScalarBytes)
+	_, _ = c.SetUniformBytes(cScalarBytes[:])
 	tmp1.ScalarMult(c, Y)
 	tmp2 = (&edwards25519.Point{}).Set(tmp1)
 	s := edwards25519.NewScalar()
-	sScalarBytes := make([]byte, 64)
-	copy(sScalarBytes, sScalar)
+	var sScalarBytes [64]byte
+	copy(sScalarBytes[:], sScalarArr[:])
 	// SetUniformBytes always succeeds with 64 bytes; it reduces mod L
-	_, _ = s.SetUniformBytes(sScalarBytes)
+	_, _ = s.SetUniformBytes(sScalarBytes[:])
 	tmp1.ScalarBaseMult(s)
 	U = &edwards25519.Point{}
 	U.Subtract(tmp1, tmp2)
@@ -351,13 +316,13 @@ func verify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
 
 	cprime := hashPoints(H, Gamma, U, V)
 
-	cmp := subtle.ConstantTimeCompare(cScalar[:], cprime.Bytes())
+	cmp := subtle.ConstantTimeCompare(cScalarArr[:], cprime.Bytes())
 	return cmp == 1, nil
 }
 
 // hashPoints hashes four curve points for the VRF challenge
 func hashPoints(P1, P2, P3, P4 *edwards25519.Point) *edwards25519.Scalar {
-	result := make([]byte, 32)
+	var result [32]byte
 	var str [2 + (32 * 4)]byte
 
 	str[0] = Suite
@@ -366,41 +331,35 @@ func hashPoints(P1, P2, P3, P4 *edwards25519.Point) *edwards25519.Scalar {
 	copy(str[2+(32*1):], P2.Bytes())
 	copy(str[2+(32*2):], P3.Bytes())
 	copy(str[2+(32*3):], P4.Bytes())
-	h := sha512.New()
-	h.Write(str[:])
-	sum := h.Sum(nil)
-	// sha512.Sum always returns non-nil, but nilaway needs reassurance
-	if sum == nil {
-		panic("sha512.Sum returned nil")
-	}
+	sum := sha512.Sum512(str[:])
 	copy(result[:], sum[:16])
 	r := edwards25519.NewScalar()
-	if _, err := r.SetCanonicalBytes(result); err != nil {
+	if _, err := r.SetCanonicalBytes(result[:]); err != nil {
 		panic(err)
 	}
 	return r
 }
 
-// decodeProof decodes a VRF proof into its components
-func decodeProof(
+// decodeProofArrays decodes a VRF proof into its components using pre-allocated arrays.
+// c and s are output parameters that must be at least 32 bytes.
+func decodeProofArrays(
 	pi []byte,
-) (gamma *edwards25519.Point, c []byte, s []byte, err error) {
+	c *[32]byte,
+	s *[32]byte,
+) (gamma *edwards25519.Point, err error) {
 	if len(pi) != ProofSize {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"unexpected length of pi (must be %d)",
 			ProofSize,
 		)
 	}
-	/* gamma = decode_point(pi[0:32]) */
 	gamma = &edwards25519.Point{}
 	if _, err := gamma.SetBytes(pi[:32]); err != nil {
-		return nil, nil, nil, fmt.Errorf("invalid gamma encoding: %w", err)
+		return nil, fmt.Errorf("invalid gamma encoding: %w", err)
 	}
-	c = make([]byte, 32)
-	s = make([]byte, 32)
 	copy(c[:], pi[32:48]) // c = pi[32:48]
 	copy(s[:], pi[48:80]) // s = pi[48:80]
-	return gamma, c, s, nil
+	return gamma, nil
 }
 
 // hashToCurveElligator2 hashes to the curve using Elligator2
@@ -577,13 +536,4 @@ func chi25519(z *field.Element) *field.Element {
 	out.Multiply(t1, t0)
 
 	return out
-}
-
-// reverseBytes returns a reversed copy of the input bytes
-func reverseBytes(b []byte) []byte {
-	result := make([]byte, len(b))
-	for i := range b {
-		result[i] = b[len(b)-1-i]
-	}
-	return result
 }
