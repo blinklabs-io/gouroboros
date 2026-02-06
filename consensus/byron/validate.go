@@ -1475,16 +1475,28 @@ func computeMerkleRoot(items [][]byte) common.Blake2b256 {
 	}
 
 	// Compute leaf hashes
+	// Find max item size to allocate a reusable buffer
+	maxLen := 0
+	for _, item := range items {
+		if len(item) > maxLen {
+			maxLen = len(item)
+		}
+	}
+	leafBuf := make([]byte, 1+maxLen)
+	leafBuf[0] = 0x00
+
 	leaves := make([][32]byte, len(items))
 	for i, item := range items {
 		// Leaf hash: hash(0x00 || item)
-		leafData := make([]byte, 1+len(item))
-		leafData[0] = 0x00
-		copy(leafData[1:], item)
-		leaves[i] = blake2b.Sum256(leafData)
+		copy(leafBuf[1:], item)
+		leaves[i] = blake2b.Sum256(leafBuf[:1+len(item)])
 	}
 
 	// Build tree bottom-up
+	// Use fixed-size array for branch data (1 byte tag + 32 bytes left + 32 bytes right)
+	var branchData [65]byte
+	branchData[0] = 0x01
+
 	nodes := leaves
 	for len(nodes) > 1 {
 		// Pad to even number if necessary
@@ -1496,11 +1508,9 @@ func computeMerkleRoot(items [][]byte) common.Blake2b256 {
 		newNodes := make([][32]byte, len(nodes)/2)
 		for i := 0; i < len(nodes); i += 2 {
 			// Branch hash: hash(0x01 || left || right)
-			branchData := make([]byte, 1+64)
-			branchData[0] = 0x01
 			copy(branchData[1:33], nodes[i][:])
 			copy(branchData[33:65], nodes[i+1][:])
-			newNodes[i/2] = blake2b.Sum256(branchData)
+			newNodes[i/2] = blake2b.Sum256(branchData[:])
 		}
 		nodes = newNodes
 	}
