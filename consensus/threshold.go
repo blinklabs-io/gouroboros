@@ -16,7 +16,6 @@ package consensus
 
 import (
 	"math/big"
-	"slices"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -193,8 +192,18 @@ func expRational(x *big.Rat) *big.Rat {
 //
 // The result is 32 bytes (256 bits) for comparison against the threshold.
 func VrfLeaderValue(vrfOutput []byte) []byte {
-	// Concatenate "L" prefix (0x4C) with VRF output for domain separation
-	data := slices.Concat([]byte{0x4C}, vrfOutput)
+	// Use fixed-size buffer to avoid allocation (VRF output is 64 bytes)
+	var buf [65]byte // 1 + 64 for VRF output
+	buf[0] = 0x4C    // "L" prefix for domain separation
+	if len(vrfOutput) <= 64 {
+		copy(buf[1:], vrfOutput)
+		hash := common.Blake2b256Hash(buf[:1+len(vrfOutput)])
+		return hash.Bytes()
+	}
+	// Fallback for larger inputs (not expected in normal operation)
+	data := make([]byte, 1+len(vrfOutput))
+	data[0] = 0x4C
+	copy(data[1:], vrfOutput)
 	hash := common.Blake2b256Hash(data)
 	return hash.Bytes()
 }
