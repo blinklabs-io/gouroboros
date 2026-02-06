@@ -35,13 +35,15 @@ type LeaderElectionResult struct {
 	Threshold *big.Int
 }
 
-// IsSlotLeader checks if a pool is eligible to produce a block in the given slot.
+// IsSlotLeader checks if a pool is eligible to produce a block in the given slot
+// using CPRAOS consensus. For TPraos compatibility, use IsSlotLeaderWithMode.
 //
-// The algorithm:
+// The CPRAOS algorithm:
 //  1. Compute VRF input using MkInputVrf(slot, epochNonce)
 //  2. Generate VRF proof: proof, output = vrfSigner.Prove(input)
-//  3. Compute threshold: T = 2^512 * (1 - (1-f)^(poolStake/totalStake))
-//  4. Compare: eligible = outputAsInteger < T
+//  3. Compute leader value: BLAKE2b-256("L" || output)
+//  4. Compute threshold: T = 2^256 * (1 - (1-f)^(poolStake/totalStake))
+//  5. Compare: eligible = leaderValue < T
 //
 // Parameters:
 //   - slot: the slot number to check
@@ -59,6 +61,34 @@ func IsSlotLeader(
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
 	vrfSigner VRFSigner,
+) (*LeaderElectionResult, error) {
+	return IsSlotLeaderWithMode(slot, epochNonce, poolStake, totalStake, activeSlotCoeff, vrfSigner, ConsensusModeCPraos)
+}
+
+// IsSlotLeaderWithMode checks if a pool is eligible to produce a block in the given slot
+// using the specified consensus mode.
+//
+// For CPRAOS (Babbage+):
+//  1. Compute VRF input using MkInputVrf(slot, epochNonce)
+//  2. Generate VRF proof: proof, output = vrfSigner.Prove(input)
+//  3. Compute leader value: BLAKE2b-256("L" || output)
+//  4. Compute threshold: T = 2^256 * (1 - (1-f)^σ)
+//  5. Compare: eligible = leaderValue < T
+//
+// For TPraos (Shelley-Alonzo):
+//  1. Compute VRF input using MkInputVrf(slot, epochNonce)
+//  2. Generate VRF proof: proof, output = vrfSigner.Prove(input)
+//  3. Use raw 64-byte VRF output directly
+//  4. Compute threshold: T = 2^512 * (1 - (1-f)^σ)
+//  5. Compare: eligible = output < T
+func IsSlotLeaderWithMode(
+	slot uint64,
+	epochNonce []byte,
+	poolStake uint64,
+	totalStake uint64,
+	activeSlotCoeff *big.Rat,
+	vrfSigner VRFSigner,
+	mode ConsensusMode,
 ) (*LeaderElectionResult, error) {
 	if vrfSigner == nil {
 		return nil, errors.New("vrfSigner is nil")
@@ -111,11 +141,11 @@ func IsSlotLeader(
 		)
 	}
 
-	// Step 3: Compute threshold
-	threshold := CertifiedNatThreshold(poolStake, totalStake, activeSlotCoeff)
+	// Step 3: Compute threshold (mode-aware)
+	threshold := CertifiedNatThresholdWithMode(poolStake, totalStake, activeSlotCoeff, mode)
 
-	// Step 4: Check eligibility
-	eligible := IsVRFOutputBelowThreshold(output, threshold)
+	// Step 4: Check eligibility (mode-aware)
+	eligible := IsVRFOutputBelowThresholdWithMode(output, threshold, mode)
 
 	return &LeaderElectionResult{
 		Eligible:  eligible,
@@ -125,8 +155,8 @@ func IsSlotLeader(
 	}, nil
 }
 
-// IsSlotLeaderFromComponents performs leader election check from pre-computed components.
-// This is useful when the VRF proof has already been generated (e.g., for validation).
+// IsSlotLeaderFromComponents performs leader election check from pre-computed components
+// using CPRAOS consensus. For TPraos compatibility, use IsSlotLeaderFromComponentsWithMode.
 //
 // Parameters:
 //   - vrfOutput: the VRF output (64 bytes)
@@ -141,6 +171,27 @@ func IsSlotLeaderFromComponents(
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
 ) bool {
+	return IsSlotLeaderFromComponentsWithMode(vrfOutput, poolStake, totalStake, activeSlotCoeff, ConsensusModeCPraos)
+}
+
+// IsSlotLeaderFromComponentsWithMode performs leader election check from pre-computed
+// components using the specified consensus mode.
+//
+// Parameters:
+//   - vrfOutput: the VRF output (64 bytes)
+//   - poolStake: the pool's delegated stake
+//   - totalStake: the total active stake
+//   - activeSlotCoeff: the active slot coefficient (f)
+//   - mode: the consensus mode (CPRAOS or TPraos)
+//
+// Returns true if the pool is eligible to be the slot leader.
+func IsSlotLeaderFromComponentsWithMode(
+	vrfOutput []byte,
+	poolStake uint64,
+	totalStake uint64,
+	activeSlotCoeff *big.Rat,
+	mode ConsensusMode,
+) bool {
 	if activeSlotCoeff == nil || totalStake == 0 || poolStake == 0 {
 		return false
 	}
@@ -148,8 +199,8 @@ func IsSlotLeaderFromComponents(
 		return false
 	}
 
-	threshold := CertifiedNatThreshold(poolStake, totalStake, activeSlotCoeff)
-	return IsVRFOutputBelowThreshold(vrfOutput, threshold)
+	threshold := CertifiedNatThresholdWithMode(poolStake, totalStake, activeSlotCoeff, mode)
+	return IsVRFOutputBelowThresholdWithMode(vrfOutput, threshold, mode)
 }
 
 // SimpleVRFSigner is a simple implementation of VRFSigner using the vrf package.
@@ -183,6 +234,9 @@ func (s *SimpleVRFSigner) PublicKey() []byte {
 
 // FindNextSlotLeadership finds the next slot where the pool is eligible to be leader.
 // This is useful for looking ahead to schedule block production.
+//
+// Note: This function uses CPRAOS consensus mode. For TPraos compatibility,
+// you would need to implement a separate function or add a mode parameter.
 //
 // Parameters:
 //   - startSlot: the slot to start searching from
