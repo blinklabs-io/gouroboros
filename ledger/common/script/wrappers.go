@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
-	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
@@ -439,28 +438,39 @@ type WithZeroAdaAsset struct {
 func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 	switch v := w.Value.(type) {
 	case Value:
-		var tmpPairs [][2]data.PlutusData
 		// For mint-only Values (txInfoMint), don't add ADA entry since you cannot mint ADA.
 		// For output Values, always include ADA entry (even if 0).
 		isMintOnly := v.AssetsMint != nil && v.AssetsOutput == nil
+
+		// Pre-calculate total capacity and extract pairs once
+		totalCap := 0
 		if !isMintOnly {
-			if v.CoinBigInt != nil {
-				tmpPairs = [][2]data.PlutusData{coinBigIntToPlutusDataMapPair(v.CoinBigInt)}
-			} else {
-				tmpPairs = [][2]data.PlutusData{coinToPlutusDataMapPair(v.Coin)}
-			}
+			totalCap = 1 // ADA entry
 		}
+		var assetsOutputPairs, assetsMintPairs [][2]data.PlutusData
 		if v.AssetsOutput != nil {
-			tmpPairs = slices.Concat(
-				tmpPairs,
-				v.AssetsOutput.ToPlutusData().(*data.Map).Pairs,
-			)
+			assetsOutputPairs = v.AssetsOutput.ToPlutusData().(*data.Map).Pairs
+			totalCap += len(assetsOutputPairs)
 		}
 		if v.AssetsMint != nil {
-			tmpPairs = slices.Concat(
-				tmpPairs,
-				v.AssetsMint.ToPlutusData().(*data.Map).Pairs,
-			)
+			assetsMintPairs = v.AssetsMint.ToPlutusData().(*data.Map).Pairs
+			totalCap += len(assetsMintPairs)
+		}
+
+		// Allocate once with calculated capacity
+		tmpPairs := make([][2]data.PlutusData, 0, totalCap)
+		if !isMintOnly {
+			if v.CoinBigInt != nil {
+				tmpPairs = append(tmpPairs, coinBigIntToPlutusDataMapPair(v.CoinBigInt))
+			} else {
+				tmpPairs = append(tmpPairs, coinToPlutusDataMapPair(v.Coin))
+			}
+		}
+		if assetsOutputPairs != nil {
+			tmpPairs = append(tmpPairs, assetsOutputPairs...)
+		}
+		if assetsMintPairs != nil {
+			tmpPairs = append(tmpPairs, assetsMintPairs...)
 		}
 		return data.NewMap(
 			tmpPairs,
