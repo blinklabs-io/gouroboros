@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -98,9 +97,17 @@ func CalculateRollingNonce(
 			len(blockVrf),
 		)
 	}
+	if len(prevBlockNonce) != 32 {
+		return Blake2b256{}, fmt.Errorf(
+			"invalid prev block nonce length: %d, expected 32",
+			len(prevBlockNonce),
+		)
+	}
 	blockVrfHash := Blake2b256Hash(blockVrf)
-	tmpData := slices.Concat(prevBlockNonce, blockVrfHash.Bytes())
-	return Blake2b256Hash(tmpData), nil
+	var buf [64]byte
+	copy(buf[:32], prevBlockNonce)
+	copy(buf[32:], blockVrfHash.Bytes())
+	return Blake2b256Hash(buf[:]), nil
 }
 
 // CalculateEpochNonce calculates an epoch nonce from the rolling nonce (eta_v) value of the block immediately before the stability
@@ -110,17 +117,22 @@ func CalculateEpochNonce(
 	prevEpochFirstBlockHash []byte,
 	extraEntropy []byte,
 ) (Blake2b256, error) {
-	tmpData := slices.Concat(
-		stableBlockNonce,
-		prevEpochFirstBlockHash,
-	)
-	tmpDataHash := Blake2b256Hash(tmpData)
-	if len(extraEntropy) > 0 {
-		tmpData2 := slices.Concat(
-			tmpDataHash.Bytes(),
-			extraEntropy,
+	if len(stableBlockNonce) != 32 || len(prevEpochFirstBlockHash) != 32 {
+		return Blake2b256{}, fmt.Errorf(
+			"invalid epoch nonce inputs: stable=%d, prevEpochFirstBlockHash=%d, expected 32 each",
+			len(stableBlockNonce),
+			len(prevEpochFirstBlockHash),
 		)
-		tmpDataHash = Blake2b256Hash(tmpData2)
+	}
+	var buf [64]byte
+	copy(buf[:32], stableBlockNonce)
+	copy(buf[32:], prevEpochFirstBlockHash)
+	tmpDataHash := Blake2b256Hash(buf[:])
+	if len(extraEntropy) > 0 {
+		buf2 := make([]byte, 32+len(extraEntropy))
+		copy(buf2[:32], tmpDataHash.Bytes())
+		copy(buf2[32:], extraEntropy)
+		tmpDataHash = Blake2b256Hash(buf2)
 	}
 	return tmpDataHash, nil
 }
