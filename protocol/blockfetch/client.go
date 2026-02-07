@@ -446,7 +446,30 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
+		// Release busyMutex on error - it was locked in GetBlockRange/GetBlock
+		// and normally released in handleBatchDone
+		if c.blockUseCallback {
+			c.busyMutex.Unlock()
+		}
 		return fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	// If pipeline is configured, submit to pipeline
+	// Only use pipeline if we are in callback mode (GetBlockRange), preserving GetBlock functionality.
+	if c.config.Pipeline != nil && c.blockUseCallback {
+		// Check for shutdown
+		select {
+		case <-c.DoneChan():
+			c.busyMutex.Unlock()
+			return protocol.ErrProtocolShuttingDown
+		default:
+		}
+
+		tip := pcommon.Tip{} // BlockFetch doesn't provide tip
+		if err := c.config.Pipeline.Submit(wrappedBlock.Type, wrappedBlock.RawBlock, tip); err != nil {
+			c.busyMutex.Unlock()
+			return err
+		}
+		return nil
 	}
 	var block ledger.Block
 	if !c.blockUseCallback || c.config.BlockFunc != nil {
@@ -459,12 +482,22 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			},
 		)
 		if err != nil {
+			// Release busyMutex on error only in callback mode.
+			// In GetBlock mode, GetBlock owns the lock and will release it.
+			if c.blockUseCallback {
+				c.busyMutex.Unlock()
+			}
 			return err
 		}
 	}
 	// Check for shutdown
 	select {
 	case <-c.DoneChan():
+		// Release busyMutex on shutdown only in callback mode.
+		// In GetBlock mode, GetBlock owns the lock and will release it.
+		if c.blockUseCallback {
+			c.busyMutex.Unlock()
+		}
 		return protocol.ErrProtocolShuttingDown
 	default:
 	}
@@ -472,13 +505,16 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if c.blockUseCallback {
 		if c.config.BlockRawFunc != nil {
 			if err := c.config.BlockRawFunc(c.callbackContext, wrappedBlock.Type, wrappedBlock.RawBlock); err != nil {
+				c.busyMutex.Unlock()
 				return err
 			}
 		} else if c.config.BlockFunc != nil {
 			if err := c.config.BlockFunc(c.callbackContext, wrappedBlock.Type, block); err != nil {
+				c.busyMutex.Unlock()
 				return err
 			}
 		} else {
+			c.busyMutex.Unlock()
 			return errors.New("received block-fetch Block message but no callback function is defined")
 		}
 	} else {
