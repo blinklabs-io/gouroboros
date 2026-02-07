@@ -425,8 +425,8 @@ func TestThresholdDeterministicBytes(t *testing.T) {
 func TestVrfLeaderValueReturns32Bytes(t *testing.T) {
 	// Test with various VRF output sizes
 	testCases := []struct {
-		name       string
-		inputSize  int
+		name      string
+		inputSize int
 	}{
 		{"64-byte VRF output", 64},
 		{"32-byte input", 32},
@@ -805,7 +805,7 @@ func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
 	// Generate many VRF outputs and count how many are eligible at different stake levels
 	// Note: This is a statistical test - we use a deterministic seed for reproducibility
 
-	lowStakeThreshold := CertifiedNatThreshold(100000000, totalStake, activeSlotCoeff) // 10%
+	lowStakeThreshold := CertifiedNatThreshold(100000000, totalStake, activeSlotCoeff)  // 10%
 	highStakeThreshold := CertifiedNatThreshold(500000000, totalStake, activeSlotCoeff) // 50%
 
 	// Higher stake should have higher threshold (more likely to be eligible)

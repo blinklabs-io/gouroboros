@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -111,7 +112,12 @@ func (c *Client) initProtocol() {
 	}
 
 	// Recreate channels
-	c.readyForNextBlockChan = make(chan bool)
+	// Use buffered channel with size equal to PipelineLimit to ensure all pipelined
+	// block signals can be queued without blocking. With pipelining, up to PipelineLimit
+	// blocks can be in-flight, each generating one signal. A smaller buffer would cause
+	// signals to be dropped (with non-blocking sends) or deadlock (with blocking sends
+	// while holding lifecycleMutex).
+	c.readyForNextBlockChan = make(chan bool, c.config.PipelineLimit)
 	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
 	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
 	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
@@ -819,6 +825,49 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		c.sendCurrentTip(msg.Tip)
 
+		// Pipeline path: submit to pipeline and signal ready immediately
+		// Skip pipeline path if firstBlockChan is set (GetAvailableBlockRange is waiting),
+		// so we fall through to the normal path that handles first-block signaling.
+		// NOTE: RollBackward handling coordinates with the pipeline via WaitForDrain()
+		// to ensure pending blocks are processed before the rollback callback runs.
+		if c.config.Pipeline != nil && firstBlockChan == nil {
+			// Create a context that cancels when the protocol shuts down.
+			// This prevents Submit from blocking indefinitely if the pipeline is
+			// full (backpressure) and DoneChan fires before pipeline.Stop().
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				select {
+				case <-c.DoneChan():
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			err := c.config.Pipeline.Submit(ctx, msg.BlockType(), msg.BlockCbor(), msg.Tip)
+			cancel() // Ensure goroutine exits promptly
+			if err != nil {
+				// Signal syncLoop to stop on pipeline error
+				c.lifecycleMutex.Lock()
+				if c.readyForNextBlockChan != nil {
+					select {
+					case c.readyForNextBlockChan <- false:
+					case <-c.DoneChan():
+					}
+				}
+				c.lifecycleMutex.Unlock()
+				return err
+			}
+			// Signal ready for next block immediately (pipeline handles backpressure)
+			c.lifecycleMutex.Lock()
+			if c.readyForNextBlockChan != nil {
+				select {
+				case c.readyForNextBlockChan <- true:
+				case <-c.DoneChan():
+				}
+			}
+			c.lifecycleMutex.Unlock()
+			return nil
+		}
+
 		var block ledger.Block
 
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
@@ -896,6 +945,47 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		)
 	msgRollBackward := msgGeneric.(*MsgRollBackward)
 	c.sendCurrentTip(msgRollBackward.Tip)
+
+	// If pipeline is configured, wait for pending blocks to be processed
+	// before calling the rollback callback. This prevents blocks from being
+	// applied after the ledger state has been rolled back.
+	if c.config.Pipeline != nil {
+		// Use a timeout context but also check for protocol shutdown via DoneChan
+		drainTimeout := c.config.PipelineDrainTimeout
+		if drainTimeout == 0 {
+			drainTimeout = DefaultPipelineDrainTimeout
+		}
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeout)
+		defer drainCancel()
+
+		// Create a channel to signal drain completion
+		drainDone := make(chan error, 1)
+		go func() {
+			drainDone <- c.config.Pipeline.WaitForDrain(drainCtx)
+		}()
+
+		// Wait for either drain completion or protocol shutdown
+		select {
+		case err := <-drainDone:
+			if err != nil {
+				c.Protocol.Logger().
+					Warn("failed to drain pipeline before rollback",
+						"error", err,
+						"component", "network",
+						"protocol", ProtocolName,
+					)
+				// Continue with rollback even if drain fails
+			}
+		case <-c.DoneChan():
+			// Protocol is shutting down, skip waiting for drain
+			c.Protocol.Logger().
+				Debug("skipping pipeline drain due to shutdown",
+					"component", "network",
+					"protocol", ProtocolName,
+				)
+		}
+	}
+
 	if len(c.wantFirstBlockChan) == 0 {
 		if c.config.RollBackwardFunc == nil {
 			return errors.New(

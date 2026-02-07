@@ -565,4 +565,3 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 		})
 	}
 }
-

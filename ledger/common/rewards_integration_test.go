@@ -17,8 +17,8 @@ package common_test
 import (
 	"testing"
 
-	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

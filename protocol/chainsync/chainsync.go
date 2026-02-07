@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -218,15 +219,28 @@ type Config struct {
 	PipelineLimit       int
 	RecvQueueSize       int
 	SkipBlockValidation bool // Skip block validation during parsing
+
+	// Pipeline enables the block processing pipeline.
+	// The pipeline should be configured with desired buffer sizes when created.
+	Pipeline *pipeline.BlockPipeline
+
+	// PipelineBufferSize is reserved for future use.
+	// Currently, buffer sizes are configured when creating the BlockPipeline.
+	PipelineBufferSize int
+
+	// PipelineDrainTimeout is the timeout for draining the pipeline before rollback.
+	// If zero, defaults to DefaultPipelineDrainTimeout.
+	PipelineDrainTimeout time.Duration
 }
 
 // Protocol limits per Ouroboros Network Specification
 const (
-	MaxPipelineLimit       = 100    // Max pipelined requests
-	MaxRecvQueueSize       = 100    // Max receive queue size (messages)
-	DefaultPipelineLimit   = 75     // Default pipeline limit
-	DefaultRecvQueueSize   = 75     // Default queue size
-	MaxPendingMessageBytes = 102400 // Max pending message bytes (100KB)
+	MaxPipelineLimit            = 100    // Max pipelined requests
+	MaxRecvQueueSize            = 100    // Max receive queue size (messages)
+	DefaultPipelineLimit        = 75     // Default pipeline limit
+	DefaultRecvQueueSize        = 75     // Default queue size
+	MaxPendingMessageBytes      = 102400 // Max pending message bytes (100KB)
+	DefaultPipelineDrainTimeout = 30 * time.Second
 )
 
 // Protocol state timeout constants per network specification
@@ -321,6 +335,18 @@ func (c *Config) validate() error {
 			"RecvQueueSize %d exceeds maximum allowed %d",
 			c.RecvQueueSize,
 			MaxRecvQueueSize,
+		)
+	}
+	if c.PipelineBufferSize < 0 {
+		return fmt.Errorf(
+			"PipelineBufferSize %d must be non-negative",
+			c.PipelineBufferSize,
+		)
+	}
+	if c.PipelineDrainTimeout < 0 {
+		return fmt.Errorf(
+			"PipelineDrainTimeout %v must be non-negative",
+			c.PipelineDrainTimeout,
 		)
 	}
 	return nil
@@ -426,5 +452,42 @@ func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 			)
 		}
 		c.RecvQueueSize = size
+	}
+}
+
+// WithPipeline sets the block processing pipeline for parallel block handling.
+func WithPipeline(p *pipeline.BlockPipeline) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.Pipeline = p
+	}
+}
+
+// WithPipelineBufferSize sets the prefetch buffer size when pipeline is enabled.
+func WithPipelineBufferSize(size int) ChainSyncOptionFunc {
+	return func(c *Config) {
+		if size < 0 {
+			panic(
+				fmt.Sprintf(
+					"PipelineBufferSize %d must be non-negative",
+					size,
+				),
+			)
+		}
+		c.PipelineBufferSize = size
+	}
+}
+
+// WithPipelineDrainTimeout sets the timeout for draining the pipeline before rollback.
+func WithPipelineDrainTimeout(timeout time.Duration) ChainSyncOptionFunc {
+	return func(c *Config) {
+		if timeout < 0 {
+			panic(
+				fmt.Sprintf(
+					"PipelineDrainTimeout %v must be non-negative",
+					timeout,
+				),
+			)
+		}
+		c.PipelineDrainTimeout = timeout
 	}
 }

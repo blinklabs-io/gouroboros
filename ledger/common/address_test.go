@@ -959,13 +959,13 @@ func TestCIP0019_ByronAddressCRC32Validation(t *testing.T) {
 		},
 		{
 			name:          "Byron address with invalid CRC32 (modified checksum)",
-			addressHex:   "82d818582483581c5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dda1024102001a00000000",
+			addressHex:    "82d818582483581c5d5e698eba3dd9452add99a1af9461beb0ba61b8bece26e7399878dda1024102001a00000000",
 			expectError:   true,
 			errorContains: "checksum",
 		},
 		{
 			name:          "Byron address with corrupted payload",
-			addressHex:   "82d818582483581c0000000000000000000000000000000000000000000000000000000000a1024102001a36d41aba",
+			addressHex:    "82d818582483581c0000000000000000000000000000000000000000000000000000000000a1024102001a36d41aba",
 			expectError:   true,
 			errorContains: "checksum",
 		},
@@ -1069,12 +1069,12 @@ func TestCIP0019_PointerAddressEdgeCases(t *testing.T) {
 	paymentHash := make([]byte, 28)
 
 	tests := []struct {
-		name         string
-		slot         uint64
-		txIndex      uint64
-		certIndex    uint64
-		expectError  bool
-		expectedLen  int
+		name        string
+		slot        uint64
+		txIndex     uint64
+		certIndex   uint64
+		expectError bool
+		expectedLen int
 	}{
 		{
 			name:        "minimal pointer (0,0,0)",
