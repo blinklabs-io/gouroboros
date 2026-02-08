@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -218,6 +219,12 @@ type Config struct {
 	PipelineLimit       int
 	RecvQueueSize       int
 	SkipBlockValidation bool // Skip block validation during parsing
+
+	// Pipeline enables the block processing pipeline
+	Pipeline *pipeline.BlockPipeline
+
+	// PipelineBufferSize sets prefetch buffer size when pipeline is enabled
+	PipelineBufferSize int
 }
 
 // Protocol limits per Ouroboros Network Specification
