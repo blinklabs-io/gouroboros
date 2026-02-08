@@ -25,18 +25,37 @@ import (
 	"github.com/jinzhu/copier"
 )
 
+var (
+	cachedEncMode     _cbor.EncMode
+	cachedEncModeErr  error
+	cachedEncModeOnce sync.Once
+)
+
+// getEncMode returns a cached EncMode, initializing it on first use.
+// Uses sync.Once for thread-safe lazy initialization.
+// Returns the cached error if initialization failed.
+func getEncMode() (_cbor.EncMode, error) {
+	cachedEncModeOnce.Do(func() {
+		opts := _cbor.EncOptions{
+			// Make sure that maps have ordered keys
+			Sort:          _cbor.SortCoreDeterministic,
+			BigIntConvert: _cbor.BigIntConvertShortest,
+		}
+		cachedEncMode, cachedEncModeErr = opts.EncModeWithTags(customTagSet)
+	})
+	return cachedEncMode, cachedEncModeErr
+}
+
 func Encode(data any) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
-	opts := _cbor.EncOptions{
-		// Make sure that maps have ordered keys
-		Sort:          _cbor.SortCoreDeterministic,
-		BigIntConvert: _cbor.BigIntConvertShortest,
-	}
-	em, err := opts.EncModeWithTags(customTagSet)
+	encMode, err := getEncMode()
 	if err != nil {
 		return nil, err
 	}
-	enc := em.NewEncoder(buf)
+	if encMode == nil {
+		return nil, errors.New("CBOR encoder mode not initialized")
+	}
+	enc := encMode.NewEncoder(buf)
 	err = enc.Encode(data)
 	return buf.Bytes(), err
 }

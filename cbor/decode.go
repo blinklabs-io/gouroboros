@@ -26,17 +26,35 @@ import (
 	"github.com/jinzhu/copier"
 )
 
+var (
+	cachedDecMode     _cbor.DecMode
+	cachedDecModeErr  error
+	cachedDecModeOnce sync.Once
+)
+
+// getDecMode returns a cached DecMode, initializing it on first use.
+// Uses sync.Once for thread-safe lazy initialization.
+// Returns the cached error if initialization failed.
+func getDecMode() (_cbor.DecMode, error) {
+	cachedDecModeOnce.Do(func() {
+		decOptions := _cbor.DecOptions{
+			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+			// This defaults to 32, but there are blocks in the wild using >64 nested levels
+			MaxNestedLevels: 256,
+		}
+		cachedDecMode, cachedDecModeErr = decOptions.DecModeWithTags(customTagSet)
+	})
+	return cachedDecMode, cachedDecModeErr
+}
+
 func Decode(dataBytes []byte, dest any) (int, error) {
 	data := bytes.NewReader(dataBytes)
-	// Create a custom decoder that returns an error on unknown fields
-	decOptions := _cbor.DecOptions{
-		ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
-		// This defaults to 32, but there are blocks in the wild using >64 nested levels
-		MaxNestedLevels: 256,
-	}
-	decMode, err := decOptions.DecModeWithTags(customTagSet)
+	decMode, err := getDecMode()
 	if err != nil {
 		return 0, err
+	}
+	if decMode == nil {
+		return 0, errors.New("CBOR decoder mode not initialized")
 	}
 	dec := decMode.NewDecoder(data)
 	err = dec.Decode(dest)
@@ -184,13 +202,12 @@ type StreamDecoder struct {
 
 // NewStreamDecoder creates a decoder for sequential CBOR item extraction with position tracking.
 func NewStreamDecoder(data []byte) (*StreamDecoder, error) {
-	decOptions := _cbor.DecOptions{
-		ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
-		MaxNestedLevels:   256,
-	}
-	decMode, err := decOptions.DecModeWithTags(customTagSet)
+	decMode, err := getDecMode()
 	if err != nil {
 		return nil, err
+	}
+	if decMode == nil {
+		return nil, errors.New("CBOR decoder mode not initialized")
 	}
 	return &StreamDecoder{
 		dec:     decMode.NewDecoder(bytes.NewReader(data)),
