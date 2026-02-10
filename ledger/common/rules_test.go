@@ -21,8 +21,8 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
-	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 )
 
 // mockTxEmpty implements the minimal Transaction interface used by the

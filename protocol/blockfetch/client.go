@@ -15,6 +15,7 @@
 package blockfetch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -43,6 +44,7 @@ type Client struct {
 	callbackContext      CallbackContext   // Callback context for client
 	blockChan            chan ledger.Block // Channel for received blocks
 	startBatchResultChan chan error        // Channel for batch start results
+	batchDoneChan        chan struct{}     // Channel to signal batch completion in GetBlock mode
 	busyMutex            sync.Mutex        // Mutex for busy state
 	lifecycleMutex       sync.Mutex        // Mutex for lifecycle state
 	lifecycleState       clientLifecycleState
@@ -75,6 +77,7 @@ func (c *Client) initProtocol() {
 	// Recreate channels
 	c.blockChan = make(chan ledger.Block)
 	c.startBatchResultChan = make(chan error)
+	c.batchDoneChan = make(chan struct{})
 	c.protoStarted = false
 
 	// Update state map with timeouts
@@ -259,10 +262,11 @@ func (c *Client) Stop() error {
 	// channels recreated by a concurrent Start().
 	blockChanToClose := c.blockChan
 	startBatchResultChanToClose := c.startBatchResultChan
-	c.blockChan = nil
-	c.startBatchResultChan = nil
+	batchDoneChanToClose := c.batchDoneChan
 
-	// Release lock while waiting for protocol shutdown to avoid deadlock
+	// Release lock while waiting for protocol shutdown to avoid deadlock.
+	// Do NOT set channels to nil yet - message handlers may still be running
+	// and sending to nil channels would block forever.
 	c.lifecycleMutex.Unlock()
 	<-doneChan
 
@@ -273,7 +277,15 @@ func (c *Client) Stop() error {
 	if startBatchResultChanToClose != nil {
 		close(startBatchResultChanToClose)
 	}
+	if batchDoneChanToClose != nil {
+		close(batchDoneChanToClose)
+	}
+
+	// Now safe to nil out channels and clean up
 	c.lifecycleMutex.Lock()
+	c.blockChan = nil
+	c.startBatchResultChan = nil
+	c.batchDoneChan = nil
 	// Unblock any goroutine waiting for an in-progress start.
 	if c.startingDone != nil {
 		close(c.startingDone)
@@ -359,14 +371,28 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 	// Wait for block
+	var block ledger.Block
 	select {
-	case block, ok := <-c.blockChan:
+	case b, ok := <-c.blockChan:
 		if !ok {
 			c.busyMutex.Unlock()
 			return nil, protocol.ErrProtocolShuttingDown
 		}
+		block = b
+	case <-c.DoneChan():
+		c.busyMutex.Unlock()
+		return nil, protocol.ErrProtocolShuttingDown
+	}
+	// Wait for BatchDone before returning to ensure the protocol state machine
+	// completes the batch properly (transitions back to Idle state).
+	// handleBatchDone signals batchDoneChan in GetBlock mode instead of unlocking.
+	select {
+	case <-c.batchDoneChan:
+		// BatchDone was processed successfully
+		c.busyMutex.Unlock()
 		return block, nil
 	case <-c.DoneChan():
+		// Shutdown while waiting for BatchDone
 		c.busyMutex.Unlock()
 		return nil, protocol.ErrProtocolShuttingDown
 	}
@@ -446,7 +472,43 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
+		// Release busyMutex on error - it was locked in GetBlockRange/GetBlock
+		// and normally released in handleBatchDone
+		if c.blockUseCallback {
+			c.busyMutex.Unlock()
+		}
 		return fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	// If pipeline is configured, submit to pipeline
+	// Only use pipeline if we are in callback mode (GetBlockRange), preserving GetBlock functionality.
+	if c.config.Pipeline != nil && c.blockUseCallback {
+		// Check for shutdown
+		select {
+		case <-c.DoneChan():
+			c.busyMutex.Unlock()
+			return protocol.ErrProtocolShuttingDown
+		default:
+		}
+
+		tip := pcommon.Tip{} // BlockFetch doesn't provide tip
+		// Create a context that cancels when the protocol shuts down.
+		// This prevents Submit from blocking indefinitely if the pipeline is
+		// full (backpressure) and DoneChan fires before pipeline.Stop().
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			select {
+			case <-c.DoneChan():
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		err := c.config.Pipeline.Submit(ctx, wrappedBlock.Type, wrappedBlock.RawBlock, tip)
+		cancel() // Ensure goroutine exits promptly
+		if err != nil {
+			c.busyMutex.Unlock()
+			return err
+		}
+		return nil
 	}
 	var block ledger.Block
 	if !c.blockUseCallback || c.config.BlockFunc != nil {
@@ -459,12 +521,22 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			},
 		)
 		if err != nil {
+			// Release busyMutex on error only in callback mode.
+			// In GetBlock mode, GetBlock owns the lock and will release it.
+			if c.blockUseCallback {
+				c.busyMutex.Unlock()
+			}
 			return err
 		}
 	}
 	// Check for shutdown
 	select {
 	case <-c.DoneChan():
+		// Release busyMutex on shutdown only in callback mode.
+		// In GetBlock mode, GetBlock owns the lock and will release it.
+		if c.blockUseCallback {
+			c.busyMutex.Unlock()
+		}
 		return protocol.ErrProtocolShuttingDown
 	default:
 	}
@@ -472,13 +544,16 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 	if c.blockUseCallback {
 		if c.config.BlockRawFunc != nil {
 			if err := c.config.BlockRawFunc(c.callbackContext, wrappedBlock.Type, wrappedBlock.RawBlock); err != nil {
+				c.busyMutex.Unlock()
 				return err
 			}
 		} else if c.config.BlockFunc != nil {
 			if err := c.config.BlockFunc(c.callbackContext, wrappedBlock.Type, block); err != nil {
+				c.busyMutex.Unlock()
 				return err
 			}
 		} else {
+			c.busyMutex.Unlock()
 			return errors.New("received block-fetch Block message but no callback function is defined")
 		}
 	} else {
@@ -502,6 +577,18 @@ func (c *Client) handleBatchDone() error {
 			return err
 		}
 	}
-	c.busyMutex.Unlock()
+	if c.blockUseCallback {
+		// In callback mode, unlock here as GetBlockRange has already returned
+		c.busyMutex.Unlock()
+	} else {
+		// In GetBlock mode, signal completion so GetBlock can unlock and return.
+		// This avoids a double-unlock race during shutdown where GetBlock might
+		// unlock via DoneChan before handleBatchDone runs.
+		select {
+		case c.batchDoneChan <- struct{}{}:
+		case <-c.DoneChan():
+			// Protocol is shutting down, GetBlock will handle cleanup
+		}
+	}
 	return nil
 }

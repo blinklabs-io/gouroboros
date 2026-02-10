@@ -110,10 +110,10 @@ func TestStreamDecoderRawBytes(t *testing.T) {
 	assert.Equal(t, data, raw)
 
 	// Edge cases
-	assert.Nil(t, dec.RawBytes(-1, 2))    // negative offset
-	assert.Nil(t, dec.RawBytes(0, -1))    // negative length
-	assert.Nil(t, dec.RawBytes(0, 100))   // beyond bounds
-	assert.Nil(t, dec.RawBytes(100, 1))   // offset beyond bounds
+	assert.Nil(t, dec.RawBytes(-1, 2))            // negative offset
+	assert.Nil(t, dec.RawBytes(0, -1))            // negative length
+	assert.Nil(t, dec.RawBytes(0, 100))           // beyond bounds
+	assert.Nil(t, dec.RawBytes(100, 1))           // offset beyond bounds
 	assert.Equal(t, []byte{}, dec.RawBytes(0, 0)) // zero length (valid)
 }
 

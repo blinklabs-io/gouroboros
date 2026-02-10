@@ -921,10 +921,10 @@ func TestParseByronBodyProof_ValidInput(t *testing.T) {
 
 	// Test type 0 (CommitmentsProof) with two hashes
 	input := []any{
-		[]any{uint64(5), txBodyRoot, txWitRoot},  // txProof
-		[]any{uint64(0), sscHash1, sscHash2},     // sscProof: type 0 (Commitments) needs two hashes
-		dlgProof,                                 // dlgProof
-		updProof,                                 // updProof
+		[]any{uint64(5), txBodyRoot, txWitRoot}, // txProof
+		[]any{uint64(0), sscHash1, sscHash2},    // sscProof: type 0 (Commitments) needs two hashes
+		dlgProof,                                // dlgProof
+		updProof,                                // updProof
 	}
 
 	proof, err := parseByronBodyProof(input)
@@ -1141,7 +1141,6 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 	}
 }
 
-
 // Test genesis config similar to mainnet for NewByronConfigFromGenesis test
 const testByronGenesisJSON = `{
     "avvmDistr": {},
@@ -1257,7 +1256,6 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	t.Logf("  NumGenesisKeys: %d", config.NumGenesisKeys)
 }
 
-
 func TestByronTxFeePolicy_CalculateMinFee(t *testing.T) {
 	// Use mainnet-like fee policy values
 	// summand: 155381000000000 (scaled by 10^9)
@@ -1279,40 +1277,40 @@ func TestByronTxFeePolicy_CalculateMinFee(t *testing.T) {
 			expectedFee: 155381, // Just the base fee (155381000000000 / 10^9)
 		},
 		{
-			name:        "100 byte tx",
-			txSize:      100,
+			name:   "100 byte tx",
+			txSize: 100,
 			// fee = ceiling((155381000000000 + 43946000000 * 100) / 10^9)
 			// fee = ceiling(159775600000000 / 10^9)
 			// fee = ceiling(159775.6) = 159776
 			expectedFee: 159776,
 		},
 		{
-			name:        "200 byte tx",
-			txSize:      200,
+			name:   "200 byte tx",
+			txSize: 200,
 			// fee = ceiling((155381000000000 + 43946000000 * 200) / 10^9)
 			// fee = ceiling(164170200000000 / 10^9)
 			// fee = ceiling(164170.2) = 164171
 			expectedFee: 164171,
 		},
 		{
-			name:        "500 byte tx",
-			txSize:      500,
+			name:   "500 byte tx",
+			txSize: 500,
 			// fee = ceiling((155381000000000 + 43946000000 * 500) / 10^9)
 			// fee = ceiling(177354000000000 / 10^9)
 			// fee = 177354 (exact, no rounding needed)
 			expectedFee: 177354,
 		},
 		{
-			name:        "1000 byte tx",
-			txSize:      1000,
+			name:   "1000 byte tx",
+			txSize: 1000,
 			// fee = ceiling((155381000000000 + 43946000000 * 1000) / 10^9)
 			// fee = ceiling(199327000000000 / 10^9)
 			// fee = 199327
 			expectedFee: 199327,
 		},
 		{
-			name:        "4096 byte tx (max Byron tx size)",
-			txSize:      4096,
+			name:   "4096 byte tx (max Byron tx size)",
+			txSize: 4096,
 			// fee = ceiling((155381000000000 + 43946000000 * 4096) / 10^9)
 			// fee = ceiling((155381000000000 + 180002816000000) / 10^9)
 			// fee = ceiling(335383816000000 / 10^9)
