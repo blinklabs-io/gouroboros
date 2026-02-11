@@ -380,3 +380,42 @@ func BenchmarkDecode(b *testing.B) {
 		}
 	}
 }
+
+// TestListLengthEmptyInput verifies that ListLength handles empty/nil input
+// gracefully without panicking (security fix for bounds checking).
+func TestListLengthEmptyInput(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		_, err := cbor.ListLength(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty CBOR data")
+	})
+
+	t.Run("empty slice", func(t *testing.T) {
+		_, err := cbor.ListLength([]byte{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty CBOR data")
+	})
+}
+
+// TestDecodeIdFromListEmptyInput verifies that DecodeIdFromList handles
+// empty/nil and short input gracefully without panicking (security fix).
+func TestDecodeIdFromListEmptyInput(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		_, err := cbor.DecodeIdFromList(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "CBOR data too short")
+	})
+
+	t.Run("empty slice", func(t *testing.T) {
+		_, err := cbor.DecodeIdFromList([]byte{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "CBOR data too short")
+	})
+
+	t.Run("single byte input", func(t *testing.T) {
+		// 0x81 = array of length 1, but no second byte for the element
+		_, err := cbor.DecodeIdFromList([]byte{0x81})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "CBOR data too short")
+	})
+}

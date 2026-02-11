@@ -64,6 +64,9 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 // Extract the first item from a CBOR list. This will return the first item from the
 // provided list if it's numeric and an error otherwise
 func DecodeIdFromList(cborData []byte) (int, error) {
+	if len(cborData) < 2 {
+		return 0, errors.New("CBOR data too short for list with ID")
+	}
 	// If the list length is <= the max simple uint and the first list value
 	// is <= the max simple uint, then we can extract the value straight from
 	// the byte slice
@@ -108,6 +111,9 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 
 // Determine the length of a CBOR list
 func ListLength(cborData []byte) (int, error) {
+	if len(cborData) == 0 {
+		return 0, errors.New("empty CBOR data")
+	}
 	// If the list length is <= the max simple uint, then we can extract the length
 	// value straight from the byte slice (with a little math)
 	if cborData[0] >= CborTypeArray &&
