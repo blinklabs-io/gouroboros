@@ -32,6 +32,8 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
 
@@ -543,6 +545,107 @@ func TestGetSPOStakeDistr(t *testing.T) {
 					spoDistr.Results,
 				)
 			}
+		},
+	)
+}
+
+func TestGetDRepState(t *testing.T) {
+	// Create a sample DRep state result with one entry
+	cred := localstatequery.StakeCredential{
+		Tag:   0, // KeyHash
+		Bytes: ledger.Blake2b224{0x1, 0x2, 0x3},
+	}
+	anchor := lcommon.GovAnchor{
+		Url:      "https://drep.example.com",
+		DataHash: [32]byte{0xaa, 0xbb, 0xcc},
+	}
+	expectedResult := localstatequery.DRepStateResult{
+		cred: localstatequery.DRepStateEntry{
+			Expiry:  100,
+			Anchor:  &anchor,
+			Deposit: 500000000,
+		},
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	require.NoError(t, err, "unexpected error encoding DRepStateResult")
+
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			drepState, err := oConn.LocalStateQuery().Client.GetDRepState(nil)
+			require.NoError(t, err, "received unexpected error")
+			require.NotNil(t, drepState)
+
+			result := *drepState
+			assert.Len(t, result, 1, "expected 1 DRep state entry")
+
+			entry, ok := result[cred]
+			require.True(t, ok, "expected credential key in result")
+			assert.Equal(t, uint64(100), entry.Expiry)
+			assert.Equal(t, uint64(500000000), entry.Deposit)
+			require.NotNil(t, entry.Anchor)
+			assert.Equal(t, "https://drep.example.com", entry.Anchor.Url)
+			assert.Equal(t, anchor.DataHash, entry.Anchor.DataHash)
+		},
+	)
+}
+
+func TestGetDRepStateEmpty(t *testing.T) {
+	// Test with empty result
+	expectedResult := localstatequery.DRepStateResult{}
+	cborData, err := cbor.Encode(expectedResult)
+	require.NoError(t, err, "unexpected error encoding empty DRepStateResult")
+
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			drepState, err := oConn.LocalStateQuery().Client.GetDRepState(nil)
+			require.NoError(t, err, "received unexpected error")
+			require.NotNil(t, drepState)
+			assert.Empty(t, *drepState, "expected empty DRep state result")
+		},
+	)
+}
+
+func TestGetDRepStatePreConway(t *testing.T) {
+	// Test that GetDRepState returns an error on pre-Conway eras
+	runTest(
+		t,
+		conversationCurrentEra, // Era 5 (Babbage)
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetDRepState(nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "GetDRepState requires Conway era or later")
 		},
 	)
 }

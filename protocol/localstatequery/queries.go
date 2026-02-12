@@ -877,9 +877,8 @@ type DRepStateEntry struct {
 }
 
 // DRepStateResult represents the DRep state query result.
-// The result is raw CBOR that maps credentials to DRep state.
-// Consumers must decode the CBOR themselves based on the expected format.
-type DRepStateResult cbor.RawMessage
+// The result is a map of stake credentials to DRep state entries.
+type DRepStateResult map[StakeCredential]DRepStateEntry
 
 // DRepStakeDistrResult represents the DRep stake distribution
 // The result is returned as raw CBOR that maps DReps to stake amounts
