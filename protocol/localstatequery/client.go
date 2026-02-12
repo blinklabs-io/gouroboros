@@ -1185,6 +1185,40 @@ func (c *Client) GetSPOStakeDistr(
 	return &result, nil
 }
 
+// GetProposals returns all active governance proposals (Conway era)
+// Each proposal includes its governance action ID, votes, proposal procedure,
+// and the epoch range during which it is active
+func (c *Client) GetProposals() (*ProposalsResult, error) {
+	c.Protocol.Logger().
+		Debug("calling GetProposals()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf(
+			"GetProposals requires Conway era or later (current era: %d)",
+			currentEra,
+		)
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyGetProposals,
+	)
+	var result ProposalsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
