@@ -54,10 +54,10 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 	expectedHash := []byte{0x01, 0x02, 0x03, 0x04}
 
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte) (protocol.Message, error) {
+		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
 			called = true
-			assert.Equal(t, expectedSlot, slot)
-			assert.Equal(t, expectedHash, hash)
+			assert.Equal(t, expectedSlot, point.Slot)
+			assert.Equal(t, expectedHash, point.Hash)
 			// Return an error to prevent attempting to send (which would hang)
 			return nil, errors.New("test: stopping before send")
 		}),
@@ -69,7 +69,7 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(expectedSlot, expectedHash)
+	msg := NewMsgBlockRequest(pcommon.NewPoint(expectedSlot, expectedHash))
 	err := server.handleBlockRequest(msg)
 
 	// Error is expected because we return an error from the callback
@@ -90,7 +90,7 @@ func TestHandleBlockRequest_NilCallback(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(12345, []byte{0x01, 0x02})
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
 	err := server.handleBlockRequest(msg)
 
 	assert.Error(t, err)
@@ -109,7 +109,7 @@ func TestHandleBlockRequest_NilConfig(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(12345, []byte{0x01, 0x02})
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
 	err := server.handleBlockRequest(msg)
 
 	assert.Error(t, err)
@@ -124,7 +124,7 @@ func TestHandleBlockRequest_CallbackError(t *testing.T) {
 
 	expectedError := errors.New("block not found")
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte) (protocol.Message, error) {
+		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
 			return nil, expectedError
 		}),
 	)
@@ -135,7 +135,7 @@ func TestHandleBlockRequest_CallbackError(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(12345, []byte{0x01, 0x02})
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
 	err := server.handleBlockRequest(msg)
 
 	assert.Error(t, err)
@@ -149,7 +149,7 @@ func TestHandleBlockRequest_NilResponse(t *testing.T) {
 	}
 
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte) (protocol.Message, error) {
+		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
 			return nil, nil
 		}),
 	)
@@ -160,7 +160,7 @@ func TestHandleBlockRequest_NilResponse(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockRequest(12345, []byte{0x01, 0x02})
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
 	err := server.handleBlockRequest(msg)
 
 	assert.Error(t, err)
@@ -176,15 +176,15 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 	called := false
 	expectedSlot := uint64(12345)
 	expectedHash := []byte{0x01, 0x02, 0x03, 0x04}
-	expectedBitmaps := map[uint16][8]byte{
-		0: {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	expectedBitmaps := map[uint16]uint64{
+		0: 0xff00000000000000,
 	}
 
 	cfg := NewConfig(
-		WithBlockTxsRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte, bitmaps map[uint16][8]byte) (protocol.Message, error) {
+		WithBlockTxsRequestFunc(func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
 			called = true
-			assert.Equal(t, expectedSlot, slot)
-			assert.Equal(t, expectedHash, hash)
+			assert.Equal(t, expectedSlot, point.Slot)
+			assert.Equal(t, expectedHash, point.Hash)
 			assert.Equal(t, expectedBitmaps, bitmaps)
 			// Return an error to prevent attempting to send (which would hang)
 			return nil, errors.New("test: stopping before send")
@@ -197,7 +197,7 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockTxsRequest(expectedSlot, expectedHash, expectedBitmaps)
+	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(expectedSlot, expectedHash), expectedBitmaps)
 	err := server.handleBlockTxsRequest(msg)
 
 	// Error is expected because we return an error from the callback
@@ -218,7 +218,7 @@ func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockTxsRequest(12345, []byte{0x01, 0x02}, nil)
+	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil)
 	err := server.handleBlockTxsRequest(msg)
 
 	assert.Error(t, err)
@@ -363,10 +363,10 @@ func TestServerMessageHandler_AllTypes(t *testing.T) {
 
 	// Create a config with all callbacks that return errors to prevent send attempts
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte) (protocol.Message, error) {
+		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
 			return nil, errors.New("test: callback error")
 		}),
-		WithBlockTxsRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte, bitmaps map[uint16][8]byte) (protocol.Message, error) {
+		WithBlockTxsRequestFunc(func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
 			return nil, errors.New("test: callback error")
 		}),
 		WithVotesRequestFunc(func(ctx CallbackContext, voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
@@ -385,11 +385,11 @@ func TestServerMessageHandler_AllTypes(t *testing.T) {
 	}{
 		{
 			name: "BlockRequest",
-			msg:  NewMsgBlockRequest(12345, []byte{0x01, 0x02}),
+			msg:  NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 		},
 		{
 			name: "BlockTxsRequest",
-			msg:  NewMsgBlockTxsRequest(12345, []byte{0x01, 0x02}, nil),
+			msg:  NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
 		},
 		{
 			name: "VotesRequest",

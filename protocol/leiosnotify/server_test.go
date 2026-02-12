@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -171,7 +172,7 @@ func TestServerMessageHandler_UnexpectedType(t *testing.T) {
 	server := NewServer(protoOptions, &cfg)
 
 	// Create a message with an unexpected type for the server
-	msg := NewMsgBlockOffer(12345, []byte{0x01, 0x02})
+	msg := NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02}), 12345)
 
 	err := server.messageHandler(msg)
 
@@ -255,11 +256,11 @@ func TestCallbackResponseTypes(t *testing.T) {
 		},
 		{
 			name:     "BlockOffer response",
-			response: NewMsgBlockOffer(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			response: NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}), 12345),
 		},
 		{
 			name:     "BlockTxsOffer response",
-			response: NewMsgBlockTxsOffer(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			response: NewMsgBlockTxsOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04})),
 		},
 		{
 			name: "VotesOffer response",

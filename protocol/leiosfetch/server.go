@@ -98,8 +98,7 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
 		s.callbackContext,
-		msgBlockRequest.Slot,
-		msgBlockRequest.Hash,
+		msgBlockRequest.Point,
 	)
 	if err != nil {
 		return err
@@ -131,8 +130,7 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
 		s.callbackContext,
-		msgBlockTxsRequest.Slot,
-		msgBlockTxsRequest.Hash,
+		msgBlockTxsRequest.Point,
 		msgBlockTxsRequest.Bitmaps,
 	)
 	if err != nil {
