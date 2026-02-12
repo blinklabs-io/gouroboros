@@ -583,9 +583,12 @@ func decodeByronWitness(
 	v cbor.Value,
 ) (vkey *common.VkeyWitness, bootstrap *common.BootstrapWitness, ok bool) {
 	switch w := v.Value().(type) {
-	case cbor.Constructor:
-		fields := w.Fields()
-		return decodeByronWitnessFromConstructor(uint64(w.Constructor()), fields)
+	case cbor.ConstructorDecoder:
+		fields, err := w.ParsedFields()
+		if err != nil {
+			return nil, nil, false
+		}
+		return decodeByronWitnessFromConstructor(uint64(w.Tag()), fields)
 	case []any:
 		if len(w) == 0 {
 			return nil, nil, false
