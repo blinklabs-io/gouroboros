@@ -41,6 +41,10 @@ func getDecMode() (_cbor.DecMode, error) {
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
 			// This defaults to 32, but there are blocks in the wild using >64 nested levels
 			MaxNestedLevels: 256,
+			// The fxamacker default is 131072, but Cardano ledger state
+			// snapshots contain stake distribution maps that can exceed
+			// 1M entries on mainnet.
+			MaxMapPairs: 10_000_000,
 		}
 		cachedDecMode, cachedDecModeErr = decOptions.DecModeWithTags(customTagSet)
 	})
