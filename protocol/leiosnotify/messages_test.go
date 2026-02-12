@@ -20,6 +20,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,16 +48,21 @@ func getTestDefinitions() []testDefinition {
 		{
 			Name: "MsgBlockOffer",
 			Message: NewMsgBlockOffer(
+				pcommon.NewPoint(
+					12345,
+					[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+				),
 				12345,
-				[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
 			),
 			MessageType: MessageTypeBlockOffer,
 		},
 		{
 			Name: "MsgBlockTxsOffer",
 			Message: NewMsgBlockTxsOffer(
-				67890,
-				[]byte{0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+				pcommon.NewPoint(
+					67890,
+					[]byte{0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+				),
 			),
 			MessageType: MessageTypeBlockTxsOffer,
 		},
@@ -155,22 +161,22 @@ func TestMsgBlockOffer(t *testing.T) {
 	slot := uint64(123456)
 	hash := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 
-	msg := NewMsgBlockOffer(slot, hash)
+	msg := NewMsgBlockOffer(pcommon.NewPoint(slot, hash), 12345)
 
 	assert.Equal(t, uint8(MessageTypeBlockOffer), msg.Type())
-	assert.Equal(t, slot, msg.Slot)
-	assert.Equal(t, hash, msg.Hash)
+	assert.Equal(t, slot, msg.Point.Slot)
+	assert.Equal(t, hash, msg.Point.Hash)
 }
 
 func TestMsgBlockTxsOffer(t *testing.T) {
 	slot := uint64(123456)
 	hash := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 
-	msg := NewMsgBlockTxsOffer(slot, hash)
+	msg := NewMsgBlockTxsOffer(pcommon.NewPoint(slot, hash))
 
 	assert.Equal(t, uint8(MessageTypeBlockTxsOffer), msg.Type())
-	assert.Equal(t, slot, msg.Slot)
-	assert.Equal(t, hash, msg.Hash)
+	assert.Equal(t, slot, msg.Point.Slot)
+	assert.Equal(t, hash, msg.Point.Hash)
 }
 
 func TestMsgVotesOffer(t *testing.T) {

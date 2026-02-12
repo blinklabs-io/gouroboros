@@ -121,12 +121,11 @@ func (c *Client) Stop() error {
 	return err
 }
 
-// BlockRequest fetches the requested EB identified by the slot and Leios hash
+// BlockRequest fetches the requested EB identified by the specified point
 func (c *Client) BlockRequest(
-	slot uint64,
-	hash []byte,
+	point pcommon.Point,
 ) (protocol.Message, error) {
-	msg := NewMsgBlockRequest(slot, hash)
+	msg := NewMsgBlockRequest(point)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}
@@ -137,13 +136,12 @@ func (c *Client) BlockRequest(
 	return resp, nil
 }
 
-// BlockTxsRequest fetches the requested TXs identified by the slot, Leios hash, and TX bitmaps
+// BlockTxsRequest fetches the requested TXs identified by the specified point and TX bitmaps
 func (c *Client) BlockTxsRequest(
-	slot uint64,
-	hash []byte,
-	bitmaps map[uint16][8]byte,
+	point pcommon.Point,
+	bitmaps map[uint16]uint64,
 ) (protocol.Message, error) {
-	msg := NewMsgBlockTxsRequest(slot, hash, bitmaps)
+	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}

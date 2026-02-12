@@ -36,8 +36,10 @@ func getTestDefinitions() []testDefinition {
 		{
 			Name: "MsgBlockRequest",
 			Message: NewMsgBlockRequest(
-				12345,
-				[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+				pcommon.NewPoint(
+					12345,
+					[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+				),
 			),
 			MessageType: MessageTypeBlockRequest,
 		},
@@ -51,11 +53,13 @@ func getTestDefinitions() []testDefinition {
 		{
 			Name: "MsgBlockTxsRequest",
 			Message: NewMsgBlockTxsRequest(
-				12345,
-				[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
-				map[uint16][8]byte{
-					0:  {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-					64: {0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+				pcommon.NewPoint(
+					12345,
+					[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+				),
+				map[uint16]uint64{
+					0:  0xff00000000000000,
+					64: 0x00ff000000000000,
 				},
 			),
 			MessageType: MessageTypeBlockTxsRequest,
@@ -195,11 +199,11 @@ func TestMsgBlockRequest(t *testing.T) {
 	slot := uint64(123456)
 	hash := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 
-	msg := NewMsgBlockRequest(slot, hash)
+	msg := NewMsgBlockRequest(pcommon.NewPoint(slot, hash))
 
 	assert.Equal(t, uint8(MessageTypeBlockRequest), msg.Type())
-	assert.Equal(t, slot, msg.Slot)
-	assert.Equal(t, hash, msg.Hash)
+	assert.Equal(t, slot, msg.Point.Slot)
+	assert.Equal(t, hash, msg.Point.Hash)
 }
 
 func TestMsgBlock(t *testing.T) {
@@ -214,15 +218,15 @@ func TestMsgBlock(t *testing.T) {
 func TestMsgBlockTxsRequest(t *testing.T) {
 	slot := uint64(123456)
 	hash := []byte{0x01, 0x02, 0x03, 0x04}
-	bitmaps := map[uint16][8]byte{
-		0: {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	bitmaps := map[uint16]uint64{
+		0: 0xff00000000000000,
 	}
 
-	msg := NewMsgBlockTxsRequest(slot, hash, bitmaps)
+	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(slot, hash), bitmaps)
 
 	assert.Equal(t, uint8(MessageTypeBlockTxsRequest), msg.Type())
-	assert.Equal(t, slot, msg.Slot)
-	assert.Equal(t, hash, msg.Hash)
+	assert.Equal(t, slot, msg.Point.Slot)
+	assert.Equal(t, hash, msg.Point.Hash)
 	assert.Equal(t, bitmaps, msg.Bitmaps)
 }
 
@@ -317,9 +321,9 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 func TestMsgBlockTxsRequestEmptyBitmaps(t *testing.T) {
 	slot := uint64(123)
 	hash := []byte{0x01, 0x02}
-	bitmaps := map[uint16][8]byte{}
+	bitmaps := map[uint16]uint64{}
 
-	msg := NewMsgBlockTxsRequest(slot, hash, bitmaps)
+	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(slot, hash), bitmaps)
 
 	encoded, err := cbor.Encode(msg)
 	require.NoError(t, err)
@@ -328,8 +332,8 @@ func TestMsgBlockTxsRequestEmptyBitmaps(t *testing.T) {
 	require.NoError(t, err)
 
 	decodedMsg := decoded.(*MsgBlockTxsRequest)
-	assert.Equal(t, slot, decodedMsg.Slot)
-	assert.Equal(t, hash, decodedMsg.Hash)
+	assert.Equal(t, slot, decodedMsg.Point.Slot)
+	assert.Equal(t, hash, decodedMsg.Point.Hash)
 	assert.Equal(t, 0, len(decodedMsg.Bitmaps))
 }
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,12 +82,12 @@ func TestClientMessageHandler(t *testing.T) {
 		},
 		{
 			name:        "BlockOffer message",
-			msg:         NewMsgBlockOffer(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			msg:         NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}), 12345),
 			expectError: false,
 		},
 		{
 			name:        "BlockTxsOffer message",
-			msg:         NewMsgBlockTxsOffer(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			msg:         NewMsgBlockTxsOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04})),
 			expectError: false,
 		},
 		{
@@ -262,7 +263,7 @@ func TestClientHandleBlockOffer(t *testing.T) {
 	}
 	client := NewClient(protoOptions, nil)
 
-	msg := NewMsgBlockOffer(12345, []byte{0x01, 0x02, 0x03, 0x04})
+	msg := NewMsgBlockOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}), 12345)
 
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
@@ -290,7 +291,7 @@ func TestClientHandleBlockTxsOffer(t *testing.T) {
 	}
 	client := NewClient(protoOptions, nil)
 
-	msg := NewMsgBlockTxsOffer(12345, []byte{0x01, 0x02, 0x03, 0x04})
+	msg := NewMsgBlockTxsOffer(pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}))
 
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)

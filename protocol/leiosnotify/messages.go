@@ -19,6 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // NOTE: these are dummy message IDs and will probably need to be changed
@@ -89,34 +90,32 @@ func NewMsgBlockAnnouncement(
 
 type MsgBlockOffer struct {
 	protocol.MessageBase
-	Slot uint64
-	Hash []byte
+	Point pcommon.Point
+	Size  uint64
 }
 
-func NewMsgBlockOffer(slot uint64, hash []byte) *MsgBlockOffer {
+func NewMsgBlockOffer(point pcommon.Point, size uint64) *MsgBlockOffer {
 	m := &MsgBlockOffer{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockOffer,
 		},
-		Slot: slot,
-		Hash: hash,
+		Point: point,
+		Size:  size,
 	}
 	return m
 }
 
 type MsgBlockTxsOffer struct {
 	protocol.MessageBase
-	Slot uint64
-	Hash []byte
+	Point pcommon.Point
 }
 
-func NewMsgBlockTxsOffer(slot uint64, hash []byte) *MsgBlockTxsOffer {
+func NewMsgBlockTxsOffer(point pcommon.Point) *MsgBlockTxsOffer {
 	m := &MsgBlockTxsOffer{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockTxsOffer,
 		},
-		Slot: slot,
-		Hash: hash,
+		Point: point,
 	}
 	return m
 }

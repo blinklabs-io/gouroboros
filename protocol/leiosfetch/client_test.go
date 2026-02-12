@@ -150,7 +150,7 @@ func TestClientMessageHandlerUnexpectedType(t *testing.T) {
 	client := NewClient(protoOptions, nil)
 
 	// Create a message with an unexpected type
-	msg := NewMsgBlockRequest(123, []byte{0x01, 0x02})
+	msg := NewMsgBlockRequest(pcommon.NewPoint(123, []byte{0x01, 0x02}))
 
 	err := client.messageHandler(msg)
 
@@ -231,11 +231,11 @@ func TestConfig(t *testing.T) {
 
 	cfg = NewConfig(
 		WithTimeout(30*time.Second),
-		WithBlockRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte) (protocol.Message, error) {
+		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
 			blockRequestCalled = true
 			return nil, nil
 		}),
-		WithBlockTxsRequestFunc(func(ctx CallbackContext, slot uint64, hash []byte, bitmaps map[uint16][8]byte) (protocol.Message, error) {
+		WithBlockTxsRequestFunc(func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
 			blockTxsRequestCalled = true
 			return nil, nil
 		}),
@@ -256,10 +256,10 @@ func TestConfig(t *testing.T) {
 	assert.NotNil(t, cfg.BlockRangeRequestFunc)
 
 	// Test that callbacks can be invoked
-	_, _ = cfg.BlockRequestFunc(CallbackContext{}, 0, nil)
+	_, _ = cfg.BlockRequestFunc(CallbackContext{}, pcommon.NewPoint(0, nil))
 	assert.True(t, blockRequestCalled)
 
-	_, _ = cfg.BlockTxsRequestFunc(CallbackContext{}, 0, nil, nil)
+	_, _ = cfg.BlockTxsRequestFunc(CallbackContext{}, pcommon.NewPoint(0, nil), nil)
 	assert.True(t, blockTxsRequestCalled)
 
 	_, _ = cfg.VotesRequestFunc(CallbackContext{}, nil)
