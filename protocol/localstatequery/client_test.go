@@ -650,6 +650,174 @@ func TestGetDRepStatePreConway(t *testing.T) {
 	)
 }
 
+func TestGetProposalsEmpty(t *testing.T) {
+	// Empty proposals list
+	expectedResult := localstatequery.ProposalsResult{}
+	cborData, err := cbor.Encode(expectedResult)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %s", err)
+	}
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			proposals, err := oConn.LocalStateQuery().Client.GetProposals()
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			if len(*proposals) != 0 {
+				t.Fatalf("expected 0 proposals, got %d", len(*proposals))
+			}
+		},
+	)
+}
+
+func TestGetProposalsSingleProposal(t *testing.T) {
+	// Build a single proposal with votes
+	govActionId := lcommon.GovActionId{
+		TransactionId: [32]byte{0x01, 0x02, 0x03},
+		GovActionIdx:  0,
+	}
+	committeeCred := localstatequery.StakeCredential{
+		Tag:   0,
+		Bytes: ledger.Blake2b224{0xaa, 0xbb},
+	}
+	drepCred := localstatequery.StakeCredential{
+		Tag:   0,
+		Bytes: ledger.Blake2b224{0xcc, 0xdd},
+	}
+	spoKey := ledger.Blake2b224{0xee, 0xff}
+
+	// Encode a minimal proposal procedure as RawMessage
+	// (empty array is simplest valid CBOR for testing)
+	proposalCbor, err := cbor.Encode([]any{
+		uint64(500000000),   // deposit
+		[]byte{0xe0, 0x01}, // reward account (minimal)
+		[]any{uint(6)},     // info gov action
+		[]any{"https://example.com", [32]byte{0xab}}, // anchor
+	})
+	if err != nil {
+		t.Fatalf("unexpected error encoding proposal procedure: %s", err)
+	}
+
+	proposal := localstatequery.GovActionState{
+		Id: govActionId,
+		CommitteeVotes: map[localstatequery.StakeCredential]lcommon.Vote{
+			committeeCred: lcommon.Vote(lcommon.GovVoteYes),
+		},
+		DRepVotes: map[localstatequery.StakeCredential]lcommon.Vote{
+			drepCred: lcommon.Vote(lcommon.GovVoteNo),
+		},
+		SPOVotes: map[ledger.Blake2b224]lcommon.Vote{
+			spoKey: lcommon.Vote(lcommon.GovVoteAbstain),
+		},
+		ProposalProcedure: cbor.RawMessage(proposalCbor),
+		ProposedIn:        100,
+		ExpiresAfter:      110,
+	}
+	expectedResult := localstatequery.ProposalsResult{proposal}
+	cborData, err := cbor.Encode(expectedResult)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %s", err)
+	}
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			proposals, err := oConn.LocalStateQuery().Client.GetProposals()
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			if len(*proposals) != 1 {
+				t.Fatalf("expected 1 proposal, got %d", len(*proposals))
+			}
+			p := (*proposals)[0]
+			if p.Id.TransactionId != govActionId.TransactionId {
+				t.Fatalf("gov action ID mismatch: got %x, wanted %x",
+					p.Id.TransactionId, govActionId.TransactionId)
+			}
+			if p.Id.GovActionIdx != govActionId.GovActionIdx {
+				t.Fatalf("gov action index mismatch: got %d, wanted %d",
+					p.Id.GovActionIdx, govActionId.GovActionIdx)
+			}
+			if len(p.CommitteeVotes) != 1 {
+				t.Fatalf("expected 1 committee vote, got %d", len(p.CommitteeVotes))
+			}
+			if v, ok := p.CommitteeVotes[committeeCred]; !ok || v != lcommon.Vote(lcommon.GovVoteYes) {
+				t.Fatalf("unexpected committee vote: %v", p.CommitteeVotes)
+			}
+			if len(p.DRepVotes) != 1 {
+				t.Fatalf("expected 1 DRep vote, got %d", len(p.DRepVotes))
+			}
+			if v, ok := p.DRepVotes[drepCred]; !ok || v != lcommon.Vote(lcommon.GovVoteNo) {
+				t.Fatalf("unexpected DRep vote: %v", p.DRepVotes)
+			}
+			if len(p.SPOVotes) != 1 {
+				t.Fatalf("expected 1 SPO vote, got %d", len(p.SPOVotes))
+			}
+			if v, ok := p.SPOVotes[spoKey]; !ok || v != lcommon.Vote(lcommon.GovVoteAbstain) {
+				t.Fatalf("unexpected SPO vote: %v", p.SPOVotes)
+			}
+			if p.ProposedIn != 100 {
+				t.Fatalf("expected ProposedIn 100, got %d", p.ProposedIn)
+			}
+			if p.ExpiresAfter != 110 {
+				t.Fatalf("expected ExpiresAfter 110, got %d", p.ExpiresAfter)
+			}
+		},
+	)
+}
+
+func TestGetProposalsPreConway(t *testing.T) {
+	// Test that GetProposals returns an error on pre-Conway eras
+	runTest(
+		t,
+		conversationCurrentEra, // Era 5 (Babbage)
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetProposals()
+			if err == nil {
+				t.Fatal("expected error for pre-Conway era, got nil")
+			}
+			expectedErrMsg := "GetProposals requires Conway era or later"
+			if !strings.Contains(err.Error(), expectedErrMsg) {
+				t.Fatalf(
+					"expected error containing %q, got: %s",
+					expectedErrMsg,
+					err.Error(),
+				)
+			}
+		},
+	)
+}
+
 func TestGenesisConfigJSON(t *testing.T) {
 	genesisConfig := localstatequery.GenesisConfigResult{
 		Start: localstatequery.SystemStartResult{

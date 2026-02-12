@@ -71,6 +71,7 @@ const (
 	QueryTypeShelleyCommitteeMembersState  = 27
 	QueryTypeShelleyFilteredVoteDelegatees = 28
 	QueryTypeShelleySPOStakeDistr          = 30
+	QueryTypeShelleyGetProposals           = 31
 )
 
 // simpleQueryBase is a helper type used for various query types
@@ -214,6 +215,7 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 			QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
 			QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
 			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
+			QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
 		},
 	)
 	if err != nil {
@@ -842,6 +844,10 @@ type ShelleySPOStakeDistrQuery struct {
 	PoolIds cbor.SetType[ledger.PoolId]
 }
 
+type ShelleyGetProposalsQuery struct {
+	simpleQueryBase
+}
+
 // Conway governance result types
 
 // ConstitutionResult represents the constitution query result.
@@ -914,3 +920,21 @@ type SPOStakeDistrResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]uint64
 }
+
+// GovActionState represents the state of a governance action (proposal).
+// Each entry includes the governance action ID, votes from committees/DReps/SPOs,
+// the proposal procedure, and the epoch range during which it is active.
+type GovActionState struct {
+	cbor.StructAsArray
+	Id                lcommon.GovActionId
+	CommitteeVotes    map[StakeCredential]lcommon.Vote
+	DRepVotes         map[StakeCredential]lcommon.Vote
+	SPOVotes          map[ledger.Blake2b224]lcommon.Vote
+	ProposalProcedure cbor.RawMessage // Conway proposal procedures are complex, keep as RawMessage
+	ProposedIn        uint64
+	ExpiresAfter      uint64
+}
+
+// ProposalsResult represents the result of a GetProposals query.
+// It contains a list of governance action states for all active proposals.
+type ProposalsResult []GovActionState
