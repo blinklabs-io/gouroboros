@@ -28,7 +28,9 @@
 //   - RawMessage: Deferred decoding (like json.RawMessage)
 //   - ByteString: Bytestrings that can be used as map keys
 //   - Tag, RawTag: CBOR semantic tags
-//   - Value: Constructor/alternative support (being deprecated)
+//   - Value: Arbitrary CBOR data parsing (maps with bytestring keys, etc.)
+//   - ConstructorDecoder: Decode CBOR constructors/alternatives with deferred field parsing
+//   - ConstructorEncoder: Build CBOR constructors/alternatives for encoding
 //
 // # Critical Pattern: DecodeStoreCbor
 //

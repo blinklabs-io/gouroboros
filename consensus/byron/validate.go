@@ -1102,9 +1102,9 @@ func extractSscPayloadType(payload cbor.Value) (uint64, error) {
 	var arr []any
 
 	switch v := innerValue.(type) {
-	case cbor.Constructor:
+	case cbor.ConstructorDecoder:
 		// Constructor form: the constructor number is the type
-		return uint64(v.Constructor()), nil
+		return uint64(v.Tag()), nil
 	case []any:
 		arr = v
 	default:
