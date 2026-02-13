@@ -455,17 +455,17 @@ func TestGetGovStatePreConway(t *testing.T) {
 	)
 }
 
-func TestGetCommitteeMembersState(t *testing.T) {
-	// CommitteeMembersState result
+func TestGetCommitteeMembersStateEmpty(t *testing.T) {
+	// Empty members map with threshold and epoch
 	threshold := &cbor.Rat{Rat: big.NewRat(2, 3)}
 	expectedResult := localstatequery.CommitteeMembersStateResult{
-		Members:   cbor.RawMessage([]byte{0xa0}), // Empty map
+		Members:   map[localstatequery.StakeCredential]localstatequery.CommitteeMemberState{},
 		Threshold: threshold,
+		Epoch:     520,
 	}
 	cborData, err := cbor.Encode(expectedResult)
-	if err != nil {
-		t.Fatalf("unexpected error encoding: %s", err)
-	}
+	require.NoError(t, err, "unexpected error encoding CommitteeMembersStateResult")
+
 	conversation := append(
 		conversationConwayEra,
 		ouroboros_mock.ConversationEntryInput{
@@ -489,12 +489,154 @@ func TestGetCommitteeMembersState(t *testing.T) {
 				nil,
 				nil,
 			)
-			if err != nil {
-				t.Fatalf("received unexpected error: %s", err)
-			}
-			if committeeState.Threshold == nil {
-				t.Fatal("expected threshold, got nil")
-			}
+			require.NoError(t, err, "received unexpected error")
+			require.NotNil(t, committeeState)
+			assert.Empty(t, committeeState.Members)
+			require.NotNil(t, committeeState.Threshold)
+			assert.Equal(t, big.NewRat(2, 3), committeeState.Threshold.Rat)
+			assert.Equal(t, uint64(520), committeeState.Epoch)
+		},
+	)
+}
+
+func TestGetCommitteeMembersStateAuthorized(t *testing.T) {
+	// Active member with authorized hot credential
+	coldCred := localstatequery.StakeCredential{
+		Tag:   0,
+		Bytes: ledger.Blake2b224{0x01, 0x02, 0x03},
+	}
+	hotCred := lcommon.Credential{
+		CredType:   0,
+		Credential: lcommon.Blake2b224{0xaa, 0xbb, 0xcc},
+	}
+	expiry := uint64(600)
+	memberState := localstatequery.CommitteeMemberState{
+		HotCredStatus: localstatequery.HotCredAuthStatusValue{
+			Status:     localstatequery.HotCredAuthorized,
+			Credential: &hotCred,
+		},
+		Status:          localstatequery.MemberStatusActive,
+		Expiry:          &expiry,
+		NextEpochChange: localstatequery.NextEpochChangeValue{Change: localstatequery.NextEpochNoChange},
+	}
+	threshold := &cbor.Rat{Rat: big.NewRat(2, 3)}
+	expectedResult := localstatequery.CommitteeMembersStateResult{
+		Members: map[localstatequery.StakeCredential]localstatequery.CommitteeMemberState{
+			coldCred: memberState,
+		},
+		Threshold: threshold,
+		Epoch:     520,
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	require.NoError(t, err, "unexpected error encoding CommitteeMembersStateResult")
+
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			committeeState, err := oConn.LocalStateQuery().Client.GetCommitteeMembersState(
+				nil,
+				nil,
+				nil,
+			)
+			require.NoError(t, err, "received unexpected error")
+			require.NotNil(t, committeeState)
+			require.Len(t, committeeState.Members, 1)
+
+			member, ok := committeeState.Members[coldCred]
+			require.True(t, ok, "expected cold credential key in result")
+			assert.Equal(t, localstatequery.HotCredAuthorized, member.HotCredStatus.Status)
+			require.NotNil(t, member.HotCredStatus.Credential)
+			assert.Equal(t, localstatequery.MemberStatusActive, member.Status)
+			require.NotNil(t, member.Expiry)
+			assert.Equal(t, uint64(600), *member.Expiry)
+			assert.Equal(t, localstatequery.NextEpochNoChange, member.NextEpochChange.Change)
+			assert.Equal(t, uint64(520), committeeState.Epoch)
+		},
+	)
+}
+
+func TestGetCommitteeMembersStateNotAuthorized(t *testing.T) {
+	// Expired member with NotAuthorized status, nil threshold,
+	// nil expiry, TermAdjusted change
+	coldCred := localstatequery.StakeCredential{
+		Tag:   1, // ScriptHash
+		Bytes: ledger.Blake2b224{0xde, 0xad},
+	}
+	adjustedEpoch := uint64(700)
+	memberState := localstatequery.CommitteeMemberState{
+		HotCredStatus: localstatequery.HotCredAuthStatusValue{
+			Status: localstatequery.HotCredNotAuthorized,
+		},
+		Status: localstatequery.MemberStatusExpired,
+		Expiry: nil,
+		NextEpochChange: localstatequery.NextEpochChangeValue{
+			Change:        localstatequery.NextEpochTermAdjusted,
+			AdjustedEpoch: &adjustedEpoch,
+		},
+	}
+	expectedResult := localstatequery.CommitteeMembersStateResult{
+		Members: map[localstatequery.StakeCredential]localstatequery.CommitteeMemberState{
+			coldCred: memberState,
+		},
+		Threshold: nil,
+		Epoch:     521,
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	require.NoError(t, err, "unexpected error encoding CommitteeMembersStateResult")
+
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			committeeState, err := oConn.LocalStateQuery().Client.GetCommitteeMembersState(
+				nil,
+				nil,
+				nil,
+			)
+			require.NoError(t, err, "received unexpected error")
+			require.NotNil(t, committeeState)
+			require.Len(t, committeeState.Members, 1)
+
+			member, ok := committeeState.Members[coldCred]
+			require.True(t, ok, "expected cold credential key in result")
+			assert.Equal(t, localstatequery.HotCredNotAuthorized, member.HotCredStatus.Status)
+			assert.Nil(t, member.HotCredStatus.Credential)
+			assert.Equal(t, localstatequery.MemberStatusExpired, member.Status)
+			assert.Nil(t, member.Expiry)
+			assert.Equal(t, localstatequery.NextEpochTermAdjusted, member.NextEpochChange.Change)
+			require.NotNil(t, member.NextEpochChange.AdjustedEpoch)
+			assert.Equal(t, uint64(700), *member.NextEpochChange.AdjustedEpoch)
+			assert.Nil(t, committeeState.Threshold)
+			assert.Equal(t, uint64(521), committeeState.Epoch)
 		},
 	)
 }
