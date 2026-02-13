@@ -818,6 +818,114 @@ func TestGetProposalsPreConway(t *testing.T) {
 	)
 }
 
+func TestFilteredVoteDelegateesResultDecode(t *testing.T) {
+	// Build a FilteredVoteDelegateesResult with one entry and verify
+	// CBOR round-trip (encode -> decode)
+	credBytes := ledger.Blake2b224{0x01, 0x02, 0x03}
+	stakeCred := localstatequery.StakeCredential{
+		Tag:   0,
+		Bytes: credBytes,
+	}
+	drepCredBytes := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+
+	// Drep has a custom UnmarshalCBOR that expects a CBOR array [type, credential],
+	// but no MarshalCBOR, so we encode using a helper struct with StructAsArray
+	type drepEnc struct {
+		cbor.StructAsArray
+		Type       int
+		Credential []byte
+	}
+	encodableMap := map[localstatequery.StakeCredential]drepEnc{
+		stakeCred: {
+			Type:       0, // DrepTypeAddrKeyHash
+			Credential: drepCredBytes,
+		},
+	}
+	cborData, err := cbor.Encode(encodableMap)
+	require.NoError(t, err, "unexpected error encoding map")
+
+	// Decode into FilteredVoteDelegateesResult
+	var result localstatequery.FilteredVoteDelegateesResult
+	_, err = cbor.Decode(cborData, &result)
+	require.NoError(t, err, "unexpected error decoding FilteredVoteDelegateesResult")
+
+	require.Len(t, result, 1, "expected 1 entry in result")
+	drep, ok := result[stakeCred]
+	require.True(t, ok, "expected stake credential key in result")
+	assert.Equal(t, 0, drep.Type, "expected DRep type 0 (AddrKeyHash)")
+	assert.Equal(t, drepCredBytes, drep.Credential, "DRep credential mismatch")
+}
+
+func TestGetFilteredVoteDelegatees(t *testing.T) {
+	// Build expected result with one entry
+	credBytes := ledger.Blake2b224{0x01, 0x02, 0x03}
+	stakeCred := localstatequery.StakeCredential{
+		Tag:   0,
+		Bytes: credBytes,
+	}
+	drepCredBytes := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+
+	// Encode manually since Drep lacks MarshalCBOR
+	type drepEnc struct {
+		cbor.StructAsArray
+		Type       int
+		Credential []byte
+	}
+	encodableMap := map[localstatequery.StakeCredential]drepEnc{
+		stakeCred: {
+			Type:       0,
+			Credential: drepCredBytes,
+		},
+	}
+	cborData, err := cbor.Encode(encodableMap)
+	require.NoError(t, err, "unexpected error encoding result")
+
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			result, err := oConn.LocalStateQuery().Client.GetFilteredVoteDelegatees(nil)
+			require.NoError(t, err, "received unexpected error")
+			require.NotNil(t, result)
+
+			resultMap := *result
+			require.Len(t, resultMap, 1, "expected 1 entry in result")
+
+			drep, ok := resultMap[stakeCred]
+			require.True(t, ok, "expected stake credential key in result")
+			assert.Equal(t, 0, drep.Type, "expected DRep type 0 (AddrKeyHash)")
+			assert.Equal(t, drepCredBytes, drep.Credential, "DRep credential mismatch")
+		},
+	)
+}
+
+func TestGetFilteredVoteDelegateesPreConway(t *testing.T) {
+	// Test that GetFilteredVoteDelegatees returns an error on pre-Conway eras
+	runTest(
+		t,
+		conversationCurrentEra, // Era 5 (Babbage)
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetFilteredVoteDelegatees(nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Conway era or later")
+		},
+	)
+}
+
 func TestGenesisConfigJSON(t *testing.T) {
 	genesisConfig := localstatequery.GenesisConfigResult{
 		Start: localstatequery.SystemStartResult{

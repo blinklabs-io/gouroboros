@@ -911,8 +911,8 @@ type CommitteeMembersStateResult struct {
 
 // FilteredVoteDelegateesResult represents the vote delegatees
 // for stake credentials.
-// The result is raw CBOR that maps credentials to DRep delegations
-type FilteredVoteDelegateesResult cbor.RawMessage
+// The result maps stake credentials to their DRep delegations
+type FilteredVoteDelegateesResult map[StakeCredential]lcommon.Drep
 
 // SPOStakeDistrResult represents the SPO stake distribution for governance
 // Maps pool IDs to their governance voting power
