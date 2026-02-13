@@ -16,6 +16,7 @@ package localstatequery
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -890,23 +891,191 @@ type DRepStateResult map[StakeCredential]DRepStateEntry
 // The result is returned as raw CBOR that maps DReps to stake amounts
 type DRepStakeDistrResult cbor.RawMessage
 
+// HotCredAuthStatus represents the authorization status of a hot credential
+type HotCredAuthStatus int
+
+const (
+	HotCredNotAuthorized HotCredAuthStatus = 0
+	HotCredAuthorized    HotCredAuthStatus = 1
+	HotCredResigned      HotCredAuthStatus = 2
+)
+
+// MemberStatus represents the status of a committee member
+type MemberStatus int
+
+const (
+	MemberStatusActive       MemberStatus = 0
+	MemberStatusExpired      MemberStatus = 1
+	MemberStatusUnrecognized MemberStatus = 2
+)
+
+// NextEpochChange represents the change that will happen at the next epoch
+type NextEpochChange int
+
+const (
+	NextEpochNoChange     NextEpochChange = 0
+	NextEpochToBeEnacted  NextEpochChange = 1
+	NextEpochToBeRemoved  NextEpochChange = 2
+	NextEpochToBeExpired  NextEpochChange = 3
+	NextEpochTermAdjusted NextEpochChange = 5
+)
+
+// HotCredAuthStatusValue represents a tagged union for hot credential
+// authorization status.
+// CBOR encoding: [0] for NotAuthorized, [1, credential] for Authorized,
+// [2, anchor_or_null] for Resigned
+type HotCredAuthStatusValue struct {
+	Status     HotCredAuthStatus
+	Credential *lcommon.Credential
+	Anchor     *lcommon.GovAnchor
+}
+
+func (h *HotCredAuthStatusValue) UnmarshalCBOR(data []byte) error {
+	listLen, err := cbor.ListLength(data)
+	if err != nil {
+		return err
+	}
+	tag, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	switch {
+	case listLen == 1 && tag == 0:
+		h.Status = HotCredNotAuthorized
+	case listLen == 2 && tag == 1:
+		var tmp struct {
+			cbor.StructAsArray
+			Tag        int
+			Credential lcommon.Credential
+		}
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return err
+		}
+		h.Status = HotCredAuthorized
+		h.Credential = &tmp.Credential
+	case listLen == 2 && tag == 2:
+		var tmp struct {
+			cbor.StructAsArray
+			Tag    int
+			Anchor *lcommon.GovAnchor
+		}
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return err
+		}
+		h.Status = HotCredResigned
+		h.Anchor = tmp.Anchor
+	default:
+		return fmt.Errorf(
+			"unexpected HotCredAuthStatusValue: tag=%d, length=%d",
+			tag,
+			listLen,
+		)
+	}
+	return nil
+}
+
+func (h *HotCredAuthStatusValue) MarshalCBOR() ([]byte, error) {
+	switch h.Status {
+	case HotCredNotAuthorized:
+		return cbor.Encode([]any{0})
+	case HotCredAuthorized:
+		if h.Credential == nil {
+			return nil, errors.New(
+				"Credential must be set for HotCredAuthorized",
+			)
+		}
+		return cbor.Encode([]any{1, h.Credential})
+	case HotCredResigned:
+		return cbor.Encode([]any{2, h.Anchor})
+	default:
+		return nil, fmt.Errorf("unknown HotCredAuthStatus: %d", h.Status)
+	}
+}
+
+// NextEpochChangeValue represents a tagged union for next epoch changes.
+// CBOR encoding: simple int (0-3) for most changes,
+// or [5, epoch] for TermAdjusted
+type NextEpochChangeValue struct {
+	Change        NextEpochChange
+	AdjustedEpoch *uint64
+}
+
+func (n *NextEpochChangeValue) UnmarshalCBOR(data []byte) error {
+	// Check if this is a CBOR list (for TermAdjusted) or a simple integer
+	listLen, listErr := cbor.ListLength(data)
+	if listErr != nil {
+		// Not a list, decode as a simple integer
+		var simpleVal int
+		if _, err := cbor.Decode(data, &simpleVal); err != nil {
+			return fmt.Errorf(
+				"failed to decode NextEpochChangeValue: %w",
+				err,
+			)
+		}
+		if simpleVal < 0 || simpleVal > 3 {
+			return fmt.Errorf(
+				"unexpected simple NextEpochChange value: %d",
+				simpleVal,
+			)
+		}
+		n.Change = NextEpochChange(simpleVal)
+		return nil
+	}
+	// It's a list, decode as [5, epoch]
+	if listLen != 2 {
+		return fmt.Errorf(
+			"unexpected list length %d for NextEpochChangeValue",
+			listLen,
+		)
+	}
+	var tmp struct {
+		cbor.StructAsArray
+		Tag   int
+		Epoch uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return fmt.Errorf("failed to decode NextEpochChangeValue: %w", err)
+	}
+	if tmp.Tag != 5 {
+		return fmt.Errorf(
+			"unexpected tag %d for NextEpochChangeValue list",
+			tmp.Tag,
+		)
+	}
+	n.Change = NextEpochTermAdjusted
+	n.AdjustedEpoch = &tmp.Epoch
+	return nil
+}
+
+func (n *NextEpochChangeValue) MarshalCBOR() ([]byte, error) {
+	if n.Change == NextEpochTermAdjusted {
+		if n.AdjustedEpoch == nil {
+			return nil, errors.New(
+				"AdjustedEpoch must be set for NextEpochTermAdjusted",
+			)
+		}
+		return cbor.Encode([]any{5, *n.AdjustedEpoch})
+	}
+	return cbor.Encode(int(n.Change))
+}
+
 // CommitteeMemberState represents the state of a committee member
 type CommitteeMemberState struct {
 	cbor.StructAsArray
-	// Status: 0=Unrecognized, 1=Active, 2=Expired, 3=Resigned
-	Status        int
-	HotCredential *lcommon.Credential // Hot credential if authorized
-	Expiry        uint64              // Term expiry epoch
-	NextEpoch     *uint64             // Next epoch for cold key rotation
+	HotCredStatus   HotCredAuthStatusValue
+	Status          MemberStatus
+	Expiry          *uint64
+	NextEpochChange NextEpochChangeValue
 }
 
 // CommitteeMembersStateResult represents the committee members state
-// query result. Contains the committee members and voting threshold
-// as raw CBOR
+// query result. Contains the committee members, voting threshold,
+// and current epoch
 type CommitteeMembersStateResult struct {
 	cbor.StructAsArray
-	Members   cbor.RawMessage // Map of cold credentials to member state
-	Threshold *cbor.Rat       // Voting threshold
+	Members   map[StakeCredential]CommitteeMemberState
+	Threshold *cbor.Rat
+	Epoch     uint64
 }
 
 // FilteredVoteDelegateesResult represents the vote delegatees
