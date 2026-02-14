@@ -16,6 +16,7 @@ package localstatequery
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -859,19 +860,69 @@ type ConstitutionResult struct {
 	ScriptHash []byte // Optional guardrails script hash (nil if no guardrails)
 }
 
+// Committee represents the constitutional committee.
+// Members maps cold credentials to their expiry epoch.
+// Threshold is the voting threshold as a rational number.
+type Committee struct {
+	cbor.StructAsArray
+	Members   map[StakeCredential]uint64 // Cold credential -> expiry epoch
+	Threshold cbor.Rat
+}
+
+// GovActionState represents a governance proposal and its current voting state.
+type GovActionState struct {
+	cbor.StructAsArray
+	Id                lcommon.GovActionId
+	CommitteeVotes    map[StakeCredential]lcommon.Vote
+	DRepVotes         map[StakeCredential]lcommon.Vote
+	SPOVotes          map[ledger.Blake2b224]lcommon.Vote
+	ProposalProcedure cbor.RawMessage
+	ProposedIn        uint64
+	ExpiresAfter      uint64
+}
+
 // GovStateResult represents the full governance state.
 // This includes proposals, committee, constitution, protocol parameters,
 // and DRep pulsing state.
-// The raw messages can be further decoded based on the era
+// The raw messages can be further decoded based on the era.
 type GovStateResult struct {
 	cbor.StructAsArray
-	Proposals        cbor.RawMessage // Complex nested structure
-	Committee        cbor.RawMessage // StrictMaybe Committee
+	Proposals        []GovActionState // Governance proposals with voting state
+	Committee        cbor.RawMessage  // StrictMaybe Committee
 	Constitution     ConstitutionResult
 	CurrentPParams   cbor.RawMessage // Era-specific protocol parameters
 	PrevPParams      cbor.RawMessage // Previous era protocol parameters
 	FuturePParams    cbor.RawMessage // Scheduled parameter changes
 	DRepPulsingState cbor.RawMessage // DRep pulsing state
+}
+
+// DecodeCommittee decodes the Committee field from its StrictMaybe CBOR encoding.
+// Returns nil if the committee is not set (SNothing).
+func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
+	// Decode StrictMaybe: [0] = SNothing, [1, committee] = SJust
+	var wrapper []cbor.RawMessage
+	if _, err := cbor.Decode(g.Committee, &wrapper); err != nil {
+		return nil, err
+	}
+	if len(wrapper) == 0 {
+		return nil, nil
+	}
+	// Check tag
+	var tag int
+	if _, err := cbor.Decode(wrapper[0], &tag); err != nil {
+		return nil, err
+	}
+	if tag == 0 {
+		return nil, nil // SNothing
+	}
+	if len(wrapper) < 2 {
+		return nil, errors.New("expected committee data after tag 1")
+	}
+	var committee Committee
+	if _, err := cbor.Decode(wrapper[1], &committee); err != nil {
+		return nil, err
+	}
+	return &committee, nil
 }
 
 // DRepStateEntry represents the state of a single DRep
@@ -919,20 +970,6 @@ type FilteredVoteDelegateesResult map[StakeCredential]lcommon.Drep
 type SPOStakeDistrResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]uint64
-}
-
-// GovActionState represents the state of a governance action (proposal).
-// Each entry includes the governance action ID, votes from committees/DReps/SPOs,
-// the proposal procedure, and the epoch range during which it is active.
-type GovActionState struct {
-	cbor.StructAsArray
-	Id                lcommon.GovActionId
-	CommitteeVotes    map[StakeCredential]lcommon.Vote
-	DRepVotes         map[StakeCredential]lcommon.Vote
-	SPOVotes          map[ledger.Blake2b224]lcommon.Vote
-	ProposalProcedure cbor.RawMessage // Conway proposal procedures are complex, keep as RawMessage
-	ProposedIn        uint64
-	ExpiresAfter      uint64
 }
 
 // ProposalsResult represents the result of a GetProposals query.
