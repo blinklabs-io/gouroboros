@@ -228,6 +228,7 @@ func (m *Muxer) UnregisterProtocol(
 	protocolRole ProtocolRole,
 ) {
 	m.protocolReceiversMutex.Lock()
+	defer m.protocolReceiversMutex.Unlock()
 	protocolRoles, ok := m.protocolReceivers[protocolId]
 	if !ok {
 		return
@@ -247,7 +248,6 @@ func (m *Muxer) UnregisterProtocol(
 
 	// Remove mapping
 	delete(protocolRoles, protocolRole)
-	m.protocolReceiversMutex.Unlock()
 }
 
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
