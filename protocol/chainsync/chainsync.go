@@ -272,11 +272,14 @@ type (
 
 // New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
-	stateContext := &StateContext{}
+	// Each side gets its own StateContext so that client pipelining
+	// does not corrupt the server's pipeline count (and vice-versa).
+	clientStateContext := &StateContext{}
+	serverStateContext := &StateContext{}
 
 	c := &ChainSync{
-		Client: NewClient(stateContext, protoOptions, cfg),
-		Server: NewServer(stateContext, protoOptions, cfg),
+		Client: NewClient(clientStateContext, protoOptions, cfg),
+		Server: NewServer(serverStateContext, protoOptions, cfg),
 	}
 	return c
 }
