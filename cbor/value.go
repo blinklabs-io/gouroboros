@@ -17,6 +17,7 @@ package cbor
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -39,6 +40,9 @@ func (v *Value) MarshalCBOR() ([]byte, error) {
 }
 
 func (v *Value) UnmarshalCBOR(data []byte) error {
+	if len(data) == 0 {
+		return errors.New("empty CBOR data")
+	}
 	// Save the original CBOR
 	v.cborData = string(data[:])
 	cborType := data[0] & CborTypeMask
@@ -281,7 +285,7 @@ func (l *LazyValue) UnmarshalCBOR(data []byte) error {
 }
 
 func (l *LazyValue) MarshalJSON() ([]byte, error) {
-	if l.Value() == nil {
+	if l.Value() == nil && len(l.value.cborData) > 0 {
 		// Try to decode if we can, but don't blow up if we can't
 		_, _ = l.Decode()
 	}
