@@ -51,10 +51,10 @@ type MessageAuthenticator struct {
 
 	// Slots per KES period used for ledger KES verification. Default is Cardano standard.
 	slotsPerKesPeriod uint64
-	// AllowInsecureKES when true will accept KES signatures without running
+	// allowInsecureKES when true will accept KES signatures without running
 	// a real KES verification (for tests or environments without ledger verifier).
-	// This must be false in production.
-	AllowInsecureKES bool
+	// This must be false in production. Use SetAllowInsecureKES to modify.
+	allowInsecureKES bool
 	// kesVerifier holds the optional KES verifier callback. If set, it will be used to verify KES signatures.
 	// Signature: func(wrappedPayload []byte, signature []byte, vkey []byte, kesPeriod uint64, slot uint64, slotsPerKesPeriod uint64) (bool, error)
 	// Uses atomic.Value for race-free concurrent access (typically set once at init, read many times).
@@ -127,6 +127,19 @@ func (m *MessageAuthenticator) SetKESVerifier(
 	v func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error),
 ) {
 	m.kesVerifier.Store(v)
+}
+
+// SetAllowInsecureKES enables or disables insecure KES verification bypass.
+// WARNING: Setting this to true disables cryptographic verification of block
+// producer identity. Only use for testing or when KES verification is handled
+// externally.
+func (m *MessageAuthenticator) SetAllowInsecureKES(allow bool) {
+	if allow {
+		m.logger.Warn(
+			"Insecure KES bypass is being enabled: cryptographic verification of block producer identity will be skipped",
+		)
+	}
+	m.allowInsecureKES = allow
 }
 
 // RegisterSPOPool adds an SPO pool ID to the known active pools.
@@ -349,7 +362,7 @@ func (m *MessageAuthenticator) verifyKESSignature(
 	}
 
 	// No verifier injected: either allow insecure bypass (tests/dev) or error.
-	if m.AllowInsecureKES {
+	if m.allowInsecureKES {
 		m.logger.Warn(
 			"Insecure KES bypass enabled: accepting KES signature without cryptographic verification",
 			"payload_size",
@@ -361,7 +374,7 @@ func (m *MessageAuthenticator) verifyKESSignature(
 	// Strong failure: production should set a real verifier
 	m.logger.Error("No KES verifier available and insecure bypass disabled")
 	return errors.New(
-		"KES verification not implemented: no verifier injected and AllowInsecureKES is false",
+		"KES verification not implemented: no verifier injected and allowInsecureKES is false",
 	)
 }
 
