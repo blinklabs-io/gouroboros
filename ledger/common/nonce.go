@@ -85,8 +85,11 @@ func (n *Nonce) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpData)
 }
 
-// CalculateRollingNonce calculates a rolling nonce (eta_v) value from the previous block's eta_v value and the current
-// block's VRF result
+// CalculateRollingNonce calculates a rolling nonce (eta_v) value from the
+// previous block's eta_v value and the current block's VRF result.
+// This implements the Ouroboros Praos evolving nonce update:
+//
+//	eta_v' = eta_v XOR blake2b_256(vrfOutput)
 func CalculateRollingNonce(
 	prevBlockNonce []byte,
 	blockVrf []byte,
@@ -104,14 +107,19 @@ func CalculateRollingNonce(
 		)
 	}
 	blockVrfHash := Blake2b256Hash(blockVrf)
-	var buf [64]byte
-	copy(buf[:32], prevBlockNonce)
-	copy(buf[32:], blockVrfHash.Bytes())
-	return Blake2b256Hash(buf[:]), nil
+	var result Blake2b256
+	for i := 0; i < 32; i++ {
+		result[i] = prevBlockNonce[i] ^ blockVrfHash[i]
+	}
+	return result, nil
 }
 
-// CalculateEpochNonce calculates an epoch nonce from the rolling nonce (eta_v) value of the block immediately before the stability
-// window and the block hash of the first block from the previous epoch.
+// CalculateEpochNonce calculates an epoch nonce using the TPraos method:
+//
+//	epochNonce = blake2b_256(candidateNonce || lastEpochBlockNonce)
+//
+// This is used for Shelley through Alonzo (TPraos). For Babbage+ (Praos),
+// use XOR-based nonce combination instead.
 func CalculateEpochNonce(
 	stableBlockNonce []byte,
 	prevEpochFirstBlockHash []byte,
