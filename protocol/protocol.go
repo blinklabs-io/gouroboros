@@ -32,6 +32,12 @@ import (
 // This is completely arbitrary, but the line had to be drawn somewhere
 const maxMessagesPerSegment = 20
 
+// maxReadBufferSize is the upper bound on the read buffer in readLoop.
+// This prevents a malicious peer from sending incomplete CBOR indefinitely
+// to cause unbounded memory growth (OOM). 16MB accommodates large legitimate
+// messages such as ledger state query responses.
+const maxReadBufferSize = 16 * 1024 * 1024 // 16MB
+
 // DefaultRecvQueueSize is the default capacity for the recv queue channel
 const DefaultRecvQueueSize = 55
 
@@ -503,6 +509,10 @@ func (p *Protocol) readLoop() {
 			if errors.Is(err, io.ErrUnexpectedEOF) && readBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
+				if readBuffer.Len() > maxReadBufferSize {
+					p.SendError(fmt.Errorf("%s: read buffer exceeded maximum size (%d bytes)", p.config.Name, readBuffer.Len()))
+					return
+				}
 				continue
 			}
 			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
