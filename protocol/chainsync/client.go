@@ -272,9 +272,12 @@ func (c *Client) Stop() error {
 		)
 
 	var sendErr error
-	msg := NewMsgDone()
-	sendErr = c.SendMessage(msg)
-	_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+	// Check if protocol is already done before sending Done message
+	if !c.IsDone() {
+		msg := NewMsgDone()
+		sendErr = c.SendMessage(msg)
+		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+	}
 	if busyLocked {
 		c.busyMutex.Unlock()
 	}

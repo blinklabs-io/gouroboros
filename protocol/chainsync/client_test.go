@@ -545,3 +545,75 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 		),
 	)
 }
+
+// TestStopAfterConnectionClose verifies that Stop() does not return an error
+// when called after the connection has already been closed.
+// This tests the fix for not returning error on connection close.
+func TestStopAfterConnectionClose(t *testing.T) {
+	conversation := []ouroboros_mock.ConversationEntry{
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		// No Done message expected because connection will be closed first
+	}
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		conversation,
+	)
+	// Async mock connection error handler
+	asyncErrChan := make(chan error, 1)
+	go func() {
+		err := <-mockConn.(*ouroboros_mock.Connection).ErrorChan()
+		if err != nil {
+			asyncErrChan <- fmt.Errorf("received unexpected error: %w", err)
+		}
+		close(asyncErrChan)
+	}()
+
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithDelayProtocolStart(true),
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
+	}
+
+	client := oConn.ChainSync().Client
+	client.Start()
+
+	// Close the connection first (simulating remote close)
+	if err := oConn.Close(); err != nil {
+		t.Fatalf("unexpected error when closing connection: %s", err)
+	}
+
+	// Wait for connection to fully close
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(5 * time.Second):
+		t.Fatal("connection did not close within timeout")
+	}
+
+	// Now Stop() should not return an error even though connection is closed
+	if err := client.Stop(); err != nil {
+		t.Fatalf("Stop() should not return error after connection close, got: %s", err)
+	}
+
+	// Verify IsDone returns true
+	if !client.IsDone() {
+		t.Error("IsDone() should return true after connection close")
+	}
+
+	// Wait for mock connection shutdown
+	select {
+	case err, ok := <-asyncErrChan:
+		if ok {
+			t.Fatal(err.Error())
+		}
+	case <-time.After(2 * time.Second):
+		// OK - mock may have already closed
+	}
+}
