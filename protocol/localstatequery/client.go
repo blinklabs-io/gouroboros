@@ -1219,6 +1219,39 @@ func (c *Client) GetProposals() (*ProposalsResult, error) {
 	return &result, nil
 }
 
+// GetRatifyState returns the current ratification state (Conway era)
+// This includes the enact state, enacted proposals, expired proposal IDs, and delayed flag
+func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
+	c.Protocol.Logger().
+		Debug("calling GetRatifyState()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf(
+			"GetRatifyState requires Conway era or later (current era: %d)",
+			currentEra,
+		)
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyGetRatifyState,
+	)
+	var result RatifyStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {

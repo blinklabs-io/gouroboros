@@ -73,6 +73,7 @@ const (
 	QueryTypeShelleyFilteredVoteDelegatees = 28
 	QueryTypeShelleySPOStakeDistr          = 30
 	QueryTypeShelleyGetProposals           = 31
+	QueryTypeShelleyGetRatifyState         = 32
 )
 
 // simpleQueryBase is a helper type used for various query types
@@ -217,6 +218,7 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 			QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
 			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
 			QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
+			QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
 		},
 	)
 	if err != nil {
@@ -849,6 +851,10 @@ type ShelleyGetProposalsQuery struct {
 	simpleQueryBase
 }
 
+type ShelleyGetRatifyStateQuery struct {
+	simpleQueryBase
+}
+
 // Conway governance result types
 
 // ConstitutionResult represents the constitution query result.
@@ -1143,3 +1149,28 @@ type SPOStakeDistrResult struct {
 // ProposalsResult represents the result of a GetProposals query.
 // It contains a list of governance action states for all active proposals.
 type ProposalsResult []GovActionState
+
+// EnactState represents the enactment state within a ratify state result.
+// It contains the current committee, constitution, protocol parameters,
+// treasury, withdrawals, and previous governance action IDs.
+type EnactState struct {
+	cbor.StructAsArray
+	Committee     cbor.RawMessage // Complex committee structure, keep as RawMessage
+	Constitution  ConstitutionResult
+	CurPParams    cbor.RawMessage // Era-specific protocol params
+	PrevPParams   cbor.RawMessage
+	Treasury      uint64
+	Withdrawals   map[StakeCredential]uint64
+	PrevActionIds cbor.RawMessage // Complex map of gov action types to optional action IDs
+}
+
+// RatifyStateResult represents the result of the GetRatifyState query (query ID 32).
+// It contains the enact state, a list of enacted governance actions,
+// a set of expired governance action IDs, and a delayed flag.
+type RatifyStateResult struct {
+	cbor.StructAsArray
+	EnactState EnactState
+	Enacted    []GovActionState
+	Expired    []lcommon.GovActionId
+	Delayed    bool
+}
