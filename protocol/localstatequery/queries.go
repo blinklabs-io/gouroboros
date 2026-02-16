@@ -897,9 +897,15 @@ type GovStateResult struct {
 }
 
 // DecodeCommittee decodes the Committee field from its StrictMaybe CBOR encoding.
-// Returns nil if the committee is not set (SNothing).
+// In Cardano, StrictMaybe is encoded as:
+//   - [0] for SNothing (no committee)
+//   - [1, data] for SJust (committee present)
+//
+// Returns nil if the committee is absent (SNothing or empty/nil wrapper).
 func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
-	// Decode StrictMaybe: [0] = SNothing, [1, committee] = SJust
+	if len(g.Committee) == 0 {
+		return nil, nil
+	}
 	var wrapper []cbor.RawMessage
 	if _, err := cbor.Decode(g.Committee, &wrapper); err != nil {
 		return nil, err
@@ -907,22 +913,25 @@ func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
 	if len(wrapper) == 0 {
 		return nil, nil
 	}
-	// Check tag
-	var tag int
+	var tag uint64
 	if _, err := cbor.Decode(wrapper[0], &tag); err != nil {
 		return nil, err
 	}
-	if tag == 0 {
-		return nil, nil // SNothing
+	switch tag {
+	case 0:
+		return nil, nil
+	case 1:
+		if len(wrapper) < 2 {
+			return nil, errors.New("invalid StrictMaybe SJust: missing data")
+		}
+		var committee Committee
+		if _, err := cbor.Decode(wrapper[1], &committee); err != nil {
+			return nil, err
+		}
+		return &committee, nil
+	default:
+		return nil, fmt.Errorf("unknown StrictMaybe tag: %d", tag)
 	}
-	if len(wrapper) < 2 {
-		return nil, errors.New("expected committee data after tag 1")
-	}
-	var committee Committee
-	if _, err := cbor.Decode(wrapper[1], &committee); err != nil {
-		return nil, err
-	}
-	return &committee, nil
 }
 
 // DRepStateEntry represents the state of a single DRep
