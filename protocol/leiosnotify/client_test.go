@@ -104,7 +104,7 @@ func TestClientMessageHandler(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				<-client.requestNextChan
+				<-client.notificationChan
 			}()
 
 			err := client.messageHandler(tc.msg)
@@ -240,7 +240,7 @@ func TestClientHandleBlockAnnouncement(t *testing.T) {
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
 	go func() {
-		received <- <-client.requestNextChan
+		received <- <-client.notificationChan
 	}()
 
 	client.handleBlockAnnouncement(msg)
@@ -268,7 +268,7 @@ func TestClientHandleBlockOffer(t *testing.T) {
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
 	go func() {
-		received <- <-client.requestNextChan
+		received <- <-client.notificationChan
 	}()
 
 	client.handleBlockOffer(msg)
@@ -296,7 +296,7 @@ func TestClientHandleBlockTxsOffer(t *testing.T) {
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
 	go func() {
-		received <- <-client.requestNextChan
+		received <- <-client.notificationChan
 	}()
 
 	client.handleBlockTxsOffer(msg)
@@ -326,7 +326,7 @@ func TestClientHandleVotesOffer(t *testing.T) {
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
 	go func() {
-		received <- <-client.requestNextChan
+		received <- <-client.notificationChan
 	}()
 
 	client.handleVotesOffer(msg)

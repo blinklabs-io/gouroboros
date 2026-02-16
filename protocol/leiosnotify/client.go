@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -23,11 +24,13 @@ import (
 
 type Client struct {
 	*protocol.Protocol
-	config          *Config
-	callbackContext CallbackContext
-	requestNextChan chan protocol.Message
-	onceStart       sync.Once
-	onceStop        sync.Once
+	config               *Config
+	callbackContext      CallbackContext
+	busyMutex            sync.Mutex
+	notificationChan     chan protocol.Message
+	pipelinedRequestNext int
+	onceStart            sync.Once
+	onceStop             sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -36,8 +39,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config:          cfg,
-		requestNextChan: make(chan protocol.Message),
+		config:           cfg,
+		notificationChan: make(chan protocol.Message),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -79,7 +82,7 @@ func (c *Client) Start() {
 		// Start goroutine to cleanup resources on protocol shutdown
 		go func() {
 			<-c.DoneChan()
-			close(c.requestNextChan)
+			close(c.notificationChan)
 		}()
 	})
 }
@@ -99,17 +102,66 @@ func (c *Client) Stop() error {
 	return err
 }
 
-// RequestNext fetches the next available notification. This function will block until a notification is received from the peer.
-func (c *Client) RequestNext() (protocol.Message, error) {
+// Sync starts an async process to fetch Leios notifications. Notification messages will be delivered via the
+// Notification callback function specified in the protocol config
+func (c *Client) Sync() error {
+	if c.config == nil || c.config.NotificationFunc == nil {
+		return errors.New("you must configure NotificationFunc to receive notifications")
+	}
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
 	msg := NewMsgNotificationRequestNext()
 	if err := c.SendMessage(msg); err != nil {
-		return nil, err
+		return err
 	}
-	resp, ok := <-c.requestNextChan
-	if !ok {
-		return nil, protocol.ErrProtocolShuttingDown
+	// Reset pipelined message counter
+	c.pipelinedRequestNext = 0
+	// Start notification loop
+	go c.notificationLoop()
+	return nil
+}
+
+func (c *Client) notificationLoop() {
+	for {
+		// Wait for a notification to be received
+		select {
+		case msg, ok := <-c.notificationChan:
+			if !ok {
+				// Channel is closed, which means we're shutting down
+				return
+			}
+			err := c.config.NotificationFunc(c.callbackContext, msg)
+			if err != nil {
+				if errors.Is(err, ErrStopNotificationProcess) {
+					return
+				}
+				c.SendError(err)
+				return
+			}
+		case <-c.DoneChan():
+			// Protocol is shutting down
+			return
+		}
+		c.busyMutex.Lock()
+		// Wait for next notification if we have pipelined messages
+		if c.pipelinedRequestNext > 0 {
+			c.pipelinedRequestNext--
+			c.busyMutex.Unlock()
+			continue
+		}
+		// Request the next notification(s)
+		msgCount := max(c.config.PipelineLimit, 1)
+		for range msgCount {
+			msg := NewMsgNotificationRequestNext()
+			if err := c.SendMessage(msg); err != nil {
+				c.SendError(err)
+				c.busyMutex.Unlock()
+				return
+			}
+		}
+		c.pipelinedRequestNext = msgCount - 1
+		c.busyMutex.Unlock()
 	}
-	return resp, nil
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
@@ -134,17 +186,29 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 }
 
 func (c *Client) handleBlockAnnouncement(msg protocol.Message) {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+	case c.notificationChan <- msg:
+	}
 }
 
 func (c *Client) handleBlockOffer(msg protocol.Message) {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+	case c.notificationChan <- msg:
+	}
 }
 
 func (c *Client) handleBlockTxsOffer(msg protocol.Message) {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+	case c.notificationChan <- msg:
+	}
 }
 
 func (c *Client) handleVotesOffer(msg protocol.Message) {
-	c.requestNextChan <- msg
+	select {
+	case <-c.DoneChan():
+	case c.notificationChan <- msg:
+	}
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -78,9 +79,16 @@ type LeiosNotify struct {
 }
 
 type Config struct {
-	RequestNextFunc RequestNextFunc
-	Timeout         time.Duration
+	NotificationFunc NotificationFunc
+	PipelineLimit    int
+	RequestNextFunc  RequestNextFunc
+	Timeout          time.Duration
 }
+
+const (
+	MaxPipelineLimit     = 100 // Max pipelined requests
+	DefaultPipelineLimit = 10  // Default pipeline limit
+)
 
 // Callback context
 type CallbackContext struct {
@@ -91,7 +99,8 @@ type CallbackContext struct {
 
 // Callback function types
 type (
-	RequestNextFunc func(CallbackContext) (protocol.Message, error)
+	RequestNextFunc  func(CallbackContext) (protocol.Message, error)
+	NotificationFunc func(CallbackContext, protocol.Message) error
 )
 
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LeiosNotify {
@@ -106,13 +115,69 @@ type LeiosNotifyOptionFunc func(*Config)
 
 func NewConfig(options ...LeiosNotifyOptionFunc) Config {
 	c := Config{
-		Timeout: 60 * time.Second,
+		Timeout:       60 * time.Second,
+		PipelineLimit: DefaultPipelineLimit,
 	}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
 	}
+	// Validate configuration against protocol limits
+	if err := c.validate(); err != nil {
+		panic("invalid LeiosNotify configuration: " + err.Error())
+	}
+
 	return c
+}
+
+// validate checks that the configuration values are within protocol limits
+func (c *Config) validate() error {
+	if c.PipelineLimit < 0 {
+		return fmt.Errorf(
+			"PipelineLimit %d must be non-negative",
+			c.PipelineLimit,
+		)
+	}
+	if c.PipelineLimit > MaxPipelineLimit {
+		return fmt.Errorf(
+			"PipelineLimit %d exceeds maximum allowed %d",
+			c.PipelineLimit,
+			MaxPipelineLimit,
+		)
+	}
+	return nil
+}
+
+func WithNotificationFunc(
+	notificationFunc NotificationFunc,
+) LeiosNotifyOptionFunc {
+	return func(c *Config) {
+		c.NotificationFunc = notificationFunc
+	}
+}
+
+// WithPipelineLimit specifies the maximum number of notification requests to pipeline
+func WithPipelineLimit(limit int) LeiosNotifyOptionFunc {
+	return func(c *Config) {
+		if limit < 0 {
+			panic(
+				fmt.Sprintf(
+					"PipelineLimit %d must be non-negative",
+					limit,
+				),
+			)
+		}
+		if limit > MaxPipelineLimit {
+			panic(
+				fmt.Sprintf(
+					"PipelineLimit %d exceeds maximum %d",
+					limit,
+					MaxPipelineLimit,
+				),
+			)
+		}
+		c.PipelineLimit = limit
+	}
 }
 
 func WithRequestNextFunc(
