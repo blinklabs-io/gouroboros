@@ -1272,3 +1272,4 @@ func TestGenesisConfigJSON(t *testing.T) {
 		t.Logf("Successfully validated the GenesisConfigResult after JSON marshalling and unmarshalling.")
 	}
 }
+
