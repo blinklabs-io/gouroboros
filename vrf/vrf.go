@@ -122,6 +122,12 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	// This is NOT password hashing - it's elliptic curve scalar derivation.
 	// #nosec G401 -- SHA-512 is cryptographically required by RFC 8032/VRF spec
 	skHash := sha512.Sum512(secretKey)
+	// SEC-10: Zero sensitive key-derived material when done
+	defer func() {
+		for i := range skHash {
+			skHash[i] = 0
+		}
+	}()
 
 	// Step 2: Compute public key Y = x * B
 	xScalar := edwards25519.NewScalar()
@@ -144,7 +150,20 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	copy(nonceInput[:32], skHash[32:64])
 	copy(nonceInput[32:], H.Bytes())
 
+	// SEC-10: Zero nonce input (contains key-derived material from skHash[32:64])
+	defer func() {
+		for i := range nonceInput {
+			nonceInput[i] = 0
+		}
+	}()
+
 	nonceHash := sha512.Sum512(nonceInput[:])
+	// SEC-10: Zero nonce hash (derived from key material)
+	defer func() {
+		for i := range nonceHash {
+			nonceHash[i] = 0
+		}
+	}()
 	// SetUniformBytes takes a 64-byte slice and reduces mod L automatically
 	kScalar := edwards25519.NewScalar()
 	if _, err := kScalar.SetUniformBytes(nonceHash[:]); err != nil {
@@ -297,11 +316,11 @@ func verify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
 	_, _ = c.SetUniformBytes(cScalarBytes[:])
 	tmp1.ScalarMult(c, Y)
 	tmp2 = (&edwards25519.Point{}).Set(tmp1)
+	// SEC-9: Use SetCanonicalBytes to reject non-canonical s >= L (proof malleability)
 	s := edwards25519.NewScalar()
-	var sScalarBytes [64]byte
-	copy(sScalarBytes[:], sScalarArr[:])
-	// SetUniformBytes always succeeds with 64 bytes; it reduces mod L
-	_, _ = s.SetUniformBytes(sScalarBytes[:])
+	if _, err := s.SetCanonicalBytes(sScalarArr[:]); err != nil {
+		return false, fmt.Errorf("non-canonical s scalar in VRF proof: %w", err)
+	}
 	tmp1.ScalarBaseMult(s)
 	U = &edwards25519.Point{}
 	U.Subtract(tmp1, tmp2)
