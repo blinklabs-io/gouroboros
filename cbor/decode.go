@@ -30,6 +30,10 @@ var (
 	cachedDecMode     _cbor.DecMode
 	cachedDecModeErr  error
 	cachedDecModeOnce sync.Once
+
+	cachedStrictDecMode     _cbor.DecMode
+	cachedStrictDecModeErr  error
+	cachedStrictDecModeOnce sync.Once
 )
 
 // getDecMode returns a cached DecMode, initializing it on first use.
@@ -44,7 +48,8 @@ func getDecMode() (_cbor.DecMode, error) {
 			// The fxamacker default is 131072, but Cardano ledger state
 			// snapshots contain stake distribution maps that can exceed
 			// 1M entries on mainnet.
-			MaxMapPairs: 10_000_000,
+			MaxMapPairs:      10_000_000,
+			MaxArrayElements: 10_000_000,
 		}
 		cachedDecMode, cachedDecModeErr = decOptions.DecModeWithTags(customTagSet)
 	})
@@ -59,6 +64,41 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 	}
 	if decMode == nil {
 		return 0, errors.New("CBOR decoder mode not initialized")
+	}
+	dec := decMode.NewDecoder(data)
+	err = dec.Decode(dest)
+	return dec.NumBytesRead(), err
+}
+
+// getStrictDecMode returns a cached DecMode with stricter limits for untrusted
+// network data. Uses sync.Once for thread-safe lazy initialization.
+// Returns the cached error if initialization failed.
+func getStrictDecMode() (_cbor.DecMode, error) {
+	cachedStrictDecModeOnce.Do(func() {
+		decOptions := _cbor.DecOptions{
+			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+			MaxNestedLevels:   256,
+			// Stricter limits for untrusted network messages to prevent
+			// OOM from crafted payloads claiming excessive collection sizes.
+			MaxMapPairs:      131072,
+			MaxArrayElements: 131072,
+		}
+		cachedStrictDecMode, cachedStrictDecModeErr = decOptions.DecModeWithTags(customTagSet)
+	})
+	return cachedStrictDecMode, cachedStrictDecModeErr
+}
+
+// DecodeStrict decodes CBOR data using stricter limits suitable for untrusted
+// network messages. It limits map pairs and array elements to 131072 each,
+// preventing OOM attacks from crafted payloads.
+func DecodeStrict(dataBytes []byte, dest any) (int, error) {
+	data := bytes.NewReader(dataBytes)
+	decMode, err := getStrictDecMode()
+	if err != nil {
+		return 0, err
+	}
+	if decMode == nil {
+		return 0, errors.New("CBOR strict decoder mode not initialized")
 	}
 	dec := decMode.NewDecoder(data)
 	err = dec.Decode(dest)
