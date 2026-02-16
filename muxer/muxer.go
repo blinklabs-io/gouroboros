@@ -27,10 +27,15 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 )
 
 // Magic number chosen to represent unknown protocols
 const ProtocolUnknown uint16 = 0xabcd
+
+// segmentReadTimeout is the maximum time to wait for a complete segment read
+// before closing the connection. This prevents slowloris-style DoS attacks.
+const segmentReadTimeout = 120 * time.Second
 
 // DiffusionMode is an enum for the valid muxer diffusion modes
 type DiffusionMode int
@@ -155,7 +160,9 @@ func (m *Muxer) SetDiffusionMode(diffusionMode DiffusionMode) {
 	m.diffusionMode = diffusionMode
 }
 
-// sendError sends the specified error to the error channel and stops the muxer
+// sendError sends the specified error to the error channel and stops the muxer.
+// The send is non-blocking to prevent the read loop goroutine from being
+// permanently blocked if the error channel buffer is full.
 func (m *Muxer) sendError(err error) {
 	// Immediately return if we're already shutting down
 	select {
@@ -163,8 +170,11 @@ func (m *Muxer) sendError(err error) {
 		return
 	default:
 	}
-	// Send error to consumer
-	m.errorChan <- err
+	// Send error to consumer (non-blocking to prevent goroutine leak)
+	select {
+	case m.errorChan <- err:
+	default:
+	}
 	// Stop the muxer on any error
 	m.Stop()
 }
@@ -317,6 +327,8 @@ func (m *Muxer) readLoop() {
 				started = v
 			}
 		}
+		// Set read deadline to prevent slowloris-style DoS attacks
+		_ = m.conn.SetReadDeadline(time.Now().Add(segmentReadTimeout))
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
