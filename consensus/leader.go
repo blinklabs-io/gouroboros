@@ -232,6 +232,13 @@ func (s *SimpleVRFSigner) PublicKey() []byte {
 	return s.publicKey
 }
 
+// Destroy zeroes the secret key material. Call when the signer is no longer needed.
+func (s *SimpleVRFSigner) Destroy() {
+	for i := range s.secretKey {
+		s.secretKey[i] = 0
+	}
+}
+
 // FindNextSlotLeadership finds the next slot where the pool is eligible to be leader.
 // This is useful for looking ahead to schedule block production.
 //

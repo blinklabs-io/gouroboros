@@ -628,11 +628,11 @@ func TestValidateOpCertSignature(t *testing.T) {
 		t.Error("expected error for wrong sequence number")
 	}
 
-	// Test with no issuer key (should skip validation)
+	// Test with no issuer key (should require IssuerVkey)
 	input.IssuerVkey = nil
 	err = validator.validateOpCertSignature(input)
-	if err != nil {
-		t.Errorf("expected nil error when IssuerVkey is empty, got: %v", err)
+	if err == nil {
+		t.Error("expected error when IssuerVkey is empty")
 	}
 
 	// Test with wrong issuer key size
