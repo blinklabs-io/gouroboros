@@ -27,6 +27,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -70,7 +71,7 @@ type Muxer struct {
 	protocolSenders        map[uint16]map[ProtocolRole]chan *Segment
 	protocolReceivers      map[uint16]map[ProtocolRole]*segmentChannel
 	protocolReceiversMutex sync.Mutex
-	diffusionMode          DiffusionMode
+	diffusionMode          atomic.Int64
 	onceStop               sync.Once
 }
 
@@ -157,7 +158,7 @@ func (m *Muxer) Stop() {
 
 // SetDiffusionMode sets the muxer diffusion mode after the handshake completes
 func (m *Muxer) SetDiffusionMode(diffusionMode DiffusionMode) {
-	m.diffusionMode = diffusionMode
+	m.diffusionMode.Store(int64(diffusionMode))
 }
 
 // sendError sends the specified error to the error channel and stops the muxer.
@@ -374,7 +375,7 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from initiator when we're not configured as a responder
-		if m.diffusionMode == DiffusionModeInitiator && !msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator && !msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from initiator when not configured as a responder",
@@ -383,7 +384,7 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from responder when we're not configured as an initiator
-		if m.diffusionMode == DiffusionModeResponder && msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder && msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from responder when not configured as an initiator",
