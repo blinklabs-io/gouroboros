@@ -139,7 +139,18 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 		return b.Cbor(), nil
 	}
 
-	// Ensure InvalidTransactions is encoded as empty array if nil
+	// Ensure nil slices are encoded as empty CBOR arrays (0x80)
+	// rather than CBOR null (0xF6). The Cardano CDDL requires
+	// arrays for transaction_bodies, transaction_witness_sets,
+	// and invalid_transactions.
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []ConwayTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []ConwayTransactionWitnessSet{}
+	}
 	invalidTxs := b.InvalidTransactions
 	if invalidTxs == nil {
 		invalidTxs = []uint{}
@@ -147,8 +158,8 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 
 	return cbor.Encode([]any{
 		b.BlockHeader,
-		b.TransactionBodies,
-		b.TransactionWitnessSets,
+		txBodies,
+		txWitnesses,
 		b.TransactionMetadataSet,
 		invalidTxs,
 	})

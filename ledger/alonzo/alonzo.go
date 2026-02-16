@@ -102,6 +102,16 @@ func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
 		InvalidTransactions    cbor.IndefLengthList
 	}
 
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []AlonzoTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []AlonzoTransactionWitnessSet{}
+	}
+
 	// Convert InvalidTransactions to IndefLengthList
 	var invalidTx cbor.IndefLengthList
 	if b.InvalidTransactions != nil {
@@ -113,8 +123,8 @@ func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
 
 	temp := tmpBlock{
 		BlockHeader:            b.BlockHeader,
-		TransactionBodies:      b.TransactionBodies,
-		TransactionWitnessSets: b.TransactionWitnessSets,
+		TransactionBodies:      txBodies,
+		TransactionWitnessSets: txWitnesses,
 		TransactionMetadataSet: b.TransactionMetadataSet,
 		InvalidTransactions:    invalidTx,
 	}
