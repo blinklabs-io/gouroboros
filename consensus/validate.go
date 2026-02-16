@@ -395,9 +395,9 @@ func (v *HeaderValidator) validateKESSignature(
 func (v *HeaderValidator) validateOpCertSignature(
 	input *ValidateHeaderInput,
 ) error {
-	// Skip if no issuer key provided (validation may be done elsewhere)
+	// IssuerVkey is required for OpCert validation
 	if len(input.IssuerVkey) == 0 {
-		return nil
+		return errors.New("IssuerVkey is required for OpCert validation")
 	}
 
 	if len(input.IssuerVkey) != ed25519.PublicKeySize {
