@@ -284,6 +284,9 @@ func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
 }
 
 func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
+	if r.legacy {
+		return r.legacyRedeemers.Iter()
+	}
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
 		// Sort redeemers
 		sorted := slices.Collect(maps.Keys(r.Redeemers))
