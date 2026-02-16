@@ -571,6 +571,16 @@ func TestDecodeCommitteeEmptyWrapper(t *testing.T) {
 	assert.Nil(t, result, "expected nil for empty wrapper")
 }
 
+func TestDecodeCommitteeCborNull(t *testing.T) {
+	// CBOR null (0xf6) is what Cardano nodes send when no committee is present
+	govState := &localstatequery.GovStateResult{
+		Committee: cbor.RawMessage([]byte{0xf6}),
+	}
+	result, err := govState.DecodeCommittee()
+	require.NoError(t, err)
+	assert.Nil(t, result, "expected nil for CBOR null committee")
+}
+
 func TestGetGovStatePreConway(t *testing.T) {
 	// Test that GetGovState returns an error on pre-Conway eras
 	runTest(
