@@ -85,8 +85,21 @@ func (b *MaryBlock) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	// Otherwise, encode generically
-	return cbor.EncodeGeneric(b)
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []MaryTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []shelley.ShelleyTransactionWitnessSet{}
+	}
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+	})
 }
 
 func (MaryBlock) Type() int {

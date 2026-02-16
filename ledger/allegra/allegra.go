@@ -76,6 +76,27 @@ func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *AllegraBlock) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []AllegraTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []shelley.ShelleyTransactionWitnessSet{}
+	}
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+	})
+}
+
 func (AllegraBlock) Type() int {
 	return BlockTypeAllegra
 }

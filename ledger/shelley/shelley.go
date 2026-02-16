@@ -83,6 +83,27 @@ func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *ShelleyBlock) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []ShelleyTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []ShelleyTransactionWitnessSet{}
+	}
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+	})
+}
+
 func (ShelleyBlock) Type() int {
 	return BlockTypeShelley
 }
