@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,10 +28,11 @@ const (
 	ProtocolId   = 0
 )
 
-// Protocol state timeout constants per network specification
+// Protocol state timeout constants per Ouroboros Network Specification (Table 3.4).
+// N2N handshake has timeouts; N2C handshake has none.
 const (
-	ProposeTimeout = 5 * time.Second // Timeout for client to propose versions
-	ConfirmTimeout = 5 * time.Second // Timeout for server to accept or refuse versions
+	ProposeTimeout = 10 * time.Second // N2N: timeout for client to propose versions
+	ConfirmTimeout = 10 * time.Second // N2N: timeout for server to accept or refuse versions
 )
 
 var (
@@ -40,40 +41,64 @@ var (
 	stateDone    = protocol.NewState(3, "Done")
 )
 
-// Handshake protocol state machine
-var StateMap = protocol.StateMap{
+// confirmTransitions are shared between N2N and N2C state maps.
+var confirmTransitions = []protocol.StateTransition{
+	{
+		MsgType:  MessageTypeAcceptVersion,
+		NewState: stateDone,
+	},
+	{
+		MsgType:  MessageTypeRefuse,
+		NewState: stateDone,
+	},
+	{
+		MsgType:  MessageTypeQueryReply,
+		NewState: stateDone,
+	},
+}
+
+// proposeTransitions are shared between N2N and N2C state maps.
+var proposeTransitions = []protocol.StateTransition{
+	{
+		MsgType:  MessageTypeProposeVersions,
+		NewState: stateConfirm,
+	},
+}
+
+// StateMapNtN is the N2N handshake state machine with timeouts per spec Table 3.4.
+var StateMapNtN = protocol.StateMap{
 	statePropose: protocol.StateMapEntry{
-		Agency:  protocol.AgencyClient,
-		Timeout: ProposeTimeout, // Timeout for client to propose versions
-		Transitions: []protocol.StateTransition{
-			{
-				MsgType:  MessageTypeProposeVersions,
-				NewState: stateConfirm,
-			},
-		},
+		Agency:      protocol.AgencyClient,
+		Timeout:     ProposeTimeout,
+		Transitions: proposeTransitions,
 	},
 	stateConfirm: protocol.StateMapEntry{
-		Agency:  protocol.AgencyServer,
-		Timeout: ConfirmTimeout, // Timeout for server to accept or refuse versions
-		Transitions: []protocol.StateTransition{
-			{
-				MsgType:  MessageTypeAcceptVersion,
-				NewState: stateDone,
-			},
-			{
-				MsgType:  MessageTypeRefuse,
-				NewState: stateDone,
-			},
-			{
-				MsgType:  MessageTypeQueryReply,
-				NewState: stateDone,
-			},
-		},
+		Agency:      protocol.AgencyServer,
+		Timeout:     ConfirmTimeout,
+		Transitions: confirmTransitions,
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency: protocol.AgencyNone,
 	},
 }
+
+// StateMapNtC is the N2C handshake state machine with no timeouts per spec Table 3.5.
+var StateMapNtC = protocol.StateMap{
+	statePropose: protocol.StateMapEntry{
+		Agency:      protocol.AgencyClient,
+		Transitions: proposeTransitions,
+	},
+	stateConfirm: protocol.StateMapEntry{
+		Agency:      protocol.AgencyServer,
+		Transitions: confirmTransitions,
+	},
+	stateDone: protocol.StateMapEntry{
+		Agency: protocol.AgencyNone,
+	},
+}
+
+// StateMap is a copy of StateMapNtN for backward compatibility.
+var StateMap = StateMapNtN.Copy()
 
 // Handshake is a wrapper object that holds the client and server instances
 type Handshake struct {
@@ -116,7 +141,7 @@ type HandshakeOptionFunc func(*Config)
 // NewConfig returns a new Handshake config object with the provided options
 func NewConfig(options ...HandshakeOptionFunc) Config {
 	c := Config{
-		Timeout: 5 * time.Second,
+		Timeout: 10 * time.Second,
 	}
 	// Apply provided options functions
 	for _, option := range options {

@@ -94,12 +94,12 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 			if val < 0 || val > maxReasonableIndex {
 				continue // Skip negative or unreasonably large indices
 			}
-			result = append(result, uint(val))
+			result = append(result, uint(val)) //nolint:gosec // bounds checked above
 		case int64:
 			if val < 0 || val > maxReasonableIndex {
 				continue // Skip negative or unreasonably large indices
 			}
-			result = append(result, uint(val))
+			result = append(result, uint(val)) //nolint:gosec // bounds checked above
 		default:
 			// Skip invalid types (strings, floats, etc.)
 			continue

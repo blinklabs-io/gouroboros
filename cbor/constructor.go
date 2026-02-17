@@ -134,7 +134,7 @@ func (cd ConstructorDecoder) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(`{"constructor":%d,"fields":[`, cd.tag))
+	fmt.Fprintf(&sb, `{"constructor":%d,"fields":[`, cd.tag)
 	for idx, val := range fields {
 		tmpVal, err := generateAstJson(val)
 		if err != nil {

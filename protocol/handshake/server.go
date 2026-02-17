@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,11 +38,19 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
-	// Update state map with timeout
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[statePropose]; ok {
-		entry.Timeout = s.config.Timeout
-		stateMap[statePropose] = entry
+	// Select state map based on protocol mode
+	baseStateMap := StateMapNtN
+	if protoOptions.Mode == protocol.ProtocolModeNodeToClient {
+		baseStateMap = StateMapNtC
+	}
+	stateMap := baseStateMap.Copy()
+	// Override propose timeout from config for NtN only (server waits for client proposal).
+	// NtC has no timeouts per spec Table 3.5.
+	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		if entry, ok := stateMap[statePropose]; ok {
+			entry.Timeout = s.config.Timeout
+			stateMap[statePropose] = entry
+		}
 	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,

@@ -751,7 +751,7 @@ func (a *AddressPayloadPointer) encode() ([]byte, error) {
 		for val > 0 {
 			data = append(
 				data,
-				byte((val&0x7F)|0x80),
+				byte((val&0x7F)|0x80), //nolint:gosec // masked to 7 bits, always fits byte
 			)
 			val /= 128
 		}

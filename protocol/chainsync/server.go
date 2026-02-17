@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -70,6 +70,13 @@ func (s *Server) initProtocol() {
 		ProtocolId = ProtocolIdNtN
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
+	// Select state map based on protocol mode.
+	// Default to NtC (matching ProtocolId/CBOR defaults above) so that
+	// callers who omit Mode get consistent NtC behaviour throughout.
+	stateMap := StateMapNtC.Copy()
+	if s.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		stateMap = StateMapNtN.Copy()
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -80,7 +87,7 @@ func (s *Server) initProtocol() {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		StateContext:        s.stateContext,
 		InitialState:        stateIdle,
 	}

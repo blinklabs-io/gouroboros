@@ -573,9 +573,9 @@ func EncodeLangViews(
 	result := make([]byte, 0, 128)
 	// Encode map length (definite-length map)
 	if len(views) < 24 {
-		result = append(result, 0xa0+byte(len(views)))
+		result = append(result, 0xa0+byte(len(views))) //nolint:gosec // len < 24
 	} else {
-		result = append(result, 0xb8, byte(len(views)))
+		result = append(result, 0xb8, byte(len(views))) //nolint:gosec // len < 256
 	}
 
 	// Append key-value pairs in sorted order

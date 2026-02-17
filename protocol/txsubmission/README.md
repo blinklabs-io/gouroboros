@@ -96,15 +96,15 @@ The TxSubmission protocol propagates transactions between nodes. It uses a pull-
 |---------|-----------|
 | `ReplyTxs` | Idle |
 
-## Timeouts
+## Timeouts (per spec Table 3.11)
 
 | State | Timeout | Description |
 |-------|---------|-------------|
-| Init | 30 seconds | Client must send Init message |
-| Idle | 300 seconds | Server must send tx request |
-| TxIdsBlocking | 60 seconds | Client must reply with tx IDs |
-| TxIdsNonblocking | 30 seconds | Client must reply with tx IDs |
-| Txs | 120 seconds | Client must reply with transactions |
+| Init | none | No timeout per spec |
+| Idle | none | No timeout per spec |
+| TxIdsBlocking | none | No timeout per spec (blocking waits indefinitely) |
+| TxIdsNonblocking | 10 seconds | Client must reply with tx IDs |
+| Txs | 10 seconds | Client must reply with transactions |
 
 ## Limits
 
@@ -130,7 +130,7 @@ txsubmission.NewConfig(
     txsubmission.WithRequestTxsFunc(requestTxsCallback),
     txsubmission.WithInitFunc(initCallback),
     txsubmission.WithDoneFunc(doneCallback),
-    txsubmission.WithIdleTimeout(300 * time.Second),
+    txsubmission.WithIdleTimeout(0), // no timeout per spec
 )
 ```
 

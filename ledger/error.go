@@ -1265,8 +1265,8 @@ func (e *BabbageOutputTooSmallUTxO) Error() string {
 	var sb strings.Builder
 	sb.WriteString("BabbageOutputTooSmallUTxO ([")
 	for idx, entry := range e.Outputs {
-		sb.WriteString(fmt.Sprintf("(Output %s, MinRequired %d)",
-			entry.Output.String(), entry.MinRequired))
+		fmt.Fprintf(&sb, "(Output %s, MinRequired %d)",
+			entry.Output.String(), entry.MinRequired)
 		if idx < len(e.Outputs)-1 {
 			sb.WriteString(", ")
 		}
@@ -1319,8 +1319,8 @@ func (e *MissingRedeemers) Error() string {
 	var sb strings.Builder
 	sb.WriteString("MissingRedeemers ([")
 	for idx, entry := range e.Missing {
-		sb.WriteString(fmt.Sprintf("(Purpose %v, ScriptHash %s)",
-			entry.Purpose.Value(), entry.ScriptHash.String()))
+		fmt.Fprintf(&sb, "(Purpose %v, ScriptHash %s)",
+			entry.Purpose.Value(), entry.ScriptHash.String())
 		if idx < len(e.Missing)-1 {
 			sb.WriteString(", ")
 		}
@@ -1425,7 +1425,7 @@ func (e *ExtraRedeemers) Error() string {
 		if int(entry.Tag) < len(tagNames) {
 			tagName = tagNames[entry.Tag]
 		}
-		sb.WriteString(fmt.Sprintf("(%s, Index %d)", tagName, entry.Index))
+		fmt.Fprintf(&sb, "(%s, Index %d)", tagName, entry.Index)
 		if idx < len(e.Redeemers)-1 {
 			sb.WriteString(", ")
 		}

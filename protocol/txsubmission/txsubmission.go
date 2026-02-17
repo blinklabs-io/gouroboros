@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ var StateMap = protocol.StateMap{
 	stateTxIdsBlocking: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: 0,
-		Timeout:                 TxIdsBlockingTimeout, // Timeout for client to reply with tx IDs (blocking)
+		Timeout:                 TxIdsBlockingTimeout, // No timeout per spec: client blocks until tx available
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -145,13 +145,13 @@ const (
 	DefaultAckLimit     = 1000  // Default ack limit
 )
 
-// Protocol state timeout constants per network specification
+// Protocol state timeout constants per Ouroboros Network Specification (Table 3.11).
 const (
-	InitTimeout             = 30 * time.Second  // Timeout for client to send init message
-	IdleTimeout             = 300 * time.Second // Timeout for server to send tx request when idle
-	TxIdsBlockingTimeout    = 60 * time.Second  // Timeout for client to reply with tx IDs (blocking)
-	TxIdsNonblockingTimeout = 30 * time.Second  // Timeout for client to reply with tx IDs (non-blocking)
-	TxsTimeout              = 120 * time.Second // Timeout for client to reply with full transactions
+	InitTimeout             = time.Duration(0) // No timeout per spec
+	IdleTimeout             = time.Duration(0) // No timeout per spec
+	TxIdsBlockingTimeout    = time.Duration(0) // No timeout per spec (blocking waits indefinitely)
+	TxIdsNonblockingTimeout = 10 * time.Second // Timeout for client to reply with tx IDs (non-blocking)
+	TxsTimeout              = 10 * time.Second // Timeout for client to reply with full transactions
 )
 
 // Callback context
@@ -185,7 +185,7 @@ type TxSubmissionOptionFunc func(*Config)
 // NewConfig returns a new TxSubmission config object with the provided options
 func NewConfig(options ...TxSubmissionOptionFunc) Config {
 	c := Config{
-		IdleTimeout: 300 * time.Second,
+		IdleTimeout: 0, // No timeout per spec
 	}
 	// Apply provided options functions
 	for _, option := range options {
