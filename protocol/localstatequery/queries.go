@@ -912,6 +912,10 @@ func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
 	if len(g.Committee) == 0 {
 		return nil, nil
 	}
+	// CBOR null (0xf6) means no committee present
+	if len(g.Committee) == 1 && g.Committee[0] == 0xf6 {
+		return nil, nil
+	}
 	var wrapper []cbor.RawMessage
 	if _, err := cbor.Decode(g.Committee, &wrapper); err != nil {
 		return nil, err
