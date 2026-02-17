@@ -966,6 +966,86 @@ func TestGetProposalsEmpty(t *testing.T) {
 	)
 }
 
+func TestGetRatifyState(t *testing.T) {
+	// RatifyState with empty enacted, empty expired, not delayed
+	expectedResult := localstatequery.RatifyStateResult{
+		EnactState: localstatequery.EnactState{
+			Committee:    cbor.RawMessage([]byte{0xf6}), // null
+			Constitution: localstatequery.ConstitutionResult{
+				Anchor: lcommon.GovAnchor{
+					Url:      "https://constitution.cardano.org",
+					DataHash: [32]byte{0xde, 0xad, 0xbe, 0xef},
+				},
+				ScriptHash: nil,
+			},
+			CurPParams:    cbor.RawMessage([]byte{0xa0}), // Empty map
+			PrevPParams:   cbor.RawMessage([]byte{0xa0}),
+			Treasury:      500000000,
+			Withdrawals:   map[localstatequery.StakeCredential]uint64{},
+			PrevActionIds: cbor.RawMessage([]byte{0xa0}),
+		},
+		Enacted: []localstatequery.GovActionState{},
+		Expired: []lcommon.GovActionId{},
+		Delayed: false,
+	}
+	cborData, err := cbor.Encode(expectedResult)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %s", err)
+	}
+	conversation := append(
+		conversationConwayEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(cborData),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			ratifyState, err := oConn.LocalStateQuery().Client.GetRatifyState()
+			if err != nil {
+				t.Fatalf("received unexpected error: %s", err)
+			}
+			// Check enact state constitution anchor
+			if ratifyState.EnactState.Constitution.Anchor.Url != expectedResult.EnactState.Constitution.Anchor.Url {
+				t.Fatalf(
+					"constitution URL mismatch: got %s, wanted %s",
+					ratifyState.EnactState.Constitution.Anchor.Url,
+					expectedResult.EnactState.Constitution.Anchor.Url,
+				)
+			}
+			// Check treasury
+			if ratifyState.EnactState.Treasury != expectedResult.EnactState.Treasury {
+				t.Fatalf(
+					"treasury mismatch: got %d, wanted %d",
+					ratifyState.EnactState.Treasury,
+					expectedResult.EnactState.Treasury,
+				)
+			}
+			// Check enacted is empty
+			if len(ratifyState.Enacted) != 0 {
+				t.Fatalf("expected 0 enacted, got %d", len(ratifyState.Enacted))
+			}
+			// Check expired is empty
+			if len(ratifyState.Expired) != 0 {
+				t.Fatalf("expected 0 expired, got %d", len(ratifyState.Expired))
+			}
+			// Check delayed is false
+			if ratifyState.Delayed {
+				t.Fatal("expected delayed to be false")
+			}
+		},
+	)
+}
+
 func TestGetProposalsSingleProposal(t *testing.T) {
 	// Build a single proposal with votes
 	govActionId := lcommon.GovActionId{
@@ -1200,6 +1280,19 @@ func TestGetFilteredVoteDelegateesPreConway(t *testing.T) {
 		conversationCurrentEra, // Era 5 (Babbage)
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			_, err := oConn.LocalStateQuery().Client.GetFilteredVoteDelegatees(nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Conway era or later")
+		},
+	)
+}
+
+func TestGetRatifyStatePreConway(t *testing.T) {
+	// Test that GetRatifyState returns an error on pre-Conway eras
+	runTest(
+		t,
+		conversationCurrentEra, // Era 5 (Babbage)
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			_, err := oConn.LocalStateQuery().Client.GetRatifyState()
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "Conway era or later")
 		},
