@@ -980,7 +980,7 @@ func TestGetRatifyState(t *testing.T) {
 	// RatifyState with empty enacted, empty expired, not delayed
 	expectedResult := localstatequery.RatifyStateResult{
 		EnactState: localstatequery.EnactState{
-			Committee:    cbor.RawMessage([]byte{0xf6}), // null
+			Committee: cbor.RawMessage([]byte{0xf6}), // null
 			Constitution: localstatequery.ConstitutionResult{
 				Anchor: lcommon.GovAnchor{
 					Url:      "https://constitution.cardano.org",
@@ -1075,7 +1075,7 @@ func TestGetProposalsSingleProposal(t *testing.T) {
 	// Encode a minimal proposal procedure as RawMessage
 	// (empty array is simplest valid CBOR for testing)
 	proposalCbor, err := cbor.Encode([]any{
-		uint64(500000000),   // deposit
+		uint64(500000000),  // deposit
 		[]byte{0xe0, 0x01}, // reward account (minimal)
 		[]any{uint(6)},     // info gov action
 		[]any{"https://example.com", [32]byte{0xab}}, // anchor
@@ -1363,7 +1363,7 @@ func TestGenesisConfigJSON(t *testing.T) {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
-	//Compare everything after unmarshalling
+	// Compare everything after unmarshalling
 
 	if !reflect.DeepEqual(genesisConfig, result) {
 		t.Errorf(
@@ -1375,4 +1375,3 @@ func TestGenesisConfigJSON(t *testing.T) {
 		t.Logf("Successfully validated the GenesisConfigResult after JSON marshalling and unmarshalling.")
 	}
 }
-

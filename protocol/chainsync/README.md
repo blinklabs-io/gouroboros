@@ -101,14 +101,16 @@ The ChainSync protocol synchronizes blockchain state between nodes by streaming 
 | `IntersectFound` | Idle |
 | `IntersectNotFound` | Idle |
 
-## Timeouts
+## Timeouts (NtN only, per spec Table 3.8)
+
+NtC mode has no timeouts per Ouroboros spec Table 3.9.
 
 | State | Timeout | Description |
 |-------|---------|-------------|
-| Idle | 60 seconds | Client must send next request |
-| CanAwait | 300 seconds | Server must provide block or await |
-| Intersect | 5 seconds | Server must respond to intersect |
-| MustReply | 300 seconds | Server must provide block |
+| Idle | 3673 seconds | Client must send next request |
+| CanAwait | 10 seconds | Server must provide block or await |
+| Intersect | 10 seconds | Server must respond to intersect |
+| MustReply | random(135-269 seconds) | Server must provide block |
 
 ## Limits
 
@@ -133,8 +135,8 @@ chainsync.NewConfig(
     chainsync.WithRollForwardRawFunc(rollForwardRawCallback),
     chainsync.WithFindIntersectFunc(findIntersectCallback),
     chainsync.WithRequestNextFunc(requestNextCallback),
-    chainsync.WithIntersectTimeout(5 * time.Second),
-    chainsync.WithBlockTimeout(300 * time.Second),
+    chainsync.WithIntersectTimeout(10 * time.Second),
+    chainsync.WithBlockTimeout(269 * time.Second),
     chainsync.WithPipelineLimit(75),
     chainsync.WithRecvQueueSize(75),
 )

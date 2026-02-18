@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -709,10 +709,13 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 
 		// Set timeout for state transition
-		if p.config.StateMap[s].Timeout > 0 {
-			transitionTimer = time.NewTimer(
-				p.config.StateMap[s].Timeout,
-			)
+		entry := p.config.StateMap[s]
+		timeout := entry.Timeout
+		if entry.TimeoutFunc != nil {
+			timeout = entry.TimeoutFunc()
+		}
+		if timeout > 0 {
+			transitionTimer = time.NewTimer(timeout)
 		}
 	}
 	getTimerChan := func() <-chan time.Time {

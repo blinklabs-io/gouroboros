@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -123,16 +123,30 @@ func (c *Client) initProtocol() {
 	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
 	c.wantIntersectFoundChan = make(chan chan<- clientPointResult, 1)
 
-	// Update state map with timeouts
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[stateIntersect]; ok {
-		entry.Timeout = c.config.IntersectTimeout
-		stateMap[stateIntersect] = entry
+	// Select base state map based on protocol mode.
+	// Default to NtC (matching ProtocolId/CBOR defaults above) so that
+	// callers who omit Mode get consistent NtC behaviour throughout.
+	baseStateMap := StateMapNtC
+	if c.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		baseStateMap = StateMapNtN
 	}
-	for _, state := range []protocol.State{stateCanAwait, stateMustReply} {
-		if entry, ok := stateMap[state]; ok {
-			entry.Timeout = c.config.BlockTimeout
-			stateMap[state] = entry
+	stateMap := baseStateMap.Copy()
+	// Override timeouts from config only for NtN mode.
+	// NtC mode intentionally has no timeouts per Ouroboros spec (Table 3.9).
+	if c.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		if entry, ok := stateMap[stateIntersect]; ok {
+			entry.Timeout = c.config.IntersectTimeout
+			stateMap[stateIntersect] = entry
+		}
+		for _, state := range []protocol.State{stateCanAwait, stateMustReply} {
+			if entry, ok := stateMap[state]; ok {
+				if entry.TimeoutFunc != nil {
+					// Dynamic timeout (e.g. MustReplyTimeoutFunc) takes precedence; skip override.
+					continue
+				}
+				entry.Timeout = c.config.BlockTimeout
+				stateMap[state] = entry
+			}
 		}
 	}
 	// Configure underlying Protocol

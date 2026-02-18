@@ -70,7 +70,7 @@ func DumpCborStructure(data any, prefix string) string {
 		// Add 2 more spaces to the new prefix
 		newPrefix = "  " + newPrefix
 		for key, val := range v {
-			ret.WriteString(fmt.Sprintf("%s%#v => %#v,\n", newPrefix, key, val))
+			fmt.Fprintf(&ret, "%s%#v => %#v,\n", newPrefix, key, val)
 		}
 		ret.WriteString(prefix + "}\n")
 	default:

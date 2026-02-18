@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -205,16 +206,18 @@ func (b *LeiosEndorserBlock) MarshalCBOR() ([]byte, error) {
 	} else if mapLen < 256 {
 		mapBytes = []byte{0xb8, byte(mapLen)} // map with 1-byte length
 	} else if mapLen < 65536 {
-		mapBytes = []byte{0xb9, byte(mapLen >> 8), byte(mapLen)} // map with 2-byte length
-	} else {
+		mapBytes = []byte{0xb9, byte(mapLen >> 8), byte(mapLen)} //nolint:gosec // mapLen < 65536
+	} else if mapLen <= math.MaxUint32 {
 		// map with 4-byte length (0xba + 4 bytes)
 		mapBytes = []byte{
 			0xba,
-			byte(mapLen >> 24),
-			byte(mapLen >> 16),
-			byte(mapLen >> 8),
-			byte(mapLen),
+			byte(mapLen >> 24), //nolint:gosec // CBOR 4-byte length encoding
+			byte(mapLen >> 16), //nolint:gosec // CBOR 4-byte length encoding
+			byte(mapLen >> 8),  //nolint:gosec // CBOR 4-byte length encoding
+			byte(mapLen),       //nolint:gosec // CBOR 4-byte length encoding
 		}
+	} else {
+		return nil, fmt.Errorf("map length %d exceeds maximum for 4-byte CBOR encoding", mapLen)
 	}
 	for _, ref := range b.Body.TxReferences {
 		// Encode key: 32-byte bytestring (0x58 0x20 prefix)
@@ -222,11 +225,11 @@ func (b *LeiosEndorserBlock) MarshalCBOR() ([]byte, error) {
 		mapBytes = append(mapBytes, ref.TxHash[:]...)
 		// Encode value: uint16
 		if ref.TxSize < 24 {
-			mapBytes = append(mapBytes, byte(ref.TxSize))
+			mapBytes = append(mapBytes, byte(ref.TxSize)) //nolint:gosec // TxSize < 24
 		} else if ref.TxSize < 256 {
-			mapBytes = append(mapBytes, 0x18, byte(ref.TxSize))
+			mapBytes = append(mapBytes, 0x18, byte(ref.TxSize)) //nolint:gosec // TxSize < 256
 		} else {
-			mapBytes = append(mapBytes, 0x19, byte(ref.TxSize>>8), byte(ref.TxSize))
+			mapBytes = append(mapBytes, 0x19, byte(ref.TxSize>>8), byte(ref.TxSize)) //nolint:gosec // uint16 fits in 2 bytes
 		}
 	}
 	// Encode as single-element array: [ map ]

@@ -160,12 +160,12 @@ func TestDecode(t *testing.T) {
 		}
 		// cast msg to MsgResult and further try to decode cbor
 		if m, ok := msg.(*MsgResult); ok && test.Result != nil {
-			var decoded = reflect.New(reflect.TypeOf(test.Result))
+			decoded := reflect.New(reflect.TypeOf(test.Result))
 			_, err := cbor.Decode(m.Result, decoded.Interface())
 			if err != nil {
 				t.Fatalf("failed to decode result: %s", err)
 			}
-			var actual = reflect.Indirect(decoded).Interface()
+			actual := reflect.Indirect(decoded).Interface()
 			if !reflect.DeepEqual(actual, test.Result) {
 				t.Fatalf(
 					"MsgResult content did not decode to expected Result object\n  got:    %#v\n  wanted: %#v",

@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -43,11 +43,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
-	// Update state map with timeout
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[stateConfirm]; ok {
-		entry.Timeout = c.config.Timeout
-		stateMap[stateConfirm] = entry
+	// Select state map based on protocol mode
+	baseStateMap := StateMapNtN
+	if protoOptions.Mode == protocol.ProtocolModeNodeToClient {
+		baseStateMap = StateMapNtC
+	}
+	stateMap := baseStateMap.Copy()
+	// Override confirm timeout from config for NtN only (client waits for server response).
+	// NtC has no timeouts per spec Table 3.5.
+	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		if entry, ok := stateMap[stateConfirm]; ok {
+			entry.Timeout = c.config.Timeout
+			stateMap[stateConfirm] = entry
+		}
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{

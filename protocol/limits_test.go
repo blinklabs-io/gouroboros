@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestChainSyncLimitsAreDefined validates that ChainSync limits are properly defined and positive
@@ -331,22 +332,22 @@ func TestTxSubmissionLimitsAreDefined(t *testing.T) {
 		)
 	}
 
-	// Test timeout constants
-	if txsubmission.InitTimeout <= 0 {
+	// Test timeout constants: per spec, Init/Idle/TxIdsBlocking have no timeout (0)
+	if txsubmission.InitTimeout != 0 {
 		t.Errorf(
-			"InitTimeout must be positive, got %v",
+			"InitTimeout must be 0 per spec, got %v",
 			txsubmission.InitTimeout,
 		)
 	}
-	if txsubmission.IdleTimeout <= 0 {
+	if txsubmission.IdleTimeout != 0 {
 		t.Errorf(
-			"IdleTimeout must be positive, got %v",
+			"IdleTimeout must be 0 per spec, got %v",
 			txsubmission.IdleTimeout,
 		)
 	}
-	if txsubmission.TxIdsBlockingTimeout <= 0 {
+	if txsubmission.TxIdsBlockingTimeout != 0 {
 		t.Errorf(
-			"TxIdsBlockingTimeout must be positive, got %v",
+			"TxIdsBlockingTimeout must be 0 per spec, got %v",
 			txsubmission.TxIdsBlockingTimeout,
 		)
 	}
@@ -537,20 +538,22 @@ func TestProtocolStateTimeouts(t *testing.T) {
 		}
 
 		// Test that timeout values are reasonable (between 1 second and 1 hour)
-		timeouts := map[string]time.Duration{
-			"IdleTimeout":      chainsync.IdleTimeout,
-			"CanAwaitTimeout":  chainsync.CanAwaitTimeout,
-			"IntersectTimeout": chainsync.IntersectTimeout,
-			"MustReplyTimeout": chainsync.MustReplyTimeout,
+		// Per spec, IdleTimeout is 3673s (~61 min) which exceeds 1 hour.
+		// Validate each timeout individually against spec values.
+		if chainsync.IdleTimeout != 3673*time.Second {
+			t.Errorf("IdleTimeout should be 3673s per spec, got %v", chainsync.IdleTimeout)
 		}
-		for name, timeout := range timeouts {
-			if timeout < time.Second || timeout > time.Hour {
-				t.Errorf(
-					"%s should be between 1 second and 1 hour, got %v",
-					name,
-					timeout,
-				)
-			}
+		if chainsync.CanAwaitTimeout != 10*time.Second {
+			t.Errorf("CanAwaitTimeout should be 10s per spec, got %v", chainsync.CanAwaitTimeout)
+		}
+		if chainsync.IntersectTimeout != 10*time.Second {
+			t.Errorf("IntersectTimeout should be 10s per spec, got %v", chainsync.IntersectTimeout)
+		}
+		if chainsync.MustReplyTimeoutMin != 135*time.Second {
+			t.Errorf("MustReplyTimeoutMin should be 135s per spec, got %v", chainsync.MustReplyTimeoutMin)
+		}
+		if chainsync.MustReplyTimeoutMax != 269*time.Second {
+			t.Errorf("MustReplyTimeoutMax should be 269s per spec, got %v", chainsync.MustReplyTimeoutMax)
 		}
 	})
 
@@ -586,55 +589,13 @@ func TestProtocolStateTimeouts(t *testing.T) {
 	})
 
 	t.Run("TxSubmission timeouts", func(t *testing.T) {
-		// Test that all timeout constants are positive
-		if txsubmission.InitTimeout <= 0 {
-			t.Errorf(
-				"InitTimeout must be positive, got %v",
-				txsubmission.InitTimeout,
-			)
-		}
-		if txsubmission.IdleTimeout <= 0 {
-			t.Errorf(
-				"IdleTimeout must be positive, got %v",
-				txsubmission.IdleTimeout,
-			)
-		}
-		if txsubmission.TxIdsBlockingTimeout <= 0 {
-			t.Errorf(
-				"TxIdsBlockingTimeout must be positive, got %v",
-				txsubmission.TxIdsBlockingTimeout,
-			)
-		}
-		if txsubmission.TxIdsNonblockingTimeout <= 0 {
-			t.Errorf(
-				"TxIdsNonblockingTimeout must be positive, got %v",
-				txsubmission.TxIdsNonblockingTimeout,
-			)
-		}
-		if txsubmission.TxsTimeout <= 0 {
-			t.Errorf(
-				"TxsTimeout must be positive, got %v",
-				txsubmission.TxsTimeout,
-			)
-		}
-
-		// Test that timeout values are reasonable
-		timeouts := map[string]time.Duration{
-			"InitTimeout":             txsubmission.InitTimeout,
-			"IdleTimeout":             txsubmission.IdleTimeout,
-			"TxIdsBlockingTimeout":    txsubmission.TxIdsBlockingTimeout,
-			"TxIdsNonblockingTimeout": txsubmission.TxIdsNonblockingTimeout,
-			"TxsTimeout":              txsubmission.TxsTimeout,
-		}
-		for name, timeout := range timeouts {
-			if timeout < time.Second || timeout > time.Hour {
-				t.Errorf(
-					"%s should be between 1 second and 1 hour, got %v",
-					name,
-					timeout,
-				)
-			}
-		}
+		// Per spec: Init, Idle, and TxIdsBlocking have no timeout (0)
+		assert.Equal(t, time.Duration(0), txsubmission.InitTimeout, "InitTimeout must be 0 per spec")
+		assert.Equal(t, time.Duration(0), txsubmission.IdleTimeout, "IdleTimeout must be 0 per spec")
+		assert.Equal(t, time.Duration(0), txsubmission.TxIdsBlockingTimeout, "TxIdsBlockingTimeout must be 0 per spec")
+		// NonBlocking and Txs have 10s timeouts per spec
+		assert.Equal(t, 10*time.Second, txsubmission.TxIdsNonblockingTimeout, "TxIdsNonblockingTimeout should be 10s per spec")
+		assert.Equal(t, 10*time.Second, txsubmission.TxsTimeout, "TxsTimeout should be 10s per spec")
 	})
 
 	t.Run("Handshake timeouts", func(t *testing.T) {
@@ -794,13 +755,13 @@ func TestProtocolStateTimeouts(t *testing.T) {
 
 // TestStateMapTimeouts verifies that StateMap entries use the correct timeout constants
 func TestStateMapTimeouts(t *testing.T) {
-	t.Run("ChainSync StateMap timeouts", func(t *testing.T) {
+	t.Run("ChainSync N2N StateMap timeouts", func(t *testing.T) {
 		stateIdle := protocol.NewState(1, "Idle")
 		stateCanAwait := protocol.NewState(2, "CanAwait")
 		stateIntersect := protocol.NewState(4, "Intersect")
 		stateMustReply := protocol.NewState(3, "MustReply")
 
-		if entry, exists := chainsync.StateMap[stateIdle]; exists {
+		if entry, exists := chainsync.StateMapNtN[stateIdle]; exists {
 			if entry.Timeout != chainsync.IdleTimeout {
 				t.Errorf(
 					"stateIdle timeout should be %v, got %v",
@@ -809,7 +770,7 @@ func TestStateMapTimeouts(t *testing.T) {
 				)
 			}
 		}
-		if entry, exists := chainsync.StateMap[stateCanAwait]; exists {
+		if entry, exists := chainsync.StateMapNtN[stateCanAwait]; exists {
 			if entry.Timeout != chainsync.CanAwaitTimeout {
 				t.Errorf(
 					"stateCanAwait timeout should be %v, got %v",
@@ -818,7 +779,7 @@ func TestStateMapTimeouts(t *testing.T) {
 				)
 			}
 		}
-		if entry, exists := chainsync.StateMap[stateIntersect]; exists {
+		if entry, exists := chainsync.StateMapNtN[stateIntersect]; exists {
 			if entry.Timeout != chainsync.IntersectTimeout {
 				t.Errorf(
 					"stateIntersect timeout should be %v, got %v",
@@ -827,12 +788,37 @@ func TestStateMapTimeouts(t *testing.T) {
 				)
 			}
 		}
-		if entry, exists := chainsync.StateMap[stateMustReply]; exists {
-			if entry.Timeout != chainsync.MustReplyTimeout {
+		if entry, exists := chainsync.StateMapNtN[stateMustReply]; exists {
+			if entry.TimeoutFunc == nil {
+				t.Error("stateMustReply should have TimeoutFunc set")
+			} else {
+				// Verify the random timeout is within spec range
+				timeout := entry.TimeoutFunc()
+				if timeout < chainsync.MustReplyTimeoutMin ||
+					timeout >= chainsync.MustReplyTimeoutMax {
+					t.Errorf(
+						"stateMustReply timeout %v outside spec range [%v, %v)",
+						timeout,
+						chainsync.MustReplyTimeoutMin,
+						chainsync.MustReplyTimeoutMax,
+					)
+				}
+			}
+		}
+	})
+
+	t.Run("ChainSync N2C StateMap has no timeouts", func(t *testing.T) {
+		for state, entry := range chainsync.StateMapNtC {
+			if entry.Timeout != 0 {
 				t.Errorf(
-					"stateMustReply timeout should be %v, got %v",
-					chainsync.MustReplyTimeout,
-					entry.Timeout,
+					"N2C state %s should have no timeout, got %v",
+					state, entry.Timeout,
+				)
+			}
+			if entry.TimeoutFunc != nil {
+				t.Errorf(
+					"N2C state %s should have no TimeoutFunc",
+					state,
 				)
 			}
 		}
