@@ -15,6 +15,7 @@
 package conway
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -287,6 +288,59 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// conwayRedeemerJSON is a helper type for JSON serialization of ConwayRedeemers
+type conwayRedeemerJSON struct {
+	Tag     common.RedeemerTag `json:"tag"`
+	Index   uint32             `json:"index"`
+	Data    common.Datum       `json:"data"`
+	ExUnits common.ExUnits     `json:"exUnits"`
+}
+
+func (r ConwayRedeemers) MarshalJSON() ([]byte, error) {
+	if r.legacy {
+		return json.Marshal(r.legacyRedeemers)
+	}
+	entries := make([]conwayRedeemerJSON, 0, len(r.Redeemers))
+	// Sort keys for deterministic output
+	sorted := slices.Collect(maps.Keys(r.Redeemers))
+	slices.SortFunc(sorted, common.CompareRedeemerKeys)
+	for _, key := range sorted {
+		val := r.Redeemers[key]
+		entries = append(entries, conwayRedeemerJSON{
+			Tag:     key.Tag,
+			Index:   key.Index,
+			Data:    val.Data,
+			ExUnits: val.ExUnits,
+		})
+	}
+	return json.Marshal(entries)
+}
+
+func (r *ConwayRedeemers) UnmarshalJSON(data []byte) error {
+	r.SetCbor(nil)
+	r.legacy = false
+	r.legacyRedeemers = alonzo.AlonzoRedeemers{}
+	var entries []conwayRedeemerJSON
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+	r.Redeemers = make(map[common.RedeemerKey]common.RedeemerValue, len(entries))
+	for _, entry := range entries {
+		key := common.RedeemerKey{
+			Tag:   entry.Tag,
+			Index: entry.Index,
+		}
+		if _, exists := r.Redeemers[key]; exists {
+			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+		}
+		r.Redeemers[key] = common.RedeemerValue{
+			Data:    entry.Data,
+			ExUnits: entry.ExUnits,
+		}
+	}
+	return nil
+}
+
 func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
 	if r.legacy {
 		return cbor.Encode(r.legacyRedeemers)
@@ -301,18 +355,7 @@ func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerVal
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
 		// Sort redeemers
 		sorted := slices.Collect(maps.Keys(r.Redeemers))
-		slices.SortFunc(
-			sorted,
-			func(a, b common.RedeemerKey) int {
-				if a.Tag < b.Tag || (a.Tag == b.Tag && a.Index < b.Index) {
-					return -1
-				}
-				if a.Tag > b.Tag || (a.Tag == b.Tag && a.Index > b.Index) {
-					return 1
-				}
-				return 0
-			},
-		)
+		slices.SortFunc(sorted, common.CompareRedeemerKeys)
 		// Yield keys
 		for _, redeemerKey := range sorted {
 			tmpVal := r.Redeemers[redeemerKey]

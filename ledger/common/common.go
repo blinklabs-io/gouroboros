@@ -64,6 +64,22 @@ func (b Blake2b256) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.String())
 }
 
+func (b Blake2b256) MarshalText() ([]byte, error) {
+	return []byte(b.String()), nil
+}
+
+func (b *Blake2b256) UnmarshalText(text []byte) error {
+	decoded, err := hex.DecodeString(string(text))
+	if err != nil {
+		return err
+	}
+	if len(decoded) != Blake2b256Size {
+		return fmt.Errorf("invalid blake2b-256 hash: expected %d bytes, got %d", Blake2b256Size, len(decoded))
+	}
+	copy(b[:], decoded)
+	return nil
+}
+
 func (b Blake2b256) MarshalCBOR() ([]byte, error) {
 	// Ensure we always encode a full-sized bytestring, even if the hash is zero-valued
 	hashBytes := make([]byte, Blake2b256Size)
@@ -123,6 +139,22 @@ func (b Blake2b224) ToPlutusData() data.PlutusData {
 
 func (b Blake2b224) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.String())
+}
+
+func (b Blake2b224) MarshalText() ([]byte, error) {
+	return []byte(b.String()), nil
+}
+
+func (b *Blake2b224) UnmarshalText(text []byte) error {
+	decoded, err := hex.DecodeString(string(text))
+	if err != nil {
+		return err
+	}
+	if len(decoded) != Blake2b224Size {
+		return fmt.Errorf("invalid blake2b-224 hash: expected %d bytes, got %d", Blake2b224Size, len(decoded))
+	}
+	copy(b[:], decoded)
+	return nil
 }
 
 func (b Blake2b224) MarshalCBOR() ([]byte, error) {
@@ -187,6 +219,22 @@ func (b Blake2b160) ToPlutusData() data.PlutusData {
 
 func (b Blake2b160) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.String())
+}
+
+func (b Blake2b160) MarshalText() ([]byte, error) {
+	return []byte(b.String()), nil
+}
+
+func (b *Blake2b160) UnmarshalText(text []byte) error {
+	decoded, err := hex.DecodeString(string(text))
+	if err != nil {
+		return err
+	}
+	if len(decoded) != Blake2b160Size {
+		return fmt.Errorf("invalid blake2b-160 hash: expected %d bytes, got %d", Blake2b160Size, len(decoded))
+	}
+	copy(b[:], decoded)
+	return nil
 }
 
 func (b Blake2b160) MarshalCBOR() ([]byte, error) {
@@ -702,8 +750,8 @@ func (i IssuerVkey) PoolId() string {
 // ExUnits represents the steps and memory usage for script execution
 type ExUnits struct {
 	cbor.StructAsArray
-	Memory int64
-	Steps  int64
+	Memory int64 `json:"memory"`
+	Steps  int64 `json:"steps"`
 }
 
 // GenesisRat is a convenience type for cbor.Rat

@@ -243,3 +243,16 @@ func (t *SetType[T]) Items() []T {
 	copy(ret, t.items)
 	return ret
 }
+
+func (t SetType[T]) MarshalJSON() ([]byte, error) {
+	if t.items == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(t.items)
+}
+
+func (t *SetType[T]) UnmarshalJSON(data []byte) error {
+	t.useTag = false
+	t.SetCbor(nil)
+	return json.Unmarshal(data, &t.items)
+}

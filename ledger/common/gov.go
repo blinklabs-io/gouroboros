@@ -15,6 +15,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -149,6 +150,65 @@ func (v Voter) String() string {
 	}
 }
 
+func (v Voter) MarshalText() ([]byte, error) {
+	if v.Type > VoterTypeStakingPoolKeyHash {
+		return nil, fmt.Errorf("unsupported voter type: %d", v.Type)
+	}
+	return []byte(v.String()), nil
+}
+
+func (v *Voter) UnmarshalText(text []byte) error {
+	s := string(text)
+	prefix, rawData, err := bech32.DecodeNoLimit(s)
+	if err != nil {
+		return fmt.Errorf("invalid voter bech32: %w", err)
+	}
+	decoded, err := bech32.ConvertBits(rawData, 5, 8, false)
+	if err != nil {
+		return fmt.Errorf("invalid voter bech32 data: %w", err)
+	}
+	switch prefix {
+	case "pool":
+		if len(decoded) != 28 {
+			return fmt.Errorf("invalid pool voter hash length: %d", len(decoded))
+		}
+		v.Type = VoterTypeStakingPoolKeyHash
+		copy(v.Hash[:], decoded)
+	case "cc_hot", "drep":
+		if len(decoded) != 29 {
+			return fmt.Errorf("invalid %s voter data length: %d", prefix, len(decoded))
+		}
+		header := decoded[0]
+		v.Type = header >> 4
+		// Validate CIP-129 credential type nibble (0x2 = key hash, 0x3 = script hash)
+		credNibble := header & 0x0f
+		switch v.Type {
+		case VoterTypeConstitutionalCommitteeHotKeyHash, VoterTypeDRepKeyHash:
+			if credNibble != 0x2 {
+				return fmt.Errorf("invalid CIP-129 credential type nibble 0x%x for key hash voter type %d", credNibble, v.Type)
+			}
+		case VoterTypeConstitutionalCommitteeHotScriptHash, VoterTypeDRepScriptHash:
+			if credNibble != 0x3 {
+				return fmt.Errorf("invalid CIP-129 credential type nibble 0x%x for script hash voter type %d", credNibble, v.Type)
+			}
+		}
+		switch prefix {
+		case "cc_hot":
+			if v.Type != VoterTypeConstitutionalCommitteeHotKeyHash && v.Type != VoterTypeConstitutionalCommitteeHotScriptHash {
+				return fmt.Errorf("invalid voter type %d for prefix %s", v.Type, prefix)
+			}
+		case "drep":
+			if v.Type != VoterTypeDRepKeyHash && v.Type != VoterTypeDRepScriptHash {
+				return fmt.Errorf("invalid voter type %d for prefix %s", v.Type, prefix)
+			}
+		}
+		copy(v.Hash[:], decoded[1:])
+	default:
+		return fmt.Errorf("unknown voter bech32 prefix: %s", prefix)
+	}
+	return nil
+}
+
 func (v Voter) ToPlutusData() data.PlutusData {
 	switch v.Type {
 	case VoterTypeConstitutionalCommitteeHotScriptHash:
@@ -274,6 +334,43 @@ func (id *GovActionId) String() string {
 		)
 	}
 	return encoded
+}
+
+func (id *GovActionId) MarshalText() ([]byte, error) {
+	if id == nil {
+		return nil, errors.New("nil GovActionId")
+	}
+	if id.GovActionIdx > 255 {
+		return nil, fmt.Errorf(
+			"gov action index %d exceeds maximum value 255 allowed by CIP-0129",
+			id.GovActionIdx,
+		)
+	}
+	return []byte(id.String()), nil
+}
+
+func (id *GovActionId) UnmarshalText(text []byte) error {
+	s := string(text)
+	prefix, rawData, err := bech32.DecodeNoLimit(s)
+	if err != nil {
+		return fmt.Errorf("invalid gov action ID bech32: %w", err)
+	}
+	if prefix != "gov_action" {
+		return fmt.Errorf("invalid gov action ID prefix: %s", prefix)
+	}
+	decoded, err := bech32.ConvertBits(rawData, 5, 8, false)
+	if err != nil {
+		return fmt.Errorf("invalid gov action ID bech32 data: %w", err)
+	}
+	if len(decoded) != 33 {
+		return fmt.Errorf(
+			"invalid gov action ID data length: expected 33, got %d",
+			len(decoded),
+		)
+	}
+	copy(id.TransactionId[:], decoded[:32])
+	id.GovActionIdx = uint32(decoded[32])
+	return nil
 }
 
 type ProposalProcedure interface {

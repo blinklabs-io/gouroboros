@@ -635,6 +635,19 @@ func (a Address) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
 }
 
+func (a Address) MarshalText() ([]byte, error) {
+	return []byte(a.String()), nil
+}
+
+func (a *Address) UnmarshalText(text []byte) error {
+	parsed, err := NewAddress(string(text))
+	if err != nil {
+		return err
+	}
+	*a = parsed
+	return nil
+}
+
 type byronAddress struct {
 	cbor.StructAsArray
 	Payload  cbor.Tag

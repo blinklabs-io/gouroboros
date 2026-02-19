@@ -16,6 +16,7 @@ package common_test
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"testing"
@@ -24,6 +25,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDatumHash(t *testing.T) {
@@ -206,6 +209,59 @@ func TestDatumHashBech32Specific(t *testing.T) {
 	// Verify prefix
 	if bech32Str[:6] != "datum1" {
 		t.Errorf("wrong prefix: got %s", bech32Str[:6])
+	}
+}
+
+func TestDatumJSONRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name  string
+		datum common.Datum
+	}{
+		{
+			name:  "Nil",
+			datum: common.Datum{},
+		},
+		{
+			name:  "Integer",
+			datum: common.Datum{Data: data.NewInteger(big.NewInt(42))},
+		},
+		{
+			name:  "ByteString",
+			datum: common.Datum{Data: data.NewByteString([]byte("hello"))},
+		},
+		{
+			name: "Constr",
+			datum: common.Datum{Data: data.NewConstr(
+				0,
+				data.NewInteger(big.NewInt(1)),
+				data.NewByteString([]byte{0xde, 0xad}),
+			)},
+		},
+		{
+			name: "List",
+			datum: common.Datum{Data: data.NewList(
+				data.NewInteger(big.NewInt(1)),
+				data.NewInteger(big.NewInt(2)),
+			)},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jsonBytes, err := json.Marshal(tc.datum)
+			require.NoError(t, err)
+
+			var decoded common.Datum
+			err = json.Unmarshal(jsonBytes, &decoded)
+			require.NoError(t, err)
+
+			if tc.datum.Data == nil {
+				assert.Nil(t, decoded.Data)
+			} else {
+				require.NotNil(t, decoded.Data)
+				assert.True(t, tc.datum.Data.Equal(decoded.Data),
+					"datum mismatch: got %s, want %s", decoded.Data, tc.datum.Data)
+			}
+		})
 	}
 }
 
