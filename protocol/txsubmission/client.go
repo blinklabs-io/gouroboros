@@ -64,12 +64,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 }
 
 func (c *Client) initProtocol() {
-	// Update state map with timeout
+	// Copy the global StateMap to avoid mutating shared state.
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[stateIdle]; ok {
-		entry.Timeout = c.config.IdleTimeout
-		stateMap[stateIdle] = entry
-	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,

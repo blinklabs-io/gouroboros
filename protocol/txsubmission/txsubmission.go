@@ -134,7 +134,6 @@ type Config struct {
 	RequestTxsFunc   RequestTxsFunc
 	InitFunc         InitFunc
 	DoneFunc         DoneFunc
-	IdleTimeout      time.Duration
 }
 
 // Protocol limits per Ouroboros Network Specification
@@ -184,9 +183,7 @@ type TxSubmissionOptionFunc func(*Config)
 
 // NewConfig returns a new TxSubmission config object with the provided options
 func NewConfig(options ...TxSubmissionOptionFunc) Config {
-	c := Config{
-		IdleTimeout: 0, // No timeout per spec
-	}
+	c := Config{}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -221,12 +218,5 @@ func WithInitFunc(initFunc InitFunc) TxSubmissionOptionFunc {
 func WithDoneFunc(doneFunc DoneFunc) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.DoneFunc = doneFunc
-	}
-}
-
-// WithIdleTimeout specifies the timeout for waiting for new transactions from the remote node's mempool
-func WithIdleTimeout(timeout time.Duration) TxSubmissionOptionFunc {
-	return func(c *Config) {
-		c.IdleTimeout = timeout
 	}
 }

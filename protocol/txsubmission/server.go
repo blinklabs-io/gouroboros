@@ -56,6 +56,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 func (s *Server) initProtocol() {
+	// Copy the global StateMap to avoid mutating shared state.
+	stateMap := StateMap.Copy()
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -66,7 +68,7 @@ func (s *Server) initProtocol() {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
+		StateMap:            stateMap,
 		InitialState:        stateInit,
 	}
 	s.Protocol = protocol.New(protoConfig)

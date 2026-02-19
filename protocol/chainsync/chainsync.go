@@ -262,6 +262,7 @@ type Config struct {
 	FindIntersectFunc   FindIntersectFunc
 	RequestNextFunc     RequestNextFunc
 	IntersectTimeout    time.Duration
+	IdleTimeout         time.Duration
 	BlockTimeout        time.Duration
 	PipelineLimit       int
 	RecvQueueSize       int
@@ -448,6 +449,16 @@ func WithRequestNextFunc(requestNextFunc RequestNextFunc) ChainSyncOptionFunc {
 func WithIntersectTimeout(timeout time.Duration) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.IntersectTimeout = timeout
+	}
+}
+
+// WithIdleTimeout specifies the timeout for the Idle state (client agency).
+// A non-zero value overrides the protocol default. This is primarily useful
+// for the server side where the client may take a long time to send the next
+// request.
+func WithIdleTimeout(timeout time.Duration) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.IdleTimeout = timeout
 	}
 }
 
