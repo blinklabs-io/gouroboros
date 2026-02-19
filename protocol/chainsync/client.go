@@ -138,6 +138,10 @@ func (c *Client) initProtocol() {
 			entry.Timeout = c.config.IntersectTimeout
 			stateMap[stateIntersect] = entry
 		}
+		if entry, ok := stateMap[stateIdle]; ok && c.config.IdleTimeout != 0 {
+			entry.Timeout = c.config.IdleTimeout
+			stateMap[stateIdle] = entry
+		}
 		for _, state := range []protocol.State{stateCanAwait, stateMustReply} {
 			if entry, ok := stateMap[state]; ok {
 				if entry.TimeoutFunc != nil {

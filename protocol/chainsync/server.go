@@ -77,6 +77,20 @@ func (s *Server) initProtocol() {
 	if s.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
 		stateMap = StateMapNtN.Copy()
 	}
+	// Apply per-connection config overrides to the copied state map.
+	// Only override when the state already has a timeout defined —
+	// NtC mode has no timeouts per spec (Table 3.9) and must not
+	// have timeouts injected.
+	if s.config != nil {
+		if entry, ok := stateMap[stateIntersect]; ok && entry.Timeout != 0 && s.config.IntersectTimeout != 0 {
+			entry.Timeout = s.config.IntersectTimeout
+			stateMap[stateIntersect] = entry
+		}
+		if entry, ok := stateMap[stateIdle]; ok && entry.Timeout != 0 && s.config.IdleTimeout != 0 {
+			entry.Timeout = s.config.IdleTimeout
+			stateMap[stateIdle] = entry
+		}
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
