@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Ttests the ToPlutusData method for Voter types
@@ -629,4 +630,143 @@ func TestGovActionIdString(t *testing.T) {
 			_ = govActionId.String()
 		})
 	})
+}
+
+func TestVoterTextRoundTrip(t *testing.T) {
+	var zeroHash [28]byte
+	var sequentialHash [28]byte
+	for i := range sequentialHash {
+		sequentialHash[i] = byte(i)
+	}
+	testCases := []struct {
+		name  string
+		voter Voter
+	}{
+		{
+			name:  "CcHotKeyHash",
+			voter: Voter{Type: VoterTypeConstitutionalCommitteeHotKeyHash, Hash: zeroHash},
+		},
+		{
+			name:  "CcHotScriptHash",
+			voter: Voter{Type: VoterTypeConstitutionalCommitteeHotScriptHash, Hash: zeroHash},
+		},
+		{
+			name:  "DRepKeyHash",
+			voter: Voter{Type: VoterTypeDRepKeyHash, Hash: sequentialHash},
+		},
+		{
+			name:  "DRepScriptHash",
+			voter: Voter{Type: VoterTypeDRepScriptHash, Hash: sequentialHash},
+		},
+		{
+			name:  "StakingPoolKeyHash",
+			voter: Voter{Type: VoterTypeStakingPoolKeyHash, Hash: sequentialHash},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, err := tc.voter.MarshalText()
+			require.NoError(t, err)
+			var decoded Voter
+			require.NoError(t, decoded.UnmarshalText(text))
+			assert.Equal(t, tc.voter.Type, decoded.Type)
+			assert.Equal(t, tc.voter.Hash, decoded.Hash)
+		})
+	}
+}
+
+func TestVoterMarshalTextUnknownType(t *testing.T) {
+	v := Voter{Type: 99}
+	_, err := v.MarshalText()
+	assert.Error(t, err)
+}
+
+func TestVoterUnmarshalTextErrors(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{"InvalidBech32", "not-valid-bech32!!!"},
+		{"UnknownPrefix", "unknown1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2uwmrs"},
+		{"CcHotWithDRepType", "cc_hot1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7guj37"},
+		{"DRepWithCcHotType", "drep1qgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqvuwczn"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var v Voter
+			assert.Error(t, v.UnmarshalText([]byte(tc.input)))
+		})
+	}
+}
+
+func TestGovActionIdTextRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name        string
+		govActionId GovActionId
+	}{
+		{
+			name: "ZeroTxIdZeroIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  0,
+			},
+		},
+		{
+			name: "NonZeroTxIdWithIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{
+					0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+					0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+					0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+					0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+				},
+				GovActionIdx: 42,
+			},
+		},
+		{
+			name: "MaxValidIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{0xff},
+				GovActionIdx:  255,
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, err := tc.govActionId.MarshalText()
+			require.NoError(t, err)
+			var decoded GovActionId
+			require.NoError(t, decoded.UnmarshalText(text))
+			assert.Equal(t, tc.govActionId.TransactionId, decoded.TransactionId)
+			assert.Equal(t, tc.govActionId.GovActionIdx, decoded.GovActionIdx)
+		})
+	}
+}
+
+func TestGovActionIdMarshalTextNil(t *testing.T) {
+	var id *GovActionId
+	_, err := id.MarshalText()
+	assert.Error(t, err)
+}
+
+func TestGovActionIdMarshalTextOverflow(t *testing.T) {
+	id := &GovActionId{GovActionIdx: 256}
+	_, err := id.MarshalText()
+	assert.Error(t, err)
+}
+
+func TestGovActionIdUnmarshalTextErrors(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{"InvalidBech32", "not-valid!!!"},
+		{"WrongPrefix", "pool1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk35lkuk"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var id GovActionId
+			assert.Error(t, id.UnmarshalText([]byte(tc.input)))
+		})
+	}
 }

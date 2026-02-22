@@ -551,16 +551,47 @@ func (o AlonzoTransactionOutput) String() string {
 
 type AlonzoRedeemer struct {
 	cbor.StructAsArray
-	Tag     common.RedeemerTag
-	Index   uint32
-	Data    common.Datum
-	ExUnits common.ExUnits
+	Tag     common.RedeemerTag `json:"tag"`
+	Index   uint32             `json:"index"`
+	Data    common.Datum       `json:"data"`
+	ExUnits common.ExUnits     `json:"exUnits"`
 }
 
 // AlonzoRedeemers wraps a slice of redeemers with CBOR preservation
 type AlonzoRedeemers struct {
 	cbor.DecodeStoreCbor
 	Redeemers []AlonzoRedeemer
+}
+
+func (r AlonzoRedeemers) MarshalJSON() ([]byte, error) {
+	if r.Redeemers == nil {
+		return []byte("[]"), nil
+	}
+	sorted := make([]AlonzoRedeemer, len(r.Redeemers))
+	copy(sorted, r.Redeemers)
+	slices.SortFunc(sorted, func(a, b AlonzoRedeemer) int {
+		return common.CompareRedeemerKeys(
+			common.RedeemerKey{Tag: a.Tag, Index: a.Index},
+			common.RedeemerKey{Tag: b.Tag, Index: b.Index},
+		)
+	})
+	return json.Marshal(sorted)
+}
+
+func (r *AlonzoRedeemers) UnmarshalJSON(raw []byte) error {
+	r.SetCbor(nil)
+	if err := json.Unmarshal(raw, &r.Redeemers); err != nil {
+		return err
+	}
+	seen := make(map[common.RedeemerKey]struct{}, len(r.Redeemers))
+	for _, entry := range r.Redeemers {
+		key := common.RedeemerKey{Tag: entry.Tag, Index: entry.Index}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
 }
 
 func (r *AlonzoRedeemers) UnmarshalCBOR(cborData []byte) error {
@@ -581,13 +612,10 @@ func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerVal
 		slices.SortFunc(
 			sorted,
 			func(a, b AlonzoRedeemer) int {
-				if a.Tag < b.Tag || (a.Tag == b.Tag && a.Index < b.Index) {
-					return -1
-				}
-				if a.Tag > b.Tag || (a.Tag == b.Tag && a.Index > b.Index) {
-					return 1
-				}
-				return 0
+				return common.CompareRedeemerKeys(
+					common.RedeemerKey{Tag: a.Tag, Index: a.Index},
+					common.RedeemerKey{Tag: b.Tag, Index: b.Index},
+				)
 			},
 		)
 		// Yield keys
@@ -647,6 +675,18 @@ func (p *PlutusDataList) UnmarshalCBOR(cborData []byte) error {
 
 func (p PlutusDataList) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(p.Items)
+}
+
+func (p PlutusDataList) MarshalJSON() ([]byte, error) {
+	if p.Items == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(p.Items)
+}
+
+func (p *PlutusDataList) UnmarshalJSON(raw []byte) error {
+	p.SetCbor(nil)
+	return json.Unmarshal(raw, &p.Items)
 }
 
 type AlonzoTransactionWitnessSet struct {
