@@ -15,6 +15,7 @@
 package shelley_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // shelleyTxWithRequired embeds a ShelleyTransaction but overrides RequiredSigners
@@ -848,6 +850,85 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateNoDuplicateInputs(t *testing.T) {
+	input1, err := mockledger.NewSimpleTransactionInput(
+		bytes.Repeat([]byte{0x01}, 32),
+		0,
+	)
+	require.NoError(t, err)
+	input2, err := mockledger.NewSimpleTransactionInput(
+		bytes.Repeat([]byte{0x02}, 32),
+		1,
+	)
+	require.NoError(t, err)
+
+	t.Run("unique inputs pass", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithInputs(input1, input2)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("duplicate regular inputs fail", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithInputs(input1, input1)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.Error(t, err)
+		assert.IsType(t, shelley.DuplicateInputError{}, err)
+	})
+
+	t.Run("empty inputs pass", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("single input passes", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithInputs(input1)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("duplicate collateral inputs fail", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithCollateral(input1, input1)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.Error(t, err)
+		assert.IsType(t, shelley.DuplicateInputError{}, err)
+	})
+
+	t.Run("unique collateral inputs pass", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithCollateral(input1, input2)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("duplicate reference inputs fail", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithReferenceInputs(input1, input1)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.Error(t, err)
+		assert.IsType(t, shelley.DuplicateInputError{}, err)
+	})
+
+	t.Run("unique reference inputs pass", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithReferenceInputs(input1, input2)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("same input in regular and collateral passes", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		tx.WithInputs(input1)
+		tx.WithCollateral(input1)
+		err := shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+}
+
 func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
@@ -902,4 +983,59 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 			)
 		},
 	)
+}
+
+// makeRewardAddress builds a reward address (type 14 / NoneKey) from a 28-byte key hash
+func makeRewardAddress(t *testing.T, keyHash common.Blake2b224) common.Address {
+	t.Helper()
+	// Reward address: header = (AddressTypeNoneKey << 4) | networkId
+	// AddressTypeNoneKey = 0b1110 = 14, mainnet networkId = 1
+	addrBytes := make([]byte, 0, 29)
+	addrBytes = append(addrBytes, 0xE1) // (14 << 4) | 1
+	addrBytes = append(addrBytes, keyHash.Bytes()...)
+	addr, err := common.NewAddressFromBytes(addrBytes)
+	require.NoError(t, err)
+	return addr
+}
+
+func TestUtxoValidateWithdrawals(t *testing.T) {
+	t.Run("no withdrawals passes", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder()
+		ls := mockledger.NewLedgerStateBuilder().Build()
+		err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("registered reward account passes", func(t *testing.T) {
+		keyHash := common.Blake2b224Hash([]byte("test-stake-key"))
+		rewardAddr := makeRewardAddress(t, keyHash)
+
+		tx := mockledger.NewTransactionBuilder().
+			WithWithdrawals(map[*common.Address]uint64{
+				&rewardAddr: 5_000_000,
+			})
+
+		ls := mockledger.NewLedgerStateBuilder().
+			WithStakeCredentialRegistered(keyHash, true).
+			Build()
+
+		err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("unregistered reward account fails", func(t *testing.T) {
+		keyHash := common.Blake2b224Hash([]byte("test-stake-key"))
+		rewardAddr := makeRewardAddress(t, keyHash)
+
+		tx := mockledger.NewTransactionBuilder().
+			WithWithdrawals(map[*common.Address]uint64{
+				&rewardAddr: 1_000_000,
+			})
+
+		ls := mockledger.NewLedgerStateBuilder().Build()
+
+		err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
+		require.Error(t, err)
+		assert.IsType(t, shelley.WithdrawalFromUnregisteredRewardAccountError{}, err)
+	})
 }

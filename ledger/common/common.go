@@ -1634,6 +1634,16 @@ func cborArrayHeaderSize(length int) uint32 {
 	return 5 // 0x9a + 4-byte length (covers up to 2^32 elements)
 }
 
+// AddInt64Checked adds two int64 values and returns the result with an overflow flag.
+// Returns (sum, true) on success, or (0, false) if the addition would overflow.
+func AddInt64Checked(a, b int64) (int64, bool) {
+	sum := a + b
+	if (b > 0 && sum < a) || (b < 0 && sum > a) {
+		return 0, false
+	}
+	return sum, true
+}
+
 type MissingTransactionMetadataError struct {
 	Hash Blake2b256
 }

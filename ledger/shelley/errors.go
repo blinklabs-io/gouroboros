@@ -46,6 +46,16 @@ func (InputSetEmptyUtxoError) Error() string {
 	return "input set empty"
 }
 
+// DuplicateInputError indicates a duplicate input was found in the transaction
+type DuplicateInputError struct {
+	Input     common.TransactionInput
+	InputType string // "regular", "collateral", or "reference"
+}
+
+func (e DuplicateInputError) Error() string {
+	return fmt.Sprintf("duplicate %s input: %s", e.InputType, e.Input.String())
+}
+
 type FeeTooSmallUtxoError struct {
 	Provided *big.Int
 	Min      *big.Int

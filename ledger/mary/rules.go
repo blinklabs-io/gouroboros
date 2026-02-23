@@ -34,6 +34,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateSignatures,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
+	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateBadInputsUtxo,
 	UtxoValidateWrongNetwork,
@@ -103,6 +104,15 @@ func UtxoValidateInputSetEmptyUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
+}
+
+func UtxoValidateNoDuplicateInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateNoDuplicateInputs(tx, slot, ls, pp)
 }
 
 func UtxoValidateFeeTooSmallUtxo(
