@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -344,6 +345,8 @@ func (p *Protocol) sendLoop() {
 		close(p.sendDoneChan)
 	}()
 
+	var queuedStateTransitions []Message
+waitSendReadyChan:
 	for {
 		select {
 		case <-p.stopChan:
@@ -355,10 +358,33 @@ func (p *Protocol) sendLoop() {
 			// We are ready to send based on state map
 		}
 
+		// Check for queued state transitions
+		if len(queuedStateTransitions) > 0 {
+			if err := p.transitionState(queuedStateTransitions[0]); err != nil {
+				if errors.Is(err, ErrProtocolShuttingDown) {
+					// Graceful shutdown in progress
+					return
+				}
+				p.SendError(
+					fmt.Errorf(
+						"%s: error sending message: %w",
+						p.config.Name,
+						err,
+					),
+				)
+				return
+			}
+			queuedStateTransitions = slices.Delete(queuedStateTransitions, 0, 1)
+			// Don't read more messages from the send queue until all state transitions from
+			// previously sent pipelined messages have been completed
+			continue waitSendReadyChan
+		}
+
 		// Read queued messages and write into buffer
 		payloadBuf := bytes.NewBuffer(nil)
 		msgCount := 0
-	outer:
+		queueTransition := false
+	readSendQueueLoop:
 		for {
 			// Get next message from send queue
 			select {
@@ -399,32 +425,38 @@ func (p *Protocol) sendLoop() {
 				}
 				p.pendingBytesMu.Unlock()
 
-				if err := p.transitionState(msg); err != nil {
-					if errors.Is(err, ErrProtocolShuttingDown) {
-						// Graceful shutdown in progress
+				if queueTransition {
+					queuedStateTransitions = append(queuedStateTransitions, msg)
+				} else {
+					if err := p.transitionState(msg); err != nil {
+						if errors.Is(err, ErrProtocolShuttingDown) {
+							// Graceful shutdown in progress
+							return
+						}
+						p.SendError(
+							fmt.Errorf(
+								"%s: error sending message: %w",
+								p.config.Name,
+								err,
+							),
+						)
 						return
 					}
-					p.SendError(
-						fmt.Errorf(
-							"%s: error sending message: %w",
-							p.config.Name,
-							err,
-						),
-					)
-					return
+					// Queue any state transitions after the initial one for this message batch
+					queueTransition = true
 				}
 
 				// We don't want more than maxMessagesPerSegment messages in a segment
 				if msgCount >= maxMessagesPerSegment {
-					break outer
+					break readSendQueueLoop
 				}
 				// We don't want to add more messages once we spill over into a second segment
 				if payloadBuf.Len() > muxer.SegmentMaxPayloadLength {
-					break outer
+					break readSendQueueLoop
 				}
 				// Check if there are any more queued messages
 				if len(p.sendQueueChan) == 0 {
-					break outer
+					break readSendQueueLoop
 				}
 			}
 		}

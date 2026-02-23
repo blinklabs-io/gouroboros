@@ -29,12 +29,10 @@ type Server struct {
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
-	stateContext    any
 }
 
 // NewServer returns a new ChainSync server object
 func NewServer(
-	stateContext any,
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Server {
@@ -51,7 +49,6 @@ func NewServer(
 		config: config,
 		// Save these for re-use later
 		protoOptions: protoOptions,
-		stateContext: stateContext,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -102,7 +99,6 @@ func (s *Server) initProtocol() {
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            stateMap,
-		StateContext:        s.stateContext,
 		InitialState:        stateIdle,
 	}
 	if s.config != nil {

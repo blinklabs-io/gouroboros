@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -413,6 +414,201 @@ func TestUseCase_GetCurrentTip_Stop_Start_GetCurrentTip(t *testing.T) {
 		},
 		ouroboros.WithChainSyncConfig(
 			chainsync.Config{SkipBlockValidation: true},
+		),
+	)
+}
+
+func TestSyncPipelining(t *testing.T) {
+	const pipelineLimit = 5
+	// We need at least 3 blocks: 1 to trigger pipelining, then 2 more to verify
+	// the pipelined requests are being satisfied
+	const totalBlocks = 4
+
+	expectedIntersect := pcommon.NewPoint(
+		0,
+		test.DecodeHexString("0000000000000000"),
+	)
+
+	// Create test blocks
+	testBlocks := make([]ledger.BabbageBlock, totalBlocks)
+	blockCbors := make([][]byte, totalBlocks)
+	for i := 0; i < totalBlocks; i++ {
+		testBlocks[i] = ledger.BabbageBlock{
+			BlockHeader: &ledger.BabbageBlockHeader{},
+		}
+		testBlocks[i].BlockHeader.Body.Slot = uint64(1000 + i)
+		testBlocks[i].BlockHeader.Body.BlockNumber = uint64(100 + i)
+		var err error
+		blockCbors[i], err = cbor.Encode(testBlocks[i])
+		if err != nil {
+			t.Fatalf("failed to encode test block %d: %s", i, err)
+		}
+		if _, err := cbor.Decode(blockCbors[i], &testBlocks[i]); err != nil {
+			t.Fatalf("failed to decode test block %d: %s", i, err)
+		}
+	}
+
+	finalTip := chainsync.Tip{
+		BlockNumber: uint64(100 + totalBlocks - 1),
+		Point: pcommon.NewPoint(
+			uint64(1000+totalBlocks-1),
+			testBlocks[totalBlocks-1].Hash().Bytes(),
+		),
+	}
+
+	makeRollForward := func(idx int) protocol.Message {
+		msg, err := chainsync.NewMsgRollForwardNtC(
+			ledger.BlockTypeBabbage,
+			blockCbors[idx],
+			finalTip,
+		)
+		if err != nil {
+			t.Fatalf("failed to create RollForward message for block %d: %s", idx, err)
+		}
+		return msg
+	}
+
+	conversation := []ouroboros_mock.ConversationEntry{
+		// Handshake
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		// FindIntersect -> IntersectFound
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeFindIntersect,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgIntersectFound(expectedIntersect, finalTip),
+			},
+		},
+		// Initial RequestNext from Sync()
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeRequestNext,
+		},
+		// First block
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages:   []protocol.Message{makeRollForward(0)},
+		},
+		// Second RequestNext, first of pipelined batch
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeRequestNext,
+		},
+		// Second Block
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages:   []protocol.Message{makeRollForward(1)},
+		},
+		// Third RequestNext, second of pipelined batch
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeRequestNext,
+		},
+		// Third block
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages:   []protocol.Message{makeRollForward(2)},
+		},
+		// Fourth RequestNext, third of pipelined batch
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeRequestNext,
+		},
+		// Fourth block
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages:   []protocol.Message{makeRollForward(3)},
+		},
+		// Fifth RequestNext, fourth of pipelined batch
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  chainsync.ProtocolIdNtC,
+			MessageType: chainsync.MessageTypeRequestNext,
+		},
+		// Signal that we're at tip
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: chainsync.ProtocolIdNtC,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				chainsync.NewMsgAwaitReply(),
+			},
+		},
+	}
+
+	receivedBlocks := make([]uint64, 0, totalBlocks)
+	var receivedMu sync.Mutex
+
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			doneChan := make(chan struct{})
+			// Wait until we've received enough blocks and end the test
+			go func() {
+				for {
+					receivedMu.Lock()
+					count := len(receivedBlocks)
+					receivedMu.Unlock()
+					if count >= totalBlocks {
+						// Signal to test that we've received all blocks
+						close(doneChan)
+						return
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+			}()
+
+			err := oConn.ChainSync().Client.Sync([]pcommon.Point{expectedIntersect})
+			if err != nil {
+				t.Fatalf("unexpected error starting sync: %s", err)
+			}
+
+			select {
+			case <-doneChan:
+				// Success
+			case <-time.After(5 * time.Second):
+				receivedMu.Lock()
+				defer receivedMu.Unlock()
+				t.Fatalf("timeout waiting for blocks, received %d of %d", len(receivedBlocks), totalBlocks)
+			}
+
+			// Verify blocks received in order
+			receivedMu.Lock()
+			defer receivedMu.Unlock()
+			if len(receivedBlocks) != totalBlocks {
+				t.Fatalf("expected %d blocks, received %d", totalBlocks, len(receivedBlocks))
+			}
+			for i := 0; i < totalBlocks; i++ {
+				expectedSlot := uint64(1000 + i)
+				if receivedBlocks[i] != expectedSlot {
+					t.Fatalf("block %d: expected slot %d, got %d", i, expectedSlot, receivedBlocks[i])
+				}
+			}
+		},
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{
+				PipelineLimit:       pipelineLimit,
+				SkipBlockValidation: true,
+				RollForwardFunc: func(ctx chainsync.CallbackContext, blockType uint, block any, tip chainsync.Tip) error {
+					b := block.(ledger.Block)
+					receivedMu.Lock()
+					receivedBlocks = append(receivedBlocks, b.SlotNumber())
+					count := len(receivedBlocks)
+					receivedMu.Unlock()
+					if count >= totalBlocks {
+						return chainsync.ErrStopSyncProcess
+					}
+					return nil
+				},
+			},
 		),
 	)
 }
