@@ -235,14 +235,19 @@ func TestSomething(t *testing.T) {
 }
 ```
 
-Use `MockLedgerState` for validation tests (`internal/test/ledger/ledger.go`):
+Use `ouroboros-mock` builders for validation tests (`github.com/blinklabs-io/ouroboros-mock/ledger`):
 ```go
-ls := &MockLedgerState{
-    NetworkIdVal: 0,
-    UtxoByIdFunc: func(id TransactionInput) (Utxo, error) {
-        return testUtxo, nil
-    },
-}
+import mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+
+ls := mockledger.NewLedgerStateBuilder().
+    WithNetworkId(0).
+    WithUtxos([]lcommon.Utxo{testUtxo}).
+    Build()
+
+tx := mockledger.NewTransactionBuilder().
+    WithInputs(input1, input2).
+    WithOutputs(output1).
+    WithFee(200000)
 ```
 
 ### Conformance Tests
