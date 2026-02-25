@@ -50,6 +50,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateDisjointRefInputs,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
+	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateInsufficientCollateral,
 	UtxoValidateCollateralContainsNonAda,
@@ -865,6 +866,15 @@ func UtxoValidateInputSetEmptyUtxo(
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
 }
 
+func UtxoValidateNoDuplicateInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateNoDuplicateInputs(tx, slot, ls, pp)
+}
+
 func UtxoValidateFeeTooSmallUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -1642,8 +1652,28 @@ func UtxoValidateExUnitsTooBigUtxo(
 	}
 	var totalSteps, totalMemory int64
 	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
-		totalSteps += redeemer.ExUnits.Steps
-		totalMemory += redeemer.ExUnits.Memory
+		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
+		if !ok {
+			return alonzo.ExUnitsTooBigUtxoError{
+				TotalExUnits: common.ExUnits{
+					Memory: totalMemory,
+					Steps:  totalSteps,
+				},
+				MaxTxExUnits: tmpPparams.MaxTxExUnits,
+			}
+		}
+		totalSteps = newSteps
+		newMemory, ok := common.AddInt64Checked(totalMemory, redeemer.ExUnits.Memory)
+		if !ok {
+			return alonzo.ExUnitsTooBigUtxoError{
+				TotalExUnits: common.ExUnits{
+					Memory: totalMemory,
+					Steps:  totalSteps,
+				},
+				MaxTxExUnits: tmpPparams.MaxTxExUnits,
+			}
+		}
+		totalMemory = newMemory
 	}
 	if totalSteps <= tmpPparams.MaxTxExUnits.Steps &&
 		totalMemory <= tmpPparams.MaxTxExUnits.Memory {
@@ -2354,56 +2384,18 @@ func UtxoValidateDelegation(
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
-// It checks that reward accounts are registered and that withdrawal amounts
-// match the account balance (when balance tracking is available).
+// For phase-2 invalid transactions (IsValid=false), withdrawal validation is
+// skipped since their effects are reverted and only collateral rules apply.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	withdrawals := tx.Withdrawals()
-	if withdrawals == nil {
+	if !tx.IsValid() {
 		return nil
 	}
-
-	for addr, amount := range withdrawals {
-		// Extract credential from reward address staking payload
-		stakingPayload := addr.StakingPayload()
-		if stakingPayload == nil {
-			continue
-		}
-
-		var cred common.Credential
-		switch p := stakingPayload.(type) {
-		case common.AddressPayloadKeyHash:
-			cred = common.Credential{
-				CredType:   common.CredentialTypeAddrKeyHash,
-				Credential: common.NewBlake2b224(p.Hash.Bytes()),
-			}
-		case common.AddressPayloadScriptHash:
-			cred = common.Credential{
-				CredType:   common.CredentialTypeScriptHash,
-				Credential: common.NewBlake2b224(p.Hash.Bytes()),
-			}
-		default:
-			continue // Pointer addresses not supported
-		}
-
-		// Check if reward account is registered
-		if !ls.IsRewardAccountRegistered(cred) {
-			return WithdrawalFromUnregisteredRewardAccountError{
-				RewardAddress: *addr,
-			}
-		}
-
-		// NOTE: Withdrawal amount validation (checking amount == balance) is disabled.
-		// Accurate validation requires tracking balance changes through each transaction
-		// which is complex for multi-TX test scenarios. The registration check above
-		// catches the most important case (unregistered reward account).
-		_ = amount // Prevent unused variable warning
-	}
-	return nil
+	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
 }
 
 func UtxoValidateCommitteeCertificates(

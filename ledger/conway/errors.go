@@ -296,22 +296,6 @@ func (e DelegateVoteToUnregisteredDRepError) Error() string {
 // WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
 type WithdrawalFromUnregisteredRewardAccountError = shelley.WithdrawalFromUnregisteredRewardAccountError
 
-// WithdrawalWrongAmountError indicates withdrawal of wrong amount from reward account
-type WithdrawalWrongAmountError struct {
-	RewardAddress   common.Address
-	RequestedAmount uint64
-	ActualBalance   uint64
-}
-
-func (e WithdrawalWrongAmountError) Error() string {
-	return fmt.Sprintf(
-		"withdrawal wrong amount from %s: requested %d, actual balance %d",
-		e.RewardAddress.String(),
-		e.RequestedAmount,
-		e.ActualBalance,
-	)
-}
-
 // StakeCredentialAlreadyRegisteredError indicates attempting to register an already registered stake credential
 type StakeCredentialAlreadyRegisteredError struct {
 	Credential common.Credential

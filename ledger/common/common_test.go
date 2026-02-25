@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBlake2b256_MarshalCBOR_ZeroHash(t *testing.T) {
@@ -1378,6 +1380,34 @@ func TestPoolIdBech32RoundTrip(t *testing.T) {
 					decoded,
 					tc.poolId,
 				)
+			}
+		})
+	}
+}
+
+func TestAddInt64Checked(t *testing.T) {
+	tests := []struct {
+		name    string
+		a, b    int64
+		wantSum int64
+		wantOk  bool
+	}{
+		{"zero plus zero", 0, 0, 0, true},
+		{"normal addition", 100, 200, 300, true},
+		{"negative addition", -100, -200, -300, true},
+		{"max int64 no overflow", math.MaxInt64, 0, math.MaxInt64, true},
+		{"max int64 overflow", math.MaxInt64, 1, 0, false},
+		{"min int64 no overflow", math.MinInt64, 0, math.MinInt64, true},
+		{"min int64 overflow", math.MinInt64, -1, 0, false},
+		{"large values no overflow", math.MaxInt64 / 2, math.MaxInt64 / 2, math.MaxInt64 - 1, true},
+		{"large values overflow", math.MaxInt64/2 + 1, math.MaxInt64/2 + 1, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sum, ok := AddInt64Checked(tt.a, tt.b)
+			assert.Equal(t, tt.wantOk, ok)
+			if ok {
+				assert.Equal(t, tt.wantSum, sum)
 			}
 		})
 	}

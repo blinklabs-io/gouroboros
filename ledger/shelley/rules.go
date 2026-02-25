@@ -37,6 +37,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateSignatures,
 	UtxoValidateTimeToLive,
 	UtxoValidateInputSetEmptyUtxo,
+	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateBadInputsUtxo,
 	UtxoValidateWrongNetwork,
@@ -77,6 +78,43 @@ func UtxoValidateInputSetEmptyUtxo(
 		return nil
 	}
 	return InputSetEmptyUtxoError{}
+}
+
+// UtxoValidateNoDuplicateInputs ensures that there are no duplicate inputs in any input set
+func UtxoValidateNoDuplicateInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Check regular inputs
+	seen := make(map[string]bool)
+	for _, input := range tx.Inputs() {
+		key := input.String()
+		if seen[key] {
+			return DuplicateInputError{Input: input, InputType: "regular"}
+		}
+		seen[key] = true
+	}
+	// Check collateral inputs
+	seen = make(map[string]bool)
+	for _, input := range tx.Collateral() {
+		key := input.String()
+		if seen[key] {
+			return DuplicateInputError{Input: input, InputType: "collateral"}
+		}
+		seen[key] = true
+	}
+	// Check reference inputs
+	seen = make(map[string]bool)
+	for _, input := range tx.ReferenceInputs() {
+		key := input.String()
+		if seen[key] {
+			return DuplicateInputError{Input: input, InputType: "reference"}
+		}
+		seen[key] = true
+	}
+	return nil
 }
 
 // UtxoValidateFeeTooSmallUtxo ensures that the fee is at least the calculated minimum

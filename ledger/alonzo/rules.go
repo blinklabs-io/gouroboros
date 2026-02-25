@@ -36,6 +36,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateScriptDataHash,
 	UtxoValidateOutsideValidityIntervalUtxo,
 	UtxoValidateInputSetEmptyUtxo,
+	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateInsufficientCollateral,
 	UtxoValidateCollateralContainsNonAda,
@@ -106,8 +107,28 @@ func UtxoValidateExUnitsTooBigUtxo(
 	}
 	var totalSteps, totalMemory int64
 	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
-		totalSteps += redeemer.ExUnits.Steps
-		totalMemory += redeemer.ExUnits.Memory
+		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
+		if !ok {
+			return ExUnitsTooBigUtxoError{
+				TotalExUnits: common.ExUnits{
+					Memory: totalMemory,
+					Steps:  totalSteps,
+				},
+				MaxTxExUnits: tmpPparams.MaxTxExUnits,
+			}
+		}
+		totalSteps = newSteps
+		newMemory, ok := common.AddInt64Checked(totalMemory, redeemer.ExUnits.Memory)
+		if !ok {
+			return ExUnitsTooBigUtxoError{
+				TotalExUnits: common.ExUnits{
+					Memory: totalMemory,
+					Steps:  totalSteps,
+				},
+				MaxTxExUnits: tmpPparams.MaxTxExUnits,
+			}
+		}
+		totalMemory = newMemory
 	}
 	if totalSteps <= tmpPparams.MaxTxExUnits.Steps &&
 		totalMemory <= tmpPparams.MaxTxExUnits.Memory {
@@ -229,6 +250,15 @@ func UtxoValidateInputSetEmptyUtxo(
 	pp common.ProtocolParameters,
 ) error {
 	return shelley.UtxoValidateInputSetEmptyUtxo(tx, slot, ls, pp)
+}
+
+func UtxoValidateNoDuplicateInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return shelley.UtxoValidateNoDuplicateInputs(tx, slot, ls, pp)
 }
 
 // UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
@@ -732,12 +762,17 @@ func UtxoValidateNativeScripts(
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
+// For phase-2 invalid transactions (IsValid=false), withdrawal validation is
+// skipped since their effects are reverted and only collateral rules apply.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return nil
+	}
 	return shelley.UtxoValidateWithdrawals(tx, slot, ls, pp)
 }
 
