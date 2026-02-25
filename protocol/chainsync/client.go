@@ -49,7 +49,6 @@ type Client struct {
 	readyForNextBlockChan    chan bool
 	syncPipelinedRequestNext int
 	protoOptions             protocol.ProtocolOptions
-	stateContext             any
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -70,7 +69,6 @@ type clientPointResult struct {
 
 // NewClient returns a new ChainSync client object
 func NewClient(
-	stateContext any,
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Client {
@@ -89,7 +87,6 @@ func NewClient(
 	c := &Client{
 		config:                &config,
 		protoOptions:          protoOptions,
-		stateContext:          stateContext,
 		lifecycleState:        clientStateNew,
 		readyForNextBlockChan: nil,
 	}
@@ -165,7 +162,6 @@ func (c *Client) initProtocol() {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            stateMap,
-		StateContext:        c.stateContext,
 		InitialState:        stateIdle,
 	}
 	if c.config != nil {

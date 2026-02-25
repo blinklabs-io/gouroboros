@@ -18,7 +18,6 @@ package chainsync
 import (
 	"fmt"
 	"math/rand/v2"
-	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -46,9 +45,8 @@ var (
 var (
 	idleTransitions = []protocol.StateTransition{
 		{
-			MsgType:   MessageTypeRequestNext,
-			NewState:  stateCanAwait,
-			MatchFunc: IncrementPipelineCount,
+			MsgType:  MessageTypeRequestNext,
+			NewState: stateCanAwait,
 		},
 		{
 			MsgType:  MessageTypeFindIntersect,
@@ -61,33 +59,16 @@ var (
 	}
 	canAwaitTransitions = []protocol.StateTransition{
 		{
-			MsgType:   MessageTypeRequestNext,
-			NewState:  stateCanAwait,
-			MatchFunc: IncrementPipelineCount,
-		},
-		{
 			MsgType:  MessageTypeAwaitReply,
 			NewState: stateMustReply,
 		},
 		{
-			MsgType:   MessageTypeRollForward,
-			NewState:  stateIdle,
-			MatchFunc: DecrementPipelineCountAndIsEmpty,
+			MsgType:  MessageTypeRollForward,
+			NewState: stateIdle,
 		},
 		{
-			MsgType:   MessageTypeRollForward,
-			NewState:  stateCanAwait,
-			MatchFunc: DecrementPipelineCountAndIsNotEmpty,
-		},
-		{
-			MsgType:   MessageTypeRollBackward,
-			NewState:  stateIdle,
-			MatchFunc: DecrementPipelineCountAndIsEmpty,
-		},
-		{
-			MsgType:   MessageTypeRollBackward,
-			NewState:  stateCanAwait,
-			MatchFunc: DecrementPipelineCountAndIsNotEmpty,
+			MsgType:  MessageTypeRollBackward,
+			NewState: stateIdle,
 		},
 	}
 	intersectTransitions = []protocol.StateTransition{
@@ -102,24 +83,12 @@ var (
 	}
 	mustReplyTransitions = []protocol.StateTransition{
 		{
-			MsgType:   MessageTypeRollForward,
-			NewState:  stateIdle,
-			MatchFunc: DecrementPipelineCountAndIsEmpty,
+			MsgType:  MessageTypeRollForward,
+			NewState: stateIdle,
 		},
 		{
-			MsgType:   MessageTypeRollForward,
-			NewState:  stateCanAwait,
-			MatchFunc: DecrementPipelineCountAndIsNotEmpty,
-		},
-		{
-			MsgType:   MessageTypeRollBackward,
-			NewState:  stateIdle,
-			MatchFunc: DecrementPipelineCountAndIsEmpty,
-		},
-		{
-			MsgType:   MessageTypeRollBackward,
-			NewState:  stateCanAwait,
-			MatchFunc: DecrementPipelineCountAndIsNotEmpty,
+			MsgType:  MessageTypeRollBackward,
+			NewState: stateIdle,
 		},
 	}
 )
@@ -193,60 +162,6 @@ var StateMapNtC = protocol.StateMap{
 
 // StateMap is a copy of StateMapNtN for backward compatibility.
 var StateMap = StateMapNtN.Copy()
-
-type StateContext struct {
-	mu            sync.Mutex
-	pipelineCount int
-}
-
-var IncrementPipelineCount = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.pipelineCount++
-	return true
-}
-
-var DecrementPipelineCountAndIsEmpty = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.pipelineCount == 1 {
-		s.pipelineCount--
-		return true
-	}
-	return false
-}
-
-var DecrementPipelineCountAndIsNotEmpty = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.pipelineCount > 1 {
-		s.pipelineCount--
-		return true
-	}
-	return false
-}
-
-var PipelineIsEmtpy = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.pipelineCount == 0
-}
-
-var PipelineIsNotEmpty = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.pipelineCount > 0
-}
 
 // ChainSync is a wrapper object that holds the client and server instances
 type ChainSync struct {
@@ -322,14 +237,9 @@ type (
 
 // New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
-	// Each side gets its own StateContext so that client pipelining
-	// does not corrupt the server's pipeline count (and vice-versa).
-	clientStateContext := &StateContext{}
-	serverStateContext := &StateContext{}
-
 	c := &ChainSync{
-		Client: NewClient(clientStateContext, protoOptions, cfg),
-		Server: NewServer(serverStateContext, protoOptions, cfg),
+		Client: NewClient(protoOptions, cfg),
+		Server: NewServer(protoOptions, cfg),
 	}
 	return c
 }
