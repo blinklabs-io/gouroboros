@@ -779,11 +779,18 @@ func UtxoValidateScriptDataHash(
 
 	redeemersCbor := wits.WsRedeemers.Cbor()
 	if len(redeemersCbor) == 0 {
-		// Fall back to re-encoding if no preserved CBOR
-		var err error
-		redeemersCbor, err = cbor.Encode(wits.WsRedeemers)
-		if err != nil {
-			return err
+		// Fall back to re-encoding if no preserved CBOR.
+		// Note: Must encode empty map explicitly, as nil map encodes
+		// as 0xf6 (CBOR null) but the spec expects 0xa0 (empty map)
+		// for Conway empty redeemers.
+		if len(wits.WsRedeemers.Redeemers) == 0 && !wits.WsRedeemers.legacy {
+			redeemersCbor = []byte{0xa0}
+		} else {
+			var err error
+			redeemersCbor, err = cbor.Encode(wits.WsRedeemers)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1770,8 +1777,9 @@ func UtxoValidateMetadata(
 }
 
 // UtxoValidateSupplementalDatums checks that all datums in the witness set are
-// justified by being referenced by a script input's datum hash.
-// Inline datums are not considered - only non-inline datum hashes require witness datums.
+// justified by being referenced by a datum hash in spent inputs, reference inputs,
+// or transaction outputs.
+// Inline datums are not considered - only non-inline datum hashes justify witness datums.
 func UtxoValidateSupplementalDatums(
 	tx common.Transaction,
 	slot uint64,
@@ -1804,6 +1812,15 @@ func UtxoValidateSupplementalDatums(
 		// Only non-inline datums justify witness datums
 		if utxo.Output.Datum() == nil {
 			if datumHash := utxo.Output.DatumHash(); datumHash != nil {
+				justifiedHashes[*datumHash] = true
+			}
+		}
+	}
+
+	// Check transaction outputs - datum hashes in outputs also justify witness datums
+	for _, output := range tx.Outputs() {
+		if output.Datum() == nil {
+			if datumHash := output.DatumHash(); datumHash != nil {
 				justifiedHashes[*datumHash] = true
 			}
 		}
@@ -1935,8 +1952,10 @@ func UtxoValidatePlutusScripts(
 		availableScripts[scriptRef.Hash()] = scriptRef
 	}
 
-	// Get sorted inputs for redeemer index mapping
-	inputs := tx.Inputs()
+	// Get sorted inputs for redeemer index mapping.
+	// The Cardano ledger spec requires spend redeemer indices to
+	// reference positions in the canonically sorted input list.
+	inputs := script.SortInputs(tx.Inputs())
 	assetMint := tx.AssetMint()
 	if assetMint == nil {
 		assetMint = &common.MultiAsset[common.MultiAssetTypeMint]{}
