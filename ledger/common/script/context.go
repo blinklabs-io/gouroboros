@@ -170,7 +170,7 @@ func NewTxInfoV1FromTransaction(
 	if assetMint == nil {
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
-	inputs := sortInputs(tx.Inputs())
+	inputs := SortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
@@ -279,7 +279,7 @@ func NewTxInfoV2FromTransaction(
 	if assetMint == nil {
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
-	inputs := sortInputs(tx.Inputs())
+	inputs := SortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
@@ -300,7 +300,7 @@ func NewTxInfoV2FromTransaction(
 	ret := TxInfoV2{
 		Inputs: expandInputs(inputs, resolvedInputs),
 		ReferenceInputs: expandInputs(
-			sortInputs(tx.ReferenceInputs()),
+			SortInputs(tx.ReferenceInputs()),
 			resolvedInputs,
 		),
 		Outputs:      collapseOutputs(tx.Produced()),
@@ -377,7 +377,7 @@ func NewTxInfoV3FromTransaction(
 	if assetMint == nil {
 		assetMint = &lcommon.MultiAsset[lcommon.MultiAssetTypeMint]{}
 	}
-	inputs := sortInputs(tx.Inputs())
+	inputs := SortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	votes := votingInfo(tx.VotingProcedures())
 	proposalProcedures := tx.ProposalProcedures()
@@ -399,7 +399,7 @@ func NewTxInfoV3FromTransaction(
 	ret := TxInfoV3{
 		Inputs: expandInputs(inputs, resolvedInputs),
 		ReferenceInputs: expandInputs(
-			sortInputs(tx.ReferenceInputs()),
+			SortInputs(tx.ReferenceInputs()),
 			resolvedInputs,
 		),
 		Outputs:            collapseOutputs(tx.Produced()),
@@ -462,7 +462,11 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 	)
 }
 
-func sortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
+// SortInputs returns a sorted copy of the given inputs, ordered by
+// (TxId, Index) in ascending byte order. This matches the canonical
+// ordering required by the Cardano ledger spec for redeemer index
+// mapping.
+func SortInputs(inputs []lcommon.TransactionInput) []lcommon.TransactionInput {
 	ret := make([]lcommon.TransactionInput, len(inputs))
 	copy(ret, inputs)
 	slices.SortFunc(
@@ -792,7 +796,7 @@ func certificateToPlutusData(
 		return data.NewConstr(
 			0,
 			c.StakeCredential.ToPlutusData(),
-			data.NewConstr(1),
+			Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData(),
 		)
 	case *lcommon.StakeDeregistrationCertificate:
 		return data.NewConstr(
@@ -804,7 +808,7 @@ func certificateToPlutusData(
 		return data.NewConstr(
 			1,
 			c.StakeCredential.ToPlutusData(),
-			data.NewConstr(1),
+			Option[*big.Int]{Value: big.NewInt(c.Amount)}.ToPlutusData(),
 		)
 	case *lcommon.StakeDelegationCertificate:
 		return data.NewConstr(
