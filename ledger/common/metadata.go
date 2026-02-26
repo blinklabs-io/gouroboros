@@ -156,10 +156,7 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 		if md, ok, err := decodeMapGeneric(b); ok || err != nil {
 			return md, err
 		}
-		return nil, fmt.Errorf(
-			"unsupported map key type in metadatum: CBOR major type 0x%x",
-			b[0]&cborTypeMask,
-		)
+		return nil, errors.New("failed to decode CBOR map in metadatum")
 
 	case cborTypeTag, cborTypeFloatSim:
 		return nil, fmt.Errorf(
@@ -262,52 +259,24 @@ func decodeMapBytes(b []byte) (TransactionMetadatum, bool, error) {
 }
 
 func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
-	// Try to decode as a generic map to handle unsupported key types
-	var m map[any]cbor.RawMessage
+	// Use *cbor.Value for keys to handle any CBOR type, including types
+	// that are not comparable in Go (maps, arrays) which cannot be used
+	// as keys in map[any]. Pointer keys are always comparable.
+	var m map[*cbor.Value]cbor.RawMessage
 	if _, err := cbor.Decode(b, &m); err != nil {
 		return nil, false, nil //nolint:nilerr // not this shape
 	}
 	pairs := make([]MetaPair, 0, len(m))
-	var errs []error
 	for k, rv := range m {
-		// Try to convert the key to a TransactionMetadatum
-		keyBytes, err := cbor.Encode(k)
+		keyMd, err := DecodeMetadatumRaw(k.Cbor())
 		if err != nil {
-			errs = append(errs, fmt.Errorf("encode map key %v: %w", k, err))
-			continue
-		}
-		keyMd, err := DecodeMetadatumRaw(keyBytes)
-		if err != nil {
-			// If key can't be decoded as metadatum, skip this pair
-			errs = append(errs, fmt.Errorf("decode map key %v: %w", k, err))
-			continue
+			return nil, true, fmt.Errorf("decode map key: %w", err)
 		}
 		val, err := DecodeMetadatumRaw(rv)
 		if err != nil {
-			errs = append(
-				errs,
-				fmt.Errorf("decode map(generic) value for key %v: %w", k, err),
-			)
-			continue
+			return nil, true, fmt.Errorf("decode map(generic) value: %w", err)
 		}
 		pairs = append(pairs, MetaPair{Key: keyMd, Value: val})
-	}
-	if len(pairs) > 0 {
-		mm := MetaMap{Pairs: pairs}
-		mm.SetCbor(b)
-		// Partial success: Some pairs decoded successfully, others failed.
-		// Return the successfully decoded pairs with no error to preserve valid data.
-		// This allows clients to work with the valid metadata while silently skipping
-		// invalid pairs. The errs slice is not returned - only fully valid maps or
-		// complete decoding failures are reported. This behavior is intentional and
-		// prioritizes data availability over strictness.
-		return mm, true, nil
-	}
-	if len(errs) > 0 {
-		return nil, true, fmt.Errorf(
-			"failed to decode all map pairs: %w",
-			errors.Join(errs...),
-		)
 	}
 	mm := MetaMap{Pairs: pairs}
 	mm.SetCbor(b)
