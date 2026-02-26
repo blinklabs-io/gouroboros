@@ -1,6 +1,6 @@
-# release notes
+# Release notes
 
-## (from tag) - transaction handling and CBOR conformance
+## (from tag) - Transaction handling and CBOR conformance
 
 - **date:** 2026-02-26
 - **version:** (from tag)
@@ -11,8 +11,8 @@ This release includes updates to transaction preparation and `CBOR` serializatio
 
 ### New Features
 
-- Improved transaction preparation so `redeemer` mappings and `datum` handling remain consistent across cases.
+- Updated transaction preparation to export input sorting for `redeemer` mapping and apply consistent `datum` handling across validation paths.
 
 ### Bug Fixes
 
-- Fixed `CBOR` encoding and test-vector mismatches to ensure outputs match expected on-chain representation.
+- Fixed certificate amount `CBOR` encoding and script context serialization in test vectors to match expected on-chain representation.
