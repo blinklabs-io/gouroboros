@@ -18,13 +18,13 @@ This release includes the changes listed below.
 ```json
 {
   "Additional Changes": [
-    "Developer documentation has been updated to reduce ambiguity in delegation and transaction-building workflows. `AGENTS.md` now clarifies delegation behavior, documents `TransactionBuilder`/`MockTransaction` usage details, and expands validation and review guidelines."
+    "Updated developer documentation to reduce ambiguity in delegation and transaction-building workflows."
   ],
   "Breaking Changes": [
-    "Transaction validation now only requires a script data hash when scripts actually run. Specifically, Conway Plutus validation treats script references as inert, requires `ScriptDataHash` only when redeemers or witness datums are present, and returns a typed input-resolution error when a UTxO lookup fails."
+    "Updated Conway Plutus transaction validation to require `ScriptDataHash` only when redeemers or witness datums are present (script references are treated as inert) and to return a typed input-resolution error when a UTxO lookup fails."
   ],
   "Bug Fixes": [
-    "Metadata decoding for generic CBOR maps is now strict and fails fast instead of partially succeeding. It uses `*cbor.Value` keys and returns an error on any key or value decode failure."
+    "Fixed metadata decoding for generic CBOR maps to fail fast on any key or value decode error by using `*cbor.Value` keys."
   ]
 }
 
