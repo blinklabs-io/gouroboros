@@ -722,7 +722,8 @@ func UtxoValidateScriptDataHash(
 		}
 	}
 
-	// Check scripts in regular inputs
+	// Check reference scripts on regular inputs.
+	// These may provide reference scripts for minting, spending, etc.
 	for _, input := range tmpTx.Inputs() {
 		utxo, err := ls.UtxoById(input)
 		if err != nil {
@@ -745,22 +746,21 @@ func UtxoValidateScriptDataHash(
 		}
 	}
 
-	hasPlutusScripts := len(usedVersions) > 0
 	declaredHash := tx.ScriptDataHash()
 
-	// If no Plutus scripts and no redeemers/datums, ScriptDataHash should be absent
-	if !hasPlutusScripts && !hasRedeemers && !hasDatums {
+	// ScriptDataHash is required only when the transaction has redeemers or
+	// witness datums, indicating actual script execution. The mere presence
+	// of ScriptRefs in consumed/referenced UTxOs does NOT require a hash —
+	// they are inert data unless matched by a redeemer.
+	if !hasRedeemers && !hasDatums {
 		if declaredHash != nil {
 			return common.ExtraneousScriptDataHashError{Provided: *declaredHash}
 		}
 		return nil
 	}
 
-	// If there are Plutus scripts/redeemers/datums, ScriptDataHash is required
-	if hasPlutusScripts || hasRedeemers || hasDatums {
-		if declaredHash == nil {
-			return common.MissingScriptDataHashError{}
-		}
+	if declaredHash == nil {
+		return common.MissingScriptDataHashError{}
 	}
 
 	// Verify cost models are present for all used Plutus versions
@@ -1903,7 +1903,10 @@ func UtxoValidatePlutusScripts(
 	for _, input := range tx.Inputs() {
 		utxo, err := ls.UtxoById(input)
 		if err != nil {
-			continue
+			return common.InputResolutionError{
+				Input: input,
+				Err:   err,
+			}
 		}
 		resolvedInputs = append(resolvedInputs, utxo)
 		resolvedInputsMap[input.String()] = utxo

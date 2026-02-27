@@ -804,22 +804,19 @@ func UtxoValidateScriptDataHash(
 		usedVersions[0] = struct{}{}
 	}
 
-	hasPlutusScripts := len(usedVersions) > 0
 	declaredHash := tx.ScriptDataHash()
 
-	// If no Plutus scripts and no redeemers/datums, ScriptDataHash should be absent
-	if !hasPlutusScripts && !hasRedeemers && !hasDatums {
+	// ScriptDataHash is required only when the transaction has redeemers or
+	// witness datums, indicating actual script execution.
+	if !hasRedeemers && !hasDatums {
 		if declaredHash != nil {
 			return common.ExtraneousScriptDataHashError{Provided: *declaredHash}
 		}
 		return nil
 	}
 
-	// If there are Plutus scripts/redeemers/datums, ScriptDataHash is required
-	if hasPlutusScripts || hasRedeemers || hasDatums {
-		if declaredHash == nil {
-			return common.MissingScriptDataHashError{}
-		}
+	if declaredHash == nil {
+		return common.MissingScriptDataHashError{}
 	}
 
 	// Verify cost models are present for all used Plutus versions

@@ -35,6 +35,31 @@ func (e MissingCostModelError) Error() string {
 	return fmt.Sprintf("missing cost model for Plutus v%d", e.Version+1)
 }
 
+// InputResolutionError indicates a failure to resolve a regular input UTxO
+type InputResolutionError struct {
+	Input TransactionInput
+	Err   error
+}
+
+func (e InputResolutionError) Error() string {
+	return fmt.Sprintf(
+		"failed to resolve input %s: %v",
+		e.Input.String(),
+		e.Err,
+	)
+}
+
+func (e InputResolutionError) Unwrap() error { return e.Err }
+
+// Sentinel error for input resolution failures so callers can use errors.Is
+var ErrInputResolution = errors.New(
+	"input resolution failed",
+)
+
+func (InputResolutionError) Is(target error) bool {
+	return target == ErrInputResolution
+}
+
 // ReferenceInputResolutionError indicates a failure to resolve a reference input UTxO
 type ReferenceInputResolutionError struct {
 	Input TransactionInput
