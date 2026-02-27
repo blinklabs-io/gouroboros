@@ -107,10 +107,15 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
     // ...
 }
 
-// Later eras delegate to earlier eras and add new rules
+// Later eras OFTEN delegate to earlier eras...
 func UtxoValidateDelegation(tx, slot, ls, pp) error {
     return shelley.UtxoValidateDelegation(tx, slot, ls, pp)
 }
+
+// ...but NOT ALWAYS. Some rules have era-specific implementations.
+// Always read the actual code before assuming delegation.
+// Example: Conway's UtxoValidateWithdrawals has its own full
+// implementation and does NOT delegate to shelley.
 ```
 
 ### Key Interfaces
@@ -244,10 +249,26 @@ ls := mockledger.NewLedgerStateBuilder().
     WithUtxos([]lcommon.Utxo{testUtxo}).
     Build()
 
-tx := mockledger.NewTransactionBuilder().
+tx, err := mockledger.NewTransactionBuilder().
     WithInputs(input1, input2).
     WithOutputs(output1).
-    WithFee(200000)
+    WithFee(200000).
+    Build()
+```
+
+**TransactionBuilder vs MockTransaction:** The `TransactionBuilder` interface only
+defines `WithId`, `WithInputs`, `WithOutputs`, `WithFee`, `WithTTL`, `WithMetadata`,
+`WithValid`, and `Build`. However, `NewTransactionBuilder()` returns `*MockTransaction`
+(a concrete type) which has many additional methods: `WithWithdrawals`,
+`WithCollateral`, `WithReferenceInputs`, `WithCertificates`, `WithRequiredSigners`,
+`WithScriptDataHash`, `WithMint`, `WithValidityIntervalStart`, etc. Use the concrete
+return type directly when you need these extended builder methods:
+
+```go
+tx, err := mockledger.NewTransactionBuilder().
+    WithWithdrawals(map[*common.Address]uint64{&rewardAddr: 5_000_000}).
+    WithCollateral(collateralInput).
+    Build()
 ```
 
 ### Conformance Tests
@@ -500,9 +521,20 @@ Common validation errors, their causes, and fixes:
 2. **Collateral** - Only consumed when `IsValid=false`
 3. **Datum lookup** - Check witness set, inline datums, AND reference inputs
 4. **Cost models** - Must exist for each Plutus version used in transaction
-5. **Era delegation** - Later eras should call parent era functions, not duplicate logic
+5. **Era delegation** - Later eras often delegate to parent era functions, but not always. Read the actual implementation before assuming delegation. Conway `UtxoValidateWithdrawals` is a notable exception with its own full implementation
 6. **CBOR preservation** - Use original bytes for hashing, not re-encoded data
 7. **DecodeStoreCbor** - Must implement custom `UnmarshalCBOR` and call `SetCbor()`
+8. **Withdrawal amount validation** - Intentionally disabled (see `conway/rules.go` NOTE at `UtxoValidateWithdrawals`). The Cardano spec requires `amount == balance`, not `amount > 0`. Zero-amount withdrawals from zero-balance accounts are valid per spec. Full balance tracking is complex for multi-TX scenarios
+9. **Verify before suggesting fixes** - Always read the actual code before claiming a function "just delegates" or is missing checks. Code may have intentional design decisions documented in inline comments
+
+## Guidelines for Code Reviewers
+
+When reviewing this codebase, avoid these common mistakes:
+
+1. **Do not hallucinate APIs** - Verify that functions, types, and builder methods actually exist before referencing them. For example, there is no `UtxoValidateNoDuplicateInputs`, no `DuplicateInputError`, and the `TransactionBuilder` interface has no `WithWithdrawals` (though the concrete `*MockTransaction` type returned by `NewTransactionBuilder()` does have it)
+2. **Do not assume delegation** - Read the actual function body. Just because most Conway rules delegate to shelley doesn't mean all do
+3. **Do not suggest adding Cardano spec checks without understanding the spec** - The Cardano ledger spec has specific requirements (e.g., withdrawal amount must equal exact reward balance, not just be positive). Suggesting incorrect spec interpretations introduces bugs
+4. **Respect intentional omissions** - When code has a `NOTE:` comment explaining why something is disabled or omitted, that is a deliberate design decision, not an oversight
 
 ## Related Documentation
 
