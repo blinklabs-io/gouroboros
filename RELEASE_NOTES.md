@@ -16,7 +16,7 @@ This release includes the changes listed below.
 ### Breaking Changes
 
 - Updated Conway Plutus transaction validation to require `ScriptDataHash` only when redeemers or witness datums are present (script references are treated as inert) and to return a typed input-resolution error when a UTxO lookup fails.
-- Migration: Updated callers to omit `ScriptDataHash` unless a transaction includes Plutus redeemers or witness datums.
+- Updated migration guidance to omit `ScriptDataHash` unless a transaction includes Plutus redeemers or witness datums.
 
 ### Bug Fixes
 
@@ -24,4 +24,4 @@ This release includes the changes listed below.
 
 ### Additional Changes
 
-- Updated developer documentation to reduce ambiguity in delegation and transaction-building workflows.
+- Updated `AGENTS.md` to clarify delegation behavior, document `TransactionBuilder` and `MockTransaction` usage, and expand validation and review guidelines.
