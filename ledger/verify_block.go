@@ -31,6 +31,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/leios"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/gouroboros/vrf"
@@ -119,6 +120,35 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 	}
 }
 
+// extractOriginalBodyCbor returns the original CBOR bytes for the block
+// header body. Each body type stores its raw CBOR at decode time via
+// DecodeStoreCbor, so we just retrieve it here. This is critical for KES
+// signature verification because the signature is computed over the original
+// CBOR encoding, not a re-encoded version.
+func extractOriginalBodyCbor(header BlockHeader) ([]byte, error) {
+	switch h := header.(type) {
+	case *shelley.ShelleyBlockHeader:
+		return h.Body.Cbor(), nil
+	case *allegra.AllegraBlockHeader:
+		return h.Body.Cbor(), nil
+	case *mary.MaryBlockHeader:
+		return h.Body.Cbor(), nil
+	case *alonzo.AlonzoBlockHeader:
+		return h.Body.Cbor(), nil
+	case *babbage.BabbageBlockHeader:
+		return h.Body.Cbor(), nil
+	case *conway.ConwayBlockHeader:
+		return h.Body.Cbor(), nil
+	case *leios.LeiosBlockHeader:
+		return h.Body.Cbor(), nil
+	default:
+		return nil, fmt.Errorf(
+			"unsupported header type for body CBOR extraction: %T",
+			header,
+		)
+	}
+}
+
 func extractHeaderFields(
 	header BlockHeader,
 ) (issuerVkey, vrfKey []byte, err error) {
@@ -155,7 +185,6 @@ func VerifyBlock(
 	slotsPerKesPeriod uint64,
 	config common.VerifyConfig,
 ) (bool, string, uint64, uint64, error) {
-	isValid := false
 	vrfHex := ""
 
 	// Decode eta0
@@ -184,19 +213,24 @@ func VerifyBlock(
 	var kesValid bool
 	var vrfResult common.VrfResult
 	var vrfKey []byte
+	var isTPraos bool
 	switch h := block.Header().(type) {
 	case *shelley.ShelleyBlockHeader:
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
+		isTPraos = true
 	case *allegra.AllegraBlockHeader:
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
+		isTPraos = true
 	case *mary.MaryBlockHeader:
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
+		isTPraos = true
 	case *alonzo.AlonzoBlockHeader:
 		vrfResult = h.Body.LeaderVrf
 		vrfKey = h.Body.VrfKey
+		isTPraos = true
 	case *babbage.BabbageBlockHeader:
 		vrfResult = h.Body.VrfResult
 		vrfKey = h.Body.VrfKey
@@ -231,7 +265,35 @@ func VerifyBlock(
 			nil,
 		)
 	}
-	vrfMsg := vrf.MkInputVrf(int64(slot), eta0)
+	// TPraos (Shelley-Alonzo) and CPraos (Babbage+) use different VRF
+	// input constructions. TPraos applies an additional XOR with a seed
+	// constant derived from mkNonceFromNumber. CPraos uses the raw
+	// blake2b-256(slot || nonce) without any XOR step.
+	//
+	// For verifying the LeaderVrf (bheaderL), use seedL = mkNonceFromNumber(1).
+	// For verifying the NonceVrf (bheaderEta), use seedEta = mkNonceFromNumber(0).
+	// We verify the LeaderVrf here (the one that proves leader election).
+	//
+	// Ref: Cardano.Protocol.TPraos.Rules.Overlay.vrfChecks (TPraos)
+	// Ref: Ouroboros.Consensus.Protocol.Praos.VRF.mkInputVRF (CPraos)
+	if len(eta0) != 32 {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"eta0 must be exactly 32 bytes",
+			map[string]any{
+				"eta0_hex":     eta0Hex,
+				"actual_len":   len(eta0),
+				"expected_len": 32,
+			},
+			nil,
+		)
+	}
+	var vrfMsg []byte
+	if isTPraos {
+		vrfMsg = vrf.MkSeedTPraos(int64(slot), eta0, vrf.SeedL())
+	} else {
+		vrfMsg = vrf.MkInputVrf(int64(slot), eta0)
+	}
 	vrfValid, err = vrf.Verify(
 		vrfKey,
 		vrfResult.Proof,
@@ -254,134 +316,56 @@ func VerifyBlock(
 		)
 	}
 
+	if !vrfValid {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeVRF,
+			"VRF output mismatch",
+			map[string]any{
+				"slot":           slot,
+				"block_number":   blockNo,
+				"era":            era,
+				"vrf_output_len": len(vrfResult.Output),
+				"vrf_proof_len":  len(vrfResult.Proof),
+			},
+			nil,
+		)
+	}
+
 	vrfHex = hex.EncodeToString(vrfResult.Output)
 
 	// KES verification
-	var bodyCbor []byte
-	var signature []byte
-	var hotVkey []byte
-	var kesPeriod uint64
-	switch h := block.Header().(type) {
-	case *shelley.ShelleyBlockHeader:
-		bodyCbor, err = cbor.Encode(h.Body)
-		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
-				common.ValidationErrorTypeProtocol,
-				"failed to encode Shelley header body for KES verification",
-				map[string]any{
-					"slot":         slot,
-					"block_number": blockNo,
-					"era":          era,
-					"block_type":   "Shelley",
-				},
-				err,
-			)
-		}
-		signature = h.Signature
-		hotVkey = h.Body.OpCertHotVkey
-		kesPeriod = uint64(h.Body.OpCertKesPeriod)
-	case *allegra.AllegraBlockHeader:
-		bodyCbor, err = cbor.Encode(h.Body)
-		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
-				common.ValidationErrorTypeProtocol,
-				"failed to encode Allegra header body for KES verification",
-				map[string]any{
-					"slot":         slot,
-					"block_number": blockNo,
-					"era":          era,
-					"block_type":   "Allegra",
-				},
-				err,
-			)
-		}
-		signature = h.Signature
-		hotVkey = h.Body.OpCertHotVkey
-		kesPeriod = uint64(h.Body.OpCertKesPeriod)
-	case *mary.MaryBlockHeader:
-		bodyCbor, err = cbor.Encode(h.Body)
-		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
-				common.ValidationErrorTypeProtocol,
-				"failed to encode Mary header body for KES verification",
-				map[string]any{
-					"slot":         slot,
-					"block_number": blockNo,
-					"era":          era,
-					"block_type":   "Mary",
-				},
-				err,
-			)
-		}
-		signature = h.Signature
-		hotVkey = h.Body.OpCertHotVkey
-		kesPeriod = uint64(h.Body.OpCertKesPeriod)
-	case *alonzo.AlonzoBlockHeader:
-		bodyCbor, err = cbor.Encode(h.Body)
-		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
-				common.ValidationErrorTypeProtocol,
-				"failed to encode Alonzo header body for KES verification",
-				map[string]any{
-					"slot":         slot,
-					"block_number": blockNo,
-					"era":          era,
-					"block_type":   "Alonzo",
-				},
-				err,
-			)
-		}
-		signature = h.Signature
-		hotVkey = h.Body.OpCertHotVkey
-		kesPeriod = uint64(h.Body.OpCertKesPeriod)
-	case *babbage.BabbageBlockHeader:
-		bodyCbor, err = cbor.Encode(h.Body)
-		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
-				common.ValidationErrorTypeProtocol,
-				"failed to encode Babbage header body for KES verification",
-				map[string]any{
-					"slot":         slot,
-					"block_number": blockNo,
-					"era":          era,
-					"block_type":   "Babbage",
-				},
-				err,
-			)
-		}
-		signature = h.Signature
-		hotVkey = h.Body.OpCert.HotVkey
-		kesPeriod = uint64(h.Body.OpCert.KesPeriod)
-	case *conway.ConwayBlockHeader:
-		bodyCbor, err = cbor.Encode(h.Body)
-		if err != nil {
-			return false, "", 0, 0, common.NewValidationError(
-				common.ValidationErrorTypeProtocol,
-				"failed to encode Conway header body for KES verification",
-				map[string]any{
-					"slot":         slot,
-					"block_number": blockNo,
-					"era":          era,
-					"block_type":   "Conway",
-				},
-				err,
-			)
-		}
-		signature = h.Signature
-		hotVkey = h.Body.OpCert.HotVkey
-		kesPeriod = uint64(h.Body.OpCert.KesPeriod)
-	default:
+	// Extract the original body CBOR from the stored header CBOR.
+	// The header is encoded as [body, signature] in CBOR. We must use
+	// the original body bytes (not re-encoded) because the KES signature
+	// is computed over the exact original CBOR encoding.
+	bodyCbor, err := extractOriginalBodyCbor(block.Header())
+	if err != nil {
 		return false, "", 0, 0, common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
-			"unsupported block type for KES verification",
+			"failed to extract header body CBOR for KES verification",
 			map[string]any{
-				"block_type":   fmt.Sprintf("%T", block.Header()),
+				"slot":         slot,
+				"block_number": blockNo,
+				"era":          era,
+			},
+			err,
+		)
+	}
+	if len(bodyCbor) == 0 {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"empty body CBOR from extractOriginalBodyCbor",
+			map[string]any{
 				"slot":         slot,
 				"block_number": blockNo,
 				"era":          era,
 			},
 			nil,
 		)
+	}
+	signature, hotVkey, kesPeriod, err := ExtractKesFields(block.Header())
+	if err != nil {
+		return false, "", 0, 0, err
 	}
 
 	kesValid, err = VerifyKesComponents(
@@ -409,13 +393,24 @@ func VerifyBlock(
 			err,
 		)
 	}
+	if !kesValid {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeKES,
+			"KES signature invalid",
+			map[string]any{
+				"slot":         slot,
+				"block_number": blockNo,
+				"era":          era,
+			},
+			nil,
+		)
+	}
 
 	// Verify block body hash (can be skipped via config)
 	// Intended usage: production should keep this enabled for security.
 	// Tests or environments lacking full block CBOR may set
 	// VerifyConfig{SkipBodyHashValidation:true} to bypass this check.
 	expectedBodyHash := block.BlockBodyHash()
-	isBodyValid := true
 	if block.Era() != byron.EraByron && !config.SkipBodyHashValidation {
 		rawCbor := block.Cbor()
 		if len(rawCbor) == 0 {
@@ -562,9 +557,7 @@ func VerifyBlock(
 		}
 	}
 
-	isValid = isBodyValid && vrfValid && kesValid
-	slotNo := slot
-	return isValid, vrfHex, blockNo, slotNo, nil
+	return true, vrfHex, blockNo, slot, nil
 }
 
 type BlockHexCbor struct {

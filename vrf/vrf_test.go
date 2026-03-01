@@ -17,8 +17,12 @@ package vrf
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/blake2b"
 )
 
 // Test seed (exactly 32 bytes)
@@ -160,6 +164,47 @@ func TestMkInputVrf(t *testing.T) {
 	if bytes.Equal(input, input3) {
 		t.Error("expected different outputs for different slots")
 	}
+}
+
+func TestMkSeedTPraos(t *testing.T) {
+	slot := int64(12345)
+	eta0 := make([]byte, 32)
+	for i := range eta0 {
+		eta0[i] = byte(i)
+	}
+
+	// MkSeedTPraos with zero seed constant should equal MkInputVrf
+	// (XOR with zero is identity)
+	zeroSeed := make([]byte, 32)
+	tpraosWithZero := MkSeedTPraos(slot, eta0, zeroSeed)
+	praos := MkInputVrf(slot, eta0)
+	assert.Equal(t, praos, tpraosWithZero, "MkSeedTPraos with zero seed should equal MkInputVrf")
+
+	// MkSeedTPraos with SeedEta should differ from MkInputVrf
+	tpraosSeed := MkSeedTPraos(slot, eta0, SeedEta())
+	assert.NotEqual(t, praos, tpraosSeed, "TPraos seed should differ from CPraos input")
+
+	// MkSeedTPraos should be deterministic
+	tpraosSeed2 := MkSeedTPraos(slot, eta0, SeedEta())
+	assert.Equal(t, tpraosSeed, tpraosSeed2, "MkSeedTPraos not deterministic")
+
+	// Different seed constants should produce different results
+	tpraosL := MkSeedTPraos(slot, eta0, SeedL())
+	assert.NotEqual(t, tpraosSeed, tpraosL, "SeedEta and SeedL should produce different results")
+
+	// Verify SeedEta is blake2b-256 of uint64be(0)
+	seedEtaVal := SeedEta()
+	var uint64beBytes [8]byte
+	binary.BigEndian.PutUint64(uint64beBytes[:], 0)
+	expected := blake2b.Sum256(uint64beBytes[:])
+	assert.Equal(t, expected[:], seedEtaVal, "SeedEta should be blake2b-256(uint64be(0))")
+
+	// Verify XOR property: base XOR seed XOR seed = base
+	recovered := make([]byte, len(tpraosSeed))
+	for i := range tpraosSeed {
+		recovered[i] = tpraosSeed[i] ^ seedEtaVal[i]
+	}
+	assert.Equal(t, praos, recovered, "XOR inverse should recover base")
 }
 
 func TestProofToHash(t *testing.T) {

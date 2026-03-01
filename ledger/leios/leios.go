@@ -139,6 +139,7 @@ func (b *LeiosBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
 		}
 		b.CertifiedEb = &cert
 	}
+	b.SetCbor(cborData)
 	return nil
 }
 
