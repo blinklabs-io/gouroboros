@@ -151,8 +151,8 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 			},
 		}
 
-		if p.isInTerminalOrIdleState() {
-			t.Error("isInTerminalOrIdleState() should return false when in a non-terminal working state")
+		if p.IsInTerminalOrIdleState() {
+			t.Error("IsInTerminalOrIdleState() should return false when in a non-terminal working state")
 		}
 	})
 
@@ -169,8 +169,8 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 
 		close(doneChan)
 
-		if !p.isInTerminalOrIdleState() {
-			t.Error("isInTerminalOrIdleState() should return true when doneChan is closed")
+		if !p.IsInTerminalOrIdleState() {
+			t.Error("IsInTerminalOrIdleState() should return true when doneChan is closed")
 		}
 	})
 
@@ -185,8 +185,8 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 			},
 		}
 
-		if !p.isInTerminalOrIdleState() {
-			t.Error("isInTerminalOrIdleState() should return true when in AgencyNone (Done) state")
+		if !p.IsInTerminalOrIdleState() {
+			t.Error("IsInTerminalOrIdleState() should return true when in AgencyNone (Done) state")
 		}
 	})
 
@@ -201,8 +201,8 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 			},
 		}
 
-		if !p.isInTerminalOrIdleState() {
-			t.Error("isInTerminalOrIdleState() should return true when in initial state (no messages exchanged)")
+		if !p.IsInTerminalOrIdleState() {
+			t.Error("IsInTerminalOrIdleState() should return true when in initial state (no messages exchanged)")
 		}
 	})
 }

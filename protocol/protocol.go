@@ -127,6 +127,7 @@ func New(config ProtocolConfig) *Protocol {
 	}
 	p := &Protocol{
 		config:       config,
+		currentState: config.InitialState,
 		doneChan:     make(chan struct{}),
 		stopChan:     make(chan struct{}),
 		recvDoneChan: make(chan struct{}),
@@ -241,12 +242,12 @@ func (p *Protocol) IsDone() bool {
 	return false
 }
 
-// isInTerminalOrIdleState returns true if the protocol is in a state where connection
+// IsInTerminalOrIdleState returns true if the protocol is in a state where connection
 // close should not be treated as an error. This includes:
 // - Protocol stop/done channel is closed
 // - Current state has AgencyNone (terminal Done state after receiving Done message)
 // - Current state is the initial state (no messages exchanged yet)
-func (p *Protocol) isInTerminalOrIdleState() bool {
+func (p *Protocol) IsInTerminalOrIdleState() bool {
 	// Check if done channel is closed
 	select {
 	case <-p.doneChan:
@@ -531,7 +532,7 @@ func (p *Protocol) readLoop() {
 			// or sends an empty segment payload.
 			// Don't report an error if we're in the Done state (AgencyNone) or initial state,
 			// as this is expected behavior when the remote client gracefully stopped the protocol.
-			if !p.isInTerminalOrIdleState() {
+			if !p.IsInTerminalOrIdleState() {
 				p.SendError(
 					fmt.Errorf(
 						"%s: received zero-byte read, connection may have been closed",
@@ -561,7 +562,7 @@ func (p *Protocol) readLoop() {
 			// and we receive a segment that decodes to an empty array.
 			// Don't report an error if we're in the Done state (AgencyNone) or initial state,
 			// as this is expected behavior when the remote client gracefully stopped the protocol.
-			if !p.isInTerminalOrIdleState() {
+			if !p.IsInTerminalOrIdleState() {
 				p.SendError(
 					fmt.Errorf(
 						"%s: received empty message (zero bytes read or empty CBOR array), connection may have been closed",

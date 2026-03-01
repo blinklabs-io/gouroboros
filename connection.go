@@ -266,6 +266,101 @@ func (c *Connection) shutdown() {
 	close(c.errorChan)
 }
 
+// allProtocolsIdle returns true if every active protocol is in a terminal or
+// idle state (done, AgencyNone, or still in its initial state). This is used
+// to decide whether a connection-close error should be suppressed: when the
+// remote peer has gracefully stopped all protocols before closing, we do not
+// want to surface a spurious error to the consumer.
+func (c *Connection) allProtocolsIdle() bool {
+	protocols := make([]*protocol.Protocol, 0)
+	if c.chainSync != nil {
+		if c.chainSync.Client != nil {
+			protocols = append(protocols, c.chainSync.Client.Protocol)
+		}
+		if c.chainSync.Server != nil {
+			protocols = append(protocols, c.chainSync.Server.Protocol)
+		}
+	}
+	if c.blockFetch != nil {
+		if c.blockFetch.Client != nil {
+			protocols = append(protocols, c.blockFetch.Client.Protocol)
+		}
+		if c.blockFetch.Server != nil {
+			protocols = append(protocols, c.blockFetch.Server.Protocol)
+		}
+	}
+	if c.txSubmission != nil {
+		if c.txSubmission.Client != nil {
+			protocols = append(protocols, c.txSubmission.Client.Protocol)
+		}
+		if c.txSubmission.Server != nil {
+			protocols = append(protocols, c.txSubmission.Server.Protocol)
+		}
+	}
+	if c.keepAlive != nil {
+		if c.keepAlive.Client != nil {
+			protocols = append(protocols, c.keepAlive.Client.Protocol)
+		}
+		if c.keepAlive.Server != nil {
+			protocols = append(protocols, c.keepAlive.Server.Protocol)
+		}
+	}
+	if c.localStateQuery != nil {
+		if c.localStateQuery.Client != nil {
+			protocols = append(protocols, c.localStateQuery.Client.Protocol)
+		}
+		if c.localStateQuery.Server != nil {
+			protocols = append(protocols, c.localStateQuery.Server.Protocol)
+		}
+	}
+	if c.localTxSubmission != nil {
+		if c.localTxSubmission.Client != nil {
+			protocols = append(protocols, c.localTxSubmission.Client.Protocol)
+		}
+		if c.localTxSubmission.Server != nil {
+			protocols = append(protocols, c.localTxSubmission.Server.Protocol)
+		}
+	}
+	if c.localTxMonitor != nil {
+		if c.localTxMonitor.Client != nil {
+			protocols = append(protocols, c.localTxMonitor.Client.Protocol)
+		}
+		if c.localTxMonitor.Server != nil {
+			protocols = append(protocols, c.localTxMonitor.Server.Protocol)
+		}
+	}
+	if c.peerSharing != nil {
+		if c.peerSharing.Client != nil {
+			protocols = append(protocols, c.peerSharing.Client.Protocol)
+		}
+		if c.peerSharing.Server != nil {
+			protocols = append(protocols, c.peerSharing.Server.Protocol)
+		}
+	}
+	if c.leiosNotify != nil {
+		if c.leiosNotify.Client != nil {
+			protocols = append(protocols, c.leiosNotify.Client.Protocol)
+		}
+		if c.leiosNotify.Server != nil {
+			protocols = append(protocols, c.leiosNotify.Server.Protocol)
+		}
+	}
+	if c.leiosFetch != nil {
+		if c.leiosFetch.Client != nil {
+			protocols = append(protocols, c.leiosFetch.Client.Protocol)
+		}
+		if c.leiosFetch.Server != nil {
+			protocols = append(protocols, c.leiosFetch.Server.Protocol)
+		}
+	}
+	for _, p := range protocols {
+		if p != nil && !p.IsInTerminalOrIdleState() {
+			return false
+		}
+	}
+	return true
+}
+
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
 func (c *Connection) setupConnection() error {
@@ -301,7 +396,17 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
+			// When the connection is closed after all protocols have been
+			// gracefully stopped (e.g. the remote peer sent Done messages
+			// for chain-sync, block-fetch, and tx-submission before closing),
+			// we suppress the error so the consumer does not see a spurious
+			// connection-closed error.
 			var connErr *muxer.ConnectionClosedError
+			if errors.As(err, &connErr) && c.allProtocolsIdle() {
+				// All protocols finished gracefully; suppress the error
+				c.Close()
+				return
+			}
 			if errors.As(err, &connErr) {
 				// Pass through ConnectionClosedError from muxer
 				c.errorChan <- err
