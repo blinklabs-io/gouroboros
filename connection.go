@@ -78,6 +78,8 @@ type Connection struct {
 	delayProtocolStart    bool
 	fullDuplex            bool
 	peerSharingEnabled    bool
+	protocolMu            sync.RWMutex
+	protocolsReady        bool
 	// Mini-protocols
 	blockFetch              *blockfetch.BlockFetch
 	blockFetchConfig        *blockfetch.Config
@@ -272,6 +274,13 @@ func (c *Connection) shutdown() {
 // remote peer has gracefully stopped all protocols before closing, we do not
 // want to surface a spurious error to the consumer.
 func (c *Connection) allProtocolsIdle() bool {
+	c.protocolMu.RLock()
+	defer c.protocolMu.RUnlock()
+	// If protocols have not been initialised yet, we must not suppress
+	// connection-close errors.
+	if !c.protocolsReady {
+		return false
+	}
 	protocols := make([]*protocol.Protocol, 0)
 	if c.chainSync != nil {
 		if c.chainSync.Client != nil {
@@ -508,6 +517,7 @@ func (c *Connection) setupConnection() error {
 	if c.useNodeToNodeProto {
 		versionNtN := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
+		c.protocolMu.Lock()
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
 		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
@@ -519,6 +529,8 @@ func (c *Connection) setupConnection() error {
 		}
 		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
 		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
+		c.protocolsReady = true
+		c.protocolMu.Unlock()
 		// Register server protocols early to avoid race conditions where messages arrive
 		if (c.fullDuplex && handshakeFullDuplex) || c.server {
 			c.blockFetch.Server.EnsureRegistered()
@@ -565,6 +577,7 @@ func (c *Connection) setupConnection() error {
 	} else {
 		versionNtC := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
+		c.protocolMu.Lock()
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.localTxSubmission = localtxsubmission.New(protoOptions, c.localTxSubmissionConfig)
 		if versionNtC.EnableLocalQueryProtocol {
@@ -573,6 +586,8 @@ func (c *Connection) setupConnection() error {
 		if versionNtC.EnableLocalTxMonitorProtocol {
 			c.localTxMonitor = localtxmonitor.New(protoOptions, c.localTxMonitorConfig)
 		}
+		c.protocolsReady = true
+		c.protocolMu.Unlock()
 		// Register server protocols early to avoid race conditions where messages arrive
 		if (c.fullDuplex && handshakeFullDuplex) || c.server {
 			c.chainSync.Server.EnsureRegistered()
