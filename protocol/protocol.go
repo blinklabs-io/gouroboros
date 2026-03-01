@@ -593,31 +593,58 @@ func (p *Protocol) readLoop() {
 		}
 		// Calculate message size
 		msgLen := len(msgData)
-		// Check pending recv bytes limit for current state
+		// Wait for pending recv bytes to drop below limit before accepting.
+		// This applies TCP backpressure to the remote peer instead of
+		// disconnecting with a protocol violation during rapid catch-up sync.
 		currentState := p.getCurrentState()
 		limit := 0
 		if entry, ok := p.config.StateMap[currentState]; ok {
 			limit = entry.PendingMessageByteLimit
 		}
-		p.pendingBytesMu.Lock()
-		if limit > 0 && p.pendingRecvBytes+msgLen > limit {
+		if limit > 0 {
+			// Fail fast if a single message exceeds the limit to prevent
+			// a livelock where the backpressure loop can never make progress.
+			if msgLen > limit {
+				p.SendError(
+					fmt.Errorf(
+						"%s: received oversized message (%d bytes) exceeding limit (%d bytes)",
+						p.config.Name,
+						msgLen,
+						limit,
+					),
+				)
+				return
+			}
+			for {
+				p.pendingBytesMu.Lock()
+				if p.pendingRecvBytes+msgLen <= limit {
+					p.pendingRecvBytes += msgLen
+					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+					p.pendingBytesMu.Unlock()
+					break
+				}
+				p.pendingBytesMu.Unlock()
+				// Wait briefly for recvLoop to drain pending bytes
+				select {
+				case <-p.stopChan:
+					return
+				case <-p.muxerDoneChan:
+					return
+				case <-time.After(time.Millisecond):
+				}
+			}
+		} else {
+			p.pendingBytesMu.Lock()
+			p.pendingRecvBytes += msgLen
+			p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 			p.pendingBytesMu.Unlock()
-			p.SendError(ErrProtocolViolationQueueExceeded)
-			return
 		}
-		p.pendingRecvBytes += msgLen
-		p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
-		p.pendingBytesMu.Unlock()
-		// Add message to receive queue
+		// Add message to receive queue (blocking with shutdown checks)
 		select {
 		case p.recvQueueChan <- msg:
-		default:
-			p.SendError(
-				fmt.Errorf(
-					"%s: received message queue limit exceeded",
-					p.config.Name,
-				),
-			)
+		case <-p.stopChan:
+			return
+		case <-p.muxerDoneChan:
 			return
 		}
 		if numBytesRead < readBuffer.Len() {
