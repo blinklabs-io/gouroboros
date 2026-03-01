@@ -351,9 +351,7 @@ func TestNoErrorOnGracefulProtocolDone(t *testing.T) {
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 		ouroboros.WithServer(true),
 	)
-	if err != nil {
-		t.Fatalf("unexpected error when creating Connection object: %s", err)
-	}
+	require.NoError(t, err, "unexpected error when creating Connection object")
 
 	// Drain the error channel and collect any errors
 	var connErrors []error
@@ -369,17 +367,11 @@ func TestNoErrorOnGracefulProtocolDone(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for connection shutdown")
+		require.Fail(t, "timed out waiting for connection shutdown")
 	}
 
 	// No errors should have been surfaced: the remote peer sent Done before closing
-	if len(connErrors) > 0 {
-		t.Errorf(
-			"expected no errors after graceful protocol Done, got %d error(s): %v",
-			len(connErrors),
-			connErrors,
-		)
-	}
+	require.Empty(t, connErrors, "expected no errors after graceful protocol Done")
 }
 
 // TestErrorOnUngracefulClose tests that when a connection is closed while
@@ -453,22 +445,16 @@ func TestErrorOnUngracefulClose(t *testing.T) {
 		ouroboros.WithServer(true),
 		ouroboros.WithChainSyncConfig(chainSyncCfg),
 	)
-	if err != nil {
-		t.Fatalf("unexpected error when creating Connection object: %s", err)
-	}
+	require.NoError(t, err, "unexpected error when creating Connection object")
 
 	// We should receive a connection error since the protocol was in a non-idle state
 	select {
 	case err, ok := <-oConn.ErrorChan():
-		if !ok {
-			t.Fatal("error channel closed without receiving an error")
-		}
-		if err == nil {
-			t.Fatal("received nil error")
-		}
+		require.True(t, ok, "error channel closed without receiving an error")
+		require.NotNil(t, err, "received nil error")
 		t.Logf("received expected error on ungraceful close: %s", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for connection error")
+		require.Fail(t, "timed out waiting for connection error")
 	}
 
 	oConn.Close()

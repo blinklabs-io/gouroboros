@@ -29,6 +29,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
 
@@ -578,42 +579,34 @@ func TestStopAfterConnectionClose(t *testing.T) {
 			chainsync.Config{SkipBlockValidation: true},
 		),
 	)
-	if err != nil {
-		t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
-	}
+	require.NoError(t, err, "unexpected error when creating Ouroboros object")
 
 	client := oConn.ChainSync().Client
 	client.Start()
 
 	// Close the connection first (simulating remote close)
-	if err := oConn.Close(); err != nil {
-		t.Fatalf("unexpected error when closing connection: %s", err)
-	}
+	require.NoError(t, oConn.Close(), "unexpected error when closing connection")
 
 	// Wait for connection to fully close
 	select {
 	case <-oConn.ErrorChan():
 	case <-time.After(5 * time.Second):
-		t.Fatal("connection did not close within timeout")
+		require.Fail(t, "connection did not close within timeout")
 	}
 
 	// Now Stop() should not return an error even though connection is closed
-	if err := client.Stop(); err != nil {
-		t.Fatalf("Stop() should not return error after connection close, got: %s", err)
-	}
+	require.NoError(t, client.Stop(), "Stop() should not return error after connection close")
 
 	// Verify IsDone returns true
-	if !client.IsDone() {
-		t.Error("IsDone() should return true after connection close")
-	}
+	require.True(t, client.IsDone(), "IsDone() should return true after connection close")
 
 	// Wait for mock connection shutdown
 	select {
 	case err, ok := <-asyncErrChan:
 		if ok {
-			t.Fatal(err.Error())
+			require.Fail(t, err.Error())
 		}
 	case <-time.After(2 * time.Second):
-		// OK - mock may have already closed
+		require.Fail(t, "mock connection did not shut down within timeout")
 	}
 }

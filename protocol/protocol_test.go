@@ -16,6 +16,8 @@ package protocol
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsDone(t *testing.T) {
@@ -46,9 +48,7 @@ func TestIsDone(t *testing.T) {
 			},
 		}
 
-		if p.IsDone() {
-			t.Error("IsDone() should return false when in a non-terminal working state")
-		}
+		require.False(t, p.IsDone(), "IsDone() should return false when in a non-terminal working state")
 	})
 
 	t.Run("returns false when in initial state (for client Stop behavior)", func(t *testing.T) {
@@ -63,9 +63,7 @@ func TestIsDone(t *testing.T) {
 		}
 
 		// IsDone should return false for initial state - client Stop() should still send Done
-		if p.IsDone() {
-			t.Error("IsDone() should return false when in initial state (client needs to send Done)")
-		}
+		require.False(t, p.IsDone(), "IsDone() should return false when in initial state (client needs to send Done)")
 	})
 
 	t.Run("returns true when done channel is closed", func(t *testing.T) {
@@ -81,9 +79,7 @@ func TestIsDone(t *testing.T) {
 
 		close(doneChan)
 
-		if !p.IsDone() {
-			t.Error("IsDone() should return true when doneChan is closed")
-		}
+		require.True(t, p.IsDone(), "IsDone() should return true when doneChan is closed")
 	})
 
 	t.Run("returns true when in AgencyNone state (Done state)", func(t *testing.T) {
@@ -97,9 +93,7 @@ func TestIsDone(t *testing.T) {
 			},
 		}
 
-		if !p.IsDone() {
-			t.Error("IsDone() should return true when in AgencyNone (Done) state")
-		}
+		require.True(t, p.IsDone(), "IsDone() should return true when in AgencyNone (Done) state")
 	})
 
 	t.Run("returns true consistently after done channel closed", func(t *testing.T) {
@@ -116,9 +110,7 @@ func TestIsDone(t *testing.T) {
 		close(doneChan)
 
 		for i := 0; i < 3; i++ {
-			if !p.IsDone() {
-				t.Errorf("IsDone() call %d should return true", i+1)
-			}
+			require.True(t, p.IsDone(), "IsDone() call %d should return true", i+1)
 		}
 	})
 }
@@ -151,9 +143,7 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 			},
 		}
 
-		if p.IsInTerminalOrIdleState() {
-			t.Error("IsInTerminalOrIdleState() should return false when in a non-terminal working state")
-		}
+		require.False(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return false when in a non-terminal working state")
 	})
 
 	t.Run("returns true when done channel is closed", func(t *testing.T) {
@@ -169,9 +159,7 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 
 		close(doneChan)
 
-		if !p.IsInTerminalOrIdleState() {
-			t.Error("IsInTerminalOrIdleState() should return true when doneChan is closed")
-		}
+		require.True(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return true when doneChan is closed")
 	})
 
 	t.Run("returns true when in AgencyNone state (Done state)", func(t *testing.T) {
@@ -185,9 +173,7 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 			},
 		}
 
-		if !p.IsInTerminalOrIdleState() {
-			t.Error("IsInTerminalOrIdleState() should return true when in AgencyNone (Done) state")
-		}
+		require.True(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return true when in AgencyNone (Done) state")
 	})
 
 	t.Run("returns true when in initial state (no messages exchanged)", func(t *testing.T) {
@@ -201,8 +187,6 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 			},
 		}
 
-		if !p.IsInTerminalOrIdleState() {
-			t.Error("IsInTerminalOrIdleState() should return true when in initial state (no messages exchanged)")
-		}
+		require.True(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return true when in initial state (no messages exchanged)")
 	})
 }
