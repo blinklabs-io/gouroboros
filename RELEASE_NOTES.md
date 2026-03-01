@@ -26,65 +26,61 @@ This release includes Conway Plutus transaction validation updates, strict CBOR 
 
 - Updated `AGENTS.md` to clarify delegation behavior, document `TransactionBuilder` and `MockTransaction` usage, and expand validation and review guidelines.
 
-## v0.159.1 - ledger validation fixes
+## v0.159.1 - transaction handling and CBOR conformance
 
 - **Date:** 2026-02-26
 - **Version:** 0.159.1
 
 ### Summary
 
-This release fixes several ledger validation issues discovered during testing, including correct empty-redeemer encoding, canonical redeemer index mapping, and datum justification.
+This release includes updates to transaction preparation and CBOR serialization conformance.
+
+### New Features
+
+- Updated transaction preparation to export input sorting for redeemer mapping and apply consistent datum handling across validation paths.
 
 ### Bug Fixes
 
-- Fixed Conway empty redeemers to encode as `0xa0` (empty map) instead of CBOR null.
-- Exported `SortInputs` and applied it across PlutusV1/V2/V3, reference inputs, and validation for canonical redeemer index mapping.
-- Fixed supplemental datum validation to include output datum hashes when justifying witness datums.
-- Corrected stake registration/deregistration certificate encoding to include optional amount instead of a placeholder constructor.
+- Fixed certificate amount CBOR encoding and script context serialization in test vectors to match expected on-chain representation.
 
-## v0.159.0 - async LeiosNotify
+## v0.159.0 - asynchronous Leios notifications
 
 - **Date:** 2026-02-25
 - **Version:** 0.159.0
 
 ### Summary
 
-This release adds asynchronous notification processing to the LeiosNotify protocol with a callback-driven loop and configurable pipelining.
+This release adds asynchronous Leios notifications so applications can receive updates without blocking other work.
 
 ### New Features
 
-- Added `Sync()` method that starts a background notification loop, delivering messages via `NotificationFunc`.
-- Added configurable `PipelineLimit` (default 10, max 100) for pipelining notification requests.
-- Added `ErrStopNotificationProcess` for handlers to signal a clean shutdown.
+- Added asynchronous Leios notifications with a callback-driven loop, configurable pipeline depth, and clean shutdown support.
 
 ### Breaking Changes
 
-- Replaced `RequestNext()` with `Sync()` and `WithNotificationFunc` for notification processing.
+- Replaced the blocking request-next flow with a callback-based notification model.
 
-## v0.158.4 - validation gaps and pipelining
+## v0.158.4 - ledger validation and protocol pipelining
 
 - **Date:** 2026-02-25
 - **Version:** 0.158.4
 
 ### Summary
 
-This release fills validation gaps across Shelley through Conway eras, fixes protocol state transitions for pipelined ChainSync messages, and bumps the edwards25519 dependency.
-
-### Bug Fixes
-
-- Fixed protocol state transitions to queue pipelined ChainSync messages correctly, preventing stalls and out-of-order blocks during pipelined sync.
-- Added overflow-safe `AddInt64Checked` when summing redeemer `ExUnits` in Alonzo, Babbage, and Conway.
-- Skipped withdrawal validation for `IsValid=false` transactions in Alonzo, Babbage, and Conway.
+This release expands ledger validation safety checks and improves protocol pipelining behavior.
 
 ### New Features
 
-- Added duplicate input detection within regular, collateral, and reference input sets across all eras.
+- Added overflow-safe execution unit accumulation, a no-duplicate-inputs UTxO rule across all eras, and centralized withdrawal validation with an `IsValid` short-circuit.
+
+### Bug Fixes
+
+- Fixed an issue where protocol pipelining state transitions could be applied incorrectly, preventing stalls and out-of-order blocks during pipelined sync.
 
 ### Additional Changes
 
-- Updated `ouroboros-mock` dependency to v0.9.1.
-- Bumped `filippo.io/edwards25519` from 1.1.1 to 1.2.0.
-- Updated agent documentation for mock ledger state requirements.
+- Updated `AGENTS.md` to demonstrate creating mock ledgers using `ouroboros-mock` ledger builders.
+- Updated `filippo.io/edwards25519` from v1.1.1 to v1.2.0.
 
 ## v0.158.3 - transaction JSON serialization
 
@@ -93,56 +89,50 @@ This release fills validation gaps across Shelley through Conway eras, fixes pro
 
 ### Summary
 
-This release fixes and stabilizes JSON serialization for transactions and script-related types across all eras, with deterministic, round-trippable output.
+This release stabilizes JSON serialization for transactions and script-related types across all eras so output is deterministic, human-readable, and round-trippable.
 
 ### Bug Fixes
 
-- Fixed redeemer JSON encoding with deterministic sorting, duplicate key detection, and correct field names across Alonzo and Conway.
-- Fixed datum JSON to encode as CBOR hex with null when absent.
-- Added `MarshalText`/`UnmarshalText` for `Address`, `Blake2b160/224/256`, `Voter`, and `GovActionId` with bech32 and CIP-129 validation.
-- Fixed transaction JSON output for Byron through Conway with stable `Body`/`WitnessSet`/`TxIsValid` keys.
+- Fixed redeemer, datum, address, hash, and governance type JSON encoding to produce deterministic output with proper text marshaling and CIP-129 validation.
+- Fixed transaction JSON output for Byron through Conway with stable field ordering.
 
-## v0.158.2 - per-connection state maps
+## v0.158.2 - per-connection protocol state
 
 - **Date:** 2026-02-19
 - **Version:** 0.158.2
 
 ### Summary
 
-This release fixes shared protocol state mutation on servers by introducing per-connection state maps and bumps dependencies.
+This release prevents shared protocol state mutation on servers so each connection gets its own isolated state.
+
+### New Features
+
+- Added configurable idle timeout for ChainSync per connection.
 
 ### Bug Fixes
 
 - Fixed protocol servers to use per-connection state maps, preventing shared state mutations across connections.
-- Removed non-spec `IdleTimeout` from TxSubmission.
-
-### New Features
-
-- Added configurable `IdleTimeout` for ChainSync per connection.
 
 ### Additional Changes
 
-- Bumped `filippo.io/edwards25519` from 1.1.0 to 1.1.1.
-- Bumped `plutigo` to v0.0.25.
+- Updated `filippo.io/edwards25519` and `plutigo` dependencies.
 
-## v0.158.1 - split ChainSync N2N/N2C state maps
+## v0.158.1 - spec-aligned protocol timeouts
 
 - **Date:** 2026-02-18
 - **Version:** 0.158.1
 
 ### Summary
 
-This release splits ChainSync and Handshake into separate Node-to-Node and Node-to-Client state maps with spec-aligned timeouts.
+This release splits ChainSync and Handshake into separate Node-to-Node and Node-to-Client state maps so timeouts align with the Ouroboros network specification.
 
 ### Breaking Changes
 
-- Split ChainSync and Handshake into NtN/NtC state maps; defaults to NtC (no timeouts) unless `Mode=NtN`.
-- TxSubmission timeouts set per spec: `Init`/`Idle`/`TxIdsBlocking=0`; `Nonblocking`/`Txs=10s`.
+- ChainSync and Handshake now use separate NtN/NtC state maps, defaulting to NtC unless explicitly configured for NtN.
 
 ### Bug Fixes
 
-- Fixed ChainSync `MustReply` to use a randomized timeout range (135–269s) per spec.
-- Fixed TxSubmission blocking timeouts to prevent premature disconnects.
+- Aligned ChainSync and TxSubmission timeouts with the Ouroboros network specification to prevent premature disconnects.
 
 ## v0.158.0 - protocol hardening and governance queries
 
@@ -151,28 +141,23 @@ This release splits ChainSync and Handshake into separate Node-to-Node and Node-
 
 ### Summary
 
-This release hardens protocol and cryptographic handling with security fixes for VRF, muxer, and consensus, adds Conway governance queries, and enforces a 16MB protocol buffer limit.
+This release hardens protocol and cryptographic handling, adds Conway governance queries for ratification state and committee members, and caps the protocol read buffer at 16MB to prevent unbounded memory growth.
 
 ### New Features
 
-- Added `GetRatifyState` to LocalStateQuery for Conway-era ratification state including enactment details, enacted/expired actions, and delay status.
-- Added committee member state query with member status, threshold, current epoch, and governance proposals with votes.
+- Added ratification state and committee member state queries for Conway-era governance.
 
 ### Bug Fixes
 
-- Fixed VRF verification to reject non-canonical s scalars and zero sensitive key-derived buffers after use.
-- Fixed muxer diffusion mode race condition using atomic reads/writes.
-- Fixed consensus to require issuer verification key for OpCert validation.
-- Fixed CBOR block encoding to emit empty arrays instead of null for nil list fields across all eras.
-- Fixed nil committee handling in governance state queries to decode CBOR null correctly.
-- Added 16MB cap to protocol read buffer to prevent unbounded memory growth.
-- Made KES insecure mode more explicit in protocol configuration.
+- Tightened VRF verification to reject non-canonical scalars and zero sensitive buffers after use.
+- Fixed muxer diffusion mode race condition and nil committee decoding in governance queries.
+- Required issuer verification key for operational certificate validation.
+- Fixed CBOR block encoding to emit empty arrays instead of null for nil list fields.
+- Capped protocol read buffer at 16MB to prevent memory exhaustion from oversized messages.
 
 ### Additional Changes
 
-- Added `SimpleVRFSigner.Destroy()` for secure key disposal.
-- Bumped `golang.org/x/crypto` from 0.47.0 to 0.48.0.
-- Bumped `plutigo` from 0.0.23 to 0.0.24.
+- Updated `golang.org/x/crypto` and `plutigo` dependencies.
 
 ## v0.157.0 - security hardening
 
@@ -181,37 +166,36 @@ This release hardens protocol and cryptographic handling with security fixes for
 
 ### Summary
 
-This release hardens the muxer against denial-of-service attacks, adds strict CBOR input validation, fixes the rolling nonce calculation, and adds the DRep stake distribution query.
+This release hardens the muxer against denial-of-service attacks, adds a strict CBOR decoder for untrusted inputs, and corrects the rolling nonce calculation to match the Ouroboros Praos specification.
 
 ### New Features
 
-- Added DRep stake distribution query to LocalStateQuery for Conway era with typed results supporting key, script, abstain, and no-confidence DReps.
+- Added DRep stake distribution query for Conway era.
 
 ### Bug Fixes
 
-- Hardened the muxer against slowloris-style attacks by enforcing 120s read deadlines and making error propagation non-blocking.
-- Added strict CBOR decoder for untrusted inputs with smaller limits (`MaxMapPairs`/`MaxArrayElements`: 131,072) and `ExtraDecErrorUnknownField`.
-- Fixed rolling nonce calculation to use `eta_v XOR blake2b_256(vrfOutput)` per Ouroboros Praos, replacing the previous hash-of-concat approach.
-- Fixed Conway redeemer iteration to delegate to legacy redeemers when legacy mode is enabled.
+- Hardened the muxer against slowloris-style attacks by enforcing read deadlines and making error propagation non-blocking.
+- Added a strict CBOR decoder with tighter limits for network-facing inputs.
+- Corrected the rolling nonce calculation to use XOR per the Ouroboros Praos specification.
+- Fixed Conway redeemer iteration for legacy-mode transactions.
 
-## v0.156.0 - ChainSync state split and governance queries
+## v0.156.0 - ChainSync state isolation and governance queries
 
 - **Date:** 2026-02-14
 - **Version:** 0.156.0
 
 ### Summary
 
-This release splits ChainSync client and server state to fix pipelining interference, adds filtered vote delegatees and governance proposals queries, and fixes a muxer deadlock.
+This release isolates ChainSync client and server state so pipelining on one side cannot interfere with the other, and adds Conway governance queries for vote delegatees and proposals.
 
 ### New Features
 
-- Added filtered vote delegatees query returning `map[StakeCredential]Drep` for Conway era.
-- Added governance proposals query returning active proposals with committee/DRep/SPO votes.
+- Added filtered vote delegatees and governance proposals queries for Conway era.
 
 ### Bug Fixes
 
-- Split ChainSync client and server `StateContext` objects so pipelining on one side cannot affect the other.
-- Fixed muxer `UnregisterProtocol` deadlock by deferring mutex unlock immediately after lock.
+- Isolated ChainSync client and server state to prevent pipelining interference.
+- Fixed a muxer deadlock in protocol unregistration.
 
 ## v0.155.0 - CBOR improvements and governance state
 
@@ -220,25 +204,22 @@ This release splits ChainSync client and server state to fix pipelining interfer
 
 ### Summary
 
-This release refactors CBOR constructor handling, increases decode limits for large mainnet maps, adds DRep state and proposals queries, and adds bounds checking to prevent panics.
+This release adds DRep state and proposals queries, raises CBOR decode limits for mainnet-scale data, and refactors constructor handling for safer encoding.
 
 ### New Features
 
-- Added DRep state query to LocalStateQuery for Conway era with typed `map[StakeCredential]DRepStateEntry` results.
-- Added governance proposals query returning active proposals with votes and epoch windows.
+- Added DRep state and governance proposals queries for Conway era.
 
 ### Bug Fixes
 
-- Increased CBOR decoder `MaxMapPairs` to 10,000,000 to support large stake distribution maps in mainnet snapshots.
-- Added bounds checking to `ListLength` and `DecodeIdFromList` to handle empty or short CBOR input safely.
-- Updated Leios protocol message shapes to align with spec: blocks use `pcommon.Point`, TX bitmaps use `map[uint16]uint64`.
+- Raised CBOR decoder map limits to handle large mainnet stake distribution snapshots.
+- Added bounds checking to prevent panics on empty or malformed CBOR input.
+- Updated Leios protocol message shapes to align with the latest CIP-0164 specification.
 
 ### Additional Changes
 
-- Refactored CBOR constructor handling with `ConstructorEncoder`/`ConstructorDecoder` for safer, byte-accurate encoding/decoding.
-- Added comprehensive architecture documentation (`ARCHITECTURE.md`).
-- Added Go 1.26.x to the CI test matrix.
-- Added memory profiling and benchmark suite with allocation regression tests.
+- Refactored CBOR constructor handling for safer, byte-accurate encoding and decoding.
+- Added architecture documentation, Go 1.26.x CI support, and memory profiling benchmarks.
 
 ## v0.154.0 - block processing pipeline
 
@@ -247,20 +228,19 @@ This release refactors CBOR constructor handling, increases decode limits for la
 
 ### Summary
 
-This release introduces a concurrent block processing pipeline with parallel decode/validate stages and slot-ordered apply, caches CBOR encoder/decoder modes for significant performance gains, and bumps plutigo.
+This release introduces a concurrent block processing pipeline that parallelizes decode and validate stages while applying blocks in slot order, and caches CBOR encoder/decoder modes for faster serialization.
 
 ### New Features
 
-- Added concurrent block processing pipeline with parallel decode/validate and slot-ordered apply, wired into ChainSync and BlockFetch with prefetch, backpressure, and safe rollback draining.
-- Configurable workers, buffers, per-block lifecycle, and latency metrics with a default pending limit of k=2160.
+- Added a concurrent block processing pipeline with configurable workers, backpressure, prefetch, and safe rollback draining, wired into ChainSync and BlockFetch.
 
 ### Performance
 
-- Cached CBOR `EncMode`/`DecMode` with thread-safe lazy initialization (`sync.Once`), reducing allocations and improving encode/decode performance in hot paths.
+- Cached CBOR encoder/decoder modes with thread-safe lazy initialization, reducing allocations in hot paths.
 
 ### Additional Changes
 
-- Bumped `plutigo` from 0.0.22 to 0.0.23.
+- Updated `plutigo` dependency.
 
 ## v0.153.1 - performance optimizations and CPRAOS
 
@@ -269,28 +249,21 @@ This release introduces a concurrent block processing pipeline with parallel dec
 
 ### Summary
 
-This release delivers substantial performance optimizations across VRF, KES, consensus, and ledger paths, switches leader election to CPRAOS, enforces VRF key uniqueness in PV11, and adds support for alternate genesis config keys.
+This release delivers broad performance optimizations across VRF, KES, consensus, and ledger paths, switches leader election to CPRAOS, and enforces VRF key uniqueness starting with protocol version 11.
 
 ### Bug Fixes
 
-- Switched consensus to CPRAOS leader election by hashing VRF output with BLAKE2b-256 ("L" prefix) and comparing against 2^256 threshold, with mode-aware APIs for TPraos compatibility.
-- Enforced VRF key uniqueness across pools starting with protocol version 11; same-pool reuse is still allowed.
-- Fixed Alonzo genesis config to accept alternate key names (`exUnitsMem`/`exUnitsSteps` or `memory`/`steps`; `prSteps`/`prMem` or `priceSteps`/`priceMemory`).
-- Fixed Conway committee threshold to use `GenesisRat` (rational) for proper decoding.
+- Switched consensus to CPRAOS leader election to match the current Cardano protocol.
+- Enforced VRF key uniqueness across pools starting with protocol version 11.
+- Fixed genesis config to accept alternate key names used by different Cardano node versions.
 
 ### Performance
 
-- Switched VRF scalar math to edwards25519 native operations with fixed-size arrays and zero-alloc proof parsing.
-- Optimized KES with stack buffers, `blake2b.Sum256` in `HashPair`/`expandSeed`, public key caching, and in-place right subtree key generation.
-- Replaced `slices.Concat` with fixed `[64]byte` buffers for nonce hashing with 32-byte input validation.
-- Pre-allocated slice capacity for Plutus map pairs and block body hash calculations.
-- Used fixed 65-byte buffer in `VrfLeaderValue` to avoid allocations.
-- Reduced `big.Rat` allocations in consensus threshold math by reusing constants and temporaries.
-- Pre-allocated leaf and branch buffers for Byron Merkle root hashing.
+- Reduced allocations across VRF, KES, consensus, and ledger hot paths by switching to native scalar operations, stack-allocated buffers, and pre-allocated slices.
 
 ### Additional Changes
 
-- Added comprehensive VRF and KES benchmarks covering key generation, signing, verification, and parallel workloads.
+- Added comprehensive VRF and KES benchmarks.
 
 ## v0.153.0 - protocol version 11 and conformance testing
 
@@ -299,23 +272,21 @@ This release delivers substantial performance optimizations across VRF, KES, con
 
 ### Summary
 
-This release adds protocol version 11 (VanRossem) support, migrates conformance tests to the ouroboros-mock framework, implements the NonMyopicMemberRewards query, and adds comprehensive protocol and address tests.
+This release adds protocol version 11 (VanRossem) support, migrates conformance tests to the ouroboros-mock framework, and implements the member rewards query.
 
 ### New Features
 
-- Added protocol version 11 support enforcing unique VRF keys across pools, CC voting restrictions, and skipping `NonDisjointRefInputs` for Plutus V1/V2.
-- Added `IsProtocolVersionAtLeast` helper and protocol version constants.
-- Implemented `NonMyopicMemberRewards` query accepting stakes input for per-stake/per-pool reward mapping.
+- Added protocol version 11 support with VRF key uniqueness, CC voting restrictions, and Plutus V1/V2 reference input handling.
+- Added member rewards query for per-stake/per-pool reward lookups.
 
 ### Bug Fixes
 
-- Fixed `UtxoValidateCCVotingRestrictions` to return an error on non-Conway protocol parameters instead of silently skipping validation.
+- Fixed CC voting restriction validation to properly reject non-Conway protocol parameters.
 
 ### Additional Changes
 
-- Migrated conformance tests to ouroboros-mock framework (v0.9.0) using shared harness and embedded test vectors, removing ~3k lines of bespoke test code.
-- Added unit tests for Leios Fetch/Notify protocols, CBOR stream operations, muxer lifecycle, and CIP-0019 address types.
-- Pinned GitHub Actions to specific commit SHAs.
+- Migrated conformance tests to the ouroboros-mock framework, removing ~3k lines of bespoke test code.
+- Added unit tests for Leios protocols, CBOR streams, muxer lifecycle, and CIP-0019 addresses.
 
 ## v0.152.2 - UTxO overhead constant fix
 
@@ -324,15 +295,11 @@ This release adds protocol version 11 (VanRossem) support, migrates conformance 
 
 ### Summary
 
-This release fixes the minimum coin calculation per CIP-0055 and adds pool retire/register test coverage.
+This release corrects the minimum coin calculation to include the 160-byte UTxO overhead per CIP-0055.
 
 ### Bug Fixes
 
-- Fixed `MinCoinTxOut` to include the CIP-0055 160-byte UTxO overhead constant: `coinsPerUTxOByte * (160 + serializedOutputSize)`. Applies to Babbage and Conway.
-
-### Additional Changes
-
-- Added Conway test verifying that pool retire and re-register in the same transaction succeeds.
+- Fixed minimum coin calculation to include the CIP-0055 160-byte UTxO overhead constant for Babbage and Conway.
 
 ## v0.152.1 - CBOR offset fixes
 
@@ -345,11 +312,11 @@ This release fixes CBOR offset calculations for indefinite-length arrays and add
 
 ### Bug Fixes
 
-- Fixed CBOR offset calculations for indefinite-length arrays, correctly handling `0x9f` arrays with 1-byte headers for transaction bodies, witnesses, and outputs.
+- Fixed CBOR offset calculations for indefinite-length arrays used in transaction bodies, witnesses, and outputs.
 
 ### Additional Changes
 
-- Added protocol overview and per-protocol documentation for all Ouroboros mini-protocols with state machines, messages, timeouts, limits, and Go usage examples.
+- Added per-protocol documentation for all Ouroboros mini-protocols with state machines, timeouts, and usage examples.
 
 ## v0.152.0 - CBOR byte offsets and Byron consensus
 
@@ -358,27 +325,23 @@ This release fixes CBOR offset calculations for indefinite-length arrays and add
 
 ### Summary
 
-This release adds single-pass CBOR byte offset extraction for block components, implements initial Byron consensus validation, fixes Plutus script context encoding, and standardizes mock ledger state usage.
+This release adds single-pass CBOR byte offset extraction so callers can locate individual transaction components within a block, implements initial Byron consensus validation, and fixes several Plutus script context issues.
 
 ### New Features
 
-- Added `StreamingBlockDecoder` for single-pass per-transaction CBOR offset extraction covering bodies, witnesses, metadata, outputs, datums, redeemers, and scripts.
-- Added `NewBlockFromCborWithOffsets` helper for offset-aware block decoding.
-- Implemented Byron OBFT consensus validation: protocol magic, epoch boundary, slot/block sequence, slot leader rotation, signature verification, and body hash checks.
+- Added single-pass CBOR byte offset extraction for per-transaction components within blocks.
+- Added Byron OBFT consensus validation covering protocol magic, slot leader rotation, signature verification, and body hash checks.
 
 ### Bug Fixes
 
-- Fixed Plutus script context `TxInInfo`/`TxOutRef` encoding per Plutus V2; value encoding now omits ADA for `txInfoMint`.
-- Fixed Plutus evaluation to return consumed budget even on failure.
-- Fixed duplicate datum hash entries in Plutus script context by deduplicating by datum hash.
-- Added `WithLeiosFetchConfig` and `WithLeiosNotifyConfig` connection functions for Leios protocol configuration.
+- Fixed Plutus script context encoding for V2 transactions and mint value handling.
+- Fixed Plutus evaluation to return consumed budget even on script failure.
+- Deduplicated datum entries in the Plutus script context.
 
 ### Additional Changes
 
-- Replaced internal `MockLedgerState` with `ouroboros-mock/ledger` across all tests using `NewLedgerStateBuilder()`.
-- Bumped `ouroboros-mock` to v0.6.0.
-- Added package-level documentation for `cbor`, `ledger/common`, `blockfetch`, and `localstatequery`.
-- Added development and agent documentation (`DEVELOPMENT.md`, expanded `AGENTS.md`).
+- Standardized test mocks on `ouroboros-mock/ledger` across all tests.
+- Added package-level documentation and developer guides.
 
 ## v0.151.2 - Plutus mint encoding fix
 
@@ -387,17 +350,15 @@ This release adds single-pass CBOR byte offset extraction for block components, 
 
 ### Summary
 
-This release fixes Plutus data conversion for mint values in V1/V2 script contexts and bumps CI action dependencies.
+This release fixes Plutus data conversion for mint values so V1/V2 script contexts match the expected on-chain representation.
 
 ### Bug Fixes
 
-- Fixed mint-to-Plutus-data conversion for TxInfoV1/V2 to use `Mint.ToPlutusData()` directly, matching expected CBOR encoding and avoiding zero-ADA wrapper.
+- Fixed mint-to-Plutus-data conversion to match expected CBOR encoding and avoid wrapping in a zero-ADA value.
 
 ### Additional Changes
 
-- Bumped `actions/checkout` from v4 to v6, `actions/upload-artifact` from v4 to v6, `actions/setup-go` from v5 to v6.
-- Bumped `webiny/action-conventional-commits` from 1.3.0 to 1.3.1.
-- Bumped `ouroboros-mock` from 0.4.0 to 0.5.0.
+- Updated CI action dependencies.
 
 ## v0.151.1 - Plutus V2 cost model fix
 
@@ -406,40 +367,38 @@ This release fixes Plutus data conversion for mint values in V1/V2 script contex
 
 ### Summary
 
-This release fixes Plutus V2 cost model indexing in Conway and adds a CBOR-preserving datum list type for exact script data hash computation.
+This release fixes Plutus V2 cost model selection in Conway and adds a datum list type that preserves original CBOR encoding.
 
 ### Bug Fixes
 
-- Fixed Conway ledger rules to use `CostModels[1]` for Plutus V2 scripts instead of an incorrect index.
-- Fixed `InvalidHereafter` TTL logic to treat as "at or before" slot.
+- Fixed Conway to select the correct cost model for Plutus V2 scripts.
+- Fixed validity interval logic for transaction TTL checks.
 
 ### New Features
 
-- Added `PlutusDataList` type preserving original CBOR encoding of Plutus datums for exact `ScriptDataHash` computation in Alonzo and Babbage.
+- Added a datum list type that preserves original CBOR encoding for exact script data hash computation.
 
-## v0.151.0 - transaction errors and cost model merging
+## v0.151.0 - transaction errors and fuzz testing
 
 - **Date:** 2026-01-25
 - **Version:** 0.151.0
 
 ### Summary
 
-This release adds era-aware transaction error decoding for Babbage and Conway, fixes cost model merging from protocol parameters, and introduces fuzz testing across the codebase.
+This release adds era-aware transaction error decoding for Babbage and Conway, fixes cost model merging, and introduces fuzz testing across the codebase.
 
 ### New Features
 
-- Added era-aware decoding for UTXOW/UTXO predicate failures with full Babbage and Conway transaction error support and wrapper types for nested era failures.
+- Added era-aware transaction error decoding with full Babbage and Conway support.
 
 ### Bug Fixes
 
-- Fixed cost model merging to merge incoming `CostModels` into existing protocol parameter maps instead of overwriting.
-- Switched Plutus evaluation to use `cek.EvalContext` for V1/V2/V3.
+- Fixed cost model merging to properly combine incoming models with existing protocol parameters instead of overwriting them.
 
 ### Additional Changes
 
-- Added fuzz targets across CBOR, ledger (blocks, headers, transactions, addresses), KES, and VRF with a nightly GitHub Actions workflow and seeded corpora.
-- Added unit tests for connection options, CBOR generic encode/decode, and defensive nil-checks for script data hash comparison.
-- Bumped `plutigo` to v0.0.22.
+- Added fuzz targets across CBOR, ledger, KES, and VRF with nightly CI and seeded corpora.
+- Updated `plutigo` dependency.
 
 ## v0.150.0 - governance queries and protocol hardening
 
@@ -448,28 +407,24 @@ This release adds era-aware transaction error decoding for Babbage and Conway, f
 
 ### Summary
 
-This release adds Conway-era governance state queries, provides cost models for Plutus script evaluation, hardens protocol client lifecycles and muxer concurrency, and fixes several CBOR and ledger edge cases.
+This release adds a full suite of Conway-era governance state queries, provides cost models for Plutus script evaluation, and hardens protocol client lifecycles so they can be safely restarted.
 
 ### New Features
 
-- Added Conway-era governance queries to LocalStateQuery: `GetConstitution`, `GetGovState`, `GetDRepState`, `GetDRepStakeDistr`, `GetCommitteeMembersState`, `GetFilteredVoteDelegatees`, and `GetSPOStakeDistr`.
-- Added cost model support for Plutus script evaluation, passing cost models to the CEK machine for V1/V2/V3 under Conway.
+- Added Conway-era governance queries: constitution, gov state, DRep state/distribution, committee members, vote delegatees, and SPO distribution.
+- Added cost model support for Plutus script evaluation under Conway.
 
 ### Bug Fixes
 
-- Fixed Alonzo genesis cost model decoding to support both list and map JSON formats with ordered `[]int64` per Plutus version.
-- Fixed blockfetch and txsubmission client lifecycles to align with ChainSync-style logic; `Start`/`Stop` are now idempotent and restartable without races or leaks.
-- Fixed chainsync pipeline defaults when bare `Config{}` is passed, preventing sync stalls from zero `PipelineLimit`.
-- Fixed muxer data race in receiver channels that could cause shutdown panics by wrapping with mutex and setting to nil after close.
-- Fixed bootstrap witnesses to be included in native script validation.
-- Gated disjoint reference inputs rule to post-Babbage.
-- Added bounds checking to prevent panics: address data length validation, CBOR `Rat` zero-denominator guard, CBOR type checks before slice operations.
+- Fixed genesis cost model decoding to support both list and map JSON formats.
+- Made blockfetch and txsubmission clients idempotent and safely restartable.
+- Fixed chainsync pipeline defaults to prevent sync stalls from zero-value configuration.
+- Fixed a muxer data race that could cause shutdown panics.
+- Added bounds checking to prevent panics on malformed address, CBOR rational, and list inputs.
 
 ### Additional Changes
 
-- Added unit tests for blockfetch and txsubmission message round-trips.
-- Bumped `plutigo` to v0.0.21, `golang.org/x/crypto` from 0.46.0 to 0.47.0.
-- Standardized formatting across consensus, ledger, KES, protocol, and test packages.
+- Updated `plutigo` and `golang.org/x/crypto` dependencies.
 
 ## v0.149.0 - VRF, KES, and consensus packages
 
@@ -478,19 +433,16 @@ This release adds Conway-era governance state queries, provides cost models for 
 
 ### Summary
 
-This release introduces standalone pure-Go packages for VRF, KES, and consensus with conformance tests, adds operational certificate verification, and updates the feature checklist.
+This release introduces standalone pure-Go packages for VRF, KES, and consensus so these cryptographic primitives can be used independently of the ledger, and adds operational certificate verification.
 
 ### New Features
 
-- Added pure-Go VRF package (ECVRF-ED25519-SHA512-Elligator2) with `KeyGen`, `Prove`, `Verify`, `VerifyAndHash`, `ProofToHash`, and `MkInputVrf` with conformance test vectors.
-- Added pure-Go KES package (MMM Sum-composition, depth 6) with `KeyGen`, `Sign`, `Update`, `PublicKey`, and `VerifySignedKES` with conformance tests.
-- Added consensus package with Ouroboros Praos/Genesis leader election and thresholds, block builder, header validation, chain selection, Genesis rule, and Byron OBFT header validation with conformance tests.
-- Added operational certificate verification with `VerifyOpCertSignature`, `ValidateKesPeriod`, `ValidateOpCert`, and `CreateOpCert`.
+- Added pure-Go VRF, KES, and consensus packages with conformance tests against official test vectors.
+- Added operational certificate verification and creation.
 
 ### Breaking Changes
 
-- Replaced `ledger.VerifyVrf` with `vrf.Verify` and `ledger.MkInputVrf` with `vrf.MkInputVrf`.
-- Use `kes.Verify` for KES checks and `ledger.VerifyOpCert` for operational certificates.
+- VRF and KES verification functions moved from `ledger` to dedicated `vrf` and `kes` packages.
 
 ## v0.148.0 - script data hash validation and conformance tests
 
@@ -499,14 +451,13 @@ This release introduces standalone pure-Go packages for VRF, KES, and consensus 
 
 ### Summary
 
-This release adds ScriptDataHash validation with malformed reference script detection, implements stake snapshot and pool state queries, enables ChainSync client reuse, and introduces Amaru conformance test vectors.
+This release adds script data hash validation to catch malformed reference scripts and invalid redeemers, implements stake snapshot and pool state queries, and enables ChainSync client reuse on the same connection.
 
 ### New Features
 
-- Added `ScriptDataHash` verification, malformed reference script detection, redeemer bounds checking for Conway, and Conway certificate Plutus version compatibility checks with original CBOR preservation for redeemers.
-- Added stake snapshot query supporting multiple pools in a single request with detailed per-pool snapshot data.
-- Added `PoolStateResult` with full registration parameters, current/future state, retiring records, and deposit info.
-- Added ChainSync `Stop`/`Start` reuse on the same connection without reconnecting, with graceful shutdown via stop signal.
+- Added script data hash validation with malformed reference script detection and redeemer bounds checking.
+- Added stake snapshot and pool state queries with detailed per-pool data.
+- Enabled ChainSync client reuse on the same connection without reconnecting.
 
 ### Bug Fixes
 
@@ -515,8 +466,6 @@ This release adds ScriptDataHash validation with malformed reference script dete
 ### Additional Changes
 
 - Added conformance tests using Amaru test vectors.
-- Added `AGENTS.md` for robot development guidelines.
-- Bumped `go-ethereum` from 1.16.7 to 1.16.8.
 
 ## v0.147.0 - validation overhaul and Plutus script contexts
 
@@ -525,42 +474,26 @@ This release adds ScriptDataHash validation with malformed reference script dete
 
 ### Summary
 
-This release delivers a major validation overhaul reaching 302/314 conformance tests, builds PlutusV1 and V2 script contexts, switches monetary amounts to `*big.Int`, adds governance state, and fixes numerous ledger edge cases.
+This release delivers a major validation overhaul reaching 302 of 314 conformance tests, adds PlutusV1 and V2 script context building, and switches monetary amounts to arbitrary precision to prevent overflow.
 
 ### New Features
 
-- Added PlutusV1 and V2 script context building with full `TxInfo` construction.
-- Added governance state implementation for the ledger.
-- Added CIP-0005 bech32 string representations for all common types.
-- Added `ShelleyStakePoolParamsQuery` for protocol-level stake pool parameter queries.
+- Added PlutusV1 and V2 script context building.
+- Added governance state and CIP-0005 bech32 string representations.
+- Added stake pool parameter queries.
 
 ### Breaking Changes
 
-- Replaced fixed-width integer types with `*big.Int` for monetary amounts and multi-asset outputs to prevent overflow.
+- Switched monetary amounts and multi-asset outputs to arbitrary-precision integers.
 
 ### Bug Fixes
 
-- Overhauled delegation, withdrawal, native-script evaluation, `ScriptDataHash` checks, and governance/committee validations with new error types.
-- Fixed PlutusData panic on unsupported type conversions.
-- Fixed V1/V2 script context issues: correct context selection, null datum wrapping, data format, and witness datum handling.
-- Fixed Conway proposal rules for empty treasury withdrawals and invalid networks.
-- Fixed protocol parameter proposal rules and errors.
-- Fixed multi-asset conservation validation.
-- Fixed CIP-0033 reference scripts from inputs.
-- Fixed inline datums to be refused in Plutus V1.
-- Fixed governance script witness handling.
-- Fixed treasury donation subtraction in value conservation.
-- Fixed race condition around protocol start when acting as server.
-- Fixed zero-byte read panic in protocol `readLoop`.
-- Improved handshake refusal message handling with specific error types.
-- Added `DoneChan` to txsubmission `CallbackContext`.
-- Fixed registration to not require witnesses.
+- Overhauled validation across delegation, withdrawals, native scripts, script data hashes, and governance with proper error types.
+- Fixed numerous Plutus script context, Conway proposal, multi-asset conservation, and protocol race condition issues.
 
 ### Additional Changes
 
-- Refactored rules, errors, and formatting across ledger packages.
-- Added CIP compliance tests for CIP-0014, CIP-0019, CIP-0031, CIP-0033, CIP-0006.
-- Removed legacy binaries from the repository.
+- Added CIP compliance tests and removed legacy binaries.
 
 ## v0.146.0 - signature validation and CIP-0137
 
@@ -569,46 +502,23 @@ This release delivers a major validation overhaul reaching 302/314 conformance t
 
 ### Summary
 
-This release adds full transaction signature validation, implements the CIP-0137 distributed message queue protocol, fixes Byron witness validation, adds TX auxiliary data decoding across all eras, and delivers extensive CIP conformance testing.
+This release adds full transaction signature validation, implements the CIP-0137 distributed message queue protocol, and fixes Byron witness validation so bootstrap addresses are verified correctly.
 
 ### New Features
 
-- Added full transaction signature validation for the ledger.
-- Added CIP-0137 distributed message queue protocol support.
-- Added TX auxiliary data decoding across all eras.
-- Added handshake query reply message handling and version data query support.
-- Added witness validation rules with tests.
-- Added metadata validation during rule checks.
-- Added `IsValid`, collateral redeemer, and cost model checks for the ledger.
-- Updated Leios implementation per latest CIP-0164.
+- Added transaction signature validation, CIP-0137 distributed message queue support, TX auxiliary data decoding across all eras, and handshake query reply handling.
+- Added witness validation rules, metadata validation, and collateral/cost model checks.
 
 ### Bug Fixes
 
-- Fixed Byron witness validation with correct address root computation using pubkey, chain code, and raw attributes.
-- Fixed network nil handling to support omission.
-- Fixed Conway network validation.
-- Fixed metadata size validation and auxiliary data unwrap before unmarshal.
-- Fixed lenient Conway witness switch.
-- Fixed script data hash computation without redeemers.
-- Fixed metadata store and validation.
-- Fixed inline datum hash returns.
-- Fixed Babbage cost model rules to align with Conway.
-- Fixed chainsync pipeline deadlock with default configuration.
-- Fixed muxer race condition on shutdown causing panic.
-- Fixed Conway collateral return simplification.
-- Fixed block-fetch timeouts and limits to match spec.
-- Fixed CBOR error handling to not ignore errors.
-- Fixed protocol done channel selection.
-- Used `slices.Clone` instead of `append` to nil slice for correct copy semantics.
+- Fixed Byron witness validation with correct address root computation.
+- Fixed numerous metadata, script data hash, cost model, and CBOR handling issues across eras.
+- Fixed chainsync pipeline deadlock and muxer shutdown race condition.
 
 ### Additional Changes
 
-- Added CIP conformance tests: CIP-0033, CIP-0006, CIP-0031, CIP-0019, CIP-0014.
-- Centralized validation errors across ledger packages.
-- Added configurable mock ledger state for testing.
-- Added CBOR indefinite-length map encoding tests.
-- Enabled `unparam` linter in golangci-lint.
-- Bumped `plutigo` to v0.0.18, `golang.org/x/crypto` from 0.45.0 to 0.46.0.
+- Added CIP conformance tests and centralized validation error handling.
+- Updated Leios implementation per CIP-0164.
 
 ## v0.145.0 - structured validation errors
 
@@ -617,22 +527,16 @@ This release adds full transaction signature validation, implements the CIP-0137
 
 ### Summary
 
-This release introduces structured validation errors with typed error categories, adds pool distribution queries and CIP-129 voter string representations, and standardizes import aliases.
+This release introduces structured validation errors so callers can programmatically inspect failure reasons, and adds pool distribution queries with CIP-129 voter string representations.
 
 ### New Features
 
-- Added `ValidationError` and `ValidationErrorType` with categories (`body_hash`, `transaction`, `stake_pool`, `vrf`, `kes`, `protocol`, `configuration`) and contextual details (era, slot, block number, tx hash).
-- Added `Voter.String()` returning CIP-129 bech32 identifiers for all voter types.
-- Added `PoolDistrResult` for pool distribution queries by pool ID.
+- Added typed validation errors with categories and contextual details like era, slot, and block number.
+- Added pool distribution queries and CIP-129 bech32 voter identifiers.
 
 ### Bug Fixes
 
-- Included era in block verification error output for easier troubleshooting.
-
-### Additional Changes
-
-- Standardized `lcommon` (ledger/common) and `pcommon` (protocol/common) import aliases across the codebase.
-- Surfaced errors in verify block tests.
+- Included era context in block verification errors for easier troubleshooting.
 
 ## v0.144.0 - stake pool validation
 
@@ -641,12 +545,12 @@ This release introduces structured validation errors with typed error categories
 
 ### Summary
 
-This release adds stake pool validation to block verification, centralizes header field extraction across eras, and fixes metadata handling.
+This release adds stake pool validation to block verification so blocks are checked against registered pool data and VRF keys.
 
 ### New Features
 
-- Added stake pool validation to `VerifyBlock`, checking that blocks are produced by registered pools with matching VRF keys. Supports Shelley through Conway with opt-out via `SkipStakePoolValidation`.
-- Added centralized header field extraction helper for issuer vkey and VRF key across eras.
+- Added stake pool validation to block verification across Shelley through Conway with opt-out support.
+- Centralized header field extraction across eras.
 
 ### Bug Fixes
 
@@ -659,50 +563,42 @@ This release adds stake pool validation to block verification, centralizes heade
 
 ### Summary
 
-This release wires transaction validation into block verification, extends KES verification to all Shelley-era descendants, adds public network roots, introduces muxer unit tests, and fixes several ledger edge cases.
+This release wires transaction validation into block verification, extends KES verification to all post-Shelley eras, and adds public network roots for mainnet and testnet discovery.
 
 ### New Features
 
-- Wired transaction validation into `VerifyBlock` using era-specific UTXO rules (Shelley through Conway) with `SkipTransactionValidation`, `LedgerState`, and `ProtocolParameters` config fields.
-- Added `VerifyTransaction` function for centralized UTXO validation.
-- Added `ValidateBlockBodyHash` centralized in `ledger/common` with opt-out via `SkipBodyHashValidation`.
-- Added public roots in named networks with `NetworkPublicRoot` and `NetworkAccessPoint` types, configured for mainnet and testnet.
+- Added transaction validation to block verification with era-specific UTxO rules and configurable skip options.
+- Added block body hash validation with opt-out support.
+- Added public network roots for mainnet and testnet.
 
 ### Bug Fixes
 
-- Extended KES verification to all Shelley+ eras instead of Babbage-only.
-- Fixed panic when calling `IssuerVkey` on Byron Epoch Boundary Blocks.
-- Fixed UTxO value conservation to account for ADA minted/burned via treasury withdrawals.
-- Fixed `VerifyConfig` to be per-caller instead of global, preventing races in concurrent verification.
-- Fixed chainsync pipeline limit to 10 for controlled concurrency and memory.
-- Simplified invalid transaction processing.
+- Extended KES verification to all Shelley-descendant eras instead of Babbage only.
+- Fixed a panic on Byron Epoch Boundary Blocks and a race condition in concurrent verification.
+- Fixed value conservation to account for treasury withdrawals.
 
 ### Additional Changes
 
-- Added comprehensive muxer unit tests covering concurrency, error handling, and protocol operations.
-- Bumped `plutigo` to v0.0.16.
-- Replaced `interface{}` with `any` across the codebase.
+- Added muxer unit tests.
 
-## v0.142.0 - polymorphic metadata and output pointer fixes
+## v0.142.0 - metadata refactor and output pointer fixes
 
 - **Date:** 2025-12-01
 - **Version:** 0.142.0
 
 ### Summary
 
-This release fixes output pointer aliasing, adds custom NativeScript CBOR marshaling, refactors metadata to support polymorphic types across eras, and prevents body mutation during fee calculation.
+This release fixes output pointer aliasing that caused all items to reference the same value, prevents transaction body mutation during fee calculation, and refactors metadata for polymorphic era support.
 
 ### Bug Fixes
 
-- Fixed `Outputs()` and `ReferenceInputs()` to return unique pointers, preventing all items from referencing the same range variable.
-- Fixed `MinFeeTx` to encode a local copy with `TxFee=0` instead of mutating the original transaction body.
-- Added custom NativeScript CBOR marshaler using stored raw bytes when present.
+- Fixed output and reference input accessors to return unique pointers.
+- Fixed fee calculation to operate on a copy instead of mutating the original transaction body.
+- Added custom NativeScript CBOR marshaler using stored raw bytes.
 
 ### Additional Changes
 
-- Refactored transaction metadata to support polymorphic auxiliary data types across all eras.
-- Bumped `plutigo` to v0.0.15 (Plutus V3 CEK machine version [1, 2, 0]).
-- Bumped `ouroboros-mock` to v0.4.0 (negative test cases and client handshake entries).
+- Refactored metadata for polymorphic auxiliary data across all eras.
 
 ## v0.141.0 - TX metadata, rewards, and deterministic CBOR
 
@@ -711,28 +607,22 @@ This release fixes output pointer aliasing, adds custom NativeScript CBOR marsha
 
 ### Summary
 
-This release adds proper transaction metadata encoding/decoding, deterministic CBOR for MultiAsset, initial rewards calculation, Leios endorser block bodies, bech32 hash representations, and fixes InvalidTransactions CBOR serialization.
+This release adds proper transaction metadata encoding, deterministic CBOR for multi-asset values, initial rewards calculation formulas, and Leios endorser block bodies.
 
 ### New Features
 
-- Added `TransactionMetadatum` type replacing `cbor.LazyValue`, supporting int, bytes, text, lists, and maps per CDDL.
-- Added CIP-0005 bech32 representations for hashes with `Blake2b224.Bech32(prefix)` and `NewScriptHashFromBech32`.
-- Added deterministic CBOR encoding for `MultiAsset` using `SortCoreDeterministic`.
-- Added `IndefLengthMap` CBOR encoder with deterministic key ordering.
-- Added Leios endorser block body with CBOR array encoding and `BlockBodyHash()`.
-- Added initial rewards calculation and distribution formulas with `RewardService` and reward-related `LedgerState` APIs.
+- Added proper transaction metadata type supporting all CDDL datum kinds.
+- Added CIP-0005 bech32 hash representations and deterministic multi-asset CBOR encoding.
+- Added Leios endorser block body support and initial rewards calculation formulas.
 
 ### Bug Fixes
 
-- Fixed `InvalidTransactions` CBOR encoding to use indefinite-length arrays with strict type/range checks across Babbage and Conway.
-- Fixed metadata encoding/decoding with `LazyValue` to `TransactionMetadatum` conversion and null handling.
-- Fixed protocol state timeout to delay activation until after initial state is set.
+- Fixed InvalidTransactions CBOR encoding and metadata null handling.
+- Fixed protocol state timeout activation ordering.
 
 ### Additional Changes
 
-- Updated CI to test on Go 1.25.x.
-- Updated benchmarks to use `b.Loop()` for lower loop overhead.
-- Bumped `plutigo` from 0.0.13 to 0.0.14, `golang.org/x/crypto` from 0.43.0 to 0.45.0.
+- Updated CI to Go 1.25.x and updated benchmark infrastructure.
 
 ## v0.140.0 - Apex Fusion networks and certificate validation
 
@@ -741,33 +631,22 @@ This release adds proper transaction metadata encoding/decoding, deterministic C
 
 ### Summary
 
-This release adds Apex Fusion Prime network support, certificate deposit validation, CIP-0094 amount handling for Conway, Leios endorser block fixes, and performance improvements for transaction processing.
+This release adds Apex Fusion Prime network support and tightens certificate deposit validation per CIP-0094.
 
 ### New Features
 
-- Added Apex Fusion Prime Mainnet and Prime Testnet networks with bootstrap peers and Cardano-prefixed network identifiers with legacy compatibility aliases.
-- Added Leios era to the protocol version map.
+- Added Apex Fusion Prime Mainnet and Testnet networks with bootstrap peers.
 
 ### Bug Fixes
 
-- Fixed Conway registration/deregistration certificates to use amount-based validation per CIP-0094.
-- Fixed certificate deposit validation with explicit checks and clear error types.
-- Fixed Leios endorser block shape and EB certificate shape.
-- Fixed empty leiosfetch message guard.
-- Fixed `PoolKeyHash` usage for certificate consistency across eras.
-- Fixed utxorpc certificate type in return values.
-- Fixed `CollateralContainsNonADA` error CBOR structure.
+- Fixed Conway certificate validation to use amount-based checks per CIP-0094.
+- Fixed Leios endorser block and certificate shapes.
+- Fixed certificate consistency and collateral error CBOR encoding.
 
 ### Performance
 
-- Pre-allocated transaction input/output slices with 3x improvement for Conway transaction type determination.
-- Increased default protocol receive/pipeline sizes for better throughput.
-
-### Additional Changes
-
-- Added comprehensive serde benchmarks across all eras.
-- Added all certificate type verification tests.
-- Added GoDoc comments for keepalive and blockfetch packages.
+- Pre-allocated transaction input/output slices for faster processing.
+- Increased default protocol queue sizes for better throughput.
 
 ## v0.139.0 - protocol limits and timeouts
 
@@ -776,165 +655,124 @@ This release adds Apex Fusion Prime network support, certificate deposit validat
 
 ### Summary
 
-This release adds full Ouroboros Network Specification compliance with protocol state timeouts, per-protocol message byte limits, pipeline and queue limits, and Leios protocol parameter support.
+This release adds Ouroboros Network Specification compliance with protocol state timeouts, message byte limits, and pipeline limits so connections are properly bounded and cleaned up.
 
 ### New Features
 
-- Added protocol state timeouts for all 11 mini-protocols based on the Ouroboros Network Specification to prevent resource leaks.
-- Added per-protocol per-state pending message byte limits: ChainSync 100KB, BlockFetch 5MB, TxSubmission unlimited, with connection teardown on violation.
-- Added protocol limits for mini-protocols: ChainSync pipeline limit (100), BlockFetch receive queue (512), TxSubmission request count (65535) with new error types for violations.
-- Added Leios-specific protocol parameter model with array-style serialization.
-- Added CBOR marshal/unmarshal for `ScriptsNotPaidUtxo` error matching Haskell cardano-ledger specification.
+- Added protocol state timeouts for all 11 mini-protocols to prevent resource leaks.
+- Added per-protocol message byte limits and pipeline/queue limits with connection teardown on violation.
+- Added Leios protocol parameters.
 
 ### Bug Fixes
 
-- Fixed Blake2b256/224/160 zero-value hashes to encode as proper zero-filled bytestrings instead of CBOR null. Critical for genesis blocks.
+- Fixed zero-value hash encoding to use proper zero-filled bytestrings instead of CBOR null.
 
 ### Additional Changes
 
-- Updated for utxorpc spec 0.18.1 compatibility with big-integer and rational wrappers for coin/fee/deposit/asset quantities.
-- Added comprehensive handshake client refusal tests for NtC and NtN.
+- Updated for utxorpc spec 0.18.1 compatibility.
 
-## v0.138.0 - CBOR round-trip fidelity and validation improvements
+## v0.138.0 - CBOR round-trip fidelity
 
 - **Date:** 2025-11-05
 - **Version:** 0.138.0
 
 ### Summary
 
-This release adds block-level CBOR marshal functions for multiple eras ensuring byte-for-byte serialization fidelity, improves protocol parameter validation, and fixes several encoding issues.
+This release adds block-level CBOR marshal functions for multiple eras so blocks can be serialized with byte-for-byte fidelity, and tightens protocol parameter validation.
 
 ### New Features
 
-- Added Mary block CBOR marshal function with round-trip test and nullable validity start field.
-- Added Alonzo block custom CBOR marshal with byte-for-byte fidelity and indefinite-length invalid-transaction lists.
-- Added Babbage block CBOR round-trip test with datum hash preservation and stable witness encoding.
-- Added `MinPoolCost` to protocol parameters with centralized value/fee/size validation.
+- Added block CBOR marshaling with round-trip fidelity for Mary, Alonzo, and Babbage eras.
+- Added minimum pool cost to protocol parameters.
 
 ### Bug Fixes
 
-- Fixed Byron transaction payload encoding with indefinite-length list for proper CBOR round-trips.
-- Fixed Shelley validation to reject nil/missing values and out-of-range numerators for A0, Rho, and Tau rational parameters.
-- Fixed dynamic era name in `UtxoFailure` error messages instead of hardcoded "Alonzo".
-- Used `PoolKeyHash` instead of generic byte arrays for pool state lookups, improving type safety.
+- Fixed Byron transaction payload encoding for proper CBOR round-trips.
+- Tightened Shelley rational parameter validation to reject out-of-range values.
+- Fixed error messages to use the correct era name instead of a hardcoded default.
 
-### Additional Changes
-
-- Bumped `ouroboros-mock` dependency.
-
-## v0.137.1 - memory optimization and linting
+## v0.137.1 - memory optimization
 
 - **Date:** 2025-10-31
 - **Version:** 0.137.1
 
 ### Summary
 
-This release optimizes memory layout, fixes allocation patterns, implements the proposed protocol parameter updates result type, and enables additional linting rules.
+This release optimizes memory layout and allocation patterns, and implements the proposed protocol parameter updates result type.
 
 ### Bug Fixes
 
-- Implemented `ProposedProtocolParamsUpdatesResult` as a typed map instead of `any`.
-- Fixed nil guard for debug log message when chain sync protocol is not active.
+- Implemented proposed protocol parameter updates as a typed result instead of untyped interface.
+- Fixed a nil guard for debug logging when ChainSync is not active.
 
 ### Performance
 
-- Aligned struct fields for reduced memory usage across command and CBOR packages.
-- Replaced string concatenation in loops with efficient string builders.
-- Optimized memory allocation in block verification encoding.
+- Optimized struct field alignment and allocation patterns across CBOR and command packages.
 
-### Additional Changes
-
-- Enabled `asasalint` linter rule.
-- Bumped `gnark-crypto` dependency.
-
-## v0.137.0 - LeiosFetch protocol and RawScriptBytes
+## v0.137.0 - LeiosFetch protocol
 
 - **Date:** 2025-10-24
 - **Version:** 0.137.0
 
 ### Summary
 
-This release implements the LeiosFetch protocol for CIP-0164, adds raw script byte access to the Script interface, and improves error handling.
+This release implements the LeiosFetch protocol (CIP-0164) for fetching blocks, transactions, and votes, and adds raw script byte access to the Script interface.
 
 ### New Features
 
-- Added LeiosFetch protocol (CIP-0164) for fetching blocks, block transactions, votes, and block ranges with client/server endpoints, integrated into NtN connection startup/shutdown.
-- Added `RawScriptBytes()` to the `Script` interface for direct access to underlying script bytes without casting to specific types.
+- Added LeiosFetch protocol with client/server endpoints for blocks, transactions, votes, and block ranges.
+- Added raw script byte access to the Script interface so callers can get underlying bytes without type casting.
 
-### Bug Fixes
-
-- Fixed error handling for nil leios-notify request next.
-- Improved CBOR struct field alignment for better memory usage.
-
-## v0.136.0 - Leios ledger primitives and LeiosNotify
+## v0.136.0 - Leios ledger primitives
 
 - **Date:** 2025-10-13
 - **Version:** 0.136.0
 
 ### Summary
 
-This release introduces the initial Leios protocol support with ledger primitives, the LeiosNotify protocol, genesis structures, and Leios-specific hash functions, alongside a Conway transaction CBOR round-trip test.
+This release introduces initial Leios protocol support with ledger primitives, the LeiosNotify protocol, genesis structures, and a Conway transaction CBOR round-trip test.
 
 ### New Features
 
-- Added initial LeiosNotify protocol (CIP-0164) with client/server endpoints.
-- Added Leios ledger primitives including block shapes per CIP-0164.
-- Added Leios genesis struct and readers.
-- Added Leios-specific hash function.
-- Added error handling for `NewMsgRollForwardNtC`.
+- Added LeiosNotify protocol (CIP-0164), Leios ledger primitives, genesis structures, and hash functions.
 
 ### Bug Fixes
 
-- Fixed transaction `Id` vs `Hash` distinction for Leios Endorser Blocks.
-- Fixed Leios endorser blocks to store transactions for later retrieval via `Transactions()`.
-- Fixed Conway protocol parameter update pre-allocation to correct size.
+- Fixed transaction identity handling for Leios endorser blocks and Conway parameter pre-allocation.
 
 ### Additional Changes
 
 - Added Conway transaction CBOR round-trip test.
-- Bumped `plutigo` from 0.0.12 to 0.0.13, `golang.org/x/crypto` from 0.42.0 to 0.43.0.
 
-## v0.135.2 - nilaway enforcement
+## v0.135.2 - nil safety enforcement
 
 - **Date:** 2025-09-18
 - **Version:** 0.135.2
 
 ### Summary
 
-This release enforces nilaway static analysis in CI and fixes nil pointer dereference issues.
+This release enforces nilaway static analysis in CI and fixes nil pointer dereference issues found during analysis.
 
 ### Bug Fixes
 
-- Fixed Byron genesis `FtsSeed` to accept both JSON string and empty object formats.
-- Fixed nil pointer dereference by pre-allocating program in script handling.
-- Addressed multiple nilaway static analysis findings across the codebase.
+- Fixed Byron genesis to accept alternate seed formats and resolved nil pointer issues across the codebase.
 
-### Additional Changes
-
-- Enforced nilaway in CI.
-- Bumped `golang.org/x/crypto` from 0.41.0 to 0.42.0.
-
-## v0.135.1 - nil safety and ScriptPurpose refactor
+## v0.135.1 - ScriptPurpose refactor
 
 - **Date:** 2025-09-13
 - **Version:** 0.135.1
 
 ### Summary
 
-This release adds nilaway static analysis to CI, fixes nil panics, and splits ScriptPurpose into separate purpose and info types.
+This release splits ScriptPurpose into separate purpose and info types for clearer separation of concerns, and adds nilaway static analysis to CI.
 
 ### Breaking Changes
 
-- Split `ScriptPurpose` into `ScriptPurpose` and `ScriptInfo` for clearer separation of concerns.
+- Split `ScriptPurpose` into `ScriptPurpose` and `ScriptInfo`.
 
 ### Bug Fixes
 
-- Fixed nil panic when `Redeemers()` returns nil.
-
-### Additional Changes
-
-- Added nilaway static analysis to CI pipeline.
-- Bumped `actions/setup-go` from 5.5.0 to 6.0.0, `actions/github-script` from 7.0.1 to 8.0.0, `testify` from 1.11.0 to 1.11.1.
+- Fixed a nil panic when redeemers are absent.
 
 ## v0.135.0 - TX output string representation
 
@@ -943,21 +781,17 @@ This release adds nilaway static analysis to CI, fixes nil panics, and splits Sc
 
 ### Summary
 
-This release adds friendly string representations for transaction outputs and implements PlutusData conversion for pre-Alonzo outputs.
+This release adds human-readable string representations for transaction outputs so validation errors are easier to understand.
 
 ### New Features
 
-- Added `String()` to the `TransactionOutput` interface and all era-specific implementations, used in validation error messages.
+- Added string representations for transaction outputs across all eras.
 
 ### Bug Fixes
 
-- Implemented `ToPlutusData()` for pre-Alonzo transaction outputs.
+- Added PlutusData conversion for pre-Alonzo transaction outputs.
 
-### Additional Changes
-
-- Bumped `plutigo` to v0.0.12.
-
-## v0.134.2 - plutigo update
+## v0.134.2 - dependency update
 
 - **Date:** 2025-09-04
 - **Version:** 0.134.2
@@ -968,7 +802,7 @@ Dependency update release.
 
 ### Additional Changes
 
-- Bumped `plutigo` to v0.0.11.
+- Updated `plutigo` to v0.0.11.
 
 ## v0.134.1 - datum CBOR preservation
 
@@ -977,15 +811,11 @@ Dependency update release.
 
 ### Summary
 
-This release preserves original datum CBOR bytes on decode to prevent re-encoding from altering the original representation.
+This release preserves original datum CBOR bytes on decode so re-encoding does not alter the on-chain representation.
 
 ### Bug Fixes
 
-- Fixed datum decoding to retain original CBOR bytes, preventing re-encoding from altering the original representation.
-
-### Additional Changes
-
-- Bumped `plutigo` to v0.0.10.
+- Fixed datum decoding to retain original CBOR bytes.
 
 ## v0.134.0 - Plutus script context expansion
 
@@ -994,25 +824,17 @@ This release preserves original datum CBOR bytes on decode to prevent re-encodin
 
 ### Summary
 
-This release expands Plutus script context support with certificates, stake withdrawals, voting, and proposing, adds pool deposit handling for retired/re-registered pools, and improves address tracking.
+This release expands the Plutus script context to cover certificates, stake withdrawals, voting, and proposing so smart contracts can access full transaction context during validation.
 
 ### New Features
 
-- Added certificate support in Plutus script context with `ToPlutusData()` for `Drep` and treasury amount/donation in `TxInfoV3`.
-- Added stake withdrawal support in Plutus script context with corrected validity range handling.
-- Added voting support in Plutus script context.
-- Added proposing support in Plutus script context with Conway-specific protocol parameter update governance actions.
-- Added pool deposit collection when a pool is retired and re-registered.
-- Added `SlotState` to `LedgerState` interface for slot-to-time queries.
+- Added certificate, withdrawal, voting, and proposing support in the Plutus script context.
+- Added pool deposit collection when a pool is retired and re-registered in the same transaction.
+- Added slot-to-time queries to the ledger state interface.
 
 ### Bug Fixes
 
-- Fixed stake-only and pointer address PlutusData representations.
-- Fixed muxer to return an error when receiving zero-byte payload instead of panicking.
-
-### Additional Changes
-
-- Refactored address payload type tracking with Shelley pointer address support.
+- Fixed address PlutusData representations for stake-only and pointer addresses.
 
 ## v0.133.0 - PlutusV3 script evaluation
 
@@ -1021,26 +843,20 @@ This release expands Plutus script context support with certificates, stake with
 
 ### Summary
 
-This release adds PlutusV3 script evaluation support, uses typed script types in witness sets, and fixes several CBOR marshaling and PlutusData encoding issues.
+This release adds PlutusV3 script evaluation support and switches to typed script types in witness sets for better type safety.
 
 ### New Features
 
-- Added PlutusV3 script evaluation with datum option, script ref to PlutusData for Babbage TX output, reformatted redeemers in `TxInfoV3`, required signers and witness data population, and input datum support in `ScriptInfoSpending`.
+- Added PlutusV3 script evaluation with full script context support including datum options, required signers, and multi-policy minting.
 
 ### Breaking Changes
 
-- Changed `ExUnits` fields to `int64` to allow storing negative values for budget overruns.
-- Replaced raw `[]byte` with `common.PlutusV1Script`, `PlutusV2Script`, and `PlutusV3Script` types in transaction witness sets.
+- Switched execution unit fields to signed integers to represent budget overruns.
+- Replaced raw byte slices with typed script types in transaction witness sets.
 
 ### Bug Fixes
 
-- Fixed CBOR marshaling for `Utxo` type.
-- Fixed `Address` PlutusData encoding for stake key.
-- Fixed script ref CBOR marshaling.
-
-### Additional Changes
-
-- Added helper function for getting script hash from script purpose.
+- Fixed CBOR marshaling for UTxO, address PlutusData, and script references.
 
 ## v0.132.0 - initial Plutus script context
 
@@ -1049,26 +865,21 @@ This release adds PlutusV3 script evaluation support, uses typed script types in
 
 ### Summary
 
-This release introduces initial Plutus script context support for building V3 contexts from transactions, decodes Plutus datums as typed PlutusData, and consolidates big.Rat wrapper types.
+This release introduces initial Plutus script context support for building V3 contexts from transactions and decodes datums as typed PlutusData.
 
 ### New Features
 
-- Added initial Plutus script context support for building V3 contexts from transactions for a limited set of use cases.
+- Added initial Plutus V3 script context building from transactions.
 - Added script hash generation helper.
+
+### Breaking Changes
+
+- Datums are now decoded as typed PlutusData instead of raw CBOR.
+- Removed the unused `DetermineBlockData` function.
 
 ### Bug Fixes
 
 - Fixed native script CBOR unmarshal to retain original data.
-
-### Breaking Changes
-
-- Decoded Plutus datum as `data.PlutusData` instead of raw CBOR.
-- Removed `DetermineBlockData` (unused and unreliable).
-
-### Additional Changes
-
-- Merged `big.Rat` wrapper types for consistency.
-- Bumped `plutigo` to v0.0.6.
 
 ## v0.131.0 - UTxO whole query and genesis pools
 
@@ -1077,80 +888,69 @@ This release introduces initial Plutus script context support for building V3 co
 
 ### Summary
 
-This release adds the UTxO whole result query, creates genesis pools from Shelley genesis configuration, and merges UTxO result types.
+This release adds a query for complete UTxO sets and creates genesis pools from Shelley genesis configuration.
 
 ### New Features
 
-- Added `UTxOWholeResult` type for querying complete UTxO sets with JSON output support.
-- Added genesis pool creation from Shelley genesis configuration with pool lookup by ID and CBOR conversion.
+- Added UTxO whole result query with JSON output support.
+- Added genesis pool creation from Shelley genesis with pool lookup by ID.
 
 ### Additional Changes
 
-- Merged UTxO result types in the protocol package.
-- Moved CBOR debug utility from `utils` to `cbor` package.
-- Bumped `plutigo` from 0.0.3 to 0.0.4, `golang.org/x/crypto` from 0.40.0 to 0.41.0.
+- Consolidated UTxO result types and CBOR debug utilities.
 
-## v0.130.1 - redeemer iteration
+## v0.130.1 - redeemer iteration improvements
 
 - **Date:** 2025-08-01
 - **Version:** 0.130.1
 
 ### Summary
 
-This release improves redeemer iteration and consolidates genesis rational types.
+This release makes redeemers easier to iterate and consolidates genesis rational types.
 
 ### Additional Changes
 
-- Added easier iteration of redeemers with Conway redeemer key/value types moved to `common` for reuse.
-- Merged `AlonzoGenesisExecutionPricesRat` into `common.Rat`.
-- Bumped `plutigo` to v0.0.3.
+- Improved redeemer iteration with shared key/value types across eras.
+- Consolidated genesis rational types into a single common type.
 
-## v0.130.0 - PlutusData conversions for governance types
+## v0.130.0 - PlutusData for governance types
 
 - **Date:** 2025-07-31
 - **Version:** 0.130.0
 
 ### Summary
 
-This release adds PlutusData conversion functions for governance types, transaction outputs, and multi-asset values, and fixes address PlutusData structure.
+This release adds PlutusData conversion functions for governance proposals, votes, transaction outputs, and multi-asset values so they can be passed to Plutus scripts.
 
 ### New Features
 
-- Added `ToPlutusData()` for governance proposal types: `GovAnchor`, `GovActionId`, `ProposalProcedure`, and all governance action variants.
-- Added `ToPlutusData()` for governance vote types: `Voter`, `Vote`, and `VotingProcedure`.
-- Added `ToPlutusData()` helper for `TransactionOutput` conversion.
-- Added `ToPlutusData()` helper for `MultiAsset` conversion.
+- Added PlutusData conversion for governance proposals, votes, transaction outputs, and multi-asset values.
 
 ### Bug Fixes
 
-- Fixed `Address` PlutusData structure.
+- Fixed address PlutusData structure.
 
 ### Additional Changes
 
 - Added utxorpc block function tests across all eras.
-- Fixed Babbage block test data to use correct era.
-- Pinned all CI actions to commit hash with version comments.
 
-## v0.129.0 - PlutusData helpers and CBOR round-trip tests
+## v0.129.0 - PlutusData helpers
 
 - **Date:** 2025-07-17
 - **Version:** 0.129.0
 
 ### Summary
 
-This release adds PlutusData conversion helpers for core types, block CBOR round-trip tests across eras, and bumps several dependencies.
+This release adds PlutusData conversion helpers for core types and block CBOR round-trip tests across eras.
 
 ### New Features
 
-- Added `ToPlutusData()` helpers for hash types (`Blake2b224`, `Blake2b256`).
-- Added `ToPlutusData()` helper for `Address` conversion.
-- Added `ToPlutusData()` helper for `TransactionInput` conversion.
+- Added PlutusData conversion for hashes, addresses, and transaction inputs.
 
 ### Additional Changes
 
-- Added block CBOR serde round-trip tests for Shelley, Allegra, and Conway.
-- Bumped `cbor/v2` from 2.8.0 to 2.9.0, `golang.org/x/crypto` from 0.39.0 to 0.40.0, `utxorpc/go-codegen` from 0.16.0 to 0.17.0.
-- Updated required Go version to 1.24 (plutigo dependency).
+- Added block CBOR round-trip tests for Shelley, Allegra, and Conway.
+- Updated Go version requirement to 1.24 and bumped CBOR, crypto, and utxorpc dependencies.
 
 ## v0.128.2 - Conway CBOR marshaling fixes
 
@@ -1159,15 +959,12 @@ This release adds PlutusData conversion helpers for core types, block CBOR round
 
 ### Summary
 
-This release fixes multiple Conway CBOR marshaling issues and a TxSubmission protocol restart bug.
+This release fixes several Conway CBOR marshaling issues that could produce incorrect serialization for redeemers, witness sets, and generic values.
 
 ### Bug Fixes
 
-- Fixed Conway redeemer CBOR marshaling.
-- Fixed `cbor.Value` custom CBOR marshaling.
-- Fixed Conway witness set optional CBOR set tags.
-- Fixed TxSubmission ack count reset on protocol restart.
-- Fixed redeemers to store in legacy format when original on-chain data was ordered.
+- Fixed Conway redeemer and witness set CBOR marshaling, value type marshaling, and TxSubmission ack count reset on protocol restart.
+- Fixed redeemers to preserve legacy ordering when present in on-chain data.
 
 ## v0.128.1 - nil pparam update guard
 
@@ -1176,11 +973,11 @@ This release fixes multiple Conway CBOR marshaling issues and a TxSubmission pro
 
 ### Summary
 
-This release fixes a nil pointer dereference when processing transactions with no protocol parameter updates.
+This release fixes a crash when processing transactions with no protocol parameter updates.
 
 ### Bug Fixes
 
-- Added nil check for TX protocol parameter updates.
+- Added nil check for transaction protocol parameter updates.
 
 ## v0.128.0 - TxSubmission lifecycle and CBOR set tags
 
@@ -1189,22 +986,16 @@ This release fixes a nil pointer dereference when processing transactions with n
 
 ### Summary
 
-This release adds TxSubmission client Done support and MsgDone callbacks, introduces CBOR set tags for transaction body encoding, fixes Byron address and TX input encoding, and adds era-specific block test data.
+This release adds TxSubmission client completion support so applications can cleanly signal they are done submitting transactions, and introduces CBOR set tags for spec-compliant transaction body encoding.
 
 ### New Features
 
-- Added client `Done` support in TxSubmission protocol.
-- Added `MsgDone` callback support for TxSubmission.
-- Added clean `Stop` for TxSubmission server.
+- Added client Done and MsgDone callback support for TxSubmission, and clean server shutdown.
 
 ### Bug Fixes
 
-- Fixed Byron address CBOR encoding to wrap bytes in a bytestring, matching Shelley address format.
-- Fixed CBOR encoding for TX inputs.
-- Fixed empty datum hash exclusion from Alonzo TX output CBOR.
+- Fixed Byron address and TX input CBOR encoding, and excluded empty datum hashes from Alonzo outputs.
 
 ### Additional Changes
 
-- Added CBOR set tag wrapper type for optional encoding of transaction body fields (inputs, reference inputs, collateral).
-- Added block test data for all eras except Conway.
-- Refactored TX protocol parameter update to use a separate type with pointer for proper CBOR zero-value handling.
+- Added CBOR set tag support for transaction body fields and block test data for all eras.
