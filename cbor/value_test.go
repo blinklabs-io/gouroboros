@@ -293,3 +293,38 @@ func TestLazyValueMarshalJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestLazyValueMarshalJSONEmptyCborData(t *testing.T) {
+	t.Run("zero value", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		jsonData, err := json.Marshal(&tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal LazyValue as JSON: %s", err)
+		}
+		if !test.JsonStringsEqual(jsonData, []byte(`{"cbor":""}`)) {
+			t.Fatalf(
+				"LazyValue did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
+				jsonData,
+				`{"cbor":""}`,
+			)
+		}
+	})
+
+	t.Run("empty cbor after unmarshal", func(t *testing.T) {
+		var tmpValue cbor.LazyValue
+		if err := tmpValue.UnmarshalCBOR(nil); err != nil {
+			t.Fatalf("failed to unmarshal empty CBOR data: %s", err)
+		}
+		jsonData, err := json.Marshal(&tmpValue)
+		if err != nil {
+			t.Fatalf("failed to marshal LazyValue as JSON: %s", err)
+		}
+		if !test.JsonStringsEqual(jsonData, []byte(`{"cbor":""}`)) {
+			t.Fatalf(
+				"LazyValue did not marshal to expected JSON\n  got:    %s\n  wanted: %s",
+				jsonData,
+				`{"cbor":""}`,
+			)
+		}
+	})
+}

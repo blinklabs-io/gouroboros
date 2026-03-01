@@ -285,9 +285,19 @@ func (l *LazyValue) UnmarshalCBOR(data []byte) error {
 }
 
 func (l *LazyValue) MarshalJSON() ([]byte, error) {
+	if l.value == nil {
+		l.value = &Value{}
+	}
 	if l.Value() == nil && len(l.value.cborData) > 0 {
 		// Try to decode if we can, but don't blow up if we can't
-		_, _ = l.Decode()
+		if _, err := l.Decode(); err != nil {
+			tmpJsonObj := map[string]any{
+				"cbor":  hex.EncodeToString([]byte(l.value.cborData)),
+				"json":  nil,
+				"error": err.Error(),
+			}
+			return json.Marshal(tmpJsonObj)
+		}
 	}
 	return l.value.MarshalJSON()
 }
