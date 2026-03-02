@@ -225,6 +225,12 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 				tx.auxData = aux
 			}
 		}
+		// Precompute and store transaction CBOR from preserved
+		// component bytes so that tx.Cbor() returns immediately
+		// without re-encoding on each call.
+		if txCbor, err := tx.MarshalCBOR(); err == nil {
+			tx.SetCbor(txCbor)
+		}
 		ret[idx] = tx
 	}
 	return ret
@@ -746,7 +752,7 @@ func (o BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
 			return &hash
 		}
 	}
-	return &common.Blake2b256{}
+	return nil
 }
 
 func (o BabbageTransactionOutput) Datum() *common.Datum {

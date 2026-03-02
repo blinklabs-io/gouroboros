@@ -681,7 +681,7 @@ func UtxoValidateScriptDataHash(
 	}
 
 	wits := tmpTx.WitnessSet
-	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
+	hasRedeemers := wits.WsRedeemers.Len() > 0
 	hasDatums := len(wits.WsPlutusData.Items()) > 0
 
 	// Determine which Plutus versions are used
@@ -783,7 +783,7 @@ func UtxoValidateScriptDataHash(
 		// Note: Must encode empty map explicitly, as nil map encodes
 		// as 0xf6 (CBOR null) but the spec expects 0xa0 (empty map)
 		// for Conway empty redeemers.
-		if len(wits.WsRedeemers.Redeemers) == 0 && !wits.WsRedeemers.legacy {
+		if wits.WsRedeemers.Len() == 0 && !wits.WsRedeemers.legacy {
 			redeemersCbor = []byte{0xa0}
 		} else {
 			var err error
@@ -921,7 +921,7 @@ func UtxoValidateInsufficientCollateral(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
+	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
 	totalCollateral := new(big.Int)
@@ -971,7 +971,7 @@ func UtxoValidateCollateralContainsNonAda(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
+	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
@@ -1034,7 +1034,7 @@ func UtxoValidateNoCollateralInputs(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
+	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
 	if len(tx.Collateral()) > 0 {
@@ -1658,7 +1658,7 @@ func UtxoValidateExUnitsTooBigUtxo(
 		return errors.New("transaction is not expected type")
 	}
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
 		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
@@ -1715,8 +1715,11 @@ func UtxoValidateTooManyCollateralInputs(
 	}
 }
 
-// MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
-// Fee is calculated using the transaction body CBOR size as per Cardano protocol
+// MinFeeTx calculates the minimum required fee for a transaction based on
+// protocol parameters. The fee-relevant transaction size is determined by
+// common.TxSizeForFee, which uses the original on-wire CBOR length and
+// subtracts 1 byte for Alonzo+ eras (the IsValid boolean is excluded from
+// the fee computation per the Cardano ledger spec toCBORForSizeComputation).
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
@@ -1725,19 +1728,12 @@ func MinFeeTx(
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*ConwayTransaction)
-	if !ok {
-		return 0, errors.New("tx is not expected type")
-	}
-	// Encode a local copy of the body with TxFee set to 0 to calculate size without fee
-	body := tmpTx.Body
-	body.TxFee = 0
-	txBytes, err := cbor.Encode(body)
+	txSize, err := common.TxSizeForFee(tx)
 	if err != nil {
 		return 0, err
 	}
 	minFee := common.CalculateMinFee(
-		len(txBytes),
+		txSize,
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)
