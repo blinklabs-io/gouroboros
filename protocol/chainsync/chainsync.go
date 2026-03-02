@@ -132,31 +132,27 @@ var StateMapNtN = protocol.StateMap{
 	},
 }
 
-// StateMapNtC is the N2C ChainSync state machine with no timeouts per spec Table 3.9.
+// StateMapNtC is the N2C ChainSync state machine with no timeouts and no size
+// limits per spec Section 3.7.5: "There are no size-limits nor timeouts".
 var StateMapNtC = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Transitions:             idleTransitions,
+		Agency:      protocol.AgencyClient,
+		Transitions: idleTransitions,
 	},
 	stateCanAwait: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Transitions:             canAwaitTransitions,
+		Agency:      protocol.AgencyServer,
+		Transitions: canAwaitTransitions,
 	},
 	stateIntersect: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Transitions:             intersectTransitions,
+		Agency:      protocol.AgencyServer,
+		Transitions: intersectTransitions,
 	},
 	stateMustReply: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Transitions:             mustReplyTransitions,
+		Agency:      protocol.AgencyServer,
+		Transitions: mustReplyTransitions,
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyNone,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Agency: protocol.AgencyNone,
 	},
 }
 
@@ -202,7 +198,7 @@ const (
 	MaxRecvQueueSize            = 100    // Max receive queue size (messages)
 	DefaultPipelineLimit        = 75     // Default pipeline limit
 	DefaultRecvQueueSize        = 75     // Default queue size
-	MaxPendingMessageBytes      = 102400 // Max pending message bytes (100KB)
+	MaxPendingMessageBytes      = 462000 // NtN mux ingress buffer per spec Table 3.15 (462KB)
 	DefaultPipelineDrainTimeout = 30 * time.Second
 )
 
