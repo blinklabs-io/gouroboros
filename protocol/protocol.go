@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -32,6 +33,12 @@ import (
 // This is completely arbitrary, but the line had to be drawn somewhere
 const maxMessagesPerSegment = 20
 
+// maxReadBufferSize is the upper bound on the read buffer in readLoop.
+// This prevents a malicious peer from sending incomplete CBOR indefinitely
+// to cause unbounded memory growth (OOM). 16MB accommodates large legitimate
+// messages such as ledger state query responses.
+const maxReadBufferSize = 16 * 1024 * 1024 // 16MB
+
 // DefaultRecvQueueSize is the default capacity for the recv queue channel
 const DefaultRecvQueueSize = 55
 
@@ -39,6 +46,7 @@ const DefaultRecvQueueSize = 55
 type Protocol struct {
 	config              ProtocolConfig
 	doneChan            chan struct{}
+	stopChan            chan struct{}
 	muxerSendChan       chan *muxer.Segment
 	muxerRecvChan       chan *muxer.Segment
 	muxerDoneChan       chan bool
@@ -49,6 +57,7 @@ type Protocol struct {
 	sendDoneChan        chan struct{}
 	sendReadyChan       chan bool
 	stateTransitionChan chan<- protocolStateTransition
+	onceRegister        sync.Once
 	onceStart           sync.Once
 	onceStop            sync.Once
 	pendingBytesMu      sync.Mutex
@@ -102,7 +111,7 @@ type ProtocolOptions struct {
 	Logger       *slog.Logger
 	ErrorChan    chan error
 	Mode         ProtocolMode
-	// TODO: remove me
+	// TODO(cleanup): Role field may be redundant with Mode - evaluate removal
 	Role    ProtocolRole
 	Version uint16
 }
@@ -126,16 +135,16 @@ func New(config ProtocolConfig) *Protocol {
 	p := &Protocol{
 		config:       config,
 		doneChan:     make(chan struct{}),
+		stopChan:     make(chan struct{}),
 		recvDoneChan: make(chan struct{}),
 		sendDoneChan: make(chan struct{}),
 	}
 	return p
 }
 
-// Start initializes the mini-protocol
-func (p *Protocol) Start() {
-	p.onceStart.Do(func() {
-		// Register protocol with muxer
+// EnsureRegistered registers the protocol with the muxer if not already registered.
+func (p *Protocol) EnsureRegistered() {
+	p.onceRegister.Do(func() {
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
 			muxerProtocolRole = muxer.ProtocolRoleResponder
@@ -144,6 +153,14 @@ func (p *Protocol) Start() {
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
+	})
+}
+
+// Start initializes the mini-protocol
+func (p *Protocol) Start() {
+	p.onceStart.Do(func() {
+		p.EnsureRegistered()
+
 		if p.muxerDoneChan == nil {
 			p.SendError(errors.New("could not register protocol with muxer"))
 			return
@@ -175,6 +192,8 @@ func (p *Protocol) Start() {
 // Stop shuts down the mini-protocol
 func (p *Protocol) Stop() {
 	p.onceStop.Do(func() {
+		close(p.stopChan)
+
 		// Unregister protocol from muxer
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
 		if p.config.Role == ProtocolRoleServer {
@@ -210,6 +229,37 @@ func (p *Protocol) DoneChan() <-chan struct{} {
 	return p.doneChan
 }
 
+// WaitSendQueueDrained blocks until the send queue has been drained (best-effort) or the protocol
+// begins shutting down, or the timeout expires.
+func (p *Protocol) WaitSendQueueDrained(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		// Treat shutdown as "not drained"
+		select {
+		case <-p.stopChan:
+			return false
+		case <-p.doneChan:
+			return false
+		default:
+		}
+
+		p.pendingBytesMu.Lock()
+		pending := p.pendingSendBytes
+		p.pendingBytesMu.Unlock()
+		queueLen := 0
+		if p.sendQueueChan != nil {
+			queueLen = len(p.sendQueueChan)
+		}
+		if pending == 0 && queueLen == 0 {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 // getCurrentState returns the current protocol state in a thread-safe manner
 func (p *Protocol) getCurrentState() State {
 	p.currentStateMu.RLock()
@@ -219,6 +269,15 @@ func (p *Protocol) getCurrentState() State {
 
 // SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
+	// Immediately return if we're already shutting down
+	select {
+	case <-p.stopChan:
+		return ErrProtocolShuttingDown
+	case <-p.doneChan:
+		return ErrProtocolShuttingDown
+	default:
+	}
+
 	// Calculate message size and cache encoded data if necessary
 	var data []byte
 	if msg.Cbor() != nil {
@@ -243,7 +302,6 @@ func (p *Protocol) SendMessage(msg Message) error {
 	if limit > 0 && p.pendingSendBytes+msgLen > limit {
 		p.pendingBytesMu.Unlock()
 		p.SendError(ErrProtocolViolationQueueExceeded)
-		p.Stop()
 		return ErrProtocolViolationQueueExceeded
 	}
 	p.pendingSendBytes += msgLen
@@ -252,8 +310,19 @@ func (p *Protocol) SendMessage(msg Message) error {
 	return nil
 }
 
-// SendError sends an error to the handler in the Ouroboros object
+// SendError sends an error to the handler in the Ouroboros object and stops the protocol.
+// This ensures that protocol errors immediately terminate the connection and prevent
+// further errors from being generated.
 func (p *Protocol) SendError(err error) {
+	// Immediately return if we're already shutting down
+	select {
+	case <-p.stopChan:
+		return
+	case <-p.doneChan:
+		return
+	default:
+	}
+	// Send error to consumer
 	select {
 	case p.config.ErrorChan <- err:
 	default:
@@ -262,6 +331,9 @@ func (p *Protocol) SendError(err error) {
 		// additional errors are unnecessary
 		return
 	}
+	// Stop the protocol on any error to prevent further errors from being generated
+	// and to ensure the connection is properly terminated
+	p.Stop()
 }
 
 func (p *Protocol) sendLoop() {
@@ -273,8 +345,12 @@ func (p *Protocol) sendLoop() {
 		close(p.sendDoneChan)
 	}()
 
+	var queuedStateTransitions []Message
+waitSendReadyChan:
 	for {
 		select {
+		case <-p.stopChan:
+			return
 		case <-p.recvDoneChan:
 			// Break out of send loop if we're shutting down
 			return
@@ -282,13 +358,38 @@ func (p *Protocol) sendLoop() {
 			// We are ready to send based on state map
 		}
 
+		// Check for queued state transitions
+		if len(queuedStateTransitions) > 0 {
+			if err := p.transitionState(queuedStateTransitions[0]); err != nil {
+				if errors.Is(err, ErrProtocolShuttingDown) {
+					// Graceful shutdown in progress
+					return
+				}
+				p.SendError(
+					fmt.Errorf(
+						"%s: error sending message: %w",
+						p.config.Name,
+						err,
+					),
+				)
+				return
+			}
+			queuedStateTransitions = slices.Delete(queuedStateTransitions, 0, 1)
+			// Don't read more messages from the send queue until all state transitions from
+			// previously sent pipelined messages have been completed
+			continue waitSendReadyChan
+		}
+
 		// Read queued messages and write into buffer
 		payloadBuf := bytes.NewBuffer(nil)
 		msgCount := 0
-	outer:
+		queueTransition := false
+	readSendQueueLoop:
 		for {
 			// Get next message from send queue
 			select {
+			case <-p.stopChan:
+				return
 			case <-p.recvDoneChan:
 				// Break out of send loop if we're shutting down
 				return
@@ -324,28 +425,38 @@ func (p *Protocol) sendLoop() {
 				}
 				p.pendingBytesMu.Unlock()
 
-				if err := p.transitionState(msg); err != nil {
-					p.SendError(
-						fmt.Errorf(
-							"%s: error sending message: %w",
-							p.config.Name,
-							err,
-						),
-					)
-					return
+				if queueTransition {
+					queuedStateTransitions = append(queuedStateTransitions, msg)
+				} else {
+					if err := p.transitionState(msg); err != nil {
+						if errors.Is(err, ErrProtocolShuttingDown) {
+							// Graceful shutdown in progress
+							return
+						}
+						p.SendError(
+							fmt.Errorf(
+								"%s: error sending message: %w",
+								p.config.Name,
+								err,
+							),
+						)
+						return
+					}
+					// Queue any state transitions after the initial one for this message batch
+					queueTransition = true
 				}
 
 				// We don't want more than maxMessagesPerSegment messages in a segment
 				if msgCount >= maxMessagesPerSegment {
-					break outer
+					break readSendQueueLoop
 				}
 				// We don't want to add more messages once we spill over into a second segment
 				if payloadBuf.Len() > muxer.SegmentMaxPayloadLength {
-					break outer
+					break readSendQueueLoop
 				}
 				// Check if there are any more queued messages
 				if len(p.sendQueueChan) == 0 {
-					break outer
+					break readSendQueueLoop
 				}
 			}
 		}
@@ -365,7 +476,13 @@ func (p *Protocol) sendLoop() {
 				segmentPayload,
 				isResponse,
 			)
-			p.muxerSendChan <- segment
+			select {
+			case <-p.stopChan:
+				return
+			case <-p.recvDoneChan:
+				return
+			case p.muxerSendChan <- segment:
+			}
 			// Remove current segment's data from buffer
 			if payloadBuf.Len() > segmentPayloadLength {
 				payloadBuf = bytes.NewBuffer(
@@ -387,6 +504,8 @@ func (p *Protocol) readLoop() {
 		if !leftoverData {
 			// Wait for segment
 			select {
+			case <-p.stopChan:
+				return
 			case <-p.sendDoneChan:
 				// Break out of receive loop if we're shutting down
 				return
@@ -401,6 +520,18 @@ func (p *Protocol) readLoop() {
 			}
 		}
 		leftoverData = false
+		// Check for zero-byte read before attempting to decode
+		if readBuffer.Len() == 0 {
+			// This can happen when the remote host closes the connection unexpectedly
+			// or sends an empty segment payload
+			p.SendError(
+				fmt.Errorf(
+					"%s: received zero-byte read, connection may have been closed",
+					p.config.Name,
+				),
+			)
+			return
+		}
 		// Decode message into generic list until we can determine what type of message it is.
 		// This also lets us determine how many bytes the message is. We use RawMessage here to
 		// avoid parsing things that we may not be able to parse
@@ -410,15 +541,38 @@ func (p *Protocol) readLoop() {
 			if errors.Is(err, io.ErrUnexpectedEOF) && readBuffer.Len() > 0 {
 				// This is probably a multi-part message, so we wait until we get more of the message
 				// before trying to process it
+				if readBuffer.Len() > maxReadBufferSize {
+					p.SendError(
+						fmt.Errorf(
+							"%s: read buffer exceeded maximum size (%d bytes)",
+							p.config.Name,
+							readBuffer.Len(),
+						),
+					)
+					return
+				}
 				continue
 			}
 			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
+			return
+		}
+		// Check for zero bytes read or empty message array after decoding
+		if numBytesRead == 0 || len(tmpMsg) == 0 {
+			// This can happen when the remote host closes the connection unexpectedly
+			// and we receive a segment that decodes to an empty array
+			p.SendError(
+				fmt.Errorf(
+					"%s: received empty message (zero bytes read or empty CBOR array), connection may have been closed",
+					p.config.Name,
+				),
+			)
 			return
 		}
 		// Decode first list item to determine message type
 		var msgType uint
 		if _, err := cbor.Decode(tmpMsg[0], &msgType); err != nil {
 			p.SendError(fmt.Errorf("%s: decode error: %w", p.config.Name, err))
+			return
 		}
 		// Create Message object from CBOR
 		msgData := readBuffer.Bytes()[:numBytesRead]
@@ -449,7 +603,6 @@ func (p *Protocol) readLoop() {
 		if limit > 0 && p.pendingRecvBytes+msgLen > limit {
 			p.pendingBytesMu.Unlock()
 			p.SendError(ErrProtocolViolationQueueExceeded)
-			p.Stop()
 			return
 		}
 		p.pendingRecvBytes += msgLen
@@ -487,6 +640,8 @@ func (p *Protocol) recvLoop() {
 	for {
 		// Wait until ready to receive based on state map
 		select {
+		case <-p.stopChan:
+			return
 		case <-p.sendDoneChan:
 			// Break out of receive loop if we're shutting down
 			return
@@ -496,6 +651,8 @@ func (p *Protocol) recvLoop() {
 		}
 		// Read next message from queue
 		select {
+		case <-p.stopChan:
+			return
 		case <-p.sendDoneChan:
 			// Break out of receive loop if we're shutting down
 			return
@@ -504,6 +661,10 @@ func (p *Protocol) recvLoop() {
 		case msg := <-p.recvQueueChan:
 			// Handle message
 			if err := p.handleMessage(msg); err != nil {
+				if errors.Is(err, ErrProtocolShuttingDown) {
+					// Graceful shutdown in progress
+					return
+				}
 				p.SendError(err)
 				return
 			}
@@ -580,10 +741,13 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		}
 
 		// Set timeout for state transition
-		if p.config.StateMap[s].Timeout > 0 {
-			transitionTimer = time.NewTimer(
-				p.config.StateMap[s].Timeout,
-			)
+		entry := p.config.StateMap[s]
+		timeout := entry.Timeout
+		if entry.TimeoutFunc != nil {
+			timeout = entry.TimeoutFunc()
+		}
+		if timeout > 0 {
+			transitionTimer = time.NewTimer(timeout)
 		}
 	}
 	getTimerChan := func() <-chan time.Time {
@@ -599,6 +763,12 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 
 	for {
 		select {
+		case <-p.stopChan:
+			// Disable any previous state transition timer, as they are no longer needed
+			if transitionTimer != nil && !transitionTimer.Stop() {
+				<-transitionTimer.C
+			}
+			return
 		case t := <-ch:
 			nextState, err := p.nextState(p.getCurrentState(), t.msg)
 			if err != nil {
@@ -660,9 +830,22 @@ func (p *Protocol) nextState(currentState State, msg Message) (State, error) {
 
 func (p *Protocol) transitionState(msg Message) error {
 	errorChan := make(chan error, 1)
-	p.stateTransitionChan <- protocolStateTransition{msg, errorChan}
+	select {
+	case <-p.stopChan:
+		return ErrProtocolShuttingDown
+	case <-p.doneChan:
+		return ErrProtocolShuttingDown
+	case p.stateTransitionChan <- protocolStateTransition{msg, errorChan}:
+	}
 
-	return <-errorChan
+	select {
+	case err := <-errorChan:
+		return err
+	case <-p.stopChan:
+		return ErrProtocolShuttingDown
+	case <-p.doneChan:
+		return ErrProtocolShuttingDown
+	}
 }
 
 func (p *Protocol) handleMessage(msg Message) error {

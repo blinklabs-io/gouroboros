@@ -1,0 +1,39 @@
+name: Set Project Closed Date
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: read
+
+env:
+  PROJECT_URL: https://github.com/orgs/blinklabs-io/projects/11
+  CLOSED_DATE_FIELD: "Closed Date"
+
+jobs:
+  set-date:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve closed date
+        id: when
+        shell: bash
+        run: |
+          ts='${{ github.event.issue.closed_at }}'
+          if [ -z "$ts" ] || [ "$ts" = "null" ]; then
+            d=$(date -u +%F)
+          else
+            d=$(date -u -d "$ts" +%F)
+          fi
+          echo "date=$d" >> "$GITHUB_OUTPUT"
+          echo "Closed date -> $d"
+
+      # Update the "Closed Date" field on that project item
+      - name: Update Closed Date field
+        uses: nipe0324/update-project-v2-item-field@c4af58452d1c5a788c1ea4f20e073fa722ec4a6b
+        with:
+          project-url: ${{ env.PROJECT_URL }}
+          github-token: ${{ secrets.ORG_PROJECT_PAT }}
+          field-name: ${{ env.CLOSED_DATE_FIELD }}
+          field-value: ${{ steps.when.outputs.date }}

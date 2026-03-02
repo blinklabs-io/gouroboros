@@ -17,14 +17,15 @@ package mary_test
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -36,7 +37,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 			TxValidityIntervalStart: &testSlot,
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -140,7 +141,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Non-empty
@@ -212,7 +213,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -301,7 +302,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	utxos := []common.Utxo{
 		{Id: testGoodInput},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Good input
@@ -375,9 +376,7 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Correct network
@@ -441,9 +440,7 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Correct network
@@ -528,7 +525,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -675,7 +672,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{
 		MinUtxoValue: 100000,
@@ -733,7 +730,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	var testOutputValueGood = mary.MaryTransactionOutputValue{
 		Amount: 1234567,
 	}
-	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]uint64{}
+	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{}
 	// Build too-large asset set
 	// We create 45 random policy IDs and asset names in order to exceed the max value size (4000 bytes)
 	for range 45 {
@@ -745,8 +742,8 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		if _, err := rand.Read(tmpAssetName); err != nil {
 			t.Fatalf("could not read random bytes")
 		}
-		tmpBadAssets[common.NewBlake2b224(tmpPolicyId)] = map[cbor.ByteString]uint64{
-			cbor.NewByteString(tmpAssetName): 1,
+		tmpBadAssets[common.NewBlake2b224(tmpPolicyId)] = map[cbor.ByteString]common.MultiAssetTypeOutput{
+			cbor.NewByteString(tmpAssetName): big.NewInt(1),
 		}
 	}
 	tmpBadMultiAsset := common.NewMultiAsset(
@@ -764,7 +761,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Good
@@ -845,7 +842,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Good
@@ -901,7 +898,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &mary.MaryTransaction{}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Transaction under limit

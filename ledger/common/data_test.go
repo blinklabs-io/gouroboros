@@ -16,6 +16,7 @@ package common_test
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"testing"
@@ -24,6 +25,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDatumHash(t *testing.T) {
@@ -140,6 +143,160 @@ func TestDatumDecode(t *testing.T) {
 			"did not get expected datum\n     got: %#v\n  wanted: %#v",
 			tmpDatum.Data,
 			expectedDatum.Data,
+		)
+	}
+}
+
+// TestDatumHashToBech32 tests CIP-0005 bech32 encoding for datum hashes.
+func TestDatumHashToBech32(t *testing.T) {
+	testCases := []struct {
+		name       string
+		hash       common.DatumHash
+		wantPrefix string
+	}{
+		{
+			name: "ZeroHash",
+			hash: common.DatumHash{
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			},
+			wantPrefix: "datum1",
+		},
+		{
+			name: "SequentialHash",
+			hash: common.DatumHash{
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+			},
+			wantPrefix: "datum1",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := common.DatumHashToBech32(tc.hash)
+			if len(result) <= len(tc.wantPrefix) {
+				t.Errorf("result too short: got %s", result)
+			}
+			if result[:len(tc.wantPrefix)] != tc.wantPrefix {
+				t.Errorf(
+					"wrong prefix: got %s, want prefix %s",
+					result,
+					tc.wantPrefix,
+				)
+			}
+		})
+	}
+}
+
+// TestDatumHashBech32Specific tests specific expected bech32 encoded values.
+func TestDatumHashBech32Specific(t *testing.T) {
+	// Known datum hash from above test
+	hashBytes, _ := hex.DecodeString(
+		"4dfec91f63f946d7c91af0041e5d92a45531790a4a104637dd8691f46fdce842",
+	)
+	var hash common.DatumHash
+	copy(hash[:], hashBytes)
+
+	bech32Str := common.DatumHashToBech32(hash)
+
+	// Verify length is reasonable for 32 bytes + prefix
+	if len(bech32Str) < 50 {
+		t.Errorf("bech32 string too short: %s", bech32Str)
+		return
+	}
+
+	// Verify prefix
+	if bech32Str[:6] != "datum1" {
+		t.Errorf("wrong prefix: got %s", bech32Str[:6])
+	}
+}
+
+func TestDatumJSONRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name  string
+		datum common.Datum
+	}{
+		{
+			name:  "Nil",
+			datum: common.Datum{},
+		},
+		{
+			name:  "Integer",
+			datum: common.Datum{Data: data.NewInteger(big.NewInt(42))},
+		},
+		{
+			name:  "ByteString",
+			datum: common.Datum{Data: data.NewByteString([]byte("hello"))},
+		},
+		{
+			name: "Constr",
+			datum: common.Datum{Data: data.NewConstr(
+				0,
+				data.NewInteger(big.NewInt(1)),
+				data.NewByteString([]byte{0xde, 0xad}),
+			)},
+		},
+		{
+			name: "List",
+			datum: common.Datum{Data: data.NewList(
+				data.NewInteger(big.NewInt(1)),
+				data.NewInteger(big.NewInt(2)),
+			)},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jsonBytes, err := json.Marshal(tc.datum)
+			require.NoError(t, err)
+
+			var decoded common.Datum
+			err = json.Unmarshal(jsonBytes, &decoded)
+			require.NoError(t, err)
+
+			if tc.datum.Data == nil {
+				assert.Nil(t, decoded.Data)
+			} else {
+				require.NotNil(t, decoded.Data)
+				assert.True(t, tc.datum.Data.Equal(decoded.Data),
+					"datum mismatch: got %s, want %s", decoded.Data, tc.datum.Data)
+			}
+		})
+	}
+}
+
+func TestDatumRoundtripAndHash(t *testing.T) {
+	// Simple byte-string datum
+	d := common.Datum{
+		Data: data.NewByteString([]byte("hello-datum")),
+	}
+	// Marshal to CBOR
+	cborBytes, err := d.MarshalCBOR()
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+
+	// Unmarshal into a fresh Datum
+	var other common.Datum
+	if _, err := cbor.Decode(cborBytes, &other); err != nil {
+		t.Fatalf("unexpected decode error: %v", err)
+	}
+
+	if !reflect.DeepEqual(d.Data, other.Data) {
+		t.Fatalf(
+			"datum mismatch after roundtrip: got %#v wanted %#v",
+			other.Data,
+			d.Data,
+		)
+	}
+
+	// Hash should equal Blake2b256Hash of the CBOR
+	expected := common.Blake2b256Hash(cborBytes)
+	if other.Hash() != expected {
+		t.Fatalf(
+			"datum hash mismatch: got %s wanted %s",
+			other.Hash().String(),
+			expected.String(),
 		)
 	}
 }

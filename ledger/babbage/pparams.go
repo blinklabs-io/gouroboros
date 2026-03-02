@@ -17,6 +17,7 @@ package babbage
 import (
 	"errors"
 	"math"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -50,6 +51,26 @@ type BabbageProtocolParameters struct {
 	MaxValueSize         uint
 	CollateralPercentage uint
 	MaxCollateralInputs  uint
+}
+
+// KeyDepositAmount returns the key deposit as a *big.Int
+func (p *BabbageProtocolParameters) KeyDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.KeyDeposit))
+}
+
+// PoolDepositAmount returns the pool deposit as a *big.Int
+func (p *BabbageProtocolParameters) PoolDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.PoolDeposit))
+}
+
+// MinPoolCostAmount returns the minimum pool cost as a *big.Int
+func (p *BabbageProtocolParameters) MinPoolCostAmount() *big.Int {
+	return new(big.Int).SetUint64(p.MinPoolCost)
+}
+
+// AdaPerUtxoByteAmount returns the ADA per UTxO byte as a *big.Int
+func (p *BabbageProtocolParameters) AdaPerUtxoByteAmount() *big.Int {
+	return new(big.Int).SetUint64(p.AdaPerUtxoByte)
 }
 
 func (p *BabbageProtocolParameters) Update(
@@ -102,7 +123,12 @@ func (p *BabbageProtocolParameters) Update(
 		p.AdaPerUtxoByte = *paramUpdate.AdaPerUtxoByte
 	}
 	if paramUpdate.CostModels != nil {
-		p.CostModels = paramUpdate.CostModels
+		if p.CostModels == nil {
+			p.CostModels = make(map[uint][]int64)
+		}
+		for key, model := range paramUpdate.CostModels {
+			p.CostModels[key] = model
+		}
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts

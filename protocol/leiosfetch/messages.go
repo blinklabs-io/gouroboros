@@ -15,7 +15,6 @@
 package leiosfetch
 
 import (
-	"bytes"
 	"fmt"
 	"maps"
 	"slices"
@@ -75,17 +74,15 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 
 type MsgBlockRequest struct {
 	protocol.MessageBase
-	Slot uint64
-	Hash []byte
+	Point pcommon.Point
 }
 
-func NewMsgBlockRequest(slot uint64, hash []byte) *MsgBlockRequest {
+func NewMsgBlockRequest(point pcommon.Point) *MsgBlockRequest {
 	m := &MsgBlockRequest{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockRequest,
 		},
-		Slot: slot,
-		Hash: bytes.Clone(hash),
+		Point: point,
 	}
 	return m
 }
@@ -107,25 +104,22 @@ func NewMsgBlock(block cbor.RawMessage) *MsgBlock {
 
 type MsgBlockTxsRequest struct {
 	protocol.MessageBase
-	Slot uint64
-	Hash []byte
+	Point pcommon.Point
 	// Bitmaps identifies which transactions to fetch using a map
 	// from 16-bit index to a 64-bit bitmap (8 bytes) per CIP-0164.
 	// The offset of the first transaction bit is 64*index.
-	Bitmaps map[uint16][8]byte
+	Bitmaps map[uint16]uint64
 }
 
 func NewMsgBlockTxsRequest(
-	slot uint64,
-	hash []byte,
-	bitmaps map[uint16][8]byte,
+	point pcommon.Point,
+	bitmaps map[uint16]uint64,
 ) *MsgBlockTxsRequest {
 	m := &MsgBlockTxsRequest{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockTxsRequest,
 		},
-		Slot:    slot,
-		Hash:    bytes.Clone(hash),
+		Point:   point,
 		Bitmaps: maps.Clone(bitmaps),
 	}
 	return m

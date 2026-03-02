@@ -47,6 +47,26 @@ type MaryProtocolParameters struct {
 	MinPoolCost        uint64
 }
 
+// KeyDepositAmount returns the key deposit as a *big.Int
+func (p *MaryProtocolParameters) KeyDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.KeyDeposit))
+}
+
+// PoolDepositAmount returns the pool deposit as a *big.Int
+func (p *MaryProtocolParameters) PoolDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.PoolDeposit))
+}
+
+// MinUtxoValueAmount returns the minimum UTxO value as a *big.Int
+func (p *MaryProtocolParameters) MinUtxoValueAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.MinUtxoValue))
+}
+
+// MinPoolCostAmount returns the minimum pool cost as a *big.Int
+func (p *MaryProtocolParameters) MinPoolCostAmount() *big.Int {
+	return new(big.Int).SetUint64(p.MinPoolCost)
+}
+
 func (p *MaryProtocolParameters) Update(
 	paramUpdate *MaryProtocolParameterUpdate,
 ) {

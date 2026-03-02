@@ -50,6 +50,8 @@ const (
 	AddressTypeNoneKey       = 0b1110
 	AddressTypeNoneScript    = 0b1111
 
+	AddressTypeScriptBit = 0x01
+
 	ByronAddressTypePubkey = 0
 	ByronAddressTypeScript = 1
 	ByronAddressTypeRedeem = 2
@@ -187,6 +189,9 @@ func NewByronAddressRedeem(
 }
 
 func (a *Address) populateFromBytes(data []byte) error {
+	if len(data) == 0 {
+		return errors.New("invalid address data: empty byte slice")
+	}
 	// Extract header info
 	header := data[0]
 	a.addressType = (header & AddressHeaderTypeMask) >> 4
@@ -393,7 +398,7 @@ func (a *Address) ToPlutusData() data.PlutusData {
 				),
 			)
 		default:
-			return nil
+			panic(fmt.Sprintf("unsupported staking payload type: %T", p))
 		}
 	}
 	return data.NewConstr(
@@ -630,6 +635,19 @@ func (a Address) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
 }
 
+func (a Address) MarshalText() ([]byte, error) {
+	return []byte(a.String()), nil
+}
+
+func (a *Address) UnmarshalText(text []byte) error {
+	parsed, err := NewAddress(string(text))
+	if err != nil {
+		return err
+	}
+	*a = parsed
+	return nil
+}
+
 type byronAddress struct {
 	cbor.StructAsArray
 	Payload  cbor.Tag
@@ -746,7 +764,7 @@ func (a *AddressPayloadPointer) encode() ([]byte, error) {
 		for val > 0 {
 			data = append(
 				data,
-				byte((val&0x7F)|0x80),
+				byte((val&0x7F)|0x80), //nolint:gosec // masked to 7 bits, always fits byte
 			)
 			val /= 128
 		}

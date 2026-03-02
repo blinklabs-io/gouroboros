@@ -16,6 +16,7 @@ package leios
 
 import (
 	"errors"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -261,4 +262,34 @@ func (u *LeiosProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 
 func (p *LeiosProtocolParameters) Utxorpc() (any, error) {
 	return nil, errors.New("not implemented")
+}
+
+// KeyDepositAmount returns the key deposit as a *big.Int
+func (p *LeiosProtocolParameters) KeyDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.KeyDeposit))
+}
+
+// PoolDepositAmount returns the pool deposit as a *big.Int
+func (p *LeiosProtocolParameters) PoolDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.PoolDeposit))
+}
+
+// MinPoolCostAmount returns the minimum pool cost as a *big.Int
+func (p *LeiosProtocolParameters) MinPoolCostAmount() *big.Int {
+	return new(big.Int).SetUint64(p.MinPoolCost)
+}
+
+// AdaPerUtxoByteAmount returns the ada per UTxO byte as a *big.Int
+func (p *LeiosProtocolParameters) AdaPerUtxoByteAmount() *big.Int {
+	return new(big.Int).SetUint64(p.AdaPerUtxoByte)
+}
+
+// GovActionDepositAmount returns the governance action deposit as a *big.Int
+func (p *LeiosProtocolParameters) GovActionDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(p.GovActionDeposit)
+}
+
+// DRepDepositAmount returns the DRep deposit as a *big.Int
+func (p *LeiosProtocolParameters) DRepDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(p.DRepDeposit)
 }

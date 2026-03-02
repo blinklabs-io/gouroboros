@@ -83,6 +83,27 @@ func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *ShelleyBlock) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []ShelleyTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []ShelleyTransactionWitnessSet{}
+	}
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+	})
+}
+
 func (ShelleyBlock) Type() int {
 	return BlockTypeShelley
 }
@@ -127,8 +148,17 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			// Decode auxiliary data from raw CBOR and set auxData for hashing
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -136,8 +166,9 @@ func (b *ShelleyBlock) Transactions() []common.Transaction {
 }
 
 func (b *ShelleyBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -282,8 +313,8 @@ func (b *ShelleyTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *ShelleyTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *ShelleyTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *ShelleyTransactionBody) TTL() uint64 {
@@ -309,8 +340,15 @@ func (b *ShelleyTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *ShelleyTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *ShelleyTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for addr, amount := range b.TxWithdrawals {
+		ret[addr] = new(big.Int).SetUint64(amount)
+	}
+	return ret
 }
 
 func (b *ShelleyTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -471,8 +509,8 @@ func (o ShelleyTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o ShelleyTransactionOutput) Amount() uint64 {
-	return o.OutputAmount
+func (o ShelleyTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount)
 }
 
 func (o ShelleyTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -495,7 +533,7 @@ func (o ShelleyTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 		Address: addressBytes,
-		Coin:    common.ToUtxorpcBigInt(o.Amount()),
+		Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 	}, nil
 }
 
@@ -569,7 +607,7 @@ type ShelleyTransaction struct {
 	Body       ShelleyTransactionBody
 	WitnessSet ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
+	auxData    common.AuxiliaryData
 }
 
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -599,11 +637,24 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	if len(txArray) > 2 && len(txArray[2]) > 0 &&
-		txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[2])
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+		txArray[2][0] != 0xF6 {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[2])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 
@@ -615,8 +666,8 @@ func (t *ShelleyTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *ShelleyTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
+func (t *ShelleyTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (ShelleyTransaction) Type() int {
@@ -647,7 +698,7 @@ func (t ShelleyTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t ShelleyTransaction) Fee() uint64 {
+func (t ShelleyTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -671,7 +722,7 @@ func (t ShelleyTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t ShelleyTransaction) TotalCollateral() uint64 {
+func (t ShelleyTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -679,7 +730,7 @@ func (t ShelleyTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ShelleyTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t ShelleyTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -707,11 +758,11 @@ func (t ShelleyTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t ShelleyTransaction) CurrentTreasuryValue() int64 {
+func (t ShelleyTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t ShelleyTransaction) Donation() uint64 {
+func (t ShelleyTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -724,8 +775,9 @@ func (t ShelleyTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t ShelleyTransaction) Produced() []common.Utxo {
-	ret := []common.Utxo{}
-	for idx, output := range t.Outputs() {
+	outputs := t.Outputs()
+	ret := make([]common.Utxo, 0, len(outputs))
+	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{

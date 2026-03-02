@@ -17,6 +17,7 @@ package allegra
 import (
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -75,6 +76,27 @@ func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *AllegraBlock) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []AllegraTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []shelley.ShelleyTransactionWitnessSet{}
+	}
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+	})
+}
+
 func (AllegraBlock) Type() int {
 	return BlockTypeAllegra
 }
@@ -119,8 +141,16 @@ func (b *AllegraBlock) Transactions() []common.Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -128,8 +158,9 @@ func (b *AllegraBlock) Transactions() []common.Transaction {
 }
 
 func (b *AllegraBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -194,7 +225,7 @@ func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (b *AllegraTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
+	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
 	for _, input := range b.TxInputs.Items() {
 		ret = append(ret, input)
 	}
@@ -209,8 +240,8 @@ func (b *AllegraTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *AllegraTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *AllegraTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *AllegraTransactionBody) TTL() uint64 {
@@ -240,8 +271,15 @@ func (b *AllegraTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *AllegraTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *AllegraTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for addr, amount := range b.TxWithdrawals {
+		ret[addr] = new(big.Int).SetUint64(amount)
+	}
+	return ret
 }
 
 func (b *AllegraTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -259,7 +297,7 @@ type AllegraTransaction struct {
 	Body       AllegraTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
-	RawAuxData []byte // Raw auxiliary data bytes (includes scripts)
+	auxData    common.AuxiliaryData
 }
 
 func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -285,12 +323,24 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	// Store raw auxiliary data bytes (including any scripts)
 	if len(txArray) > 2 && len(txArray[2]) > 0 &&
-		txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
-		t.RawAuxData = []byte(txArray[2])
-		// Also extract metadata
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+		txArray[2][0] != 0xF6 {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[2])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 	t.SetCbor(cborData)
@@ -325,7 +375,7 @@ func (t AllegraTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t AllegraTransaction) Fee() uint64 {
+func (t AllegraTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -349,7 +399,7 @@ func (t AllegraTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t AllegraTransaction) TotalCollateral() uint64 {
+func (t AllegraTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -357,7 +407,7 @@ func (t AllegraTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AllegraTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t AllegraTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -385,11 +435,11 @@ func (t AllegraTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t AllegraTransaction) CurrentTreasuryValue() int64 {
+func (t AllegraTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t AllegraTransaction) Donation() uint64 {
+func (t AllegraTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -397,8 +447,8 @@ func (t *AllegraTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *AllegraTransaction) RawAuxiliaryData() []byte {
-	return t.RawAuxData
+func (t *AllegraTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (t AllegraTransaction) IsValid() bool {
@@ -410,8 +460,9 @@ func (t AllegraTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t AllegraTransaction) Produced() []common.Utxo {
-	ret := []common.Utxo{}
-	for idx, output := range t.Outputs() {
+	outputs := t.Outputs()
+	ret := make([]common.Utxo, 0, len(outputs))
+	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{

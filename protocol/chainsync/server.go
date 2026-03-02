@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,20 +29,26 @@ type Server struct {
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
-	stateContext    any
 }
 
 // NewServer returns a new ChainSync server object
 func NewServer(
-	stateContext any,
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Server {
+	// Apply defaults for zero values to handle Config{} created without NewConfig()
+	var config *Config
+	if cfg != nil {
+		configCopy := *cfg
+		if configCopy.RecvQueueSize == 0 {
+			configCopy.RecvQueueSize = DefaultRecvQueueSize
+		}
+		config = &configCopy
+	}
 	s := &Server{
-		config: cfg,
+		config: config,
 		// Save these for re-use later
 		protoOptions: protoOptions,
-		stateContext: stateContext,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -61,6 +67,27 @@ func (s *Server) initProtocol() {
 		ProtocolId = ProtocolIdNtN
 		msgFromCborFunc = NewMsgFromCborNtN
 	}
+	// Select state map based on protocol mode.
+	// Default to NtC (matching ProtocolId/CBOR defaults above) so that
+	// callers who omit Mode get consistent NtC behaviour throughout.
+	stateMap := StateMapNtC.Copy()
+	if s.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		stateMap = StateMapNtN.Copy()
+	}
+	// Apply per-connection config overrides to the copied state map.
+	// Only override when the state already has a timeout defined —
+	// NtC mode has no timeouts per spec (Table 3.9) and must not
+	// have timeouts injected.
+	if s.config != nil {
+		if entry, ok := stateMap[stateIntersect]; ok && entry.Timeout != 0 && s.config.IntersectTimeout != 0 {
+			entry.Timeout = s.config.IntersectTimeout
+			stateMap[stateIntersect] = entry
+		}
+		if entry, ok := stateMap[stateIdle]; ok && entry.Timeout != 0 && s.config.IdleTimeout != 0 {
+			entry.Timeout = s.config.IdleTimeout
+			stateMap[stateIdle] = entry
+		}
+	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -71,8 +98,7 @@ func (s *Server) initProtocol() {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
-		StateMap:            StateMap,
-		StateContext:        s.stateContext,
+		StateMap:            stateMap,
 		InitialState:        stateIdle,
 	}
 	if s.config != nil {
@@ -165,7 +191,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeFindIntersect:
 		err = s.handleFindIntersect(msg)
 	case MessageTypeDone:
-		err = s.handleDone()
+		s.handleDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -231,7 +257,7 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 	return nil
 }
 
-func (s *Server) handleDone() error {
+func (s *Server) handleDone() {
 	if s.Protocol != nil {
 		s.Protocol.Logger().
 			Debug("done",
@@ -245,5 +271,4 @@ func (s *Server) handleDone() error {
 	s.Stop()
 	s.initProtocol()
 	s.Start()
-	return nil
 }

@@ -380,9 +380,8 @@ var expectedGenesisObj = conway.ConwayGenesis{
 			"scriptHash-e8165b3328027ee0d74b1f07298cb092fd99aa7697a1436f5997f625": 580,
 			"scriptHash-f0dc2c00d92a45521267be2d5de1c485f6f9d14466d7e16062897cf7": 580,
 		},
-		Threshold: map[string]int{
-			"denominator": 3,
-			"numerator":   2,
+		Threshold: &common.GenesisRat{
+			Rat: big.NewRat(2, 3),
 		},
 	},
 }
@@ -441,7 +440,7 @@ func TestNewConwayGenesisFromReader(t *testing.T) {
     },
     "committee": {
       "members": { "key1": 1 },
-      "threshold": { "key1": 2 }
+      "threshold": 0
     }
   }`
 

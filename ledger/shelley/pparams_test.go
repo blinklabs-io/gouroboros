@@ -278,11 +278,11 @@ func TestShelleyTransactionBody_Utxorpc(t *testing.T) {
 	}
 
 	// Check that the fee matches
-	if actual.Fee.GetInt() != int64(txBody.Fee()) {
+	if actual.Fee.GetInt() != txBody.Fee().Int64() {
 		t.Errorf(
 			"TxBody.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
 			actual.Fee.GetInt(),
-			txBody.Fee(),
+			txBody.Fee().Int64(),
 		)
 	}
 
@@ -346,11 +346,11 @@ func TestShelleyTransaction_Utxorpc(t *testing.T) {
 	}
 
 	// Verify the fee
-	if got.Fee.GetInt() != int64(tx.Body.Fee()) {
+	if got.Fee.GetInt() != tx.Body.Fee().Int64() {
 		t.Errorf(
 			"ShelleyTransaction.Utxorpc() fee mismatch\nGot: %d\nWant: %d",
 			got.Fee.GetInt(),
-			tx.Body.Fee(),
+			tx.Body.Fee().Int64(),
 		)
 	}
 

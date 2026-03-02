@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,11 @@ const (
 	ProtocolId   = 10
 )
 
+// Protocol state timeout constants per Ouroboros Network Specification (Table 3.15).
+const (
+	BusyTimeout = 60 * time.Second // Timeout for server to respond with peers
+)
+
 var (
 	stateIdle = protocol.NewState(1, "Idle")
 	stateBusy = protocol.NewState(2, "Busy")
@@ -50,7 +55,8 @@ var StateMap = protocol.StateMap{
 		},
 	},
 	stateBusy: protocol.StateMapEntry{
-		Agency: protocol.AgencyServer,
+		Agency:  protocol.AgencyServer,
+		Timeout: BusyTimeout,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeSharePeers,
@@ -100,7 +106,7 @@ type PeerSharingOptionFunc func(*Config)
 // NewConfig returns a new PeerSharing config object with the provided options
 func NewConfig(options ...PeerSharingOptionFunc) Config {
 	c := Config{
-		Timeout: 5 * time.Second,
+		Timeout: BusyTimeout,
 	}
 	// Apply provided options functions
 	for _, option := range options {

@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Ttests the ToPlutusData method for Voter types
@@ -88,9 +89,10 @@ func TestVoterToPlutusData(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name         string
-		voter        Voter
-		expectedData data.PlutusData
+		name          string
+		voter         Voter
+		expectedData  data.PlutusData
+		expectedPanic string
 	}{
 		{
 			name: "ConstitutionalCommitteeHotScriptHash",
@@ -150,20 +152,38 @@ func TestVoterToPlutusData(t *testing.T) {
 				Type: 255, // Unknown type
 				Hash: [28]byte{},
 			},
-			expectedData: nil,
+			expectedData:  nil,
+			expectedPanic: "unsupported voter type: 255",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.voter.ToPlutusData()
-			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf(
-					"ToPlutusData() = %#v, want %#v",
-					result,
-					tc.expectedData,
-				)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if tc.expectedPanic == "" {
+							t.Fatalf("unexpected panic: %v", r)
+						} else {
+							if r != tc.expectedPanic {
+								t.Errorf("did not get expected panic: got %v, wanted %s", r, tc.expectedPanic)
+							}
+						}
+					}
+				}()
+				result := tc.voter.ToPlutusData()
+				if tc.expectedPanic != "" {
+					t.Errorf("did not panic as expected")
+					return
+				}
+				if !reflect.DeepEqual(result, tc.expectedData) {
+					t.Errorf(
+						"ToPlutusData() = %#v, want %#v",
+						result,
+						tc.expectedData,
+					)
+				}
+			}()
 		})
 	}
 }
@@ -193,7 +213,7 @@ func TestVoterString(t *testing.T) {
 				Type: VoterTypeConstitutionalCommitteeHotScriptHash,
 				Hash: zeroHash,
 			},
-			want: "cc_hot1qvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqv2arke",
+			want: "cc_hot1zvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq9zprpe",
 		},
 		{
 			name: "CIP129DRepKeyHash",
@@ -209,7 +229,7 @@ func TestVoterString(t *testing.T) {
 				Type: VoterTypeDRepScriptHash,
 				Hash: zeroHash,
 			},
-			want: "drep1yvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq770f95",
+			want: "drep1xvqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqhknfj5",
 		},
 		{
 			name: "StakingPoolKeyHash",
@@ -225,17 +245,20 @@ func TestVoterString(t *testing.T) {
 			assert.Equal(t, tc.want, tc.voter.String())
 		})
 	}
-	assert.Panics(t, func() {
-		_ = Voter{Type: 99}.String()
+	// Test unknown type returns descriptive string (doesn't panic)
+	t.Run("UnknownType", func(t *testing.T) {
+		result := Voter{Type: 99}.String()
+		assert.Equal(t, "voter_unknown_99", result)
 	})
 }
 
 // Tests the ToPlutusData method for Vote types
 func TestVoteToPlutusData(t *testing.T) {
 	testCases := []struct {
-		name         string
-		vote         Vote
-		expectedData data.PlutusData
+		name          string
+		vote          Vote
+		expectedData  data.PlutusData
+		expectedPanic string
 	}{
 		{
 			name:         "No",
@@ -253,22 +276,40 @@ func TestVoteToPlutusData(t *testing.T) {
 			expectedData: data.NewConstr(2),
 		},
 		{
-			name:         "Unknown",
-			vote:         Vote(255), // Unknown vote
-			expectedData: nil,
+			name:          "Unknown",
+			vote:          Vote(255), // Unknown vote
+			expectedData:  nil,
+			expectedPanic: "unsupported vote type: 255",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.vote.ToPlutusData()
-			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf(
-					"ToPlutusData() = %#v, want %#v",
-					result,
-					tc.expectedData,
-				)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if tc.expectedPanic == "" {
+							t.Fatalf("unexpected panic: %v", r)
+						} else {
+							if r != tc.expectedPanic {
+								t.Errorf("did not get expected panic: got %v, wanted %s", r, tc.expectedPanic)
+							}
+						}
+					}
+				}()
+				result := tc.vote.ToPlutusData()
+				if tc.expectedPanic != "" {
+					t.Errorf("did not panic as expected")
+					return
+				}
+				if !reflect.DeepEqual(result, tc.expectedData) {
+					t.Errorf(
+						"ToPlutusData() = %#v, want %#v",
+						result,
+						tc.expectedData,
+					)
+				}
+			}()
 		})
 	}
 }
@@ -276,9 +317,10 @@ func TestVoteToPlutusData(t *testing.T) {
 // Tests the ToPlutusData method for VotingProcedure types
 func TestVotingProcedureToPlutusData(t *testing.T) {
 	testCases := []struct {
-		name         string
-		procedure    VotingProcedure
-		expectedData data.PlutusData
+		name          string
+		procedure     VotingProcedure
+		expectedData  data.PlutusData
+		expectedPanic string
 	}{
 		{
 			name: "NoVote",
@@ -306,20 +348,38 @@ func TestVotingProcedureToPlutusData(t *testing.T) {
 			procedure: VotingProcedure{
 				Vote: 255, // Unknown vote
 			},
-			expectedData: nil,
+			expectedData:  nil,
+			expectedPanic: "unsupported vote type: 255",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := tc.procedure.ToPlutusData()
-			if !reflect.DeepEqual(result, tc.expectedData) {
-				t.Errorf(
-					"ToPlutusData() = %#v, want %#v",
-					result,
-					tc.expectedData,
-				)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if tc.expectedPanic == "" {
+							t.Fatalf("unexpected panic: %v", r)
+						} else {
+							if r != tc.expectedPanic {
+								t.Errorf("did not get expected panic: got %v, wanted %s", r, tc.expectedPanic)
+							}
+						}
+					}
+				}()
+				result := tc.procedure.ToPlutusData()
+				if tc.expectedPanic != "" {
+					t.Errorf("did not panic as expected")
+					return
+				}
+				if !reflect.DeepEqual(result, tc.expectedData) {
+					t.Errorf(
+						"ToPlutusData() = %#v, want %#v",
+						result,
+						tc.expectedData,
+					)
+				}
+			}()
 		})
 	}
 }
@@ -459,4 +519,254 @@ func TestInfoGovActionToPlutusData(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, uint(6), constr.Tag)
 	assert.Len(t, constr.Fields, 0)
+}
+
+// TestGovActionIdString tests CIP-0129 bech32 encoding for governance action IDs.
+func TestGovActionIdString(t *testing.T) {
+	testCases := []struct {
+		name        string
+		govActionId GovActionId
+		wantPrefix  string
+	}{
+		{
+			name: "ZeroTxIdZeroIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  0,
+			},
+			wantPrefix: "gov_action",
+		},
+		{
+			name: "NonZeroTxIdWithIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{
+					0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+					0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+					0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+					0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+				},
+				GovActionIdx: 42,
+			},
+			wantPrefix: "gov_action",
+		},
+		{
+			name: "MaxValidActionIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+					0xff,
+				},
+				GovActionIdx: 255,
+			},
+			wantPrefix: "gov_action",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.govActionId.String()
+			assert.True(
+				t,
+				len(result) > len(tc.wantPrefix),
+				"result should be longer than prefix",
+			)
+			assert.Equal(
+				t,
+				tc.wantPrefix+"1",
+				result[:len(tc.wantPrefix)+1],
+				"should have correct prefix",
+			)
+		})
+	}
+
+	// Test panic on index exceeding CIP-0129 limit (must fit in single byte)
+	t.Run("PanicOnIndexExceedsLimit", func(t *testing.T) {
+		assert.Panics(t, func() {
+			govActionId := GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  256,
+			}
+			_ = govActionId.String()
+		})
+	})
+
+	// Test panic on large index value
+	t.Run("PanicOnLargeIndex", func(t *testing.T) {
+		assert.Panics(t, func() {
+			govActionId := GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  65535,
+			}
+			_ = govActionId.String()
+		})
+	})
+}
+
+func TestVoterTextRoundTrip(t *testing.T) {
+	var zeroHash [28]byte
+	var sequentialHash [28]byte
+	for i := range sequentialHash {
+		sequentialHash[i] = byte(i)
+	}
+	testCases := []struct {
+		name  string
+		voter Voter
+	}{
+		{
+			name:  "CcHotKeyHash",
+			voter: Voter{Type: VoterTypeConstitutionalCommitteeHotKeyHash, Hash: zeroHash},
+		},
+		{
+			name:  "CcHotScriptHash",
+			voter: Voter{Type: VoterTypeConstitutionalCommitteeHotScriptHash, Hash: zeroHash},
+		},
+		{
+			name:  "DRepKeyHash",
+			voter: Voter{Type: VoterTypeDRepKeyHash, Hash: sequentialHash},
+		},
+		{
+			name:  "DRepScriptHash",
+			voter: Voter{Type: VoterTypeDRepScriptHash, Hash: sequentialHash},
+		},
+		{
+			name:  "StakingPoolKeyHash",
+			voter: Voter{Type: VoterTypeStakingPoolKeyHash, Hash: sequentialHash},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, err := tc.voter.MarshalText()
+			require.NoError(t, err)
+			var decoded Voter
+			require.NoError(t, decoded.UnmarshalText(text))
+			assert.Equal(t, tc.voter.Type, decoded.Type)
+			assert.Equal(t, tc.voter.Hash, decoded.Hash)
+		})
+	}
+}
+
+func TestVoterMarshalTextUnknownType(t *testing.T) {
+	v := Voter{Type: 99}
+	_, err := v.MarshalText()
+	assert.Error(t, err)
+}
+
+func TestVoterUnmarshalTextErrors(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{"InvalidBech32", "not-valid-bech32!!!"},
+		{"UnknownPrefix", "unknown1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2uwmrs"},
+		{"CcHotWithDRepType", "cc_hot1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7guj37"},
+		{"DRepWithCcHotType", "drep1qgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqvuwczn"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var v Voter
+			assert.Error(t, v.UnmarshalText([]byte(tc.input)))
+		})
+	}
+}
+
+func TestGovActionIdTextRoundTrip(t *testing.T) {
+	testCases := []struct {
+		name        string
+		govActionId GovActionId
+	}{
+		{
+			name: "ZeroTxIdZeroIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{},
+				GovActionIdx:  0,
+			},
+		},
+		{
+			name: "NonZeroTxIdWithIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{
+					0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+					0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+					0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+					0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+				},
+				GovActionIdx: 42,
+			},
+		},
+		{
+			name: "MaxValidIdx",
+			govActionId: GovActionId{
+				TransactionId: [32]byte{0xff},
+				GovActionIdx:  255,
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, err := tc.govActionId.MarshalText()
+			require.NoError(t, err)
+			var decoded GovActionId
+			require.NoError(t, decoded.UnmarshalText(text))
+			assert.Equal(t, tc.govActionId.TransactionId, decoded.TransactionId)
+			assert.Equal(t, tc.govActionId.GovActionIdx, decoded.GovActionIdx)
+		})
+	}
+}
+
+func TestGovActionIdMarshalTextNil(t *testing.T) {
+	var id *GovActionId
+	_, err := id.MarshalText()
+	assert.Error(t, err)
+}
+
+func TestGovActionIdMarshalTextOverflow(t *testing.T) {
+	id := &GovActionId{GovActionIdx: 256}
+	_, err := id.MarshalText()
+	assert.Error(t, err)
+}
+
+func TestGovActionIdUnmarshalTextErrors(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{"InvalidBech32", "not-valid!!!"},
+		{"WrongPrefix", "pool1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk35lkuk"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var id GovActionId
+			assert.Error(t, id.UnmarshalText([]byte(tc.input)))
+		})
+	}
 }

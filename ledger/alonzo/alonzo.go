@@ -102,6 +102,16 @@ func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
 		InvalidTransactions    cbor.IndefLengthList
 	}
 
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []AlonzoTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []AlonzoTransactionWitnessSet{}
+	}
+
 	// Convert InvalidTransactions to IndefLengthList
 	var invalidTx cbor.IndefLengthList
 	if b.InvalidTransactions != nil {
@@ -113,8 +123,8 @@ func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
 
 	temp := tmpBlock{
 		BlockHeader:            b.BlockHeader,
-		TransactionBodies:      b.TransactionBodies,
-		TransactionWitnessSets: b.TransactionWitnessSets,
+		TransactionBodies:      txBodies,
+		TransactionWitnessSets: txWitnesses,
 		TransactionMetadataSet: b.TransactionMetadataSet,
 		InvalidTransactions:    invalidTx,
 	}
@@ -172,8 +182,16 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -181,8 +199,9 @@ func (b *AlonzoBlock) Transactions() []common.Transaction {
 }
 
 func (b *AlonzoBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -268,8 +287,8 @@ func (b *AlonzoTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *AlonzoTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *AlonzoTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *AlonzoTransactionBody) TTL() uint64 {
@@ -299,8 +318,15 @@ func (b *AlonzoTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *AlonzoTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *AlonzoTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int, len(b.TxWithdrawals))
+	for k, v := range b.TxWithdrawals {
+		ret[k] = new(big.Int).SetUint64(v)
+	}
+	return ret
 }
 
 func (b *AlonzoTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -448,8 +474,8 @@ func (o AlonzoTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o AlonzoTransactionOutput) Amount() uint64 {
-	return o.OutputAmount.Amount
+func (o AlonzoTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount.Amount)
 }
 
 func (o AlonzoTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -477,7 +503,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 				asset := &utxorpc.Asset{
 					Name: assetName,
 					Quantity: &utxorpc.Asset_OutputCoin{
-						OutputCoin: common.ToUtxorpcBigInt(amount),
+						OutputCoin: common.BigIntToUtxorpcBigInt(amount),
 					},
 				}
 				ma.Assets = append(ma.Assets, asset)
@@ -499,7 +525,7 @@ func (o AlonzoTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,
@@ -525,29 +551,71 @@ func (o AlonzoTransactionOutput) String() string {
 
 type AlonzoRedeemer struct {
 	cbor.StructAsArray
-	Tag     common.RedeemerTag
-	Index   uint32
-	Data    common.Datum
-	ExUnits common.ExUnits
+	Tag     common.RedeemerTag `json:"tag"`
+	Index   uint32             `json:"index"`
+	Data    common.Datum       `json:"data"`
+	ExUnits common.ExUnits     `json:"exUnits"`
 }
 
-type AlonzoRedeemers []AlonzoRedeemer
+// AlonzoRedeemers wraps a slice of redeemers with CBOR preservation
+type AlonzoRedeemers struct {
+	cbor.DecodeStoreCbor
+	Redeemers []AlonzoRedeemer
+}
+
+func (r AlonzoRedeemers) MarshalJSON() ([]byte, error) {
+	if r.Redeemers == nil {
+		return []byte("[]"), nil
+	}
+	sorted := make([]AlonzoRedeemer, len(r.Redeemers))
+	copy(sorted, r.Redeemers)
+	slices.SortFunc(sorted, func(a, b AlonzoRedeemer) int {
+		return common.CompareRedeemerKeys(
+			common.RedeemerKey{Tag: a.Tag, Index: a.Index},
+			common.RedeemerKey{Tag: b.Tag, Index: b.Index},
+		)
+	})
+	return json.Marshal(sorted)
+}
+
+func (r *AlonzoRedeemers) UnmarshalJSON(raw []byte) error {
+	r.SetCbor(nil)
+	if err := json.Unmarshal(raw, &r.Redeemers); err != nil {
+		return err
+	}
+	seen := make(map[common.RedeemerKey]struct{}, len(r.Redeemers))
+	for _, entry := range r.Redeemers {
+		key := common.RedeemerKey{Tag: entry.Tag, Index: entry.Index}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func (r *AlonzoRedeemers) UnmarshalCBOR(cborData []byte) error {
+	r.SetCbor(cborData)
+	_, err := cbor.Decode(cborData, &r.Redeemers)
+	return err
+}
+
+func (r AlonzoRedeemers) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(r.Redeemers)
+}
 
 func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
 		// Sort redeemers
-		sorted := make([]AlonzoRedeemer, len(r))
-		copy(sorted, r)
+		sorted := make([]AlonzoRedeemer, len(r.Redeemers))
+		copy(sorted, r.Redeemers)
 		slices.SortFunc(
 			sorted,
 			func(a, b AlonzoRedeemer) int {
-				if a.Tag < b.Tag || (a.Tag == b.Tag && a.Index < b.Index) {
-					return -1
-				}
-				if a.Tag > b.Tag || (a.Tag == b.Tag && a.Index > b.Index) {
-					return 1
-				}
-				return 0
+				return common.CompareRedeemerKeys(
+					common.RedeemerKey{Tag: a.Tag, Index: a.Index},
+					common.RedeemerKey{Tag: b.Tag, Index: b.Index},
+				)
 			},
 		)
 		// Yield keys
@@ -569,7 +637,7 @@ func (r AlonzoRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerVal
 
 func (r AlonzoRedeemers) Indexes(tag common.RedeemerTag) []uint {
 	ret := []uint{}
-	for _, redeemer := range r {
+	for _, redeemer := range r.Redeemers {
 		if redeemer.Tag == tag {
 			ret = append(ret, uint(redeemer.Index))
 		}
@@ -581,7 +649,7 @@ func (r AlonzoRedeemers) Value(
 	index uint,
 	tag common.RedeemerTag,
 ) common.RedeemerValue {
-	for _, redeemer := range r {
+	for _, redeemer := range r.Redeemers {
 		if redeemer.Tag == tag && uint(redeemer.Index) == index {
 			return common.RedeemerValue{
 				Data:    redeemer.Data,
@@ -592,13 +660,42 @@ func (r AlonzoRedeemers) Value(
 	return common.RedeemerValue{}
 }
 
+// PlutusDataList wraps a slice of datums with CBOR preservation
+// This is necessary for accurate script data hash computation
+type PlutusDataList struct {
+	cbor.DecodeStoreCbor
+	Items []common.Datum
+}
+
+func (p *PlutusDataList) UnmarshalCBOR(cborData []byte) error {
+	p.SetCbor(cborData)
+	_, err := cbor.Decode(cborData, &p.Items)
+	return err
+}
+
+func (p PlutusDataList) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(p.Items)
+}
+
+func (p PlutusDataList) MarshalJSON() ([]byte, error) {
+	if p.Items == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(p.Items)
+}
+
+func (p *PlutusDataList) UnmarshalJSON(raw []byte) error {
+	p.SetCbor(nil)
+	return json.Unmarshal(raw, &p.Items)
+}
+
 type AlonzoTransactionWitnessSet struct {
 	cbor.DecodeStoreCbor
 	VkeyWitnesses      []common.VkeyWitness      `cbor:"0,keyasint,omitempty"`
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
+	WsPlutusData       PlutusDataList            `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        AlonzoRedeemers           `cbor:"5,keyasint,omitempty"`
 }
 
@@ -640,7 +737,7 @@ func (w AlonzoTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script {
 }
 
 func (w AlonzoTransactionWitnessSet) PlutusData() []common.Datum {
-	return w.WsPlutusData
+	return w.WsPlutusData.Items
 }
 
 func (w AlonzoTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
@@ -655,7 +752,7 @@ type AlonzoTransaction struct {
 	WitnessSet AlonzoTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
+	auxData    common.AuxiliaryData
 }
 
 func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -687,13 +784,25 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
-
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[3])
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[3])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 
@@ -705,8 +814,8 @@ func (t *AlonzoTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *AlonzoTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
+func (t *AlonzoTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (AlonzoTransaction) Type() int {
@@ -737,7 +846,7 @@ func (t AlonzoTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t AlonzoTransaction) Fee() uint64 {
+func (t AlonzoTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -765,7 +874,7 @@ func (t AlonzoTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t AlonzoTransaction) TotalCollateral() uint64 {
+func (t AlonzoTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -773,7 +882,7 @@ func (t AlonzoTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t AlonzoTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t AlonzoTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -801,11 +910,11 @@ func (t AlonzoTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t AlonzoTransaction) CurrentTreasuryValue() int64 {
+func (t AlonzoTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t AlonzoTransaction) Donation() uint64 {
+func (t AlonzoTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -823,8 +932,9 @@ func (t AlonzoTransaction) Consumed() []common.TransactionInput {
 
 func (t AlonzoTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []common.Utxo
-		for idx, output := range t.Outputs() {
+		outputs := t.Outputs()
+		ret := make([]common.Utxo, 0, len(outputs))
+		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{

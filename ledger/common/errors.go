@@ -35,6 +35,31 @@ func (e MissingCostModelError) Error() string {
 	return fmt.Sprintf("missing cost model for Plutus v%d", e.Version+1)
 }
 
+// InputResolutionError indicates a failure to resolve a regular input UTxO
+type InputResolutionError struct {
+	Input TransactionInput
+	Err   error
+}
+
+func (e InputResolutionError) Error() string {
+	return fmt.Sprintf(
+		"failed to resolve input %s: %v",
+		e.Input.String(),
+		e.Err,
+	)
+}
+
+func (e InputResolutionError) Unwrap() error { return e.Err }
+
+// Sentinel error for input resolution failures so callers can use errors.Is
+var ErrInputResolution = errors.New(
+	"input resolution failed",
+)
+
+func (InputResolutionError) Is(target error) bool {
+	return target == ErrInputResolution
+}
+
 // ReferenceInputResolutionError indicates a failure to resolve a reference input UTxO
 type ReferenceInputResolutionError struct {
 	Input TransactionInput
@@ -58,4 +83,86 @@ var ErrReferenceInputResolution = errors.New(
 
 func (ReferenceInputResolutionError) Is(target error) bool {
 	return target == ErrReferenceInputResolution
+}
+
+// InlineDatumsNotSupportedError indicates inline datums used with PlutusV1 scripts
+type InlineDatumsNotSupportedError struct {
+	PlutusVersion string
+}
+
+func (e InlineDatumsNotSupportedError) Error() string {
+	return fmt.Sprintf(
+		"inline datums are not supported with %s scripts - inline datums are a Babbage feature only available for PlutusV2+",
+		e.PlutusVersion,
+	)
+}
+
+// MissingScriptDataHashError indicates the transaction is missing a required ScriptDataHash
+type MissingScriptDataHashError struct{}
+
+func (MissingScriptDataHashError) Error() string {
+	return "transaction requires a script data hash but none was provided"
+}
+
+// Sentinel error for missing script data hash so callers can use errors.Is
+var ErrMissingScriptDataHash = errors.New("missing script data hash")
+
+func (MissingScriptDataHashError) Is(target error) bool {
+	return target == ErrMissingScriptDataHash
+}
+
+// ExtraneousScriptDataHashError indicates the transaction has a ScriptDataHash when none is needed
+type ExtraneousScriptDataHashError struct {
+	Provided Blake2b256
+}
+
+func (e ExtraneousScriptDataHashError) Error() string {
+	return fmt.Sprintf(
+		"transaction has script data hash %x but no Plutus scripts require it",
+		e.Provided[:],
+	)
+}
+
+// Sentinel error for extraneous script data hash so callers can use errors.Is
+var ErrExtraneousScriptDataHash = errors.New("extraneous script data hash")
+
+func (ExtraneousScriptDataHashError) Is(target error) bool {
+	return target == ErrExtraneousScriptDataHash
+}
+
+// ScriptDataHashMismatchError indicates the declared ScriptDataHash doesn't match the computed hash
+type ScriptDataHashMismatchError struct {
+	Declared Blake2b256
+	Computed Blake2b256
+}
+
+func (e ScriptDataHashMismatchError) Error() string {
+	return fmt.Sprintf(
+		"script data hash mismatch: declared %x, computed %x",
+		e.Declared[:],
+		e.Computed[:],
+	)
+}
+
+// Sentinel error for script data hash mismatch so callers can use errors.Is
+var ErrScriptDataHashMismatch = errors.New("script data hash mismatch")
+
+func (ScriptDataHashMismatchError) Is(target error) bool {
+	return target == ErrScriptDataHashMismatch
+}
+
+// MalformedReferenceScriptsError indicates reference scripts in outputs that cannot be deserialized
+type MalformedReferenceScriptsError struct {
+	ScriptHashes []ScriptHash
+}
+
+func (e MalformedReferenceScriptsError) Error() string {
+	return fmt.Sprintf("malformed reference scripts: %v", e.ScriptHashes)
+}
+
+// Sentinel error for malformed reference scripts so callers can use errors.Is
+var ErrMalformedReferenceScripts = errors.New("malformed reference scripts")
+
+func (MalformedReferenceScriptsError) Is(target error) bool {
+	return target == ErrMalformedReferenceScripts
 }

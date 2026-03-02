@@ -17,10 +17,12 @@ package alonzo_test
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"math/big"
 	"testing"
 
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -37,7 +39,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 			TxValidityIntervalStart: testSlot,
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -141,7 +143,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Non-empty
@@ -214,7 +216,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -303,7 +305,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	utxos := []common.Utxo{
 		{Id: testGoodInput},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Good input
@@ -377,9 +379,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Correct network
@@ -443,9 +445,9 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Correct network
@@ -530,7 +532,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -677,7 +679,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		MinUtxoValue: 100000,
@@ -735,7 +737,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	var testOutputValueGood = mary.MaryTransactionOutputValue{
 		Amount: 1234567,
 	}
-	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]uint64{}
+	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{}
 	// Build too-large asset set
 	// We create 45 random policy IDs and asset names in order to exceed the max value size (4000 bytes)
 	for range 45 {
@@ -747,8 +749,8 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		if _, err := rand.Read(tmpAssetName); err != nil {
 			t.Fatalf("could not read random bytes")
 		}
-		tmpBadAssets[common.NewBlake2b224(tmpPolicyId)] = map[cbor.ByteString]uint64{
-			cbor.NewByteString(tmpAssetName): 1,
+		tmpBadAssets[common.NewBlake2b224(tmpPolicyId)] = map[cbor.ByteString]common.MultiAssetTypeOutput{
+			cbor.NewByteString(tmpAssetName): big.NewInt(1),
 		}
 	}
 	tmpBadMultiAsset := common.NewMultiAsset(
@@ -765,7 +767,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		MaxValueSize: 4000,
@@ -848,7 +850,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Good
@@ -904,7 +906,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &alonzo.AlonzoTransaction{}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Transaction under limit
@@ -966,9 +968,11 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			TxFee: testFee,
 		},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -986,7 +990,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		CollateralPercentage: 150,
@@ -1057,14 +1061,16 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
-	tmpMultiAsset := common.NewMultiAsset(
-		map[common.Blake2b224]map[cbor.ByteString]uint64{},
+	tmpMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{},
 	)
 	utxos := []common.Utxo{
 		{
@@ -1083,7 +1089,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Coin and assets
@@ -1152,9 +1158,11 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
-			WsRedeemers: []alonzo.AlonzoRedeemer{
-				// Placeholder entry
-				{},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					// Placeholder entry
+					{},
+				},
 			},
 		},
 	}
@@ -1166,7 +1174,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// No collateral
@@ -1238,7 +1246,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	testTx := &alonzo.AlonzoTransaction{
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		MaxTxExUnits: common.ExUnits{
@@ -1251,7 +1259,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits too large",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerLarge,
+				Redeemers: []alonzo.AlonzoRedeemer{testRedeemerLarge},
 			}
 			err := alonzo.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
@@ -1281,7 +1289,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 		"ExUnits under limit",
 		func(t *testing.T) {
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				testRedeemerSmall,
+				Redeemers: []alonzo.AlonzoRedeemer{testRedeemerSmall},
 			}
 			err := alonzo.UtxoValidateExUnitsTooBigUtxo(
 				testTx,
@@ -1372,7 +1380,9 @@ func TestUtxoValidateWitnessRules_Alonzo(t *testing.T) {
 	t.Run("redeemers present but no scripts", func(t *testing.T) {
 		tx := &alonzo.AlonzoTransaction{}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			},
 		}
 		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		if err == nil {
@@ -1395,7 +1405,9 @@ func TestUtxoValidateWitnessRules_Alonzo(t *testing.T) {
 		tx := &alonzo.AlonzoTransaction{}
 		tx.WitnessSet.WsPlutusV1Scripts = []common.PlutusV1Script{{}}
 		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{ExUnits: common.ExUnits{Steps: 1, Memory: 1}},
+			},
 		}
 		err := alonzo.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)

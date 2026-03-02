@@ -20,7 +20,10 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/stretchr/testify/require"
 )
 
 type testDefinition struct {
@@ -29,8 +32,48 @@ type testDefinition struct {
 	MessageType uint
 }
 
-// TODO: implement tests for more messages (#871)
 var tests = []testDefinition{
+	{
+		CborHex: "830082187b480102030405060708821901c848090a0b0c0d0e0f10",
+		Message: NewMsgRequestRange(
+			pcommon.NewPoint(
+				123,
+				[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+			),
+			pcommon.NewPoint(
+				456,
+				[]byte{0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+			),
+		),
+		MessageType: MessageTypeRequestRange,
+	},
+	{
+		CborHex:     "8101",
+		Message:     NewMsgClientDone(),
+		MessageType: MessageTypeClientDone,
+	},
+	{
+		CborHex:     "8102",
+		Message:     NewMsgStartBatch(),
+		MessageType: MessageTypeStartBatch,
+	},
+	{
+		CborHex:     "8103",
+		Message:     NewMsgNoBlocks(),
+		MessageType: MessageTypeNoBlocks,
+	},
+	{
+		CborHex: "8204d818458206820102",
+		Message: func() *MsgBlock {
+			wrappedBlock := WrappedBlock{
+				Type:     6,
+				RawBlock: cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
+			}
+			wrappedBlockCbor, _ := cbor.Encode(&wrappedBlock)
+			return NewMsgBlock(wrappedBlockCbor)
+		}(),
+		MessageType: MessageTypeBlock,
+	},
 	{
 		CborHex:     "8105",
 		Message:     NewMsgBatchDone(),
@@ -74,5 +117,44 @@ func TestEncode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestMsgBlockAllEras(t *testing.T) {
+	testCases := []struct {
+		name      string
+		era       uint
+		blockCbor []byte
+	}{
+		{"Shelley", ledger.BlockTypeShelley, []byte{0x82, 0x01, 0x02}},
+		{"Allegra", ledger.BlockTypeAllegra, []byte{0x82, 0x01, 0x03}},
+		{"Mary", ledger.BlockTypeMary, []byte{0x82, 0x01, 0x04}},
+		{"Alonzo", ledger.BlockTypeAlonzo, []byte{0x82, 0x01, 0x05}},
+		{"Babbage", ledger.BlockTypeBabbage, []byte{0x82, 0x01, 0x06}},
+		{"Conway", ledger.BlockTypeConway, []byte{0x82, 0x01, 0x07}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			wrappedBlock := WrappedBlock{
+				Type:     tc.era,
+				RawBlock: cbor.RawMessage(tc.blockCbor),
+			}
+			wrappedBlockCbor, err := cbor.Encode(&wrappedBlock)
+			require.NoError(t, err)
+
+			msg := NewMsgBlock(wrappedBlockCbor)
+
+			encoded, err := cbor.Encode(msg)
+			require.NoError(t, err)
+
+			decoded, err := NewMsgFromCbor(MessageTypeBlock, encoded)
+			require.NoError(t, err)
+
+			reencoded, err := cbor.Encode(decoded)
+			require.NoError(t, err)
+
+			require.Equal(t, encoded, reencoded, "CBOR round-trip failed")
+		})
 	}
 }

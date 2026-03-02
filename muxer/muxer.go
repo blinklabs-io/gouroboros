@@ -27,12 +27,18 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Magic number chosen to represent unknown protocols
 const ProtocolUnknown uint16 = 0xabcd
 
-// DiffusionMode is an enum for the valid muxer difficusion modes
+// segmentReadTimeout is the maximum time to wait for a complete segment read
+// before closing the connection. This prevents slowloris-style DoS attacks.
+const segmentReadTimeout = 120 * time.Second
+
+// DiffusionMode is an enum for the valid muxer diffusion modes
 type DiffusionMode int
 
 // Diffusion modes
@@ -63,10 +69,15 @@ type Muxer struct {
 	waitGroup              sync.WaitGroup
 	waitGroupMutex         sync.Mutex
 	protocolSenders        map[uint16]map[ProtocolRole]chan *Segment
-	protocolReceivers      map[uint16]map[ProtocolRole]chan *Segment
+	protocolReceivers      map[uint16]map[ProtocolRole]*segmentChannel
 	protocolReceiversMutex sync.Mutex
-	diffusionMode          DiffusionMode
+	diffusionMode          atomic.Int64
 	onceStop               sync.Once
+}
+
+type segmentChannel struct {
+	mu sync.Mutex
+	ch chan *Segment
 }
 
 type ConnectionClosedError struct {
@@ -94,7 +105,7 @@ func New(conn net.Conn) *Muxer {
 		doneChan:          make(chan bool),
 		errorChan:         make(chan error, 10),
 		protocolSenders:   make(map[uint16]map[ProtocolRole]chan *Segment),
-		protocolReceivers: make(map[uint16]map[ProtocolRole]chan *Segment),
+		protocolReceivers: make(map[uint16]map[ProtocolRole]*segmentChannel),
 	}
 	// Start read goroutine
 	m.waitGroup.Add(1)
@@ -147,10 +158,12 @@ func (m *Muxer) Stop() {
 
 // SetDiffusionMode sets the muxer diffusion mode after the handshake completes
 func (m *Muxer) SetDiffusionMode(diffusionMode DiffusionMode) {
-	m.diffusionMode = diffusionMode
+	m.diffusionMode.Store(int64(diffusionMode))
 }
 
-// sendError sends the specified error to the error channel and stops the muxer
+// sendError sends the specified error to the error channel and stops the muxer.
+// The send is non-blocking to prevent the read loop goroutine from being
+// permanently blocked if the error channel buffer is full.
 func (m *Muxer) sendError(err error) {
 	// Immediately return if we're already shutting down
 	select {
@@ -158,8 +171,11 @@ func (m *Muxer) sendError(err error) {
 		return
 	default:
 	}
-	// Send error to consumer
-	m.errorChan <- err
+	// Send error to consumer (non-blocking to prevent goroutine leak)
+	select {
+	case m.errorChan <- err:
+	default:
+	}
 	// Stop the muxer on any error
 	m.Stop()
 }
@@ -181,14 +197,14 @@ func (m *Muxer) RegisterProtocol(
 	}
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
-	receiverChan := make(chan *Segment, 10)
+	receiverChan := &segmentChannel{ch: make(chan *Segment, 10)}
 	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
 		m.protocolSenders[protocolId] = make(map[ProtocolRole]chan *Segment)
 	}
 	if _, ok := m.protocolReceivers[protocolId]; !ok {
-		m.protocolReceivers[protocolId] = make(map[ProtocolRole]chan *Segment)
+		m.protocolReceivers[protocolId] = make(map[ProtocolRole]*segmentChannel)
 	}
 	m.protocolSenders[protocolId][protocolRole] = senderChan
 	m.protocolReceivers[protocolId][protocolRole] = receiverChan
@@ -215,7 +231,7 @@ func (m *Muxer) RegisterProtocol(
 			}
 		}
 	}()
-	return senderChan, receiverChan, m.doneChan
+	return senderChan, receiverChan.ch, m.doneChan
 }
 
 func (m *Muxer) UnregisterProtocol(
@@ -223,6 +239,7 @@ func (m *Muxer) UnregisterProtocol(
 	protocolRole ProtocolRole,
 ) {
 	m.protocolReceiversMutex.Lock()
+	defer m.protocolReceiversMutex.Unlock()
 	protocolRoles, ok := m.protocolReceivers[protocolId]
 	if !ok {
 		return
@@ -232,10 +249,16 @@ func (m *Muxer) UnregisterProtocol(
 		return
 	}
 	// Signal shutdown to protocol
-	close(recvChan)
+
+	recvChan.mu.Lock()
+	defer recvChan.mu.Unlock()
+	if recvChan.ch != nil {
+		close(recvChan.ch)
+		recvChan.ch = nil
+	}
+
 	// Remove mapping
 	delete(protocolRoles, protocolRole)
-	m.protocolReceiversMutex.Unlock()
 }
 
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than
@@ -273,7 +296,13 @@ func (m *Muxer) readLoop() {
 		for _, protocolRoles := range m.protocolReceivers {
 			for protocolRole, recvChan := range protocolRoles {
 				// Signal shutdown to protocol
-				close(recvChan)
+				recvChan.mu.Lock()
+				if recvChan.ch != nil {
+					close(recvChan.ch)
+					recvChan.ch = nil
+				}
+				recvChan.mu.Unlock()
+
 				// Remove mapping
 				delete(protocolRoles, protocolRole)
 			}
@@ -299,6 +328,8 @@ func (m *Muxer) readLoop() {
 				started = v
 			}
 		}
+		// Set read deadline to prevent slowloris-style DoS attacks
+		_ = m.conn.SetReadDeadline(time.Now().Add(segmentReadTimeout))
 		header := SegmentHeader{}
 		if err := binary.Read(m.conn, binary.BigEndian, &header); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
@@ -344,7 +375,7 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from initiator when we're not configured as a responder
-		if m.diffusionMode == DiffusionModeInitiator && !msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator && !msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from initiator when not configured as a responder",
@@ -353,7 +384,7 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from responder when we're not configured as an initiator
-		if m.diffusionMode == DiffusionModeResponder && msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder && msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from responder when not configured as an initiator",
@@ -393,6 +424,19 @@ func (m *Muxer) readLoop() {
 			)
 			return
 		}
-		recvChan <- msg
+
+		recvChan.mu.Lock()
+		if recvChan.ch == nil {
+			recvChan.mu.Unlock()
+			return
+		}
+
+		select {
+		case <-m.doneChan:
+			recvChan.mu.Unlock()
+			return
+		case recvChan.ch <- msg:
+			recvChan.mu.Unlock()
+		}
 	}
 }

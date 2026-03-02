@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -213,8 +214,35 @@ func (d *Drep) ToPlutusData() data.PlutusData {
 		return data.NewConstr(1)
 	case DrepTypeNoConfidence:
 		return data.NewConstr(2)
+	default:
+		panic(fmt.Sprintf("unsupported drep type: %d", d.Type))
 	}
-	return nil
+}
+
+// String returns a CIP-0129 bech32-encoded representation of the DRep.
+// Returns "drep_abstain" for abstain, "drep_no_confidence" for no confidence,
+// and a CIP-0129 encoded bech32 string with "drep" prefix for key/script hashes.
+func (d *Drep) String() string {
+	switch d.Type {
+	case DrepTypeAddrKeyHash:
+		return encodeCip129Credential(
+			"drep",
+			CredentialTypeAddrKeyHash,
+			d.Credential,
+		)
+	case DrepTypeScriptHash:
+		return encodeCip129Credential(
+			"drep",
+			CredentialTypeScriptHash,
+			d.Credential,
+		)
+	case DrepTypeAbstain:
+		return "drep_abstain"
+	case DrepTypeNoConfidence:
+		return "drep_no_confidence"
+	default:
+		return fmt.Sprintf("drep_unknown_%d", d.Type)
+	}
 }
 
 type StakeRegistrationCertificate struct {
@@ -614,6 +642,16 @@ func (c *PoolRegistrationCertificate) Type() uint {
 	return c.CertType
 }
 
+// PledgeAmount returns the pool pledge as a *big.Int
+func (c *PoolRegistrationCertificate) PledgeAmount() *big.Int {
+	return new(big.Int).SetUint64(c.Pledge)
+}
+
+// CostAmount returns the pool cost as a *big.Int
+func (c *PoolRegistrationCertificate) CostAmount() *big.Int {
+	return new(big.Int).SetUint64(c.Cost)
+}
+
 type PoolRetirementCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -784,6 +822,23 @@ func (c *MoveInstantaneousRewardsCertificate) Type() uint {
 	return c.CertType
 }
 
+// RewardsAmount returns the rewards map with amounts as *big.Int
+func (r *MoveInstantaneousRewardsCertificateReward) RewardsAmount() map[*Credential]*big.Int {
+	if r.Rewards == nil {
+		return nil
+	}
+	result := make(map[*Credential]*big.Int)
+	for cred, amount := range r.Rewards {
+		result[cred] = new(big.Int).SetUint64(amount)
+	}
+	return result
+}
+
+// OtherPotAmount returns the other pot amount as a *big.Int
+func (r *MoveInstantaneousRewardsCertificateReward) OtherPotAmount() *big.Int {
+	return new(big.Int).SetUint64(r.OtherPot)
+}
+
 type RegistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -825,6 +880,11 @@ func (c *RegistrationCertificate) Type() uint {
 	return c.CertType
 }
 
+// DepositAmount returns the deposit amount as a *big.Int
+func (c *RegistrationCertificate) DepositAmount() *big.Int {
+	return new(big.Int).SetInt64(c.Amount)
+}
+
 type DeregistrationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -864,6 +924,11 @@ func (c *DeregistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 
 func (c *DeregistrationCertificate) Type() uint {
 	return c.CertType
+}
+
+// DepositAmount returns the deposit amount as a *big.Int
+func (c *DeregistrationCertificate) DepositAmount() *big.Int {
+	return new(big.Int).SetInt64(c.Amount)
 }
 
 type VoteDelegationCertificate struct {
@@ -1004,6 +1069,11 @@ func (c *StakeRegistrationDelegationCertificate) Type() uint {
 	return c.CertType
 }
 
+// DepositAmount returns the deposit amount as a *big.Int
+func (c *StakeRegistrationDelegationCertificate) DepositAmount() *big.Int {
+	return new(big.Int).SetInt64(c.Amount)
+}
+
 type VoteRegistrationDelegationCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -1050,6 +1120,11 @@ func (c *VoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certificate,
 
 func (c *VoteRegistrationDelegationCertificate) Type() uint {
 	return c.CertType
+}
+
+// DepositAmount returns the deposit amount as a *big.Int
+func (c *VoteRegistrationDelegationCertificate) DepositAmount() *big.Int {
+	return new(big.Int).SetInt64(c.Amount)
 }
 
 type StakeVoteRegistrationDelegationCertificate struct {
@@ -1111,6 +1186,11 @@ func (c *StakeVoteRegistrationDelegationCertificate) Utxorpc() (*utxorpc.Certifi
 
 func (c *StakeVoteRegistrationDelegationCertificate) Type() uint {
 	return c.CertType
+}
+
+// DepositAmount returns the deposit amount as a *big.Int
+func (c *StakeVoteRegistrationDelegationCertificate) DepositAmount() *big.Int {
+	return new(big.Int).SetInt64(c.Amount)
 }
 
 type AuthCommitteeHotCertificate struct {
@@ -1259,6 +1339,11 @@ func (c *RegistrationDrepCertificate) Type() uint {
 	return c.CertType
 }
 
+// DepositAmount returns the deposit amount as a *big.Int
+func (c *RegistrationDrepCertificate) DepositAmount() *big.Int {
+	return new(big.Int).SetInt64(c.Amount)
+}
+
 type DeregistrationDrepCertificate struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
@@ -1298,6 +1383,11 @@ func (c *DeregistrationDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) 
 
 func (c *DeregistrationDrepCertificate) Type() uint {
 	return c.CertType
+}
+
+// DepositAmount returns the deposit amount as a *big.Int
+func (c *DeregistrationDrepCertificate) DepositAmount() *big.Int {
+	return new(big.Int).SetInt64(c.Amount)
 }
 
 type UpdateDrepCertificate struct {

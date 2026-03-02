@@ -70,16 +70,32 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [X] Stake pools
         - [X] Stake pool params
         - [ ] Reward info pools
-        - [ ] Pool state
-        - [ ] Stake snapshots
-        - [ ] Pool distribution
-        - [ ] Constitution
-        - [ ] Governance state
-        - [ ] DRep state
-        - [ ] DRep stake distribution
-        - [ ] SPO stake distribution
-        - [ ] Committee state
-        - [ ] Treasury
+        - [X] Pool state
+        - [X] Stake snapshots
+        - [X] Pool distribution
+        - [X] Constitution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Governance state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] DRep state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] DRep stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] SPO stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Committee state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Filtered vote delegatees ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [ ] Treasury ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] LeiosFetch ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
+      - [X] Client support
+      - [X] Server support
+    - [X] LeiosNotify ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
+      - [X] Client support
+      - [X] Server support
+    - [X] LocalMessageSubmission ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
+      - [X] Client support
+      - [X] Server support
+    - [X] MessageSubmission ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
+      - [X] Client support
+      - [X] Server support
+    - [X] LocalMessageNotification ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
+      - [X] Client support
+      - [X] Server support
 - [ ] Ledger
   - [ ] Eras
     - [X] Byron
@@ -122,7 +138,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
-      - [ ] Parameter updates
+      - [X] Parameter updates
   - [X] Transaction attributes
     - [X] Inputs
     - [X] Outputs
@@ -138,24 +154,57 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Script data hash
     - [X] Collateral inputs
     - [X] Required signers
-    - [X] Collateral return
-    - [X] Total collateral
-    - [X] Reference inputs
-    - [X] Voting procedures
-    - [X] Proposal procedures
-    - [X] Current treasury value
-    - [X] Donation
-- [ ] Testing
+    - [X] Collateral return ([CIP-0040](https://cips.cardano.org/cip/CIP-0040))
+    - [X] Total collateral ([CIP-0040](https://cips.cardano.org/cip/CIP-0040))
+    - [X] Reference inputs ([CIP-0031](https://cips.cardano.org/cip/CIP-0031))
+    - [X] Voting procedures ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] Proposal procedures ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] Current treasury value ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+    - [X] Donation ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+- [X] Block Validation
+  - [X] Block body hash validation
+  - [X] VRF proof verification
+  - [X] KES signature verification
+  - [X] Transaction validation (UTxO rules)
+  - [X] Stake pool verification
+  - [X] Native script evaluation
+  - [X] Plutus script validation (via plutigo)
+  - [X] Structured error handling (ValidationError)
+  - [X] Byron era validation (OBFT consensus, proxy signatures, body proof)
+- [X] Cryptography
+  - [X] KES (Key-Evolving Signatures)
+    - [X] Signature verification
+    - [X] Key generation
+    - [X] Key evolution
+  - [X] VRF (Verifiable Random Function)
+    - [X] Proof generation
+    - [X] Proof verification
+    - [X] Leader election input construction
+- [ ] Consensus
+  - [X] Leader election
+  - [X] Block construction
+  - [X] Chain selection
+  - [X] Threshold calculation
+  - [X] Genesis configuration
+  - [X] Byron consensus (OBFT header validation)
+- [X] Testing
   - [X] Test framework for mocking Ouroboros conversations
-  - [ ] CBOR deserialization and serialization
+  - [X] Conformance tests (2200+ passing)
+    - [X] Ledger rules (314 tests via Amaru vectors)
+    - [X] VRF cryptography (29 vectors + 15 unit tests)
+    - [X] KES cryptography (14 tests via input-output-hk/kes vectors)
+    - [X] Consensus (212 tests for leader election, threshold, selection)
+    - [X] Byron blocks (15 tests from mainnet/testnet/conformance)
+  - [X] Fuzz testing (75 targets with nightly CI)
+  - [X] CBOR deserialization and serialization
     - [X] Protocol messages
-    - [ ] Ledger
-      - [ ] Block parsing
-      - [ ] Transaction parsing
+    - [X] Ledger
+      - [X] Block parsing
+      - [X] Transaction parsing
 - [ ] Misc
-  - [X] Address handling
-    - [X] Decode from bech32
-    - [X] Encode as bech32
+  - [X] Address handling ([CIP-0019](https://cips.cardano.org/cip/CIP-0019))
+    - [X] Decode from bech32 ([CIP-0005](https://cips.cardano.org/cip/CIP-0005))
+    - [X] Encode as bech32 ([CIP-0005](https://cips.cardano.org/cip/CIP-0005))
     - [X] Deserialize from CBOR
     - [X] Retrieve staking key
 
@@ -170,9 +219,18 @@ manual testing is required.
 make test
 ```
 
+### Running the linter
+
+gOuroboros uses [golangci-lint](https://golangci-lint.run/) for code quality checks. Install it following the
+[official installation guide](https://golangci-lint.run/docs/welcome/install/local/), then run:
+
+```
+make lint
+```
+
 ### Manual testing
 
-Various small test programs can be found in `cmd/` in this repo or in the [gOuroboros Starter Kit](https://github.com/blinklabs-io/gouroboros-starter-kit) repo.
+Various small test programs can be found in the [gOuroboros Starter Kit](https://github.com/blinklabs-io/gouroboros-starter-kit) repo.
 Some of them can be run against public nodes via NtN protocols, but some may require access to the UNIX socket of a local node for NtC protocols.
 
 #### Run chain-sync from the start of a particular era
@@ -180,16 +238,12 @@ Some of them can be run against public nodes via NtN protocols, but some may req
 This is useful for testing changes to the handling of ledger types for a particular era. It will decode each block and either print
 a summary line for the block or an error.
 
-Start by building the test programs:
-
-```
-make
-```
+You can use the `chain-sync` program from `gouroboros-starter-kit` to start a ChainSync from a public node.
 
 Run the chain-sync test program against a public mainnet node, starting at the beginning of the Shelley era:
 
 ```
-./gouroboros -address backbone.cardano.iog.io:3001 -network mainnet -ntn chain-sync -bulk -start-era shelley
+CARDANO_NODE_ADDRESS=backbone.cardano.iog.io:3001 CARDANO_NODE_NETWORK=mainnet ./chain-sync -bulk -start-era shelley
 ```
 
 This will produce a LOT of output and take quite a few hours to reach chain tip. You're mostly looking for it to get through

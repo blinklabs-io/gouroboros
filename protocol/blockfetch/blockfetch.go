@@ -23,6 +23,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -104,14 +105,15 @@ type BlockFetch struct {
 
 // Config holds configuration options for the Block Fetch protocol.
 type Config struct {
-	BlockFunc           BlockFunc        // Callback for decoded blocks
-	BlockRawFunc        BlockRawFunc     // Callback for raw block data
-	BatchDoneFunc       BatchDoneFunc    // Callback when a batch is done
-	RequestRangeFunc    RequestRangeFunc // Callback for range requests
-	BatchStartTimeout   time.Duration    // Timeout for starting a batch
-	BlockTimeout        time.Duration    // Timeout for receiving a block
-	RecvQueueSize       int              // Size of the receive queue
-	SkipBlockValidation bool             // Skip block validation during parsing
+	BlockFunc           BlockFunc               // Callback for decoded blocks
+	BlockRawFunc        BlockRawFunc            // Callback for raw block data
+	BatchDoneFunc       BatchDoneFunc           // Callback when a batch is done
+	RequestRangeFunc    RequestRangeFunc        // Callback for range requests
+	BatchStartTimeout   time.Duration           // Timeout for starting a batch
+	BlockTimeout        time.Duration           // Timeout for receiving a block
+	RecvQueueSize       int                     // Size of the receive queue
+	SkipBlockValidation bool                    // Skip block validation during parsing
+	Pipeline            *pipeline.BlockPipeline // Pipeline enables the block processing pipeline for batch operations
 }
 
 // MaxRecvQueueSize is the maximum allowed receive queue size (messages).
@@ -268,5 +270,15 @@ func WithRecvQueueSize(size int) BlockFetchOptionFunc {
 			)
 		}
 		c.RecvQueueSize = size
+	}
+}
+
+// WithPipeline sets the block processing pipeline in the Config.
+// When a pipeline is configured, received blocks are submitted to the pipeline
+// for parallel decoding, validation, and ordered application instead of being
+// processed synchronously through callbacks.
+func WithPipeline(p *pipeline.BlockPipeline) BlockFetchOptionFunc {
+	return func(c *Config) {
+		c.Pipeline = p
 	}
 }

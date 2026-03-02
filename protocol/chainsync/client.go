@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,15 +15,26 @@
 package chainsync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+)
+
+type clientLifecycleState uint8
+
+const (
+	clientStateNew clientLifecycleState = iota
+	clientStateStarting
+	clientStateRunning
+	clientStateStopped
 )
 
 // Client implements the ChainSync client
@@ -32,10 +43,12 @@ type Client struct {
 	config                   *Config
 	callbackContext          CallbackContext
 	busyMutex                sync.Mutex
+	lifecycleMutex           sync.Mutex
+	lifecycleState           clientLifecycleState
+	startingDone             chan struct{}
 	readyForNextBlockChan    chan bool
-	onceStart                sync.Once
-	onceStop                 sync.Once
 	syncPipelinedRequestNext int
+	protoOptions             protocol.ProtocolOptions
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -56,104 +69,245 @@ type clientPointResult struct {
 
 // NewClient returns a new ChainSync client object
 func NewClient(
-	stateContext any,
 	protoOptions protocol.ProtocolOptions,
 	cfg *Config,
 ) *Client {
-	// Use node-to-client protocol ID
-	ProtocolId := ProtocolIdNtC
-	msgFromCborFunc := NewMsgFromCborNtC
-	if protoOptions.Mode == protocol.ProtocolModeNodeToNode {
-		// Use node-to-node protocol ID
-		ProtocolId = ProtocolIdNtN
-		msgFromCborFunc = NewMsgFromCborNtN
-	}
 	if cfg == nil {
 		tmpCfg := NewConfig()
 		cfg = &tmpCfg
 	}
+	// Apply defaults for zero values to handle Config{} created without NewConfig()
+	config := *cfg
+	if config.PipelineLimit == 0 {
+		config.PipelineLimit = DefaultPipelineLimit
+	}
+	if config.RecvQueueSize == 0 {
+		config.RecvQueueSize = DefaultRecvQueueSize
+	}
 	c := &Client{
-		config:                cfg,
-		readyForNextBlockChan: make(chan bool),
-
-		waitingForCurrentTipChan: make(chan chan<- Tip, 20),
-		wantCurrentTipChan:       make(chan chan<- Tip, 1),
-		wantFirstBlockChan:       make(chan chan<- clientPointResult, 1),
-		wantIntersectFoundChan:   make(chan chan<- clientPointResult, 1),
+		config:                &config,
+		protoOptions:          protoOptions,
+		lifecycleState:        clientStateNew,
+		readyForNextBlockChan: nil,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
-	// Update state map with timeouts
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[stateIntersect]; ok {
-		entry.Timeout = c.config.IntersectTimeout
-		stateMap[stateIntersect] = entry
+	c.initProtocol()
+	return c
+}
+
+func (c *Client) initProtocol() {
+	// Use node-to-client protocol ID
+	ProtocolId := ProtocolIdNtC
+	msgFromCborFunc := NewMsgFromCborNtC
+	if c.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		// Use node-to-node protocol ID
+		ProtocolId = ProtocolIdNtN
+		msgFromCborFunc = NewMsgFromCborNtN
 	}
-	for _, state := range []protocol.State{stateCanAwait, stateMustReply} {
-		if entry, ok := stateMap[state]; ok {
-			entry.Timeout = c.config.BlockTimeout
-			stateMap[state] = entry
+
+	// Recreate channels
+	// Use buffered channel with size equal to PipelineLimit to ensure all pipelined
+	// block signals can be queued without blocking. With pipelining, up to PipelineLimit
+	// blocks can be in-flight, each generating one signal. A smaller buffer would cause
+	// signals to be dropped (with non-blocking sends) or deadlock (with blocking sends
+	// while holding lifecycleMutex).
+	c.readyForNextBlockChan = make(chan bool, c.config.PipelineLimit)
+	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
+	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
+	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
+	c.wantIntersectFoundChan = make(chan chan<- clientPointResult, 1)
+
+	// Select base state map based on protocol mode.
+	// Default to NtC (matching ProtocolId/CBOR defaults above) so that
+	// callers who omit Mode get consistent NtC behaviour throughout.
+	baseStateMap := StateMapNtC
+	if c.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		baseStateMap = StateMapNtN
+	}
+	stateMap := baseStateMap.Copy()
+	// Override timeouts from config only for NtN mode.
+	// NtC mode intentionally has no timeouts per Ouroboros spec (Table 3.9).
+	if c.protoOptions.Mode == protocol.ProtocolModeNodeToNode {
+		if entry, ok := stateMap[stateIntersect]; ok {
+			entry.Timeout = c.config.IntersectTimeout
+			stateMap[stateIntersect] = entry
+		}
+		if entry, ok := stateMap[stateIdle]; ok && c.config.IdleTimeout != 0 {
+			entry.Timeout = c.config.IdleTimeout
+			stateMap[stateIdle] = entry
+		}
+		for _, state := range []protocol.State{stateCanAwait, stateMustReply} {
+			if entry, ok := stateMap[state]; ok {
+				if entry.TimeoutFunc != nil {
+					// Dynamic timeout (e.g. MustReplyTimeoutFunc) takes precedence; skip override.
+					continue
+				}
+				entry.Timeout = c.config.BlockTimeout
+				stateMap[state] = entry
+			}
 		}
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               c.protoOptions.Muxer,
+		Logger:              c.protoOptions.Logger,
+		ErrorChan:           c.protoOptions.ErrorChan,
+		Mode:                c.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: msgFromCborFunc,
 		StateMap:            stateMap,
-		StateContext:        stateContext,
 		InitialState:        stateIdle,
 	}
 	if c.config != nil {
 		protoConfig.RecvQueueSize = c.config.RecvQueueSize
 	}
 	c.Protocol = protocol.New(protoConfig)
-	return c
 }
 
 func (c *Client) Start() {
-	c.onceStart.Do(func() {
-		c.Protocol.Logger().
-			Debug("starting client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		c.Protocol.Start()
-		// Start goroutine to cleanup resources on protocol shutdown
-		go func() {
-			<-c.DoneChan()
-			close(c.readyForNextBlockChan)
-		}()
-	})
+	for {
+		c.lifecycleMutex.Lock()
+
+		switch c.lifecycleState {
+		case clientStateRunning:
+			c.lifecycleMutex.Unlock()
+			return
+
+		case clientStateStarting:
+			// Another goroutine is already starting. Wait for it to complete.
+			ch := c.startingDone
+			c.lifecycleMutex.Unlock()
+			if ch != nil {
+				<-ch
+			}
+			// Re-check state after the in-flight start completes
+			continue
+
+		case clientStateStopped, clientStateNew:
+			// We will be the goroutine that performs initialization/start.
+			// Save previous state before transitioning to prevent other goroutines from also starting.
+			prevState := c.lifecycleState
+			c.lifecycleState = clientStateStarting
+			ch := make(chan struct{})
+			c.startingDone = ch
+
+			oldProto := c.Protocol
+			var oldDone <-chan struct{}
+			if prevState == clientStateStopped && oldProto != nil {
+				oldDone = oldProto.DoneChan()
+			}
+			c.lifecycleMutex.Unlock()
+
+			// If we were stopped, ensure the old instance is fully stopped before re-registering.
+			if oldDone != nil {
+				oldProto.Stop()
+				<-oldDone
+			}
+
+			c.lifecycleMutex.Lock()
+			// If we were stopped by someone else while waiting, don't continue.
+			if c.lifecycleState != clientStateStarting {
+				if c.startingDone == ch {
+					close(ch)
+					c.startingDone = nil
+				}
+				c.lifecycleMutex.Unlock()
+				return
+			}
+
+			// Reinitialize protocol when transitioning from stopped->start (or if nil).
+			// This recreates internal channels that may have been closed on Stop().
+			if c.Protocol == nil || prevState == clientStateStopped {
+				c.initProtocol()
+				c.syncPipelinedRequestNext = 0
+			}
+
+			c.Protocol.Logger().
+				Debug("starting client protocol",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
+			c.Protocol.Start()
+			c.lifecycleState = clientStateRunning
+			if c.startingDone == ch {
+				close(ch)
+				c.startingDone = nil
+			}
+			c.lifecycleMutex.Unlock()
+			return
+
+		default:
+			// Should not happen; treat as stopped.
+			c.lifecycleState = clientStateStopped
+			c.lifecycleMutex.Unlock()
+			continue
+		}
+	}
 }
 
-// Stop transitions the protocol to the Done state. No more protocol operations will be possible afterward
+// Stop sends a Done message and transitions the client to the Stopped state.
 func (c *Client) Stop() error {
-	var err error
-	c.onceStop.Do(func() {
-		c.Protocol.Logger().
-			Debug("stopping client protocol",
-				"component", "network",
-				"protocol", ProtocolName,
-				"connection_id", c.callbackContext.ConnectionId.String(),
-			)
-		c.busyMutex.Lock()
-		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+	const busyLockTimeout = 5 * time.Second
+	deadline := time.Now().Add(busyLockTimeout)
+	busyLocked := false
+	for {
+		if c.busyMutex.TryLock() {
+			busyLocked = true
+			break
 		}
-	})
-	return err
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+
+	if c.lifecycleState != clientStateRunning {
+		if busyLocked {
+			c.busyMutex.Unlock()
+		}
+		return nil
+	}
+
+	c.Protocol.Logger().
+		Debug("stopping client protocol",
+			"component", "network",
+			"protocol", ProtocolName,
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+
+	var sendErr error
+	msg := NewMsgDone()
+	sendErr = c.SendMessage(msg)
+	_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+	if busyLocked {
+		c.busyMutex.Unlock()
+	}
+
+	// Close readyForNextBlockChan to signal syncLoop to exit
+	if c.readyForNextBlockChan != nil {
+		close(c.readyForNextBlockChan)
+		c.readyForNextBlockChan = nil
+	}
+
+	// Stop/unregister the underlying protocol instance.
+	c.Protocol.Stop()
+	c.lifecycleState = clientStateStopped
+	// Unblock any goroutine waiting for an in-progress start.
+	if c.startingDone != nil {
+		close(c.startingDone)
+		c.startingDone = nil
+	}
+	return sendErr
 }
 
 // GetCurrentTip returns the current chain tip
@@ -568,15 +722,15 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeAwaitReply:
-		err = c.handleAwaitReply()
+		c.handleAwaitReply()
 	case MessageTypeRollForward:
 		err = c.handleRollForward(msg)
 	case MessageTypeRollBackward:
 		err = c.handleRollBackward(msg)
 	case MessageTypeIntersectFound:
-		err = c.handleIntersectFound(msg)
+		c.handleIntersectFound(msg)
 	case MessageTypeIntersectNotFound:
-		err = c.handleIntersectNotFound(msg)
+		c.handleIntersectNotFound(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -587,7 +741,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleAwaitReply() error {
+func (c *Client) handleAwaitReply() {
 	c.Protocol.Logger().
 		Debug("waiting for next reply",
 			"component", "network",
@@ -595,7 +749,6 @@ func (c *Client) handleAwaitReply() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	return nil
 }
 
 func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
@@ -686,6 +839,49 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		c.sendCurrentTip(msg.Tip)
 
+		// Pipeline path: submit to pipeline and signal ready immediately
+		// Skip pipeline path if firstBlockChan is set (GetAvailableBlockRange is waiting),
+		// so we fall through to the normal path that handles first-block signaling.
+		// NOTE: RollBackward handling coordinates with the pipeline via WaitForDrain()
+		// to ensure pending blocks are processed before the rollback callback runs.
+		if c.config.Pipeline != nil && firstBlockChan == nil {
+			// Create a context that cancels when the protocol shuts down.
+			// This prevents Submit from blocking indefinitely if the pipeline is
+			// full (backpressure) and DoneChan fires before pipeline.Stop().
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				select {
+				case <-c.DoneChan():
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			err := c.config.Pipeline.Submit(ctx, msg.BlockType(), msg.BlockCbor(), msg.Tip)
+			cancel() // Ensure goroutine exits promptly
+			if err != nil {
+				// Signal syncLoop to stop on pipeline error
+				c.lifecycleMutex.Lock()
+				if c.readyForNextBlockChan != nil {
+					select {
+					case c.readyForNextBlockChan <- false:
+					case <-c.DoneChan():
+					}
+				}
+				c.lifecycleMutex.Unlock()
+				return err
+			}
+			// Signal ready for next block immediately (pipeline handles backpressure)
+			c.lifecycleMutex.Lock()
+			if c.readyForNextBlockChan != nil {
+				select {
+				case c.readyForNextBlockChan <- true:
+				case <-c.DoneChan():
+				}
+			}
+			c.lifecycleMutex.Unlock()
+			return nil
+		}
+
 		var block ledger.Block
 
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
@@ -728,14 +924,28 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	if callbackErr != nil {
 		if errors.Is(callbackErr, ErrStopSyncProcess) {
 			// Signal that we're cancelling the sync
-			c.readyForNextBlockChan <- false
+			c.lifecycleMutex.Lock()
+			if c.readyForNextBlockChan != nil {
+				select {
+				case c.readyForNextBlockChan <- false:
+				case <-c.DoneChan():
+				}
+			}
+			c.lifecycleMutex.Unlock()
 			return nil
 		} else {
 			return callbackErr
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	c.lifecycleMutex.Lock()
+	if c.readyForNextBlockChan != nil {
+		select {
+		case c.readyForNextBlockChan <- true:
+		case <-c.DoneChan():
+		}
+	}
+	c.lifecycleMutex.Unlock()
 	return nil
 }
 
@@ -749,6 +959,47 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		)
 	msgRollBackward := msgGeneric.(*MsgRollBackward)
 	c.sendCurrentTip(msgRollBackward.Tip)
+
+	// If pipeline is configured, wait for pending blocks to be processed
+	// before calling the rollback callback. This prevents blocks from being
+	// applied after the ledger state has been rolled back.
+	if c.config.Pipeline != nil {
+		// Use a timeout context but also check for protocol shutdown via DoneChan
+		drainTimeout := c.config.PipelineDrainTimeout
+		if drainTimeout == 0 {
+			drainTimeout = DefaultPipelineDrainTimeout
+		}
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeout)
+		defer drainCancel()
+
+		// Create a channel to signal drain completion
+		drainDone := make(chan error, 1)
+		go func() {
+			drainDone <- c.config.Pipeline.WaitForDrain(drainCtx)
+		}()
+
+		// Wait for either drain completion or protocol shutdown
+		select {
+		case err := <-drainDone:
+			if err != nil {
+				c.Protocol.Logger().
+					Warn("failed to drain pipeline before rollback",
+						"error", err,
+						"component", "network",
+						"protocol", ProtocolName,
+					)
+				// Continue with rollback even if drain fails
+			}
+		case <-c.DoneChan():
+			// Protocol is shutting down, skip waiting for drain
+			c.Protocol.Logger().
+				Debug("skipping pipeline drain due to shutdown",
+					"component", "network",
+					"protocol", ProtocolName,
+				)
+		}
+	}
+
 	if len(c.wantFirstBlockChan) == 0 {
 		if c.config.RollBackwardFunc == nil {
 			return errors.New(
@@ -759,7 +1010,14 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if errors.Is(callbackErr, ErrStopSyncProcess) {
 				// Signal that we're cancelling the sync
-				c.readyForNextBlockChan <- false
+				c.lifecycleMutex.Lock()
+				if c.readyForNextBlockChan != nil {
+					select {
+					case c.readyForNextBlockChan <- false:
+					case <-c.DoneChan():
+					}
+				}
+				c.lifecycleMutex.Unlock()
 				return nil
 			} else {
 				return callbackErr
@@ -767,11 +1025,18 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 		}
 	}
 	// Signal that we're ready for the next block
-	c.readyForNextBlockChan <- true
+	c.lifecycleMutex.Lock()
+	if c.readyForNextBlockChan != nil {
+		select {
+		case c.readyForNextBlockChan <- true:
+		case <-c.DoneChan():
+		}
+	}
+	c.lifecycleMutex.Unlock()
 	return nil
 }
 
-func (c *Client) handleIntersectFound(msg protocol.Message) error {
+func (c *Client) handleIntersectFound(msg protocol.Message) {
 	c.Protocol.Logger().
 		Debug("chain intersect found",
 			"component", "network",
@@ -787,10 +1052,9 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 		ch <- clientPointResult{tip: msgIntersectFound.Tip, point: msgIntersectFound.Point}
 	default:
 	}
-	return nil
 }
 
-func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
+func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) {
 	c.Protocol.Logger().
 		Debug("chain intersect not found",
 			"component", "network",
@@ -806,5 +1070,4 @@ func (c *Client) handleIntersectNotFound(msgGeneric protocol.Message) error {
 		ch <- clientPointResult{tip: msgIntersectNotFound.Tip, error: ErrIntersectNotFound}
 	default:
 	}
-	return nil
 }

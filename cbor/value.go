@@ -17,6 +17,7 @@ package cbor
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -39,6 +40,9 @@ func (v *Value) MarshalCBOR() ([]byte, error) {
 }
 
 func (v *Value) UnmarshalCBOR(data []byte) error {
+	if len(data) == 0 {
+		return errors.New("empty CBOR data")
+	}
 	// Save the original CBOR
 	v.cborData = string(data[:])
 	cborType := data[0] & CborTypeMask
@@ -66,11 +70,9 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 		if _, err := Decode(data, &tmpTag); err != nil {
 			return err
 		}
-		if (tmpTag.Number >= CborTagAlternative1Min && tmpTag.Number <= CborTagAlternative1Max) ||
-			(tmpTag.Number >= CborTagAlternative2Min && tmpTag.Number <= CborTagAlternative2Max) ||
-			tmpTag.Number == CborTagAlternative3 {
+		if IsAlternativeTag(tmpTag.Number) {
 			// Constructors/alternatives
-			var tmpConstr Constructor
+			var tmpConstr ConstructorDecoder
 			if _, err := Decode(data, &tmpConstr); err != nil {
 				return err
 			}
@@ -183,13 +185,20 @@ func generateAstJson(obj any) ([]byte, error) {
 		return generateAstJsonMap(v)
 	case Map:
 		return generateAstJsonMap(v)
-	case Constructor:
+	case ConstructorDecoder:
 		return json.Marshal(obj)
 	case big.Int:
 		tmpJson := fmt.Sprintf(
 			`{"int":%s}`,
 			v.String(),
 		)
+		return []byte(tmpJson), nil
+	case *big.Int:
+		if v == nil {
+			tmpJson := `{"int":0}`
+			return []byte(tmpJson), nil
+		}
+		tmpJson := fmt.Sprintf(`{"int":%s}`, v.String())
 		return []byte(tmpJson), nil
 	case Rat:
 		return generateAstJson(
@@ -257,113 +266,6 @@ func generateAstJsonMap[T map[any]any | Map](v T) ([]byte, error) {
 	return []byte(tmpJson), nil
 }
 
-type Constructor struct {
-	DecodeStoreCbor
-	constructor uint
-	value       *Value
-}
-
-func NewConstructor(constructor uint, value any) Constructor {
-	c := Constructor{
-		constructor: constructor,
-	}
-	if value != nil {
-		c.value = &Value{
-			value: value,
-		}
-	}
-	return c
-}
-
-func (v Constructor) Constructor() uint {
-	return v.constructor
-}
-
-func (v Constructor) Fields() []any {
-	return v.value.Value().([]any)
-}
-
-func (c Constructor) FieldsCbor() []byte {
-	return c.value.Cbor()
-}
-
-func (c *Constructor) UnmarshalCBOR(data []byte) error {
-	// Save original CBOR
-	c.SetCbor(data)
-	// Parse as a raw tag to get number and nested CBOR data
-	tmpTag := RawTag{}
-	if _, err := Decode(data, &tmpTag); err != nil {
-		return err
-	}
-	// Parse the tag value via our custom Value object to handle problem types
-	tmpValue := Value{}
-	if _, err := Decode(tmpTag.Content, &tmpValue); err != nil {
-		return err
-	}
-	if tmpTag.Number >= CborTagAlternative1Min &&
-		tmpTag.Number <= CborTagAlternative1Max {
-		// Alternatives 0-6
-		c.constructor = uint(tmpTag.Number - CborTagAlternative1Min)
-		c.value = &tmpValue
-	} else if tmpTag.Number >= CborTagAlternative2Min && tmpTag.Number <= CborTagAlternative2Max {
-		// Alternatives 7-127
-		c.constructor = uint(tmpTag.Number - CborTagAlternative2Min + 7)
-		c.value = &tmpValue
-	} else if tmpTag.Number == CborTagAlternative3 {
-		// Alternatives 128+
-		tmpValues := tmpValue.Value().([]any)
-		c.constructor = uint(tmpValues[0].(uint64))
-		newValue := Value{
-			value: tmpValues[1],
-		}
-		c.value = &newValue
-	} else {
-		return fmt.Errorf("unsupported tag: %d", tmpTag.Number)
-	}
-	return nil
-}
-
-func (c Constructor) MarshalCBOR() ([]byte, error) {
-	var tmpTag Tag
-	if c.constructor <= 6 {
-		// Alternatives 0-6
-		tmpTag.Number = uint64(c.constructor + CborTagAlternative1Min)
-		tmpTag.Content = c.value.Value()
-	} else if c.constructor >= 7 && c.constructor <= 127 {
-		// Alternatives 7-127
-		tmpTag.Number = uint64(c.constructor + CborTagAlternative2Min - 7)
-		tmpTag.Content = c.value.Value()
-	} else if c.constructor >= 128 {
-		tmpTag.Number = CborTagAlternative3
-		tmpTag.Content = []any{
-			c.constructor,
-			c.value.Value(),
-		}
-	}
-	return Encode(&tmpTag)
-}
-
-func (v Constructor) MarshalJSON() ([]byte, error) {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(`{"constructor":%d,"fields":[`, v.constructor))
-	tmpList := [][]byte{}
-	for _, val := range v.value.Value().([]any) {
-		tmpVal, err := generateAstJson(val)
-		if err != nil {
-			return nil, err
-		}
-		tmpList = append(tmpList, tmpVal)
-	}
-	for idx, val := range tmpList {
-		sb.WriteString(string(val))
-		if idx != (len(tmpList) - 1) {
-			sb.WriteString(`,`)
-		}
-	}
-	sb.WriteString(`]}`)
-	return []byte(sb.String()), nil
-}
-
 type LazyValue struct {
 	value *Value
 }
@@ -383,7 +285,7 @@ func (l *LazyValue) UnmarshalCBOR(data []byte) error {
 }
 
 func (l *LazyValue) MarshalJSON() ([]byte, error) {
-	if l.Value() == nil {
+	if l.Value() == nil && len(l.value.cborData) > 0 {
 		// Try to decode if we can, but don't blow up if we can't
 		_, _ = l.Decode()
 	}

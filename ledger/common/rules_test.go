@@ -21,8 +21,8 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 )
 
 // mockTxEmpty implements the minimal Transaction interface used by the
@@ -39,7 +39,7 @@ func (m *mockTxEmpty) Hash() common.Blake2b256 { return common.Blake2b256{} }
 
 func (m *mockTxEmpty) LeiosHash() common.Blake2b256            { return common.Blake2b256{} }
 func (m *mockTxEmpty) Metadata() common.TransactionMetadatum   { return nil }
-func (m *mockTxEmpty) RawAuxiliaryData() []byte                { return nil }
+func (m *mockTxEmpty) AuxiliaryData() common.AuxiliaryData     { return nil }
 func (m *mockTxEmpty) IsValid() bool                           { return true }
 func (m *mockTxEmpty) Consumed() []common.TransactionInput     { return nil }
 func (m *mockTxEmpty) Produced() []common.Utxo                 { return nil }
@@ -68,10 +68,10 @@ func TestVerifyTransaction(t *testing.T) {
 	var tx common.Transaction
 
 	slot := uint64(1000)
-	ledgerState := &test_ledger.MockLedgerState{
-		UtxoByIdFunc: func(input common.TransactionInput) (common.Utxo, error) { return common.Utxo{}, nil },
-	}
-	protocolParams := &test_ledger.MockProtocolParamsRules{}
+	ledgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) { return common.Utxo{}, nil }).
+		Build()
+	protocolParams := &mockledger.MockProtocolParamsRules{}
 
 	t.Run("all_rules_pass", func(t *testing.T) {
 		rules := []common.UtxoValidationRuleFunc{

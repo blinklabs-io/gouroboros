@@ -14,8 +14,18 @@
 
 package shelley
 
+// Related files:
+//   - errors.go: Error types returned by these validation rules
+//   - ledger/common/rules.go: Shared validation utilities and base rules
+//   - ledger/common/state.go: LedgerState interface used by validators
+//   - internal/test/conformance/: Test vectors for validation rules
+//   - Later eras (allegra, mary, alonzo, etc.) delegate to these rules
+
 import (
 	"errors"
+	"fmt"
+	"math/big"
+	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -24,8 +34,10 @@ import (
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMetadata,
 	UtxoValidateRequiredVKeyWitnesses,
+	UtxoValidateSignatures,
 	UtxoValidateTimeToLive,
 	UtxoValidateInputSetEmptyUtxo,
+	UtxoValidateNoDuplicateInputs,
 	UtxoValidateFeeTooSmallUtxo,
 	UtxoValidateBadInputsUtxo,
 	UtxoValidateWrongNetwork,
@@ -34,6 +46,8 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateOutputTooSmallUtxo,
 	UtxoValidateOutputBootAddrAttrsTooBig,
 	UtxoValidateMaxTxSizeUtxo,
+	UtxoValidateDelegation,
+	UtxoValidateWithdrawals,
 }
 
 // UtxoValidateTimeToLive ensures that the current tip slot is not after the specified TTL value
@@ -66,6 +80,43 @@ func UtxoValidateInputSetEmptyUtxo(
 	return InputSetEmptyUtxoError{}
 }
 
+// UtxoValidateNoDuplicateInputs ensures that there are no duplicate inputs in any input set
+func UtxoValidateNoDuplicateInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Check regular inputs
+	seen := make(map[string]bool)
+	for _, input := range tx.Inputs() {
+		key := input.String()
+		if seen[key] {
+			return DuplicateInputError{Input: input, InputType: "regular"}
+		}
+		seen[key] = true
+	}
+	// Check collateral inputs
+	seen = make(map[string]bool)
+	for _, input := range tx.Collateral() {
+		key := input.String()
+		if seen[key] {
+			return DuplicateInputError{Input: input, InputType: "collateral"}
+		}
+		seen[key] = true
+	}
+	// Check reference inputs
+	seen = make(map[string]bool)
+	for _, input := range tx.ReferenceInputs() {
+		key := input.String()
+		if seen[key] {
+			return DuplicateInputError{Input: input, InputType: "reference"}
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
 // UtxoValidateFeeTooSmallUtxo ensures that the fee is at least the calculated minimum
 func UtxoValidateFeeTooSmallUtxo(
 	tx common.Transaction,
@@ -77,12 +128,17 @@ func UtxoValidateFeeTooSmallUtxo(
 	if err != nil {
 		return err
 	}
-	if tx.Fee() >= minFee {
+	minFeeBig := new(big.Int).SetUint64(minFee)
+	fee := tx.Fee()
+	if fee == nil {
+		fee = new(big.Int)
+	}
+	if fee.Cmp(minFeeBig) >= 0 {
 		return nil
 	}
 	return FeeTooSmallUtxoError{
-		Provided: tx.Fee(),
-		Min:      minFee,
+		Provided: fee,
+		Min:      minFeeBig,
 	}
 }
 
@@ -170,31 +226,41 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	// Calculate consumed value
 	// consumed = value from input(s) + withdrawals + refunds
-	var consumedValue uint64
+	consumedValue := new(big.Int)
 	for _, tmpInput := range tx.Inputs() {
 		tmpUtxo, err := ls.UtxoById(tmpInput)
 		// Ignore errors fetching the UTxO and exclude it from calculations
 		if err != nil {
 			continue
 		}
-		consumedValue += tmpUtxo.Output.Amount()
+		if amount := tmpUtxo.Output.Amount(); amount != nil {
+			consumedValue.Add(consumedValue, amount)
+		}
 	}
 	for _, tmpWithdrawalAmount := range tx.Withdrawals() {
-		consumedValue += tmpWithdrawalAmount
+		if tmpWithdrawalAmount != nil {
+			consumedValue.Add(consumedValue, tmpWithdrawalAmount)
+		}
 	}
 	for _, cert := range tx.Certificates() {
 		switch cert.(type) {
 		case *common.StakeDeregistrationCertificate:
-			consumedValue += uint64(tmpPparams.KeyDeposit)
+			consumedValue.Add(consumedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
+			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
+			// Pool deposits are refunded to the reward account at the end of the retiring epoch.
 		}
 	}
 	// Calculate produced value
 	// produced = value from output(s) + fee + deposits
-	var producedValue uint64
+	producedValue := new(big.Int)
 	for _, tmpOutput := range tx.Outputs() {
-		producedValue += tmpOutput.Amount()
+		if amount := tmpOutput.Amount(); amount != nil {
+			producedValue.Add(producedValue, amount)
+		}
 	}
-	producedValue += tx.Fee()
+	if fee := tx.Fee(); fee != nil {
+		producedValue.Add(producedValue, fee)
+	}
 	for _, cert := range tx.Certificates() {
 		switch tmpCert := cert.(type) {
 		case *common.PoolRegistrationCertificate:
@@ -203,19 +269,29 @@ func UtxoValidateValueNotConservedUtxo(
 				return err
 			}
 			if reg == nil {
-				producedValue += uint64(tmpPparams.PoolDeposit)
+				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
-			producedValue += uint64(tmpPparams.KeyDeposit)
+			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
-	if consumedValue == producedValue {
+	if consumedValue.Cmp(producedValue) == 0 {
 		return nil
 	}
 	return ValueNotConservedUtxoError{
 		Consumed: consumedValue,
 		Produced: producedValue,
 	}
+}
+
+// UtxoValidateSignatures verifies vkey and bootstrap signatures present in the transaction.
+func UtxoValidateSignatures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.UtxoValidateSignatures(tx, slot, ls, pp)
 }
 
 // UtxoValidateOutputTooSmallUtxo ensures that outputs have at least the minimum value
@@ -229,9 +305,14 @@ func UtxoValidateOutputTooSmallUtxo(
 	if err != nil {
 		return err
 	}
+	minCoinBig := new(big.Int).SetUint64(minCoin)
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
-		if tmpOutput.Amount() < minCoin {
+		amount := tmpOutput.Amount()
+		if amount == nil {
+			amount = new(big.Int)
+		}
+		if amount.Cmp(minCoinBig) < 0 {
 			badOutputs = append(badOutputs, tmpOutput)
 		}
 	}
@@ -377,8 +458,58 @@ func MinCoinTxOut(
 	return minCoinTxOut, nil
 }
 
+const maxMetadataDepth = 64
+
+// validateMetadataContent checks that metadata contains valid data according to Cardano rules
+func validateMetadataContent(metadata common.TransactionMetadatum) error {
+	if metadata == nil {
+		return nil
+	}
+	return validateMetadatumContent(metadata, 0)
+}
+
+func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
+	if depth >= maxMetadataDepth {
+		return errors.New("metadata nesting depth exceeds maximum")
+	}
+	switch m := md.(type) {
+	case common.MetaText:
+		if !utf8.ValidString(m.Value) {
+			return errors.New("metadata contains invalid UTF-8 text")
+		}
+		// Cardano spec: metadata text strings must not exceed 64 bytes
+		if len(m.Value) > 64 {
+			return fmt.Errorf("metadata text exceeds 64 byte limit: %d bytes", len(m.Value))
+		}
+	case common.MetaBytes:
+		// Cardano spec: metadata byte strings must not exceed 64 bytes
+		if len(m.Value) > 64 {
+			return fmt.Errorf("metadata byte string exceeds 64 byte limit: %d bytes", len(m.Value))
+		}
+	case common.MetaInt:
+		if m.Value == nil {
+			return errors.New("metadata contains nil integer value")
+		}
+	case common.MetaList:
+		for _, item := range m.Items {
+			if err := validateMetadatumContent(item, depth+1); err != nil {
+				return err
+			}
+		}
+	case common.MetaMap:
+		for _, pair := range m.Pairs {
+			if err := validateMetadatumContent(pair.Key, depth+1); err != nil {
+				return err
+			}
+			if err := validateMetadatumContent(pair.Value, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // UtxoValidateMetadata validates that auxiliary data (metadata) matches the hash in transaction body
-// This is a cheap structural check that should run before expensive ledger lookups
 func UtxoValidateMetadata(
 	tx common.Transaction,
 	slot uint64,
@@ -387,9 +518,23 @@ func UtxoValidateMetadata(
 ) error {
 	bodyAuxDataHash := tx.AuxDataHash()
 	txAuxData := tx.Metadata()
-	rawAuxData := tx.RawAuxiliaryData()
-	// If metadata is present but raw auxiliary data bytes are missing,
-	// fall back to encoding the metadata so validation still runs.
+	var rawAuxData []byte
+	if aux := tx.AuxiliaryData(); aux != nil {
+		ac := aux.Cbor()
+		// Treat single-byte CBOR simple-value placeholders as absence
+		// of auxiliary data so we can fall back to block-level
+		// metadata stored in TransactionMetadataSet. Historically some
+		// inputs used CBOR null (0xf6) as a placeholder; we've observed
+		// producers that use CBOR true (0xf5) or false (0xf4) as a
+		// placeholder as well. If the auxiliary-data is exactly one
+		// simple-value byte, ignore it here.
+		if len(ac) > 0 {
+			if len(ac) != 1 ||
+				(ac[0] != 0xF6 && ac[0] != 0xF5 && ac[0] != 0xF4) {
+				rawAuxData = ac
+			}
+		}
+	}
 	if len(rawAuxData) == 0 && txAuxData != nil {
 		rawAuxData = txAuxData.Cbor()
 	}
@@ -420,13 +565,118 @@ func UtxoValidateMetadata(
 	// Use raw auxiliary data (includes scripts) for hashing, not just metadata
 	if bodyAuxDataHash != nil && len(rawAuxData) > 0 {
 		actualHash := common.Blake2b256Hash(rawAuxData)
+
 		if *bodyAuxDataHash != actualHash {
 			return common.ConflictingMetadataHashError{
 				Supplied: *bodyAuxDataHash,
 				Expected: actualHash,
 			}
 		}
+
+		// Validate metadata content
+		if txAuxData != nil {
+			if err := validateMetadataContent(txAuxData); err != nil {
+				return err
+			}
+		}
 	}
 
+	return nil
+}
+
+// UtxoValidateDelegation validates delegation certificates against ledger state.
+// For Shelley, it checks StakeDelegationCertificate:
+// - Pool registration status
+// - Stake credential registration status
+func UtxoValidateDelegation(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	// Track credentials/pools registered within this transaction
+	inTxStakeRegs := make(map[common.Blake2b224]bool)
+	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
+
+	isStakeRegistered := func(cred common.Credential) bool {
+		return ls.IsStakeCredentialRegistered(cred) ||
+			inTxStakeRegs[cred.Credential]
+	}
+
+	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) bool {
+		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
+	}
+
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.StakeRegistrationCertificate:
+			inTxStakeRegs[c.StakeCredential.Credential] = true
+
+		case *common.StakeDeregistrationCertificate:
+			// Remove from in-tx registrations so subsequent delegations fail
+			delete(inTxStakeRegs, c.StakeCredential.Credential)
+
+		case *common.PoolRegistrationCertificate:
+			inTxPoolRegs[c.Operator] = true
+
+		case *common.PoolRetirementCertificate:
+			// Remove from in-tx registrations so subsequent delegations fail
+			delete(inTxPoolRegs, c.PoolKeyHash)
+
+		case *common.StakeDelegationCertificate:
+			if !isPoolRegistered(c.PoolKeyHash) {
+				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
+			}
+			if c.StakeCredential != nil && !isStakeRegistered(*c.StakeCredential) {
+				return DelegateUnregisteredStakeCredentialError{Credential: *c.StakeCredential}
+			}
+		}
+	}
+	return nil
+}
+
+// UtxoValidateWithdrawals validates withdrawals against ledger state.
+// It checks that reward accounts are registered.
+func UtxoValidateWithdrawals(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	withdrawals := tx.Withdrawals()
+	if withdrawals == nil {
+		return nil
+	}
+
+	for addr := range withdrawals {
+		// Extract credential from reward address staking payload
+		stakingPayload := addr.StakingPayload()
+		if stakingPayload == nil {
+			continue
+		}
+
+		var cred common.Credential
+		switch p := stakingPayload.(type) {
+		case common.AddressPayloadKeyHash:
+			cred = common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: common.NewBlake2b224(p.Hash.Bytes()),
+			}
+		case common.AddressPayloadScriptHash:
+			cred = common.Credential{
+				CredType:   common.CredentialTypeScriptHash,
+				Credential: common.NewBlake2b224(p.Hash.Bytes()),
+			}
+		default:
+			continue // Pointer addresses not supported
+		}
+
+		// Check if reward account is registered
+		if !ls.IsRewardAccountRegistered(cred) {
+			return WithdrawalFromUnregisteredRewardAccountError{
+				RewardAddress: *addr,
+			}
+		}
+	}
 	return nil
 }

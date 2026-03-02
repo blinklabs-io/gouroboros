@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBlake2b256_MarshalCBOR_ZeroHash(t *testing.T) {
@@ -385,18 +387,53 @@ func TestOriginalIssue_ZeroHashNotNull(t *testing.T) {
 	)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 func TestAssetFingerprint(t *testing.T) {
 	testDefs := []struct {
 		policyIdHex         string
 		assetNameHex        string
 		expectedFingerprint string
 	}{
+		// CIP-0014 test vectors
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "",
+			expectedFingerprint: "asset1rjklcrnsdzqp65wjgrg55sy9723kw09mlgvlc3",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc37e",
+			assetNameHex:        "",
+			expectedFingerprint: "asset1nl0puwxmhas8fawxp8nx4e2q3wekg969n2auw3",
+		},
+		{
+			policyIdHex:         "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			assetNameHex:        "",
+			expectedFingerprint: "asset1uyuxku60yqe57nusqzjx38aan3f2wq6s93f6ea",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "504154415445",
+			expectedFingerprint: "asset13n25uv0yaf5kus35fm2k86cqy60z58d9xmde92",
+		},
+		{
+			policyIdHex:         "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			assetNameHex:        "504154415445",
+			expectedFingerprint: "asset1hv4p5tv2a837mzqrst04d0dcptdjmluqvdx9k3",
+		},
+		{
+			policyIdHex:         "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			assetNameHex:        "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			expectedFingerprint: "asset1aqrdypg669jgazruv5ah07nuyqe0wxjhe2el6f",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "1e349c9bdea19fd6c147626a5260bc44b71635f398b67c59881df209",
+			expectedFingerprint: "asset17jd78wukhtrnmjh3fngzasxm8rck0l2r4hhyyt",
+		},
+		{
+			policyIdHex:         "7eae28af2208be856f7a119668ae52a49b73725e326dc16579dcc373",
+			assetNameHex:        "0000000000000000000000000000000000000000000000000000000000000000",
+			expectedFingerprint: "asset1pkpwyknlvul7az0xx8czhl60pyel45rpje4z8w",
+		},
 		// NOTE: these test defs were created from a random sampling of recent assets on cexplorer.io
 		{
 			policyIdHex:         "29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61",
@@ -443,40 +480,48 @@ func TestMultiAssetJson(t *testing.T) {
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							123456,
+						),
 					},
 				},
 			},
-			expectedJson: `[{"name":"furnisha29hn","nameHex":"6675726e697368613239686e","policyId":"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61","fingerprint":"asset1jdu2xcrwlqsjqqjger6kj2szddz8dcpvcg4ksz","amount":123456}]`,
+			expectedJson: `[{"name":"furnisha29hn","nameHex":"6675726e697368613239686e","policyId":"29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61","fingerprint":"asset1jdu2xcrwlqsjqqjger6kj2szddz8dcpvcg4ksz","amount":"123456"}]`,
 		},
 		{
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): 234567,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): big.NewInt(
+							234567,
+						),
 					},
 				},
 			},
-			expectedJson: `[{"name":"BowduraConcepts68","nameHex":"426f7764757261436f6e63657074733638","policyId":"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5","fingerprint":"asset1kp7hdhqc7chmyqvtqrsljfdrdt6jz8mg5culpe","amount":234567}]`,
+			expectedJson: `[{"name":"BowduraConcepts68","nameHex":"426f7764757261436f6e63657074733638","policyId":"eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5","fingerprint":"asset1kp7hdhqc7chmyqvtqrsljfdrdt6jz8mg5culpe","amount":"234567"}]`,
 		},
 		{
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("cf78aeb9736e8aa94ce8fab44da86b522fa9b1c56336b92a28420525")): {
-						cbor.NewByteString(test.DecodeHexString("363438346330393264363164373033656236333233346461")): 12345678,
+						cbor.NewByteString(test.DecodeHexString("363438346330393264363164373033656236333233346461")): big.NewInt(
+							12345678,
+						),
 					},
 				},
 			},
-			expectedJson: `[{"name":"6484c092d61d703eb63234da","nameHex":"363438346330393264363164373033656236333233346461","policyId":"cf78aeb9736e8aa94ce8fab44da86b522fa9b1c56336b92a28420525","fingerprint":"asset1rx3cnlsvh3udka56wyqyed3u695zd5q2jck2yd","amount":12345678}]`,
+			expectedJson: `[{"name":"6484c092d61d703eb63234da","nameHex":"363438346330393264363164373033656236333233346461","policyId":"cf78aeb9736e8aa94ce8fab44da86b522fa9b1c56336b92a28420525","fingerprint":"asset1rx3cnlsvh3udka56wyqyed3u695zd5q2jck2yd","amount":"12345678"}]`,
 		},
 	}
 	for _, test := range testDefs {
 		var err error
 		var jsonData []byte
 		switch v := test.multiAssetObj.(type) {
-		case MultiAsset[MultiAssetTypeOutput]:
+		case MultiAsset[int64]:
 			jsonData, err = json.Marshal(&v)
-		case MultiAsset[MultiAssetTypeMint]:
+		case MultiAsset[uint64]:
+			jsonData, err = json.Marshal(&v)
+		case MultiAsset[*big.Int]:
 			jsonData, err = json.Marshal(&v)
 		default:
 			t.Fatalf("unexpected test object type: %T", test.multiAssetObj)
@@ -503,7 +548,9 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							123456,
+						),
 					},
 				},
 			},
@@ -535,10 +582,14 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 			multiAssetObj: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							123456,
+						),
 					},
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): 234567,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): big.NewInt(
+							234567,
+						),
 					},
 				},
 			},
@@ -589,9 +640,11 @@ func TestMultiAssetToPlutusData(t *testing.T) {
 	for _, testDef := range testDefs {
 		var tmpData data.PlutusData
 		switch v := testDef.multiAssetObj.(type) {
-		case MultiAsset[MultiAssetTypeOutput]:
+		case MultiAsset[int64]:
 			tmpData = v.ToPlutusData()
-		case MultiAsset[MultiAssetTypeMint]:
+		case MultiAsset[uint64]:
+			tmpData = v.ToPlutusData()
+		case MultiAsset[*big.Int]:
 			tmpData = v.ToPlutusData()
 		default:
 			t.Fatalf("test def multi-asset object was not expected type: %T", v)
@@ -616,14 +669,14 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
 			asset2: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
@@ -633,14 +686,14 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
 			asset2: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 124,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(124),
 					},
 				},
 			},
@@ -650,7 +703,7 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 0,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(0),
 					},
 				},
 			},
@@ -661,15 +714,15 @@ func TestMultiAssetCompare(t *testing.T) {
 			asset1: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
 					},
 				},
 			},
 			asset2: &MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224([]byte("abcd")): {
-						cbor.NewByteString([]byte("cdef")): 123,
-						cbor.NewByteString([]byte("efgh")): 123,
+						cbor.NewByteString([]byte("cdef")): big.NewInt(123),
+						cbor.NewByteString([]byte("efgh")): big.NewInt(123),
 					},
 				},
 			},
@@ -699,7 +752,9 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							123456,
+						),
 					},
 				},
 			},
@@ -709,8 +764,12 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
-						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             789,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							123456,
+						),
+						cbor.NewByteString(test.DecodeHexString("746f6b656e32")): big.NewInt(
+							789,
+						),
 					},
 				},
 			},
@@ -720,10 +779,14 @@ func TestMultiAssetCborRoundTrip(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeOutput]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							123456,
+						),
 					},
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): 234567,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): big.NewInt(
+							234567,
+						),
 					},
 				},
 			},
@@ -796,7 +859,9 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeMint]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): -50000,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							-50000,
+						),
 					},
 				},
 			},
@@ -806,8 +871,12 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeMint]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 100000,
-						cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             -25000,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							100000,
+						),
+						cbor.NewByteString(test.DecodeHexString("746f6b656e32")): big.NewInt(
+							-25000,
+						),
 					},
 				},
 			},
@@ -817,10 +886,14 @@ func TestMultiAssetCborRoundTripMint(t *testing.T) {
 			multiAsset: MultiAsset[MultiAssetTypeMint]{
 				data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeMint{
 					NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): -75000,
+						cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+							-75000,
+						),
 					},
 					NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): -100000,
+						cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): big.NewInt(
+							-100000,
+						),
 					},
 				},
 			},
@@ -1102,7 +1175,7 @@ func TestCertificateTypeMethods(t *testing.T) {
 // TestCertificateTypeCoverage ensures all CertificateType constants are tested
 func TestCertificateTypeCoverage(t *testing.T) {
 	// Get all CertificateType constants via reflection
-	certTypeType := reflect.TypeOf(CertificateTypeStakeRegistration)
+	certTypeType := reflect.TypeFor[CertificateType]()
 	if certTypeType.Kind() != reflect.Uint {
 		t.Fatalf("CertificateType is not uint, got %s", certTypeType.Kind())
 	}
@@ -1154,11 +1227,17 @@ func TestMultiAssetDeterministicEncoding(t *testing.T) {
 	multiAsset := MultiAsset[MultiAssetTypeOutput]{
 		data: map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
 			NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
-				cbor.NewByteString(test.DecodeHexString("746f6b656e32")):             789,
+				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+					123456,
+				),
+				cbor.NewByteString(test.DecodeHexString("746f6b656e32")): big.NewInt(
+					789,
+				),
 			},
 			NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): 234567,
+				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e636574737638")): big.NewInt(
+					234567,
+				),
 			},
 		},
 	}
@@ -1180,5 +1259,156 @@ func TestMultiAssetDeterministicEncoding(t *testing.T) {
 			t.Logf("Attempt 0: %x", encodings[0])
 			t.Logf("Attempt %d: %x", i, encodings[i])
 		}
+	}
+}
+
+// TestNewPoolIdFromBech32_Negative tests error cases for PoolId bech32 decoding
+// CIP-0005: pool IDs use "pool" prefix with 28-byte payload
+func TestNewPoolIdFromBech32_Negative(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "InvalidBech32",
+			input: "not-valid-bech32!@#",
+		},
+		{
+			name:  "EmptyString",
+			input: "",
+		},
+		{
+			name: "WrongLength",
+			// Valid bech32 but only 20 bytes (address hash, not pool id)
+			input: "pool1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs5rx55",
+		},
+		{
+			name: "InvalidChecksum",
+			// Valid pool ID with corrupted checksum
+			input: "pool1pu5jlj4q9w9jlxeu370a3c9myx47md5j5m2str0xxxxyzkxewzq",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewPoolIdFromBech32(tc.input)
+			if err == nil {
+				t.Errorf(
+					"NewPoolIdFromBech32(%q) expected error, got nil",
+					tc.input,
+				)
+			}
+		})
+	}
+}
+
+// TestPoolIdString tests encoding pool IDs to bech32
+// CIP-0005: pool IDs use "pool" prefix
+func TestPoolIdString(t *testing.T) {
+	testCases := []struct {
+		name   string
+		poolId PoolId
+		want   string
+	}{
+		{
+			name:   "ZeroHash",
+			poolId: PoolId{},
+			want:   "pool1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8a7a2d",
+		},
+		{
+			name: "SequentialBytes",
+			poolId: PoolId{
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+				0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+				0x19, 0x1a, 0x1b, 0x1c,
+			},
+			want: "pool1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5z5tpwxqergd3c6vr4kr",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.poolId.String()
+			if got != tc.want {
+				t.Errorf("PoolId.String() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPoolIdBech32RoundTrip tests that encoding and decoding a pool ID is lossless
+func TestPoolIdBech32RoundTrip(t *testing.T) {
+	testCases := []struct {
+		name   string
+		poolId PoolId
+	}{
+		{
+			name:   "ZeroHash",
+			poolId: PoolId{},
+		},
+		{
+			name: "SequentialBytes",
+			poolId: PoolId{
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+				0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+				0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+				0x19, 0x1a, 0x1b, 0x1c,
+			},
+		},
+		{
+			name: "MaxBytes",
+			poolId: PoolId{
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := tc.poolId.String()
+			decoded, err := NewPoolIdFromBech32(encoded)
+			if err != nil {
+				t.Fatalf("NewPoolIdFromBech32() unexpected error: %v", err)
+			}
+			if decoded != tc.poolId {
+				t.Errorf(
+					"Round-trip failed: got %x, want %x",
+					decoded,
+					tc.poolId,
+				)
+			}
+		})
+	}
+}
+
+func TestAddInt64Checked(t *testing.T) {
+	tests := []struct {
+		name    string
+		a, b    int64
+		wantSum int64
+		wantOk  bool
+	}{
+		{"zero plus zero", 0, 0, 0, true},
+		{"normal addition", 100, 200, 300, true},
+		{"negative addition", -100, -200, -300, true},
+		{"max int64 no overflow", math.MaxInt64, 0, math.MaxInt64, true},
+		{"max int64 overflow", math.MaxInt64, 1, 0, false},
+		{"min int64 no overflow", math.MinInt64, 0, math.MinInt64, true},
+		{"min int64 overflow", math.MinInt64, -1, 0, false},
+		{"large values no overflow", math.MaxInt64 / 2, math.MaxInt64 / 2, math.MaxInt64 - 1, true},
+		{"large values overflow", math.MaxInt64/2 + 1, math.MaxInt64/2 + 1, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sum, ok := AddInt64Checked(tt.a, tt.b)
+			assert.Equal(t, tt.wantOk, ok)
+			if ok {
+				assert.Equal(t, tt.wantSum, sum)
+			}
+		})
 	}
 }

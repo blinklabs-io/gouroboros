@@ -355,20 +355,13 @@ func CalculateRewards(
 			delegatorStake = make(map[AddrKeyHash]uint64)
 		}
 
-		poolRewards, err := distributePoolRewards(
+		poolRewards := distributePoolRewards(
 			poolID,
 			totalPoolRewards,
 			delegatorStake,
 			poolParams,
 			snapshot,
 		)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to distribute rewards for pool %s: %w",
-				poolID,
-				err,
-			)
-		}
 
 		result.PoolRewards[poolID] = *poolRewards
 	}
@@ -397,7 +390,7 @@ func calculatePoolShare(
 	saturation := math.Min(
 		stakeRatio/0.05,
 		1.0,
-	) // TODO: consider wiring a param or helper for consistency with CalculatePoolSaturation
+	) // TODO(enhancement): Extract 0.05 saturation threshold to param for consistency with CalculatePoolSaturation
 
 	// Calculate pool reward share using leader stake influence formula
 	// R_pool = (stake_ratio * performance * (1 - margin)) / (1 + a0 * saturation)
@@ -434,7 +427,7 @@ func distributePoolRewards(
 	delegatorStake map[AddrKeyHash]uint64,
 	poolParams *PoolRegistrationCertificate,
 	snapshot RewardSnapshot,
-) (*PoolRewards, error) {
+) *PoolRewards {
 	poolCost := poolParams.Cost
 	margin := marginFloat(poolParams.Margin)
 
@@ -503,7 +496,7 @@ func distributePoolRewards(
 		OperatorRewards:  operatorRewards,
 		DelegatorRewards: delegatorRewards,
 		TotalRewards:     totalPoolRewards,
-	}, nil
+	}
 }
 
 // marginFloat converts a GenesisRat margin to float64
@@ -525,7 +518,7 @@ func marginFloat(margin GenesisRat) float64 {
 
 // CalculateOptimalPoolCount calculates the optimal number of stake pools
 // totalActiveStake is unused as current implementation is simplified and only uses k parameter.
-// TODO: implement real optimal pool count formula when requirements are finalized.
+// TODO(enhancement): Implement real optimal pool count formula when Cardano spec requirements are finalized
 func CalculateOptimalPoolCount(_ uint64, k uint64) uint64 {
 	// Optimal pool count is approximately sqrt(total_stake / stake_per_pool)
 	// where stake_per_pool is determined by the k parameter

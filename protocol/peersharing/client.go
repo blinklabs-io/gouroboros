@@ -89,7 +89,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeSharePeers:
-		err = c.handleSharePeers(msg)
+		c.handleSharePeers(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -100,7 +100,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleSharePeers(msg protocol.Message) error {
+func (c *Client) handleSharePeers(msg protocol.Message) {
 	c.Protocol.Logger().
 		Debug("share peers",
 			"component", "network",
@@ -110,5 +110,4 @@ func (c *Client) handleSharePeers(msg protocol.Message) error {
 		)
 	msgSharePeers := msg.(*MsgSharePeers)
 	c.sharePeersChan <- msgSharePeers.PeerAddresses
-	return nil
 }

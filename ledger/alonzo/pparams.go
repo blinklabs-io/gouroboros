@@ -17,9 +17,8 @@ package alonzo
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"math"
-	"slices"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -69,6 +68,31 @@ type AlonzoProtocolParameters struct {
 	MaxValueSize         uint
 	CollateralPercentage uint
 	MaxCollateralInputs  uint
+}
+
+// KeyDepositAmount returns the key deposit as a *big.Int
+func (p *AlonzoProtocolParameters) KeyDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.KeyDeposit))
+}
+
+// PoolDepositAmount returns the pool deposit as a *big.Int
+func (p *AlonzoProtocolParameters) PoolDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.PoolDeposit))
+}
+
+// MinUtxoValueAmount returns the minimum UTxO value as a *big.Int
+func (p *AlonzoProtocolParameters) MinUtxoValueAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.MinUtxoValue))
+}
+
+// MinPoolCostAmount returns the minimum pool cost as a *big.Int
+func (p *AlonzoProtocolParameters) MinPoolCostAmount() *big.Int {
+	return new(big.Int).SetUint64(p.MinPoolCost)
+}
+
+// AdaPerUtxoByteAmount returns the ADA per UTxO byte as a *big.Int
+func (p *AlonzoProtocolParameters) AdaPerUtxoByteAmount() *big.Int {
+	return new(big.Int).SetUint64(p.AdaPerUtxoByte)
 }
 
 func (p *AlonzoProtocolParameters) Update(
@@ -130,7 +154,12 @@ func (p *AlonzoProtocolParameters) Update(
 		p.AdaPerUtxoByte = *paramUpdate.AdaPerUtxoByte
 	}
 	if paramUpdate.CostModels != nil {
-		p.CostModels = paramUpdate.CostModels
+		if p.CostModels == nil {
+			p.CostModels = make(map[uint][]int64)
+		}
+		for key, model := range paramUpdate.CostModels {
+			p.CostModels[key] = model
+		}
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts
@@ -183,36 +212,23 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 
 	if genesis.CostModels != nil {
 		p.CostModels = make(map[uint][]int64)
-
 		for versionStr, model := range genesis.CostModels {
 			key, ok := plutusVersionToKey(versionStr)
 			if !ok {
 				continue
 			}
-
 			expectedCount, ok := plutusParamCounts[key]
 			if !ok {
 				continue
 			}
-
-			// The sort order of the keys in map form corresponds to the index in list form
-			paramKeys := slices.Sorted(maps.Keys(model))
-			if len(paramKeys) != expectedCount {
+			if len(model) < expectedCount {
 				return fmt.Errorf(
-					"incorrect param count for %s: %d",
+					"insufficient param count for %s: %d",
 					versionStr,
-					len(paramKeys),
+					len(model),
 				)
 			}
-
-			// Copy values from map format into list format
-			values := make([]int64, expectedCount)
-			for index, paramName := range paramKeys {
-				val := model[paramName]
-				values[index] = int64(val)
-			}
-
-			p.CostModels[key] = values
+			p.CostModels[key] = model
 		}
 	}
 	return nil

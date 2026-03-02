@@ -33,6 +33,7 @@ linters:
     - spancheck
     - sqlclosecheck
     - testifylint
+    - unparam
     - usestdlibvars
     - whitespace
     - zerologlint
@@ -40,7 +41,6 @@ linters:
     - depguard
     - noctx
     - recvcheck
-    - unparam
   exclusions:
     generated: lax
     presets:

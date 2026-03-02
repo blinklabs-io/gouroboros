@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
 
 type TooManyCollateralInputsError struct {
@@ -65,4 +66,23 @@ type (
 	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
 	MissingCostModelError                    = common.MissingCostModelError
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
+)
+
+// NonDisjointRefInputsError indicates reference inputs overlap with regular inputs
+type NonDisjointRefInputsError struct {
+	Inputs []common.TransactionInput
+}
+
+func (e NonDisjointRefInputsError) Error() string {
+	return fmt.Sprintf(
+		"non-disjoint reference inputs: %d common inputs",
+		len(e.Inputs),
+	)
+}
+
+// Delegation errors (alias to shelley types)
+type (
+	DelegateToUnregisteredPoolError              = shelley.DelegateToUnregisteredPoolError
+	DelegateUnregisteredStakeCredentialError     = shelley.DelegateUnregisteredStakeCredentialError
+	WithdrawalFromUnregisteredRewardAccountError = shelley.WithdrawalFromUnregisteredRewardAccountError
 )

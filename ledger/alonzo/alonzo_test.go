@@ -90,10 +90,14 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	testAssets := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+					123456,
+				),
 			},
 			common.NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): 234567,
+				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): big.NewInt(
+					234567,
+				),
 			},
 		},
 	)
@@ -192,28 +196,30 @@ func TestAlonzoTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 
 func TestAlonzoRedeemersIter(t *testing.T) {
 	testRedeemers := AlonzoRedeemers{
-		{
-			Tag:   common.RedeemerTagMint,
-			Index: 2,
-			ExUnits: common.ExUnits{
-				Memory: 1111,
-				Steps:  2222,
+		Redeemers: []AlonzoRedeemer{
+			{
+				Tag:   common.RedeemerTagMint,
+				Index: 2,
+				ExUnits: common.ExUnits{
+					Memory: 1111,
+					Steps:  2222,
+				},
 			},
-		},
-		{
-			Tag:   common.RedeemerTagMint,
-			Index: 0,
-			ExUnits: common.ExUnits{
-				Memory: 1111,
-				Steps:  0,
+			{
+				Tag:   common.RedeemerTagMint,
+				Index: 0,
+				ExUnits: common.ExUnits{
+					Memory: 1111,
+					Steps:  0,
+				},
 			},
-		},
-		{
-			Tag:   common.RedeemerTagSpend,
-			Index: 4,
-			ExUnits: common.ExUnits{
-				Memory: 0,
-				Steps:  4444,
+			{
+				Tag:   common.RedeemerTagSpend,
+				Index: 4,
+				ExUnits: common.ExUnits{
+					Memory: 0,
+					Steps:  4444,
+				},
 			},
 		},
 	}
@@ -282,10 +288,10 @@ func TestAlonzoRedeemersIter(t *testing.T) {
 func TestAlonzoTransactionOutputString(t *testing.T) {
 	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 	addr, _ := common.NewAddress(addrStr)
-	ma := common.NewMultiAsset(
-		map[common.Blake2b224]map[cbor.ByteString]uint64{
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.NewBlake2b224(make([]byte, 28)): {
-				cbor.NewByteString([]byte("t")): 2,
+				cbor.NewByteString([]byte("t")): big.NewInt(2),
 			},
 		},
 	)

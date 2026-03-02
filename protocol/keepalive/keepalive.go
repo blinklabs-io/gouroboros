@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,12 +33,12 @@ const (
 	DefaultKeepAliveTimeout = 10
 )
 
-// Protocol state timeout constants as specified by the network protocol.
+// Protocol state timeout constants per Ouroboros Network Specification (Table 3.13).
 const (
 	// ClientTimeout is the maximum time the server waits to receive the next keep-alive ping from the client (while in the "Client" protocol state).
-	ClientTimeout = 60 * time.Second
+	ClientTimeout = 97 * time.Second
 	// ServerTimeout is the maximum time the client waits for a keep-alive pong from the server (while in the "Server" protocol state).
-	ServerTimeout = 10 * time.Second
+	ServerTimeout = 60 * time.Second
 )
 
 var (

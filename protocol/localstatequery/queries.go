@@ -16,6 +16,7 @@ package localstatequery
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -62,9 +63,21 @@ const (
 	QueryTypeShelleyPoolState                           = 19
 	QueryTypeShelleyStakeSnapshots                      = 20
 	QueryTypeShelleyPoolDistr                           = 21
+
+	// Conway governance queries (v8+)
+	QueryTypeShelleyConstitution           = 23
+	QueryTypeShelleyGovState               = 24
+	QueryTypeShelleyDRepState              = 25
+	QueryTypeShelleyDRepStakeDistr         = 26
+	QueryTypeShelleyCommitteeMembersState  = 27
+	QueryTypeShelleyFilteredVoteDelegatees = 28
+	QueryTypeShelleySPOStakeDistr          = 30
+	QueryTypeShelleyGetProposals           = 31
+	QueryTypeShelleyGetRatifyState         = 32
 )
 
-// simpleQueryBase is a helper type used for various query types to reduce repeat code
+// simpleQueryBase is a helper type used for various query types
+// to reduce repeat code
 type simpleQueryBase struct {
 	cbor.StructAsArray
 	Type int
@@ -196,6 +209,16 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 			QueryTypeShelleyPoolState:                           &ShelleyPoolStateQuery{},
 			QueryTypeShelleyStakeSnapshots:                      &ShelleyStakeSnapshotsQuery{},
 			QueryTypeShelleyPoolDistr:                           &ShelleyPoolDistrQuery{},
+			// Conway governance queries
+			QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
+			QueryTypeShelleyGovState:               &ShelleyGovStateQuery{},
+			QueryTypeShelleyDRepState:              &ShelleyDRepStateQuery{},
+			QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
+			QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
+			QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
+			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
+			QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
+			QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
 		},
 	)
 	if err != nil {
@@ -318,8 +341,9 @@ type ShelleyStakePoolsQuery struct {
 }
 
 type ShelleyStakePoolParamsQuery struct {
-	simpleQueryBase
-	// TODO: add params (#859)
+	cbor.StructAsArray
+	Type    int
+	PoolIds cbor.SetType[ledger.PoolId]
 }
 
 type ShelleyRewardInfoPoolsQuery struct {
@@ -417,8 +441,7 @@ type SystemStartQuery struct {
 }
 
 type SystemStartResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Year        big.Int
 	Day         int
 	Picoseconds big.Int
@@ -477,29 +500,25 @@ type HardForkEraHistoryQuery struct {
 }
 
 type EraHistoryResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_      struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Begin  eraHistoryResultBeginEnd
 	End    eraHistoryResultBeginEnd
 	Params eraHistoryResultParams
 }
 
 type eraHistoryResultBeginEnd struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_        struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Timespan any
 	SlotNo   int
 	EpochNo  int
 }
 
 type eraHistoryResultParams struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_                 struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	EpochLength       int
 	SlotLength        int
 	SlotsPerKESPeriod struct {
-		// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-		_      struct{} `cbor:",toarray"`
+		cbor.StructAsArray
 		Dummy1 int
 		Value  int
 		Dummy2 []int
@@ -507,12 +526,18 @@ type eraHistoryResultParams struct {
 	Unknown int
 }
 
-// TODO (#860)
-/*
-result	[{ *[0 int] => non_myopic_rewards }]	for each stake display reward
-non_myopic_rewards	{ *poolid => int }	int is the amount of lovelaces each pool would reward
-*/
-type NonMyopicMemberRewardsResult any
+// StakeCredential represents a stake credential as [tag, bytes]
+// where tag indicates the credential type (0 for KeyHash, 1 for ScriptHash)
+type StakeCredential struct {
+	cbor.StructAsArray
+	Tag   uint64
+	Bytes ledger.Blake2b224
+}
+
+// NonMyopicMemberRewardsResult represents the non-myopic member rewards result
+// The result is a map where each key is a stake credential
+// and each value is a map of pool IDs to their reward amounts in lovelaces
+type NonMyopicMemberRewardsResult map[StakeCredential]map[ledger.Blake2b224]uint64
 
 type CurrentProtocolParamsResult interface {
 	ledger.AlonzoProtocolParameters |
@@ -601,19 +626,18 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 type DebugEpochStateResult any
 
 // TODO (#858)
-/*
-rwdr	[flag bytestring]	bytestring is the keyhash of the staking vkey
-flag	0/1	0=keyhash 1=scripthash
-result	[[ delegation rewards] ]
-delegation	{ * rwdr => poolid }	poolid is a bytestring
-rewards	{ * rwdr => int }
-It seems to be a requirement to sort the reward addresses on the query. Scripthash addresses come first, then within a group the bytestring being a network order integer sort ascending.
-*/
+// rwdr: [flag bytestring] bytestring is the keyhash of the staking vkey
+// flag: 0/1 (0=keyhash 1=scripthash)
+// result: [[ delegation rewards] ]
+// delegation: { * rwdr => poolid } poolid is a bytestring
+// rewards: { * rwdr => int }
+// Note: It seems to be a requirement to sort the reward addresses on the
+// query. Scripthash addresses come first, then within a group the bytestring
+// being a network order integer sort ascending.
 type FilteredDelegationsAndRewardAccountsResult any
 
 type GenesisConfigResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_                 struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Start             SystemStartResult
 	NetworkMagic      int
 	NetworkId         uint8
@@ -633,7 +657,7 @@ type GenesisConfigResult struct {
 }
 
 type GenesisConfigResultProtocolParameters struct {
-	_                     struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	MinFeeA               int
 	MinFeeB               int
 	MaxBlockBodySize      int
@@ -716,14 +740,62 @@ type StakePoolParamsResult struct {
 // TODO (#867)
 type RewardInfoPoolsResult any
 
-// TODO (#868)
-type PoolStateResult any
+// PoolStateParams represents the pool registration parameters
+// without the cert type
+type PoolStateParams struct {
+	cbor.StructAsArray
+	Operator      ledger.Blake2b224
+	VrfKeyHash    ledger.Blake2b256
+	Pledge        uint64
+	Cost          uint64
+	Margin        *cbor.Rat
+	RewardAccount ledger.Address
+	PoolOwners    []ledger.Blake2b224
+	Relays        []ledger.PoolRelay
+	PoolMetadata  *struct {
+		cbor.StructAsArray
+		Url          string
+		MetadataHash ledger.Blake2b256
+	}
+}
 
-// TODO (#869)
-type StakeSnapshotsResult any
+// PoolStateResult represents the pool state result
+// The result is a 4-element array: [pstate, fstate, retiring, deposits]
+// where pstate maps pool IDs to their registration parameters
+type PoolStateResult struct {
+	cbor.StructAsArray
+	PState map[ledger.Blake2b224]*PoolStateParams
+	FState map[ledger.Blake2b224]*PoolStateParams // Future pool parameters
+	// Retiring contains pools scheduled to retire (epoch number)
+	Retiring map[ledger.Blake2b224]uint64
+	Deposits map[ledger.Blake2b224]uint64 // Pool deposits
+}
 
-// PoolDistrResult represents the pool distribution result
-// It contains a map of pool IDs to their stake distribution (fraction and VRF hash)
+// PoolStakeSnapshot represents the stake distribution for a pool
+// across different snapshots
+type PoolStakeSnapshot struct {
+	cbor.StructAsArray
+	StakeMark uint64 // Stake snapshot from mark
+	StakeSet  uint64 // Stake snapshot from set
+	StakeGo   uint64 // Stake snapshot from go
+}
+
+// StakeSnapshotsResult represents the stake snapshots result.
+// The result is a 4-element array:
+// [snapshots, total_stake_mark, total_stake_set, total_stake_go]
+// where snapshots maps pool IDs to their stake distribution
+// across mark/set/go snapshots
+type StakeSnapshotsResult struct {
+	cbor.StructAsArray
+	PoolSnapshots  map[ledger.Blake2b224]*PoolStakeSnapshot
+	TotalStakeMark uint64
+	TotalStakeSet  uint64
+	TotalStakeGo   uint64
+}
+
+// PoolDistrResult represents the pool distribution result.
+// It contains a map of pool IDs to their stake distribution
+// (fraction and VRF hash)
 type PoolDistrResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]struct {
@@ -731,4 +803,387 @@ type PoolDistrResult struct {
 		StakeFraction *cbor.Rat
 		VrfHash       ledger.Blake2b256
 	}
+}
+
+// Conway governance query types
+
+type ShelleyConstitutionQuery struct {
+	simpleQueryBase
+}
+
+type ShelleyGovStateQuery struct {
+	simpleQueryBase
+}
+
+type ShelleyDRepStateQuery struct {
+	cbor.StructAsArray
+	Type        int
+	Credentials cbor.SetType[lcommon.Credential]
+}
+
+type ShelleyDRepStakeDistrQuery struct {
+	cbor.StructAsArray
+	Type  int
+	DReps cbor.SetType[lcommon.Drep]
+}
+
+type ShelleyCommitteeMembersStateQuery struct {
+	cbor.StructAsArray
+	Type         int
+	ColdCreds    cbor.SetType[lcommon.Credential]
+	HotCreds     cbor.SetType[lcommon.Credential]
+	MemberStatus cbor.SetType[int]
+}
+
+type ShelleyFilteredVoteDelegateesQuery struct {
+	cbor.StructAsArray
+	Type        int
+	Credentials cbor.SetType[lcommon.Credential]
+}
+
+type ShelleySPOStakeDistrQuery struct {
+	cbor.StructAsArray
+	Type    int
+	PoolIds cbor.SetType[ledger.PoolId]
+}
+
+type ShelleyGetProposalsQuery struct {
+	simpleQueryBase
+}
+
+type ShelleyGetRatifyStateQuery struct {
+	simpleQueryBase
+}
+
+// Conway governance result types
+
+// ConstitutionResult represents the constitution query result.
+// The constitution contains an anchor (URL and hash) and an optional
+// guardrails script hash
+type ConstitutionResult struct {
+	cbor.StructAsArray
+	Anchor     lcommon.GovAnchor
+	ScriptHash []byte // Optional guardrails script hash (nil if no guardrails)
+}
+
+// Committee represents the constitutional committee.
+// Members maps cold credentials to their expiry epoch.
+// Threshold is the voting threshold as a rational number.
+type Committee struct {
+	cbor.StructAsArray
+	Members   map[StakeCredential]uint64 // Cold credential -> expiry epoch
+	Threshold cbor.Rat
+}
+
+// GovActionState represents a governance proposal and its current voting state.
+type GovActionState struct {
+	cbor.StructAsArray
+	Id                lcommon.GovActionId
+	CommitteeVotes    map[StakeCredential]lcommon.Vote
+	DRepVotes         map[StakeCredential]lcommon.Vote
+	SPOVotes          map[ledger.Blake2b224]lcommon.Vote
+	ProposalProcedure cbor.RawMessage
+	ProposedIn        uint64
+	ExpiresAfter      uint64
+}
+
+// GovStateResult represents the full governance state.
+// This includes proposals, committee, constitution, protocol parameters,
+// and DRep pulsing state.
+// The raw messages can be further decoded based on the era.
+type GovStateResult struct {
+	cbor.StructAsArray
+	Proposals        []GovActionState // Governance proposals with voting state
+	Committee        cbor.RawMessage  // StrictMaybe Committee
+	Constitution     ConstitutionResult
+	CurrentPParams   cbor.RawMessage // Era-specific protocol parameters
+	PrevPParams      cbor.RawMessage // Previous era protocol parameters
+	FuturePParams    cbor.RawMessage // Scheduled parameter changes
+	DRepPulsingState cbor.RawMessage // DRep pulsing state
+}
+
+// DecodeCommittee decodes the Committee field from its StrictMaybe CBOR encoding.
+// In Cardano, StrictMaybe is encoded as:
+//   - [0] for SNothing (no committee)
+//   - [1, data] for SJust (committee present)
+//
+// Returns nil if the committee is absent (SNothing or empty/nil wrapper).
+func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
+	if len(g.Committee) == 0 {
+		return nil, nil
+	}
+	// CBOR null (0xf6) means no committee present
+	if len(g.Committee) == 1 && g.Committee[0] == 0xf6 {
+		return nil, nil
+	}
+	var wrapper []cbor.RawMessage
+	if _, err := cbor.Decode(g.Committee, &wrapper); err != nil {
+		return nil, err
+	}
+	if len(wrapper) == 0 {
+		return nil, nil
+	}
+	var tag uint64
+	if _, err := cbor.Decode(wrapper[0], &tag); err != nil {
+		return nil, err
+	}
+	switch tag {
+	case 0:
+		return nil, nil
+	case 1:
+		if len(wrapper) < 2 {
+			return nil, errors.New("invalid StrictMaybe SJust: missing data")
+		}
+		var committee Committee
+		if _, err := cbor.Decode(wrapper[1], &committee); err != nil {
+			return nil, err
+		}
+		return &committee, nil
+	default:
+		return nil, fmt.Errorf("unknown StrictMaybe tag: %d", tag)
+	}
+}
+
+// DRepStateEntry represents the state of a single DRep
+type DRepStateEntry struct {
+	cbor.StructAsArray
+	Expiry  uint64             // Epoch when DRep expires
+	Anchor  *lcommon.GovAnchor // Optional metadata anchor
+	Deposit uint64             // Deposit amount
+}
+
+// DRepStateResult represents the DRep state query result.
+// The result is a map of stake credentials to DRep state entries.
+type DRepStateResult map[StakeCredential]DRepStateEntry
+
+// DRepStakeDistrResult represents the DRep stake distribution
+// The result is returned as raw CBOR that maps DReps to stake amounts
+type DRepStakeDistrResult cbor.RawMessage
+
+// HotCredAuthStatus represents the authorization status of a hot credential
+type HotCredAuthStatus int
+
+const (
+	HotCredNotAuthorized HotCredAuthStatus = 0
+	HotCredAuthorized    HotCredAuthStatus = 1
+	HotCredResigned      HotCredAuthStatus = 2
+)
+
+// MemberStatus represents the status of a committee member
+type MemberStatus int
+
+const (
+	MemberStatusActive       MemberStatus = 0
+	MemberStatusExpired      MemberStatus = 1
+	MemberStatusUnrecognized MemberStatus = 2
+)
+
+// NextEpochChange represents the change that will happen at the next epoch
+type NextEpochChange int
+
+const (
+	NextEpochNoChange     NextEpochChange = 0
+	NextEpochToBeEnacted  NextEpochChange = 1
+	NextEpochToBeRemoved  NextEpochChange = 2
+	NextEpochToBeExpired  NextEpochChange = 3
+	NextEpochTermAdjusted NextEpochChange = 5
+)
+
+// HotCredAuthStatusValue represents a tagged union for hot credential
+// authorization status.
+// CBOR encoding: [0] for NotAuthorized, [1, credential] for Authorized,
+// [2, anchor_or_null] for Resigned
+type HotCredAuthStatusValue struct {
+	Status     HotCredAuthStatus
+	Credential *lcommon.Credential
+	Anchor     *lcommon.GovAnchor
+}
+
+func (h *HotCredAuthStatusValue) UnmarshalCBOR(data []byte) error {
+	listLen, err := cbor.ListLength(data)
+	if err != nil {
+		return err
+	}
+	tag, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return err
+	}
+	switch {
+	case listLen == 1 && tag == 0:
+		h.Status = HotCredNotAuthorized
+	case listLen == 2 && tag == 1:
+		var tmp struct {
+			cbor.StructAsArray
+			Tag        int
+			Credential lcommon.Credential
+		}
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return err
+		}
+		h.Status = HotCredAuthorized
+		h.Credential = &tmp.Credential
+	case listLen == 2 && tag == 2:
+		var tmp struct {
+			cbor.StructAsArray
+			Tag    int
+			Anchor *lcommon.GovAnchor
+		}
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return err
+		}
+		h.Status = HotCredResigned
+		h.Anchor = tmp.Anchor
+	default:
+		return fmt.Errorf(
+			"unexpected HotCredAuthStatusValue: tag=%d, length=%d",
+			tag,
+			listLen,
+		)
+	}
+	return nil
+}
+
+func (h *HotCredAuthStatusValue) MarshalCBOR() ([]byte, error) {
+	switch h.Status {
+	case HotCredNotAuthorized:
+		return cbor.Encode([]any{0})
+	case HotCredAuthorized:
+		if h.Credential == nil {
+			return nil, errors.New(
+				"credential must be set for HotCredAuthorized",
+			)
+		}
+		return cbor.Encode([]any{1, h.Credential})
+	case HotCredResigned:
+		return cbor.Encode([]any{2, h.Anchor})
+	default:
+		return nil, fmt.Errorf("unknown HotCredAuthStatus: %d", h.Status)
+	}
+}
+
+// NextEpochChangeValue represents a tagged union for next epoch changes.
+// CBOR encoding: simple int (0-3) for most changes,
+// or [5, epoch] for TermAdjusted
+type NextEpochChangeValue struct {
+	Change        NextEpochChange
+	AdjustedEpoch *uint64
+}
+
+func (n *NextEpochChangeValue) UnmarshalCBOR(data []byte) error {
+	// Check if this is a CBOR list (for TermAdjusted) or a simple integer
+	listLen, listErr := cbor.ListLength(data)
+	if listErr != nil {
+		// Not a list, decode as a simple integer
+		var simpleVal int
+		if _, err := cbor.Decode(data, &simpleVal); err != nil {
+			return fmt.Errorf(
+				"failed to decode NextEpochChangeValue: %w",
+				err,
+			)
+		}
+		if simpleVal < 0 || simpleVal > 3 {
+			return fmt.Errorf(
+				"unexpected simple NextEpochChange value: %d",
+				simpleVal,
+			)
+		}
+		n.Change = NextEpochChange(simpleVal)
+		return nil
+	}
+	// It's a list, decode as [5, epoch]
+	if listLen != 2 {
+		return fmt.Errorf(
+			"unexpected list length %d for NextEpochChangeValue",
+			listLen,
+		)
+	}
+	var tmp struct {
+		cbor.StructAsArray
+		Tag   int
+		Epoch uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return fmt.Errorf("failed to decode NextEpochChangeValue: %w", err)
+	}
+	if tmp.Tag != 5 {
+		return fmt.Errorf(
+			"unexpected tag %d for NextEpochChangeValue list",
+			tmp.Tag,
+		)
+	}
+	n.Change = NextEpochTermAdjusted
+	n.AdjustedEpoch = &tmp.Epoch
+	return nil
+}
+
+func (n *NextEpochChangeValue) MarshalCBOR() ([]byte, error) {
+	if n.Change == NextEpochTermAdjusted {
+		if n.AdjustedEpoch == nil {
+			return nil, errors.New(
+				"adjustedEpoch must be set for NextEpochTermAdjusted",
+			)
+		}
+		return cbor.Encode([]any{5, *n.AdjustedEpoch})
+	}
+	return cbor.Encode(int(n.Change))
+}
+
+// CommitteeMemberState represents the state of a committee member
+type CommitteeMemberState struct {
+	cbor.StructAsArray
+	HotCredStatus   HotCredAuthStatusValue
+	Status          MemberStatus
+	Expiry          *uint64
+	NextEpochChange NextEpochChangeValue
+}
+
+// CommitteeMembersStateResult represents the committee members state
+// query result. Contains the committee members, voting threshold,
+// and current epoch
+type CommitteeMembersStateResult struct {
+	cbor.StructAsArray
+	Members   map[StakeCredential]CommitteeMemberState
+	Threshold *cbor.Rat
+	Epoch     uint64
+}
+
+// FilteredVoteDelegateesResult represents the vote delegatees
+// for stake credentials.
+// The result maps stake credentials to their DRep delegations
+type FilteredVoteDelegateesResult map[StakeCredential]lcommon.Drep
+
+// SPOStakeDistrResult represents the SPO stake distribution for governance
+// Maps pool IDs to their governance voting power
+type SPOStakeDistrResult struct {
+	cbor.StructAsArray
+	Results map[ledger.PoolId]uint64
+}
+
+// ProposalsResult represents the result of a GetProposals query.
+// It contains a list of governance action states for all active proposals.
+type ProposalsResult []GovActionState
+
+// EnactState represents the enactment state within a ratify state result.
+// It contains the current committee, constitution, protocol parameters,
+// treasury, withdrawals, and previous governance action IDs.
+type EnactState struct {
+	cbor.StructAsArray
+	Committee     cbor.RawMessage // Complex committee structure, keep as RawMessage
+	Constitution  ConstitutionResult
+	CurPParams    cbor.RawMessage // Era-specific protocol params
+	PrevPParams   cbor.RawMessage
+	Treasury      uint64
+	Withdrawals   map[StakeCredential]uint64
+	PrevActionIds cbor.RawMessage // Complex map of gov action types to optional action IDs
+}
+
+// RatifyStateResult represents the result of the GetRatifyState query (query ID 32).
+// It contains the enact state, a list of enacted governance actions,
+// a set of expired governance action IDs, and a delayed flag.
+type RatifyStateResult struct {
+	cbor.StructAsArray
+	EnactState EnactState
+	Enacted    []GovActionState
+	Expired    []lcommon.GovActionId
+	Delayed    bool
 }

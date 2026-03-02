@@ -87,7 +87,7 @@ type MsgReplyTxIds struct {
 }
 
 func (m *MsgReplyTxIds) MarshalCBOR() ([]byte, error) {
-	items := []any{}
+	items := make([]any, 0, len(m.TxIds))
 	for _, txId := range m.TxIds {
 		items = append(items, txId)
 	}
@@ -114,7 +114,7 @@ type MsgRequestTxs struct {
 }
 
 func (m *MsgRequestTxs) MarshalCBOR() ([]byte, error) {
-	items := []any{}
+	items := make([]any, 0, len(m.TxIds))
 	for _, txId := range m.TxIds {
 		items = append(items, txId)
 	}
@@ -141,7 +141,7 @@ type MsgReplyTxs struct {
 }
 
 func (m *MsgReplyTxs) MarshalCBOR() ([]byte, error) {
-	items := []any{}
+	items := make([]any, 0, len(m.Txs))
 	for _, tx := range m.Txs {
 		items = append(items, tx)
 	}

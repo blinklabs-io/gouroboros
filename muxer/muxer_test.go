@@ -681,3 +681,230 @@ func createSegmentData(segment *muxer.Segment) []byte {
 	buf.Write(segment.Payload)
 	return buf.Bytes()
 }
+
+// TestConnectionClosedError tests the ConnectionClosedError type
+func TestConnectionClosedError(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	innerErr := io.EOF
+	err := &muxer.ConnectionClosedError{
+		Context: "reading header",
+		Err:     innerErr,
+	}
+
+	// Test Error() method
+	errStr := err.Error()
+	if !strings.Contains(errStr, "reading header") {
+		t.Errorf("expected error to contain context, got: %s", errStr)
+	}
+	if !strings.Contains(errStr, "peer closed the connection") {
+		t.Errorf("expected error message format, got: %s", errStr)
+	}
+
+	// Test Unwrap() method
+	unwrapped := err.Unwrap()
+	if unwrapped != innerErr {
+		t.Errorf("expected unwrapped error to be %v, got %v", innerErr, unwrapped)
+	}
+
+	// Test errors.Is() works through Unwrap
+	if !errors.Is(err, io.EOF) {
+		t.Error("expected errors.Is to match io.EOF")
+	}
+}
+
+// TestStartOnce tests the StartOnce functionality
+func TestStartOnce(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	// Register a protocol
+	sendChan, _, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
+
+	// Use StartOnce to process one message
+	m.StartOnce()
+
+	// Create and send a test segment
+	payload := []byte("test")
+	segment := muxer.NewSegment(0x01, payload, false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
+
+	sendChan <- segment
+
+	// Give time for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify data was written
+	written := conn.ReadWritten()
+	if len(written) == 0 {
+		t.Error("expected data to be written")
+	}
+}
+
+// TestUnregisterProtocolBehavior tests the UnregisterProtocol function
+func TestUnregisterProtocolBehavior(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+
+	// Register a protocol
+	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
+	if recvChan == nil {
+		t.Fatal("expected receive channel")
+	}
+
+	// Start the muxer
+	m.Start()
+
+	// Give time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Unregister the protocol - this should close the receive channel
+	m.UnregisterProtocol(0x01, muxer.ProtocolRoleInitiator)
+
+	// Stop the muxer
+	m.Stop()
+
+	// Give time for cleanup
+	time.Sleep(10 * time.Millisecond)
+}
+
+// TestMuxerSendAfterStop tests sending after muxer is stopped
+func TestMuxerSendAfterStop(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+
+	// Start and then stop the muxer
+	m.Start()
+	m.Stop()
+
+	// Give time for shutdown
+	time.Sleep(10 * time.Millisecond)
+
+	// Create a segment
+	segment := muxer.NewSegment(0x01, []byte("test"), false)
+	if segment == nil {
+		t.Fatal("failed to create segment")
+	}
+
+	// Send should return an error (or silently fail) after shutdown
+	err := m.Send(segment)
+	// After stop, Send should return an error
+	if err == nil {
+		t.Log("Send after stop returned nil (acceptable behavior)")
+	}
+}
+
+// TestProtocolRoleConstants tests protocol role constants
+func TestProtocolRoleConstants(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	// Verify protocol role constants
+	if muxer.ProtocolRoleNone != 0 {
+		t.Errorf("expected ProtocolRoleNone to be 0, got %d", muxer.ProtocolRoleNone)
+	}
+	if muxer.ProtocolRoleInitiator != 1 {
+		t.Errorf(
+			"expected ProtocolRoleInitiator to be 1, got %d",
+			muxer.ProtocolRoleInitiator,
+		)
+	}
+	if muxer.ProtocolRoleResponder != 2 {
+		t.Errorf(
+			"expected ProtocolRoleResponder to be 2, got %d",
+			muxer.ProtocolRoleResponder,
+		)
+	}
+}
+
+// TestDiffusionModeConstants tests diffusion mode constants
+func TestDiffusionModeConstants(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	// Verify diffusion mode constants
+	if muxer.DiffusionModeNone != 0 {
+		t.Errorf("expected DiffusionModeNone to be 0, got %d", muxer.DiffusionModeNone)
+	}
+	if muxer.DiffusionModeInitiator != 1 {
+		t.Errorf(
+			"expected DiffusionModeInitiator to be 1, got %d",
+			muxer.DiffusionModeInitiator,
+		)
+	}
+	if muxer.DiffusionModeResponder != 2 {
+		t.Errorf(
+			"expected DiffusionModeResponder to be 2, got %d",
+			muxer.DiffusionModeResponder,
+		)
+	}
+	if muxer.DiffusionModeInitiatorAndResponder != 3 {
+		t.Errorf(
+			"expected DiffusionModeInitiatorAndResponder to be 3, got %d",
+			muxer.DiffusionModeInitiatorAndResponder,
+		)
+	}
+}
+
+// TestProtocolUnknownConstant tests the ProtocolUnknown constant
+func TestProtocolUnknownConstant(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	if muxer.ProtocolUnknown != 0xabcd {
+		t.Errorf(
+			"expected ProtocolUnknown to be 0xabcd, got 0x%04x",
+			muxer.ProtocolUnknown,
+		)
+	}
+}
+
+// TestSegmentMaxPayloadLength tests the segment max payload length constant
+func TestSegmentMaxPayloadLength(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	if muxer.SegmentMaxPayloadLength != 65535 {
+		t.Errorf(
+			"expected SegmentMaxPayloadLength to be 65535, got %d",
+			muxer.SegmentMaxPayloadLength,
+		)
+	}
+}
+
+// TestMultipleProtocolRoles tests registering both roles for same protocol
+func TestMultipleProtocolRoles(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	// Register both initiator and responder for same protocol
+	sendInit, recvInit, doneInit := m.RegisterProtocol(
+		0x01,
+		muxer.ProtocolRoleInitiator,
+	)
+	sendResp, recvResp, doneResp := m.RegisterProtocol(
+		0x01,
+		muxer.ProtocolRoleResponder,
+	)
+
+	// All channels should be valid
+	if sendInit == nil || recvInit == nil || doneInit == nil {
+		t.Error("expected valid channels for initiator role")
+	}
+	if sendResp == nil || recvResp == nil || doneResp == nil {
+		t.Error("expected valid channels for responder role")
+	}
+
+	// Channels should be distinct
+	if recvInit == recvResp {
+		t.Error("expected different receive channels for different roles")
+	}
+}

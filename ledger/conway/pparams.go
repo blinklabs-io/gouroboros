@@ -61,6 +61,36 @@ type ConwayProtocolParameters struct {
 	MinFeeRefScriptCostPerByte *cbor.Rat
 }
 
+// KeyDepositAmount returns the key deposit as a *big.Int
+func (p *ConwayProtocolParameters) KeyDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.KeyDeposit))
+}
+
+// PoolDepositAmount returns the pool deposit as a *big.Int
+func (p *ConwayProtocolParameters) PoolDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(uint64(p.PoolDeposit))
+}
+
+// MinPoolCostAmount returns the minimum pool cost as a *big.Int
+func (p *ConwayProtocolParameters) MinPoolCostAmount() *big.Int {
+	return new(big.Int).SetUint64(p.MinPoolCost)
+}
+
+// AdaPerUtxoByteAmount returns the ada per utxo byte as a *big.Int
+func (p *ConwayProtocolParameters) AdaPerUtxoByteAmount() *big.Int {
+	return new(big.Int).SetUint64(p.AdaPerUtxoByte)
+}
+
+// GovActionDepositAmount returns the governance action deposit as a *big.Int
+func (p *ConwayProtocolParameters) GovActionDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(p.GovActionDeposit)
+}
+
+// DRepDepositAmount returns the DRep deposit as a *big.Int
+func (p *ConwayProtocolParameters) DRepDepositAmount() *big.Int {
+	return new(big.Int).SetUint64(p.DRepDeposit)
+}
+
 func (p *ConwayProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
 	// sanity check
 	if p.A0 == nil ||
@@ -207,7 +237,12 @@ func (p *ConwayProtocolParameters) Update(
 		p.AdaPerUtxoByte = *paramUpdate.AdaPerUtxoByte
 	}
 	if paramUpdate.CostModels != nil {
-		p.CostModels = paramUpdate.CostModels
+		if p.CostModels == nil {
+			p.CostModels = make(map[uint][]int64)
+		}
+		for key, model := range paramUpdate.CostModels {
+			p.CostModels[key] = model
+		}
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts
@@ -487,7 +522,7 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 			data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))),
 		)
 	}
-	// TODO: CostModels
+	// TODO(enhancement): Add CostModels serialization for Plutus data conversion
 	if u.ExecutionCosts != nil {
 		push(19,
 			data.NewList(

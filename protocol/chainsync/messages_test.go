@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/stretchr/testify/require"
 )
 
 type testDefinition struct {
@@ -211,6 +212,7 @@ func TestMsgRollForwardNodeToNode_CorruptedCBOR(t *testing.T) {
 		)
 	}
 }
+
 func TestMsgRollForwardNodeToClient(t *testing.T) {
 	createMsg := func(t *testing.T, blockType uint, filePath string, tip Tip) *MsgRollForwardNtC {
 		blockData := hexDecode(string(readFile(filePath)))
@@ -231,7 +233,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 			),
 			Message: createMsg(
 				t,
-				0,
+				ledger.BlockTypeByronEbb,
 				"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 				Tip{
 					Point: pcommon.Point{
@@ -255,7 +257,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 			),
 			Message: createMsg(
 				t,
-				1,
+				ledger.BlockTypeByronMain,
 				"testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
 				Tip{
 					Point: pcommon.Point{
@@ -279,7 +281,7 @@ func TestMsgRollForwardNodeToClient(t *testing.T) {
 			),
 			Message: createMsg(
 				t,
-				2,
+				ledger.BlockTypeShelley,
 				"testdata/shelley_block_testnet_02b1c561715da9e540411123a6135ee319b02f60b9a11a603d3305556c04329f.hex",
 				Tip{
 					Point: pcommon.Point{
@@ -403,4 +405,52 @@ func TestMsgDone(t *testing.T) {
 		},
 	}
 	runTests(tests, t)
+}
+
+// TestConfigDefaults verifies that when a Config is created directly without
+// using NewConfig(), the Client and Server apply default values for zero fields.
+// This fixes issue #1299 where PipelineLimit=0 caused sync to stall.
+func TestConfigDefaults(t *testing.T) {
+	protoOptions := protocol.ProtocolOptions{
+		Mode: protocol.ProtocolModeNodeToClient,
+	}
+
+	t.Run("Client applies defaults for zero PipelineLimit", func(t *testing.T) {
+		// Create config directly without NewConfig() - PipelineLimit will be 0
+		cfg := &Config{SkipBlockValidation: true}
+		client := NewClient(protoOptions, cfg)
+
+		require.Equal(t, DefaultPipelineLimit, client.config.PipelineLimit)
+	})
+
+	t.Run("Client applies defaults for zero RecvQueueSize", func(t *testing.T) {
+		cfg := &Config{SkipBlockValidation: true}
+		client := NewClient(protoOptions, cfg)
+
+		require.Equal(t, DefaultRecvQueueSize, client.config.RecvQueueSize)
+	})
+
+	t.Run("Client preserves explicit non-zero values", func(t *testing.T) {
+		cfg := &Config{
+			PipelineLimit: 10,
+			RecvQueueSize: 20,
+		}
+		client := NewClient(protoOptions, cfg)
+
+		require.Equal(t, 10, client.config.PipelineLimit)
+		require.Equal(t, 20, client.config.RecvQueueSize)
+	})
+
+	t.Run("Server applies defaults for zero RecvQueueSize", func(t *testing.T) {
+		cfg := &Config{SkipBlockValidation: true}
+		server := NewServer(protoOptions, cfg)
+
+		require.Equal(t, DefaultRecvQueueSize, server.config.RecvQueueSize)
+	})
+
+	t.Run("Client with nil config uses NewConfig defaults", func(t *testing.T) {
+		client := NewClient(protoOptions, nil)
+
+		require.Equal(t, DefaultPipelineLimit, client.config.PipelineLimit)
+	})
 }

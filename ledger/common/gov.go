@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -74,6 +75,42 @@ func encodeCip129Voter(
 	return encoded
 }
 
+// encodeCip129Credential encodes a credential hash with CIP-0129 format.
+// The header byte uses the credential type (0x22 for key hash, 0x23 for script hash)
+// following CIP-0129 specification where the low nibble encodes 0x2 for key hash
+// and 0x3 for script hash.
+func encodeCip129Credential(
+	prefix string,
+	credentialType uint8,
+	hash []byte,
+) string {
+	// CIP-0129: low nibble encodes credential type offset by 2
+	// (0x2 for key hash, 0x3 for script hash)
+	header := byte(0x20 | ((credentialType + 2) & 0x0f))
+	data := make([]byte, 1+len(hash))
+	data[0] = header
+	copy(data[1:], hash)
+	convData, err := bech32.ConvertBits(data, 8, 5, true)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error converting credential data to base32: %s",
+				err,
+			),
+		)
+	}
+	encoded, err := bech32.Encode(prefix, convData)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error encoding credential data as bech32: %s",
+				err,
+			),
+		)
+	}
+	return encoded
+}
+
 // Generates bech32-encoded identifier for the voter credential.
 func (v Voter) String() string {
 	switch v.Type {
@@ -87,7 +124,7 @@ func (v Voter) String() string {
 	case VoterTypeConstitutionalCommitteeHotScriptHash:
 		return encodeCip129Voter(
 			"cc_hot",
-			VoterTypeConstitutionalCommitteeHotKeyHash,
+			VoterTypeConstitutionalCommitteeHotScriptHash,
 			CredentialTypeScriptHash,
 			v.Hash[:],
 		)
@@ -101,7 +138,7 @@ func (v Voter) String() string {
 	case VoterTypeDRepScriptHash:
 		return encodeCip129Voter(
 			"drep",
-			VoterTypeDRepKeyHash,
+			VoterTypeDRepScriptHash,
 			CredentialTypeScriptHash,
 			v.Hash[:],
 		)
@@ -109,8 +146,67 @@ func (v Voter) String() string {
 		poolId := PoolId(v.Hash)
 		return poolId.String()
 	default:
-		panic(fmt.Sprintf("unknown voter type: %d", v.Type))
+		return fmt.Sprintf("voter_unknown_%d", v.Type)
 	}
+}
+
+func (v Voter) MarshalText() ([]byte, error) {
+	if v.Type > VoterTypeStakingPoolKeyHash {
+		return nil, fmt.Errorf("unsupported voter type: %d", v.Type)
+	}
+	return []byte(v.String()), nil
+}
+
+func (v *Voter) UnmarshalText(text []byte) error {
+	s := string(text)
+	prefix, rawData, err := bech32.DecodeNoLimit(s)
+	if err != nil {
+		return fmt.Errorf("invalid voter bech32: %w", err)
+	}
+	decoded, err := bech32.ConvertBits(rawData, 5, 8, false)
+	if err != nil {
+		return fmt.Errorf("invalid voter bech32 data: %w", err)
+	}
+	switch prefix {
+	case "pool":
+		if len(decoded) != 28 {
+			return fmt.Errorf("invalid pool voter hash length: %d", len(decoded))
+		}
+		v.Type = VoterTypeStakingPoolKeyHash
+		copy(v.Hash[:], decoded)
+	case "cc_hot", "drep":
+		if len(decoded) != 29 {
+			return fmt.Errorf("invalid %s voter data length: %d", prefix, len(decoded))
+		}
+		header := decoded[0]
+		v.Type = header >> 4
+		// Validate CIP-129 credential type nibble (0x2 = key hash, 0x3 = script hash)
+		credNibble := header & 0x0f
+		switch v.Type {
+		case VoterTypeConstitutionalCommitteeHotKeyHash, VoterTypeDRepKeyHash:
+			if credNibble != 0x2 {
+				return fmt.Errorf("invalid CIP-129 credential type nibble 0x%x for key hash voter type %d", credNibble, v.Type)
+			}
+		case VoterTypeConstitutionalCommitteeHotScriptHash, VoterTypeDRepScriptHash:
+			if credNibble != 0x3 {
+				return fmt.Errorf("invalid CIP-129 credential type nibble 0x%x for script hash voter type %d", credNibble, v.Type)
+			}
+		}
+		switch prefix {
+		case "cc_hot":
+			if v.Type != VoterTypeConstitutionalCommitteeHotKeyHash && v.Type != VoterTypeConstitutionalCommitteeHotScriptHash {
+				return fmt.Errorf("invalid voter type %d for prefix %s", v.Type, prefix)
+			}
+		case "drep":
+			if v.Type != VoterTypeDRepKeyHash && v.Type != VoterTypeDRepScriptHash {
+				return fmt.Errorf("invalid voter type %d for prefix %s", v.Type, prefix)
+			}
+		}
+		copy(v.Hash[:], decoded[1:])
+	default:
+		return fmt.Errorf("unknown voter bech32 prefix: %s", prefix)
+	}
+	return nil
 }
 
 func (v Voter) ToPlutusData() data.PlutusData {
@@ -142,7 +238,7 @@ func (v Voter) ToPlutusData() data.PlutusData {
 	case VoterTypeStakingPoolKeyHash:
 		return data.NewConstr(2, data.NewByteString(v.Hash[:]))
 	default:
-		return nil
+		panic(fmt.Sprintf("unsupported voter type: %d", v.Type))
 	}
 }
 
@@ -163,7 +259,7 @@ func (v Vote) ToPlutusData() data.PlutusData {
 	case Vote(GovVoteAbstain):
 		return data.NewConstr(2)
 	default:
-		return nil
+		panic(fmt.Sprintf("unsupported vote type: %d", v))
 	}
 }
 
@@ -203,6 +299,80 @@ func (id *GovActionId) ToPlutusData() data.PlutusData {
 	)
 }
 
+// String returns a CIP-0129 bech32-encoded representation of the governance action ID.
+// The format is: gov_action prefix with tx_id (32 bytes) + action_index (1 byte).
+// Per CIP-0129, the action index must fit in a single byte (0-255).
+func (id *GovActionId) String() string {
+	if id.GovActionIdx > 255 {
+		panic(
+			fmt.Sprintf(
+				"gov action index %d exceeds maximum value 255 allowed by CIP-0129",
+				id.GovActionIdx,
+			),
+		)
+	}
+
+	// Build payload: 32-byte transaction ID followed by 1-byte action index
+	payload := append(id.TransactionId[:], byte(id.GovActionIdx))
+
+	convData, err := bech32.ConvertBits(payload, 8, 5, true)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error converting gov action ID to base32: %s",
+				err,
+			),
+		)
+	}
+	encoded, err := bech32.Encode("gov_action", convData)
+	if err != nil {
+		panic(
+			fmt.Sprintf(
+				"unexpected error encoding gov action ID as bech32: %s",
+				err,
+			),
+		)
+	}
+	return encoded
+}
+
+func (id *GovActionId) MarshalText() ([]byte, error) {
+	if id == nil {
+		return nil, errors.New("nil GovActionId")
+	}
+	if id.GovActionIdx > 255 {
+		return nil, fmt.Errorf(
+			"gov action index %d exceeds maximum value 255 allowed by CIP-0129",
+			id.GovActionIdx,
+		)
+	}
+	return []byte(id.String()), nil
+}
+
+func (id *GovActionId) UnmarshalText(text []byte) error {
+	s := string(text)
+	prefix, rawData, err := bech32.DecodeNoLimit(s)
+	if err != nil {
+		return fmt.Errorf("invalid gov action ID bech32: %w", err)
+	}
+	if prefix != "gov_action" {
+		return fmt.Errorf("invalid gov action ID prefix: %s", prefix)
+	}
+	decoded, err := bech32.ConvertBits(rawData, 5, 8, false)
+	if err != nil {
+		return fmt.Errorf("invalid gov action ID bech32 data: %w", err)
+	}
+	if len(decoded) != 33 {
+		return fmt.Errorf(
+			"invalid gov action ID data length: expected 33, got %d",
+			len(decoded),
+		)
+	}
+	copy(id.TransactionId[:], decoded[:32])
+	id.GovActionIdx = uint32(decoded[32])
+	return nil
+}
+
 type ProposalProcedure interface {
 	isProposalProcedure()
 	ToPlutusData() data.PlutusData
@@ -217,19 +387,27 @@ type ProposalProcedureBase struct{}
 //nolint:unused
 func (ProposalProcedureBase) isProposalProcedure() {}
 
+// GovActionType represents the type of a governance action
+type GovActionType uint
+
 const (
-	GovActionTypeParameterChange    = 0
-	GovActionTypeHardForkInitiation = 1
-	GovActionTypeTreasuryWithdrawal = 2
-	GovActionTypeNoConfidence       = 3
-	GovActionTypeUpdateCommittee    = 4
-	GovActionTypeNewConstitution    = 5
-	GovActionTypeInfo               = 6
+	GovActionTypeParameterChange    GovActionType = 0
+	GovActionTypeHardForkInitiation GovActionType = 1
+	GovActionTypeTreasuryWithdrawal GovActionType = 2
+	GovActionTypeNoConfidence       GovActionType = 3
+	GovActionTypeUpdateCommittee    GovActionType = 4
+	GovActionTypeNewConstitution    GovActionType = 5
+	GovActionTypeInfo               GovActionType = 6
 )
 
 type GovAction interface {
 	isGovAction()
 	ToPlutusData() data.PlutusData
+}
+
+// GovActionWithPolicy is an optional interface for governance actions that have a policy script
+type GovActionWithPolicy interface {
+	GetPolicyHash() []byte
 }
 
 type GovActionBase struct{}
@@ -298,6 +476,11 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 }
 
 func (a TreasuryWithdrawalGovAction) isGovAction() {}
+
+// GetPolicyHash returns the policy script hash for this governance action
+func (a *TreasuryWithdrawalGovAction) GetPolicyHash() []byte {
+	return a.PolicyHash
+}
 
 type NoConfidenceGovAction struct {
 	cbor.StructAsArray

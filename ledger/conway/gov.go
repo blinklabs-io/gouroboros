@@ -71,8 +71,11 @@ func (g *ConwayGovAction) UnmarshalCBOR(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if actionType < 0 {
+		return fmt.Errorf("invalid governance action type: %d", actionType)
+	}
 	var tmpAction common.GovAction
-	switch actionType {
+	switch common.GovActionType(actionType) {
 	case common.GovActionTypeParameterChange:
 		tmpAction = &ConwayParameterChangeGovAction{}
 	case common.GovActionTypeHardForkInitiation:
@@ -130,4 +133,9 @@ func (a *ConwayParameterChangeGovAction) ToPlutusData() data.PlutusData {
 		a.ParamUpdate.ToPlutusData(),
 		policyHash,
 	)
+}
+
+// GetPolicyHash returns the policy script hash for this governance action
+func (a *ConwayParameterChangeGovAction) GetPolicyHash() []byte {
+	return a.PolicyHash
 }

@@ -94,12 +94,12 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 			if val < 0 || val > maxReasonableIndex {
 				continue // Skip negative or unreasonably large indices
 			}
-			result = append(result, uint(val))
+			result = append(result, uint(val)) //nolint:gosec // bounds checked above
 		case int64:
 			if val < 0 || val > maxReasonableIndex {
 				continue // Skip negative or unreasonably large indices
 			}
-			result = append(result, uint(val))
+			result = append(result, uint(val)) //nolint:gosec // bounds checked above
 		default:
 			// Skip invalid types (strings, floats, etc.)
 			continue
@@ -138,7 +138,18 @@ func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
 		return b.Cbor(), nil
 	}
 
-	// Ensure InvalidTransactions is encoded as empty array if nil
+	// Ensure nil slices are encoded as empty CBOR arrays (0x80)
+	// rather than CBOR null (0xF6). The Cardano CDDL requires
+	// arrays for transaction_bodies, transaction_witness_sets,
+	// and invalid_transactions.
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []BabbageTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []BabbageTransactionWitnessSet{}
+	}
 	invalidTxs := b.InvalidTransactions
 	if invalidTxs == nil {
 		invalidTxs = []uint{}
@@ -146,8 +157,8 @@ func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
 
 	return cbor.Encode([]any{
 		b.BlockHeader,
-		b.TransactionBodies,
-		b.TransactionWitnessSets,
+		txBodies,
+		txWitnesses,
 		b.TransactionMetadataSet,
 		invalidTxs,
 	})
@@ -203,8 +214,16 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -212,8 +231,9 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 }
 
 func (b *BabbageBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -386,8 +406,8 @@ func (b *BabbageTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *BabbageTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *BabbageTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *BabbageTransactionBody) TTL() uint64 {
@@ -417,8 +437,15 @@ func (b *BabbageTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *BabbageTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *BabbageTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for k, v := range b.TxWithdrawals {
+		ret[k] = new(big.Int).SetUint64(v)
+	}
+	return ret
 }
 
 func (b *BabbageTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -465,8 +492,8 @@ func (b *BabbageTransactionBody) CollateralReturn() common.TransactionOutput {
 	return b.TxCollateralReturn
 }
 
-func (b *BabbageTransactionBody) TotalCollateral() uint64 {
-	return b.TxTotalCollateral
+func (b *BabbageTransactionBody) TotalCollateral() *big.Int {
+	return new(big.Int).SetUint64(b.TxTotalCollateral)
 }
 
 func (b *BabbageTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
@@ -689,8 +716,8 @@ func (o BabbageTransactionOutput) ScriptRef() common.Script {
 	return o.TxOutScriptRef.Script
 }
 
-func (o BabbageTransactionOutput) Amount() uint64 {
-	return o.OutputAmount.Amount
+func (o BabbageTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount.Amount)
 }
 
 func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -699,7 +726,13 @@ func (o BabbageTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetT
 
 func (o BabbageTransactionOutput) DatumHash() *common.Blake2b256 {
 	if o.DatumOption != nil {
-		return o.DatumOption.hash
+		if o.DatumOption.hash != nil {
+			return o.DatumOption.hash
+		}
+		if o.DatumOption.data != nil {
+			hash := o.DatumOption.data.Hash()
+			return &hash
+		}
 	}
 	return &common.Blake2b256{}
 }
@@ -736,7 +769,7 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 				asset := &utxorpc.Asset{
 					Name: assetName,
 					Quantity: &utxorpc.Asset_OutputCoin{
-						OutputCoin: common.ToUtxorpcBigInt(amount),
+						OutputCoin: common.BigIntToUtxorpcBigInt(amount),
 					},
 				}
 				ma.Assets = append(ma.Assets, asset)
@@ -746,15 +779,20 @@ func (o BabbageTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 
 	var datumHash []byte
-	if o.DatumHash() == nil {
-		datumHash = []byte{}
-	} else {
+	if o.DatumOption == nil {
+		datumHash = make([]byte, 32) // 32 zero bytes for no datum option
+	} else if o.DatumOption.hash != nil {
+		datumHash = o.DatumOption.hash.Bytes()
+	} else if o.DatumOption.data != nil {
 		datumHash = o.DatumHash().Bytes()
+	} else {
+		// DatumOption present but empty
+		datumHash = []byte{}
 	}
 
 	return &utxorpc.TxOutput{
 			Address: address,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 			Assets:  assets,
 			Datum: &utxorpc.Datum{
 				Hash: datumHash,
@@ -786,7 +824,7 @@ type BabbageTransactionWitnessSet struct {
 	WsNativeScripts    []common.NativeScript     `cbor:"1,keyasint,omitempty"`
 	BootstrapWitnesses []common.BootstrapWitness `cbor:"2,keyasint,omitempty"`
 	WsPlutusV1Scripts  []common.PlutusV1Script   `cbor:"3,keyasint,omitempty"`
-	WsPlutusData       []common.Datum            `cbor:"4,keyasint,omitempty"`
+	WsPlutusData       alonzo.PlutusDataList     `cbor:"4,keyasint,omitempty"`
 	WsRedeemers        alonzo.AlonzoRedeemers    `cbor:"5,keyasint,omitempty"`
 	WsPlutusV2Scripts  []common.PlutusV2Script   `cbor:"6,keyasint,omitempty"`
 }
@@ -825,9 +863,9 @@ func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
 
 	// Convert WsPlutusData to IndefLengthList
 	var plutusDataIndefList cbor.IndefLengthList
-	if w.WsPlutusData != nil {
-		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData))
-		for i, datum := range w.WsPlutusData {
+	if len(w.WsPlutusData.Items) > 0 {
+		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData.Items))
+		for i, datum := range w.WsPlutusData.Items {
 			plutusDataIndefList[i] = datum
 		}
 	}
@@ -871,7 +909,7 @@ func (w BabbageTransactionWitnessSet) PlutusV3Scripts() []common.PlutusV3Script 
 }
 
 func (w BabbageTransactionWitnessSet) PlutusData() []common.Datum {
-	return w.WsPlutusData
+	return w.WsPlutusData.Items
 }
 
 func (w BabbageTransactionWitnessSet) Redeemers() common.TransactionWitnessRedeemers {
@@ -886,7 +924,7 @@ type BabbageTransaction struct {
 	WitnessSet BabbageTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
+	auxData    common.AuxiliaryData
 }
 
 func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -918,13 +956,25 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
-
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[3])
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[3])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 
@@ -936,8 +986,8 @@ func (t *BabbageTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *BabbageTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
+func (t *BabbageTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (BabbageTransaction) Type() int {
@@ -968,7 +1018,7 @@ func (t BabbageTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t BabbageTransaction) Fee() uint64 {
+func (t BabbageTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -996,7 +1046,7 @@ func (t BabbageTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t BabbageTransaction) TotalCollateral() uint64 {
+func (t BabbageTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -1004,7 +1054,7 @@ func (t BabbageTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t BabbageTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t BabbageTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -1032,11 +1082,11 @@ func (t BabbageTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t BabbageTransaction) CurrentTreasuryValue() int64 {
+func (t BabbageTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t BabbageTransaction) Donation() uint64 {
+func (t BabbageTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -1054,8 +1104,9 @@ func (t BabbageTransaction) Consumed() []common.TransactionInput {
 
 func (t BabbageTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []common.Utxo
-		for idx, output := range t.Outputs() {
+		outputs := t.Outputs()
+		ret := make([]common.Utxo, 0, len(outputs))
+		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{

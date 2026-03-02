@@ -147,3 +147,135 @@ func TestRatJsonUnmarshalFloat(t *testing.T) {
 		)
 	}
 }
+
+func TestRatUnmarshalCBORErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		cborHex     string
+		expectError string
+	}{
+		{
+			name:        "wrong number of elements",
+			cborHex:     "d81e8301020304", // 30([1, 2, 3, 4])
+			expectError: "expected exactly 2 elements",
+		},
+		{
+			name:        "zero denominator",
+			cborHex:     "d81e820100", // 30([1, 0])
+			expectError: "denominator cannot be zero",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, _ := hex.DecodeString(tt.cborHex)
+			var rat cbor.Rat
+			_, err := cbor.Decode(data, &rat)
+			if err == nil {
+				t.Fatal("expected error but got none")
+			}
+			if !reflect.DeepEqual(err.Error(), tt.expectError) && !contains(err.Error(), tt.expectError) {
+				t.Errorf("expected error containing %q, got %q", tt.expectError, err.Error())
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRatToBigRat(t *testing.T) {
+	rat := cbor.Rat{Rat: big.NewRat(3, 4)}
+	bigRat := rat.ToBigRat()
+	if bigRat.Cmp(big.NewRat(3, 4)) != 0 {
+		t.Errorf("expected 3/4, got %s", bigRat.String())
+	}
+}
+
+func TestWrappedCborBytes(t *testing.T) {
+	data := []byte{0xab, 0xcd, 0xef}
+	wrapped := cbor.WrappedCbor(data)
+	if !reflect.DeepEqual(wrapped.Bytes(), data) {
+		t.Errorf("expected %v, got %v", data, wrapped.Bytes())
+	}
+}
+
+func TestSetTypeItems(t *testing.T) {
+	// Test SetType decoding with Set tag
+	setWithTagHex := "d9010283010203" // 258([1, 2, 3])
+	data, _ := hex.DecodeString(setWithTagHex)
+
+	var setType cbor.SetType[uint64]
+	_, err := cbor.Decode(data, &setType)
+	if err != nil {
+		t.Fatalf("failed to decode SetType: %s", err)
+	}
+
+	items := setType.Items()
+	expected := []uint64{1, 2, 3}
+	if !reflect.DeepEqual(items, expected) {
+		t.Errorf("expected %v, got %v", expected, items)
+	}
+
+	// Verify stored CBOR
+	if setType.Cbor() == nil {
+		t.Error("expected CBOR to be stored")
+	}
+}
+
+func TestSetTypeWithoutTag(t *testing.T) {
+	// Test SetType decoding without Set tag (plain array)
+	plainArrayHex := "83010203" // [1, 2, 3]
+	data, _ := hex.DecodeString(plainArrayHex)
+
+	var setType cbor.SetType[uint64]
+	_, err := cbor.Decode(data, &setType)
+	if err != nil {
+		t.Fatalf("failed to decode SetType without tag: %s", err)
+	}
+
+	items := setType.Items()
+	expected := []uint64{1, 2, 3}
+	if !reflect.DeepEqual(items, expected) {
+		t.Errorf("expected %v, got %v", expected, items)
+	}
+}
+
+func TestSetTypeMarshalCBOR(t *testing.T) {
+	// Create SetType with tag
+	setType := cbor.NewSetType([]uint64{1, 2, 3}, true)
+	encoded, err := cbor.Encode(&setType)
+	if err != nil {
+		t.Fatalf("failed to encode SetType: %s", err)
+	}
+
+	// Should have Set tag
+	encodedHex := hex.EncodeToString(encoded)
+	if encodedHex[:4] != "d901" { // Tag 258 prefix
+		t.Errorf("expected Set tag prefix, got %s", encodedHex[:4])
+	}
+}
+
+func TestSetTypeMarshalCBORWithoutTag(t *testing.T) {
+	// Create SetType without tag
+	setType := cbor.NewSetType([]uint64{1, 2, 3}, false)
+	encoded, err := cbor.Encode(&setType)
+	if err != nil {
+		t.Fatalf("failed to encode SetType: %s", err)
+	}
+
+	// Should be plain array (no tag)
+	if encoded[0] != 0x83 { // array of 3 elements
+		t.Errorf("expected plain array, got 0x%02x", encoded[0])
+	}
+}

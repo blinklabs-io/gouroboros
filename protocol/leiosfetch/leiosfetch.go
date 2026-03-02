@@ -129,8 +129,8 @@ type CallbackContext struct {
 
 // Callback function types
 type (
-	BlockRequestFunc      func(CallbackContext, uint64, []byte) (protocol.Message, error)
-	BlockTxsRequestFunc   func(CallbackContext, uint64, []byte, map[uint16][8]byte) (protocol.Message, error)
+	BlockRequestFunc      func(CallbackContext, pcommon.Point) (protocol.Message, error)
+	BlockTxsRequestFunc   func(CallbackContext, pcommon.Point, map[uint16]uint64) (protocol.Message, error)
 	VotesRequestFunc      func(CallbackContext, []MsgVotesRequestVoteId) (protocol.Message, error)
 	BlockRangeRequestFunc func(CallbackContext, pcommon.Point, pcommon.Point) error
 )

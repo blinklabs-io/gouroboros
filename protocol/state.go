@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -62,8 +62,9 @@ type StateTransitionMatchFunc func(any, Message) bool
 type StateMapEntry struct {
 	Agency                  ProtocolStateAgency
 	Transitions             []StateTransition
-	Timeout                 time.Duration
-	PendingMessageByteLimit int // Maximum pending message bytes allowed in this state (0 = no limit)
+	Timeout                 time.Duration        // Fixed timeout for this state (0 = no timeout)
+	TimeoutFunc             func() time.Duration // Dynamic timeout; if set, overrides Timeout
+	PendingMessageByteLimit int                  // Maximum pending message bytes allowed in this state (0 = no limit)
 }
 
 // StateMap represents the state machine definition for a mini-protocol

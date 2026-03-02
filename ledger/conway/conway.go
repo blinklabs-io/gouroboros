@@ -15,10 +15,12 @@
 package conway
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
 	"maps"
+	"math/big"
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -94,12 +96,12 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 			if val < 0 || val > maxReasonableIndex {
 				continue // Skip negative or unreasonably large indices
 			}
-			result = append(result, uint(val))
+			result = append(result, uint(val)) //nolint:gosec // bounds checked above
 		case int64:
 			if val < 0 || val > maxReasonableIndex {
 				continue // Skip negative or unreasonably large indices
 			}
-			result = append(result, uint(val))
+			result = append(result, uint(val)) //nolint:gosec // bounds checked above
 		default:
 			// Skip invalid types (strings, floats, etc.)
 			continue
@@ -138,7 +140,18 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 		return b.Cbor(), nil
 	}
 
-	// Ensure InvalidTransactions is encoded as empty array if nil
+	// Ensure nil slices are encoded as empty CBOR arrays (0x80)
+	// rather than CBOR null (0xF6). The Cardano CDDL requires
+	// arrays for transaction_bodies, transaction_witness_sets,
+	// and invalid_transactions.
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []ConwayTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []ConwayTransactionWitnessSet{}
+	}
 	invalidTxs := b.InvalidTransactions
 	if invalidTxs == nil {
 		invalidTxs = []uint{}
@@ -146,8 +159,8 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 
 	return cbor.Encode([]any{
 		b.BlockHeader,
-		b.TransactionBodies,
-		b.TransactionWitnessSets,
+		txBodies,
+		txWitnesses,
 		b.TransactionMetadataSet,
 		invalidTxs,
 	})
@@ -203,8 +216,16 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 			WitnessSet: b.TransactionWitnessSets[idx],
 			TxIsValid:  !invalidTxMap[uint(idx)],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -212,8 +233,9 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 }
 
 func (b *ConwayBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -248,18 +270,73 @@ func (h *ConwayBlockHeader) Era() common.Era {
 }
 
 type ConwayRedeemers struct {
+	cbor.DecodeStoreCbor
 	Redeemers       map[common.RedeemerKey]common.RedeemerValue
 	legacyRedeemers alonzo.AlonzoRedeemers
 	legacy          bool
 }
 
 func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
+	r.SetCbor(cborData)
 	// Try to parse as legacy redeemer first
 	if _, err := cbor.Decode(cborData, &(r.legacyRedeemers)); err == nil {
 		r.legacy = true
 	} else {
 		_, err := cbor.Decode(cborData, &(r.Redeemers))
 		return err
+	}
+	return nil
+}
+
+// conwayRedeemerJSON is a helper type for JSON serialization of ConwayRedeemers
+type conwayRedeemerJSON struct {
+	Tag     common.RedeemerTag `json:"tag"`
+	Index   uint32             `json:"index"`
+	Data    common.Datum       `json:"data"`
+	ExUnits common.ExUnits     `json:"exUnits"`
+}
+
+func (r ConwayRedeemers) MarshalJSON() ([]byte, error) {
+	if r.legacy {
+		return json.Marshal(r.legacyRedeemers)
+	}
+	entries := make([]conwayRedeemerJSON, 0, len(r.Redeemers))
+	// Sort keys for deterministic output
+	sorted := slices.Collect(maps.Keys(r.Redeemers))
+	slices.SortFunc(sorted, common.CompareRedeemerKeys)
+	for _, key := range sorted {
+		val := r.Redeemers[key]
+		entries = append(entries, conwayRedeemerJSON{
+			Tag:     key.Tag,
+			Index:   key.Index,
+			Data:    val.Data,
+			ExUnits: val.ExUnits,
+		})
+	}
+	return json.Marshal(entries)
+}
+
+func (r *ConwayRedeemers) UnmarshalJSON(data []byte) error {
+	r.SetCbor(nil)
+	r.legacy = false
+	r.legacyRedeemers = alonzo.AlonzoRedeemers{}
+	var entries []conwayRedeemerJSON
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+	r.Redeemers = make(map[common.RedeemerKey]common.RedeemerValue, len(entries))
+	for _, entry := range entries {
+		key := common.RedeemerKey{
+			Tag:   entry.Tag,
+			Index: entry.Index,
+		}
+		if _, exists := r.Redeemers[key]; exists {
+			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+		}
+		r.Redeemers[key] = common.RedeemerValue{
+			Data:    entry.Data,
+			ExUnits: entry.ExUnits,
+		}
 	}
 	return nil
 }
@@ -272,21 +349,13 @@ func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
 }
 
 func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
+	if r.legacy {
+		return r.legacyRedeemers.Iter()
+	}
 	return func(yield func(common.RedeemerKey, common.RedeemerValue) bool) {
 		// Sort redeemers
 		sorted := slices.Collect(maps.Keys(r.Redeemers))
-		slices.SortFunc(
-			sorted,
-			func(a, b common.RedeemerKey) int {
-				if a.Tag < b.Tag || (a.Tag == b.Tag && a.Index < b.Index) {
-					return -1
-				}
-				if a.Tag > b.Tag || (a.Tag == b.Tag && a.Index > b.Index) {
-					return 1
-				}
-				return 0
-			},
-		)
+		slices.SortFunc(sorted, common.CompareRedeemerKeys)
 		// Yield keys
 		for _, redeemerKey := range sorted {
 			tmpVal := r.Redeemers[redeemerKey]
@@ -459,7 +528,7 @@ type ConwayTransactionBody struct {
 	TxScriptDataHash        *common.Blake2b256                            `cbor:"11,keyasint,omitempty"`
 	TxCollateral            cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"13,keyasint,omitempty,omitzero"`
 	TxRequiredSigners       cbor.SetType[common.Blake2b224]               `cbor:"14,keyasint,omitempty,omitzero"`
-	NetworkId               uint8                                         `cbor:"15,keyasint,omitempty"`
+	TxNetworkId             *uint8                                        `cbor:"15,keyasint,omitempty"`
 	TxCollateralReturn      *babbage.BabbageTransactionOutput             `cbor:"16,keyasint,omitempty"`
 	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
@@ -481,7 +550,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
+	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
 	for _, input := range b.TxInputs.Items() {
 		ret = append(ret, input)
 	}
@@ -496,8 +565,8 @@ func (b *ConwayTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *ConwayTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *ConwayTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *ConwayTransactionBody) TTL() uint64 {
@@ -527,8 +596,15 @@ func (b *ConwayTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *ConwayTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *ConwayTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int, len(b.TxWithdrawals))
+	for addr, amount := range b.TxWithdrawals {
+		ret[addr] = new(big.Int).SetUint64(amount)
+	}
+	return ret
 }
 
 func (b *ConwayTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -540,8 +616,9 @@ func (b *ConwayTransactionBody) AssetMint() *common.MultiAsset[common.MultiAsset
 }
 
 func (b *ConwayTransactionBody) Collateral() []common.TransactionInput {
-	ret := []common.TransactionInput{}
-	for _, collateral := range b.TxCollateral.Items() {
+	items := b.TxCollateral.Items()
+	ret := make([]common.TransactionInput, 0, len(items))
+	for _, collateral := range items {
 		ret = append(ret, collateral)
 	}
 	return ret
@@ -574,8 +651,8 @@ func (b *ConwayTransactionBody) CollateralReturn() common.TransactionOutput {
 	return b.TxCollateralReturn
 }
 
-func (b *ConwayTransactionBody) TotalCollateral() uint64 {
-	return b.TxTotalCollateral
+func (b *ConwayTransactionBody) TotalCollateral() *big.Int {
+	return new(big.Int).SetUint64(b.TxTotalCollateral)
 }
 
 func (b *ConwayTransactionBody) VotingProcedures() common.VotingProcedures {
@@ -590,12 +667,19 @@ func (b *ConwayTransactionBody) ProposalProcedures() []common.ProposalProcedure 
 	return ret
 }
 
-func (b *ConwayTransactionBody) CurrentTreasuryValue() int64 {
-	return b.TxCurrentTreasuryValue
+func (b *ConwayTransactionBody) NetworkId() *uint8 {
+	// TxNetworkId field is optional (omitempty in CBOR)
+	// Since it's a pointer, nil means not present, non-nil means present
+	// This correctly handles testnet (network ID 0) as well as mainnet (ID 1)
+	return b.TxNetworkId
 }
 
-func (b *ConwayTransactionBody) Donation() uint64 {
-	return b.TxDonation
+func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
+	return big.NewInt(b.TxCurrentTreasuryValue)
+}
+
+func (b *ConwayTransactionBody) Donation() *big.Int {
+	return new(big.Int).SetUint64(b.TxDonation)
 }
 
 func (b *ConwayTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
@@ -610,7 +694,7 @@ type ConwayTransaction struct {
 	WitnessSet ConwayTransactionWitnessSet
 	TxIsValid  bool
 	TxMetadata common.TransactionMetadatum
-	rawAuxData []byte
+	auxData    common.AuxiliaryData
 }
 
 func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -642,13 +726,25 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
-
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 { // 0xF6 is CBOR null
-		t.rawAuxData = []byte(txArray[3])
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[3])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 
@@ -660,8 +756,8 @@ func (t *ConwayTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *ConwayTransaction) RawAuxiliaryData() []byte {
-	return t.rawAuxData
+func (t *ConwayTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (ConwayTransaction) Type() int {
@@ -692,7 +788,7 @@ func (t ConwayTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t ConwayTransaction) Fee() uint64 {
+func (t ConwayTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -720,7 +816,7 @@ func (t ConwayTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t ConwayTransaction) TotalCollateral() uint64 {
+func (t ConwayTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -728,7 +824,7 @@ func (t ConwayTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t ConwayTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t ConwayTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -756,12 +852,16 @@ func (t ConwayTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t ConwayTransaction) CurrentTreasuryValue() int64 {
+func (t ConwayTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t ConwayTransaction) Donation() uint64 {
+func (t ConwayTransaction) Donation() *big.Int {
 	return t.Body.Donation()
+}
+
+func (t ConwayTransaction) NetworkId() *uint8 {
+	return t.Body.NetworkId()
 }
 
 func (t ConwayTransaction) IsValid() bool {
@@ -771,15 +871,15 @@ func (t ConwayTransaction) IsValid() bool {
 func (t ConwayTransaction) Consumed() []common.TransactionInput {
 	if t.IsValid() {
 		return t.Inputs()
-	} else {
-		return t.Collateral()
 	}
+	return t.Collateral()
 }
 
 func (t ConwayTransaction) Produced() []common.Utxo {
 	if t.IsValid() {
-		var ret []common.Utxo
-		for idx, output := range t.Outputs() {
+		outputs := t.Outputs()
+		ret := make([]common.Utxo, 0, len(outputs))
+		for idx, output := range outputs {
 			ret = append(
 				ret,
 				common.Utxo{
@@ -792,16 +892,18 @@ func (t ConwayTransaction) Produced() []common.Utxo {
 			)
 		}
 		return ret
-	} else {
-		if t.CollateralReturn() == nil {
-			return []common.Utxo{}
-		}
-		return []common.Utxo{
-			{
-				Id:     shelley.NewShelleyTransactionInput(t.Hash().String(), len(t.Outputs())),
-				Output: t.CollateralReturn(),
-			},
-		}
+	}
+	if t.CollateralReturn() == nil {
+		return []common.Utxo{}
+	}
+	return []common.Utxo{
+		{
+			Id: shelley.NewShelleyTransactionInput(
+				t.Hash().String(),
+				len(t.Outputs()),
+			),
+			Output: t.CollateralReturn(),
+		},
 	}
 }
 

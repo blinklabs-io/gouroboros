@@ -414,6 +414,20 @@ func (c *Connection) setupConnection() error {
 		}
 		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
 		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
+		// Register server protocols early to avoid race conditions where messages arrive
+		if (c.fullDuplex && handshakeFullDuplex) || c.server {
+			c.blockFetch.Server.EnsureRegistered()
+			c.chainSync.Server.EnsureRegistered()
+			c.txSubmission.Server.EnsureRegistered()
+			if c.keepAlive != nil {
+				c.keepAlive.Server.EnsureRegistered()
+			}
+			if c.peerSharing != nil {
+				c.peerSharing.Server.EnsureRegistered()
+			}
+			c.leiosNotify.Server.EnsureRegistered()
+			c.leiosFetch.Server.EnsureRegistered()
+		}
 		// Start protocols
 		if !c.delayProtocolStart {
 			if (c.fullDuplex && handshakeFullDuplex) || !c.server {
@@ -453,6 +467,17 @@ func (c *Connection) setupConnection() error {
 		}
 		if versionNtC.EnableLocalTxMonitorProtocol {
 			c.localTxMonitor = localtxmonitor.New(protoOptions, c.localTxMonitorConfig)
+		}
+		// Register server protocols early to avoid race conditions where messages arrive
+		if (c.fullDuplex && handshakeFullDuplex) || c.server {
+			c.chainSync.Server.EnsureRegistered()
+			c.localTxSubmission.Server.EnsureRegistered()
+			if c.localStateQuery != nil {
+				c.localStateQuery.Server.EnsureRegistered()
+			}
+			if c.localTxMonitor != nil {
+				c.localTxMonitor.Server.EnsureRegistered()
+			}
 		}
 		// Start protocols
 		if !c.delayProtocolStart {

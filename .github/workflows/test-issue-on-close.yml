@@ -1,0 +1,19 @@
+name: Test Issue Close Trigger
+permissions:
+  contents: read
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print closed issue info
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          echo "Issue Number: $ISSUE_NUMBER"
+          echo "Title: $ISSUE_TITLE"
+          echo "Workflow triggered successfully when issue was closed."

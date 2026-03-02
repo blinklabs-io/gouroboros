@@ -19,13 +19,11 @@
 package ledger
 
 import (
-	"bytes"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -34,110 +32,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/leios"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"golang.org/x/crypto/blake2b"
 )
 
 // This module inspired by https://github.com/input-output-hk/kes,
 // special thanks to https://github.com/iquerejeta, who helped me a lot on this journey
-
-const (
-	SIGMA_SIZE      = 64
-	PUBLIC_KEY_SIZE = 32
-	Sum0KesSig_SIZE = 64
-
-	// CardanoKesDepth is the fixed KES tree depth used in Cardano's consensus protocol
-	CardanoKesDepth = 6
-	// CardanoKesSignatureSize is the expected KES signature size: 64 + depth*64
-	CardanoKesSignatureSize = 448
-)
-
-type SumXKesSig struct {
-	Depth                  uint64
-	Sigma                  any
-	LeftHandSidePublicKey  ed25519.PublicKey
-	RightHandSidePublicKey ed25519.PublicKey
-}
-
-func NewSumKesFromByte(depth uint64, fromByte []byte) SumXKesSig {
-	kesSize := SIGMA_SIZE + depth*(PUBLIC_KEY_SIZE*2)
-	if kesSize > math.MaxInt {
-		panic("kes size too large")
-	}
-	if len(fromByte) != int(kesSize) {
-		panic("length not match")
-	}
-	nextKesSize := SIGMA_SIZE + (depth-1)*(PUBLIC_KEY_SIZE*2)
-	var sigma any
-	if depth == 1 {
-		sigma = Sum0KesSigFromByte(fromByte)
-	} else {
-		sigma = NewSumKesFromByte(depth-1, fromByte[0:nextKesSize])
-	}
-	return SumXKesSig{
-		depth,
-		sigma,
-		fromByte[nextKesSize : nextKesSize+PUBLIC_KEY_SIZE],
-		fromByte[nextKesSize+PUBLIC_KEY_SIZE : nextKesSize+PUBLIC_KEY_SIZE*2],
-	}
-}
-
-func (s SumXKesSig) Verify(
-	period uint64,
-	pubKey ed25519.PublicKey,
-	msg []byte,
-) bool {
-	pk2 := HashPair(s.LeftHandSidePublicKey, s.RightHandSidePublicKey)
-	if !bytes.Equal(pk2, pubKey) {
-		return false
-	}
-
-	nextDepth := uint64(math.Pow(2, float64(s.Depth)-1))
-	sigma := s.Sigma
-	nextPeriod := period
-	nextPk := s.LeftHandSidePublicKey
-	if period >= nextDepth {
-		nextPeriod = period - nextDepth
-		nextPk = s.RightHandSidePublicKey
-	}
-
-	switch sumX := sigma.(type) {
-	case SumXKesSig:
-		return sumX.Verify(nextPeriod, nextPk, msg)
-	case Sum0KesSig:
-		return sumX.Verify(nextPeriod, nextPk, msg)
-	default:
-		return false
-	}
-}
-
-func HashPair(l ed25519.PublicKey, r ed25519.PublicKey) ed25519.PublicKey {
-	h, err := blake2b.New(32, nil)
-	if err != nil {
-		panic(
-			fmt.Sprintf(
-				"unexpected error creating empty blake2b hash: %s",
-				err,
-			),
-		)
-	}
-	h.Write(l[:])
-	h.Write(r[:])
-	return h.Sum(nil)
-}
-
-func Sum0KesSigFromByte(sigBytes []byte) Sum0KesSig {
-	return sigBytes[0:Sum0KesSig_SIZE]
-}
-
-type Sum0KesSig []byte
-
-func (s Sum0KesSig) Verify(
-	_ uint64,
-	pubKey ed25519.PublicKey,
-	msg []byte,
-) bool {
-	return ed25519.Verify(pubKey, msg, s)
-}
 
 func extractKesFieldsShelleyAlonzo(
 	header any,
@@ -199,6 +97,7 @@ func extractKesFieldsBabbagePlus(
 	}
 }
 
+// VerifyKes verifies the KES signature on a block header.
 func VerifyKes(
 	header common.BlockHeader,
 	slotsPerKesPeriod uint64,
@@ -237,6 +136,7 @@ func VerifyKes(
 	)
 }
 
+// VerifyKesComponents verifies KES signature components directly.
 func VerifyKesComponents(
 	bodyCbor []byte,
 	signature []byte,
@@ -248,11 +148,11 @@ func VerifyKesComponents(
 	if slotsPerKesPeriod == 0 {
 		return false, errors.New("slotsPerKesPeriod must be greater than 0")
 	}
-	// Validate KES signature length (CardanoKesDepth levels: 64 + CardanoKesDepth*64 = CardanoKesSignatureSize bytes)
-	if len(signature) != CardanoKesSignatureSize {
+	// Validate KES signature length
+	if len(signature) != kes.CardanoKesSignatureSize {
 		return false, fmt.Errorf(
 			"invalid KES signature length: expected %d bytes, got %d",
-			CardanoKesSignatureSize,
+			kes.CardanoKesSignatureSize,
 			len(signature),
 		)
 	}
@@ -262,16 +162,10 @@ func VerifyKesComponents(
 		return false, nil
 	}
 	t := currentKesPeriod - kesPeriod
-	return verifySignedKES(hotVkey, t, bodyCbor, signature), nil
+	return kes.VerifySignedKES(hotVkey, t, bodyCbor, signature), nil
 }
 
-func verifySignedKES(vkey []byte, period uint64, msg []byte, sig []byte) bool {
-	proof := NewSumKesFromByte(CardanoKesDepth, sig)
-	isValid := proof.Verify(period, vkey, msg)
-	return isValid
-}
-
-// GetHeaderBodyCbor returns the CBOR-encoded bytes of the block header body
+// GetHeaderBodyCbor returns the CBOR-encoded bytes of the block header body.
 func GetHeaderBodyCbor(header common.BlockHeader) ([]byte, error) {
 	switch h := header.(type) {
 	case *shelley.ShelleyBlockHeader:

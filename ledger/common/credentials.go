@@ -91,6 +91,7 @@ func (c *Credential) ToPlutusData() data.PlutusData {
 			1,
 			data.NewByteString(c.Credential.Bytes()),
 		)
+	default:
+		panic(fmt.Sprintf("unsupported credential type: %d", c.CredType))
 	}
-	return nil
 }

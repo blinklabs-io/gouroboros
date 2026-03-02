@@ -18,3 +18,10 @@
 
 # Temporary dir for testing
 /tmp/
+
+# IDEs
+.idea/
+.vscode/
+
+# Git worktrees
+.worktrees/

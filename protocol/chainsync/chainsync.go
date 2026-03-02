@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,10 +17,11 @@ package chainsync
 
 import (
 	"fmt"
-	"sync"
+	"math/rand/v2"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -40,105 +41,90 @@ var (
 	stateDone      = protocol.NewState(5, "Done")
 )
 
-// ChainSync protocol state machine
-var StateMap = protocol.StateMap{
+// Shared transitions used by both N2N and N2C state maps.
+var (
+	idleTransitions = []protocol.StateTransition{
+		{
+			MsgType:  MessageTypeRequestNext,
+			NewState: stateCanAwait,
+		},
+		{
+			MsgType:  MessageTypeFindIntersect,
+			NewState: stateIntersect,
+		},
+		{
+			MsgType:  MessageTypeDone,
+			NewState: stateDone,
+		},
+	}
+	canAwaitTransitions = []protocol.StateTransition{
+		{
+			MsgType:  MessageTypeAwaitReply,
+			NewState: stateMustReply,
+		},
+		{
+			MsgType:  MessageTypeRollForward,
+			NewState: stateIdle,
+		},
+		{
+			MsgType:  MessageTypeRollBackward,
+			NewState: stateIdle,
+		},
+	}
+	intersectTransitions = []protocol.StateTransition{
+		{
+			MsgType:  MessageTypeIntersectFound,
+			NewState: stateIdle,
+		},
+		{
+			MsgType:  MessageTypeIntersectNotFound,
+			NewState: stateIdle,
+		},
+	}
+	mustReplyTransitions = []protocol.StateTransition{
+		{
+			MsgType:  MessageTypeRollForward,
+			NewState: stateIdle,
+		},
+		{
+			MsgType:  MessageTypeRollBackward,
+			NewState: stateIdle,
+		},
+	}
+)
+
+// MustReplyTimeoutFunc returns a random timeout in [MustReplyTimeoutMin, MustReplyTimeoutMax)
+// per Ouroboros Network Specification Table 3.8.
+func MustReplyTimeoutFunc() time.Duration {
+	rangeMs := MustReplyTimeoutMax.Milliseconds() - MustReplyTimeoutMin.Milliseconds()
+	return MustReplyTimeoutMin + time.Duration(rand.Int64N(rangeMs))*time.Millisecond //nolint:gosec
+}
+
+// StateMapNtN is the N2N ChainSync state machine with timeouts per spec Table 3.8.
+var StateMapNtN = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IdleTimeout, // Timeout for client to send next request
-		Transitions: []protocol.StateTransition{
-			{
-				MsgType:   MessageTypeRequestNext,
-				NewState:  stateCanAwait,
-				MatchFunc: IncrementPipelineCount,
-			},
-			{
-				MsgType:  MessageTypeFindIntersect,
-				NewState: stateIntersect,
-			},
-			{
-				MsgType:  MessageTypeDone,
-				NewState: stateDone,
-			},
-		},
+		Timeout:                 IdleTimeout,
+		Transitions:             idleTransitions,
 	},
 	stateCanAwait: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 CanAwaitTimeout, // Timeout for server to provide next block or await
-		Transitions: []protocol.StateTransition{
-			{
-				MsgType:   MessageTypeRequestNext,
-				NewState:  stateCanAwait,
-				MatchFunc: IncrementPipelineCount,
-			},
-			{
-				MsgType:  MessageTypeAwaitReply,
-				NewState: stateMustReply,
-			},
-			{
-				MsgType:   MessageTypeRollForward,
-				NewState:  stateIdle,
-				MatchFunc: DecrementPipelineCountAndIsEmpty,
-			},
-			{
-				MsgType:   MessageTypeRollForward,
-				NewState:  stateCanAwait,
-				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
-			},
-			{
-				MsgType:   MessageTypeRollBackward,
-				NewState:  stateIdle,
-				MatchFunc: DecrementPipelineCountAndIsEmpty,
-			},
-			{
-				MsgType:   MessageTypeRollBackward,
-				NewState:  stateCanAwait,
-				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
-			},
-		},
+		Timeout:                 CanAwaitTimeout,
+		Transitions:             canAwaitTransitions,
 	},
 	stateIntersect: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IntersectTimeout, // Timeout for server to respond to intersect request
-		Transitions: []protocol.StateTransition{
-			{
-				MsgType:  MessageTypeIntersectFound,
-				NewState: stateIdle,
-			},
-			{
-				MsgType:  MessageTypeIntersectNotFound,
-				NewState: stateIdle,
-			},
-		},
+		Timeout:                 IntersectTimeout,
+		Transitions:             intersectTransitions,
 	},
 	stateMustReply: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 MustReplyTimeout, // Timeout for server to provide next block
-		Transitions: []protocol.StateTransition{
-			{
-				MsgType:   MessageTypeRollForward,
-				NewState:  stateIdle,
-				MatchFunc: DecrementPipelineCountAndIsEmpty,
-			},
-			{
-				MsgType:   MessageTypeRollForward,
-				NewState:  stateCanAwait,
-				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
-			},
-			{
-				MsgType:   MessageTypeRollBackward,
-				NewState:  stateIdle,
-				MatchFunc: DecrementPipelineCountAndIsEmpty,
-			},
-			{
-				MsgType:   MessageTypeRollBackward,
-				NewState:  stateCanAwait,
-				MatchFunc: DecrementPipelineCountAndIsNotEmpty,
-			},
-		},
+		TimeoutFunc:             MustReplyTimeoutFunc,
+		Transitions:             mustReplyTransitions,
 	},
 	stateDone: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyNone,
@@ -146,59 +132,36 @@ var StateMap = protocol.StateMap{
 	},
 }
 
-type StateContext struct {
-	mu            sync.Mutex
-	pipelineCount int
+// StateMapNtC is the N2C ChainSync state machine with no timeouts per spec Table 3.9.
+var StateMapNtC = protocol.StateMap{
+	stateIdle: protocol.StateMapEntry{
+		Agency:                  protocol.AgencyClient,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Transitions:             idleTransitions,
+	},
+	stateCanAwait: protocol.StateMapEntry{
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Transitions:             canAwaitTransitions,
+	},
+	stateIntersect: protocol.StateMapEntry{
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Transitions:             intersectTransitions,
+	},
+	stateMustReply: protocol.StateMapEntry{
+		Agency:                  protocol.AgencyServer,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Transitions:             mustReplyTransitions,
+	},
+	stateDone: protocol.StateMapEntry{
+		Agency:                  protocol.AgencyNone,
+		PendingMessageByteLimit: MaxPendingMessageBytes,
+	},
 }
 
-var IncrementPipelineCount = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.pipelineCount++
-	return true
-}
-
-var DecrementPipelineCountAndIsEmpty = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.pipelineCount == 1 {
-		s.pipelineCount--
-		return true
-	}
-	return false
-}
-
-var DecrementPipelineCountAndIsNotEmpty = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.pipelineCount > 1 {
-		s.pipelineCount--
-		return true
-	}
-	return false
-}
-
-var PipelineIsEmtpy = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.pipelineCount == 0
-}
-
-var PipelineIsNotEmpty = func(context any, msg protocol.Message) bool {
-	s := context.(*StateContext)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.pipelineCount > 0
-}
+// StateMap is a copy of StateMapNtN for backward compatibility.
+var StateMap = StateMapNtN.Copy()
 
 // ChainSync is a wrapper object that holds the client and server instances
 type ChainSync struct {
@@ -214,27 +177,43 @@ type Config struct {
 	FindIntersectFunc   FindIntersectFunc
 	RequestNextFunc     RequestNextFunc
 	IntersectTimeout    time.Duration
+	IdleTimeout         time.Duration
 	BlockTimeout        time.Duration
 	PipelineLimit       int
 	RecvQueueSize       int
 	SkipBlockValidation bool // Skip block validation during parsing
+
+	// Pipeline enables the block processing pipeline.
+	// The pipeline should be configured with desired buffer sizes when created.
+	Pipeline *pipeline.BlockPipeline
+
+	// PipelineBufferSize is reserved for future use.
+	// Currently, buffer sizes are configured when creating the BlockPipeline.
+	PipelineBufferSize int
+
+	// PipelineDrainTimeout is the timeout for draining the pipeline before rollback.
+	// If zero, defaults to DefaultPipelineDrainTimeout.
+	PipelineDrainTimeout time.Duration
 }
 
 // Protocol limits per Ouroboros Network Specification
 const (
-	MaxPipelineLimit       = 100    // Max pipelined requests
-	MaxRecvQueueSize       = 100    // Max receive queue size (messages)
-	DefaultPipelineLimit   = 75     // Default pipeline limit
-	DefaultRecvQueueSize   = 75     // Default queue size
-	MaxPendingMessageBytes = 102400 // Max pending message bytes (100KB)
+	MaxPipelineLimit            = 100    // Max pipelined requests
+	MaxRecvQueueSize            = 100    // Max receive queue size (messages)
+	DefaultPipelineLimit        = 75     // Default pipeline limit
+	DefaultRecvQueueSize        = 75     // Default queue size
+	MaxPendingMessageBytes      = 102400 // Max pending message bytes (100KB)
+	DefaultPipelineDrainTimeout = 30 * time.Second
 )
 
-// Protocol state timeout constants per network specification
+// Protocol state timeout constants per Ouroboros Network Specification (Table 3.8).
 const (
-	IdleTimeout      = 60 * time.Second  // Timeout for client to send next request
-	CanAwaitTimeout  = 300 * time.Second // Timeout for server to provide next block or await
-	IntersectTimeout = 5 * time.Second   // Timeout for server to respond to intersect request
-	MustReplyTimeout = 300 * time.Second // Timeout for server to provide next block
+	IdleTimeout         = 3673 * time.Second  // Timeout for client to send next request
+	CanAwaitTimeout     = 10 * time.Second    // Timeout for server to provide next block or await
+	IntersectTimeout    = 10 * time.Second    // Timeout for server to respond to intersect request
+	MustReplyTimeoutMin = 135 * time.Second   // Minimum random timeout for MustReply state
+	MustReplyTimeoutMax = 269 * time.Second   // Maximum random timeout for MustReply state
+	MustReplyTimeout    = MustReplyTimeoutMax // Fixed timeout for backward compatibility
 )
 
 // Callback context
@@ -258,11 +237,9 @@ type (
 
 // New returns a new ChainSync object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *ChainSync {
-	stateContext := &StateContext{}
-
 	c := &ChainSync{
-		Client: NewClient(stateContext, protoOptions, cfg),
-		Server: NewServer(stateContext, protoOptions, cfg),
+		Client: NewClient(protoOptions, cfg),
+		Server: NewServer(protoOptions, cfg),
 	}
 	return c
 }
@@ -275,12 +252,11 @@ func NewConfig(options ...ChainSyncOptionFunc) Config {
 	c := Config{
 		PipelineLimit:    DefaultPipelineLimit,
 		RecvQueueSize:    DefaultRecvQueueSize,
-		IntersectTimeout: 5 * time.Second,
-		// We should really use something more useful like 30-60s, but we've seen 55s between blocks
-		// in the preview network and almost 240s in preprod
-		// https://preview.cexplorer.io/block/cb08a386363a946d2606e912fcd81ffed2bf326cdbc4058297b14471af4f67e9
-		// https://preview.cexplorer.io/block/86806dca4ba735b233cbeee6da713bdece36fd41fb5c568f9ef5a3f5cbf572a3
-		BlockTimeout: 300 * time.Second,
+		IntersectTimeout: IntersectTimeout,
+		// MustReply spec timeout is random(135s, 269s). We use the max
+		// as the application-level default since preview/preprod can
+		// have gaps up to ~240s between blocks.
+		BlockTimeout: MustReplyTimeoutMax,
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -321,6 +297,18 @@ func (c *Config) validate() error {
 			"RecvQueueSize %d exceeds maximum allowed %d",
 			c.RecvQueueSize,
 			MaxRecvQueueSize,
+		)
+	}
+	if c.PipelineBufferSize < 0 {
+		return fmt.Errorf(
+			"PipelineBufferSize %d must be non-negative",
+			c.PipelineBufferSize,
+		)
+	}
+	if c.PipelineDrainTimeout < 0 {
+		return fmt.Errorf(
+			"PipelineDrainTimeout %v must be non-negative",
+			c.PipelineDrainTimeout,
 		)
 	}
 	return nil
@@ -371,6 +359,16 @@ func WithRequestNextFunc(requestNextFunc RequestNextFunc) ChainSyncOptionFunc {
 func WithIntersectTimeout(timeout time.Duration) ChainSyncOptionFunc {
 	return func(c *Config) {
 		c.IntersectTimeout = timeout
+	}
+}
+
+// WithIdleTimeout specifies the timeout for the Idle state (client agency).
+// A non-zero value overrides the protocol default. This is primarily useful
+// for the server side where the client may take a long time to send the next
+// request.
+func WithIdleTimeout(timeout time.Duration) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.IdleTimeout = timeout
 	}
 }
 
@@ -426,5 +424,42 @@ func WithRecvQueueSize(size int) ChainSyncOptionFunc {
 			)
 		}
 		c.RecvQueueSize = size
+	}
+}
+
+// WithPipeline sets the block processing pipeline for parallel block handling.
+func WithPipeline(p *pipeline.BlockPipeline) ChainSyncOptionFunc {
+	return func(c *Config) {
+		c.Pipeline = p
+	}
+}
+
+// WithPipelineBufferSize sets the prefetch buffer size when pipeline is enabled.
+func WithPipelineBufferSize(size int) ChainSyncOptionFunc {
+	return func(c *Config) {
+		if size < 0 {
+			panic(
+				fmt.Sprintf(
+					"PipelineBufferSize %d must be non-negative",
+					size,
+				),
+			)
+		}
+		c.PipelineBufferSize = size
+	}
+}
+
+// WithPipelineDrainTimeout sets the timeout for draining the pipeline before rollback.
+func WithPipelineDrainTimeout(timeout time.Duration) ChainSyncOptionFunc {
+	return func(c *Config) {
+		if timeout < 0 {
+			panic(
+				fmt.Sprintf(
+					"PipelineDrainTimeout %v must be non-negative",
+					timeout,
+				),
+			)
+		}
+		c.PipelineDrainTimeout = timeout
 	}
 }

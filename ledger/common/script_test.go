@@ -34,11 +34,11 @@ func TestScriptRefDecodeEncode(t *testing.T) {
 	if _, err := cbor.Decode(testCbor, &testScriptRef); err != nil {
 		t.Fatalf("unexpected error decoding script ref CBOR: %s", err)
 	}
-	if !reflect.DeepEqual(testScriptRef.Script, &expectedScript) {
+	if !reflect.DeepEqual(testScriptRef.Script, expectedScript) {
 		t.Fatalf(
 			"did not get expected script\n     got: %#v\n  wanted: %#v",
 			testScriptRef.Script,
-			&expectedScript,
+			expectedScript,
 		)
 	}
 	if !bytes.Equal(testScriptRef.Script.RawScriptBytes(), scriptCbor) {
@@ -97,5 +97,170 @@ func TestPlutusV3ScriptHash(t *testing.T) {
 			tmpHash.String(),
 			expectedScriptHash,
 		)
+	}
+}
+
+// TestScriptHashToBech32 tests CIP-0005 bech32 encoding for script hashes.
+func TestScriptHashToBech32(t *testing.T) {
+	testCases := []struct {
+		name       string
+		hash       common.ScriptHash
+		wantPrefix string
+	}{
+		{
+			name: "ZeroHash",
+			hash: common.ScriptHash{
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+				0,
+			},
+			wantPrefix: "script1",
+		},
+		{
+			name: "SequentialHash",
+			hash: common.ScriptHash{
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9,
+				10,
+				11,
+				12,
+				13,
+				14,
+				15,
+				16,
+				17,
+				18,
+				19,
+				20,
+				21,
+				22,
+				23,
+				24,
+				25,
+				26,
+				27,
+			},
+			wantPrefix: "script1",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := common.ScriptHashToBech32(tc.hash)
+			if len(result) <= len(tc.wantPrefix) {
+				t.Fatalf("result too short: got %s", result)
+			}
+			if result[:len(tc.wantPrefix)] != tc.wantPrefix {
+				t.Errorf(
+					"wrong prefix: got %s, want prefix %s",
+					result,
+					tc.wantPrefix,
+				)
+			}
+		})
+	}
+}
+
+// TestScriptHashBech32RoundTrip tests that bech32 encoding/decoding is consistent.
+func TestScriptHashBech32RoundTrip(t *testing.T) {
+	// Create a known script hash
+	originalHash := common.ScriptHash{
+		0x29, 0x09, 0xc3, 0xd0, 0x44, 0x1e, 0x76, 0xcd,
+		0x6a, 0xe1, 0xfc, 0x09, 0x66, 0x4b, 0xb2, 0x09,
+		0x86, 0x89, 0x02, 0xe1, 0x91, 0xc2, 0xb8, 0xc3,
+		0x0b, 0x82, 0xd3, 0x31,
+	}
+
+	// Encode to bech32
+	bech32Str := common.ScriptHashToBech32(originalHash)
+
+	// Decode back
+	decodedHash, err := common.NewScriptHashFromBech32(bech32Str)
+	if err != nil {
+		t.Fatalf("failed to decode bech32: %v", err)
+	}
+
+	// Verify round-trip
+	if decodedHash != originalHash {
+		t.Errorf(
+			"round-trip failed: got %x, want %x",
+			decodedHash,
+			originalHash,
+		)
+	}
+}
+
+// TestNewScriptHashFromBech32_Negative tests invalid inputs for script hash decoding.
+func TestNewScriptHashFromBech32_Negative(t *testing.T) {
+	testCases := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:    "InvalidBech32",
+			input:   "not-valid-bech32!@#",
+			wantErr: true,
+		},
+		{
+			name:    "EmptyString",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "WrongLength",
+			input:   "script1qqqqqqqqqqqqqqqqqq", // too short
+			wantErr: true,
+		},
+		{
+			name:    "InvalidChecksum",
+			input:   "script1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqabc123",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := common.NewScriptHashFromBech32(tc.input)
+			if tc.wantErr && err == nil {
+				t.Errorf("expected error for input %q, got nil", tc.input)
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error for input %q: %v", tc.input, err)
+			}
+		})
 	}
 }

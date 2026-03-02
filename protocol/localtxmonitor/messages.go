@@ -145,8 +145,7 @@ type MsgReplyNextTx struct {
 }
 
 type MsgReplyNextTxTransaction struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_     struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	EraId uint8
 	Tx    []byte
 }
@@ -221,8 +220,7 @@ func (m *MsgReplyNextTx) MarshalCBOR() ([]byte, error) {
 	tmp := []any{m.MessageType}
 	if m.Transaction.Tx != nil {
 		type tmpTxObj struct {
-			// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-			_     struct{} `cbor:",toarray"`
+			cbor.StructAsArray
 			EraId uint8
 			Tx    cbor.Tag
 		}
@@ -292,8 +290,7 @@ type MsgReplyGetSizes struct {
 }
 
 type MsgReplyGetSizesResult struct {
-	// Tells the CBOR decoder to convert to/from a struct and a CBOR array
-	_           struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Capacity    uint32
 	Size        uint32
 	NumberOfTxs uint32

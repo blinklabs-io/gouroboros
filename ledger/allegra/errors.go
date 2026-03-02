@@ -15,7 +15,10 @@
 package allegra
 
 import (
+	"errors"
 	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 type OutsideValidityIntervalUtxoError struct {
@@ -29,4 +32,19 @@ func (e OutsideValidityIntervalUtxoError) Error() string {
 		e.ValidityIntervalStart,
 		e.Slot,
 	)
+}
+
+type NativeScriptFailedError struct {
+	ScriptHash common.ScriptHash
+}
+
+func (e NativeScriptFailedError) Error() string {
+	return fmt.Sprintf("native script failed (hash=%x)", e.ScriptHash[:])
+}
+
+// Sentinel error for native script failures so callers can use errors.Is
+var ErrNativeScriptFailed = errors.New("native script failed")
+
+func (NativeScriptFailedError) Is(target error) bool {
+	return target == ErrNativeScriptFailed
 }

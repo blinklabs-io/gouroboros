@@ -43,7 +43,15 @@ const (
 	MAX_LIST_LENGTH_CBOR        = 23
 )
 
-func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
+// VerifyBlockBody verifies that the block body hash matches the expected hash.
+// The invalidTxIndices parameter contains indices of transactions that failed
+// phase-2 validation (Plutus script failures). For blocks with no invalid
+// transactions, pass an empty slice.
+func VerifyBlockBody(
+	data string,
+	blockBodyHash string,
+	invalidTxIndices []uint,
+) (bool, error) {
 	rawDataBytes, _ := hex.DecodeString(data)
 	var txsRaw [][]string
 	_, err := cbor.Decode(rawDataBytes, &txsRaw)
@@ -75,7 +83,7 @@ func VerifyBlockBody(data string, blockBodyHash string) (bool, error) {
 		}
 		copy(calculateBlockBodyHashByte[:], zeroTxHash[:32])
 	} else {
-		calculateBlockBodyHash, calculateHashError := CalculateBlockBodyHash(txsRaw)
+		calculateBlockBodyHash, calculateHashError := CalculateBlockBodyHash(txsRaw, invalidTxIndices)
 		if calculateHashError != nil {
 			return false, fmt.Errorf("VerifyBlockBody: CalculateBlockBodyHash error, %v", calculateHashError.Error())
 		}
@@ -128,10 +136,17 @@ func encodeAuxData(data []AuxData) ([]byte, error) {
 	return cbor.Encode(cbor.IndefLengthMap(metadataMap))
 }
 
-func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
-	txSeqBody := make([]cbor.RawMessage, 0)
-	txSeqWit := make([]cbor.RawMessage, 0)
-	auxRawData := make([]AuxData, 0)
+// CalculateBlockBodyHash computes the block body hash from raw transaction data.
+// The invalidTxIndices parameter contains indices of transactions that failed
+// phase-2 validation (Plutus script failures). For blocks with no invalid
+// transactions, pass an empty slice.
+func CalculateBlockBodyHash(
+	txsRaw [][]string,
+	invalidTxIndices []uint,
+) ([]byte, error) {
+	txSeqBody := make([]cbor.RawMessage, 0, len(txsRaw))
+	txSeqWit := make([]cbor.RawMessage, 0, len(txsRaw))
+	auxRawData := make([]AuxData, 0, len(txsRaw))
 	for index, tx := range txsRaw {
 		if len(tx) != 3 {
 			return nil, fmt.Errorf(
@@ -179,7 +194,6 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 				data:  auxBytes,
 			})
 		}
-		// TODO: should form nonValid TX here
 	}
 	txSeqBodyBytes, txSeqBodyBytesError := cbor.Encode(
 		cbor.IndefLengthList(convertToAnySlice(txSeqBody)),
@@ -216,9 +230,11 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqMetadataSum32Bytes := blake2b.Sum256(txSeqMetadataBytes)
 	txSeqMetadataSumBytes := txSeqMetadataSum32Bytes[:]
 
-	// txSeqNonValid is always empty, so we encode an empty list
-	txSeqNonValidBytes, txSeqNonValidBytesError := cbor.Encode(
-		cbor.IndefLengthList([]any{}),
+	// Encode the list of invalid transaction indices (failed phase-2 validation)
+	// Use EncodeCborTxSeq to ensure correct encoding: definite-length for ≤23 items,
+	// indefinite-length for >23 items (per Cardano CBOR spec)
+	txSeqNonValidBytes, txSeqNonValidBytesError := EncodeCborTxSeq(
+		invalidTxIndices,
 	)
 	if txSeqNonValidBytesError != nil {
 		return nil, fmt.Errorf(
@@ -229,7 +245,19 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 	txSeqIsValidSum32Bytes := blake2b.Sum256(txSeqNonValidBytes)
 	txSeqIsValidSumBytes := txSeqIsValidSum32Bytes[:]
 
-	var serializeBytes []byte
+	serializeBytes := make(
+		[]byte,
+		0,
+		len(
+			txSeqBodySumBytes,
+		)+len(
+			txSeqWitsSumBytes,
+		)+len(
+			txSeqMetadataSumBytes,
+		)+len(
+			txSeqIsValidSumBytes,
+		),
+	)
 	// Ref: https://github.com/IntersectMBO/cardano-ledger/blob/9cc766a31ad6fb31f88e25a770c902d24fa32499/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxSeq.hs#L183
 	serializeBytes = append(serializeBytes, txSeqBodySumBytes...)
 	serializeBytes = append(serializeBytes, txSeqWitsSumBytes...)
@@ -240,7 +268,7 @@ func CalculateBlockBodyHash(txsRaw [][]string) ([]byte, error) {
 }
 
 func GetTxBodies(txsRaw [][]string) ([]BabbageTransactionBody, error) {
-	bodies := []BabbageTransactionBody{}
+	bodies := make([]BabbageTransactionBody, 0, len(txsRaw))
 	for index, tx := range txsRaw {
 		var tmp BabbageTransactionBody
 		bodyTmpHex := tx[0]
@@ -320,20 +348,28 @@ func GetBlockOutput(
 func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 	var outputTokens []UTXOOutputToken
 	// append lovelace first
+	tokenValue := "0"
+	if output.Amount() != nil {
+		tokenValue = output.Amount().String()
+	}
 	outputTokens = append(outputTokens, UTXOOutputToken{
 		TokenAssetName: LOVELACE_TOKEN,
-		TokenValue:     strconv.FormatUint(output.Amount(), 10),
+		TokenValue:     tokenValue,
 	})
 	if output.Assets() != nil {
 		tmpAssets := output.Assets()
 		for _, policyId := range tmpAssets.Policies() {
 			for _, assetName := range tmpAssets.Assets(policyId) {
 				amount := tmpAssets.Asset(policyId, assetName)
+				tokenValue := "0"
+				if amount != nil {
+					tokenValue = amount.String()
+				}
 				outputTokens = append(outputTokens, UTXOOutputToken{
 					TokenAssetName: policyId.String() + hex.EncodeToString(
 						assetName,
 					),
-					TokenValue: strconv.FormatUint(amount, 10),
+					TokenValue: tokenValue,
 				})
 			}
 		}
@@ -344,14 +380,14 @@ func ExtractTokens(output TransactionOutput) ([]UTXOOutputToken, error) {
 // These are copied from types.go
 
 type UTXOOutputToken struct {
-	_              struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Flag           int
 	TokenAssetName string
 	TokenValue     string
 }
 
 type UTXOOutput struct {
-	_           struct{} `cbor:",toarray"`
+	cbor.StructAsArray
 	Flag        int
 	TxHash      string
 	OutputIndex string

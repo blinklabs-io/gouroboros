@@ -15,12 +15,15 @@
 package conway_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	test_ledger "github.com/blinklabs-io/gouroboros/internal/test/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -28,7 +31,9 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
@@ -210,6 +215,96 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)
 	})
+
+	// Reference script tests (CIP-0033)
+	t.Run("redeemer with reference plutus v1 script", func(t *testing.T) {
+		// Create a mock ledger state with a reference input containing a Plutus script
+		refInput := shelley.NewShelleyTransactionInput(
+			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			0,
+		)
+		script := common.PlutusV1Script{0x01, 0x02, 0x03}
+		refOutput := babbage.BabbageTransactionOutput{
+			OutputAddress: common.Address{},
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   0,
+				Script: script,
+			},
+		}
+		refUtxo := common.Utxo{
+			Id:     refInput,
+			Output: refOutput,
+		}
+
+		ls := mockledger.NewLedgerStateBuilder().
+			WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+				if id.Index() == refInput.Index() &&
+					bytes.Equal(id.Id().Bytes(), refInput.Id().Bytes()) {
+					return refUtxo, nil
+				}
+				return common.Utxo{}, errors.New("not found")
+			}).
+			Build()
+
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxReferenceInputs = cbor.NewSetType(
+			[]shelley.ShelleyTransactionInput{refInput},
+			false,
+		)
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run(
+		"reference plutus script without redeemer should not error",
+		func(t *testing.T) {
+			// Reference scripts alone should not trigger extraneous witness errors
+			refInput := shelley.NewShelleyTransactionInput(
+				"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				0,
+			)
+			script := common.PlutusV1Script{0x01, 0x02, 0x03}
+			refOutput := babbage.BabbageTransactionOutput{
+				OutputAddress: common.Address{},
+				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+				TxOutScriptRef: &common.ScriptRef{
+					Type:   0,
+					Script: script,
+				},
+			}
+			refUtxo := common.Utxo{
+				Id:     refInput,
+				Output: refOutput,
+			}
+
+			ls := mockledger.NewLedgerStateBuilder().
+				WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+					if id.Index() == refInput.Index() &&
+						bytes.Equal(id.Id().Bytes(), refInput.Id().Bytes()) {
+						return refUtxo, nil
+					}
+					return common.Utxo{}, errors.New("not found")
+				}).
+				Build()
+
+			tx := &conway.ConwayTransaction{}
+			tx.Body.TxReferenceInputs = cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{refInput},
+				false,
+			)
+			// No redeemers, no explicit script witnesses
+			err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
+			assert.NoError(t, err)
+		},
+	)
 }
 
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
@@ -220,7 +315,7 @@ func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 			TxValidityIntervalStart: testSlot,
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	var testBeforeSlot uint64 = 555666700
 	var testAfterSlot uint64 = 555666799
@@ -324,7 +419,7 @@ func TestUtxoValidateInputSetEmptyUtxo(t *testing.T) {
 			),
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Non-empty
@@ -397,7 +492,7 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 	var testExactFee uint64 = minFee
 	var testBelowFee uint64 = minFee - 1
 	var testAboveFee uint64 = minFee + 1
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	// Test helper function
 	testRun := func(t *testing.T, name string, testFee uint64, validateFunc func(*testing.T, error)) {
@@ -484,7 +579,7 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		Body: conway.ConwayTransactionBody{},
 	}
 	utxos := []common.Utxo{{Id: testGoodInput}}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
@@ -559,9 +654,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Correct network
@@ -625,9 +720,9 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{
-		NetworkIdVal: common.AddressNetworkMainnet,
-	}
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Correct network
@@ -710,7 +805,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -978,8 +1073,8 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	t.Run(
 		"minting",
 		func(t *testing.T) {
-			mintData := map[common.Blake2b224]map[cbor.ByteString]int64{
-				{}: {cbor.ByteString{}: 7000000},
+			mintData := map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
+				{}: {cbor.ByteString{}: big.NewInt(7000000)},
 			}
 			mint := common.NewMultiAsset[common.MultiAssetTypeMint](mintData)
 			mintTx := &conway.ConwayTransaction{
@@ -1001,12 +1096,68 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			err := conway.UtxoValidateValueNotConservedUtxo(
 				mintTx,
 				testSlot,
-				&test_ledger.MockLedgerState{},
+				mockledger.NewLedgerStateBuilder().Build(),
 				testProtocolParams,
 			)
 			if err != nil {
 				t.Errorf(
 					"UtxoValidateValueNotConservedUtxo should succeed with minting\n  got error: %v",
+					err,
+				)
+			}
+		},
+	)
+	// Pool retirement and re-registration in same transaction
+	t.Run(
+		"pool retire and re-register",
+		func(t *testing.T) {
+			var poolDeposit uint64 = 500_000_000 // 500 ADA
+			poolKeyHash := common.Blake2b224{1, 2, 3, 4, 5}
+
+			// Create a ledger state with a registered pool and UTxOs
+			poolCert := &common.PoolRegistrationCertificate{
+				Operator: poolKeyHash,
+			}
+			ledgerState := mockledger.NewLedgerStateBuilder().
+				WithUtxos(utxos).
+				WithPools([]*common.PoolRegistrationCertificate{poolCert}).
+				Build()
+
+			pparams := &conway.ConwayProtocolParameters{
+				KeyDeposit:  uint(testStakeDeposit),
+				PoolDeposit: uint(poolDeposit),
+			}
+
+			// Transaction with pool retirement followed by re-registration
+			// Pool retirement does NOT refund deposit in transaction (refund happens at epoch boundary)
+			// Pool re-registration does NOT require deposit (pool already registered)
+			// Consumed: input = 555666777
+			// Produced: output + fee = (input - fee) + fee = input = 555666777
+			testTx.Body.TxOutputs[0].OutputAmount.Amount = testInputAmount - testFee
+			testTx.Body.TxCertificates = []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypePoolRetirement),
+					Certificate: &common.PoolRetirementCertificate{
+						PoolKeyHash: poolKeyHash,
+						Epoch:       100,
+					},
+				},
+				{
+					Type: uint(common.CertificateTypePoolRegistration),
+					Certificate: &common.PoolRegistrationCertificate{
+						Operator: poolKeyHash,
+					},
+				},
+			}
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				testTx,
+				testSlot,
+				ledgerState,
+				pparams,
+			)
+			if err != nil {
+				t.Errorf(
+					"UtxoValidateValueNotConservedUtxo should succeed with pool retire and re-register\n  got error: %v",
 					err,
 				)
 			}
@@ -1025,7 +1176,7 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		AdaPerUtxoByte: 50,
@@ -1083,7 +1234,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	var testOutputValueGood = mary.MaryTransactionOutputValue{
 		Amount: 1234567,
 	}
-	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]uint64{}
+	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{}
 	// Build too-large asset set
 	// We create 45 random policy IDs and asset names in order to exceed the max value size (4000 bytes)
 	for range 45 {
@@ -1095,8 +1246,8 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 		if _, err := rand.Read(tmpAssetName); err != nil {
 			t.Fatalf("could not read random bytes")
 		}
-		tmpBadAssets[common.NewBlake2b224(tmpPolicyId)] = map[cbor.ByteString]uint64{
-			cbor.NewByteString(tmpAssetName): 1,
+		tmpBadAssets[common.NewBlake2b224(tmpPolicyId)] = map[cbor.ByteString]common.MultiAssetTypeOutput{
+			cbor.NewByteString(tmpAssetName): big.NewInt(1),
 		}
 	}
 	tmpBadMultiAsset := common.NewMultiAsset(
@@ -1114,7 +1265,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxValueSize: 4000,
@@ -1197,7 +1348,7 @@ func TestUtxoValidateOutputBootAddrAttrsTooBig(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Good
@@ -1253,7 +1404,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 	var testMaxTxSizeSmall uint = 2
 	var testMaxTxSizeLarge uint = 64 * 1024
 	testTx := &conway.ConwayTransaction{}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Transaction under limit
@@ -1337,7 +1488,7 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		CollateralPercentage: 150,
@@ -1418,17 +1569,17 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	tmpMultiAsset := common.NewMultiAsset(
-		map[common.Blake2b224]map[cbor.ByteString]uint64{
+	tmpMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.Blake2b224Hash([]byte("abcd")): {
-				cbor.NewByteString([]byte("efgh")): 123,
+				cbor.NewByteString([]byte("efgh")): big.NewInt(123),
 			},
 		},
 	)
-	tmpZeroMultiAsset := common.NewMultiAsset(
-		map[common.Blake2b224]map[cbor.ByteString]uint64{
+	tmpZeroMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.Blake2b224Hash([]byte("abcd")): {
-				cbor.NewByteString([]byte("efgh")): 0,
+				cbor.NewByteString([]byte("efgh")): big.NewInt(0),
 			},
 		},
 	)
@@ -1458,7 +1609,7 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Coin and assets
@@ -1603,7 +1754,7 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// No collateral
@@ -1675,7 +1826,7 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	testTx := &conway.ConwayTransaction{
 		WitnessSet: conway.ConwayTransactionWitnessSet{},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxTxExUnits: common.ExUnits{
@@ -1741,11 +1892,12 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateDisjointRefInputs(t *testing.T) {
+	// Test validation for reference inputs (CIP-0031)
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Non-disjoint ref inputs
@@ -1817,6 +1969,101 @@ func TestUtxoValidateDisjointRefInputs(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateDisjointRefInputs_ReferenceInputResolutionError(t *testing.T) {
+	// Test that reference input resolution errors are propagated when using PV11+
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	refInputTxId := "a228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee33"
+
+	// PV11+ protocol params (triggers the transactionUsesPlutusV1V2 check)
+	pv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 11,
+			Minor: 0,
+		},
+	}
+
+	// Ledger state that returns an error for reference input lookups
+	refInputResolutionErr := errors.New("utxo not found")
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+			// Return error for the reference input
+			if hex.EncodeToString(input.Id().Bytes()) == refInputTxId {
+				return common.Utxo{}, refInputResolutionErr
+			}
+			// Return valid utxo for regular inputs
+			return common.Utxo{
+				Output: babbage.BabbageTransactionOutput{
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: 1_000_000,
+					},
+				},
+			}, nil
+		}).
+		Build()
+
+	t.Run("reference input resolution error is propagated", func(t *testing.T) {
+		testTx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					},
+				),
+				TxReferenceInputs: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(refInputTxId, 0),
+					},
+					false,
+				),
+			},
+		}
+		err := conway.UtxoValidateDisjointRefInputs(
+			testTx,
+			0,
+			testLedgerState,
+			pv11Params,
+		)
+		assert.Error(t, err)
+		var refErr common.ReferenceInputResolutionError
+		assert.True(t, errors.As(err, &refErr), "expected ReferenceInputResolutionError, got %T", err)
+		assert.ErrorIs(t, refErr.Err, refInputResolutionErr)
+	})
+
+	t.Run("pre-PV11 does not check reference inputs for PlutusV1V2", func(t *testing.T) {
+		// Pre-PV11 skips the transactionUsesPlutusV1V2 check entirely
+		prePv11Params := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: 9,
+				Minor: 0,
+			},
+		}
+		testTx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(testInputTxId, 0),
+					},
+				),
+				TxReferenceInputs: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{
+						shelley.NewShelleyTransactionInput(refInputTxId, 1), // different index to avoid disjoint error
+					},
+					false,
+				),
+			},
+		}
+		err := conway.UtxoValidateDisjointRefInputs(
+			testTx,
+			0,
+			testLedgerState,
+			prePv11Params,
+		)
+		// Pre-PV11 should not trigger the reference input resolution check
+		// (it delegates directly to babbage.UtxoValidateDisjointRefInputs)
+		assert.NoError(t, err)
+	})
+}
+
 func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
 	var testInputAmount uint64 = 20_000_000
@@ -1842,7 +2089,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := test_ledger.NewMockLedgerStateWithUtxos(utxos)
+	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Too much collateral return
@@ -1907,7 +2154,7 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{},
 	}
-	testLedgerState := &test_ledger.MockLedgerState{}
+	testLedgerState := mockledger.NewLedgerStateBuilder().Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		MaxCollateralInputs: 1,
@@ -1970,4 +2217,427 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 			}
 		},
 	)
+}
+
+func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
+	// Create test action IDs
+	noConfidenceActionId := common.GovActionId{
+		TransactionId: common.Blake2b256{0x01},
+		GovActionIdx:  0,
+	}
+	updateCommitteeActionId := common.GovActionId{
+		TransactionId: common.Blake2b256{0x02},
+		GovActionIdx:  0,
+	}
+	infoActionId := common.GovActionId{
+		TransactionId: common.Blake2b256{0x03},
+		GovActionIdx:  0,
+	}
+
+	// Helper to format key as "hex#index" (mockledger expects this format)
+	govActionKey := func(id common.GovActionId) string {
+		return fmt.Sprintf("%x#%d", id.TransactionId[:], id.GovActionIdx)
+	}
+
+	// Set up governance actions
+	govActions := map[string]*common.GovActionState{
+		govActionKey(noConfidenceActionId): {
+			ActionId:   noConfidenceActionId,
+			ActionType: common.GovActionTypeNoConfidence,
+		},
+		govActionKey(updateCommitteeActionId): {
+			ActionId:   updateCommitteeActionId,
+			ActionType: common.GovActionTypeUpdateCommittee,
+		},
+		govActionKey(infoActionId): {
+			ActionId:   infoActionId,
+			ActionType: common.GovActionTypeInfo,
+		},
+	}
+
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govActions).
+		Build()
+
+	// PV11+ protocol params (enforces CC voting restrictions)
+	pv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 11,
+			Minor: 0,
+		},
+	}
+
+	// Pre-PV11 protocol params (does not enforce CC voting restrictions)
+	prePv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 9,
+			Minor: 0,
+		},
+	}
+
+	testSlot := uint64(0)
+
+	t.Run("no voting procedures", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("DRep can vote on NoConfidence", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeDRepKeyHash,
+			Hash: common.Blake2b224{0x10},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("CC can vote on Info action", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x20},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&infoActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("CC cannot vote on NoConfidence (key hash)", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x30},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "NoConfidence")
+	})
+
+	t.Run("CC cannot vote on NoConfidence (script hash)", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			Hash: common.Blake2b224{0x31},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "NoConfidence")
+	})
+
+	t.Run("CC cannot vote on UpdateCommittee", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x40},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&updateCommitteeActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
+	})
+
+	t.Run("pre-PV11 allows CC to vote on NoConfidence", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x50},
+		}
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						&noConfidenceActionId: common.VotingProcedure{Vote: 1},
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
+		assert.NoError(t, err, "pre-PV11 should not enforce CC voting restrictions at ledger level")
+	})
+
+	t.Run("nil action ID returns error", func(t *testing.T) {
+		voter := &common.Voter{
+			Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			Hash: common.Blake2b224{0x60},
+		}
+		// Create voting procedures with a nil GovActionId key
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {
+						nil: common.VotingProcedure{Vote: 1}, // nil action ID
+					},
+				},
+			},
+		}
+		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		assert.Error(t, err)
+		var ccErr conway.CCVotingRestrictionError
+		assert.True(t, errors.As(err, &ccErr))
+		assert.Contains(t, ccErr.Restriction, "nil action ID")
+	})
+}
+
+func TestPoolValidateVrfKeyUniqueness(t *testing.T) {
+	existingPoolId := common.PoolKeyHash{0x01, 0x02, 0x03}
+	newPoolId := common.PoolKeyHash{0x04, 0x05, 0x06}
+	vrfKeyHash := common.Blake2b256{0x10, 0x11, 0x12}
+
+	t.Run("PV10 allows duplicate VRF keys", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, existingPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// PV10 should allow duplicate VRF keys (pre-PV11)
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 10, ls)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV11 rejects duplicate VRF keys", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, existingPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// PV11 should reject duplicate VRF keys
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		assert.Error(t, err)
+		var dupErr conway.DuplicateVrfKeyError
+		assert.True(t, errors.As(err, &dupErr))
+		assert.Equal(t, vrfKeyHash, dupErr.VrfKeyHash)
+		assert.Equal(t, newPoolId, dupErr.NewPoolId)
+		assert.Equal(t, existingPoolId, dupErr.ExistingPoolId)
+	})
+
+	t.Run("PV11 allows same pool to update with same VRF key", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				// VRF key is in use by the same pool
+				return true, newPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// Same pool updating with same VRF key should be allowed
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV11 allows new VRF key", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				// VRF key is not in use
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// New VRF key should be allowed
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV12 also enforces VRF key uniqueness", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return true, existingPoolId, nil
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// PV12+ should also enforce VRF key uniqueness
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 12, ls)
+		assert.Error(t, err)
+		var dupErr conway.DuplicateVrfKeyError
+		assert.True(t, errors.As(err, &dupErr))
+	})
+
+	t.Run("PV11 propagates ledger state errors", func(t *testing.T) {
+		expectedErr := fmt.Errorf("ledger state lookup failed")
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, expectedErr
+			}).
+			Build()
+
+		cert := &common.PoolRegistrationCertificate{
+			Operator:   newPoolId,
+			VrfKeyHash: vrfKeyHash,
+		}
+
+		// Error from ledger state should be propagated
+		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, expectedErr)
+	})
+}
+
+func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
+	pool1 := common.PoolKeyHash{0x01, 0x02, 0x03}
+	pool2 := common.PoolKeyHash{0x04, 0x05, 0x06}
+	vrfKeyHash := common.Blake2b256{0x10, 0x11, 0x12}
+
+	pv11Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11, Minor: 0},
+	}
+	pv10Params := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 10, Minor: 0},
+	}
+
+	t.Run("PV11 rejects in-tx duplicate VRF keys from different pools", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		// Two pool registrations with the same VRF key
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash,
+					}},
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool2,
+						VrfKeyHash: vrfKeyHash, // Same VRF key, different pool
+					}},
+				},
+			},
+		}
+
+		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
+		require.Error(t, err)
+		var dupErr conway.DuplicateVrfKeyError
+		require.True(t, errors.As(err, &dupErr))
+		assert.Equal(t, vrfKeyHash, dupErr.VrfKeyHash)
+		assert.Equal(t, pool2, dupErr.NewPoolId)
+		assert.Equal(t, pool1, dupErr.ExistingPoolId)
+	})
+
+	t.Run("PV11 allows same pool to register multiple times with same VRF key", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		// Same pool registering twice with same VRF key (update scenario)
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash,
+					}},
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash, // Same pool, same VRF key
+					}},
+				},
+			},
+		}
+
+		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
+		assert.NoError(t, err)
+	})
+
+	t.Run("PV10 allows in-tx duplicate VRF keys", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build()
+
+		// Two pool registrations with the same VRF key
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool1,
+						VrfKeyHash: vrfKeyHash,
+					}},
+					{Certificate: &common.PoolRegistrationCertificate{
+						Operator:   pool2,
+						VrfKeyHash: vrfKeyHash,
+					}},
+				},
+			},
+		}
+
+		// PV10 doesn't enforce VRF key uniqueness
+		err := conway.UtxoValidateDelegation(tx, 0, ls, pv10Params)
+		assert.NoError(t, err)
+	})
 }

@@ -235,13 +235,13 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeAcquired:
-		err = c.handleAcquired(msg)
+		c.handleAcquired(msg)
 	case MessageTypeReplyHasTx:
-		err = c.handleReplyHasTx(msg)
+		c.handleReplyHasTx(msg)
 	case MessageTypeReplyNextTx:
-		err = c.handleReplyNextTx(msg)
+		c.handleReplyNextTx(msg)
 	case MessageTypeReplyGetSizes:
-		err = c.handleReplyGetSizes(msg)
+		c.handleReplyGetSizes(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -252,7 +252,7 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
-func (c *Client) handleAcquired(msg protocol.Message) error {
+func (c *Client) handleAcquired(msg protocol.Message) {
 	c.Protocol.Logger().
 		Debug("acquired",
 			"component", "network",
@@ -264,10 +264,9 @@ func (c *Client) handleAcquired(msg protocol.Message) error {
 	c.acquired = true
 	c.acquiredSlot = msgAcquired.SlotNo
 	c.acquireResultChan <- true
-	return nil
 }
 
-func (c *Client) handleReplyHasTx(msg protocol.Message) error {
+func (c *Client) handleReplyHasTx(msg protocol.Message) {
 	c.Protocol.Logger().
 		Debug("reply has tx",
 			"component", "network",
@@ -277,10 +276,9 @@ func (c *Client) handleReplyHasTx(msg protocol.Message) error {
 		)
 	msgReplyHasTx := msg.(*MsgReplyHasTx)
 	c.hasTxResultChan <- msgReplyHasTx.Result
-	return nil
 }
 
-func (c *Client) handleReplyNextTx(msg protocol.Message) error {
+func (c *Client) handleReplyNextTx(msg protocol.Message) {
 	c.Protocol.Logger().
 		Debug("reply next tx",
 			"component", "network",
@@ -290,10 +288,9 @@ func (c *Client) handleReplyNextTx(msg protocol.Message) error {
 		)
 	msgReplyNextTx := msg.(*MsgReplyNextTx)
 	c.nextTxResultChan <- msgReplyNextTx.Transaction.Tx
-	return nil
 }
 
-func (c *Client) handleReplyGetSizes(msg protocol.Message) error {
+func (c *Client) handleReplyGetSizes(msg protocol.Message) {
 	c.Protocol.Logger().
 		Debug("reply get sizes",
 			"component", "network",
@@ -303,7 +300,6 @@ func (c *Client) handleReplyGetSizes(msg protocol.Message) error {
 		)
 	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
 	c.getSizesResultChan <- msgReplyGetSizes.Result
-	return nil
 }
 
 func (c *Client) acquire() error {

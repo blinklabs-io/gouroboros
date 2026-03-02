@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/stretchr/testify/assert"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -441,6 +442,36 @@ func TestConwayProtocolParamsUpdate(t *testing.T) {
 	}
 }
 
+func TestConwayProtocolParameters_UpdateCopiesFields(t *testing.T) {
+	base := &conway.ConwayProtocolParameters{}
+	upd := &conway.ConwayProtocolParameterUpdate{}
+	a := uint(11)
+	mt := uint(2222)
+	ada := uint64(7777)
+	upd.MinFeeA = &a
+	upd.MaxTxSize = &mt
+	upd.AdaPerUtxoByte = &ada
+	upd.CostModels = map[uint][]int64{0: {9}, 2: {8, 7}}
+
+	base.Update(upd)
+	if base.MinFeeA != 11 {
+		t.Fatalf("MinFeeA not updated: got %d", base.MinFeeA)
+	}
+	if base.MaxTxSize != 2222 {
+		t.Fatalf("MaxTxSize not updated: got %d", base.MaxTxSize)
+	}
+	if base.AdaPerUtxoByte != 7777 {
+		t.Fatalf("AdaPerUtxoByte not updated: got %d", base.AdaPerUtxoByte)
+	}
+	if !reflect.DeepEqual(base.CostModels, upd.CostModels) {
+		t.Fatalf(
+			"CostModels not updated: got %+v want %+v",
+			base.CostModels,
+			upd.CostModels,
+		)
+	}
+}
+
 func TestConwayProtocolParamsUpdateFromGenesis(t *testing.T) {
 	testDefs := []struct {
 		startParams    conway.ConwayProtocolParameters
@@ -787,4 +818,208 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 	if len(got.Hash) == 0 {
 		t.Error("Expected non-empty transaction hash")
 	}
+}
+func TestConwayProtocolParameters_CborRoundTrip(t *testing.T) {
+	// Test CBOR round-trip for Conway protocol parameters (CIP-0009)
+	params := &conway.ConwayProtocolParameters{
+		MinFeeA:            44,
+		MinFeeB:            155381,
+		MaxBlockBodySize:   90112,
+		MaxTxSize:          16384,
+		MaxBlockHeaderSize: 1100,
+		KeyDeposit:         2000000,
+		PoolDeposit:        500000000,
+		MaxEpoch:           18,
+		NOpt:               150,
+		A0:                 &cbor.Rat{Rat: big.NewRat(1, 2)},
+		Rho:                &cbor.Rat{Rat: big.NewRat(3, 100000)},
+		Tau:                &cbor.Rat{Rat: big.NewRat(1, 20)},
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 9,
+			Minor: 0,
+		},
+		MinPoolCost:    340000000,
+		AdaPerUtxoByte: 4310,
+		CostModels:     map[uint][]int64{0: {1, 2, 3}},
+		ExecutionCosts: common.ExUnitPrice{
+			MemPrice:  &cbor.Rat{Rat: big.NewRat(577, 10000)},
+			StepPrice: &cbor.Rat{Rat: big.NewRat(721, 10000000)},
+		},
+		MaxTxExUnits: common.ExUnits{
+			Memory: 14000000,
+			Steps:  10000000000,
+		},
+		MaxBlockExUnits: common.ExUnits{
+			Memory: 62000000,
+			Steps:  40000000000,
+		},
+		MaxValueSize:         5000,
+		CollateralPercentage: 150,
+		MaxCollateralInputs:  3,
+		PoolVotingThresholds: conway.PoolVotingThresholds{
+			MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(51, 100)},
+			CommitteeNormal:       cbor.Rat{Rat: big.NewRat(51, 100)},
+			CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(51, 100)},
+			HardForkInitiation:    cbor.Rat{Rat: big.NewRat(51, 100)},
+			PpSecurityGroup:       cbor.Rat{Rat: big.NewRat(51, 100)},
+		},
+		DRepVotingThresholds: conway.DRepVotingThresholds{
+			MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(51, 100)},
+			CommitteeNormal:       cbor.Rat{Rat: big.NewRat(51, 100)},
+			CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(51, 100)},
+			UpdateToConstitution:  cbor.Rat{Rat: big.NewRat(51, 100)},
+			HardForkInitiation:    cbor.Rat{Rat: big.NewRat(51, 100)},
+			PpNetworkGroup:        cbor.Rat{Rat: big.NewRat(51, 100)},
+			PpEconomicGroup:       cbor.Rat{Rat: big.NewRat(51, 100)},
+			PpTechnicalGroup:      cbor.Rat{Rat: big.NewRat(51, 100)},
+			PpGovGroup:            cbor.Rat{Rat: big.NewRat(51, 100)},
+			TreasuryWithdrawal:    cbor.Rat{Rat: big.NewRat(51, 100)},
+		},
+		MinCommitteeSize:           7,
+		CommitteeTermLimit:         200,
+		GovActionValidityPeriod:    1209600,
+		GovActionDeposit:           1000000000,
+		DRepDeposit:                500000000,
+		DRepInactivityPeriod:       60,
+		MinFeeRefScriptCostPerByte: &cbor.Rat{Rat: big.NewRat(15, 1)},
+	}
+
+	// Encode to CBOR
+	cborData, err := cbor.Encode(params)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back from CBOR
+	var decoded conway.ConwayProtocolParameters
+	_, err = cbor.Decode(cborData, &decoded)
+	assert.NoError(t, err)
+
+	// Verify all fields are preserved - compare dereferenced params with decoded value
+	// Note: We compare individual fields because reflect.DeepEqual can have issues
+	// with big.Rat internal representations after CBOR round-trip
+	assert.Equal(t, params.MinFeeA, decoded.MinFeeA)
+	assert.Equal(t, params.MinFeeB, decoded.MinFeeB)
+	assert.Equal(t, params.MaxBlockBodySize, decoded.MaxBlockBodySize)
+	assert.Equal(t, params.MaxTxSize, decoded.MaxTxSize)
+	assert.Equal(t, params.MaxBlockHeaderSize, decoded.MaxBlockHeaderSize)
+	assert.Equal(t, params.KeyDeposit, decoded.KeyDeposit)
+	assert.Equal(t, params.PoolDeposit, decoded.PoolDeposit)
+	assert.Equal(t, params.MaxEpoch, decoded.MaxEpoch)
+	assert.Equal(t, params.NOpt, decoded.NOpt)
+	assert.Equal(t, params.A0.Rat.RatString(), decoded.A0.Rat.RatString())
+	assert.Equal(t, params.Rho.Rat.RatString(), decoded.Rho.Rat.RatString())
+	assert.Equal(t, params.Tau.Rat.RatString(), decoded.Tau.Rat.RatString())
+	assert.Equal(t, params.ProtocolVersion.Major, decoded.ProtocolVersion.Major)
+	assert.Equal(t, params.ProtocolVersion.Minor, decoded.ProtocolVersion.Minor)
+	assert.Equal(t, params.MinPoolCost, decoded.MinPoolCost)
+	assert.Equal(t, params.AdaPerUtxoByte, decoded.AdaPerUtxoByte)
+	assert.Equal(t, params.CostModels, decoded.CostModels)
+	assert.Equal(
+		t,
+		params.ExecutionCosts.MemPrice.Rat.RatString(),
+		decoded.ExecutionCosts.MemPrice.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.ExecutionCosts.StepPrice.Rat.RatString(),
+		decoded.ExecutionCosts.StepPrice.Rat.RatString(),
+	)
+	assert.Equal(t, params.MaxTxExUnits, decoded.MaxTxExUnits)
+	assert.Equal(t, params.MaxBlockExUnits, decoded.MaxBlockExUnits)
+	assert.Equal(t, params.MaxValueSize, decoded.MaxValueSize)
+	assert.Equal(t, params.CollateralPercentage, decoded.CollateralPercentage)
+	assert.Equal(t, params.MaxCollateralInputs, decoded.MaxCollateralInputs)
+	// Pool voting thresholds
+	assert.Equal(
+		t,
+		params.PoolVotingThresholds.MotionNoConfidence.Rat.RatString(),
+		decoded.PoolVotingThresholds.MotionNoConfidence.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.PoolVotingThresholds.CommitteeNormal.Rat.RatString(),
+		decoded.PoolVotingThresholds.CommitteeNormal.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.PoolVotingThresholds.CommitteeNoConfidence.Rat.RatString(),
+		decoded.PoolVotingThresholds.CommitteeNoConfidence.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.PoolVotingThresholds.HardForkInitiation.Rat.RatString(),
+		decoded.PoolVotingThresholds.HardForkInitiation.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.PoolVotingThresholds.PpSecurityGroup.Rat.RatString(),
+		decoded.PoolVotingThresholds.PpSecurityGroup.Rat.RatString(),
+	)
+	// DRep voting thresholds
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.MotionNoConfidence.Rat.RatString(),
+		decoded.DRepVotingThresholds.MotionNoConfidence.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.CommitteeNormal.Rat.RatString(),
+		decoded.DRepVotingThresholds.CommitteeNormal.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.CommitteeNoConfidence.Rat.RatString(),
+		decoded.DRepVotingThresholds.CommitteeNoConfidence.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.UpdateToConstitution.Rat.RatString(),
+		decoded.DRepVotingThresholds.UpdateToConstitution.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.HardForkInitiation.Rat.RatString(),
+		decoded.DRepVotingThresholds.HardForkInitiation.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.PpNetworkGroup.Rat.RatString(),
+		decoded.DRepVotingThresholds.PpNetworkGroup.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.PpEconomicGroup.Rat.RatString(),
+		decoded.DRepVotingThresholds.PpEconomicGroup.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.PpTechnicalGroup.Rat.RatString(),
+		decoded.DRepVotingThresholds.PpTechnicalGroup.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.PpGovGroup.Rat.RatString(),
+		decoded.DRepVotingThresholds.PpGovGroup.Rat.RatString(),
+	)
+	assert.Equal(
+		t,
+		params.DRepVotingThresholds.TreasuryWithdrawal.Rat.RatString(),
+		decoded.DRepVotingThresholds.TreasuryWithdrawal.Rat.RatString(),
+	)
+	// Governance parameters
+	assert.Equal(t, params.MinCommitteeSize, decoded.MinCommitteeSize)
+	assert.Equal(t, params.CommitteeTermLimit, decoded.CommitteeTermLimit)
+	assert.Equal(
+		t,
+		params.GovActionValidityPeriod,
+		decoded.GovActionValidityPeriod,
+	)
+	assert.Equal(t, params.GovActionDeposit, decoded.GovActionDeposit)
+	assert.Equal(t, params.DRepDeposit, decoded.DRepDeposit)
+	assert.Equal(t, params.DRepInactivityPeriod, decoded.DRepInactivityPeriod)
+	assert.Equal(
+		t,
+		params.MinFeeRefScriptCostPerByte.Rat.RatString(),
+		decoded.MinFeeRefScriptCostPerByte.Rat.RatString(),
+	)
 }

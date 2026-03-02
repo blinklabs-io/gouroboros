@@ -14,8 +14,16 @@
 
 package common
 
+// Related files:
+//   - state.go: LedgerState interface for UTxO queries
+//   - witness.go: TransactionWitnessSet returned by Witnesses()
+//   - utxo.go: Utxo type returned by Produced()
+//   - ledger/{era}/shelley.go: Era-specific Transaction implementations
+//   - rules.go: Validation rules that operate on Transaction
+
 import (
 	"iter"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -29,7 +37,7 @@ type Transaction interface {
 	Hash() Blake2b256
 	LeiosHash() Blake2b256
 	Metadata() TransactionMetadatum
-	RawAuxiliaryData() []byte
+	AuxiliaryData() AuxiliaryData
 	IsValid() bool
 	Consumed() []TransactionInput
 	Produced() []Utxo
@@ -38,7 +46,7 @@ type Transaction interface {
 
 type TransactionBody interface {
 	Cbor() []byte
-	Fee() uint64
+	Fee() *big.Int
 	Id() Blake2b256
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
@@ -48,17 +56,17 @@ type TransactionBody interface {
 	ReferenceInputs() []TransactionInput
 	Collateral() []TransactionInput
 	CollateralReturn() TransactionOutput
-	TotalCollateral() uint64
+	TotalCollateral() *big.Int
 	Certificates() []Certificate
-	Withdrawals() map[*Address]uint64
+	Withdrawals() map[*Address]*big.Int
 	AuxDataHash() *Blake2b256
 	RequiredSigners() []Blake2b224
 	AssetMint() *MultiAsset[MultiAssetTypeMint]
 	ScriptDataHash() *Blake2b256
 	VotingProcedures() VotingProcedures
 	ProposalProcedures() []ProposalProcedure
-	CurrentTreasuryValue() int64
-	Donation() uint64
+	CurrentTreasuryValue() *big.Int
+	Donation() *big.Int
 	Utxorpc() (*utxorpc.Tx, error)
 }
 
@@ -72,7 +80,7 @@ type TransactionInput interface {
 
 type TransactionOutput interface {
 	Address() Address
-	Amount() uint64
+	Amount() *big.Int
 	Assets() *MultiAsset[MultiAssetTypeOutput]
 	Datum() *Datum
 	DatumHash() *Blake2b256
@@ -130,8 +138,8 @@ func (b *TransactionBodyBase) Outputs() []TransactionOutput {
 	return nil
 }
 
-func (b *TransactionBodyBase) Fee() uint64 {
-	return 0
+func (b *TransactionBodyBase) Fee() *big.Int {
+	return nil
 }
 
 func (b *TransactionBodyBase) TTL() uint64 {
@@ -154,15 +162,15 @@ func (b *TransactionBodyBase) CollateralReturn() TransactionOutput {
 	return nil
 }
 
-func (b *TransactionBodyBase) TotalCollateral() uint64 {
-	return 0
+func (b *TransactionBodyBase) TotalCollateral() *big.Int {
+	return nil
 }
 
 func (b *TransactionBodyBase) Certificates() []Certificate {
 	return nil
 }
 
-func (b *TransactionBodyBase) Withdrawals() map[*Address]uint64 {
+func (b *TransactionBodyBase) Withdrawals() map[*Address]*big.Int {
 	return nil
 }
 
@@ -190,12 +198,12 @@ func (b *TransactionBodyBase) ProposalProcedures() []ProposalProcedure {
 	return nil
 }
 
-func (b *TransactionBodyBase) CurrentTreasuryValue() int64 {
-	return 0
+func (b *TransactionBodyBase) CurrentTreasuryValue() *big.Int {
+	return nil
 }
 
-func (b *TransactionBodyBase) Donation() uint64 {
-	return 0
+func (b *TransactionBodyBase) Donation() *big.Int {
+	return nil
 }
 
 func (b *TransactionBodyBase) Utxorpc() (*utxorpc.Tx, error) {
@@ -229,7 +237,7 @@ func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 		// ReferenceInputs: tx.ReferenceInputs(),
 		// Witnesses:       tx.Witnesses(),
 		// Collateral:      tx.Collateral(),
-		Fee: ToUtxorpcBigInt(tx.Fee()),
+		Fee: BigIntToUtxorpcBigInt(tx.Fee()),
 		// Validity:        tx.Validity(),
 		// Successful:      tx.Successful(),
 		// Auxiliary:       tx.AuxData(),

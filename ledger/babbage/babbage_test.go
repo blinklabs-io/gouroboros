@@ -2811,7 +2811,49 @@ func TestBabbageTransactionOutput_DatumHashReturnsNil(t *testing.T) {
 
 	datumHash := output.DatumHash()
 
-	assert.Nil(t, datumHash)
+	assert.NotNil(t, datumHash)
+	assert.Equal(t, common.Blake2b256{}, *datumHash)
+}
+
+func TestBabbageTransactionOutput_Utxorpc_DatumHash(t *testing.T) {
+	hash := common.NewBlake2b256([]byte{1, 2, 3, 4})
+	output := BabbageTransactionOutput{
+		OutputAddress: common.Address{},
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 1000,
+		},
+		DatumOption: &BabbageTransactionOutputDatumOption{
+			hash: &hash,
+		},
+	}
+
+	txOutput, err := output.Utxorpc()
+	assert.NoError(t, err)
+	assert.NotNil(t, txOutput)
+	assert.Equal(t, hash.Bytes(), txOutput.Datum.Hash)
+}
+
+func TestBabbageTransactionOutput_Utxorpc_InlineDatum(t *testing.T) {
+	datum := common.Datum{
+		Data: data.NewInteger(big.NewInt(42)),
+	}
+	output := BabbageTransactionOutput{
+		OutputAddress: common.Address{},
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 1000,
+		},
+		DatumOption: &BabbageTransactionOutputDatumOption{
+			data: &datum,
+		},
+	}
+
+	txOutput, err := output.Utxorpc()
+	assert.NoError(t, err)
+	assert.NotNil(t, txOutput)
+
+	// Should return the computed hash of the inline datum
+	expectedHash := output.DatumHash()
+	assert.Equal(t, expectedHash.Bytes(), txOutput.Datum.Hash)
 }
 
 func TestBabbageTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
@@ -2877,10 +2919,14 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 	testAssets := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.NewBlake2b224(test.DecodeHexString("29a8fb8318718bd756124f0c144f56d4b4579dc5edf2dd42d669ac61")): {
-				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): 123456,
+				cbor.NewByteString(test.DecodeHexString("6675726e697368613239686e")): big.NewInt(
+					123456,
+				),
 			},
 			common.NewBlake2b224(test.DecodeHexString("eaf8042c1d8203b1c585822f54ec32c4c1bb4d3914603e2cca20bbd5")): {
-				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): 234567,
+				cbor.NewByteString(test.DecodeHexString("426f7764757261436f6e63657074733638")): big.NewInt(
+					234567,
+				),
 			},
 		},
 	)
@@ -2980,10 +3026,10 @@ func TestBabbageTransactionOutputToPlutusDataCoinAssets(t *testing.T) {
 func TestBabbageTransactionOutputString(t *testing.T) {
 	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 	addr, _ := common.NewAddress(addrStr)
-	ma := common.NewMultiAsset(
-		map[common.Blake2b224]map[cbor.ByteString]uint64{
+	ma := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
 			common.NewBlake2b224(make([]byte, 28)): {
-				cbor.NewByteString([]byte("x")): 2,
+				cbor.NewByteString([]byte("x")): big.NewInt(2),
 			},
 		},
 	)
@@ -2999,4 +3045,189 @@ func TestBabbageTransactionOutputString(t *testing.T) {
 	if s != expected {
 		t.Fatalf("unexpected string: %s", s)
 	}
+}
+
+// TestBabbageInlineDatumSerialization tests inline datum CBOR encoding/decoding per CIP-0032
+func TestBabbageInlineDatumSerialization(t *testing.T) {
+	// Create a test datum
+	testDatum := common.Datum{
+		Data: data.NewInteger(big.NewInt(42)),
+	}
+
+	// Create test address
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, err := common.NewAddress(addrStr)
+	assert.NoError(t, err)
+
+	// Create output with inline datum
+	output := BabbageTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 1000000,
+		},
+		DatumOption: &BabbageTransactionOutputDatumOption{
+			data: &testDatum,
+		},
+	}
+
+	// Encode to CBOR
+	cborData, err := cbor.Encode(&output)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	// Decode back
+	var decoded BabbageTransactionOutput
+	_, err = cbor.Decode(cborData, &decoded)
+	assert.NoError(t, err)
+
+	// Verify inline datum is preserved
+	assert.NotNil(t, decoded.DatumOption)
+	assert.NotNil(t, decoded.DatumOption.data)
+	assert.Equal(t, testDatum.Data, decoded.DatumOption.data.Data)
+}
+
+// TestBabbageInlineDatumAccessor tests Datum() accessor for inline datums per CIP-0032
+func TestBabbageInlineDatumAccessor(t *testing.T) {
+	// Create a test datum
+	testDatum := common.Datum{
+		Data: data.NewByteString([]byte("test datum")),
+	}
+
+	// Create test address
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, err := common.NewAddress(addrStr)
+	assert.NoError(t, err)
+
+	// Create output with inline datum
+	output := BabbageTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 2000000,
+		},
+		DatumOption: &BabbageTransactionOutputDatumOption{
+			data: &testDatum,
+		},
+	}
+
+	// Test Datum() accessor
+	retrievedDatum := output.Datum()
+	assert.NotNil(t, retrievedDatum)
+	assert.Equal(t, testDatum.Data, retrievedDatum.Data)
+
+	// Test DatumHash() accessor
+	datumHash := output.DatumHash()
+	assert.NotNil(t, datumHash)
+	assert.Equal(t, testDatum.Hash(), *datumHash)
+}
+
+// TestBabbageInlineDatumHash tests datum hash calculation for inline datums per CIP-0032
+func TestBabbageInlineDatumHash(t *testing.T) {
+	// Create a test datum
+	testDatum := common.Datum{
+		Data: data.NewList(
+			data.NewInteger(big.NewInt(1)),
+			data.NewInteger(big.NewInt(2)),
+			data.NewInteger(big.NewInt(3)),
+		),
+	}
+
+	// Create test address
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, err := common.NewAddress(addrStr)
+	assert.NoError(t, err)
+
+	// Create output with inline datum
+	output := BabbageTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 3000000,
+		},
+		DatumOption: &BabbageTransactionOutputDatumOption{
+			data: &testDatum,
+		},
+	}
+
+	// Verify datum hash is correctly calculated
+	datumHash := output.DatumHash()
+	assert.NotNil(t, datumHash)
+	expectedHash := testDatum.Hash()
+	assert.Equal(t, expectedHash, *datumHash)
+}
+
+// TestBabbageInlineDatumNil tests handling of nil datum per CIP-0032
+func TestBabbageInlineDatumNil(t *testing.T) {
+	// Create test address
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, err := common.NewAddress(addrStr)
+	assert.NoError(t, err)
+
+	// Create output without datum
+	output := BabbageTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 1000000,
+		},
+		// DatumOption is nil
+	}
+
+	// Test Datum() returns nil
+	retrievedDatum := output.Datum()
+	assert.Nil(t, retrievedDatum)
+
+	// Test DatumHash() returns zero hash for no datum
+	datumHash := output.DatumHash()
+	assert.NotNil(t, datumHash)
+	assert.Equal(t, common.Blake2b256{}, *datumHash)
+}
+
+// TestBabbageInlineDatumRoundTrip tests full round-trip encoding/decoding per CIP-0032
+func TestBabbageInlineDatumRoundTrip(t *testing.T) {
+	// Create simple test datum
+	simpleDatum := common.Datum{
+		Data: data.NewInteger(big.NewInt(42)),
+	}
+
+	// Create test address
+	addrStr := "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
+	addr, err := common.NewAddress(addrStr)
+	assert.NoError(t, err)
+
+	originalOutput := BabbageTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: 5000000,
+		},
+		DatumOption: &BabbageTransactionOutputDatumOption{
+			data: &simpleDatum,
+		},
+	}
+
+	// Encode to CBOR
+	cborData, err := cbor.Encode(&originalOutput)
+	assert.NoError(t, err)
+
+	// Decode back
+	var decodedOutput BabbageTransactionOutput
+	_, err = cbor.Decode(cborData, &decodedOutput)
+	assert.NoError(t, err)
+
+	// Verify all fields match
+	assert.Equal(t, originalOutput.OutputAddress, decodedOutput.OutputAddress)
+	assert.Equal(
+		t,
+		originalOutput.OutputAmount.Amount,
+		decodedOutput.OutputAmount.Amount,
+	)
+	assert.NotNil(t, decodedOutput.DatumOption)
+	assert.NotNil(t, decodedOutput.DatumOption.data)
+
+	// Verify datum data matches (compare the integer value)
+	originalInt := simpleDatum.Data.(*data.Integer).Inner
+	decodedInt := decodedOutput.DatumOption.data.Data.(*data.Integer).Inner
+	assert.Equal(t, originalInt, decodedInt)
+
+	// Verify datum hash is computed correctly
+	datumHash := decodedOutput.DatumHash()
+	assert.NotNil(t, datumHash)
+	assert.NotEqual(t, common.Blake2b256{}, *datumHash)
 }

@@ -15,16 +15,61 @@
 package common
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 )
 
 type DatumHash = Blake2b256
 
-// Datum represents a Plutus datum
+// DatumHashToBech32 encodes a DatumHash as a CIP-0005 bech32 string with "datum" prefix.
+func DatumHashToBech32(d DatumHash) string {
+	return d.Bech32("datum")
+}
+
+// Datum represents a Plutus datum.
+// JSON serialization encodes the datum as a plain CBOR hex string ("<hex>")
+// to preserve the interface type across round-trips.
 type Datum struct {
 	cbor.DecodeStoreCbor
-	Data data.PlutusData `json:"data"`
+	Data data.PlutusData
+}
+
+func (d Datum) MarshalJSON() ([]byte, error) {
+	if d.Data == nil {
+		return []byte("null"), nil
+	}
+	cborBytes, err := data.Encode(d.Data)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(hex.EncodeToString(cborBytes))
+}
+
+func (d *Datum) UnmarshalJSON(jsonData []byte) error {
+	var s *string
+	if err := json.Unmarshal(jsonData, &s); err != nil {
+		return fmt.Errorf("invalid datum JSON: expected hex string: %w", err)
+	}
+	if s == nil {
+		d.Data = nil
+		d.SetCbor(nil)
+		return nil
+	}
+	cborBytes, err := hex.DecodeString(*s)
+	if err != nil {
+		return fmt.Errorf("invalid datum hex: %w", err)
+	}
+	pd, err := data.Decode(cborBytes)
+	if err != nil {
+		return fmt.Errorf("invalid datum CBOR: %w", err)
+	}
+	d.Data = pd
+	d.SetCbor(cborBytes)
+	return nil
 }
 
 func (d *Datum) UnmarshalCBOR(cborData []byte) error {

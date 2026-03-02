@@ -71,7 +71,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeBlockRangeRequest:
 		err = s.handleBlockRangeRequest(msg)
 	case MessageTypeDone:
-		err = s.handleDone()
+		s.handleDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -98,8 +98,7 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
 		s.callbackContext,
-		msgBlockRequest.Slot,
-		msgBlockRequest.Hash,
+		msgBlockRequest.Point,
 	)
 	if err != nil {
 		return err
@@ -131,8 +130,7 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
 		s.callbackContext,
-		msgBlockTxsRequest.Slot,
-		msgBlockTxsRequest.Hash,
+		msgBlockTxsRequest.Point,
 		msgBlockTxsRequest.Bitmaps,
 	)
 	if err != nil {
@@ -206,7 +204,7 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 	return nil
 }
 
-func (s *Server) handleDone() error {
+func (s *Server) handleDone() {
 	s.Protocol.Logger().
 		Debug("client done",
 			"component", "network",
@@ -218,5 +216,4 @@ func (s *Server) handleDone() error {
 	s.Stop()
 	s.initProtocol()
 	s.Start()
-	return nil
 }

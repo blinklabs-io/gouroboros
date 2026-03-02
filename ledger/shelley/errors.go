@@ -14,8 +14,14 @@
 
 package shelley
 
+// Related files:
+//   - rules.go: Validation rules that return these errors
+//   - ledger/common/errors.go: Shared error types across eras
+//   - Later eras (allegra, alonzo, etc.) have their own errors.go
+
 import (
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -40,17 +46,31 @@ func (InputSetEmptyUtxoError) Error() string {
 	return "input set empty"
 }
 
+// DuplicateInputError indicates a duplicate input was found in the transaction
+type DuplicateInputError struct {
+	Input     common.TransactionInput
+	InputType string // "regular", "collateral", or "reference"
+}
+
+func (e DuplicateInputError) Error() string {
+	return fmt.Sprintf("duplicate %s input: %s", e.InputType, e.Input.String())
+}
+
 type FeeTooSmallUtxoError struct {
-	Provided uint64
-	Min      uint64
+	Provided *big.Int
+	Min      *big.Int
 }
 
 func (e FeeTooSmallUtxoError) Error() string {
-	return fmt.Sprintf(
-		"fee too small: provided %d, minimum %d",
-		e.Provided,
-		e.Min,
-	)
+	provided := "<nil>"
+	min := "<nil>"
+	if e.Provided != nil {
+		provided = e.Provided.String()
+	}
+	if e.Min != nil {
+		min = e.Min.String()
+	}
+	return fmt.Sprintf("fee too small: provided %s, minimum %s", provided, min)
 }
 
 type BadInputsUtxoError struct {
@@ -92,15 +112,23 @@ func (e WrongNetworkWithdrawalError) Error() string {
 }
 
 type ValueNotConservedUtxoError struct {
-	Consumed uint64
-	Produced uint64
+	Consumed *big.Int
+	Produced *big.Int
 }
 
 func (e ValueNotConservedUtxoError) Error() string {
+	consumed := "<nil>"
+	produced := "<nil>"
+	if e.Consumed != nil {
+		consumed = e.Consumed.String()
+	}
+	if e.Produced != nil {
+		produced = e.Produced.String()
+	}
 	return fmt.Sprintf(
-		"value not conserved: consumed %d, produced %d",
-		e.Consumed,
-		e.Produced,
+		"value not conserved: consumed %s, produced %s",
+		consumed,
+		produced,
 	)
 }
 
@@ -168,3 +196,33 @@ type (
 type MissingVKeyWitnessesError = common.MissingVKeyWitnessesError
 
 type MissingRequiredVKeyWitnessForSignerError = common.MissingRequiredVKeyWitnessForSignerError
+
+// DelegateToUnregisteredPoolError indicates delegation to a pool that is not registered
+type DelegateToUnregisteredPoolError struct {
+	PoolKeyHash common.PoolKeyHash
+}
+
+func (e DelegateToUnregisteredPoolError) Error() string {
+	return fmt.Sprintf("delegation to unregistered pool: %x", e.PoolKeyHash[:])
+}
+
+// DelegateUnregisteredStakeCredentialError indicates delegation from an unregistered stake credential
+type DelegateUnregisteredStakeCredentialError struct {
+	Credential common.Credential
+}
+
+func (e DelegateUnregisteredStakeCredentialError) Error() string {
+	return fmt.Sprintf(
+		"delegation from unregistered stake credential: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
+type WithdrawalFromUnregisteredRewardAccountError struct {
+	RewardAddress common.Address
+}
+
+func (e WithdrawalFromUnregisteredRewardAccountError) Error() string {
+	return "withdrawal from unregistered reward account: " + e.RewardAddress.String()
+}

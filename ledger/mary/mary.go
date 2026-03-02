@@ -85,8 +85,21 @@ func (b *MaryBlock) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	// Otherwise, encode generically
-	return cbor.EncodeGeneric(b)
+	// Ensure nil slices encode as empty arrays, not CBOR null
+	txBodies := b.TransactionBodies
+	if txBodies == nil {
+		txBodies = []MaryTransactionBody{}
+	}
+	txWitnesses := b.TransactionWitnessSets
+	if txWitnesses == nil {
+		txWitnesses = []shelley.ShelleyTransactionWitnessSet{}
+	}
+	return cbor.Encode([]any{
+		b.BlockHeader,
+		txBodies,
+		txWitnesses,
+		b.TransactionMetadataSet,
+	})
 }
 
 func (MaryBlock) Type() int {
@@ -133,8 +146,16 @@ func (b *MaryBlock) Transactions() []common.Transaction {
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
 		}
+		// Populate metadata and preserve original auxiliary CBOR when present
 		if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
 			tx.TxMetadata = metadata
+		}
+		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
+			len(raw) > 0 {
+			if aux, err := common.DecodeAuxiliaryData(raw); err == nil &&
+				aux != nil {
+				tx.auxData = aux
+			}
 		}
 		ret[idx] = tx
 	}
@@ -142,8 +163,9 @@ func (b *MaryBlock) Transactions() []common.Transaction {
 }
 
 func (b *MaryBlock) Utxorpc() (*utxorpc.Block, error) {
-	txs := []*utxorpc.Tx{}
-	for _, t := range b.Transactions() {
+	tmpTxs := b.Transactions()
+	txs := make([]*utxorpc.Tx, 0, len(tmpTxs))
+	for _, t := range tmpTxs {
 		tx, err := t.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -216,7 +238,7 @@ func (b *MaryTransactionBody) MarshalCBOR() ([]byte, error) {
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
-	ret := []common.TransactionInput{}
+	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
 	for _, input := range b.TxInputs.Items() {
 		ret = append(ret, input)
 	}
@@ -231,8 +253,8 @@ func (b *MaryTransactionBody) Outputs() []common.TransactionOutput {
 	return ret
 }
 
-func (b *MaryTransactionBody) Fee() uint64 {
-	return b.TxFee
+func (b *MaryTransactionBody) Fee() *big.Int {
+	return new(big.Int).SetUint64(b.TxFee)
 }
 
 func (b *MaryTransactionBody) TTL() uint64 {
@@ -265,8 +287,15 @@ func (b *MaryTransactionBody) Certificates() []common.Certificate {
 	return ret
 }
 
-func (b *MaryTransactionBody) Withdrawals() map[*common.Address]uint64 {
-	return b.TxWithdrawals
+func (b *MaryTransactionBody) Withdrawals() map[*common.Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*common.Address]*big.Int)
+	for k, v := range b.TxWithdrawals {
+		ret[k] = new(big.Int).SetUint64(v)
+	}
+	return ret
 }
 
 func (b *MaryTransactionBody) AuxDataHash() *common.Blake2b256 {
@@ -288,7 +317,7 @@ type MaryTransaction struct {
 	Body       MaryTransactionBody
 	WitnessSet shelley.ShelleyTransactionWitnessSet
 	TxMetadata common.TransactionMetadatum
-	RawAuxData []byte // Raw auxiliary data bytes (includes scripts)
+	auxData    common.AuxiliaryData
 }
 
 func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
@@ -317,12 +346,26 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
+	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	if len(txArray) > 2 && len(txArray[2]) > 0 &&
-		txArray[2][0] != 0xF6 { // 0xF6 is CBOR null
-		t.RawAuxData = []byte(txArray[2])
-		metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
-		if err == nil && metadata != nil {
-			t.TxMetadata = metadata
+		txArray[2][0] != 0xF6 {
+		// 0xF6 is CBOR null
+
+		// Decode auxiliary data
+		auxData, err := common.DecodeAuxiliaryData(txArray[2])
+		if err == nil && auxData != nil {
+			t.auxData = auxData
+			// Extract metadata for backward compatibility
+			metadata, _ := auxData.Metadata()
+			if metadata != nil {
+				t.TxMetadata = metadata
+			}
+		} else {
+			// Fallback to old method for backward compatibility
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+			if err == nil && metadata != nil {
+				t.TxMetadata = metadata
+			}
 		}
 	}
 
@@ -334,8 +377,8 @@ func (t *MaryTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *MaryTransaction) RawAuxiliaryData() []byte {
-	return t.RawAuxData
+func (t *MaryTransaction) AuxiliaryData() common.AuxiliaryData {
+	return t.auxData
 }
 
 func (MaryTransaction) Type() int {
@@ -366,7 +409,7 @@ func (t MaryTransaction) Outputs() []common.TransactionOutput {
 	return t.Body.Outputs()
 }
 
-func (t MaryTransaction) Fee() uint64 {
+func (t MaryTransaction) Fee() *big.Int {
 	return t.Body.Fee()
 }
 
@@ -394,7 +437,7 @@ func (t MaryTransaction) CollateralReturn() common.TransactionOutput {
 	return t.Body.CollateralReturn()
 }
 
-func (t MaryTransaction) TotalCollateral() uint64 {
+func (t MaryTransaction) TotalCollateral() *big.Int {
 	return t.Body.TotalCollateral()
 }
 
@@ -402,7 +445,7 @@ func (t MaryTransaction) Certificates() []common.Certificate {
 	return t.Body.Certificates()
 }
 
-func (t MaryTransaction) Withdrawals() map[*common.Address]uint64 {
+func (t MaryTransaction) Withdrawals() map[*common.Address]*big.Int {
 	return t.Body.Withdrawals()
 }
 
@@ -430,11 +473,11 @@ func (t MaryTransaction) ProposalProcedures() []common.ProposalProcedure {
 	return t.Body.ProposalProcedures()
 }
 
-func (t MaryTransaction) CurrentTreasuryValue() int64 {
+func (t MaryTransaction) CurrentTreasuryValue() *big.Int {
 	return t.Body.CurrentTreasuryValue()
 }
 
-func (t MaryTransaction) Donation() uint64 {
+func (t MaryTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
@@ -447,8 +490,9 @@ func (t MaryTransaction) Consumed() []common.TransactionInput {
 }
 
 func (t MaryTransaction) Produced() []common.Utxo {
-	ret := []common.Utxo{}
-	for idx, output := range t.Outputs() {
+	outputs := t.Outputs()
+	ret := make([]common.Utxo, 0, len(outputs))
+	for idx, output := range outputs {
 		ret = append(
 			ret,
 			common.Utxo{
@@ -594,8 +638,8 @@ func (txo MaryTransactionOutput) ScriptRef() common.Script {
 	return nil
 }
 
-func (o MaryTransactionOutput) Amount() uint64 {
-	return o.OutputAmount.Amount
+func (o MaryTransactionOutput) Amount() *big.Int {
+	return new(big.Int).SetUint64(o.OutputAmount.Amount)
 }
 
 func (o MaryTransactionOutput) Assets() *common.MultiAsset[common.MultiAssetTypeOutput] {
@@ -617,7 +661,7 @@ func (o MaryTransactionOutput) Utxorpc() (*utxorpc.TxOutput, error) {
 	}
 	return &utxorpc.TxOutput{
 			Address: addressBytes,
-			Coin:    common.ToUtxorpcBigInt(o.Amount()),
+			Coin:    common.BigIntToUtxorpcBigInt(o.Amount()),
 			// Assets: o.Assets,
 		},
 		err
