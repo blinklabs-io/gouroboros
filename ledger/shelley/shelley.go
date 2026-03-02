@@ -203,6 +203,7 @@ type ShelleyBlockHeader struct {
 }
 type ShelleyBlockHeaderBody struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	BlockNumber          uint64
 	Slot                 uint64
 	PrevHash             common.Blake2b256
@@ -218,6 +219,17 @@ type ShelleyBlockHeaderBody struct {
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64
+}
+
+func (b *ShelleyBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
+	type tShelleyBlockHeaderBody ShelleyBlockHeaderBody
+	var tmp tShelleyBlockHeaderBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ShelleyBlockHeaderBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {

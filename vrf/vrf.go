@@ -274,6 +274,79 @@ func MkInputVrf(slot int64, eta0 []byte) []byte {
 	return result
 }
 
+// mkNonceFromNumber computes blake2b-256 of a uint64 in big-endian encoding.
+// This matches Haskell's mkNonceFromNumber from Cardano.Ledger.BaseTypes.
+func mkNonceFromNumber(n uint64) []byte {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, n)
+	h, err := blake2b.New(32, nil)
+	if err != nil {
+		panic(fmt.Sprintf(
+			"unexpected error creating empty blake2b hash: %s", err,
+		))
+	}
+	h.Write(buf)
+	result := h.Sum(nil)
+	if result == nil {
+		panic("blake2b.Sum returned nil")
+	}
+	return result
+}
+
+// seedEta is the TPraos nonce VRF seed constant: blake2b-256(uint64be(0)).
+// Used with NonceVrf (bheaderEta) for epoch nonce contribution.
+// Matches Haskell: seedEta = mkNonceFromNumber 0
+var seedEta = mkNonceFromNumber(0)
+
+// seedL is the TPraos leader VRF seed constant: blake2b-256(uint64be(1)).
+// Used with LeaderVrf (bheaderL) for leader eligibility checks.
+// Matches Haskell: seedL = mkNonceFromNumber 1
+var seedL = mkNonceFromNumber(1)
+
+// SeedEta returns a copy of the TPraos nonce VRF seed constant.
+func SeedEta() []byte {
+	out := make([]byte, len(seedEta))
+	copy(out, seedEta)
+	return out
+}
+
+// SeedL returns a copy of the TPraos leader VRF seed constant.
+func SeedL() []byte {
+	out := make([]byte, len(seedL))
+	copy(out, seedL)
+	return out
+}
+
+// MkSeedTPraos constructs the TPraos VRF input used in Shelley through
+// Alonzo eras. The TPraos construction computes the same base hash as
+// MkInputVrf, then XORs it with a seed constant:
+//
+//	result = blake2b-256(slot_be64 || eta0) XOR seedConstant
+//
+// For the leader VRF check, pass SeedL() as seedConstant.
+// For the nonce VRF contribution, pass SeedEta() as seedConstant.
+//
+// This matches Haskell's mkSeed from Cardano.Protocol.TPraos.BHeader:
+//
+//	mkSeed ucNonce slot eNonce =
+//	    Hash.xor(ucNonce) . Hash.hashWith id $ slot <> eNonce
+//
+// IMPORTANT: eta0 must be exactly 32 bytes and seedConstant must be
+// exactly 32 bytes. This function will panic if either length is wrong.
+func MkSeedTPraos(slot int64, eta0 []byte, seedConstant []byte) []byte {
+	if len(seedConstant) != 32 {
+		panic(fmt.Sprintf(
+			"seedConstant must be 32 bytes, got %d", len(seedConstant),
+		))
+	}
+	base := MkInputVrf(slot, eta0)
+	result := make([]byte, 32)
+	for i := range result {
+		result[i] = base[i] ^ seedConstant[i]
+	}
+	return result
+}
+
 // ProofToHash extracts the hash output from a VRF proof.
 func ProofToHash(pi []byte) ([]byte, error) {
 	var hashInput [34]byte

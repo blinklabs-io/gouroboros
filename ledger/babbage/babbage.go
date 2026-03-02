@@ -269,6 +269,7 @@ type BabbageBlockHeader struct {
 
 type BabbageBlockHeaderBody struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	BlockNumber   uint64
 	Slot          uint64
 	PrevHash      common.Blake2b256
@@ -279,6 +280,17 @@ type BabbageBlockHeaderBody struct {
 	BlockBodyHash common.Blake2b256
 	OpCert        BabbageOpCert
 	ProtoVersion  BabbageProtoVersion
+}
+
+func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
+	type tBabbageBlockHeaderBody BabbageBlockHeaderBody
+	var tmp tBabbageBlockHeaderBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = BabbageBlockHeaderBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 type BabbageOpCert struct {
