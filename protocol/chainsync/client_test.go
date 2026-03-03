@@ -30,6 +30,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	ouroboros_mock "github.com/blinklabs-io/ouroboros-mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
 
@@ -740,4 +741,68 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 			chainsync.Config{SkipBlockValidation: true},
 		),
 	)
+}
+
+// TestStopAfterConnectionClose verifies that Stop() does not return an error
+// when called after the connection has already been closed.
+// This tests the fix for not returning error on connection close.
+func TestStopAfterConnectionClose(t *testing.T) {
+	conversation := []ouroboros_mock.ConversationEntry{
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+		// No Done message expected because connection will be closed first
+	}
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		conversation,
+	)
+	// Async mock connection error handler
+	asyncErrChan := make(chan error, 1)
+	go func() {
+		err := <-mockConn.(*ouroboros_mock.Connection).ErrorChan()
+		if err != nil {
+			asyncErrChan <- fmt.Errorf("received unexpected error: %w", err)
+		}
+		close(asyncErrChan)
+	}()
+
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithDelayProtocolStart(true),
+		ouroboros.WithChainSyncConfig(
+			chainsync.Config{SkipBlockValidation: true},
+		),
+	)
+	require.NoError(t, err, "unexpected error when creating Ouroboros object")
+
+	client := oConn.ChainSync().Client
+	client.Start()
+
+	// Close the connection first (simulating remote close)
+	require.NoError(t, oConn.Close(), "unexpected error when closing connection")
+
+	// Wait for connection to fully close
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "connection did not close within timeout")
+	}
+
+	// Now Stop() should not return an error even though connection is closed
+	require.NoError(t, client.Stop(), "Stop() should not return error after connection close")
+
+	// Verify IsDone returns true
+	require.True(t, client.IsDone(), "IsDone() should return true after connection close")
+
+	// Wait for mock connection shutdown
+	select {
+	case err, ok := <-asyncErrChan:
+		if ok {
+			require.Fail(t, err.Error())
+		}
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "mock connection did not shut down within timeout")
+	}
 }

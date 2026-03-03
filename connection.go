@@ -78,6 +78,8 @@ type Connection struct {
 	delayProtocolStart    bool
 	fullDuplex            bool
 	peerSharingEnabled    bool
+	protocolMu            sync.RWMutex
+	protocolsReady        bool
 	// Mini-protocols
 	blockFetch              *blockfetch.BlockFetch
 	blockFetchConfig        *blockfetch.Config
@@ -266,6 +268,108 @@ func (c *Connection) shutdown() {
 	close(c.errorChan)
 }
 
+// allProtocolsIdle returns true if every active protocol is in a terminal or
+// idle state (done, AgencyNone, or still in its initial state). This is used
+// to decide whether a connection-close error should be suppressed: when the
+// remote peer has gracefully stopped all protocols before closing, we do not
+// want to surface a spurious error to the consumer.
+func (c *Connection) allProtocolsIdle() bool {
+	c.protocolMu.RLock()
+	defer c.protocolMu.RUnlock()
+	// If protocols have not been initialised yet, we must not suppress
+	// connection-close errors.
+	if !c.protocolsReady {
+		return false
+	}
+	protocols := make([]*protocol.Protocol, 0)
+	if c.chainSync != nil {
+		if c.chainSync.Client != nil {
+			protocols = append(protocols, c.chainSync.Client.Protocol)
+		}
+		if c.chainSync.Server != nil {
+			protocols = append(protocols, c.chainSync.Server.Protocol)
+		}
+	}
+	if c.blockFetch != nil {
+		if c.blockFetch.Client != nil {
+			protocols = append(protocols, c.blockFetch.Client.Protocol)
+		}
+		if c.blockFetch.Server != nil {
+			protocols = append(protocols, c.blockFetch.Server.Protocol)
+		}
+	}
+	if c.txSubmission != nil {
+		if c.txSubmission.Client != nil {
+			protocols = append(protocols, c.txSubmission.Client.Protocol)
+		}
+		if c.txSubmission.Server != nil {
+			protocols = append(protocols, c.txSubmission.Server.Protocol)
+		}
+	}
+	if c.keepAlive != nil {
+		if c.keepAlive.Client != nil {
+			protocols = append(protocols, c.keepAlive.Client.Protocol)
+		}
+		if c.keepAlive.Server != nil {
+			protocols = append(protocols, c.keepAlive.Server.Protocol)
+		}
+	}
+	if c.localStateQuery != nil {
+		if c.localStateQuery.Client != nil {
+			protocols = append(protocols, c.localStateQuery.Client.Protocol)
+		}
+		if c.localStateQuery.Server != nil {
+			protocols = append(protocols, c.localStateQuery.Server.Protocol)
+		}
+	}
+	if c.localTxSubmission != nil {
+		if c.localTxSubmission.Client != nil {
+			protocols = append(protocols, c.localTxSubmission.Client.Protocol)
+		}
+		if c.localTxSubmission.Server != nil {
+			protocols = append(protocols, c.localTxSubmission.Server.Protocol)
+		}
+	}
+	if c.localTxMonitor != nil {
+		if c.localTxMonitor.Client != nil {
+			protocols = append(protocols, c.localTxMonitor.Client.Protocol)
+		}
+		if c.localTxMonitor.Server != nil {
+			protocols = append(protocols, c.localTxMonitor.Server.Protocol)
+		}
+	}
+	if c.peerSharing != nil {
+		if c.peerSharing.Client != nil {
+			protocols = append(protocols, c.peerSharing.Client.Protocol)
+		}
+		if c.peerSharing.Server != nil {
+			protocols = append(protocols, c.peerSharing.Server.Protocol)
+		}
+	}
+	if c.leiosNotify != nil {
+		if c.leiosNotify.Client != nil {
+			protocols = append(protocols, c.leiosNotify.Client.Protocol)
+		}
+		if c.leiosNotify.Server != nil {
+			protocols = append(protocols, c.leiosNotify.Server.Protocol)
+		}
+	}
+	if c.leiosFetch != nil {
+		if c.leiosFetch.Client != nil {
+			protocols = append(protocols, c.leiosFetch.Client.Protocol)
+		}
+		if c.leiosFetch.Server != nil {
+			protocols = append(protocols, c.leiosFetch.Server.Protocol)
+		}
+	}
+	for _, p := range protocols {
+		if p != nil && !p.IsInTerminalOrIdleState() {
+			return false
+		}
+	}
+	return true
+}
+
 // setupConnection establishes the muxer, configures and starts the handshake process, and initializes
 // the appropriate mini-protocols
 func (c *Connection) setupConnection() error {
@@ -301,7 +405,17 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
+			// When the connection is closed after all protocols have been
+			// gracefully stopped (e.g. the remote peer sent Done messages
+			// for chain-sync, block-fetch, and tx-submission before closing),
+			// we suppress the error so the consumer does not see a spurious
+			// connection-closed error.
 			var connErr *muxer.ConnectionClosedError
+			if errors.As(err, &connErr) && c.allProtocolsIdle() {
+				// All protocols finished gracefully; suppress the error
+				c.Close()
+				return
+			}
 			if errors.As(err, &connErr) {
 				// Pass through ConnectionClosedError from muxer
 				c.errorChan <- err
@@ -403,6 +517,7 @@ func (c *Connection) setupConnection() error {
 	if c.useNodeToNodeProto {
 		versionNtN := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToNode
+		c.protocolMu.Lock()
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
 		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
@@ -414,6 +529,8 @@ func (c *Connection) setupConnection() error {
 		}
 		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
 		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
+		c.protocolsReady = true
+		c.protocolMu.Unlock()
 		// Register server protocols early to avoid race conditions where messages arrive
 		if (c.fullDuplex && handshakeFullDuplex) || c.server {
 			c.blockFetch.Server.EnsureRegistered()
@@ -460,6 +577,7 @@ func (c *Connection) setupConnection() error {
 	} else {
 		versionNtC := protocol.GetProtocolVersion(c.handshakeVersion)
 		protoOptions.Mode = protocol.ProtocolModeNodeToClient
+		c.protocolMu.Lock()
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
 		c.localTxSubmission = localtxsubmission.New(protoOptions, c.localTxSubmissionConfig)
 		if versionNtC.EnableLocalQueryProtocol {
@@ -468,6 +586,8 @@ func (c *Connection) setupConnection() error {
 		if versionNtC.EnableLocalTxMonitorProtocol {
 			c.localTxMonitor = localtxmonitor.New(protoOptions, c.localTxMonitorConfig)
 		}
+		c.protocolsReady = true
+		c.protocolMu.Unlock()
 		// Register server protocols early to avoid race conditions where messages arrive
 		if (c.fullDuplex && handshakeFullDuplex) || c.server {
 			c.chainSync.Server.EnsureRegistered()
