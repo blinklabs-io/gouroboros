@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes network protocol flow control updates, consensus-validation corrections, and CI and documentation refinements.
+This release includes network protocol flow control updates, consensus validation corrections, and CI and documentation refinements.
 
 ### New Features
 
@@ -24,7 +24,7 @@ This release includes network protocol flow control updates, consensus-validatio
 
 ### Bug Fixes
 
-- Fixed JSON marshaling for `LazyValue` when underlying CBOR is missing or empty and added test coverage for these cases.
+- Fixed JSON marshaling for `LazyValue` when underlying CBOR is missing or empty and added test coverage.
 - Fixed nonce and header validation to follow era-specific rules by making VRF input and nonce handling era-specific, switching KES verification to use stored header-body CBOR, tightening validation logic, and expanding tests.
 - Corrected rolling nonce derivation to hash `prevBlockNonce` concatenated with raw VRF output bytes and refreshed related tests and comments.
 - Fixed connection shutdown to treat normal protocol completion as graceful so stop paths avoid spurious errors and avoid sending `Done` or `ClientDone` when protocols are already finished.
