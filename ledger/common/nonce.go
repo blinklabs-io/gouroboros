@@ -93,12 +93,21 @@ func (n *Nonce) MarshalCBOR() ([]byte, error) {
 //	NeutralNonce ⭒ Nonce(x) = Nonce(x)
 //	Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
 //
-// Where the VRF contribution is hashToNonce(blake2b_256(vrfOutput)).
+// In the Haskell implementation, the VRF output is coerced directly
+// into a Nonce via "coerce @(OutputVRF (VRF c)) @(Hash Blake2b_256
+// Nonce)". This means the raw VRF output bytes (64 bytes for both
+// TPraos and Praos VRF schemes) are used as-is — they are NOT
+// pre-hashed to 32 bytes. The concatenation is therefore
+// prevBlockNonce (32 bytes) || rawVrfOutput (64 bytes) = 96 bytes,
+// and the result is blake2b_256(96 bytes).
 //
 // NeutralNonce is represented as 32 zero bytes. When prevBlockNonce is
 // all zeros (identity element), the result is blake2b_256(vrfOutput).
+// In practice, NeutralNonce never occurs as the evolving nonce because
+// it is initialized to the Shelley genesis hash.
 //
-// Ref: Cardano.Ledger.BaseTypes (⭒) operator
+// Ref: Ouroboros.Consensus.Protocol.Praos (reupdateChainDepState),
+// Cardano.Ledger.BaseTypes (⭒ operator)
 func CalculateRollingNonce(
 	prevBlockNonce []byte,
 	blockVrf []byte,
@@ -115,7 +124,6 @@ func CalculateRollingNonce(
 			len(prevBlockNonce),
 		)
 	}
-	blockVrfHash := Blake2b256Hash(blockVrf)
 	// NeutralNonce identity: if prevBlockNonce is all zeros,
 	// return blake2b_256(vrfOutput) directly (Nonce semigroup identity)
 	isNeutral := true
@@ -126,13 +134,15 @@ func CalculateRollingNonce(
 		}
 	}
 	if isNeutral {
-		return blockVrfHash, nil
+		return Blake2b256Hash(blockVrf), nil
 	}
 	// Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
-	var buf [64]byte
+	// The raw VRF output bytes are concatenated directly without
+	// pre-hashing, matching the Haskell coerce semantics.
+	buf := make([]byte, 32+len(blockVrf))
 	copy(buf[:32], prevBlockNonce)
-	copy(buf[32:], blockVrfHash[:])
-	return Blake2b256Hash(buf[:]), nil
+	copy(buf[32:], blockVrf)
+	return Blake2b256Hash(buf), nil
 }
 
 // CalculateEpochNonce calculates an epoch nonce:
