@@ -4,6 +4,38 @@ title: Release notes
 
 # Release notes
 
+## v0.160.0 - protocol flow control and validation fixes
+
+- **Date:** 2026-03-03
+- **Version:** 0.160.0
+
+### Summary
+
+This release includes network protocol flow control updates, consensus validation corrections, and CI and documentation refinements.
+
+### New Features
+
+- Added CI workflows to run benchmarking and profiling, including allocation-regression tests for core validation paths, comment-triggered benchmark runs with an authorization gate, and automated posting of benchmark results to pull requests.
+- Added GitHub Actions workflows that trigger on issue closure to log issue metadata and update the project item `Closed Date` field.
+
+### Breaking Changes
+
+- Updated network protocol flow control to apply backpressure instead of disconnecting by increasing the max pending message bytes for NtN, removing byte limits from NtC `ChainSync`, and modifying the protocol read loop when pending bytes or queues fill.
+
+### Bug Fixes
+
+- Fixed JSON marshaling for `LazyValue` when underlying CBOR is missing or empty and added test coverage.
+- Fixed nonce and header validation to follow era-specific rules by making VRF input and nonce handling era-specific, switching KES verification to use stored header-body CBOR, tightening validation logic, and expanding tests.
+- Fixed rolling nonce derivation to hash `prevBlockNonce` concatenated with raw VRF output bytes and refreshed related tests and comments.
+- Fixed connection shutdown to treat normal protocol completion as graceful so stop paths avoid spurious errors and avoid sending `Done` or `ClientDone` when protocols are already finished.
+- Fixed transaction fee sizing and era-specific semantics by centralizing fee size calculation via `TxSizeForFee`, correcting datum-hash nil semantics, normalizing Conway redeemer handling, eagerly caching CBOR for Babbage transactions, and adding a Conway Plutus V3 reproduction test using `plutigo` v0.0.26.
+
+### Additional Changes
+
+- Updated `RELEASE_NOTES.md` by backfilling entries for versions `0.128.0` through `0.159.2`, including detailed notes for `0.140.0` through `0.159.1` and a dedicated entry for `0.159.2`.
+- Updated release note language for clearer scanning while preserving technical meaning.
+- Updated GitHub Actions dependencies to `actions/setup-go` v6.3.0 (from v6.2.0) and `actions/upload-artifact` v7.0.0.
+
 ## v0.159.2 - transaction validation updates
 
 - **Date:** 2026-02-27
