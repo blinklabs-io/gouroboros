@@ -26,14 +26,14 @@ This release includes network protocol flow control updates, consensus validatio
 
 - Fixed JSON marshaling for `LazyValue` when underlying CBOR is missing or empty and added test coverage.
 - Fixed nonce and header validation to follow era-specific rules by making VRF input and nonce handling era-specific, switching KES verification to use stored header-body CBOR, tightening validation logic, and expanding tests.
-- Corrected rolling nonce derivation to hash `prevBlockNonce` concatenated with raw VRF output bytes and refreshed related tests and comments.
+- Fixed rolling nonce derivation to hash `prevBlockNonce` concatenated with raw VRF output bytes and refreshed related tests and comments.
 - Fixed connection shutdown to treat normal protocol completion as graceful so stop paths avoid spurious errors and avoid sending `Done` or `ClientDone` when protocols are already finished.
 - Fixed transaction fee sizing and era-specific semantics by centralizing fee size calculation via `TxSizeForFee`, correcting datum-hash nil semantics, normalizing Conway redeemer handling, eagerly caching CBOR for Babbage transactions, and adding a Conway Plutus V3 reproduction test using `plutigo` v0.0.26.
 
 ### Additional Changes
 
 - Updated `RELEASE_NOTES.md` by backfilling entries for versions `0.128.0` through `0.159.2`, including detailed notes for `0.140.0` through `0.159.1` and a dedicated entry for `0.159.2`.
-- Refined release note language for clearer scanning while preserving technical meaning.
+- Updated release note language for clearer scanning while preserving technical meaning.
 - Updated GitHub Actions dependencies to `actions/setup-go` v6.3.0 (from v6.2.0) and `actions/upload-artifact` v7.0.0.
 
 ## v0.159.2 - transaction validation updates
