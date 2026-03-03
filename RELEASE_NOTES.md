@@ -18,23 +18,23 @@ This release includes the changes listed below.
 ```json
 {
   "Additional Changes": [
-    "Historical release documentation has been expanded so users can review older version behavior in one place. This backfills RELEASE_NOTES.md with entries for versions 0.128.0 through 0.159.2, including detailed notes for 0.140.0 through 0.159.1 and a dedicated entry for 0.159.2.",
-    "Release notes language has been made easier to read without changing what the software does, improving accessibility for engineers scanning changes. This rewrites release-notes text for clarity while preserving the underlying technical content and meaning.",
-    "Continuous integration dependencies have been refreshed to current versions to improve workflow reliability and consistency. This updates GitHub Actions to use actions/setup-go v6.3.0 (from v6.2.0) and actions/upload-artifact v7.0.0."
+    "Expanded historical release documentation by backfilling `RELEASE_NOTES.md` with entries for versions `0.128.0` through `0.159.2`, including detailed notes for `0.140.0` through `0.159.1` and a dedicated entry for `0.159.2`.",
+    "Refined release note language for clearer scanning while preserving technical meaning.",
+    "Updated GitHub Actions dependencies to `actions/setup-go` v6.3.0 (from v6.2.0) and `actions/upload-artifact` v7.0.0."
   ],
   "Breaking Changes": [
-    "Network protocol flow control has been updated to handle large pending buffers without forcing disconnects, which may change how backpressure is observed by clients. This increases the max pending message bytes for NtN, removes byte limits from N2C ChainSync, and modifies the protocol read loop to apply backpressure instead of disconnecting when pending bytes or queues fill."
+    "Updated network protocol flow control to apply backpressure instead of disconnecting by increasing the max pending message bytes for NtN, removing byte limits from NtC `ChainSync`, and modifying the protocol read loop when pending bytes or queues fill."
   ],
   "Bug Fixes": [
-    "JSON output for lazy values is now consistent when the underlying CBOR is missing or empty, preventing incorrect encoding in edge cases. This adjusts LazyValue JSON marshaling for nil/empty CBOR and adds explicit test coverage for those cases.",
-    "Nonce and header validation now follow the correct era-specific rules, fixing subtle consensus-validation mismatches. This makes VRF input and nonce handling era-specific, switches KES verification to use stored header-body CBOR, tightens validation logic, and expands tests accordingly.",
-    "Rolling nonce derivation has been corrected to match the intended hashing inputs, improving correctness and test clarity. This updates rolling nonce calculation to hash prevBlockNonce concatenated with the raw VRF output bytes and refreshes related tests and comments.",
-    "Connection shutdown now avoids noisy errors when protocols finish normally, improving operational signal-to-noise. This differentiates graceful protocol completion from abrupt close so stop paths avoid spurious errors and do not send Done/ClientDone when protocols are already finished.",
-    "Transaction fee sizing and several era-specific semantics have been corrected and made more consistent, reducing the risk of validation divergence. This centralizes fee size calculation via TxSizeForFee, fixes datum-hash nil semantics, normalizes Conway redeemer handling, eagerly caches CBOR for Babbage transactions, and adds a Conway Plutus V3 reproduction test using plutigo v0.0.26."
+    "Fixed JSON marshaling for `LazyValue` when underlying CBOR is missing or empty and added test coverage for these cases.",
+    "Fixed nonce and header validation to follow era-specific rules by making VRF input and nonce handling era-specific, switching KES verification to use stored header-body CBOR, tightening validation logic, and expanding tests.",
+    "Corrected rolling nonce derivation to hash `prevBlockNonce` concatenated with raw VRF output bytes and refreshed related tests and comments.",
+    "Fixed connection shutdown to treat normal protocol completion as graceful so stop paths avoid spurious errors and avoid sending `Done` or `ClientDone` when protocols are already finished.",
+    "Fixed transaction fee sizing and era-specific semantics by centralizing fee size calculation via `TxSizeForFee`, correcting datum-hash nil semantics, normalizing Conway redeemer handling, eagerly caching CBOR for Babbage transactions, and adding a Conway Plutus V3 reproduction test using `plutigo` v0.0.26."
   ],
   "New Features": [
-    "A new continuous integration workflow can now run a comprehensive benchmarking and profiling suite to detect regressions automatically. This adds CI benchmarks plus allocation-regression tests for core validation paths, alongside PR comment-triggered benchmark runs with an authorization gate and automated posting of benchmark results back to the PR.",
-    "Automation has been added to keep project tracking up to date when issues are closed. This introduces GitHub Actions workflows that trigger on issue closure to log issue metadata and to update the project item “Closed Date” field."
+    "Added CI workflows to run benchmarking and profiling, including allocation-regression tests for core validation paths, comment-triggered benchmark runs with an authorization gate, and automated posting of benchmark results to pull requests.",
+    "Added GitHub Actions workflows that trigger on issue closure to log issue metadata and update the project item `Closed Date` field."
   ]
 }
 
