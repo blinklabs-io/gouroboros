@@ -62,8 +62,42 @@ func VerifyTransaction(
 	return nil
 }
 
-// CalculateMinFee computes the minimum fee for a transaction body given its CBOR-encoded size
-// and the protocol parameters MinFeeA and MinFeeB.
+// txTypeAlonzo is the first era whose on-wire CBOR includes the 1-byte
+// IsValid boolean field. The fee-relevant size excludes this byte.
+const txTypeAlonzo = 4
+
+// TxSizeForFee returns the fee-relevant transaction size as defined by the
+// Cardano ledger spec. For Alonzo and later eras the on-wire CBOR contains a
+// 4-element array [body, witnesses, isValid, metadata]; the Haskell
+// toCBORForSizeComputation function encodes only 3 elements, so the fee-
+// relevant size is the full on-wire length minus 1 byte (the IsValid field).
+// For earlier eras (Shelley, Allegra, Mary) the on-wire format is already a
+// 3-element array and no adjustment is needed.
+//
+// When the transaction has no stored CBOR (e.g. programmatically constructed),
+// the function falls back to encoding the transaction to compute its size.
+func TxSizeForFee(tx Transaction) (int, error) {
+	cborData := tx.Cbor()
+	if len(cborData) == 0 {
+		// Fallback: encode the transaction to compute its size.
+		// This handles programmatically constructed transactions
+		// whose Cbor() returns nil because no stored CBOR exists.
+		var err error
+		cborData, err = cbor.Encode(tx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to encode transaction for fee size: %w", err)
+		}
+	}
+	fullSize := len(cborData)
+	if tx.Type() >= txTypeAlonzo {
+		return fullSize - 1, nil
+	}
+	return fullSize, nil
+}
+
+// CalculateMinFee computes the minimum fee for a transaction given its
+// fee-relevant size (as returned by TxSizeForFee) and the protocol parameters
+// MinFeeA and MinFeeB.
 func CalculateMinFee(bodySize int, minFeeA uint, minFeeB uint) uint64 {
 	return uint64(minFeeA*uint(bodySize) + minFeeB) //nolint:gosec
 }

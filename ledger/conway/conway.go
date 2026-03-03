@@ -348,6 +348,15 @@ func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(r.Redeemers)
 }
 
+// Len returns the number of redeemers, correctly handling both legacy (array)
+// and new (map) Conway formats.
+func (r ConwayRedeemers) Len() int {
+	if r.legacy {
+		return len(r.legacyRedeemers.Redeemers)
+	}
+	return len(r.Redeemers)
+}
+
 func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
 	if r.legacy {
 		return r.legacyRedeemers.Iter()

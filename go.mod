@@ -2,12 +2,12 @@ module github.com/blinklabs-io/gouroboros
 
 go 1.24.0
 
-toolchain go1.24.1
+toolchain go1.24.11
 
 require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/blinklabs-io/ouroboros-mock v0.9.1
-	github.com/blinklabs-io/plutigo v0.0.25
+	github.com/blinklabs-io/plutigo v0.0.26
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/fxamacker/cbor/v2 v2.9.0
 	github.com/jinzhu/copier v0.4.0
@@ -36,3 +36,5 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// replace github.com/blinklabs-io/plutigo => ../plutigo

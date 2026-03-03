@@ -401,8 +401,11 @@ func UtxoValidateMaxTxSizeUtxo(
 	}
 }
 
-// MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
-// Fee is calculated using the transaction body CBOR size as per Cardano protocol
+// MinFeeTx calculates the minimum required fee for a transaction based on
+// protocol parameters. The fee-relevant transaction size is determined by
+// common.TxSizeForFee, which uses the original on-wire CBOR length. For
+// pre-Alonzo eras the full CBOR length is the fee-relevant size; for Alonzo+
+// the IsValid byte is subtracted.
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
@@ -411,19 +414,12 @@ func MinFeeTx(
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*MaryTransaction)
-	if !ok {
-		return 0, errors.New("tx is not expected type")
-	}
-	// Encode a local copy of the body with TxFee set to 0 to calculate size without fee
-	body := tmpTx.Body
-	body.TxFee = 0
-	txBytes, err := cbor.Encode(body)
+	txSize, err := common.TxSizeForFee(tx)
 	if err != nil {
 		return 0, err
 	}
 	minFee := common.CalculateMinFee(
-		len(txBytes),
+		txSize,
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)

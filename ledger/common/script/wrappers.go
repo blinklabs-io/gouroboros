@@ -496,7 +496,7 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 				2,
 				tmp.Data.Clone(),
 			)
-		} else if tmp := v.DatumHash(); (tmp != nil && *tmp != lcommon.Blake2b256{}) {
+		} else if tmp := v.DatumHash(); tmp != nil {
 			datumOption = data.NewConstr(
 				1,
 				tmp.ToPlutusData(),
