@@ -96,13 +96,27 @@ func (w *WrappedHeader) UnmarshalCBOR(data []byte) error {
 		}
 		w.byronType = wrappedHeaderByron.Metadata.Type
 		w.byronSize = wrappedHeaderByron.Metadata.Size
-		w.headerCbor = wrappedHeaderByron.RawHeader.Content.([]byte)
+		headerCbor, ok := wrappedHeaderByron.RawHeader.Content.([]byte)
+		if !ok {
+			return fmt.Errorf(
+				"wrapped byron header tag content must be []byte, got %T",
+				wrappedHeaderByron.RawHeader.Content,
+			)
+		}
+		w.headerCbor = headerCbor
 	default:
 		var tag cbor.Tag
 		if _, err := cbor.Decode(tmpHeader.HeaderRaw, &tag); err != nil {
 			return err
 		}
-		w.headerCbor = tag.Content.([]byte)
+		headerCbor, ok := tag.Content.([]byte)
+		if !ok {
+			return fmt.Errorf(
+				"wrapped header tag content must be []byte, got %T",
+				tag.Content,
+			)
+		}
+		w.headerCbor = headerCbor
 	}
 	return nil
 }

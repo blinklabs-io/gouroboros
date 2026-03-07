@@ -151,8 +151,16 @@ func (m *MsgRollForwardNtC) UnmarshalCBOR(data []byte) error {
 	}
 	*m = MsgRollForwardNtC(tmp)
 	// Decode wrapped block
+	wrappedBlockContent, ok := m.WrappedBlock.Content.([]byte)
+	if !ok {
+		return fmt.Errorf(
+			"%s: decode error: wrapped block tag content must be []byte, got %T",
+			ProtocolName,
+			m.WrappedBlock.Content,
+		)
+	}
 	var wb WrappedBlock
-	if _, err := cbor.Decode(m.WrappedBlock.Content.([]byte), &wb); err != nil {
+	if _, err := cbor.Decode(wrappedBlockContent, &wb); err != nil {
 		return err
 	}
 	m.blockType = wb.BlockType
