@@ -228,8 +228,10 @@ func (v *HeaderValidator) validateBlockNumber(
 
 // validatePrevHash checks previous hash linkage
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
-	if len(input.PrevHeaderHash) > 0 &&
-		!bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
+	if input.BlockNumber > 1 && len(input.PrevHeaderHash) == 0 {
+		return errors.New("previous header hash is required for blocks after genesis")
+	}
+	if len(input.PrevHeaderHash) > 0 && !bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
 		return fmt.Errorf(
 			"previous hash does not match: got %x, expected %x",
 			input.PrevHash,

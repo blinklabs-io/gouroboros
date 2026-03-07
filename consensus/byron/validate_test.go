@@ -220,31 +220,43 @@ func TestValidatePrevHash(t *testing.T) {
 		input       *ValidateHeaderInput
 		expectError bool
 	}{
-		{
-			name: "matching prev hash",
-			input: &ValidateHeaderInput{
-				PrevHash:       prevHash,
-				PrevHeaderHash: prevHash,
+			{
+				name: "matching prev hash",
+				input: &ValidateHeaderInput{
+					BlockNumber:    2,
+					PrevHash:       prevHash,
+					PrevHeaderHash: prevHash,
+				},
+				expectError: false,
 			},
-			expectError: false,
-		},
-		{
-			name: "mismatched prev hash",
-			input: &ValidateHeaderInput{
-				PrevHash:       prevHash,
-				PrevHeaderHash: make([]byte, 32),
+			{
+				name: "mismatched prev hash",
+				input: &ValidateHeaderInput{
+					BlockNumber:    2,
+					PrevHash:       prevHash,
+					PrevHeaderHash: make([]byte, 32),
+				},
+				expectError: true,
 			},
-			expectError: true,
-		},
-		{
-			name: "no prev header hash (genesis)",
-			input: &ValidateHeaderInput{
-				PrevHash:       prevHash,
-				PrevHeaderHash: nil,
+			{
+				name: "missing prev header hash for non-genesis block",
+				input: &ValidateHeaderInput{
+					BlockNumber:    2,
+					PrevHash:       prevHash,
+					PrevHeaderHash: nil,
+				},
+				expectError: true,
 			},
-			expectError: false,
-		},
-	}
+			{
+				name: "no prev header hash for genesis transition",
+				input: &ValidateHeaderInput{
+					BlockNumber:    1,
+					PrevHash:       prevHash,
+					PrevHeaderHash: nil,
+				},
+				expectError: false,
+			},
+		}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
