@@ -264,7 +264,9 @@ func BenchmarkMkInputVrf(b *testing.B) {
 		slot := int64(1000)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = MkInputVrf(slot, eta0)
+			if _, err := MkInputVrf(slot, eta0); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 
@@ -274,7 +276,9 @@ func BenchmarkMkInputVrf(b *testing.B) {
 		slot := int64(140_000_000)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = MkInputVrf(slot, eta0)
+			if _, err := MkInputVrf(slot, eta0); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 
@@ -290,7 +294,9 @@ func BenchmarkMkInputVrf(b *testing.B) {
 		slot := int64(50_000_000)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = MkInputVrf(slot, etas[i])
+			if _, err := MkInputVrf(slot, etas[i]); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }
@@ -377,7 +383,10 @@ func BenchmarkLeaderElectionWorkflow(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			// Create VRF input for this slot
-			vrfInput := MkInputVrf(slot, eta0)
+			vrfInput, err := MkInputVrf(slot, eta0)
+			if err != nil {
+				b.Fatal(err)
+			}
 
 			// Generate proof (stake pool operator would do this)
 			proof, _, err := Prove(benchSK, vrfInput)
@@ -399,7 +408,10 @@ func BenchmarkLeaderElectionWorkflow(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			slot := baseSlot + int64(i)
-			vrfInput := MkInputVrf(slot, eta0)
+			vrfInput, err := MkInputVrf(slot, eta0)
+			if err != nil {
+				b.Fatal(err)
+			}
 
 			proof, _, err := Prove(benchSK, vrfInput)
 			if err != nil {

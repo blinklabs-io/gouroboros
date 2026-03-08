@@ -365,7 +365,10 @@ func BenchmarkBlockVRFVerification(b *testing.B) {
 	for _, vd := range vrfDataList {
 		b.Run("Era_"+vd.name, func(b *testing.B) {
 			// Pre-compute the VRF input message
-			vrfMsg := vrf.MkInputVrf(int64(vd.slot), eta0)
+			vrfMsg, err := vrf.MkInputVrf(int64(vd.slot), eta0)
+			if err != nil {
+				b.Fatalf("VRF input creation failed: %v", err)
+			}
 
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -550,7 +553,9 @@ func BenchmarkMkInputVrf(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = vrf.MkInputVrf(slot, eta0)
+				if _, err := vrf.MkInputVrf(slot, eta0); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}

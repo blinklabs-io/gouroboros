@@ -340,10 +340,14 @@ func ComputeVRFInput(slot uint64, epochNonce []byte) []byte {
 	if slot > math.MaxInt64 {
 		return nil
 	}
-	return vrf.MkInputVrf(
+	vrfInput, err := vrf.MkInputVrf(
 		int64(slot),
 		epochNonce,
 	) //nolint:gosec // G115: validated above
+	if err != nil {
+		return nil
+	}
+	return vrfInput
 }
 
 // Errors for block construction

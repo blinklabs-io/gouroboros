@@ -246,10 +246,17 @@ func (v *HeaderValidator) validateVRFProof(
 
 	// Compute VRF input message
 	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
-	vrfInput := vrf.MkInputVrf(
+	vrfInput, err := vrf.MkInputVrf(
 		int64(input.Slot), //nolint:gosec
 		input.EpochNonce,
 	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid VRF input parameters at slot %d: %w",
+			input.Slot,
+			err,
+		)
+	}
 
 	// Verify VRF proof
 	valid, err := vrf.Verify(
