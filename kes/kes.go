@@ -23,8 +23,8 @@
 package kes
 
 import (
-	"bytes"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"math"
@@ -128,7 +128,7 @@ func (s SumXKesSig) Verify(
 	}
 
 	pk2 := HashPair(s.LeftHandSidePublicKey, s.RightHandSidePublicKey)
-	if !bytes.Equal(pk2, pubKey) {
+	if subtle.ConstantTimeCompare(pk2, pubKey) != 1 {
 		return false
 	}
 
