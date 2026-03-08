@@ -571,7 +571,7 @@ func validityRangeInfo(
 func withdrawalsInfo(
 	withdrawals map[*lcommon.Address]*big.Int,
 ) KeyValuePairs[*lcommon.Address, *big.Int] {
-	var ret KeyValuePairs[*lcommon.Address, *big.Int]
+	ret := make(KeyValuePairs[*lcommon.Address, *big.Int], 0, len(withdrawals))
 	for addr, amt := range withdrawals {
 		ret = append(
 			ret,
@@ -694,7 +694,7 @@ func signatoriesInfo(
 func votingInfo(
 	votingProcedures lcommon.VotingProcedures,
 ) KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]] {
-	var ret KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]]
+	ret := make(KeyValuePairs[*lcommon.Voter, KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure]], 0, len(votingProcedures))
 	for voter, voterData := range votingProcedures {
 		voterPairs := make(
 			KeyValuePairs[*lcommon.GovActionId, lcommon.VotingProcedure],
