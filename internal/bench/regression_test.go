@@ -350,9 +350,11 @@ func TestRegressionVRF(t *testing.T) {
 	})
 
 	t.Run("MkInputVrf", func(t *testing.T) {
+		var lastErr error
 		allocs := testing.AllocsPerRun(100, func() {
-			_, _ = vrf.MkInputVrf(50_000_000, vrfEpochNonce)
+			_, lastErr = vrf.MkInputVrf(50_000_000, vrfEpochNonce)
 		})
+		require.NoError(t, lastErr)
 		limit := 5.0 * multiplier // Baseline: 4 allocs
 		require.LessOrEqualf(t, allocs, limit,
 			"VRF MkInputVrf: %.0f allocs exceeds limit %.0f", allocs, limit)
