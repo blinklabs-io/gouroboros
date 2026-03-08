@@ -367,7 +367,10 @@ func TestProfileVRF(t *testing.T) {
 		slot := int64(50_000_000)
 
 		for i := 0; i < profileIterations; i++ {
-			_ = vrf.MkInputVrf(slot, eta0)
+			_, err := vrf.MkInputVrf(slot, eta0)
+			if err != nil {
+				t.Fatalf("VRF MkInputVrf failed: %v", err)
+			}
 		}
 	})
 
@@ -379,7 +382,10 @@ func TestProfileVRF(t *testing.T) {
 
 		for i := 0; i < profileIterations; i++ {
 			slot := int64(50_000_000 + i)
-			vrfInput := vrf.MkInputVrf(slot, eta0)
+			vrfInput, err := vrf.MkInputVrf(slot, eta0)
+			if err != nil {
+				t.Fatalf("VRF MkInputVrf failed: %v", err)
+			}
 
 			proof, _, err := vrf.Prove(sk, vrfInput)
 			if err != nil {
@@ -416,7 +422,10 @@ func TestProfileConsensus(t *testing.T) {
 
 		for i := 0; i < profileIterations; i++ {
 			slot := int64(100_000_000 + i)
-			vrfInput := vrf.MkInputVrf(slot, eta0)
+			vrfInput, err := vrf.MkInputVrf(slot, eta0)
+			if err != nil {
+				t.Fatalf("VRF MkInputVrf failed: %v", err)
+			}
 
 			_, hash, err := vrf.Prove(sk, vrfInput)
 			if err != nil {

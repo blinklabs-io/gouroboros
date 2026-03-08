@@ -223,7 +223,11 @@ func vrfProveOnce() any {
 
 // vrfMkInputVrfOnce performs a single VRF input creation.
 func vrfMkInputVrfOnce() any {
-	return vrf.MkInputVrf(50_000_000, vrfEpochNonce)
+	vrfInput, err := vrf.MkInputVrf(50_000_000, vrfEpochNonce)
+	if err != nil {
+		panic("VRF input creation failed: " + err.Error())
+	}
+	return vrfInput
 }
 
 // kesVerifyOnce performs a single KES signature verification.
@@ -347,7 +351,7 @@ func TestRegressionVRF(t *testing.T) {
 
 	t.Run("MkInputVrf", func(t *testing.T) {
 		allocs := testing.AllocsPerRun(100, func() {
-			_ = vrf.MkInputVrf(50_000_000, vrfEpochNonce)
+			_, _ = vrf.MkInputVrf(50_000_000, vrfEpochNonce)
 		})
 		limit := 5.0 * multiplier // Baseline: 4 allocs
 		require.LessOrEqualf(t, allocs, limit,

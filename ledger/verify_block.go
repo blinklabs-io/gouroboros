@@ -290,9 +290,21 @@ func VerifyBlock(
 	}
 	var vrfMsg []byte
 	if isTPraos {
-		vrfMsg = vrf.MkSeedTPraos(int64(slot), eta0, vrf.SeedL())
+		vrfMsg, err = vrf.MkSeedTPraos(int64(slot), eta0, vrf.SeedL())
 	} else {
-		vrfMsg = vrf.MkInputVrf(int64(slot), eta0)
+		vrfMsg, err = vrf.MkInputVrf(int64(slot), eta0)
+	}
+	if err != nil {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"invalid VRF input parameters",
+			map[string]any{
+				"slot":         slot,
+				"block_number": blockNo,
+				"era":          era,
+			},
+			err,
+		)
 	}
 	vrfValid, err = vrf.Verify(
 		vrfKey,

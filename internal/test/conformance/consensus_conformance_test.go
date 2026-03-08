@@ -327,7 +327,10 @@ func TestVRFInputGeneration(t *testing.T) {
 		eta0[i] = byte(i)
 	}
 
-	input := vrf.MkInputVrf(slot, eta0)
+	input, err := vrf.MkInputVrf(slot, eta0)
+	if err != nil {
+		t.Fatalf("MkInputVrf failed: %v", err)
+	}
 
 	// Input should be 32 bytes (blake2b-256 output)
 	if len(input) != 32 {
@@ -335,13 +338,19 @@ func TestVRFInputGeneration(t *testing.T) {
 	}
 
 	// Input should be deterministic
-	input2 := vrf.MkInputVrf(slot, eta0)
+	input2, err := vrf.MkInputVrf(slot, eta0)
+	if err != nil {
+		t.Fatalf("MkInputVrf failed: %v", err)
+	}
 	if hex.EncodeToString(input) != hex.EncodeToString(input2) {
 		t.Error("VRF input should be deterministic")
 	}
 
 	// Different slot should produce different input
-	input3 := vrf.MkInputVrf(slot+1, eta0)
+	input3, err := vrf.MkInputVrf(slot+1, eta0)
+	if err != nil {
+		t.Fatalf("MkInputVrf failed: %v", err)
+	}
 	if hex.EncodeToString(input) == hex.EncodeToString(input3) {
 		t.Error("different slot should produce different VRF input")
 	}
@@ -351,7 +360,10 @@ func TestVRFInputGeneration(t *testing.T) {
 	for i := range eta1 {
 		eta1[i] = byte(i + 1)
 	}
-	input4 := vrf.MkInputVrf(slot, eta1)
+	input4, err := vrf.MkInputVrf(slot, eta1)
+	if err != nil {
+		t.Fatalf("MkInputVrf failed: %v", err)
+	}
 	if hex.EncodeToString(input) == hex.EncodeToString(input4) {
 		t.Error("different nonce should produce different VRF input")
 	}

@@ -148,21 +148,48 @@ func TestMkInputVrf(t *testing.T) {
 		eta0[i] = byte(i)
 	}
 
-	input := MkInputVrf(slot, eta0)
+	input, err := MkInputVrf(slot, eta0)
+	if err != nil {
+		t.Fatalf("MkInputVrf failed: %v", err)
+	}
 	if len(input) != 32 {
 		t.Errorf("expected 32-byte input, got %d", len(input))
 	}
 
 	// Same inputs should produce same output
-	input2 := MkInputVrf(slot, eta0)
+	input2, err := MkInputVrf(slot, eta0)
+	if err != nil {
+		t.Fatalf("MkInputVrf failed: %v", err)
+	}
 	if !bytes.Equal(input, input2) {
 		t.Error("MkInputVrf not deterministic")
 	}
 
 	// Different slot should produce different output
-	input3 := MkInputVrf(slot+1, eta0)
+	input3, err := MkInputVrf(slot+1, eta0)
+	if err != nil {
+		t.Fatalf("MkInputVrf failed: %v", err)
+	}
 	if bytes.Equal(input, input3) {
 		t.Error("expected different outputs for different slots")
+	}
+}
+
+func TestMkInputVrfInvalidEta0Length(t *testing.T) {
+	tests := []struct {
+		name string
+		eta0 []byte
+	}{
+		{name: "ZeroLength", eta0: []byte{}},
+		{name: "Short", eta0: make([]byte, 31)},
+		{name: "Oversized", eta0: make([]byte, 33)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := MkInputVrf(12345, tc.eta0)
+			assert.Error(t, err)
+		})
 	}
 }
 
@@ -176,20 +203,25 @@ func TestMkSeedTPraos(t *testing.T) {
 	// MkSeedTPraos with zero seed constant should equal MkInputVrf
 	// (XOR with zero is identity)
 	zeroSeed := make([]byte, 32)
-	tpraosWithZero := MkSeedTPraos(slot, eta0, zeroSeed)
-	praos := MkInputVrf(slot, eta0)
+	tpraosWithZero, err := MkSeedTPraos(slot, eta0, zeroSeed)
+	assert.NoError(t, err)
+	praos, err := MkInputVrf(slot, eta0)
+	assert.NoError(t, err)
 	assert.Equal(t, praos, tpraosWithZero, "MkSeedTPraos with zero seed should equal MkInputVrf")
 
 	// MkSeedTPraos with SeedEta should differ from MkInputVrf
-	tpraosSeed := MkSeedTPraos(slot, eta0, SeedEta())
+	tpraosSeed, err := MkSeedTPraos(slot, eta0, SeedEta())
+	assert.NoError(t, err)
 	assert.NotEqual(t, praos, tpraosSeed, "TPraos seed should differ from CPraos input")
 
 	// MkSeedTPraos should be deterministic
-	tpraosSeed2 := MkSeedTPraos(slot, eta0, SeedEta())
+	tpraosSeed2, err := MkSeedTPraos(slot, eta0, SeedEta())
+	assert.NoError(t, err)
 	assert.Equal(t, tpraosSeed, tpraosSeed2, "MkSeedTPraos not deterministic")
 
 	// Different seed constants should produce different results
-	tpraosL := MkSeedTPraos(slot, eta0, SeedL())
+	tpraosL, err := MkSeedTPraos(slot, eta0, SeedL())
+	assert.NoError(t, err)
 	assert.NotEqual(t, tpraosSeed, tpraosL, "SeedEta and SeedL should produce different results")
 
 	// Verify SeedEta is blake2b-256 of uint64be(0)
