@@ -219,26 +219,43 @@ func TestValidatePrevHash(t *testing.T) {
 		name        string
 		input       *ValidateHeaderInput
 		expectError bool
+		expectedMsg string
 	}{
 		{
 			name: "matching prev hash",
 			input: &ValidateHeaderInput{
-				PrevHash:       prevHash,
-				PrevHeaderHash: prevHash,
+				BlockNumber:     2,
+				PrevBlockNumber: 1,
+				PrevHash:        prevHash,
+				PrevHeaderHash:  prevHash,
 			},
 			expectError: false,
 		},
 		{
 			name: "mismatched prev hash",
 			input: &ValidateHeaderInput{
-				PrevHash:       prevHash,
-				PrevHeaderHash: make([]byte, 32),
+				BlockNumber:     2,
+				PrevBlockNumber: 1,
+				PrevHash:        prevHash,
+				PrevHeaderHash:  make([]byte, 32),
 			},
 			expectError: true,
 		},
 		{
-			name: "no prev header hash (genesis)",
+			name: "missing prev header hash for non-genesis block",
 			input: &ValidateHeaderInput{
+				BlockNumber:     2,
+				PrevBlockNumber: 1,
+				PrevHash:        prevHash,
+				PrevHeaderHash:  nil,
+			},
+			expectError: true,
+			expectedMsg: "previous header hash is required for non-genesis blocks",
+		},
+		{
+			name: "no prev header hash for genesis transition",
+			input: &ValidateHeaderInput{
+				BlockNumber:    1,
 				PrevHash:       prevHash,
 				PrevHeaderHash: nil,
 			},
@@ -249,11 +266,14 @@ func TestValidatePrevHash(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validator.validatePrevHash(tc.input)
-			if tc.expectError && err == nil {
-				t.Error("expected error but got nil")
-			}
-			if !tc.expectError && err != nil {
-				t.Errorf("expected no error but got: %v", err)
+			if tc.expectError {
+				if tc.expectedMsg != "" {
+					require.EqualError(t, err, tc.expectedMsg)
+				} else {
+					require.Error(t, err)
+				}
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
