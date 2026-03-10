@@ -37,7 +37,6 @@ This release includes block and VRF validation updates, ChainSync decoding corre
 - Updated the benchmark CI workflow to use `actions/download-artifact@v8.0.0` (from `v4.3.0`).
 - Updated `RELEASE_NOTES.md` to include the `v0.160.0` entry.
 
-
 ## v0.160.0 - protocol flow control and validation fixes
 
 - **Date:** 2026-03-03
