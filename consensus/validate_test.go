@@ -149,24 +149,37 @@ func TestValidatePrevHash(t *testing.T) {
 		hash[i] = byte(i)
 	}
 
-	// Valid: hashes match
+	// Invalid: non-genesis block without previous header hash
 	input := &ValidateHeaderInput{
 		PrevHash:       hash,
-		PrevHeaderHash: hash,
+		PrevHeaderHash: nil,
+		BlockNumber:    1,
 	}
 	err := validator.validatePrevHash(input)
+	if err == nil {
+		t.Error("expected error for missing previous header hash on non-genesis block")
+	}
+
+	// Valid: non-genesis block with matching previous header hash
+	input = &ValidateHeaderInput{
+		PrevHash:       hash,
+		PrevHeaderHash: hash,
+		BlockNumber:    1,
+	}
+	err = validator.validatePrevHash(input)
 	if err != nil {
 		t.Errorf("expected no error for matching hashes, got %v", err)
 	}
 
-	// Valid: no previous hash to check (empty expected)
+	// Valid: genesis block without previous header hash
 	input = &ValidateHeaderInput{
 		PrevHash:       hash,
 		PrevHeaderHash: nil,
+		BlockNumber:    0,
 	}
 	err = validator.validatePrevHash(input)
 	if err != nil {
-		t.Errorf("expected no error when no expected hash, got %v", err)
+		t.Errorf("expected no error for genesis block without prev hash, got %v", err)
 	}
 
 	// Invalid: hashes don't match
@@ -175,6 +188,7 @@ func TestValidatePrevHash(t *testing.T) {
 	input = &ValidateHeaderInput{
 		PrevHash:       hash,
 		PrevHeaderHash: wrongHash,
+		BlockNumber:    1,
 	}
 	err = validator.validatePrevHash(input)
 	if err == nil {
