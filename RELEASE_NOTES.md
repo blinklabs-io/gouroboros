@@ -16,7 +16,7 @@ This release includes block and VRF validation updates, ChainSync decoding corre
 ### Breaking Changes
 
 - Enforced Byron non-genesis header linkage by requiring `PrevHeaderHash` where applicable and updating consensus `prev-hash` validation tests.
-- Updated VRF input helpers to return `error` instead of panicking, and updated callers, tests, and benchmarks to propagate errors.
+- Updated VRF input helpers to return `error` instead of panicking, and updated callers, tests, and benchmarks to propagate failures.
 
 ### Bug Fixes
 
