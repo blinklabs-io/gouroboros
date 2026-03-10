@@ -149,51 +149,43 @@ func TestValidatePrevHash(t *testing.T) {
 		hash[i] = byte(i)
 	}
 
-	// Invalid: non-genesis block without previous header hash
+	// Valid: hashes match
 	input := &ValidateHeaderInput{
-		PrevHash:       hash,
-		PrevHeaderHash: nil,
-		BlockNumber:    1,
-	}
-	err := validator.validatePrevHash(input)
-	if err == nil {
-		t.Error("expected error for missing previous header hash on non-genesis block")
-	}
-
-	// Valid: non-genesis block with matching previous header hash
-	input = &ValidateHeaderInput{
+		BlockNumber:    2,
 		PrevHash:       hash,
 		PrevHeaderHash: hash,
-		BlockNumber:    1,
 	}
-	err = validator.validatePrevHash(input)
-	if err != nil {
-		t.Errorf("expected no error for matching hashes, got %v", err)
-	}
+	err := validator.validatePrevHash(input)
+	require.NoError(t, err)
 
-	// Valid: genesis block without previous header hash
+	// Invalid: missing previous hash for non-genesis blocks
 	input = &ValidateHeaderInput{
+		BlockNumber:    1,
 		PrevHash:       hash,
 		PrevHeaderHash: nil,
-		BlockNumber:    0,
 	}
 	err = validator.validatePrevHash(input)
-	if err != nil {
-		t.Errorf("expected no error for genesis block without prev hash, got %v", err)
+	require.EqualError(t, err, "previous header hash is required for non-genesis blocks")
+
+	// Valid: genesis block may omit previous hash
+	input = &ValidateHeaderInput{
+		BlockNumber:    0,
+		PrevHash:       hash,
+		PrevHeaderHash: nil,
 	}
+	err = validator.validatePrevHash(input)
+	require.NoError(t, err)
 
 	// Invalid: hashes don't match
 	wrongHash := make([]byte, 32)
 	wrongHash[0] = 0xFF
 	input = &ValidateHeaderInput{
+		BlockNumber:    2,
 		PrevHash:       hash,
 		PrevHeaderHash: wrongHash,
-		BlockNumber:    1,
 	}
 	err = validator.validatePrevHash(input)
-	if err == nil {
-		t.Error("expected error for mismatched hashes")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateKESPeriod(t *testing.T) {
