@@ -15,23 +15,23 @@ This release includes bug fixes and minor refinements.
 
 {
   "Additional Changes": [
-    "- Updated CI workflow dependencies to a newer major version for artifact downloads in benchmarks. The benchmark workflow now uses `actions/download-artifact@v8.0.0` instead of `v4.3.0`.",
-    "- Updated the release notes file to include an entry for the `v0.160.0` release. `RELEASE_NOTES.md` now contains the `v0.160.0` release notes entry."
+    "- Updated the benchmark CI workflow to use `actions/download-artifact@v8.0.0` (from `v4.3.0`).",
+    "- Updated `RELEASE_NOTES.md` to include the `v0.160.0` entry."
   ],
   "Breaking Changes": [
-    "- Enforced stricter requirements for validating block headers so non-genesis blocks must include the expected linkage to the previous block. The Byron header validator now requires an explicit `PrevHeaderHash` for non-genesis headers, treats `prev-header` fields as optional only where appropriate, and updates consensus `prev-hash` validation tests and style to match the final rules.",
-    "- Changed VRF input utilities to return errors instead of terminating execution so invalid inputs can be handled predictably. The VRF input helper functions now return `error` rather than panicking, and all callers, tests, and benchmarks were updated to propagate and assert VRF input errors."
+    "- Enforced Byron non-genesis header linkage by requiring `PrevHeaderHash` where applicable and updating consensus `prev-hash` validation tests.",
+    "- Changed VRF input helpers to return `error` instead of panicking, and updated callers, tests, and benchmarks to propagate failures."
   ],
   "Bug Fixes": [
-    "- Fixed a potential execution-units overflow scenario and ensured it remains covered by automated tests. Regression tests were added for Alonzo, Babbage, and Conway UTxO `ExUnits` validation to confirm overflow cases are rejected correctly.",
-    "- Fixed CBOR decoding behavior to reject invalid tag payload types during chain sync unmarshalling. Chainsync unmarshalling now enforces strict `[]byte` type checks for CBOR tag content, and tests were added to verify invalid types are rejected."
+    "- Fixed an execution-unit overflow edge case and added regression tests for Alonzo, Babbage, and Conway UTxO `ExUnits` validation.",
+    "- Fixed ChainSync unmarshalling to reject CBOR tag payloads that are not `[]byte`, with tests covering invalid types."
   ],
   "Performance": [
-    "- Improved allocation efficiency in internal helpers to reduce avoidable memory growth during key-value construction. Two helper functions now preallocate `KeyValuePairs` slices based on input sizes to reduce reallocations."
+    "- Improved allocation efficiency by preallocating `KeyValuePairs` slices based on input sizes in two internal helpers."
   ],
   "Security": [
-    "- Improved cryptographic verification to avoid timing side channels when comparing public keys. `SumXKesSig.Verify` now uses constant-time comparison for public key equality.",
-    "- Reduced information exposure in a connection refusal message so it does not reveal implementation details. The network magic mismatch refusal message was sanitized, and a test was added to ensure no struct details are leaked."
+    "- Improved `SumXKesSig.Verify` to use constant-time comparison for public key equality.",
+    "- Reduced information exposure by sanitizing the network magic mismatch refusal message and adding a regression test."
   ]
 }
 
