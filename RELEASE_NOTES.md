@@ -4,36 +4,38 @@ title: Release notes
 
 # Release notes
 
-## v0.160.1 - bug fixes
+## v0.160.1 - validation and security updates
 
 - **Date:** 2026-03-10
 - **Version:** 0.160.1
 
 ### Summary
 
-This release includes bug fixes and minor refinements.
+This release includes block and VRF validation updates, ChainSync decoding corrections, and security and CI refinements.
 
-{
-  "Additional Changes": [
-    "- Updated the benchmark CI workflow to use `actions/download-artifact@v8.0.0` (from `v4.3.0`).",
-    "- Updated `RELEASE_NOTES.md` to include the `v0.160.0` entry."
-  ],
-  "Breaking Changes": [
-    "- Enforced Byron non-genesis header linkage by requiring `PrevHeaderHash` where applicable and updating consensus `prev-hash` validation tests.",
-    "- Changed VRF input helpers to return `error` instead of panicking, and updated callers, tests, and benchmarks to propagate failures."
-  ],
-  "Bug Fixes": [
-    "- Fixed an execution-unit overflow edge case and added regression tests for Alonzo, Babbage, and Conway UTxO `ExUnits` validation.",
-    "- Fixed ChainSync unmarshalling to reject CBOR tag payloads that are not `[]byte`, with tests covering invalid types."
-  ],
-  "Performance": [
-    "- Improved allocation efficiency by preallocating `KeyValuePairs` slices based on input sizes in two internal helpers."
-  ],
-  "Security": [
-    "- Improved `SumXKesSig.Verify` to use constant-time comparison for public key equality.",
-    "- Reduced information exposure by sanitizing the network magic mismatch refusal message and adding a regression test."
-  ]
-}
+### Breaking Changes
+
+- Enforced Byron non-genesis header linkage by requiring `PrevHeaderHash` where applicable and updating consensus `prev-hash` validation tests.
+- Updated VRF input helpers to return `error` instead of panicking, and updated callers, tests, and benchmarks to propagate errors.
+
+### Bug Fixes
+
+- Fixed an execution-unit overflow edge case and added regression tests for Alonzo, Babbage, and Conway UTxO `ExUnits` validation.
+- Fixed ChainSync unmarshalling to reject CBOR tag payloads that are not `[]byte`, with tests covering invalid types.
+
+### Performance
+
+- Improved allocation efficiency by preallocating `KeyValuePairs` slices based on input sizes in two internal helpers.
+
+### Security
+
+- Improved `SumXKesSig.Verify` to use constant-time comparison for public key equality.
+- Updated the network magic mismatch refusal message to avoid exposing implementation details, and added a regression test.
+
+### Additional Changes
+
+- Updated the benchmark CI workflow to use `actions/download-artifact@v8.0.0` (from `v4.3.0`).
+- Updated `RELEASE_NOTES.md` to include the `v0.160.0` entry.
 
 
 ## v0.160.0 - protocol flow control and validation fixes
