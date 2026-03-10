@@ -245,7 +245,10 @@ func TestValidateVRFProof(t *testing.T) {
 	}
 
 	slot := uint64(1000)
-	vrfInput := vrf.MkInputVrf(int64(slot), epochNonce)
+	vrfInput, err := vrf.MkInputVrf(int64(slot), epochNonce)
+	if err != nil {
+		t.Fatalf("vrf.MkInputVrf failed: %v", err)
+	}
 	proof, output, err := vrf.Prove(sk, vrfInput)
 	if err != nil {
 		t.Fatalf("vrf.Prove failed: %v", err)
@@ -462,7 +465,10 @@ func TestValidateHeaderFull(t *testing.T) {
 
 	// Use slot 0 (period 0) to match the key period
 	slot := uint64(0)
-	vrfInput := vrf.MkInputVrf(int64(slot), epochNonce)
+	vrfInput, err := vrf.MkInputVrf(int64(slot), epochNonce)
+	if err != nil {
+		t.Fatalf("vrf.MkInputVrf failed: %v", err)
+	}
 	vrfProof, vrfOutput, err := vrf.Prove(vrfSk, vrfInput)
 	if err != nil {
 		t.Fatalf("vrf.Prove failed: %v", err)

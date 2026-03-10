@@ -125,20 +125,24 @@ func IsSlotLeaderWithMode(
 		)
 	}
 	var vrfInput []byte
+	var err error
 	switch mode {
 	case ConsensusModeTPraos:
-		vrfInput = vrf.MkSeedTPraos(
+		vrfInput, err = vrf.MkSeedTPraos(
 			int64(slot), //nolint:gosec
 			epochNonce,
 			vrf.SeedL(),
 		)
 	case ConsensusModeCPraos:
-		vrfInput = vrf.MkInputVrf(
+		vrfInput, err = vrf.MkInputVrf(
 			int64(slot), //nolint:gosec
 			epochNonce,
 		)
 	default:
 		return nil, fmt.Errorf("unknown consensus mode: %d", mode)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VRF input: %w", err)
 	}
 
 	// Step 2: Generate VRF proof
