@@ -23,6 +23,7 @@ package common
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
@@ -166,7 +167,7 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	if w == nil || len(w.Vkey()) == 0 {
 		return MissingVKeyWitnessesError{}
 	}
-	vkeyHashes := make(map[Blake2b224]struct{})
+	vkeyHashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
 	for _, vw := range w.Vkey() {
 		vkeyHashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
 	}
@@ -542,26 +543,31 @@ func EncodeLangViews(
 	views := make([]langView, 0, len(usedVersions))
 
 	for version := range usedVersions {
-		costModel, ok := costModels[version]
-		if !ok {
-			continue // Will be caught by cost model validation
+		switch version {
+		case 0, 1, 2:
+		default:
+			return nil, fmt.Errorf(
+				"unsupported Plutus version for lang views: %d",
+				version,
+			)
 		}
 
-		var tag, params []byte
+		costModel, ok := costModels[version]
+		if !ok {
+			return nil, fmt.Errorf(
+				"missing cost model for Plutus version: %d",
+				version,
+			)
+		}
+
+		var tag []byte
+		var params []byte
 		var err error
 
 		switch version {
 		case 0: // PlutusV1
-			// Tag is double-serialized: serialize(serialize(0))
-			// This encodes 0 -> 0x00, then wraps in bytestring -> 0x4100
-			innerTag, innerErr := cbor.Encode(uint64(0))
-			if innerErr != nil {
-				return nil, innerErr
-			}
-			tag, err = cbor.Encode(innerTag)
-			if err != nil {
-				return nil, err
-			}
+			// Tag is double-serialized: serialize(serialize(0)) => 0x4100.
+			tag = []byte{0x41, 0x00}
 			// Cost model uses indefinite-length list, wrapped in a bytestring
 			// This is the "double bagging" for PlutusV1 compatibility
 			indefList := make(cbor.IndefLengthList, len(costModel))
@@ -579,11 +585,8 @@ func EncodeLangViews(
 			}
 
 		case 1, 2: // PlutusV2, PlutusV3
-			// Tag is single-serialized
-			tag, err = cbor.Encode(uint64(version))
-			if err != nil {
-				return nil, err
-			}
+			// Tags are single-byte CBOR encodings for small unsigned ints.
+			tag = []byte{byte(version)}
 			// Cost model uses definite-length list (no bytestring wrapper)
 			params, err = cbor.Encode(costModel)
 			if err != nil {
@@ -595,16 +598,17 @@ func EncodeLangViews(
 	}
 
 	// Sort by "shortLex" order (length first, then lexicographic)
-	for i := 0; i < len(views); i++ {
-		for j := i + 1; j < len(views); j++ {
-			if ShortLex(views[i].tag, views[j].tag) > 0 {
-				views[i], views[j] = views[j], views[i]
-			}
-		}
+	sort.Slice(views, func(i, j int) bool {
+		return ShortLex(views[i].tag, views[j].tag) < 0
+	})
+
+	totalSize := 1
+	for _, v := range views {
+		totalSize += len(v.tag) + len(v.params)
 	}
 
 	// Encode as a map with map length prefix
-	result := make([]byte, 0, 128)
+	result := make([]byte, 0, totalSize)
 	// Encode map length (definite-length map)
 	if len(views) < 24 {
 		result = append(result, 0xa0+byte(len(views))) //nolint:gosec // len < 24

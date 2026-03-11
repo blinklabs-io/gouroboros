@@ -18,11 +18,13 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/require"
 )
 
 // mockTxEmpty implements the minimal Transaction interface used by the
@@ -61,6 +63,65 @@ func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
 	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestEncodeLangViews(t *testing.T) {
+	t.Run("encodes_versions_in_shortlex_order", func(t *testing.T) {
+		usedVersions := map[uint]struct{}{
+			2: {},
+			0: {},
+			1: {},
+		}
+		costModels := map[uint][]int64{
+			0: {10, 11},
+			1: {20, 21},
+			2: {30, 31},
+		}
+
+		got, err := common.EncodeLangViews(usedVersions, costModels)
+		require.NoError(t, err)
+
+		v1List, err := cbor.Encode(cbor.IndefLengthList{int64(10), int64(11)})
+		require.NoError(t, err)
+		v1Params, err := cbor.Encode(v1List)
+		require.NoError(t, err)
+		v2Params, err := cbor.Encode([]int64{20, 21})
+		require.NoError(t, err)
+		v3Params, err := cbor.Encode([]int64{30, 31})
+		require.NoError(t, err)
+
+		want := append([]byte{0xa3, 0x01}, v2Params...)
+		want = append(want, 0x02)
+		want = append(want, v3Params...)
+		want = append(want, 0x41, 0x00)
+		want = append(want, v1Params...)
+
+		require.Equal(t, want, got)
+	})
+
+	t.Run("rejects_unsupported_versions", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{3: {}},
+			map[uint][]int64{3: {1}},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("rejects_unsupported_versions_without_cost_model", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{3: {}},
+			map[uint][]int64{},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("rejects_missing_cost_model_for_supported_version", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{2: {}},
+			map[uint][]int64{},
+		)
+		require.Error(t, err)
+	})
 }
 
 // Tests for VerifyTransaction moved from verify_rules_test.go
