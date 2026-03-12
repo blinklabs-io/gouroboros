@@ -34,6 +34,7 @@ const (
 // Client implements the TxSubmission client
 type Client struct {
 	*protocol.Protocol
+	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
@@ -80,11 +81,20 @@ func (c *Client) initProtocol() {
 		StateMap:            stateMap,
 		InitialState:        stateInit,
 	}
-	c.Protocol = protocol.New(protoConfig)
+	p := protocol.New(protoConfig)
+	c.protocolMu.Lock()
+	c.Protocol = p
+	c.protocolMu.Unlock()
 	c.callbackContext.DoneChan = c.DoneChan()
 	// Reset state so Init() can be called again after restart
 	c.initSent = false
 	c.protoStarted = false
+}
+
+func (c *Client) ProtocolInstance() *protocol.Protocol {
+	c.protocolMu.RLock()
+	defer c.protocolMu.RUnlock()
+	return c.Protocol
 }
 
 // Start begins the TxSubmission client protocol. Safe to call multiple times.

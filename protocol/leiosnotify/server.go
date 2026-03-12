@@ -17,12 +17,14 @@ package leiosnotify
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 type Server struct {
 	*protocol.Protocol
+	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
@@ -56,7 +58,16 @@ func (s *Server) initProtocol() {
 		StateMap:            StateMap,
 		InitialState:        StateIdle,
 	}
-	s.Protocol = protocol.New(protoConfig)
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	s.Protocol = p
+	s.protocolMu.Unlock()
+}
+
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {

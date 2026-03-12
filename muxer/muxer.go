@@ -197,7 +197,8 @@ func (m *Muxer) RegisterProtocol(
 	}
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
-	receiverChan := &segmentChannel{ch: make(chan *Segment, 10)}
+	receiver := make(chan *Segment, 10)
+	receiverChan := &segmentChannel{ch: receiver}
 	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
@@ -231,7 +232,7 @@ func (m *Muxer) RegisterProtocol(
 			}
 		}
 	}()
-	return senderChan, receiverChan.ch, m.doneChan
+	return senderChan, receiver, m.doneChan
 }
 
 func (m *Muxer) UnregisterProtocol(

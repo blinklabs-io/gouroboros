@@ -40,6 +40,7 @@ const (
 // Client implements the ChainSync client
 type Client struct {
 	*protocol.Protocol
+	protocolMu               sync.RWMutex
 	config                   *Config
 	callbackContext          CallbackContext
 	busyMutex                sync.Mutex
@@ -167,7 +168,16 @@ func (c *Client) initProtocol() {
 	if c.config != nil {
 		protoConfig.RecvQueueSize = c.config.RecvQueueSize
 	}
-	c.Protocol = protocol.New(protoConfig)
+	p := protocol.New(protoConfig)
+	c.protocolMu.Lock()
+	c.Protocol = p
+	c.protocolMu.Unlock()
+}
+
+func (c *Client) ProtocolInstance() *protocol.Protocol {
+	c.protocolMu.RLock()
+	defer c.protocolMu.RUnlock()
+	return c.Protocol
 }
 
 func (c *Client) Start() {
