@@ -15,7 +15,7 @@ This release includes muxer protocol lifecycle synchronization, `EncodeLangViews
 
 ### New Features
 
-- Updated the muxer and connection paths to use synchronized accessors for protocol instances to support thread-safe protocol selection and lifecycle management.
+- Added synchronized accessors for protocol instances in the muxer and connection paths to support thread-safe protocol selection and lifecycle management.
 
 ### Bug Fixes
 
@@ -23,7 +23,7 @@ This release includes muxer protocol lifecycle synchronization, `EncodeLangViews
 
 ### Performance
 
-- Updated `EncodeLangViews` to reduce allocation churn during encode and validate operations.
+- Improved `EncodeLangViews` to reduce allocation churn during encode and validate operations.
 
 ### Additional Changes
 
