@@ -16,16 +16,16 @@ This release includes the following changes.
 ```json
 {
   "Additional Changes": [
-    "Updated the release documentation to include the v0.160.1 release entry with categorized details. RELEASE_NOTES.md now includes a structured v0.160.1 section intended for downstream changelog generation and review."
+    "Updated the release documentation to include the v0.160.1 release entry with categorized details."
   ],
   "Bug Fixes": [
-    "Made language-view encoding more reliable by rejecting invalid inputs earlier and behaving consistently across edge cases. EncodeLangViews now hardens its encoding/validation logic, adds coverage for encoding order and error cases, and reduces allocation overhead to avoid subtle corruption under malformed data."
+    "Made language-view encoding more reliable by rejecting invalid inputs earlier and behaving consistently across edge cases."
   ],
   "New Features": [
-    "Improved protocol handling so concurrent operations are less likely to interfere with each other. The muxer and connection paths now use synchronized accessors for protocol instances to provide thread-safe protocol selection and lifecycle management."
+    "Improved protocol handling so concurrent operations are less likely to interfere with each other."
   ],
   "Performance": [
-    "Reduced memory churn in language-view encoding to improve throughput under load. EncodeLangViews now optimizes allocations during encode/validate operations, which can lower GC pressure when processing many views."
+    "Reduced memory churn in language-view encoding to improve throughput under load."
   ]
 }
 
