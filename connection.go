@@ -284,26 +284,26 @@ func (c *Connection) allProtocolsIdle() bool {
 	protocols := make([]*protocol.Protocol, 0)
 	if c.chainSync != nil {
 		if c.chainSync.Client != nil {
-			protocols = append(protocols, c.chainSync.Client.Protocol)
+			protocols = append(protocols, c.chainSync.Client.ProtocolInstance())
 		}
 		if c.chainSync.Server != nil {
-			protocols = append(protocols, c.chainSync.Server.Protocol)
+			protocols = append(protocols, c.chainSync.Server.ProtocolInstance())
 		}
 	}
 	if c.blockFetch != nil {
 		if c.blockFetch.Client != nil {
-			protocols = append(protocols, c.blockFetch.Client.Protocol)
+			protocols = append(protocols, c.blockFetch.Client.ProtocolInstance())
 		}
 		if c.blockFetch.Server != nil {
-			protocols = append(protocols, c.blockFetch.Server.Protocol)
+			protocols = append(protocols, c.blockFetch.Server.ProtocolInstance())
 		}
 	}
 	if c.txSubmission != nil {
 		if c.txSubmission.Client != nil {
-			protocols = append(protocols, c.txSubmission.Client.Protocol)
+			protocols = append(protocols, c.txSubmission.Client.ProtocolInstance())
 		}
 		if c.txSubmission.Server != nil {
-			protocols = append(protocols, c.txSubmission.Server.Protocol)
+			protocols = append(protocols, c.txSubmission.Server.ProtocolInstance())
 		}
 	}
 	if c.keepAlive != nil {
@@ -343,7 +343,7 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.peerSharing.Client.Protocol)
 		}
 		if c.peerSharing.Server != nil {
-			protocols = append(protocols, c.peerSharing.Server.Protocol)
+			protocols = append(protocols, c.peerSharing.Server.ProtocolInstance())
 		}
 	}
 	if c.leiosNotify != nil {
@@ -351,7 +351,7 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.leiosNotify.Client.Protocol)
 		}
 		if c.leiosNotify.Server != nil {
-			protocols = append(protocols, c.leiosNotify.Server.Protocol)
+			protocols = append(protocols, c.leiosNotify.Server.ProtocolInstance())
 		}
 	}
 	if c.leiosFetch != nil {
@@ -359,7 +359,7 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.leiosFetch.Client.Protocol)
 		}
 		if c.leiosFetch.Server != nil {
-			protocols = append(protocols, c.leiosFetch.Server.Protocol)
+			protocols = append(protocols, c.leiosFetch.Server.ProtocolInstance())
 		}
 	}
 	for _, p := range protocols {

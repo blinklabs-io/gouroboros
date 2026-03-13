@@ -17,6 +17,7 @@ package chainsync
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -26,6 +27,7 @@ import (
 // Server implements the ChainSync server
 type Server struct {
 	*protocol.Protocol
+	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
@@ -104,11 +106,21 @@ func (s *Server) initProtocol() {
 	if s.config != nil {
 		protoConfig.RecvQueueSize = s.config.RecvQueueSize
 	}
-	s.Protocol = protocol.New(protoConfig)
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	s.Protocol = p
+	s.protocolMu.Unlock()
+}
+
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
 }
 
 func (s *Server) RollBackward(point pcommon.Point, tip Tip) error {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RollBackward(point: {Slot: %d, Hash: %x}, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})",
 				point.Slot, point.Hash,
@@ -121,11 +133,12 @@ func (s *Server) RollBackward(point pcommon.Point, tip Tip) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msg := NewMsgRollBackward(point, tip)
-	return s.SendMessage(msg)
+	return p.SendMessage(msg)
 }
 
 func (s *Server) AwaitReply() error {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug("calling AwaitReply()",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -133,11 +146,12 @@ func (s *Server) AwaitReply() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msg := NewMsgAwaitReply()
-	return s.SendMessage(msg)
+	return p.SendMessage(msg)
 }
 
 func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RollForward(blockType: %+x, blockData: %x, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})",
 				blockType,
@@ -150,7 +164,7 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	if s.Mode() == protocol.ProtocolModeNodeToNode {
+	if p.Mode() == protocol.ProtocolModeNodeToNode {
 		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
 		msg, err := NewMsgRollForwardNtN(
 			eraId,
@@ -161,7 +175,7 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 		if err != nil {
 			return fmt.Errorf("failed to create roll forward message: %w", err)
 		}
-		return s.SendMessage(msg)
+		return p.SendMessage(msg)
 	} else {
 		msg, err := NewMsgRollForwardNtC(
 			blockType,
@@ -169,7 +183,7 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 			tip,
 		)
 		if err != nil {
-			s.Protocol.Logger().
+			p.Logger().
 				Error(
 					fmt.Sprintf("failed to create roll forward message: %s", err),
 					"component", "network",
@@ -179,7 +193,7 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 				)
 			return fmt.Errorf("failed to create roll forward message: %w", err)
 		}
-		return s.SendMessage(msg)
+		return p.SendMessage(msg)
 	}
 }
 
@@ -203,8 +217,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleRequestNext() error {
-	if s.Protocol != nil {
-		s.Protocol.Logger().
+	if p := s.ProtocolInstance(); p != nil {
+		p.Logger().
 			Debug("request next",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -221,8 +235,8 @@ func (s *Server) handleRequestNext() error {
 }
 
 func (s *Server) handleFindIntersect(msg protocol.Message) error {
-	if s.Protocol != nil {
-		s.Protocol.Logger().
+	if p := s.ProtocolInstance(); p != nil {
+		p.Logger().
 			Debug("find intersect",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -258,8 +272,8 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() {
-	if s.Protocol != nil {
-		s.Protocol.Logger().
+	if p := s.ProtocolInstance(); p != nil {
+		p.Logger().
 			Debug("done",
 				"component", "network",
 				"protocol", ProtocolName,
