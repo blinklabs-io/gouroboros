@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes muxer protocol lifecycle synchronization, `EncodeLangViews` correctness hardening, and documentation updates.
+This release includes muxer protocol instance synchronization, `EncodeLangViews` validation hardening, and documentation updates.
 
 ### New Features
 
@@ -23,7 +23,7 @@ This release includes muxer protocol lifecycle synchronization, `EncodeLangViews
 
 ### Performance
 
-- Improved `EncodeLangViews` to reduce allocation churn during encode and validate operations.
+- Improved allocation efficiency in `EncodeLangViews` by reducing allocation churn during encode and validate operations.
 
 ### Additional Changes
 
