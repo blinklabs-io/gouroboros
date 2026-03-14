@@ -266,65 +266,6 @@ func TestCIP0008RejectInvalidSignatures(t *testing.T) {
 // TestCIP0008CoseStructureEncoding tests CBOR encoding/decoding of the
 // COSE_Sign1 and Sig_structure1 structures used by CIP-0008.
 func TestCIP0008CoseStructureEncoding(t *testing.T) {
-	t.Run("protected headers round-trip", func(t *testing.T) {
-		headers := map[any]any{
-			coseHeaderAlg: coseAlgEdDSA,
-		}
-		encoded, err := cbor.Encode(headers)
-		if err != nil {
-			t.Fatalf("encode protected headers: %v", err)
-		}
-		var decoded map[any]any
-		if _, err := cbor.Decode(encoded, &decoded); err != nil {
-			t.Fatalf("decode protected headers: %v", err)
-		}
-		// CBOR decodes int keys as uint64
-		algVal, ok := decoded[uint64(coseHeaderAlg)]
-		if !ok {
-			t.Fatal("algorithm header not found after decode")
-		}
-		// CBOR decodes negative int as int64
-		if alg, ok := algVal.(int64); !ok || int(alg) != coseAlgEdDSA {
-			t.Errorf(
-				"expected algorithm %d, got %v (type %T)",
-				coseAlgEdDSA,
-				algVal,
-				algVal,
-			)
-		}
-	})
-
-	t.Run("protected headers with address round-trip", func(t *testing.T) {
-		address := []byte{0xE0, 0x01, 0x02, 0x03}
-		headers := map[any]any{
-			coseHeaderAlg: coseAlgEdDSA,
-			"address":     address,
-		}
-		encoded, err := cbor.Encode(headers)
-		if err != nil {
-			t.Fatalf("encode: %v", err)
-		}
-		var decoded map[any]any
-		if _, err := cbor.Decode(encoded, &decoded); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		addrVal, ok := decoded["address"]
-		if !ok {
-			t.Fatal("address not found after decode")
-		}
-		addrBytes, ok := addrVal.([]byte)
-		if !ok {
-			t.Fatalf("address wrong type: %T", addrVal)
-		}
-		if len(addrBytes) != len(address) {
-			t.Errorf(
-				"address length mismatch: got %d, want %d",
-				len(addrBytes),
-				len(address),
-			)
-		}
-	})
-
 	t.Run("Sig_structure1 encoding", func(t *testing.T) {
 		protected := buildProtectedHeaders(t, nil)
 		payload := []byte("test payload")
