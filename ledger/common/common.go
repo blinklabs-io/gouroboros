@@ -802,53 +802,118 @@ func ExtractAndSetTransactionCbor(
 	cborData []byte,
 	setBodyCbor func(index int, data []byte),
 	setWitnessCbor func(index int, data []byte),
+	setMetadataCbor func(data []byte),
 	expectedBodies int,
 	expectedWitnesses int,
 ) error {
-	var blockArray []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &blockArray); err != nil {
-		return err
+	blockCount, blockHeaderSize, blockIndefinite := cborArrayInfo(cborData)
+	if blockCount < 0 && !blockIndefinite {
+		return errors.New("failed to decode block array: invalid CBOR array")
 	}
-	if len(blockArray) < 3 {
+	if !blockIndefinite && blockCount < 3 {
 		return nil // Block doesn't have separated components
 	}
 
-	// Extract and store body CBOR
-	var txBodiesRaw []cbor.RawMessage
-	if _, err := cbor.Decode([]byte(blockArray[1]), &txBodiesRaw); err != nil {
+	blockDecoder, err := cbor.NewStreamDecoder(cborData[blockHeaderSize:])
+	if err != nil {
+		return err
+	}
+
+	if _, _, err := blockDecoder.Skip(); err != nil {
+		return fmt.Errorf("failed to skip block header: %w", err)
+	}
+
+	_, txBodiesRaw, err := blockDecoder.DecodeRaw(new(cbor.RawMessage))
+	if err != nil {
 		return fmt.Errorf(
 			"failed to extract transaction bodies from block: %w",
 			err,
 		)
 	}
-	if len(txBodiesRaw) != expectedBodies {
-		return fmt.Errorf(
-			"transaction body count mismatch: expected %d, got %d",
-			expectedBodies, len(txBodiesRaw),
-		)
-	}
-	for i, rawBody := range txBodiesRaw {
-		setBodyCbor(i, []byte(rawBody))
-	}
 
-	// Extract and store witness set CBOR
-	var txWitnessSetsRaw []cbor.RawMessage
-	if _, err := cbor.Decode([]byte(blockArray[2]), &txWitnessSetsRaw); err != nil {
+	_, txWitnessesRaw, err := blockDecoder.DecodeRaw(new(cbor.RawMessage))
+	if err != nil {
 		return fmt.Errorf(
 			"failed to extract transaction witnesses from block: %w",
 			err,
 		)
 	}
-	if len(txWitnessSetsRaw) != expectedWitnesses {
-		return fmt.Errorf(
-			"transaction witness set count mismatch: expected %d, got %d",
-			expectedWitnesses, len(txWitnessSetsRaw),
-		)
-	}
-	for i, rawWitness := range txWitnessSetsRaw {
-		setWitnessCbor(i, []byte(rawWitness))
+
+	if setMetadataCbor != nil && (blockIndefinite || blockCount > 3) {
+		if _, metadataRaw, err := blockDecoder.DecodeRaw(new(cbor.RawMessage)); err == nil {
+			setMetadataCbor(metadataRaw)
+		}
 	}
 
+	if err := setArrayItemCbor(txBodiesRaw, expectedBodies, setBodyCbor); err != nil {
+		return fmt.Errorf(
+			"failed to extract transaction bodies from block: %w",
+			err,
+		)
+	}
+	if err := setArrayItemCbor(
+		txWitnessesRaw,
+		expectedWitnesses,
+		setWitnessCbor,
+	); err != nil {
+		return fmt.Errorf(
+			"failed to extract transaction witnesses from block: %w",
+			err,
+		)
+	}
+
+	return nil
+}
+
+func setArrayItemCbor(
+	arrayData []byte,
+	expectedCount int,
+	setItemCbor func(index int, data []byte),
+) error {
+	itemCount, headerSize, indefinite := cborArrayInfo(arrayData)
+	if itemCount < 0 && !indefinite {
+		return errors.New("invalid CBOR array")
+	}
+	if !indefinite && itemCount != expectedCount {
+		return fmt.Errorf(
+			"item count mismatch: expected %d, got %d",
+			expectedCount,
+			itemCount,
+		)
+	}
+	dec, err := cbor.NewStreamDecoder(arrayData[headerSize:])
+	if err != nil {
+		return err
+	}
+	itemIndex := 0
+	for ; indefinite || itemIndex < itemCount; itemIndex++ {
+		if indefinite {
+			pos := int(headerSize) + dec.Position()
+			if pos >= len(arrayData) || arrayData[pos] == 0xff {
+				break
+			}
+		}
+		itemOffset, itemLen, err := dec.Skip()
+		if err != nil {
+			return err
+		}
+		if itemIndex >= expectedCount {
+			return fmt.Errorf(
+				"item count mismatch: expected %d, got %d",
+				expectedCount,
+				itemIndex+1,
+			)
+		}
+		itemStart := int(headerSize) + itemOffset
+		setItemCbor(itemIndex, arrayData[itemStart:itemStart+itemLen])
+	}
+	if itemIndex != expectedCount {
+		return fmt.Errorf(
+			"item count mismatch: expected %d, got %d",
+			expectedCount,
+			itemIndex,
+		)
+	}
 	return nil
 }
 
