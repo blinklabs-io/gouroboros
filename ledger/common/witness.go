@@ -52,7 +52,7 @@ func ValidateCollateralVKeyWitnesses(
 			nil,
 		)
 	}
-	hashes := make(map[Blake2b224]struct{})
+	hashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
 	for _, vw := range w.Vkey() {
 		hashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
 	}

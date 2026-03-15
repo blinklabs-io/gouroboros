@@ -193,10 +193,13 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	}
 
 	wits := tx.Witnesses()
+	inputs := tx.Inputs()
+	referenceInputs := tx.ReferenceInputs()
 
 	// Collect all script hashes required by script address inputs
-	requiredScriptHashes := make(map[ScriptHash]bool)
-	for _, input := range tx.Inputs() {
+	requiredScriptHashes := make(map[ScriptHash]struct{}, len(inputs))
+	referenceProvided := make(map[ScriptHash]struct{}, len(inputs)+len(referenceInputs))
+	for _, input := range inputs {
 		utxo, err := ls.UtxoById(input)
 		if err != nil {
 			// If we can't resolve the UTxO, we can't validate script witnesses
@@ -214,37 +217,44 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 			// This is a script payment address that needs a script witness.
 			// The script can be provided via the witness set or via ScriptRef
 			// from any input (including the spent UTxO itself or reference inputs).
-			requiredScriptHashes[ScriptHash(paymentScriptHash)] = true
+			requiredScriptHashes[ScriptHash(paymentScriptHash)] = struct{}{}
+		}
+		// Regular (spent) inputs can also provide reference scripts.
+		if script := utxo.Output.ScriptRef(); script != nil {
+			referenceProvided[script.Hash()] = struct{}{}
 		}
 		// Note: Staking script validation is handled separately in delegation rules
 	}
 
 	// Collect explicit provided script witnesses (those carried in the tx)
-	explicitProvided := make(map[ScriptHash]bool)
+	explicitCap := 0
+	if wits != nil {
+		explicitCap += len(wits.NativeScripts())
+		explicitCap += len(wits.PlutusV1Scripts())
+		explicitCap += len(wits.PlutusV2Scripts())
+		explicitCap += len(wits.PlutusV3Scripts())
+	}
+	explicitProvided := make(map[ScriptHash]struct{}, explicitCap)
 	if wits != nil {
 		// Native scripts
 		for _, script := range wits.NativeScripts() {
-			explicitProvided[script.Hash()] = true
+			explicitProvided[script.Hash()] = struct{}{}
 		}
 
 		// Plutus scripts
 		for _, script := range wits.PlutusV1Scripts() {
-			explicitProvided[script.Hash()] = true
+			explicitProvided[script.Hash()] = struct{}{}
 		}
 		for _, script := range wits.PlutusV2Scripts() {
-			explicitProvided[script.Hash()] = true
+			explicitProvided[script.Hash()] = struct{}{}
 		}
 		for _, script := range wits.PlutusV3Scripts() {
-			explicitProvided[script.Hash()] = true
+			explicitProvided[script.Hash()] = struct{}{}
 		}
 	}
 
-	// Collect reference-provided scripts from both reference inputs AND regular inputs
-	// According to CIP-33, scripts can be provided via ScriptRef from any resolved UTxO
-	referenceProvided := make(map[ScriptHash]bool)
-
 	// From reference inputs
-	for _, refInput := range tx.ReferenceInputs() {
+	for _, refInput := range referenceInputs {
 		utxo, err := ls.UtxoById(refInput)
 		if err != nil {
 			// If we can't resolve the reference UTxO deterministically, fail
@@ -254,35 +264,20 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 			continue
 		}
 		if script := utxo.Output.ScriptRef(); script != nil {
-			referenceProvided[script.Hash()] = true
-		}
-	}
-
-	// From regular (spent) inputs - their ScriptRef can also satisfy script requirements
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// If we can't resolve the UTxO, skip - BadInputsUtxo will catch this
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		if script := utxo.Output.ScriptRef(); script != nil {
-			referenceProvided[script.Hash()] = true
+			referenceProvided[script.Hash()] = struct{}{}
 		}
 	}
 
 	// Collect script hashes required by minting policies
 	if mint := tx.AssetMint(); mint != nil {
 		for policy := range mint.data {
-			requiredScriptHashes[ScriptHash(policy)] = true
+			requiredScriptHashes[ScriptHash(policy)] = struct{}{}
 		}
 	}
 
 	// Track scripts that are optional (allowed but not required) for registration certificates.
 	// Registration doesn't require authorization, but if the script is provided, it's valid.
-	optionalScriptHashes := make(map[ScriptHash]bool)
+	optionalScriptHashes := make(map[ScriptHash]struct{})
 
 	// Collect script hashes required by certificates
 	// Note: Registration certificates with script credentials do NOT require the script witness
@@ -293,64 +288,64 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		case *StakeRegistrationCertificate:
 			// Registration: script is optional (allowed but not required)
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *StakeDeregistrationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *StakeDelegationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *RegistrationCertificate:
 			// Registration: script is optional (allowed but not required)
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				optionalScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *DeregistrationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *VoteDelegationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *StakeVoteDelegationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *StakeRegistrationDelegationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *VoteRegistrationDelegationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *StakeVoteRegistrationDelegationCertificate:
 			if c.StakeCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.StakeCredential.Credential)] = struct{}{}
 			}
 		case *AuthCommitteeHotCertificate:
 			if c.ColdCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = struct{}{}
 			}
 		case *ResignCommitteeColdCertificate:
 			if c.ColdCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.ColdCredential.Credential)] = struct{}{}
 			}
 		case *RegistrationDrepCertificate:
 			if c.DrepCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
 			}
 		case *DeregistrationDrepCertificate:
 			if c.DrepCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
 			}
 		case *UpdateDrepCertificate:
 			if c.DrepCredential.CredType == CredentialTypeScriptHash {
-				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = true
+				requiredScriptHashes[ScriptHash(c.DrepCredential.Credential)] = struct{}{}
 			}
 		case *PoolRegistrationCertificate, *PoolRetirementCertificate:
 			// These certificates use key-only credentials
@@ -364,7 +359,7 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		// For stake addresses, check if stake credential is script (LSB of type indicates script)
 		if (addr.Type() & AddressTypeScriptBit) != 0 {
 			stakeScriptHash := addr.StakeKeyHash()
-			requiredScriptHashes[ScriptHash(stakeScriptHash)] = true
+			requiredScriptHashes[ScriptHash(stakeScriptHash)] = struct{}{}
 		}
 	}
 
@@ -376,7 +371,7 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		// Check for script-type voters: CC script (1) or DRep script (3)
 		if voter.Type == VoterTypeConstitutionalCommitteeHotScriptHash ||
 			voter.Type == VoterTypeDRepScriptHash {
-			requiredScriptHashes[ScriptHash(NewBlake2b224(voter.Hash[:]))] = true
+			requiredScriptHashes[ScriptHash(NewBlake2b224(voter.Hash[:]))] = struct{}{}
 		}
 	}
 
@@ -395,7 +390,7 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 			if len(policyHash) == Blake2b224Size {
 				var hash ScriptHash
 				copy(hash[:], policyHash)
-				requiredScriptHashes[hash] = true
+				requiredScriptHashes[hash] = struct{}{}
 			} else if len(policyHash) != 0 {
 				// Non-empty but invalid length - fail fast to surface upstream bugs
 				return fmt.Errorf(
@@ -410,8 +405,10 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	// Check for missing script witnesses. A required script is satisfied if
 	// it appears in either explicit witnesses or reference scripts.
 	for required := range requiredScriptHashes {
-		if !explicitProvided[required] && !referenceProvided[required] {
-			return MissingScriptWitnessesError{ScriptHash: required}
+		if _, ok := explicitProvided[required]; !ok {
+			if _, ok := referenceProvided[required]; !ok {
+				return MissingScriptWitnessesError{ScriptHash: required}
+			}
 		}
 	}
 
@@ -419,7 +416,10 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	// not considered explicit witnesses and therefore are not extraneous.
 	// Scripts are allowed if they are either required OR optional (e.g., registration scripts).
 	for provided := range explicitProvided {
-		if !requiredScriptHashes[provided] && !optionalScriptHashes[provided] {
+		if _, ok := requiredScriptHashes[provided]; ok {
+			continue
+		}
+		if _, ok := optionalScriptHashes[provided]; !ok {
 			return ExtraneousScriptWitnessesError{ScriptHash: provided}
 		}
 	}
@@ -592,6 +592,8 @@ func EncodeLangViews(
 			if err != nil {
 				return nil, err
 			}
+		default:
+			return nil, fmt.Errorf("unsupported Plutus version for lang views: %d", version)
 		}
 
 		views = append(views, langView{tag: tag, params: params})

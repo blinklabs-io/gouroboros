@@ -212,16 +212,21 @@ func (b *TransactionBodyBase) Utxorpc() (*utxorpc.Tx, error) {
 
 // TransactionBodyToUtxorpc is a common helper for converting TransactionBody to utxorpc.Tx
 func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
-	txi := []*utxorpc.TxInput{}
-	txo := []*utxorpc.TxOutput{}
-	for _, i := range tx.Inputs() {
+	inputs := tx.Inputs()
+	outputs := tx.Outputs()
+	referenceInputs := tx.ReferenceInputs()
+	certificates := tx.Certificates()
+
+	txi := make([]*utxorpc.TxInput, 0, len(inputs))
+	txo := make([]*utxorpc.TxOutput, 0, len(outputs))
+	for _, i := range inputs {
 		input, err := i.Utxorpc()
 		if err != nil {
 			return nil, err
 		}
 		txi = append(txi, input)
 	}
-	for _, o := range tx.Outputs() {
+	for _, o := range outputs {
 		output, err := o.Utxorpc()
 		if err != nil {
 			return nil, err
@@ -244,14 +249,28 @@ func TransactionBodyToUtxorpc(tx TransactionBody) (*utxorpc.Tx, error) {
 		Hash: tx.Id().Bytes(),
 		// Proposals:       tx.ProposalProcedures(),
 	}
-	for _, ri := range tx.ReferenceInputs() {
+	if len(referenceInputs) > 0 {
+		ret.ReferenceInputs = make(
+			[]*utxorpc.TxInput,
+			0,
+			len(referenceInputs),
+		)
+	}
+	for _, ri := range referenceInputs {
 		input, err := ri.Utxorpc()
 		if err != nil {
 			return nil, err
 		}
 		ret.ReferenceInputs = append(ret.ReferenceInputs, input)
 	}
-	for _, c := range tx.Certificates() {
+	if len(certificates) > 0 {
+		ret.Certificates = make(
+			[]*utxorpc.Certificate,
+			0,
+			len(certificates),
+		)
+	}
+	for _, c := range certificates {
 		cert, err := c.Utxorpc()
 		if err != nil {
 			return nil, err
