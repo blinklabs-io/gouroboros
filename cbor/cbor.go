@@ -65,6 +65,13 @@ func (d *DecodeStoreCbor) SetCbor(cborData []byte) {
 	copy(d.cborData, cborData)
 }
 
+// SetCborReference stores a direct reference to CBOR bytes without copying.
+// Callers must ensure the referenced slice remains immutable for the lifetime
+// of any object that relies on it.
+func (d *DecodeStoreCbor) SetCborReference(cborData []byte) {
+	d.cborData = cborData
+}
+
 // Cbor returns the original CBOR for the object
 func (d DecodeStoreCbor) Cbor() []byte {
 	return d.cborData
