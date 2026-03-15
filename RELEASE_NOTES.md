@@ -4,6 +4,31 @@ title: Release notes
 
 # Release notes
 
+## v0.160.2 - muxer synchronization and encoding fixes
+
+- **Date:** 2026-03-13
+- **Version:** 0.160.2
+
+### Summary
+
+This release includes muxer protocol instance synchronization, `EncodeLangViews` validation hardening, and documentation updates.
+
+### New Features
+
+- Added synchronized accessors for protocol instances in the muxer and connection paths to support thread-safe protocol selection and lifecycle management.
+
+### Bug Fixes
+
+- Fixed `EncodeLangViews` to reject invalid inputs earlier and behave consistently across edge cases.
+
+### Performance
+
+- Improved allocation efficiency in `EncodeLangViews` by reducing allocation churn during encode and validate operations.
+
+### Additional Changes
+
+- Updated `RELEASE_NOTES.md` to include the `v0.160.1` entry with categorized details.
+
 ## v0.160.1 - validation and security updates
 
 - **Date:** 2026-03-10
