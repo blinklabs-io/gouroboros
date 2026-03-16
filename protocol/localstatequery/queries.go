@@ -767,6 +767,26 @@ type RewardInfoPoolsResult struct {
 	Pools  map[ledger.Blake2b224]RewardInfoPool
 }
 
+func (r RewardInfoPoolsResult) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}
+	}{
+		Inner: struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}{
+			Params: r.Params,
+			Pools:  r.Pools,
+		},
+	})
+}
+
 func (r *RewardInfoPoolsResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
