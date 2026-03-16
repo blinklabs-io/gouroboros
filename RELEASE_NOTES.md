@@ -4,6 +4,26 @@ title: Release notes
 
 # Release notes
 
+## v0.160.3 - cbor and transaction performance improvements
+
+- **Date:** 2026-03-16
+- **Version:** 0.160.3
+
+### Summary
+
+This release includes CBOR and transaction processing performance improvements, plus CI and dependency maintenance.
+
+### Performance
+
+- Improved CBOR handling by adding slice-backed references, stream-based and in-place decoding helpers, and tighter decode paths to reduce memory usage and avoid unnecessary copying.
+- Improved transaction processing and RPC conversion by optimizing multi-asset value checks, witness and script handling, tx-to-RPC conversion, and `EncodeLangViews` encoding and unsupported-version errors.
+
+### Additional Changes
+
+- Added the `v0.160.2` entry to `RELEASE_NOTES.md`.
+- Updated the benchmark workflow to use `actions/download-artifact@v8.0.1` (from `v8.0.0`).
+- Updated dependencies, including `plutigo` and `go-ethereum`, to keep the build aligned with upstream libraries and expected checksums.
+
 ## v0.160.2 - muxer synchronization and encoding fixes
 
 - **Date:** 2026-03-13
