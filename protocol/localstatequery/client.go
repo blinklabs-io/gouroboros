@@ -533,12 +533,8 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 	return &result, nil
 }
 
-// TODO (#858)
-/*
-query	[10 #6.258([ *rwdr ])]
-*/
 func (c *Client) GetFilteredDelegationsAndRewardAccounts(
-	creds []any,
+	creds []StakeCredential,
 ) (*FilteredDelegationsAndRewardAccountsResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetFilteredDelegationsAndRewardAccounts(creds: %+v)", creds),
@@ -556,7 +552,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyFilteredDelegationAndRewardAccounts,
-		// TODO: add params (#858)
+		cbor.NewSetType(creds, true),
 	)
 	var result FilteredDelegationsAndRewardAccountsResult
 	if err := c.runQuery(query, &result); err != nil {

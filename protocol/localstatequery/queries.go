@@ -310,8 +310,9 @@ type ShelleyCborQuery struct {
 }
 
 type ShelleyFilteredDelegationAndRewardAccountsQuery struct {
-	simpleQueryBase
-	// TODO: add params (#858)
+	cbor.StructAsArray
+	Type  int
+	Creds cbor.SetType[StakeCredential]
 }
 
 type ShelleyGenesisConfigQuery struct {
@@ -625,16 +626,31 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 // TODO (#863)
 type DebugEpochStateResult any
 
-// TODO (#858)
-// rwdr: [flag bytestring] bytestring is the keyhash of the staking vkey
-// flag: 0/1 (0=keyhash 1=scripthash)
-// result: [[ delegation rewards] ]
-// delegation: { * rwdr => poolid } poolid is a bytestring
-// rewards: { * rwdr => int }
-// Note: It seems to be a requirement to sort the reward addresses on the
-// query. Scripthash addresses come first, then within a group the bytestring
-// being a network order integer sort ascending.
-type FilteredDelegationsAndRewardAccountsResult any
+// FilteredDelegationsAndRewardAccountsResult is the result of the
+// GetFilteredDelegationsAndRewardAccounts query.
+// CBOR: array(1)[array(2)[delegation, rewards]]
+// delegation: map[StakeCredential]PoolId, rewards: map[StakeCredential]uint64
+type FilteredDelegationsAndRewardAccountsResult struct {
+	Delegations map[StakeCredential]ledger.Blake2b224
+	Rewards     map[StakeCredential]uint64
+}
+
+func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			Delegations map[StakeCredential]ledger.Blake2b224
+			Rewards     map[StakeCredential]uint64
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.Delegations = tmp.Inner.Delegations
+	r.Rewards = tmp.Inner.Rewards
+	return nil
+}
 
 type GenesisConfigResult struct {
 	cbor.StructAsArray
