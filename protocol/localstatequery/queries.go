@@ -700,28 +700,73 @@ type DebugNewEpochStateResult any
 // TODO (#865)
 type DebugChainDepStateResult any
 
-// TODO (#866)
-/*
-result	[ *Element ]	Expanded in order on the next rows.
-Element	CDDL	Comment
-epochLength
-poolMints	{ *poolid => block-count }
-maxLovelaceSupply
-NA
-NA
-NA
-?circulatingsupply?
-total-blocks
-?decentralization?	[num den]
-?available block entries
-success-rate	[num den]
-NA
-NA		??treasuryCut
-activeStakeGo
-nil
-nil
-*/
-type RewardProvenanceResult any
+// RewardProvenanceResult is the result of the GetRewardProvenance query.
+// CBOR: array(1)[array(16)[epochLength, poolMints, maxLovelaceSupply,
+// deltaR1, deltaR2, r, totalStake, blocksCount, decentralization,
+// expectedBlocks, eta, rPot, treasuryCut, activeStake, activeStakeGo, pools]]
+type RewardProvenanceResult struct {
+	EpochLength       uint64
+	PoolMints         map[ledger.Blake2b224]uint64 // pool ID -> blocks minted
+	MaxLovelaceSupply uint64
+	DeltaR1           uint64
+	DeltaR2           uint64
+	R                 uint64
+	TotalStake        uint64
+	BlocksCount       uint64
+	Decentralization  *cbor.Rat
+	ExpectedBlocks    uint64
+	Eta               *cbor.Rat // success rate
+	RPot              uint64
+	TreasuryCut       uint64
+	ActiveStake       uint64
+	ActiveStakeGo     cbor.RawMessage
+	Pools             cbor.RawMessage
+}
+
+func (r *RewardProvenanceResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			EpochLength       uint64
+			PoolMints         map[ledger.Blake2b224]uint64
+			MaxLovelaceSupply uint64
+			DeltaR1           uint64
+			DeltaR2           uint64
+			R                 uint64
+			TotalStake        uint64
+			BlocksCount       uint64
+			Decentralization  *cbor.Rat
+			ExpectedBlocks    uint64
+			Eta               *cbor.Rat
+			RPot              uint64
+			TreasuryCut       uint64
+			ActiveStake       uint64
+			ActiveStakeGo     cbor.RawMessage
+			Pools             cbor.RawMessage
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.EpochLength = tmp.Inner.EpochLength
+	r.PoolMints = tmp.Inner.PoolMints
+	r.MaxLovelaceSupply = tmp.Inner.MaxLovelaceSupply
+	r.DeltaR1 = tmp.Inner.DeltaR1
+	r.DeltaR2 = tmp.Inner.DeltaR2
+	r.R = tmp.Inner.R
+	r.TotalStake = tmp.Inner.TotalStake
+	r.BlocksCount = tmp.Inner.BlocksCount
+	r.Decentralization = tmp.Inner.Decentralization
+	r.ExpectedBlocks = tmp.Inner.ExpectedBlocks
+	r.Eta = tmp.Inner.Eta
+	r.RPot = tmp.Inner.RPot
+	r.TreasuryCut = tmp.Inner.TreasuryCut
+	r.ActiveStake = tmp.Inner.ActiveStake
+	r.ActiveStakeGo = tmp.Inner.ActiveStakeGo
+	r.Pools = tmp.Inner.Pools
+	return nil
+}
 
 type UTxOByTxInResult struct {
 	cbor.StructAsArray
