@@ -552,10 +552,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyFilteredDelegationAndRewardAccounts,
-		cbor.Tag{
-			Number:  cbor.CborTagSet,
-			Content: creds,
-		},
+		cbor.NewSetType(creds, true),
 	)
 	var result FilteredDelegationsAndRewardAccountsResult
 	if err := c.runQuery(query, &result); err != nil {
