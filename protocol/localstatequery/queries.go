@@ -798,8 +798,72 @@ type StakePoolParamsResult struct {
 	}
 }
 
-// TODO (#867)
-type RewardInfoPoolsResult any
+// RewardParams represents the global reward calculation parameters
+// for the current epoch.
+// CBOR: array(4) [nOpt, a0, rPot, totalStake]
+type RewardParams struct {
+	cbor.StructAsArray
+	NOpt       uint16    // Desired number of stake pools (k)
+	A0         *cbor.Rat // Pledge influence factor
+	RPot       uint64    // Total rewards pot for the epoch (lovelace)
+	TotalStake uint64    // Total active stake (lovelace)
+}
+
+// RewardInfoPool represents per-pool reward calculation information.
+// CBOR: array(6) [stake, ownerPledge, ownerStake, cost, margin, performanceEstimate]
+type RewardInfoPool struct {
+	cbor.StructAsArray
+	Stake               uint64    // Absolute stake delegated to this pool (lovelace)
+	OwnerPledge         uint64    // Pool owner(s) pledge (lovelace)
+	OwnerStake          uint64    // Absolute stake delegated by owner(s) (lovelace)
+	Cost                uint64    // Pool fixed cost (lovelace)
+	Margin              *cbor.Rat // Pool margin
+	PerformanceEstimate float64   // Ratio of blocks produced vs expected
+}
+
+// RewardInfoPoolsResult is the result of the RewardInfoPools query.
+// CBOR: array(1)[array(2)[RewardParams, map[PoolKeyHash]RewardInfoPool]]
+type RewardInfoPoolsResult struct {
+	Params RewardParams
+	Pools  map[ledger.Blake2b224]RewardInfoPool
+}
+
+func (r RewardInfoPoolsResult) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}
+	}{
+		Inner: struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}{
+			Params: r.Params,
+			Pools:  r.Pools,
+		},
+	})
+}
+
+func (r *RewardInfoPoolsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.Params = tmp.Inner.Params
+	r.Pools = tmp.Inner.Pools
+	return nil
+}
 
 // PoolStateParams represents the pool registration parameters
 // without the cert type
