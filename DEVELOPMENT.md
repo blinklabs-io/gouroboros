@@ -20,7 +20,7 @@ make lint
 ```
 
 **Requirements:**
-- Go 1.24+
+- Go 1.25+
 - [golangci-lint](https://golangci-lint.run/docs/welcome/install/local/) for linting
 - [golines](https://github.com/segmentio/golines) for line length formatting (optional)
 

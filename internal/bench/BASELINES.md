@@ -1,7 +1,7 @@
 # Memory Allocation Baselines
 
 **Last Updated**: 2026-02-22
-**Go Version**: 1.24+
+**Go Version**: 1.25+
 **Platform**: linux/amd64
 
 ## Overview
