@@ -4,6 +4,30 @@ title: Release notes
 
 # Release notes
 
+## v0.160.3 - updates
+
+- **Date:** 2026-03-16
+- **Version:** 0.160.3
+
+### Summary
+
+This release includes the changes listed below.
+
+```json
+{
+  "Additional Changes": [
+    "Added a documented release-notes section for version v0.160.2 so the release is described in a consistent, discoverable place. Specifically, it introduces the v0.160.2 release-notes entry populated from the project knowledge base.",
+    "Updated the benchmark workflow to use a newer version of the artifact download step for more consistent CI behavior. Specifically, it bumps the GitHub Actions download-artifact step from v8.0.0 to v8.0.1 in the benchmark workflow configuration.",
+    "Refreshed dependency versions to keep the build aligned with upstream libraries and expected checksums. Specifically, it updates plutigo and go-ethereum versions and their corresponding checksum entries."
+  ],
+  "Performance": [
+    "Improved how the system handles CBOR data to use less memory and avoid unnecessary copying across ledger components. Specifically, it introduces slice-backed CBOR references, stream-based and in-place CBOR decoding helpers, more direct address/pointer encoding, and tighter decode paths, with new benchmarks and tests validating the changes.",
+    "Reduced overhead in transaction processing and RPC conversion to make validation and serialization work more efficient under load. Specifically, it optimizes multi-asset value checks, witness/script handling, tx-to-RPC conversion, and Plutus language view encoding (including unsupported-version errors), with added benchmarks and tests."
+  ]
+}
+
+```
+
 ## v0.160.2 - muxer synchronization and encoding fixes
 
 - **Date:** 2026-03-13
