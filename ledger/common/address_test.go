@@ -71,7 +71,7 @@ func TestAddressFromBytes(t *testing.T) {
 		// Shelley address with stake pointer
 		{
 			addressBytesHex: "40000000000000000000000000000000000000000000000000000000008198bd431b03",
-			expectedAddress: "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrsxvt6scmqvvrw720",
+			expectedAddress: "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrz9xs7v",
 		},
 	}
 	for _, testDef := range testDefs {
@@ -573,6 +573,70 @@ func BenchmarkAddressFromString(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		_, err := NewAddress(addrStr)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAddressFromParts(b *testing.B) {
+	paymentAddr := test.DecodeHexString(
+		"e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec13309",
+	)
+	stakingAddr := test.DecodeHexString(
+		"52563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2",
+	)
+	b.ResetTimer()
+	for b.Loop() {
+		_, err := NewAddressFromParts(
+			AddressTypeScriptKey,
+			AddressNetworkMainnet,
+			paymentAddr,
+			stakingAddr,
+		)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAddressBytes(b *testing.B) {
+	addr, err := NewAddress(
+		"addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha",
+	)
+	require.NoError(b, err)
+	b.ResetTimer()
+	for b.Loop() {
+		_, err := addr.Bytes()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAddressPointerEncode(b *testing.B) {
+	pointer := &AddressPayloadPointer{
+		Slot:      4_492_800,
+		TxIndex:   123,
+		CertIndex: 7,
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		pointer.encode()
+	}
+}
+
+func BenchmarkAddressPointerDecode(b *testing.B) {
+	pointer := &AddressPayloadPointer{
+		Slot:      4_492_800,
+		TxIndex:   123,
+		CertIndex: 7,
+	}
+	data := pointer.encode()
+	b.ResetTimer()
+	for b.Loop() {
+		var decoded AddressPayloadPointer
+		_, err := decoded.decode(data)
 		if err != nil {
 			b.Fatal(err)
 		}

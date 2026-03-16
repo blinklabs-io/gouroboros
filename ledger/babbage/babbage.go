@@ -121,9 +121,10 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 
 	// Extract and store CBOR for each component
 	if err := common.ExtractAndSetTransactionCbor(
-		cborData,
-		func(i int, data []byte) { b.TransactionBodies[i].SetCbor(data) },
-		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCbor(data) },
+		b.Cbor(),
+		func(i int, data []byte) { b.TransactionBodies[i].SetCborReference(data) },
+		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCborReference(data) },
+		func(data []byte) { b.TransactionMetadataSet.SetCborReference(data) },
 		len(b.TransactionBodies),
 		len(b.TransactionWitnessSets),
 	); err != nil {
@@ -395,7 +396,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*b = BabbageTransactionBody(tmp)
-	b.SetCbor(cborData)
+	b.SetCborReference(cborData)
 	return nil
 }
 
@@ -531,34 +532,45 @@ type BabbageTransactionOutputDatumOption struct {
 func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 	cborData []byte,
 ) error {
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
+	var items []cbor.RawMessage
+	if _, _, err := dec.Decode(&items); err != nil {
+		return err
+	}
+	if len(items) != 2 {
+		return fmt.Errorf(
+			"unsupported datum option shape: expected 2 items, got %d",
+			len(items),
+		)
+	}
 	datumOptionType, err := cbor.DecodeIdFromList(cborData)
 	if err != nil {
 		return err
 	}
+	d.hash = nil
+	d.data = nil
 	switch datumOptionType {
 	case DatumOptionTypeHash:
-		var tmpDatumHash struct {
-			cbor.StructAsArray
-			Type int
-			Hash common.Blake2b256
-		}
-		if _, err := cbor.Decode(cborData, &tmpDatumHash); err != nil {
+		var hash common.Blake2b256
+		if _, err := cbor.Decode([]byte(items[1]), &hash); err != nil {
 			return err
 		}
-		d.hash = &(tmpDatumHash.Hash)
+		d.hash = &hash
 	case DatumOptionTypeData:
-		var tmpDatumData struct {
-			cbor.StructAsArray
-			Type     int
-			DataCbor []byte
-		}
-		if _, err := cbor.Decode(cborData, &tmpDatumData); err != nil {
+		var wrapped cbor.WrappedCbor
+		if _, err := cbor.Decode([]byte(items[1]), &wrapped); err != nil {
 			return err
 		}
 		var datumValue common.Datum
-		if _, err := cbor.Decode(tmpDatumData.DataCbor, &datumValue); err != nil {
+		datumValue.SetCborReference(wrapped.Bytes())
+		tmpData, err := data.Decode(wrapped.Bytes())
+		if err != nil {
 			return err
 		}
+		datumValue.Data = tmpData
 		d.data = &datumValue
 	default:
 		return fmt.Errorf("unsupported datum option type: %d", datumOptionType)
@@ -592,9 +604,21 @@ type BabbageTransactionOutput struct {
 }
 
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
-	// Try to parse as legacy output first
-	var tmpOutput alonzo.AlonzoTransactionOutput
-	if _, err := cbor.Decode(cborData, &tmpOutput); err == nil {
+	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
+		type tBabbageTransactionOutput BabbageTransactionOutput
+		var tmp tBabbageTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		*o = BabbageTransactionOutput(tmp)
+	} else {
+		// Legacy outputs use the pre-Babbage array form.
+		var tmpOutput alonzo.AlonzoTransactionOutput
+		if _, err := cbor.Decode(cborData, &tmpOutput); err != nil {
+			return err
+		}
+		// Clear Babbage-only fields to avoid leaking state from a prior decode
+		o.TxOutScriptRef = nil
 		// Copy from temp legacy object to Babbage format
 		o.OutputAddress = tmpOutput.OutputAddress
 		o.OutputAmount = tmpOutput.OutputAmount
@@ -603,18 +627,13 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 			o.DatumOption = &BabbageTransactionOutputDatumOption{
 				hash: tmpOutput.OutputDatumHash,
 			}
+		} else {
+			o.DatumOption = nil
 		}
 		o.legacyOutput = true
-	} else {
-		type tBabbageTransactionOutput BabbageTransactionOutput
-		var tmp tBabbageTransactionOutput
-		if _, err := cbor.Decode(cborData, &tmp); err != nil {
-			return err
-		}
-		*o = BabbageTransactionOutput(tmp)
 	}
 	// Save original CBOR
-	o.SetCbor(cborData)
+	o.SetCborReference(cborData)
 	return nil
 }
 
@@ -946,9 +965,17 @@ type BabbageTransaction struct {
 }
 
 func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
-	// Decode as raw array to preserve metadata bytes
+	// Reset cached/derived fields to avoid stale state on receiver reuse
+	t.hash = nil
+	t.TxMetadata = nil
+	t.auxData = nil
+
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
 	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &txArray); err != nil {
+	if _, _, err := dec.Decode(&txArray); err != nil {
 		return err
 	}
 
@@ -975,11 +1002,12 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+	metadataRaw := []byte(txArray[3])
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(txArray[3])
+		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
 		if err == nil && auxData != nil {
 			t.auxData = auxData
 			// Extract metadata for backward compatibility
@@ -989,7 +1017,7 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
 			if err == nil && metadata != nil {
 				t.TxMetadata = metadata
 			}
@@ -1166,7 +1194,9 @@ func (t *BabbageTransaction) MarshalCBOR() ([]byte, error) {
 		t.WitnessSet,
 		t.TxIsValid,
 	}
-	if t.TxMetadata != nil {
+	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.auxData.Cbor()))
+	} else if t.TxMetadata != nil {
 		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
 	} else {
 		tmpObj = append(tmpObj, nil)

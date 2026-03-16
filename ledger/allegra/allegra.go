@@ -65,9 +65,12 @@ func (b *AllegraBlock) UnmarshalCBOR(cborData []byte) error {
 
 	// Extract and store CBOR for each component
 	if err := common.ExtractAndSetTransactionCbor(
-		cborData,
-		func(i int, data []byte) { b.TransactionBodies[i].SetCbor(data) },
-		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCbor(data) },
+		b.Cbor(),
+		func(i int, data []byte) { b.TransactionBodies[i].SetCborReference(data) },
+		func(i int, data []byte) {
+			b.TransactionWitnessSets[i].SetCborReference(data)
+		},
+		func(data []byte) { b.TransactionMetadataSet.SetCborReference(data) },
 		len(b.TransactionBodies),
 		len(b.TransactionWitnessSets),
 	); err != nil {
@@ -301,9 +304,17 @@ type AllegraTransaction struct {
 }
 
 func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
-	// Decode as raw array to capture metadata bytes
+	// Reset cached/derived fields to avoid stale state on receiver reuse
+	t.hash = nil
+	t.TxMetadata = nil
+	t.auxData = nil
+
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
 	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &txArray); err != nil {
+	if _, _, err := dec.Decode(&txArray); err != nil {
 		return err
 	}
 	// Ensure we have at least 3 components (body, witness, metadata)
@@ -322,12 +333,12 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	// Store raw auxiliary data bytes (including any scripts)
-	if len(txArray) > 2 && len(txArray[2]) > 0 &&
-		txArray[2][0] != 0xF6 {
+	metadataRaw := []byte(txArray[2])
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(txArray[2])
+		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
 		if err == nil && auxData != nil {
 			t.auxData = auxData
 			// Extract metadata for backward compatibility
@@ -337,7 +348,7 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
 			if err == nil && metadata != nil {
 				t.TxMetadata = metadata
 			}
@@ -504,7 +515,9 @@ func (t *AllegraTransaction) MarshalCBOR() ([]byte, error) {
 		t.Body,
 		t.WitnessSet,
 	}
-	if t.TxMetadata != nil {
+	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.auxData.Cbor()))
+	} else if t.TxMetadata != nil {
 		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
 	} else {
 		tmpObj = append(tmpObj, nil)
