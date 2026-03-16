@@ -569,27 +569,26 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 
-	// Check that all consumed assets match produced assets
-	allKeys := make(map[assetKey]bool)
-	for k := range consumedAssets {
-		allKeys[k] = true
-	}
-	for k := range producedAssets {
-		allKeys[k] = true
-	}
-
-	for key := range allKeys {
-		consumed := consumedAssets[key]
+	// Check that all consumed assets match produced assets without building
+	// an intermediate union set of keys.
+	zero := new(big.Int)
+	for key, consumed := range consumedAssets {
 		produced := producedAssets[key]
-		if consumed == nil {
-			consumed = new(big.Int)
-		}
 		if produced == nil {
-			produced = new(big.Int)
+			produced = zero
 		}
 		if consumed.Cmp(produced) != 0 {
 			return shelley.ValueNotConservedUtxoError{
 				Consumed: consumed,
+				Produced: produced,
+			}
+		}
+		delete(producedAssets, key)
+	}
+	for _, produced := range producedAssets {
+		if produced.Cmp(zero) != 0 {
+			return shelley.ValueNotConservedUtxoError{
+				Consumed: zero,
 				Produced: produced,
 			}
 		}
