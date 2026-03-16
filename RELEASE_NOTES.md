@@ -11,22 +11,18 @@ title: Release notes
 
 ### Summary
 
-This release includes the changes listed below.
+This release includes CBOR and transaction processing performance improvements, plus CI and dependency maintenance.
 
-```json
-{
-  "Additional Changes": [
-    "Added a documented release-notes section for version v0.160.2 so the release is described in a consistent, discoverable place.",
-    "Updated the benchmark workflow to use a newer version of the artifact download step for more consistent CI behavior.",
-    "Refreshed dependency versions to keep the build aligned with upstream libraries and expected checksums."
-  ],
-  "Performance": [
-    "Improved how the system handles CBOR data to use less memory and avoid unnecessary copying across ledger components.",
-    "Reduced overhead in transaction processing and RPC conversion to make validation and serialization work more efficient under load."
-  ]
-}
+### Performance
 
-```
+- Improved CBOR handling to reduce memory usage and avoid unnecessary copying across ledger components.
+- Improved transaction processing and RPC conversion to reduce overhead in validation and serialization.
+
+### Additional Changes
+
+- Added a documented release notes section for `v0.160.2`.
+- Updated the benchmark workflow to use `actions/download-artifact@v8.0.1`.
+- Updated dependencies to keep the build aligned with upstream libraries and expected checksums.
 
 ## v0.160.2 - muxer synchronization and encoding fixes
 
