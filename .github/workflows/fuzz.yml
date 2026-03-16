@@ -46,6 +46,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0 https://github.com/actions/upload-artifact/releases/tag/v7.0.0
         with:
-          name: fuzz-crashes-${{ matrix.target.fuzz }}
+          name: fuzz-crashes-${{ matrix.target.fuzz }}-${{ matrix.go-version }}
           path: "**/testdata/fuzz/**"
           retention-days: 30
