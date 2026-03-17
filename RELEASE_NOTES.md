@@ -4,6 +4,41 @@ title: Release notes
 
 # Release notes
 
+## v0.161.0 - maintenance updates
+
+- **Date:** 2026-03-17
+- **Version:** 0.161.0
+
+### Summary
+
+This release includes the changes described in the draft notes below.
+
+### Draft notes
+
+```json
+{
+  "Additional Changes": [
+    "Build and CI automation has been refreshed to match the updated Go toolchain expectations and ongoing maintenance work. CI workflows have been updated for the new Go versions, and release documentation was updated to include the v0.160.3 entry covering performance, CI, and dependency changes."
+  ],
+  "Breaking Changes": [
+    "Projects must now build with a newer Go toolchain baseline and should align local development and CI accordingly. The minimum supported Go version is raised to Go 1.25, and CI workflows are updated to run tooling, tests, benchmarks, and fuzzing on Go 1.26; upgrade your local Go installation and ensure modules/tooling are compatible with these versions."
+  ],
+  "Bug Fixes": [
+    "Transaction bytes can now be round-tripped without changing their original encoding or serialized size when working with Alonzo, Babbage, and Conway formats. The transaction CBOR is reassembled from raw component bytes to preserve the original encoding, with tests verifying byte-for-byte and size preservation."
+  ],
+  "New Features": [
+    "Applications can now consume structured reward and delegation query results instead of working with loosely typed data. This adds concrete result/parameter types for `RewardInfoPoolsResult` (including `RewardParams` and `RewardInfoPool`), `RewardProvenanceResult`, and `ShelleyFilteredDelegationsAndRewardAccounts`, with full CBOR encode/decode support and client integration."
+  ],
+  "Performance": [
+    "Transactions can now be processed in a way that avoids unintended CBOR re-encoding overhead when reconstructing Alonzo/Babbage/Conway transaction bodies. The implementation reuses raw component bytes during CBOR reconstruction to preserve original encoding and size, and includes tests that assert byte- and size-preserving behavior."
+  ],
+  "Security": [
+    "Cryptographic and OS interaction dependencies have been refreshed to incorporate upstream fixes and hardening. The project updates `golang.org/x/crypto` to v0.49.0 and the indirect `golang.org/x/sys` dependency to v0.42.0."
+  ]
+}
+
+```
+
 ## v0.160.3 - cbor and transaction performance improvements
 
 - **Date:** 2026-03-16
