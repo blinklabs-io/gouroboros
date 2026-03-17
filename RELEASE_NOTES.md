@@ -4,7 +4,7 @@ title: Release notes
 
 # Release notes
 
-## v0.161.0 - typed query results and tx cbor preservation
+## v0.161.0 - typed query results and transaction cbor preservation
 
 - **Date:** 2026-03-17
 - **Version:** 0.161.0
@@ -19,7 +19,7 @@ This release introduces typed reward and delegation query results, preserves Alo
 
 ### Breaking Changes
 
-- Updated the minimum supported Go version to Go 1.25 and updated CI workflows to run tooling, tests, benchmarks, and fuzzing on Go 1.26; upgrade local development and CI toolchains accordingly.
+- Updated the minimum supported Go version to Go 1.25 and updated CI workflows to run tooling, tests, benchmarks, and fuzzing on Go 1.26, requiring local development and CI toolchain upgrades.
 
 ### Bug Fixes
 
