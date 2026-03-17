@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release introduces typed reward and delegation query results, preserves Alonzo/Babbage/Conway transaction CBOR round-trips, and refreshes the Go toolchain baseline, CI automation, and dependencies.
+This release includes typed reward and delegation query results, preserves Alonzo/Babbage/Conway transaction `CBOR` round-trips, and updates the Go toolchain baseline, CI automation, and dependencies.
 
 ### New Features
 
@@ -19,19 +19,19 @@ This release introduces typed reward and delegation query results, preserves Alo
 
 ### Breaking Changes
 
-- Updated the minimum supported Go version to Go 1.25 and updated CI workflows to run tooling, tests, benchmarks, and fuzzing on Go 1.26, requiring local development and CI toolchain upgrades.
+- Updated the minimum supported Go version to `Go 1.25` and updated CI workflows to run tooling, tests, benchmarks, and fuzzing on `Go 1.26`, requiring local development and CI toolchain upgrades.
 
 ### Bug Fixes
 
-- Fixed Alonzo, Babbage, and Conway transaction round-tripping to preserve byte-for-byte transaction CBOR encoding and serialized size.
+- Fixed Alonzo, Babbage, and Conway transaction round-tripping to preserve byte-for-byte transaction `CBOR` encoding and serialized size.
 
 ### Performance
 
-- Improved Alonzo, Babbage, and Conway transaction processing by reusing raw component bytes during CBOR reconstruction to avoid unnecessary re-encoding.
+- Improved Alonzo, Babbage, and Conway transaction processing by reusing raw component bytes during `CBOR` reconstruction to avoid unnecessary re-encoding.
 
 ### Security
 
-- Updated `golang.org/x/crypto` to v0.49.0 and `golang.org/x/sys` to v0.42.0.
+- Updated `golang.org/x/crypto` to `v0.49.0` and `golang.org/x/sys` to `v0.42.0`.
 
 ### Additional Changes
 
