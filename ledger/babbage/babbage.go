@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -225,12 +225,6 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 				aux != nil {
 				tx.auxData = aux
 			}
-		}
-		// Precompute and store transaction CBOR from preserved
-		// component bytes so that tx.Cbor() returns immediately
-		// without re-encoding on each call.
-		if txCbor, err := tx.MarshalCBOR(); err == nil {
-			tx.SetCbor(txCbor)
 		}
 		ret[idx] = tx
 	}
@@ -1187,6 +1181,22 @@ func (t *BabbageTransaction) MarshalCBOR() ([]byte, error) {
 	cborData := t.DecodeStoreCbor.Cbor()
 	if cborData != nil {
 		return cborData, nil
+	}
+	bodyCbor := t.Body.Cbor()
+	witnessCbor := t.WitnessSet.Cbor()
+	if len(bodyCbor) > 0 && len(witnessCbor) > 0 {
+		var auxCbor []byte
+		if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+			auxCbor = t.auxData.Cbor()
+		} else if t.TxMetadata != nil {
+			auxCbor = t.TxMetadata.Cbor()
+		}
+		return common.ReassembleTransactionCbor(
+			bodyCbor,
+			witnessCbor,
+			t.TxIsValid,
+			auxCbor,
+		), nil
 	}
 	// Otherwise, construct and encode
 	tmpObj := []any{
