@@ -15,7 +15,7 @@ This release introduces typed reward and delegation query results, preserves Alo
 
 ### New Features
 
-- Added structured result types for rewards and delegations queries, including `RewardInfoPoolsResult`, `RewardProvenanceResult`, and `ShelleyFilteredDelegationsAndRewardAccounts`, with CBOR encode/decode support and client integration.
+- Added structured result types for rewards and delegations queries, including `RewardInfoPoolsResult`, `RewardProvenanceResult`, and `ShelleyFilteredDelegationsAndRewardAccounts`, with `cbor` encode/decode support and client integration.
 
 ### Breaking Changes
 
