@@ -4,26 +4,22 @@ title: Release notes
 
 # Release notes
 
-## v0.162.0 - updates and fixes
+## v0.162.0 - drep and credential json decoding
 
 - **Date:** 2026-03-18
 - **Version:** 0.162.0
 
 ### Summary
 
-This release includes the changes described in the following structured notes.
+This release includes JSON decoding support for `Drep` and `Credential` values and documentation maintenance.
 
-```json
-{
-  "Additional Changes": [
-    "Updated the documentation to include a release notes entry for version `0.161.1`. Updated the release notes/changelog for `0.161.1` to reflect the changes included in this release."
-  ],
-  "New Features": [
-    "Added JSON decoding support so integrations can consume and produce structured `Drep` and `Credential` values directly. Added JSON unmarshalling implementations for the `Drep` and `Credential` types and validated JSON-to-structure decoding with targeted tests."
-  ]
-}
+### New Features
 
-```
+- Added JSON unmarshalling for `Drep` and `Credential`, with tests that validate JSON-to-structure decoding across representative inputs.
+
+### Additional Changes
+
+- Updated `RELEASE_NOTES.md` to include the `v0.161.1` entry and to align the `v0.161.1` changelog text with the released changes.
 
 ## v0.161.1 - peer address cbor encoding and cip-0008 test coverage
 
