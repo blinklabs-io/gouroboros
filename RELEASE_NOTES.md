@@ -15,7 +15,7 @@ This release includes `JSON` decoding support for `Drep` and `Credential` values
 
 ### New Features
 
-- Added `JSON` unmarshalling for `Drep` and `Credential` with decoding tests.
+- Added `JSON` unmarshalling for `Drep` and `Credential`, with decoding tests.
 - Added `JSON` unmarshalling for `Drep` and `Credential`, with tests that validate `JSON`-to-structure decoding across representative inputs.
 
 ### Additional Changes
