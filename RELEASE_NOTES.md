@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes JSON decoding support for `Drep` and `Credential` values and documentation maintenance.
+This release includes JSON decoding support for `Drep` and `Credential` values and documentation updates.
 
 ### New Features
 
