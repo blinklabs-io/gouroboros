@@ -16,6 +16,7 @@ package peersharing
 
 import (
 	"encoding/hex"
+	"net"
 	"reflect"
 	"testing"
 
@@ -35,15 +36,18 @@ var tests = []testDefinition{
 		MessageType: MessageTypeShareRequest,
 		Message:     NewMsgShareRequest(7),
 	},
-	/*
-		{
-			CborHex:     "8201xxxx",
-			MessageType: MessageTypeSharePeers,
-			Message:     NewMsgSharePeers(
-
-			),
-		},
-	*/
+	{
+		CborHex:     "82018183001a04030201190bb9",
+		MessageType: MessageTypeSharePeers,
+		Message: NewMsgSharePeers(
+			[]PeerAddress{
+				{
+					IP:   net.IP{1, 2, 3, 4},
+					Port: 3001,
+				},
+			},
+		),
+	},
 	{
 		CborHex:     "8102",
 		MessageType: MessageTypeDone,
@@ -70,6 +74,37 @@ func TestDecode(t *testing.T) {
 				test.Message,
 			)
 		}
+	}
+}
+
+func TestPeerAddressEncodeDecodeIPv6(t *testing.T) {
+	expectedHex := "86011ab80d012000001a01000000190bb9"
+	expectedPeer := PeerAddress{
+		IP:   net.ParseIP("2001:db8::1"),
+		Port: 3001,
+	}
+	cborData, err := cbor.Encode(expectedPeer)
+	if err != nil {
+		t.Fatalf("failed to encode peer address to CBOR: %s", err)
+	}
+	if got := hex.EncodeToString(cborData); got != expectedHex {
+		t.Fatalf(
+			"peer address did not encode to expected CBOR\n  got:    %s\n  wanted: %s",
+			got,
+			expectedHex,
+		)
+	}
+
+	var decoded PeerAddress
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		t.Fatalf("failed to decode peer address from CBOR: %s", err)
+	}
+	if !decoded.IP.Equal(expectedPeer.IP) || decoded.Port != expectedPeer.Port {
+		t.Fatalf(
+			"peer address did not decode to expected value\n  got:    %#v\n  wanted: %#v",
+			decoded,
+			expectedPeer,
+		)
 	}
 }
 
