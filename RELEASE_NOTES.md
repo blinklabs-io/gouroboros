@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes explicit `PeerAddress` `CBOR` encoding for peer sharing, expanded CIP-0008 `COSE`/`ed25519` message signing validation coverage, and documentation maintenance.
+This release includes explicit `PeerAddress` `CBOR` encoding for peer sharing, CIP-0008 `COSE`/`ed25519` message signing validation coverage, and documentation maintenance.
 
 ### New Features
 
