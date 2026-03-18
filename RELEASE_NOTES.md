@@ -13,6 +13,18 @@ title: Release notes
 
 This release includes `JSON` decoding support for `Drep` and `Credential` values and documentation updates.
 
+```json
+{
+  "Additional Changes": [
+    "Updated the release documentation to include an entry for version 0.161.1. The release notes were pre-populated from an internal knowledge base source to ensure the version is represented consistently."
+  ],
+  "New Features": [
+    "Improved how data can be loaded from JSON when working with governance-related types. The update adds JSON unmarshalling support for the `Drep` and `Credential` types and includes tests that validate JSON-to-structure decoding behavior."
+  ]
+}
+
+```
+
 ### New Features
 
 - Added `JSON` unmarshalling for `Drep` and `Credential`, with tests that validate `JSON`-to-structure decoding across representative inputs.
