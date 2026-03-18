@@ -4,6 +4,26 @@ title: Release notes
 
 # Release notes
 
+## v0.161.1 - updates and fixes
+
+- **Date:** 2026-03-18
+- **Version:** 0.161.1
+
+### Summary
+
+```json
+{
+  "Additional Changes": [
+    "Updated the project documentation to reflect the latest release content in a single canonical place. This adds the v0.161.0 release notes entry to `RELEASE_NOTES.md` and aligns the changelog with the current release state."
+  ],
+  "New Features": [
+    "Improved peer address serialization so peer information can be shared more reliably across components. This adds explicit CBOR encoding for `PeerAddress` and includes new test coverage for `SharePeers` plus IPv6 round-trip encoding validation.",
+    "Strengthened cryptographic message validation to make signing workflows more predictable and safer to integrate. This adds comprehensive CIP-0008 COSE/ed25519 message signing and verification test coverage across expected inputs and edge cases."
+  ]
+}
+
+```
+
 ## v0.161.0 - typed query results and transaction cbor preservation
 
 - **Date:** 2026-03-17
