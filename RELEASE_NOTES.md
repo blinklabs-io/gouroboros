@@ -11,12 +11,12 @@ title: Release notes
 
 ### Summary
 
-This release includes explicit `PeerAddress` `CBOR` encoding for peer sharing, CIP-0008 `COSE`/`ed25519` message signing validation coverage, and documentation updates.
+This release includes explicit `PeerAddress` `CBOR` encoding for peer sharing, CIP-0008 `COSE`/`ed25519` message signing test coverage, and documentation updates.
 
 ### New Features
 
-- Added explicit `CBOR` encoding for `PeerAddress` and added tests for `SharePeers` and IPv6 round-trip validation.
-- Added comprehensive CIP-0008 `COSE`/`ed25519` message signing and verification test coverage across expected inputs and edge cases.
+- Added explicit `CBOR` encoding for `PeerAddress`, with tests for `SharePeers` and IPv6 round-trip validation.
+- Added CIP-0008 `COSE`/`ed25519` message signing and verification test coverage across expected inputs and edge cases.
 
 ### Additional Changes
 
