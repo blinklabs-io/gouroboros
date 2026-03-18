@@ -14,11 +14,11 @@ title: Release notes
 ```json
 {
   "Additional Changes": [
-    "Updated the project documentation to reflect the latest release content in a single canonical place. This adds the v0.161.0 release notes entry to `RELEASE_NOTES.md` and aligns the changelog with the current release state."
+    "Updated the project documentation to keep release notes in a single canonical location."
   ],
   "New Features": [
-    "Improved peer address serialization so peer information can be shared more reliably across components. This adds explicit CBOR encoding for `PeerAddress` and includes new test coverage for `SharePeers` plus IPv6 round-trip encoding validation.",
-    "Strengthened cryptographic message validation to make signing workflows more predictable and safer to integrate. This adds comprehensive CIP-0008 COSE/ed25519 message signing and verification test coverage across expected inputs and edge cases."
+    "Improved peer address serialization by adding explicit `PeerAddress` `CBOR` encoding and tests for `SharePeers` and IPv6 round-trip validation.",
+    "Strengthened cryptographic message validation by adding comprehensive CIP-0008 `COSE`/`ed25519` message signing and verification test coverage across expected inputs and edge cases."
   ]
 }
 
