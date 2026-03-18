@@ -4,14 +4,14 @@ title: Release notes
 
 # Release notes
 
-## v0.161.1 - peer address cbor encoding and cip-0008 tests
+## v0.161.1 - peer address cbor encoding and cip-0008 test coverage
 
 - **Date:** 2026-03-18
 - **Version:** 0.161.1
 
 ### Summary
 
-This release includes explicit `PeerAddress` `CBOR` encoding for peer sharing, CIP-0008 `COSE`/`ed25519` message signing validation coverage, and documentation maintenance.
+This release includes explicit `PeerAddress` `CBOR` encoding for peer sharing, CIP-0008 `COSE`/`ed25519` message signing validation coverage, and documentation updates.
 
 ### New Features
 
@@ -20,7 +20,7 @@ This release includes explicit `PeerAddress` `CBOR` encoding for peer sharing, C
 
 ### Additional Changes
 
-- Updated the project documentation to keep release notes in a single canonical location.
+- Updated documentation to keep release notes in a single location.
 
 ## v0.161.0 - typed query results and transaction cbor preservation
 
