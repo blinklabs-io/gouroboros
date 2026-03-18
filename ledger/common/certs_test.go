@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,9 @@
 package common
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -110,4 +113,54 @@ func TestDrepString(t *testing.T) {
 		}
 		assert.Equal(t, "drep_abstain", drep.String())
 	})
+}
+
+func TestDrepUnmarshalJson(t *testing.T) {
+	testDefs := []struct {
+		json         string
+		expectedDrep Drep
+	}{
+		{
+			json: `"drep-keyHash-cec68dbf1507d74f92ec025cbce4122f10e7ed421c657924e9502a5e"`,
+			expectedDrep: Drep{
+				Type: DrepTypeAddrKeyHash,
+				Credential: func() []byte {
+					foo, _ := hex.DecodeString(`cec68dbf1507d74f92ec025cbce4122f10e7ed421c657924e9502a5e`)
+					return foo
+				}(),
+			},
+		},
+		{
+			json: `"drep-scriptHash-83938146ce90d8b57ea5fde8734e3fc31fcc330c875d3b5a4c8d1830"`,
+			expectedDrep: Drep{
+				Type: DrepTypeScriptHash,
+				Credential: func() []byte {
+					foo, _ := hex.DecodeString(`83938146ce90d8b57ea5fde8734e3fc31fcc330c875d3b5a4c8d1830`)
+					return foo
+				}(),
+			},
+		},
+		{
+			json: `"drep-alwaysAbstain"`,
+			expectedDrep: Drep{
+				Type: DrepTypeAbstain,
+			},
+		},
+		{
+			json: `"drep-alwaysNoConfidence"`,
+			expectedDrep: Drep{
+				Type: DrepTypeNoConfidence,
+			},
+		},
+	}
+	for _, testDef := range testDefs {
+		var tmpDrep Drep
+		if err := json.Unmarshal([]byte(testDef.json), &tmpDrep); err != nil {
+			t.Errorf("unexpected error decoding JSON: %s", err)
+			continue
+		}
+		if !reflect.DeepEqual(tmpDrep, testDef.expectedDrep) {
+			t.Errorf("did not get expected Drep value\n     got: %#v\n  wanted: %#v", tmpDrep, testDef.expectedDrep)
+		}
+	}
 }

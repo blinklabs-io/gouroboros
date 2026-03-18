@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -165,6 +166,41 @@ func (d *Drep) UnmarshalCBOR(data []byte) error {
 		d.Type = drepType
 	default:
 		return fmt.Errorf("unknown drep type: %d", drepType)
+	}
+	return nil
+}
+
+func (d *Drep) UnmarshalJSON(data []byte) error {
+	var tmpData string
+	if err := json.Unmarshal(data, &tmpData); err != nil {
+		return fmt.Errorf("decode drep: %w", err)
+	}
+	if strings.HasPrefix(tmpData, `drep-keyHash-`) {
+		d.Type = DrepTypeAddrKeyHash
+		tmpCred, err := hex.DecodeString(tmpData[13:])
+		if err != nil {
+			return fmt.Errorf("decode drep hash: %w", err)
+		}
+		if len(tmpCred) != 28 {
+			return errors.New("invalid drep hash length")
+		}
+		d.Credential = tmpCred
+	} else if strings.HasPrefix(tmpData, `drep-scriptHash-`) {
+		d.Type = DrepTypeScriptHash
+		tmpCred, err := hex.DecodeString(tmpData[16:])
+		if err != nil {
+			return fmt.Errorf("decode drep hash: %w", err)
+		}
+		if len(tmpCred) != 28 {
+			return errors.New("invalid drep hash length")
+		}
+		d.Credential = tmpCred
+	} else if tmpData == `drep-alwaysAbstain` {
+		d.Type = DrepTypeAbstain
+	} else if tmpData == `drep-alwaysNoConfidence` {
+		d.Type = DrepTypeNoConfidence
+	} else {
+		return errors.New("unknown drep type")
 	}
 	return nil
 }
