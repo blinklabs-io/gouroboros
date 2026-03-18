@@ -4,6 +4,39 @@ title: Release notes
 
 # Release notes
 
+## v0.161.0 - typed query results and transaction cbor preservation
+
+- **Date:** 2026-03-17
+- **Version:** 0.161.0
+
+### Summary
+
+This release includes typed reward and delegation query results, preserves Alonzo/Babbage/Conway transaction `CBOR` round-trips, and updates the Go toolchain baseline, CI automation, and dependencies.
+
+### New Features
+
+- Added structured result types for rewards and delegations queries, including `RewardInfoPoolsResult`, `RewardProvenanceResult`, and `ShelleyFilteredDelegationsAndRewardAccounts`, with `CBOR` encoding and decoding support and client integration.
+
+### Breaking Changes
+
+- Updated the minimum supported Go version to `Go 1.25` and updated CI workflows to run tooling, tests, benchmarks, and fuzzing on `Go 1.26`, requiring local development and CI toolchain upgrades.
+
+### Bug Fixes
+
+- Fixed Alonzo, Babbage, and Conway transaction round-tripping to preserve byte-for-byte transaction `CBOR` encoding and serialized size.
+
+### Performance
+
+- Improved Alonzo, Babbage, and Conway transaction processing by reusing raw component bytes during `CBOR` reconstruction to avoid unnecessary re-encoding.
+
+### Security
+
+- Updated `golang.org/x/crypto` to `v0.49.0` and `golang.org/x/sys` to `v0.42.0`.
+
+### Additional Changes
+
+- Updated CI workflows for new Go versions and updated `RELEASE_NOTES.md` to include the `v0.160.3` entry.
+
 ## v0.160.3 - cbor and transaction performance improvements
 
 - **Date:** 2026-03-16
