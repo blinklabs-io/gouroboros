@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes Conway genesis JSON decoding updates to support pre-configured governance representatives and governance anchor data.
+This release includes Conway genesis JSON decoding support for pre-configured governance representatives and governance anchor data.
 
 ### New Features
 
