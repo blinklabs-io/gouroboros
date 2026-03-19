@@ -4,7 +4,7 @@ title: Release notes
 
 # Release notes
 
-## v0.163.0 - conway genesis governance decoding
+## v0.163.0 - Conway genesis governance decoding
 
 - **Date:** 2026-03-19
 - **Version:** 0.163.0
