@@ -16,7 +16,7 @@ This release covers the changes listed below.
 ```json
 {
   "New Features": [
-    "The Conway genesis file can now include pre-configured governance representatives and governance anchor data, and the system will read them correctly at startup. Specifically, Conway genesis JSON decoding was extended to support initial DReps and GovAnchor fields, and the test suite was updated to validate the new decoding behavior."
+    "The Conway genesis file can now include pre-configured governance representatives and governance anchor data, and the system will read them correctly at startup."
   ]
 }
 
