@@ -4,6 +4,24 @@ title: Release notes
 
 # Release notes
 
+## v0.163.0 - library updates
+
+- **Date:** 2026-03-19
+- **Version:** 0.163.0
+
+### Summary
+
+This release covers the changes listed below.
+
+```json
+{
+  "New Features": [
+    "The Conway genesis file can now include pre-configured governance representatives and governance anchor data, and the system will read them correctly at startup. Specifically, Conway genesis JSON decoding was extended to support initial DReps and GovAnchor fields, and the test suite was updated to validate the new decoding behavior."
+  ]
+}
+
+```
+
 ## v0.161.1 - peer address cbor encoding and cip-0008 test coverage
 
 - **Date:** 2026-03-18
