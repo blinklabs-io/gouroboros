@@ -40,6 +40,7 @@ type ConwayGenesis struct {
 	Constitution               ConwayGenesisConstitution         `json:"constitution"`
 	Committee                  ConwayGenesisCommittee            `json:"committee"`
 	Delegs                     ConwayGenesisDelegs               `json:"delegs"`
+	InitialDReps               ConwayGenesisInitialDReps         `json:"initialDReps"`
 }
 
 type ConwayGenesisPoolVotingThresholds struct {
@@ -146,6 +147,33 @@ func (d *ConwayGenesisDelegatee) UnmarshalJSON(data []byte) error {
 		return errors.New("unknown delegatee type")
 	}
 	return nil
+}
+
+type ConwayGenesisInitialDReps map[*common.Credential]ConwayGenesisDRepState
+
+func (i *ConwayGenesisInitialDReps) UnmarshalJSON(data []byte) error {
+	var tmpData map[string]ConwayGenesisDRepState
+	if err := json.Unmarshal(data, &tmpData); err != nil {
+		return fmt.Errorf("decode Conway genesis initial dreps: %w", err)
+	}
+	tmpDreps := make(map[*common.Credential]ConwayGenesisDRepState, len(tmpData))
+	for k, v := range tmpData {
+		var tmpCred common.Credential
+		// Wrap the key in quotes so that it can be processed as raw JSON
+		tmpKeyData := slices.Concat([]byte(`"`), []byte(k), []byte(`"`))
+		if err := json.Unmarshal(tmpKeyData, &tmpCred); err != nil {
+			return fmt.Errorf("decode Conway genesis initial drep credential: %w", err)
+		}
+		tmpDreps[&tmpCred] = v
+	}
+	*i = ConwayGenesisInitialDReps(tmpDreps)
+	return nil
+}
+
+type ConwayGenesisDRepState struct {
+	Expiry  uint64            `json:"expiry"`
+	Deposit uint64            `json:"deposit"`
+	Anchor  *common.GovAnchor `json:"anchor"`
 }
 
 func NewConwayGenesisFromReader(r io.Reader) (ConwayGenesis, error) {
