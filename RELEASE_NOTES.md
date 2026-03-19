@@ -4,16 +4,6 @@ title: Release notes
 
 # Release notes
 
-{
-  "Additional Changes": [
-    "The release documentation was updated to include a release note entry for version `0.161.1`."
-  ],
-  "New Features": [
-    "The system can now read more kinds of data from `JSON` and turn it into usable objects in the application."
-  ]
-}
-
-
 ## v0.162.0 - drep and credential json decoding
 
 - **Date:** 2026-03-18
