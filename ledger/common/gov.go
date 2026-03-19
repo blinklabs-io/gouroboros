@@ -15,6 +15,8 @@
 package common
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -277,6 +279,26 @@ type GovAnchor struct {
 	cbor.StructAsArray
 	Url      string
 	DataHash [32]byte
+}
+
+func (a *GovAnchor) UnmarshalJSON(data []byte) error {
+	tmpData := struct {
+		Url      string `json:"url"`
+		DataHash string `json:"dataHash"`
+	}{}
+	if err := json.Unmarshal(data, &tmpData); err != nil {
+		return fmt.Errorf("decode gov anchor: %w", err)
+	}
+	dataHash, err := hex.DecodeString(tmpData.DataHash)
+	if err != nil {
+		return fmt.Errorf("decode gov anchor data hash: %w", err)
+	}
+	if len(dataHash) != 32 {
+		return errors.New("invalid gov anchor data hash length")
+	}
+	a.Url = tmpData.Url
+	a.DataHash = [32]byte(dataHash)
+	return nil
 }
 
 func (a *GovAnchor) ToPlutusData() data.PlutusData {
