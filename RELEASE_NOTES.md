@@ -6,10 +6,10 @@ title: Release notes
 
 {
   "Additional Changes": [
-    "The release documentation was updated to include a release note entry for version 0.161.1. Specifically, a release-notes entry for `v0.161.1` was added/registered in the project’s release notes."
+    "The release documentation was updated to include a release note entry for version `0.161.1`."
   ],
   "New Features": [
-    "The system can now read more kinds of data from JSON and turn it into usable objects in the application. Specifically, JSON unmarshalling was added for the `Drep` and `Credential` types, along with tests that validate JSON-to-structure decoding behavior."
+    "The system can now read more kinds of data from `JSON` and turn it into usable objects in the application."
   ]
 }
 
