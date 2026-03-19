@@ -19,7 +19,7 @@ This release includes `JSON` decoding support for `Drep` and `Credential` values
 
 ### Additional Changes
 
-- Updated `RELEASE_NOTES.md` to include the `v0.161.1` entry.
+- Added the `v0.161.1` entry to `RELEASE_NOTES.md`.
 
 ## v0.161.1 - peer address cbor encoding and cip-0008 test coverage
 
