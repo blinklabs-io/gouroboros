@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes incremental updates and fixes across the library.
+This release includes Leios notification loop lifecycle fixes, Conway genesis governance `JSON` decoding support, and documentation updates.
 
 ### New Features
 
@@ -24,7 +24,6 @@ This release includes incremental updates and fixes across the library.
 ### Additional Changes
 
 - Updated the release notes and documentation to reflect `JSON` decoding behavior and related documentation changes.
-
 
 ## v0.163.0 - Conway genesis governance decoding
 
