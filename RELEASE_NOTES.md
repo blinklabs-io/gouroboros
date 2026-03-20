@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes incremental improvements and fixes across the library.
+This release includes incremental updates and fixes across the library.
 
 ### New Features
 
@@ -19,7 +19,7 @@ This release includes incremental improvements and fixes across the library.
 
 ### Bug Fixes
 
-- Improved the Leios notification loop lifecycle so notifications behave predictably during synchronization and shutdown scenarios.
+- Improved the Leios notification loop lifecycle so notifications behave consistently during synchronization and shutdown scenarios.
 
 ### Additional Changes
 
