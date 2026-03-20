@@ -4,6 +4,28 @@ title: Release notes
 
 # Release notes
 
+## v0.163.1 - library updates
+
+- **Date:** 2026-03-20
+- **Version:** 0.163.1
+
+### Summary
+
+This release includes incremental improvements and fixes across the library.
+
+{
+  "Additional Changes": [
+    "Updated the release notes and documentation to reflect JSON decoding behavior and related documentation changes. This includes adding the v0.162.0 release notes entry and associated documentation updates."
+  ],
+  "Bug Fixes": [
+    "Improved the Leios notification loop lifecycle so notifications behave predictably during synchronization and shutdown scenarios. The Sync path now tracks whether the Leios notification loop is already running to prevent double-starts, drains remaining pipelined messages on loop stop, requires a NotificationFunc, and adds tests covering these behaviors."
+  ],
+  "New Features": [
+    "Added support for decoding Conway genesis governance from JSON so developers can load and validate genesis governance configuration in tooling and integrations. This introduces Conway-specific genesis governance JSON decoding (as documented in the v0.163.0 release notes) and updates the documentation accordingly."
+  ]
+}
+
+
 ## v0.163.0 - Conway genesis governance decoding
 
 - **Date:** 2026-03-19
