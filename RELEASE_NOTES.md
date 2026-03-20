@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.163.0 - Conway genesis governance decoding
+
+- **Date:** 2026-03-19
+- **Version:** 0.163.0
+
+### Summary
+
+This release includes Conway genesis JSON decoding support for pre-configured governance representatives and governance anchor data.
+
+### New Features
+
+- Added support for initial `DReps` and `GovAnchor` fields when decoding Conway genesis JSON so governance configuration loads at startup.
+
 ## v0.162.0 - drep and credential json decoding
 
 - **Date:** 2026-03-18
