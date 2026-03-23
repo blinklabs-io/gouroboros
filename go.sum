@@ -7,8 +7,8 @@ github.com/bits-and-blooms/bitset v1.24.4 h1:95H15Og1clikBrKr/DuzMXkQzECs1M6hhoG
 github.com/bits-and-blooms/bitset v1.24.4/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/blinklabs-io/ouroboros-mock v0.9.1 h1:88LvCaivQ6j/JSb3j8t99lQvsgnWcjXGaMPdZngbxZo=
 github.com/blinklabs-io/ouroboros-mock v0.9.1/go.mod h1:wLZTHLwKdIC9axVzG7nyAynn2wfLp/ikvX9LjsDh8Xw=
-github.com/blinklabs-io/plutigo v0.0.28 h1:HGGYZMfK0ljLF7TZ++ZaJs4gjzFKAz/Uh15Yie9mCF4=
-github.com/blinklabs-io/plutigo v0.0.28/go.mod h1:VYmH2ZM6m6gTIP5jbQfBxsp3gFfqby6yvxezswraobY=
+github.com/blinklabs-io/plutigo v0.0.29 h1:1SuM/cbGr8Cf6sCxyTU/dj8iiKuk/DtaTwsblOApiRU=
+github.com/blinklabs-io/plutigo v0.0.29/go.mod h1:YRR0vOq5DafjqGRajr4mK0vKckrNoj+OfuzpNToBGII=
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=
 github.com/btcsuite/btcd v0.22.0-beta.0.20220111032746-97732e52810c/go.mod h1:tjmYdS6MLJ5/s0Fj4DbLgSbDHbEqLJrtnHecBFkdz5M=
 github.com/btcsuite/btcd v0.23.5-0.20231215221805-96c9fd8078fd/go.mod h1:nm3Bko6zh6bWP60UxwoT5LzdGJsQJaPo6HjduXq9p6A=
@@ -35,8 +35,8 @@ github.com/btcsuite/snappy-go v0.0.0-20151229074030-0bdef8d06723/go.mod h1:8woku
 github.com/btcsuite/snappy-go v1.0.0/go.mod h1:8woku9dyThutzjeg+3xrA5iCpBRH8XEEg3lh6TiUghc=
 github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792/go.mod h1:ghJtEyQwv5/p4Mg4C0fgbePVuGr935/5ddU9Z3TmDRY=
 github.com/btcsuite/winsvc v1.0.0/go.mod h1:jsenWakMcC0zFBFurPLEAyrnc/teJEM1O46fmI40EZs=
-github.com/consensys/gnark-crypto v0.20.0 h1:dJmv2sC9KWV/cNRjMjy2S0h7emfyyX8eSsJzwk0DQzw=
-github.com/consensys/gnark-crypto v0.20.0/go.mod h1:RBWrSgy+IDbGR69RRV313th3M/aZU1ubk2om+qHuTSc=
+github.com/consensys/gnark-crypto v0.20.1 h1:PXDUBvk8AzhvWowHLWBEAfUQcV1/aZgWIqD6eMpXmDg=
+github.com/consensys/gnark-crypto v0.20.1/go.mod h1:RBWrSgy+IDbGR69RRV313th3M/aZU1ubk2om+qHuTSc=
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
