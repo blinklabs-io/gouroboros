@@ -4,6 +4,24 @@ title: Release notes
 
 # Release notes
 
+## v0.163.2 - release updates
+
+- **Date:** 2026-03-23
+- **Version:** 0.163.2
+
+### Summary
+
+This release includes the changes listed below.
+
+```json
+{
+  "Additional Changes": [
+    "Updated cryptography-related dependencies to newer versions to keep the build current and consistent. This updates the `plutigo` and `gnark-crypto` module versions and refreshes their corresponding checksums.\n\nUpdated the Go toolchain and refreshed several dependencies to newer patch releases to maintain compatibility and stability. This bumps the Go tool version and upgrades `plutigo` plus selected indirect dependencies to patched versions.\n\nAdded documentation for the new patch release so users can track what changed in this version. This introduces a release-notes section for version `0.163.1`."
+  ]
+}
+
+```
+
 ## v0.163.1 - leios notification loop lifecycle fixes
 
 - **Date:** 2026-03-20
