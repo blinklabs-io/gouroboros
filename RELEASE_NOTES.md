@@ -11,12 +11,12 @@ title: Release notes
 
 ### Summary
 
-This release includes Go toolchain and dependency updates and release-notes maintenance.
+This release includes Go toolchain and dependency updates and release notes maintenance.
 
 ### Additional Changes
 
 - Updated `plutigo` and `gnark-crypto` module versions and checksums.
-- Updated the Go toolchain and refreshed selected dependencies to patched versions.
+- Updated the Go toolchain and updated selected dependencies to patched versions.
 - Added the `v0.163.1` entry to `RELEASE_NOTES.md`.
 
 ## v0.163.1 - leios notification loop lifecycle fixes
