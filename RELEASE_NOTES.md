@@ -15,7 +15,7 @@ This release includes an update to Conway transaction validation that permits `S
 
 ### New Features
 
--- Updated Conway transaction validation to accept transactions with `ScriptDataHash` when the witness set includes datums but no redeemers.
+- Updated Conway transaction validation to accept transactions with `ScriptDataHash` when the witness set includes datums but no redeemers.
 
 ### Additional Changes
 
