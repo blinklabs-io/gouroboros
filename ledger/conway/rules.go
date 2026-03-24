@@ -470,9 +470,16 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 		}
 	}
 
-	// If the body carries a script data hash, redeemers must be present
+	// If the body carries a script data hash, either redeemers or witness
+	// datums must be present. Per the Cardano ledger spec, the script data
+	// hash is required when the transaction has redeemers OR witness datums
+	// (e.g. script deployment transactions that provide datum pre-images
+	// without executing any scripts).
 	if tx.ScriptDataHash() != nil && redeemerCount == 0 {
-		return MissingRedeemersForScriptDataHashError{}
+		hasDatums := wits != nil && len(wits.PlutusData()) > 0
+		if !hasDatums {
+			return MissingRedeemersForScriptDataHashError{}
+		}
 	}
 
 	// If redeemers are present, we expect either a provided Plutus script witness
