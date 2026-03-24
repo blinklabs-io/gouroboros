@@ -125,8 +125,13 @@ const DefaultRecvQueueSize = 384
 // StreamingMaxPendingMessageBytes is the maximum allowed pending message bytes when in the Streaming state
 const StreamingMaxPendingMessageBytes = 2500000
 
-// IdleBusyMaxPendingMessageBytes is the maximum allowed pending message bytes when in the Idle or Busy state.
-const IdleBusyMaxPendingMessageBytes = 65535
+// IdleBusyMaxPendingMessageBytes is the maximum allowed pending message bytes
+// when in the Idle or Busy state. This must be at least as large as the maximum
+// block body size because MsgBlock can arrive while the protocol state machine
+// is still in Busy (before recvLoop processes MsgStartBatch to transition to
+// Streaming), creating a race between muxerRecvLoop limit checks and state
+// transitions.
+const IdleBusyMaxPendingMessageBytes = StreamingMaxPendingMessageBytes
 
 // BusyTimeout is the timeout for the server to start a batch or respond no blocks.
 const BusyTimeout = 60 * time.Second
