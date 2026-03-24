@@ -13,9 +13,9 @@ title: Release notes
 
 This release includes an update to Conway transaction validation that permits `ScriptDataHash` when only datum witnesses are present and no redeemers are included.
 
-### New Features
+### Bug Fixes
 
-- Updated Conway transaction validation to accept transactions with `ScriptDataHash` when the witness set includes datums but no redeemers.
+- Fixed Conway transaction validation to accept transactions with `ScriptDataHash` when the witness set includes datums but no redeemers.
 
 ### Additional Changes
 
