@@ -4,6 +4,31 @@ title: Release notes
 
 # Release notes
 
+## v0.163.3 - changes
+
+- **Date:** 2026-03-24
+- **Version:** 0.163.3
+
+### Summary
+
+This release includes the changes listed in the structured changelog below.
+
+### Additional Changes
+
+- Updated `RELEASE_NOTES.md` for `v0.163.3`.
+
+```json
+{
+  "Additional Changes": [
+    "Added a regression test that uses a real CBOR-encoded transaction to confirm the updated Rule 7 acceptance criteria. The test validates that a transaction containing `ScriptDataHash` with datum witnesses but without redeemers is treated as valid under the Conway ruleset."
+  ],
+  "New Features": [
+    "Conway-era transactions can now be accepted in cases where they include inline datum information but do not include redeemer data. Specifically, transactions with a `ScriptDataHash` that only witnesses datums (and no redeemers) are now permitted, aligning validation with the intended Rule 7 behavior."
+  ]
+}
+
+```
+
 ## v0.163.1 - leios notification loop lifecycle fixes
 
 - **Date:** 2026-03-20
