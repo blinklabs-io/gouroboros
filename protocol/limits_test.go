@@ -205,10 +205,16 @@ func TestBlockFetchLimitsAreDefined(t *testing.T) {
 			blockfetch.DefaultRecvQueueSize,
 		)
 	}
-	if blockfetch.IdleBusyMaxPendingMessageBytes <= 0 {
+	if blockfetch.IdleMaxPendingMessageBytes <= 0 {
 		t.Errorf(
-			"IdleBusyMaxPendingMessageBytes must be positive, got %d",
-			blockfetch.IdleBusyMaxPendingMessageBytes,
+			"IdleMaxPendingMessageBytes must be positive, got %d",
+			blockfetch.IdleMaxPendingMessageBytes,
+		)
+	}
+	if blockfetch.BusyMaxPendingMessageBytes <= 0 {
+		t.Errorf(
+			"BusyMaxPendingMessageBytes must be positive, got %d",
+			blockfetch.BusyMaxPendingMessageBytes,
 		)
 	}
 	if blockfetch.StreamingMaxPendingMessageBytes <= 0 {

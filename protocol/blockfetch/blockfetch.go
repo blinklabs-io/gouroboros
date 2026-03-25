@@ -50,7 +50,7 @@ var StateDone = protocol.NewState(4, "Done")
 var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: IdleBusyMaxPendingMessageBytes,
+		PendingMessageByteLimit: IdleMaxPendingMessageBytes,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeRequestRange,
@@ -64,7 +64,7 @@ var StateMap = protocol.StateMap{
 	},
 	StateBusy: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: IdleBusyMaxPendingMessageBytes,
+		PendingMessageByteLimit: BusyMaxPendingMessageBytes,
 		Timeout:                 BusyTimeout, // Timeout for server to start batch or respond no blocks
 		Transitions: []protocol.StateTransition{
 			{
@@ -125,8 +125,17 @@ const DefaultRecvQueueSize = 384
 // StreamingMaxPendingMessageBytes is the maximum allowed pending message bytes when in the Streaming state
 const StreamingMaxPendingMessageBytes = 2500000
 
-// IdleBusyMaxPendingMessageBytes is the maximum allowed pending message bytes when in the Idle or Busy state.
-const IdleBusyMaxPendingMessageBytes = 65535
+// IdleMaxPendingMessageBytes is the maximum allowed pending message bytes
+// in the Idle state. Only control messages (MsgRequestRange, MsgClientDone)
+// are sent in this state, so the limit can be small.
+const IdleMaxPendingMessageBytes = 65535
+
+// BusyMaxPendingMessageBytes is the maximum allowed pending message bytes
+// in the Busy state. This must match StreamingMaxPendingMessageBytes because
+// MsgBlock can arrive while the protocol state machine is still in Busy
+// (before recvLoop processes MsgStartBatch to transition to Streaming),
+// creating a race between muxerRecvLoop limit checks and state transitions.
+const BusyMaxPendingMessageBytes = StreamingMaxPendingMessageBytes
 
 // BusyTimeout is the timeout for the server to start a batch or respond no blocks.
 const BusyTimeout = 60 * time.Second
