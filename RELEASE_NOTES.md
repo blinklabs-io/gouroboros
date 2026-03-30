@@ -4,14 +4,14 @@ title: Release notes
 
 # Release notes
 
-## v0.163.4 - blockfetch limits and conway validation fixes
+## v0.163.4 - blockfetch limits and conway validation fix
 
 - **Date:** 2026-03-30
 - **Version:** 0.163.4
 
 ### Summary
 
-This release includes separate `BlockFetch` pending-message limits for `Idle` and `Busy` states, a Conway-era transaction validation fix, and CI workflow updates.
+This release includes separate `BlockFetch` pending message limits for `Idle` and `Busy` states, a Conway-era transaction validation fix, and CI workflow updates.
 
 ### New Features
 
