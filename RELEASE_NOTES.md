@@ -4,6 +4,30 @@ title: Release notes
 
 # Release notes
 
+## v0.163.4 - blockfetch limits and conway validation fix
+
+- **Date:** 2026-03-30
+- **Version:** 0.163.4
+
+### Summary
+
+This release includes separate `BlockFetch` pending message limits for `Idle` and `Busy` states, a Conway-era transaction validation fix, and CI workflow updates.
+
+### New Features
+
+- Added separate `BlockFetch` pending message limits for `Idle` and `Busy` states.
+
+### Bug Fixes
+
+- Fixed Conway-era transaction validation to reject invalid data.
+
+### Additional Changes
+
+- Updated configuration and tests for the `BlockFetch` pending message limit split.
+- Added a regression test to cover the Conway-era transaction validation fix.
+- Updated GitHub Actions workflows to use `actions/setup-go@v6.4.0` (from `v6.3.0`).
+- Updated `RELEASE_NOTES.md` to document dependency, toolchain, and documentation changes.
+
 ## v0.163.3 - conway rule 7 datum witness validation
 
 - **Date:** 2026-03-24
