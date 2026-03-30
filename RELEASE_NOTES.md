@@ -4,6 +4,23 @@ title: Release notes
 
 # Release notes
 
+## v0.163.3 - conway rule 7 datum witness validation
+
+- **Date:** 2026-03-24
+- **Version:** 0.163.3
+
+### Summary
+
+This release includes an update to Conway transaction validation that permits `ScriptDataHash` when only datum witnesses are present and no redeemers are included.
+
+### Bug Fixes
+
+- Fixed Conway transaction validation to accept transactions with `ScriptDataHash` when the witness set includes datums but no redeemers.
+
+### Additional Changes
+
+- Added a regression test that uses a real `CBOR`-encoded transaction to confirm the Rule 7 acceptance criteria.
+
 ## v0.163.2 - dependency and documentation updates
 
 - **Date:** 2026-03-23
