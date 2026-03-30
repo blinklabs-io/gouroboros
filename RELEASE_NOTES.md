@@ -11,18 +11,20 @@ title: Release notes
 
 ### Summary
 
-This release includes `BlockFetch` pending-message limit configuration for `Idle` and `Busy` states, a Conway-era transaction validation correction, and CI workflow updates.
+This release includes separate `BlockFetch` pending-message limits for `Idle` and `Busy` states, a Conway-era transaction validation fix, and CI workflow updates.
 
 ### New Features
 
-- Added separate `BlockFetch` pending-message limits for `Idle` and `Busy` states, updating configuration and tests accordingly.
+- Added separate `BlockFetch` pending-message limits for `Idle` and `Busy` states.
 
 ### Bug Fixes
 
-- Fixed Conway-era transaction validation to reject invalid data and added a regression test.
+- Fixed Conway-era transaction validation to reject invalid data.
 
 ### Additional Changes
 
+- Updated configuration and tests for the `BlockFetch` pending-message limit split.
+- Added a regression test for the Conway-era transaction validation fix.
 - Updated GitHub Actions workflows to use `actions/setup-go@v6.4.0`.
 - Updated `RELEASE_NOTES.md` to document dependency, toolchain, and documentation changes.
 
