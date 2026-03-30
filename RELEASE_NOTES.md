@@ -15,7 +15,7 @@ This release includes separate `BlockFetch` pending-message limits for `Idle` an
 
 ### New Features
 
-- Added separate `BlockFetch` pending-message limits for `Idle` and `Busy` states.
+- Added separate `BlockFetch` pending-message limits for `Idle` and `Busy` states, with updated configuration and tests.
 
 ### Bug Fixes
 
@@ -23,9 +23,8 @@ This release includes separate `BlockFetch` pending-message limits for `Idle` an
 
 ### Additional Changes
 
-- Updated configuration and tests for the `BlockFetch` pending-message limit split.
-- Added a regression test for the Conway-era transaction validation fix.
-- Updated GitHub Actions workflows to use `actions/setup-go@v6.4.0`.
+- Added a regression test to cover the Conway-era transaction validation fix.
+- Updated GitHub Actions workflows to use `actions/setup-go@v6.4.0` (from `actions/setup-go@v6.3.0`).
 - Updated `RELEASE_NOTES.md` to document dependency, toolchain, and documentation changes.
 
 ## v0.163.3 - conway rule 7 datum witness validation
