@@ -21,6 +21,21 @@ This release includes an update to Conway transaction validation that permits `S
 
 - Added a regression test that uses a real `CBOR`-encoded transaction to confirm the Rule 7 acceptance criteria.
 
+## v0.163.2 - dependency and documentation updates
+
+- **Date:** 2026-03-23
+- **Version:** 0.163.2
+
+### Summary
+
+This release includes Go toolchain and dependency updates and release notes maintenance.
+
+### Additional Changes
+
+- Updated `plutigo` and `gnark-crypto` module versions and checksums.
+- Updated the Go toolchain and selected dependencies to patched versions.
+- Added the `v0.163.1` entry to `RELEASE_NOTES.md`.
+
 ## v0.163.1 - leios notification loop lifecycle fixes
 
 - **Date:** 2026-03-20
