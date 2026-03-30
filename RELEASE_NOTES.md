@@ -4,6 +4,30 @@ title: Release notes
 
 # Release notes
 
+## v0.163.4 - release notes update
+
+- **Date:** 2026-03-30
+- **Version:** 0.163.4
+
+### Summary
+
+This release includes the changes captured in the raw notes below.
+
+<!--
+{
+  "🆕 New Features": [
+    "The system now allows separate limits for pending messages depending on whether it is idle or busy, improving control over throughput in different operating states. Specifically, the single Idle/Busy blockfetch pending-message limit was split into distinct Idle and Busy constants, with corresponding configuration and test updates."
+  ],
+  "🎁 Misc": [
+    "The build and automation setup has been refreshed to keep dependencies and tooling current. Specifically, GitHub Actions workflows were updated to use actions/setup-go v6.4.0 instead of v6.3.0, and the release notes were updated to document dependency, toolchain, and documentation changes."
+  ],
+  "🐜 Bug Fixes": [
+    "The validation logic for Conway-era transactions has been corrected to prevent invalid data from being accepted. Specifically, this release includes a Conway validation fix and adds a dedicated regression test to ensure the issue does not reoccur."
+  ]
+}
+
+-->
+
 ## v0.163.3 - conway rule 7 datum witness validation
 
 - **Date:** 2026-03-24
