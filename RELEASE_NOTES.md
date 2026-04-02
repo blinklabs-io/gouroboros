@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes `Byron` block offset extraction, improved `Byron` validation, and dependency and documentation updates.
+This release includes `Byron` block offset extraction, `Byron` validation hardening, and dependency and documentation updates.
 
 ### New Features
 
@@ -19,7 +19,7 @@ This release includes `Byron` block offset extraction, improved `Byron` validati
 
 ### Bug Fixes
 
-- Fixed block ingestion to reject invalid `Byron` block body lengths and to normalize `Byron` transaction validation errors.
+- Fixed block ingestion to reject invalid `Byron` block body lengths and to standardize `Byron` transaction validation errors.
 
 ### Additional Changes
 
