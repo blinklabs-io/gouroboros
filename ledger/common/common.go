@@ -1010,6 +1010,12 @@ func extractByronTransactionOffsets(
 	if _, err := cbor.Decode([]byte(blockArray[1]), &bodyParts); err != nil {
 		return nil, fmt.Errorf("failed to decode Byron block body: %w", err)
 	}
+	if len(bodyParts) != 4 {
+		return nil, fmt.Errorf(
+			"byron block body has %d elements, expected 4",
+			len(bodyParts),
+		)
+	}
 
 	// bodyParts[0] = tx_payload (array of [tx_body, tx_witnesses] pairs)
 	var txPayload []cbor.RawMessage
@@ -1049,7 +1055,7 @@ func extractByronTransactionOffsets(
 		}
 		if len(txPair) < 2 {
 			return nil, fmt.Errorf(
-				"Byron transaction pair %d has %d elements, expected 2",
+				"byron transaction pair %d has %d elements, expected 2",
 				i, len(txPair),
 			)
 		}
