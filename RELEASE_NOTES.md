@@ -6,15 +6,15 @@ title: Release notes
 
 {
   "Additional Changes": [
-    "Project documentation now includes a DeepWiki badge link to make the repository’s reference material easier to find. Specifically, the README was updated to add a DeepWiki badge hyperlink.",
-    "The plutigo Go module dependency was updated to ensure the build uses the intended upstream release. Specifically, the Go module requirement for `plutigo` was bumped to version `v0.1.0`.",
-    "Release notes were updated to include an entry for version 0.163.4, capturing new functionality, bug fixes, and tooling changes in one place. Specifically, a release-notes entry for `v0.163.4` was added covering feature updates, resolved defects, and tooling-related updates."
+    "Project documentation now includes a DeepWiki badge link to make the repository’s reference material easier to find.",
+    "The plutigo Go module dependency was updated to ensure the build uses the intended upstream release.",
+    "Release notes were updated to include an entry for version 0.163.4, capturing new functionality, bug fixes, and tooling changes in one place."
   ],
   "Bug Fixes": [
-    "The block ingestion pipeline now rejects Byron blocks with invalid body lengths and produces clearer error output when transactions fail validation. Specifically, a Byron block body length check was added and the Byron transaction error message text was normalized to be consistent across failure cases."
+    "The block ingestion pipeline now rejects Byron blocks with invalid body lengths and produces clearer error output when transactions fail validation."
   ],
   "New Features": [
-    "The system can now recognize Byron-era blocks and extract transaction and output offsets, extending coverage to older chain data. Specifically, Byron-era block detection was added and offset extraction is performed for Byron blocks alongside the existing Shelley+ parsing and handling logic."
+    "The system can now recognize Byron-era blocks and extract transaction and output offsets, extending coverage to older chain data."
   ]
 }
 
