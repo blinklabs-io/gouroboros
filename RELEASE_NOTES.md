@@ -4,19 +4,28 @@ title: Release notes
 
 # Release notes
 
-{
-  "Additional Changes": [
-    "Project documentation now includes a DeepWiki badge link to make the repository’s reference material easier to find.",
-    "The plutigo Go module dependency was updated to ensure the build uses the intended upstream release.",
-    "Release notes were updated to include an entry for version 0.163.4, capturing new functionality, bug fixes, and tooling changes in one place."
-  ],
-  "Bug Fixes": [
-    "The block ingestion pipeline now rejects Byron blocks with invalid body lengths and produces clearer error output when transactions fail validation."
-  ],
-  "New Features": [
-    "The system can now recognize Byron-era blocks and extract transaction and output offsets, extending coverage to older chain data."
-  ]
-}
+## v0.163.5 - byron offsets and validation hardening
+
+- **Date:** 2026-04-02
+- **Version:** 0.163.5
+
+### Summary
+
+This release includes `Byron` block offset extraction, improved `Byron` validation, and dependency and documentation updates.
+
+### New Features
+
+- Added `Byron` block detection and transaction/output offset extraction.
+
+### Bug Fixes
+
+- Fixed block ingestion to reject invalid `Byron` block body lengths and to normalize `Byron` transaction validation errors.
+
+### Additional Changes
+
+- Updated `README.md` to add a DeepWiki badge link.
+- Updated `plutigo` to `v0.1.0`.
+- Updated `RELEASE_NOTES.md` to include the `v0.163.4` entry.
 
 
 ## v0.163.4 - blockfetch limits and conway validation fix
