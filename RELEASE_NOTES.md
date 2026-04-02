@@ -11,22 +11,21 @@ title: Release notes
 
 ### Summary
 
-This release includes `Byron` block offset extraction, `Byron` validation hardening, and dependency and documentation updates.
+This release includes Byron block offset extraction, Byron validation hardening, and dependency and documentation updates.
 
 ### New Features
 
-- Added `Byron` block detection and transaction/output offset extraction.
+- Added Byron block detection and transaction and output offset extraction.
 
 ### Bug Fixes
 
-- Fixed block ingestion to reject invalid `Byron` block body lengths and to standardize `Byron` transaction validation errors.
+- Fixed block ingestion to reject invalid Byron block body lengths and standardize Byron transaction validation errors.
 
 ### Additional Changes
 
 - Updated `README.md` to add a DeepWiki badge link.
 - Updated `plutigo` to `v0.1.0`.
 - Updated `RELEASE_NOTES.md` to include the `v0.163.4` entry.
-
 
 ## v0.163.4 - blockfetch limits and conway validation fix
 
