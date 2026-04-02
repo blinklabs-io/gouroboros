@@ -953,11 +953,206 @@ type BlockTransactionOffsets struct {
 	Transactions []TransactionLocation
 }
 
+// isByronBlock checks whether a decoded block array represents a Byron-era block.
+// Byron main blocks have exactly 3 elements: [header, body, extra]
+// where body is a 4-element array [tx_payload, ssc_payload, dlg_payload, upd_payload]
+// and tx_payload is an array of 2-element arrays [tx_body, tx_witnesses].
+func isByronBlock(blockArray []cbor.RawMessage) bool {
+	if len(blockArray) != 3 {
+		return false
+	}
+	// Try to decode blockArray[1] (body) as a 4-element array
+	var bodyParts []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(blockArray[1]), &bodyParts); err != nil {
+		return false
+	}
+	if len(bodyParts) != 4 {
+		return false
+	}
+	// Check that the first element (tx_payload) is an array
+	// If it's empty, that's fine (no transactions) — still Byron
+	var txPayload []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(bodyParts[0]), &txPayload); err != nil {
+		return false
+	}
+	// If there are transactions, verify the first one is a 2-element array
+	if len(txPayload) > 0 {
+		var txPair []cbor.RawMessage
+		if _, err := cbor.Decode([]byte(txPayload[0]), &txPair); err != nil {
+			return false
+		}
+		if len(txPair) != 2 {
+			return false
+		}
+	}
+	return true
+}
+
+// extractByronTransactionOffsets extracts transaction offsets from a Byron-era block.
+// Byron blocks have structure: [header, body, extra]
+// where body = [tx_payload, ssc_payload, dlg_payload, upd_payload]
+// and tx_payload = [[tx_body, tx_witnesses], ...]
+//
+// Each Byron transaction bundles its own body and witnesses as a pair,
+// unlike Shelley+ where bodies and witnesses are in separate top-level arrays.
+func extractByronTransactionOffsets(
+	cborData []byte,
+	blockArray []cbor.RawMessage,
+) (*BlockTransactionOffsets, error) {
+	arrayHeaderSize := cborArrayHeaderSize(len(blockArray))
+
+	// blockArray[0] = header, blockArray[1] = body, blockArray[2] = extra
+	headerOffset := arrayHeaderSize
+	bodyOffset := headerOffset + uint32(len(blockArray[0])) // #nosec G115 -- Cardano block segments are <<4GiB
+
+	// Decode the body as a 4-element array
+	var bodyParts []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(blockArray[1]), &bodyParts); err != nil {
+		return nil, fmt.Errorf("failed to decode Byron block body: %w", err)
+	}
+
+	// bodyParts[0] = tx_payload (array of [tx_body, tx_witnesses] pairs)
+	var txPayload []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(bodyParts[0]), &txPayload); err != nil {
+		return nil, fmt.Errorf("failed to decode Byron tx payload: %w", err)
+	}
+
+	if len(txPayload) == 0 {
+		return &BlockTransactionOffsets{Transactions: []TransactionLocation{}}, nil
+	}
+
+	// Calculate the absolute offset of the tx_payload array within the block.
+	// body starts at bodyOffset, body is an array: [tx_payload, ssc, dlg, upd]
+	bodyArrayHeader := cborArrayHeaderSize(len(bodyParts))
+	txPayloadOffset := bodyOffset + bodyArrayHeader // tx_payload is bodyParts[0]
+
+	// The tx_payload itself is an array of transaction pairs
+	txPayloadArrayHeader := cborArrayHeaderSize(len(txPayload))
+	// Check for indefinite-length array
+	txPayloadAbsStart := int(txPayloadOffset)
+	if txPayloadAbsStart < len(cborData) && cborData[txPayloadAbsStart] == 0x9f {
+		txPayloadArrayHeader = 1
+	}
+
+	result := &BlockTransactionOffsets{
+		Transactions: make([]TransactionLocation, len(txPayload)),
+	}
+
+	// Walk through each transaction pair [tx_body, tx_witnesses]
+	pairPos := txPayloadOffset + txPayloadArrayHeader
+	for i, rawPair := range txPayload {
+		var txPair []cbor.RawMessage
+		if _, err := cbor.Decode([]byte(rawPair), &txPair); err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode Byron transaction pair %d: %w", i, err,
+			)
+		}
+		if len(txPair) < 2 {
+			return nil, fmt.Errorf(
+				"Byron transaction pair %d has %d elements, expected 2",
+				i, len(txPair),
+			)
+		}
+
+		// Each pair is a 2-element CBOR array: [tx_body, tx_witnesses]
+		pairArrayHeader := cborArrayHeaderSize(len(txPair))
+		// Check for indefinite-length pair array
+		pairAbsStart := int(pairPos)
+		if pairAbsStart < len(cborData) && cborData[pairAbsStart] == 0x9f {
+			pairArrayHeader = 1
+		}
+
+		bodyStart := pairPos + pairArrayHeader
+		bodyLen := uint32(len(txPair[0])) // #nosec G115 -- Cardano block segments are <<4GiB
+		witnessStart := bodyStart + bodyLen
+		witnessLen := uint32(len(txPair[1])) // #nosec G115 -- Cardano block segments are <<4GiB
+
+		result.Transactions[i].Body = ByteRange{
+			Offset: bodyStart,
+			Length: bodyLen,
+		}
+		result.Transactions[i].Witness = ByteRange{
+			Offset: witnessStart,
+			Length: witnessLen,
+		}
+		// Byron transactions have no separate metadata field
+
+		// Extract output offsets from Byron transaction body.
+		// Byron tx bodies are CBOR arrays: [inputs, outputs, attributes].
+		// Outputs are at index 1.
+		extractByronOutputOffsets(
+			[]byte(txPair[0]),
+			bodyStart,
+			&result.Transactions[i],
+		)
+
+		pairPos += uint32(len(rawPair)) // #nosec G115 -- Cardano block segments are <<4GiB
+	}
+
+	return result, nil
+}
+
+// extractByronOutputOffsets parses a Byron transaction body to find output
+// CBOR positions. Byron tx bodies are CBOR arrays: [inputs, outputs, attributes].
+// The outputs are at array index 1.
+func extractByronOutputOffsets(
+	bodyData []byte,
+	bodyOffset uint32,
+	loc *TransactionLocation,
+) {
+	if len(bodyData) < 2 {
+		return
+	}
+
+	// Byron tx body is a CBOR array: [inputs, outputs, attributes]
+	var bodyParts []cbor.RawMessage
+	if _, err := cbor.Decode(bodyData, &bodyParts); err != nil || len(bodyParts) < 2 {
+		return
+	}
+
+	// bodyParts[1] is the outputs array
+	var outputsRaw []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(bodyParts[1]), &outputsRaw); err != nil || len(outputsRaw) == 0 {
+		return
+	}
+
+	// Calculate offset to the outputs array within the block.
+	// Skip: body array header + inputs element
+	bodyArrayHeader := cborArrayHeaderSize(len(bodyParts))
+	// Check for indefinite-length body array
+	if len(bodyData) > 0 && bodyData[0] == 0x9f {
+		bodyArrayHeader = 1
+	}
+	inputsLen := uint32(len(bodyParts[0])) // #nosec G115
+	outputsAbsOffset := bodyOffset + uint32(bodyArrayHeader) + inputsLen
+
+	// Determine outputs array header size
+	outputsArrayHeader := uint32(cborArrayHeaderSize(len(outputsRaw)))
+	outputsArrayStart := int(outputsAbsOffset - bodyOffset)
+	if outputsArrayStart >= 0 && outputsArrayStart < len(bodyData) && bodyData[outputsArrayStart] == 0x9f {
+		outputsArrayHeader = 1 // indefinite-length
+	}
+
+	outputPos := outputsAbsOffset + outputsArrayHeader
+	loc.Outputs = make([]ByteRange, len(outputsRaw))
+	for j, rawOutput := range outputsRaw {
+		outputLen := uint32(len(rawOutput)) // #nosec G115
+		loc.Outputs[j] = ByteRange{
+			Offset: outputPos,
+			Length: outputLen,
+		}
+		outputPos += outputLen
+	}
+}
+
 // ExtractTransactionOffsets extracts byte offsets for all transactions in a block.
 // This enables efficient CBOR extraction from block data without full deserialization.
 //
 // The function parses the block CBOR structure to find where each transaction body,
 // witness set, and metadata starts and ends within the raw block bytes.
+//
+// It supports both Byron-era blocks (3-element: [header, body, extra]) and
+// Shelley+ blocks (4+ element: [header, tx_bodies, witnesses, metadata, ...]).
 func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error) {
 	// First pass: decode block as array of RawMessages to get component boundaries
 	var blockArray []cbor.RawMessage
@@ -970,6 +1165,12 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 		return &BlockTransactionOffsets{Transactions: []TransactionLocation{}}, nil
 	}
 
+	// Detect Byron-era blocks and handle them separately
+	if isByronBlock(blockArray) {
+		return extractByronTransactionOffsets(cborData, blockArray)
+	}
+
+	// Shelley+ block layout: [header, tx_bodies[], witnesses[], metadata_map, ...]
 	// Calculate header size by finding where blockArray[0] starts
 	// CBOR array header is 1 byte for arrays < 24 elements, more for larger
 	arrayHeaderSize := cborArrayHeaderSize(len(blockArray))
