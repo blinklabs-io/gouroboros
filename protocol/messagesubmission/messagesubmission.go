@@ -64,7 +64,15 @@ var (
 		"messages",
 	)
 	protocolStateDone = protocol.NewState(stateDoneId, "done")
-	stateMap          = protocol.StateMap{
+
+	// MessageSubmissionV2MinVersion is the minimum NtN protocol version
+	// that uses Message Submission V2 (no StInit, MsgDone only from StIdle).
+	MessageSubmissionV2MinVersion uint16 = 15
+
+	// stateMapV1 is the V1 state map (CIP-0137 original).
+	// Includes StInit; MsgDone can be sent by client from
+	// StMessageIdsBlocking / StMessageIdsNonBlocking, or by server from StIdle.
+	stateMapV1 = protocol.StateMap{
 		protocolStateInit: protocol.StateMapEntry{
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
@@ -134,6 +142,80 @@ var (
 				{
 					MsgType:  MessageTypeDone,
 					NewState: protocolStateDone,
+				},
+			},
+		},
+		protocolStateMessages: protocol.StateMapEntry{
+			Agency:                  protocol.AgencyClient,
+			PendingMessageByteLimit: 0,
+			Timeout:                 MessagesTimeout,
+			Transitions: []protocol.StateTransition{
+				{
+					MsgType:  MessageTypeReplyMessages,
+					NewState: protocolStateIdle,
+				},
+			},
+		},
+		protocolStateDone: protocol.StateMapEntry{
+			Agency:                  protocol.AgencyNone,
+			PendingMessageByteLimit: 0,
+		},
+	}
+
+	// stateMapV2 is the V2 state map (CIP-0137 V2).
+	// No StInit state; protocol starts directly in StIdle.
+	// MsgDone can only be sent by the server (inbound side) from StIdle.
+	stateMapV2 = protocol.StateMap{
+		protocolStateIdle: protocol.StateMapEntry{
+			Agency:                  protocol.AgencyServer,
+			PendingMessageByteLimit: 0,
+			Timeout:                 IdleTimeout,
+			Transitions: []protocol.StateTransition{
+				{
+					MsgType:  MessageTypeRequestMessageIds,
+					NewState: protocolStateMessageIdsBlock,
+					MatchFunc: func(_ any, msg protocol.Message) bool {
+						msgReq := msg.(*MsgRequestMessageIds)
+						return msgReq.IsBlocking
+					},
+				},
+				{
+					MsgType:  MessageTypeRequestMessageIds,
+					NewState: protocolStateMessageIdsNonBlk,
+					MatchFunc: func(_ any, msg protocol.Message) bool {
+						msgReq := msg.(*MsgRequestMessageIds)
+						return !msgReq.IsBlocking
+					},
+				},
+				{
+					MsgType:  MessageTypeRequestMessages,
+					NewState: protocolStateMessages,
+				},
+				{
+					MsgType:  MessageTypeDone,
+					NewState: protocolStateDone,
+				},
+			},
+		},
+		protocolStateMessageIdsBlock: protocol.StateMapEntry{
+			Agency:                  protocol.AgencyClient,
+			PendingMessageByteLimit: 0,
+			Timeout:                 MessageIdsBlockingTimeout,
+			Transitions: []protocol.StateTransition{
+				{
+					MsgType:  MessageTypeReplyMessageIds,
+					NewState: protocolStateIdle,
+				},
+			},
+		},
+		protocolStateMessageIdsNonBlk: protocol.StateMapEntry{
+			Agency:                  protocol.AgencyClient,
+			PendingMessageByteLimit: 0,
+			Timeout:                 MessageIdsNonblockingTimeout,
+			Transitions: []protocol.StateTransition{
+				{
+					MsgType:  MessageTypeReplyMessageIds,
+					NewState: protocolStateIdle,
 				},
 			},
 		},

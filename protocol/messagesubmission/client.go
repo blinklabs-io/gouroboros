@@ -28,6 +28,7 @@ type Client struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
+	protoVersion    uint16
 
 	// Client-side state for message ID tracking
 	lock              sync.Mutex
@@ -48,14 +49,27 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	c := &Client{
 		config:            cfg,
 		pendingMessageIDs: [][]byte{},
+		protoVersion:      protoOptions.Version,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
 
+	// Select state map and initial state based on negotiated version
+	isV2 := protoOptions.Version >= MessageSubmissionV2MinVersion
+	var baseStateMap protocol.StateMap
+	var initialState protocol.State
+	if isV2 {
+		baseStateMap = stateMapV2
+		initialState = protocolStateIdle
+	} else {
+		baseStateMap = stateMapV1
+		initialState = protocolStateInit
+	}
+
 	// Update state map with configurable timeouts
-	stateMapCopy := stateMap.Copy()
+	stateMapCopy := baseStateMap.Copy()
 	if entry, ok := stateMapCopy[protocolStateInit]; ok {
 		entry.Timeout = c.config.InitTimeout
 		stateMapCopy[protocolStateInit] = entry
@@ -90,7 +104,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMapCopy,
-		InitialState:        protocolStateInit,
+		InitialState:        initialState,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
@@ -109,9 +123,21 @@ func (c *Client) Start() {
 	})
 }
 
-// Stop transitions the protocol to the Done state
+// Stop transitions the protocol to the Done state.
+// In V1, the client sends MsgDone. In V2, only the server can send MsgDone;
+// the client-side Stop is a no-op.
 func (c *Client) Stop() error {
 	c.onceStop.Do(func() {
+		if c.protoVersion >= MessageSubmissionV2MinVersion {
+			// V2: client cannot send MsgDone; server controls termination
+			c.Protocol.Logger().
+				Debug("V2 client Stop() is a no-op; server sends MsgDone",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+				)
+			return
+		}
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
 				"component", "network",
@@ -124,8 +150,14 @@ func (c *Client) Stop() error {
 	return c.stopErr
 }
 
-// Init sends the initialization message to start the protocol
+// Init sends the initialization message to start the protocol.
+// This is only valid for V1; V2 starts directly in StIdle.
 func (c *Client) Init() error {
+	if c.protoVersion >= MessageSubmissionV2MinVersion {
+		return errors.New(
+			"Init is not supported in MessageSubmission V2; protocol starts in StIdle",
+		)
+	}
 	msg := NewMsgInit()
 	if err := c.SendMessage(msg); err != nil {
 		return err
