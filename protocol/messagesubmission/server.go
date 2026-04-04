@@ -29,6 +29,7 @@ type Server struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
+	protoVersion    uint16
 
 	// Server-side state for message queue management
 	lock              sync.Mutex
@@ -47,11 +48,25 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config:            cfg,
 		messageQueue:      make([]*pcommon.DmqMessage, 0),
 		pendingMessageIDs: [][]byte{},
+		protoVersion:      protoOptions.Version,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+
+	// Select state map and initial state based on negotiated version
+	isV2 := protoOptions.Version >= MessageSubmissionV2MinVersion
+	var baseStateMap protocol.StateMap
+	var initialState protocol.State
+	if isV2 {
+		baseStateMap = stateMapV2
+		initialState = protocolStateIdle
+	} else {
+		baseStateMap = stateMapV1
+		initialState = protocolStateInit
+	}
+
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolID,
@@ -62,8 +77,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
-		InitialState:        protocolStateInit,
+		StateMap:            baseStateMap,
+		InitialState:        initialState,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
@@ -193,6 +208,14 @@ func (s *Server) RequestMessageIdsNonBlocking(
 // RequestMessages sends a request for specific messages by their IDs
 func (s *Server) RequestMessages(messageIDs [][]byte) error {
 	msg := NewMsgRequestMessages(messageIDs)
+	return s.SendMessage(msg)
+}
+
+// Done sends MsgDone to terminate the protocol from the server side.
+// In V1, this can be sent from StIdle. In V2, this is the only way
+// to end the protocol (the client cannot send MsgDone).
+func (s *Server) Done() error {
+	msg := NewMsgDone()
 	return s.SendMessage(msg)
 }
 
