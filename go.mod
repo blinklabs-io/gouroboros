@@ -7,7 +7,7 @@ toolchain go1.25.8
 require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/blinklabs-io/ouroboros-mock v0.9.1
-	github.com/blinklabs-io/plutigo v0.1.1
+	github.com/blinklabs-io/plutigo v0.1.3
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/fxamacker/cbor/v2 v2.9.1
 	github.com/jinzhu/copier v0.4.0
@@ -27,7 +27,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
-	github.com/ethereum/go-ethereum v1.17.1 // indirect
+	github.com/ethereum/go-ethereum v1.17.2 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
