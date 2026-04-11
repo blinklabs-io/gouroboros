@@ -78,6 +78,8 @@ type Connection struct {
 	delayProtocolStart    bool
 	fullDuplex            bool
 	peerSharingEnabled    bool
+	queryMode             bool
+	queryReplyVersionMap  protocol.ProtocolVersionMap
 	protocolMu            sync.RWMutex
 	protocolsReady        bool
 	// Mini-protocols
@@ -252,6 +254,12 @@ func (c *Connection) TxSubmission() *txsubmission.TxSubmission {
 // ProtocolVersion returns the negotiated protocol version and the version data from the remote peer
 func (c *Connection) ProtocolVersion() (uint16, protocol.VersionData) {
 	return c.handshakeVersion, c.handshakeVersionData
+}
+
+// QueryReplyVersionMap returns the version map received in response to a handshake query, or nil if
+// a query was not performed
+func (c *Connection) QueryReplyVersionMap() protocol.ProtocolVersionMap {
+	return c.queryReplyVersionMap
 }
 
 // shutdown performs cleanup operations when the connection is shutdown, either due to explicit Close() or an error
@@ -453,8 +461,7 @@ func (c *Connection) setupConnection() error {
 		c.networkMagic,
 		handshakeDiffusionMode,
 		c.peerSharingEnabled,
-		// TODO: make this configurable (#373)
-		protocol.QueryModeDisabled,
+		c.queryMode,
 	)
 	// Perform handshake
 	var handshakeFullDuplex bool
@@ -470,6 +477,12 @@ func (c *Connection) setupConnection() error {
 					}
 				}
 				close(c.handshakeFinishedChan)
+				return nil
+			},
+		),
+		handshake.WithQueryReplyFunc(
+			func(ctx handshake.CallbackContext, versionMap protocol.ProtocolVersionMap) error {
+				c.queryReplyVersionMap = versionMap
 				return nil
 			},
 		),
@@ -492,6 +505,11 @@ func (c *Connection) setupConnection() error {
 		return err
 	case <-c.handshakeFinishedChan:
 		// This is purposely empty, but we need this case to break out when this channel is closed
+	}
+	// In query mode, the connection is terminated after the query reply. Return without
+	// setting up any mini-protocols.
+	if c.queryMode {
+		return nil
 	}
 	// Provide the negotiated protocol version to the various mini-protocols
 	protoOptions.Version = c.handshakeVersion

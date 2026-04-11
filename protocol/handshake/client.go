@@ -347,7 +347,7 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 			msgGeneric,
 		)
 	}
-	if c.config.FinishedFunc == nil {
+	if c.config.QueryReplyFunc == nil && c.config.FinishedFunc == nil {
 		return errors.New(
 			"received handshake QueryReply message but no callback function is defined",
 		)
@@ -369,9 +369,12 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 			return err
 		}
 	}
-	return c.config.FinishedFunc(
-		c.callbackContext,
-		0,
-		nil,
-	)
+	if c.config.FinishedFunc != nil {
+		return c.config.FinishedFunc(
+			c.callbackContext,
+			0,
+			nil,
+		)
+	}
+	return nil
 }
