@@ -337,6 +337,10 @@ func TestConnectionQueryMode(t *testing.T) {
 	// In query mode, no protocols are set up
 	assert.Nil(t, conn.ChainSync(), "ChainSync should be nil in query mode")
 	assert.Nil(t, conn.BlockFetch(), "BlockFetch should be nil in query mode")
+	assert.Nil(t, conn.TxSubmission(), "TxSubmission should be nil in query mode")
+	assert.Nil(t, conn.LocalStateQuery(), "LocalStateQuery should be nil in query mode")
+	assert.Nil(t, conn.LocalTxMonitor(), "LocalTxMonitor should be nil in query mode")
+	assert.Nil(t, conn.LocalTxSubmission(), "LocalTxSubmission should be nil in query mode")
 
 	// QueryReplyVersionMap should return the version map
 	versionMap := conn.QueryReplyVersionMap()
