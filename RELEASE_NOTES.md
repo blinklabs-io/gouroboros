@@ -4,7 +4,7 @@ title: Release notes
 
 # Release notes
 
-## v0.164.0 - messagesubmission versioning and handshake query
+## v0.164.0 - message submission versioning and handshake query
 
 - **Date:** 2026-04-13
 - **Version:** 0.164.0
@@ -15,8 +15,8 @@ This release includes `MessageSubmission` protocol version selection improvement
 
 ### New Features
 
-- Added versioned `MessageSubmission` state machines (`V1` and `V2`) and selected them based on the negotiated protocol version.
-- Added a connection-level handshake query mode that terminates after a query reply and exposes the returned version map to callers.
+- Added versioned `MessageSubmission` state machines (`V1` and `V2`) with automatic selection based on the negotiated protocol version.
+- Added a connection-level handshake query mode that terminates after the query reply and exposes the returned version map to callers.
 
 ### Security
 
@@ -27,7 +27,7 @@ This release includes `MessageSubmission` protocol version selection improvement
 - Updated `github.com/fxamacker/cbor/v2` to `v2.9.1`.
 - Updated `github.com/blinklabs-io/plutigo` to `v0.1.6` and `github.com/ethereum/go-ethereum` to `v1.17.2`.
 - Updated GitHub Actions workflows to use `actions/github-script@v9.0.0` and `actions/upload-artifact@v7.0.1`.
-- Added a `nilaway` CI workflow and a `make nilaway` target for running nil safety analysis.
+- Added a `nilaway` CI workflow and a `make nilaway` target to run nil safety analysis.
 - Updated `RELEASE_NOTES.md` to include the `v0.163.5` entry.
 
 ## v0.163.5 - byron offsets and validation hardening
