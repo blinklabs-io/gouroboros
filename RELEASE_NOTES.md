@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release includes `MessageSubmission` protocol version selection improvements, handshake query support, and dependency and CI maintenance.
+This release includes improved `MessageSubmission` protocol version selection, handshake query support, and dependency and CI updates.
 
 ### New Features
 
