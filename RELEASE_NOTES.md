@@ -4,6 +4,37 @@ title: Release notes
 
 # Release notes
 
+## v0.164.0 - release updates
+
+- **Date:** 2026-04-13
+- **Version:** 0.164.0
+
+### Summary
+
+This release includes the changes listed in the sections below.
+
+### Details
+
+```json
+{
+  "Additional Changes": [
+    "Updated the `fxamacker/cbor` dependency from `v2.9.0` to `v2.9.1` to pick up upstream maintenance updates. The Go module requirement was bumped to `v2.9.1` with the corresponding `go.mod`/`go.sum` changes.",
+    "Updated `plutigo` and `go-ethereum` dependencies to newer patch versions to stay current with upstream maintenance releases. The module updates included bumping `github.com/blinklabs-io/plutigo` through multiple patch versions with the latest recorded update to `v0.1.6`.",
+    "Updated CI workflows to newer GitHub Actions versions to keep build and release automation current. The workflows bumped `upload-artifact` from `v7.0.0` to `v7.0.1` and switched `actions/github-script` from `v8.0.0` to `v9.0.0`.",
+    "Added static-analysis coverage for additional packages and made it easier to run the checks locally. The configuration updated `nilaway` to include the `github.com/blinklabs-io/gouroboros` package and introduced a dedicated `Makefile` target for executing it.",
+    "Added a consolidated release-notes entry for `v0.163.5` summarizing features, validation corrections, and other updates. The documented scope included Byron-related changes, validation fixes, and auxiliary maintenance items."
+  ],
+  "New Features": [
+    "Added versioned `MessageSubmission` state machines and selected them automatically based on the negotiated protocol version. The implementation introduced distinct `V1`/`V2` state machines, updated the client `Init`/`Stop` semantics for `V2`, added a server-side `Done()` hook, and expanded test coverage for `V2` behavior and `V1` compatibility.",
+    "Added a connection-level handshake query mode that ends after a query reply and makes the returned information available to callers. The handshake client now supports a dedicated `QueryReply` callback (plus an optional `FinishedFunc`), stores the returned version map, and exposes it through a new accessor."
+  ],
+  "Security": [
+    "Updated `golang.org/x/crypto` and `golang.org/x/sys` to newer module versions to incorporate upstream fixes. The change refreshed module versions and checksums to align with current upstream security and platform updates."
+  ]
+}
+
+```
+
 ## v0.163.5 - byron offsets and validation hardening
 
 - **Date:** 2026-04-02
