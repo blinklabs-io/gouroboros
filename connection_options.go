@@ -122,6 +122,16 @@ func WithPeerSharing(peerSharing bool) ConnectionOptionFunc {
 	}
 }
 
+// WithQueryMode specifies whether to enable handshake query mode. When enabled, a ProposeVersions message
+// with the query flag set is sent. The remote peer replies with all supported versions via MsgQueryReply
+// and terminates the connection. Use Connection.QueryReplyVersionMap() to access the reply after
+// a successful connection setup.
+func WithQueryMode(queryMode bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.queryMode = queryMode
+	}
+}
+
 // WithBlockFetchConfig specifies BlockFetch protocol config
 func WithBlockFetchConfig(cfg blockfetch.Config) ConnectionOptionFunc {
 	return func(c *Connection) {

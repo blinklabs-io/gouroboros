@@ -114,6 +114,7 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithDelayProtocolStart", ouroboros.WithDelayProtocolStart(true)},
 		{"WithFullDuplex", ouroboros.WithFullDuplex(true)},
 		{"WithPeerSharing", ouroboros.WithPeerSharing(true)},
+		{"WithQueryMode", ouroboros.WithQueryMode(true)},
 		{"WithLogger", ouroboros.WithLogger(slog.Default())},
 		{"WithErrorChan", ouroboros.WithErrorChan(make(chan error, 10))},
 		{"WithNetwork", ouroboros.WithNetwork(ouroboros.NetworkMainnet)},
@@ -300,6 +301,61 @@ func TestConnectionProtocolVersion(t *testing.T) {
 
 	err = conn.Close()
 	assert.NoError(t, err)
+}
+
+func TestConnectionQueryMode(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	queryVersionMap := protocol.GetProtocolVersionMap(
+		protocol.ProtocolModeNodeToClient,
+		ouroboros_mock.MockNetworkMagic,
+		protocol.DiffusionModeInitiatorOnly,
+		false,
+		false,
+	)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgQueryReply(queryVersionMap),
+				},
+			},
+		},
+	)
+	conn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithQueryMode(true),
+	)
+	require.NoError(t, err, "unexpected error when creating Connection object in query mode")
+	require.NotNil(t, conn)
+
+	// In query mode, no protocols are set up
+	assert.Nil(t, conn.ChainSync(), "ChainSync should be nil in query mode")
+	assert.Nil(t, conn.BlockFetch(), "BlockFetch should be nil in query mode")
+	assert.Nil(t, conn.TxSubmission(), "TxSubmission should be nil in query mode")
+	assert.Nil(t, conn.LocalStateQuery(), "LocalStateQuery should be nil in query mode")
+	assert.Nil(t, conn.LocalTxMonitor(), "LocalTxMonitor should be nil in query mode")
+	assert.Nil(t, conn.LocalTxSubmission(), "LocalTxSubmission should be nil in query mode")
+
+	// QueryReplyVersionMap should return the version map
+	versionMap := conn.QueryReplyVersionMap()
+	require.NotNil(t, versionMap, "QueryReplyVersionMap should not be nil after query mode")
+	assert.NotEmpty(t, versionMap, "QueryReplyVersionMap should not be empty")
+
+	err = conn.Close()
+	assert.NoError(t, err)
+
+	// Wait for connection shutdown
+	select {
+	case <-conn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
 }
 
 // TestNoErrorOnGracefulProtocolDone tests that when a remote client sends a Done
