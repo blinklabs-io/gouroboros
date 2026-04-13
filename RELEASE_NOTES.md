@@ -4,7 +4,7 @@ title: Release notes
 
 # Release notes
 
-## v0.164.0 - message submission versioning and handshake query
+## v0.164.0 - messagesubmission versioning and handshake query
 
 - **Date:** 2026-04-13
 - **Version:** 0.164.0
