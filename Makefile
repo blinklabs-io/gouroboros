@@ -4,6 +4,8 @@ ROOT_DIR=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 # Gather all .go files for use in dependencies below
 GO_FILES=$(shell find $(ROOT_DIR) -name '*.go')
 
+NILAWAY_FLAGS ?= -include-pkgs=github.com/blinklabs-io/gouroboros
+
 .PHONY: mod-tidy format golines test lint
 
 mod-tidy:
@@ -22,3 +24,6 @@ test: mod-tidy
 
 lint:
 	golangci-lint run ./...
+
+nilaway: mod-tidy ## Run nilaway nil safety analysis
+	go run go.uber.org/nilaway/cmd/nilaway@latest $(NILAWAY_FLAGS) ./...
