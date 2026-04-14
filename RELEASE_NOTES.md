@@ -4,6 +4,32 @@ title: Release notes
 
 # Release notes
 
+## v0.164.0 - messagesubmission versioning and handshake query
+
+- **Date:** 2026-04-13
+- **Version:** 0.164.0
+
+### Summary
+
+This release includes improved `MessageSubmission` protocol version selection, handshake query support, and dependency and CI updates.
+
+### New Features
+
+- Added versioned `MessageSubmission` state machines (`V1` and `V2`) with automatic selection based on the negotiated protocol version.
+- Added a connection-level handshake query mode that terminates after the query reply and exposes the returned version map to callers.
+
+### Security
+
+- Updated `golang.org/x/crypto` to `v0.50.0` and `golang.org/x/sys` to `v0.43.0`.
+
+### Additional Changes
+
+- Updated `github.com/fxamacker/cbor/v2` to `v2.9.1`.
+- Updated `github.com/blinklabs-io/plutigo` to `v0.1.6` and `github.com/ethereum/go-ethereum` to `v1.17.2`.
+- Updated GitHub Actions workflows to use `actions/github-script@v9.0.0` and `actions/upload-artifact@v7.0.1`.
+- Added a `nilaway` CI workflow and a `make nilaway` target to run nil safety analysis.
+- Updated `RELEASE_NOTES.md` to include the `v0.163.5` entry.
+
 ## v0.163.5 - byron offsets and validation hardening
 
 - **Date:** 2026-04-02
