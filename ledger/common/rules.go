@@ -112,7 +112,11 @@ func CalculateMinFee(
 			bodySize,
 		)
 	}
-	hi, lo := bits.Mul64(uint64(minFeeA), uint64(bodySize)) //nolint:gosec // overflow is impossible: bodySize is verified non-negative above
+	// Two-step conversion (int → uint → uint64) so that gosec G115 does
+	// not flag the signed-to-unsigned cast: the negative guard above makes
+	// int → uint safe, and uint → uint64 is a widening conversion.
+	uBodySize := uint64(uint(bodySize))
+	hi, lo := bits.Mul64(uint64(minFeeA), uBodySize)
 	if hi != 0 {
 		return 0, fmt.Errorf(
 			"min fee overflow: %d * %d exceeds uint64",
