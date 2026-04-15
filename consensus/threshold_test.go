@@ -964,9 +964,7 @@ func TestLnOneMinusConvergence(t *testing.T) {
 	result := lnOneMinus(x)
 
 	// Convert to float64 for approximate comparison
-	numF, _ := result.Num().Float64()
-	denF, _ := result.Denom().Float64()
-	approx := numF / denF
+	approx, _ := result.Float64()
 
 	// ln(0.5) ≈ -0.693147180559945...
 	// With 100 terms the relative error should be negligible
