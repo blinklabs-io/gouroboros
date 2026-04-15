@@ -106,7 +106,13 @@ func CalculateMinFee(
 	minFeeA uint,
 	minFeeB uint,
 ) (uint64, error) {
-	hi, lo := bits.Mul64(uint64(minFeeA), uint64(bodySize))
+	if bodySize < 0 {
+		return 0, fmt.Errorf(
+			"min fee: negative body size %d",
+			bodySize,
+		)
+	}
+	hi, lo := bits.Mul64(uint64(minFeeA), uint64(bodySize)) //nolint:gosec // overflow is impossible: bodySize is verified non-negative above
 	if hi != 0 {
 		return 0, fmt.Errorf(
 			"min fee overflow: %d * %d exceeds uint64",
