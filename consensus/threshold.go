@@ -57,11 +57,6 @@ var twoTo256 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsCPraos), 
 // it as a read-only constant. Create new big.Int instances for calculations.
 var twoTo512 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsTPraos), nil)
 
-// oneRat is the constant 1/1 for reuse in calculations.
-// WARNING: This package-level big.Rat value must not be mutated. Always use
-// it as a read-only constant. Create new big.Rat instances for calculations.
-var oneRat = big.NewRat(1, 1)
-
 // CertifiedNatThreshold computes the leadership threshold for a pool using CPRAOS.
 // For TPraos compatibility, use CertifiedNatThresholdWithMode.
 //
@@ -214,26 +209,6 @@ func expFloat(x *big.Float) *big.Float {
 	}
 
 	return result
-}
-
-// lnOneMinus computes ln(1-x) for 0 < x < 1 using Taylor series.
-// This is a convenience wrapper around lnOneMinusFloat that accepts
-// and returns big.Rat for backward compatibility with tests.
-func lnOneMinus(x *big.Rat) *big.Rat {
-	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
-	result := lnOneMinusFloat(xf)
-	rat, _ := result.Rat(nil)
-	return rat
-}
-
-// expRational computes exp(x) for a rational x using Taylor series.
-// This is a convenience wrapper around expFloat that accepts and
-// returns big.Rat for backward compatibility with tests.
-func expRational(x *big.Rat) *big.Rat {
-	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
-	result := expFloat(xf)
-	rat, _ := result.Rat(nil)
-	return rat
 }
 
 // VrfLeaderValue computes the CPRAOS leader value from a VRF output.

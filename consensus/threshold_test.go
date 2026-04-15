@@ -23,6 +23,24 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+// lnOneMinus computes ln(1-x) for 0 < x < 1 using Taylor series.
+// Test helper wrapping lnOneMinusFloat with big.Rat conversion.
+func lnOneMinus(x *big.Rat) *big.Rat {
+	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
+	result := lnOneMinusFloat(xf)
+	rat, _ := result.Rat(nil)
+	return rat
+}
+
+// expRational computes exp(x) for a rational x using Taylor series.
+// Test helper wrapping expFloat with big.Rat conversion.
+func expRational(x *big.Rat) *big.Rat {
+	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
+	result := expFloat(xf)
+	rat, _ := result.Rat(nil)
+	return rat
+}
+
 func TestCertifiedNatThresholdZeroStake(t *testing.T) {
 	activeSlotCoeff := big.NewRat(1, 20) // 0.05
 
