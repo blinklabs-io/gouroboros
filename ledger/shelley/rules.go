@@ -433,11 +433,14 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	minFee := common.CalculateMinFee(
+	minFee, err := common.CalculateMinFee(
 		txSize,
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)
+	if err != nil {
+		return 0, err
+	}
 	return minFee, nil
 }
 

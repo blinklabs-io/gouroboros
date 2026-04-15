@@ -23,6 +23,7 @@ package common
 
 import (
 	"fmt"
+	"math/bits"
 	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -98,9 +99,30 @@ func TxSizeForFee(tx Transaction) (int, error) {
 
 // CalculateMinFee computes the minimum fee for a transaction given its
 // fee-relevant size (as returned by TxSizeForFee) and the protocol parameters
-// MinFeeA and MinFeeB.
-func CalculateMinFee(bodySize int, minFeeA uint, minFeeB uint) uint64 {
-	return uint64(minFeeA*uint(bodySize) + minFeeB) //nolint:gosec
+// MinFeeA and MinFeeB. It returns an error if the computation would
+// overflow a uint64.
+func CalculateMinFee(
+	bodySize int,
+	minFeeA uint,
+	minFeeB uint,
+) (uint64, error) {
+	hi, lo := bits.Mul64(uint64(minFeeA), uint64(bodySize))
+	if hi != 0 {
+		return 0, fmt.Errorf(
+			"min fee overflow: %d * %d exceeds uint64",
+			minFeeA,
+			bodySize,
+		)
+	}
+	sum, carry := bits.Add64(lo, uint64(minFeeB), 0)
+	if carry != 0 {
+		return 0, fmt.Errorf(
+			"min fee overflow: %d + %d exceeds uint64",
+			lo,
+			minFeeB,
+		)
+	}
+	return sum, nil
 }
 
 // Common witness-related error types for lightweight UTXOW checks.
