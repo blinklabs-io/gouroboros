@@ -16,6 +16,7 @@ package common_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -303,4 +304,40 @@ func TestReferenceInputResolutionSentinel(t *testing.T) {
 	if out.Err == nil || out.Err.Error() != "utxo not found" {
 		t.Fatalf("expected inner message 'utxo not found', got %q", out.Err)
 	}
+}
+
+func TestCalculateMinFee(t *testing.T) {
+	t.Run("normal_parameters", func(t *testing.T) {
+		// Typical mainnet values: minFeeA=44, minFeeB=155381, bodySize=300
+		fee, err := common.CalculateMinFee(300, 44, 155381)
+		require.NoError(t, err)
+		require.Equal(t, uint64(44*300+155381), fee)
+	})
+
+	t.Run("zero_values", func(t *testing.T) {
+		fee, err := common.CalculateMinFee(0, 0, 0)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), fee)
+	})
+
+	t.Run("multiplication_overflow", func(t *testing.T) {
+		// Choose minFeeA and bodySize whose product exceeds math.MaxUint64.
+		// math.MaxUint64 ≈ 1.8e19, so (1<<32+1) * (1<<32+1) > 2^64.
+		bigA := uint(1<<32 + 1)
+		bigSize := int(1<<32 + 1)
+		_, err := common.CalculateMinFee(bigSize, bigA, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "overflow")
+	})
+
+	t.Run("addition_overflow", func(t *testing.T) {
+		// Product fits but adding minFeeB pushes past MaxUint64.
+		fee, err := common.CalculateMinFee(1, uint(math.MaxUint64), 0)
+		require.NoError(t, err)
+		require.Equal(t, uint64(math.MaxUint64), fee)
+
+		_, err = common.CalculateMinFee(1, uint(math.MaxUint64), 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "overflow")
+	})
 }
