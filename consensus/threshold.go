@@ -41,6 +41,12 @@ const (
 	vrfOutputBitsTPraos = 512
 )
 
+// thresholdPrecision is the number of mantissa bits used for big.Float
+// arithmetic in the Taylor series computation. 1024 bits provides ~308
+// decimal digits of precision, far exceeding the ~77 digits needed for
+// a 256-bit threshold result.
+const thresholdPrecision = 1024
+
 // twoTo256 is 2^256, the upper bound for CPRAOS leader value comparison.
 // WARNING: These package-level big.Int values must not be mutated. Always use
 // them as read-only constants. Create new big.Int instances for calculations.
@@ -50,11 +56,6 @@ var twoTo256 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsCPraos), 
 // WARNING: This package-level big.Int value must not be mutated. Always use
 // it as a read-only constant. Create new big.Int instances for calculations.
 var twoTo512 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsTPraos), nil)
-
-// oneRat is the constant 1/1 for reuse in calculations.
-// WARNING: This package-level big.Rat value must not be mutated. Always use
-// it as a read-only constant. Create new big.Rat instances for calculations.
-var oneRat = big.NewRat(1, 1)
 
 // CertifiedNatThreshold computes the leadership threshold for a pool using CPRAOS.
 // For TPraos compatibility, use CertifiedNatThresholdWithMode.
@@ -110,23 +111,30 @@ func CertifiedNatThresholdWithMode(
 		poolStake = totalStake
 	}
 
-	// Calculate σ = poolStake / totalStake as a rational
-	sigma := new(big.Rat).SetFrac(
-		new(big.Int).SetUint64(poolStake),
-		new(big.Int).SetUint64(totalStake),
+	const prec = thresholdPrecision
+
+	// Calculate σ = poolStake / totalStake as a big.Float
+	sigma := new(big.Float).SetPrec(prec).Quo(
+		new(big.Float).SetPrec(prec).SetUint64(poolStake),
+		new(big.Float).SetPrec(prec).SetUint64(totalStake),
 	)
 
 	// Calculate (1-f)^σ using the approximation:
 	// (1-f)^σ ≈ exp(σ * ln(1-f))
 	//
-	// For the Cardano implementation, we use a Taylor series expansion
-	// of ln(1-f) and exp to achieve sufficient precision.
-	oneMinusFPowerSigma := expRational(
-		new(big.Rat).Mul(sigma, lnOneMinus(activeSlotCoeff)),
-	)
+	// We use big.Float internally to avoid the O(n²) GCD normalization
+	// cost of big.Rat arithmetic over 100 Taylor series terms.
+	f := new(big.Float).SetPrec(prec).SetRat(activeSlotCoeff)
+	lnVal := lnOneMinusFloat(f)
+	product := new(big.Float).SetPrec(prec).Mul(sigma, lnVal)
+	oneMinusFPowerSigma := expFloat(product)
 
 	// Calculate 1 - (1-f)^σ
-	probability := new(big.Rat).Sub(oneRat, oneMinusFPowerSigma)
+	one := new(big.Float).SetPrec(prec).SetInt64(1)
+	probability := new(big.Float).SetPrec(prec).Sub(
+		one,
+		oneMinusFPowerSigma,
+	)
 
 	// Select the appropriate upper bound based on consensus mode
 	var upperBound *big.Int
@@ -137,58 +145,66 @@ func CertifiedNatThresholdWithMode(
 	}
 
 	// threshold = floor(probability * upperBound)
-	threshold := new(big.Int).Mul(probability.Num(), upperBound)
-	threshold.Div(threshold, probability.Denom())
+	upperBoundFloat := new(big.Float).SetPrec(prec).SetInt(upperBound)
+	thresholdFloat := new(big.Float).SetPrec(prec).Mul(
+		probability,
+		upperBoundFloat,
+	)
+	threshold, _ := thresholdFloat.Int(nil)
 
 	return threshold
 }
 
-// lnOneMinus computes ln(1-x) for 0 < x < 1 using Taylor series:
+// lnOneMinusFloat computes ln(1-x) for 0 < x < 1 using Taylor series:
 // ln(1-x) = -x - x²/2 - x³/3 - x⁴/4 - ...
 //
-// We use enough terms to achieve the required precision for Cardano's
-// active slot coefficient range (typically 0.05).
-func lnOneMinus(x *big.Rat) *big.Rat {
-	// Number of terms to compute (more terms = more precision)
-	// 20 terms provides sufficient precision for Cardano's f=0.05
-	const terms = 20
+// Uses big.Float arithmetic with fixed precision to avoid the expensive
+// GCD normalization that big.Rat incurs on every operation.
+// 100 terms provides sufficient precision for active slot coefficients
+// up to f=0.5 and beyond.
+func lnOneMinusFloat(x *big.Float) *big.Float {
+	const terms = 100
 
-	result := new(big.Rat)
-	xPower := new(big.Rat).Set(x) // x^n starting with x^1
-	term := new(big.Rat)
-	denom := new(big.Rat)
+	prec := x.Prec()
+	result := new(big.Float).SetPrec(prec)
+	xPower := new(big.Float).SetPrec(prec).Set(x) // x^n, starts at x^1
+	term := new(big.Float).SetPrec(prec)
+	nFloat := new(big.Float).SetPrec(prec)
 
 	for n := 1; n <= terms; n++ {
-		// Add -x^n / n to result
-		denom.SetFrac64(int64(n), 1)
-		term.Quo(xPower, denom)
+		// term = xPower / n
+		nFloat.SetInt64(int64(n))
+		term.Quo(xPower, nFloat)
+		// result -= term
 		result.Sub(result, term)
-
-		// xPower = xPower * x for next iteration
+		// xPower *= x for next iteration
 		xPower.Mul(xPower, x)
 	}
 
 	return result
 }
 
-// expRational computes exp(x) for a rational x using Taylor series:
+// expFloat computes exp(x) for a big.Float x using Taylor series:
 // exp(x) = 1 + x + x²/2! + x³/3! + x⁴/4! + ...
-func expRational(x *big.Rat) *big.Rat {
-	// Number of terms to compute
-	// 20 terms provides sufficient precision for Cardano's typical values
-	const terms = 20
+//
+// Uses big.Float arithmetic with fixed precision for efficiency.
+// 100 terms provides sufficient precision for active slot coefficients
+// up to f=0.5 and beyond.
+func expFloat(x *big.Float) *big.Float {
+	const terms = 100
 
-	result := new(big.Rat).Set(oneRat) // Start with 1
-	term := new(big.Rat).Set(oneRat)   // Current term (x^n / n!)
-	denom := new(big.Rat)
+	prec := x.Prec()
+	one := new(big.Float).SetPrec(prec).SetInt64(1)
+	result := new(big.Float).SetPrec(prec).Set(one) // Start with 1
+	term := new(big.Float).SetPrec(prec).Set(one)   // x^n / n!
+	nFloat := new(big.Float).SetPrec(prec)
 
 	for n := 1; n <= terms; n++ {
 		// term = term * x / n
 		term.Mul(term, x)
-		denom.SetFrac64(int64(n), 1)
-		term.Quo(term, denom)
-
-		// Add term to result
+		nFloat.SetInt64(int64(n))
+		term.Quo(term, nFloat)
+		// result += term
 		result.Add(result, term)
 	}
 
