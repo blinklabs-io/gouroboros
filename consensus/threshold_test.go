@@ -842,3 +842,134 @@ func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
 			highStakeEligible, lowStakeEligible)
 	}
 }
+
+// TestThresholdAccuracyFullStake verifies the threshold computation against
+// known exact values for various active slot coefficients.
+func TestThresholdAccuracyFullStake(t *testing.T) {
+	testCases := []struct {
+		name string
+		f    *big.Rat
+	}{
+		{"f=0.05", big.NewRat(1, 20)},
+		{"f=0.1", big.NewRat(1, 10)},
+		{"f=0.25", big.NewRat(1, 4)},
+		{"f=0.5", big.NewRat(1, 2)},
+	}
+
+	totalStake := uint64(1_000_000_000)
+	poolStake := totalStake // σ = 1
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			threshold := CertifiedNatThreshold(
+				poolStake,
+				totalStake,
+				tc.f,
+			)
+
+			// Exact expected value: floor(2^256 * f)
+			expected := new(big.Int).Mul(twoTo256, tc.f.Num())
+			expected.Div(expected, tc.f.Denom())
+
+			require.True(t, threshold.Sign() > 0,
+				"threshold must be positive")
+			require.True(t, threshold.Cmp(twoTo256) < 0,
+				"threshold must be less than 2^256")
+
+			// Compute absolute difference
+			diff := new(big.Int).Sub(threshold, expected)
+			diff.Abs(diff)
+
+			// Relative error must be < 10^-20
+			// Equivalently: diff * 10^20 < expected
+			scale := new(big.Int).Exp(
+				big.NewInt(10),
+				big.NewInt(20),
+				nil,
+			)
+			scaledDiff := new(big.Int).Mul(diff, scale)
+
+			require.True(t, scaledDiff.Cmp(expected) < 0,
+				"relative error too large for %s: diff=%s, expected=%s",
+				tc.name, diff.String(), expected.String())
+		})
+	}
+}
+
+// TestThresholdAccuracyPartialStake verifies the threshold computation for
+// partial stake with higher active slot coefficients, which stress the
+// Taylor series convergence.
+//
+// For σ=0.5 and f=0.5:
+//
+//	T = 2^256 * (1 - (1-0.5)^0.5) = 2^256 * (1 - 1/√2) ≈ 2^256 * 0.29289...
+//
+// We verify the result is in the correct range and that increasing f
+// increases the threshold monotonically.
+func TestThresholdAccuracyPartialStake(t *testing.T) {
+	totalStake := uint64(1_000_000_000)
+	poolStake := uint64(500_000_000) // σ = 0.5
+
+	fValues := []*big.Rat{
+		big.NewRat(1, 20), // f=0.05
+		big.NewRat(1, 10), // f=0.1
+		big.NewRat(1, 4),  // f=0.25
+		big.NewRat(1, 2),  // f=0.5
+	}
+
+	var prevThreshold *big.Int
+	for _, f := range fValues {
+		threshold := CertifiedNatThreshold(poolStake, totalStake, f)
+
+		require.True(t, threshold.Sign() > 0,
+			"threshold must be positive for f=%s", f.RatString())
+		require.True(t, threshold.Cmp(twoTo256) < 0,
+			"threshold must be < 2^256 for f=%s", f.RatString())
+
+		if prevThreshold != nil {
+			require.True(t, threshold.Cmp(prevThreshold) > 0,
+				"threshold should increase with f: f=%s",
+				f.RatString())
+		}
+		prevThreshold = new(big.Int).Set(threshold)
+	}
+
+	// Verify f=0.5 with σ=0.5 produces a threshold approximately
+	// equal to 2^256 * (1 - 1/√2) ≈ 2^256 * 0.29289...
+	//
+	// We check: 0.29 * 2^256 < threshold < 0.30 * 2^256
+	thresholdF05 := CertifiedNatThreshold(
+		poolStake,
+		totalStake,
+		big.NewRat(1, 2),
+	)
+	lowerBound := new(big.Int).Mul(twoTo256, big.NewInt(29))
+	lowerBound.Div(lowerBound, big.NewInt(100))
+	upperBound := new(big.Int).Mul(twoTo256, big.NewInt(30))
+	upperBound.Div(upperBound, big.NewInt(100))
+
+	require.True(t, thresholdF05.Cmp(lowerBound) > 0,
+		"f=0.5, σ=0.5 threshold too low: got %s, want > %s",
+		thresholdF05.String(), lowerBound.String())
+	require.True(t, thresholdF05.Cmp(upperBound) < 0,
+		"f=0.5, σ=0.5 threshold too high: got %s, want < %s",
+		thresholdF05.String(), upperBound.String())
+}
+
+// TestLnOneMinusConvergence verifies that lnOneMinus converges for x=0.5,
+// which is the boundary case that required increasing the term count.
+func TestLnOneMinusConvergence(t *testing.T) {
+	// ln(1-0.5) = ln(0.5) = -0.693147...
+	x := big.NewRat(1, 2)
+	result := lnOneMinus(x)
+
+	// Convert to float64 for approximate comparison
+	numF, _ := result.Num().Float64()
+	denF, _ := result.Denom().Float64()
+	approx := numF / denF
+
+	// ln(0.5) ≈ -0.693147180559945...
+	// With 100 terms the relative error should be negligible
+	require.InDelta(t, -0.693147180559945, approx, 1e-10,
+		"lnOneMinus(0.5) should be approximately ln(0.5)")
+}

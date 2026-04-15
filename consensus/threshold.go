@@ -150,8 +150,9 @@ func CertifiedNatThresholdWithMode(
 // active slot coefficient range (typically 0.05).
 func lnOneMinus(x *big.Rat) *big.Rat {
 	// Number of terms to compute (more terms = more precision)
-	// 20 terms provides sufficient precision for Cardano's f=0.05
-	const terms = 20
+	// 100 terms provides sufficient precision for active slot coefficients
+	// up to f=0.5 and beyond, where 20 terms would not converge.
+	const terms = 100
 
 	result := new(big.Rat)
 	xPower := new(big.Rat).Set(x) // x^n starting with x^1
@@ -175,8 +176,9 @@ func lnOneMinus(x *big.Rat) *big.Rat {
 // exp(x) = 1 + x + x²/2! + x³/3! + x⁴/4! + ...
 func expRational(x *big.Rat) *big.Rat {
 	// Number of terms to compute
-	// 20 terms provides sufficient precision for Cardano's typical values
-	const terms = 20
+	// 100 terms provides sufficient precision for active slot coefficients
+	// up to f=0.5 and beyond, where 20 terms would not converge.
+	const terms = 100
 
 	result := new(big.Rat).Set(oneRat) // Start with 1
 	term := new(big.Rat).Set(oneRat)   // Current term (x^n / n!)
