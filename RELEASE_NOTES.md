@@ -4,6 +4,25 @@ title: Release notes
 
 # Release notes
 
+## v0.165.0 - fee calculation and precision updates
+
+- **Date:** 2026-04-17
+- **Version:** 0.165.0
+
+### Summary
+
+This release improves consensus threshold precision for higher active slot coefficients, hardens minimum fee calculation with overflow detection and propagated errors, updates `github.com/blinklabs-io/plutigo` to `v0.1.7`, and updates `RELEASE_NOTES.md` to add the prior release entry.
+
+### Bug Fixes
+
+* Improved consensus threshold precision for higher active slot coefficients by using higher precision calculations with expanded validation so threshold results converge accurately.
+* Hardened minimum fee calculation by detecting multiplication and addition overflow, returning descriptive errors, and propagating those failures through fee validation paths with test coverage.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` from `v0.1.6` to `v0.1.7`.
+* Refreshed `RELEASE_NOTES.md` to include the `v0.164.0` entry.
+
 ## v0.164.0 - messagesubmission versioning and handshake query
 
 - **Date:** 2026-04-13
