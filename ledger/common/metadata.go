@@ -670,14 +670,12 @@ func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 		if metadataRaw, ok := decodeAuxiliaryMetadataOnly(taggedContent); ok {
 			return DecodeMetadatumRaw(metadataRaw)
 		}
-		var auxMap struct {
-			Metadata cbor.RawMessage `cbor:"0,keyasint,omitempty"`
-		}
+		var auxMap map[uint]cbor.RawMessage
 		if _, err := cbor.Decode(taggedContent, &auxMap); err != nil {
 			return nil, err
 		}
-		if len(auxMap.Metadata) > 0 {
-			return DecodeMetadatumRaw(auxMap.Metadata)
+		if metadataRaw := auxMap[0]; len(metadataRaw) > 0 {
+			return DecodeMetadatumRaw(metadataRaw)
 		}
 		// If no metadata, return nil
 		return nil, nil
@@ -932,22 +930,14 @@ func (a *AlonzoAuxiliaryData) UnmarshalCBOR(data []byte) error {
 		return nil
 	}
 
-	// Decode the fixed-key map into a struct instead of a generic map to
-	// avoid per-entry hashing/allocation on the hot decode path.
-	var auxMap struct {
-		Metadata      cbor.RawMessage `cbor:"0,keyasint,omitempty"`
-		NativeScripts cbor.RawMessage `cbor:"1,keyasint,omitempty"`
-		PlutusV1      cbor.RawMessage `cbor:"2,keyasint,omitempty"`
-		PlutusV2      cbor.RawMessage `cbor:"3,keyasint,omitempty"`
-		PlutusV3      cbor.RawMessage `cbor:"4,keyasint,omitempty"`
-	}
+	var auxMap map[uint]cbor.RawMessage
 	if _, err := cbor.Decode(taggedContent, &auxMap); err != nil {
 		return fmt.Errorf("failed to decode auxiliary data map: %w", err)
 	}
 
 	// Key 0: metadata
-	if len(auxMap.Metadata) > 0 {
-		md, err := DecodeMetadatumRaw(auxMap.Metadata)
+	if metadataRaw := auxMap[0]; len(metadataRaw) > 0 {
+		md, err := DecodeMetadatumRaw(metadataRaw)
 		if err != nil {
 			return fmt.Errorf("failed to decode metadata: %w", err)
 		}
@@ -955,29 +945,29 @@ func (a *AlonzoAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	}
 
 	// Key 1: native scripts
-	if len(auxMap.NativeScripts) > 0 {
-		if _, err := cbor.Decode(auxMap.NativeScripts, &a.nativeScripts); err != nil {
+	if nativeScriptsRaw := auxMap[1]; len(nativeScriptsRaw) > 0 {
+		if _, err := cbor.Decode(nativeScriptsRaw, &a.nativeScripts); err != nil {
 			return fmt.Errorf("failed to decode native scripts: %w", err)
 		}
 	}
 
 	// Key 2: Plutus V1 scripts
-	if len(auxMap.PlutusV1) > 0 {
-		if _, err := cbor.Decode(auxMap.PlutusV1, &a.plutusV1Scripts); err != nil {
+	if plutusV1Raw := auxMap[2]; len(plutusV1Raw) > 0 {
+		if _, err := cbor.Decode(plutusV1Raw, &a.plutusV1Scripts); err != nil {
 			return fmt.Errorf("failed to decode Plutus V1 scripts: %w", err)
 		}
 	}
 
 	// Key 3: Plutus V2 scripts
-	if len(auxMap.PlutusV2) > 0 {
-		if _, err := cbor.Decode(auxMap.PlutusV2, &a.plutusV2Scripts); err != nil {
+	if plutusV2Raw := auxMap[3]; len(plutusV2Raw) > 0 {
+		if _, err := cbor.Decode(plutusV2Raw, &a.plutusV2Scripts); err != nil {
 			return fmt.Errorf("failed to decode Plutus V2 scripts: %w", err)
 		}
 	}
 
 	// Key 4: Plutus V3 scripts
-	if len(auxMap.PlutusV3) > 0 {
-		if _, err := cbor.Decode(auxMap.PlutusV3, &a.plutusV3Scripts); err != nil {
+	if plutusV3Raw := auxMap[4]; len(plutusV3Raw) > 0 {
+		if _, err := cbor.Decode(plutusV3Raw, &a.plutusV3Scripts); err != nil {
 			return fmt.Errorf("failed to decode Plutus V3 scripts: %w", err)
 		}
 	}
