@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.165.1 - auxiliary data decode compatibility fix
+
+- **Date:** 2026-04-18
+- **Version:** 0.165.1
+
+### Summary
+
+This release keeps auxiliary data decoding compatible when future extension keys appear, so metadata at key `0` still loads correctly and raw auxiliary data still round trips as expected. It also refreshes `RELEASE_NOTES.md` for this version.
+
+### Bug Fixes
+
+* Improved auxiliary data decoding to ignore unknown integer keyed `CBOR` map entries, continue extracting metadata from key `0`, and prove through regression coverage that metadata and raw auxiliary data still round trip when a future era extension key such as key `6` is present.
+
 ## v0.165.0 - fee calculation and precision updates
 
 - **Date:** 2026-04-17
