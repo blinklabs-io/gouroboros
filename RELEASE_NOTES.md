@@ -4,6 +4,21 @@ title: Release notes
 
 # Release notes
 
+## v0.165.2 - plutigo dependency and copyright update
+
+- **Date:** 2026-04-19
+- **Version:** 0.165.2
+
+### Summary
+
+This release updates `github.com/blinklabs-io/plutigo` to `v0.1.8`, refreshes repository copyright headers for 2026, and refreshes `RELEASE_NOTES.md` to include the prior `v0.165.1` release entry.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` to `v0.1.8`.
+* Refreshed repository copyright headers to `2026`.
+* Added the prior `v0.165.1` release entry to `RELEASE_NOTES.md`.
+
 ## v0.165.1 - auxiliary data decode compatibility fix
 
 - **Date:** 2026-04-18
