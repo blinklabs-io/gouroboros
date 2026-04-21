@@ -1,157 +1,43 @@
-# AGENTS.md - AI Coding Assistant Guide
+# Gouroboros Agent Guide
 
-This guide helps AI coding assistants work effectively with the gouroboros codebase.
+Go library for Cardano: ledger validation across all eras (Byron→Leios), Ouroboros network protocols, CBOR. Primary agent reference; Claude-specific layer in `CLAUDE.md`.
 
-## Project Overview
-
-**gouroboros** is a Go library implementing Cardano blockchain protocols. It provides:
-- Ledger types and validation across all Cardano eras (Byron through Conway)
-- Ouroboros network protocol implementation (ChainSync, BlockFetch, TxSubmission, etc.)
-- CBOR serialization/deserialization for blockchain data
-
-## Quick Reference
+## Commands
 
 | Action | Command |
 |--------|---------|
-| Run all tests | `go test ./...` |
-| Run tests with race detection | `make test` |
-| Run linter | `make lint` or `golangci-lint run ./...` |
-| Format code | `make format` |
-| Run conformance tests | `go test -v ./internal/test/conformance/...` |
-| Build all packages | `go build ./...` |
+| Tests + race | `make test` |
+| Lint | `make lint` |
+| Format | `make format` |
+| Conformance | `go test -v ./internal/test/conformance/...` |
+| Build | `go build ./...` |
 
-## Project Structure
+All must pass before submitting. 80-col limit (`golines`), Apache-2.0 header on new files.
 
-```text
-ledger/              # Blockchain ledger types and validation
-├── common/          # Shared types, interfaces, utilities
-│   └── script/      # Script validation (Native, PlutusV1/V2/V3)
-├── byron/           # Byron era
-├── shelley/         # Shelley era (base validation logic)
-├── allegra/         # Allegra era
-├── mary/            # Mary era (multi-asset)
-├── alonzo/          # Alonzo era (Plutus scripts)
-├── babbage/         # Babbage era (reference scripts, inline datums)
-├── conway/          # Conway era (governance)
-└── leios/           # Leios era
+## Layout
 
-protocol/            # Ouroboros network mini-protocols
-├── chainsync/       # Chain synchronization
-├── blockfetch/      # Block retrieval
-├── txsubmission/    # Transaction submission
-├── localstatequery/ # Local node queries
-└── ...
-
-cbor/                # Custom CBOR utilities
-connection/          # Network connection management
-muxer/               # Protocol multiplexing
-internal/test/       # Test utilities and conformance tests
+```
+ledger/            ledger types + validation
+  common/          shared interfaces, types, rules
+    script/        Plutus script context + purpose wrappers (V1/V2/V3)
+  byron/           standalone legacy format
+  shelley/ allegra/ mary/ alonzo/ babbage/ conway/ leios/
+protocol/          Ouroboros mini-protocols (chainsync, blockfetch,
+                   txsubmission, localstatequery, ...)
+cbor/              CBOR helpers (EncMode/DecMode cached globally)
+connection/        network connection mgmt
+muxer/             protocol multiplexing
+kes/ vrf/ consensus/   crypto primitives (used by ledger/verify_*.go)
+pipeline/          block processing (decode → validate → apply)
+internal/test/     test utilities + conformance harness
 ```
 
-## Package Dependencies
+Era lineage: Shelley → Allegra → Mary → Alonzo → Babbage → Conway → Leios. Byron is standalone.
 
-```text
-                    ┌─────────────┐
-                    │ ledger/common │ ◄── Base types, interfaces
-                    └──────┬──────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-        ┌─────────┐  ┌─────────┐  ┌─────────┐
-        │  byron  │  │ shelley │  │  cbor   │
-        └─────────┘  └────┬────┘  └─────────┘
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-        ┌─────────┐ ┌─────────┐ ┌─────────┐
-        │ allegra │ │  mary   │ │   kes   │
-        └────┬────┘ └────┬────┘ └─────────┘
-             │           │
-             └─────┬─────┘
-                   ▼
-             ┌─────────┐
-             │  alonzo │ ◄── Plutus scripts
-             └────┬────┘
-                  │
-             ┌────┴────┐
-             ▼         ▼
-       ┌─────────┐ ┌─────────┐
-       │ babbage │ │   vrf   │
-       └────┬────┘ └─────────┘
-            │
-            ▼
-       ┌─────────┐
-       │ conway  │ ◄── Governance
-       └─────────┘
-
-Era lineages:
-  Byron (standalone, legacy format)
-  Shelley → Allegra → Mary → Alonzo → Babbage → Conway → Leios
-
-Crypto packages (kes, vrf, consensus) used by: ledger/verify_*.go
-Protocol packages independent of ledger (use ledger types for messages)
-```
-
-## Architecture
-
-### Era Inheritance Pattern
-
-Each Cardano era extends the previous one. Validation rules follow this pattern:
+## Validation rule signature
 
 ```go
-// Shelley defines base validation rules
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-    UtxoValidateTimeToLive,
-    UtxoValidateInputSetEmptyUtxo,
-    UtxoValidateFeeTooSmallUtxo,
-    // ...
-}
-
-// Later eras OFTEN delegate to earlier eras...
-func UtxoValidateDelegation(tx, slot, ls, pp) error {
-    return shelley.UtxoValidateDelegation(tx, slot, ls, pp)
-}
-
-// ...but NOT ALWAYS. Some rules have era-specific implementations.
-// Always read the actual code before assuming delegation.
-// Example: Conway's UtxoValidateWithdrawals has its own full
-// implementation and does NOT delegate to shelley.
-```
-
-### Key Interfaces
-
-**LedgerState** (`ledger/common/state.go`):
-```go
-type LedgerState interface {
-    UtxoState       // UTxO lookup
-    CertState       // Stake/pool registration
-    SlotState       // Slot-time conversion
-    PoolState       // Pool queries
-    RewardState     // Reward calculations
-    GovState        // Governance/DRep queries
-    NetworkId() uint
-    CostModels() map[uint][]int64
-}
-```
-
-**Transaction** (`ledger/common/tx.go`):
-```go
-type Transaction interface {
-    TransactionBody
-    Hash() Blake2b256
-    Cbor() []byte
-    IsValid() bool
-    Consumed() []TransactionInput
-    Produced() []Utxo
-    Witnesses() TransactionWitnessSet
-}
-```
-
-### Validation Rule Pattern
-
-Each validation function has this signature:
-```go
-func UtxoValidate{RuleName}(
+func UtxoValidate{Name}(
     tx common.Transaction,
     slot uint64,
     ls common.LedgerState,
@@ -159,393 +45,173 @@ func UtxoValidate{RuleName}(
 ) error
 ```
 
-Rules return `nil` on success or a specific error type on failure.
+Returns `nil` or a typed error. Later eras often delegate to earlier ones, but not universally — Conway `UtxoValidateWithdrawals` has its own body. Always grep the function before claiming delegation.
 
-## CBOR Encoding Patterns
+## Key interfaces
 
-### Embeddable Types
+- `ledger/common/state.go` — `LedgerState` embeds `UtxoState`, `CertState`, `SlotState`, `PoolState`, `RewardState`, `GovState`; exposes `NetworkId()`, `CostModels()`.
+- `ledger/common/tx.go` — `Transaction`: `Hash()`, `Cbor()`, `IsValid()`, `Consumed()`, `Produced()`, `Witnesses()`.
 
-The `cbor` package provides embeddable types for common patterns:
+## CBOR
 
-**`cbor.StructAsArray`** - Embed to encode struct as CBOR array:
-```go
-type ShelleyBlock struct {
-    cbor.StructAsArray           // Enables CBOR array encoding
-    cbor.DecodeStoreCbor         // Preserves original bytes
-    BlockHeader            *ShelleyBlockHeader
-    TransactionBodies      []ShelleyTransactionBody
-    // ...
-}
+Embeddable helpers:
+- `cbor.StructAsArray` — encode struct as array.
+- `cbor.DecodeStoreCbor` — preserve original bytes. Requires a custom `UnmarshalCBOR` that calls `SetCbor(cborData)`; retrieve via `.Cbor()`.
+- `cbor.RawMessage` — deferred decode.
+- `cbor.ByteString` — map-key-safe bytes.
+- `cbor.Tag`, `cbor.RawTag` — semantic tags.
+
+Rules:
+- Hash from preserved `.Cbor()` bytes, never re-encoded.
+- Map key order uses Cardano rules (e.g. shortLex for language views).
+- Indefinite vs definite length matters for some encodings.
+- `EncMode`/`DecMode` are globally cached via `sync.Once`; don't construct per call.
+
+## ScriptDataHash
+
+```
+Blake2b256(redeemers_cbor || datums_cbor || language_views_cbor)
 ```
 
-**`cbor.DecodeStoreCbor`** - Embed to preserve original CBOR bytes for hashing:
-```go
-type MyType struct {
-    cbor.DecodeStoreCbor
-    // fields...
-}
+Language-views map, keys sorted shortLex (length-first, then lex):
+- PlutusV1 (double-bagged): tag `serialize(serialize(0))` = `0x4100`; params `serialize(indefinite_list(cost_model))` wrapped in bytestring.
+- PlutusV2/V3: tag `serialize(version)` = `0x01`/`0x02`; params `definite_list(cost_model)` unwrapped.
 
-func (m *MyType) UnmarshalCBOR(cborData []byte) error {
-    type tMyType MyType
-    var tmp tMyType
-    if _, err := cbor.Decode(cborData, &tmp); err != nil {
-        return err
-    }
-    *m = MyType(tmp)
-    m.SetCbor(cborData)  // Store original bytes
-    return nil
-}
+## Native script evaluation
 
-// Later, m.Cbor() returns the original bytes for hashing
-```
+`NativeScript.Evaluate(slot, validityStart, validityEnd, keyHashes) bool` at `ledger/common/script.go`. Types: `Pubkey`, `All`, `Any`, `NofK`, `InvalidBefore`, `InvalidHereafter`.
 
-### Common CBOR Types
+## Governance ratification
 
-- `cbor.RawMessage` - Deferred/lazy decoding
-- `cbor.ByteString` - Bytestrings usable as map keys
-- `cbor.Tag` / `cbor.RawTag` - CBOR semantic tags
+Two-phase at epoch boundaries:
+1. Enact proposals ratified in the previous epoch (updates roots).
+2. Ratify new proposals using updated roots.
 
-### Encoding Gotchas
+Ordering ensures sibling proposals resolve correctly.
 
-1. **Hash computation** - Always use preserved original CBOR bytes via `Cbor()`, not re-encoded data
-2. **Map key ordering** - Cardano uses specific ordering rules (e.g., "shortLex" for language views)
-3. **Indefinite vs definite length** - Some encodings require specific length encoding
-4. **Custom UnmarshalCBOR** - When embedding `DecodeStoreCbor`, implement `UnmarshalCBOR` and call `SetCbor()`
+## Mock fixtures
+
+All mock fixtures come from `github.com/blinklabs-io/ouroboros-mock`. Single source of truth across dingo, adder, shai, apollo, and downstream apps. If a fixture is missing, add it upstream and bump the dep — never inline a local mock.
+
+| Need | Package |
+|------|---------|
+| LedgerState, UTxO, pools, pparams, governance, rewards | `ouroboros-mock/ledger` |
+| Mock transactions / builders (`*MockTransaction`) | `ouroboros-mock/ledger` |
+| Network conversations, connection/handshake mocks | `ouroboros-mock` (root) |
+| Block/tx harnesses, protocol param JSON | `ouroboros-mock/fixtures` |
+
+`NewTransactionBuilder()` returns `*MockTransaction`. The `TransactionBuilder` interface only exposes `WithId`, `WithInputs`, `WithOutputs`, `WithFee`, `WithTTL`, `WithMetadata`, `WithValid`, `Build`. Use the concrete type for `WithWithdrawals`, `WithCollateral`, `WithReferenceInputs`, `WithCertificates`, `WithRequiredSigners`, `WithScriptDataHash`, `WithMint`, `WithValidityIntervalStart`.
 
 ## Testing
 
-### Running Tests
+Use `testify`: `require` for fatal, `assert` for continue-on-fail.
 
-```bash
-# All tests with race detection
-make test
-
-# Specific package
-go test -v ./ledger/...
-
-# Conformance tests (314 test vectors)
-go test -v ./internal/test/conformance/...
-```
-
-### Writing Tests
-
-Use `testify` for assertions:
 ```go
-import "github.com/stretchr/testify/assert"
-
-func TestSomething(t *testing.T) {
-    result := DoSomething()
-    assert.NoError(t, err)
-    assert.Equal(t, expected, result)
-}
-```
-
-Use `ouroboros-mock` builders for validation tests (`github.com/blinklabs-io/ouroboros-mock/ledger`):
-```go
-import mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+import (
+    "github.com/stretchr/testify/require"
+    mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+)
 
 ls := mockledger.NewLedgerStateBuilder().
     WithNetworkId(0).
     WithUtxos([]lcommon.Utxo{testUtxo}).
     Build()
-
 tx, err := mockledger.NewTransactionBuilder().
-    WithInputs(input1, input2).
-    WithOutputs(output1).
-    WithFee(200000).
-    Build()
+    WithInputs(in).WithOutputs(out).WithFee(200000).Build()
+require.NoError(t, err)
 ```
 
-**TransactionBuilder vs MockTransaction:** The `TransactionBuilder` interface only
-defines `WithId`, `WithInputs`, `WithOutputs`, `WithFee`, `WithTTL`, `WithMetadata`,
-`WithValid`, and `Build`. However, `NewTransactionBuilder()` returns `*MockTransaction`
-(a concrete type) which has many additional methods: `WithWithdrawals`,
-`WithCollateral`, `WithReferenceInputs`, `WithCertificates`, `WithRequiredSigners`,
-`WithScriptDataHash`, `WithMint`, `WithValidityIntervalStart`, etc. Use the concrete
-return type directly when you need these extended builder methods:
+## Where to make changes
 
-```go
-tx, err := mockledger.NewTransactionBuilder().
-    WithWithdrawals(map[*common.Address]uint64{&rewardAddr: 5_000_000}).
-    WithCollateral(collateralInput).
-    Build()
-```
+| Task | Files |
+|------|-------|
+| Add/fix validation rule | `ledger/{era}/rules.go`; register in `UtxoValidationRules`; error in `ledger/{era}/errors.go` (or `common/errors.go` if shared); add conformance vector if applicable |
+| Transaction body fields | `ledger/{era}/shelley.go` or era-specific file |
+| Witnesses | `ledger/common/witness.go` |
+| Fee calculation | `MinFeeTx` in `ledger/{era}/rules.go` |
+| Native scripts | `ledger/common/script.go` (`NativeScript` and variants) |
+| Plutus scripts | `ledger/common/script.go` (`PlutusV1Script`, `PlutusV2Script`, `PlutusV3Script`); context/purpose wrappers in `ledger/common/script/` |
+| Script validation | `ValidateScriptWitnesses` in `ledger/common/rules.go`; `UtxoValidateScriptWitnesses` in `ledger/{alonzo,babbage,conway}/rules.go` |
+| Script data hash | `TransactionBodyBase.ScriptDataHash()` in `ledger/common/tx.go`; `UtxoValidateScriptDataHash` in `ledger/{alonzo,babbage,conway}/rules.go` |
+| Certificate types | `ledger/common/certs.go` (+ CBOR tags, parsing switch, era rule) |
+| Governance (Conway) | `ledger/conway/gov.go` |
+| Protocol messages | `protocol/{name}/messages.go` |
+| Protocol client/server | `protocol/{name}/{client,server}.go` |
+| Block verification | `ledger/verify_block.go`, `verify_block_body.go`, `verify_kes.go`, `verify_opcert.go`; `vrf/vrf.go`, `kes/kes.go` |
+| New era | `ledger/{era}/` + compat exports at `ledger/{era}.go` |
+| Conformance failure | grep rule name in `ledger/`; cross-ref `internal/test/cardano-blueprint/src/ledger/`; compare vector JSON in the `github.com/blinklabs-io/ouroboros-mock` module under `conformance/testdata/` (embedded, extracted at test time) |
 
-### Conformance Tests
+## Error catalog
 
-Located in `internal/test/conformance/`. Test vectors are from Cardano's official ledger specification. See `internal/test/conformance/README.md` for detailed structure.
+### Shelley
 
-## Glossary
+| Error | Rule | Cause |
+|-------|------|-------|
+| `ExpiredUtxoError` | `UtxoValidateTimeToLive` | TTL < current slot |
+| `InputSetEmptyUtxoError` | `UtxoValidateInputSetEmptyUtxo` | no inputs |
+| `FeeTooSmallUtxoError` | `UtxoValidateFeeTooSmallUtxo` | fee below `MinFeeTx()` |
+| `BadInputsUtxoError` | `UtxoValidateBadInputsUtxo` | input not in UTxO set |
+| `WrongNetworkError` | `UtxoValidateWrongNetwork` | output address wrong network |
+| `ValueNotConservedUtxoError` | `UtxoValidateValueNotConservedUtxo` | inputs ≠ outputs + fee |
+| `OutputTooSmallUtxoError` | `UtxoValidateOutputTooSmallUtxo` | output below min UTxO |
+| `MaxTxSizeUtxoError` | `UtxoValidateMaxTxSizeUtxo` | transaction too large |
 
-| Term | Definition | Key Files |
-|------|------------|-----------|
-| **UTxO** | Unspent Transaction Output - fundamental unit of value | `ledger/common/utxo.go` |
-| **TTL** | Time-to-live - slot deadline for transaction validity | `tx.TTL()` method |
-| **Datum** | Data attached to script-locked UTxOs | `ledger/common/datum.go` |
-| **Redeemer** | Arguments passed to Plutus scripts during execution | `ledger/common/redeemer.go` |
-| **Cost Model** | Plutus execution cost parameters per version | `ledger/*/pparams.go` |
-| **Era** | Cardano protocol version (Byron, Shelley, etc.) | `ledger/{era}/` |
-| **Slot** | Time unit (~1 second on mainnet) | `SlotState` interface |
-| **Epoch** | Collection of slots (~5 days on mainnet) | `EpochState` interface |
-| **Collateral** | Ada locked to cover script failure costs | Alonzo+ transactions |
-| **Reference Input** | Input read but not consumed | `tx.ReferenceInputs()` |
-| **Reference Script** | Script stored in UTxO, referenced by hash | Babbage+ feature |
-| **DRep** | Delegated Representative for governance | Conway era |
-| **VRF** | Verifiable Random Function for leader election | `vrf/` package |
-| **KES** | Key-Evolving Signature for block signing | `kes/` package |
-| **CBOR** | Concise Binary Object Representation | `cbor/` package |
+### Allegra
 
-## Decision Tree
+| Error | Rule | Cause |
+|-------|------|-------|
+| `OutsideValidityIntervalUtxoError` | `UtxoValidateValidityInterval` | slot outside validity range |
+| `NativeScriptFailedError` | script evaluation | native script failed |
 
-Use this to find where to make changes:
+### Alonzo
 
-```text
-What are you doing?
-│
-├─► Adding/fixing a validation rule?
-│   ├─► Which era? → ledger/{era}/rules.go
-│   ├─► Need new error type? → ledger/{era}/errors.go
-│   ├─► Shared across eras? → ledger/common/rules.go
-│   └─► Test it → internal/test/conformance/ (if vector exists)
-│
-├─► Working with transactions?
-│   ├─► Transaction interface → ledger/common/tx.go
-│   ├─► Transaction body fields → ledger/{era}/shelley.go (or era file)
-│   ├─► Witnesses → ledger/common/witness.go
-│   └─► Fee calculation → ledger/{era}/rules.go (MinFeeTx)
-│
-├─► Working with scripts?
-│   ├─► Native scripts → ledger/common/script/native.go
-│   ├─► Plutus scripts → ledger/common/script/plutus.go
-│   ├─► Script validation → ledger/common/script/validate.go
-│   └─► Script data hash → ledger/common/script_data_hash.go
-│
-├─► Working with certificates?
-│   ├─► Certificate types → ledger/common/certs.go
-│   ├─► Certificate validation → ledger/{era}/rules.go (UtxoValidateDelegation)
-│   └─► Governance certs (Conway) → ledger/conway/gov.go
-│
-├─► Working with protocol messages?
-│   ├─► Find protocol → protocol/{name}/
-│   ├─► Message types → protocol/{name}/messages.go
-│   ├─► Client implementation → protocol/{name}/client.go
-│   └─► Server implementation → protocol/{name}/server.go
-│
-├─► Fixing a conformance test failure?
-│   ├─► Find rule name in error output
-│   ├─► Grep: grep -r "UtxoValidate{RuleName}" ledger/
-│   ├─► Check spec: internal/test/cardano-blueprint/src/ledger/
-│   └─► Compare with test vector JSON in conformance/testdata/
-│
-├─► Working with CBOR?
-│   ├─► Encoding utilities → cbor/
-│   ├─► Type needs array encoding → embed cbor.StructAsArray
-│   ├─► Need original bytes for hash → embed cbor.DecodeStoreCbor
-│   └─► Deferred decoding → use cbor.RawMessage
-│
-└─► Working with block verification?
-    ├─► Main entry → ledger/verify_block.go
-    ├─► KES verification → ledger/verify_kes.go
-    ├─► VRF verification → vrf/vrf.go
-    └─► Validation config → ledger/common/verify_config.go
-```
+| Error | Rule | Cause |
+|-------|------|-------|
+| `ExUnitsTooBigUtxoError` | `UtxoValidateExUnitsTooBig` | execution units exceed max |
+| `InsufficientCollateralError` | `UtxoValidateCollateral` | collateral below required |
+| `CollateralContainsNonAdaError` | `UtxoValidateCollateral` | collateral has tokens |
+| `NoCollateralInputsError` | `UtxoValidateCollateral` | collateral not specified |
 
-## Common Tasks
+### Conway
 
-### Adding a Validation Rule
+| Error | Rule | Cause |
+|-------|------|-------|
+| `DelegateVoteToUnregisteredDRepError` | `UtxoValidateDelegation` | DRep not registered |
+| `StakeCredentialAlreadyRegisteredError` | `UtxoValidateDelegation` | re-registering stake key |
+| `PlutusScriptFailedError` | script execution | script returned False |
 
-1. Create the rule function in the appropriate era package (`ledger/{era}/rules.go`)
-2. Add to `UtxoValidationRules` slice at the correct position
-3. Define a custom error type if needed (`ledger/{era}/errors.go`)
-4. Write unit tests
+### Shared
 
-Example:
-```go
-// In ledger/conway/rules.go
-func UtxoValidateNewRule(
-    tx common.Transaction,
-    slot uint64,
-    ls common.LedgerState,
-    pp common.ProtocolParameters,
-) error {
-    // Validation logic
-    if invalid {
-        return NewRuleError{Details: "..."}
-    }
-    return nil
-}
+| Error | Rule | Cause |
+|-------|------|-------|
+| `MissingCostModelError` | script validation | no cost model for Plutus version |
+| `ScriptDataHashMismatchError` | `UtxoValidateScriptDataHash` | hash mismatch against witnesses |
+| `MissingVKeyWitnessesError` | `UtxoValidateRequiredVKeyWitnesses` | required signature missing |
+| `MalformedReferenceScriptsError` | `UtxoValidateMalformedReferenceScripts` | invalid UPLC bytecode |
 
-// Add to rules slice
-var UtxoValidationRules = []common.UtxoValidationRuleFunc{
-    // ... existing rules
-    UtxoValidateNewRule,
-}
-```
+Error files: `ledger/{shelley,allegra,alonzo,babbage,conway,common}/errors.go`.
 
-### Adding Support for a New Certificate Type
+## Pitfalls
 
-1. Define the certificate struct in `ledger/common/certs.go`
-2. Add CBOR tags and encoding
-3. Update certificate parsing switch statement
-4. Add validation in appropriate era's rules
+1. Reference inputs: resolved but never consumed from UTxO set.
+2. Collateral: only consumed when `IsValid=false`.
+3. Datum lookup: check witness set, inline datums, AND reference inputs.
+4. Cost models: required per Plutus version used.
+5. Era delegation is not universal — read the function body. Conway `UtxoValidateWithdrawals` has a custom impl.
+6. Hash from preserved CBOR bytes, not re-encoded data.
+7. `DecodeStoreCbor` requires a custom `UnmarshalCBOR` calling `SetCbor()`.
+8. Withdrawal amount validation is intentionally disabled (see `NOTE:` at `conway/rules.go` `UtxoValidateWithdrawals`). Spec requires `amount == balance`, not `amount > 0`; zero-amount withdrawals from zero-balance accounts are spec-valid. Multi-tx balance tracking is deferred.
+9. Read code before claiming "just delegates" or "missing check". `NOTE:` comments mark deliberate decisions.
 
-### Extending an Era
+## Reviewer guardrails
 
-1. Create new package `ledger/{era_name}/`
-2. Define types extending previous era
-3. Implement `rules.go` inheriting parent rules
-4. Add compatibility exports at `ledger/{era_name}.go`
+1. Do not hallucinate APIs. `UtxoValidateNoDuplicateInputs` and `DuplicateInputError` do not exist. The `TransactionBuilder` interface has no `WithWithdrawals` (the concrete `*MockTransaction` does).
+2. Do not assume delegation. Most Conway rules delegate to Shelley; not all.
+3. Do not propose Cardano spec checks without verifying the spec. E.g. withdrawal amount must equal the exact reward balance, not just be positive.
+4. Respect `NOTE:` comments — they mark intentional omissions and spec deviations.
 
-## Code Quality
+## Related
 
-### Required Checks
-
-Before submitting:
-```bash
-make lint      # Must pass
-make test      # Must pass
-make format    # Apply formatting
-```
-
-### Style Guidelines
-
-- 80 character line limit (enforced by `golines`)
-- Use `gofmt` and `goimports`
-- Apache 2.0 license header on new files
-- Follow existing patterns in similar files
-
-### Linter Configuration
-
-See `.golangci.yml` for enabled/disabled linters. Key enabled linters:
-- `gosec` - Security checks
-- `errorlint` - Error handling
-- `exhaustive` - Exhaustive switch statements
-
-## Important Implementation Details
-
-### ScriptDataHash Computation
-
-```
-ScriptDataHash = Blake2b256(redeemers || datums || language_views)
-```
-
-#### Language Views Encoding (per Cardano Ledger Spec)
-
-**PlutusV1** (double-bagged for historical compatibility):
-- Tag: `serialize(serialize(0))` = `0x4100` (bytestring containing 0x00)
-- Params: `serialize(indefinite_list(cost_model))` wrapped in bytestring
-
-**PlutusV2/V3**:
-- Tag: `serialize(version)` = `0x01` or `0x02`
-- Params: `definite_list(cost_model)` (no bytestring wrapper)
-
-The language views map is encoded with keys sorted by "shortLex" order (length first, then lexicographic).
-
-### Native Script Evaluation
-
-```go
-func (n *NativeScript) Evaluate(
-    slot uint64,
-    validityStart, validityEnd uint64,
-    keyHashes map[Blake2b224]bool,
-) bool
-```
-
-### Governance Ratification
-
-Two-phase process at epoch boundaries:
-1. Enact proposals ratified in previous epoch
-2. Ratify new proposals using updated state
-
-## Error Catalog
-
-Common validation errors, their causes, and fixes:
-
-### Shelley Era (Base Errors)
-
-| Error | Rule | Cause | Fix |
-|-------|------|-------|-----|
-| `ExpiredUtxoError` | `UtxoValidateTimeToLive` | TTL < current slot | Increase TTL value |
-| `InputSetEmptyUtxoError` | `UtxoValidateInputSetEmptyUtxo` | No inputs in transaction | Add at least one input |
-| `FeeTooSmallUtxoError` | `UtxoValidateFeeTooSmallUtxo` | Fee < minimum required | Use `MinFeeTx()` to calculate |
-| `BadInputsUtxoError` | `UtxoValidateBadInputsUtxo` | Input not in UTxO set | Check input exists/not spent |
-| `WrongNetworkError` | `UtxoValidateWrongNetwork` | Output address wrong network | Match network ID |
-| `ValueNotConservedUtxoError` | `UtxoValidateValueNotConservedUtxo` | Inputs ≠ Outputs + Fee | Balance the transaction |
-| `OutputTooSmallUtxoError` | `UtxoValidateOutputTooSmallUtxo` | Output below min UTxO | Increase output Ada |
-| `MaxTxSizeUtxoError` | `UtxoValidateMaxTxSizeUtxo` | Transaction too large | Reduce inputs/outputs |
-
-### Allegra Era
-
-| Error | Rule | Cause | Fix |
-|-------|------|-------|-----|
-| `OutsideValidityIntervalUtxoError` | `UtxoValidateValidityInterval` | Slot outside validity range | Adjust validity interval |
-| `NativeScriptFailedError` | Script evaluation | Native script conditions not met | Check required signatures/slots |
-
-### Alonzo Era (Plutus)
-
-| Error | Rule | Cause | Fix |
-|-------|------|-------|-----|
-| `ExUnitsTooBigUtxoError` | `UtxoValidateExUnitsTooBig` | Execution units exceed max | Reduce script complexity |
-| `InsufficientCollateralError` | `UtxoValidateCollateral` | Collateral < required | Add more collateral |
-| `CollateralContainsNonAdaError` | `UtxoValidateCollateral` | Collateral has tokens | Use Ada-only UTxO |
-| `NoCollateralInputsError` | `UtxoValidateCollateral` | No collateral specified | Add collateral inputs |
-
-### Common/Shared Errors
-
-| Error | Rule | Cause | Fix |
-|-------|------|-------|-----|
-| `MissingCostModelError` | Script validation | No cost model for Plutus version | Ensure cost model in protocol params |
-| `ScriptDataHashMismatchError` | `UtxoValidateScriptDataHash` | Hash doesn't match witnesses | Recalculate script data hash |
-| `MissingVKeyWitnessesError` | `UtxoValidateRequiredVKeyWitnesses` | Required signature missing | Add VKey witness |
-| `MalformedReferenceScriptsError` | `UtxoValidateMalformedReferenceScripts` | Invalid UPLC bytecode | Fix script encoding |
-
-### Conway Era (Governance)
-
-| Error | Rule | Cause | Fix |
-|-------|------|-------|-----|
-| `DelegateVoteToUnregisteredDRepError` | `UtxoValidateDelegation` | DRep not registered | Register DRep first |
-| `StakeCredentialAlreadyRegisteredError` | `UtxoValidateDelegation` | Re-registering stake key | Deregister first or skip |
-| `PlutusScriptFailedError` | Script execution | Script returned False | Debug script logic |
-
-**Error files by era:**
-- `ledger/shelley/errors.go` - Base validation errors
-- `ledger/allegra/errors.go` - Validity interval, native scripts
-- `ledger/alonzo/errors.go` - Plutus execution, collateral
-- `ledger/babbage/errors.go` - Reference scripts, inline datums
-- `ledger/conway/errors.go` - Governance, DReps
-- `ledger/common/errors.go` - Shared across eras
-
-## Common Pitfalls
-
-1. **Reference inputs** - Resolved but never consumed from UTxO set
-2. **Collateral** - Only consumed when `IsValid=false`
-3. **Datum lookup** - Check witness set, inline datums, AND reference inputs
-4. **Cost models** - Must exist for each Plutus version used in transaction
-5. **Era delegation** - Later eras often delegate to parent era functions, but not always. Read the actual implementation before assuming delegation. Conway `UtxoValidateWithdrawals` is a notable exception with its own full implementation
-6. **CBOR preservation** - Use original bytes for hashing, not re-encoded data
-7. **DecodeStoreCbor** - Must implement custom `UnmarshalCBOR` and call `SetCbor()`
-8. **Withdrawal amount validation** - Intentionally disabled (see `conway/rules.go` NOTE at `UtxoValidateWithdrawals`). The Cardano spec requires `amount == balance`, not `amount > 0`. Zero-amount withdrawals from zero-balance accounts are valid per spec. Full balance tracking is complex for multi-TX scenarios
-9. **Verify before suggesting fixes** - Always read the actual code before claiming a function "just delegates" or is missing checks. Code may have intentional design decisions documented in inline comments
-
-## Guidelines for Code Reviewers
-
-When reviewing this codebase, avoid these common mistakes:
-
-1. **Do not hallucinate APIs** - Verify that functions, types, and builder methods actually exist before referencing them. For example, there is no `UtxoValidateNoDuplicateInputs`, no `DuplicateInputError`, and the `TransactionBuilder` interface has no `WithWithdrawals` (though the concrete `*MockTransaction` type returned by `NewTransactionBuilder()` does have it)
-2. **Do not assume delegation** - Read the actual function body. Just because most Conway rules delegate to shelley doesn't mean all do
-3. **Do not suggest adding Cardano spec checks without understanding the spec** - The Cardano ledger spec has specific requirements (e.g., withdrawal amount must equal exact reward balance, not just be positive). Suggesting incorrect spec interpretations introduces bugs
-4. **Respect intentional omissions** - When code has a `NOTE:` comment explaining why something is disabled or omitted, that is a deliberate design decision, not an oversight
-
-## Related Documentation
-
-- `README.md` - Feature checklist and manual testing guide
-- `internal/test/conformance/README.md` - Conformance test structure
-- `protocol/PROTOCOL_LIMITS.md` - Protocol buffer limits
-
-## Dependencies
-
-Key dependencies (see `go.mod`):
-- `github.com/blinklabs-io/plutigo` - Plutus script handling
-- `github.com/fxamacker/cbor/v2` - CBOR serialization
-- `golang.org/x/crypto` - Cryptographic operations
-- `github.com/stretchr/testify` - Test assertions
+- `README.md` — feature checklist, manual testing
+- `internal/test/conformance/README.md` — conformance harness
+- `protocol/PROTOCOL_LIMITS.md` — protocol buffer limits
