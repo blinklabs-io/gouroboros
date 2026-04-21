@@ -73,6 +73,7 @@ type Connection struct {
 	connClosedChan        chan struct{}
 	waitGroup             sync.WaitGroup
 	onceClose             sync.Once
+	onceShutdown          sync.Once
 	sendKeepAlives        bool
 	delayMuxerStart       bool
 	delayProtocolStart    bool
@@ -262,18 +263,27 @@ func (c *Connection) QueryReplyVersionMap() protocol.ProtocolVersionMap {
 	return c.queryReplyVersionMap
 }
 
-// shutdown performs cleanup operations when the connection is shutdown, either due to explicit Close() or an error
+// shutdown performs cleanup operations when the connection is shutdown, either due to explicit Close() or an error.
+// It is safe to call more than once; the cleanup steps run exactly once.
 func (c *Connection) shutdown() {
-	// Gracefully stop the muxer
-	if c.muxer != nil {
-		c.muxer.Stop()
-	}
-	// Close channel to let Close() know that it can return
-	close(c.connClosedChan)
-	// Wait for other goroutines to finish
-	c.waitGroup.Wait()
-	// Close consumer error channel to signify connection shutdown
-	close(c.errorChan)
+	// Races in setupConnection (e.g. a failure path that also trips the
+	// muxer-error goroutine, or a test that closes the underlying conn
+	// before Close() gets a chance to gate) have driven shutdown here
+	// more than once and panicked on `close of closed channel` at the
+	// connClosedChan/errorChan closes (txtop#287). Guard with sync.Once so
+	// the cleanup remains idempotent regardless of who races whom.
+	c.onceShutdown.Do(func() {
+		// Gracefully stop the muxer
+		if c.muxer != nil {
+			c.muxer.Stop()
+		}
+		// Close channel to let Close() know that it can return
+		close(c.connClosedChan)
+		// Wait for other goroutines to finish
+		c.waitGroup.Wait()
+		// Close consumer error channel to signify connection shutdown
+		close(c.errorChan)
+	})
 }
 
 // allProtocolsIdle returns true if every active protocol is in a terminal or
