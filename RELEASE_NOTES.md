@@ -4,6 +4,20 @@ title: Release notes
 
 # Release notes
 
+## v0.165.3 - shutdown idempotence and sanchonet peer fix
+
+- **Date:** 2026-04-24
+- **Version:** 0.165.3
+
+### Summary
+
+This release keeps connection shutdown cleanup to a single pass so duplicate close paths no longer panic during setup failures or externally triggered closes, restores the default Sanchonet bootstrap peer so default network configuration can connect again, and includes routine contributor guidance and release note maintenance.
+
+### Bug Fixes
+
+* Fixed connection shutdown cleanup to run exactly once so duplicate close paths do not panic with `close of closed channel` errors during setup failures or externally triggered closes.
+* Restored the default Sanchonet bootstrap peer to a working host and port so default network configuration can connect successfully again.
+
 ## v0.165.2 - plutigo dependency and copyright update
 
 - **Date:** 2026-04-19
