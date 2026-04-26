@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -94,9 +93,9 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 			return err
 		}
 	} else {
-		errCbor, err := cbor.Encode(err.Error())
-		if err != nil {
-			return err
+		errCbor, encErr := encodeRejectReason(err)
+		if encErr != nil {
+			return encErr
 		}
 		newMsg := NewMsgRejectTx(errCbor)
 		if err := s.SendMessage(newMsg); err != nil {
