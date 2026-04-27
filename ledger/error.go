@@ -267,18 +267,60 @@ func NewEraMismatchErrorFromCbor(cborData []byte) (error, error) {
 	return newErr, nil
 }
 
+// EraInfo identifies one era in a Cardano EraMismatch by its position in
+// the CardanoEras list and its canonical name. Wire-encoded as
+// [eraIndex_uint8, eraName_text] — the N-ary-sum encoding produced by
+// Haskell's encodeNS in
+// Ouroboros.Consensus.HardFork.Combinator.Serialisation.Common.
+//
+// Indices follow CardanoEras position: 0=Byron, 1=Shelley, 2=Allegra,
+// 3=Mary, 4=Alonzo, 5=Babbage, 6=Conway. Names match the strings emitted
+// by singleEraName in the Haskell node ("Byron", "Shelley", "Allegra",
+// "Mary", "Alonzo", "Babbage", "Conway").
+type EraInfo struct {
+	cbor.StructAsArray
+	Index uint8
+	Name  string
+}
+
+// EraMismatch is the canonical wire encoding of the Cardano HardFork
+// Combinator's era-mismatch error. Wire format:
+//
+//	[2,                                 -- listLen 2 (matches encodeListLen 2)
+//	 [2, otherEraIndex, "OtherEra"],    -- N-ary sum of the offered era
+//	 [2, ledgerEraIndex, "LedgerEra"]]  -- N-ary sum of the ledger era
+//
+// Produced by Haskell's encodeEitherMismatch (Left case) for
+// HardForkApplyTxErrWrongEra (in tx-submission MsgRejectTx Reason) and
+// for QueryResultEraMismatch (in local-state-query results). The Right
+// case (era-specific apply-tx-error or in-era query result) uses listLen
+// 1 with a different payload and is handled by the era-specific decoders
+// (e.g. ShelleyTxValidationError).
 type EraMismatch struct {
 	cbor.StructAsArray
-	LedgerEra uint8
-	OtherEra  uint8
+	OtherEra  EraInfo // era of the offered tx/query/header
+	LedgerEra EraInfo // era the ledger is currently in
 }
 
 func (e *EraMismatch) Error() string {
 	return fmt.Sprintf(
 		"The era of the node and the tx do not match. The node is running in the %s era, but the transaction is for the %s era.",
-		GetEraById(e.LedgerEra).Name,
-		GetEraById(e.OtherEra).Name,
+		e.LedgerEra.Name,
+		e.OtherEra.Name,
 	)
+}
+
+// MarshalCBOR encodes the EraMismatch as canonical wire bytes (see the
+// type doc for the format). Defining this method makes *EraMismatch
+// satisfy the localtxsubmission.CborRejectReason interface, so the
+// tx-submission server places the structured CBOR directly in
+// MsgRejectTx.Reason instead of falling back to encoding Error() as a
+// CBOR text string.
+//
+// EncodeGeneric is used to avoid infinite recursion: cbor.Encode would
+// otherwise re-enter MarshalCBOR.
+func (e *EraMismatch) MarshalCBOR() ([]byte, error) {
+	return cbor.EncodeGeneric(e)
 }
 
 // Helper function to try to parse CBOR as various error types
