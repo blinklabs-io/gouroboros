@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package txsubmission
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -25,6 +26,7 @@ import (
 // Server implements the TxSubmission server
 type Server struct {
 	*protocol.Protocol
+	protocolMu             sync.RWMutex
 	config                 *Config
 	callbackContext        CallbackContext
 	protoOptions           protocol.ProtocolOptions
@@ -71,24 +73,35 @@ func (s *Server) initProtocol() {
 		StateMap:            stateMap,
 		InitialState:        stateInit,
 	}
-	s.Protocol = protocol.New(protoConfig)
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	s.Protocol = p
+	s.protocolMu.Unlock()
 	s.callbackContext.DoneChan = s.DoneChan()
 }
 
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
 func (s *Server) Start() {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug("starting server protocol",
 			"component", "network",
 			"protocol", ProtocolName,
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	s.Protocol.Start()
+	p.Start()
 	// Start goroutine to cleanup resources on protocol shutdown
+	doneChan := p.DoneChan()
 	go func() {
 		// We create our own vars for these channels since they get replaced on restart
 		requestTxIdsResultChan := s.requestTxIdsResultChan
 		requestTxsResultChan := s.requestTxsResultChan
-		<-s.DoneChan()
+		<-doneChan
 		close(requestTxIdsResultChan)
 		close(requestTxsResultChan)
 	}()
@@ -99,7 +112,8 @@ func (s *Server) RequestTxIds(
 	blocking bool,
 	reqCount int,
 ) ([]TxIdAndSize, error) {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RequestTxIds(blocking: %+v, reqCount: %d)", blocking, reqCount),
 			"component", "network",
@@ -109,22 +123,22 @@ func (s *Server) RequestTxIds(
 		)
 	// Validate request counts
 	if reqCount < 0 {
-		s.Protocol.Logger().
+		p.Logger().
 			Error("TxSubmission request count must be non-negative", "requested", reqCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
 	if reqCount > MaxRequestCount {
-		s.Protocol.Logger().
+		p.Logger().
 			Error("TxSubmission request count exceeded", "requested", reqCount, "limit", MaxRequestCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
 	if s.ackCount < 0 {
-		s.Protocol.Logger().
+		p.Logger().
 			Error("TxSubmission ack count must be non-negative", "ack_count", s.ackCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
 	if s.ackCount > MaxAckCount {
-		s.Protocol.Logger().
+		p.Logger().
 			Error("TxSubmission ack count exceeded", "ack_count", s.ackCount, "limit", MaxAckCount)
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
@@ -135,7 +149,7 @@ func (s *Server) RequestTxIds(
 	//nolint:gosec // Already validated above to be non-negative and within uint16 range
 	req := uint16(reqCount)
 	msg := NewMsgRequestTxIds(blocking, ack, req)
-	if err := s.SendMessage(msg); err != nil {
+	if err := p.SendMessage(msg); err != nil {
 		return nil, err
 	}
 	// Wait for result
@@ -150,7 +164,7 @@ func (s *Server) RequestTxIds(
 		// Update ack count for next call
 		s.ackCount = len(result.txIds)
 		return result.txIds, nil
-	case <-s.DoneChan():
+	case <-p.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
@@ -163,7 +177,8 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 		// Convert TxId directly to Blake2b256 without intermediate slice
 		txString = append(txString, common.NewBlake2b256(t.TxId[:]).String())
 	}
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RequestTxs(txIds: %+v)", txString),
 			"component", "network",
@@ -172,12 +187,12 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msg := NewMsgRequestTxs(txIds)
-	if err := s.SendMessage(msg); err != nil {
+	if err := p.SendMessage(msg); err != nil {
 		return nil, err
 	}
 	// Wait for result
 	select {
-	case <-s.DoneChan():
+	case <-p.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
 	case txs := <-s.requestTxsResultChan:
 		return txs, nil

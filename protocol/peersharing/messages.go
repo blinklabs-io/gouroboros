@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -97,6 +97,45 @@ func NewMsgDone() *MsgDone {
 type PeerAddress struct {
 	IP   net.IP
 	Port uint16
+}
+
+func (p PeerAddress) MarshalCBOR() ([]byte, error) {
+	if ipv4 := p.IP.To4(); ipv4 != nil {
+		tmpPeer := struct {
+			cbor.StructAsArray
+			PeerType int
+			Address  uint32
+			Port     uint16
+		}{
+			PeerType: 0,
+			Address:  binary.LittleEndian.Uint32(ipv4),
+			Port:     p.Port,
+		}
+		return cbor.Encode(tmpPeer)
+	}
+
+	ipv6 := p.IP.To16()
+	if ipv6 == nil {
+		return nil, fmt.Errorf("invalid IP address: %q", p.IP.String())
+	}
+
+	tmpPeer := struct {
+		cbor.StructAsArray
+		PeerType int
+		Address1 uint32
+		Address2 uint32
+		Address3 uint32
+		Address4 uint32
+		Port     uint16
+	}{
+		PeerType: 1,
+		Address1: binary.LittleEndian.Uint32(ipv6[0:4]),
+		Address2: binary.LittleEndian.Uint32(ipv6[4:8]),
+		Address3: binary.LittleEndian.Uint32(ipv6[8:12]),
+		Address4: binary.LittleEndian.Uint32(ipv6[12:16]),
+		Port:     p.Port,
+	}
+	return cbor.Encode(tmpPeer)
 }
 
 func (p *PeerAddress) UnmarshalCBOR(cborData []byte) error {

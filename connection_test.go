@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,8 +21,11 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
@@ -111,6 +114,7 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithDelayProtocolStart", ouroboros.WithDelayProtocolStart(true)},
 		{"WithFullDuplex", ouroboros.WithFullDuplex(true)},
 		{"WithPeerSharing", ouroboros.WithPeerSharing(true)},
+		{"WithQueryMode", ouroboros.WithQueryMode(true)},
 		{"WithLogger", ouroboros.WithLogger(slog.Default())},
 		{"WithErrorChan", ouroboros.WithErrorChan(make(chan error, 10))},
 		{"WithNetwork", ouroboros.WithNetwork(ouroboros.NetworkMainnet)},
@@ -297,4 +301,221 @@ func TestConnectionProtocolVersion(t *testing.T) {
 
 	err = conn.Close()
 	assert.NoError(t, err)
+}
+
+func TestConnectionQueryMode(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	queryVersionMap := protocol.GetProtocolVersionMap(
+		protocol.ProtocolModeNodeToClient,
+		ouroboros_mock.MockNetworkMagic,
+		protocol.DiffusionModeInitiatorOnly,
+		false,
+		false,
+	)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					handshake.NewMsgQueryReply(queryVersionMap),
+				},
+			},
+		},
+	)
+	conn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithQueryMode(true),
+	)
+	require.NoError(t, err, "unexpected error when creating Connection object in query mode")
+	require.NotNil(t, conn)
+
+	// In query mode, no protocols are set up
+	assert.Nil(t, conn.ChainSync(), "ChainSync should be nil in query mode")
+	assert.Nil(t, conn.BlockFetch(), "BlockFetch should be nil in query mode")
+	assert.Nil(t, conn.TxSubmission(), "TxSubmission should be nil in query mode")
+	assert.Nil(t, conn.LocalStateQuery(), "LocalStateQuery should be nil in query mode")
+	assert.Nil(t, conn.LocalTxMonitor(), "LocalTxMonitor should be nil in query mode")
+	assert.Nil(t, conn.LocalTxSubmission(), "LocalTxSubmission should be nil in query mode")
+
+	// QueryReplyVersionMap should return the version map
+	versionMap := conn.QueryReplyVersionMap()
+	require.NotNil(t, versionMap, "QueryReplyVersionMap should not be nil after query mode")
+	assert.NotEmpty(t, versionMap, "QueryReplyVersionMap should not be empty")
+
+	err = conn.Close()
+	assert.NoError(t, err)
+
+	// Wait for connection shutdown
+	select {
+	case <-conn.ErrorChan():
+	case <-time.After(10 * time.Second):
+		t.Errorf("did not shutdown within timeout")
+	}
+}
+
+// TestNoErrorOnGracefulProtocolDone tests that when a remote client sends a Done
+// message on a protocol (e.g. ChainSync) before the connection is closed, the
+// connection does not surface an error to the consumer.
+func TestNoErrorOnGracefulProtocolDone(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleServer,
+		[]ouroboros_mock.ConversationEntry{
+			// Mock client sends ProposeVersions to gouroboros server
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				Messages: []protocol.Message{
+					handshake.NewMsgProposeVersions(
+						protocol.ProtocolVersionMap{
+							(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+						},
+					),
+				},
+			},
+			// Mock client reads AcceptVersion from gouroboros server
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:      handshake.ProtocolId,
+				IsResponse:      true,
+				MsgFromCborFunc: handshake.NewMsgFromCbor,
+				Message: handshake.NewMsgAcceptVersion(
+					(10 + protocol.ProtocolVersionNtCOffset),
+					protocol.VersionDataNtC9to14(
+						ouroboros_mock.MockNetworkMagic,
+					),
+				),
+			},
+			// Mock client sends ChainSync Done to gracefully stop the protocol
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: chainsync.ProtocolIdNtC,
+				Messages:   []protocol.Message{chainsync.NewMsgDone()},
+			},
+			// Give the server time to process the Done message and restart
+			ouroboros_mock.ConversationEntrySleep{
+				Duration: 500 * time.Millisecond,
+			},
+			// Close the connection from within the mock conversation loop
+			ouroboros_mock.ConversationEntryClose{},
+		},
+	)
+
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithServer(true),
+	)
+	require.NoError(t, err, "unexpected error when creating Connection object")
+
+	// Drain the error channel and collect any errors
+	var connErrors []error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for err := range oConn.ErrorChan() {
+			connErrors = append(connErrors, err)
+		}
+	}()
+
+	// Wait for the error channel to close (connection fully shut down)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		require.Fail(t, "timed out waiting for connection shutdown")
+	}
+
+	// No errors should have been surfaced: the remote peer sent Done before closing
+	require.Empty(t, connErrors, "expected no errors after graceful protocol Done")
+}
+
+// TestErrorOnUngracefulClose tests that when a connection is closed while
+// a protocol is actively in use (not in idle/initial state), the connection
+// correctly surfaces an error.
+func TestErrorOnUngracefulClose(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	// Use a long-running FindIntersect callback so the protocol stays in a
+	// non-idle (Intersect) state when the connection is closed.
+	callbackDone := make(chan struct{})
+	defer close(callbackDone)
+	chainSyncCfg := chainsync.NewConfig(
+		chainsync.WithFindIntersectFunc(
+			func(_ chainsync.CallbackContext, _ []pcommon.Point) (pcommon.Point, chainsync.Tip, error) {
+				// Block until test cleanup – the connection will be closed before this returns
+				<-callbackDone
+				return pcommon.Point{}, chainsync.Tip{}, fmt.Errorf("test done")
+			},
+		),
+	)
+
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleServer,
+		[]ouroboros_mock.ConversationEntry{
+			// Mock client sends ProposeVersions to gouroboros server
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				Messages: []protocol.Message{
+					handshake.NewMsgProposeVersions(
+						protocol.ProtocolVersionMap{
+							(10 + protocol.ProtocolVersionNtCOffset): protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic,
+							),
+						},
+					),
+				},
+			},
+			// Mock client reads AcceptVersion from gouroboros server
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:      handshake.ProtocolId,
+				IsResponse:      true,
+				MsgFromCborFunc: handshake.NewMsgFromCbor,
+				Message: handshake.NewMsgAcceptVersion(
+					(10 + protocol.ProtocolVersionNtCOffset),
+					protocol.VersionDataNtC9to14(
+						ouroboros_mock.MockNetworkMagic,
+					),
+				),
+			},
+			// Mock client sends ChainSync FindIntersect to move the
+			// protocol out of its idle/initial state
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: chainsync.ProtocolIdNtC,
+				Messages: []protocol.Message{
+					chainsync.NewMsgFindIntersect(nil),
+				},
+			},
+			// Give the server time to receive the message and transition state
+			ouroboros_mock.ConversationEntrySleep{
+				Duration: 200 * time.Millisecond,
+			},
+			// Close without sending Done - protocol is in Intersect state
+			ouroboros_mock.ConversationEntryClose{},
+		},
+	)
+
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithServer(true),
+		ouroboros.WithChainSyncConfig(chainSyncCfg),
+	)
+	require.NoError(t, err, "unexpected error when creating Connection object")
+
+	// We should receive a connection error since the protocol was in a non-idle state
+	select {
+	case err, ok := <-oConn.ErrorChan():
+		require.True(t, ok, "error channel closed without receiving an error")
+		require.NotNil(t, err, "received nil error")
+		t.Logf("received expected error on ungraceful close: %s", err)
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for connection error")
+	}
+
+	oConn.Close()
 }

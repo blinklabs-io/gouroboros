@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -205,8 +205,10 @@ func (v *HeaderValidator) validateBlockNumber(
 
 // validatePrevHash checks that prev hash matches.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
-	if len(input.PrevHeaderHash) > 0 &&
-		!bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
+	if input.BlockNumber > 0 && len(input.PrevHeaderHash) == 0 {
+		return errors.New("previous header hash is required for non-genesis blocks")
+	}
+	if len(input.PrevHeaderHash) > 0 && !bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
 		return fmt.Errorf(
 			"previous hash does not match: got %x, expected %x",
 			input.PrevHash,
@@ -246,10 +248,17 @@ func (v *HeaderValidator) validateVRFProof(
 
 	// Compute VRF input message
 	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
-	vrfInput := vrf.MkInputVrf(
+	vrfInput, err := vrf.MkInputVrf(
 		int64(input.Slot), //nolint:gosec
 		input.EpochNonce,
 	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid VRF input parameters at slot %d: %w",
+			input.Slot,
+			err,
+		)
+	}
 
 	// Verify VRF proof
 	valid, err := vrf.Verify(

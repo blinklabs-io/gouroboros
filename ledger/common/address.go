@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,11 @@
 package common
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"math/big"
-	"slices"
-	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -74,18 +72,16 @@ type Address struct {
 // otherwise, it assumes it is bech32 encoded
 func NewAddress(addr string) (Address, error) {
 	var decoded []byte
-	var err error
-
-	if strings.ToLower(addr) != addr {
-		// Mixed case detected: Assume Base58 encoding (e.g., Byron addresses)
-		decoded = base58.Decode(addr)
-	} else {
-		_, data, err := bech32.DecodeNoLimit(addr)
+	_, data, err := bech32.DecodeNoLimit(addr)
+	if err == nil {
+		decoded, err = bech32.ConvertBits(data, 5, 8, false)
 		if err != nil {
 			return Address{}, err
 		}
-		decoded, err = bech32.ConvertBits(data, 5, 8, false)
-		if err != nil {
+	} else {
+		// bech32 failed — try base58 (Byron addresses)
+		decoded = base58.Decode(addr)
+		if len(decoded) == 0 {
 			return Address{}, err
 		}
 	}
@@ -118,19 +114,83 @@ func NewAddressFromParts(
 		networkId != AddressNetworkMainnet {
 		return Address{}, errors.New("invalid network ID")
 	}
-	// Build address bytes
-	buf := bytes.NewBuffer(nil)
-	header := (addrType << 4) | (networkId & AddressHeaderNetworkMask)
-	if err := buf.WriteByte(header); err != nil {
-		return Address{}, err
+
+	ret := Address{
+		addressType: addrType,
+		networkId:   networkId,
 	}
-	if _, err := buf.Write(paymentAddr); err != nil {
-		return Address{}, err
+
+	switch addrType {
+	case AddressTypeKeyKey, AddressTypeKeyScript, AddressTypeKeyNone:
+		if len(paymentAddr) != AddressHashSize {
+			return Address{}, fmt.Errorf(
+				"invalid payment address hash length: %d",
+				len(paymentAddr),
+			)
+		}
+		ret.paymentPayload = AddressPayloadKeyHash{
+			Hash: AddrKeyHash(paymentAddr),
+		}
+	case AddressTypeScriptKey, AddressTypeScriptScript, AddressTypeScriptNone:
+		if len(paymentAddr) != AddressHashSize {
+			return Address{}, fmt.Errorf(
+				"invalid payment address hash length: %d",
+				len(paymentAddr),
+			)
+		}
+		ret.paymentPayload = AddressPayloadScriptHash{
+			Hash: ScriptHash(paymentAddr),
+		}
+	case AddressTypeNoneKey, AddressTypeNoneScript:
+		if len(paymentAddr) != 0 {
+			return Address{}, fmt.Errorf(
+				"unexpected payment payload length: %d",
+				len(paymentAddr),
+			)
+		}
+	case AddressTypeKeyPointer, AddressTypeScriptPointer:
+		// Preserve pointer-address behavior via the existing byte path so
+		// extra trailing data continues to round-trip unchanged.
+		fallthrough
+	default:
+		addrBytes := make([]byte, 1+len(paymentAddr)+len(stakingAddr))
+		addrBytes[0] = (addrType << 4) | (networkId & AddressHeaderNetworkMask)
+		offset := 1 + copy(addrBytes[1:], paymentAddr)
+		copy(addrBytes[offset:], stakingAddr)
+		return NewAddressFromBytes(addrBytes)
 	}
-	if _, err := buf.Write(stakingAddr); err != nil {
-		return Address{}, err
+
+	switch addrType {
+	case AddressTypeKeyKey, AddressTypeScriptKey, AddressTypeNoneKey:
+		if len(stakingAddr) != AddressHashSize {
+			return Address{}, fmt.Errorf(
+				"invalid staking address hash length: %d",
+				len(stakingAddr),
+			)
+		}
+		ret.stakingPayload = AddressPayloadKeyHash{
+			Hash: AddrKeyHash(stakingAddr),
+		}
+	case AddressTypeKeyScript, AddressTypeScriptScript, AddressTypeNoneScript:
+		if len(stakingAddr) != AddressHashSize {
+			return Address{}, fmt.Errorf(
+				"invalid staking address hash length: %d",
+				len(stakingAddr),
+			)
+		}
+		ret.stakingPayload = AddressPayloadScriptHash{
+			Hash: ScriptHash(stakingAddr),
+		}
+	case AddressTypeKeyNone, AddressTypeScriptNone:
+		if len(stakingAddr) != 0 {
+			return Address{}, fmt.Errorf(
+				"unexpected staking payload length: %d",
+				len(stakingAddr),
+			)
+		}
 	}
-	return NewAddressFromBytes(buf.Bytes())
+
+	return ret, nil
 }
 
 func NewByronAddressFromParts(
@@ -564,45 +624,38 @@ func (a Address) Bytes() ([]byte, error) {
 		}
 		return ret, nil
 	}
-	buf := bytes.NewBuffer(nil)
-	header := (a.addressType << 4) | (a.networkId & AddressHeaderNetworkMask)
-	if err := buf.WriteByte(header); err != nil {
-		return nil, err
-	}
+
+	var paymentPayload []byte
 	if a.paymentPayload != nil {
-		var paymentPayload []byte
 		switch p := a.paymentPayload.(type) {
 		case AddressPayloadKeyHash:
 			paymentPayload = p.Hash.Bytes()
 		case AddressPayloadScriptHash:
 			paymentPayload = p.Hash.Bytes()
 		}
-		if _, err := buf.Write(paymentPayload); err != nil {
-			return nil, err
-		}
 	}
+
+	var stakingPayload []byte
 	if a.stakingPayload != nil {
-		var stakingPayload []byte
 		switch p := a.stakingPayload.(type) {
 		case AddressPayloadKeyHash:
 			stakingPayload = p.Hash.Bytes()
 		case AddressPayloadScriptHash:
 			stakingPayload = p.Hash.Bytes()
 		case AddressPayloadPointer:
-			var err error
-			stakingPayload, err = p.encode()
-			if err != nil {
-				return nil, err
-			}
-		}
-		if _, err := buf.Write(stakingPayload); err != nil {
-			return nil, err
+			stakingPayload = p.encode()
 		}
 	}
-	if _, err := buf.Write(a.extraData); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+
+	ret := make(
+		[]byte,
+		1+len(paymentPayload)+len(stakingPayload)+len(a.extraData),
+	)
+	ret[0] = (a.addressType << 4) | (a.networkId & AddressHeaderNetworkMask)
+	offset := 1 + copy(ret[1:], paymentPayload)
+	offset += copy(ret[offset:], stakingPayload)
+	copy(ret[offset:], a.extraData)
+	return ret, nil
 }
 
 // String returns the bech32-encoded version of the address
@@ -725,64 +778,53 @@ type AddressPayloadPointer struct {
 func (AddressPayloadPointer) isAddressPayload() {}
 
 func (a *AddressPayloadPointer) decode(data []byte) (int, error) {
-	readVarUint := func(buf *bytes.Reader) (uint64, error) {
+	readVarUint := func(data []byte, offset int) (uint64, int, error) {
 		var ret uint64
-		for {
-			byt, err := buf.ReadByte()
-			if err != nil {
-				return 0, err
-			}
+		for offset < len(data) {
+			byt := data[offset]
+			offset++
 			ret = (ret << 7) | uint64(byt&0x7F)
 			if (byt & 0x80) == 0 {
-				return ret, nil
+				return ret, offset, nil
 			}
 		}
+		return 0, offset, io.ErrUnexpectedEOF
 	}
-	buf := bytes.NewReader(data)
+
+	var offset int
 	var err error
-	a.Slot, err = readVarUint(buf)
+	a.Slot, offset, err = readVarUint(data, offset)
 	if err != nil {
 		return 0, err
 	}
-	a.TxIndex, err = readVarUint(buf)
+	a.TxIndex, offset, err = readVarUint(data, offset)
 	if err != nil {
 		return 0, err
 	}
-	a.CertIndex, err = readVarUint(buf)
+	a.CertIndex, offset, err = readVarUint(data, offset)
 	if err != nil {
 		return 0, err
 	}
-	return buf.Len(), nil
+	return offset, nil
 }
 
-func (a *AddressPayloadPointer) encode() ([]byte, error) {
-	writeVarUint := func(buf *bytes.Buffer, val uint64) error {
-		data := []byte{
-			byte(val & 0x7F),
-		}
+func (a *AddressPayloadPointer) encode() []byte {
+	writeVarUint := func(dst []byte, val uint64) int {
+		var tmp [10]byte
+		i := len(tmp) - 1
+		tmp[i] = byte(val & 0x7F)
 		val /= 128
 		for val > 0 {
-			data = append(
-				data,
-				byte((val&0x7F)|0x80), //nolint:gosec // masked to 7 bits, always fits byte
-			)
+			i--
+			tmp[i] = byte((val & 0x7F) | 0x80) //nolint:gosec // masked to 7 bits, always fits byte
 			val /= 128
 		}
-		slices.Reverse(data)
-		if _, err := buf.Write(data); err != nil {
-			return err
-		}
-		return nil
+		return copy(dst, tmp[i:])
 	}
-	buf := bytes.NewBuffer(nil)
-	if err := writeVarUint(buf, a.Slot); err != nil {
-		return nil, err
-	}
-	if err := writeVarUint(buf, a.TxIndex); err != nil {
-		return nil, err
-	}
-	if err := writeVarUint(buf, a.CertIndex); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	ret := make([]byte, 0, 30)
+	ret = ret[:cap(ret)]
+	offset := writeVarUint(ret, a.Slot)
+	offset += writeVarUint(ret[offset:], a.TxIndex)
+	offset += writeVarUint(ret[offset:], a.CertIndex)
+	return ret[:offset]
 }

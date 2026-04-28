@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -496,7 +496,7 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 				2,
 				tmp.Data.Clone(),
 			)
-		} else if tmp := v.DatumHash(); (tmp != nil && *tmp != lcommon.Blake2b256{}) {
+		} else if tmp := v.DatumHash(); tmp != nil {
 			datumOption = data.NewConstr(
 				1,
 				tmp.ToPlutusData(),

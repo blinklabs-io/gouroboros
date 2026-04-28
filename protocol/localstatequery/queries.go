@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -310,8 +310,9 @@ type ShelleyCborQuery struct {
 }
 
 type ShelleyFilteredDelegationAndRewardAccountsQuery struct {
-	simpleQueryBase
-	// TODO: add params (#858)
+	cbor.StructAsArray
+	Type  int
+	Creds cbor.SetType[StakeCredential]
 }
 
 type ShelleyGenesisConfigQuery struct {
@@ -625,16 +626,31 @@ func (u *UtxoId) MarshalCBOR() ([]byte, error) {
 // TODO (#863)
 type DebugEpochStateResult any
 
-// TODO (#858)
-// rwdr: [flag bytestring] bytestring is the keyhash of the staking vkey
-// flag: 0/1 (0=keyhash 1=scripthash)
-// result: [[ delegation rewards] ]
-// delegation: { * rwdr => poolid } poolid is a bytestring
-// rewards: { * rwdr => int }
-// Note: It seems to be a requirement to sort the reward addresses on the
-// query. Scripthash addresses come first, then within a group the bytestring
-// being a network order integer sort ascending.
-type FilteredDelegationsAndRewardAccountsResult any
+// FilteredDelegationsAndRewardAccountsResult is the result of the
+// GetFilteredDelegationsAndRewardAccounts query.
+// CBOR: array(1)[array(2)[delegation, rewards]]
+// delegation: map[StakeCredential]PoolId, rewards: map[StakeCredential]uint64
+type FilteredDelegationsAndRewardAccountsResult struct {
+	Delegations map[StakeCredential]ledger.Blake2b224
+	Rewards     map[StakeCredential]uint64
+}
+
+func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			Delegations map[StakeCredential]ledger.Blake2b224
+			Rewards     map[StakeCredential]uint64
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.Delegations = tmp.Inner.Delegations
+	r.Rewards = tmp.Inner.Rewards
+	return nil
+}
 
 type GenesisConfigResult struct {
 	cbor.StructAsArray
@@ -684,28 +700,73 @@ type DebugNewEpochStateResult any
 // TODO (#865)
 type DebugChainDepStateResult any
 
-// TODO (#866)
-/*
-result	[ *Element ]	Expanded in order on the next rows.
-Element	CDDL	Comment
-epochLength
-poolMints	{ *poolid => block-count }
-maxLovelaceSupply
-NA
-NA
-NA
-?circulatingsupply?
-total-blocks
-?decentralization?	[num den]
-?available block entries
-success-rate	[num den]
-NA
-NA		??treasuryCut
-activeStakeGo
-nil
-nil
-*/
-type RewardProvenanceResult any
+// RewardProvenanceResult is the result of the GetRewardProvenance query.
+// CBOR: array(1)[array(16)[epochLength, poolMints, maxLovelaceSupply,
+// deltaR1, deltaR2, r, totalStake, blocksCount, decentralization,
+// expectedBlocks, eta, rPot, treasuryCut, activeStake, activeStakeGo, pools]]
+type RewardProvenanceResult struct {
+	EpochLength       uint64
+	PoolMints         map[ledger.Blake2b224]uint64 // pool ID -> blocks minted
+	MaxLovelaceSupply uint64
+	DeltaR1           uint64
+	DeltaR2           uint64
+	R                 uint64
+	TotalStake        uint64
+	BlocksCount       uint64
+	Decentralization  *cbor.Rat
+	ExpectedBlocks    uint64
+	Eta               *cbor.Rat // success rate
+	RPot              uint64
+	TreasuryCut       uint64
+	ActiveStake       uint64
+	ActiveStakeGo     cbor.RawMessage
+	Pools             cbor.RawMessage
+}
+
+func (r *RewardProvenanceResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			EpochLength       uint64
+			PoolMints         map[ledger.Blake2b224]uint64
+			MaxLovelaceSupply uint64
+			DeltaR1           uint64
+			DeltaR2           uint64
+			R                 uint64
+			TotalStake        uint64
+			BlocksCount       uint64
+			Decentralization  *cbor.Rat
+			ExpectedBlocks    uint64
+			Eta               *cbor.Rat
+			RPot              uint64
+			TreasuryCut       uint64
+			ActiveStake       uint64
+			ActiveStakeGo     cbor.RawMessage
+			Pools             cbor.RawMessage
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.EpochLength = tmp.Inner.EpochLength
+	r.PoolMints = tmp.Inner.PoolMints
+	r.MaxLovelaceSupply = tmp.Inner.MaxLovelaceSupply
+	r.DeltaR1 = tmp.Inner.DeltaR1
+	r.DeltaR2 = tmp.Inner.DeltaR2
+	r.R = tmp.Inner.R
+	r.TotalStake = tmp.Inner.TotalStake
+	r.BlocksCount = tmp.Inner.BlocksCount
+	r.Decentralization = tmp.Inner.Decentralization
+	r.ExpectedBlocks = tmp.Inner.ExpectedBlocks
+	r.Eta = tmp.Inner.Eta
+	r.RPot = tmp.Inner.RPot
+	r.TreasuryCut = tmp.Inner.TreasuryCut
+	r.ActiveStake = tmp.Inner.ActiveStake
+	r.ActiveStakeGo = tmp.Inner.ActiveStakeGo
+	r.Pools = tmp.Inner.Pools
+	return nil
+}
 
 type UTxOByTxInResult struct {
 	cbor.StructAsArray
@@ -737,8 +798,72 @@ type StakePoolParamsResult struct {
 	}
 }
 
-// TODO (#867)
-type RewardInfoPoolsResult any
+// RewardParams represents the global reward calculation parameters
+// for the current epoch.
+// CBOR: array(4) [nOpt, a0, rPot, totalStake]
+type RewardParams struct {
+	cbor.StructAsArray
+	NOpt       uint16    // Desired number of stake pools (k)
+	A0         *cbor.Rat // Pledge influence factor
+	RPot       uint64    // Total rewards pot for the epoch (lovelace)
+	TotalStake uint64    // Total active stake (lovelace)
+}
+
+// RewardInfoPool represents per-pool reward calculation information.
+// CBOR: array(6) [stake, ownerPledge, ownerStake, cost, margin, performanceEstimate]
+type RewardInfoPool struct {
+	cbor.StructAsArray
+	Stake               uint64    // Absolute stake delegated to this pool (lovelace)
+	OwnerPledge         uint64    // Pool owner(s) pledge (lovelace)
+	OwnerStake          uint64    // Absolute stake delegated by owner(s) (lovelace)
+	Cost                uint64    // Pool fixed cost (lovelace)
+	Margin              *cbor.Rat // Pool margin
+	PerformanceEstimate float64   // Ratio of blocks produced vs expected
+}
+
+// RewardInfoPoolsResult is the result of the RewardInfoPools query.
+// CBOR: array(1)[array(2)[RewardParams, map[PoolKeyHash]RewardInfoPool]]
+type RewardInfoPoolsResult struct {
+	Params RewardParams
+	Pools  map[ledger.Blake2b224]RewardInfoPool
+}
+
+func (r RewardInfoPoolsResult) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode(struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}
+	}{
+		Inner: struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}{
+			Params: r.Params,
+			Pools:  r.Pools,
+		},
+	})
+}
+
+func (r *RewardInfoPoolsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Inner struct {
+			cbor.StructAsArray
+			Params RewardParams
+			Pools  map[ledger.Blake2b224]RewardInfoPool
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.Params = tmp.Inner.Params
+	r.Pools = tmp.Inner.Pools
+	return nil
+}
 
 // PoolStateParams represents the pool registration parameters
 // without the cert type

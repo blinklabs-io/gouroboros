@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ const (
 // Client implements the Block Fetch protocol client, which requests blocks from a server.
 type Client struct {
 	*protocol.Protocol
+	protocolMu           sync.RWMutex
 	config               *Config           // Protocol configuration
 	callbackContext      CallbackContext   // Callback context for client
 	blockChan            chan ledger.Block // Channel for received blocks
@@ -107,7 +108,16 @@ func (c *Client) initProtocol() {
 	if c.config != nil {
 		protoConfig.RecvQueueSize = c.config.RecvQueueSize
 	}
-	c.Protocol = protocol.New(protoConfig)
+	p := protocol.New(protoConfig)
+	c.protocolMu.Lock()
+	c.Protocol = p
+	c.protocolMu.Unlock()
+}
+
+func (c *Client) ProtocolInstance() *protocol.Protocol {
+	c.protocolMu.RLock()
+	defer c.protocolMu.RUnlock()
+	return c.Protocol
 }
 
 // Start begins the Block Fetch client protocol. Safe to call multiple times.
@@ -245,9 +255,12 @@ func (c *Client) Stop() error {
 		)
 
 	var sendErr error
-	msg := NewMsgClientDone()
-	sendErr = c.SendMessage(msg)
-	_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+	// Check if protocol is already done before sending ClientDone message
+	if !c.IsDone() {
+		msg := NewMsgClientDone()
+		sendErr = c.SendMessage(msg)
+		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
+	}
 	if busyLocked {
 		c.busyMutex.Unlock()
 	}

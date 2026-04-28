@@ -52,7 +52,10 @@ func init() {
 	}
 
 	// Pre-compute a VRF output for threshold comparison
-	vrfInput := vrf.MkInputVrf(50_000_000, benchEpochNonce)
+	vrfInput, err := vrf.MkInputVrf(50_000_000, benchEpochNonce)
+	if err != nil {
+		panic("failed to create benchmark VRF input: " + err.Error())
+	}
 	_, benchVRFOutput, err = benchVRFSigner.Prove(vrfInput)
 	if err != nil {
 		panic("failed to generate benchmark VRF output: " + err.Error())
@@ -244,7 +247,11 @@ func BenchmarkConsensusMkInputVrf(b *testing.B) {
 		b.Run(s.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				consensusSink = vrf.MkInputVrf(s.slot, benchEpochNonce)
+				vrfInput, err := vrf.MkInputVrf(s.slot, benchEpochNonce)
+				if err != nil {
+					b.Fatal(err)
+				}
+				consensusSink = vrfInput
 			}
 		})
 	}
@@ -283,7 +290,10 @@ func BenchmarkConsensusFullLeaderElectionWorkflow(b *testing.B) {
 		slot := baseSlot + int64(i)
 
 		// Step 1: Create VRF input
-		vrfInput := vrf.MkInputVrf(slot, benchEpochNonce)
+		vrfInput, err := vrf.MkInputVrf(slot, benchEpochNonce)
+		if err != nil {
+			b.Fatal(err)
+		}
 
 		// Step 2: Generate VRF proof
 		_, output, err := benchVRFSigner.Prove(vrfInput)

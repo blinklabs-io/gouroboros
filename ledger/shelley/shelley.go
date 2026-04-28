@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -69,9 +69,12 @@ func (b *ShelleyBlock) UnmarshalCBOR(cborData []byte) error {
 	// Extract and store CBOR for each component (bodies, witnesses, metadata)
 	// This ensures tx.Body.Cbor(), tx.WitnessSet.Cbor(), etc. return the original bytes
 	if err := common.ExtractAndSetTransactionCbor(
-		cborData,
-		func(i int, data []byte) { b.TransactionBodies[i].SetCbor(data) },
-		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCbor(data) },
+		b.Cbor(),
+		func(i int, data []byte) { b.TransactionBodies[i].SetCborReference(data) },
+		func(i int, data []byte) {
+			b.TransactionWitnessSets[i].SetCborReference(data)
+		},
+		func(data []byte) { b.TransactionMetadataSet.SetCborReference(data) },
 		len(b.TransactionBodies),
 		len(b.TransactionWitnessSets),
 	); err != nil {
@@ -203,6 +206,7 @@ type ShelleyBlockHeader struct {
 }
 type ShelleyBlockHeaderBody struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	BlockNumber          uint64
 	Slot                 uint64
 	PrevHash             common.Blake2b256
@@ -218,6 +222,17 @@ type ShelleyBlockHeaderBody struct {
 	OpCertSignature      []byte
 	ProtoMajorVersion    uint64
 	ProtoMinorVersion    uint64
+}
+
+func (b *ShelleyBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
+	type tShelleyBlockHeaderBody ShelleyBlockHeaderBody
+	var tmp tShelleyBlockHeaderBody
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*b = ShelleyBlockHeaderBody(tmp)
+	b.SetCbor(cborData)
+	return nil
 }
 
 func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
@@ -611,9 +626,17 @@ type ShelleyTransaction struct {
 }
 
 func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
-	// Decode as raw array to preserve metadata bytes
+	// Reset cached/derived fields to avoid stale state on receiver reuse
+	t.hash = nil
+	t.TxMetadata = nil
+	t.auxData = nil
+
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
 	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &txArray); err != nil {
+	if _, _, err := dec.Decode(&txArray); err != nil {
 		return err
 	}
 
@@ -636,12 +659,12 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
-	if len(txArray) > 2 && len(txArray[2]) > 0 &&
-		txArray[2][0] != 0xF6 {
+	metadataRaw := []byte(txArray[2])
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(txArray[2])
+		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
 		if err == nil && auxData != nil {
 			t.auxData = auxData
 			// Extract metadata for backward compatibility
@@ -651,7 +674,7 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[2])
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
 			if err == nil && metadata != nil {
 				t.TxMetadata = metadata
 			}

@@ -29,6 +29,7 @@ type Client struct {
 	busyMutex            sync.Mutex
 	notificationChan     chan protocol.Message
 	pipelinedRequestNext int
+	notificationRunning  bool
 	onceStart            sync.Once
 	onceStop             sync.Once
 }
@@ -105,23 +106,32 @@ func (c *Client) Stop() error {
 // Sync starts an async process to fetch Leios notifications. Notification messages will be delivered via the
 // Notification callback function specified in the protocol config
 func (c *Client) Sync() error {
-	if c.config == nil || c.config.NotificationFunc == nil {
+	if c.config.NotificationFunc == nil {
 		return errors.New("you must configure NotificationFunc to receive notifications")
 	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if c.notificationRunning {
+		return errors.New("notification loop is already running")
+	}
 	msg := NewMsgNotificationRequestNext()
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
 	// Reset pipelined message counter
 	c.pipelinedRequestNext = 0
+	c.notificationRunning = true
 	// Start notification loop
 	go c.notificationLoop()
 	return nil
 }
 
 func (c *Client) notificationLoop() {
+	defer func() {
+		c.busyMutex.Lock()
+		c.notificationRunning = false
+		c.busyMutex.Unlock()
+	}()
 	for {
 		// Wait for a notification to be received
 		select {
@@ -133,6 +143,7 @@ func (c *Client) notificationLoop() {
 			err := c.config.NotificationFunc(c.callbackContext, msg)
 			if err != nil {
 				if errors.Is(err, ErrStopNotificationProcess) {
+					c.drainPipelinedMessages()
 					return
 				}
 				c.SendError(err)
@@ -161,6 +172,26 @@ func (c *Client) notificationLoop() {
 		}
 		c.pipelinedRequestNext = msgCount - 1
 		c.busyMutex.Unlock()
+	}
+}
+
+// drainPipelinedMessages consumes remaining pipelined notification messages
+// from the notification channel to unblock handle* senders.
+func (c *Client) drainPipelinedMessages() {
+	c.busyMutex.Lock()
+	remaining := c.pipelinedRequestNext
+	c.pipelinedRequestNext = 0
+	c.busyMutex.Unlock()
+	for remaining > 0 {
+		select {
+		case _, ok := <-c.notificationChan:
+			if !ok {
+				return
+			}
+			remaining--
+		case <-c.DoneChan():
+			return
+		}
 	}
 }
 

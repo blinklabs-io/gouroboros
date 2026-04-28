@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -151,35 +151,41 @@ func TestValidatePrevHash(t *testing.T) {
 
 	// Valid: hashes match
 	input := &ValidateHeaderInput{
+		BlockNumber:    2,
 		PrevHash:       hash,
 		PrevHeaderHash: hash,
 	}
 	err := validator.validatePrevHash(input)
-	if err != nil {
-		t.Errorf("expected no error for matching hashes, got %v", err)
-	}
+	require.NoError(t, err)
 
-	// Valid: no previous hash to check (empty expected)
+	// Invalid: missing previous hash for non-genesis blocks
 	input = &ValidateHeaderInput{
+		BlockNumber:    1,
 		PrevHash:       hash,
 		PrevHeaderHash: nil,
 	}
 	err = validator.validatePrevHash(input)
-	if err != nil {
-		t.Errorf("expected no error when no expected hash, got %v", err)
+	require.EqualError(t, err, "previous header hash is required for non-genesis blocks")
+
+	// Valid: genesis block may omit previous hash
+	input = &ValidateHeaderInput{
+		BlockNumber:    0,
+		PrevHash:       hash,
+		PrevHeaderHash: nil,
 	}
+	err = validator.validatePrevHash(input)
+	require.NoError(t, err)
 
 	// Invalid: hashes don't match
 	wrongHash := make([]byte, 32)
 	wrongHash[0] = 0xFF
 	input = &ValidateHeaderInput{
+		BlockNumber:    2,
 		PrevHash:       hash,
 		PrevHeaderHash: wrongHash,
 	}
 	err = validator.validatePrevHash(input)
-	if err == nil {
-		t.Error("expected error for mismatched hashes")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateKESPeriod(t *testing.T) {
@@ -245,7 +251,10 @@ func TestValidateVRFProof(t *testing.T) {
 	}
 
 	slot := uint64(1000)
-	vrfInput := vrf.MkInputVrf(int64(slot), epochNonce)
+	vrfInput, err := vrf.MkInputVrf(int64(slot), epochNonce)
+	if err != nil {
+		t.Fatalf("vrf.MkInputVrf failed: %v", err)
+	}
 	proof, output, err := vrf.Prove(sk, vrfInput)
 	if err != nil {
 		t.Fatalf("vrf.Prove failed: %v", err)
@@ -462,7 +471,10 @@ func TestValidateHeaderFull(t *testing.T) {
 
 	// Use slot 0 (period 0) to match the key period
 	slot := uint64(0)
-	vrfInput := vrf.MkInputVrf(int64(slot), epochNonce)
+	vrfInput, err := vrf.MkInputVrf(int64(slot), epochNonce)
+	if err != nil {
+		t.Fatalf("vrf.MkInputVrf failed: %v", err)
+	}
 	vrfProof, vrfOutput, err := vrf.Prove(vrfSk, vrfInput)
 	if err != nil {
 		t.Fatalf("vrf.Prove failed: %v", err)

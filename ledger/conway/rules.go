@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -470,9 +470,16 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 		}
 	}
 
-	// If the body carries a script data hash, redeemers must be present
+	// If the body carries a script data hash, either redeemers or witness
+	// datums must be present. Per the Cardano ledger spec, the script data
+	// hash is required when the transaction has redeemers OR witness datums
+	// (e.g. script deployment transactions that provide datum pre-images
+	// without executing any scripts).
 	if tx.ScriptDataHash() != nil && redeemerCount == 0 {
-		return MissingRedeemersForScriptDataHashError{}
+		hasDatums := wits != nil && len(wits.PlutusData()) > 0
+		if !hasDatums {
+			return MissingRedeemersForScriptDataHashError{}
+		}
 	}
 
 	// If redeemers are present, we expect either a provided Plutus script witness
@@ -681,7 +688,7 @@ func UtxoValidateScriptDataHash(
 	}
 
 	wits := tmpTx.WitnessSet
-	hasRedeemers := len(wits.WsRedeemers.Redeemers) > 0
+	hasRedeemers := wits.WsRedeemers.Len() > 0
 	hasDatums := len(wits.WsPlutusData.Items()) > 0
 
 	// Determine which Plutus versions are used
@@ -783,7 +790,7 @@ func UtxoValidateScriptDataHash(
 		// Note: Must encode empty map explicitly, as nil map encodes
 		// as 0xf6 (CBOR null) but the spec expects 0xa0 (empty map)
 		// for Conway empty redeemers.
-		if len(wits.WsRedeemers.Redeemers) == 0 && !wits.WsRedeemers.legacy {
+		if wits.WsRedeemers.Len() == 0 && !wits.WsRedeemers.legacy {
 			redeemersCbor = []byte{0xa0}
 		} else {
 			var err error
@@ -921,7 +928,7 @@ func UtxoValidateInsufficientCollateral(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
+	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
 	totalCollateral := new(big.Int)
@@ -971,7 +978,7 @@ func UtxoValidateCollateralContainsNonAda(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
+	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
 	badOutputs := []common.TransactionOutput{}
@@ -1034,7 +1041,7 @@ func UtxoValidateNoCollateralInputs(
 		return errors.New("transaction is not expected type")
 	}
 	// There's nothing to check if there are no redeemers
-	if len(tmpTx.WitnessSet.WsRedeemers.Redeemers) == 0 {
+	if tmpTx.WitnessSet.WsRedeemers.Len() == 0 {
 		return nil
 	}
 	if len(tx.Collateral()) > 0 {
@@ -1321,27 +1328,26 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 
-	// Check that all consumed assets match produced assets
-	allKeys := make(map[assetKey]bool)
-	for k := range consumedAssets {
-		allKeys[k] = true
-	}
-	for k := range producedAssets {
-		allKeys[k] = true
-	}
-
-	for key := range allKeys {
-		consumed := consumedAssets[key]
+	// Check that all consumed assets match produced assets without building
+	// an intermediate union set of keys.
+	zero := new(big.Int)
+	for key, consumed := range consumedAssets {
 		produced := producedAssets[key]
-		if consumed == nil {
-			consumed = new(big.Int)
-		}
 		if produced == nil {
-			produced = new(big.Int)
+			produced = zero
 		}
 		if consumed.Cmp(produced) != 0 {
 			return shelley.ValueNotConservedUtxoError{
 				Consumed: consumed,
+				Produced: produced,
+			}
+		}
+		delete(producedAssets, key)
+	}
+	for _, produced := range producedAssets {
+		if produced.Cmp(zero) != 0 {
+			return shelley.ValueNotConservedUtxoError{
+				Consumed: zero,
 				Produced: produced,
 			}
 		}
@@ -1658,7 +1664,7 @@ func UtxoValidateExUnitsTooBigUtxo(
 		return errors.New("transaction is not expected type")
 	}
 	var totalSteps, totalMemory int64
-	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Redeemers {
+	for _, redeemer := range tmpTx.WitnessSet.WsRedeemers.Iter() {
 		newSteps, ok := common.AddInt64Checked(totalSteps, redeemer.ExUnits.Steps)
 		if !ok {
 			return alonzo.ExUnitsTooBigUtxoError{
@@ -1715,8 +1721,11 @@ func UtxoValidateTooManyCollateralInputs(
 	}
 }
 
-// MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
-// Fee is calculated using the transaction body CBOR size as per Cardano protocol
+// MinFeeTx calculates the minimum required fee for a transaction based on
+// protocol parameters. The fee-relevant transaction size is determined by
+// common.TxSizeForFee, which uses the original on-wire CBOR length and
+// subtracts 1 byte for Alonzo+ eras (the IsValid boolean is excluded from
+// the fee computation per the Cardano ledger spec toCBORForSizeComputation).
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
@@ -1725,22 +1734,18 @@ func MinFeeTx(
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*ConwayTransaction)
-	if !ok {
-		return 0, errors.New("tx is not expected type")
-	}
-	// Encode a local copy of the body with TxFee set to 0 to calculate size without fee
-	body := tmpTx.Body
-	body.TxFee = 0
-	txBytes, err := cbor.Encode(body)
+	txSize, err := common.TxSizeForFee(tx)
 	if err != nil {
 		return 0, err
 	}
-	minFee := common.CalculateMinFee(
-		len(txBytes),
+	minFee, err := common.CalculateMinFee(
+		txSize,
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)
+	if err != nil {
+		return 0, err
+	}
 	return minFee, nil
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"math"
 	"math/big"
 	"testing"
 
@@ -379,4 +380,44 @@ func TestFindNextSlotLeadershipNoEligibility(t *testing.T) {
 	if slot != 0 || proof != nil || output != nil {
 		t.Error("should not find eligibility with zero stake")
 	}
+}
+
+func TestIsSlotLeaderWithModeSlotOverflow(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+
+	epochNonce := make([]byte, 32)
+	activeSlotCoeff := big.NewRat(1, 20)
+
+	_, err = IsSlotLeaderWithMode(
+		math.MaxUint64, // overflows int64
+		epochNonce,
+		1000,
+		10000,
+		activeSlotCoeff,
+		signer,
+		ConsensusModeCPraos,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds maximum int64 value")
+}
+
+func TestIsSlotLeaderWithModeUnknownMode(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+
+	epochNonce := make([]byte, 32)
+	activeSlotCoeff := big.NewRat(1, 20)
+
+	_, err = IsSlotLeaderWithMode(
+		1000,
+		epochNonce,
+		1000,
+		10000,
+		activeSlotCoeff,
+		signer,
+		ConsensusMode(99), // unknown mode
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown consensus mode")
 }

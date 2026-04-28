@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -123,9 +123,10 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 
 	// Extract and store CBOR for each component
 	if err := common.ExtractAndSetTransactionCbor(
-		cborData,
-		func(i int, data []byte) { b.TransactionBodies[i].SetCbor(data) },
-		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCbor(data) },
+		b.Cbor(),
+		func(i int, data []byte) { b.TransactionBodies[i].SetCborReference(data) },
+		func(i int, data []byte) { b.TransactionWitnessSets[i].SetCborReference(data) },
+		func(data []byte) { b.TransactionMetadataSet.SetCborReference(data) },
 		len(b.TransactionBodies),
 		len(b.TransactionWitnessSets),
 	); err != nil {
@@ -278,13 +279,20 @@ type ConwayRedeemers struct {
 
 func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	r.SetCbor(cborData)
-	// Try to parse as legacy redeemer first
-	if _, err := cbor.Decode(cborData, &(r.legacyRedeemers)); err == nil {
-		r.legacy = true
-	} else {
+	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
+		// Modern map form — clear any stale legacy state
+		r.legacy = false
+		r.legacyRedeemers = alonzo.AlonzoRedeemers{}
 		_, err := cbor.Decode(cborData, &(r.Redeemers))
 		return err
 	}
+	// Legacy array form — clear any stale map state
+	r.Redeemers = nil
+	_, err := cbor.Decode(cborData, &(r.legacyRedeemers))
+	if err != nil {
+		return err
+	}
+	r.legacy = true
 	return nil
 }
 
@@ -346,6 +354,15 @@ func (r *ConwayRedeemers) MarshalCBOR() ([]byte, error) {
 		return cbor.Encode(r.legacyRedeemers)
 	}
 	return cbor.Encode(r.Redeemers)
+}
+
+// Len returns the number of redeemers, correctly handling both legacy (array)
+// and new (map) Conway formats.
+func (r ConwayRedeemers) Len() int {
+	if r.legacy {
+		return len(r.legacyRedeemers.Redeemers)
+	}
+	return len(r.Redeemers)
 }
 
 func (r ConwayRedeemers) Iter() iter.Seq2[common.RedeemerKey, common.RedeemerValue] {
@@ -545,7 +562,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*b = ConwayTransactionBody(tmp)
-	b.SetCbor(cborData)
+	b.SetCborReference(cborData)
 	return nil
 }
 
@@ -698,9 +715,17 @@ type ConwayTransaction struct {
 }
 
 func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
-	// Decode as raw array to preserve metadata bytes
+	// Reset cached/derived fields to avoid stale state on receiver reuse
+	t.hash = nil
+	t.TxMetadata = nil
+	t.auxData = nil
+
+	dec, err := cbor.NewStreamDecoder(cborData)
+	if err != nil {
+		return err
+	}
 	var txArray []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &txArray); err != nil {
+	if _, _, err := dec.Decode(&txArray); err != nil {
 		return err
 	}
 
@@ -727,11 +752,12 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("failed to decode TxIsValid: %w", err)
 	}
 	// Handle metadata (component 4, always present - either data or CBOR nil)
-	if len(txArray[3]) > 0 && txArray[3][0] != 0xF6 {
+	metadataRaw := []byte(txArray[3])
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
-		auxData, err := common.DecodeAuxiliaryData(txArray[3])
+		auxData, err := common.DecodeAuxiliaryData(metadataRaw)
 		if err == nil && auxData != nil {
 			t.auxData = auxData
 			// Extract metadata for backward compatibility
@@ -741,7 +767,7 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(txArray[3])
+			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
 			if err == nil && metadata != nil {
 				t.TxMetadata = metadata
 			}
@@ -917,13 +943,31 @@ func (t *ConwayTransaction) MarshalCBOR() ([]byte, error) {
 	if cborData != nil {
 		return cborData, nil
 	}
+	bodyCbor := t.Body.Cbor()
+	witnessCbor := t.WitnessSet.Cbor()
+	if len(bodyCbor) > 0 && len(witnessCbor) > 0 {
+		var auxCbor []byte
+		if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+			auxCbor = t.auxData.Cbor()
+		} else if t.TxMetadata != nil {
+			auxCbor = t.TxMetadata.Cbor()
+		}
+		return common.ReassembleTransactionCbor(
+			bodyCbor,
+			witnessCbor,
+			t.TxIsValid,
+			auxCbor,
+		), nil
+	}
 	// Otherwise, construct and encode
 	tmpObj := []any{
 		t.Body,
 		t.WitnessSet,
 		t.TxIsValid,
 	}
-	if t.TxMetadata != nil {
+	if t.auxData != nil && len(t.auxData.Cbor()) > 0 {
+		tmpObj = append(tmpObj, cbor.RawMessage(t.auxData.Cbor()))
+	} else if t.TxMetadata != nil {
 		tmpObj = append(tmpObj, cbor.RawMessage(t.TxMetadata.Cbor()))
 	} else {
 		tmpObj = append(tmpObj, nil)

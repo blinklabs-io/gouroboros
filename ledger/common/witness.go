@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -52,7 +52,7 @@ func ValidateCollateralVKeyWitnesses(
 			nil,
 		)
 	}
-	hashes := make(map[Blake2b224]struct{})
+	hashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
 	for _, vw := range w.Vkey() {
 		hashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
 	}

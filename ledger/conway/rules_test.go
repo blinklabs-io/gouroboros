@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"testing"
 
@@ -1887,6 +1888,53 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 					err,
 				)
 			}
+		},
+	)
+	// Ex-units overflow
+	t.Run(
+		"ExUnits overflow",
+		func(t *testing.T) {
+			testTx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: 0, Index: 0}: {
+						ExUnits: common.ExUnits{
+							Memory: math.MaxInt64 - 10,
+							Steps:  math.MaxInt64 - 10,
+						},
+					},
+					{Tag: 0, Index: 1}: {
+						ExUnits: common.ExUnits{
+							Memory: 100,
+							Steps:  100,
+						},
+					},
+				},
+			}
+			testProtocolParams.MaxTxExUnits = common.ExUnits{
+				Memory: math.MaxInt64,
+				Steps:  math.MaxInt64,
+			}
+			err := conway.UtxoValidateExUnitsTooBigUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err == nil {
+				t.Errorf(
+					"UtxoValidateExUnitsTooBigUtxo should fail when ExUnits summation overflows",
+				)
+				return
+			}
+			testErrType := alonzo.ExUnitsTooBigUtxoError{}
+			assert.IsType(
+				t,
+				testErrType,
+				err,
+				"did not get expected error type: got %T, wanted %T",
+				err,
+				testErrType,
+			)
 		},
 	)
 }

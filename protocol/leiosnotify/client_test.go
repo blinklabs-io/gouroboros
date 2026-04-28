@@ -16,6 +16,7 @@ package leiosnotify
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -337,4 +338,142 @@ func TestClientHandleVotesOffer(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("timeout waiting for message")
 	}
+}
+
+func TestSyncRequiresNotificationFunc(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	protoOptions := protocol.ProtocolOptions{
+		ConnectionId: connId,
+	}
+	client := NewClient(protoOptions, nil)
+
+	err := client.Sync()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NotificationFunc")
+}
+
+func TestSyncPreventsMultipleCalls(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	protoOptions := protocol.ProtocolOptions{
+		ConnectionId: connId,
+	}
+	cfg := NewConfig(
+		WithNotificationFunc(func(_ CallbackContext, _ protocol.Message) error {
+			return nil
+		}),
+	)
+	client := NewClient(protoOptions, &cfg)
+
+	// Simulate that notification loop is already running
+	client.busyMutex.Lock()
+	client.notificationRunning = true
+	client.busyMutex.Unlock()
+
+	err := client.Sync()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already running")
+}
+
+func TestNotificationLoopDrainsOnStop(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	protoOptions := protocol.ProtocolOptions{
+		ConnectionId: connId,
+	}
+	var callCount atomic.Int32
+	cfg := NewConfig(
+		WithNotificationFunc(func(_ CallbackContext, _ protocol.Message) error {
+			callCount.Add(1)
+			return ErrStopNotificationProcess
+		}),
+		WithPipelineLimit(5),
+	)
+	client := NewClient(protoOptions, &cfg)
+
+	// Simulate pipelined state: 3 more responses expected
+	client.busyMutex.Lock()
+	client.pipelinedRequestNext = 3
+	client.notificationRunning = true
+	client.busyMutex.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		client.notificationLoop()
+	}()
+
+	// Send the first message (triggers ErrStopNotificationProcess)
+	client.notificationChan <- NewMsgBlockAnnouncement([]byte{0x01})
+
+	// Send 3 remaining pipelined messages (should be drained without calling NotificationFunc)
+	for i := 0; i < 3; i++ {
+		select {
+		case client.notificationChan <- NewMsgBlockAnnouncement([]byte{byte(i + 2)}):
+		case <-time.After(time.Second):
+			t.Fatalf("timeout sending pipelined message %d - drain blocked", i+1)
+		}
+	}
+
+	// notificationLoop should exit after draining
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for notificationLoop to exit")
+	}
+
+	assert.Equal(t, int32(1), callCount.Load(), "NotificationFunc should be called exactly once")
+
+	// Verify notificationRunning was reset
+	client.busyMutex.Lock()
+	running := client.notificationRunning
+	client.busyMutex.Unlock()
+	assert.False(t, running, "notificationRunning should be reset after loop exit")
+}
+
+func TestNotificationLoopExitsOnChannelClose(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	protoOptions := protocol.ProtocolOptions{
+		ConnectionId: connId,
+	}
+	cfg := NewConfig(
+		WithNotificationFunc(func(_ CallbackContext, _ protocol.Message) error {
+			return nil
+		}),
+	)
+	client := NewClient(protoOptions, &cfg)
+
+	client.busyMutex.Lock()
+	client.notificationRunning = true
+	client.busyMutex.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		client.notificationLoop()
+	}()
+
+	// Close the channel to simulate shutdown
+	close(client.notificationChan)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for notificationLoop to exit on channel close")
+	}
+
+	client.busyMutex.Lock()
+	running := client.notificationRunning
+	client.busyMutex.Unlock()
+	assert.False(t, running, "notificationRunning should be reset after loop exit")
 }

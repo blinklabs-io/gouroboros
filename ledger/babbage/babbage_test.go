@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -2811,8 +2811,7 @@ func TestBabbageTransactionOutput_DatumHashReturnsNil(t *testing.T) {
 
 	datumHash := output.DatumHash()
 
-	assert.NotNil(t, datumHash)
-	assert.Equal(t, common.Blake2b256{}, *datumHash)
+	assert.Nil(t, datumHash)
 }
 
 func TestBabbageTransactionOutput_Utxorpc_DatumHash(t *testing.T) {
@@ -3174,10 +3173,9 @@ func TestBabbageInlineDatumNil(t *testing.T) {
 	retrievedDatum := output.Datum()
 	assert.Nil(t, retrievedDatum)
 
-	// Test DatumHash() returns zero hash for no datum
+	// Test DatumHash() returns nil for no datum
 	datumHash := output.DatumHash()
-	assert.NotNil(t, datumHash)
-	assert.Equal(t, common.Blake2b256{}, *datumHash)
+	assert.Nil(t, datumHash)
 }
 
 // TestBabbageInlineDatumRoundTrip tests full round-trip encoding/decoding per CIP-0032

@@ -87,7 +87,7 @@ func TestChainSyncLimitsAreDefined(t *testing.T) {
 			chainsync.MaxRecvQueueSize,
 		)
 	}
-	expectedMaxBytes := 102400
+	expectedMaxBytes := 462000
 	if chainsync.MaxPendingMessageBytes != expectedMaxBytes {
 		t.Errorf(
 			"MaxPendingMessageBytes should be %d, got %d",
@@ -205,10 +205,16 @@ func TestBlockFetchLimitsAreDefined(t *testing.T) {
 			blockfetch.DefaultRecvQueueSize,
 		)
 	}
-	if blockfetch.IdleBusyMaxPendingMessageBytes <= 0 {
+	if blockfetch.IdleMaxPendingMessageBytes <= 0 {
 		t.Errorf(
-			"IdleBusyMaxPendingMessageBytes must be positive, got %d",
-			blockfetch.IdleBusyMaxPendingMessageBytes,
+			"IdleMaxPendingMessageBytes must be positive, got %d",
+			blockfetch.IdleMaxPendingMessageBytes,
+		)
+	}
+	if blockfetch.BusyMaxPendingMessageBytes <= 0 {
+		t.Errorf(
+			"BusyMaxPendingMessageBytes must be positive, got %d",
+			blockfetch.BusyMaxPendingMessageBytes,
 		)
 	}
 	if blockfetch.StreamingMaxPendingMessageBytes <= 0 {
@@ -821,6 +827,17 @@ func TestStateMapTimeouts(t *testing.T) {
 					state,
 				)
 			}
+		}
+	})
+
+	t.Run("ChainSync N2C StateMap has no byte limits", func(t *testing.T) {
+		for state, entry := range chainsync.StateMapNtC {
+			assert.Zero(
+				t,
+				entry.PendingMessageByteLimit,
+				"N2C state %s should have no byte limit (spec Section 3.7.5)",
+				state,
+			)
 		}
 	})
 

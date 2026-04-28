@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -307,27 +307,26 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 
-	// Check that all consumed assets match produced assets
-	allKeys := make(map[assetKey]bool)
-	for k := range consumedAssets {
-		allKeys[k] = true
-	}
-	for k := range producedAssets {
-		allKeys[k] = true
-	}
-
-	for key := range allKeys {
-		consumed := consumedAssets[key]
+	// Check that all consumed assets match produced assets without building
+	// an intermediate union set of keys.
+	zero := new(big.Int)
+	for key, consumed := range consumedAssets {
 		produced := producedAssets[key]
-		if consumed == nil {
-			consumed = new(big.Int)
-		}
 		if produced == nil {
-			produced = new(big.Int)
+			produced = zero
 		}
 		if consumed.Cmp(produced) != 0 {
 			return shelley.ValueNotConservedUtxoError{
 				Consumed: consumed,
+				Produced: produced,
+			}
+		}
+		delete(producedAssets, key)
+	}
+	for _, produced := range producedAssets {
+		if produced.Cmp(zero) != 0 {
+			return shelley.ValueNotConservedUtxoError{
+				Consumed: zero,
 				Produced: produced,
 			}
 		}
@@ -401,8 +400,11 @@ func UtxoValidateMaxTxSizeUtxo(
 	}
 }
 
-// MinFeeTx calculates the minimum required fee for a transaction based on protocol parameters
-// Fee is calculated using the transaction body CBOR size as per Cardano protocol
+// MinFeeTx calculates the minimum required fee for a transaction based on
+// protocol parameters. The fee-relevant transaction size is determined by
+// common.TxSizeForFee, which uses the original on-wire CBOR length. For
+// pre-Alonzo eras the full CBOR length is the fee-relevant size; for Alonzo+
+// the IsValid byte is subtracted.
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
@@ -411,22 +413,18 @@ func MinFeeTx(
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	tmpTx, ok := tx.(*MaryTransaction)
-	if !ok {
-		return 0, errors.New("tx is not expected type")
-	}
-	// Encode a local copy of the body with TxFee set to 0 to calculate size without fee
-	body := tmpTx.Body
-	body.TxFee = 0
-	txBytes, err := cbor.Encode(body)
+	txSize, err := common.TxSizeForFee(tx)
 	if err != nil {
 		return 0, err
 	}
-	minFee := common.CalculateMinFee(
-		len(txBytes),
+	minFee, err := common.CalculateMinFee(
+		txSize,
 		tmpPparams.MinFeeA,
 		tmpPparams.MinFeeB,
 	)
+	if err != nil {
+		return 0, err
+	}
 	return minFee, nil
 }
 

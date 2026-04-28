@@ -148,6 +148,7 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// WithNotificationFunc sets the callback function invoked for each notification received from the server
 func WithNotificationFunc(
 	notificationFunc NotificationFunc,
 ) LeiosNotifyOptionFunc {

@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,13 +16,16 @@ package common_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/require"
 )
 
 // mockTxEmpty implements the minimal Transaction interface used by the
@@ -61,6 +64,65 @@ func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
 	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestEncodeLangViews(t *testing.T) {
+	t.Run("encodes_versions_in_shortlex_order", func(t *testing.T) {
+		usedVersions := map[uint]struct{}{
+			2: {},
+			0: {},
+			1: {},
+		}
+		costModels := map[uint][]int64{
+			0: {10, 11},
+			1: {20, 21},
+			2: {30, 31},
+		}
+
+		got, err := common.EncodeLangViews(usedVersions, costModels)
+		require.NoError(t, err)
+
+		v1List, err := cbor.Encode(cbor.IndefLengthList{int64(10), int64(11)})
+		require.NoError(t, err)
+		v1Params, err := cbor.Encode(v1List)
+		require.NoError(t, err)
+		v2Params, err := cbor.Encode([]int64{20, 21})
+		require.NoError(t, err)
+		v3Params, err := cbor.Encode([]int64{30, 31})
+		require.NoError(t, err)
+
+		want := append([]byte{0xa3, 0x01}, v2Params...)
+		want = append(want, 0x02)
+		want = append(want, v3Params...)
+		want = append(want, 0x41, 0x00)
+		want = append(want, v1Params...)
+
+		require.Equal(t, want, got)
+	})
+
+	t.Run("rejects_unsupported_versions", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{3: {}},
+			map[uint][]int64{3: {1}},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("rejects_unsupported_versions_without_cost_model", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{3: {}},
+			map[uint][]int64{},
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("rejects_missing_cost_model_for_supported_version", func(t *testing.T) {
+		_, err := common.EncodeLangViews(
+			map[uint]struct{}{2: {}},
+			map[uint][]int64{},
+		)
+		require.Error(t, err)
+	})
 }
 
 // Tests for VerifyTransaction moved from verify_rules_test.go
@@ -242,4 +304,40 @@ func TestReferenceInputResolutionSentinel(t *testing.T) {
 	if out.Err == nil || out.Err.Error() != "utxo not found" {
 		t.Fatalf("expected inner message 'utxo not found', got %q", out.Err)
 	}
+}
+
+func TestCalculateMinFee(t *testing.T) {
+	t.Run("normal_parameters", func(t *testing.T) {
+		// Typical mainnet values: minFeeA=44, minFeeB=155381, bodySize=300
+		fee, err := common.CalculateMinFee(300, 44, 155381)
+		require.NoError(t, err)
+		require.Equal(t, uint64(44*300+155381), fee)
+	})
+
+	t.Run("zero_values", func(t *testing.T) {
+		fee, err := common.CalculateMinFee(0, 0, 0)
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), fee)
+	})
+
+	t.Run("multiplication_overflow", func(t *testing.T) {
+		// Choose minFeeA and bodySize whose product exceeds math.MaxUint64.
+		// math.MaxUint64 ≈ 1.8e19, so (1<<32+1) * (1<<32+1) > 2^64.
+		bigA := uint(1<<32 + 1)
+		bigSize := int(1<<32 + 1)
+		_, err := common.CalculateMinFee(bigSize, bigA, 0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "overflow")
+	})
+
+	t.Run("addition_overflow", func(t *testing.T) {
+		// Product fits but adding minFeeB pushes past MaxUint64.
+		fee, err := common.CalculateMinFee(1, uint(math.MaxUint64), 0)
+		require.NoError(t, err)
+		require.Equal(t, uint64(math.MaxUint64), fee)
+
+		_, err = common.CalculateMinFee(1, uint(math.MaxUint64), 1)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "overflow")
+	})
 }

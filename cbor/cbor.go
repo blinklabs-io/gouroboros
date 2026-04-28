@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,6 +63,13 @@ func (d *DecodeStoreCbor) SetCbor(cborData []byte) {
 	}
 	d.cborData = make([]byte, len(cborData))
 	copy(d.cborData, cborData)
+}
+
+// SetCborReference stores a direct reference to CBOR bytes without copying.
+// Callers must ensure the referenced slice remains immutable for the lifetime
+// of any object that relies on it.
+func (d *DecodeStoreCbor) SetCborReference(cborData []byte) {
+	d.cborData = cborData
 }
 
 // Cbor returns the original CBOR for the object

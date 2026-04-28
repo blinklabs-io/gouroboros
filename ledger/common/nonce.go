@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -87,9 +87,27 @@ func (n *Nonce) MarshalCBOR() ([]byte, error) {
 
 // CalculateRollingNonce calculates a rolling nonce (eta_v) value from the
 // previous block's eta_v value and the current block's VRF result.
-// This implements the Ouroboros Praos evolving nonce update:
+// This implements the Ouroboros Praos evolving nonce update using the
+// Haskell Nonce semigroup (⭒) operator:
 //
-//	eta_v' = eta_v XOR blake2b_256(vrfOutput)
+//	NeutralNonce ⭒ Nonce(x) = Nonce(x)
+//	Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
+//
+// In the Haskell implementation, the VRF output is coerced directly
+// into a Nonce via "coerce @(OutputVRF (VRF c)) @(Hash Blake2b_256
+// Nonce)". This means the raw VRF output bytes (64 bytes for both
+// TPraos and Praos VRF schemes) are used as-is — they are NOT
+// pre-hashed to 32 bytes. The concatenation is therefore
+// prevBlockNonce (32 bytes) || rawVrfOutput (64 bytes) = 96 bytes,
+// and the result is blake2b_256(96 bytes).
+//
+// NeutralNonce is represented as 32 zero bytes. When prevBlockNonce is
+// all zeros (identity element), the result is blake2b_256(vrfOutput).
+// In practice, NeutralNonce never occurs as the evolving nonce because
+// it is initialized to the Shelley genesis hash.
+//
+// Ref: Ouroboros.Consensus.Protocol.Praos (reupdateChainDepState),
+// Cardano.Ledger.BaseTypes (⭒ operator)
 func CalculateRollingNonce(
 	prevBlockNonce []byte,
 	blockVrf []byte,
@@ -106,20 +124,34 @@ func CalculateRollingNonce(
 			len(prevBlockNonce),
 		)
 	}
-	blockVrfHash := Blake2b256Hash(blockVrf)
-	var result Blake2b256
-	for i := 0; i < 32; i++ {
-		result[i] = prevBlockNonce[i] ^ blockVrfHash[i]
+	// NeutralNonce identity: if prevBlockNonce is all zeros,
+	// return blake2b_256(vrfOutput) directly (Nonce semigroup identity)
+	isNeutral := true
+	for _, b := range prevBlockNonce {
+		if b != 0 {
+			isNeutral = false
+			break
+		}
 	}
-	return result, nil
+	if isNeutral {
+		return Blake2b256Hash(blockVrf), nil
+	}
+	// Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
+	// The raw VRF output bytes are concatenated directly without
+	// pre-hashing, matching the Haskell coerce semantics.
+	buf := make([]byte, 32+len(blockVrf))
+	copy(buf[:32], prevBlockNonce)
+	copy(buf[32:], blockVrf)
+	return Blake2b256Hash(buf), nil
 }
 
-// CalculateEpochNonce calculates an epoch nonce using the TPraos method:
+// CalculateEpochNonce calculates an epoch nonce:
 //
-//	epochNonce = blake2b_256(candidateNonce || lastEpochBlockNonce)
+//	epochNonce = blake2b_256(candidateNonce || prevEpochFirstBlockHash)
 //
-// This is used for Shelley through Alonzo (TPraos). For Babbage+ (Praos),
-// use XOR-based nonce combination instead.
+// When extraEntropy is non-empty (must be exactly 32 bytes):
+//
+//	epochNonce = blake2b_256(epochNonce || extraEntropy)
 func CalculateEpochNonce(
 	stableBlockNonce []byte,
 	prevEpochFirstBlockHash []byte,
@@ -132,15 +164,20 @@ func CalculateEpochNonce(
 			len(prevEpochFirstBlockHash),
 		)
 	}
+	if len(extraEntropy) != 0 && len(extraEntropy) != 32 {
+		return Blake2b256{}, fmt.Errorf(
+			"invalid extraEntropy length: %d, expected 0 or 32",
+			len(extraEntropy),
+		)
+	}
 	var buf [64]byte
 	copy(buf[:32], stableBlockNonce)
 	copy(buf[32:], prevEpochFirstBlockHash)
 	tmpDataHash := Blake2b256Hash(buf[:])
-	if len(extraEntropy) > 0 {
-		buf2 := make([]byte, 32+len(extraEntropy))
-		copy(buf2[:32], tmpDataHash.Bytes())
-		copy(buf2[32:], extraEntropy)
-		tmpDataHash = Blake2b256Hash(buf2)
+	if len(extraEntropy) == 32 {
+		copy(buf[:32], tmpDataHash.Bytes())
+		copy(buf[32:], extraEntropy)
+		tmpDataHash = Blake2b256Hash(buf[:])
 	}
 	return tmpDataHash, nil
 }

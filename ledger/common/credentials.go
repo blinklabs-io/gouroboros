@@ -1,4 +1,4 @@
-// Copyright 2024 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,11 @@
 package common
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -45,6 +49,37 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 	}
 	*c = Credential(tmp)
 	c.SetCbor(cborData)
+	return nil
+}
+
+func (c *Credential) UnmarshalJSON(data []byte) error {
+	var tmpData string
+	if err := json.Unmarshal(data, &tmpData); err != nil {
+		return fmt.Errorf("decode credential: %w", err)
+	}
+	if strings.HasPrefix(tmpData, `keyHash-`) {
+		c.CredType = CredentialTypeAddrKeyHash
+		tmpCred, err := hex.DecodeString(tmpData[8:])
+		if err != nil {
+			return fmt.Errorf("decode credential hash: %w", err)
+		}
+		if len(tmpCred) != 28 {
+			return errors.New("credential hash is wrong length")
+		}
+		c.Credential = CredentialHash(tmpCred)
+	} else if strings.HasPrefix(tmpData, `scriptHash-`) {
+		c.CredType = CredentialTypeScriptHash
+		tmpCred, err := hex.DecodeString(tmpData[11:])
+		if err != nil {
+			return fmt.Errorf("decode credential hash: %w", err)
+		}
+		if len(tmpCred) != 28 {
+			return errors.New("credential hash is wrong length")
+		}
+		c.Credential = CredentialHash(tmpCred)
+	} else {
+		return errors.New("unknown credential prefix")
+	}
 	return nil
 }
 

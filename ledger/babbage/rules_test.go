@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math"
 	"math/big"
 	"testing"
 
@@ -1383,6 +1384,53 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 					err,
 				)
 			}
+		},
+	)
+	// Ex-units overflow
+	t.Run(
+		"ExUnits overflow",
+		func(t *testing.T) {
+			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					{
+						ExUnits: common.ExUnits{
+							Memory: math.MaxInt64 - 10,
+							Steps:  math.MaxInt64 - 10,
+						},
+					},
+					{
+						ExUnits: common.ExUnits{
+							Memory: 100,
+							Steps:  100,
+						},
+					},
+				},
+			}
+			testProtocolParams.MaxTxExUnits = common.ExUnits{
+				Memory: math.MaxInt64,
+				Steps:  math.MaxInt64,
+			}
+			err := babbage.UtxoValidateExUnitsTooBigUtxo(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			if err == nil {
+				t.Errorf(
+					"UtxoValidateExUnitsTooBigUtxo should fail when ExUnits summation overflows",
+				)
+				return
+			}
+			testErrType := alonzo.ExUnitsTooBigUtxoError{}
+			assert.IsType(
+				t,
+				testErrType,
+				err,
+				"did not get expected error type: got %T, wanted %T",
+				err,
+				testErrType,
+			)
 		},
 	)
 }

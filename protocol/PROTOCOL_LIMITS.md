@@ -17,7 +17,7 @@ All limits are based on the [Ouroboros Network Specification](https://ouroboros-
 - `MaxRecvQueueSize = 100` - Maximum size of the receive message queue
 - `DefaultPipelineLimit = 50` - Conservative default for pipeline limit
 - `DefaultRecvQueueSize = 50` - Conservative default for receive queue size
-- `MaxPendingMessageBytes = 102400` - Maximum pending message bytes (100KB)
+- `MaxPendingMessageBytes = 462000` - NtN mux ingress buffer per spec Table 3.15 (462KB)
 
 **State timeout constants:**
 - `IdleTimeout = 60s` - Timeout for client to send next request

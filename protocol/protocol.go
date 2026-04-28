@@ -134,6 +134,7 @@ func New(config ProtocolConfig) *Protocol {
 	}
 	p := &Protocol{
 		config:       config,
+		currentState: config.InitialState,
 		doneChan:     make(chan struct{}),
 		stopChan:     make(chan struct{}),
 		recvDoneChan: make(chan struct{}),
@@ -227,6 +228,49 @@ func (p *Protocol) Role() ProtocolRole {
 // DoneChan returns the channel used to signal protocol shutdown
 func (p *Protocol) DoneChan() <-chan struct{} {
 	return p.doneChan
+}
+
+// IsDone returns true if the protocol has finished (done channel is closed or in AgencyNone state).
+// Use this to check if the protocol should avoid sending messages (e.g., Done message in Stop()).
+func (p *Protocol) IsDone() bool {
+	// Check if done channel is closed
+	select {
+	case <-p.doneChan:
+		return true
+	default:
+	}
+	// Check if current state has AgencyNone (terminal state)
+	currentState := p.getCurrentState()
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		if entry.Agency == AgencyNone {
+			return true
+		}
+	}
+	return false
+}
+
+// IsInTerminalOrIdleState returns true if the protocol is in a state where connection
+// close should not be treated as an error. This includes:
+// - Protocol stop/done channel is closed
+// - Current state has AgencyNone (terminal Done state after receiving Done message)
+// - Current state is the initial state (no messages exchanged yet)
+func (p *Protocol) IsInTerminalOrIdleState() bool {
+	// Check if done channel is closed
+	select {
+	case <-p.doneChan:
+		return true
+	default:
+	}
+	// Check current state
+	currentState := p.getCurrentState()
+	// Return true if current state has AgencyNone (terminal state)
+	if entry, exists := p.config.StateMap[currentState]; exists {
+		if entry.Agency == AgencyNone {
+			return true
+		}
+	}
+	// Return true if current state is the initial state (no messages sent yet)
+	return currentState == p.config.InitialState
 }
 
 // WaitSendQueueDrained blocks until the send queue has been drained (best-effort) or the protocol
@@ -523,13 +567,17 @@ func (p *Protocol) readLoop() {
 		// Check for zero-byte read before attempting to decode
 		if readBuffer.Len() == 0 {
 			// This can happen when the remote host closes the connection unexpectedly
-			// or sends an empty segment payload
-			p.SendError(
-				fmt.Errorf(
-					"%s: received zero-byte read, connection may have been closed",
-					p.config.Name,
-				),
-			)
+			// or sends an empty segment payload.
+			// Don't report an error if we're in the Done state (AgencyNone) or initial state,
+			// as this is expected behavior when the remote client gracefully stopped the protocol.
+			if !p.IsInTerminalOrIdleState() {
+				p.SendError(
+					fmt.Errorf(
+						"%s: received zero-byte read, connection may have been closed",
+						p.config.Name,
+					),
+				)
+			}
 			return
 		}
 		// Decode message into generic list until we can determine what type of message it is.
@@ -559,13 +607,17 @@ func (p *Protocol) readLoop() {
 		// Check for zero bytes read or empty message array after decoding
 		if numBytesRead == 0 || len(tmpMsg) == 0 {
 			// This can happen when the remote host closes the connection unexpectedly
-			// and we receive a segment that decodes to an empty array
-			p.SendError(
-				fmt.Errorf(
-					"%s: received empty message (zero bytes read or empty CBOR array), connection may have been closed",
-					p.config.Name,
-				),
-			)
+			// and we receive a segment that decodes to an empty array.
+			// Don't report an error if we're in the Done state (AgencyNone) or initial state,
+			// as this is expected behavior when the remote client gracefully stopped the protocol.
+			if !p.IsInTerminalOrIdleState() {
+				p.SendError(
+					fmt.Errorf(
+						"%s: received empty message (zero bytes read or empty CBOR array), connection may have been closed",
+						p.config.Name,
+					),
+				)
+			}
 			return
 		}
 		// Decode first list item to determine message type
@@ -593,31 +645,58 @@ func (p *Protocol) readLoop() {
 		}
 		// Calculate message size
 		msgLen := len(msgData)
-		// Check pending recv bytes limit for current state
+		// Wait for pending recv bytes to drop below limit before accepting.
+		// This applies TCP backpressure to the remote peer instead of
+		// disconnecting with a protocol violation during rapid catch-up sync.
 		currentState := p.getCurrentState()
 		limit := 0
 		if entry, ok := p.config.StateMap[currentState]; ok {
 			limit = entry.PendingMessageByteLimit
 		}
-		p.pendingBytesMu.Lock()
-		if limit > 0 && p.pendingRecvBytes+msgLen > limit {
+		if limit > 0 {
+			// Fail fast if a single message exceeds the limit to prevent
+			// a livelock where the backpressure loop can never make progress.
+			if msgLen > limit {
+				p.SendError(
+					fmt.Errorf(
+						"%s: received oversized message (%d bytes) exceeding limit (%d bytes)",
+						p.config.Name,
+						msgLen,
+						limit,
+					),
+				)
+				return
+			}
+			for {
+				p.pendingBytesMu.Lock()
+				if p.pendingRecvBytes+msgLen <= limit {
+					p.pendingRecvBytes += msgLen
+					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
+					p.pendingBytesMu.Unlock()
+					break
+				}
+				p.pendingBytesMu.Unlock()
+				// Wait briefly for recvLoop to drain pending bytes
+				select {
+				case <-p.stopChan:
+					return
+				case <-p.muxerDoneChan:
+					return
+				case <-time.After(time.Millisecond):
+				}
+			}
+		} else {
+			p.pendingBytesMu.Lock()
+			p.pendingRecvBytes += msgLen
+			p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 			p.pendingBytesMu.Unlock()
-			p.SendError(ErrProtocolViolationQueueExceeded)
-			return
 		}
-		p.pendingRecvBytes += msgLen
-		p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
-		p.pendingBytesMu.Unlock()
-		// Add message to receive queue
+		// Add message to receive queue (blocking with shutdown checks)
 		select {
 		case p.recvQueueChan <- msg:
-		default:
-			p.SendError(
-				fmt.Errorf(
-					"%s: received message queue limit exceeded",
-					p.config.Name,
-				),
-			)
+		case <-p.stopChan:
+			return
+		case <-p.muxerDoneChan:
 			return
 		}
 		if numBytesRead < readBuffer.Len() {

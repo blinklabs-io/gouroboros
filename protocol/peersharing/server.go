@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package peersharing
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -24,6 +25,7 @@ import (
 // Server implements the PeerSharing server
 type Server struct {
 	*protocol.Protocol
+	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
@@ -58,7 +60,16 @@ func (s *Server) initProtocol() {
 		StateMap:            StateMap,
 		InitialState:        stateIdle,
 	}
-	s.Protocol = protocol.New(protoConfig)
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	s.Protocol = p
+	s.protocolMu.Unlock()
+}
+
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
 }
 
 func (s *Server) handleMessage(msg protocol.Message) error {

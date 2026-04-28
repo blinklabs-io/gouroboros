@@ -100,8 +100,18 @@ func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, e
 		return d.offsets, nil
 	}
 
-	// Calculate component offsets within the block
-	// Block structure: [header, tx_bodies[], witnesses[], metadata_map, invalid_txs[]]
+	// Detect Byron-era blocks and handle them separately.
+	// Byron blocks have 3 elements: [header, body, extra]
+	if isByronBlock(blockArray) {
+		offsets, err := extractByronTransactionOffsets(d.data, blockArray)
+		if err != nil {
+			return nil, fmt.Errorf("extract Byron transaction offsets: %w", err)
+		}
+		d.offsets = offsets
+		return d.offsets, nil
+	}
+
+	// Shelley+ block layout: [header, tx_bodies[], witnesses[], metadata_map, invalid_txs[]]
 	arrayHeaderSize := cborArrayHeaderSize(len(blockArray))
 
 	// Track positions as we walk through the block

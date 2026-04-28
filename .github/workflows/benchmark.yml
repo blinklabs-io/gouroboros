@@ -2,43 +2,109 @@ name: Benchmarks
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:  # Allow manual triggering
-
-permissions:
-  contents: read
+    branches: [main]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
 
 jobs:
+  # Gate: verify the commenter has write access before running untrusted code
+  authorize:
+    name: authorize
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '/benchmark'))
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check commenter permission
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login,
+            });
+            const allowed = ['admin', 'write'];
+            if (!allowed.includes(perm.permission)) {
+              core.setFailed(`User @${context.payload.comment.user.login} does not have write access`);
+              return;
+            }
+
+      - name: Add reaction to comment
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket'
+            });
+
+  # Run benchmarks with minimal permissions (untrusted PR code)
   benchmark:
     name: benchmark
+    needs: authorize
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      commit-sha: ${{ steps.checkout.outputs.commit }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 https://github.com/actions/checkout/releases/tag/v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 https://github.com/actions/checkout/releases/tag/v6.0.2
+        id: checkout
         with:
           fetch-depth: 0
           submodules: true
+          persist-credentials: false
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || '' }}
 
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 https://github.com/actions/setup-go/releases/tag/v6.2.0
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6.4.0 https://github.com/actions/setup-go/releases/tag/v6.4.0
         with:
-          go-version: '1.24'
+          go-version: '1.26'
 
       - name: Run benchmarks
-        run: |
-          set -o pipefail
-          go test -bench=. -benchmem -count=5 -timeout=30m -run='^$' \
-            ./vrf/... \
-            ./kes/... \
-            ./consensus/... \
-            ./cbor/... \
-            ./pipeline/... \
-            ./ledger/... \
-            ./internal/bench/... \
-            2>&1 | tee benchmark.txt
+        run: go test -run='^$' -bench=. -benchmem -count=3 -timeout=30m ./... 2>&1 | tee benchmark.txt
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 https://github.com/actions/upload-artifact/releases/tag/v6.0.0
+        if: github.event_name == 'issue_comment'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: benchmark-${{ github.sha }}-${{ github.run_number }}
+          name: benchmark-results
           path: benchmark.txt
-          retention-days: 30
+
+  # Post results with write permissions (no untrusted code checkout)
+  post-results:
+    name: post-results
+    needs: benchmark
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issue_comment'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Download benchmark results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: benchmark-results
+
+      - name: Post benchmark results
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('benchmark.txt', 'utf8');
+            const truncated = results.length > 60000 ? results.substring(0, 60000) + '\n... (truncated)' : results;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `## Benchmark Results\n\n<details>\n<summary>Click to expand</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n\n</details>\n\nCommit: ${{ needs.benchmark.outputs.commit-sha }}\nTriggered by: @${context.payload.comment.user.login}`
+            });

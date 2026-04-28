@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -164,6 +164,57 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 			t.Errorf("did not shutdown within timeout")
 		}
 		t.Fatalf("did not receive expected error")
+	}
+}
+
+func TestServerHandshakeRefuseNetworkMagicMismatchSanitized(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	testVersion := uint16(12 + protocol.ProtocolVersionNtCOffset)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleServer,
+		[]ouroboros_mock.ConversationEntry{
+			// MsgProposeVersions from mock client with wrong network magic
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: handshake.ProtocolId,
+				Messages: []protocol.Message{
+					handshake.NewMsgProposeVersions(
+						protocol.ProtocolVersionMap{
+							testVersion: protocol.VersionDataNtC9to14(
+								ouroboros_mock.MockNetworkMagic + 1,
+							),
+						},
+					),
+				},
+			},
+			// MsgRefuse from server with sanitized reason string
+			ouroboros_mock.ConversationEntryInput{
+				IsResponse:      true,
+				ProtocolId:      handshake.ProtocolId,
+				MsgFromCborFunc: handshake.NewMsgFromCbor,
+				MessageType:     handshake.MessageTypeRefuse,
+				Message: handshake.NewMsgRefuse(
+					[]any{
+						handshake.RefuseReasonRefused,
+						uint64(testVersion),
+						"network magic mismatch",
+					},
+				),
+			},
+		},
+	)
+	_, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithServer(true),
+	)
+	if err == nil {
+		t.Fatal("did not receive expected error")
+	}
+	if !strings.Contains(err.Error(), "network magic mismatch") {
+		t.Fatalf("expected mismatch error, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "VersionData") {
+		t.Fatalf("error leaked version struct details: %v", err)
 	}
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -76,7 +76,7 @@ func IsSlotLeader(
 //  5. Compare: eligible = leaderValue < T
 //
 // For TPraos (Shelley-Alonzo):
-//  1. Compute VRF input using MkInputVrf(slot, epochNonce)
+//  1. Compute VRF input using MkSeedTPraos(slot, epochNonce, SeedL())
 //  2. Generate VRF proof: proof, output = vrfSigner.Prove(input)
 //  3. Use raw 64-byte VRF output directly
 //  4. Compute threshold: T = 2^512 * (1 - (1-f)^σ)
@@ -116,12 +116,34 @@ func IsSlotLeaderWithMode(
 		}, nil
 	}
 
-	// Step 1: Compute VRF input
-	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
-	vrfInput := vrf.MkInputVrf(
-		int64(slot), //nolint:gosec
-		epochNonce,
-	)
+	// Step 1: Compute VRF input (era-specific)
+	// For leader election, TPraos uses seedL (mkNonceFromNumber 1)
+	if slot > math.MaxInt64 {
+		return nil, fmt.Errorf(
+			"slot %d exceeds maximum int64 value for VRF input",
+			slot,
+		)
+	}
+	var vrfInput []byte
+	var err error
+	switch mode {
+	case ConsensusModeTPraos:
+		vrfInput, err = vrf.MkSeedTPraos(
+			int64(slot), //nolint:gosec
+			epochNonce,
+			vrf.SeedL(),
+		)
+	case ConsensusModeCPraos:
+		vrfInput, err = vrf.MkInputVrf(
+			int64(slot), //nolint:gosec
+			epochNonce,
+		)
+	default:
+		return nil, fmt.Errorf("unknown consensus mode: %d", mode)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VRF input: %w", err)
+	}
 
 	// Step 2: Generate VRF proof
 	proof, output, err := vrfSigner.Prove(vrfInput)

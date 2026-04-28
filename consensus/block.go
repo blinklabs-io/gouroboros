@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -340,10 +340,14 @@ func ComputeVRFInput(slot uint64, epochNonce []byte) []byte {
 	if slot > math.MaxInt64 {
 		return nil
 	}
-	return vrf.MkInputVrf(
+	vrfInput, err := vrf.MkInputVrf(
 		int64(slot),
 		epochNonce,
 	) //nolint:gosec // G115: validated above
+	if err != nil {
+		return nil
+	}
+	return vrfInput
 }
 
 // Errors for block construction

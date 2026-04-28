@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -228,8 +228,10 @@ func (v *HeaderValidator) validateBlockNumber(
 
 // validatePrevHash checks previous hash linkage
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
-	if len(input.PrevHeaderHash) > 0 &&
-		!bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
+	if input.PrevBlockNumber != 0 && len(input.PrevHeaderHash) == 0 {
+		return errors.New("previous header hash is required for non-genesis blocks")
+	}
+	if len(input.PrevHeaderHash) > 0 && !bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
 		return fmt.Errorf(
 			"previous hash does not match: got %x, expected %x",
 			input.PrevHash,
@@ -798,15 +800,21 @@ func ValidateByronBlockHeader(
 	validator := NewHeaderValidator(config)
 
 	input := &ValidateHeaderInput{
-		Slot:            header.SlotNumber(),
-		BlockNumber:     header.BlockNumber(),
-		PrevHash:        header.PrevHash().Bytes(),
-		ProtocolMagic:   config.ProtocolMagic, // Note: uses config, not header (see doc above)
-		PrevSlot:        prevHeader.SlotNumber(),
-		PrevBlockNumber: prevHeader.BlockNumber(),
-		PrevHeaderHash:  prevHeader.Hash().Bytes(),
-		IsEBB:           isEBB,
-		EnvelopeOnly:    true, // This wrapper performs envelope validation only
+		Slot:          header.SlotNumber(),
+		BlockNumber:   header.BlockNumber(),
+		PrevHash:      header.PrevHash().Bytes(),
+		ProtocolMagic: config.ProtocolMagic, // Note: uses config, not header (see doc above)
+		IsEBB:         isEBB,
+		EnvelopeOnly:  true, // This wrapper performs envelope validation only
+	}
+
+	// Only populate prev header fields when a previous header is provided.
+	// For genesis or first-block scenarios, callers pass nil to skip
+	// slot/number/hash comparisons and let validatePrevHash handle it.
+	if prevHeader != nil {
+		input.PrevSlot = prevHeader.SlotNumber()
+		input.PrevBlockNumber = prevHeader.BlockNumber()
+		input.PrevHeaderHash = prevHeader.Hash().Bytes()
 	}
 
 	result := validator.ValidateHeader(input)

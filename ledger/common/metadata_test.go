@@ -104,3 +104,68 @@ func TestCIP25_NFTMetadataDecode(t *testing.T) {
 		t.Fatalf("roundtrip metadata() failed: %v", err)
 	}
 }
+
+func TestMetadataSetIgnoresUnknownAuxiliaryDataKeys(t *testing.T) {
+	// {6: #6.259({0: {1: "ok"}, 6: [1]})}
+	// Key 6 inside the auxiliary-data map is a VanRossem-era extension.
+	const metadataSetHex = "a106d90103a200a101626f6b068101"
+	const auxiliaryDataHex = "d90103a200a101626f6b068101"
+
+	raw, err := hex.DecodeString(metadataSetHex)
+	if err != nil {
+		t.Fatalf("bad hex: %v", err)
+	}
+
+	var set TransactionMetadataSet
+	if _, err := cbor.Decode(raw, &set); err != nil {
+		t.Fatalf("decode metadata set: %v", err)
+	}
+
+	md, ok := set.GetMetadata(6)
+	if !ok {
+		t.Fatal("expected metadata for transaction index 6")
+	}
+	assertMetadataEntry(t, md)
+
+	rawMd, ok := set.GetRawMetadata(6)
+	if !ok {
+		t.Fatal("expected raw metadata for transaction index 6")
+	}
+	if got := hex.EncodeToString(rawMd); got != auxiliaryDataHex {
+		t.Fatalf("raw metadata mismatch: got %s, want %s", got, auxiliaryDataHex)
+	}
+
+	aux, err := DecodeAuxiliaryData(rawMd)
+	if err != nil {
+		t.Fatalf("decode auxiliary data: %v", err)
+	}
+	if got := hex.EncodeToString(aux.Cbor()); got != auxiliaryDataHex {
+		t.Fatalf("raw auxiliary data mismatch: got %s, want %s", got, auxiliaryDataHex)
+	}
+	md, err = aux.Metadata()
+	if err != nil {
+		t.Fatalf("get auxiliary data metadata: %v", err)
+	}
+	assertMetadataEntry(t, md)
+}
+
+func assertMetadataEntry(t *testing.T, md TransactionMetadatum) {
+	t.Helper()
+
+	mm, ok := md.(MetaMap)
+	if !ok {
+		t.Fatalf("expected metadata map, got %T", md)
+	}
+	if len(mm.Pairs) != 1 {
+		t.Fatalf("expected 1 metadata pair, got %d", len(mm.Pairs))
+	}
+
+	key, ok := mm.Pairs[0].Key.(MetaInt)
+	if !ok || key.Value == nil || key.Value.Uint64() != 1 {
+		t.Fatalf("expected metadata key 1, got %#v", mm.Pairs[0].Key)
+	}
+	value, ok := mm.Pairs[0].Value.(MetaText)
+	if !ok || value.Value != "ok" {
+		t.Fatalf("expected metadata value ok, got %#v", mm.Pairs[0].Value)
+	}
+}
