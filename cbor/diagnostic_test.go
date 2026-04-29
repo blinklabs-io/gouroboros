@@ -138,3 +138,21 @@ func TestFormatDiagnosticLimits(t *testing.T) {
 	assert.Equal(t, "[..., ..., ...]", limitedDepth)
 }
 
+func TestFormatDiagnosticPrettyNestedMapValue(t *testing.T) {
+	// {"k": [1, 2]}
+	data, err := hex.DecodeString("a1616b820102")
+	require.NoError(t, err)
+	node, err := cbor.ParseDiagnostic(data)
+	require.NoError(t, err)
+
+	formatted := node.FormatDiagnosticPretty(cbor.DiagnosticOptions{})
+	expected := "{\n" +
+		"  \"k\":\n" +
+		"    [\n" +
+		"      1,\n" +
+		"      2\n" +
+		"    ],\n" +
+		"}"
+	assert.Equal(t, expected, formatted)
+}
+

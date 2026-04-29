@@ -505,7 +505,7 @@ func (n *DiagnosticNode) formatCompact(
 		default:
 			return fmt.Sprintf("%v", n.Value)
 		}
-	default:
+	case DiagTypeSimple:
 		switch v := n.Value.(type) {
 		case nil:
 			return "null"
@@ -520,6 +520,8 @@ func (n *DiagnosticNode) formatCompact(
 		default:
 			return fmt.Sprintf("%v", v)
 		}
+	default:
+		return fmt.Sprintf("%v", n.Value)
 	}
 }
 
@@ -582,16 +584,16 @@ func (n *DiagnosticNode) formatPretty(
 	}
 	for i := 0; i < limit; i++ {
 		keyLine := n.Children[i*2].formatCompact(opts, depth+1)
-		valLine := n.Children[i*2+1].formatCompact(opts, depth+1)
-		lines = append(
-			lines,
-			fmt.Sprintf(
-				"%s%s: %s,",
-				strings.Repeat(opts.IndentString, depth+1),
-				keyLine,
-				valLine,
-			),
-		)
+		valNode := n.Children[i*2+1]
+		entryPrefix := strings.Repeat(opts.IndentString, depth+1)
+		if valNode.Type == DiagTypeArray || valNode.Type == DiagTypeMap {
+			lines = append(lines, fmt.Sprintf("%s%s:", entryPrefix, keyLine))
+			valPretty := valNode.formatPretty(opts, depth+2)
+			lines = append(lines, valPretty+",")
+			continue
+		}
+		valLine := valNode.formatCompact(opts, depth+1)
+		lines = append(lines, fmt.Sprintf("%s%s: %s,", entryPrefix, keyLine, valLine))
 	}
 	if limit < pairCount {
 		lines = append(lines, strings.Repeat(opts.IndentString, depth+1)+"...")
