@@ -422,11 +422,14 @@ func parseCollectionHeader(
 		if offset+4 >= len(data) {
 			return 0, 0, false, errors.New("truncated collection length")
 		}
-		value := int(data[offset+1])<<24 |
-			int(data[offset+2])<<16 |
-			int(data[offset+3])<<8 |
-			int(data[offset+4])
-		return value, 5, false, nil
+		value := uint32(data[offset+1])<<24 |
+			uint32(data[offset+2])<<16 |
+			uint32(data[offset+3])<<8 |
+			uint32(data[offset+4])
+		if value > uint32(math.MaxInt32) {
+			return 0, 0, false, errors.New("collection length exceeds int32 range")
+		}
+		return int(value), 5, false, nil
 	case additional == 27:
 		if offset+8 >= len(data) {
 			return 0, 0, false, errors.New("truncated collection length")
@@ -435,8 +438,8 @@ func parseCollectionHeader(
 		for i := 1; i <= 8; i++ {
 			value = (value << 8) | uint64(data[offset+i])
 		}
-		if value > uint64(math.MaxInt) {
-			return 0, 0, false, errors.New("collection length exceeds int range")
+		if value > uint64(math.MaxInt32) {
+			return 0, 0, false, errors.New("collection length exceeds int32 range")
 		}
 		return int(value), 9, false, nil
 	case additional == 31:

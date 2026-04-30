@@ -119,7 +119,7 @@ func TestParseDiagnosticCollectionOverflow(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cbor.ParseDiagnostic(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exceeds int range")
+	assert.Contains(t, err.Error(), "exceeds int32 range")
 }
 
 func TestFormatDiagnosticLimits(t *testing.T) {
