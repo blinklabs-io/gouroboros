@@ -16,6 +16,7 @@ package cbor_test
 
 import (
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -154,5 +155,63 @@ func TestFormatDiagnosticPrettyNestedMapValue(t *testing.T) {
 		"    ]\n" +
 		"}"
 	assert.Equal(t, expected, formatted)
+}
+
+func TestParseDiagnosticIndefiniteByteString(t *testing.T) {
+	data, err := hex.DecodeString("5f4201024103ff")
+	require.NoError(t, err)
+
+	node, err := cbor.ParseDiagnostic(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, cbor.DiagTypeBytes, node.Type)
+	assert.True(t, node.Indefinite)
+	require.Len(t, node.Children, 2)
+	assert.Equal(
+		t,
+		"(_ h'0102', h'03')",
+		node.FormatDiagnostic(cbor.DiagnosticOptions{}),
+	)
+}
+
+func TestParseDiagnosticIndefiniteTextString(t *testing.T) {
+	data, err := hex.DecodeString("7f61616162ff")
+	require.NoError(t, err)
+
+	node, err := cbor.ParseDiagnostic(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, cbor.DiagTypeText, node.Type)
+	assert.True(t, node.Indefinite)
+	require.Len(t, node.Children, 2)
+	assert.Equal(
+		t,
+		"(_ \"a\", \"b\")",
+		node.FormatDiagnostic(cbor.DiagnosticOptions{}),
+	)
+}
+
+func TestParseDiagnosticMaxNestedLevels(t *testing.T) {
+	data := make([]byte, 0, 260)
+	for i := 0; i < 257; i++ {
+		data = append(data, 0x81)
+	}
+	data = append(data, 0x00)
+
+	_, err := cbor.ParseDiagnostic(data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max depth of 256")
+}
+
+func TestFormatDiagnosticPrettyShowHex(t *testing.T) {
+	data, err := hex.DecodeString("83010203")
+	require.NoError(t, err)
+	node, err := cbor.ParseDiagnostic(data)
+	require.NoError(t, err)
+
+	formatted := node.FormatDiagnosticPretty(cbor.DiagnosticOptions{
+		ShowHex: true,
+	})
+	assert.True(t, strings.Contains(formatted, "/ 83010203 /"))
 }
 

@@ -23,6 +23,8 @@ import (
 	"strings"
 )
 
+const maxDiagnosticNestedLevels = 256
+
 // DiagnosticNode represents a CBOR element with metadata for display.
 type DiagnosticNode struct {
 	Type       DiagnosticType
@@ -73,7 +75,7 @@ func ParseDiagnostic(data []byte) (*DiagnosticNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	node, err := parseDiagnosticNode(dec)
+	node, err := parseDiagnosticNode(dec, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +85,13 @@ func ParseDiagnostic(data []byte) (*DiagnosticNode, error) {
 	return node, nil
 }
 
-func parseDiagnosticNode(dec *StreamDecoder) (*DiagnosticNode, error) {
+func parseDiagnosticNode(dec *StreamDecoder, depth int) (*DiagnosticNode, error) {
+	if depth > maxDiagnosticNestedLevels {
+		return nil, fmt.Errorf(
+			"CBOR nesting exceeds max depth of %d",
+			maxDiagnosticNestedLevels,
+		)
+	}
 	start := dec.Position()
 	if start >= len(dec.Data()) {
 		return nil, errors.New("unexpected end of CBOR data")
@@ -93,14 +101,19 @@ func parseDiagnosticNode(dec *StreamDecoder) (*DiagnosticNode, error) {
 	additional := first & 0x1f
 
 	switch majorType {
-	case 0x00, 0x20, CborTypeByteString, CborTypeTextString:
+	case 0x00, 0x20:
+		return parsePrimitiveDiagnosticNode(dec, majorType)
+	case CborTypeByteString, CborTypeTextString:
+		if additional == 31 {
+			return parseIndefiniteStringDiagnosticNode(dec, majorType, depth)
+		}
 		return parsePrimitiveDiagnosticNode(dec, majorType)
 	case CborTypeArray:
-		return parseArrayDiagnosticNode(dec, additional)
+		return parseArrayDiagnosticNode(dec, depth)
 	case CborTypeMap:
-		return parseMapDiagnosticNode(dec, additional)
+		return parseMapDiagnosticNode(dec, depth)
 	case CborTypeTag:
-		return parseTaggedDiagnosticNode(dec)
+		return parseTaggedDiagnosticNode(dec, depth)
 	case 0xe0:
 		return parseSpecialDiagnosticNode(dec, additional)
 	default:
@@ -140,7 +153,7 @@ func parsePrimitiveDiagnosticNode(
 
 func parseArrayDiagnosticNode(
 	dec *StreamDecoder,
-	additional uint8,
+	depth int,
 ) (*DiagnosticNode, error) {
 	start := dec.Position()
 	data := dec.Data()
@@ -164,7 +177,7 @@ func parseArrayDiagnosticNode(
 				}
 				break
 			}
-			child, err := parseDiagnosticNode(dec)
+			child, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -172,7 +185,7 @@ func parseArrayDiagnosticNode(
 		}
 	} else {
 		for idx := 0; idx < length; idx++ {
-			child, err := parseDiagnosticNode(dec)
+			child, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -197,7 +210,7 @@ func parseArrayDiagnosticNode(
 
 func parseMapDiagnosticNode(
 	dec *StreamDecoder,
-	additional uint8,
+	depth int,
 ) (*DiagnosticNode, error) {
 	start := dec.Position()
 	data := dec.Data()
@@ -222,11 +235,11 @@ func parseMapDiagnosticNode(
 				}
 				break
 			}
-			keyNode, err := parseDiagnosticNode(dec)
+			keyNode, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			valNode, err := parseDiagnosticNode(dec)
+			valNode, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -235,11 +248,11 @@ func parseMapDiagnosticNode(
 		}
 	} else {
 		for idx := 0; idx < length; idx++ {
-			keyNode, err := parseDiagnosticNode(dec)
+			keyNode, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			valNode, err := parseDiagnosticNode(dec)
+			valNode, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -259,7 +272,10 @@ func parseMapDiagnosticNode(
 	}, nil
 }
 
-func parseTaggedDiagnosticNode(dec *StreamDecoder) (*DiagnosticNode, error) {
+func parseTaggedDiagnosticNode(
+	dec *StreamDecoder,
+	depth int,
+) (*DiagnosticNode, error) {
 	start := dec.Position()
 	data := dec.Data()
 	tagNum, headerLen, err := parseTagHeader(data, start)
@@ -269,7 +285,7 @@ func parseTaggedDiagnosticNode(dec *StreamDecoder) (*DiagnosticNode, error) {
 	if err := dec.Advance(headerLen); err != nil {
 		return nil, err
 	}
-	child, err := parseDiagnosticNode(dec)
+	child, err := parseDiagnosticNode(dec, depth+1)
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +299,76 @@ func parseTaggedDiagnosticNode(dec *StreamDecoder) (*DiagnosticNode, error) {
 		Length:   end - start,
 		Children: []DiagnosticNode{*child},
 		Tag:      &tagCopy,
+	}, nil
+}
+
+func parseIndefiniteStringDiagnosticNode(
+	dec *StreamDecoder,
+	majorType uint8,
+	depth int,
+) (*DiagnosticNode, error) {
+	start := dec.Position()
+	data := dec.Data()
+	if start >= len(data) {
+		return nil, errors.New("unexpected end of CBOR data")
+	}
+	if err := dec.Advance(1); err != nil {
+		return nil, err
+	}
+	children := []DiagnosticNode{}
+	var bytesValue []byte
+	var textBuilder strings.Builder
+	for {
+		pos := dec.Position()
+		if pos >= len(data) {
+			return nil, errors.New("unterminated indefinite string")
+		}
+		if data[pos] == 0xff {
+			if err := dec.Advance(1); err != nil {
+				return nil, err
+			}
+			break
+		}
+		child, err := parseDiagnosticNode(dec, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		if child.Indefinite {
+			return nil, errors.New("indefinite string chunk cannot be indefinite")
+		}
+		switch majorType {
+		case CborTypeByteString:
+			if child.Type != DiagTypeBytes {
+				return nil, errors.New("indefinite byte string chunk was not bytes")
+			}
+			chunk, _ := child.Value.([]byte)
+			bytesValue = append(bytesValue, chunk...)
+		case CborTypeTextString:
+			if child.Type != DiagTypeText {
+				return nil, errors.New("indefinite text string chunk was not text")
+			}
+			chunk, _ := child.Value.(string)
+			textBuilder.WriteString(chunk)
+		default:
+			return nil, errors.New("invalid indefinite string major type")
+		}
+		children = append(children, *child)
+	}
+	end := dec.Position()
+	nodeType := DiagTypeBytes
+	var value any = bytesValue
+	if majorType == CborTypeTextString {
+		nodeType = DiagTypeText
+		value = textBuilder.String()
+	}
+	return &DiagnosticNode{
+		Type:       nodeType,
+		Value:      value,
+		RawBytes:   append([]byte(nil), data[start:end]...),
+		Offset:     start,
+		Length:     end - start,
+		Children:   children,
+		Indefinite: true,
 	}, nil
 }
 
@@ -430,7 +516,11 @@ func (n *DiagnosticNode) FormatDiagnostic(opts DiagnosticOptions) string {
 // FormatDiagnosticPretty returns multi-line indented diagnostic notation.
 func (n *DiagnosticNode) FormatDiagnosticPretty(opts DiagnosticOptions) string {
 	opts.normalize()
-	return n.formatPretty(opts, 0)
+	out := n.formatPretty(opts, 0)
+	if opts.ShowHex {
+		out = fmt.Sprintf("%s  / %x /", out, n.RawBytes)
+	}
+	return out
 }
 
 func (n *DiagnosticNode) formatCompact(
@@ -444,12 +534,34 @@ func (n *DiagnosticNode) formatCompact(
 	case DiagTypeUint, DiagTypeNint:
 		return fmt.Sprintf("%v", n.Value)
 	case DiagTypeBytes:
+		if n.Indefinite {
+			items := make([]string, 0)
+			for i := range n.Children {
+				if opts.MaxArrayItems > 0 && i >= opts.MaxArrayItems {
+					items = append(items, "...")
+					break
+				}
+				items = append(items, n.Children[i].formatCompact(opts, depth+1))
+			}
+			return "(_ " + strings.Join(items, ", ") + ")"
+		}
 		b, _ := n.Value.([]byte)
 		if opts.MaxByteLength > 0 && len(b) > opts.MaxByteLength {
 			return fmt.Sprintf("h'%s...'", hex.EncodeToString(b[:opts.MaxByteLength]))
 		}
 		return fmt.Sprintf("h'%s'", hex.EncodeToString(b))
 	case DiagTypeText:
+		if n.Indefinite {
+			items := make([]string, 0)
+			for i := range n.Children {
+				if opts.MaxArrayItems > 0 && i >= opts.MaxArrayItems {
+					items = append(items, "...")
+					break
+				}
+				items = append(items, n.Children[i].formatCompact(opts, depth+1))
+			}
+			return "(_ " + strings.Join(items, ", ") + ")"
+		}
 		s, _ := n.Value.(string)
 		return strconv.Quote(s)
 	case DiagTypeArray:
