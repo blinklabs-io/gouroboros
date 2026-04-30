@@ -26,7 +26,7 @@ func DumpCborStructure(data any, prefix string, maxDepth int) string {
 
 func dumpCborStructure(data any, prefix string, maxDepth int, currentDepth int) string {
 	if currentDepth >= maxDepth {
-		return fmt.Sprintf("%s...\n", prefix)
+		return prefix + "...\n"
 	}
 
 	var ret bytes.Buffer
