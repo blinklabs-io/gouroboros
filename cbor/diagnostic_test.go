@@ -151,7 +151,7 @@ func TestFormatDiagnosticPrettyNestedMapValue(t *testing.T) {
 		"    [\n" +
 		"      1,\n" +
 		"      2\n" +
-		"    ],\n" +
+		"    ]\n" +
 		"}"
 	assert.Equal(t, expected, formatted)
 }

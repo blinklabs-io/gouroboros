@@ -152,7 +152,7 @@ func parseArrayDiagnosticNode(
 		return nil, err
 	}
 	children := []DiagnosticNode{}
-	if indefinite || additional == 31 {
+	if indefinite {
 		for {
 			pos := dec.Position()
 			if pos >= len(data) {
@@ -210,7 +210,7 @@ func parseMapDiagnosticNode(
 	}
 	children := []DiagnosticNode{}
 	pairs := make([][2]any, 0)
-	if indefinite || additional == 31 {
+	if indefinite {
 		for {
 			pos := dec.Position()
 			if pos >= len(data) {
@@ -586,14 +586,22 @@ func (n *DiagnosticNode) formatPretty(
 		keyLine := n.Children[i*2].formatCompact(opts, depth+1)
 		valNode := n.Children[i*2+1]
 		entryPrefix := strings.Repeat(opts.IndentString, depth+1)
+		hasMoreEntries := i < pairCount-1 || limit < pairCount
 		if valNode.Type == DiagTypeArray || valNode.Type == DiagTypeMap {
 			lines = append(lines, fmt.Sprintf("%s%s:", entryPrefix, keyLine))
 			valPretty := valNode.formatPretty(opts, depth+2)
-			lines = append(lines, valPretty+",")
+			if hasMoreEntries {
+				valPretty += ","
+			}
+			lines = append(lines, valPretty)
 			continue
 		}
 		valLine := valNode.formatCompact(opts, depth+1)
-		lines = append(lines, fmt.Sprintf("%s%s: %s,", entryPrefix, keyLine, valLine))
+		entry := fmt.Sprintf("%s%s: %s", entryPrefix, keyLine, valLine)
+		if hasMoreEntries {
+			entry += ","
+		}
+		lines = append(lines, entry)
 	}
 	if limit < pairCount {
 		lines = append(lines, strings.Repeat(opts.IndentString, depth+1)+"...")
