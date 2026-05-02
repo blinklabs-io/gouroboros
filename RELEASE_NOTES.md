@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.166.1 - cbor recursion limit and era protocol version bounds
+
+- **Date:** 2026-05-02
+- **Version:** 0.166.1
+
+### Summary
+
+This release adds minimum and maximum protocol major version bounds across the Shelley, Allegra, Mary, Alonzo, Babbage, and Conway era packages so downstream validation can confirm era to protocol compatibility, and it makes deeply nested CBOR structure dumps stop at a safe depth and truncate output instead of panicking.
+
+### New Features
+
+* Added minimum and maximum protocol major version bounds across the Shelley, Allegra, Mary, Alonzo, Babbage, and Conway era packages so downstream code can validate era to protocol compatibility.
+
 ## v0.165.3 - shutdown idempotence and sanchonet peer fix
 
 - **Date:** 2026-04-24
