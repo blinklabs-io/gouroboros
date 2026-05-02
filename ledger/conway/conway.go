@@ -35,6 +35,13 @@ const (
 	EraIdConway   = 6
 	EraNameConway = "Conway"
 
+	// MinProtocolVersionConway is the lowest protocol major
+	// version that belongs to the Conway era.
+	MinProtocolVersionConway = 9
+	// MaxProtocolVersionConway is the highest protocol major
+	// version that belongs to the Conway era.
+	MaxProtocolVersionConway = 10
+
 	BlockTypeConway = 7
 
 	BlockHeaderTypeConway = 6

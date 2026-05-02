@@ -33,6 +33,13 @@ const (
 	EraIdBabbage   = 5
 	EraNameBabbage = "Babbage"
 
+	// MinProtocolVersionBabbage is the lowest protocol major
+	// version that belongs to the Babbage era.
+	MinProtocolVersionBabbage = 7
+	// MaxProtocolVersionBabbage is the highest protocol major
+	// version that belongs to the Babbage era.
+	MaxProtocolVersionBabbage = 8
+
 	BlockTypeBabbage = 6
 
 	BlockHeaderTypeBabbage = 5
