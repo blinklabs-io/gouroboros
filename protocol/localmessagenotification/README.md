@@ -7,7 +7,7 @@ The LocalMessageNotification protocol receives notifications about new messages 
 | Property | Value |
 |----------|-------|
 | Protocol Name | `LocalMessageNotification` |
-| Protocol ID | `19` |
+| Protocol ID | `15` |
 | Mode | Node-to-Client |
 
 ## State Machine

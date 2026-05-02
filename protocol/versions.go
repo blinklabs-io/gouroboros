@@ -19,6 +19,13 @@ import "slices"
 // The NtC protocol versions have the 15th bit set in the handshake
 const ProtocolVersionNtCOffset = 0x8000
 
+// The DMQ N2C protocol versions have the 12th bit set in the handshake.
+// Note that this is a different bit than Cardano's NtC offset (15th bit);
+// dmq-node uses the 12th bit deliberately to keep the DMQ namespace
+// distinct from the Cardano N2N/N2C version space (see
+// dmq-node/src/DMQ/NodeToClient/Version.hs).
+const ProtocolVersionDMQNtCOffset = 0x1000
+
 type NewVersionDataFromCborFunc func([]byte) (VersionData, error)
 
 type ProtocolVersionMap map[uint16]VersionData
@@ -339,6 +346,48 @@ func GetProtocolVersionMap(
 	return ret
 }
 
+// dmqProtocolVersions maps supported DMQ N2C protocol versions to their
+// version metadata. dmq-node currently advertises only NodeToClientV_1
+// (encoded with the 12th bit set: 1 | 0x1000 = 0x1001).
+//
+// VersionData is structurally [uint32 networkMagic, bool query] — identical
+// to Cardano's VersionDataNtC15andUp — so the same CBOR decoder is reused.
+var dmqProtocolVersions = map[uint16]ProtocolVersion{
+	(1 + ProtocolVersionDMQNtCOffset): {
+		NewVersionDataFromCborFunc: NewVersionDataNtC15andUpFromCbor,
+	},
+}
+
+// GetProtocolVersionMapDMQNtC returns a ProtocolVersionMap suitable for
+// handshaking against a DMQ node's node-to-client listener (CIP-0137).
+// The networkMagic argument is the DMQ-specific topic magic (e.g. Mithril
+// mainnet = 2912307721, dmq-node default = 3141592), distinct from any
+// Cardano network magic.
+func GetProtocolVersionMapDMQNtC(
+	networkMagic uint32,
+	queryMode bool,
+) ProtocolVersionMap {
+	ret := ProtocolVersionMap{}
+	for version := range dmqProtocolVersions {
+		ret[version] = VersionDataNtC15andUp{
+			CborNetworkMagic: networkMagic,
+			CborQuery:        queryMode,
+		}
+	}
+	return ret
+}
+
+// GetProtocolVersionsDMQNtC returns a list of supported DMQ N2C protocol
+// versions in ascending order.
+func GetProtocolVersionsDMQNtC() []uint16 {
+	versions := make([]uint16, 0, len(dmqProtocolVersions))
+	for key := range dmqProtocolVersions {
+		versions = append(versions, key)
+	}
+	slices.Sort(versions)
+	return versions
+}
+
 // GetProtocolVersionsNtC returns a list of supported NtC protocol versions
 func GetProtocolVersionsNtC() []uint16 {
 	versions := []uint16{}
@@ -369,7 +418,12 @@ func GetProtocolVersionsNtN() []uint16 {
 	return versions
 }
 
-// GetProtocolVersion returns the protocol version config for the specified protocol version
+// GetProtocolVersion returns the protocol version config for the specified protocol version.
+// It searches both the Cardano NtN/NtC map and the DMQ N2C map, whose key spaces
+// are disjoint (DMQ uses the 0x1000 offset, Cardano NtC uses 0x8000, NtN uses 7-15).
 func GetProtocolVersion(version uint16) ProtocolVersion {
-	return protocolVersions[version]
+	if v, ok := protocolVersions[version]; ok {
+		return v
+	}
+	return dmqProtocolVersions[version]
 }

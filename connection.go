@@ -41,6 +41,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/localmessagenotification"
+	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
@@ -62,6 +64,7 @@ type Connection struct {
 	networkMagic          uint32
 	server                bool
 	useNodeToNodeProto    bool
+	useDMQProtocol        bool
 	logger                *slog.Logger
 	muxer                 *muxer.Muxer
 	errorChan             chan error
@@ -105,6 +108,11 @@ type Connection struct {
 	peerSharingConfig       *peersharing.Config
 	txSubmission            *txsubmission.TxSubmission
 	txSubmissionConfig      *txsubmission.Config
+	// DMQ N2C mini-protocols (CIP-0137); only constructed when WithDMQ is set
+	localMessageSubmission         *localmessagesubmission.LocalMessageSubmission
+	localMessageSubmissionConfig   *localmessagesubmission.Config
+	localMessageNotification       *localmessagenotification.LocalMessageNotification
+	localMessageNotificationConfig *localmessagenotification.Config
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -252,6 +260,19 @@ func (c *Connection) TxSubmission() *txsubmission.TxSubmission {
 	return c.txSubmission
 }
 
+// LocalMessageSubmission returns the DMQ local-message-submission protocol
+// handler. Only non-nil on a Connection constructed with WithDMQ(true).
+func (c *Connection) LocalMessageSubmission() *localmessagesubmission.LocalMessageSubmission {
+	return c.localMessageSubmission
+}
+
+// LocalMessageNotification returns the DMQ local-message-notification
+// protocol handler. Only non-nil on a Connection constructed with
+// WithDMQ(true).
+func (c *Connection) LocalMessageNotification() *localmessagenotification.LocalMessageNotification {
+	return c.localMessageNotification
+}
+
 // ProtocolVersion returns the negotiated protocol version and the version data from the remote peer
 func (c *Connection) ProtocolVersion() (uint16, protocol.VersionData) {
 	return c.handshakeVersion, c.handshakeVersionData
@@ -380,6 +401,22 @@ func (c *Connection) allProtocolsIdle() bool {
 			protocols = append(protocols, c.leiosFetch.Server.ProtocolInstance())
 		}
 	}
+	if c.localMessageSubmission != nil {
+		if c.localMessageSubmission.Client != nil {
+			protocols = append(protocols, c.localMessageSubmission.Client.Protocol)
+		}
+		if c.localMessageSubmission.Server != nil {
+			protocols = append(protocols, c.localMessageSubmission.Server.Protocol)
+		}
+	}
+	if c.localMessageNotification != nil {
+		if c.localMessageNotification.Client != nil {
+			protocols = append(protocols, c.localMessageNotification.Client.Protocol)
+		}
+		if c.localMessageNotification.Server != nil {
+			protocols = append(protocols, c.localMessageNotification.Server.Protocol)
+		}
+	}
 	for _, p := range protocols {
 		if p != nil && !p.IsInTerminalOrIdleState() {
 			return false
@@ -397,6 +434,11 @@ func (c *Connection) setupConnection() error {
 			"invalid network magic value provided: %d",
 			c.networkMagic,
 		)
+	}
+	// DMQ mode is a node-to-client variant; it cannot be combined with
+	// node-to-node mode on the same connection.
+	if c.useDMQProtocol && c.useNodeToNodeProto {
+		return errors.New("WithDMQ and WithNodeToNode are mutually exclusive")
 	}
 	// Start Goroutine to shutdown when doneChan is closed
 	c.doneChan = make(chan any)
@@ -466,13 +508,23 @@ func (c *Connection) setupConnection() error {
 	if c.fullDuplex {
 		handshakeDiffusionMode = protocol.DiffusionModeInitiatorAndResponder
 	}
-	protoVersions := protocol.GetProtocolVersionMap(
-		protoOptions.Mode,
-		c.networkMagic,
-		handshakeDiffusionMode,
-		c.peerSharingEnabled,
-		c.queryMode,
-	)
+	var protoVersions protocol.ProtocolVersionMap
+	if c.useDMQProtocol {
+		// DMQ uses a separate version-encoding namespace (bit 12) and a
+		// topic-specific network magic distinct from any Cardano network.
+		protoVersions = protocol.GetProtocolVersionMapDMQNtC(
+			c.networkMagic,
+			c.queryMode,
+		)
+	} else {
+		protoVersions = protocol.GetProtocolVersionMap(
+			protoOptions.Mode,
+			c.networkMagic,
+			handshakeDiffusionMode,
+			c.peerSharingEnabled,
+			c.queryMode,
+		)
+	}
 	// Perform handshake
 	var handshakeFullDuplex bool
 	handshakeConfig := handshake.NewConfig(
@@ -600,6 +652,38 @@ func (c *Connection) setupConnection() error {
 				}
 				c.leiosNotify.Server.Start()
 				c.leiosFetch.Server.Start()
+			}
+		}
+	} else if c.useDMQProtocol {
+		// DMQ N2C: only LocalMessageSubmission (proto 14) and
+		// LocalMessageNotification (proto 15) are valid on this
+		// connection. No chain-sync, no localTxSubmission, etc.
+		protoOptions.Mode = protocol.ProtocolModeNodeToClient
+		c.protocolMu.Lock()
+		c.localMessageSubmission = localmessagesubmission.New(
+			protoOptions,
+			c.localMessageSubmissionConfig,
+		)
+		c.localMessageNotification = localmessagenotification.New(
+			protoOptions,
+			c.localMessageNotificationConfig,
+		)
+		c.protocolsReady = true
+		c.protocolMu.Unlock()
+		// Register server protocols early to avoid race conditions
+		if (c.fullDuplex && handshakeFullDuplex) || c.server {
+			c.localMessageSubmission.Server.EnsureRegistered()
+			c.localMessageNotification.Server.EnsureRegistered()
+		}
+		// Start protocols
+		if !c.delayProtocolStart {
+			if (c.fullDuplex && handshakeFullDuplex) || !c.server {
+				c.localMessageSubmission.Client.Start()
+				c.localMessageNotification.Client.Start()
+			}
+			if (c.fullDuplex && handshakeFullDuplex) || c.server {
+				c.localMessageSubmission.Server.Start()
+				c.localMessageNotification.Server.Start()
 			}
 		}
 	} else {

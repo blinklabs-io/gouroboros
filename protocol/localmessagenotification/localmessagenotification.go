@@ -25,7 +25,11 @@ import (
 
 const (
 	ProtocolName = "LocalMessageNotification"
-	ProtocolID   = 19
+	// ProtocolID is the DMQ N2C mini-protocol number. dmq-node reference
+	// (DMQ.NodeToClient: localMsgNotification miniProtocolNum =
+	// MiniProtocolNum 15) and Pallas (PROTOCOL_N2C_MSG_NOTIFICATION = 15)
+	// both use 15.
+	ProtocolID = 15
 )
 
 // State timeouts for Local Message Notification protocol

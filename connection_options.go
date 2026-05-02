@@ -23,6 +23,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/localmessagenotification"
+	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
@@ -80,6 +82,17 @@ func WithLogger(logger *slog.Logger) ConnectionOptionFunc {
 func WithNodeToNode(nodeToNode bool) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.useNodeToNodeProto = nodeToNode
+	}
+}
+
+// WithDMQ enables CIP-0137 DMQ node-to-client mode. The connection
+// negotiates the DMQ N2C handshake (NodeToClientV_1, bit-12 encoded) using
+// the configured network magic as the DMQ topic identifier, and exposes
+// only the LocalMessageSubmission and LocalMessageNotification mini-
+// protocols. Mutually exclusive with WithNodeToNode.
+func WithDMQ(useDMQ bool) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.useDMQProtocol = useDMQ
 	}
 }
 
@@ -205,5 +218,27 @@ func WithPeerSharingConfig(cfg peersharing.Config) ConnectionOptionFunc {
 func WithTxSubmissionConfig(cfg txsubmission.Config) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.txSubmissionConfig = &cfg
+	}
+}
+
+// WithLocalMessageSubmissionConfig specifies LocalMessageSubmission
+// protocol config (CIP-0137 DMQ N2C). Only effective when WithDMQ(true)
+// is also set.
+func WithLocalMessageSubmissionConfig(
+	cfg localmessagesubmission.Config,
+) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.localMessageSubmissionConfig = &cfg
+	}
+}
+
+// WithLocalMessageNotificationConfig specifies LocalMessageNotification
+// protocol config (CIP-0137 DMQ N2C). Only effective when WithDMQ(true)
+// is also set.
+func WithLocalMessageNotificationConfig(
+	cfg localmessagenotification.Config,
+) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.localMessageNotificationConfig = &cfg
 	}
 }

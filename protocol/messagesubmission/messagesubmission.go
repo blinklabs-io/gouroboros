@@ -25,7 +25,10 @@ import (
 
 const (
 	ProtocolName = "MessageSubmission"
-	ProtocolID   = 17
+	// ProtocolID is the DMQ N2N mini-protocol number. dmq-node reference
+	// (DMQ.NodeToNode: sigSubmissionMiniProtocolNum = MiniProtocolNum 11)
+	// and Pallas (PROTOCOL_N2N_DMQ_SIG_SUBMISSION = 11) both use 11.
+	ProtocolID = 11
 )
 
 // State timeouts for Message Submission protocol
