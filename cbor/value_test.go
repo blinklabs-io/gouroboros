@@ -93,6 +93,31 @@ var testDefs = []struct {
 		},
 		expectedAstJson: `{"list":[{"int":3},{"int":1000}]}`,
 	},
+	// 30([-1, 2])
+	{
+		cborHex: "d81e822002",
+		expectedObject: cbor.Rat{
+			Rat: big.NewRat(-1, 2),
+		},
+		expectedAstJson: `{"list":[{"int":-1},{"int":2}]}`,
+	},
+	// 30([18446744073709551616, 2])
+	{
+		cborHex: "d81e82c24901000000000000000002",
+		expectedObject: cbor.Rat{
+			Rat: new(big.Rat).SetFrac(
+				new(big.Int).SetBytes(test.DecodeHexString("010000000000000000")),
+				big.NewInt(2),
+			),
+		},
+		expectedAstJson: `{"list":[{"int":18446744073709551616},{"int":2}]}`,
+	},
+	// 30([1, 0])
+	{
+		cborHex:             "d81e820100",
+		expectedObject:      nil,
+		expectedDecodeError: fmt.Errorf("invalid cbor.Rat: denominator cannot be zero"),
+	},
 	// 258([1, 2, 3])
 	{
 		cborHex: "d9010283010203",
