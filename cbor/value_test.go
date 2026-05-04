@@ -93,7 +93,7 @@ var testDefs = []struct {
 		},
 		expectedAstJson: `{"list":[{"int":3},{"int":1000}]}`,
 	},
-	// 30([-1, 2])
+	// 30([-1, 2]) -- negative rational
 	{
 		cborHex: "d81e822002",
 		expectedObject: cbor.Rat{
@@ -101,18 +101,18 @@ var testDefs = []struct {
 		},
 		expectedAstJson: `{"list":[{"int":-1},{"int":2}]}`,
 	},
-	// 30([18446744073709551616, 2])
+	// 30([18446744073709551617, 1]) -- numerator = 2^64+1 greater than MaxUint64
 	{
-		cborHex: "d81e82c24901000000000000000002",
+		cborHex: "d81e82c24901000000000000000101",
 		expectedObject: cbor.Rat{
 			Rat: new(big.Rat).SetFrac(
-				new(big.Int).SetBytes(test.DecodeHexString("010000000000000000")),
-				big.NewInt(2),
+				new(big.Int).SetBytes(test.DecodeHexString("010000000000000001")),
+				big.NewInt(1),
 			),
 		},
-		expectedAstJson: `{"list":[{"int":18446744073709551616},{"int":2}]}`,
+		expectedAstJson: `{"list":[{"int":18446744073709551617},{"int":1}]}`,
 	},
-	// 30([1, 0])
+	// 30([1, 0]) -- zero denominator
 	{
 		cborHex:             "d81e820100",
 		expectedObject:      nil,
