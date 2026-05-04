@@ -4,11 +4,6 @@ title: Release notes
 
 # Release notes
 
-### Bug Fixes
-
-* Fixed the default `ChainSync` pipeline so the default configuration no longer deadlocks during synchronization.
-* Improved `DumpCborStructure` safety by using the shared nested level limit, truncating overly deep output with `...`, and adding a regression test so deeply nested `CBOR` data no longer risks a panic.
-
 ## v0.165.3 - shutdown idempotence and sanchonet peer fix
 
 - **Date:** 2026-04-24
@@ -17,6 +12,19 @@ title: Release notes
 ### Summary
 
 This release keeps connection shutdown cleanup to a single pass so duplicate close paths no longer panic during setup failures or externally triggered closes, restores the default Sanchonet bootstrap peer so default network configuration can connect successfully again, and includes routine contributor guidance and release note maintenance.
+
+## v0.166.1 - protocol version bounds and CBOR safety fixes
+
+- **Date:** 2026-05-02
+- **Version:** 0.166.1
+
+### Summary
+
+This release adds explicit protocol-version range constants for era packages and fixes reliability issues in default ChainSync pipelining and deeply nested CBOR structure dumping.
+
+### New Features
+
+* Added `MinProtocolVersion*` and `MaxProtocolVersion*` constants for the Shelley, Allegra, Mary, Alonzo, Babbage, and Conway era packages so callers can map protocol major versions to eras and validate compatibility boundaries.
 
 ### Bug Fixes
 
