@@ -29,6 +29,10 @@ type Server struct {
 
 // NewServer creates and returns a new keep-alive protocol server with the given options and configuration.
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
 	s := &Server{
 		config: cfg,
 	}
@@ -60,7 +64,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 	case MessageTypeKeepAlive:
 		err = s.handleKeepAlive(msg)
 	case MessageTypeDone:
-		err = s.handleDone()
+		s.handleDone()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -81,18 +85,19 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msg := msgGeneric.(*MsgKeepAlive)
-	if s.config != nil && s.config.KeepAliveFunc != nil {
-		// Call the user callback function
-		return s.config.KeepAliveFunc(s.callbackContext, msg.Cookie)
-	} else {
-		// Send the keep-alive response
-		resp := NewMsgKeepAliveResponse(msg.Cookie)
-		return s.SendMessage(resp)
+
+	// Call optional notification callback if provided
+	if s.config != nil && s.config.OnKeepAliveReceived != nil {
+		s.config.OnKeepAliveReceived(s.callbackContext.ConnectionId, msg.Cookie)
 	}
+
+	// Automatically send the keep-alive response
+	resp := NewMsgKeepAliveResponse(msg.Cookie)
+	return s.SendMessage(resp)
 }
 
 // handleDone processes a done message from the client and performs any necessary cleanup.
-func (s *Server) handleDone() error {
+func (s *Server) handleDone() {
 	s.Protocol.Logger().
 		Debug("done",
 			"component", "network",
@@ -100,9 +105,9 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	if s.config != nil && s.config.DoneFunc != nil {
-		// Call the user callback function
-		return s.config.DoneFunc(s.callbackContext)
-	}
-	return nil
+}
+
+// Stop stops the keep-alive protocol server.
+func (s *Server) Stop() {
+	s.Protocol.Stop()
 }
