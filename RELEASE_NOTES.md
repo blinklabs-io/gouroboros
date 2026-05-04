@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.166.1 - protocol version bounds and CBOR safety fixes
+
+- **Date:** 2026-05-02
+- **Version:** 0.166.1
+
+### Summary
+
+This release adds explicit protocol version range constants for era packages and fixes reliability issues in default ChainSync pipelining and deeply nested CBOR structure dumping.
+
+### New Features
+
+* Added `MinProtocolVersion*` and `MaxProtocolVersion*` constants for the Shelley, Allegra, Mary, Alonzo, Babbage, and Conway era packages so callers can map protocol major versions to the correct era and validate compatibility boundaries.
+
 ## v0.165.3 - shutdown idempotence and sanchonet peer fix
 
 - **Date:** 2026-04-24
