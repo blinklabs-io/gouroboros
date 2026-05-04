@@ -505,7 +505,7 @@ This release prevents shared protocol state mutation on servers so each connecti
 - **Date:** 2026-02-18
 - **Version:** 0.158.1
 
--### Summary
+### Summary
 
 This release splits ChainSync and Handshake into separate Node-to-Node and Node-to-Client state maps so timeouts align with the Ouroboros network specification.
 
