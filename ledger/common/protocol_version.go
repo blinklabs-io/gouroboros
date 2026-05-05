@@ -23,7 +23,7 @@ const (
 	ProtocolVersionAlonzo     uint = 6
 	ProtocolVersionBabbage    uint = 8
 	ProtocolVersionConway     uint = 9
-	ProtocolVersionConwayPlus uint = 10
+	ProtocolVersionPlomin     uint = 10 // PV10 intra-era hard fork; enabled full governance (incl. treasury withdrawals)
 	ProtocolVersionVanRossem  uint = 11 // PV11 intra-era hard fork
 )
 
