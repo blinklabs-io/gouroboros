@@ -96,7 +96,7 @@ func (c *Client) Start() {
 					"error", err,
 				)
 			// Start cannot return this error, so log it and still clean up.
-			c.Protocol.Stop()
+			c.Stop()
 		}
 	})
 }

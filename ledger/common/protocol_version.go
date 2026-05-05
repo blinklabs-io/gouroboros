@@ -17,14 +17,14 @@ package common
 // Protocol version constants for Cardano hard forks.
 // These correspond to the major protocol version numbers.
 const (
-	ProtocolVersionShelley    uint = 2
-	ProtocolVersionAllegra    uint = 3
-	ProtocolVersionMary       uint = 4
-	ProtocolVersionAlonzo     uint = 6
-	ProtocolVersionBabbage    uint = 8
-	ProtocolVersionConway     uint = 9
-	ProtocolVersionPlomin     uint = 10 // PV10 intra-era hard fork; enabled full governance (incl. treasury withdrawals)
-	ProtocolVersionVanRossem  uint = 11 // PV11 intra-era hard fork
+	ProtocolVersionShelley   uint = 2
+	ProtocolVersionAllegra   uint = 3
+	ProtocolVersionMary      uint = 4
+	ProtocolVersionAlonzo    uint = 6
+	ProtocolVersionBabbage   uint = 8
+	ProtocolVersionConway    uint = 9
+	ProtocolVersionPlomin    uint = 10 // PV10 intra-era hard fork; enabled full governance (incl. treasury withdrawals)
+	ProtocolVersionVanRossem uint = 11 // PV11 intra-era hard fork
 )
 
 // IsProtocolVersionAtLeast checks if the given protocol version (major.minor)
