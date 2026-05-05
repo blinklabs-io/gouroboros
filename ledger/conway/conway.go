@@ -40,7 +40,7 @@ const (
 	MinProtocolVersionConway = 9
 	// MaxProtocolVersionConway is the highest protocol major
 	// version that belongs to the Conway era.
-	MaxProtocolVersionConway = 10
+	MaxProtocolVersionConway = 11
 
 	BlockTypeConway = 7
 
