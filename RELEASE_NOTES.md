@@ -4,6 +4,26 @@ title: Release notes
 
 # Release notes
 
+## v0.167.0 - diagnostic parsing and DMQ node-to-client support
+
+- **Date:** 2026-05-05
+- **Version:** 0.167.0
+
+### Summary
+
+This release adds a new `CBOR` diagnostic parser and `CIP-0137` DMQ node-to-client support, hardens rational value serialization and protocol startup cleanup, aligns Conway and Plomin protocol version handling, and includes routine dependency, documentation, and lint maintenance.
+
+### New Features
+
+* Added a `CBOR` diagnostic parser that can show offsets, preserve formatting detail, and make complex encoded data easier to inspect and troubleshoot.
+* Expanded `CIP-0137` DMQ node-to-client support so applications can submit and receive distributed messages through dedicated local message protocols.
+
+### Bug Fixes
+
+* Fixed rational value `JSON` serialization so large and negative values encode reliably and zero denominator inputs fail cleanly instead of triggering panics.
+* Improved protocol startup cleanup so failed handshake and transaction submission send attempts stop cleanly and avoid lingering shutdown errors.
+* Corrected Conway and Plomin protocol version handling so version names and upper bounds stay aligned with current era support.
+
 ## v0.166.1 - protocol version bounds and CBOR safety fixes
 
 - **Date:** 2026-05-02
