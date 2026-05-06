@@ -1023,3 +1023,36 @@ func TestConwayProtocolParameters_CborRoundTrip(t *testing.T) {
 		decoded.MinFeeRefScriptCostPerByte.Rat.RatString(),
 	)
 }
+
+func TestConwayProtocolParameterUpdate_BootstrapRestrictedFields(t *testing.T) {
+	t.Run("empty update has no restricted fields", func(t *testing.T) {
+		u := &conway.ConwayProtocolParameterUpdate{}
+		fields := u.BootstrapRestrictedFields()
+		if len(fields) != 0 {
+			t.Fatalf("want empty, got %v", fields)
+		}
+	})
+
+	t.Run("DRepDeposit and MinCommitteeSize are restricted", func(t *testing.T) {
+		dep := uint64(500_000_000)
+		size := uint(7)
+		u := &conway.ConwayProtocolParameterUpdate{
+			DRepDeposit:      &dep,
+			MinCommitteeSize: &size,
+		}
+		fields := u.BootstrapRestrictedFields()
+		want := []string{"MinCommitteeSize", "DRepDeposit"}
+		if !reflect.DeepEqual(fields, want) {
+			t.Fatalf("want %v, got %v", want, fields)
+		}
+	})
+
+	t.Run("non-restricted fields are ignored", func(t *testing.T) {
+		fee := uint(44)
+		u := &conway.ConwayProtocolParameterUpdate{MinFeeA: &fee}
+		fields := u.BootstrapRestrictedFields()
+		if len(fields) != 0 {
+			t.Fatalf("want empty for MinFeeA-only update, got %v", fields)
+		}
+	})
+}

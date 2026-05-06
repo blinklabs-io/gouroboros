@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -2687,5 +2688,238 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 		// PV10 doesn't enforce VRF key uniqueness
 		err := conway.UtxoValidateDelegation(tx, 0, ls, pv10Params)
 		assert.NoError(t, err)
+	})
+}
+
+func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
+	mkPp := func(major uint) *conway.ConwayProtocolParameters {
+		return &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: major,
+			},
+		}
+	}
+	mkTx := func(actions ...common.GovAction) *conway.ConwayTransaction {
+		tx := &conway.ConwayTransaction{}
+		for _, a := range actions {
+			tx.Body.TxProposalProcedures = append(
+				tx.Body.TxProposalProcedures,
+				conway.ConwayProposalProcedure{
+					PPGovAction: conway.ConwayGovAction{Action: a},
+				},
+			)
+		}
+		return tx
+	}
+
+	tests := []struct {
+		name        string
+		pvMajor     uint
+		actions     []common.GovAction
+		wantErrType any
+	}{
+		{
+			name:    "PV9 InfoAction allowed",
+			pvMajor: 9,
+			actions: []common.GovAction{&common.InfoGovAction{}},
+		},
+		{
+			name:    "PV9 HardForkInitiation allowed",
+			pvMajor: 9,
+			actions: []common.GovAction{&common.HardForkInitiationGovAction{}},
+		},
+		{
+			name:    "PV9 ParameterChange allowed shape",
+			pvMajor: 9,
+			actions: []common.GovAction{&conway.ConwayParameterChangeGovAction{}},
+		},
+		{
+			name:        "PV9 TreasuryWithdrawal rejected",
+			pvMajor:     9,
+			actions:     []common.GovAction{&common.TreasuryWithdrawalGovAction{}},
+			wantErrType: conway.BootstrapDisallowedGovActionError{},
+		},
+		{
+			name:        "PV9 NoConfidence rejected",
+			pvMajor:     9,
+			actions:     []common.GovAction{&common.NoConfidenceGovAction{}},
+			wantErrType: conway.BootstrapDisallowedGovActionError{},
+		},
+		{
+			name:        "PV9 UpdateCommittee rejected",
+			pvMajor:     9,
+			actions:     []common.GovAction{&common.UpdateCommitteeGovAction{}},
+			wantErrType: conway.BootstrapDisallowedGovActionError{},
+		},
+		{
+			name:        "PV9 NewConstitution rejected",
+			pvMajor:     9,
+			actions:     []common.GovAction{&common.NewConstitutionGovAction{}},
+			wantErrType: conway.BootstrapDisallowedGovActionError{},
+		},
+		{
+			name:    "PV10 TreasuryWithdrawal allowed",
+			pvMajor: 10,
+			actions: []common.GovAction{&common.TreasuryWithdrawalGovAction{}},
+		},
+		{
+			name:    "PV10 NoConfidence allowed",
+			pvMajor: 10,
+			actions: []common.GovAction{&common.NoConfidenceGovAction{}},
+		},
+		{
+			name:    "PV11 all governance actions allowed",
+			pvMajor: 11,
+			actions: []common.GovAction{
+				&common.UpdateCommitteeGovAction{},
+				&common.NewConstitutionGovAction{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx := mkTx(tt.actions...)
+			err := conway.UtxoValidateBootstrapAllowedGovActions(
+				tx,
+				0,
+				nil,
+				mkPp(tt.pvMajor),
+			)
+			if tt.wantErrType == nil {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			var bdErr conway.BootstrapDisallowedGovActionError
+			if !errors.As(err, &bdErr) {
+				t.Fatalf(
+					"got %T (%v), want BootstrapDisallowedGovActionError",
+					err,
+					err,
+				)
+			}
+		})
+	}
+
+	t.Run("PV9 with empty proposals is allowed", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		if err := conway.UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, mkPp(9)); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("PV9 mixed proposals fails on first disallowed action", func(t *testing.T) {
+		tx := mkTx(&common.InfoGovAction{}, &common.TreasuryWithdrawalGovAction{})
+		err := conway.UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, mkPp(9))
+		var bdErr conway.BootstrapDisallowedGovActionError
+		if !errors.As(err, &bdErr) {
+			t.Fatalf("got %T (%v), want BootstrapDisallowedGovActionError", err, err)
+		}
+		if bdErr.ActionType != common.GovActionTypeTreasuryWithdrawal {
+			t.Fatalf("got ActionType %d, want %d (TreasuryWithdrawal)", bdErr.ActionType, common.GovActionTypeTreasuryWithdrawal)
+		}
+	})
+}
+
+func TestUtxoValidateBootstrapParameterGroups(t *testing.T) {
+	mkPp := func(major uint) *conway.ConwayProtocolParameters {
+		return &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: major,
+			},
+		}
+	}
+	dep := uint64(500_000_000)
+	fee := uint(44)
+
+	mkTxWithParamChange := func(
+		update conway.ConwayProtocolParameterUpdate,
+	) *conway.ConwayTransaction {
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
+			{
+				PPGovAction: conway.ConwayGovAction{
+					Action: &conway.ConwayParameterChangeGovAction{
+						ParamUpdate: update,
+					},
+				},
+			},
+		}
+		return tx
+	}
+
+	t.Run("PV9 with non-restricted ParameterChange is allowed", func(t *testing.T) {
+		tx := mkTxWithParamChange(
+			conway.ConwayProtocolParameterUpdate{MinFeeA: &fee},
+		)
+		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9)); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("PV9 with restricted ParameterChange is rejected", func(t *testing.T) {
+		tx := mkTxWithParamChange(
+			conway.ConwayProtocolParameterUpdate{DRepDeposit: &dep},
+		)
+		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
+		var bgErr conway.BootstrapDisallowedParameterChangeError
+		if !errors.As(err, &bgErr) {
+			t.Fatalf(
+				"got %T (%v), want BootstrapDisallowedParameterChangeError",
+				err,
+				err,
+			)
+		}
+		if !reflect.DeepEqual(bgErr.Fields, []string{"DRepDeposit"}) {
+			t.Fatalf("got fields %v, want [DRepDeposit]", bgErr.Fields)
+		}
+	})
+
+	t.Run("PV10 with restricted ParameterChange is allowed", func(t *testing.T) {
+		tx := mkTxWithParamChange(
+			conway.ConwayProtocolParameterUpdate{DRepDeposit: &dep},
+		)
+		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(10)); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("PV9 with MinFeeRefScriptCostPerByte ParameterChange is rejected", func(t *testing.T) {
+		rate := &cbor.Rat{Rat: big.NewRat(15, 1000)}
+		tx := mkTxWithParamChange(conway.ConwayProtocolParameterUpdate{MinFeeRefScriptCostPerByte: rate})
+		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
+		var bgErr conway.BootstrapDisallowedParameterChangeError
+		if !errors.As(err, &bgErr) {
+			t.Fatalf("got %T (%v), want BootstrapDisallowedParameterChangeError", err, err)
+		}
+		if !reflect.DeepEqual(bgErr.Fields, []string{"MinFeeRefScriptCostPerByte"}) {
+			t.Fatalf("got fields %v, want [MinFeeRefScriptCostPerByte]", bgErr.Fields)
+		}
+	})
+
+	t.Run("PV9 with multi-field restricted ParameterChange surfaces all fields", func(t *testing.T) {
+		size := uint(7)
+		tx := mkTxWithParamChange(conway.ConwayProtocolParameterUpdate{
+			MinCommitteeSize: &size,
+			DRepDeposit:      &dep,
+		})
+		err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9))
+		var bgErr conway.BootstrapDisallowedParameterChangeError
+		if !errors.As(err, &bgErr) {
+			t.Fatalf("got %T (%v), want BootstrapDisallowedParameterChangeError", err, err)
+		}
+		want := []string{"MinCommitteeSize", "DRepDeposit"}
+		if !reflect.DeepEqual(bgErr.Fields, want) {
+			t.Fatalf("got fields %v, want %v", bgErr.Fields, want)
+		}
+	})
+
+	t.Run("PV9 with empty proposals is allowed", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{}
+		if err := conway.UtxoValidateBootstrapParameterGroups(tx, 0, nil, mkPp(9)); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 }
