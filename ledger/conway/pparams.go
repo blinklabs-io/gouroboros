@@ -427,6 +427,48 @@ type ConwayProtocolParameterUpdate struct {
 	MinFeeRefScriptCostPerByte *cbor.Rat                                 `cbor:"33,keyasint"`
 }
 
+// BootstrapRestrictedFields returns the names of parameter fields that this
+// update mutates and that are restricted during the Conway bootstrap phase.
+// Order is stable to make error messages deterministic.
+//
+// These fields span the governance, security, and economic groups per
+// CIP-1694; the unifying property is that they were not on-chain governable
+// during PV9 (bootstrap) and only became governable at PV10 (Plomin). The
+// name avoids claiming a single CIP-1694 group taxonomy because the set
+// crosses groups (e.g., MinFeeRefScriptCostPerByte is economic/security,
+// not governance).
+func (u *ConwayProtocolParameterUpdate) BootstrapRestrictedFields() []string {
+	var fields []string
+	if u.PoolVotingThresholds != nil {
+		fields = append(fields, "PoolVotingThresholds")
+	}
+	if u.DRepVotingThresholds != nil {
+		fields = append(fields, "DRepVotingThresholds")
+	}
+	if u.MinCommitteeSize != nil {
+		fields = append(fields, "MinCommitteeSize")
+	}
+	if u.CommitteeTermLimit != nil {
+		fields = append(fields, "CommitteeTermLimit")
+	}
+	if u.GovActionValidityPeriod != nil {
+		fields = append(fields, "GovActionValidityPeriod")
+	}
+	if u.GovActionDeposit != nil {
+		fields = append(fields, "GovActionDeposit")
+	}
+	if u.DRepDeposit != nil {
+		fields = append(fields, "DRepDeposit")
+	}
+	if u.DRepInactivityPeriod != nil {
+		fields = append(fields, "DRepInactivityPeriod")
+	}
+	if u.MinFeeRefScriptCostPerByte != nil {
+		fields = append(fields, "MinFeeRefScriptCostPerByte")
+	}
+	return fields
+}
+
 func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	type tConwayProtocolParameterUpdate ConwayProtocolParameterUpdate
 	var tmp tConwayProtocolParameterUpdate
