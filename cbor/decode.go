@@ -515,6 +515,30 @@ func (d *StreamDecoder) DecodeMapHeader() (int, int, int, error) {
 	return length, absStart, headerLen, nil
 }
 
+// DecodeDiagnostic decodes the next CBOR item into a DiagnosticNode tree
+// without advancing past it as a black box. Offsets in the returned tree are
+// absolute within the underlying data buffer.
+func (d *StreamDecoder) DecodeDiagnostic() (*DiagnosticNode, error) {
+	if d.EOF() {
+		return nil, errors.New("unexpected end of CBOR data")
+	}
+	return parseDiagnosticNode(d, 0)
+}
+
+// DecodeAllDiagnostic decodes all remaining CBOR items into DiagnosticNode
+// trees, stopping at end-of-data or the first decode error encountered.
+func (d *StreamDecoder) DecodeAllDiagnostic() ([]*DiagnosticNode, error) {
+	var nodes []*DiagnosticNode
+	for !d.EOF() {
+		node, err := parseDiagnosticNode(d, 0)
+		if err != nil {
+			return nodes, err
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes, nil
+}
+
 // SkipN skips n CBOR items and returns the total byte range skipped.
 // Returns (startOffset, totalLength, error).
 func (d *StreamDecoder) SkipN(n int) (int, int, error) {
