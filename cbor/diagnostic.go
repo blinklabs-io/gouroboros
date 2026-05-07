@@ -565,6 +565,13 @@ func (n *DiagnosticNode) collectPath(offset int, path []string) []string {
 				return child.collectPath(offset, path)
 			}
 		}
+	case DiagTypeUint,
+		DiagTypeNint,
+		DiagTypeBytes,
+		DiagTypeText,
+		DiagTypeSimple,
+		DiagTypeFloat:
+		// Leaf types contribute no further path segments.
 	}
 	return path
 }
@@ -579,9 +586,14 @@ func mapKeyPathSegment(n *DiagnosticNode) string {
 	case DiagTypeBytes:
 		b, _ := n.Value.([]byte)
 		return "h'" + hex.EncodeToString(b) + "'"
-	default:
+	case DiagTypeArray,
+		DiagTypeMap,
+		DiagTypeTag,
+		DiagTypeSimple,
+		DiagTypeFloat:
 		return n.formatCompact(DiagnosticOptions{}, 0)
 	}
+	return n.formatCompact(DiagnosticOptions{}, 0)
 }
 
 // FormatHexDump returns a hex dump with CBOR structure annotations.
@@ -703,6 +715,8 @@ func (n *DiagnosticNode) writeHexDump(
 				n.Children[i].writeHexDump(b, opts, depth+1, "")
 			}
 		}
+	case DiagTypeUint, DiagTypeNint, DiagTypeSimple, DiagTypeFloat:
+		// Primitive leaves; the header line already covered the value.
 	}
 }
 
