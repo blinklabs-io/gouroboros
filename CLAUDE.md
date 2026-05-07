@@ -6,7 +6,7 @@ Companion to `AGENTS.md`; read that first. This file: Claude-specific facts and 
 
 | Metric | Value |
 |--------|-------|
-| Test functions | 2531 (100% passing) |
+| Test functions | 2537 (100% passing) |
 | Ledger rule vectors | 314/314 (via Amaru) |
 | VRF | 29 vectors + 15 unit tests |
 | KES | 14 (input-output-hk/kes) |
