@@ -34,6 +34,13 @@ const (
 	EraIdAlonzo   = 4
 	EraNameAlonzo = "Alonzo"
 
+	// MinProtocolVersionAlonzo is the lowest protocol major version
+	// that belongs to the Alonzo era.
+	MinProtocolVersionAlonzo = 5
+	// MaxProtocolVersionAlonzo is the highest protocol major
+	// version that belongs to the Alonzo era.
+	MaxProtocolVersionAlonzo = 6
+
 	BlockTypeAlonzo = 5
 
 	BlockHeaderTypeAlonzo = 4

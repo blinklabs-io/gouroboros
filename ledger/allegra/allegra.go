@@ -29,6 +29,13 @@ const (
 	EraIdAllegra   = 2
 	EraNameAllegra = "Allegra"
 
+	// MinProtocolVersionAllegra is the lowest protocol major
+	// version that belongs to the Allegra era.
+	MinProtocolVersionAllegra = 3
+	// MaxProtocolVersionAllegra is the highest protocol major
+	// version that belongs to the Allegra era.
+	MaxProtocolVersionAllegra = 3
+
 	BlockTypeAllegra = 3
 
 	BlockHeaderTypeAllegra = 2

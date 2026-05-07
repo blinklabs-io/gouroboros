@@ -243,7 +243,20 @@ func (c *Client) Init() {
 		)
 	// Send our Init message
 	msg := NewMsgInit()
-	_ = c.SendMessage(msg)
+	if err := c.SendMessage(msg); err != nil {
+		c.Protocol.Logger().
+			Warn("failed to send txsubmission init",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+				"error", err,
+			)
+		// Init cannot return this error, so log it and still clean up.
+		c.Protocol.Stop()
+		c.lifecycleState = clientStateStopped
+		return
+	}
 	c.initSent = true
 }
 

@@ -7,7 +7,7 @@ The LocalMessageSubmission protocol submits authenticated messages to the local 
 | Property | Value |
 |----------|-------|
 | Protocol Name | `LocalMessageSubmission` |
-| Protocol ID | `18` |
+| Protocol ID | `14` |
 | Mode | Node-to-Client |
 
 ## State Machine

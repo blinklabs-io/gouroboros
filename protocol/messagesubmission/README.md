@@ -7,7 +7,7 @@ The MessageSubmission protocol propagates authenticated messages between nodes. 
 | Property | Value |
 |----------|-------|
 | Protocol Name | `MessageSubmission` |
-| Protocol ID | `17` |
+| Protocol ID | `11` |
 | Mode | Node-to-Node |
 
 ## State Machine

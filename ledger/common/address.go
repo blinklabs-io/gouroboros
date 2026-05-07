@@ -15,6 +15,7 @@
 package common
 
 import (
+	"crypto/sha3"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -25,7 +26,6 @@ import (
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/btcsuite/btcd/btcutil/base58"
 	"github.com/btcsuite/btcd/btcutil/bech32"
-	"golang.org/x/crypto/sha3"
 )
 
 const (

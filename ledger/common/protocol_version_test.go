@@ -28,7 +28,7 @@ func TestProtocolVersionConstants(t *testing.T) {
 	assert.Equal(t, uint(6), ProtocolVersionAlonzo)
 	assert.Equal(t, uint(8), ProtocolVersionBabbage)
 	assert.Equal(t, uint(9), ProtocolVersionConway)
-	assert.Equal(t, uint(10), ProtocolVersionConwayPlus)
+	assert.Equal(t, uint(10), ProtocolVersionPlomin)
 	assert.Equal(t, uint(11), ProtocolVersionVanRossem)
 }
 

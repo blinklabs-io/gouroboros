@@ -31,6 +31,13 @@ const (
 	EraIdMary   = 3
 	EraNameMary = "Mary"
 
+	// MinProtocolVersionMary is the lowest protocol major version
+	// that belongs to the Mary era.
+	MinProtocolVersionMary = 4
+	// MaxProtocolVersionMary is the highest protocol major
+	// version that belongs to the Mary era.
+	MaxProtocolVersionMary = 4
+
 	BlockTypeMary = 4
 
 	BlockHeaderTypeMary = 3

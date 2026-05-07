@@ -20,7 +20,15 @@ import (
 )
 
 // DumpCborStructure generates an indented string representing an arbitrary data structure for debugging purposes
-func DumpCborStructure(data any, prefix string) string {
+func DumpCborStructure(data any, prefix string, maxDepth int) string {
+	return dumpCborStructure(data, prefix, maxDepth, 0)
+}
+
+func dumpCborStructure(data any, prefix string, maxDepth int, currentDepth int) string {
+	if currentDepth >= maxDepth {
+		return prefix + "...\n"
+	}
+
 	var ret bytes.Buffer
 	switch v := data.(type) {
 	case int, uint, int16, uint16, int32, uint32, int64, uint64:
@@ -42,7 +50,7 @@ func DumpCborStructure(data any, prefix string) string {
 			var lastOutputCount uint32
 		*/
 		for _, val := range v {
-			tmp := DumpCborStructure(val, newPrefix)
+			tmp := dumpCborStructure(val, newPrefix, maxDepth, currentDepth+1)
 			/*
 				if lastOutput == "" || lastOutput == tmp {
 					lastOutputCount += 1

@@ -203,8 +203,8 @@ func generateAstJson(obj any) ([]byte, error) {
 	case Rat:
 		return generateAstJson(
 			[]any{
-				v.Num().Uint64(),
-				v.Denom().Uint64(),
+				v.Num(),
+				v.Denom(),
 			},
 		)
 	case int, uint, uint64, int64:

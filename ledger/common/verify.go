@@ -16,10 +16,9 @@ package common
 
 import (
 	"crypto/ed25519"
+	"crypto/sha3"
 	"errors"
 	"fmt"
-
-	"golang.org/x/crypto/sha3"
 )
 
 // VerifyVKeySignature verifies an ed25519 signature against the provided public key and message.

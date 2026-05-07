@@ -87,7 +87,17 @@ func (c *Client) Start() {
 		c.Protocol.Start()
 		// Send our ProposeVersions message
 		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)
-		_ = c.SendMessage(msg)
+		if err := c.SendMessage(msg); err != nil {
+			c.Protocol.Logger().
+				Warn("failed to send handshake propose versions",
+					"component", "network",
+					"protocol", ProtocolName,
+					"connection_id", c.callbackContext.ConnectionId.String(),
+					"error", err,
+				)
+			// Start cannot return this error, so log it and still clean up.
+			c.Stop()
+		}
 	})
 }
 

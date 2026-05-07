@@ -40,6 +40,21 @@ import (
 	"go.uber.org/goleak"
 )
 
+// TestWithDMQ verifies that constructing a Connection with WithDMQ does
+// not panic and exposes the DMQ N2C accessors. Full handshake exercise
+// against a real DMQ peer is covered by integration tests in downstream
+// consumers (e.g. raven, dingo); here we just validate the option plumbing.
+func TestWithDMQ(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	oConn, err := ouroboros.New(ouroboros.WithDMQ(true))
+	require.NoError(t, err)
+	defer oConn.Close()
+	// Before setupConnection runs (no underlying conn supplied yet) the
+	// DMQ protocol handles are nil. The accessors must still be callable.
+	assert.Nil(t, oConn.LocalMessageSubmission(), "LocalMessageSubmission should be nil before handshake")
+	assert.Nil(t, oConn.LocalMessageNotification(), "LocalMessageNotification should be nil before handshake")
+}
+
 // Ensure that we don't panic when closing the Connection object after a failed Dial() call
 func TestDialFailClose(t *testing.T) {
 	defer goleak.VerifyNone(t)

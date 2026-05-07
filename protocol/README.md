@@ -15,11 +15,11 @@ This directory contains implementations of the Ouroboros mini-protocols used for
 | [KeepAlive](keepalive/) | 8 | NtN | Connection liveness |
 | [LocalTxMonitor](localtxmonitor/) | 9 | NtC | Mempool monitoring |
 | [PeerSharing](peersharing/) | 10 | NtN | Peer discovery |
-| [MessageSubmission](messagesubmission/) | 17 | NtN | DMQ message propagation |
+| [MessageSubmission](messagesubmission/) | 11 | NtN | DMQ message propagation (sig-submission-v2) |
+| [LocalMessageSubmission](localmessagesubmission/) | 14 | NtC | Local DMQ submission |
+| [LocalMessageNotification](localmessagenotification/) | 15 | NtC | Local DMQ notifications |
 | [LeiosNotify](leiosnotify/) | 18 | NtN | Leios notifications |
-| [LocalMessageSubmission](localmessagesubmission/) | 18 | NtC | Local DMQ submission |
 | [LeiosFetch](leiosfetch/) | 19 | NtN | Leios data retrieval |
-| [LocalMessageNotification](localmessagenotification/) | 19 | NtC | Local DMQ notifications |
 
 **Mode Key:**
 - **NtN**: Node-to-Node (between full nodes)

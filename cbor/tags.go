@@ -113,6 +113,8 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 		tmpNum.SetInt64(v)
 	case uint64:
 		tmpNum.SetUint64(v)
+	case big.Int:
+		tmpNum.Set(&v)
 	default:
 		return fmt.Errorf("unsupported numerator type for cbor.Rat: %T", v)
 	}
@@ -123,6 +125,8 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 		tmpDenom.SetInt64(v)
 	case uint64:
 		tmpDenom.SetUint64(v)
+	case big.Int:
+		tmpDenom.Set(&v)
 	default:
 		return fmt.Errorf("unsupported denominator type for cbor.Rat: %T", v)
 	}

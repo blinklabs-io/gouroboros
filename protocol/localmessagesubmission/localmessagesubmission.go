@@ -25,7 +25,11 @@ import (
 
 const (
 	ProtocolName = "LocalMessageSubmission"
-	ProtocolID   = 18
+	// ProtocolID is the DMQ N2C mini-protocol number. dmq-node reference
+	// (DMQ.NodeToClient: localMsgSubmission miniProtocolNum =
+	// MiniProtocolNum 14) and Pallas (PROTOCOL_N2C_MSG_SUBMISSION = 14)
+	// both use 14.
+	ProtocolID = 14
 )
 
 // State timeouts for Local Message Submission protocol

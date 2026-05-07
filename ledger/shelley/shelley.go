@@ -31,6 +31,13 @@ const (
 	EraIdShelley   = 1
 	EraNameShelley = "Shelley"
 
+	// MinProtocolVersionShelley is the lowest protocol major
+	// version that belongs to the Shelley era.
+	MinProtocolVersionShelley = 2
+	// MaxProtocolVersionShelley is the highest protocol major
+	// version that belongs to the Shelley era.
+	MaxProtocolVersionShelley = 2
+
 	BlockTypeShelley = 2
 
 	BlockHeaderTypeShelley = 1
