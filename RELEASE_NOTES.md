@@ -4,6 +4,28 @@ title: Release notes
 
 # Release notes
 
+## v0.168.0 - Conway PV9 gating and CBOR diagnostic navigation
+
+- **Date:** 2026-05-09
+- **Version:** 0.168.0
+
+### Summary
+
+This release adds Conway PV9 bootstrap gating for governance validation, adds CBOR diagnostic offset navigation and annotated hex dump support, fixes orphaned blockfetch busy mutex handling during disconnect and shutdown scenarios, and expands ledger regression coverage for forward compatible cost model handling.
+
+### New Features
+
+* Added Conway bootstrap phase validation that rejects governance actions and bootstrap restricted parameter changes until Plomin or PV10, improving protocol version correctness and producing clearer validation failures.
+* Expanded CBOR diagnostics so offset lookup can find nodes and paths by byte position, annotated hex dumps make encoded data easier to inspect, and one or more items can decode into diagnostic trees for simpler binary troubleshooting.
+
+### Bug Fixes
+
+* Fixed blockfetch busy state cleanup so disconnects, shutdowns, and error paths release the busy lock correctly and later `GetBlock` and `GetBlockRange` calls do not hang behind an orphaned busy lock.
+
+### Additional Changes
+
+* Expanded ledger and compatibility coverage for longer cost model arrays so forward compatible Conway and Plutus cost model handling is validated across encoding, parameter updates, and genesis loading.
+
 ## v0.167.0 - diagnostic parsing and DMQ node-to-client support
 
 - **Date:** 2026-05-05
