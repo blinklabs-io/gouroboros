@@ -498,6 +498,321 @@ func parseTagHeader(data []byte, offset int) (uint64, int, error) {
 	}
 }
 
+// GetNodeAtOffset returns the deepest node whose byte range covers offset.
+// Returns nil if offset falls outside this node's range.
+func (n *DiagnosticNode) GetNodeAtOffset(offset int) *DiagnosticNode {
+	if n == nil {
+		return nil
+	}
+	if offset < n.Offset || offset >= n.Offset+n.Length {
+		return nil
+	}
+	for i := range n.Children {
+		if child := n.Children[i].GetNodeAtOffset(offset); child != nil {
+			return child
+		}
+	}
+	return n
+}
+
+// GetPathToOffset returns a slice describing the path from this node to the
+// deepest descendant containing offset. Map entries contribute their key as
+// a path segment; array entries contribute "[i]". Returns nil if offset is
+// outside this node's range.
+func (n *DiagnosticNode) GetPathToOffset(offset int) []string {
+	if n == nil {
+		return nil
+	}
+	if offset < n.Offset || offset >= n.Offset+n.Length {
+		return nil
+	}
+	return n.collectPath(offset, []string{})
+}
+
+func (n *DiagnosticNode) collectPath(offset int, path []string) []string {
+	switch n.Type {
+	case DiagTypeArray:
+		for i := range n.Children {
+			child := &n.Children[i]
+			if offset >= child.Offset && offset < child.Offset+child.Length {
+				next := append(append([]string(nil), path...), fmt.Sprintf("[%d]", i))
+				return child.collectPath(offset, next)
+			}
+		}
+	case DiagTypeMap:
+		for i := 0; i+1 < len(n.Children); i += 2 {
+			keyChild := &n.Children[i]
+			valChild := &n.Children[i+1]
+			if offset >= keyChild.Offset && offset < keyChild.Offset+keyChild.Length {
+				next := append(
+					append([]string(nil), path...),
+					mapKeyPathSegment(keyChild),
+				)
+				return keyChild.collectPath(offset, next)
+			}
+			if offset >= valChild.Offset && offset < valChild.Offset+valChild.Length {
+				next := append(
+					append([]string(nil), path...),
+					mapKeyPathSegment(keyChild),
+				)
+				return valChild.collectPath(offset, next)
+			}
+		}
+	case DiagTypeTag:
+		if len(n.Children) > 0 {
+			child := &n.Children[0]
+			if offset >= child.Offset && offset < child.Offset+child.Length {
+				return child.collectPath(offset, path)
+			}
+		}
+	case DiagTypeUint,
+		DiagTypeNint,
+		DiagTypeBytes,
+		DiagTypeText,
+		DiagTypeSimple,
+		DiagTypeFloat:
+		// Leaf types contribute no further path segments.
+	}
+	return path
+}
+
+func mapKeyPathSegment(n *DiagnosticNode) string {
+	switch n.Type {
+	case DiagTypeText:
+		s, _ := n.Value.(string)
+		return s
+	case DiagTypeUint, DiagTypeNint:
+		return fmt.Sprintf("%v", n.Value)
+	case DiagTypeBytes:
+		b, _ := n.Value.([]byte)
+		return "h'" + hex.EncodeToString(b) + "'"
+	case DiagTypeArray,
+		DiagTypeMap,
+		DiagTypeTag,
+		DiagTypeSimple,
+		DiagTypeFloat:
+		return n.formatCompact(DiagnosticOptions{}, 0)
+	}
+	return n.formatCompact(DiagnosticOptions{}, 0)
+}
+
+// FormatHexDump returns a hex dump with CBOR structure annotations.
+// Each row pairs an offset and the relevant bytes with the structural meaning
+// of those bytes, indented to reflect nesting.
+func (n *DiagnosticNode) FormatHexDump(opts DiagnosticOptions) string {
+	opts.normalize()
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-8s%-42s%s\n", "Offset", "Hex", "Structure")
+	fmt.Fprintf(
+		&b,
+		"%-8s%-42s%s\n",
+		"------",
+		strings.Repeat("-", 40),
+		"------------------",
+	)
+	n.writeHexDump(&b, opts, 0, "")
+	return b.String()
+}
+
+func (n *DiagnosticNode) writeHexDump(
+	b *strings.Builder,
+	opts DiagnosticOptions,
+	depth int,
+	role string,
+) {
+	indent := strings.Repeat("| ", depth)
+	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
+		fmt.Fprintf(
+			b,
+			"%-8s%-42s%s\n",
+			fmt.Sprintf("%04x", n.Offset),
+			"...",
+			indent+"...",
+		)
+		return
+	}
+
+	headerLen := n.cborHeaderLen()
+	if headerLen > len(n.RawBytes) {
+		headerLen = len(n.RawBytes)
+	}
+	headerBytes := n.RawBytes[:headerLen]
+
+	label := n.structureLabel()
+	if role != "" {
+		label = role + ": " + label
+	}
+	fmt.Fprintf(
+		b,
+		"%-8s%-42s%s\n",
+		fmt.Sprintf("%04x", n.Offset),
+		formatHexBytes(headerBytes, 0),
+		indent+label,
+	)
+
+	if !n.Indefinite &&
+		(n.Type == DiagTypeBytes || n.Type == DiagTypeText) &&
+		len(n.RawBytes) > headerLen {
+		contentBytes := n.RawBytes[headerLen:]
+		contentOffset := n.Offset + headerLen
+		maxShow := opts.MaxByteLength
+		if maxShow <= 0 {
+			maxShow = 4
+		}
+		fmt.Fprintf(
+			b,
+			"%-8s%-42s%s\n",
+			fmt.Sprintf("%04x", contentOffset),
+			formatHexBytes(contentBytes, maxShow),
+			indent,
+		)
+	}
+
+	switch n.Type {
+	case DiagTypeArray:
+		limit := len(n.Children)
+		if opts.MaxArrayItems > 0 && limit > opts.MaxArrayItems {
+			limit = opts.MaxArrayItems
+		}
+		for i := 0; i < limit; i++ {
+			n.Children[i].writeHexDump(b, opts, depth+1, "")
+		}
+		if limit < len(n.Children) {
+			fmt.Fprintf(
+				b,
+				"%-8s%-42s%s\n",
+				"",
+				"...",
+				strings.Repeat("| ", depth+1)+"...",
+			)
+		}
+	case DiagTypeMap:
+		pairCount := len(n.Children) / 2
+		limit := pairCount
+		if opts.MaxArrayItems > 0 && limit > opts.MaxArrayItems {
+			limit = opts.MaxArrayItems
+		}
+		for i := 0; i < limit; i++ {
+			n.Children[i*2].writeHexDump(b, opts, depth+1, "key")
+			n.Children[i*2+1].writeHexDump(b, opts, depth+1, "value")
+		}
+		if limit < pairCount {
+			fmt.Fprintf(
+				b,
+				"%-8s%-42s%s\n",
+				"",
+				"...",
+				strings.Repeat("| ", depth+1)+"...",
+			)
+		}
+	case DiagTypeTag:
+		if len(n.Children) > 0 {
+			n.Children[0].writeHexDump(b, opts, depth+1, "")
+		}
+	case DiagTypeBytes, DiagTypeText:
+		if n.Indefinite {
+			for i := range n.Children {
+				n.Children[i].writeHexDump(b, opts, depth+1, "")
+			}
+		}
+	case DiagTypeUint, DiagTypeNint, DiagTypeSimple, DiagTypeFloat:
+		// Primitive leaves; the header line already covered the value.
+	}
+}
+
+// cborHeaderLen returns the length of the CBOR header (initial byte plus any
+// length/value bytes encoded in the additional info) for this node. For
+// primitive items this equals the entire encoded length; for collections,
+// strings, and tags it covers only the header portion.
+func (n *DiagnosticNode) cborHeaderLen() int {
+	if len(n.RawBytes) == 0 {
+		return 0
+	}
+	additional := n.RawBytes[0] & 0x1f
+	switch {
+	case additional < 24:
+		return 1
+	case additional == 24:
+		return 2
+	case additional == 25:
+		return 3
+	case additional == 26:
+		return 5
+	case additional == 27:
+		return 9
+	default:
+		return 1
+	}
+}
+
+func (n *DiagnosticNode) structureLabel() string {
+	switch n.Type {
+	case DiagTypeUint, DiagTypeNint:
+		return fmt.Sprintf("%v", n.Value)
+	case DiagTypeBytes:
+		if n.Indefinite {
+			return "bytes(_)"
+		}
+		b, _ := n.Value.([]byte)
+		return fmt.Sprintf("bytes(%d)", len(b))
+	case DiagTypeText:
+		if n.Indefinite {
+			return "text(_)"
+		}
+		s, _ := n.Value.(string)
+		if len(s) > 0 && len(s) < 32 {
+			return strconv.Quote(s)
+		}
+		return fmt.Sprintf("text(%d)", len(s))
+	case DiagTypeArray:
+		if n.Indefinite {
+			return "array(_)"
+		}
+		return fmt.Sprintf("array(%d)", len(n.Children))
+	case DiagTypeMap:
+		if n.Indefinite {
+			return "map(_)"
+		}
+		return fmt.Sprintf("map(%d)", len(n.Children)/2)
+	case DiagTypeTag:
+		tagNum := uint64(0)
+		if n.Tag != nil {
+			tagNum = *n.Tag
+		}
+		return fmt.Sprintf("tag(%d)", tagNum)
+	case DiagTypeFloat:
+		return fmt.Sprintf("%v", n.Value)
+	case DiagTypeSimple:
+		switch v := n.Value.(type) {
+		case nil:
+			return "null"
+		case bool:
+			if v {
+				return "true"
+			}
+			return "false"
+		default:
+			return fmt.Sprintf("simple(%v)", v)
+		}
+	}
+	return ""
+}
+
+func formatHexBytes(data []byte, maxBytes int) string {
+	if maxBytes <= 0 || len(data) <= maxBytes {
+		parts := make([]string, len(data))
+		for i, b := range data {
+			parts[i] = fmt.Sprintf("%02x", b)
+		}
+		return strings.Join(parts, " ")
+	}
+	parts := make([]string, maxBytes)
+	for i := 0; i < maxBytes; i++ {
+		parts[i] = fmt.Sprintf("%02x", data[i])
+	}
+	return strings.Join(parts, " ") + fmt.Sprintf(" ... (%d bytes)", len(data))
+}
+
 // FormatDiagnostic returns RFC 8949 diagnostic notation string.
 func (n *DiagnosticNode) FormatDiagnostic(opts DiagnosticOptions) string {
 	opts.normalize()
