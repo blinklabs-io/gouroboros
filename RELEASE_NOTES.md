@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release adds Conway PV9 governance checks that reject governance actions and parameter updates that must wait until Plomin or PV10, adds CBOR inspection tools that can jump to a byte position and show an annotated hex view, fixes blockfetch cleanup during disconnect and shutdown scenarios so later requests do not stall, and expands ledger regression coverage for forward compatible cost model handling.
+This release adds Conway PV9 governance checks that reject governance actions and parameter updates that must wait until Plomin or PV10, adds CBOR inspection tools that can jump to a byte position and show an annotated hex view, fixes blockfetch cleanup during disconnect and shutdown scenarios so later requests do not stall, and expands ledger regression coverage for forward compatible handling when future cost model lists grow.
 
 ### New Features
 
@@ -20,11 +20,11 @@ This release adds Conway PV9 governance checks that reject governance actions an
 
 ### Bug Fixes
 
-* Fixed blockfetch busy state cleanup so disconnects, shutdowns, and error paths release correctly and later `GetBlock` and `GetBlockRange` calls do not hang behind an orphaned busy lock.
+* Fixed blockfetch request cleanup so disconnects, shutdowns, and error paths release correctly and later `GetBlock` and `GetBlockRange` calls do not hang behind an orphaned busy lock.
 
 ### Additional Changes
 
-* Expanded ledger and compatibility coverage for longer cost model arrays so forward compatible Conway and Plutus cost model handling is validated across encoding, parameter updates, and genesis loading.
+* Expanded ledger and compatibility coverage for longer cost model lists so forward compatible Conway and Plutus handling is validated across encoding, parameter updates, and genesis loading.
 
 ## v0.167.0 - diagnostic parsing and DMQ node-to-client support
 
