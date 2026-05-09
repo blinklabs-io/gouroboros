@@ -442,6 +442,96 @@ func TestConwayProtocolParamsUpdate(t *testing.T) {
 	}
 }
 
+// TestConwayProtocolParameterUpdate_CostModelLengthForwardCompat asserts that
+// a ConwayProtocolParameterUpdate whose Plutus cost-model arrays are longer
+// than today's PV10 baselines round-trips through CBOR without truncation.
+// PV11 (vanRossem) and later hard forks may extend cost models with new
+// builtins; gouroboros must accept the longer arrays.
+func TestConwayProtocolParameterUpdate_CostModelLengthForwardCompat(
+	t *testing.T,
+) {
+	const v1Len, v2Len, v3Len = 200, 220, 350
+	v1 := make([]int64, v1Len)
+	v2 := make([]int64, v2Len)
+	v3 := make([]int64, v3Len)
+	for i := range v1 {
+		v1[i] = int64(i + 1)
+	}
+	for i := range v2 {
+		v2[i] = int64(1000 + i)
+	}
+	for i := range v3 {
+		v3[i] = int64(1_000_000 - i)
+	}
+
+	upd := conway.ConwayProtocolParameterUpdate{
+		CostModels: map[uint][]int64{0: v1, 1: v2, 2: v3},
+	}
+
+	cborData, err := cbor.Encode(upd)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, cborData)
+
+	var decoded conway.ConwayProtocolParameterUpdate
+	_, err = cbor.Decode(cborData, &decoded)
+	assert.NoError(t, err)
+
+	assert.Len(t, decoded.CostModels[0], v1Len)
+	assert.Len(t, decoded.CostModels[1], v2Len)
+	assert.Len(t, decoded.CostModels[2], v3Len)
+	assert.Equal(t, v1, decoded.CostModels[0])
+	assert.Equal(t, v2, decoded.CostModels[1])
+	assert.Equal(t, v3, decoded.CostModels[2])
+}
+
+// TestConwayProtocolParameters_UpdateAcceptsLongerCostModel asserts that
+// merging a ConwayProtocolParameterUpdate over existing protocol parameters
+// preserves the entire incoming cost-model slice, even when it is longer than
+// the existing one. Guards against silent truncation when PV11+ extends the
+// PlutusV3 cost model.
+func TestConwayProtocolParameters_UpdateAcceptsLongerCostModel(t *testing.T) {
+	const newV3Len = 350
+	newV3 := make([]int64, newV3Len)
+	for i := range newV3 {
+		newV3[i] = int64(i)
+	}
+
+	base := &conway.ConwayProtocolParameters{
+		CostModels: map[uint][]int64{2: {1, 2, 3}},
+	}
+	upd := &conway.ConwayProtocolParameterUpdate{
+		CostModels: map[uint][]int64{2: newV3},
+	}
+
+	base.Update(upd)
+
+	assert.Len(t, base.CostModels[2], newV3Len)
+	assert.Equal(t, newV3, base.CostModels[2])
+}
+
+// TestConwayUpdateFromGenesis_PlutusV3CostModelLengthForwardCompat asserts
+// that loading a ConwayGenesis whose PlutusV3CostModel is longer than today's
+// PV10 baseline copies the full slice into protocol parameters. Cardano
+// genesis files for PV11+ are expected to ship extended PlutusV3 cost models.
+func TestConwayUpdateFromGenesis_PlutusV3CostModelLengthForwardCompat(
+	t *testing.T,
+) {
+	const v3Len = 350
+	v3 := make([]int64, v3Len)
+	for i := range v3 {
+		v3[i] = int64(2_000_000 + i)
+	}
+	g := &conway.ConwayGenesis{PlutusV3CostModel: v3}
+
+	p := &conway.ConwayProtocolParameters{}
+	if err := p.UpdateFromGenesis(g); err != nil {
+		t.Fatalf("UpdateFromGenesis: %v", err)
+	}
+
+	assert.Len(t, p.CostModels[2], v3Len)
+	assert.Equal(t, v3, p.CostModels[2])
+}
+
 func TestConwayProtocolParameters_UpdateCopiesFields(t *testing.T) {
 	base := &conway.ConwayProtocolParameters{}
 	upd := &conway.ConwayProtocolParameterUpdate{}

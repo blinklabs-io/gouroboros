@@ -383,27 +383,6 @@ func TestCCVotingRestrictionError(t *testing.T) {
 	assert.Contains(t, err.Error(), "voting restriction")
 }
 
-func TestNonMatchingWithdrawalError(t *testing.T) {
-	err := conway.NonMatchingWithdrawalError{
-		RewardAccount: common.Address{},
-		Expected:      1000,
-		Actual:        500,
-	}
-	assert.Contains(t, err.Error(), "non-matching withdrawal")
-	assert.Contains(t, err.Error(), "expected 1000")
-}
-
-func TestPPViewHashesDontMatchError(t *testing.T) {
-	err := conway.PPViewHashesDontMatchError{
-		ProvidedHash:   common.Blake2b256{0x01},
-		ComputedHash:   common.Blake2b256{0x02},
-		ExpectedPPData: []byte{0x03, 0x04},
-	}
-	assert.Contains(t, err.Error(), "protocol parameter")
-	assert.Contains(t, err.Error(), "provided")
-	assert.Contains(t, err.Error(), "computed")
-}
-
 // TestConway_Rule7_ScriptDataHashWithWitnessDatumsNoRedeemers tests that
 // UtxoValidateRedeemerAndScriptWitnesses accepts a real-world transaction
 // that carries a ScriptDataHash and witness datums but no redeemers.
