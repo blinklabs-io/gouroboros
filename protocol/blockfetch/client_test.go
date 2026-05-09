@@ -294,7 +294,11 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	client.Start()
 
 	// Close the connection first (simulating remote close)
-	require.NoError(t, oConn.Close(), "unexpected error when closing connection")
+	require.NoError(
+		t,
+		oConn.Close(),
+		"unexpected error when closing connection",
+	)
 
 	// Wait for connection to fully close
 	select {
@@ -304,16 +308,100 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	}
 
 	// Now Stop() should not return an error even though connection is closed
-	require.NoError(t, client.Stop(), "Stop() should not return error after connection close")
+	require.NoError(
+		t,
+		client.Stop(),
+		"Stop() should not return error after connection close",
+	)
 
 	// Verify IsDone returns true
-	require.True(t, client.IsDone(), "IsDone() should return true after connection close")
+	require.True(
+		t,
+		client.IsDone(),
+		"IsDone() should return true after connection close",
+	)
 
 	// Wait for mock connection shutdown
 	select {
 	case err, ok := <-asyncErrChan:
 		if ok {
 			require.Fail(t, err.Error())
+		}
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "mock connection did not shut down within timeout")
+	}
+}
+
+func TestGetBlockRangeReleasesBusyOnDisconnectBeforeBatchDone(t *testing.T) {
+	conversation := append(
+		conversationHandshakeRequestRange,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: blockfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				blockfetch.NewMsgStartBatch(),
+			},
+		},
+		ouroboros_mock.ConversationEntrySleep{Duration: 100 * time.Millisecond},
+		ouroboros_mock.ConversationEntryClose{},
+	)
+	defer goleak.VerifyNone(t)
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleClient,
+		conversation,
+	)
+	mockErrChan := make(chan error, 1)
+	go func() {
+		err := <-mockConn.(*ouroboros_mock.Connection).ErrorChan()
+		if err != nil {
+			mockErrChan <- err
+		}
+		close(mockErrChan)
+	}()
+
+	oConn, err := ouroboros.New(
+		ouroboros.WithConnection(mockConn),
+		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		ouroboros.WithNodeToNode(true),
+		ouroboros.WithBlockFetchConfig(
+			blockfetch.Config{SkipBlockValidation: true},
+		),
+	)
+	require.NoError(t, err, "unexpected error when creating Ouroboros object")
+
+	client := oConn.BlockFetch().Client
+	point := pcommon.NewPoint(
+		12345,
+		test.DecodeHexString("abcdef0123456789"),
+	)
+	require.NoError(t, client.GetBlockRange(point, point))
+
+	select {
+	case <-client.DoneChan():
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "blockfetch client did not stop within timeout")
+	}
+
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- client.GetBlockRange(point, point)
+	}()
+	select {
+	case err := <-errChan:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		require.Fail(t, "GetBlockRange blocked on busy mutex")
+	}
+
+	select {
+	case <-oConn.ErrorChan():
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "connection did not close within timeout")
+	}
+	select {
+	case err, ok := <-mockErrChan:
+		if ok {
+			require.NoError(t, err)
 		}
 	case <-time.After(2 * time.Second):
 		require.Fail(t, "mock connection did not shut down within timeout")
