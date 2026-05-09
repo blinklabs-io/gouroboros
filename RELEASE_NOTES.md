@@ -11,16 +11,16 @@ title: Release notes
 
 ### Summary
 
-This release adds Conway PV9 bootstrap gating for governance validation, adds CBOR diagnostic offset navigation and annotated hex dump support, fixes orphaned blockfetch busy mutex handling during disconnect and shutdown scenarios, and expands ledger regression coverage for forward compatible cost model handling.
+This release adds Conway PV9 governance checks that reject governance actions and parameter updates that must wait until Plomin or PV10, adds CBOR inspection tools that can jump to a byte position and show an annotated hex view, fixes blockfetch cleanup during disconnect and shutdown scenarios so later requests do not stall, and expands ledger regression coverage for forward compatible cost model handling.
 
 ### New Features
 
-* Added Conway bootstrap phase validation that rejects governance actions and bootstrap restricted parameter changes until Plomin or PV10, improving protocol version correctness and producing clearer validation failures.
-* Expanded CBOR diagnostics so offset lookup can find nodes and paths by byte position, annotated hex dumps make encoded data easier to inspect, and one or more items can decode into diagnostic trees for simpler binary troubleshooting.
+* Added Conway governance checks that reject governance actions and restricted parameter changes that are not allowed until Plomin or PV10, improving protocol version correctness and producing clearer validation failures.
+* Expanded CBOR diagnostics so callers can find nodes and paths by byte offset, review annotated hex views, and decode one or more items into diagnostic trees for easier binary inspection and troubleshooting.
 
 ### Bug Fixes
 
-* Fixed blockfetch busy state cleanup so disconnects, shutdowns, and error paths release the busy lock correctly and later `GetBlock` and `GetBlockRange` calls do not hang behind an orphaned busy lock.
+* Fixed blockfetch busy state cleanup so disconnects, shutdowns, and error paths release correctly and later `GetBlock` and `GetBlockRange` calls do not hang behind an orphaned busy lock.
 
 ### Additional Changes
 
