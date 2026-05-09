@@ -123,6 +123,40 @@ func TestEncodeLangViews(t *testing.T) {
 		)
 		require.Error(t, err)
 	})
+
+	// Forward-compat for PV11 (vanRossem) and later: cost models may grow as
+	// new Plutus builtins are added. The langview hash is part of
+	// ScriptDataHash, so any silent truncation here would invalidate every
+	// Plutus tx after a hard fork. Encode arbitrary-length arrays for V2 and
+	// V3 and assert the produced bytes round-trip the full slice.
+	t.Run("encodes_longer_cost_models_for_v2_and_v3", func(t *testing.T) {
+		v2 := make([]int64, 220)
+		v3 := make([]int64, 350)
+		for i := range v2 {
+			v2[i] = int64(i + 1)
+		}
+		for i := range v3 {
+			v3[i] = int64(i + 100_000)
+		}
+
+		got, err := common.EncodeLangViews(
+			map[uint]struct{}{1: {}, 2: {}},
+			map[uint][]int64{1: v2, 2: v3},
+		)
+		require.NoError(t, err)
+
+		v2Params, err := cbor.Encode(v2)
+		require.NoError(t, err)
+		v3Params, err := cbor.Encode(v3)
+		require.NoError(t, err)
+
+		// Map header for 2 entries, then tag 0x01 + v2 params, tag 0x02 + v3 params.
+		want := append([]byte{0xa2, 0x01}, v2Params...)
+		want = append(want, 0x02)
+		want = append(want, v3Params...)
+
+		require.Equal(t, want, got)
+	})
 }
 
 // Tests for VerifyTransaction moved from verify_rules_test.go
