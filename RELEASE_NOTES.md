@@ -4,6 +4,28 @@ title: Release notes
 
 # Release notes
 
+## v0.168.0 - Conway PV9 gating and CBOR diagnostic navigation
+
+- **Date:** 2026-05-09
+- **Version:** 0.168.0
+
+### Summary
+
+This release adds Conway PV9 governance checks that reject governance actions and parameter updates that must wait until Plomin or PV10, adds CBOR inspection tools that can jump to a byte position and show an annotated hex view, fixes blockfetch cleanup during disconnect and shutdown scenarios so later requests do not stall, and expands ledger regression coverage for forward compatible handling when future cost model lists grow.
+
+### New Features
+
+* Added Conway governance checks that reject governance actions and restricted parameter changes that are not allowed until Plomin or PV10, improving protocol version correctness and producing clearer validation failures.
+* Expanded CBOR diagnostics so callers can find nodes and paths by byte offset, review annotated hex views, and decode one or more items into diagnostic trees for easier binary inspection and troubleshooting.
+
+### Bug Fixes
+
+* Fixed blockfetch request cleanup so disconnects, shutdowns, and error paths release correctly and later `GetBlock` and `GetBlockRange` calls do not hang behind an orphaned busy lock.
+
+### Additional Changes
+
+* Expanded ledger and compatibility coverage for longer cost model lists so forward compatible Conway and Plutus handling is validated across encoding, parameter updates, and genesis loading.
+
 ## v0.167.0 - diagnostic parsing and DMQ node-to-client support
 
 - **Date:** 2026-05-05
