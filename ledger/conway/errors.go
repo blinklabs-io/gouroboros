@@ -421,37 +421,3 @@ func (e CCVotingRestrictionError) Error() string {
 		e.VoterId[:8], e.ActionId.TransactionId[:8], e.ActionId.GovActionIdx, e.Restriction,
 	)
 }
-
-// NonMatchingWithdrawalError indicates a withdrawal amount doesn't match the
-// actual reward account balance. Enhanced in PV11 for clearer diagnostics.
-type NonMatchingWithdrawalError struct {
-	RewardAccount common.Address
-	Expected      uint64
-	Actual        uint64
-}
-
-func (e NonMatchingWithdrawalError) Error() string {
-	return fmt.Sprintf(
-		"non-matching withdrawal for %s: expected %d, actual %d",
-		e.RewardAccount.String(), e.Expected, e.Actual,
-	)
-}
-
-// PPViewHashesDontMatchError indicates protocol parameter hash mismatch.
-// PV11 enhances with expected data for better diagnostics.
-type PPViewHashesDontMatchError struct {
-	ProvidedHash   common.Blake2b256
-	ComputedHash   common.Blake2b256
-	ExpectedPPData []byte
-}
-
-func (e PPViewHashesDontMatchError) Error() string {
-	dataPreview := e.ExpectedPPData
-	if len(dataPreview) > 32 {
-		dataPreview = dataPreview[:32]
-	}
-	return fmt.Sprintf(
-		"protocol parameter view hashes don't match: provided %x, computed %x, expected data: %x...",
-		e.ProvidedHash[:8], e.ComputedHash[:8], dataPreview,
-	)
-}
