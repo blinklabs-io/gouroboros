@@ -29,6 +29,15 @@ type ValidationError struct {
 	Message string
 	Details map[string]any
 	Cause   error
+	// ByteOffset is the byte offset within the underlying CBOR data where the
+	// problem was detected. Zero means unknown / not applicable.
+	ByteOffset int
+	// CborContext is a human-readable path within the CBOR structure (e.g.
+	// "block/body/tx[3]/inputs"). Empty means unknown / not applicable.
+	CborContext string
+	// Diagnostic is a CBOR diagnostic notation snippet describing the
+	// problematic element. Empty means unavailable.
+	Diagnostic string
 }
 
 type ValidationErrorType string
@@ -44,10 +53,21 @@ const (
 )
 
 func (e ValidationError) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("%s: %s (%v)", e.Type, e.Message, e.Cause)
+	var ctx string
+	if e.CborContext != "" || e.ByteOffset > 0 {
+		switch {
+		case e.CborContext != "" && e.ByteOffset > 0:
+			ctx = fmt.Sprintf(" [%s @offset %d]", e.CborContext, e.ByteOffset)
+		case e.CborContext != "":
+			ctx = fmt.Sprintf(" [%s]", e.CborContext)
+		default:
+			ctx = fmt.Sprintf(" [@offset %d]", e.ByteOffset)
+		}
 	}
-	return fmt.Sprintf("%s: %s", e.Type, e.Message)
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s%s (%v)", e.Type, e.Message, ctx, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s%s", e.Type, e.Message, ctx)
 }
 
 func (e ValidationError) Unwrap() error {
