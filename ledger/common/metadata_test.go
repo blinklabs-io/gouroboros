@@ -149,6 +149,17 @@ func TestMetadataSetIgnoresUnknownAuxiliaryDataKeys(t *testing.T) {
 	assertMetadataEntry(t, md)
 }
 
+func TestDecodeMetadatumRawRejectsNilGenericMapKey(t *testing.T) {
+	raw, err := hex.DecodeString("a28031f730")
+	if err != nil {
+		t.Fatalf("bad hex: %v", err)
+	}
+
+	if _, err := DecodeMetadatumRaw(raw); err == nil {
+		t.Fatal("expected error for unsupported metadata map key")
+	}
+}
+
 func assertMetadataEntry(t *testing.T, md TransactionMetadatum) {
 	t.Helper()
 
