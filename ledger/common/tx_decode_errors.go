@@ -136,3 +136,19 @@ func (e *TxDecodeError) Unwrap() error {
 	}
 	return e.Inner
 }
+
+// WithDiagnostic returns Error() followed by the stored Diagnostic snippet on
+// new lines. When Diagnostic is empty, it returns Error() unchanged.
+func (e *TxDecodeError) WithDiagnostic() string {
+	if e == nil {
+		return ""
+	}
+	if e.Diagnostic == "" {
+		return e.Error()
+	}
+	var b strings.Builder
+	b.WriteString(e.Error())
+	b.WriteString("\n\nDiagnostic:\n")
+	b.WriteString(e.Diagnostic)
+	return b.String()
+}

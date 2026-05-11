@@ -56,3 +56,32 @@ func TestValidationErrorErrorWithoutCborFieldsUnchanged(t *testing.T) {
 	}
 	assert.Equal(t, "protocol: bad", e.Error())
 }
+
+func TestValidationErrorWithDiagnostic(t *testing.T) {
+	diag := "[\n  0,\n  1\n]"
+	e := &common.ValidationError{
+		Type:        common.ValidationErrorTypeBodyHash,
+		Message:     "hash mismatch",
+		ByteOffset:  128,
+		CborContext: "block/body/tx[3]",
+		Diagnostic:  diag,
+	}
+	got := e.WithDiagnostic()
+	// Single-line summary remains intact.
+	assert.Contains(t, got, "body_hash")
+	assert.Contains(t, got, "hash mismatch")
+	assert.Contains(t, got, "block/body/tx[3]")
+	assert.Contains(t, got, "@offset 128")
+	// Diagnostic block must follow.
+	assert.Contains(t, got, "\n\nDiagnostic:\n")
+	assert.Contains(t, got, diag)
+}
+
+func TestValidationErrorWithDiagnosticEmpty(t *testing.T) {
+	e := &common.ValidationError{
+		Type:    common.ValidationErrorTypeProtocol,
+		Message: "bad",
+	}
+	// No Diagnostic stored — WithDiagnostic must equal Error().
+	assert.Equal(t, e.Error(), e.WithDiagnostic())
+}

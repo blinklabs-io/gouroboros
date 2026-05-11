@@ -88,3 +88,31 @@ func TestTxDecodeErrorUnwrap(t *testing.T) {
 	assert.Same(t, inner, errors.Unwrap(e))
 	assert.True(t, errors.Is(e, inner))
 }
+
+func TestTxDecodeErrorWithDiagnostic(t *testing.T) {
+	inner := errors.New("invalid array length")
+	diag := "[\n  0,\n  1\n]"
+	e := common.NewTxDecodeError(inner, 3, common.TxComponentBody, 0, 42, diag)
+	got := e.WithDiagnostic()
+	// Single-line summary must still appear.
+	assert.Contains(t, got, "[tx 3]")
+	assert.Contains(t, got, "field 0 (inputs)")
+	assert.Contains(t, got, "at offset 42")
+	assert.Contains(t, got, "invalid array length")
+	// Diagnostic block must follow.
+	assert.Contains(t, got, "\n\nDiagnostic:\n")
+	assert.Contains(t, got, diag)
+}
+
+func TestTxDecodeErrorWithDiagnosticEmpty(t *testing.T) {
+	// Empty Diagnostic must not produce trailing whitespace or "Diagnostic:".
+	e := common.NewTxDecodeError(
+		errors.New("oops"),
+		0,
+		common.TxComponentBody,
+		0,
+		0,
+		"",
+	)
+	assert.Equal(t, e.Error(), e.WithDiagnostic())
+}

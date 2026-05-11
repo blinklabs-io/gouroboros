@@ -74,6 +74,15 @@ func (e ValidationError) Unwrap() error {
 	return e.Cause
 }
 
+// WithDiagnostic returns Error() followed by the stored Diagnostic snippet on
+// new lines. When Diagnostic is empty, it returns Error() unchanged.
+func (e ValidationError) WithDiagnostic() string {
+	if e.Diagnostic == "" {
+		return e.Error()
+	}
+	return fmt.Sprintf("%s\n\nDiagnostic:\n%s", e.Error(), e.Diagnostic)
+}
+
 // NewValidationError creates a new structured validation error
 func NewValidationError(
 	errType ValidationErrorType,
