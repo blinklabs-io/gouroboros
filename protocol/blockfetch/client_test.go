@@ -332,6 +332,71 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	}
 }
 
+func TestStopAfterConnectionCloseStress(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	for i := 0; i < 20; i++ {
+		t.Run(fmt.Sprintf("iteration_%02d", i), func(t *testing.T) {
+			conversation := []ouroboros_mock.ConversationEntry{
+				ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+				ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+			}
+			mockConn := ouroboros_mock.NewConnection(
+				ouroboros_mock.ProtocolRoleClient,
+				conversation,
+			)
+			asyncErrChan := make(chan error, 1)
+			go func() {
+				err := <-mockConn.(*ouroboros_mock.Connection).ErrorChan()
+				if err != nil {
+					asyncErrChan <- fmt.Errorf(
+						"received unexpected error: %w",
+						err,
+					)
+				}
+				close(asyncErrChan)
+			}()
+
+			oConn, err := ouroboros.New(
+				ouroboros.WithConnection(mockConn),
+				ouroboros.WithNetworkMagic(
+					ouroboros_mock.MockNetworkMagic,
+				),
+				ouroboros.WithNodeToNode(true),
+				ouroboros.WithDelayProtocolStart(true),
+				ouroboros.WithBlockFetchConfig(
+					blockfetch.Config{SkipBlockValidation: true},
+				),
+			)
+			require.NoError(t, err)
+
+			client := oConn.BlockFetch().Client
+			client.Start()
+
+			require.NoError(t, oConn.Close())
+			select {
+			case <-oConn.ErrorChan():
+			case <-time.After(5 * time.Second):
+				require.Fail(t, "connection did not close within timeout")
+			}
+
+			for stopAttempt := 0; stopAttempt < 3; stopAttempt++ {
+				require.NoError(t, client.Stop())
+			}
+			require.True(t, client.IsDone())
+
+			select {
+			case err, ok := <-asyncErrChan:
+				if ok {
+					require.Fail(t, err.Error())
+				}
+			case <-time.After(2 * time.Second):
+				require.Fail(t, "mock connection did not shut down")
+			}
+		})
+	}
+}
+
 func TestGetBlockRangeReleasesBusyOnDisconnectBeforeBatchDone(t *testing.T) {
 	conversation := append(
 		conversationHandshakeRequestRange,
