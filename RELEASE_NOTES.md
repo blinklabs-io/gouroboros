@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release improves `CBOR` decode diagnostics with richer structured context, fixes the `BlockFetch` shutdown race so shutdown remains safe when a connection is already closing, makes malformed generic metadata map keys fail with a clear error instead of panicking, updates `github.com/fxamacker/cbor/v2` to `v2.9.2`, updates `golang.org/x/crypto` to `v0.51.0`, updates `github.com/blinklabs-io/plutigo` to `v0.1.11`, and refreshes `RELEASE_NOTES.md` with the prior release entry.
+This release improves `CBOR` decode diagnostics with richer structured context, fixes the `BlockFetch` shutdown race so shutdown remains safe when a connection is already closing, makes malformed generic metadata map keys fail with a clear error instead of panicking, updates `github.com/fxamacker/cbor/v2` to `v2.9.2`, updates `golang.org/x/crypto` to `v0.51.0`, updates `github.com/blinklabs-io/plutigo` to `v0.1.11`, and adds the release-notes maintenance update for the prior entry.
 
 ### New Features
 
-* Enhanced `CBOR` decode diagnostics so decode failures report richer structured context, including byte offsets, expected versus found details, raw byte previews, transaction scoped decode errors, and clearer validation error diagnostics.
+* Enhanced `CBOR` decode diagnostics so decode failures report richer structured context, including byte offsets, expected versus found details, raw byte previews, transaction level error context, and clearer validation error diagnostics.
 
 ### Bug Fixes
 
