@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.169.0 - CBOR decode diagnostics and protocol reliability
+
+- **Date:** 2026-05-12
+- **Version:** 0.169.0
+
+### Summary
+
+This release improves `CBOR` decode diagnostics with richer structured context, fixes the `BlockFetch` shutdown race so shutdown remains safe when a connection is already closing, makes malformed generic metadata map keys fail with a clear error instead of panicking, updates `github.com/fxamacker/cbor/v2` to `v2.9.2`, updates `golang.org/x/crypto` to `v0.51.0`, updates `github.com/blinklabs-io/plutigo` to `v0.1.11`, and refreshes `RELEASE_NOTES.md` with the prior release entry.
+
+### New Features
+
+* Enhanced `CBOR` decode diagnostics so decode failures report richer structured context, including byte offsets, expected versus found details, raw byte previews, transaction scoped decode errors, and clearer validation error diagnostics.
+
 ## v0.168.0 - Conway PV9 gating and CBOR diagnostic navigation
 
 - **Date:** 2026-05-09
