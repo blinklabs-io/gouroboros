@@ -59,3 +59,65 @@ func FuzzValue(f *testing.F) {
 		// Should not panic - that's the test
 	})
 }
+
+func FuzzDecodeMetadatumRaw(f *testing.F) {
+	seeds := []string{
+		"00",         // int 0
+		"626f6b",     // text "ok"
+		"420102",     // bytes
+		"82016161",   // list
+		"a101626f6b", // map
+		"a28031f730", // unsupported simple-value key
+	}
+	for _, seed := range seeds {
+		data, _ := hex.DecodeString(seed)
+		f.Add(data)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = DecodeMetadatumRaw(data)
+		// Should not panic - invalid metadata should return an error.
+	})
+}
+
+func FuzzDecodeAuxiliaryDataToMetadata(f *testing.F) {
+	seeds := []string{
+		"a101626f6b",             // Shelley metadata map
+		"82a101626f6b80",         // Shelley-MA metadata + scripts
+		"82f680",                 // Shelley-MA null metadata
+		"d90103a100a101626f6b",   // Alonzo metadata under key 0
+		"d90103a200a101626f6b06", // Alonzo metadata + extension key
+		"a106d90103a200a101626f6b068101",
+	}
+	for _, seed := range seeds {
+		data, _ := hex.DecodeString(seed)
+		f.Add(data)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = DecodeAuxiliaryDataToMetadata(data)
+		if aux, err := DecodeAuxiliaryData(data); err == nil {
+			_, _ = aux.Metadata()
+		}
+		// Should not panic - invalid auxiliary data should return an error.
+	})
+}
+
+func FuzzTransactionMetadataSet(f *testing.F) {
+	seeds := []string{
+		"a0",                             // empty metadata set
+		"a100a101626f6b",                 // Shelley metadata at tx index 0
+		"a106d90103a200a101626f6b068101", // Alonzo metadata with extension key
+		"a400a101626f6b01a28031f73002f60382f680",
+	}
+	for _, seed := range seeds {
+		data, _ := hex.DecodeString(seed)
+		f.Add(data)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var set TransactionMetadataSet
+		_, _ = cbor.Decode(data, &set)
+		// Should not panic - malformed metadata sets should return an error.
+	})
+}
