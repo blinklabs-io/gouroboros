@@ -57,7 +57,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 
 	// Select state map and initial state based on negotiated version
-	isV2 := protoOptions.Version >= MessageSubmissionV2MinVersion
+	isV2 := isMessageSubmissionV2(protoOptions.Version)
 	var baseStateMap protocol.StateMap
 	var initialState protocol.State
 	if isV2 {
@@ -128,7 +128,7 @@ func (c *Client) Start() {
 // the client-side Stop is a no-op.
 func (c *Client) Stop() error {
 	c.onceStop.Do(func() {
-		if c.protoVersion >= MessageSubmissionV2MinVersion {
+		if isMessageSubmissionV2(c.protoVersion) {
 			// V2: client cannot send MsgDone; server controls termination
 			c.Protocol.Logger().
 				Debug("V2 client Stop() is a no-op; server sends MsgDone",
@@ -153,7 +153,7 @@ func (c *Client) Stop() error {
 // Init sends the initialization message to start the protocol.
 // This is only valid for V1; V2 starts directly in StIdle.
 func (c *Client) Init() error {
-	if c.protoVersion >= MessageSubmissionV2MinVersion {
+	if isMessageSubmissionV2(c.protoVersion) {
 		return errors.New(
 			"Init is not supported in MessageSubmission V2; protocol starts in StIdle",
 		)
@@ -195,6 +195,8 @@ func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 // ReplyMessages sends a reply with full messages
 func (c *Client) ReplyMessages(messages []pcommon.DmqMessage) error {
 	msg := NewMsgReplyMessages(messages)
+	msg.legacyMessageEncoding = c.config.LegacyV1MessageEncoding &&
+		!isMessageSubmissionV2(c.protoVersion)
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}

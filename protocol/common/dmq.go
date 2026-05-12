@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"golang.org/x/crypto/blake2b"
 )
 
 // DMQ Message structures following CIP-0137 specification
@@ -28,8 +29,9 @@ import (
 // DmqMessagePayload represents the unsigned message payload for DMQ messages.
 type DmqMessagePayload struct {
 	cbor.StructAsArray
-	// MessageID is the unique identifier for the message
-	MessageID []byte
+	// MessageID is a legacy alias kept for source compatibility. It is not
+	// part of the current CIP-0137 messagePayload CBOR encoding.
+	MessageID []byte `cbor:"-"`
 	// MessageBody contains the actual message data
 	MessageBody []byte
 	// KESPeriod is the KES key evolution step period
@@ -54,6 +56,8 @@ type OperationalCertificate struct {
 // DmqMessage represents a complete authenticated DMQ message with cryptographic proofs.
 type DmqMessage struct {
 	cbor.StructAsArray
+	// MessageID is the Blake2b-256 hash of the CBOR-encoded payload.
+	MessageID []byte
 	// Payload is the unsigned message payload
 	Payload DmqMessagePayload
 	// KESSignature is the 448-byte KES signature over the payload
@@ -62,6 +66,185 @@ type DmqMessage struct {
 	OperationalCertificate OperationalCertificate
 	// ColdVerificationKey is the 32-byte SPO cold public key
 	ColdVerificationKey []byte
+}
+
+// MarshalCBOR encodes the payload using the current CIP-0137 shape:
+// [messageBody, kesPeriod, expiresAt].
+func (p DmqMessagePayload) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode([]any{
+		p.MessageBody,
+		p.KESPeriod,
+		p.ExpiresAt,
+	})
+}
+
+// UnmarshalCBOR decodes both the current payload shape and the legacy V1
+// implementation shape, which included messageId inside messagePayload.
+func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
+	var current struct {
+		cbor.StructAsArray
+		MessageBody []byte
+		KESPeriod   uint64
+		ExpiresAt   uint32
+	}
+	if _, err := cbor.Decode(data, &current); err == nil {
+		p.MessageID = nil
+		p.MessageBody = current.MessageBody
+		p.KESPeriod = current.KESPeriod
+		p.ExpiresAt = current.ExpiresAt
+		return nil
+	}
+
+	var legacy struct {
+		cbor.StructAsArray
+		MessageID   []byte
+		MessageBody []byte
+		KESPeriod   uint64
+		ExpiresAt   uint32
+	}
+	if _, err := cbor.Decode(data, &legacy); err != nil {
+		return err
+	}
+	p.MessageID = legacy.MessageID
+	p.MessageBody = legacy.MessageBody
+	p.KESPeriod = legacy.KESPeriod
+	p.ExpiresAt = legacy.ExpiresAt
+	return nil
+}
+
+// MarshalCBOR encodes the message using the current CIP-0137 shape:
+// [messageId, messagePayload, kesSignature, operationalCertificate,
+// coldVerificationKey].
+func (m DmqMessage) MarshalCBOR() ([]byte, error) {
+	msgID := m.ID()
+	if len(msgID) == 0 {
+		var err error
+		msgID, err = ComputeDmqMessageID(m.Payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return cbor.Encode([]any{
+		msgID,
+		m.Payload,
+		m.KESSignature,
+		m.OperationalCertificate,
+		m.ColdVerificationKey,
+	})
+}
+
+// UnmarshalCBOR decodes both the current CIP-0137 message shape and the
+// legacy V1 implementation shape, which encoded [payload, signature, opcert,
+// coldKey] and kept messageId inside payload.
+func (m *DmqMessage) UnmarshalCBOR(data []byte) error {
+	var current struct {
+		cbor.StructAsArray
+		MessageID              []byte
+		Payload                DmqMessagePayload
+		KESSignature           []byte
+		OperationalCertificate OperationalCertificate
+		ColdVerificationKey    []byte
+	}
+	if _, err := cbor.Decode(data, &current); err == nil {
+		m.MessageID = current.MessageID
+		m.Payload = current.Payload
+		m.Payload.MessageID = current.MessageID
+		m.KESSignature = current.KESSignature
+		m.OperationalCertificate = current.OperationalCertificate
+		m.ColdVerificationKey = current.ColdVerificationKey
+		return nil
+	}
+
+	var legacy struct {
+		cbor.StructAsArray
+		Payload                DmqMessagePayload
+		KESSignature           []byte
+		OperationalCertificate OperationalCertificate
+		ColdVerificationKey    []byte
+	}
+	if _, err := cbor.Decode(data, &legacy); err != nil {
+		return err
+	}
+	m.MessageID = legacy.Payload.MessageID
+	m.Payload = legacy.Payload
+	m.KESSignature = legacy.KESSignature
+	m.OperationalCertificate = legacy.OperationalCertificate
+	m.ColdVerificationKey = legacy.ColdVerificationKey
+	return nil
+}
+
+// ID returns the message id, accepting Payload.MessageID as a legacy alias.
+func (m DmqMessage) ID() []byte {
+	if len(m.MessageID) > 0 {
+		return m.MessageID
+	}
+	return m.Payload.MessageID
+}
+
+// SetMessageID updates both the current field and the legacy payload alias.
+func (m *DmqMessage) SetMessageID(messageID []byte) {
+	m.MessageID = cloneBytes(messageID)
+	m.Payload.MessageID = cloneBytes(messageID)
+}
+
+// SetComputedMessageID computes and stores the CIP-0137 message id.
+func (m *DmqMessage) SetComputedMessageID() error {
+	messageID, err := ComputeDmqMessageID(m.Payload)
+	if err != nil {
+		return err
+	}
+	m.SetMessageID(messageID)
+	return nil
+}
+
+// ComputeDmqMessageID returns Blake2b-256(cbor(messagePayload)).
+func ComputeDmqMessageID(payload DmqMessagePayload) ([]byte, error) {
+	payload.MessageID = nil
+	payloadCbor, err := cbor.Encode(payload)
+	if err != nil {
+		return nil, err
+	}
+	sum := blake2b.Sum256(payloadCbor)
+	return cloneBytes(sum[:]), nil
+}
+
+// MarshalDmqMessageLegacyCBOR encodes the legacy V1 wire shape used before
+// CIP-0137 moved messageId from messagePayload to message.
+func MarshalDmqMessageLegacyCBOR(msg DmqMessage) ([]byte, error) {
+	legacyPayload := struct {
+		cbor.StructAsArray
+		MessageID   []byte
+		MessageBody []byte
+		KESPeriod   uint64
+		ExpiresAt   uint32
+	}{
+		MessageID:   msg.ID(),
+		MessageBody: msg.Payload.MessageBody,
+		KESPeriod:   msg.Payload.KESPeriod,
+		ExpiresAt:   msg.Payload.ExpiresAt,
+	}
+	legacyMessage := struct {
+		cbor.StructAsArray
+		Payload                any
+		KESSignature           []byte
+		OperationalCertificate OperationalCertificate
+		ColdVerificationKey    []byte
+	}{
+		Payload:                legacyPayload,
+		KESSignature:           msg.KESSignature,
+		OperationalCertificate: msg.OperationalCertificate,
+		ColdVerificationKey:    msg.ColdVerificationKey,
+	}
+	return cbor.Encode(legacyMessage)
+}
+
+func cloneBytes(src []byte) []byte {
+	if src == nil {
+		return nil
+	}
+	ret := make([]byte, len(src))
+	copy(ret, src)
+	return ret
 }
 
 // MessageIDAndSize represents a message identifier with its serialized size in bytes.

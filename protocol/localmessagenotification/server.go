@@ -98,7 +98,7 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	defer s.lock.Unlock()
 
 	// Check if already acknowledged (non-zero timestamp means it was acknowledged)
-	msgID := string(msg.Payload.MessageID)
+	msgID := string(msg.ID())
 	if _, acknowledged := s.acknowledgedIDs[msgID]; acknowledged {
 		return errors.New("message already acknowledged")
 	}
@@ -207,7 +207,7 @@ func (s *Server) handleNonBlockingRequest() error {
 	// Mark all collected messages as acknowledged with current timestamp and clear the queue
 	now := time.Now()
 	for _, msg := range s.messageQueue {
-		s.acknowledgedIDs[string(msg.Payload.MessageID)] = now
+		s.acknowledgedIDs[string(msg.ID())] = now
 	}
 	s.messageQueue = s.messageQueue[:0]
 
@@ -246,7 +246,7 @@ func (s *Server) handleBlockingRequest() error {
 	// Mark all collected messages as acknowledged with current timestamp and clear the queue
 	now := time.Now()
 	for _, msg := range s.messageQueue {
-		s.acknowledgedIDs[string(msg.Payload.MessageID)] = now
+		s.acknowledgedIDs[string(msg.ID())] = now
 	}
 	s.messageQueue = s.messageQueue[:0]
 

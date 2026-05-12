@@ -59,6 +59,37 @@ func TestGetProtocolVersionMapDMQNtC(t *testing.T) {
 	assert.True(t, vq.Query(), "Query flag did not propagate from caller to VersionData")
 }
 
+func TestGetProtocolVersionMapDMQNtN(t *testing.T) {
+	const dmqDefaultMagic uint32 = 3_141_592
+	m := GetProtocolVersionMapDMQNtN(
+		dmqDefaultMagic,
+		DiffusionModeInitiatorAndResponder,
+		true,
+		true,
+	)
+	require.Len(t, m, 2, "DMQ N2N should advertise V1 and V2")
+
+	for _, version := range []uint16{
+		ProtocolVersionDMQNtN1,
+		ProtocolVersionDMQNtN2,
+	} {
+		v, ok := m[version]
+		require.True(t, ok, "DMQ N2N version %d missing", version)
+		assert.Equal(t, dmqDefaultMagic, v.NetworkMagic())
+		assert.Equal(t, DiffusionModeInitiatorAndResponder, v.DiffusionMode())
+		assert.True(t, v.PeerSharing())
+		assert.True(t, v.Query())
+	}
+}
+
+func TestGetProtocolVersionsDMQNtN(t *testing.T) {
+	assert.Equal(
+		t,
+		[]uint16{ProtocolVersionDMQNtN1, ProtocolVersionDMQNtN2},
+		GetProtocolVersionsDMQNtN(),
+	)
+}
+
 // TestGetProtocolVersionDMQResolvable verifies that GetProtocolVersion can
 // resolve DMQ N2C versions. Without this, handshake.Client.handleAcceptVersion
 // and handshake.Server.handleProposeVersions would panic when calling
@@ -69,6 +100,11 @@ func TestGetProtocolVersionDMQResolvable(t *testing.T) {
 		t,
 		GetProtocolVersion(0x1001).NewVersionDataFromCborFunc,
 		"DMQ versions are not reachable via GetProtocolVersion",
+	)
+	require.NotNil(
+		t,
+		GetProtocolVersion(ProtocolVersionDMQNtN2).NewVersionDataFromCborFunc,
+		"DMQ N2N versions are not reachable via GetProtocolVersion",
 	)
 }
 
