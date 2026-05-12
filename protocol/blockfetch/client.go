@@ -300,6 +300,9 @@ func (c *Client) Stop() error {
 	if !c.IsDone() {
 		msg := NewMsgClientDone()
 		sendErr = c.SendMessage(msg)
+		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
+			sendErr = nil
+		}
 		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
 	}
 
