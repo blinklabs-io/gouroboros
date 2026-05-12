@@ -17,6 +17,21 @@ This release improves `CBOR` decode diagnostics with richer structured context, 
 
 * Enhanced `CBOR` decode diagnostics so decode failures report richer structured context, including byte offsets, expected versus found details, raw byte previews, transaction scoped decode errors, and clearer validation error diagnostics.
 
+### Bug Fixes
+
+* Fixed the `BlockFetch` shutdown race so repeated shutdown calls now succeed cleanly and remain safe when the connection is already closing.
+* Corrected generic metadata map decoding so malformed map keys now fail with a clear error instead of triggering a nil pointer panic.
+
+### Security
+
+* Updated `golang.org/x/crypto` to `v0.51.0` and refreshed indirect `golang.org/x/sys` to `v0.44.0`.
+
+### Additional Changes
+
+* Updated `github.com/fxamacker/cbor/v2` to `v2.9.2`, bringing upstream `CBOR` hardening and bug fix improvements.
+* Refined `github.com/blinklabs-io/plutigo` from `v0.1.9` to `v0.1.11`, bringing upstream fixes and performance improvements.
+* Added the prior `v0.168.0` release entry to `RELEASE_NOTES.md`.
+
 ## v0.168.0 - Conway PV9 gating and CBOR diagnostic navigation
 
 - **Date:** 2026-05-09
