@@ -611,6 +611,9 @@ func decodeMapGeneric(b []byte) (TransactionMetadatum, bool, error) {
 	}
 	pairs := make([]MetaPair, 0, len(m))
 	for k, rv := range m {
+		if k == nil {
+			return nil, true, errors.New("decode map key: unsupported nil CBOR value")
+		}
 		keyMd, err := DecodeMetadatumRaw(k.Cbor())
 		if err != nil {
 			return nil, true, fmt.Errorf("decode map key: %w", err)
