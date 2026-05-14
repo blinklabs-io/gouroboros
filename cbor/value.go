@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -146,7 +147,12 @@ func (v *Value) processMap(data []byte) (err error) {
 	// Extract actual value from each child value
 	newValue := map[any]any{}
 	for key, value := range tmpValue {
-		newValue[key.Value()] = value.Value()
+		keyValue := key.Value()
+		// Use a pointer for unhashable key types
+		if !reflect.TypeOf(keyValue).Comparable() {
+			keyValue = &keyValue
+		}
+		newValue[keyValue] = value.Value()
 	}
 	v.value = newValue
 	return nil

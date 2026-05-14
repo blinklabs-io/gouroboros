@@ -189,20 +189,29 @@ func TestValueDecode(t *testing.T) {
 	}
 }
 
-func TestValueDecodeMapWithUnhashableKeyReturnsError(t *testing.T) {
+func TestValueDecodeMapWithUnhashableKeyIsWrapped(t *testing.T) {
 	// { [1]: 2 }
 	cborData := test.DecodeHexString("a1810102")
 
 	var tmpValue cbor.Value
 	_, err := cbor.Decode(cborData, &tmpValue)
-	if err == nil {
-		t.Fatalf(
-			"expected decode error for unhashable CBOR map key, got: %#v",
-			tmpValue.Value(),
-		)
+	if err != nil {
+		t.Fatalf("failed to decode CBOR map with unhashable key: %s", err)
 	}
-	if !strings.Contains(err.Error(), "hash of unhashable type") {
-		t.Fatalf("unexpected decode error: %s", err)
+	valueMap, ok := tmpValue.Value().(map[any]any)
+	if !ok {
+		t.Fatalf("expected map[any]any, got: %T", tmpValue.Value())
+	}
+	if len(valueMap) != 1 {
+		t.Fatalf("expected one map item, got: %d", len(valueMap))
+	}
+	for key, value := range valueMap {
+		if reflect.TypeOf(key).Kind() != reflect.Ptr {
+			t.Fatalf("expected unhashable key to be wrapped as pointer, got: %T", key)
+		}
+		if value != uint64(2) {
+			t.Fatalf("unexpected map value: %#v", value)
+		}
 	}
 }
 
