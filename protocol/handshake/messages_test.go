@@ -16,10 +16,12 @@ package handshake
 
 import (
 	"encoding/hex"
+	"net"
 	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -140,5 +142,35 @@ func TestEncode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestClientHandleAcceptVersionUnsupportedVersion(t *testing.T) {
+	cfg := NewConfig(WithFinishedFunc(
+		func(CallbackContext, uint16, protocol.VersionData) error {
+			t.Fatal("finished callback should not be called")
+			return nil
+		},
+	))
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+	}, &cfg)
+	msg := &MsgAcceptVersion{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeAcceptVersion,
+		},
+		Version: 0xffff,
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handleAcceptVersion panicked: %v", r)
+		}
+	}()
+	if err := client.handleAcceptVersion(msg); err == nil {
+		t.Fatal("expected unsupported version error")
 	}
 }
