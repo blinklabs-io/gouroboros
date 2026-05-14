@@ -493,8 +493,17 @@ func UtxoValidateCollateralEqBalance(
 	// Subtract collateral return amount with underflow protection
 	collReturn := tx.CollateralReturn()
 	if collReturn != nil {
-		if returnAmount := collReturn.Amount(); returnAmount != nil &&
-			collBalance.Cmp(returnAmount) >= 0 {
+		if returnAmount := collReturn.Amount(); returnAmount != nil {
+			if collBalance.Cmp(returnAmount) < 0 {
+				var totalCollU uint64
+				if totalCollateral.IsUint64() {
+					totalCollU = totalCollateral.Uint64()
+				}
+				return IncorrectTotalCollateralFieldError{
+					Provided:        0,
+					TotalCollateral: totalCollU,
+				}
+			}
 			collBalance.Sub(collBalance, returnAmount)
 		}
 	}
