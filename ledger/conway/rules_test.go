@@ -38,6 +38,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func makeConwayRewardAddress(
+	t *testing.T,
+	keyHash common.Blake2b224,
+) common.Address {
+	t.Helper()
+	addrBytes := make([]byte, 0, 29)
+	addrBytes = append(addrBytes, 0xE1)
+	addrBytes = append(addrBytes, keyHash.Bytes()...)
+	addr, err := common.NewAddressFromBytes(addrBytes)
+	require.NoError(t, err)
+	return addr
+}
+
 func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 	// Required vkey witnesses
 	t.Run("no required signers", func(t *testing.T) {
@@ -90,6 +103,28 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			false,
 		)
 		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("key withdrawal requires matching vkey", func(t *testing.T) {
+		stakeVkey := []byte("stake-key")
+		stakeKeyHash := common.Blake2b224Hash(stakeVkey)
+		rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
+
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxWithdrawals = map[*common.Address]uint64{
+			&rewardAddr: 1_000_000,
+		}
+
+		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, conway.MissingVKeyWitnessesError{}, err)
+
+		tx.WitnessSet.VkeyWitnesses = cbor.NewSetType(
+			[]common.VkeyWitness{{Vkey: stakeVkey}},
+			false,
+		)
+		err = conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)
 	})
 
