@@ -68,13 +68,15 @@ var (
 	)
 	protocolStateDone = protocol.NewState(stateDoneId, "done")
 
-	// MessageSubmissionV2MinVersion is the minimum NtN protocol version
-	// that uses Message Submission V2 (no StInit, MsgDone only from StIdle).
+	// MessageSubmissionV2MinVersion is the minimum Cardano NtN protocol
+	// version that uses Message Submission V2 (no StInit, MsgDone only from
+	// StIdle). Standalone DMQ NodeToNodeV_2 is version 2 and is handled by
+	// isMessageSubmissionV2.
 	MessageSubmissionV2MinVersion uint16 = 15
 
-	// stateMapV1 is the V1 state map (CIP-0137 original).
+	// stateMapV1 is the V1 state map.
 	// Includes StInit; MsgDone can be sent by client from
-	// StMessageIdsBlocking / StMessageIdsNonBlocking, or by server from StIdle.
+	// StMessageIdsBlocking.
 	stateMapV1 = protocol.StateMap{
 		protocolStateInit: protocol.StateMapEntry{
 			Agency:                  protocol.AgencyClient,
@@ -112,10 +114,6 @@ var (
 					MsgType:  MessageTypeRequestMessages,
 					NewState: protocolStateMessages,
 				},
-				{
-					MsgType:  MessageTypeDone,
-					NewState: protocolStateDone,
-				},
 			},
 		},
 		protocolStateMessageIdsBlock: protocol.StateMapEntry{
@@ -141,10 +139,6 @@ var (
 				{
 					MsgType:  MessageTypeReplyMessageIds,
 					NewState: protocolStateIdle,
-				},
-				{
-					MsgType:  MessageTypeDone,
-					NewState: protocolStateDone,
 				},
 			},
 		},
@@ -240,6 +234,11 @@ var (
 	}
 )
 
+func isMessageSubmissionV2(version uint16) bool {
+	return version == protocol.ProtocolVersionDMQNtN2 ||
+		version >= MessageSubmissionV2MinVersion
+}
+
 // MessageSubmission is a wrapper object that holds the client and server instances
 type MessageSubmission struct {
 	Client *Client
@@ -268,6 +267,10 @@ type Config struct {
 	MaxQueueSize  int
 	Authenticator *pcommon.MessageAuthenticator
 	TTLValidator  *pcommon.TTLValidator
+	// LegacyV1MessageEncoding preserves the pre-CIP-0137-v4 V1 message
+	// wire shape for peers that still expect messageId inside messagePayload.
+	// The default false value uses the current CIP-0137 message shape.
+	LegacyV1MessageEncoding bool
 	// Done callback invoked when peer sends Done
 	DoneFunc func(CallbackContext) error
 }
@@ -432,5 +435,13 @@ func WithTTLValidator(
 ) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.TTLValidator = ttlValidator
+	}
+}
+
+// WithLegacyV1MessageEncoding enables the pre-CIP-0137-v4 V1 message wire
+// shape when replying with messages on a V1 Message Submission connection.
+func WithLegacyV1MessageEncoding(enabled bool) MessageSubmissionOptionFunc {
+	return func(c *Config) {
+		c.LegacyV1MessageEncoding = enabled
 	}
 }

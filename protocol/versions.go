@@ -26,6 +26,12 @@ const ProtocolVersionNtCOffset = 0x8000
 // dmq-node/src/DMQ/NodeToClient/Version.hs).
 const ProtocolVersionDMQNtCOffset = 0x1000
 
+// DMQ node-to-node protocol versions from CIP-0137.
+const (
+	ProtocolVersionDMQNtN1 uint16 = 1
+	ProtocolVersionDMQNtN2 uint16 = 2
+)
+
 type NewVersionDataFromCborFunc func([]byte) (VersionData, error)
 
 type ProtocolVersionMap map[uint16]VersionData
@@ -346,15 +352,26 @@ func GetProtocolVersionMap(
 	return ret
 }
 
-// dmqProtocolVersions maps supported DMQ N2C protocol versions to their
+// dmqProtocolVersionsNtC maps supported DMQ N2C protocol versions to their
 // version metadata. dmq-node currently advertises only NodeToClientV_1
 // (encoded with the 12th bit set: 1 | 0x1000 = 0x1001).
 //
 // VersionData is structurally [uint32 networkMagic, bool query] — identical
 // to Cardano's VersionDataNtC15andUp — so the same CBOR decoder is reused.
-var dmqProtocolVersions = map[uint16]ProtocolVersion{
+var dmqProtocolVersionsNtC = map[uint16]ProtocolVersion{
 	(1 + ProtocolVersionDMQNtCOffset): {
 		NewVersionDataFromCborFunc: NewVersionDataNtC15andUpFromCbor,
+	},
+}
+
+// dmqProtocolVersionsNtN maps supported DMQ N2N protocol versions to their
+// version metadata. CIP-0137 defines NodeToNodeV_1 and NodeToNodeV_2.
+var dmqProtocolVersionsNtN = map[uint16]ProtocolVersion{
+	ProtocolVersionDMQNtN1: {
+		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
+	},
+	ProtocolVersionDMQNtN2: {
+		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
 	},
 }
 
@@ -368,7 +385,7 @@ func GetProtocolVersionMapDMQNtC(
 	queryMode bool,
 ) ProtocolVersionMap {
 	ret := ProtocolVersionMap{}
-	for version := range dmqProtocolVersions {
+	for version := range dmqProtocolVersionsNtC {
 		ret[version] = VersionDataNtC15andUp{
 			CborNetworkMagic: networkMagic,
 			CborQuery:        queryMode,
@@ -377,11 +394,48 @@ func GetProtocolVersionMapDMQNtC(
 	return ret
 }
 
+// GetProtocolVersionMapDMQNtN returns a ProtocolVersionMap suitable for
+// handshaking against a DMQ node-to-node listener (CIP-0137).
+func GetProtocolVersionMapDMQNtN(
+	networkMagic uint32,
+	diffusionMode bool,
+	peerSharing bool,
+	queryMode bool,
+) ProtocolVersionMap {
+	ret := ProtocolVersionMap{}
+	for version := range dmqProtocolVersionsNtN {
+		var tmpPeerSharing uint = PeerSharingModeNoPeerSharing
+		if peerSharing {
+			tmpPeerSharing = PeerSharingModePeerSharingPublic
+		}
+		ret[version] = VersionDataNtN13andUp{
+			VersionDataNtN11to12{
+				CborNetworkMagic:                       networkMagic,
+				CborInitiatorAndResponderDiffusionMode: diffusionMode,
+				CborPeerSharing:                        tmpPeerSharing,
+				CborQuery:                              queryMode,
+			},
+		}
+	}
+	return ret
+}
+
 // GetProtocolVersionsDMQNtC returns a list of supported DMQ N2C protocol
 // versions in ascending order.
 func GetProtocolVersionsDMQNtC() []uint16 {
-	versions := make([]uint16, 0, len(dmqProtocolVersions))
-	for key := range dmqProtocolVersions {
+	versions := make([]uint16, 0, len(dmqProtocolVersionsNtC))
+	for key := range dmqProtocolVersionsNtC {
+		versions = append(versions, key)
+	}
+	slices.Sort(versions)
+	return versions
+}
+
+// GetProtocolVersionsDMQNtN returns a list of supported DMQ N2N protocol
+// versions in ascending order.
+func GetProtocolVersionsDMQNtN() []uint16 {
+	versions := make([]uint16, 0, len(dmqProtocolVersionsNtN))
+	for key := range dmqProtocolVersionsNtN {
 		versions = append(versions, key)
 	}
 	slices.Sort(versions)
@@ -419,11 +473,15 @@ func GetProtocolVersionsNtN() []uint16 {
 }
 
 // GetProtocolVersion returns the protocol version config for the specified protocol version.
-// It searches both the Cardano NtN/NtC map and the DMQ N2C map, whose key spaces
-// are disjoint (DMQ uses the 0x1000 offset, Cardano NtC uses 0x8000, NtN uses 7-15).
+// It searches Cardano NtN/NtC plus DMQ N2C/N2N maps. The key spaces are
+// disjoint for supported Cardano versions: DMQ N2C uses the 0x1000 offset,
+// DMQ N2N uses 1/2, Cardano NtC uses 0x8000, and supported Cardano NtN uses 7-15.
 func GetProtocolVersion(version uint16) ProtocolVersion {
 	if v, ok := protocolVersions[version]; ok {
 		return v
 	}
-	return dmqProtocolVersions[version]
+	if v, ok := dmqProtocolVersionsNtC[version]; ok {
+		return v
+	}
+	return dmqProtocolVersionsNtN[version]
 }

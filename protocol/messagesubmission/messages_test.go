@@ -191,6 +191,38 @@ func TestMsgReplyMessagesEncoding(t *testing.T) {
 	assert.Equal(t, data, reencoded)
 }
 
+func TestMsgReplyMessagesLegacyEncodingDecodes(t *testing.T) {
+	msg := NewMsgReplyMessages([]pcommon.DmqMessage{
+		{
+			Payload: pcommon.DmqMessagePayload{
+				MessageID:   []byte("id1"),
+				MessageBody: []byte("body1"),
+				KESPeriod:   100,
+				ExpiresAt:   2000000000,
+			},
+			KESSignature: make([]byte, 448),
+			OperationalCertificate: pcommon.OperationalCertificate{
+				KESVerificationKey: make([]byte, 32),
+				IssueNumber:        1,
+				KESPeriod:          100,
+				ColdSignature:      make([]byte, 64),
+			},
+			ColdVerificationKey: make([]byte, 32),
+		},
+	})
+	msg.legacyMessageEncoding = true
+
+	data, err := cbor.Encode(msg)
+	assert.NoError(t, err)
+
+	parsed, err := NewMsgFromCbor(uint(MessageTypeReplyMessages), data)
+	assert.NoError(t, err)
+	decoded, ok := parsed.(*MsgReplyMessages)
+	assert.True(t, ok)
+	assert.Equal(t, []byte("id1"), decoded.Messages[0].MessageID)
+	assert.Equal(t, []byte("id1"), decoded.Messages[0].Payload.MessageID)
+}
+
 // TestMsgDoneEncoding tests MsgDone encoding
 func TestMsgDoneEncoding(t *testing.T) {
 	msg := &MsgDone{
