@@ -20,7 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -130,6 +130,9 @@ func (v *Value) processMap(data []byte) (err error) {
 	// deferred function to recover from a possible panic and return an error
 	defer func() {
 		if r := recover(); r != nil {
+			if !isUnhashableMapKeyPanic(r) {
+				panic(r)
+			}
 			err = fmt.Errorf(
 				"decode failure, probably due to type unsupported by Go: %v",
 				r,
@@ -143,12 +146,7 @@ func (v *Value) processMap(data []byte) (err error) {
 	// Extract actual value from each child value
 	newValue := map[any]any{}
 	for key, value := range tmpValue {
-		keyValue := key.Value()
-		// Use a pointer for unhashable key types
-		if !reflect.TypeOf(keyValue).Comparable() {
-			keyValue = &keyValue
-		}
-		newValue[keyValue] = value.Value()
+		newValue[key.Value()] = value.Value()
 	}
 	v.value = newValue
 	return nil
@@ -166,6 +164,14 @@ func (v *Value) processArray(data []byte) error {
 	}
 	v.value = newValue
 	return nil
+}
+
+func isUnhashableMapKeyPanic(r any) bool {
+	runtimeErr, ok := r.(runtime.Error)
+	if !ok {
+		return false
+	}
+	return strings.Contains(runtimeErr.Error(), "hash of unhashable type")
 }
 
 func generateAstJson(obj any) ([]byte, error) {

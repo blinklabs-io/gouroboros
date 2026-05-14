@@ -189,6 +189,37 @@ func TestValueDecode(t *testing.T) {
 	}
 }
 
+func TestValueDecodeMapWithUnhashableKeyReturnsError(t *testing.T) {
+	// { [1]: 2 }
+	cborData := test.DecodeHexString("a1810102")
+
+	var tmpValue cbor.Value
+	_, err := cbor.Decode(cborData, &tmpValue)
+	if err == nil {
+		t.Fatalf(
+			"expected decode error for unhashable CBOR map key, got: %#v",
+			tmpValue.Value(),
+		)
+	}
+	if !strings.Contains(err.Error(), "hash of unhashable type") {
+		t.Fatalf("unexpected decode error: %s", err)
+	}
+}
+
+func TestValueDecodeMapUnexpectedPanicIsNotSwallowed(t *testing.T) {
+	// { null: 1 }
+	cborData := test.DecodeHexString("a1f601")
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected unexpected panic to be re-panicked")
+		}
+	}()
+
+	var tmpValue cbor.Value
+	_, _ = cbor.Decode(cborData, &tmpValue)
+}
+
 func TestValueMarshalJSON(t *testing.T) {
 	for _, testDef := range testDefs {
 		// Skip test if the CBOR decode is expected to fail
