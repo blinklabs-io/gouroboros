@@ -608,12 +608,18 @@ func (c *Connection) setupConnection() error {
 			// Snapshot the operator-supplied config (if any) and overlay the
 			// handshake's PeerSharing-mode outcome so client/server guards
 			// can refuse traffic when either side advertised NoPeerSharing.
+			// When no operator config was supplied, fall back to NewConfig()
+			// rather than a zero-value Config — the latter would silently
+			// drop the default BusyTimeout and allow unbounded waits in the
+			// client's stateBusy phase.
 			// Disabled flags are positive signals: zero value preserves the
 			// permissive legacy behaviour for direct callers of New that do
 			// not perform a handshake.
 			var psCfg peersharing.Config
 			if c.peerSharingConfig != nil {
 				psCfg = *c.peerSharingConfig
+			} else {
+				psCfg = peersharing.NewConfig()
 			}
 			psCfg.LocalDisabled = !c.peerSharingEnabled
 			psCfg.RemoteDisabled = c.handshakeVersionData != nil &&

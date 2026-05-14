@@ -15,12 +15,12 @@
 package peersharing
 
 import (
-	"errors"
 	"net"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/stretchr/testify/require"
 )
 
 func testProtocolOptions() protocol.ProtocolOptions {
@@ -40,15 +40,8 @@ func TestClientGetPeersRefusesWhenRemoteDisabled(t *testing.T) {
 	client := NewClient(testProtocolOptions(), &cfg)
 
 	peers, err := client.GetPeers(5)
-	if !errors.Is(err, ErrRemotePeerSharingDisabled) {
-		t.Fatalf(
-			"expected ErrRemotePeerSharingDisabled, got: %v",
-			err,
-		)
-	}
-	if peers != nil {
-		t.Fatalf("expected nil peers slice, got: %#v", peers)
-	}
+	require.ErrorIs(t, err, ErrRemotePeerSharingDisabled)
+	require.Nil(t, peers)
 }
 
 // TestConfigDefaultsArePermissive guards the inverted-flag contract: the zero
@@ -58,10 +51,6 @@ func TestClientGetPeersRefusesWhenRemoteDisabled(t *testing.T) {
 // outcome).
 func TestConfigDefaultsArePermissive(t *testing.T) {
 	cfg := NewConfig()
-	if cfg.LocalDisabled {
-		t.Fatalf("default Config.LocalDisabled must be false")
-	}
-	if cfg.RemoteDisabled {
-		t.Fatalf("default Config.RemoteDisabled must be false")
-	}
+	require.False(t, cfg.LocalDisabled, "default Config.LocalDisabled must be false")
+	require.False(t, cfg.RemoteDisabled, "default Config.RemoteDisabled must be false")
 }

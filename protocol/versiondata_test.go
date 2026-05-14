@@ -14,7 +14,11 @@
 
 package protocol
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 // TestVersionDataNtN11to12PeerSharingModes verifies that PeerSharing() reports
 // "active" for both private (1) and public (2) modes, and "inactive" only for
@@ -33,12 +37,8 @@ func TestVersionDataNtN11to12PeerSharingModes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			vd := VersionDataNtN11to12{CborPeerSharing: tt.mode}
-			if got := vd.PeerSharing(); got != tt.expected {
-				t.Fatalf(
-					"VersionDataNtN11to12.PeerSharing() with mode %d: got %v, want %v",
-					tt.mode, got, tt.expected,
-				)
-			}
+			require.Equal(t, tt.expected, vd.PeerSharing(),
+				"VersionDataNtN11to12.PeerSharing() with mode %d", tt.mode)
 		})
 	}
 }
@@ -61,12 +61,8 @@ func TestVersionDataNtN13andUpPeerSharingModes(t *testing.T) {
 					CborPeerSharing: tt.mode,
 				},
 			}
-			if got := vd.PeerSharing(); got != tt.expected {
-				t.Fatalf(
-					"VersionDataNtN13andUp.PeerSharing() with mode %d: got %v, want %v",
-					tt.mode, got, tt.expected,
-				)
-			}
+			require.Equal(t, tt.expected, vd.PeerSharing(),
+				"VersionDataNtN13andUp.PeerSharing() with mode %d", tt.mode)
 		})
 	}
 }

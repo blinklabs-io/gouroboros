@@ -15,8 +15,9 @@
 package peersharing
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestServerHandleShareRequestRefusesWhenLocalDisabled verifies that an
@@ -38,12 +39,8 @@ func TestServerHandleShareRequestRefusesWhenLocalDisabled(t *testing.T) {
 	server := NewServer(testProtocolOptions(), &cfg)
 
 	err := server.handleShareRequest(NewMsgShareRequest(5))
-	if !errors.Is(err, ErrLocalPeerSharingDisabled) {
-		t.Fatalf("expected ErrLocalPeerSharingDisabled, got: %v", err)
-	}
-	if called {
-		t.Fatalf("ShareRequestFunc should not be invoked when local disabled")
-	}
+	require.ErrorIs(t, err, ErrLocalPeerSharingDisabled)
+	require.False(t, called, "ShareRequestFunc must not be invoked when local disabled")
 }
 
 // TestServerHandleShareRequestRequiresCallback verifies that the legacy
@@ -56,13 +53,7 @@ func TestServerHandleShareRequestRequiresCallback(t *testing.T) {
 	server := NewServer(testProtocolOptions(), &cfg)
 
 	err := server.handleShareRequest(NewMsgShareRequest(5))
-	if err == nil {
-		t.Fatalf("expected an error when no ShareRequestFunc is set")
-	}
-	if errors.Is(err, ErrLocalPeerSharingDisabled) {
-		t.Fatalf(
-			"zero-value config must not trip ErrLocalPeerSharingDisabled: %v",
-			err,
-		)
-	}
+	require.Error(t, err, "expected an error when no ShareRequestFunc is set")
+	require.NotErrorIs(t, err, ErrLocalPeerSharingDisabled,
+		"zero-value config must not trip ErrLocalPeerSharingDisabled")
 }

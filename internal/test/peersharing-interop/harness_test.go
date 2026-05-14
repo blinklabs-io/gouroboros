@@ -40,7 +40,6 @@
 package peersharinginterop
 
 import (
-	"errors"
 	"net"
 	"os"
 	"testing"
@@ -48,6 +47,7 @@ import (
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
+	"github.com/stretchr/testify/require"
 )
 
 // previewNetworkMagic is the well-known network magic of the preview testnet.
@@ -75,9 +75,7 @@ func dialNode(
 	t.Helper()
 
 	conn, err := net.DialTimeout("tcp", addr, 15*time.Second)
-	if err != nil {
-		t.Fatalf("tcp dial %s: %v", addr, err)
-	}
+	require.NoErrorf(t, err, "tcp dial %s", addr)
 
 	oConn, err := ouroboros.NewConnection(
 		ouroboros.WithConnection(conn),
@@ -88,7 +86,7 @@ func dialNode(
 	)
 	if err != nil {
 		_ = conn.Close()
-		t.Fatalf("ouroboros handshake with %s: %v", addr, err)
+		require.NoErrorf(t, err, "ouroboros handshake with %s", addr)
 	}
 	t.Cleanup(func() {
 		_ = oConn.Close()
@@ -107,26 +105,20 @@ func TestRemoteAdvertisesPeerSharing(t *testing.T) {
 
 	version, vd := oConn.ProtocolVersion()
 	t.Logf("handshake: negotiated NtN version %d, peer-sharing=%v", version, vd.PeerSharing())
-	if !vd.PeerSharing() {
-		t.Fatalf(
-			"shares-on node should advertise PeerSharing, "+
-				"but handshake VersionData reports PeerSharing()=false (version=%d)",
-			version,
-		)
-	}
+	require.Truef(t, vd.PeerSharing(),
+		"shares-on node should advertise PeerSharing, "+
+			"but handshake VersionData reports PeerSharing()=false (version=%d)",
+		version,
+	)
 
 	ps := oConn.PeerSharing()
-	if ps == nil {
-		t.Fatalf(
-			"peer-sharing mini-protocol unavailable; "+
-				"negotiated NtN version %d is below 11", version,
-		)
-	}
+	require.NotNilf(t, ps,
+		"peer-sharing mini-protocol unavailable; negotiated NtN version %d is below 11",
+		version,
+	)
 
 	peers, err := ps.Client.GetPeers(5)
-	if err != nil {
-		t.Fatalf("Client.GetPeers against shares-on: %v", err)
-	}
+	require.NoError(t, err, "Client.GetPeers against shares-on")
 	t.Logf("Client.GetPeers returned %d peer(s)", len(peers))
 	for i, p := range peers {
 		t.Logf("  peer[%d] = %s:%d", i, p.IP, p.Port)
@@ -148,31 +140,20 @@ func TestRemoteDisablesPeerSharing(t *testing.T) {
 
 	version, vd := oConn.ProtocolVersion()
 	t.Logf("handshake: negotiated NtN version %d, peer-sharing=%v", version, vd.PeerSharing())
-	if vd.PeerSharing() {
-		t.Fatalf(
-			"shares-off node should advertise NoPeerSharing, "+
-				"but handshake VersionData reports PeerSharing()=true (version=%d)",
-			version,
-		)
-	}
+	require.Falsef(t, vd.PeerSharing(),
+		"shares-off node should advertise NoPeerSharing, "+
+			"but handshake VersionData reports PeerSharing()=true (version=%d)",
+		version,
+	)
 
 	ps := oConn.PeerSharing()
-	if ps == nil {
-		t.Fatalf(
-			"peer-sharing mini-protocol unavailable; "+
-				"negotiated NtN version %d is below 11", version,
-		)
-	}
+	require.NotNilf(t, ps,
+		"peer-sharing mini-protocol unavailable; negotiated NtN version %d is below 11",
+		version,
+	)
 
 	peers, err := ps.Client.GetPeers(5)
-	if !errors.Is(err, peersharing.ErrRemotePeerSharingDisabled) {
-		t.Fatalf(
-			"expected ErrRemotePeerSharingDisabled when remote advertised "+
-				"NoPeerSharing, got peers=%v err=%v",
-			peers, err,
-		)
-	}
-	if peers != nil {
-		t.Fatalf("expected nil peer slice on refused request, got: %#v", peers)
-	}
+	require.ErrorIs(t, err, peersharing.ErrRemotePeerSharingDisabled,
+		"expected ErrRemotePeerSharingDisabled when remote advertised NoPeerSharing")
+	require.Nil(t, peers, "expected nil peer slice on refused request")
 }
