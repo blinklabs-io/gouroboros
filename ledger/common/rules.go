@@ -211,6 +211,22 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	return nil
 }
 
+// ValidateUnsupportedPlutusExecution fails closed when a transaction requires
+// phase-2 Plutus execution in an era that does not implement it.
+func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	wits := tx.Witnesses()
+	if wits == nil || wits.Redeemers() == nil {
+		return nil
+	}
+	for range wits.Redeemers().Iter() {
+		return PlutusScriptValidationUnsupportedError{Era: era}
+	}
+	return nil
+}
+
 // ValidateScriptWitnesses checks that script witnesses are provided for all script address inputs
 // and that there are no extraneous script witnesses.
 func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
