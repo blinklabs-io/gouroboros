@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release adds peer sharing mini protocol support with handshake gated behavior and interoperability coverage, aligns distributed message handling with the latest `CIP-0137` behavior for stronger protocol validation, narrows `CBOR` panic recovery so unexpected failures remain visible, adds metadata and message fuzzers to strengthen malformed input handling, and updates `RELEASE_NOTES.md` with the prior release entry.
+This release adds peer sharing mini protocol support with handshake gated behavior and interoperability coverage, aligns distributed message handling with the latest `CIP-0137` behavior for stronger validation, refines `CBOR` panic recovery so unexpected failures remain visible, expands metadata and message fuzzers to strengthen malformed input handling, and updates `RELEASE_NOTES.md` with the prior release entry.
 
 ### New Features
 
