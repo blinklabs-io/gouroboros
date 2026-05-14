@@ -681,7 +681,7 @@ func UtxoValidateExtraneousRedeemers(
 		case common.RedeemerTagProposing:
 			maxIndex = proposalCount
 		default:
-			continue
+			return ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
 
 		if int(redeemerKey.Index) >= maxIndex {

@@ -309,6 +309,20 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 	)
 }
 
+func TestUtxoValidateExtraneousRedeemersUnknownTag(t *testing.T) {
+	redeemerKey := common.RedeemerKey{Tag: common.RedeemerTag(99)}
+	tx := &conway.ConwayTransaction{}
+	tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			redeemerKey: {},
+		},
+	}
+
+	err := conway.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+	require.Error(t, err)
+	assert.IsType(t, conway.ExtraRedeemerError{}, err)
+}
+
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
 	var testSlot uint64 = 555666777
 	var testZeroSlot uint64 = 0
