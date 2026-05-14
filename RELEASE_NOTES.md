@@ -15,12 +15,12 @@ This release adds peer sharing mini protocol support with handshake gated behavi
 
 ### New Features
 
-* Enabled peer sharing so node to node connections can request peer addresses only when both sides advertise support, while interoperability coverage confirms the expected behavior against reference nodes.
+* Added peer sharing so node to node connections can request peer addresses only when both sides advertise support, while interoperability coverage confirms the expected behavior against reference nodes.
 
 ### Bug Fixes
 
 * Corrected distributed message validation so message IDs, wire formats, version handling, and peer behavior stay aligned with the latest `CIP-0137` expectations for safer integrations.
-* Narrowed `CBOR` panic recovery so unsupported map key cases still return clear decode errors while unexpected panics surface instead of being masked.
+* Refined `CBOR` panic recovery so unsupported map key cases still return clear decode errors while unexpected panics surface instead of being masked.
 
 ### Additional Changes
 
