@@ -747,6 +747,51 @@ func TestApplyStage_PendingCount(t *testing.T) {
 	assert.Equal(t, 0, applyStage.PendingCount())
 }
 
+func TestApplyStage_PendingCountIncludesInFlightApply(t *testing.T) {
+	rawCbor := getValidBlockCbor(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	applyStage := NewApplyStage(func(item *BlockItem) error {
+		close(started)
+		<-release
+		return nil
+	}, 0)
+
+	tip := createTestTip(1000, 500)
+	item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, 0)
+	block, err := ledger.NewBlockFromCbor(
+		uint(ledger.BlockTypeConway),
+		rawCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	item.SetBlock(block, time.Millisecond)
+	item.SetValidation(true, "vrf", nil, time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = applyStage.Process(context.Background(), item)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("apply function did not start")
+	}
+
+	assert.Equal(t, 1, applyStage.PendingCount())
+	close(release)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("apply function did not finish")
+	}
+	assert.Equal(t, 0, applyStage.PendingCount())
+}
+
 func TestApplyStage_Reset(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 
