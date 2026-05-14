@@ -1,0 +1,88 @@
+# Two Haskell cardano-node containers on the preview network, used purely as
+# handshake/peer-sharing peers for the gouroboros interop test. Block sync is
+# not required: the node only needs to be running far enough to accept N2N
+# connections and answer the peer-sharing mini-protocol.
+#
+#   cardano-shares-on   PeerSharing=true   host port 3010 -> container 3001
+#   cardano-shares-off  PeerSharing=false  host port 3011 -> container 3001
+#
+# Both bind-mount the same downloaded preview configs (./configs) but each
+# layers its own overlay so PeerSharing differs between them.
+#
+# Image notes:
+#   The blinklabs cardano-node image wraps the binary in an entrypoint
+#   (/usr/local/bin/run-node) that:
+#     - defaults CARDANO_NETWORK=mainnet and tries to mithril-snapshot mainnet
+#       when the DB is empty (RESTORE_SNAPSHOT defaults to "true")
+#     - for any non-block-producer node, sed-rewrites
+#       `"PeerSharing": false` → `"PeerSharing": true` in the config IF the
+#       file is writable. The overlay MUST therefore be bind-mounted :ro,
+#       otherwise our shares-off node silently advertises PeerSharing=true.
+#       The touch-test that gates the sed is wrapped in `set +e`, so the
+#       "cannot touch (read-only file system)" message is benign — the
+#       script continues, just without the unwanted rewrite.
+#   We override RESTORE_SNAPSHOT="false" to skip the mithril download and set
+#   CARDANO_NETWORK="preview" to match the configs we mounted.
+
+services:
+  cardano-shares-on:
+    image: ${PEERSHARING_NODE_IMAGE:-ghcr.io/blinklabs-io/cardano-node:11.0.1}
+    container_name: cardano-shares-on
+    restart: unless-stopped
+    environment:
+      CARDANO_NETWORK: preview
+      RESTORE_SNAPSHOT: "false"
+    ports:
+      - "${PEERSHARING_SHARES_ON_PORT:-3010}:3001"
+    volumes:
+      - ./configs:/configs:ro
+      - ./overlays/shares-on:/overlay:ro
+      - shares-on-db:/data/db
+      - shares-on-ipc:/ipc
+    command: >
+      run
+      --config /overlay/config.json
+      --topology /overlay/topology.json
+      --database-path /data/db
+      --socket-path /ipc/node.socket
+      --port 3001
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /ipc/node.socket"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 60s
+
+  cardano-shares-off:
+    image: ${PEERSHARING_NODE_IMAGE:-ghcr.io/blinklabs-io/cardano-node:11.0.1}
+    container_name: cardano-shares-off
+    restart: unless-stopped
+    environment:
+      CARDANO_NETWORK: preview
+      RESTORE_SNAPSHOT: "false"
+    ports:
+      - "${PEERSHARING_SHARES_OFF_PORT:-3011}:3001"
+    volumes:
+      - ./configs:/configs:ro
+      - ./overlays/shares-off:/overlay:ro
+      - shares-off-db:/data/db
+      - shares-off-ipc:/ipc
+    command: >
+      run
+      --config /overlay/config.json
+      --topology /overlay/topology.json
+      --database-path /data/db
+      --socket-path /ipc/node.socket
+      --port 3001
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /ipc/node.socket"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 60s
+
+volumes:
+  shares-on-db:
+  shares-on-ipc:
+  shares-off-db:
+  shares-off-ipc:

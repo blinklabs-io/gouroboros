@@ -148,7 +148,12 @@ func (v VersionDataNtN11to12) DiffusionMode() bool {
 }
 
 func (v VersionDataNtN11to12) PeerSharing() bool {
-	return v.CborPeerSharing >= PeerSharingModeV11PeerSharingPublic
+	// V11/V12 advertised three modes: 0 = no peer sharing, 1 = private,
+	// 2 = public. Private and public both mean the peer sharing protocol
+	// is active, just with different selection policy. V13+ collapsed this
+	// to two modes (0 = no, 1 = public), which is why the caller cannot
+	// simply compare against a single constant across versions.
+	return v.CborPeerSharing != PeerSharingModeV11NoPeerSharing
 }
 
 func (v VersionDataNtN11to12) Query() bool {

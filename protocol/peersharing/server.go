@@ -90,6 +90,9 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 }
 
 func (s *Server) handleShareRequest(msg protocol.Message) error {
+	if s.config != nil && s.config.LocalDisabled {
+		return ErrLocalPeerSharingDisabled
+	}
 	s.Protocol.Logger().
 		Debug("share request",
 			"component", "network",

@@ -67,6 +67,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 }
 
 func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
+	if c.config.RemoteDisabled {
+		return nil, ErrRemotePeerSharingDisabled
+	}
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetPeers(amount: %d)", amount),
 			"component", "network",

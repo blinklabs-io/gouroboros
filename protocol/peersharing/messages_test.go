@@ -108,6 +108,32 @@ func TestPeerAddressEncodeDecodeIPv6(t *testing.T) {
 	}
 }
 
+// TestPeerAddressDecodeIPv6V11 verifies that the legacy 8-element peer-address
+// shape used by handshake versions 11 and 12 (FlowInfo and ScopeId fields
+// present, then ignored) round-trips through Decode.
+func TestPeerAddressDecodeIPv6V11(t *testing.T) {
+	// CBOR array of 8 elements: [1, addr1..addr4 (LE u32), flowInfo, scopeId, port].
+	// Same address as the v13 test above so we can compare results.
+	v11Hex := "88011ab80d012000001a010000000000190bb9"
+	cborData, err := hex.DecodeString(v11Hex)
+	if err != nil {
+		t.Fatalf("failed to decode hex: %s", err)
+	}
+	var decoded PeerAddress
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		t.Fatalf("failed to decode v11 peer address: %s", err)
+	}
+	expected := net.ParseIP("2001:db8::1")
+	if !decoded.IP.Equal(expected) {
+		t.Fatalf("v11 peer address IP mismatch: got %s, wanted %s",
+			decoded.IP, expected)
+	}
+	if decoded.Port != 3001 {
+		t.Fatalf("v11 peer address port mismatch: got %d, wanted 3001",
+			decoded.Port)
+	}
+}
+
 func TestEncode(t *testing.T) {
 	for _, test := range tests {
 		cborData, err := cbor.Encode(test.Message)
