@@ -665,8 +665,8 @@ func TestValidateVRFKeyRegistration(t *testing.T) {
 		t.Fatalf("vrf.KeyGen failed: %v", err)
 	}
 
-	// Compute expected hash (Blake2b-224) using the common function
-	expectedHash := common.Blake2b224Hash(vrfPk)
+	// Compute expected hash using the canonical ledger registration width.
+	expectedHash := common.Blake2b256Hash(vrfPk)
 
 	// Test matching hash
 	input := &ValidateHeaderInput{
@@ -677,6 +677,13 @@ func TestValidateVRFKeyRegistration(t *testing.T) {
 	err = validator.validateVRFKeyRegistration(input)
 	if err != nil {
 		t.Errorf("expected valid VRF key registration, got error: %v", err)
+	}
+
+	legacyHash := common.Blake2b224Hash(vrfPk)
+	input.RegisteredVrfKeyHash = legacyHash.Bytes()
+	err = validator.validateVRFKeyRegistration(input)
+	if err == nil {
+		t.Error("expected error for legacy 28-byte VRF key hash")
 	}
 
 	// Test mismatched hash
