@@ -56,7 +56,8 @@ func StaticEta0Provider(eta0 string) Eta0Provider {
 	}
 }
 
-// ValidateStage validates decoded blocks using VRF, KES, and other checks.
+// ValidateStage validates decoded blocks using VerifyBlock's block-local
+// checks. It is not a complete chain-context consensus gate by itself.
 type ValidateStage struct {
 	config ValidateStageConfig
 }
