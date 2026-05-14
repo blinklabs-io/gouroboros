@@ -16,10 +16,25 @@
 package peersharing
 
 import (
+	"errors"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
+)
+
+// ErrRemotePeerSharingDisabled is returned by Client.GetPeers when the remote
+// peer advertised NoPeerSharing during the handshake. Sending a request in
+// that case would be a protocol violation.
+var ErrRemotePeerSharingDisabled = errors.New(
+	"peer sharing: remote peer advertised NoPeerSharing during handshake",
+)
+
+// ErrLocalPeerSharingDisabled is returned by the server when a peer sends a
+// ShareRequest but we advertised NoPeerSharing during the handshake. A
+// spec-compliant peer must not send ShareRequest in that case.
+var ErrLocalPeerSharingDisabled = errors.New(
+	"peer sharing: received ShareRequest but local node advertised NoPeerSharing during handshake",
 )
 
 // Protocol identifiers
@@ -75,10 +90,19 @@ type PeerSharing struct {
 	Server *Server
 }
 
-// Config is used to configure the PeerSharing protocol instance
+// Config is used to configure the PeerSharing protocol instance.
+//
+// LocalDisabled and RemoteDisabled reflect the outcome of the handshake's
+// PeerSharing-mode negotiation and are populated by the connection layer when
+// either side advertised NoPeerSharing. The zero value (false) preserves
+// legacy permissive behaviour, so an operator-supplied Config (via
+// WithPeerSharingConfig) and direct callers of New that do not perform a
+// handshake do not need to set them.
 type Config struct {
 	ShareRequestFunc ShareRequestFunc
 	Timeout          time.Duration
+	LocalDisabled    bool
+	RemoteDisabled   bool
 }
 
 // Callback context
@@ -128,5 +152,23 @@ func WithShareRequestFunc(
 func WithTimeout(timeout time.Duration) PeerSharingOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout
+	}
+}
+
+// WithLocalDisabled records that this node advertised NoPeerSharing during
+// the handshake. The server uses this to refuse incoming ShareRequest
+// messages with ErrLocalPeerSharingDisabled.
+func WithLocalDisabled(disabled bool) PeerSharingOptionFunc {
+	return func(c *Config) {
+		c.LocalDisabled = disabled
+	}
+}
+
+// WithRemoteDisabled records that the remote peer advertised NoPeerSharing
+// during the handshake. The client uses this to refuse to send ShareRequest
+// messages with ErrRemotePeerSharingDisabled.
+func WithRemoteDisabled(disabled bool) PeerSharingOptionFunc {
+	return func(c *Config) {
+		c.RemoteDisabled = disabled
 	}
 }

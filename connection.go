@@ -605,7 +605,20 @@ func (c *Connection) setupConnection() error {
 			c.keepAlive = keepalive.New(protoOptions, c.keepAliveConfig)
 		}
 		if versionNtN.EnablePeerSharingProtocol {
-			c.peerSharing = peersharing.New(protoOptions, c.peerSharingConfig)
+			// Snapshot the operator-supplied config (if any) and overlay the
+			// handshake's PeerSharing-mode outcome so client/server guards
+			// can refuse traffic when either side advertised NoPeerSharing.
+			// Disabled flags are positive signals: zero value preserves the
+			// permissive legacy behaviour for direct callers of New that do
+			// not perform a handshake.
+			var psCfg peersharing.Config
+			if c.peerSharingConfig != nil {
+				psCfg = *c.peerSharingConfig
+			}
+			psCfg.LocalDisabled = !c.peerSharingEnabled
+			psCfg.RemoteDisabled = c.handshakeVersionData != nil &&
+				!c.handshakeVersionData.PeerSharing()
+			c.peerSharing = peersharing.New(protoOptions, &psCfg)
 		}
 		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
 		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
