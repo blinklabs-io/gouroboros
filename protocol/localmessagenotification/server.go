@@ -198,19 +198,7 @@ func (s *Server) handleRequestMessages(msg protocol.Message) error {
 
 func (s *Server) handleNonBlockingRequest() error {
 	s.lock.Lock()
-
-	messages := make([]pcommon.DmqMessage, 0, len(s.messageQueue))
-	for _, msg := range s.messageQueue {
-		messages = append(messages, *msg)
-	}
-
-	// Mark all collected messages as acknowledged with current timestamp and clear the queue
-	now := time.Now()
-	for _, msg := range s.messageQueue {
-		s.acknowledgedIDs[string(msg.ID())] = now
-	}
-	s.messageQueue = s.messageQueue[:0]
-
+	messages := s.drainValidMessagesLocked(time.Now())
 	s.lock.Unlock()
 
 	// After clearing the queue, hasMore should always be false
@@ -222,9 +210,11 @@ func (s *Server) handleBlockingRequest() error {
 	// For blocking requests, wait until at least one message is available
 	for {
 		s.lock.Lock()
-		hasMessages := len(s.messageQueue) > 0
-		if hasMessages {
-			break
+		messages := s.drainValidMessagesLocked(time.Now())
+		if len(messages) > 0 {
+			s.lock.Unlock()
+			replyMsg := NewMsgReplyMessagesBlocking(messages)
+			return s.SendMessage(replyMsg)
 		}
 		s.lock.Unlock()
 
@@ -235,25 +225,19 @@ func (s *Server) handleBlockingRequest() error {
 			return s.SendMessage(replyMsg)
 		}
 	}
+}
 
-	// At this point, lock is held and hasMessages is true
-
+func (s *Server) drainValidMessagesLocked(now time.Time) []pcommon.DmqMessage {
 	messages := make([]pcommon.DmqMessage, 0, len(s.messageQueue))
 	for _, msg := range s.messageQueue {
+		if msg == nil || !msg.IsValidAt(now) {
+			continue
+		}
 		messages = append(messages, *msg)
-	}
-
-	// Mark all collected messages as acknowledged with current timestamp and clear the queue
-	now := time.Now()
-	for _, msg := range s.messageQueue {
 		s.acknowledgedIDs[string(msg.ID())] = now
 	}
 	s.messageQueue = s.messageQueue[:0]
-
-	s.lock.Unlock()
-
-	replyMsg := NewMsgReplyMessagesBlocking(messages)
-	return s.SendMessage(replyMsg)
+	return messages
 }
 
 //nolint:unparam

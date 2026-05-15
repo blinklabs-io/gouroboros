@@ -16,6 +16,7 @@ package localmessagenotification
 
 import (
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -206,6 +207,36 @@ func TestMsgReplyMessagesBlocking(t *testing.T) {
 	reencoded, err := cbor.Encode(decoded)
 	assert.NoError(t, err)
 	assert.Equal(t, data, reencoded)
+}
+
+func TestServerDrainValidMessagesDropsExpired(t *testing.T) {
+	server := NewServer(protocol.ProtocolOptions{}, nil)
+	now := time.Unix(100, 0)
+	expired := &pcommon.DmqMessage{
+		MessageID: []byte("expired"),
+		Payload: pcommon.DmqMessagePayload{
+			ExpiresAt: 99,
+		},
+	}
+	valid := &pcommon.DmqMessage{
+		MessageID: []byte("valid"),
+		Payload: pcommon.DmqMessagePayload{
+			ExpiresAt: 101,
+		},
+	}
+
+	server.lock.Lock()
+	server.messageQueue = append(server.messageQueue, expired, valid)
+	messages := server.drainValidMessagesLocked(now)
+	server.lock.Unlock()
+
+	require.Len(t, messages, 1)
+	assert.Equal(t, []byte("valid"), messages[0].ID())
+	_, expiredAcked := server.acknowledgedIDs[string(expired.ID())]
+	_, validAcked := server.acknowledgedIDs[string(valid.ID())]
+	assert.False(t, expiredAcked)
+	assert.True(t, validAcked)
+	assert.Empty(t, server.messageQueue)
 }
 
 // TestMsgClientDoneEncoding tests MsgClientDone encoding
