@@ -26,6 +26,16 @@ func (InvalidIsValidFlagError) Error() string {
 	return "transaction marked as invalid but has no Plutus scripts requiring phase-2 validation"
 }
 
+// PlutusScriptValidationUnsupportedError indicates a transaction needs phase-2
+// Plutus execution in an era path that cannot perform it.
+type PlutusScriptValidationUnsupportedError struct {
+	Era string
+}
+
+func (e PlutusScriptValidationUnsupportedError) Error() string {
+	return e.Era + " Plutus phase-2 validation is not supported"
+}
+
 // MissingCostModelError indicates a missing cost model for a Plutus version
 type MissingCostModelError struct {
 	Version uint

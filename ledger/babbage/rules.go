@@ -58,6 +58,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateTooManyCollateralInputs,
 	UtxoValidateNativeScripts,
+	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
 	UtxoValidateMalformedReferenceScripts,
@@ -95,6 +96,15 @@ func UtxoValidateIsValidFlag(
 
 	// IsValid=false but no redeemers present
 	return common.InvalidIsValidFlagError{}
+}
+
+func UtxoValidatePlutusScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateUnsupportedPlutusExecution(tx, "Babbage")
 }
 
 // UtxoValidateRequiredVKeyWitnesses ensures required signers are accompanied by vkey witnesses

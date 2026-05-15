@@ -66,6 +66,7 @@ type (
 	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
 	MissingCostModelError                    = common.MissingCostModelError
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
+	PlutusScriptValidationUnsupportedError   = common.PlutusScriptValidationUnsupportedError
 )
 
 // NonDisjointRefInputsError indicates reference inputs overlap with regular inputs

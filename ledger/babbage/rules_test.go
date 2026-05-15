@@ -1769,3 +1769,42 @@ func TestUtxoValidateTooManyCollateralInputs(t *testing.T) {
 		},
 	)
 }
+
+func TestUtxoValidatePlutusScriptsUnsupported_Babbage(t *testing.T) {
+	t.Run("valid tx with redeemer fails closed", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{
+			TxIsValid: true,
+		}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{
+					Tag:     common.RedeemerTagSpend,
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+
+		err := babbage.UtxoValidatePlutusScripts(tx, 0, nil, nil)
+		assert.Error(t, err)
+		assert.IsType(
+			t,
+			babbage.PlutusScriptValidationUnsupportedError{},
+			err,
+		)
+	})
+
+	t.Run("invalid tx with redeemer is phase-1 valid", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{
+					Tag:     common.RedeemerTagSpend,
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+
+		err := babbage.UtxoValidatePlutusScripts(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+}
