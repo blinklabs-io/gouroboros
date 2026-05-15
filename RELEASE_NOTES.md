@@ -4,6 +4,28 @@ title: Release notes
 
 # Release notes
 
+## v0.170.1 - ledger and protocol reliability fixes
+
+- **Date:** 2026-05-15
+- **Version:** v0.170.1
+
+### Summary
+
+This release hardens ledger validation for withdrawals, collateral returns, unknown Conway redeemer tags, and unsupported phase 2 validation paths, improves protocol reliability for DMQ draining, nil node to client configurations, and unsupported handshake versions, strengthens consensus and `CBOR` validation, corrects pipeline drain accounting, and includes documentation, regression test, and release notes maintenance updates.
+
+### Bug Fixes
+
+* Corrected withdrawal validation so key credential withdrawals require the matching witness before funds can move.
+* Strengthened collateral return checks so transactions fail when a collateral return exceeds the allowed amount.
+* Hardened consensus validation so non canonical blake2b VRF key hashes fail validation instead of slipping through.
+* Secured validation fallback behavior so unsupported phase 2 paths stop with a clear error instead of continuing.
+* Stabilized handshake handling so unsupported versions fail cleanly without triggering nil crashes.
+* Normalized node to client setup so nil configurations no longer break constructor behavior.
+* Tightened Conway redeemer validation so unknown redeemer tags fail immediately with a clear error.
+* Refined `CBOR` decoding so duplicate map keys are rejected instead of being accepted silently.
+* Balanced pipeline drain accounting so in flight apply work remains counted until drain completes.
+* Filtered DMQ notification drains so expired messages do not remain in drain results.
+
 ## v0.170.0 - peer sharing and protocol hardening
 
 - **Date:** 2026-05-14
