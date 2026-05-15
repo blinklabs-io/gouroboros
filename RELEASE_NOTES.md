@@ -30,7 +30,6 @@ This release hardens validation for withdrawals, collateral returns, unknown Con
 
 * Clarified block local verification guidance so library behavior is easier to interpret in embedded documentation.
 * Verified collateral return reset handling with regression coverage so later validation checks remain reliable.
-* Updated `RELEASE_NOTES.md` to add the prior `v0.170.0` release entry.
 
 ## v0.170.0 - peer sharing and protocol hardening
 
