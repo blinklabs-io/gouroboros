@@ -376,16 +376,22 @@ err = ts.SubmitTx(txCbor)
    |- Metadata
 5. VerifyBlock() validates:
    |- Body hash matches header
-   |- Consensus rules (VRF, KES)
+   |- Block-local VRF proof bytes and KES signature
    |- Ledger rules per era
 6. For each transaction:
    |- Verify signatures
    |- Check fees, TTL
    |- Validate UTxO consumption
-   |- Execute Plutus scripts
+   |- Execute supported Plutus scripts
    |- Process certificates
 7. Update ledger state
 ```
+
+`VerifyBlock()` and `pipeline.ValidateStage` are block-local validation helpers,
+not complete consensus gates. They do not receive the previous header, active
+stake distribution, active slot coefficient, max KES evolutions, or operational
+certificate sequence state. Production chain validation must combine these
+checks with chain-context consensus validation before accepting a block.
 
 ## Block Pipeline (pipeline/)
 
@@ -399,7 +405,7 @@ The `pipeline` package provides a staged block processing pipeline with worker p
 ```
 
 - **DecodeStage**: CBOR decoding of raw block bytes (parallelizable)
-- **ValidateStage**: Block validation (VRF, KES, ledger rules)
+- **ValidateStage**: Block-local validation (VRF proof bytes, KES signature, ledger rules)
 - **ApplyStage**: State updates (must preserve ordering)
 
 Usage:

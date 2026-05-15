@@ -179,6 +179,16 @@ func extractHeaderFields(
 	}
 }
 
+// VerifyBlock performs block-local structural, cryptographic, and ledger
+// validation. It checks data available from the block and supplied verification
+// config, including body hash, VRF proof bytes, KES signature, transactions,
+// and optional stake pool registration.
+//
+// VerifyBlock is not full chain-context consensus validation. It does not
+// receive the previous header, active stake distribution, active slot
+// coefficient, max KES evolutions, or operational certificate sequence state,
+// so callers must combine it with chain-state validation before using a block
+// as a production consensus decision.
 func VerifyBlock(
 	block Block,
 	eta0Hex string,
