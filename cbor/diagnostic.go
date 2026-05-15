@@ -35,6 +35,9 @@ type DiagnosticNode struct {
 	Children   []DiagnosticNode
 	Tag        *uint64
 	Indefinite bool
+	// Comment is an optional human-readable annotation attached by
+	// AnnotateAddresses and similar helpers. Empty by default.
+	Comment string
 }
 
 type DiagnosticType uint8
