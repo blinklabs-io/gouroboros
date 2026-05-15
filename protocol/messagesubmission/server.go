@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -56,7 +57,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 
 	// Select state map and initial state based on negotiated version
-	isV2 := protoOptions.Version >= MessageSubmissionV2MinVersion
+	isV2 := isMessageSubmissionV2(protoOptions.Version)
 	var baseStateMap protocol.StateMap
 	var initialState protocol.State
 	if isV2 {
@@ -114,7 +115,7 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
-			"message_id", string(msg.Payload.MessageID),
+			"message_id", string(msg.ID()),
 			"queue_size", len(s.messageQueue),
 		)
 
@@ -277,11 +278,24 @@ func (s *Server) GetAvailableMessageIDs(count int) []pcommon.MessageIDAndSize {
 		if uint32(now) > msg.Payload.ExpiresAt {
 			continue // skip expired messages, don't add to filtered
 		}
-		// #nosec G115 -- message body size bounded by protocol limits
 		if len(ids) < count {
+			messageCbor, err := cbor.Encode(*msg)
+			if err != nil {
+				s.Protocol.Logger().
+					Warn("failed to encode message for size calculation",
+						"component", "network",
+						"protocol", ProtocolName,
+						"role", "server",
+						"connection_id", s.callbackContext.ConnectionId.String(),
+						"error", err,
+					)
+				filtered = append(filtered, msg)
+				continue
+			}
+			// #nosec G115 -- message size bounded by protocol limits
 			ids = append(ids, pcommon.MessageIDAndSize{
-				MessageID:   msg.Payload.MessageID,
-				SizeInBytes: uint32(len(msg.Payload.MessageBody)),
+				MessageID:   msg.ID(),
+				SizeInBytes: uint32(len(messageCbor)),
 			})
 		}
 		filtered = append(filtered, msg)
@@ -330,7 +344,7 @@ func (s *Server) GetMessagesByIDs(ids [][]byte) []pcommon.DmqMessage {
 		if uint32(now) > msg.Payload.ExpiresAt {
 			continue
 		}
-		if _, exists := idSet[string(msg.Payload.MessageID)]; exists {
+		if _, exists := idSet[string(msg.ID())]; exists {
 			messages = append(messages, *msg)
 		}
 	}

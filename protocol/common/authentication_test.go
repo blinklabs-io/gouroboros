@@ -24,6 +24,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMessageAuthenticatorCreation tests authenticator creation
@@ -58,7 +59,6 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
 			MessageBody: []byte("test-body"),
 			KESPeriod:   100,
 			ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
@@ -75,6 +75,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 		},
 		ColdVerificationKey: make([]byte, 32),
 	}
+	assert.NoError(t, msg.SetComputedMessageID())
 
 	err := auth.VerifyMessage(msg)
 	assert.Error(t, err)
@@ -348,7 +349,136 @@ func TestVerifyMessageIDTooLong(t *testing.T) {
 
 	err := auth.verifyMessageID(msg)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "too long")
+	assert.Contains(t, err.Error(), "must be 32 bytes")
+}
+
+func TestComputeDmqMessageIDGoldenVector(t *testing.T) {
+	messageID, err := ComputeDmqMessageID(DmqMessagePayload{
+		MessageBody: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+		KESPeriod:   123,
+		ExpiresAt:   123456,
+	})
+	assert.NoError(t, err)
+	assert.Equal(
+		t,
+		[]byte{
+			202, 230, 133, 93, 29, 204, 161, 252,
+			87, 183, 156, 101, 193, 251, 172, 245,
+			171, 98, 179, 213, 232, 216, 239, 9,
+			94, 155, 194, 226, 246, 17, 50, 185,
+		},
+		messageID,
+	)
+}
+
+func TestVerifyMessageIDMismatch(t *testing.T) {
+	auth := NewMessageAuthenticator(nil)
+
+	msg := &DmqMessage{
+		MessageID: []byte{
+			202, 230, 133, 93, 29, 204, 161, 252,
+			87, 183, 156, 101, 193, 251, 172, 245,
+			171, 98, 179, 213, 232, 216, 239, 9,
+			94, 155, 194, 226, 246, 17, 50, 184,
+		},
+		Payload: DmqMessagePayload{
+			MessageBody: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+			KESPeriod:   123,
+			ExpiresAt:   123456,
+		},
+	}
+
+	err := auth.verifyMessageID(msg)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "message ID mismatch")
+}
+
+func TestVerifyMessageIDValid(t *testing.T) {
+	auth := NewMessageAuthenticator(nil)
+
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+			KESPeriod:   123,
+			ExpiresAt:   123456,
+		},
+	}
+	assert.NoError(t, msg.SetComputedMessageID())
+
+	err := auth.verifyMessageID(msg)
+	assert.NoError(t, err)
+}
+
+func TestDmqMessageCBORUsesCurrentCIPShape(t *testing.T) {
+	msg := DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageID:   []byte("legacy-id"),
+			MessageBody: []byte("body"),
+			KESPeriod:   1,
+			ExpiresAt:   2,
+		},
+		KESSignature: make([]byte, 448),
+		OperationalCertificate: OperationalCertificate{
+			KESVerificationKey: make([]byte, 32),
+			IssueNumber:        1,
+			KESPeriod:          1,
+			ColdSignature:      make([]byte, 64),
+		},
+		ColdVerificationKey: make([]byte, 32),
+	}
+
+	data, err := cbor.Encode(msg)
+	assert.NoError(t, err)
+
+	var outer []cbor.RawMessage
+	_, err = cbor.Decode(data, &outer)
+	require.NoError(t, err)
+	require.Len(t, outer, 5)
+
+	var payload []cbor.RawMessage
+	_, err = cbor.Decode(outer[1], &payload)
+	require.NoError(t, err)
+	require.Len(t, payload, 3)
+
+	var decoded DmqMessage
+	_, err = cbor.Decode(data, &decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("legacy-id"), decoded.MessageID)
+	assert.Equal(t, []byte("legacy-id"), decoded.Payload.MessageID)
+}
+
+func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
+	msg := DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageID:   []byte("legacy-id"),
+			MessageBody: []byte("body"),
+			KESPeriod:   1,
+			ExpiresAt:   2,
+		},
+		KESSignature: make([]byte, 448),
+		OperationalCertificate: OperationalCertificate{
+			KESVerificationKey: make([]byte, 32),
+			IssueNumber:        1,
+			KESPeriod:          1,
+			ColdSignature:      make([]byte, 64),
+		},
+		ColdVerificationKey: make([]byte, 32),
+	}
+
+	data, err := MarshalDmqMessageLegacyCBOR(msg)
+	assert.NoError(t, err)
+
+	var outer []cbor.RawMessage
+	_, err = cbor.Decode(data, &outer)
+	assert.NoError(t, err)
+	assert.Len(t, outer, 4)
+
+	var decoded DmqMessage
+	_, err = cbor.Decode(data, &decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, []byte("legacy-id"), decoded.MessageID)
+	assert.Equal(t, []byte("legacy-id"), decoded.Payload.MessageID)
+	assert.Equal(t, []byte("body"), decoded.Payload.MessageBody)
 }
 
 // TestVerifyKESSignatureInvalidSize tests KES signature verification with invalid size
@@ -383,12 +513,12 @@ func TestVerifyKESSignatureInvalidSize(t *testing.T) {
 		OperationalCertificate: opcert,
 		ColdVerificationKey:    []byte(pub),
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
 			MessageBody: []byte("body"),
 			KESPeriod:   1,
 			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	}
+	assert.NoError(t, msg.SetComputedMessageID())
 
 	err = auth.VerifyMessage(msg)
 	assert.Error(t, err)
@@ -424,7 +554,6 @@ func buildTestMessage(t *testing.T) *DmqMessage {
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageID:   []byte("test-id"),
 			MessageBody: []byte("hello"),
 			KESPeriod:   100,
 			ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
@@ -432,6 +561,9 @@ func buildTestMessage(t *testing.T) *DmqMessage {
 		KESSignature:           make([]byte, 448),
 		OperationalCertificate: opcert,
 		ColdVerificationKey:    pub,
+	}
+	if err := msg.SetComputedMessageID(); err != nil {
+		t.Fatalf("failed to compute message id: %v", err)
 	}
 
 	return msg

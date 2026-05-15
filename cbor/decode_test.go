@@ -75,6 +75,16 @@ func TestDecode(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsDuplicateMapKeys(t *testing.T) {
+	cborData, err := hex.DecodeString("a201010102")
+	require.NoError(t, err)
+
+	var dest map[uint64]uint64
+	_, err = cbor.Decode(cborData, &dest)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate map key")
+}
+
 type listLenTestDefinition struct {
 	CborHex string
 	Length  int

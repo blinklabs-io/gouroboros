@@ -106,7 +106,8 @@ func NewMsgRequestMessages(messageIDs [][]byte) *MsgRequestMessages {
 // MsgReplyMessages represents the reply with full messages
 type MsgReplyMessages struct {
 	protocol.MessageBase
-	Messages []pcommon.DmqMessage
+	Messages              []pcommon.DmqMessage
+	legacyMessageEncoding bool
 }
 
 // NewMsgReplyMessages creates a new MsgReplyMessages
@@ -117,6 +118,30 @@ func NewMsgReplyMessages(messages []pcommon.DmqMessage) *MsgReplyMessages {
 		},
 		Messages: messages,
 	}
+}
+
+// MarshalCBOR encodes MsgReplyMessages. V1 peers using the pre-CIP-0137-v4
+// message shape can be supported by setting legacyMessageEncoding.
+func (m MsgReplyMessages) MarshalCBOR() ([]byte, error) {
+	if !m.legacyMessageEncoding {
+		return cbor.Encode([]any{
+			MessageTypeReplyMessages,
+			m.Messages,
+		})
+	}
+
+	rawMessages := make([]cbor.RawMessage, 0, len(m.Messages))
+	for _, msg := range m.Messages {
+		msgCbor, err := pcommon.MarshalDmqMessageLegacyCBOR(msg)
+		if err != nil {
+			return nil, err
+		}
+		rawMessages = append(rawMessages, cbor.RawMessage(msgCbor))
+	}
+	return cbor.Encode([]any{
+		MessageTypeReplyMessages,
+		rawMessages,
+	})
 }
 
 // MsgDone represents the protocol completion message

@@ -45,6 +45,7 @@ func getDecMode() (_cbor.DecMode, error) {
 	cachedDecModeOnce.Do(func() {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
 			// This defaults to 32, but there are blocks in the wild using >64 nested levels
 			MaxNestedLevels: cborMaxNestedLevels,
 			// The fxamacker default is 131072, but Cardano ledger state
@@ -79,6 +80,7 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 	cachedStrictDecModeOnce.Do(func() {
 		decOptions := _cbor.DecOptions{
 			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
 			MaxNestedLevels:   cborMaxNestedLevels,
 			// Stricter limits for untrusted network messages to prevent
 			// OOM from crafted payloads claiming excessive collection sizes.

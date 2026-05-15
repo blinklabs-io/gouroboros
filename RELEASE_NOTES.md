@@ -4,6 +4,29 @@ title: Release notes
 
 # Release notes
 
+## v0.170.0 - peer sharing and protocol hardening
+
+- **Date:** 2026-05-14
+- **Version:** 0.170.0
+
+### Summary
+
+This release adds peer sharing mini protocol support with handshake gated behavior and interoperability coverage, aligns distributed message handling with the latest `CIP-0137` behavior for stronger validation, refines `CBOR` panic recovery so unexpected failures remain visible, expands metadata and message fuzzers to strengthen malformed input handling, and updates `RELEASE_NOTES.md` with the prior release entry.
+
+### New Features
+
+* Added peer sharing so node to node connections can request peer addresses only when both sides advertise support, while interoperability coverage confirms the expected behavior against reference nodes.
+
+### Bug Fixes
+
+* Corrected distributed message validation so message IDs, wire formats, version handling, and peer behavior stay aligned with the latest `CIP-0137` expectations for safer integrations.
+* Refined `CBOR` panic recovery so unsupported map key cases still return clear decode errors while unexpected panics surface instead of being masked.
+
+### Additional Changes
+
+* Expanded metadata and message fuzzing so malformed inputs across metadata, auxiliary data, and protocol message decoding fail with errors instead of crashing.
+* Updated `RELEASE_NOTES.md` to add the prior `v0.169.0` release entry.
+
 ## v0.169.0 - CBOR decode diagnostics and protocol reliability
 
 - **Date:** 2026-05-12

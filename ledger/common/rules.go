@@ -189,9 +189,20 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 	)
 }
 
-// ValidateRequiredVKeyWitnesses checks that all required signers have a vkey witness.
+// ValidateRequiredVKeyWitnesses checks that all required key credentials have a
+// vkey witness. This includes explicitly required signers and key-based reward
+// withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
-	required := tx.RequiredSigners()
+	required := make([]Blake2b224, 0, len(tx.RequiredSigners())+len(tx.Withdrawals()))
+	required = append(required, tx.RequiredSigners()...)
+	for addr := range tx.Withdrawals() {
+		if addr == nil {
+			continue
+		}
+		if payload, ok := addr.StakingPayload().(AddressPayloadKeyHash); ok {
+			required = append(required, payload.Hash)
+		}
+	}
 	if len(required) == 0 {
 		return nil
 	}
@@ -207,6 +218,22 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 		if _, ok := vkeyHashes[req]; !ok {
 			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
 		}
+	}
+	return nil
+}
+
+// ValidateUnsupportedPlutusExecution fails closed when a transaction requires
+// phase-2 Plutus execution in an era that does not implement it.
+func ValidateUnsupportedPlutusExecution(tx Transaction, era string) error {
+	if !tx.IsValid() {
+		return nil
+	}
+	wits := tx.Witnesses()
+	if wits == nil || wits.Redeemers() == nil {
+		return nil
+	}
+	for range wits.Redeemers().Iter() {
+		return PlutusScriptValidationUnsupportedError{Era: era}
 	}
 	return nil
 }

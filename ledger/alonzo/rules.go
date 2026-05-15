@@ -52,6 +52,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateMaxTxSizeUtxo,
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateNativeScripts,
+	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
 }
@@ -141,6 +142,15 @@ func UtxoValidateExUnitsTooBigUtxo(
 		},
 		MaxTxExUnits: tmpPparams.MaxTxExUnits,
 	}
+}
+
+func UtxoValidatePlutusScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateUnsupportedPlutusExecution(tx, "Alonzo")
 }
 
 func UtxoValidateOutsideValidityIntervalUtxo(

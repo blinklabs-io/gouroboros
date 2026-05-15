@@ -38,6 +38,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func makeConwayRewardAddress(
+	t *testing.T,
+	keyHash common.Blake2b224,
+) common.Address {
+	t.Helper()
+	addrBytes := make([]byte, 0, 29)
+	addrBytes = append(addrBytes, 0xE1)
+	addrBytes = append(addrBytes, keyHash.Bytes()...)
+	addr, err := common.NewAddressFromBytes(addrBytes)
+	require.NoError(t, err)
+	return addr
+}
+
 func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 	// Required vkey witnesses
 	t.Run("no required signers", func(t *testing.T) {
@@ -90,6 +103,28 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			false,
 		)
 		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("key withdrawal requires matching vkey", func(t *testing.T) {
+		stakeVkey := []byte("stake-key")
+		stakeKeyHash := common.Blake2b224Hash(stakeVkey)
+		rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
+
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxWithdrawals = map[*common.Address]uint64{
+			&rewardAddr: 1_000_000,
+		}
+
+		err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, conway.MissingVKeyWitnessesError{}, err)
+
+		tx.WitnessSet.VkeyWitnesses = cbor.NewSetType(
+			[]common.VkeyWitness{{Vkey: stakeVkey}},
+			false,
+		)
+		err = conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, nil, nil)
 		assert.NoError(t, err)
 	})
 
@@ -307,6 +342,20 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 			assert.NoError(t, err)
 		},
 	)
+}
+
+func TestUtxoValidateExtraneousRedeemersUnknownTag(t *testing.T) {
+	redeemerKey := common.RedeemerKey{Tag: common.RedeemerTag(99)}
+	tx := &conway.ConwayTransaction{}
+	tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			redeemerKey: {},
+		},
+	}
+
+	err := conway.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+	require.Error(t, err)
+	assert.IsType(t, conway.ExtraRedeemerError{}, err)
 }
 
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
@@ -2119,6 +2168,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	var testTotalCollateral uint64 = 5_000_000
 	var testCollateralReturnAmountGood uint64 = 15_000_000
 	var testCollateralReturnAmountBad uint64 = 16_000_000
+	var testCollateralReturnAmountOverflow uint64 = 21_000_000
 	testTx := &conway.ConwayTransaction{
 		Body: conway.ConwayTransactionBody{
 			TxTotalCollateral: testTotalCollateral,
@@ -2171,6 +2221,32 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				err,
 				testErrType,
 			)
+		},
+	)
+	// Collateral return exceeds all consumed collateral
+	t.Run(
+		"collateral return exceeds collateral balance",
+		func(t *testing.T) {
+			testTx.Body.TxTotalCollateral = testInputAmount
+			defer func() { testTx.Body.TxTotalCollateral = testTotalCollateral }()
+			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: testCollateralReturnAmountOverflow,
+				},
+			}
+			err := conway.UtxoValidateCollateralEqBalance(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			require.Error(t, err)
+			assert.IsType(
+				t,
+				babbage.IncorrectTotalCollateralFieldError{},
+				err,
+			)
+			testTx.Body.TxTotalCollateral = testTotalCollateral
 		},
 	)
 	// Collateral equals balance

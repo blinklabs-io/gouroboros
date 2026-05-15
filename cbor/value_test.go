@@ -189,6 +189,46 @@ func TestValueDecode(t *testing.T) {
 	}
 }
 
+func TestValueDecodeMapWithUnhashableKeyIsWrapped(t *testing.T) {
+	// { [1]: 2 }
+	cborData := test.DecodeHexString("a1810102")
+
+	var tmpValue cbor.Value
+	_, err := cbor.Decode(cborData, &tmpValue)
+	if err != nil {
+		t.Fatalf("failed to decode CBOR map with unhashable key: %s", err)
+	}
+	valueMap, ok := tmpValue.Value().(map[any]any)
+	if !ok {
+		t.Fatalf("expected map[any]any, got: %T", tmpValue.Value())
+	}
+	if len(valueMap) != 1 {
+		t.Fatalf("expected one map item, got: %d", len(valueMap))
+	}
+	for key, value := range valueMap {
+		if reflect.TypeOf(key).Kind() != reflect.Ptr {
+			t.Fatalf("expected unhashable key to be wrapped as pointer, got: %T", key)
+		}
+		if value != uint64(2) {
+			t.Fatalf("unexpected map value: %#v", value)
+		}
+	}
+}
+
+func TestValueDecodeMapUnexpectedPanicIsNotSwallowed(t *testing.T) {
+	// { null: 1 }
+	cborData := test.DecodeHexString("a1f601")
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected unexpected panic to be re-panicked")
+		}
+	}()
+
+	var tmpValue cbor.Value
+	_, _ = cbor.Decode(cborData, &tmpValue)
+}
+
 func TestValueMarshalJSON(t *testing.T) {
 	for _, testDef := range testDefs {
 		// Skip test if the CBOR decode is expected to fail

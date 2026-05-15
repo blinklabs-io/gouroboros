@@ -135,6 +135,12 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 	}
 	msgAcceptVersion := msg.(*MsgAcceptVersion)
 	protoVersion := protocol.GetProtocolVersion(msgAcceptVersion.Version)
+	if protoVersion.NewVersionDataFromCborFunc == nil {
+		return fmt.Errorf(
+			"unsupported protocol version accepted by peer: %d",
+			msgAcceptVersion.Version,
+		)
+	}
 	versionData, err := protoVersion.NewVersionDataFromCborFunc(
 		msgAcceptVersion.VersionData,
 	)

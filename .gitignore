@@ -18,6 +18,8 @@
 
 # Temporary dir for testing
 /tmp/
+/internal/test/peersharing-interop/configs
+/internal/test/peersharing-interop/overlays
 
 # IDEs
 .idea/

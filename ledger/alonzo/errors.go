@@ -84,4 +84,5 @@ type (
 	ConflictingMetadataHashError             = common.ConflictingMetadataHashError
 	MissingCostModelError                    = common.MissingCostModelError
 	InvalidIsValidFlagError                  = common.InvalidIsValidFlagError
+	PlutusScriptValidationUnsupportedError   = common.PlutusScriptValidationUnsupportedError
 )

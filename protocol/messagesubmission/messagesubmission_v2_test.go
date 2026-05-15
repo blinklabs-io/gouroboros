@@ -107,7 +107,18 @@ func TestV1StateMapHasInitState(t *testing.T) {
 	)
 }
 
-func TestV1StateMapMsgDoneFromBlockingAndNonBlocking(t *testing.T) {
+func TestV1StateMapMsgDoneOnlyFromBlocking(t *testing.T) {
+	// StIdle must NOT have MsgDone in latest CIP-0137 V1.
+	idleEntry := stateMapV1[protocolStateIdle]
+	for _, tr := range idleEntry.Transitions {
+		assert.NotEqual(
+			t,
+			uint(MessageTypeDone),
+			tr.MsgType,
+			"V1 StIdle must not have MsgDone transition",
+		)
+	}
+
 	// StMessageIdsBlocking should have MsgDone
 	blockEntry := stateMapV1[protocolStateMessageIdsBlock]
 	hasDone := false
@@ -118,15 +129,16 @@ func TestV1StateMapMsgDoneFromBlockingAndNonBlocking(t *testing.T) {
 	}
 	assert.True(t, hasDone, "V1 StMessageIdsBlocking must have MsgDone transition")
 
-	// StMessageIdsNonBlocking should have MsgDone
+	// StMessageIdsNonBlocking must NOT have MsgDone
 	nonBlockEntry := stateMapV1[protocolStateMessageIdsNonBlk]
-	hasDone = false
 	for _, tr := range nonBlockEntry.Transitions {
-		if tr.MsgType == MessageTypeDone {
-			hasDone = true
-		}
+		assert.NotEqual(
+			t,
+			uint(MessageTypeDone),
+			tr.MsgType,
+			"V1 StMessageIdsNonBlocking must not have MsgDone transition",
+		)
 	}
-	assert.True(t, hasDone, "V1 StMessageIdsNonBlocking must have MsgDone transition")
 }
 
 // --- V2 client behavior tests ---
@@ -196,6 +208,18 @@ func TestV2VersionSelectsCorrectStateMap(t *testing.T) {
 	// V2 server (version 15)
 	v2Server := NewServer(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
 	assert.Equal(t, MessageSubmissionV2MinVersion, v2Server.protoVersion)
+}
+
+func TestDMQNtNVersionSelectsCorrectStateMap(t *testing.T) {
+	cfg := NewConfig()
+
+	v1Client := NewClient(newTestProtoOptions(protocol.ProtocolVersionDMQNtN1), &cfg)
+	assert.Equal(t, protocol.ProtocolVersionDMQNtN1, v1Client.protoVersion)
+	assert.False(t, isMessageSubmissionV2(v1Client.protoVersion))
+
+	v2Client := NewClient(newTestProtoOptions(protocol.ProtocolVersionDMQNtN2), &cfg)
+	assert.Equal(t, protocol.ProtocolVersionDMQNtN2, v2Client.protoVersion)
+	assert.True(t, isMessageSubmissionV2(v2Client.protoVersion))
 }
 
 func TestVersionZeroDefaultsToV1(t *testing.T) {

@@ -468,8 +468,8 @@ func (v *HeaderValidator) validateVRFKeyRegistration(
 		)
 	}
 
-	// Compute hash of the VRF key (Blake2b-224)
-	vrfKeyHash := common.Blake2b224Hash(input.VrfKey)
+	// Pool registrations store the canonical Blake2b-256 hash of the VRF key.
+	vrfKeyHash := common.Blake2b256Hash(input.VrfKey)
 
 	if !bytes.Equal(vrfKeyHash.Bytes(), input.RegisteredVrfKeyHash) {
 		return fmt.Errorf(

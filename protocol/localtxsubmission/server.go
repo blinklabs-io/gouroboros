@@ -30,6 +30,10 @@ type Server struct {
 
 // NewServer returns a new Server object
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
+	if cfg == nil {
+		tmpCfg := NewConfig()
+		cfg = &tmpCfg
+	}
 	s := &Server{
 		config: cfg,
 	}

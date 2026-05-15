@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
@@ -199,7 +200,12 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		return errors.New("message is nil")
 	}
 
-	// Step 1: Verify operational certificate validity
+	// Step 1: Verify deterministic message ID before heavier auth checks.
+	if err := m.verifyMessageID(msg); err != nil {
+		return fmt.Errorf("message ID verification failed: %w", err)
+	}
+
+	// Step 2: Verify operational certificate validity
 	if err := m.verifyOperationalCertificate(&msg.OperationalCertificate, msg.ColdVerificationKey); err != nil {
 		return fmt.Errorf(
 			"operational certificate verification failed: %w",
@@ -207,23 +213,18 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		)
 	}
 
-	// Step 2: Verify KES signature over message payload
+	// Step 3: Verify KES signature over message payload
 	if err := m.verifyKESSignature(msg, slot); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
-	// Step 3: Compute SPO pool ID from cold key and verify it's registered and active
+	// Step 4: Compute SPO pool ID from cold key and verify it's registered and active
 	poolID := m.computePoolID(msg.ColdVerificationKey)
 	m.mu.RLock()
 	registered := m.spoPoolIDs[poolID]
 	m.mu.RUnlock()
 	if !registered {
 		return fmt.Errorf("SPO pool %s is not registered or not active", poolID)
-	}
-
-	// Step 4: Verify message ID format and size constraints
-	if err := m.verifyMessageID(msg); err != nil {
-		return fmt.Errorf("message ID verification failed: %w", err)
 	}
 
 	// Step 5: Verify KES period rotation (opcert number doesn't go backwards)
@@ -292,15 +293,8 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		)
 	}
 
-	// Create CBOR encoding of the message payload as required by spec
-	payload := []any{
-		msg.Payload.MessageID,
-		msg.Payload.MessageBody,
-		msg.Payload.KESPeriod,
-		msg.Payload.ExpiresAt,
-	}
-
-	payloadCbor, err := cbor.Encode(payload)
+	// Create CBOR encoding of the message payload as required by spec.
+	payloadCbor, err := cbor.Encode(msg.Payload)
 	if err != nil {
 		return fmt.Errorf("failed to encode payload: %w", err)
 	}
@@ -380,19 +374,31 @@ func (m *MessageAuthenticator) verifyKESSignature(
 
 // verifyMessageID verifies the message ID format and size constraints.
 func (m *MessageAuthenticator) verifyMessageID(msg *DmqMessage) error {
-	if len(msg.Payload.MessageID) == 0 {
+	messageID := msg.ID()
+	if len(messageID) == 0 {
 		return errors.New("message ID cannot be empty")
 	}
 
-	if len(msg.Payload.MessageID) > 256 {
+	if len(messageID) != blake2b.Size256 {
 		return fmt.Errorf(
-			"message ID is too long: %d bytes",
-			len(msg.Payload.MessageID),
+			"message ID must be %d bytes, got %d",
+			blake2b.Size256,
+			len(messageID),
 		)
 	}
 
-	// In the actual implementation, message ID should be computed as a hash of the message
-	// For now, we just verify it exists and has reasonable size
+	expected, err := ComputeDmqMessageID(msg.Payload)
+	if err != nil {
+		return fmt.Errorf("failed to compute message ID: %w", err)
+	}
+	if !bytes.Equal(messageID, expected) {
+		return fmt.Errorf(
+			"message ID mismatch: expected %x, got %x",
+			expected,
+			messageID,
+		)
+	}
+	msg.SetMessageID(messageID)
 	return nil
 }
 
