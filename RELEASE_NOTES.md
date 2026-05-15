@@ -11,20 +11,20 @@ title: Release notes
 
 ### Summary
 
-This release hardens ledger validation for withdrawals, collateral returns, unknown Conway redeemer tags, and unsupported phase 2 validation paths, improves protocol reliability for DMQ draining, nil node to client configurations, and unsupported handshake versions, strengthens consensus and `CBOR` validation, corrects pipeline drain accounting, and includes documentation, regression test, and release notes maintenance updates.
+This release hardens validation for withdrawals, collateral returns, unknown action tags, and unsupported script validation paths, improves protocol reliability during message draining, startup configuration, and version negotiation, strengthens block and data validation, corrects pipeline drain accounting, and includes documentation, regression test, and release notes maintenance updates.
 
 ### Bug Fixes
 
 * Corrected withdrawal validation so key credential withdrawals require the matching witness before funds can move.
 * Strengthened collateral return checks so transactions fail when a collateral return exceeds the allowed amount.
-* Hardened consensus validation so non canonical blake2b VRF key hashes fail validation instead of slipping through.
-* Secured validation fallback behavior so unsupported phase 2 paths stop with a clear error instead of continuing.
+* Hardened block validation so non canonical leader proof key hashes fail validation instead of slipping through.
+* Secured validation fallback behavior so unsupported script validation paths stop with a clear error instead of continuing.
 * Stabilized handshake handling so unsupported versions fail cleanly without triggering nil crashes.
 * Normalized node to client setup so nil configurations no longer break constructor behavior.
-* Tightened Conway redeemer validation so unknown redeemer tags fail immediately with a clear error.
-* Refined `CBOR` decoding so duplicate map keys are rejected instead of being accepted silently.
+* Tightened action tag validation so unknown transaction action tags fail immediately with a clear error.
+* Refined data decoding so duplicate map keys are rejected instead of being accepted silently.
 * Balanced pipeline drain accounting so in flight apply work remains counted until drain completes.
-* Filtered DMQ notification drains so expired messages do not remain in drain results.
+* Filtered message drain results so expired notifications do not remain in returned results.
 
 ### Additional Changes
 
