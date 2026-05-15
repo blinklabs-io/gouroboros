@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release hardens validation for withdrawals, collateral returns, unknown action tags, and unsupported script validation paths, improves protocol reliability during message draining, startup configuration, and version negotiation, strengthens block and data validation, corrects pipeline drain accounting, and includes documentation, regression test, and release notes maintenance updates.
+This release hardens validation for withdrawals, collateral returns, unknown Conway redeemer tags, and unsupported script validation paths, improves protocol reliability during message draining, startup configuration, and version negotiation, strengthens block and data validation, corrects pipeline drain accounting, and includes documentation, regression test, and release notes maintenance updates.
 
 ### Bug Fixes
 
@@ -21,7 +21,7 @@ This release hardens validation for withdrawals, collateral returns, unknown act
 * Secured validation fallback behavior so unsupported script validation paths stop with a clear error instead of continuing.
 * Stabilized handshake handling so unsupported versions fail cleanly without triggering nil crashes.
 * Normalized node to client setup so nil configurations no longer break constructor behavior.
-* Tightened action tag validation so unknown transaction action tags fail immediately with a clear error.
+* Tightened Conway redeemer tag validation so unknown redeemer tags fail immediately with a clear error.
 * Refined data decoding so duplicate map keys are rejected instead of being accepted silently.
 * Balanced pipeline drain accounting so in flight apply work remains counted until drain completes.
 * Filtered message drain results so expired notifications do not remain in returned results.
