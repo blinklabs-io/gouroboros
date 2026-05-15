@@ -41,6 +41,7 @@ type ApplyStage struct {
 	pending map[uint64]*BlockItem
 	// nextSequence is the next sequence number to apply
 	nextSequence uint64
+	inFlight     int
 }
 
 // NewApplyStage creates a new ApplyStage with the given apply function.
@@ -123,6 +124,15 @@ func (s *ApplyStage) applyItem(ctx context.Context, item *BlockItem) {
 	default:
 	}
 
+	s.mu.Lock()
+	s.inFlight++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.inFlight--
+		s.mu.Unlock()
+	}()
+
 	start := time.Now()
 	var err error
 	if s.applyFunc != nil {
@@ -180,7 +190,7 @@ func (s *ApplyStage) Reset() {
 func (s *ApplyStage) PendingCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.pending)
+	return len(s.pending) + s.inFlight
 }
 
 // ApplyStageRunner runs the apply stage as a single goroutine.
