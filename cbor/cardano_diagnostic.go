@@ -245,10 +245,11 @@ func (w *cardanoWriter) writeTransaction(n *DiagnosticNode, depth int) {
 	w.b.WriteString("transaction [")
 	w.writeRange(n)
 	w.b.WriteString("\n")
+	labels := txArrayLabelsFor(n)
 	for i := range n.Children {
 		label := "extra"
-		if i < len(CardanoTxArrayLabels) {
-			label = CardanoTxArrayLabels[i]
+		if i < len(labels) {
+			label = labels[i]
 		}
 		w.b.WriteString(w.indent(depth + 1))
 		w.b.WriteString(label)
@@ -258,8 +259,6 @@ func (w *cardanoWriter) writeTransaction(n *DiagnosticNode, depth int) {
 			w.writeLabelledMap(&n.Children[i], CardanoTxBodyLabels, depth+1)
 		case "witness_set":
 			w.writeLabelledMap(&n.Children[i], CardanoWitnessLabels, depth+1)
-		case "auxiliary_data":
-			w.writeValue(&n.Children[i], depth+1)
 		default:
 			w.writeValue(&n.Children[i], depth+1)
 		}
@@ -270,6 +269,27 @@ func (w *cardanoWriter) writeTransaction(n *DiagnosticNode, depth int) {
 	}
 	w.b.WriteString(w.indent(depth))
 	w.b.WriteString("]")
+}
+
+// txArrayLabelsFor returns the field-label slice appropriate for the
+// transaction array shape. Alonzo introduced the is_valid bool at index 2,
+// shifting auxiliary_data from index 2 to index 3; pre-Alonzo transactions
+// are 3-element [body, witness_set, auxiliary_data]. We distinguish on
+// length, with a defensive type check on element 2 so a future shape change
+// (or a malformed payload) doesn't silently misname fields.
+func txArrayLabelsFor(n *DiagnosticNode) []string {
+	if len(n.Children) <= 3 {
+		return []string{"body", "witness_set", "auxiliary_data"}
+	}
+	// 4 or more elements: trust the Alonzo+ ordering only if element 2
+	// looks like a bool. Otherwise fall back to numeric-suffix labels so
+	// an unexpected layout shows up plainly in the output.
+	if n.Children[2].Type == DiagTypeSimple {
+		if _, ok := n.Children[2].Value.(bool); ok {
+			return CardanoTxArrayLabels
+		}
+	}
+	return []string{"body", "witness_set", "field_2", "auxiliary_data"}
 }
 
 func (w *cardanoWriter) writeBlock(n *DiagnosticNode, era int, depth int) {

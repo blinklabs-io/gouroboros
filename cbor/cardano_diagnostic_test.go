@@ -175,6 +175,36 @@ func TestFormatCardanoTransactionBodyLabels(t *testing.T) {
 	assert.Contains(t, out, "/ fee /")
 }
 
+func TestFormatCardanoTransactionPreAlonzoShape(t *testing.T) {
+	// Pre-Alonzo (Shelley/Allegra/Mary) transactions are 3-element
+	// [body, witness_set, auxiliary_data] — no is_valid bool.
+	// The third position must render as auxiliary_data, not is_valid.
+	body := "a1" + "02" + "1864" // {2: 100}
+	auxiliary := "a0"            // empty map stands in for aux data
+	tx := "83" + body + "a0" + auxiliary
+	data, err := hex.DecodeString(tx)
+	require.NoError(t, err)
+
+	out, err := cbor.FormatTransactionDiagnostic(data, cbor.DiagnosticOptions{})
+	require.NoError(t, err)
+	assert.Contains(t, out, "auxiliary_data: {}")
+	assert.NotContains(t, out, "is_valid:")
+}
+
+func TestFormatCardanoTransactionAlonzoShapeRequiresBool(t *testing.T) {
+	// 4-element tx where element 2 is *not* a bool must not be labelled
+	// is_valid — defensive fallback to a numeric-suffix label.
+	body := "a1" + "02" + "1864"
+	tx := "84" + body + "a0" + "1864" + "a0" // [body, ws, 100, {}]
+	data, err := hex.DecodeString(tx)
+	require.NoError(t, err)
+
+	out, err := cbor.FormatTransactionDiagnostic(data, cbor.DiagnosticOptions{})
+	require.NoError(t, err)
+	assert.NotContains(t, out, "is_valid: 100")
+	assert.Contains(t, out, "field_2: 100")
+}
+
 func TestFormatCardanoTransactionWithOffsets(t *testing.T) {
 	body := "a1" + "02" + "1864" // {2: 100}
 	tx := "82" + body + "a0"     // [body, {}]
