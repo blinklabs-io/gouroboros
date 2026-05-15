@@ -29,6 +29,10 @@ import (
 const (
 	ApplyTxErrorUtxowFailure = 0
 
+	// LEDGER incomplete withdrawals failure tags.
+	ShelleyLedgerIncompleteWithdrawals = 3
+	ConwayLedgerIncompleteWithdrawals  = 9
+
 	// Shelley UTXOW failure tags (also used by Allegra and Mary)
 	ShelleyUtxowInvalidWitnesses           = 0
 	ShelleyUtxowMissingVKeyWitnesses       = 1
@@ -404,14 +408,20 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 			return err
 		}
 		var newErr error
-		switch failureType {
-		case ApplyTxErrorUtxowFailure:
+		switch {
+		case failureType == ApplyTxErrorUtxowFailure:
 			// Use era-aware UTXOW failure decoding
 			utxowErr := &UtxowFailure{era: e.era}
 			if _, err := cbor.Decode(tmpFailure[1], utxowErr); err != nil {
 				return err
 			}
 			newErr = utxowErr
+		case isLedgerIncompleteWithdrawalsFailure(e.era, failureType):
+			incorrectWithdrawals := &IncorrectWithdrawals{}
+			if _, err := cbor.Decode(failure, incorrectWithdrawals); err != nil {
+				return err
+			}
+			newErr = incorrectWithdrawals
 		default:
 			if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
 				return err
@@ -425,6 +435,13 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		e.Failures = append(e.Failures, newErr)
 	}
 	return nil
+}
+
+func isLedgerIncompleteWithdrawalsFailure(era uint8, failureType int) bool {
+	if era == EraIdConway {
+		return failureType == ConwayLedgerIncompleteWithdrawals
+	}
+	return failureType == ShelleyLedgerIncompleteWithdrawals
 }
 
 func (e *ApplyTxError) Error() string {
@@ -867,6 +884,22 @@ func (e *WrongNetworkWithdrawal) Error() string {
 		"WrongNetworkWithdrawal (ExpectedNetworkId %d, RewardAccounts (%v))",
 		e.ExpectedNetworkId,
 		e.RewardAccounts.Value(),
+	)
+}
+
+// IncorrectWithdrawals represents withdrawal amounts that do not exactly match
+// their reward account balances.
+// CBOR: [tag, {account_address: [supplied_withdrawal, expected_balance]}]
+type IncorrectWithdrawals struct {
+	cbor.StructAsArray
+	Type        uint8
+	Withdrawals cbor.Value
+}
+
+func (e *IncorrectWithdrawals) Error() string {
+	return fmt.Sprintf(
+		"IncorrectWithdrawals (Withdrawals %v)",
+		e.Withdrawals.Value(),
 	)
 }
 
