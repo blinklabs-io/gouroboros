@@ -17,11 +17,13 @@ package localtxsubmission
 import (
 	"encoding/hex"
 	"fmt"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -110,5 +112,22 @@ func TestEncode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestServerNilConfigSubmitTxReturnsError(t *testing.T) {
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+	}, nil)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handleSubmitTx panicked: %v", r)
+		}
+	}()
+	if err := server.handleSubmitTx(NewMsgSubmitTx(0, nil)); err == nil {
+		t.Fatal("expected missing callback error")
 	}
 }

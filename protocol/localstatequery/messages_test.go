@@ -18,11 +18,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -207,6 +209,23 @@ func TestEncode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestServerNilConfigAcquireReturnsError(t *testing.T) {
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+	}, nil)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handleAcquire panicked: %v", r)
+		}
+	}()
+	if err := server.handleAcquire(&MsgAcquire{}); err == nil {
+		t.Fatal("expected missing callback error")
 	}
 }
 
