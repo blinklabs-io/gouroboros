@@ -7,7 +7,7 @@ title: Release notes
 ## v0.170.1 - ledger and protocol reliability fixes
 
 - **Date:** 2026-05-15
-- **Version:** v0.170.1
+- **Version:** 0.170.1
 
 ### Summary
 
