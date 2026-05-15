@@ -31,6 +31,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
@@ -1564,6 +1565,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 	var testTotalCollateral uint64 = 5_000_000
 	var testCollateralReturnAmountGood uint64 = 15_000_000
 	var testCollateralReturnAmountBad uint64 = 16_000_000
+	var testCollateralReturnAmountOverflow uint64 = 21_000_000
 	testTx := &babbage.BabbageTransaction{
 		Body: babbage.BabbageTransactionBody{
 			TxTotalCollateral: testTotalCollateral,
@@ -1619,6 +1621,31 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				err,
 				testErrType,
 			)
+		},
+	)
+	// Collateral return exceeds all consumed collateral
+	t.Run(
+		"collateral return exceeds collateral balance",
+		func(t *testing.T) {
+			testTx.Body.TxTotalCollateral = testInputAmount
+			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: testCollateralReturnAmountOverflow,
+				},
+			}
+			err := babbage.UtxoValidateCollateralEqBalance(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			require.Error(t, err)
+			assert.IsType(
+				t,
+				babbage.IncorrectTotalCollateralFieldError{},
+				err,
+			)
+			testTx.Body.TxTotalCollateral = testTotalCollateral
 		},
 	)
 	// Collateral equals balance
