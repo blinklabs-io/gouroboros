@@ -2228,6 +2228,7 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		"collateral return exceeds collateral balance",
 		func(t *testing.T) {
 			testTx.Body.TxTotalCollateral = testInputAmount
+			defer func() { testTx.Body.TxTotalCollateral = testTotalCollateral }()
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralReturnAmountOverflow,
