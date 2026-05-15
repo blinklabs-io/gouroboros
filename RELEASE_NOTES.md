@@ -26,6 +26,12 @@ This release hardens ledger validation for withdrawals, collateral returns, unkn
 * Balanced pipeline drain accounting so in flight apply work remains counted until drain completes.
 * Filtered DMQ notification drains so expired messages do not remain in drain results.
 
+### Additional Changes
+
+* Clarified block local verification guidance so library behavior is easier to interpret in embedded documentation.
+* Verified collateral return reset handling with regression coverage so later validation checks remain reliable.
+* Updated `RELEASE_NOTES.md` to add the prior `v0.170.0` release entry.
+
 ## v0.170.0 - peer sharing and protocol hardening
 
 - **Date:** 2026-05-14
