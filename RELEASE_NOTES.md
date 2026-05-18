@@ -4,6 +4,33 @@ title: Release notes
 
 # Release notes
 
+## v0.170.1 - ledger and protocol reliability fixes
+
+- **Date:** 2026-05-15
+- **Version:** 0.170.1
+
+### Summary
+
+This release hardens validation for withdrawals, collateral returns, unknown Conway redeemer tags, and unsupported script validation paths, improves protocol reliability during message draining, startup configuration, and version negotiation, strengthens block and data validation, corrects pipeline drain accounting, and includes documentation, regression test, and release notes maintenance updates.
+
+### Bug Fixes
+
+* Corrected withdrawal validation so key credential withdrawals require the matching witness before funds can move.
+* Strengthened collateral return checks so transactions fail when a collateral return exceeds the allowed amount.
+* Hardened block validation so non canonical leader proof key hashes fail validation instead of slipping through.
+* Secured validation fallback behavior so unsupported script validation paths stop with a clear error instead of continuing.
+* Stabilized handshake handling so unsupported versions fail cleanly without triggering nil crashes.
+* Normalized node to client setup so nil configurations no longer break constructor behavior.
+* Tightened Conway redeemer tag validation so unknown redeemer tags fail immediately with a clear error.
+* Refined data decoding so duplicate map keys are rejected instead of being accepted silently.
+* Balanced pipeline drain accounting so in flight apply work remains counted until drain completes.
+* Filtered message drain results so expired notifications do not remain in returned results.
+
+### Additional Changes
+
+* Clarified block local verification guidance so library behavior is easier to interpret in embedded documentation.
+* Verified collateral return reset handling with regression coverage so later validation checks remain reliable.
+
 ## v0.170.0 - peer sharing and protocol hardening
 
 - **Date:** 2026-05-14
