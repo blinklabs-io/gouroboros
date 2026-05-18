@@ -518,15 +518,23 @@ func (v *TTLValidator) ValidateMessageTTLAt(
 	}
 
 	nowUnix := now.Unix()
+	expiresAt := msg.Payload.ExpiresAt
+	// Reject `now` past the uint32 domain explicitly: clamping to MaxUint32
+	// would leave a message with expiresAt == MaxUint32 looking valid even
+	// though any uint32 expiresAt is strictly in the past relative to such
+	// a time.
+	if nowUnix > math.MaxUint32 {
+		return fmt.Errorf(
+			"message has expired: now=%d, expiresAt=%d",
+			nowUnix,
+			expiresAt,
+		)
+	}
 	if nowUnix < 0 {
 		nowUnix = 0
 	}
-	if nowUnix > math.MaxUint32 {
-		nowUnix = math.MaxUint32
-	}
-	// #nosec G115 -- clamped to [0, MaxUint32] above
+	// #nosec G115 -- bounded to [0, MaxUint32] above
 	nowSec := uint32(nowUnix)
-	expiresAt := msg.Payload.ExpiresAt
 
 	// Check if message has already expired
 	if nowSec > expiresAt {
