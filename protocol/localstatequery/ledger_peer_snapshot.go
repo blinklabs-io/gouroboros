@@ -106,6 +106,13 @@ type RelayAccessPoint struct {
 }
 
 func (r *RelayAccessPoint) UnmarshalCBOR(data []byte) error {
+	// Reset variant fields so decoding into a reused RelayAccessPoint
+	// cannot leak stale values from a previous decode (e.g. SRV inheriting
+	// a Port from a prior IPv4 payload).
+	r.IPv4 = nil
+	r.IPv6 = nil
+	r.Domain = nil
+	r.Port = nil
 	listLen, err := cbor.ListLength(data)
 	if err != nil {
 		return err

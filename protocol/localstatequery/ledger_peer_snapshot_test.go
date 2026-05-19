@@ -387,6 +387,67 @@ func TestGetLedgerPeerSnapshotVersionGate(t *testing.T) {
 	}
 }
 
+// TestGetLedgerPeerSnapshotRejectsInvalidPeerKind verifies the early-input
+// validation: calling with an enum value outside {All, Big} must return an
+// error without sending any wire traffic. The check sits before the busy
+// mutex so a bogus call from a misbehaving caller cannot stall the protocol.
+func TestGetLedgerPeerSnapshotRejectsInvalidPeerKind(t *testing.T) {
+	c := newClientWithVersion(19 + protocol.ProtocolVersionNtCOffset)
+	_, err := c.GetLedgerPeerSnapshot(LedgerPeerKind(7))
+	if err == nil {
+		t.Fatal("expected error for invalid peer kind, got nil")
+	}
+	if errors.Is(err, ErrLedgerPeerSnapshotUnsupportedVersion) {
+		t.Fatalf(
+			"got version error, expected invalid-peerKind error: %v",
+			err,
+		)
+	}
+}
+
+// TestRelayAccessPointResetsVariantFields ensures UnmarshalCBOR clears
+// stale variant fields when decoding into a previously-populated value.
+// Without the reset, decoding SRV into a struct that previously held an
+// IPv4 relay would leak the old Port and an old IPv4 pointer.
+func TestRelayAccessPointResetsVariantFields(t *testing.T) {
+	ipv4 := net.IPv4(192, 0, 2, 1).To4()
+	var r RelayAccessPoint
+	first, err := cbor.Encode(RelayAccessPoint{
+		Kind: RelayKindIPv4,
+		IPv4: ptrIP(ipv4),
+		Port: ptrUint16(3001),
+	})
+	if err != nil {
+		t.Fatalf("encode ipv4: %s", err)
+	}
+	if _, err := cbor.Decode(first, &r); err != nil {
+		t.Fatalf("decode ipv4: %s", err)
+	}
+	// Now decode an SRV payload into the same struct.
+	second, err := cbor.Encode(RelayAccessPoint{
+		Kind:   RelayKindSRV,
+		Domain: ptrStr("_cardano._tcp.example"),
+	})
+	if err != nil {
+		t.Fatalf("encode srv: %s", err)
+	}
+	if _, err := cbor.Decode(second, &r); err != nil {
+		t.Fatalf("decode srv: %s", err)
+	}
+	if r.Kind != RelayKindSRV {
+		t.Fatalf("kind: got %d want SRV", r.Kind)
+	}
+	if r.IPv4 != nil {
+		t.Fatalf("stale IPv4 leaked into SRV decode")
+	}
+	if r.IPv6 != nil {
+		t.Fatalf("stale IPv6 leaked into SRV decode")
+	}
+	if r.Port != nil {
+		t.Fatalf("stale Port leaked into SRV decode")
+	}
+}
+
 // TestLedgerPeerSnapshotRoundTrip verifies encode/decode symmetry on a
 // snapshot constructed in Go.
 func TestLedgerPeerSnapshotRoundTrip(t *testing.T) {

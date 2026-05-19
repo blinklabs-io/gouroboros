@@ -110,13 +110,34 @@ func TestGetLedgerPeerSnapshotIntegration(t *testing.T) {
 				if r.IPv4 == nil || r.Port == nil {
 					t.Fatalf("pool %d relay %d: IPv4 missing fields", i, j)
 				}
+				if r.IPv6 != nil || r.Domain != nil {
+					t.Fatalf(
+						"pool %d relay %d: IPv4 has incompatible fields set",
+						i,
+						j,
+					)
+				}
 			case localstatequery.RelayKindIPv6:
 				if r.IPv6 == nil || r.Port == nil {
 					t.Fatalf("pool %d relay %d: IPv6 missing fields", i, j)
 				}
+				if r.IPv4 != nil || r.Domain != nil {
+					t.Fatalf(
+						"pool %d relay %d: IPv6 has incompatible fields set",
+						i,
+						j,
+					)
+				}
 			case localstatequery.RelayKindDomain:
 				if r.Domain == nil || r.Port == nil {
 					t.Fatalf("pool %d relay %d: Domain missing fields", i, j)
+				}
+				if r.IPv4 != nil || r.IPv6 != nil {
+					t.Fatalf(
+						"pool %d relay %d: Domain has incompatible fields set",
+						i,
+						j,
+					)
 				}
 			case localstatequery.RelayKindSRV:
 				if r.Domain == nil {
@@ -124,6 +145,13 @@ func TestGetLedgerPeerSnapshotIntegration(t *testing.T) {
 				}
 				if r.Port != nil {
 					t.Fatalf("pool %d relay %d: SRV must not carry port", i, j)
+				}
+				if r.IPv4 != nil || r.IPv6 != nil {
+					t.Fatalf(
+						"pool %d relay %d: SRV has incompatible fields set",
+						i,
+						j,
+					)
 				}
 			default:
 				t.Fatalf("pool %d relay %d: unknown kind %d", i, j, r.Kind)

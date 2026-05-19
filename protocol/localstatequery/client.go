@@ -1276,6 +1276,11 @@ func (c *Client) GetLedgerPeerSnapshot(
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	switch peerKind {
+	case LedgerPeerKindAll, LedgerPeerKindBig:
+	default:
+		return nil, fmt.Errorf("invalid LedgerPeerKind: %d", peerKind)
+	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	if !c.enableGetLedgerPeerSnapshot {
