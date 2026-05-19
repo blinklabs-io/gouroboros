@@ -43,8 +43,8 @@ func TestBlockTypeFromEra(t *testing.T) {
 		{"alonzo", ledger.BlockTypeAlonzo, false},
 		{"babbage", ledger.BlockTypeBabbage, false},
 		{"conway", ledger.BlockTypeConway, false},
-		{"Conway", ledger.BlockTypeConway, false}, // case insensitive
-		{"BYRON", ledger.BlockTypeByronMain, false},  // case insensitive
+		{"Conway", ledger.BlockTypeConway, false},   // case insensitive
+		{"BYRON", ledger.BlockTypeByronMain, false}, // case insensitive
 		{"unknown", 0, true},
 	}
 
@@ -74,8 +74,8 @@ func TestTxTypeFromEra(t *testing.T) {
 		{"alonzo", ledger.TxTypeAlonzo, false},
 		{"babbage", ledger.TxTypeBabbage, false},
 		{"conway", ledger.TxTypeConway, false},
-		{"Conway", ledger.TxTypeConway, false},    // case insensitive
-		{"BYRON", ledger.TxTypeByron, false},       // case insensitive
+		{"Conway", ledger.TxTypeConway, false}, // case insensitive
+		{"BYRON", ledger.TxTypeByron, false},   // case insensitive
 		{"unknown", 0, true},
 	}
 

@@ -375,13 +375,13 @@ var expectedGenesisObj = conway.ConwayGenesis{
 		Rat: new(big.Rat).SetUint64(15),
 	},
 	Delegs: map[*common.Credential]conway.ConwayGenesisDelegatee{
-		&common.Credential{
+		{
 			CredType: common.CredentialTypeAddrKeyHash,
 			Credential: func() common.Blake2b224 {
 				foo, _ := hex.DecodeString(`95936e06ca168da5788019e78625166a2ea47bea1f2537ffd88ab426`)
 				return common.Blake2b224(foo)
 			}(),
-		}: conway.ConwayGenesisDelegatee{
+		}: {
 			Type: conway.ConwayGenesisDelegateeTypeVote,
 			DRep: common.Drep{
 				Type: common.DrepTypeAddrKeyHash,
@@ -393,13 +393,13 @@ var expectedGenesisObj = conway.ConwayGenesis{
 		},
 	},
 	InitialDReps: map[*common.Credential]conway.ConwayGenesisDRepState{
-		&common.Credential{
+		{
 			CredType: common.CredentialTypeAddrKeyHash,
 			Credential: func() common.Blake2b224 {
 				foo, _ := hex.DecodeString(`4959a3d07075fe7d86bda0ce93e334950c4243729a77968cd4c37abf`)
 				return common.Blake2b224(foo)
 			}(),
-		}: conway.ConwayGenesisDRepState{
+		}: {
 			Deposit: 500000000,
 			Expiry:  1000,
 		},
