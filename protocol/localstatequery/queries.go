@@ -74,6 +74,22 @@ const (
 	QueryTypeShelleySPOStakeDistr          = 30
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
+
+	// GetLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node 10.7+).
+	// The v15+ wire layout includes a peer-kind byte: [34, peerKindTag].
+	QueryTypeShelleyGetLedgerPeerSnapshot = 34
+)
+
+// LedgerPeerKind selects which ledger peers the snapshot covers.
+// This corresponds to the Haskell SingLedgerPeersKind GADT in
+// ouroboros-network: SingAllLedgerPeers selects the full set of pools used
+// for general peer discovery, while SingBigLedgerPeers selects only big
+// (i.e. high-stake) pools used by the diffusion layer for Genesis.
+type LedgerPeerKind int
+
+const (
+	LedgerPeerKindAll LedgerPeerKind = 0 // SingAllLedgerPeers
+	LedgerPeerKindBig LedgerPeerKind = 1 // SingBigLedgerPeers
 )
 
 // simpleQueryBase is a helper type used for various query types
@@ -219,6 +235,7 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
 			QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
 			QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
+			QueryTypeShelleyGetLedgerPeerSnapshot:  &ShelleyGetLedgerPeerSnapshotQuery{},
 		},
 	)
 	if err != nil {
@@ -978,6 +995,18 @@ type ShelleyGetProposalsQuery struct {
 
 type ShelleyGetRatifyStateQuery struct {
 	simpleQueryBase
+}
+
+// ShelleyGetLedgerPeerSnapshotQuery is the request payload for
+// QueryTypeShelleyGetLedgerPeerSnapshot. The PeerKind field selects the
+// ledger-peer set: LedgerPeerKindAll (default; SingAllLedgerPeers) or
+// LedgerPeerKindBig (SingBigLedgerPeers). The PeerKind byte is the v15+
+// extension; older encodings used a one-element list (no PeerKind) but the
+// query was only exposed at NtC v19+, so the byte is always present.
+type ShelleyGetLedgerPeerSnapshotQuery struct {
+	cbor.StructAsArray
+	Type     int
+	PeerKind LedgerPeerKind
 }
 
 // Conway governance result types

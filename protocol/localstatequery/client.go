@@ -34,6 +34,7 @@ type Client struct {
 	enableGetChainBlockNo         bool
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
+	enableGetLedgerPeerSnapshot   bool
 	busyMutex                     sync.Mutex
 	acquired                      bool
 	queryResultChan               chan []byte
@@ -90,6 +91,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 11 {
 		c.enableGetRewardInfoPoolsBlock = true
+	}
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 19 {
+		c.enableGetLedgerPeerSnapshot = true
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
@@ -1242,6 +1246,51 @@ func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
 		QueryTypeShelleyGetRatifyState,
 	)
 	var result RatifyStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetLedgerPeerSnapshot returns the ledger peer snapshot used by
+// node-to-node peer discovery (introduced at node-to-client protocol version
+// 19 / cardano-node 10.7). The PeerKind argument selects which set of pools
+// the snapshot covers: LedgerPeerKindAll (SingAllLedgerPeers) is what
+// cardano-node uses for its general ledger-peer feed; LedgerPeerKindBig
+// (SingBigLedgerPeers) restricts the response to the high-stake "big" pools
+// used by Genesis diffusion.
+//
+// The returned LedgerPeerSnapshotResult preserves the snapshot slot (or
+// origin), each pool's accumulated and own stake, and the typed list of
+// relay endpoints (IPv4, IPv6, A-record domain, SRV domain).
+//
+// Returns ErrLedgerPeerSnapshotUnsupportedVersion if the negotiated
+// node-to-client protocol version does not advertise the query.
+func (c *Client) GetLedgerPeerSnapshot(
+	peerKind LedgerPeerKind,
+) (*LedgerPeerSnapshotResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetLedgerPeerSnapshot(peerKind: %d)", peerKind),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	if !c.enableGetLedgerPeerSnapshot {
+		return nil, ErrLedgerPeerSnapshotUnsupportedVersion
+	}
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyGetLedgerPeerSnapshot,
+		int(peerKind),
+	)
+	var result LedgerPeerSnapshotResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
