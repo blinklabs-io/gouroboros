@@ -323,7 +323,9 @@ func TestLedgerPeerSnapshotGolden(t *testing.T) {
 // dropping fields.
 func TestLedgerPeerSnapshotRejectsUnknownVersion(t *testing.T) {
 	// [1, [[0], []]]  -- version 1 (unknown), origin, no pools
-	wire, err := hex.DecodeString("82018281008080")
+	//   82 01            outer list-2, version=1
+	//     82 81 00 80    inner [WithOriginSlot Origin, empty pools]
+	wire, err := hex.DecodeString("820182810080")
 	if err != nil {
 		t.Fatalf("hex: %s", err)
 	}
@@ -387,6 +389,100 @@ func TestGetLedgerPeerSnapshotVersionGate(t *testing.T) {
 	}
 }
 
+// TestServerGetLedgerPeerSnapshotVersionGate verifies that the server-side
+// gate rejects GetLedgerPeerSnapshot queries on connections whose
+// negotiated NtC protocol version is below 19. The QueryFunc callback
+// must not be invoked for a rejected query: the gate sits between
+// MsgQuery dispatch and the user callback so that downstream consumers
+// (e.g. dingo) cannot accidentally service queries the wire-level
+// negotiation said should be unavailable.
+func TestServerGetLedgerPeerSnapshotVersionGate(t *testing.T) {
+	queryFuncCalled := false
+	cfg := NewConfig(
+		WithQueryFunc(func(_ CallbackContext, _ QueryWrapper) (any, error) {
+			queryFuncCalled = true
+			return nil, nil
+		}),
+	)
+	s := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+		// NtC v18: GetLedgerPeerSnapshot not yet advertised
+		Version: 18 + protocol.ProtocolVersionNtCOffset,
+	}, &cfg)
+	if s.enableGetLedgerPeerSnapshot {
+		t.Fatal("expected enableGetLedgerPeerSnapshot=false at NtC v18")
+	}
+	msg := NewMsgQuery(&BlockQuery{
+		Query: &ShelleyQuery{
+			Era: 6,
+			Query: &ShelleyGetLedgerPeerSnapshotQuery{
+				Type:     QueryTypeShelleyGetLedgerPeerSnapshot,
+				PeerKind: LedgerPeerKindAll,
+			},
+		},
+	})
+	if err := s.handleQuery(msg); err == nil {
+		t.Fatal("expected gate error, got nil")
+	}
+	if queryFuncCalled {
+		t.Fatal("gate failed: QueryFunc was invoked despite NtC v18")
+	}
+}
+
+// TestServerIsLedgerPeerSnapshotQuery exercises the leaf-detection helper
+// directly: it must return true only when the QueryWrapper chain ends in
+// *ShelleyGetLedgerPeerSnapshotQuery, and false for any other shape
+// (other Shelley sub-queries, top-level queries).
+func TestServerIsLedgerPeerSnapshotQuery(t *testing.T) {
+	cases := []struct {
+		name string
+		w    QueryWrapper
+		want bool
+	}{
+		{
+			name: "ledger_peer_snapshot",
+			w: QueryWrapper{
+				Query: &BlockQuery{
+					Query: &ShelleyQuery{
+						Era: 6,
+						Query: &ShelleyGetLedgerPeerSnapshotQuery{
+							Type: QueryTypeShelleyGetLedgerPeerSnapshot,
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "other_shelley_query",
+			w: QueryWrapper{
+				Query: &BlockQuery{
+					Query: &ShelleyQuery{
+						Era:   6,
+						Query: &ShelleyLedgerTipQuery{},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "top_level_chain_point",
+			w:    QueryWrapper{Query: &ChainPointQuery{}},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isLedgerPeerSnapshotQuery(tc.w); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestGetLedgerPeerSnapshotRejectsInvalidPeerKind verifies the early-input
 // validation: calling with an enum value outside {All, Big} must return an
 // error without sending any wire traffic. The check sits before the busy
@@ -445,6 +541,93 @@ func TestRelayAccessPointResetsVariantFields(t *testing.T) {
 	}
 	if r.Port != nil {
 		t.Fatalf("stale Port leaked into SRV decode")
+	}
+}
+
+// newServerWithVersion is a test-only helper that constructs a Server
+// without starting its underlying protocol goroutines, mirroring
+// newClientWithVersion.
+func newServerWithVersion(
+	version uint16,
+	queryFunc QueryFunc,
+) *Server {
+	cfg := NewConfig(WithQueryFunc(queryFunc))
+	opts := protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+		Version: version,
+	}
+	return NewServer(opts, &cfg)
+}
+
+// TestServerRejectsLedgerPeerSnapshotPreV19 verifies the server-side
+// version gate: a GetLedgerPeerSnapshot query received over an NtC v18
+// connection must be rejected before the user-supplied QueryFunc is
+// invoked. This is the symmetric guard to the client-side gate so a
+// pre-v19 peer cannot route an unsupported query into application code.
+func TestServerRejectsLedgerPeerSnapshotPreV19(t *testing.T) {
+	called := false
+	queryFunc := func(_ CallbackContext, _ QueryWrapper) (any, error) {
+		called = true
+		return nil, nil
+	}
+	s := newServerWithVersion(
+		18+protocol.ProtocolVersionNtCOffset,
+		queryFunc,
+	)
+	msg := NewMsgQuery(
+		&BlockQuery{
+			Query: &ShelleyQuery{
+				Era: 6,
+				Query: &ShelleyGetLedgerPeerSnapshotQuery{
+					Type:     QueryTypeShelleyGetLedgerPeerSnapshot,
+					PeerKind: LedgerPeerKindAll,
+				},
+			},
+		},
+	)
+	err := s.handleQuery(msg)
+	if err == nil {
+		t.Fatal("expected handleQuery to reject pre-v19 ledger-peer-snapshot")
+	}
+	if called {
+		t.Fatal("QueryFunc must not be invoked when the version gate trips")
+	}
+}
+
+// TestServerLedgerPeerSnapshotVersionGate verifies the NtC v19 boundary
+// on the server side: the enable flag must be off below v19 and on at
+// v19+. Driving handleQuery end-to-end at v19 would block on SendMessage
+// (no muxer is wired in these unit tests), so we assert the flag state
+// directly; TestServerRejectsLedgerPeerSnapshotPreV19 exercises the
+// rejection-path semantics.
+func TestServerLedgerPeerSnapshotVersionGate(t *testing.T) {
+	cases := []struct {
+		name    string
+		ntcVer  uint16
+		enabled bool
+	}{
+		{"ntc_v18", 18 + protocol.ProtocolVersionNtCOffset, false},
+		{"ntc_v19", 19 + protocol.ProtocolVersionNtCOffset, true},
+		{"ntc_v20", 20 + protocol.ProtocolVersionNtCOffset, true},
+	}
+	noop := func(_ CallbackContext, _ QueryWrapper) (any, error) {
+		return nil, nil
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newServerWithVersion(tc.ntcVer, noop)
+			if s.enableGetLedgerPeerSnapshot != tc.enabled {
+				t.Fatalf(
+					"version %d: enableGetLedgerPeerSnapshot=%v want %v",
+					tc.ntcVer,
+					s.enableGetLedgerPeerSnapshot,
+					tc.enabled,
+				)
+			}
+		})
 	}
 }
 

@@ -30,6 +30,7 @@ type Server struct {
 	enableGetChainBlockNo         bool
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
+	enableGetLedgerPeerSnapshot   bool
 }
 
 // NewServer returns a new LocalStateQuery server object
@@ -66,8 +67,28 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 11 {
 		s.enableGetRewardInfoPoolsBlock = true
 	}
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 19 {
+		s.enableGetLedgerPeerSnapshot = true
+	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
+}
+
+// isLedgerPeerSnapshotQuery reports whether the given decoded query
+// wrapper holds a GetLedgerPeerSnapshot leaf. The query lives under
+// BlockQuery -> ShelleyQuery -> ShelleyGetLedgerPeerSnapshotQuery, so we
+// walk that chain rather than re-decoding the raw CBOR.
+func isLedgerPeerSnapshotQuery(w QueryWrapper) bool {
+	bq, ok := w.Query.(*BlockQuery)
+	if !ok {
+		return false
+	}
+	sq, ok := bq.Query.(*ShelleyQuery)
+	if !ok {
+		return false
+	}
+	_, ok = sq.Query.(*ShelleyGetLedgerPeerSnapshotQuery)
+	return ok
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -159,6 +180,16 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 		)
 	}
 	msgQuery := msg.(*MsgQuery)
+	// Reject queries that the negotiated NtC protocol version does not
+	// advertise, before the user callback ever sees them. The decoder map
+	// in QueryWrapper accepts sub-tag 34 on any connection, so the gate
+	// has to live here.
+	if !s.enableGetLedgerPeerSnapshot && isLedgerPeerSnapshotQuery(msgQuery.Query) {
+		return fmt.Errorf(
+			"%s: received GetLedgerPeerSnapshot query but negotiated NtC protocol version is older than 19",
+			ProtocolName,
+		)
+	}
 	// Call the user callback function
 	result, err := s.config.QueryFunc(s.callbackContext, msgQuery.Query)
 	if err != nil {
