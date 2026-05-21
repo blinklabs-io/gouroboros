@@ -55,6 +55,25 @@ const (
 	ByronAddressTypeRedeem = 2
 )
 
+// init registers a bech32/base58 address formatter with the cbor package so
+// AnnotateAddresses and the Cardano-aware diagnostic formatters can render
+// raw address byte strings in their human-readable form. The hook is
+// best-effort: it only fires for byte strings that successfully parse as an
+// Address; anything else falls through unannotated.
+func init() {
+	cbor.RegisterAddressFormatter(func(b []byte) (string, bool) {
+		addr, err := NewAddressFromBytes(b)
+		if err != nil {
+			return "", false
+		}
+		s := addr.String()
+		if s == "" {
+			return "", false
+		}
+		return s, true
+	})
+}
+
 type AddrKeyHash = Blake2b224
 
 type Address struct {

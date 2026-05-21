@@ -30,10 +30,13 @@ type AddressFormatter func(addr []byte) (string, bool)
 
 var addressFormatter atomic.Pointer[AddressFormatter]
 
-// RegisterAddressFormatter installs a hook used by AnnotateAddresses and the
-// Cardano-aware formatters to convert raw address byte strings into their
-// bech32/base58 representation. The ledger/common package wires in the real
-// implementation during init; passing nil clears the hook.
+// RegisterAddressFormatter installs a hook used by AnnotateAddresses and
+// the Cardano-aware formatters to convert raw address byte strings into
+// their bech32/base58 representation. The ledger/common package registers
+// the production formatter in its init(), so consumers that import the
+// ledger package get annotations for free; consumers using the cbor
+// package in isolation must call this themselves. Passing nil clears the
+// hook.
 func RegisterAddressFormatter(fn AddressFormatter) {
 	if fn == nil {
 		addressFormatter.Store(nil)
@@ -90,11 +93,29 @@ func FormatBlockDiagnostic(
 	inner := node
 	era := -1
 	if inner.Type == DiagTypeTag {
-		// Block CBOR is sometimes wrapped in tag 24 (encoded CBOR).
-		if len(inner.Children) == 0 {
-			return "", errors.New("empty tag-wrapped block")
+		// Tag 24 wraps a byte string whose contents are an embedded CBOR
+		// item — we have to decode that payload before we can walk it.
+		// Other tag wrappers (rare for blocks) are unwrapped to their
+		// single CBOR child directly.
+		if inner.Tag != nil && *inner.Tag == CborTagCbor {
+			if len(inner.Children) == 0 || inner.Children[0].Type != DiagTypeBytes {
+				return "", errors.New("tag-24 block payload is not a byte string")
+			}
+			payload, ok := inner.Children[0].Value.([]byte)
+			if !ok {
+				return "", errors.New("tag-24 block payload missing bytes")
+			}
+			decoded, err := ParseDiagnostic(payload)
+			if err != nil {
+				return "", fmt.Errorf("decode tag-24 block payload: %w", err)
+			}
+			inner = decoded
+		} else {
+			if len(inner.Children) == 0 {
+				return "", errors.New("empty tag-wrapped block")
+			}
+			inner = &inner.Children[0]
 		}
-		inner = &inner.Children[0]
 	}
 	if inner.Type == DiagTypeArray && len(inner.Children) == 2 {
 		if eraNode := &inner.Children[0]; eraNode.Type == DiagTypeUint {
@@ -530,7 +551,31 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 	}
 	switch n.Type {
 	case DiagTypeArray:
-		w.writeArray(n, depth)
+		// Recurse through writePlutusData for each element so nested
+		// constructors (including tag 102) keep their Constr_N(...) form.
+		if len(n.Children) == 0 {
+			w.b.WriteString("[]")
+			return
+		}
+		w.b.WriteString("[\n")
+		limit := len(n.Children)
+		if w.opts.MaxArrayItems > 0 && limit > w.opts.MaxArrayItems {
+			limit = w.opts.MaxArrayItems
+		}
+		for i := 0; i < limit; i++ {
+			w.b.WriteString(w.indent(depth + 1))
+			w.writePlutusData(&n.Children[i], depth+1)
+			if i < len(n.Children)-1 {
+				w.b.WriteString(",")
+			}
+			w.b.WriteString("\n")
+		}
+		if limit < len(n.Children) {
+			w.b.WriteString(w.indent(depth + 1))
+			w.b.WriteString("...\n")
+		}
+		w.b.WriteString(w.indent(depth))
+		w.b.WriteString("]")
 	case DiagTypeMap:
 		// Plutus maps are written as {k: v, ...} but values may themselves
 		// be Plutus data: recurse with writePlutusData.

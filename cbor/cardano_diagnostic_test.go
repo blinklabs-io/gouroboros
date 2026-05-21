@@ -141,6 +141,26 @@ func TestFormatCardanoPlutusDataGeneralConstructor(t *testing.T) {
 	assert.Contains(t, out, "Constr_7([")
 }
 
+func TestFormatCardanoPlutusDataNestedConstructorInArray(t *testing.T) {
+	// Outer: tag 121 (Constr_0) wrapping array containing
+	//   - tag 122 (Constr_1) wrapping []
+	//   - tag 102 [3, []] (general Constr_3)
+	// Expect both inner constructors to render as Constr_N(...) form.
+	// d879 = tag(121)
+	// 82   = array(2) — outer constructor payload
+	// d87a 80 = tag(122) [] = Constr_1([])
+	// d866 82 03 80 = tag(102) [3, []]
+	data, err := hex.DecodeString(
+		"d879" + "82" + "d87a80" + "d8668203" + "80",
+	)
+	require.NoError(t, err)
+	out, err := cbor.FormatPlutusData(data, cbor.DiagnosticOptions{})
+	require.NoError(t, err)
+	assert.Contains(t, out, "Constr_0([")
+	assert.Contains(t, out, "Constr_1([")
+	assert.Contains(t, out, "Constr_3([")
+}
+
 func TestFormatCardanoPlutusDataPrimitive(t *testing.T) {
 	// Plain integer 42 — should round-trip through the formatter.
 	data, err := hex.DecodeString("182a")
@@ -243,6 +263,34 @@ func TestFormatCardanoBlockLabels(t *testing.T) {
 	assert.Contains(t, out, "transaction_bodies: []")
 	assert.Contains(t, out, "transaction_witnesses: []")
 	assert.Contains(t, out, "auxiliary_data_set: {}")
+	assert.Contains(t, out, "invalid_transactions: []")
+}
+
+func TestFormatCardanoBlockTag24Wrapped(t *testing.T) {
+	// inner block = [header, [], [], {}, []]
+	// header = 81 00
+	inner := "85" + "8100" + "80" + "80" + "a0" + "80"
+	innerBytes, err := hex.DecodeString(inner)
+	require.NoError(t, err)
+
+	// Wrap inner as a byte string under tag 24 (CborTagCbor).
+	// tag(24) = 0xd8 0x18; byte string of len(innerBytes) — use 0x58 lN form.
+	var wrapped []byte
+	wrapped = append(wrapped, 0xd8, 0x18)
+	if len(innerBytes) < 24 {
+		wrapped = append(wrapped, 0x40|byte(len(innerBytes)))
+	} else if len(innerBytes) <= 0xff {
+		wrapped = append(wrapped, 0x58, byte(len(innerBytes)))
+	} else {
+		t.Fatalf("inner too large for test helper")
+	}
+	wrapped = append(wrapped, innerBytes...)
+
+	out, err := cbor.FormatBlockDiagnostic(wrapped, cbor.DiagnosticOptions{})
+	require.NoError(t, err)
+	assert.Contains(t, out, "block [")
+	assert.Contains(t, out, "header:")
+	assert.Contains(t, out, "transaction_bodies: []")
 	assert.Contains(t, out, "invalid_transactions: []")
 }
 
