@@ -492,7 +492,24 @@ func NewNoOpTTLValidator(logger *slog.Logger) *TTLValidator {
 }
 
 // ValidateMessageTTL checks if a message's expiration is valid (not expired and not too far in future).
+// It evaluates the message against the current wall-clock time. For deterministic
+// evaluation against a caller-supplied time, use [TTLValidator.ValidateMessageTTLAt].
 func (v *TTLValidator) ValidateMessageTTL(msg *DmqMessage) error {
+	return v.ValidateMessageTTLAt(msg, time.Now())
+}
+
+// ValidateMessageTTLAt checks if a message's expiration is valid (not expired and not too far in future)
+// when evaluated at the provided point in time. This variant lets callers pin the
+// evaluation moment explicitly, which is useful for tests, deterministic replay,
+// or evaluating messages against a clock that is not the local wall clock.
+//
+// A disabled (no-op) validator returns nil regardless of the message or now value.
+// A nil message returns an error. Otherwise the same max-TTL and expired/too-far-future
+// rules used by [TTLValidator.ValidateMessageTTL] apply.
+func (v *TTLValidator) ValidateMessageTTLAt(
+	msg *DmqMessage,
+	now time.Time,
+) error {
 	if v.disabled {
 		return nil
 	}
@@ -500,15 +517,30 @@ func (v *TTLValidator) ValidateMessageTTL(msg *DmqMessage) error {
 		return errors.New("message is nil")
 	}
 
-	// #nosec G115 -- Unix timestamp will not overflow uint32 until year 2106
-	now := uint32(time.Now().Unix())
+	nowUnix := now.Unix()
 	expiresAt := msg.Payload.ExpiresAt
-
-	// Check if message has already expired
-	if now > expiresAt {
+	// Reject `now` past the uint32 domain explicitly: clamping to MaxUint32
+	// would leave a message with expiresAt == MaxUint32 looking valid even
+	// though any uint32 expiresAt is strictly in the past relative to such
+	// a time.
+	if nowUnix > math.MaxUint32 {
 		return fmt.Errorf(
 			"message has expired: now=%d, expiresAt=%d",
-			now,
+			nowUnix,
+			expiresAt,
+		)
+	}
+	if nowUnix < 0 {
+		nowUnix = 0
+	}
+	// #nosec G115 -- bounded to [0, MaxUint32] above
+	nowSec := uint32(nowUnix)
+
+	// Check if message has already expired
+	if nowSec > expiresAt {
+		return fmt.Errorf(
+			"message has expired: now=%d, expiresAt=%d",
+			nowSec,
 			expiresAt,
 		)
 	}
@@ -516,7 +548,7 @@ func (v *TTLValidator) ValidateMessageTTL(msg *DmqMessage) error {
 	// Check if expiration is too far in the future (protocol violation).
 	// Compute in uint64 to avoid overflow when adding TTL seconds to current time.
 	maxAllowedTTLSeconds := uint64(v.maxAllowedTTL.Seconds())
-	nowUint64 := uint64(now)
+	nowUint64 := uint64(nowSec)
 	maxAllowedExpirationUint64 := min(
 		nowUint64+maxAllowedTTLSeconds,
 		math.MaxUint32,
@@ -526,7 +558,7 @@ func (v *TTLValidator) ValidateMessageTTL(msg *DmqMessage) error {
 	if expiresAt > maxAllowedExpiration {
 		return fmt.Errorf(
 			"message expiration too far in future: now=%d, expiresAt=%d, max_allowed=%d",
-			now,
+			nowSec,
 			expiresAt,
 			maxAllowedExpiration,
 		)
