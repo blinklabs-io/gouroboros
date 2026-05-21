@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release expands `LocalStateQuery` with `GetLedgerPeerSnapshot` support for node to client protocol version 19 and later, strengthens distributed message queue expiration checks through explicit time validation with `ValidateMessageTTLAt`, improves ledger failure reporting with typed decoding for incomplete withdrawals, and includes notable dependency and tooling maintenance alongside collateral return regression test cleanup.
+This release expands `LocalStateQuery` with `GetLedgerPeerSnapshot` support for node to client protocol version 19 and later, strengthens distributed message queue expiration checks through explicit time validation with `ValidateMessageTTLAt`, improves ledger failure reporting by decoding incomplete withdrawals into typed results, and includes notable dependency and tooling maintenance alongside collateral return regression test cleanup.
 
 ### New Features
 
@@ -20,7 +20,7 @@ This release expands `LocalStateQuery` with `GetLedgerPeerSnapshot` support for 
 
 ### Bug Fixes
 
-* Corrected incomplete withdrawal failure decoding so ledger validation now returns typed `IncorrectWithdrawals` errors across Shelley family and Conway eras.
+* Corrected incomplete withdrawal failure decoding so ledger validation now returns typed results for `IncorrectWithdrawals` across Shelley family and Conway eras.
 
 ### Additional Changes
 
