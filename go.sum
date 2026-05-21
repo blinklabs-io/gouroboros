@@ -4,8 +4,8 @@ github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608
 github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6/go.mod h1:ioLG6R+5bUSO1oeGSDxOV3FADARuMoytZCSX6MEMQkI=
 github.com/bits-and-blooms/bitset v1.24.4 h1:95H15Og1clikBrKr/DuzMXkQzECs1M6hhoGXLwLQOZE=
 github.com/bits-and-blooms/bitset v1.24.4/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
-github.com/blinklabs-io/ouroboros-mock v0.10.0 h1:8fhKaaTm3pDHSr8Yx91zEthooQH+o+NQhGfN2FKxwMI=
-github.com/blinklabs-io/ouroboros-mock v0.10.0/go.mod h1:1vWKSGxMtUfF3gkrVjUsjPTXdA+A665bQZjbVWpG5lg=
+github.com/blinklabs-io/ouroboros-mock v0.11.0 h1:4Y2lFL+eCA1dNOKQqSVNQQPxjpoDoJ1jwzmm6VsYSNQ=
+github.com/blinklabs-io/ouroboros-mock v0.11.0/go.mod h1:CSlsrVl4qAh8UG0uClYqoOTCeZeyuO/Wv34GSOkBhTo=
 github.com/blinklabs-io/plutigo v0.1.13 h1:1NiHdu8thqVT72MFnWQljnDefSR9g4Q3Qx5Dkhjeyuk=
 github.com/blinklabs-io/plutigo v0.1.13/go.mod h1:YfwoijsrVjg5PsPdHvI/JfET4zPNEZzJ1a0AZeE6cZQ=
 github.com/btcsuite/btcd/btcec/v2 v2.3.6 h1:IzlsEr9olcSRKB/n7c4351F3xHKxS2lma+1UFGCYd4E=
