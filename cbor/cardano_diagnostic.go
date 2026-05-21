@@ -557,7 +557,9 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 			w.b.WriteString("[]")
 			return
 		}
-		w.b.WriteString("[\n")
+		w.b.WriteString("[")
+		w.writeRange(n)
+		w.b.WriteString("\n")
 		limit := len(n.Children)
 		if w.opts.MaxArrayItems > 0 && limit > w.opts.MaxArrayItems {
 			limit = w.opts.MaxArrayItems
@@ -583,7 +585,9 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 			w.b.WriteString("{}")
 			return
 		}
-		w.b.WriteString("{\n")
+		w.b.WriteString("{")
+		w.writeRange(n)
+		w.b.WriteString("\n")
 		pairs := len(n.Children) / 2
 		for i := 0; i < pairs; i++ {
 			w.b.WriteString(w.indent(depth + 1))

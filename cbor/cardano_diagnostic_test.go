@@ -161,6 +161,19 @@ func TestFormatCardanoPlutusDataNestedConstructorInArray(t *testing.T) {
 	assert.Contains(t, out, "Constr_3([")
 }
 
+func TestFormatCardanoPlutusDataArrayShowsOffsets(t *testing.T) {
+	// Tag 121 wrapping array [1, 2] — non-empty array path should still
+	// emit the / @start-end / range comment when ShowOffsets is set.
+	data, err := hex.DecodeString("d879" + "82" + "01" + "02")
+	require.NoError(t, err)
+	out, err := cbor.FormatPlutusData(
+		data, cbor.DiagnosticOptions{ShowOffsets: true},
+	)
+	require.NoError(t, err)
+	assert.Contains(t, out, "Constr_0([")
+	assert.Contains(t, out, "/ @2-")
+}
+
 func TestFormatCardanoPlutusDataPrimitive(t *testing.T) {
 	// Plain integer 42 — should round-trip through the formatter.
 	data, err := hex.DecodeString("182a")
