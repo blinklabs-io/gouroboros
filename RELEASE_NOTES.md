@@ -4,6 +4,32 @@ title: Release notes
 
 # Release notes
 
+## v0.171.0 - local state query expansion and ledger validation fixes
+
+- **Date:** 2026-05-21
+- **Version:** 0.171.0
+
+### Summary
+
+This release expands `LocalStateQuery` with `GetLedgerPeerSnapshot` support for node to client protocol version 19 and later, strengthens distributed message queue expiration checks through explicit time validation with `ValidateMessageTTLAt`, improves ledger failure reporting by decoding incomplete withdrawals into typed results, and includes notable dependency and tooling maintenance alongside collateral return regression test cleanup.
+
+### New Features
+
+* Added `GetLedgerPeerSnapshot` support so `LocalStateQuery` can return ledger peer snapshots on node to client protocol version 19 and later.
+* Improved distributed message queue expiration checks so `ValidateMessageTTLAt` can validate message TTLs against an explicit evaluation time for deterministic handling.
+
+### Bug Fixes
+
+* Corrected incomplete withdrawal failure decoding so ledger validation now returns typed results for `IncorrectWithdrawals` across Shelley family and Conway eras.
+
+### Additional Changes
+
+* Refined collateral return regression cleanup so later ledger validation checks keep reliable test state.
+* Updated `github.com/blinklabs-io/plutigo` to `v0.1.13`.
+* Refreshed `github.com/btcsuite/btcd/btcutil` to `v1.2.0`.
+* Modernized `github.com/blinklabs-io/ouroboros-mock` to `v0.11.0`.
+* Advanced `andrewslotin/go-proxy-pull-action` to `v1.5.0`.
+
 ## v0.170.1 - ledger and protocol reliability fixes
 
 - **Date:** 2026-05-15
