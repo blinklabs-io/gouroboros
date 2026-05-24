@@ -206,6 +206,7 @@ Implements Ouroboros mini-protocols for network communication.
 | LocalMessageNotification | Local message notifications |
 | LeiosFetch | Leios block fetching |
 | LeiosNotify | Leios block notifications |
+| LeiosVotes | Leios vote diffusion |
 
 ### Protocol Structure
 

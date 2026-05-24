@@ -20,6 +20,7 @@ This directory contains implementations of the Ouroboros mini-protocols used for
 | [LocalMessageNotification](localmessagenotification/) | 15 | NtC | Local DMQ notifications |
 | [LeiosNotify](leiosnotify/) | 18 | NtN | Leios notifications |
 | [LeiosFetch](leiosfetch/) | 19 | NtN | Leios data retrieval |
+| [LeiosVotes](leiosvotes/) | 20 | NtN | Leios vote diffusion |
 
 **Mode Key:**
 - **NtN**: Node-to-Node (between full nodes)
@@ -87,8 +88,9 @@ Init → Idle → (request/reply cycle)
 - **LocalMessageNotification**: Receive message notifications
 
 ### Leios (Experimental)
-- **LeiosNotify**: Block/vote announcements
-- **LeiosFetch**: Block/vote retrieval
+- **LeiosNotify**: Block announcements and availability notifications
+- **LeiosFetch**: Block and transaction retrieval
+- **LeiosVotes**: Vote diffusion
 
 ## Usage
 

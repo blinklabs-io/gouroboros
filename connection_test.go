@@ -29,6 +29,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
@@ -143,6 +144,7 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithTxSubmissionConfig", ouroboros.WithTxSubmissionConfig(txsubmission.Config{})},
 		{"WithLeiosFetchConfig", ouroboros.WithLeiosFetchConfig(leiosfetch.Config{})},
 		{"WithLeiosNotifyConfig", ouroboros.WithLeiosNotifyConfig(leiosnotify.Config{})},
+		{"WithLeiosVotesConfig", ouroboros.WithLeiosVotesConfig(leiosvotes.Config{})},
 	}
 
 	for _, tc := range testCases {
@@ -239,6 +241,7 @@ func TestConnectionProtocolGettersBeforeSetup(t *testing.T) {
 	assert.Nil(t, conn.KeepAlive(), "KeepAlive should be nil before setup")
 	assert.Nil(t, conn.LeiosFetch(), "LeiosFetch should be nil before setup")
 	assert.Nil(t, conn.LeiosNotify(), "LeiosNotify should be nil before setup")
+	assert.Nil(t, conn.LeiosVotes(), "LeiosVotes should be nil before setup")
 	assert.Nil(t, conn.LocalStateQuery(), "LocalStateQuery should be nil before setup")
 	assert.Nil(t, conn.LocalTxMonitor(), "LocalTxMonitor should be nil before setup")
 	assert.Nil(t, conn.LocalTxSubmission(), "LocalTxSubmission should be nil before setup")
