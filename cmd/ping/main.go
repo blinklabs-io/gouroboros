@@ -1,8 +1,23 @@
+// Copyright 2024 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
@@ -106,25 +121,26 @@ func main() {
 	var cfg Config
 	if err := envconfig.Process("cardano_node", &cfg); err != nil {
 		fmt.Printf("Config error: %v\n", err)
-		return
+		os.Exit(1)
 	}
 
 	conn, err := NewConnection(&cfg)
 	if err != nil {
 		fmt.Printf("Connection error: %v\n", err)
-		return
+		os.Exit(1)
 	}
 	defer conn.Close()
 
 	result := PingNode(conn, &cfg)
 	if result.Error != nil {
 		fmt.Printf("Ping failed: %v\n", result.Error)
-		return
+		os.Exit(1)
 	}
 
-	connType := "Node-to-Node"
-	if cfg.SocketPath != "" {
-		connType = "UNIX socket"
+	_, _, isTcp := GetConnectionDetails(&cfg)
+	connType := "UNIX socket"
+	if isTcp {
+		connType = "Node-to-Node"
 	}
 	fmt.Printf("%s Ping Results:\n", connType)
 	fmt.Printf("Connection established in: %s\n", result.ConnectionTime)

@@ -102,24 +102,29 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if len(blockHash) != 32 {
+		panic(fmt.Sprintf("invalid block hash: expected 32 bytes, got %d", len(blockHash)))
+	}
 	// Get requested block from Node via NtN BlockFetch
 	block, err := o.BlockFetch().Client.GetBlock(
 		ocommon.NewPoint(cfg.Slot, blockHash),
 	)
-	if block == nil {
-		panic("empty block! this shouldn't happen")
-	}
 	if err != nil {
 		panic(err)
+	}
+	if block == nil {
+		panic("empty block! this shouldn't happen")
 	}
 	// Check if we want CBOR or text output
 	if cfg.ReturnCbor {
 		// Write our binary CBOR block to stdout
-		_ = binary.Write(
+		if err := binary.Write(
 			os.Stdout,
 			binary.LittleEndian,
 			block.Cbor(),
-		)
+		); err != nil {
+			panic(fmt.Sprintf("failed to write CBOR to stdout: %s", err))
+		}
 		os.Exit(0)
 	}
 

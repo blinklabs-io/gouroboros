@@ -48,11 +48,17 @@ func main() {
 	}
 
 	// Parse command-line flags
-	flag.StringVar(&cfg.TxFile, "tx-file", "", "path to the JSON transaction file to submit")
-	flag.StringVar(&cfg.RawTxFile, "raw-tx-file", "", "path to the raw transaction file to submit")
+	flag.StringVar(&cfg.TxFile, "tx-file", cfg.TxFile, "path to the JSON transaction file to submit")
+	flag.StringVar(&cfg.RawTxFile, "raw-tx-file", cfg.RawTxFile, "path to the raw transaction file to submit")
 	flag.Parse()
 
-	// Validate that at least one transaction file is provided
+	// Validate transaction file flags
+	if cfg.TxFile != "" && cfg.RawTxFile != "" {
+		fmt.Printf(
+			"ERROR: specify only one of -tx-file or -raw-tx-file, not both\n",
+		)
+		os.Exit(1)
+	}
 	if cfg.TxFile == "" && cfg.RawTxFile == "" {
 		fmt.Printf("ERROR: you must specify -tx-file or -raw-tx-file\n")
 		os.Exit(1)
@@ -118,6 +124,10 @@ func main() {
 			os.Exit(1)
 		}
 
+		if jsonData["cborHex"] == "" {
+			fmt.Printf("ERROR: transaction file missing cborHex field\n")
+			os.Exit(1)
+		}
 		txBytes, err = hex.DecodeString(jsonData["cborHex"])
 		if err != nil {
 			fmt.Printf("ERROR: failed to decode transaction: %s\n", err)

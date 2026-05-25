@@ -43,8 +43,7 @@ func main() {
 	errorChan := make(chan error)
 	// start error handler
 	go func() {
-		for {
-			err := <-errorChan
+		for err := range errorChan {
 			panic(err)
 		}
 	}()

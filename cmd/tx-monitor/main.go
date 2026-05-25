@@ -20,9 +20,9 @@ import (
 	"math/big"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	gCbor "github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/fxamacker/cbor/v2"
 	"github.com/kelseyhightower/envconfig"
 )
 
@@ -159,7 +159,10 @@ func main() {
 			// intermediary step.
 
 			// Marshal to JSON bytes from ledger.MultiAsset
-			j, _ := output.Assets().MarshalJSON()
+			j, marshalErr := output.Assets().MarshalJSON()
+			if marshalErr != nil {
+				panic(fmt.Sprintf("failed to marshal assets: %s", marshalErr))
+			}
 			var assets []lcommon.MultiAsset[*big.Int]
 			// Unmarshal JSON bytes to list of Assets
 			err := json.Unmarshal(j, &assets)
@@ -193,7 +196,7 @@ func main() {
 				Num674 cip20Num674 `cbor:"674,keyasint"`
 			}
 			var msgMetadata cip20Metadata
-			err := cbor.Unmarshal(mdCbor, &msgMetadata)
+			_, err := gCbor.Decode(mdCbor, &msgMetadata)
 			if err != nil {
 				// Do nothing on error
 				continue

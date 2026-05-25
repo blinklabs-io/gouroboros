@@ -126,9 +126,17 @@ func main() {
 	// Auto-resolve network magic if not provided
 	if cfg.Magic == 0 && cfg.Network != "" {
 		network, ok := ouroboros.NetworkByName(cfg.Network)
-		if ok {
-			cfg.Magic = network.NetworkMagic
+		if !ok {
+			fmt.Printf("ERROR: unknown network name: %s\n", cfg.Network)
+			os.Exit(1)
 		}
+		cfg.Magic = network.NetworkMagic
+	}
+	if cfg.Magic == 0 {
+		fmt.Println(
+			"ERROR: must specify CARDANO_NODE_MAGIC or a valid CARDANO_NODE_NETWORK",
+		)
+		os.Exit(1)
 	}
 	// Check that we have a query type
 	if len(os.Args) < 2 {
@@ -360,6 +368,10 @@ func main() {
 			txIdHex, err := hex.DecodeString(txInParts[0])
 			if err != nil {
 				fmt.Printf("ERROR: Invalid UTxO ID %q: %s\n", txIn, err)
+				os.Exit(1)
+			}
+			if len(txIdHex) != 32 {
+				fmt.Printf("ERROR: Invalid UTxO ID %q: expected 32-byte txid, got %d bytes\n", txIn, len(txIdHex))
 				os.Exit(1)
 			}
 			txOutputIdx, err := strconv.ParseUint(txInParts[1], 10, 32)

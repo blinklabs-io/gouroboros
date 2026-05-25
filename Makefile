@@ -5,7 +5,7 @@ ROOT_DIR=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 GO_FILES=$(shell find $(ROOT_DIR) -name '*.go')
 
 # Gather list of example binaries from cmd/
-EXAMPLES=$(shell cd $(ROOT_DIR)/cmd && ls -1)
+EXAMPLES=$(shell find $(ROOT_DIR)/cmd -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
 
 NILAWAY_FLAGS ?= -include-pkgs=github.com/blinklabs-io/gouroboros
 
@@ -38,5 +38,5 @@ nilaway: mod-tidy ## Run nilaway nil safety analysis
 
 # Build example binaries
 # Depends on GO_FILES to determine when rebuild is needed
-$(EXAMPLES): mod-tidy $(GO_FILES)
+$(EXAMPLES): $(GO_FILES)
 	go build -o $(@) ./cmd/$(@)

@@ -145,6 +145,9 @@ func chainSyncRollForwardHandler(
 		}
 	}
 	// Display block info
+	if block == nil {
+		return errors.New("block is nil")
+	}
 	switch blockType {
 	case ledger.BlockTypeByronEbb:
 		byronEbbBlock := block.(*ledger.ByronEpochBoundaryBlock)
@@ -165,9 +168,6 @@ func chainSyncRollForwardHandler(
 			byronBlock.Hash(),
 		)
 	default:
-		if block == nil {
-			return errors.New("block is nil")
-		}
 		fmt.Printf(
 			"era = %s, slot = %d, block_no = %d, id = %s\n",
 			block.Era().Name,
@@ -300,7 +300,11 @@ func main() {
 		// Slot
 		slot := uint64(intersectPoint[0].(int)) // #nosec G115
 		// Block hash
-		hash, _ := hex.DecodeString(intersectPoint[1].(string))
+		hash, err := hex.DecodeString(intersectPoint[1].(string))
+		if err != nil {
+			fmt.Printf("ERROR: invalid block hash: %s\n", err)
+			os.Exit(1)
+		}
 		point = pcommon.NewPoint(slot, hash)
 	} else {
 		point = pcommon.NewPointOrigin()

@@ -263,12 +263,6 @@ make lint
 Example programs are included in the `cmd/` directory of this repo. Some can be run against public nodes
 via NtN protocols; others require access to the UNIX socket of a local node for NtC protocols.
 
-Build all examples:
-
-```
-make build
-```
-
 #### Run chain-sync from the start of a particular era
 
 This is useful for testing changes to the handling of ledger types for a particular era. It will decode each block and either print

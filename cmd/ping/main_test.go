@@ -1,3 +1,17 @@
+// Copyright 2024 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -7,6 +21,8 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testConnection implements a simplified NodeConnection for testing
@@ -62,21 +78,11 @@ func TestPingNode_Success(t *testing.T) {
 
 	result := PingNode(conn, cfg)
 
-	if !conn.dialed {
-		t.Error("Expected connection to be dialed")
-	}
-	if conn.networkType != "tcp" {
-		t.Error("Expected TCP connection")
-	}
-	if result.Error != nil {
-		t.Errorf("Expected no error, got: %v", result.Error)
-	}
-	if result.ConnectionTime <= 0 {
-		t.Error("Expected positive connection time")
-	}
-	if result.ProtocolTime <= 0 {
-		t.Error("Expected positive protocol time")
-	}
+	assert.True(t, conn.dialed, "Expected connection to be dialed")
+	assert.Equal(t, "tcp", conn.networkType, "Expected TCP connection")
+	require.NoError(t, result.Error)
+	assert.Positive(t, result.ConnectionTime, "Expected positive connection time")
+	assert.Positive(t, result.ProtocolTime, "Expected positive protocol time")
 }
 
 func TestPingNode_ProtocolError(t *testing.T) {
@@ -95,10 +101,8 @@ func TestPingNode_ProtocolError(t *testing.T) {
 
 	result := PingNode(conn, cfg)
 
-	if result.Error == nil ||
-		result.Error.Error() != "protocol error: protocol error" {
-		t.Errorf("Expected protocol error, got: %v", result.Error)
-	}
+	require.Error(t, result.Error)
+	assert.Equal(t, "protocol error: protocol error", result.Error.Error())
 }
 
 func TestPingNode_ConnectionError(t *testing.T) {
@@ -122,10 +126,8 @@ func TestPingNode_ConnectionError(t *testing.T) {
 
 	result := PingNode(conn, cfg)
 
-	if result.Error == nil ||
-		result.Error.Error() != "connection failed: connection failed" {
-		t.Errorf("Expected connection error, got: %v", result.Error)
-	}
+	require.Error(t, result.Error)
+	assert.Equal(t, "connection failed: connection failed", result.Error.Error())
 }
 
 func TestPingNode_Integration(t *testing.T) {
@@ -150,21 +152,17 @@ func TestPingNode_Integration(t *testing.T) {
 	}
 
 	conn, err := NewConnection(cfg)
-	if err != nil {
-		t.Fatalf("failed to create connection: %v", err)
-	}
+	require.NoError(t, err, "failed to create connection")
 	defer conn.Close()
 
-	resultChan := make(chan PingResult)
+	resultChan := make(chan PingResult, 1)
 	go func() {
 		resultChan <- PingNode(conn, cfg)
 	}()
 
 	select {
 	case result := <-resultChan:
-		if result.Error != nil {
-			t.Fatalf("ping failed: %v", result.Error)
-		}
+		require.NoError(t, result.Error, "ping failed")
 		t.Logf("Integration test successful:")
 		t.Logf("Connection time: %v", result.ConnectionTime)
 		t.Logf("Protocol time: %v", result.ProtocolTime)
