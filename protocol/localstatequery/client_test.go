@@ -1309,6 +1309,16 @@ func TestGetRatifyStatePreConway(t *testing.T) {
 	)
 }
 
+// TestGetLedgerPeerSnapshotErrorMessage is a static check that the
+// unsupported-version error mentions the required protocol version so
+// downstream tooling can surface an actionable message.
+func TestGetLedgerPeerSnapshotErrorMessage(t *testing.T) {
+	msg := localstatequery.ErrLedgerPeerSnapshotUnsupportedVersion.Error()
+	if !strings.Contains(msg, "19") {
+		t.Fatalf("error message should mention version 19, got: %s", msg)
+	}
+}
+
 func TestGenesisConfigJSON(t *testing.T) {
 	genesisConfig := localstatequery.GenesisConfigResult{
 		Start: localstatequery.SystemStartResult{

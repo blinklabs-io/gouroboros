@@ -23,3 +23,10 @@ var ErrAcquireFailurePointTooOld = errors.New("acquire failure: point too old")
 var ErrAcquireFailurePointNotOnChain = errors.New(
 	"acquire failure: point not on chain",
 )
+
+// ErrLedgerPeerSnapshotUnsupportedVersion indicates that GetLedgerPeerSnapshot
+// was called on a connection whose negotiated node-to-client protocol version
+// is older than the one that introduced the query (NtC v19, cardano-node 10.7).
+var ErrLedgerPeerSnapshotUnsupportedVersion = errors.New(
+	"GetLedgerPeerSnapshot requires node-to-client protocol version 19 or later",
+)

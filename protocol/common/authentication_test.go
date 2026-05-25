@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"log/slog"
+	"math"
 	"testing"
 	"time"
 
@@ -213,6 +214,203 @@ func TestValidateMessageTTLNil(t *testing.T) {
 	err := validator.ValidateMessageTTL(nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "nil")
+}
+
+// TestValidateMessageTTLAtValid checks that a message whose ExpiresAt is in the
+// future relative to the explicit `now` passes validation.
+func TestValidateMessageTTLAtValid(t *testing.T) {
+	validator := NewTTLValidator(30*time.Minute, nil)
+	now := time.Unix(1_700_000_000, 0)
+
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			// 10 minutes after `now`, well within the 30 minute window.
+			ExpiresAt: uint32(now.Add(10 * time.Minute).Unix()),
+		},
+	}
+
+	err := validator.ValidateMessageTTLAt(msg, now)
+	assert.NoError(t, err)
+}
+
+// TestValidateMessageTTLAtExpired checks that an ExpiresAt strictly less than
+// the explicit `now` is rejected as expired, regardless of wall clock.
+func TestValidateMessageTTLAtExpired(t *testing.T) {
+	validator := NewTTLValidator(30*time.Minute, nil)
+	now := time.Unix(1_700_000_000, 0)
+
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			ExpiresAt:   uint32(now.Add(-1 * time.Minute).Unix()),
+		},
+	}
+
+	err := validator.ValidateMessageTTLAt(msg, now)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expired")
+}
+
+// TestValidateMessageTTLAtTooFarFuture checks that an ExpiresAt beyond the
+// configured max TTL window from the explicit `now` is rejected.
+func TestValidateMessageTTLAtTooFarFuture(t *testing.T) {
+	validator := NewTTLValidator(30*time.Minute, nil)
+	now := time.Unix(1_700_000_000, 0)
+
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			// 2 hours into the future from `now`; max TTL is 30 minutes.
+			ExpiresAt: uint32(now.Add(2 * time.Hour).Unix()),
+		},
+	}
+
+	err := validator.ValidateMessageTTLAt(msg, now)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "too far in future")
+}
+
+// TestValidateMessageTTLAtDisabled checks that the no-op validator returns nil
+// even for a message that would otherwise be rejected as expired.
+func TestValidateMessageTTLAtDisabled(t *testing.T) {
+	validator := NewNoOpTTLValidator(nil)
+	now := time.Unix(1_700_000_000, 0)
+
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			// Already expired relative to `now`.
+			ExpiresAt: uint32(now.Add(-1 * time.Hour).Unix()),
+		},
+	}
+
+	err := validator.ValidateMessageTTLAt(msg, now)
+	assert.NoError(t, err)
+}
+
+// TestValidateMessageTTLAtNil checks that nil-message rejection holds for the
+// explicit-time variant as well.
+func TestValidateMessageTTLAtNil(t *testing.T) {
+	validator := NewTTLValidator(30*time.Minute, nil)
+	err := validator.ValidateMessageTTLAt(nil, time.Unix(1_700_000_000, 0))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "nil")
+}
+
+// TestValidateMessageTTLAtNowBeyondUint32 checks that a `now` past the uint32
+// domain (post-2106) is treated as an expiry condition, since no uint32
+// expiresAt can be in the future relative to such a time. This guards against
+// silently clamping `now` and reporting such messages as still valid.
+func TestValidateMessageTTLAtNowBeyondUint32(t *testing.T) {
+	validator := NewTTLValidator(30*time.Minute, nil)
+	// One second past the uint32 epoch ceiling (~2106-02-07T06:28:16Z).
+	beyond := time.Unix(int64(math.MaxUint32)+1, 0)
+
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			ExpiresAt:   math.MaxUint32,
+		},
+	}
+
+	err := validator.ValidateMessageTTLAt(msg, beyond)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expired")
+}
+
+// TestValidateMessageTTLAtBoundaryEqualNow checks that ExpiresAt == now is
+// treated as still valid (not expired). The expired check is `now > expiresAt`,
+// so equality should pass.
+func TestValidateMessageTTLAtBoundaryEqualNow(t *testing.T) {
+	validator := NewTTLValidator(30*time.Minute, nil)
+	now := time.Unix(1_700_000_000, 0)
+
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			ExpiresAt:   uint32(now.Unix()),
+		},
+	}
+
+	err := validator.ValidateMessageTTLAt(msg, now)
+	assert.NoError(t, err)
+}
+
+// TestValidateMessageTTLDelegatesToAt proves that ValidateMessageTTL behaves
+// identically to ValidateMessageTTLAt(msg, time.Now()). Because we cannot
+// inject the clock, we sandwich the wall-clock call between two captured
+// timestamps and feed those same timestamps into the explicit-time API. The
+// wall-clock call uses some time inside [before, after]; if the explicit-time
+// API produces the same verdict at both endpoints, then by monotonicity of
+// the TTL predicate it must produce that verdict for any time in between —
+// including the unobservable time used by ValidateMessageTTL.
+func TestValidateMessageTTLDelegatesToAt(t *testing.T) {
+	validator := NewTTLValidator(30*time.Minute, nil)
+
+	// Valid case: expiresAt far enough in the future that a few microseconds
+	// of sandwich slack cannot flip the verdict.
+	validMsg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			ExpiresAt:   uint32(time.Now().Add(10 * time.Minute).Unix()),
+		},
+	}
+
+	before := time.Now()
+	wallErr := validator.ValidateMessageTTL(validMsg)
+	after := time.Now()
+
+	beforeErr := validator.ValidateMessageTTLAt(validMsg, before)
+	afterErr := validator.ValidateMessageTTLAt(validMsg, after)
+	require.Equal(
+		t,
+		beforeErr == nil,
+		afterErr == nil,
+		"sandwich endpoints disagree; tighten the fixture",
+	)
+	assert.Equal(
+		t,
+		beforeErr == nil,
+		wallErr == nil,
+		"ValidateMessageTTL must match ValidateMessageTTLAt(msg, time.Now()) on valid msg",
+	)
+
+	// Expired case: expiresAt clearly in the past so the sandwich endpoints
+	// always agree that the message is expired.
+	expiredMsg := &DmqMessage{
+		Payload: DmqMessagePayload{
+			MessageBody: []byte("test-body"),
+			KESPeriod:   100,
+			ExpiresAt:   uint32(time.Now().Add(-10 * time.Minute).Unix()),
+		},
+	}
+
+	before = time.Now()
+	wallErr = validator.ValidateMessageTTL(expiredMsg)
+	after = time.Now()
+
+	beforeErr = validator.ValidateMessageTTLAt(expiredMsg, before)
+	afterErr = validator.ValidateMessageTTLAt(expiredMsg, after)
+	require.Equal(
+		t,
+		beforeErr == nil,
+		afterErr == nil,
+		"sandwich endpoints disagree; tighten the fixture",
+	)
+	assert.Equal(
+		t,
+		beforeErr == nil,
+		wallErr == nil,
+		"ValidateMessageTTL must match ValidateMessageTTLAt(msg, time.Now()) on expired msg",
+	)
 }
 
 // TestGetTimeUntilExpiration tests time until expiration calculation

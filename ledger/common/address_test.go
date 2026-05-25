@@ -20,11 +20,38 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestAddressFormatterInitWiring exercises the init() hook in address.go
+// that registers a bech32/base58 formatter with the cbor package. Without
+// this wiring, AnnotateAddresses would silently do nothing for consumers
+// that import ledger/common.
+func TestAddressFormatterInitWiring(t *testing.T) {
+	// Known-good Shelley payment address bytes.
+	addrBytes, err := hex.DecodeString(
+		"61cfe224295a282d69edda5fa8de4f131e2b9cd21a6c9235597fa4ff6b",
+	)
+	require.NoError(t, err)
+	want := "addr1v887yfpftg5z660dmf063hj0zv0zh8xjrfkfyd2e07j076cecha5k"
+
+	// Build a CBOR map {0: <addr bytes>} and parse to a diagnostic tree.
+	wrapped := append([]byte{0xa1, 0x00, 0x58, byte(len(addrBytes))}, addrBytes...)
+	node, err := cbor.ParseDiagnostic(wrapped)
+	require.NoError(t, err)
+
+	cbor.AnnotateAddresses(node)
+
+	require.Equal(t, cbor.DiagTypeMap, node.Type)
+	require.Len(t, node.Children, 2)
+	valNode := node.Children[1]
+	require.Equal(t, cbor.DiagTypeBytes, valNode.Type)
+	assert.Equal(t, want, valNode.Comment)
+}
 
 func TestAddressFromBytes(t *testing.T) {
 	testDefs := []struct {
