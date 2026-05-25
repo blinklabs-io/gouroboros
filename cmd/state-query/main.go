@@ -59,7 +59,7 @@ func convertToJSONValue(v interface{}) interface{} {
 	default:
 		// Use reflection to handle structs, maps, and other types
 		rv := reflect.ValueOf(v)
-		if rv.Kind() == reflect.Ptr {
+		if rv.Kind() == reflect.Pointer {
 			if rv.IsNil() {
 				return nil
 			}
