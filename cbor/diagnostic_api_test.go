@@ -207,6 +207,77 @@ func TestMalformedInput(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	t.Run("oversized input", func(t *testing.T) {
+		// 16 MiB + 1 byte of padding past a valid 1-byte item. The
+		// length check fires before parsing, so the contents don't have
+		// to be valid CBOR.
+		data := make([]byte, 16*1024*1024+1)
+		_, err := cbor.Diagnose(data, cbor.DiagnosticOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds diagnostic limit")
+	})
+
+	t.Run("oversized transaction warning", func(t *testing.T) {
+		// 17 KiB definite byte string wrapped as a 2-elem tx-ish array.
+		// Larger than max_tx_size; DiagnoseTransaction must warn but
+		// still parse — diagnostics on out-of-spec bytes is the point.
+		body := append([]byte{0x59, 0x42, 0x00}, make([]byte, 0x4200)...)
+		tx := append([]byte{0x82}, body...)
+		tx = append(tx, 0xa0)
+		result, err := cbor.DiagnoseTransaction(tx, cbor.DiagnosticOptions{})
+		require.NoError(t, err)
+		require.NotEmpty(t, result.Warnings)
+		var found bool
+		for _, w := range result.Warnings {
+			if strings.Contains(w, "max_tx_size") {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected max_tx_size warning, got %v", result.Warnings)
+	})
+
+	t.Run("block with non-tag-24 outer tag", func(t *testing.T) {
+		// tag(99) wrapping a 5-element inner array. The diagnostic API
+		// must reject the unknown wrapper rather than silently unwrapping.
+		// 0xd8 0x63 = tag(99); inner = 85 8100 80 80 a0 80.
+		inner := "85" + "8100" + "80" + "80" + "a0" + "80"
+		data, hexErr := hex.DecodeString("d863" + inner)
+		require.NoError(t, hexErr)
+		_, err := cbor.DiagnoseBlock(data, cbor.DiagnosticOptions{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported block outer tag")
+	})
+
+	t.Run("block with overflow era", func(t *testing.T) {
+		// [era=u64-max, inner] — the era id is impossible but the inner
+		// block must still be unwrapped and validated. Pre-fix this
+		// returned a bogus "block body has 2 fields" warning.
+		// 0x82 1b ff ff ff ff ff ff ff ff <inner>
+		inner := "85" + "8100" + "80" + "80" + "a0" + "80"
+		data, hexErr := hex.DecodeString(
+			"82" + "1bffffffffffffffff" + inner,
+		)
+		require.NoError(t, hexErr)
+		result, err := cbor.DiagnoseBlock(data, cbor.DiagnosticOptions{})
+		require.NoError(t, err)
+		var sawEraWarning bool
+		var sawFieldsWarning bool
+		for _, w := range result.Warnings {
+			if strings.Contains(w, "unexpected era id") {
+				sawEraWarning = true
+			}
+			if strings.Contains(w, "fields") {
+				sawFieldsWarning = true
+			}
+		}
+		assert.True(t, sawEraWarning,
+			"expected era-id warning, got %v", result.Warnings)
+		assert.False(t, sawFieldsWarning,
+			"inner should have been unwrapped — no fields warning expected; got %v",
+			result.Warnings)
+	})
+
 	t.Run("block with extra fields", func(t *testing.T) {
 		// 6-element inner array — one too many for the block CDDL.
 		inner := "86" + "8100" + "80" + "80" + "a0" + "80" + "80"
@@ -433,15 +504,22 @@ func TestLargeBlock(t *testing.T) {
 			assert.Greater(t, result.Statistics.ElementCount, 0)
 			assert.Greater(t, result.Statistics.MaxDepth, 0)
 
-			notation := result.Root.FormatDiagnostic(cbor.DiagnosticOptions{
-				MaxDepth:      4,
-				MaxArrayItems: 4,
-				MaxByteLength: 16,
+			// First, exercise the full formatter without any caps to make
+			// sure formatting on real bytes doesn't blow up.
+			full := result.Root.FormatDiagnostic(cbor.DiagnosticOptions{})
+			assert.NotEmpty(t, full)
+
+			// Then isolate MaxDepth: with only the depth cap set, the only
+			// way "..." can appear is via depth truncation. We pick a
+			// depth shallower than the recorded MaxDepth so truncation
+			// must fire.
+			require.Greater(t, result.Statistics.MaxDepth, 1,
+				"real block should have depth > 1")
+			depthOnly := result.Root.FormatDiagnostic(cbor.DiagnosticOptions{
+				MaxDepth: 1,
 			})
-			assert.NotEmpty(t, notation)
-			// MaxDepth should be hit somewhere in a real block.
-			assert.True(t, strings.Contains(notation, "..."),
-				"expected truncation marker with depth cap")
+			assert.True(t, strings.Contains(depthOnly, "..."),
+				"MaxDepth=1 should produce depth-truncation markers")
 		})
 	}
 }
