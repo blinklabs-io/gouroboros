@@ -211,7 +211,8 @@ This is not an exhaustive list of existing and planned features, but it covers t
 
 ## Examples
 
-The `cmd/` directory contains self-contained example programs demonstrating how to use the library:
+The `examples/` directory contains self-contained example programs demonstrating how to use the library.
+Each example has its own Go module with a local `replace` back to this checkout:
 
 | Example | Protocol | Description |
 |---------|----------|-------------|
@@ -233,7 +234,7 @@ make build
 Run an example directly (e.g. check the current chain tip over a local socket):
 
 ```
-go run ./cmd/chain-tip
+go -C examples/chain-tip run .
 ```
 
 See the inline comments in each `main.go` and the environment variables each command accepts for full usage details.
@@ -260,7 +261,7 @@ make lint
 
 ### Manual testing
 
-Example programs are included in the `cmd/` directory of this repo. Some can be run against public nodes
+Example programs are included in the `examples/` directory of this repo. Some can be run against public nodes
 via NtN protocols; others require access to the UNIX socket of a local node for NtC protocols.
 
 #### Run chain-sync from the start of a particular era
