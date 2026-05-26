@@ -30,6 +30,8 @@ This release migrates starter-kit example commands into gOuroboros and reorganiz
 * Refreshed the `golangci-lint` GitHub Action to `v9.2.1`.
 * Documented the prior `v0.171.0` release entry in `RELEASE_NOTES.md`.
 
+## There were no releases between v0.171.0 and v0.178.0 due to a mistagging
+
 ## v0.171.0 - local state query expansion and ledger validation fixes
 
 - **Date:** 2026-05-21
