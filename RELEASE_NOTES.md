@@ -15,9 +15,9 @@ This release migrates starter-kit example commands into gOuroboros and reorganiz
 
 ### New Features
 
-* Added example commands to the library so common node tasks now ship with the repository instead of requiring a separate starter kit.
-* Expanded the CBOR diagnostics output so Cardano data can display clearer transaction, block, script, and address details during inspection.
-* Introduced public CBOR diagnostics APIs so applications can parse, inspect, and benchmark encoded data with reusable diagnostic results.
+* Added built-in example commands so common node tasks now ship with the library instead of requiring a separate starter kit.
+* Expanded CBOR diagnostics so Cardano data now displays clearer transaction, block, script, and address details during inspection.
+* Introduced public CBOR diagnostics APIs so applications can inspect encoded data through reusable parsing, formatting, tests, and benchmarks.
 
 ### Security
 
@@ -28,7 +28,7 @@ This release migrates starter-kit example commands into gOuroboros and reorganiz
 * Reorganized the included example commands into self-contained example modules so each example can build and run with its own local module setup.
 * Updated `github.com/utxorpc/go-codegen` to `v0.19.2`.
 * Refreshed the `golangci-lint` GitHub Action to `v9.2.1`.
-* Updated `RELEASE_NOTES.md` to add the prior `v0.171.0` release entry.
+* Documented the prior `v0.171.0` release entry in `RELEASE_NOTES.md`.
 
 ## v0.171.0 - local state query expansion and ledger validation fixes
 
