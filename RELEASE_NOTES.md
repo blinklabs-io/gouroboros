@@ -4,6 +4,32 @@ title: Release notes
 
 # Release notes
 
+## v0.178.0 - CBOR diagnostics APIs and example command migration
+
+- **Date:** 2026-05-26
+- **Version:** 0.178.0
+
+### Summary
+
+This release migrates starter-kit example commands into gOuroboros and reorganizes them as self-contained example modules, adds Cardano-aware CBOR diagnostic formatting plus public diagnostics APIs with tests and benchmarks, and includes dependency, security, CI, and release-notes maintenance updates.
+
+### New Features
+
+* Added example commands to the library so common node tasks now ship with the repository instead of requiring a separate starter kit.
+* Expanded the CBOR diagnostics output so Cardano data can display clearer transaction, block, script, and address details during inspection.
+* Introduced public CBOR diagnostics APIs so applications can parse, inspect, and benchmark encoded data with reusable diagnostic results.
+
+### Security
+
+* Hardened bundled cryptography dependencies by updating `golang.org/x/crypto` to `v0.52.0` and refreshing indirect `golang.org/x/sys` to `v0.45.0`.
+
+### Additional Changes
+
+* Reorganized the included example commands into self-contained example modules so each example can build and run with its own local module setup.
+* Updated `github.com/utxorpc/go-codegen` to `v0.19.2`.
+* Refreshed the `golangci-lint` GitHub Action to `v9.2.1`.
+* Updated `RELEASE_NOTES.md` to add the prior `v0.171.0` release entry.
+
 ## v0.171.0 - local state query expansion and ledger validation fixes
 
 - **Date:** 2026-05-21
