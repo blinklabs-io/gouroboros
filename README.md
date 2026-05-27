@@ -88,6 +88,9 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] LeiosNotify ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
       - [X] Client support
       - [X] Server support
+    - [X] LeiosVotes ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
+      - [X] Client support
+      - [X] Server support
     - [X] LocalMessageSubmission ([CIP-0137](https://cips.cardano.org/cip/CIP-0137) DMQ)
       - [X] Client support
       - [X] Server support
