@@ -16,6 +16,11 @@ This release adds the LeiosVotes mini-protocol as the primary change for `CIP-01
 ### New Features
 
 * Added the `LeiosVotes` mini-protocol so node to node integrations can diffuse `CIP-0164` votes through dedicated client and server handling.
+* Expanded connection setup and embedded protocol references so `Connection.LeiosVotes()` and `WithLeiosVotesConfig` expose the new vote diffusion flow alongside updated limits, protocol documentation, and validation coverage.
+
+### Additional Changes
+
+* Documented the mistagging clarification in `RELEASE_NOTES.md` so release history now states that no versions were published between `v0.171.0` and `v0.178.0`.
 
 ## v0.178.0 - CBOR diagnostics APIs and example command migration
 
