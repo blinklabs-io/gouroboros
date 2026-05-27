@@ -79,9 +79,10 @@ func FormatTransactionDiagnostic(
 }
 
 // FormatBlockDiagnostic renders a Cardano block. The outer CBOR shape is a
-// tag-wrapped 2-element array [era, [header, tx_bodies, tx_witnesses,
-// auxiliary_data_set, invalid_transactions]]. Either the wrapped form or
-// the inner 5-element array alone is accepted.
+// tag-wrapped 2-element array [era, block]. Shelley through Conway blocks use
+// [header, tx_bodies, tx_witnesses, auxiliary_data_set, invalid_transactions];
+// Dijkstra appends nullable leios_cert and peras_cert slots. Either the wrapped
+// form or the inner block array alone is accepted.
 func FormatBlockDiagnostic(
 	blockData []byte,
 	opts DiagnosticOptions,

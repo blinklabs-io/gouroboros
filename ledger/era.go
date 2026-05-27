@@ -29,24 +29,23 @@ func GetEraById(eraId uint8) Era {
 // BlockHeaderToBlockTypeMap is a mapping of NtN chainsync block header types
 // (era ID) to NtC block types
 var BlockHeaderToBlockTypeMap = map[uint]uint{
-	BlockHeaderTypeShelley: BlockTypeShelley,
-	BlockHeaderTypeAllegra: BlockTypeAllegra,
-	BlockHeaderTypeMary:    BlockTypeMary,
-	BlockHeaderTypeAlonzo:  BlockTypeAlonzo,
-	BlockHeaderTypeBabbage: BlockTypeBabbage,
-	BlockHeaderTypeConway:  BlockTypeConway,
-	BlockHeaderTypeLeios:   BlockTypeLeiosRanking,
+	BlockHeaderTypeShelley:  BlockTypeShelley,
+	BlockHeaderTypeAllegra:  BlockTypeAllegra,
+	BlockHeaderTypeMary:     BlockTypeMary,
+	BlockHeaderTypeAlonzo:   BlockTypeAlonzo,
+	BlockHeaderTypeBabbage:  BlockTypeBabbage,
+	BlockHeaderTypeConway:   BlockTypeConway,
+	BlockHeaderTypeDijkstra: BlockTypeDijkstra,
 }
 
 // BlockToBlockHeaderTypeMap is a mapping of NtC chainsync block types
 // to NtN block header types (era ID)
 var BlockToBlockHeaderTypeMap = map[uint]uint{
-	BlockTypeShelley:       BlockHeaderTypeShelley,
-	BlockTypeAllegra:       BlockHeaderTypeAllegra,
-	BlockTypeMary:          BlockHeaderTypeMary,
-	BlockTypeAlonzo:        BlockHeaderTypeAlonzo,
-	BlockTypeBabbage:       BlockHeaderTypeBabbage,
-	BlockTypeConway:        BlockHeaderTypeConway,
-	BlockTypeLeiosRanking:  BlockHeaderTypeLeios,
-	BlockTypeLeiosEndorser: BlockHeaderTypeLeios,
+	BlockTypeShelley:  BlockHeaderTypeShelley,
+	BlockTypeAllegra:  BlockHeaderTypeAllegra,
+	BlockTypeMary:     BlockHeaderTypeMary,
+	BlockTypeAlonzo:   BlockHeaderTypeAlonzo,
+	BlockTypeBabbage:  BlockHeaderTypeBabbage,
+	BlockTypeConway:   BlockHeaderTypeConway,
+	BlockTypeDijkstra: BlockHeaderTypeDijkstra,
 }

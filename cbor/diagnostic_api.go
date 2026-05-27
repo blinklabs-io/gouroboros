@@ -19,10 +19,9 @@ import (
 	"fmt"
 )
 
-// maxKnownEra is the highest era id the validator considers normal. Cardano
-// currently runs through Conway (era 7); the cap is loose so a future era
-// roll-out doesn't immediately produce warnings, but pathological values
-// (e.g. era 99) still get flagged.
+// maxKnownEra is the highest era id the validator considers normal. The cap is
+// loose so a future era roll-out doesn't immediately produce warnings, but
+// pathological values (e.g. era 99) still get flagged.
 const maxKnownEra = 10
 
 // maxDiagnosticInputBytes caps the raw input size accepted by the public
@@ -202,18 +201,21 @@ func DiagnoseBlock(
 			diagTypeName(inner.Type),
 		)
 	}
-	if got := len(inner.Children); got != len(CardanoBlockLabels) {
+	if got := len(inner.Children); !isCardanoBlockFieldCount(got) {
 		result.Warnings = append(
 			result.Warnings,
 			fmt.Sprintf(
-				"block body has %d fields; expected %d",
+				"block body has %d fields; expected 5 or 7",
 				got,
-				len(CardanoBlockLabels),
 			),
 		)
 	}
 	AnnotateAddresses(result.Root)
 	return result, nil
+}
+
+func isCardanoBlockFieldCount(count int) bool {
+	return count == 5 || count == 7
 }
 
 // unwrapBlockInner peels back the optional tag-24 wrapper and the

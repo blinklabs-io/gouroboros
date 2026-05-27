@@ -102,6 +102,23 @@ type TransactionWitnessSet interface {
 	Redeemers() TransactionWitnessRedeemers
 }
 
+type TransactionWitnessSetWithPlutusV4 interface {
+	PlutusV4Scripts() []PlutusV4Script
+}
+
+func PlutusV4ScriptsFromWitnessSet(
+	w TransactionWitnessSet,
+) []PlutusV4Script {
+	if w == nil {
+		return nil
+	}
+	w4, ok := w.(TransactionWitnessSetWithPlutusV4)
+	if !ok {
+		return nil
+	}
+	return w4.PlutusV4Scripts()
+}
+
 type TransactionWitnessRedeemers interface {
 	Indexes(RedeemerTag) []uint
 	Value(uint, RedeemerTag) RedeemerValue

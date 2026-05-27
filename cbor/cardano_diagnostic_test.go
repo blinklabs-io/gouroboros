@@ -57,9 +57,11 @@ func TestCardanoWitnessLabels(t *testing.T) {
 }
 
 func TestCardanoBlockLabels(t *testing.T) {
-	require.Len(t, cbor.CardanoBlockLabels, 5)
+	require.Len(t, cbor.CardanoBlockLabels, 7)
 	assert.Equal(t, "header", cbor.CardanoBlockLabels[0])
 	assert.Equal(t, "invalid_transactions", cbor.CardanoBlockLabels[4])
+	assert.Equal(t, "leios_cert", cbor.CardanoBlockLabels[5])
+	assert.Equal(t, "peras_cert", cbor.CardanoBlockLabels[6])
 }
 
 func TestCardanoPlutusConstrFromTag(t *testing.T) {

@@ -19,7 +19,9 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 const (
@@ -110,6 +112,175 @@ func TestMaryTransactionCborRoundTrip(t *testing.T) {
 			"failed to deserialize re-serialized Mary transaction: %s",
 			err,
 		)
+	}
+}
+
+func TestDetermineTransactionTypeDijkstraOnlyFields(t *testing.T) {
+	txCbor, err := cbor.Encode([]any{
+		map[uint]any{
+			0: []any{},
+			1: []any{},
+			2: uint64(0),
+			25: map[cbor.ByteString]uint64{
+				cbor.NewByteString([]byte{0x01}): 100,
+			},
+		},
+		map[uint]any{},
+		nil,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error encoding Dijkstra transaction: %s", err)
+	}
+
+	txType, err := ledger.DetermineTransactionType(txCbor)
+	if err != nil {
+		t.Fatalf("unexpected error determining transaction type: %s", err)
+	}
+	if txType != ledger.TxTypeDijkstra {
+		t.Fatalf(
+			"did not get expected TX type: got %d, wanted %d",
+			txType,
+			ledger.TxTypeDijkstra,
+		)
+	}
+}
+
+func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
+	var guardHash common.Blake2b224
+	for i := range guardHash {
+		guardHash[i] = byte(i + 1)
+	}
+	guardCredential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: guardHash,
+	}
+
+	testDefs := []struct {
+		name   string
+		guards any
+	}{
+		{
+			name:   "credential_guards",
+			guards: cbor.NewSetType([]common.Credential{guardCredential}, false),
+		},
+		{
+			name:   "key_hash_guards_in_three_part_tx",
+			guards: cbor.NewSetType([]common.Blake2b224{guardHash}, false),
+		},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			txCbor, err := cbor.Encode([]any{
+				map[uint]any{
+					0:  []any{},
+					1:  []any{},
+					2:  uint64(0),
+					14: testDef.guards,
+				},
+				map[uint]any{},
+				nil,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error encoding Dijkstra transaction: %s", err)
+			}
+
+			txType, err := ledger.DetermineTransactionType(txCbor)
+			if err != nil {
+				t.Fatalf("unexpected error determining transaction type: %s", err)
+			}
+			if txType != ledger.TxTypeDijkstra {
+				t.Fatalf(
+					"did not get expected TX type: got %d, wanted %d",
+					txType,
+					ledger.TxTypeDijkstra,
+				)
+			}
+		})
+	}
+}
+
+func TestDetermineTransactionTypeConwayRequiredSignersNotDijkstra(t *testing.T) {
+	var signer common.Blake2b224
+	for i := range signer {
+		signer[i] = byte(i + 1)
+	}
+	txCbor, err := cbor.Encode([]any{
+		map[uint]any{
+			0:  []any{},
+			1:  []any{},
+			2:  uint64(0),
+			14: cbor.NewSetType([]common.Blake2b224{signer}, false),
+		},
+		map[uint]any{},
+		true,
+		nil,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error encoding Conway transaction: %s", err)
+	}
+
+	txType, err := ledger.DetermineTransactionType(txCbor)
+	if err != nil {
+		t.Fatalf("unexpected error determining transaction type: %s", err)
+	}
+	if txType != ledger.TxTypeConway {
+		t.Fatalf(
+			"did not get expected TX type: got %d, wanted %d",
+			txType,
+			ledger.TxTypeConway,
+		)
+	}
+}
+
+func TestDetermineTransactionTypePreDijkstraTransactionsNotDijkstra(t *testing.T) {
+	testDefs := []struct {
+		name      string
+		txCborHex string
+		decode    func([]byte) error
+	}{
+		{
+			name:      "Shelley",
+			txCborHex: shelleyTxCborHex,
+			decode: func(data []byte) error {
+				_, err := ledger.NewShelleyTransactionFromCbor(data)
+				return err
+			},
+		},
+		{
+			name:      "Allegra",
+			txCborHex: allegraTxCborHex,
+			decode: func(data []byte) error {
+				_, err := ledger.NewAllegraTransactionFromCbor(data)
+				return err
+			},
+		},
+		{
+			name:      "Mary",
+			txCborHex: maryTxCborHex,
+			decode: func(data []byte) error {
+				_, err := ledger.NewMaryTransactionFromCbor(data)
+				return err
+			},
+		},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			txCbor, err := hex.DecodeString(testDef.txCborHex)
+			if err != nil {
+				t.Fatalf("unexpected hex decode error: %s", err)
+			}
+			if err := testDef.decode(txCbor); err != nil {
+				t.Fatalf("fixture does not decode as %s: %s", testDef.name, err)
+			}
+
+			txType, err := ledger.DetermineTransactionType(txCbor)
+			if err != nil {
+				t.Fatalf("unexpected transaction type error: %s", err)
+			}
+			if txType == ledger.TxTypeDijkstra {
+				t.Fatalf("pre-Dijkstra transaction classified as Dijkstra")
+			}
+		})
 	}
 }
 

@@ -16,7 +16,6 @@ package script
 
 import (
 	"bytes"
-	"fmt"
 	"math/big"
 	"slices"
 	"strings"
@@ -213,6 +212,31 @@ func (s ScriptPurposeProposing) ToScriptInfo() ScriptInfo {
 	return ScriptInfoProposing{s}
 }
 
+type ScriptPurposeGuarding struct {
+	Guard lcommon.Credential
+}
+
+func (ScriptPurposeGuarding) isScriptPurpose() {}
+
+func (s ScriptPurposeGuarding) ScriptHash() lcommon.ScriptHash {
+	if s.Guard.CredType != lcommon.CredentialTypeScriptHash {
+		return lcommon.ScriptHash{}
+	}
+	return lcommon.ScriptHash(s.Guard.Credential)
+}
+
+func (s ScriptPurposeGuarding) ToPlutusData() data.PlutusData {
+	guard := s.Guard
+	return data.NewConstr(
+		6,
+		guard.ToPlutusData(),
+	)
+}
+
+func (s ScriptPurposeGuarding) ToScriptInfo() ScriptInfo {
+	return ScriptInfoGuarding{s}
+}
+
 type ScriptInfoSpending struct {
 	ScriptPurposeSpending
 }
@@ -257,6 +281,12 @@ type ScriptInfoProposing struct {
 
 func (ScriptInfoProposing) isScriptInfo() {}
 
+type ScriptInfoGuarding struct {
+	ScriptPurposeGuarding
+}
+
+func (ScriptInfoGuarding) isScriptInfo() {}
+
 type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptPurpose
 
 // scriptPurposeBuilder creates a reusable function preloaded with information about a particular transaction
@@ -276,14 +306,19 @@ func scriptPurposeBuilder(
 		switch redeemerKey.Tag {
 		case lcommon.RedeemerTagSpend:
 			if int(redeemerKey.Index) >= len(inputs) {
-				panic("redeemer index greater than input count")
+				return nil
 			}
 			var datum data.PlutusData
 			tmpInput := inputs[redeemerKey.Index]
 			var resolvedInput lcommon.Utxo
+			resolved := false
 			for _, tmpResolvedInput := range resolvedInputs {
 				if tmpResolvedInput.Id.String() == tmpInput.String() {
 					resolvedInput = tmpResolvedInput
+					resolved = true
+					if resolvedInput.Output == nil {
+						return nil
+					}
 					if tmpDatum := resolvedInput.Output.Datum(); tmpDatum != nil {
 						// Inline datum - use it directly
 						datum = tmpDatum.Data
@@ -296,6 +331,9 @@ func scriptPurposeBuilder(
 					break
 				}
 			}
+			if !resolved {
+				return nil
+			}
 			return ScriptPurposeSpending{
 				Input: resolvedInput,
 				Datum: datum,
@@ -303,7 +341,7 @@ func scriptPurposeBuilder(
 		case lcommon.RedeemerTagMint:
 			mintPolicies := mint.Policies()
 			if int(redeemerKey.Index) >= len(mintPolicies) {
-				panic("redeemer index greater than mint policy count")
+				return nil
 			}
 			slices.SortFunc(
 				mintPolicies,
@@ -314,7 +352,7 @@ func scriptPurposeBuilder(
 			}
 		case lcommon.RedeemerTagCert:
 			if int(redeemerKey.Index) >= len(certificates) {
-				panic("redeemer index greater than certificate count")
+				return nil
 			}
 			return ScriptPurposeCertifying{
 				Index:       redeemerKey.Index,
@@ -322,7 +360,7 @@ func scriptPurposeBuilder(
 			}
 		case lcommon.RedeemerTagReward:
 			if int(redeemerKey.Index) >= len(withdrawals) {
-				panic("redeemer index greater than withdrawal count")
+				return nil
 			}
 			return ScriptPurposeRewarding{
 				StakeCredential: lcommon.Credential{
@@ -332,21 +370,23 @@ func scriptPurposeBuilder(
 			}
 		case lcommon.RedeemerTagVoting:
 			if int(redeemerKey.Index) >= len(votes) {
-				panic("redeemer index greater than vote count")
+				return nil
 			}
 			return ScriptPurposeVoting{
 				Voter: *(votes[redeemerKey.Index].Key),
 			}
 		case lcommon.RedeemerTagProposing:
 			if int(redeemerKey.Index) >= len(proposalProcedures) {
-				panic("redeemer index greater than proposal procedure count")
+				return nil
 			}
 			return ScriptPurposeProposing{
 				Index:             redeemerKey.Index,
 				ProposalProcedure: proposalProcedures[redeemerKey.Index],
 			}
+		case lcommon.RedeemerTagGuarding:
+			return nil
 		default:
-			panic(fmt.Sprintf("unsupported redeemer tag: %d", redeemerKey.Tag))
+			return nil
 		}
 	}
 }
@@ -369,23 +409,24 @@ func BuildScriptPurpose(
 	switch redeemerKey.Tag {
 	case lcommon.RedeemerTagSpend:
 		if int(redeemerKey.Index) >= len(inputs) {
-			panic("redeemer index greater than input count")
+			return nil
 		}
 		tmpInput := inputs[redeemerKey.Index]
 		utxo, ok := resolvedInputs[tmpInput.String()]
 		if !ok {
-			panic("UTxO not found in resolved inputs: " + tmpInput.String())
+			return nil
+		}
+		if utxo.Output == nil {
+			return nil
 		}
 		var datum data.PlutusData
-		if utxo.Output != nil {
-			if d := utxo.Output.Datum(); d != nil {
-				// Inline datum - use it directly
-				datum = d.Data
-			} else if datumHash := utxo.Output.DatumHash(); datumHash != nil {
-				// No inline datum - check witness datums by hash
-				if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
-					datum = witnessDatum.Data
-				}
+		if d := utxo.Output.Datum(); d != nil {
+			// Inline datum - use it directly
+			datum = d.Data
+		} else if datumHash := utxo.Output.DatumHash(); datumHash != nil {
+			// No inline datum - check witness datums by hash
+			if witnessDatum, exists := witnessDatums[*datumHash]; exists && witnessDatum != nil {
+				datum = witnessDatum.Data
 			}
 		}
 		return ScriptPurposeSpending{
@@ -395,7 +436,7 @@ func BuildScriptPurpose(
 	case lcommon.RedeemerTagMint:
 		policies := mint.Policies()
 		if int(redeemerKey.Index) >= len(policies) {
-			panic("redeemer index greater than mint policy count")
+			return nil
 		}
 		slices.SortFunc(
 			policies,
@@ -406,7 +447,7 @@ func BuildScriptPurpose(
 		}
 	case lcommon.RedeemerTagCert:
 		if int(redeemerKey.Index) >= len(certificates) {
-			panic("redeemer index greater than certificate count")
+			return nil
 		}
 		return ScriptPurposeCertifying{
 			Index:       redeemerKey.Index,
@@ -428,7 +469,7 @@ func BuildScriptPurpose(
 			return bytes.Compare(aBytes, bBytes)
 		})
 		if int(redeemerKey.Index) >= len(sortedAddrs) {
-			panic("redeemer index greater than withdrawal count")
+			return nil
 		}
 		addr := sortedAddrs[redeemerKey.Index]
 		return ScriptPurposeRewarding{
@@ -471,20 +512,22 @@ func BuildScriptPurpose(
 			return 1
 		})
 		if int(redeemerKey.Index) >= len(sortedVoters) {
-			panic("redeemer index greater than vote count")
+			return nil
 		}
 		return ScriptPurposeVoting{
 			Voter: *sortedVoters[redeemerKey.Index],
 		}
 	case lcommon.RedeemerTagProposing:
 		if int(redeemerKey.Index) >= len(proposalProcedures) {
-			panic("redeemer index greater than proposal procedure count")
+			return nil
 		}
 		return ScriptPurposeProposing{
 			Index:             redeemerKey.Index,
 			ProposalProcedure: proposalProcedures[redeemerKey.Index],
 		}
+	case lcommon.RedeemerTagGuarding:
+		return nil
 	default:
-		panic(fmt.Sprintf("unsupported redeemer tag: %d", redeemerKey.Tag))
+		return nil
 	}
 }

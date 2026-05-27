@@ -661,6 +661,9 @@ func redeemersInfo(
 	for _, key := range redeemerKeys {
 		redeemerValue := redeemers.Value(uint(key.Index), key.Tag)
 		purpose := toScriptPurpose(key)
+		if purpose == nil {
+			continue
+		}
 		ret = append(
 			ret,
 			KeyValuePair[ScriptPurpose, Redeemer]{

@@ -128,8 +128,8 @@ func TestCardanoLabels(t *testing.T) {
 		assert.Contains(t, out, want)
 	}
 
-	// inner block = [header, [], [], {}, []]
-	inner := "85" + "8100" + "80" + "80" + "a0" + "80"
+	// inner Dijkstra block = [header, [], [], {}, [], null, null]
+	inner := "87" + "8100" + "80" + "80" + "a0" + "80" + "f6" + "f6"
 	full := "82" + "07" + inner // [era=7, inner]
 	blockData, err := hex.DecodeString(full)
 	require.NoError(t, err)
@@ -146,6 +146,8 @@ func TestCardanoLabels(t *testing.T) {
 		"transaction_witnesses: []",
 		"auxiliary_data_set: {}",
 		"invalid_transactions: []",
+		"leios_cert: null",
+		"peras_cert: null",
 	} {
 		assert.Contains(t, bOut, want)
 	}
@@ -279,7 +281,8 @@ func TestMalformedInput(t *testing.T) {
 	})
 
 	t.Run("block with extra fields", func(t *testing.T) {
-		// 6-element inner array — one too many for the block CDDL.
+		// 6-element inner array — neither Conway's 5-field shape nor
+		// Dijkstra's 7-field shape.
 		inner := "86" + "8100" + "80" + "80" + "a0" + "80" + "80"
 		data, hexErr := hex.DecodeString(inner)
 		require.NoError(t, hexErr)
