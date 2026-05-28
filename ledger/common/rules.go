@@ -64,17 +64,18 @@ func VerifyTransaction(
 	return nil
 }
 
-// txTypeAlonzo is the first era whose on-wire CBOR includes the 1-byte
-// IsValid boolean field. The fee-relevant size excludes this byte.
+// txTypeAlonzo is the first era whose historical on-wire CBOR includes the
+// 1-byte IsValid boolean field. The fee-relevant size excludes this byte only
+// when the transaction actually has the 4-component Alonzo-style envelope.
 const txTypeAlonzo = 4
 
 // TxSizeForFee returns the fee-relevant transaction size as defined by the
-// Cardano ledger spec. For Alonzo and later eras the on-wire CBOR contains a
+// Cardano ledger spec. For Alonzo through Conway the on-wire CBOR contains a
 // 4-element array [body, witnesses, isValid, metadata]; the Haskell
 // toCBORForSizeComputation function encodes only 3 elements, so the fee-
 // relevant size is the full on-wire length minus 1 byte (the IsValid field).
-// For earlier eras (Shelley, Allegra, Mary) the on-wire format is already a
-// 3-element array and no adjustment is needed.
+// Dijkstra block transactions use a 3-element envelope, so no adjustment is
+// applied unless an explicitly 4-component transaction is being sized.
 //
 // When the transaction has no stored CBOR (e.g. programmatically constructed),
 // the function falls back to encoding the transaction to compute its size.
@@ -92,7 +93,17 @@ func TxSizeForFee(tx Transaction) (int, error) {
 	}
 	fullSize := len(cborData)
 	if tx.Type() >= txTypeAlonzo {
-		return fullSize - 1, nil
+		dec, err := cbor.NewStreamDecoder(cborData)
+		if err == nil {
+			arrayLen, _, _, decodeErr := dec.DecodeArrayHeader()
+			if decodeErr == nil {
+				if arrayLen == 4 {
+					return fullSize - 1, nil
+				}
+				return fullSize, nil
+			}
+		}
+		return fullSize, nil
 	}
 	return fullSize, nil
 }
@@ -292,6 +303,7 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 		explicitCap += len(wits.PlutusV1Scripts())
 		explicitCap += len(wits.PlutusV2Scripts())
 		explicitCap += len(wits.PlutusV3Scripts())
+		explicitCap += len(PlutusV4ScriptsFromWitnessSet(wits))
 	}
 	explicitProvided := make(map[ScriptHash]struct{}, explicitCap)
 	if wits != nil {
@@ -308,6 +320,9 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 			explicitProvided[script.Hash()] = struct{}{}
 		}
 		for _, script := range wits.PlutusV3Scripts() {
+			explicitProvided[script.Hash()] = struct{}{}
+		}
+		for _, script := range PlutusV4ScriptsFromWitnessSet(wits) {
 			explicitProvided[script.Hash()] = struct{}{}
 		}
 	}
@@ -500,7 +515,8 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 	hasPlutus := false
 	if wits != nil {
 		if len(wits.PlutusV1Scripts()) > 0 || len(wits.PlutusV2Scripts()) > 0 ||
-			len(wits.PlutusV3Scripts()) > 0 {
+			len(wits.PlutusV3Scripts()) > 0 ||
+			len(PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
 			hasPlutus = true
 		}
 	}
@@ -523,11 +539,7 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 			if script == nil {
 				continue
 			}
-			switch script.(type) {
-			case *PlutusV1Script, *PlutusV2Script, *PlutusV3Script:
-				hasPlutusReference = true
-			case PlutusV1Script, PlutusV2Script, PlutusV3Script:
-				// Also handle non-pointer types
+			if _, ok := PlutusScriptVersion(script); ok {
 				hasPlutusReference = true
 			}
 			if hasPlutusReference {
@@ -549,11 +561,7 @@ func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 				if script == nil {
 					continue
 				}
-				switch script.(type) {
-				case *PlutusV1Script, *PlutusV2Script, *PlutusV3Script:
-					hasPlutusReference = true
-				case PlutusV1Script, PlutusV2Script, PlutusV3Script:
-					// Also handle non-pointer types
+				if _, ok := PlutusScriptVersion(script); ok {
 					hasPlutusReference = true
 				}
 				if hasPlutusReference {
@@ -603,7 +611,7 @@ func EncodeLangViews(
 
 	for version := range usedVersions {
 		switch version {
-		case 0, 1, 2:
+		case 0, 1, 2, 3:
 		default:
 			return nil, fmt.Errorf(
 				"unsupported Plutus version for lang views: %d",
@@ -643,7 +651,7 @@ func EncodeLangViews(
 				return nil, err
 			}
 
-		case 1, 2: // PlutusV2, PlutusV3
+		case 1, 2, 3: // PlutusV2, PlutusV3, PlutusV4
 			// Tags are single-byte CBOR encodings for small unsigned ints.
 			tag = []byte{byte(version)}
 			// Cost model uses definite-length list (no bytestring wrapper)

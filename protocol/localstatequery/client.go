@@ -364,6 +364,17 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		QueryTypeShelleyCurrentProtocolParams,
 	)
 	switch currentEra {
+	case ledger.EraIdDijkstra:
+		result := []ledger.DijkstraProtocolParameters{}
+		if err := c.runQuery(query, &result); err != nil {
+			return nil, err
+		}
+		if len(result) == 0 {
+			return nil, errors.New(
+				"empty result from Dijkstra protocol parameters query",
+			)
+		}
+		return &result[0], nil
 	case ledger.EraIdConway:
 		result := []ledger.ConwayProtocolParameters{}
 		if err := c.runQuery(query, &result); err != nil {

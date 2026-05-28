@@ -33,6 +33,7 @@ func TestRedeemerTagMarshalJSON(t *testing.T) {
 		{RedeemerTagReward, `"reward"`},
 		{RedeemerTagVoting, `"voting"`},
 		{RedeemerTagProposing, `"proposing"`},
+		{RedeemerTagGuarding, `"guarding"`},
 	}
 	for _, tc := range tests {
 		data, err := json.Marshal(tc.tag)
@@ -52,6 +53,7 @@ func TestRedeemerTagUnmarshalJSON(t *testing.T) {
 		{`"reward"`, RedeemerTagReward},
 		{`"voting"`, RedeemerTagVoting},
 		{`"proposing"`, RedeemerTagProposing},
+		{`"guarding"`, RedeemerTagGuarding},
 	}
 	for _, tc := range tests {
 		var tag RedeemerTag
@@ -74,7 +76,7 @@ func TestRedeemerTagUnmarshalJSONUnknown(t *testing.T) {
 }
 
 func TestRedeemerTagRoundTrip(t *testing.T) {
-	for tag := RedeemerTagSpend; tag <= RedeemerTagProposing; tag++ {
+	for tag := RedeemerTagSpend; tag <= RedeemerTagGuarding; tag++ {
 		data, err := json.Marshal(tag)
 		require.NoError(t, err)
 

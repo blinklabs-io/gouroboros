@@ -24,43 +24,20 @@ import (
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
 
-// mockTxEmpty implements the minimal Transaction interface used by the
-// helpers. It represents a transaction with no required signers and no
-// witnesses.
-type mockTxEmpty struct {
-	common.TransactionBodyBase
-}
-
-func (m *mockTxEmpty) Type() int    { return 0 }
-func (m *mockTxEmpty) Cbor() []byte { return nil }
-
-func (m *mockTxEmpty) Hash() common.Blake2b256 { return common.Blake2b256{} }
-
-func (m *mockTxEmpty) LeiosHash() common.Blake2b256            { return common.Blake2b256{} }
-func (m *mockTxEmpty) Metadata() common.TransactionMetadatum   { return nil }
-func (m *mockTxEmpty) AuxiliaryData() common.AuxiliaryData     { return nil }
-func (m *mockTxEmpty) IsValid() bool                           { return true }
-func (m *mockTxEmpty) Consumed() []common.TransactionInput     { return nil }
-func (m *mockTxEmpty) Produced() []common.Utxo                 { return nil }
-func (m *mockTxEmpty) Witnesses() common.TransactionWitnessSet { return nil }
-
-func (m *mockTxEmpty) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
-	return 0, nil
-}
-
 func TestValidateRequiredVKeyWitnesses_Common(t *testing.T) {
-	tx := &mockTxEmpty{}
+	tx := mockledger.NewTransactionBuilder()
 	if err := common.ValidateRequiredVKeyWitnesses(tx); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateRedeemerAndScriptWitnesses_Common(t *testing.T) {
-	tx := &mockTxEmpty{}
+	tx := mockledger.NewTransactionBuilder()
 	if err := common.ValidateRedeemerAndScriptWitnesses(tx, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,15 +79,15 @@ func TestEncodeLangViews(t *testing.T) {
 
 	t.Run("rejects_unsupported_versions", func(t *testing.T) {
 		_, err := common.EncodeLangViews(
-			map[uint]struct{}{3: {}},
-			map[uint][]int64{3: {1}},
+			map[uint]struct{}{4: {}},
+			map[uint][]int64{4: {1}},
 		)
 		require.Error(t, err)
 	})
 
 	t.Run("rejects_unsupported_versions_without_cost_model", func(t *testing.T) {
 		_, err := common.EncodeLangViews(
-			map[uint]struct{}{3: {}},
+			map[uint]struct{}{4: {}},
 			map[uint][]int64{},
 		)
 		require.Error(t, err)
@@ -157,6 +134,59 @@ func TestEncodeLangViews(t *testing.T) {
 
 		require.Equal(t, want, got)
 	})
+
+	t.Run("encodes_v4_language_view", func(t *testing.T) {
+		got, err := common.EncodeLangViews(
+			map[uint]struct{}{3: {}},
+			map[uint][]int64{3: {40, 41}},
+		)
+		require.NoError(t, err)
+
+		v4Params, err := cbor.Encode([]int64{40, 41})
+		require.NoError(t, err)
+
+		want := append([]byte{0xa1, 0x03}, v4Params...)
+		require.Equal(t, want, got)
+	})
+}
+
+func TestTxSizeForFeeDijkstraEnvelope(t *testing.T) {
+	txBody := map[uint]any{
+		0: []any{},
+		1: []any{},
+		2: uint64(0),
+	}
+	witnessSet := map[uint]any{}
+	auxData := any(nil)
+
+	threePartCbor, err := cbor.Encode([]any{txBody, witnessSet, auxData})
+	require.NoError(t, err)
+	threePartTx := mockledger.NewTransactionBuilder().
+		WithType(dijkstra.TxTypeDijkstra)
+	threePartTx.SetCbor(threePartCbor)
+
+	size, err := common.TxSizeForFee(threePartTx)
+	require.NoError(t, err)
+	require.Equal(t, len(threePartCbor), size)
+
+	fourPartCbor, err := cbor.Encode([]any{txBody, witnessSet, true, auxData})
+	require.NoError(t, err)
+	fourPartTx := mockledger.NewTransactionBuilder().
+		WithType(dijkstra.TxTypeDijkstra)
+	fourPartTx.SetCbor(fourPartCbor)
+
+	size, err = common.TxSizeForFee(fourPartTx)
+	require.NoError(t, err)
+	require.Equal(t, len(fourPartCbor)-1, size)
+
+	malformedTx := mockledger.NewTransactionBuilder().
+		WithType(dijkstra.TxTypeDijkstra)
+	malformedCbor := []byte{0xff}
+	malformedTx.SetCbor(malformedCbor)
+
+	size, err = common.TxSizeForFee(malformedTx)
+	require.NoError(t, err)
+	require.Equal(t, len(malformedCbor), size)
 }
 
 // Tests for VerifyTransaction moved from verify_rules_test.go

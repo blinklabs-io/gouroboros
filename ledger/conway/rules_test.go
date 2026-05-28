@@ -300,6 +300,95 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("redeemer with reference plutus v4 script", func(t *testing.T) {
+		refInput := shelley.NewShelleyTransactionInput(
+			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			0,
+		)
+		script := common.PlutusV4Script{0x01, 0x02, 0x03}
+		refOutput := babbage.BabbageTransactionOutput{
+			OutputAddress: common.Address{},
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV4,
+				Script: script,
+			},
+		}
+		refUtxo := common.Utxo{
+			Id:     refInput,
+			Output: refOutput,
+		}
+
+		ls := mockledger.NewLedgerStateBuilder().
+			WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+				if id.Index() == refInput.Index() &&
+					bytes.Equal(id.Id().Bytes(), refInput.Id().Bytes()) {
+					return refUtxo, nil
+				}
+				return common.Utxo{}, errors.New("not found")
+			}).
+			Build()
+
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxReferenceInputs = cbor.NewSetType(
+			[]shelley.ShelleyTransactionInput{refInput},
+			false,
+		)
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("redeemer with regular input plutus v4 script ref", func(t *testing.T) {
+		input := shelley.NewShelleyTransactionInput(
+			"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			0,
+		)
+		script := common.PlutusV4Script{0x01, 0x02, 0x03}
+		inputOutput := babbage.BabbageTransactionOutput{
+			OutputAddress: common.Address{},
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+			TxOutScriptRef: &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV4,
+				Script: script,
+			},
+		}
+		inputUtxo := common.Utxo{
+			Id:     input,
+			Output: inputOutput,
+		}
+
+		ls := mockledger.NewLedgerStateBuilder().
+			WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+				if id.Index() == input.Index() &&
+					bytes.Equal(id.Id().Bytes(), input.Id().Bytes()) {
+					return inputUtxo, nil
+				}
+				return common.Utxo{}, errors.New("not found")
+			}).
+			Build()
+
+		tx := &conway.ConwayTransaction{}
+		tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+			[]shelley.ShelleyTransactionInput{input},
+		)
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {
+					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+				},
+			},
+		}
+		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
+		assert.NoError(t, err)
+	})
+
 	t.Run(
 		"reference plutus script without redeemer should not error",
 		func(t *testing.T) {

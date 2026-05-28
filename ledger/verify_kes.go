@@ -29,7 +29,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
-	"github.com/blinklabs-io/gouroboros/ledger/leios"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -56,7 +56,7 @@ func ExtractKesFields(
 		return h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), nil
 	case *conway.ConwayBlockHeader:
 		return h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), nil
-	case *leios.LeiosBlockHeader:
+	case *dijkstra.DijkstraBlockHeader:
 		return h.Signature, h.Body.OpCert.HotVkey, uint64(h.Body.OpCert.KesPeriod), nil
 	default:
 		return nil, nil, 0, common.NewValidationError(
@@ -156,7 +156,7 @@ func GetHeaderBodyCbor(header common.BlockHeader) ([]byte, error) {
 		return cbor.Encode(h.Body)
 	case *conway.ConwayBlockHeader:
 		return cbor.Encode(h.Body)
-	case *leios.LeiosBlockHeader:
+	case *dijkstra.DijkstraBlockHeader:
 		return cbor.Encode(h.Body)
 	default:
 		return nil, fmt.Errorf("GetHeaderBodyCbor: unsupported block header type %T", header)

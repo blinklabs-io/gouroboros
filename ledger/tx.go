@@ -18,7 +18,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	dijkstraera "github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 )
 
 // Compatibility aliases
@@ -46,8 +48,8 @@ func NewTransactionFromCbor(txType uint, data []byte) (Transaction, error) {
 		return NewBabbageTransactionFromCbor(data)
 	case TxTypeConway:
 		return NewConwayTransactionFromCbor(data)
-	case TxTypeLeios:
-		return NewLeiosTransactionFromCbor(data)
+	case TxTypeDijkstra:
+		return NewDijkstraTransactionFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
@@ -71,8 +73,8 @@ func NewTransactionBodyFromCbor(
 		return NewBabbageTransactionBodyFromCbor(data)
 	case TxTypeConway:
 		return NewConwayTransactionBodyFromCbor(data)
-	case TxTypeLeios:
-		return NewLeiosTransactionBodyFromCbor(data)
+	case TxTypeDijkstra:
+		return NewDijkstraTransactionBodyFromCbor(data)
 	}
 	return nil, fmt.Errorf("unknown transaction type: %d", txType)
 }
@@ -109,9 +111,38 @@ func NewTransactionOutputFromCbor(data []byte) (TransactionOutput, error) {
 	return nil, errors.New("unknown transaction output type")
 }
 
+// DetermineTransactionType infers an era from standalone transaction CBOR.
+// This is for mempool and submission paths where block type IDs are absent;
+// chain-sync block decoding uses explicit type IDs instead of this heuristic.
 func DetermineTransactionType(data []byte) (uint, error) {
 	if len(data) == 0 {
 		return 0, errors.New("unknown transaction type")
+	}
+	// Dijkstra detection is intentionally heuristic. Fields 23, 25, and
+	// 26 are currently Dijkstra-only transaction body keys. Field 14 is
+	// Dijkstra-only only when it carries credential guards, or when it appears
+	// in Dijkstra's 3-component envelope; a 4-component key-hash guard is
+	// indistinguishable from Conway required_signers without era context.
+	var dijkstraDecoded bool
+	var dijkstraCandidate bool
+	var dijkstraTxArray []cbor.RawMessage
+	tryDijkstra := func() bool {
+		if !dijkstraDecoded {
+			var err error
+			dijkstraCandidate, dijkstraTxArray, _, err = looksLikeDijkstraTransaction(data)
+			dijkstraDecoded = true
+			if err != nil {
+				dijkstraCandidate = false
+			}
+		}
+		if !dijkstraCandidate {
+			return false
+		}
+		_, err := dijkstraera.NewDijkstraTransactionFromCborComponents(
+			data,
+			dijkstraTxArray,
+		)
+		return err == nil
 	}
 	// Fast path: check first byte to distinguish Byron from post-Shelley eras
 	firstByte := data[0]
@@ -121,6 +152,9 @@ func DetermineTransactionType(data []byte) (uint, error) {
 			return TxTypeByron, nil
 		}
 	case 0x83: // Shelley, Allegra, and Mary transactions are 3-element arrays
+		if tryDijkstra() {
+			return TxTypeDijkstra, nil
+		}
 		if _, err := NewShelleyTransactionFromCbor(data); err == nil {
 			return TxTypeShelley, nil
 		}
@@ -131,6 +165,9 @@ func DetermineTransactionType(data []byte) (uint, error) {
 			return TxTypeMary, nil
 		}
 	case 0x84: // Alonzo+ transactions are 4-element arrays
+		if tryDijkstra() {
+			return TxTypeDijkstra, nil
+		}
 		// Try most recent eras first for better performance
 		if _, err := NewConwayTransactionFromCbor(data); err == nil {
 			return TxTypeConway, nil
@@ -143,10 +180,71 @@ func DetermineTransactionType(data []byte) (uint, error) {
 		}
 	}
 
-	// Fallback: try Leios in case our assumptions are wrong
-	if _, err := NewLeiosTransactionFromCbor(data); err == nil {
-		return TxTypeLeios, nil
+	// Fallback: only accept Dijkstra if the explicit Dijkstra-only body key
+	// heuristic matched. This avoids classifying arbitrary malformed CBOR as
+	// Dijkstra just because the permissive decoder accepted its shape.
+	if tryDijkstra() {
+		return TxTypeDijkstra, nil
 	}
 
 	return 0, errors.New("unknown transaction type")
+}
+
+func decodeTxComponents(
+	data []byte,
+) ([]cbor.RawMessage, map[uint]cbor.RawMessage, error) {
+	var txArray []cbor.RawMessage
+	if _, err := cbor.Decode(data, &txArray); err != nil {
+		return nil, nil, err
+	}
+	if len(txArray) != 3 && len(txArray) != 4 {
+		return nil, nil, fmt.Errorf(
+			"invalid transaction component count %d",
+			len(txArray),
+		)
+	}
+	var txBody map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(txArray[0], &txBody); err != nil {
+		return nil, nil, err
+	}
+	return txArray, txBody, nil
+}
+
+func looksLikeDijkstraTransaction(
+	data []byte,
+) (bool, []cbor.RawMessage, map[uint]cbor.RawMessage, error) {
+	if len(data) > dijkstraera.MaxTxSize {
+		return false, nil, nil, nil
+	}
+	txArray, txBody, err := decodeTxComponents(data)
+	if err != nil {
+		return false, nil, nil, err
+	}
+	if rawGuards, ok := txBody[14]; ok &&
+		looksLikeDijkstraGuards(txArray, rawGuards) {
+		return true, txArray, txBody, nil
+	}
+	// This is a heuristic, not a proof of era. Fields 23, 25, and 26 are
+	// currently used only by Dijkstra transactions and protocol parameters;
+	// future eras reusing them can create false positives.
+	for _, field := range []uint{23, 25, 26} {
+		if _, ok := txBody[field]; ok {
+			return true, txArray, txBody, nil
+		}
+	}
+	return false, txArray, txBody, nil
+}
+
+func looksLikeDijkstraGuards(
+	txArray []cbor.RawMessage,
+	rawGuards cbor.RawMessage,
+) bool {
+	var guards dijkstraera.DijkstraGuards
+	if _, err := cbor.Decode(rawGuards, &guards); err != nil {
+		return false
+	}
+	if len(guards.Credentials) > 0 {
+		return true
+	}
+	return len(txArray) == 3 && len(guards.KeyHashes) > 0
 }
