@@ -265,7 +265,7 @@ func TestCallbackResponseTypes(t *testing.T) {
 		{
 			name: "VotesOffer response",
 			response: NewMsgVotesOffer([]MsgVotesOfferVote{
-				{Slot: 100, VoteIssuerId: []byte{0x01, 0x02, 0x03, 0x04}},
+				{SlotNo: 100, VoterId: 1},
 			}),
 		},
 	}

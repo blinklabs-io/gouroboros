@@ -321,7 +321,7 @@ func TestClientHandleVotesOffer(t *testing.T) {
 	client := NewClient(protoOptions, nil)
 
 	msg := NewMsgVotesOffer([]MsgVotesOfferVote{
-		{Slot: 100, VoteIssuerId: []byte{0x01, 0x02, 0x03, 0x04}},
+		{SlotNo: 100, VoterId: 1},
 	})
 
 	// Start a goroutine to receive the message

@@ -178,6 +178,25 @@ func TestDijkstraBlockBodyHashIncludesLeiosAndPerasCertSlots(t *testing.T) {
 	require.NotEqual(t, withoutCerts.Hash(), withCerts.Hash())
 }
 
+func TestDijkstraLeiosCertificateMatchesCddlPlaceholder(t *testing.T) {
+	raw, err := cbor.Encode([]any{})
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x80}, raw)
+
+	var cert DijkstraLeiosCertificate
+	require.NoError(t, cert.UnmarshalCBOR(raw))
+	require.Equal(t, raw, cert.Cbor())
+
+	encoded, err := cbor.Encode(&cert)
+	require.NoError(t, err)
+	require.Equal(t, raw, encoded)
+
+	nonEmpty, err := cbor.Encode([]any{uint64(99)})
+	require.NoError(t, err)
+	err = cert.UnmarshalCBOR(nonEmpty)
+	require.ErrorContains(t, err, "empty list")
+}
+
 func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 	blockBody := DijkstraBlockBody{
 		TransactionBodies:      []DijkstraTransactionBody{},

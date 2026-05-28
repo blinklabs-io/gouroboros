@@ -62,6 +62,9 @@ The LeiosNotify protocol provides notifications about new Leios blocks, transact
 | `BlockTxsOffer` | Idle |
 | `VotesOffer` | Idle |
 
+`VotesOffer` advertises available votes by `(SlotNo, VoterId)`, where
+`VoterId` is the voter's index in the epoch's stake-based committee.
+
 ## Timeouts
 
 | Timeout | Default | Description |

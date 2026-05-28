@@ -192,6 +192,16 @@ func (b *DijkstraBlock) CalculatedBlockBodyHash() common.Blake2b256 {
 	return b.BlockBody.Hash()
 }
 
+// DijkstraLeiosCertificate matches the generated Dijkstra CDDL in
+// IntersectMBO/cardano-ledger at c47305fcf47bd77437b837d0dfb9cb4181bfbc77:
+//
+//	block = [..., leios_cert : leios_cert / nil, peras_cert : peras_cert / nil]
+//	leios_cert = []
+//	peras_cert = []
+//
+// The Leios and Peras slots are always present and nullable. When non-null,
+// the current Dijkstra CDDL placeholder is an empty CBOR list, not the CIP-0164
+// stake-committee EB certificate payload.
 type DijkstraLeiosCertificate struct {
 	cbor.DecodeStoreCbor
 }

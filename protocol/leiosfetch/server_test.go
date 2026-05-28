@@ -233,7 +233,7 @@ func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 
 	called := false
 	expectedVoteIds := []MsgVotesRequestVoteId{
-		{Slot: 100, VoteIssuerId: []byte{0x01, 0x02, 0x03, 0x04}},
+		{SlotNo: 100, VoterId: 1},
 	}
 
 	cfg := NewConfig(

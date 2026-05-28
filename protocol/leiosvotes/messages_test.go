@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,10 +34,18 @@ type testDefinition struct {
 func testVote() Vote {
 	return Vote{
 		SlotNo:            12345,
-		EndorserBlockHash: []byte{0x01, 0x02, 0x03, 0x04},
+		EndorserBlockHash: lcommon.NewBlake2b256([]byte{0x01, 0x02, 0x03, 0x04}),
 		VoterId:           42,
-		VoteSignature:     []byte{0xaa, 0xbb, 0xcc, 0xdd},
+		VoteSignature:     testSignature(0xaa),
 	}
+}
+
+func testSignature(fill byte) []byte {
+	ret := make([]byte, lcommon.LeiosBlsSignatureSize)
+	for i := range ret {
+		ret[i] = fill
+	}
+	return ret
 }
 
 func getTestDefinitions() []testDefinition {
@@ -85,6 +94,26 @@ func TestDecode(t *testing.T) {
 			require.NoError(t, err)
 			test.Message.SetCbor(encoded)
 
+			if test.MessageType == MessageTypeVote {
+				expected := test.Message.(*MsgVote)
+				actual := decoded.(*MsgVote)
+				assert.Equal(t, expected.Type(), actual.Type())
+				assert.Equal(t, expected.Cbor(), actual.Cbor())
+				assert.Equal(t, expected.Vote.SlotNo, actual.Vote.SlotNo)
+				assert.Equal(
+					t,
+					expected.Vote.EndorserBlockHash,
+					actual.Vote.EndorserBlockHash,
+				)
+				assert.Equal(t, expected.Vote.VoterId, actual.Vote.VoterId)
+				assert.Equal(
+					t,
+					expected.Vote.VoteSignature,
+					actual.Vote.VoteSignature,
+				)
+				require.NotEmpty(t, actual.Vote.Cbor())
+				return
+			}
 			assert.True(t, reflect.DeepEqual(decoded, test.Message))
 		})
 	}

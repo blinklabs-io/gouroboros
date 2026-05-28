@@ -120,6 +120,11 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | `NextBlockAndTxsInRange` | BlockRange |
 | `LastBlockAndTxsInRange` | Idle |
 
+`VotesRequest` identifies each requested vote by `(SlotNo, VoterId)`, where
+`VoterId` is the voter's index in the epoch's stake-based committee.
+`Votes` keeps the wire payload as raw CBOR and provides typed helpers for
+validated `common.LeiosVote` values.
+
 ## Timeouts
 
 | Timeout | Default | Description |
