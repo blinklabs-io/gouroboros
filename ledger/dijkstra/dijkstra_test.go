@@ -16,6 +16,7 @@ package dijkstra
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -355,6 +356,193 @@ func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(t *testin
 	require.Equal(t, uint32(2000), pparams.MaxRefScriptSizePerTx)
 	require.Equal(t, uint32(16), pparams.RefScriptCostStride)
 	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
+}
+
+func TestDijkstraProtocolParameterUpdateLeiosStakeFieldsExcludedFromCbor(t *testing.T) {
+	updateCbor, err := cbor.Encode(DijkstraProtocolParameterUpdate{
+		CommitteeStakeCoverage: &cbor.Rat{Rat: big.NewRat(99, 100)},
+		QuorumStakeThreshold:   &cbor.Rat{Rat: big.NewRat(3, 4)},
+	})
+	require.NoError(t, err)
+
+	var decoded map[uint]cbor.RawMessage
+	_, err = cbor.Decode(updateCbor, &decoded)
+	require.NoError(t, err)
+	require.Empty(t, decoded)
+}
+
+func TestDijkstraGenesisDecodesCurrentDevnetExample(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "maxRefScriptSizePerBlock": 1048576,
+  "maxRefScriptSizePerTx": 204800,
+  "refScriptCostStride": 25600,
+  "refScriptCostMultiplier": 1.2
+}`))
+	require.NoError(t, err)
+	require.Equal(t, uint32(1048576), genesis.MaxRefScriptSizePerBlock)
+	require.Equal(t, uint32(204800), genesis.MaxRefScriptSizePerTx)
+	require.Equal(t, uint32(25600), genesis.RefScriptCostStride)
+	require.Equal(t, 0, genesis.RefScriptCostMultiplier.Cmp(big.NewRat(6, 5)))
+
+	var pparams DijkstraProtocolParameters
+	require.NoError(t, pparams.UpdateFromGenesis(&genesis))
+	require.Equal(t, uint32(1048576), pparams.MaxRefScriptSizePerBlock)
+	require.Equal(t, uint32(204800), pparams.MaxRefScriptSizePerTx)
+	require.Equal(t, uint32(25600), pparams.RefScriptCostStride)
+	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(6, 5)))
+}
+
+func TestDijkstraGenesisLeiosStakeParameters(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "committeeStakeCoverage": 0.99,
+  "quorumStakeThreshold": 0.75
+}`))
+	require.NoError(t, err)
+
+	var pparams DijkstraProtocolParameters
+	require.NoError(t, pparams.UpdateFromGenesis(&genesis))
+	require.Equal(
+		t,
+		0,
+		pparams.CommitteeStakeCoverage.Cmp(big.NewRat(99, 100)),
+	)
+	require.Equal(
+		t,
+		0,
+		pparams.QuorumStakeThreshold.Cmp(big.NewRat(3, 4)),
+	)
+}
+
+func TestDijkstraGenesisRejectsInvalidLeiosStakeParameters(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "committeeStakeCoverage": 0.75,
+  "quorumStakeThreshold": 0.75
+}`))
+	require.NoError(t, err)
+
+	var pparams DijkstraProtocolParameters
+	err = pparams.UpdateFromGenesis(&genesis)
+	require.ErrorAs(t, err, &LeiosCommitteeStakeParametersError{})
+}
+
+func TestDijkstraLeiosStakeParametersValidateSingleField(t *testing.T) {
+	tests := []struct {
+		name                   string
+		committeeStakeCoverage *cbor.Rat
+		quorumStakeThreshold   *cbor.Rat
+		expectErr              bool
+	}{
+		{
+			name:                   "valid coverage without quorum",
+			committeeStakeCoverage: &cbor.Rat{Rat: big.NewRat(1, 2)},
+		},
+		{
+			name:                 "valid quorum without coverage",
+			quorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(1, 2)},
+		},
+		{
+			name:                   "invalid coverage without quorum",
+			committeeStakeCoverage: &cbor.Rat{Rat: big.NewRat(0, 1)},
+			expectErr:              true,
+		},
+		{
+			name:                 "invalid quorum without coverage",
+			quorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(2, 1)},
+			expectErr:            true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateLeiosCommitteeStakeParameters(
+				tt.committeeStakeCoverage,
+				tt.quorumStakeThreshold,
+			)
+			if tt.expectErr {
+				require.ErrorAs(
+					t,
+					err,
+					&LeiosCommitteeStakeParametersError{},
+				)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDijkstraProtocolParametersApplyUpdateLeiosStakeInvariant(t *testing.T) {
+	pparams := DijkstraProtocolParameters{
+		CommitteeStakeCoverage: &cbor.Rat{Rat: big.NewRat(99, 100)},
+		QuorumStakeThreshold:   &cbor.Rat{Rat: big.NewRat(3, 4)},
+	}
+	validQuorum := &cbor.Rat{Rat: big.NewRat(4, 5)}
+	require.NoError(t, pparams.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		QuorumStakeThreshold: validQuorum,
+	}))
+	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(4, 5)))
+
+	invalidCoverage := &cbor.Rat{Rat: big.NewRat(4, 5)}
+	err := pparams.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+		CommitteeStakeCoverage: invalidCoverage,
+	})
+	require.ErrorAs(t, err, &LeiosCommitteeStakeParametersError{})
+	require.Equal(
+		t,
+		0,
+		pparams.CommitteeStakeCoverage.Cmp(big.NewRat(99, 100)),
+	)
+}
+
+func TestDijkstraProtocolParametersUpdatePreservesLeiosStakeInvariant(t *testing.T) {
+	pparams := DijkstraProtocolParameters{
+		MaxRefScriptSizePerBlock: 1000,
+		CommitteeStakeCoverage:   &cbor.Rat{Rat: big.NewRat(99, 100)},
+		QuorumStakeThreshold:     &cbor.Rat{Rat: big.NewRat(3, 4)},
+	}
+	validQuorum := &cbor.Rat{Rat: big.NewRat(4, 5)}
+	pparams.Update(&DijkstraProtocolParameterUpdate{
+		QuorumStakeThreshold: validQuorum,
+	})
+	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(4, 5)))
+
+	invalidCoverage := &cbor.Rat{Rat: big.NewRat(4, 5)}
+	maxRefScriptSizePerBlock := uint32(2000)
+	pparams.Update(&DijkstraProtocolParameterUpdate{
+		MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		CommitteeStakeCoverage:   invalidCoverage,
+	})
+	require.Equal(t, uint32(1000), pparams.MaxRefScriptSizePerBlock)
+	require.Equal(
+		t,
+		0,
+		pparams.CommitteeStakeCoverage.Cmp(big.NewRat(99, 100)),
+	)
+	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(4, 5)))
+}
+
+func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(t *testing.T) {
+	maxRefScriptSizePerBlock := uint32(1000)
+	action := &DijkstraParameterChangeGovAction{
+		Type: uint(common.GovActionTypeParameterChange),
+		ParamUpdate: DijkstraProtocolParameterUpdate{
+			MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		},
+	}
+	actionCbor, err := cbor.Encode(&DijkstraGovAction{Action: action})
+	require.NoError(t, err)
+
+	var decoded DijkstraGovAction
+	_, err = cbor.Decode(actionCbor, &decoded)
+	require.NoError(t, err)
+	decodedAction, ok := decoded.Action.(*DijkstraParameterChangeGovAction)
+	require.True(t, ok)
+	require.NotNil(t, decodedAction.ParamUpdate.MaxRefScriptSizePerBlock)
+	require.Equal(
+		t,
+		maxRefScriptSizePerBlock,
+		*decodedAction.ParamUpdate.MaxRefScriptSizePerBlock,
+	)
 }
 
 func TestDijkstraTransactionLeiosHashCaches(t *testing.T) {

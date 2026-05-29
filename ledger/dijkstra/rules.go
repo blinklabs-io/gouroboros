@@ -38,7 +38,7 @@ const minUtxoOverheadBytes = 160
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateMetadata,
-	conway.UtxoValidateProposalProcedures,
+	UtxoValidateProposalProcedures,
 	conway.UtxoValidateProposalNetworkIds,
 	conway.UtxoValidateEmptyTreasuryWithdrawals,
 	UtxoValidateBootstrapAllowedGovActions,
@@ -97,22 +97,82 @@ func conwayPparams(
 	}
 }
 
+func isInDijkstraBootstrapPhase(pp common.ProtocolParameters) (bool, error) {
+	conwayPp, err := conwayPparams(pp)
+	if err != nil {
+		return false, err
+	}
+	major := conwayPp.ProtocolVersion.Major
+	return major >= common.ProtocolVersionConway &&
+		major < common.ProtocolVersionPlomin, nil
+}
+
+func UtxoValidateProposalProcedures(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	for _, proposal := range tx.ProposalProcedures() {
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+		paramChangeAction, ok := govAction.(*DijkstraParameterChangeGovAction)
+		if !ok {
+			continue
+		}
+		if err := validateDijkstraProtocolParameterUpdate(
+			&paramChangeAction.ParamUpdate,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func UtxoValidateBootstrapAllowedGovActions(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, err := conwayPparams(pp)
+	inBootstrap, err := isInDijkstraBootstrapPhase(pp)
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateBootstrapAllowedGovActions(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
-	)
+	if !inBootstrap {
+		return nil
+	}
+	for _, proposal := range tx.ProposalProcedures() {
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+		switch govAction.(type) {
+		case *common.InfoGovAction:
+		case *common.HardForkInitiationGovAction:
+		case *DijkstraParameterChangeGovAction:
+		case *common.TreasuryWithdrawalGovAction:
+			return conway.BootstrapDisallowedGovActionError{
+				ActionType: common.GovActionTypeTreasuryWithdrawal,
+			}
+		case *common.NoConfidenceGovAction:
+			return conway.BootstrapDisallowedGovActionError{
+				ActionType: common.GovActionTypeNoConfidence,
+			}
+		case *common.UpdateCommitteeGovAction:
+			return conway.BootstrapDisallowedGovActionError{
+				ActionType: common.GovActionTypeUpdateCommittee,
+			}
+		case *common.NewConstitutionGovAction:
+			return conway.BootstrapDisallowedGovActionError{
+				ActionType: common.GovActionTypeNewConstitution,
+			}
+		default:
+		}
+	}
+	return nil
 }
 
 func UtxoValidateBootstrapParameterGroups(
@@ -121,15 +181,70 @@ func UtxoValidateBootstrapParameterGroups(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	tmpPparams, err := conwayPparams(pp)
+	inBootstrap, err := isInDijkstraBootstrapPhase(pp)
 	if err != nil {
 		return err
 	}
-	return conway.UtxoValidateBootstrapParameterGroups(
-		tx,
-		slot,
-		ls,
-		tmpPparams,
+	if !inBootstrap {
+		return nil
+	}
+	for _, proposal := range tx.ProposalProcedures() {
+		govAction := proposal.GovAction()
+		if govAction == nil {
+			continue
+		}
+		switch paramChange := govAction.(type) {
+		case *DijkstraParameterChangeGovAction:
+			fields := paramChange.ParamUpdate.BootstrapRestrictedFields()
+			if len(fields) > 0 {
+				return conway.BootstrapDisallowedParameterChangeError{
+					Fields: fields,
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateDijkstraProtocolParameterUpdate(
+	ppu *DijkstraProtocolParameterUpdate,
+) error {
+	if ppu == nil || !ppu.hasUpdate() {
+		return conway.ProtocolParameterUpdateEmptyError{}
+	}
+	if ppu.MaxBlockHeaderSize != nil && *ppu.MaxBlockHeaderSize == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxBHSize",
+			Value:     *ppu.MaxBlockHeaderSize,
+		}
+	}
+	if ppu.MaxTxSize != nil && *ppu.MaxTxSize == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxTxSize",
+			Value:     *ppu.MaxTxSize,
+		}
+	}
+	if ppu.MaxValueSize != nil && *ppu.MaxValueSize == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxValSize",
+			Value:     *ppu.MaxValueSize,
+		}
+	}
+	if ppu.MaxBlockBodySize != nil && *ppu.MaxBlockBodySize == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{
+			FieldName: "maxBlockBodySize",
+			Value:     *ppu.MaxBlockBodySize,
+		}
+	}
+	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{
+			FieldName: "refScriptCostStride",
+			Value:     uint(*ppu.RefScriptCostStride),
+		}
+	}
+	return validateLeiosCommitteeStakeParameters(
+		ppu.CommitteeStakeCoverage,
+		ppu.QuorumStakeThreshold,
 	)
 }
 
