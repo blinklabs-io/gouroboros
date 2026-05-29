@@ -70,8 +70,8 @@ func getTestDefinitions() []testDefinition {
 			Name: "MsgVotesOffer",
 			Message: NewMsgVotesOffer(
 				[]MsgVotesOfferVote{
-					{Slot: 100, VoteIssuerId: []byte{0x01, 0x02, 0x03, 0x04}},
-					{Slot: 200, VoteIssuerId: []byte{0x05, 0x06, 0x07, 0x08}},
+					{SlotNo: 100, VoterId: 1},
+					{SlotNo: 200, VoterId: 2},
 				},
 			),
 			MessageType: MessageTypeVotesOffer,
@@ -181,8 +181,8 @@ func TestMsgBlockTxsOffer(t *testing.T) {
 
 func TestMsgVotesOffer(t *testing.T) {
 	votes := []MsgVotesOfferVote{
-		{Slot: 100, VoteIssuerId: []byte{0x01, 0x02, 0x03, 0x04}},
-		{Slot: 200, VoteIssuerId: []byte{0x05, 0x06, 0x07, 0x08}},
+		{SlotNo: 100, VoterId: 1},
+		{SlotNo: 200, VoterId: 2},
 	}
 
 	msg := NewMsgVotesOffer(votes)

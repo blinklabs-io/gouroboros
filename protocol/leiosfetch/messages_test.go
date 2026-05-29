@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,14 @@ type testDefinition struct {
 	Name        string
 	Message     protocol.Message
 	MessageType uint
+}
+
+func testLeiosSignature(fill byte) []byte {
+	ret := make([]byte, lcommon.LeiosBlsSignatureSize)
+	for i := range ret {
+		ret[i] = fill
+	}
+	return ret
 }
 
 func getTestDefinitions() []testDefinition {
@@ -78,8 +87,8 @@ func getTestDefinitions() []testDefinition {
 			Name: "MsgVotesRequest",
 			Message: NewMsgVotesRequest(
 				[]MsgVotesRequestVoteId{
-					{Slot: 100, VoteIssuerId: []byte{0x01, 0x02, 0x03, 0x04}},
-					{Slot: 200, VoteIssuerId: []byte{0x05, 0x06, 0x07, 0x08}},
+					{SlotNo: 100, VoterId: 1},
+					{SlotNo: 200, VoterId: 2},
 				},
 			),
 			MessageType: MessageTypeVotesRequest,
@@ -244,8 +253,8 @@ func TestMsgBlockTxs(t *testing.T) {
 
 func TestMsgVotesRequest(t *testing.T) {
 	voteIds := []MsgVotesRequestVoteId{
-		{Slot: 100, VoteIssuerId: []byte{0x01, 0x02, 0x03, 0x04}},
-		{Slot: 200, VoteIssuerId: []byte{0x05, 0x06, 0x07, 0x08}},
+		{SlotNo: 100, VoterId: 1},
+		{SlotNo: 200, VoterId: 2},
 	}
 
 	msg := NewMsgVotesRequest(voteIds)
@@ -263,6 +272,43 @@ func TestMsgVotes(t *testing.T) {
 
 	assert.Equal(t, uint8(MessageTypeVotes), msg.Type())
 	assert.Equal(t, votes, msg.VotesRaw)
+}
+
+func TestMsgVotesTypedHelpers(t *testing.T) {
+	votes := []lcommon.LeiosVote{
+		{
+			SlotNo:            100,
+			EndorserBlockHash: lcommon.NewBlake2b256([]byte{0x01}),
+			VoterId:           7,
+			VoteSignature:     testLeiosSignature(0xaa),
+		},
+	}
+
+	msg, err := NewMsgVotesFromVotes(votes)
+	require.NoError(t, err)
+
+	decodedVotes, err := msg.DecodeVotes()
+	require.NoError(t, err)
+	require.Len(t, decodedVotes, len(votes))
+	assert.Equal(t, votes[0].SlotNo, decodedVotes[0].SlotNo)
+	assert.Equal(t, votes[0].EndorserBlockHash, decodedVotes[0].EndorserBlockHash)
+	assert.Equal(t, votes[0].VoterId, decodedVotes[0].VoterId)
+	assert.Equal(t, votes[0].VoteSignature, decodedVotes[0].VoteSignature)
+	assert.Equal(t, []byte(msg.VotesRaw[0]), decodedVotes[0].Cbor())
+}
+
+func TestMsgVotesDecodeVotesRejectsInvalidVote(t *testing.T) {
+	invalidVoteCbor, err := cbor.Encode([]any{
+		uint64(100),
+		lcommon.NewBlake2b256([]byte{0x01}),
+		uint64(7),
+		[]byte{0xaa},
+	})
+	require.NoError(t, err)
+
+	msg := NewMsgVotes([]cbor.RawMessage{invalidVoteCbor})
+	_, err = msg.DecodeVotes()
+	require.Error(t, err)
 }
 
 func TestMsgBlockRangeRequest(t *testing.T) {

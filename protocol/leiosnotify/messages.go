@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -125,11 +126,7 @@ type MsgVotesOffer struct {
 	Votes []MsgVotesOfferVote
 }
 
-type MsgVotesOfferVote struct {
-	cbor.StructAsArray
-	Slot         uint64
-	VoteIssuerId []byte
-}
+type MsgVotesOfferVote = lcommon.LeiosVoteId
 
 func NewMsgVotesOffer(votes []MsgVotesOfferVote) *MsgVotesOffer {
 	m := &MsgVotesOffer{

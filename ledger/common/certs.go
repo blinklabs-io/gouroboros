@@ -50,7 +50,6 @@ const (
 	CertificateTypeRegistrationDrep                CertificateType = 16
 	CertificateTypeDeregistrationDrep              CertificateType = 17
 	CertificateTypeUpdateDrep                      CertificateType = 18
-	CertificateTypeLeiosEb                         CertificateType = 19
 )
 
 type CertificateWrapper struct {
@@ -107,8 +106,6 @@ func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 		tmpCert = &DeregistrationDrepCertificate{}
 	case CertificateTypeUpdateDrep:
 		tmpCert = &UpdateDrepCertificate{}
-	case CertificateTypeLeiosEb:
-		tmpCert = &LeiosEbCertificate{}
 	default:
 		return fmt.Errorf("unknown certificate type: %d", certType)
 	}
@@ -1473,71 +1470,4 @@ func (c *UpdateDrepCertificate) Utxorpc() (*utxorpc.Certificate, error) {
 
 func (c *UpdateDrepCertificate) Type() uint {
 	return c.CertType
-}
-
-type LeiosEbCertificate struct {
-	cbor.StructAsArray
-	cbor.DecodeStoreCbor
-	ElectionId          Blake2b256
-	EndorserBlockHash   Blake2b256
-	PersistentVoters    []uint
-	NonpersistentVoters map[Blake2b256][]byte
-	AggregatedVoteSig   []byte
-}
-
-func (c LeiosEbCertificate) isCertificate() {}
-
-func (c *LeiosEbCertificate) UnmarshalCBOR(
-	cborData []byte,
-) error {
-	type tLeiosEbCertificate LeiosEbCertificate
-	var tmp tLeiosEbCertificate
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
-		return err
-	}
-	// Validate BLS signature sizes per CIP-0164 (BLS12-381 MinSig)
-	if len(tmp.AggregatedVoteSig) != 48 {
-		return fmt.Errorf(
-			"LeiosEbCertificate: AggregatedVoteSig must be 48 bytes (BLS signature), got %d",
-			len(tmp.AggregatedVoteSig),
-		)
-	}
-	for poolId, sig := range tmp.NonpersistentVoters {
-		if len(sig) != 48 {
-			return fmt.Errorf(
-				"LeiosEbCertificate: NonpersistentVoters signature for pool %x must be 48 bytes, got %d",
-				poolId[:8],
-				len(sig),
-			)
-		}
-	}
-	*c = LeiosEbCertificate(tmp)
-	c.SetCbor(cborData)
-	return nil
-}
-
-func (c *LeiosEbCertificate) Utxorpc() (*utxorpc.Certificate, error) {
-	return &utxorpc.Certificate{}, nil
-}
-
-func (c *LeiosEbCertificate) Type() uint {
-	return uint(CertificateTypeLeiosEb)
-}
-
-// GetAggregatedVoteSig returns the aggregated vote signature as a byte slice
-func (c *LeiosEbCertificate) GetAggregatedVoteSig() []byte {
-	return c.AggregatedVoteSig
-}
-
-// SetAggregatedVoteSig sets the aggregated vote signature from a byte slice
-// and validates it meets the 48-byte BLS signature requirement per CIP-0164
-func (c *LeiosEbCertificate) SetAggregatedVoteSig(sig []byte) error {
-	if len(sig) != 48 {
-		return fmt.Errorf(
-			"LeiosEbCertificate: AggregatedVoteSig must be 48 bytes (BLS signature), got %d",
-			len(sig),
-		)
-	}
-	c.AggregatedVoteSig = sig
-	return nil
 }
