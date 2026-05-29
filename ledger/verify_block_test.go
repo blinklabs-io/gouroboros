@@ -12,6 +12,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -31,15 +32,49 @@ var (
 	}()
 )
 
+func TestDetermineBlockTypeConwayAndDijkstraProtocolRanges(t *testing.T) {
+	testCases := []struct {
+		name      string
+		major     uint64
+		blockType uint
+	}{
+		{name: "conway 9", major: 9, blockType: BlockTypeConway},
+		{name: "conway 10", major: 10, blockType: BlockTypeConway},
+		{name: "conway 11", major: 11, blockType: BlockTypeConway},
+		{name: "dijkstra 12", major: 12, blockType: BlockTypeDijkstra},
+		{name: "dijkstra 13", major: 13, blockType: BlockTypeDijkstra},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := make([]any, HeaderBodyLengthBabbageLike)
+			body[9] = []any{tc.major, uint64(0)}
+			headerCbor, err := cbor.Encode([]any{body, []byte{}})
+			if err != nil {
+				t.Fatalf("failed to encode header: %v", err)
+			}
+
+			blockType, err := DetermineBlockType(headerCbor)
+			if err != nil {
+				t.Fatalf("failed to determine block type: %v", err)
+			}
+			if blockType != tc.blockType {
+				t.Fatalf("block type = %d, want %d", blockType, tc.blockType)
+			}
+		})
+	}
+}
+
 // eraNameMap maps block types to era names for improved error messages.
 // When adding a new era/block type, this map must be updated in lockstep.
 var eraNameMap = map[uint]string{
-	BlockTypeShelley: shelley.EraNameShelley,
-	BlockTypeAllegra: allegra.EraNameAllegra,
-	BlockTypeMary:    mary.EraNameMary,
-	BlockTypeAlonzo:  alonzo.EraNameAlonzo,
-	BlockTypeBabbage: babbage.EraNameBabbage,
-	BlockTypeConway:  conway.EraNameConway,
+	BlockTypeShelley:  shelley.EraNameShelley,
+	BlockTypeAllegra:  allegra.EraNameAllegra,
+	BlockTypeMary:     mary.EraNameMary,
+	BlockTypeAlonzo:   alonzo.EraNameAlonzo,
+	BlockTypeBabbage:  babbage.EraNameBabbage,
+	BlockTypeConway:   conway.EraNameConway,
+	BlockTypeDijkstra: dijkstra.EraNameDijkstra,
 }
 
 // testSkipAllValidationConfig returns a VerifyConfig that skips body hash, stake pool, and transaction validation.
@@ -328,6 +363,25 @@ func TestVerifyBlockBody(t *testing.T) {
 					),
 					TransactionMetadataSet: metadataSet,
 					InvalidTransactions:    []uint{},
+				}
+			case BlockTypeDijkstra:
+				transactionBodies := decodeTxBodies[dijkstra.DijkstraTransactionBody](
+					t,
+					txs,
+					"Dijkstra",
+				)
+				dijkstraHeader := header.(*dijkstra.DijkstraBlockHeader)
+				block = &dijkstra.DijkstraBlock{
+					BlockHeader: dijkstraHeader,
+					BlockBody: dijkstra.DijkstraBlockBody{
+						TransactionBodies: transactionBodies,
+						TransactionWitnessSets: make(
+							[]dijkstra.DijkstraTransactionWitnessSet,
+							len(txs),
+						),
+						TransactionMetadataSet: metadataSet,
+						InvalidTransactions:    []uint{},
+					},
 				}
 			default:
 				t.Fatalf("unsupported block type %d", blockType)

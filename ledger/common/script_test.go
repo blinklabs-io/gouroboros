@@ -22,6 +22,8 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestScriptRefDecodeEncode(t *testing.T) {
@@ -75,13 +77,37 @@ func TestNativeScriptHash(t *testing.T) {
 		t.Fatalf("unexpected error decoding native script: %s", err)
 	}
 	tmpHash := testScript.Hash()
-	if tmpHash.String() != expectedScriptHash {
-		t.Errorf(
-			"did not get expected script hash, got %s, wanted %s",
-			tmpHash.String(),
-			expectedScriptHash,
-		)
+	assert.Equal(t, expectedScriptHash, tmpHash.String())
+}
+
+func TestNativeScriptRequireGuardEvaluation(t *testing.T) {
+	var guardHash common.Blake2b224
+	for i := range guardHash {
+		guardHash[i] = byte(i + 1)
 	}
+	guardCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: guardHash,
+	}
+	scriptCbor, err := cbor.Encode(common.NativeScriptRequireGuard{
+		Type:       6,
+		Credential: guardCred,
+	})
+	require.NoError(t, err)
+	var script common.NativeScript
+	require.NoError(t, script.UnmarshalCBOR(scriptCbor))
+
+	require.False(t, script.Evaluate(0, 0, 0, nil))
+	require.True(
+		t,
+		script.EvaluateWithGuards(0, 0, 0, nil, []common.Credential{guardCred}),
+	)
+
+	guardHash[0] ^= 0xff
+	require.False(t, script.EvaluateWithGuards(0, 0, 0, nil, []common.Credential{{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: guardHash,
+	}}))
 }
 
 func TestPlutusV3ScriptHash(t *testing.T) {
@@ -91,13 +117,7 @@ func TestPlutusV3ScriptHash(t *testing.T) {
 	testScript := common.PlutusV3Script(testScriptBytes)
 	expectedScriptHash := "2909c3d0441e76cd6ae1fc09664bb209868902e191c2b8c30b82d331"
 	tmpHash := testScript.Hash()
-	if tmpHash.String() != expectedScriptHash {
-		t.Errorf(
-			"did not get expected script hash, got %s, wanted %s",
-			tmpHash.String(),
-			expectedScriptHash,
-		)
-	}
+	assert.Equal(t, expectedScriptHash, tmpHash.String())
 }
 
 // TestScriptHashToBech32 tests CIP-0005 bech32 encoding for script hashes.

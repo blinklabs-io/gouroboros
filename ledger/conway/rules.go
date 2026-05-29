@@ -527,7 +527,8 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 	if wits != nil {
 		hasPlutusWitness = len(wits.PlutusV1Scripts()) > 0 ||
 			len(wits.PlutusV2Scripts()) > 0 ||
-			len(wits.PlutusV3Scripts()) > 0
+			len(wits.PlutusV3Scripts()) > 0 ||
+			len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0
 	}
 
 	// Consider Plutus reference scripts on reference inputs. If a reference input
@@ -548,8 +549,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 		if script == nil {
 			continue
 		}
-		switch script.(type) {
-		case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
+		if _, ok := common.PlutusScriptVersion(script); ok {
 			hasPlutusReference = true
 		}
 		if hasPlutusReference {
@@ -573,8 +573,7 @@ func UtxoValidateRedeemerAndScriptWitnesses(
 			if script == nil {
 				continue
 			}
-			switch script.(type) {
-			case common.PlutusV1Script, common.PlutusV2Script, common.PlutusV3Script:
+			if _, ok := common.PlutusScriptVersion(script); ok {
 				hasPlutusReference = true
 			}
 			if hasPlutusReference {
@@ -680,6 +679,8 @@ func UtxoValidateExtraneousRedeemers(
 			maxIndex = voterCount
 		case common.RedeemerTagProposing:
 			maxIndex = proposalCount
+		case common.RedeemerTagGuarding:
+			return ExtraRedeemerError{RedeemerKey: redeemerKey}
 		default:
 			return ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}
@@ -719,6 +720,9 @@ func UtxoValidateCostModelsPresent(
 	if len(wits.WsPlutusV3Scripts.Items()) > 0 {
 		required[2] = struct{}{}
 	}
+	if len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
+		required[3] = struct{}{}
+	}
 	// Also include reference scripts on reference inputs
 	for _, refInput := range tmpTx.ReferenceInputs() {
 		utxo, err := ls.UtxoById(refInput)
@@ -735,13 +739,8 @@ func UtxoValidateCostModelsPresent(
 		if script == nil {
 			continue
 		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			required[0] = struct{}{}
-		case common.PlutusV2Script:
-			required[1] = struct{}{}
-		case common.PlutusV3Script:
-			required[2] = struct{}{}
+		if version, ok := common.PlutusScriptVersion(script); ok {
+			required[version] = struct{}{}
 		}
 	}
 
@@ -759,13 +758,8 @@ func UtxoValidateCostModelsPresent(
 		if script == nil {
 			continue
 		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			required[0] = struct{}{}
-		case common.PlutusV2Script:
-			required[1] = struct{}{}
-		case common.PlutusV3Script:
-			required[2] = struct{}{}
+		if version, ok := common.PlutusScriptVersion(script); ok {
+			required[version] = struct{}{}
 		}
 	}
 
@@ -815,6 +809,9 @@ func UtxoValidateScriptDataHash(
 	if len(wits.WsPlutusV3Scripts.Items()) > 0 {
 		usedVersions[2] = struct{}{}
 	}
+	if len(common.PlutusV4ScriptsFromWitnessSet(wits)) > 0 {
+		usedVersions[3] = struct{}{}
+	}
 
 	// Also check reference scripts
 	for _, refInput := range tmpTx.ReferenceInputs() {
@@ -832,13 +829,8 @@ func UtxoValidateScriptDataHash(
 		if script == nil {
 			continue
 		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
-			usedVersions[1] = struct{}{}
-		case common.PlutusV3Script:
-			usedVersions[2] = struct{}{}
+		if version, ok := common.PlutusScriptVersion(script); ok {
+			usedVersions[version] = struct{}{}
 		}
 	}
 
@@ -856,13 +848,8 @@ func UtxoValidateScriptDataHash(
 		if script == nil {
 			continue
 		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			usedVersions[0] = struct{}{}
-		case common.PlutusV2Script:
-			usedVersions[1] = struct{}{}
-		case common.PlutusV3Script:
-			usedVersions[2] = struct{}{}
+		if version, ok := common.PlutusScriptVersion(script); ok {
+			usedVersions[version] = struct{}{}
 		}
 	}
 
@@ -2060,6 +2047,9 @@ func UtxoValidatePlutusScripts(
 	for _, s := range witnesses.PlutusV3Scripts() {
 		availableScripts[s.Hash()] = s
 	}
+	for _, s := range common.PlutusV4ScriptsFromWitnessSet(witnesses) {
+		availableScripts[s.Hash()] = s
+	}
 
 	// Add reference scripts from resolved inputs
 	for _, utxo := range resolvedInputs {
@@ -2165,6 +2155,8 @@ func UtxoValidatePlutusScripts(
 		// Execute based on script version
 		var execErr error
 		switch s := plutusScript.(type) {
+		case common.PlutusV4Script:
+			return common.PlutusScriptValidationUnsupportedError{Era: EraNameConway}
 		case common.PlutusV3Script:
 			// Build V3 TxInfo lazily
 			if !txInfoV3Built {
@@ -2689,38 +2681,19 @@ func UtxoValidateMalformedReferenceScripts(
 
 		// Check if the script can be decoded properly
 		var innerScript []byte
-		var isPlutus bool
-		var scriptBytes []byte
-		var scriptHash common.ScriptHash
-
-		switch s := scriptRef.(type) {
-		case common.PlutusV1Script:
-			isPlutus = true
-			scriptBytes = []byte(s)
-			scriptHash = s.Hash()
-		case common.PlutusV2Script:
-			isPlutus = true
-			scriptBytes = []byte(s)
-			scriptHash = s.Hash()
-		case common.PlutusV3Script:
-			isPlutus = true
-			scriptBytes = []byte(s)
-			scriptHash = s.Hash()
-		default:
+		if _, ok := common.PlutusScriptVersion(scriptRef); !ok {
 			// Native scripts don't need UPLC validation
 			continue
 		}
 
-		if isPlutus {
-			// Decode the outer CBOR wrapper to get the actual script bytes
-			if _, err := cbor.Decode(scriptBytes, &innerScript); err != nil {
-				malformedHashes = append(malformedHashes, scriptHash)
-				continue
-			}
-			// Try to decode as UPLC program
-			if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
-				malformedHashes = append(malformedHashes, scriptHash)
-			}
+		// Decode the outer CBOR wrapper to get the actual script bytes.
+		if _, err := cbor.Decode(scriptRef.RawScriptBytes(), &innerScript); err != nil {
+			malformedHashes = append(malformedHashes, scriptRef.Hash())
+			continue
+		}
+		// Try to decode as UPLC program.
+		if _, err := syn.Decode[syn.DeBruijn](innerScript); err != nil {
+			malformedHashes = append(malformedHashes, scriptRef.Hash())
 		}
 	}
 

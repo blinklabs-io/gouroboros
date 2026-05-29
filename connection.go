@@ -41,6 +41,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagenotification"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
@@ -98,6 +99,8 @@ type Connection struct {
 	leiosFetchConfig        *leiosfetch.Config
 	leiosNotify             *leiosnotify.LeiosNotify
 	leiosNotifyConfig       *leiosnotify.Config
+	leiosVotes              *leiosvotes.LeiosVotes
+	leiosVotesConfig        *leiosvotes.Config
 	localStateQuery         *localstatequery.LocalStateQuery
 	localStateQueryConfig   *localstatequery.Config
 	localTxMonitor          *localtxmonitor.LocalTxMonitor
@@ -233,6 +236,11 @@ func (c *Connection) LeiosFetch() *leiosfetch.LeiosFetch {
 // LeiosNotify returns the leios-notify protocol handler
 func (c *Connection) LeiosNotify() *leiosnotify.LeiosNotify {
 	return c.leiosNotify
+}
+
+// LeiosVotes returns the leios-votes protocol handler
+func (c *Connection) LeiosVotes() *leiosvotes.LeiosVotes {
+	return c.leiosVotes
 }
 
 // LocalStateQuery returns the local-state-query protocol handler
@@ -399,6 +407,14 @@ func (c *Connection) allProtocolsIdle() bool {
 		}
 		if c.leiosFetch.Server != nil {
 			protocols = append(protocols, c.leiosFetch.Server.ProtocolInstance())
+		}
+	}
+	if c.leiosVotes != nil {
+		if c.leiosVotes.Client != nil {
+			protocols = append(protocols, c.leiosVotes.Client.Protocol)
+		}
+		if c.leiosVotes.Server != nil {
+			protocols = append(protocols, c.leiosVotes.Server.ProtocolInstance())
 		}
 	}
 	if c.localMessageSubmission != nil {
@@ -628,6 +644,7 @@ func (c *Connection) setupConnection() error {
 		}
 		c.leiosNotify = leiosnotify.New(protoOptions, c.leiosNotifyConfig)
 		c.leiosFetch = leiosfetch.New(protoOptions, c.leiosFetchConfig)
+		c.leiosVotes = leiosvotes.New(protoOptions, c.leiosVotesConfig)
 		c.protocolsReady = true
 		c.protocolMu.Unlock()
 		// Register server protocols early to avoid race conditions where messages arrive
@@ -643,6 +660,7 @@ func (c *Connection) setupConnection() error {
 			}
 			c.leiosNotify.Server.EnsureRegistered()
 			c.leiosFetch.Server.EnsureRegistered()
+			c.leiosVotes.Server.EnsureRegistered()
 		}
 		// Start protocols
 		if !c.delayProtocolStart {
@@ -658,6 +676,7 @@ func (c *Connection) setupConnection() error {
 				}
 				c.leiosNotify.Client.Start()
 				c.leiosFetch.Client.Start()
+				c.leiosVotes.Client.Start()
 			}
 			if (c.fullDuplex && handshakeFullDuplex) || c.server {
 				c.blockFetch.Server.Start()
@@ -671,6 +690,7 @@ func (c *Connection) setupConnection() error {
 				}
 				c.leiosNotify.Server.Start()
 				c.leiosFetch.Server.Start()
+				c.leiosVotes.Server.Start()
 			}
 		}
 	} else if c.useDMQProtocol {

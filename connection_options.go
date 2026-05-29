@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagenotification"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
@@ -177,6 +178,13 @@ func WithLeiosFetchConfig(cfg leiosfetch.Config) ConnectionOptionFunc {
 func WithLeiosNotifyConfig(cfg leiosnotify.Config) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.leiosNotifyConfig = &cfg
+	}
+}
+
+// WithLeiosVotesConfig specifies LeiosVotes protocol config
+func WithLeiosVotesConfig(cfg leiosvotes.Config) ConnectionOptionFunc {
+	return func(c *Connection) {
+		c.leiosVotesConfig = &cfg
 	}
 }
 

@@ -119,8 +119,11 @@ All remaining protocols have appropriate timeout implementations:
 - **LocalTxMonitor** - Has AcquireTimeout (5s) and QueryTimeout (30s) for mempool monitoring  
 - **LocalTxSubmission** - Has Timeout (30s) for local transaction submission
 - **PeerSharing** - Has Timeout (5s) for peer discovery requests
-- **LeiosFetch** - Has Timeout (5s) for Leios block/transaction/vote fetching
-- **LeiosNotify** - Has Timeout (60s) for Leios block/vote notifications
+- **LeiosFetch** - Has Timeout (5s) for fetching Leios blocks, block
+  transactions, votes, and block ranges
+- **LeiosNotify** - Has Timeout (60s) for Leios block announcements/offers,
+  block transaction offers, and vote offers
+- **LeiosVotes** - Has Timeout (60s) for Leios vote diffusion
 - **Handshake** - Has ProposeTimeout (5s) and ConfirmTimeout (5s) for protocol negotiation
 - **Keepalive** - Has ClientTimeout (60s) and ServerTimeout (10s) for connection health
 
@@ -131,7 +134,7 @@ All remaining protocols have appropriate timeout implementations:
 - Tests configuration validation and panic behavior  
 - Verifies protocol violation errors are defined
 - Ensures default values are reasonable and within limits
-- Comprehensive timeout validation for all 11 mini-protocols
+- Comprehensive timeout validation for all 12 mini-protocols
 - Verifies StateMap entries use correct timeout constants
 
 ## Protocol State Timeouts

@@ -31,7 +31,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
-	"github.com/blinklabs-io/gouroboros/ledger/leios"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/gouroboros/vrf"
@@ -46,7 +46,40 @@ const (
 	ProtoMajorAlonzo            = 5
 	ProtoMajorBabbage           = 7
 	ProtoMajorConway            = 9
+	ProtoMajorDijkstra          = 12
 )
+
+func eraAtLeast(era common.Era, min common.Era) bool {
+	currentOrder, ok := eraOrder(era)
+	if !ok {
+		return false
+	}
+	minOrder, ok := eraOrder(min)
+	return ok && currentOrder >= minOrder
+}
+
+func eraOrder(era common.Era) (int, bool) {
+	switch era {
+	case byron.EraByron:
+		return 0, true
+	case shelley.EraShelley:
+		return 1, true
+	case allegra.EraAllegra:
+		return 2, true
+	case mary.EraMary:
+		return 3, true
+	case alonzo.EraAlonzo:
+		return 4, true
+	case babbage.EraBabbage:
+		return 5, true
+	case conway.EraConway:
+		return 6, true
+	case dijkstra.EraDijkstra:
+		return 7, true
+	default:
+		return 0, false
+	}
+}
 
 // DetermineBlockType determines the block type from the header CBOR
 func DetermineBlockType(headerCbor []byte) (uint, error) {
@@ -100,14 +133,18 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 		if !ok {
 			return 0, errors.New("invalid proto major")
 		}
-		switch protoMajor {
-		case ProtoMajorBabbage:
+		switch {
+		case protoMajor == ProtoMajorBabbage:
 			return BlockTypeBabbage, nil
-		case ProtoMajorConway:
+		case protoMajor >= conway.MinProtocolVersionConway &&
+			protoMajor <= conway.MaxProtocolVersionConway:
 			return BlockTypeConway, nil
-		case ProtoMajorAlonzo:
+		case protoMajor >= dijkstra.MinProtocolVersionDijkstra &&
+			protoMajor <= dijkstra.MaxProtocolVersionDijkstra:
+			return BlockTypeDijkstra, nil
+		case protoMajor == ProtoMajorAlonzo:
 			return BlockTypeAlonzo, nil
-		case ProtoMajorMary:
+		case protoMajor == ProtoMajorMary:
 			return BlockTypeMary, nil
 		default:
 			return 0, fmt.Errorf(
@@ -139,7 +176,7 @@ func extractOriginalBodyCbor(header BlockHeader) ([]byte, error) {
 		return h.Body.Cbor(), nil
 	case *conway.ConwayBlockHeader:
 		return h.Body.Cbor(), nil
-	case *leios.LeiosBlockHeader:
+	case *dijkstra.DijkstraBlockHeader:
 		return h.Body.Cbor(), nil
 	default:
 		return nil, fmt.Errorf(
@@ -164,6 +201,8 @@ func extractHeaderFields(
 	case *babbage.BabbageBlockHeader:
 		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
 	case *conway.ConwayBlockHeader:
+		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
+	case *dijkstra.DijkstraBlockHeader:
 		return h.Body.IssuerVkey[:], h.Body.VrfKey, nil
 	default:
 		return nil, nil, common.NewValidationError(
@@ -245,6 +284,9 @@ func VerifyBlock(
 		vrfResult = h.Body.VrfResult
 		vrfKey = h.Body.VrfKey
 	case *conway.ConwayBlockHeader:
+		vrfResult = h.Body.VrfResult
+		vrfKey = h.Body.VrfKey
+	case *dijkstra.DijkstraBlockHeader:
 		vrfResult = h.Body.VrfResult
 		vrfKey = h.Body.VrfKey
 	default:
@@ -451,7 +493,9 @@ func VerifyBlock(
 		era := block.Era()
 		eraName := era.Name
 		minLength := 4
-		if era.Id >= alonzo.EraAlonzo.Id {
+		if era == dijkstra.EraDijkstra {
+			minLength = 7
+		} else if eraAtLeast(era, alonzo.EraAlonzo) {
 			minLength = 5
 		}
 		if err := common.ValidateBlockBodyHash(rawCbor, expectedBodyHash, eraName, minLength); err != nil {
@@ -479,6 +523,8 @@ func VerifyBlock(
 			validationRules = babbage.UtxoValidationRules
 		case conway.EraConway.Id:
 			validationRules = conway.UtxoValidationRules
+		case dijkstra.EraDijkstra.Id:
+			validationRules = dijkstra.UtxoValidationRules
 		default:
 			return false, "", 0, 0, fmt.Errorf(
 				"VerifyBlock: unsupported era for transaction validation %s",

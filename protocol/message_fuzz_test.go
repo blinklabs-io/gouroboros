@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagenotification"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
@@ -90,6 +91,11 @@ var protocolMessageDecoders = []protocolMessageDecoder{
 		name:       "leiosnotify",
 		maxMsgType: leiosnotify.MessageTypeDone,
 		decode:     leiosnotify.NewMsgFromCbor,
+	},
+	{
+		name:       "leiosvotes",
+		maxMsgType: leiosvotes.MessageTypeDone,
+		decode:     leiosvotes.NewMsgFromCbor,
 	},
 	{
 		name:       "localmessagenotification",

@@ -16,12 +16,13 @@ package ledger
 
 import "github.com/blinklabs-io/gouroboros/ledger/leios"
 
-// The below are compatibility types, constants, and functions for the Leios era
-// to keep existing code working after a refactor of the ledger package
+// The below are compatibility aliases for old Leios names. Leios is not a
+// ledger era; Leios features are delivered in the Dijkstra era.
 
 // Leios types
 type (
 	LeiosBlockHeader             = leios.LeiosBlockHeader
+	LeiosCertificate             = leios.LeiosCertificate
 	LeiosEndorderBlock           = leios.LeiosEndorserBlock
 	LeiosRankingBlock            = leios.LeiosRankingBlock
 	LeiosTransaction             = leios.LeiosTransaction
@@ -42,8 +43,8 @@ const (
 
 // Leios functions
 var (
-	NewLeiosEndorserBlockFromCbor   = leios.NewLeiosEndorserBlockFromCbor
 	NewLeiosRankingBlockFromCbor    = leios.NewLeiosRankingBlockFromCbor
+	NewLeiosEndorserBlockFromCbor   = leios.NewLeiosEndorserBlockFromCbor
 	NewLeiosBlockHeaderFromCbor     = leios.NewLeiosBlockHeaderFromCbor
 	NewLeiosTransactionFromCbor     = leios.NewLeiosTransactionFromCbor
 	NewLeiosTransactionBodyFromCbor = leios.NewLeiosTransactionBodyFromCbor

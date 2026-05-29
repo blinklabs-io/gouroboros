@@ -132,6 +132,7 @@ func TestMsgBlockAllEras(t *testing.T) {
 		{"Alonzo", ledger.BlockTypeAlonzo, []byte{0x82, 0x01, 0x05}},
 		{"Babbage", ledger.BlockTypeBabbage, []byte{0x82, 0x01, 0x06}},
 		{"Conway", ledger.BlockTypeConway, []byte{0x82, 0x01, 0x07}},
+		{"Dijkstra", ledger.BlockTypeDijkstra, []byte{0x82, 0x01, 0x08}},
 	}
 
 	for _, tc := range testCases {

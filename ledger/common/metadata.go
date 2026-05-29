@@ -750,6 +750,8 @@ type AuxiliaryData interface {
 	PlutusV2Scripts() ([]PlutusV2Script, error)
 	// PlutusV3Scripts returns the Plutus V3 scripts, if present (Conway+ only)
 	PlutusV3Scripts() ([]PlutusV3Script, error)
+	// PlutusV4Scripts returns the Plutus V4 scripts, if present (Dijkstra+ only)
+	PlutusV4Scripts() ([]PlutusV4Script, error)
 	// Cbor returns the raw CBOR encoding
 	Cbor() []byte
 }
@@ -776,6 +778,10 @@ func (s *ShelleyAuxiliaryData) PlutusV2Scripts() ([]PlutusV2Script, error) {
 }
 
 func (s *ShelleyAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
+	return nil, nil
+}
+
+func (s *ShelleyAuxiliaryData) PlutusV4Scripts() ([]PlutusV4Script, error) {
 	return nil, nil
 }
 
@@ -835,6 +841,10 @@ func (s *ShelleyMaAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
 	return nil, nil
 }
 
+func (s *ShelleyMaAuxiliaryData) PlutusV4Scripts() ([]PlutusV4Script, error) {
+	return nil, nil
+}
+
 func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	s.SetCbor(data)
 	var arr []cbor.RawMessage
@@ -882,6 +892,7 @@ type AlonzoAuxiliaryData struct {
 	plutusV1Scripts []PlutusV1Script
 	plutusV2Scripts []PlutusV2Script
 	plutusV3Scripts []PlutusV3Script
+	plutusV4Scripts []PlutusV4Script
 }
 
 func (a *AlonzoAuxiliaryData) Metadata() (TransactionMetadatum, error) {
@@ -902,6 +913,10 @@ func (a *AlonzoAuxiliaryData) PlutusV2Scripts() ([]PlutusV2Script, error) {
 
 func (a *AlonzoAuxiliaryData) PlutusV3Scripts() ([]PlutusV3Script, error) {
 	return a.plutusV3Scripts, nil
+}
+
+func (a *AlonzoAuxiliaryData) PlutusV4Scripts() ([]PlutusV4Script, error) {
+	return a.plutusV4Scripts, nil
 }
 
 func (a *AlonzoAuxiliaryData) UnmarshalCBOR(data []byte) error {
@@ -975,6 +990,13 @@ func (a *AlonzoAuxiliaryData) UnmarshalCBOR(data []byte) error {
 		}
 	}
 
+	// Key 5: Plutus V4 scripts
+	if plutusV4Raw := auxMap[5]; len(plutusV4Raw) > 0 {
+		if _, err := cbor.Decode(plutusV4Raw, &a.plutusV4Scripts); err != nil {
+			return fmt.Errorf("failed to decode Plutus V4 scripts: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -1018,6 +1040,13 @@ func (a AlonzoAuxiliaryData) MarshalCBOR() ([]byte, error) {
 			return nil, err
 		}
 		auxMap[4] = scriptsCbor
+	}
+	if len(a.plutusV4Scripts) > 0 {
+		scriptsCbor, err := cbor.Encode(a.plutusV4Scripts)
+		if err != nil {
+			return nil, err
+		}
+		auxMap[5] = scriptsCbor
 	}
 
 	// Encode the map directly, not the bytes

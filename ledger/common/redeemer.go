@@ -31,6 +31,7 @@ const (
 	RedeemerTagReward    RedeemerTag = 3
 	RedeemerTagVoting    RedeemerTag = 4
 	RedeemerTagProposing RedeemerTag = 5
+	RedeemerTagGuarding  RedeemerTag = 6
 )
 
 var redeemerTagNames = map[RedeemerTag]string{
@@ -40,6 +41,7 @@ var redeemerTagNames = map[RedeemerTag]string{
 	RedeemerTagReward:    "reward",
 	RedeemerTagVoting:    "voting",
 	RedeemerTagProposing: "proposing",
+	RedeemerTagGuarding:  "guarding",
 }
 
 var redeemerTagValues = map[string]RedeemerTag{
@@ -49,6 +51,7 @@ var redeemerTagValues = map[string]RedeemerTag{
 	"reward":    RedeemerTagReward,
 	"voting":    RedeemerTagVoting,
 	"proposing": RedeemerTagProposing,
+	"guarding":  RedeemerTagGuarding,
 }
 
 func (t RedeemerTag) MarshalJSON() ([]byte, error) {

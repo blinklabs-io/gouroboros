@@ -31,6 +31,7 @@ const (
 	ScriptRefTypePlutusV1     = 1
 	ScriptRefTypePlutusV2     = 2
 	ScriptRefTypePlutusV3     = 3
+	ScriptRefTypePlutusV4     = 4
 )
 
 type ScriptHash = Blake2b224
@@ -109,6 +110,12 @@ func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
 		script = *tmpScript
 	case ScriptRefTypePlutusV3:
 		tmpScript := &PlutusV3Script{}
+		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
+			return err
+		}
+		script = *tmpScript
+	case ScriptRefTypePlutusV4:
+		tmpScript := &PlutusV4Script{}
 		if _, err := cbor.Decode(rawScript.Raw, tmpScript); err != nil {
 			return err
 		}
@@ -372,6 +379,86 @@ func (s PlutusV3Script) Evaluate(
 	return usedExUnits, nil
 }
 
+type PlutusV4Script []byte
+
+func (PlutusV4Script) isScript() {}
+
+func (s PlutusV4Script) Hash() ScriptHash {
+	return ScriptHash(Blake2b224Hash(
+		slices.Concat(
+			[]byte{ScriptRefTypePlutusV4},
+			[]byte(s),
+		),
+	))
+}
+
+func (s PlutusV4Script) RawScriptBytes() []byte {
+	return []byte(s)
+}
+
+func (s PlutusV4Script) Evaluate(
+	scriptContext data.PlutusData,
+	budget ExUnits,
+	evalContext *cek.EvalContext,
+) (ExUnits, error) {
+	var usedExUnits ExUnits
+	var err error
+	var program *syn.Program[syn.DeBruijn]
+	machineBudget := cek.DefaultExBudget
+	if budget.Steps > 0 || budget.Memory > 0 {
+		machineBudget = cek.ExBudget{
+			Cpu: budget.Steps,
+			Mem: budget.Memory,
+		}
+	}
+	var innerScript []byte
+	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
+	}
+	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
+	if err != nil {
+		return usedExUnits, fmt.Errorf("decode script: %w", err)
+	}
+	contextTerm := &syn.Constant{
+		Con: &syn.Data{
+			Inner: scriptContext,
+		},
+	}
+	wrappedProgram := &syn.Apply[syn.DeBruijn]{
+		Function: program.Term,
+		Argument: contextTerm,
+	}
+	machine := cek.NewMachine[syn.DeBruijn](
+		cek.LanguageVersionV4,
+		200,
+		evalContext,
+	)
+	machine.ExBudget = machineBudget
+	_, runErr := machine.Run(wrappedProgram)
+	consumedBudget := machineBudget.Sub(&machine.ExBudget)
+	usedExUnits.Memory = consumedBudget.Mem
+	usedExUnits.Steps = consumedBudget.Cpu
+	if runErr != nil {
+		return usedExUnits, fmt.Errorf("execute script: %w", runErr)
+	}
+	return usedExUnits, nil
+}
+
+func PlutusScriptVersion(script Script) (uint, bool) {
+	switch script.(type) {
+	case PlutusV1Script, *PlutusV1Script:
+		return 0, true
+	case PlutusV2Script, *PlutusV2Script:
+		return 1, true
+	case PlutusV3Script, *PlutusV3Script:
+		return 2, true
+	case PlutusV4Script, *PlutusV4Script:
+		return 3, true
+	default:
+		return 0, false
+	}
+}
+
 type NativeScript struct {
 	cbor.DecodeStoreCbor
 	item any
@@ -403,6 +490,8 @@ func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 		tmpData = &NativeScriptInvalidBefore{}
 	case 5:
 		tmpData = &NativeScriptInvalidHereafter{}
+	case 6:
+		tmpData = &NativeScriptRequireGuard{}
 	default:
 		return fmt.Errorf("unknown native script type %d", id)
 	}
@@ -473,6 +562,12 @@ type NativeScriptInvalidHereafter struct {
 	Slot uint64
 }
 
+type NativeScriptRequireGuard struct {
+	cbor.StructAsArray
+	Type       uint
+	Credential Credential
+}
+
 // Evaluate evaluates the native script against the given context.
 // It returns true if the script conditions are satisfied, false otherwise.
 // Parameters:
@@ -485,6 +580,51 @@ func (n *NativeScript) Evaluate(
 	validityStart, validityEnd uint64,
 	keyHashes map[Blake2b224]bool,
 ) bool {
+	return n.evaluate(nativeScriptEvalContext{
+		validityStart: validityStart,
+		validityEnd:   validityEnd,
+		keyHashes:     keyHashes,
+	})
+}
+
+func (n *NativeScript) EvaluateWithGuards(
+	slot uint64,
+	validityStart, validityEnd uint64,
+	keyHashes map[Blake2b224]bool,
+	guardCredentials []Credential,
+) bool {
+	return n.evaluate(nativeScriptEvalContext{
+		validityStart:    validityStart,
+		validityEnd:      validityEnd,
+		keyHashes:        keyHashes,
+		guardCredentials: newCredentialSet(guardCredentials),
+	})
+}
+
+type nativeScriptEvalContext struct {
+	validityStart    uint64
+	validityEnd      uint64
+	keyHashes        map[Blake2b224]bool
+	guardCredentials map[credentialKey]bool
+}
+
+type credentialKey struct {
+	typ  uint
+	hash Blake2b224
+}
+
+func newCredentialSet(credentials []Credential) map[credentialKey]bool {
+	if len(credentials) == 0 {
+		return nil
+	}
+	ret := make(map[credentialKey]bool, len(credentials))
+	for _, cred := range credentials {
+		ret[credentialKey{typ: cred.CredType, hash: cred.Credential}] = true
+	}
+	return ret
+}
+
+func (n *NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
 	if n.item == nil {
 		return false
 	}
@@ -494,12 +634,12 @@ func (n *NativeScript) Evaluate(
 		// Check if the required key hash is in the witness set
 		var hash Blake2b224
 		copy(hash[:], s.Hash)
-		return keyHashes[hash]
+		return ctx.keyHashes[hash]
 
 	case *NativeScriptAll:
 		// All sub-scripts must pass
 		for i := range s.Scripts {
-			if !s.Scripts[i].Evaluate(slot, validityStart, validityEnd, keyHashes) {
+			if !s.Scripts[i].evaluate(ctx) {
 				return false
 			}
 		}
@@ -508,7 +648,7 @@ func (n *NativeScript) Evaluate(
 	case *NativeScriptAny:
 		// At least one sub-script must pass
 		for i := range s.Scripts {
-			if s.Scripts[i].Evaluate(slot, validityStart, validityEnd, keyHashes) {
+			if s.Scripts[i].evaluate(ctx) {
 				return true
 			}
 		}
@@ -518,7 +658,7 @@ func (n *NativeScript) Evaluate(
 		// At least N of K sub-scripts must pass
 		count := uint(0)
 		for i := range s.Scripts {
-			if s.Scripts[i].Evaluate(slot, validityStart, validityEnd, keyHashes) {
+			if s.Scripts[i].evaluate(ctx) {
 				count++
 			}
 		}
@@ -528,13 +668,23 @@ func (n *NativeScript) Evaluate(
 		// Transaction is only valid at or after this slot
 		// For native scripts, we check against the transaction's validity interval
 		// The tx must start at or after the script's slot requirement
-		return validityStart >= s.Slot
+		return ctx.validityStart >= s.Slot
 
 	case *NativeScriptInvalidHereafter:
 		// Transaction is only valid before this slot
 		// The tx must end at or before the script's slot requirement
 		// TTL = X means tx valid at slots [start, X), which is entirely within [0, X)
-		return validityEnd <= s.Slot
+		return ctx.validityEnd <= s.Slot
+
+	case *NativeScriptRequireGuard:
+		if ctx.guardCredentials == nil {
+			return false
+		}
+		key := credentialKey{
+			typ:  s.Credential.CredType,
+			hash: s.Credential.Credential,
+		}
+		return ctx.guardCredentials[key]
 
 	default:
 		return false

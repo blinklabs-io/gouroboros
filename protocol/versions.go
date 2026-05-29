@@ -44,7 +44,9 @@ type ProtocolVersion struct {
 	EnableAlonzoEra            bool
 	EnableBabbageEra           bool
 	EnableConwayEra            bool
-	EnableLeiosEra             bool
+	EnableDijkstraEra          bool
+	// Deprecated: Leios is delivered within the Dijkstra era.
+	EnableLeiosEra bool
 	// NtC only
 	EnableLocalQueryProtocol     bool
 	EnableLocalTxMonitorProtocol bool
@@ -175,7 +177,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableConwayEra:              true,
 		EnableLocalTxMonitorProtocol: true,
 	},
-	// added additional Conway governance queries
+	// Added additional Conway governance queries and Dijkstra-era support.
 	(20 + ProtocolVersionNtCOffset): {
 		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
 		EnableLocalQueryProtocol:     true,
@@ -185,6 +187,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableAlonzoEra:              true,
 		EnableBabbageEra:             true,
 		EnableConwayEra:              true,
+		EnableDijkstraEra:            true,
 		EnableLeiosEra:               true,
 		EnableLocalTxMonitorProtocol: true,
 	},
@@ -277,7 +280,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
 	},
-	// Enables Leios era
+	// Enables Dijkstra era
 	15: {
 		NewVersionDataFromCborFunc: NewVersionDataNtN13andUpFromCbor,
 		EnableShelleyEra:           true,
@@ -287,6 +290,7 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableAlonzoEra:            true,
 		EnableBabbageEra:           true,
 		EnableConwayEra:            true,
+		EnableDijkstraEra:          true,
 		EnableLeiosEra:             true,
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,

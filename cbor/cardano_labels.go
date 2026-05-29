@@ -55,15 +55,17 @@ var CardanoWitnessLabels = map[int]string{
 	7: "plutus_v3_scripts",
 }
 
-// CardanoBlockLabels maps block array indices to names. A Shelley-and-later
-// block is a 5-element array of [header, tx_bodies, tx_witnesses, metadata,
-// invalid_transactions].
+// CardanoBlockLabels maps block array indices to names. Shelley through Conway
+// blocks use the first five entries; Dijkstra adds nullable Leios and Peras
+// certificate slots.
 var CardanoBlockLabels = []string{
 	"header",
 	"transaction_bodies",
 	"transaction_witnesses",
 	"auxiliary_data_set",
 	"invalid_transactions",
+	"leios_cert",
+	"peras_cert",
 }
 
 // CardanoTxArrayLabels maps the indices of a serialised transaction array

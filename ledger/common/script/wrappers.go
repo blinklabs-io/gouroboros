@@ -284,6 +284,8 @@ func (w WithWrappedTransactionId) ToPlutusData() data.PlutusData {
 					p.Certificate,
 				}.ToPlutusData(),
 			)
+		case ScriptPurposeGuarding:
+			return p.ToPlutusData()
 		default:
 			panic(fmt.Sprintf("unsupported type: %T", p))
 		}

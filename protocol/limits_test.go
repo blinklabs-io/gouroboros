@@ -28,6 +28,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
+	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
@@ -756,6 +757,13 @@ func TestProtocolStateTimeouts(t *testing.T) {
 				cfg.Timeout,
 			)
 		}
+	})
+
+	t.Run("LeiosVotes timeouts", func(t *testing.T) {
+		cfg := leiosvotes.NewConfig()
+		assert.Greater(t, cfg.Timeout, time.Duration(0))
+		assert.GreaterOrEqual(t, cfg.Timeout, time.Second)
+		assert.LessOrEqual(t, cfg.Timeout, time.Hour)
 	})
 }
 
