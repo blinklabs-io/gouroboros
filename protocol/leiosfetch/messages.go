@@ -20,6 +20,7 @@ import (
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -145,11 +146,7 @@ type MsgVotesRequest struct {
 	VoteIds []MsgVotesRequestVoteId
 }
 
-type MsgVotesRequestVoteId struct {
-	cbor.StructAsArray
-	Slot         uint64
-	VoteIssuerId []byte
-}
+type MsgVotesRequestVoteId = lcommon.LeiosVoteId
 
 func NewMsgVotesRequest(voteIds []MsgVotesRequestVoteId) *MsgVotesRequest {
 	m := &MsgVotesRequest{
@@ -174,6 +171,33 @@ func NewMsgVotes(votes []cbor.RawMessage) *MsgVotes {
 		VotesRaw: slices.Clone(votes),
 	}
 	return m
+}
+
+func NewMsgVotesFromVotes(votes []lcommon.LeiosVote) (*MsgVotes, error) {
+	votesRaw := make([]cbor.RawMessage, 0, len(votes))
+	for _, vote := range votes {
+		if err := vote.Validate(); err != nil {
+			return nil, err
+		}
+		voteCbor, err := cbor.Encode(vote)
+		if err != nil {
+			return nil, err
+		}
+		votesRaw = append(votesRaw, cbor.RawMessage(voteCbor))
+	}
+	return NewMsgVotes(votesRaw), nil
+}
+
+func (m *MsgVotes) DecodeVotes() ([]lcommon.LeiosVote, error) {
+	ret := make([]lcommon.LeiosVote, 0, len(m.VotesRaw))
+	for idx, voteRaw := range m.VotesRaw {
+		var vote lcommon.LeiosVote
+		if _, err := cbor.Decode(voteRaw, &vote); err != nil {
+			return nil, fmt.Errorf("decode vote %d: %w", idx, err)
+		}
+		ret = append(ret, vote)
+	}
+	return ret, nil
 }
 
 type MsgBlockRangeRequest struct {

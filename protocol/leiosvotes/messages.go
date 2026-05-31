@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -63,13 +64,7 @@ func NewMsgVotesRequestNext(count uint64) *MsgVotesRequestNext {
 	return m
 }
 
-type Vote struct {
-	cbor.StructAsArray
-	SlotNo            uint64
-	EndorserBlockHash []byte
-	VoterId           uint16
-	VoteSignature     []byte
-}
+type Vote = lcommon.LeiosVote
 
 type MsgVote struct {
 	protocol.MessageBase

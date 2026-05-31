@@ -31,9 +31,9 @@ CIP-0164 design:
 | Field | Type | Purpose |
 |-------|------|---------|
 | `SlotNo` | `uint64` | Voting round / announcing RB slot |
-| `EndorserBlockHash` | `[]byte` | EB hash being endorsed |
-| `VoterId` | `uint16` | Index in the epoch committee |
-| `VoteSignature` | `[]byte` | BLS signature |
+| `EndorserBlockHash` | `common.Blake2b256` | EB hash being endorsed |
+| `VoterId` | `uint64` | Index in the epoch committee |
+| `VoteSignature` | `[]byte` | 48-byte BLS12-381 MinSig signature |
 
 ## State Machine
 

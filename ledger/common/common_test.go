@@ -1147,11 +1147,6 @@ var certificateTypeTests = []struct {
 		&UpdateDrepCertificate{CertType: uint(CertificateTypeUpdateDrep)},
 		uint(CertificateTypeUpdateDrep),
 	},
-	{
-		"LeiosEb",
-		&LeiosEbCertificate{},
-		uint(CertificateTypeLeiosEb),
-	},
 }
 
 func TestCertificateTypeMethods(t *testing.T) {
@@ -1208,7 +1203,6 @@ func TestCertificateTypeCoverage(t *testing.T) {
 		uint(CertificateTypeRegistrationDrep):                "CertificateTypeRegistrationDrep",
 		uint(CertificateTypeDeregistrationDrep):              "CertificateTypeDeregistrationDrep",
 		uint(CertificateTypeUpdateDrep):                      "CertificateTypeUpdateDrep",
-		uint(CertificateTypeLeiosEb):                         "CertificateTypeLeiosEb",
 	}
 
 	for certType, name := range expectedTypes {
