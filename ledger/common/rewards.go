@@ -448,7 +448,7 @@ func distributePoolRewards(
 
 	// Calculate operator (leader) reward
 	operatorRewards := poolCost
-	
+
 	// Find owner stake (owners are also delegators in the snapshot)
 	ownerStake := uint64(0)
 	for _, owner := range poolParams.PoolOwners {
