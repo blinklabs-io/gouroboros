@@ -437,28 +437,36 @@ func distributePoolRewards(
 		totalPoolStake += stake
 	}
 
+	// Check if poolCost already uses up all the available rewards
+	if totalPoolRewards <= poolCost {
+		return &PoolRewards{
+			OperatorRewards:  totalPoolRewards,
+			DelegatorRewards: make(map[AddrKeyHash]uint64),
+			TotalRewards:     totalPoolRewards,
+		}
+	}
+
 	// Calculate operator (leader) reward
 	operatorRewards := poolCost
-	if totalPoolRewards > poolCost {
-		// Find owner stake (owners are also delegators in the snapshot)
-		ownerStake := uint64(0)
-		for _, owner := range poolParams.PoolOwners {
-			if stake, exists := delegatorStake[owner]; exists {
-				ownerStake += stake
-			}
+	
+	// Find owner stake (owners are also delegators in the snapshot)
+	ownerStake := uint64(0)
+	for _, owner := range poolParams.PoolOwners {
+		if stake, exists := delegatorStake[owner]; exists {
+			ownerStake += stake
 		}
+	}
 
-		if totalPoolStake > 0 {
-			ownerStakeRatio := float64(ownerStake) / float64(totalPoolStake)
-			operatorRewards += uint64(
-				float64(
-					totalPoolRewards-poolCost,
-				) * (margin + (1.0-margin)*ownerStakeRatio),
-			)
-		} else {
-			// If no stake, operator gets all rewards above cost
-			operatorRewards = totalPoolRewards
-		}
+	if totalPoolStake > 0 {
+		ownerStakeRatio := float64(ownerStake) / float64(totalPoolStake)
+		operatorRewards += uint64(
+			float64(
+				totalPoolRewards-poolCost,
+			) * (margin + (1.0-margin)*ownerStakeRatio),
+		)
+	} else {
+		// If no stake, operator gets all rewards above cost
+		operatorRewards = totalPoolRewards
 	}
 
 	// Remaining rewards go to all stakeholders (owners and delegators)
