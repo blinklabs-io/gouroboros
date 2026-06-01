@@ -901,6 +901,51 @@ func TestApplyTxError_IncorrectWithdrawals_Shelley(t *testing.T) {
 	assert.Equal(t, withdrawalsCbor, incorrectWithdrawals.Withdrawals.Cbor())
 }
 
+func TestApplyTxError_IncorrectWithdrawals_Babbage(t *testing.T) {
+	// Account h'010203' has supplied=100, expected=150.
+	withdrawals := map[cbor.ByteString][]uint64{
+		cbor.NewByteString([]byte{0x01, 0x02, 0x03}): {100, 150},
+	}
+	// Babbage still uses the Shelley-family LEDGER tag 3:
+	// [3, {account_address: [supplied, expected]}].
+	failure := struct {
+		cbor.StructAsArray
+		Type        uint8
+		Withdrawals map[cbor.ByteString][]uint64
+	}{
+		Type:        ShelleyLedgerIncompleteWithdrawals,
+		Withdrawals: withdrawals,
+	}
+	cborData, err := cbor.Encode([]any{failure})
+	require.NoError(t, err)
+	withdrawalsCbor, err := cbor.Encode(withdrawals)
+	require.NoError(t, err)
+	require.True(
+		t,
+		isLedgerIncompleteWithdrawalsFailure(
+			EraIdBabbage,
+			ShelleyLedgerIncompleteWithdrawals,
+		),
+	)
+
+	// ApplyTxError decodes top-level LEDGER predicate failures using the era.
+	applyErr := &ApplyTxError{era: EraIdBabbage}
+	err = applyErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+	require.Len(t, applyErr.Failures, 1)
+
+	incorrectWithdrawals, ok := applyErr.Failures[0].(*IncorrectWithdrawals)
+	require.True(
+		t,
+		ok,
+		"Expected *IncorrectWithdrawals, got %T",
+		applyErr.Failures[0],
+	)
+	assert.Equal(t, uint8(ShelleyLedgerIncompleteWithdrawals), incorrectWithdrawals.Type)
+	// Validate that the withdrawals payload was preserved.
+	assert.Equal(t, withdrawalsCbor, incorrectWithdrawals.Withdrawals.Cbor())
+}
+
 func TestApplyTxError_IncorrectWithdrawals_Conway(t *testing.T) {
 	// Account h'010203' has supplied=100, expected=150.
 	withdrawals := map[cbor.ByteString][]uint64{

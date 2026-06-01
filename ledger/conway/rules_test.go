@@ -2335,7 +2335,6 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 				babbage.IncorrectTotalCollateralFieldError{},
 				err,
 			)
-			testTx.Body.TxTotalCollateral = testTotalCollateral
 		},
 	)
 	// Collateral equals balance
