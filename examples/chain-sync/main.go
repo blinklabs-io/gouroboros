@@ -107,7 +107,7 @@ func buildChainSyncConfig() chainsync.Config {
 	)
 }
 
-func buildBlockFetchConfig() blockfetch.Config {
+func buildBlockFetchConfig() (blockfetch.Config, error) {
 	return blockfetch.NewConfig(
 		blockfetch.WithBlockFunc(blockFetchBlockHandler),
 	)
@@ -267,13 +267,18 @@ func main() {
 	}()
 
 	// Configure Ouroboros
+	blockFetchCfg, err := buildBlockFetchConfig()
+	if err != nil {
+		fmt.Printf("ERROR: %s\n", err)
+		os.Exit(1)
+	}
 	o, err := ouroboros.NewConnection(
 		ouroboros.WithNetworkMagic(cfg.Magic),
 		ouroboros.WithErrorChan(errorChan),
 		ouroboros.WithNodeToNode(isNtN),
 		ouroboros.WithKeepAlive(true),
 		ouroboros.WithChainSyncConfig(buildChainSyncConfig()),
-		ouroboros.WithBlockFetchConfig(buildBlockFetchConfig()),
+		ouroboros.WithBlockFetchConfig(blockFetchCfg),
 	)
 	if err != nil {
 		fmt.Printf("ERROR: %s\n", err)
