@@ -271,27 +271,23 @@ func TestBlockFetchDefaultValuesAreReasonable(t *testing.T) {
 	}
 }
 
-// TestBlockFetchConfigurationValidation tests configuration validation and panic behavior
+// TestBlockFetchConfigurationValidation tests that NewConfig returns an error for invalid queue size
 func TestBlockFetchConfigurationValidation(t *testing.T) {
-	// Test that invalid queue size causes panic
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Expected panic for invalid queue size")
-		}
-	}()
-	blockfetch.NewConfig(blockfetch.WithRecvQueueSize(-1))
+	_, err := blockfetch.NewConfig(blockfetch.WithRecvQueueSize(-1))
+	if err == nil {
+		t.Errorf("Expected error for invalid queue size, got nil")
+	}
 }
 
 func TestBlockFetchConfigurationValidationExceedsMax(t *testing.T) {
-	// Test that exceeding max queue size causes panic
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Expected panic for queue size exceeding maximum")
-		}
-	}()
-	blockfetch.NewConfig(
+	_, err := blockfetch.NewConfig(
 		blockfetch.WithRecvQueueSize(blockfetch.MaxRecvQueueSize + 1),
 	)
+	if err == nil {
+		t.Errorf(
+			"Expected error for queue size exceeding maximum, got nil",
+		)
+	}
 }
 
 // TestTxSubmissionLimitsAreDefined validates that TxSubmission limits are properly defined and positive

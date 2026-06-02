@@ -62,7 +62,7 @@ type Client struct {
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
-		tmpCfg := NewConfig()
+		tmpCfg, _ := NewConfig()
 		cfg = &tmpCfg
 	}
 	c := &Client{
