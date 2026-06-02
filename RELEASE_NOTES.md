@@ -4,6 +4,15 @@ title: Release notes
 
 # Release notes
 
+## v0.180.0 - Introduce Dijkstra support and strengthen reliability
+
+- **Date:** 2026-06-02
+- **Version:** 0.180.0
+
+### Summary
+
+This release introduces initial Dijkstra era support, corrects Leios committee voting and stake parameter handling, fixes rewards calculation when total pool rewards fall below the fixed fee, hardens protocol behavior against blockfetch panics from invalid configurations, and includes routine dependency, formatting, and test maintenance.
+
 ## v0.179.0 - LeiosVotes mini-protocol
 
 - **Date:** 2026-05-27
