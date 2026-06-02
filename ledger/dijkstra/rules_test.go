@@ -247,6 +247,77 @@ func TestUtxoValidateCostModelsPresentSubTransactionPlutus(t *testing.T) {
 	}
 }
 
+func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(t *testing.T) {
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{
+				{
+					PPGovAction: DijkstraGovAction{
+						Action: &DijkstraParameterChangeGovAction{
+							ParamUpdate: DijkstraProtocolParameterUpdate{},
+						},
+					},
+				},
+			},
+		},
+	}
+	err := UtxoValidateProposalProcedures(tx, 0, nil, nil)
+	require.ErrorAs(t, err, &conway.ProtocolParameterUpdateEmptyError{})
+
+	maxRefScriptSizePerBlock := uint32(1000)
+	tx.Body.TxProposalProcedures[0].PPGovAction.Action =
+		&DijkstraParameterChangeGovAction{
+			ParamUpdate: DijkstraProtocolParameterUpdate{
+				MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+			},
+		}
+	require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+}
+
+func TestUtxoValidateBootstrapParameterGroupsDijkstraFields(t *testing.T) {
+	refScriptCostStride := uint32(25600)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{
+				{
+					PPGovAction: DijkstraGovAction{
+						Action: &DijkstraParameterChangeGovAction{
+							ParamUpdate: DijkstraProtocolParameterUpdate{
+								RefScriptCostStride: &refScriptCostStride,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	pv9Params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionConway,
+			},
+		},
+	}
+	err := UtxoValidateBootstrapParameterGroups(tx, 0, nil, pv9Params)
+	var bootstrapErr conway.BootstrapDisallowedParameterChangeError
+	require.ErrorAs(t, err, &bootstrapErr)
+	require.Equal(t, []string{"RefScriptCostStride"}, bootstrapErr.Fields)
+
+	pv10Params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionPlomin,
+			},
+		},
+	}
+	require.NoError(t, UtxoValidateBootstrapParameterGroups(
+		tx,
+		0,
+		nil,
+		pv10Params,
+	))
+}
+
 func TestUtxoValidateRedeemerAndScriptWitnessesPlutusV4(t *testing.T) {
 	tx := &DijkstraTransaction{
 		WitnessSet: DijkstraTransactionWitnessSet{

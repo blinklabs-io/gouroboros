@@ -27,6 +27,7 @@ type (
 	LeiosTransaction             = dijkstra.DijkstraTransaction
 	LeiosTransactionBody         = dijkstra.DijkstraTransactionBody
 	LeiosTransactionWitnessSet   = dijkstra.DijkstraTransactionWitnessSet
+	LeiosGenesis                 = dijkstra.DijkstraGenesis
 	LeiosProtocolParameters      = dijkstra.DijkstraProtocolParameters
 	LeiosProtocolParameterUpdate = dijkstra.DijkstraProtocolParameterUpdate
 )
@@ -51,4 +52,6 @@ var (
 	NewLeiosBlockHeaderFromCbor     = dijkstra.NewDijkstraBlockHeaderFromCbor
 	NewLeiosTransactionFromCbor     = dijkstra.NewDijkstraTransactionFromCbor
 	NewLeiosTransactionBodyFromCbor = dijkstra.NewDijkstraTransactionBodyFromCbor
+	NewLeiosGenesisFromReader       = dijkstra.NewDijkstraGenesisFromReader
+	NewLeiosGenesisFromFile         = dijkstra.NewDijkstraGenesisFromFile
 )
