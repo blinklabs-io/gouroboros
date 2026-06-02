@@ -13,6 +13,23 @@ title: Release notes
 
 This release introduces initial Dijkstra era support, corrects Leios committee voting and stake parameter handling, fixes rewards calculation when total pool rewards fall below the fixed fee, hardens protocol behavior against blockfetch panics from invalid configurations, and includes routine dependency, formatting, and test maintenance.
 
+### New Features
+
+* Added initial Dijkstra era support so integrations can track the latest era coverage in the library.
+
+### Bug Fixes
+
+* Corrected Leios vote and EB certificate handling so stake based committees behave as expected.
+* Refined Leios stake and parameter handling so related configuration paths behave consistently.
+* Fixed rewards calculation so pools handle cases where total pool rewards are lower than the fixed fee.
+* Hardened protocol startup behavior so invalid blockfetch configurations fail cleanly instead of panicking.
+
+### Additional Changes
+
+* Updated rewards formatting cleanup so rewards related output stays clearer and more consistent.
+* Refreshed ledger test cleanup so routine coverage remains easier to maintain.
+* Advanced `github.com/blinklabs-io/plutigo` from `v0.1.13` to `v0.1.14`.
+
 ## v0.179.0 - LeiosVotes mini-protocol
 
 - **Date:** 2026-05-27
