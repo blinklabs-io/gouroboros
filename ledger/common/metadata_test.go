@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var allegraBlockHex = "a219ef64a301582095b1d64fbf76f17b1920a34d14fbca1f5ab499ea59eac37a8117d5e6b2e09605025820f3157c8eda34976620ad12e0979b2d3135a784c5d6a185878987143053c17d1c035839012c152eaa9e68dd7123a3054190dc987a24e50f1ab389c44a0c7a4089beb4d4d62d8f0dce5d745df4a670998aa20f54703b2bdc7a00b7d3d219ef65a1015840897063bdeab54d2e0586529909f20b42447bfaccdfb9988d2558896baf82a37f43c2fa4ae4240f5761e3dccf9523d7305d728f21dee4491e02373de6b14f7e07"
@@ -112,40 +114,28 @@ func TestMetadataSetIgnoresUnknownAuxiliaryDataKeys(t *testing.T) {
 	const auxiliaryDataHex = "d90103a200a101626f6b068101"
 
 	raw, err := hex.DecodeString(metadataSetHex)
-	if err != nil {
-		t.Fatalf("bad hex: %v", err)
-	}
+	require.NoError(t, err)
 
 	var set TransactionMetadataSet
-	if _, err := cbor.Decode(raw, &set); err != nil {
-		t.Fatalf("decode metadata set: %v", err)
-	}
+	_, err = cbor.Decode(raw, &set)
+	require.NoError(t, err)
 
 	md, ok := set.GetMetadata(6)
-	if !ok {
-		t.Fatal("expected metadata for transaction index 6")
-	}
+	require.True(t, ok)
+	require.NotNil(t, md)
 	assertMetadataEntry(t, md)
 
 	rawMd, ok := set.GetRawMetadata(6)
-	if !ok {
-		t.Fatal("expected raw metadata for transaction index 6")
-	}
-	if got := hex.EncodeToString(rawMd); got != auxiliaryDataHex {
-		t.Fatalf("raw metadata mismatch: got %s, want %s", got, auxiliaryDataHex)
-	}
+	require.True(t, ok)
+	require.NotNil(t, rawMd)
+	assert.Equal(t, auxiliaryDataHex, hex.EncodeToString(rawMd))
 
 	aux, err := DecodeAuxiliaryData(rawMd)
-	if err != nil {
-		t.Fatalf("decode auxiliary data: %v", err)
-	}
-	if got := hex.EncodeToString(aux.Cbor()); got != auxiliaryDataHex {
-		t.Fatalf("raw auxiliary data mismatch: got %s, want %s", got, auxiliaryDataHex)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, auxiliaryDataHex, hex.EncodeToString(aux.Cbor()))
 	md, err = aux.Metadata()
-	if err != nil {
-		t.Fatalf("get auxiliary data metadata: %v", err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, md)
 	assertMetadataEntry(t, md)
 }
 
@@ -163,20 +153,24 @@ func TestDecodeMetadatumRawRejectsNilGenericMapKey(t *testing.T) {
 func assertMetadataEntry(t *testing.T, md TransactionMetadatum) {
 	t.Helper()
 
-	mm, ok := md.(MetaMap)
-	if !ok {
-		t.Fatalf("expected metadata map, got %T", md)
+	if !assert.IsType(t, MetaMap{}, md) {
+		return
 	}
-	if len(mm.Pairs) != 1 {
-		t.Fatalf("expected 1 metadata pair, got %d", len(mm.Pairs))
+	mm := md.(MetaMap)
+	if !assert.Len(t, mm.Pairs, 1) {
+		return
 	}
 
-	key, ok := mm.Pairs[0].Key.(MetaInt)
-	if !ok || key.Value == nil || key.Value.Uint64() != 1 {
-		t.Fatalf("expected metadata key 1, got %#v", mm.Pairs[0].Key)
+	if !assert.IsType(t, MetaInt{}, mm.Pairs[0].Key) {
+		return
 	}
-	value, ok := mm.Pairs[0].Value.(MetaText)
-	if !ok || value.Value != "ok" {
-		t.Fatalf("expected metadata value ok, got %#v", mm.Pairs[0].Value)
+	key := mm.Pairs[0].Key.(MetaInt)
+	if assert.True(t, key.Value != nil) {
+		assert.Equal(t, uint64(1), key.Value.Uint64())
 	}
+	if !assert.IsType(t, MetaText{}, mm.Pairs[0].Value) {
+		return
+	}
+	value := mm.Pairs[0].Value.(MetaText)
+	assert.Equal(t, "ok", value.Value)
 }

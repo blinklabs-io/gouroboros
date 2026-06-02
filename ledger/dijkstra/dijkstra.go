@@ -785,7 +785,7 @@ type DijkstraTransactionBody struct {
 	TxTotalCollateral       uint64                                        `cbor:"17,keyasint,omitempty"`
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
 	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures    []conway.ConwayProposalProcedure              `cbor:"20,keyasint,omitempty"`
+	TxProposalProcedures    []DijkstraProposalProcedure                   `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue  uint64                                        `cbor:"21,keyasint,omitempty"`
 	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
 	TxSubTransactions       cbor.SetType[DijkstraSubTransaction]          `cbor:"23,keyasint,omitempty,omitzero"`
@@ -966,7 +966,7 @@ func dijkstraReferenceInputs(
 }
 
 func dijkstraProposalProcedures(
-	proposalProcedures []conway.ConwayProposalProcedure,
+	proposalProcedures []DijkstraProposalProcedure,
 ) []common.ProposalProcedure {
 	ret := make([]common.ProposalProcedure, len(proposalProcedures))
 	for i, item := range proposalProcedures {
@@ -990,7 +990,7 @@ type DijkstraSubTransactionBody struct {
 	TxNetworkId               *uint8                                        `cbor:"15,keyasint,omitempty"`
 	TxReferenceInputs         cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
 	TxVotingProcedures        common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
-	TxProposalProcedures      []conway.ConwayProposalProcedure              `cbor:"20,keyasint,omitempty"`
+	TxProposalProcedures      []DijkstraProposalProcedure                   `cbor:"20,keyasint,omitempty"`
 	TxCurrentTreasuryValue    uint64                                        `cbor:"21,keyasint,omitempty"`
 	TxDonation                uint64                                        `cbor:"22,keyasint,omitempty"`
 	TxRequiredTopLevelGuards  *DijkstraRawCbor                              `cbor:"24,keyasint,omitempty"`

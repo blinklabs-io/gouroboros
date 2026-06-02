@@ -20,6 +20,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/plutigo/data"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -30,6 +31,8 @@ type DijkstraProtocolParameters struct {
 	MaxRefScriptSizePerTx    uint32
 	RefScriptCostStride      uint32
 	RefScriptCostMultiplier  *cbor.Rat
+	CommitteeStakeCoverage   *cbor.Rat
+	QuorumStakeThreshold     *cbor.Rat
 }
 
 type dijkstraProtocolParametersCbor struct {
@@ -163,6 +166,12 @@ func (p DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
 func (p *DijkstraProtocolParameters) Update(
 	paramUpdate *DijkstraProtocolParameterUpdate,
 ) {
+	_ = p.ApplyUpdate(paramUpdate)
+}
+
+func (p *DijkstraProtocolParameters) updateUnchecked(
+	paramUpdate *DijkstraProtocolParameterUpdate,
+) {
 	if paramUpdate == nil {
 		return
 	}
@@ -179,6 +188,43 @@ func (p *DijkstraProtocolParameters) Update(
 	if paramUpdate.RefScriptCostMultiplier != nil {
 		p.RefScriptCostMultiplier = paramUpdate.RefScriptCostMultiplier
 	}
+	if paramUpdate.CommitteeStakeCoverage != nil {
+		p.CommitteeStakeCoverage = paramUpdate.CommitteeStakeCoverage
+	}
+	if paramUpdate.QuorumStakeThreshold != nil {
+		p.QuorumStakeThreshold = paramUpdate.QuorumStakeThreshold
+	}
+}
+
+func (p *DijkstraProtocolParameters) ApplyUpdate(
+	paramUpdate *DijkstraProtocolParameterUpdate,
+) error {
+	if paramUpdate == nil {
+		return nil
+	}
+	committeeStakeCoverage := p.CommitteeStakeCoverage
+	if paramUpdate.CommitteeStakeCoverage != nil {
+		committeeStakeCoverage = paramUpdate.CommitteeStakeCoverage
+	}
+	quorumStakeThreshold := p.QuorumStakeThreshold
+	if paramUpdate.QuorumStakeThreshold != nil {
+		quorumStakeThreshold = paramUpdate.QuorumStakeThreshold
+	}
+	if err := validateLeiosCommitteeStakeParameters(
+		committeeStakeCoverage,
+		quorumStakeThreshold,
+	); err != nil {
+		return err
+	}
+	p.updateUnchecked(paramUpdate)
+	return nil
+}
+
+func (p *DijkstraProtocolParameters) ValidateLeiosCommitteeParameters() error {
+	return validateLeiosCommitteeStakeParameters(
+		p.CommitteeStakeCoverage,
+		p.QuorumStakeThreshold,
+	)
 }
 
 func (p *DijkstraProtocolParameters) Utxorpc() (*utxorpc.PParams, error) {
@@ -246,6 +292,12 @@ type DijkstraProtocolParameterUpdate struct {
 	MaxRefScriptSizePerTx      *uint32                                   `cbor:"35,keyasint"`
 	RefScriptCostStride        *uint32                                   `cbor:"36,keyasint"`
 	RefScriptCostMultiplier    *cbor.Rat                                 `cbor:"37,keyasint"`
+	// The current Dijkstra CDDL assigns protocol_param_update keys through 37.
+	// These Leios stake parameters have no confirmed on-chain update keys yet,
+	// so they are intentionally excluded from CBOR and can only be applied from
+	// local genesis/configuration data for now.
+	CommitteeStakeCoverage *cbor.Rat `cbor:"-"`
+	QuorumStakeThreshold   *cbor.Rat `cbor:"-"`
 }
 
 func (DijkstraProtocolParameterUpdate) IsProtocolParameterUpdate() {}
@@ -263,6 +315,380 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 
 func (u DijkstraProtocolParameterUpdate) Cbor() []byte {
 	return u.DecodeStoreCbor.Cbor()
+}
+
+func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
+	if raw := u.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	fields := map[uint]any{}
+	if u.MinFeeA != nil {
+		fields[0] = *u.MinFeeA
+	}
+	if u.MinFeeB != nil {
+		fields[1] = *u.MinFeeB
+	}
+	if u.MaxBlockBodySize != nil {
+		fields[2] = *u.MaxBlockBodySize
+	}
+	if u.MaxTxSize != nil {
+		fields[3] = *u.MaxTxSize
+	}
+	if u.MaxBlockHeaderSize != nil {
+		fields[4] = *u.MaxBlockHeaderSize
+	}
+	if u.KeyDeposit != nil {
+		fields[5] = *u.KeyDeposit
+	}
+	if u.PoolDeposit != nil {
+		fields[6] = *u.PoolDeposit
+	}
+	if u.MaxEpoch != nil {
+		fields[7] = *u.MaxEpoch
+	}
+	if u.NOpt != nil {
+		fields[8] = *u.NOpt
+	}
+	if u.A0 != nil {
+		fields[9] = u.A0
+	}
+	if u.Rho != nil {
+		fields[10] = u.Rho
+	}
+	if u.Tau != nil {
+		fields[11] = u.Tau
+	}
+	if u.ProtocolVersion != nil {
+		fields[14] = *u.ProtocolVersion
+	}
+	if u.MinPoolCost != nil {
+		fields[16] = *u.MinPoolCost
+	}
+	if u.AdaPerUtxoByte != nil {
+		fields[17] = *u.AdaPerUtxoByte
+	}
+	if u.CostModels != nil {
+		fields[18] = u.CostModels
+	}
+	if u.ExecutionCosts != nil {
+		fields[19] = *u.ExecutionCosts
+	}
+	if u.MaxTxExUnits != nil {
+		fields[20] = *u.MaxTxExUnits
+	}
+	if u.MaxBlockExUnits != nil {
+		fields[21] = *u.MaxBlockExUnits
+	}
+	if u.MaxValueSize != nil {
+		fields[22] = *u.MaxValueSize
+	}
+	if u.CollateralPercentage != nil {
+		fields[23] = *u.CollateralPercentage
+	}
+	if u.MaxCollateralInputs != nil {
+		fields[24] = *u.MaxCollateralInputs
+	}
+	if u.PoolVotingThresholds != nil {
+		fields[25] = *u.PoolVotingThresholds
+	}
+	if u.DRepVotingThresholds != nil {
+		fields[26] = *u.DRepVotingThresholds
+	}
+	if u.MinCommitteeSize != nil {
+		fields[27] = *u.MinCommitteeSize
+	}
+	if u.CommitteeTermLimit != nil {
+		fields[28] = *u.CommitteeTermLimit
+	}
+	if u.GovActionValidityPeriod != nil {
+		fields[29] = *u.GovActionValidityPeriod
+	}
+	if u.GovActionDeposit != nil {
+		fields[30] = *u.GovActionDeposit
+	}
+	if u.DRepDeposit != nil {
+		fields[31] = *u.DRepDeposit
+	}
+	if u.DRepInactivityPeriod != nil {
+		fields[32] = *u.DRepInactivityPeriod
+	}
+	if u.MinFeeRefScriptCostPerByte != nil {
+		fields[33] = u.MinFeeRefScriptCostPerByte
+	}
+	if u.MaxRefScriptSizePerBlock != nil {
+		fields[34] = *u.MaxRefScriptSizePerBlock
+	}
+	if u.MaxRefScriptSizePerTx != nil {
+		fields[35] = *u.MaxRefScriptSizePerTx
+	}
+	if u.RefScriptCostStride != nil {
+		fields[36] = *u.RefScriptCostStride
+	}
+	if u.RefScriptCostMultiplier != nil {
+		fields[37] = u.RefScriptCostMultiplier
+	}
+	return cbor.Encode(fields)
+}
+
+func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {
+	return u.MinFeeA != nil ||
+		u.MinFeeB != nil ||
+		u.MaxBlockBodySize != nil ||
+		u.MaxTxSize != nil ||
+		u.MaxBlockHeaderSize != nil ||
+		u.KeyDeposit != nil ||
+		u.PoolDeposit != nil ||
+		u.MaxEpoch != nil ||
+		u.NOpt != nil ||
+		u.A0 != nil ||
+		u.Rho != nil ||
+		u.Tau != nil ||
+		u.ProtocolVersion != nil ||
+		u.MinPoolCost != nil ||
+		u.AdaPerUtxoByte != nil ||
+		len(u.CostModels) > 0 ||
+		u.ExecutionCosts != nil ||
+		u.MaxTxExUnits != nil ||
+		u.MaxBlockExUnits != nil ||
+		u.MaxValueSize != nil ||
+		u.CollateralPercentage != nil ||
+		u.MaxCollateralInputs != nil ||
+		u.PoolVotingThresholds != nil ||
+		u.DRepVotingThresholds != nil ||
+		u.MinCommitteeSize != nil ||
+		u.CommitteeTermLimit != nil ||
+		u.GovActionValidityPeriod != nil ||
+		u.GovActionDeposit != nil ||
+		u.DRepDeposit != nil ||
+		u.DRepInactivityPeriod != nil ||
+		u.MinFeeRefScriptCostPerByte != nil ||
+		u.MaxRefScriptSizePerBlock != nil ||
+		u.MaxRefScriptSizePerTx != nil ||
+		u.RefScriptCostStride != nil ||
+		u.RefScriptCostMultiplier != nil ||
+		u.CommitteeStakeCoverage != nil ||
+		u.QuorumStakeThreshold != nil
+}
+
+func (u *DijkstraProtocolParameterUpdate) BootstrapRestrictedFields() []string {
+	fields := u.conwayUpdate().BootstrapRestrictedFields()
+	if u.MaxRefScriptSizePerBlock != nil {
+		fields = append(fields, "MaxRefScriptSizePerBlock")
+	}
+	if u.MaxRefScriptSizePerTx != nil {
+		fields = append(fields, "MaxRefScriptSizePerTx")
+	}
+	if u.RefScriptCostStride != nil {
+		fields = append(fields, "RefScriptCostStride")
+	}
+	if u.RefScriptCostMultiplier != nil {
+		fields = append(fields, "RefScriptCostMultiplier")
+	}
+	if u.CommitteeStakeCoverage != nil {
+		fields = append(fields, "CommitteeStakeCoverage")
+	}
+	if u.QuorumStakeThreshold != nil {
+		fields = append(fields, "QuorumStakeThreshold")
+	}
+	return fields
+}
+
+func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
+	tmpPairs := make([][2]data.PlutusData, 0, 37)
+	push := func(idx int, pd data.PlutusData) {
+		tmpPairs = append(
+			tmpPairs,
+			[2]data.PlutusData{
+				data.NewInteger(new(big.Int).SetInt64(int64(idx))),
+				pd,
+			},
+		)
+	}
+	pushRat := func(idx int, r *cbor.Rat) {
+		push(idx,
+			data.NewList(
+				data.NewInteger(r.Num()),
+				data.NewInteger(r.Denom()),
+			),
+		)
+	}
+	if u.MinFeeA != nil {
+		push(0, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinFeeA))))
+	}
+	if u.MinFeeB != nil {
+		push(1, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinFeeB))))
+	}
+	if u.MaxBlockBodySize != nil {
+		push(
+			2,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxBlockBodySize)),
+			),
+		)
+	}
+	if u.MaxTxSize != nil {
+		push(3, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxTxSize))))
+	}
+	if u.MaxBlockHeaderSize != nil {
+		push(
+			4,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxBlockHeaderSize)),
+			),
+		)
+	}
+	if u.KeyDeposit != nil {
+		push(5, data.NewInteger(new(big.Int).SetUint64(uint64(*u.KeyDeposit))))
+	}
+	if u.PoolDeposit != nil {
+		push(6, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PoolDeposit))))
+	}
+	if u.MaxEpoch != nil {
+		push(7, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxEpoch))))
+	}
+	if u.NOpt != nil {
+		push(8, data.NewInteger(new(big.Int).SetUint64(uint64(*u.NOpt))))
+	}
+	if u.A0 != nil {
+		pushRat(9, u.A0)
+	}
+	if u.Rho != nil {
+		pushRat(10, u.Rho)
+	}
+	if u.Tau != nil {
+		pushRat(11, u.Tau)
+	}
+	if u.MinPoolCost != nil {
+		push(
+			16,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.MinPoolCost))),
+		)
+	}
+	if u.AdaPerUtxoByte != nil {
+		push(
+			17,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))),
+		)
+	}
+	// TODO(enhancement): Add CostModels serialization for Plutus data conversion.
+	if u.ExecutionCosts != nil {
+		push(19,
+			data.NewList(
+				data.NewList(
+					data.NewInteger(u.ExecutionCosts.MemPrice.Num()),
+					data.NewInteger(u.ExecutionCosts.MemPrice.Denom()),
+				),
+				data.NewList(
+					data.NewInteger(u.ExecutionCosts.StepPrice.Num()),
+					data.NewInteger(u.ExecutionCosts.StepPrice.Denom()),
+				),
+			),
+		)
+	}
+	if u.MaxTxExUnits != nil {
+		push(20,
+			data.NewList(
+				data.NewInteger(big.NewInt(u.MaxTxExUnits.Memory)),
+				data.NewInteger(big.NewInt(u.MaxTxExUnits.Steps)),
+			),
+		)
+	}
+	if u.MaxBlockExUnits != nil {
+		push(21,
+			data.NewList(
+				data.NewInteger(big.NewInt(u.MaxBlockExUnits.Memory)),
+				data.NewInteger(big.NewInt(u.MaxBlockExUnits.Steps)),
+			),
+		)
+	}
+	if u.MaxValueSize != nil {
+		push(
+			22,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxValueSize))),
+		)
+	}
+	if u.CollateralPercentage != nil {
+		push(
+			23,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.CollateralPercentage)),
+			),
+		)
+	}
+	if u.MaxCollateralInputs != nil {
+		push(
+			24,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxCollateralInputs)),
+			),
+		)
+	}
+	if u.PoolVotingThresholds != nil {
+		push(25, u.PoolVotingThresholds.ToPlutusData())
+	}
+	if u.DRepVotingThresholds != nil {
+		push(26, u.DRepVotingThresholds.ToPlutusData())
+	}
+	if u.MinCommitteeSize != nil {
+		push(
+			27,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MinCommitteeSize)),
+			),
+		)
+	}
+	if u.CommitteeTermLimit != nil {
+		push(28, data.NewInteger(new(big.Int).SetUint64(*u.CommitteeTermLimit)))
+	}
+	if u.GovActionValidityPeriod != nil {
+		push(
+			29,
+			data.NewInteger(new(big.Int).SetUint64(*u.GovActionValidityPeriod)),
+		)
+	}
+	if u.GovActionDeposit != nil {
+		push(30, data.NewInteger(new(big.Int).SetUint64(*u.GovActionDeposit)))
+	}
+	if u.DRepDeposit != nil {
+		push(31, data.NewInteger(new(big.Int).SetUint64(*u.DRepDeposit)))
+	}
+	if u.DRepInactivityPeriod != nil {
+		push(
+			32,
+			data.NewInteger(new(big.Int).SetUint64(*u.DRepInactivityPeriod)),
+		)
+	}
+	if u.MinFeeRefScriptCostPerByte != nil {
+		pushRat(33, u.MinFeeRefScriptCostPerByte)
+	}
+	if u.MaxRefScriptSizePerBlock != nil {
+		push(
+			34,
+			data.NewInteger(new(big.Int).SetUint64(
+				uint64(*u.MaxRefScriptSizePerBlock),
+			)),
+		)
+	}
+	if u.MaxRefScriptSizePerTx != nil {
+		push(
+			35,
+			data.NewInteger(new(big.Int).SetUint64(
+				uint64(*u.MaxRefScriptSizePerTx),
+			)),
+		)
+	}
+	if u.RefScriptCostStride != nil {
+		push(
+			36,
+			data.NewInteger(new(big.Int).SetUint64(
+				uint64(*u.RefScriptCostStride),
+			)),
+		)
+	}
+	if u.RefScriptCostMultiplier != nil {
+		pushRat(37, u.RefScriptCostMultiplier)
+	}
+	return data.NewMap(tmpPairs)
 }
 
 func (u *DijkstraProtocolParameterUpdate) conwayUpdate() *conway.ConwayProtocolParameterUpdate {

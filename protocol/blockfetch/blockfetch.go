@@ -175,8 +175,8 @@ func New(protoOptions protocol.ProtocolOptions, cfg *Config) *BlockFetch {
 type BlockFetchOptionFunc func(*Config)
 
 // NewConfig creates a new Config for Block Fetch, applying any provided option functions.
-// It panics if the resulting configuration is invalid.
-func NewConfig(options ...BlockFetchOptionFunc) Config {
+// It returns an error if the resulting configuration is invalid.
+func NewConfig(options ...BlockFetchOptionFunc) (Config, error) {
 	c := Config{
 		BatchStartTimeout: 5 * time.Second,
 		BlockTimeout:      60 * time.Second,
@@ -189,10 +189,10 @@ func NewConfig(options ...BlockFetchOptionFunc) Config {
 
 	// Validate configuration against protocol limits
 	if err := c.validate(); err != nil {
-		panic("invalid BlockFetch configuration: " + err.Error())
+		return Config{}, fmt.Errorf("invalid BlockFetch configuration: %w", err)
 	}
 
-	return c
+	return c, nil
 }
 
 // validate checks that the configuration values are within protocol limits.
@@ -258,26 +258,9 @@ func WithBlockTimeout(timeout time.Duration) BlockFetchOptionFunc {
 }
 
 // WithRecvQueueSize specifies the size of the received messages queue in the Config.
-// Panics if the size is negative or exceeds MaxRecvQueueSize.
+// Validation is deferred to NewConfig; invalid values are caught there.
 func WithRecvQueueSize(size int) BlockFetchOptionFunc {
 	return func(c *Config) {
-		if size < 0 {
-			panic(
-				fmt.Sprintf(
-					"RecvQueueSize %d must be non-negative",
-					size,
-				),
-			)
-		}
-		if size > MaxRecvQueueSize {
-			panic(
-				fmt.Sprintf(
-					"RecvQueueSize %d exceeds maximum %d",
-					size,
-					MaxRecvQueueSize,
-				),
-			)
-		}
 		c.RecvQueueSize = size
 	}
 }

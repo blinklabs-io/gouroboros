@@ -28,6 +28,7 @@ type (
 	LeiosTransaction             = leios.LeiosTransaction
 	LeiosTransactionBody         = leios.LeiosTransactionBody
 	LeiosTransactionWitnessSet   = leios.LeiosTransactionWitnessSet
+	LeiosGenesis                 = leios.LeiosGenesis
 	LeiosProtocolParameters      = leios.LeiosProtocolParameters
 	LeiosProtocolParameterUpdate = leios.LeiosProtocolParameterUpdate
 )
@@ -48,4 +49,6 @@ var (
 	NewLeiosBlockHeaderFromCbor     = leios.NewLeiosBlockHeaderFromCbor
 	NewLeiosTransactionFromCbor     = leios.NewLeiosTransactionFromCbor
 	NewLeiosTransactionBodyFromCbor = leios.NewLeiosTransactionBodyFromCbor
+	NewLeiosGenesisFromReader       = leios.NewLeiosGenesisFromReader
+	NewLeiosGenesisFromFile         = leios.NewLeiosGenesisFromFile
 )

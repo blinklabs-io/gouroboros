@@ -30,6 +30,7 @@ type (
 	DijkstraTransactionBody         = dijkstra.DijkstraTransactionBody
 	DijkstraTransactionOutput       = dijkstra.DijkstraTransactionOutput
 	DijkstraTransactionWitnessSet   = dijkstra.DijkstraTransactionWitnessSet
+	DijkstraGenesis                 = dijkstra.DijkstraGenesis
 	DijkstraProtocolParameters      = dijkstra.DijkstraProtocolParameters
 	DijkstraProtocolParameterUpdate = dijkstra.DijkstraProtocolParameterUpdate
 )
@@ -48,4 +49,6 @@ var (
 	NewDijkstraBlockHeaderFromCbor     = dijkstra.NewDijkstraBlockHeaderFromCbor
 	NewDijkstraTransactionFromCbor     = dijkstra.NewDijkstraTransactionFromCbor
 	NewDijkstraTransactionBodyFromCbor = dijkstra.NewDijkstraTransactionBodyFromCbor
+	NewDijkstraGenesisFromReader       = dijkstra.NewDijkstraGenesisFromReader
+	NewDijkstraGenesisFromFile         = dijkstra.NewDijkstraGenesisFromFile
 )
