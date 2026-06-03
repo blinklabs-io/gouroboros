@@ -2203,6 +2203,7 @@ func UtxoValidatePlutusScripts(
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
+				txInfoV2.ProtocolMajor = conwayPparams.ProtocolVersion.Major
 				txInfoV2Built = true
 			}
 			// Build V1V2 context
@@ -2235,6 +2236,7 @@ func UtxoValidatePlutusScripts(
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
+				txInfoV1.ProtocolMajor = conwayPparams.ProtocolVersion.Major
 				txInfoV1Built = true
 			}
 			// Build V1V2 context
