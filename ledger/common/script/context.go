@@ -91,20 +91,60 @@ type TxInfo interface {
 }
 
 type TxInfoV1 struct {
-	Inputs       []ResolvedInput
-	Outputs      []lcommon.TransactionOutput
-	Fee          *big.Int
-	Mint         lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
-	Certificates []lcommon.Certificate
-	Withdrawals  Pairs[*lcommon.Address, *big.Int]
-	ValidRange   TimeRange
-	Signatories  []lcommon.Blake2b224
-	Data         KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
-	Redeemers    KeyValuePairs[ScriptPurpose, Redeemer]
-	Id           lcommon.Blake2b256
+	Inputs        []ResolvedInput
+	Outputs       []lcommon.TransactionOutput
+	Fee           *big.Int
+	Mint          lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
+	Certificates  []lcommon.Certificate
+	Withdrawals   Pairs[*lcommon.Address, *big.Int]
+	ValidRange    TimeRange
+	Signatories   []lcommon.Blake2b224
+	Data          KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
+	Redeemers     KeyValuePairs[ScriptPurpose, Redeemer]
+	Id            lcommon.Blake2b256
+	ProtocolMajor uint
 }
 
 func (TxInfoV1) isTxInfo() {}
+
+func mintToPlutusData(
+	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
+	protocolMajor uint,
+) data.PlutusData {
+	if !lcommon.IsProtocolVersionAtLeast(
+		protocolMajor,
+		0,
+		lcommon.ProtocolVersionPlomin,
+	) {
+		return mint.ToPlutusData()
+	}
+	return mintWithZeroAda(mint)
+}
+
+// mintWithZeroAda renders PV10+ txInfoMint for PlutusV1/V2 as cardano-ledger
+// does: transMintValue m = transCoinToValue zero <> transMultiAsset m. That
+// prepends a zero-lovelace ada entry ({"":{"":0}}), even when nothing is
+// minted. PlutusV3 uses the V3 MintValue representation, so TxInfoV3 keeps
+// t.Mint.ToPlutusData().
+func mintWithZeroAda(
+	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
+) data.PlutusData {
+	mintData := mint.ToPlutusData()
+	mintMap, ok := mintData.(*data.Map)
+	if !ok {
+		return mintData
+	}
+	adaEntry := [2]data.PlutusData{
+		data.NewByteString(nil),
+		data.NewMap([][2]data.PlutusData{
+			{data.NewByteString(nil), data.NewInteger(big.NewInt(0))},
+		}),
+	}
+	pairs := make([][2]data.PlutusData, 0, 1+len(mintMap.Pairs))
+	pairs = append(pairs, adaEntry)
+	pairs = append(pairs, mintMap.Pairs...)
+	return data.NewMap(pairs)
+}
 
 func (t TxInfoV1) ToPlutusData() data.PlutusData {
 	tmpDataItems := make([]data.PlutusData, len(t.Data))
@@ -134,7 +174,7 @@ func (t TxInfoV1) ToPlutusData() data.PlutusData {
 				CoinBigInt: t.Fee,
 			},
 		}.ToPlutusData(),
-		t.Mint.ToPlutusData(),
+		mintToPlutusData(t.Mint, t.ProtocolMajor),
 		WithPartialCertificates{
 			t.Certificates,
 		}.ToPlutusData(),
@@ -217,6 +257,7 @@ type TxInfoV2 struct {
 	Redeemers       KeyValuePairs[ScriptPurpose, Redeemer]
 	Data            KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
 	Id              lcommon.Blake2b256
+	ProtocolMajor   uint
 }
 
 func (TxInfoV2) isTxInfo() {}
@@ -242,7 +283,7 @@ func (t TxInfoV2) ToPlutusData() data.PlutusData {
 				CoinBigInt: t.Fee,
 			},
 		}.ToPlutusData(),
-		t.Mint.ToPlutusData(),
+		mintToPlutusData(t.Mint, t.ProtocolMajor),
 		WithPartialCertificates{
 			t.Certificates,
 		}.ToPlutusData(),
