@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release fixes Conway and later Plutus V1 and V2 mint encoding so script context serialization matches cardano-ledger expectations, preventing incompatible `CBOR` mint representations during Conway transaction building, serialization, and evaluation while leaving earlier protocol versions unchanged.
+This release fixes Conway and later Plutus V1 and V2 mint encoding so transaction data now matches ledger expectations during building, serialization, and evaluation, preventing incompatible mint representations while leaving earlier protocol versions unchanged.
 
 ### Bug Fixes
 
-* Fixed Conway and later Plutus V1 and V2 mint encoding so zero quantity mint values now include the leading zero ADA entry expected by `cardano-ledger`, correcting incompatible mint `CBOR` representations for integrations that build, serialize, or validate Conway transactions.
+* Fixed Conway and later Plutus V1 and V2 mint encoding so zero quantity mint values now match the ledger format expected during Conway transaction building, serialization, and validation.
 
 ## v0.180.0 - Introduce Dijkstra support and strengthen reliability
 
