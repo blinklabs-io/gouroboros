@@ -4,6 +4,15 @@ title: Release notes
 
 # Release notes
 
+## v0.180.1 - Conway mint encoding fix
+
+- **Date:** 2026-06-03
+- **Version:** 0.180.1
+
+### Summary
+
+This release fixes Conway and later Plutus V1 and V2 mint encoding so script context serialization matches cardano-ledger expectations, preventing incompatible `CBOR` mint representations during Conway transaction building, serialization, and evaluation while leaving earlier protocol versions unchanged.
+
 ## v0.180.0 - Introduce Dijkstra support and strengthen reliability
 
 - **Date:** 2026-06-02
