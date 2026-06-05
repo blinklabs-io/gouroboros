@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.180.1 - Conway mint encoding fix
+
+- **Date:** 2026-06-03
+- **Version:** 0.180.1
+
+### Summary
+
+This release fixes Conway and later Plutus V1 and V2 mint encoding so transaction data now matches ledger expectations during building, serialization, and evaluation, preventing incompatible mint representations while leaving earlier protocol versions unchanged.
+
+### Bug Fixes
+
+* Fixed Conway and later Plutus V1 and V2 mint encoding so zero quantity mint values now match the ledger format expected during Conway transaction building, serialization, and validation.
+
 ## v0.180.0 - Introduce Dijkstra support and strengthen reliability
 
 - **Date:** 2026-06-02
