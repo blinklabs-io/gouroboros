@@ -384,6 +384,227 @@ func TestVotingProcedureToPlutusData(t *testing.T) {
 	}
 }
 
+func TestVotingProceduresAddOrReplaceValueSemantics(t *testing.T) {
+	voter := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x11,
+	)
+	action := testVotingProceduresGovActionId(0x22, 0)
+
+	votes := VotingProcedures(nil)
+	votes = votes.AddOrReplace(
+		voter,
+		action,
+		VotingProcedure{Vote: GovVoteNo},
+	)
+	votes = votes.AddOrReplace(
+		testVotingProceduresVoter(VoterTypeDRepKeyHash, 0x11),
+		testVotingProceduresGovActionId(0x22, 0),
+		VotingProcedure{Vote: GovVoteYes},
+	)
+
+	require.Len(t, votes, 1)
+	_, actions, ok := votes.LookupVoter(voter)
+	require.True(t, ok)
+	require.Len(t, actions, 1)
+
+	procedure, ok := votes.Lookup(voter, action)
+	require.True(t, ok)
+	assert.Equal(t, GovVoteYes, procedure.Vote)
+}
+
+func TestVotingProceduresAddOrReplaceDistinctActionsForOneVoter(
+	t *testing.T,
+) {
+	voter := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x11,
+	)
+	action1 := testVotingProceduresGovActionId(0x22, 0)
+	action2 := testVotingProceduresGovActionId(0x22, 1)
+
+	votes := VotingProcedures(nil)
+	votes = votes.AddOrReplace(
+		voter,
+		action1,
+		VotingProcedure{Vote: GovVoteYes},
+	)
+	votes = votes.AddOrReplace(
+		testVotingProceduresVoter(VoterTypeDRepKeyHash, 0x11),
+		action2,
+		VotingProcedure{Vote: GovVoteAbstain},
+	)
+
+	require.Len(t, votes, 1)
+	_, actions, ok := votes.LookupVoter(voter)
+	require.True(t, ok)
+	require.Len(t, actions, 2)
+
+	procedure1, ok := votes.Lookup(voter, action1)
+	require.True(t, ok)
+	assert.Equal(t, GovVoteYes, procedure1.Vote)
+
+	procedure2, ok := votes.Lookup(voter, action2)
+	require.True(t, ok)
+	assert.Equal(t, GovVoteAbstain, procedure2.Vote)
+}
+
+func TestVotingProceduresAddOrReplaceDistinctVotersForOneAction(
+	t *testing.T,
+) {
+	voter1 := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x11,
+	)
+	voter2 := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x12,
+	)
+	action := testVotingProceduresGovActionId(0x22, 0)
+
+	votes := VotingProcedures(nil)
+	votes = votes.AddOrReplace(
+		voter1,
+		action,
+		VotingProcedure{Vote: GovVoteYes},
+	)
+	votes = votes.AddOrReplace(
+		voter2,
+		testVotingProceduresGovActionId(0x22, 0),
+		VotingProcedure{Vote: GovVoteNo},
+	)
+
+	require.Len(t, votes, 2)
+
+	procedure1, ok := votes.Lookup(voter1, action)
+	require.True(t, ok)
+	assert.Equal(t, GovVoteYes, procedure1.Vote)
+
+	procedure2, ok := votes.Lookup(voter2, action)
+	require.True(t, ok)
+	assert.Equal(t, GovVoteNo, procedure2.Vote)
+}
+
+func TestVotingProceduresAddOrReplaceCopiesInputValues(t *testing.T) {
+	voter := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x11,
+	)
+	action := testVotingProceduresGovActionId(0x22, 0)
+	anchor := testVotingProceduresAnchor("https://example.com/a", 0x33)
+	originalVoter := voter
+	originalAction := action
+
+	votes := VotingProcedures(nil).AddOrReplace(
+		voter,
+		action,
+		VotingProcedure{
+			Vote:   GovVoteYes,
+			Anchor: anchor,
+		},
+	)
+
+	voter.Hash[0] = 0xff
+	action.GovActionIdx = 99
+	anchor.Url = "https://example.com/changed"
+
+	procedure, ok := votes.Lookup(originalVoter, originalAction)
+	require.True(t, ok)
+	require.NotNil(t, procedure.Anchor)
+	assert.Equal(t, GovVoteYes, procedure.Vote)
+	assert.Equal(t, "https://example.com/a", procedure.Anchor.Url)
+}
+
+func TestVotingProceduresCloneIndependence(t *testing.T) {
+	voter := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x11,
+	)
+	action := testVotingProceduresGovActionId(0x22, 0)
+	anchor := testVotingProceduresAnchor("https://example.com/a", 0x33)
+
+	original := VotingProcedures(nil).AddOrReplace(
+		voter,
+		action,
+		VotingProcedure{
+			Vote:   GovVoteYes,
+			Anchor: anchor,
+		},
+	)
+	clone := original.Clone()
+
+	cloneVoterKey, cloneActions, ok := clone.LookupVoter(voter)
+	require.True(t, ok)
+	require.NotNil(t, cloneActions)
+	cloneActionKey, cloneProcedure, ok := clone.LookupGovActionId(
+		voter,
+		action,
+	)
+	require.True(t, ok)
+	require.NotNil(t, cloneProcedure.Anchor)
+
+	cloneVoterKey.Hash[0] = 0xff
+	cloneActionKey.GovActionIdx = 99
+	cloneProcedure.Anchor.Url = "https://example.com/changed"
+	cloneActions[cloneActionKey] = VotingProcedure{Vote: GovVoteNo}
+
+	originalProcedure, ok := original.Lookup(voter, action)
+	require.True(t, ok)
+	require.NotNil(t, originalProcedure.Anchor)
+	assert.Equal(t, GovVoteYes, originalProcedure.Vote)
+	assert.Equal(t, "https://example.com/a", originalProcedure.Anchor.Url)
+}
+
+func TestVotingProceduresClonePreservesNilActions(t *testing.T) {
+	voter := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x11,
+	)
+	voterKey := voter
+	original := VotingProcedures{
+		&voterKey: nil,
+	}
+
+	clone := original.Clone()
+	_, actions, ok := clone.LookupVoter(voter)
+
+	require.True(t, ok)
+	assert.Nil(t, actions)
+}
+
+func TestVotingProceduresAddOrReplaceCborEncodingUnchanged(t *testing.T) {
+	voter := testVotingProceduresVoter(
+		VoterTypeDRepKeyHash,
+		0x11,
+	)
+	action := testVotingProceduresGovActionId(0x22, 0)
+	procedure := VotingProcedure{
+		Vote: GovVoteYes,
+		Anchor: testVotingProceduresAnchor(
+			"https://example.com/a",
+			0x33,
+		),
+	}
+	directVoter := voter
+	directAction := action
+	direct := VotingProcedures{
+		&directVoter: {
+			&directAction: procedure,
+		},
+	}
+	viaHelper := VotingProcedures(nil).AddOrReplace(
+		voter,
+		action,
+		procedure,
+	)
+
+	directCbor, err := cbor.Encode(direct)
+	require.NoError(t, err)
+	helperCbor, err := cbor.Encode(viaHelper)
+	require.NoError(t, err)
+	assert.Equal(t, directCbor, helperCbor)
+}
+
 func TestGovActionIdToPlutusData(t *testing.T) {
 	txId := [32]byte{1, 2, 3, 4}
 	govActionId := &GovActionId{
@@ -672,6 +893,39 @@ func TestVoterTextRoundTrip(t *testing.T) {
 			assert.Equal(t, tc.voter.Type, decoded.Type)
 			assert.Equal(t, tc.voter.Hash, decoded.Hash)
 		})
+	}
+}
+
+func testVotingProceduresVoter(voterType uint8, seed byte) Voter {
+	var hash [28]byte
+	for i := range hash {
+		hash[i] = seed + byte(i)
+	}
+	return Voter{
+		Type: voterType,
+		Hash: hash,
+	}
+}
+
+func testVotingProceduresGovActionId(seed byte, idx uint32) GovActionId {
+	var txId [32]byte
+	for i := range txId {
+		txId[i] = seed + byte(i)
+	}
+	return GovActionId{
+		TransactionId: txId,
+		GovActionIdx:  idx,
+	}
+}
+
+func testVotingProceduresAnchor(url string, seed byte) *GovAnchor {
+	var dataHash [32]byte
+	for i := range dataHash {
+		dataHash[i] = seed + byte(i)
+	}
+	return &GovAnchor{
+		Url:      url,
+		DataHash: dataHash,
 	}
 }
 
