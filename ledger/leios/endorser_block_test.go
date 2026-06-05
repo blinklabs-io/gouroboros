@@ -109,6 +109,27 @@ func TestLeiosEndorserBlockRejectsWrongEnvelopeSize(t *testing.T) {
 	require.ErrorContains(t, err, "expected 1 component")
 }
 
+func TestLeiosEndorserBlockRejectsTrailingBytes(t *testing.T) {
+	block := LeiosEndorserBlock{
+		TransactionReferences: []LeiosTransactionReference{
+			{
+				TransactionHash: common.NewBlake2b256([]byte{0x01}),
+				TransactionSize: 42,
+			},
+		},
+	}
+	blockCbor, err := cbor.Encode(&block)
+	require.NoError(t, err)
+	blockCbor = append(blockCbor, 0xff)
+
+	_, err = NewLeiosEndorserBlockFromCbor(blockCbor)
+	require.ErrorContains(t, err, "trailing bytes")
+
+	var decoded LeiosEndorserBlock
+	err = decoded.UnmarshalCBOR(blockCbor)
+	require.ErrorContains(t, err, "trailing bytes")
+}
+
 func TestLeiosEndorserBlockRejectsOversizedTxSize(t *testing.T) {
 	hash := common.NewBlake2b256([]byte{0x01})
 	refMap, err := cbor.Encode(map[common.Blake2b256]uint64{

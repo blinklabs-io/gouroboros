@@ -42,8 +42,15 @@ type LeiosTransactionReference struct {
 
 func (b *LeiosEndorserBlock) UnmarshalCBOR(cborData []byte) error {
 	var items []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &items); err != nil {
+	bytesRead, err := cbor.Decode(cborData, &items)
+	if err != nil {
 		return err
+	}
+	if bytesRead != len(cborData) {
+		return fmt.Errorf(
+			"trailing bytes after leios endorser block: %d",
+			len(cborData)-bytesRead,
+		)
 	}
 	if len(items) != 1 {
 		return fmt.Errorf(
@@ -82,8 +89,15 @@ func NewLeiosEndorserBlockFromCbor(
 	data []byte,
 ) (*LeiosEndorserBlock, error) {
 	var block LeiosEndorserBlock
-	if _, err := cbor.Decode(data, &block); err != nil {
+	bytesRead, err := cbor.Decode(data, &block)
+	if err != nil {
 		return nil, err
+	}
+	if bytesRead != len(data) {
+		return nil, fmt.Errorf(
+			"trailing bytes after leios endorser block: %d",
+			len(data)-bytesRead,
+		)
 	}
 	return &block, nil
 }
