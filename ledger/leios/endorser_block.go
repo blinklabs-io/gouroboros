@@ -47,7 +47,7 @@ func (b *LeiosEndorserBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 	if len(items) != 1 {
 		return fmt.Errorf(
-			"invalid Leios endorser block: expected 1 component, got %d",
+			"invalid leios endorser block: expected 1 component, got %d",
 			len(items),
 		)
 	}
@@ -93,20 +93,20 @@ func validateLeiosTransactionReferences(
 ) error {
 	if len(refs) == 0 {
 		return errors.New(
-			"Leios endorser block must contain at least one transaction reference",
+			"leios endorser block must contain at least one transaction reference",
 		)
 	}
 	seen := make(map[common.Blake2b256]struct{}, len(refs))
 	for idx, ref := range refs {
 		if ref.TransactionSize == 0 {
 			return fmt.Errorf(
-				"Leios endorser block transaction reference at index %d has zero size",
+				"leios endorser block transaction reference at index %d has zero size",
 				idx,
 			)
 		}
 		if _, ok := seen[ref.TransactionHash]; ok {
 			return fmt.Errorf(
-				"duplicate Leios endorser block transaction reference at index %d",
+				"duplicate leios endorser block transaction reference at index %d",
 				idx,
 			)
 		}
@@ -140,14 +140,14 @@ func decodeLeiosTransactionReferences(
 	dec, err := cbor.NewStreamDecoder(raw)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"decode Leios endorser block transaction references: %w",
+			"decode leios endorser block transaction references: %w",
 			err,
 		)
 	}
 	count, _, _, err := dec.DecodeMapHeader()
 	if err != nil {
 		return nil, fmt.Errorf(
-			"decode Leios endorser block transaction references: %w",
+			"decode leios endorser block transaction references: %w",
 			err,
 		)
 	}
@@ -157,7 +157,7 @@ func decodeLeiosTransactionReferences(
 		var hashBytes cbor.ByteString
 		if _, _, err := dec.Decode(&hashBytes); err != nil {
 			return nil, fmt.Errorf(
-				"decode Leios transaction reference %d hash: %w",
+				"decode leios transaction reference %d hash: %w",
 				idx,
 				err,
 			)
@@ -165,7 +165,7 @@ func decodeLeiosTransactionReferences(
 		hash := hashBytes.Bytes()
 		if len(hash) != common.Blake2b256Size {
 			return nil, fmt.Errorf(
-				"Leios transaction reference %d hash must be %d bytes, got %d",
+				"leios transaction reference %d hash must be %d bytes, got %d",
 				idx,
 				common.Blake2b256Size,
 				len(hash),
@@ -174,7 +174,7 @@ func decodeLeiosTransactionReferences(
 		txHash := common.NewBlake2b256(hash)
 		if _, ok := seen[txHash]; ok {
 			return nil, fmt.Errorf(
-				"duplicate Leios endorser block transaction reference at index %d",
+				"duplicate leios endorser block transaction reference at index %d",
 				idx,
 			)
 		}
@@ -182,14 +182,14 @@ func decodeLeiosTransactionReferences(
 		var size uint64
 		if _, _, err := dec.Decode(&size); err != nil {
 			return nil, fmt.Errorf(
-				"decode Leios transaction reference %d size: %w",
+				"decode leios transaction reference %d size: %w",
 				idx,
 				err,
 			)
 		}
 		if size > math.MaxUint16 {
 			return nil, fmt.Errorf(
-				"Leios transaction reference %d size exceeds uint16: %d",
+				"leios transaction reference %d size exceeds uint16: %d",
 				idx,
 				size,
 			)
@@ -201,7 +201,7 @@ func decodeLeiosTransactionReferences(
 	}
 	if !dec.EOF() {
 		return nil, fmt.Errorf(
-			"trailing bytes after Leios transaction references map: %d",
+			"trailing bytes after leios transaction references map: %d",
 			len(raw)-dec.Position(),
 		)
 	}
