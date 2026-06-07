@@ -17,7 +17,7 @@ This release expands Leios support through the Leios testnet network definition 
 
 * Added the Leios testnet network definition so standard network lookups can target the Leios testnet with the published network magic `164` and its bootstrap peer.
 * Improved voting procedure helpers so applications can add or replace entries by value, look up existing procedures, clone procedure sets, receive defensive copies, and keep existing `CBOR` encoding behavior unchanged.
-* Expanded metadata helpers so applications can parse metadata `JSON` with or without detailed schemas, produce deterministic canonical `CBOR` ordering for metadata maps, and build Shelley auxiliary data that carries metadata only.
+* Expanded metadata helpers so applications can parse metadata `JSON` with or without detailed schemas, keep metadata map encoding in deterministic canonical `CBOR` order, and build Shelley auxiliary data that carries metadata only.
 
 ### Breaking Changes
 
@@ -25,7 +25,7 @@ This release expands Leios support through the Leios testnet network definition 
 
 ### Additional Changes
 
-* Refreshed `RELEASE_NOTES.md` to add the prior `v0.180.0` and `v0.180.1` entries so the recent release history remains complete.
+* Refreshed `RELEASE_NOTES.md` to include the prior `v0.180.0` and `v0.180.1` entries so the recent release history remains complete.
 
 ## v0.180.1 - Conway mint encoding fix
 
