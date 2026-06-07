@@ -70,6 +70,17 @@ var (
 			},
 		},
 	}
+	NetworkCardanoLeios = Network{
+		Id:           common.AddressNetworkTestnet,
+		Name:         "leios",
+		NetworkMagic: 164,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "leios-node.play.dev.cardano.org",
+				Port:    3001,
+			},
+		},
+	}
 	// NetworkPrimeMainnet intentionally shares the same NetworkMagic as NetworkCardanoMainnet
 	// because both networks use unaltered cardano-node binaries. Network differentiation
 	// occurs through the bootstrap peers configuration.
@@ -139,6 +150,7 @@ var networks = []Network{
 	NetworkCardanoPreprod,
 	NetworkCardanoPreview,
 	NetworkCardanoSancho,
+	NetworkCardanoLeios,
 	NetworkPrimeMainnet,
 	NetworkPrimeTestnet,
 	NetworkDevnet,

@@ -29,6 +29,119 @@ import (
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
 type VotingProcedures map[*Voter]map[*GovActionId]VotingProcedure
 
+// AddOrReplace adds or replaces a vote using Voter and GovActionId value
+// equality. It returns the map so callers can assign the result when adding to
+// a nil VotingProcedures value.
+func (vps VotingProcedures) AddOrReplace(
+	voter Voter,
+	govActionId GovActionId,
+	votingProcedure VotingProcedure,
+) VotingProcedures {
+	if vps == nil {
+		vps = VotingProcedures{}
+	}
+
+	voterKey, actions, ok := vps.LookupVoter(voter)
+	if !ok {
+		voterCopy := voter
+		voterKey = &voterCopy
+		actions = map[*GovActionId]VotingProcedure{}
+		vps[voterKey] = actions
+	} else if actions == nil {
+		actions = map[*GovActionId]VotingProcedure{}
+		vps[voterKey] = actions
+	}
+
+	actionKey, _, ok := lookupGovActionId(actions, govActionId)
+	if !ok {
+		actionCopy := govActionId
+		actionKey = &actionCopy
+	}
+	actions[actionKey] = cloneVotingProcedure(votingProcedure)
+	return vps
+}
+
+// Lookup returns the vote for the logical voter/action pair.
+func (vps VotingProcedures) Lookup(
+	voter Voter,
+	govActionId GovActionId,
+) (VotingProcedure, bool) {
+	_, procedure, ok := vps.LookupGovActionId(voter, govActionId)
+	return procedure, ok
+}
+
+// LookupVoter returns the existing voter key and vote map for a logically
+// equal voter.
+func (vps VotingProcedures) LookupVoter(
+	voter Voter,
+) (*Voter, map[*GovActionId]VotingProcedure, bool) {
+	for voterKey, actions := range vps {
+		if voterKey != nil && voterKey.Equal(voter) {
+			return voterKey, actions, true
+		}
+	}
+	return nil, nil, false
+}
+
+// LookupGovActionId returns the existing action key and vote for a logical
+// voter/action pair.
+func (vps VotingProcedures) LookupGovActionId(
+	voter Voter,
+	govActionId GovActionId,
+) (*GovActionId, VotingProcedure, bool) {
+	_, actions, ok := vps.LookupVoter(voter)
+	if !ok {
+		return nil, VotingProcedure{}, false
+	}
+	return lookupGovActionId(actions, govActionId)
+}
+
+// Clone returns a deep copy of the voting procedures map, including copied map
+// keys and voting procedure anchors.
+func (vps VotingProcedures) Clone() VotingProcedures {
+	if vps == nil {
+		return nil
+	}
+	ret := make(VotingProcedures, len(vps))
+	for voterKey, actions := range vps {
+		var voterCopy *Voter
+		if voterKey != nil {
+			voter := *voterKey
+			voterCopy = &voter
+		}
+
+		var actionCopies map[*GovActionId]VotingProcedure
+		if actions != nil {
+			actionCopies = make(
+				map[*GovActionId]VotingProcedure,
+				len(actions),
+			)
+			for actionKey, procedure := range actions {
+				var actionCopy *GovActionId
+				if actionKey != nil {
+					action := *actionKey
+					actionCopy = &action
+				}
+				actionCopies[actionCopy] = cloneVotingProcedure(procedure)
+			}
+		}
+		ret[voterCopy] = actionCopies
+	}
+	return ret
+}
+
+func lookupGovActionId(
+	actions map[*GovActionId]VotingProcedure,
+	govActionId GovActionId,
+) (*GovActionId, VotingProcedure, bool) {
+	for actionKey, procedure := range actions {
+		if actionKey != nil && actionKey.Equal(govActionId) {
+			return actionKey, procedure, true
+		}
+	}
+	return nil, VotingProcedure{}, false
+}
+
 const (
 	VoterTypeConstitutionalCommitteeHotKeyHash    uint8 = 0
 	VoterTypeConstitutionalCommitteeHotScriptHash uint8 = 1
@@ -41,6 +154,11 @@ type Voter struct {
 	cbor.StructAsArray
 	Type uint8
 	Hash [28]byte
+}
+
+// Equal reports whether two voters have the same logical value.
+func (v Voter) Equal(other Voter) bool {
+	return v.Type == other.Type && v.Hash == other.Hash
 }
 
 func encodeCip129Voter(
@@ -271,6 +389,14 @@ type VotingProcedure struct {
 	Anchor *GovAnchor
 }
 
+func cloneVotingProcedure(vp VotingProcedure) VotingProcedure {
+	if vp.Anchor != nil {
+		anchor := *vp.Anchor
+		vp.Anchor = &anchor
+	}
+	return vp
+}
+
 func (vp VotingProcedure) ToPlutusData() data.PlutusData {
 	return Vote(vp.Vote).ToPlutusData()
 }
@@ -312,6 +438,12 @@ type GovActionId struct {
 	cbor.StructAsArray
 	TransactionId [32]byte
 	GovActionIdx  uint32
+}
+
+// Equal reports whether two governance action IDs have the same logical value.
+func (id GovActionId) Equal(other GovActionId) bool {
+	return id.TransactionId == other.TransactionId &&
+		id.GovActionIdx == other.GovActionIdx
 }
 
 func (id *GovActionId) ToPlutusData() data.PlutusData {
