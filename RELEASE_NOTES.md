@@ -4,6 +4,15 @@ title: Release notes
 
 # Release notes
 
+## v0.181.0 - Leios support and ledger metadata helpers
+
+- **Date:** 2026-06-07
+- **Version:** 0.181.0
+
+### Summary
+
+This release expands Leios support through the Leios testnet network definition and typed endorser block handling, adds ledger metadata helpers for JSON parsing and metadata CBOR workflows, introduces voting procedure helper APIs for safer value management, and refreshes `RELEASE_NOTES.md` with the prior release entries.
+
 ## v0.180.1 - Conway mint encoding fix
 
 - **Date:** 2026-06-03
