@@ -433,7 +433,10 @@ func NewShelleyTransactionInput(hash string, idx int) ShelleyTransactionInput {
 	if err != nil {
 		panic(fmt.Sprintf("failed to decode transaction hash: %s", err))
 	}
-	if idx < 0 || idx > math.MaxUint32 {
+	// Compare the upper bound via int64 so this builds on 32-bit GOARCHs, where
+	// int is 32-bit and the untyped math.MaxUint32 constant would overflow the
+	// int comparison type. On 32-bit a positive int can never exceed MaxUint32.
+	if idx < 0 || int64(idx) > math.MaxUint32 {
 		panic("index out of range")
 	}
 	return ShelleyTransactionInput{

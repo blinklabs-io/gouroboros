@@ -216,21 +216,22 @@ func (s *Server) handleGetSizes() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	totalTxSize := 0
+	const maxUint32 = uint64(math.MaxUint32)
+	totalTxSize := uint64(0)
 	for _, tx := range s.mempoolTxs {
-		totalTxSize += len(tx.Tx)
+		txSize := uint64(len(tx.Tx))
+		if txSize > maxUint32 || totalTxSize > maxUint32-txSize {
+			return errors.New("integrer overflow in total tx size")
+		}
+		totalTxSize += txSize
 	}
-	numTxs := len(s.mempoolTxs)
-	// check for over/underflows
-	if totalTxSize < 0 || totalTxSize > math.MaxUint32 {
-		return errors.New("integrer overflow in total tx size")
-	}
-	if numTxs < 0 || numTxs > math.MaxUint32 {
+	numTxs := uint64(len(s.mempoolTxs))
+	if numTxs > maxUint32 {
 		return errors.New("integrer overflow in tx count")
 	}
 	newMsg := NewMsgReplyGetSizes(
 		s.mempoolCapacity,
-		uint32(totalTxSize), // #nosec G115
+		uint32(totalTxSize),
 		uint32(numTxs),
 	)
 	if err := s.SendMessage(newMsg); err != nil {
