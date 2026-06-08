@@ -155,6 +155,12 @@ func main() {
 		fmt.Println("  utxos-by-address <address> [address...]")
 		fmt.Println("  utxos-by-txin <txid#idx> [txid#idx...]")
 		fmt.Println("  utxo-whole-result [limit]  (WARNING: May timeout on large networks)")
+		fmt.Println()
+		fmt.Println("Governance query types (Conway era / CIP-1694):")
+		fmt.Println("  drep-state")
+		fmt.Println("  committee-state")
+		fmt.Println("  proposals")
+		fmt.Println("  vote-delegatees <stake-key-hash> [stake-key-hash...]")
 		os.Exit(1)
 	}
 	queryType := os.Args[1]
@@ -453,6 +459,121 @@ func main() {
 		if limit >= 0 && count < total {
 			fmt.Printf("\n(Showing %d of %d total UTxOs. Use 'utxo-whole-result <limit>' to specify limit)\n", count, total)
 		}
+	case "drep-state":
+		// Conway governance query (CIP-1694). Passing nil returns the state
+		// of every registered DRep; pass DRep credentials to filter.
+		drepState, err := o.LocalStateQuery().Client.GetDRepState(nil)
+		if err != nil {
+			panic(fmt.Errorf("failure querying DRep state: %w", err))
+		}
+		fmt.Printf("drep-state:\n")
+		for cred, entry := range *drepState {
+			fmt.Println("---")
+			fmt.Printf("  DRep credential: %x\n", cred.Bytes)
+			fmt.Printf("  Expiry epoch: %d\n", entry.Expiry)
+			fmt.Printf("  Deposit: %d\n", entry.Deposit)
+			if entry.Anchor != nil {
+				fmt.Printf("  Metadata URL: %s\n", entry.Anchor.Url)
+			}
+		}
+	case "committee-state":
+		// Conway governance query (CIP-1694). Passing nil for all three
+		// filters returns every constitutional committee member.
+		committeeState, err := o.LocalStateQuery().
+			Client.GetCommitteeMembersState(nil, nil, nil)
+		if err != nil {
+			panic(
+				fmt.Errorf("failure querying committee members state: %w", err),
+			)
+		}
+		fmt.Printf("committee-state:\n")
+		fmt.Printf("  Epoch: %d\n", committeeState.Epoch)
+		if committeeState.Threshold != nil {
+			fmt.Printf("  Threshold: %s\n", committeeState.Threshold.String())
+		}
+		// Members are keyed by cold credential; each reports its hot-credential
+		// authorization status and whether its term is active/expired/unknown.
+		for cold, member := range committeeState.Members {
+			fmt.Println("---")
+			fmt.Printf("  Member cold credential: %x\n", cold.Bytes)
+			fmt.Printf("  Member status: %d\n", member.Status)
+			fmt.Printf("  Hot credential status: %d\n", member.HotCredStatus.Status)
+			if member.Expiry != nil {
+				fmt.Printf("  Term expires epoch: %d\n", *member.Expiry)
+			}
+		}
+	case "proposals":
+		// Conway governance query (CIP-1694). Returns all active governance
+		// proposals along with the votes cast on each so far.
+		proposals, err := o.LocalStateQuery().Client.GetProposals()
+		if err != nil {
+			panic(fmt.Errorf("failure querying proposals: %w", err))
+		}
+		fmt.Printf("proposals:\n")
+		for _, proposal := range *proposals {
+			fmt.Println("---")
+			fmt.Printf(
+				"  Action ID: %x#%d\n",
+				proposal.Id.TransactionId,
+				proposal.Id.GovActionIdx,
+			)
+			fmt.Printf("  Proposed in epoch: %d\n", proposal.ProposedIn)
+			fmt.Printf("  Expires after epoch: %d\n", proposal.ExpiresAfter)
+			fmt.Printf(
+				"  Votes: %d committee, %d DRep, %d SPO\n",
+				len(proposal.CommitteeVotes),
+				len(proposal.DRepVotes),
+				len(proposal.SPOVotes),
+			)
+		}
+	case "vote-delegatees":
+		// Conway governance query (CIP-1694). Optionally filter by stake
+		// credential key hashes (hex); with no arguments, returns the vote
+		// delegation for every stake credential.
+		creds := make([]lcommon.Credential, 0, len(os.Args[2:]))
+		for _, arg := range os.Args[2:] {
+			hashBytes, err := hex.DecodeString(arg)
+			if err != nil {
+				fmt.Printf(
+					"ERROR: Invalid stake credential hash %q: %s\n",
+					arg,
+					err,
+				)
+				os.Exit(1)
+			}
+			if len(hashBytes) != 28 {
+				fmt.Printf(
+					"ERROR: Invalid stake credential hash %q: expected 28 bytes, got %d\n",
+					arg,
+					len(hashBytes),
+				)
+				os.Exit(1)
+			}
+			creds = append(creds, lcommon.Credential{
+				CredType:   lcommon.CredentialTypeAddrKeyHash,
+				Credential: lcommon.NewBlake2b224(hashBytes),
+			})
+		}
+		delegatees, err := o.LocalStateQuery().
+			Client.GetFilteredVoteDelegatees(creds)
+		if err != nil {
+			panic(fmt.Errorf("failure querying vote delegatees: %w", err))
+		}
+		fmt.Printf("vote-delegatees:\n")
+		// Each stake credential maps to the DRep it delegates to. A DRep type
+		// of Abstain or NoConfidence carries no credential bytes.
+		for stakeCred, drep := range *delegatees {
+			fmt.Println("---")
+			fmt.Printf("  Stake credential: %x\n", stakeCred.Bytes)
+			switch drep.Type {
+			case lcommon.DrepTypeAddrKeyHash, lcommon.DrepTypeScriptHash:
+				fmt.Printf("  Delegated to DRep: %x\n", drep.Credential)
+			case lcommon.DrepTypeAbstain:
+				fmt.Printf("  Delegated to: abstain\n")
+			case lcommon.DrepTypeNoConfidence:
+				fmt.Printf("  Delegated to: no-confidence\n")
+			}
+		}
 	default:
 		fmt.Printf("ERROR: unknown query: %s\n", queryType)
 		fmt.Println()
@@ -469,6 +590,12 @@ func main() {
 		fmt.Println("  utxos-by-address <address> [address...]")
 		fmt.Println("  utxos-by-txin <txid#idx> [txid#idx...]")
 		fmt.Println("  utxo-whole-result [limit]  (WARNING: May timeout on large networks)")
+		fmt.Println()
+		fmt.Println("Governance query types (Conway era / CIP-1694):")
+		fmt.Println("  drep-state")
+		fmt.Println("  committee-state")
+		fmt.Println("  proposals")
+		fmt.Println("  vote-delegatees <stake-key-hash> [stake-key-hash...]")
 		os.Exit(1)
 	}
 }
