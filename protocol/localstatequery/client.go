@@ -891,8 +891,18 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	return &result, nil
 }
 
-// GetConstitution returns the current constitution (Conway era)
-// The constitution contains an anchor URL/hash and an optional guardrails script hash
+// GetConstitution returns the current on-chain constitution (CIP-1694).
+//
+// Use this to read the constitution that governance actions are checked
+// against: its metadata anchor (URL and hash of the constitution document)
+// and the optional guardrails script hash that constrains protocol-parameter
+// and treasury-withdrawal actions.
+//
+// Response: a [ConstitutionResult] with the anchor and optional guardrails
+// script hash (nil when no guardrails script is set).
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetConstitution() (*ConstitutionResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetConstitution()",
@@ -924,8 +934,21 @@ func (c *Client) GetConstitution() (*ConstitutionResult, error) {
 	return &result, nil
 }
 
-// GetGovState returns the full governance state (Conway era)
-// This includes proposals, committee, constitution, and protocol parameters
+// GetGovState returns the full governance state (CIP-1694).
+//
+// Use this as the one-shot snapshot of everything governance-related: the
+// active proposals with their voting state, the constitutional committee, the
+// constitution, the current/previous/scheduled protocol parameters, and the
+// DRep pulsing state. Prefer the narrower queries ([Client.GetProposals],
+// [Client.GetDRepState], [Client.GetCommitteeMembersState]) when you only need
+// one piece, as this query returns and decodes considerably more data.
+//
+// Response: a [GovStateResult]. Several fields are returned as raw CBOR
+// because their shape is era-specific; the Committee field is a StrictMaybe
+// and can be decoded with [GovStateResult.DecodeCommittee].
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetGovState() (*GovStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetGovState()",
@@ -957,8 +980,19 @@ func (c *Client) GetGovState() (*GovStateResult, error) {
 	return &result, nil
 }
 
-// GetDRepState returns the state of specified DReps (Conway era)
-// If credentials is nil or empty, returns state for all DReps
+// GetDRepState returns the registration state of delegate representatives
+// (DReps) (CIP-1694).
+//
+// Use this to inspect registered DReps: when each one's activity period
+// expires, the deposit it locked at registration, and its optional metadata
+// anchor. Pass a list of DRep credentials to filter the response, or nil/empty
+// to return the state of every registered DRep.
+//
+// Response: a [DRepStateResult], a map keyed by each DRep's credential with a
+// [DRepStateEntry] value (expiry epoch, deposit, optional anchor).
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetDRepState(
 	credentials []lcommon.Credential,
 ) (*DRepStateResult, error) {
@@ -1001,8 +1035,20 @@ func (c *Client) GetDRepState(
 	return &result, nil
 }
 
-// GetDRepStakeDistr returns the stake distribution for specified DReps (Conway era)
-// If dreps is nil or empty, returns distribution for all DReps
+// GetDRepStakeDistr returns the stake distribution across DReps (CIP-1694).
+//
+// Use this to read the voting power (total delegated stake, in lovelace) of
+// DReps, for example to weigh how a proposal's DRep votes translate into
+// stake. Pass a list of DReps to filter the response, or nil/empty for the
+// full distribution. Note the [lcommon.Drep] type also covers the predefined
+// Abstain and NoConfidence options, not only credential-backed DReps.
+//
+// Response: a [DRepStakeDistrResult] containing the raw CBOR map of DReps to
+// stake amounts. It is returned undecoded because its key encoding is
+// era-specific; decode it with [cbor.Decode] against an era-appropriate type.
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetDRepStakeDistr(
 	dreps []lcommon.Drep,
 ) (*DRepStakeDistrResult, error) {
@@ -1045,9 +1091,27 @@ func (c *Client) GetDRepStakeDistr(
 	return &result, nil
 }
 
-// GetCommitteeMembersState returns the state of committee members (Conway era)
-// The filter parameters allow querying by cold credentials, hot credentials, or member status
-// Pass nil/empty to query without that filter
+// GetCommitteeMembersState returns the state of the constitutional committee
+// (CIP-1694).
+//
+// Use this to inspect committee members and their standing: each member's
+// hot-credential authorization status (not-authorized, authorized, or
+// resigned), its term status (active, expired, or unrecognized), its term
+// expiry epoch, and any change scheduled for the next epoch boundary, along
+// with the committee voting threshold and the current epoch.
+//
+// The three filters narrow the response: by member cold credentials, by hot
+// credentials, and by member status (see [MemberStatus]). Pass nil/empty for a
+// filter to leave it unconstrained; passing nil for all three returns every
+// member. The committee uses a hot/cold key setup, so a member is identified
+// by its cold credential and votes with its authorized hot credential.
+//
+// Response: a [CommitteeMembersStateResult] mapping each member's cold
+// credential to a [CommitteeMemberState], plus the [cbor.Rat] threshold and
+// epoch.
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetCommitteeMembersState(
 	coldCreds []lcommon.Credential,
 	hotCreds []lcommon.Credential,
@@ -1108,8 +1172,21 @@ func (c *Client) GetCommitteeMembersState(
 	return &result, nil
 }
 
-// GetFilteredVoteDelegatees returns the DRep delegations for specified stake credentials (Conway era)
-// If credentials is nil or empty, returns delegations for all credentials
+// GetFilteredVoteDelegatees returns the DRep that each stake credential has
+// delegated its vote to (CIP-1694).
+//
+// Use this to look up where stake credentials have delegated their voting
+// rights. Per CIP-1694 a vote-delegation certificate maps a stake credential
+// to a DRep credential, so each result is a single [lcommon.Drep]; that DRep
+// may be a credential-backed DRep or one of the predefined Abstain or
+// NoConfidence options. Pass a list of stake credentials to filter the
+// response, or nil/empty to return delegations for all credentials.
+//
+// Response: a [FilteredVoteDelegateesResult], a map keyed by stake credential
+// with the delegated [lcommon.Drep] as the value.
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetFilteredVoteDelegatees(
 	credentials []lcommon.Credential,
 ) (*FilteredVoteDelegateesResult, error) {
@@ -1152,8 +1229,20 @@ func (c *Client) GetFilteredVoteDelegatees(
 	return &result, nil
 }
 
-// GetSPOStakeDistr returns the SPO stake distribution for governance voting (Conway era)
-// If poolIds is nil or empty, returns distribution for all pools
+// GetSPOStakeDistr returns the stake-pool-operator (SPO) stake distribution
+// used for governance voting (CIP-1694).
+//
+// Use this to read each pool's governance voting power (the Lovelace delegated
+// to it), for example to weigh how SPO votes on a proposal translate into
+// stake. This is the governance-voting view of pool stake, distinct from the
+// block-production stake distribution returned by [Client.GetStakeDistribution].
+// Pass a list of pool IDs to filter the response, or nil/empty for all pools.
+//
+// Response: an [SPOStakeDistrResult] mapping each pool ID to its voting power
+// in Lovelace.
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetSPOStakeDistr(
 	poolIds []ledger.PoolId,
 ) (*SPOStakeDistrResult, error) {
@@ -1196,9 +1285,20 @@ func (c *Client) GetSPOStakeDistr(
 	return &result, nil
 }
 
-// GetProposals returns all active governance proposals (Conway era)
-// Each proposal includes its governance action ID, votes, proposal procedure,
-// and the epoch range during which it is active
+// GetProposals returns all active governance proposals (CIP-1694).
+//
+// Use this to enumerate governance actions that are currently open for voting
+// and to inspect their tally. Each entry carries the governance action ID (the
+// creating transaction hash plus the action's index within that transaction),
+// the votes cast so far by the constitutional committee, DReps, and SPOs, the
+// raw proposal procedure, and the epoch window during which the action is live
+// (proposed-in epoch through expires-after epoch).
+//
+// Response: a [ProposalsResult], a slice of [GovActionState], one per active
+// proposal.
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetProposals() (*ProposalsResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetProposals()",
@@ -1230,8 +1330,22 @@ func (c *Client) GetProposals() (*ProposalsResult, error) {
 	return &result, nil
 }
 
-// GetRatifyState returns the current ratification state (Conway era)
-// This includes the enact state, enacted proposals, expired proposal IDs, and delayed flag
+// GetRatifyState returns the current governance ratification state (CIP-1694).
+//
+// Governance actions are checked for ratification on the epoch boundary and
+// enacted on the following boundary. Use this to see the outcome of that
+// process for the current epoch: the enact state (the committee, constitution,
+// protocol parameters, treasury, withdrawals, and previous governance action
+// IDs that will take effect), the actions that were ratified/enacted, the IDs
+// of actions that expired, and a delayed flag indicating that enactment of
+// further actions is held back this epoch (for example behind a hard fork).
+//
+// Response: a [RatifyStateResult] with the [EnactState], the enacted
+// [GovActionState] list, the expired [lcommon.GovActionId] list, and the
+// delayed flag.
+//
+// Era: requires the Conway era or later. Returns an error if the acquired
+// ledger state is on an earlier era.
 func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetRatifyState()",
