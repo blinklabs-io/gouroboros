@@ -13,6 +13,14 @@ title: Release notes
 
 This release introduces Conway governance constructor helpers with stronger validation, expands governance query examples and embedded documentation, restores reliable 32 bit builds, refreshes key dependencies and CI maintenance, and keeps `RELEASE_NOTES.md` aligned with the latest published history.
 
+### New Features
+
+* Added Conway governance constructor helpers so applications can build proposal procedures and governance actions with stronger validation and safer value handling.
+
+### Bug Fixes
+
+* Fixed 32 bit compatibility so supported builds no longer fail on overflowing integer comparisons and casts.
+
 ## v0.181.0 - Leios support and ledger metadata helpers
 
 - **Date:** 2026-06-07
