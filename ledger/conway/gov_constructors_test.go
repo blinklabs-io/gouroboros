@@ -19,9 +19,22 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// unsupportedGovAction satisfies common.GovAction (via the embedded
+// GovActionBase) but is not one of the known Conway action types, so
+// NewConwayGovAction must reject it rather than silently coerce it to
+// discriminant 0.
+type unsupportedGovAction struct {
+	common.GovActionBase
+}
+
+func (unsupportedGovAction) ToPlutusData() data.PlutusData {
+	return data.NewConstr(0)
+}
 
 func TestNewConwayParameterChangeGovAction(t *testing.T) {
 	minFeeA := uint(44)
@@ -109,6 +122,32 @@ func TestNewConwayGovActionType(t *testing.T) {
 			assert.Equal(t, tc.action, ga.Action)
 		})
 	}
+}
+
+func TestNewConwayGovActionRejectsInvalid(t *testing.T) {
+	// A nil action must be rejected rather than wrapped with a CBOR-null
+	// governance action.
+	_, err := NewConwayGovAction(nil)
+	require.Error(t, err)
+
+	// An action that satisfies common.GovAction but is not a known Conway type
+	// must be rejected rather than silently coerced to discriminant 0.
+	_, err = NewConwayGovAction(unsupportedGovAction{})
+	require.Error(t, err)
+
+	// NewConwayProposalProcedure propagates the error instead of producing a
+	// procedure that encodes a CBOR-null governance action.
+	addr, err := common.NewAddress(
+		"addr1vx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzers66hrl8",
+	)
+	require.NoError(t, err)
+	anchor, err := common.NewGovAnchor(
+		"https://example.com/proposal.json",
+		make([]byte, 32),
+	)
+	require.NoError(t, err)
+	_, err = NewConwayProposalProcedure(1_000_000, addr, nil, anchor)
+	require.Error(t, err)
 }
 
 func TestNewConwayProposalProcedure(t *testing.T) {

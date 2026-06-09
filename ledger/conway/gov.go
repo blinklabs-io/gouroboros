@@ -15,6 +15,7 @@
 package conway
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -164,36 +165,44 @@ func NewConwayParameterChangeGovAction(
 }
 
 // NewConwayGovAction wraps a governance action and sets the (non-serialized)
-// discriminant Type for in-memory consistency.
+// discriminant Type for in-memory consistency. A nil or unsupported action
+// returns an error.
 func NewConwayGovAction(action common.GovAction) (ConwayGovAction, error) {
+	actionType, err := conwayGovActionType(action)
+	if err != nil {
+		return ConwayGovAction{}, err
+	}
 	return ConwayGovAction{
-		Type:   conwayGovActionType(action),
+		Type:   actionType,
 		Action: action,
 	}, nil
 }
 
 // conwayGovActionType maps a concrete governance action to its discriminant.
 // The returned value is only used for the in-memory ConwayGovAction.Type field,
-// which is not serialized.
-func conwayGovActionType(action common.GovAction) uint {
+// which is not serialized. An unknown or nil action returns an error rather than
+// silently defaulting to discriminant 0, which would be indistinguishable from a
+// valid parameter change action.
+func conwayGovActionType(action common.GovAction) (uint, error) {
 	switch action.(type) {
 	case *ConwayParameterChangeGovAction:
-		return uint(common.GovActionTypeParameterChange)
+		return uint(common.GovActionTypeParameterChange), nil
 	case *common.HardForkInitiationGovAction:
-		return uint(common.GovActionTypeHardForkInitiation)
+		return uint(common.GovActionTypeHardForkInitiation), nil
 	case *common.TreasuryWithdrawalGovAction:
-		return uint(common.GovActionTypeTreasuryWithdrawal)
+		return uint(common.GovActionTypeTreasuryWithdrawal), nil
 	case *common.NoConfidenceGovAction:
-		return uint(common.GovActionTypeNoConfidence)
+		return uint(common.GovActionTypeNoConfidence), nil
 	case *common.UpdateCommitteeGovAction:
-		return uint(common.GovActionTypeUpdateCommittee)
+		return uint(common.GovActionTypeUpdateCommittee), nil
 	case *common.NewConstitutionGovAction:
-		return uint(common.GovActionTypeNewConstitution)
+		return uint(common.GovActionTypeNewConstitution), nil
 	case *common.InfoGovAction:
-		return uint(common.GovActionTypeInfo)
+		return uint(common.GovActionTypeInfo), nil
+	case nil:
+		return 0, errors.New("governance action cannot be nil")
 	default:
-		// Unknown/foreign action: leave Type as the zero-value default.
-		return 0
+		return 0, fmt.Errorf("unsupported governance action type: %T", action)
 	}
 }
 

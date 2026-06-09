@@ -113,6 +113,12 @@ func TestNewTreasuryWithdrawalGovAction(t *testing.T) {
 	// Negative: non-empty policy hash must be 28 bytes
 	_, err = NewTreasuryWithdrawalGovAction(withdrawals, []byte{1, 2})
 	require.Error(t, err)
+	// Negative: a nil address key would panic in ToPlutusData
+	_, err = NewTreasuryWithdrawalGovAction(
+		map[*Address]uint64{nil: 5_000_000},
+		nil,
+	)
+	require.Error(t, err)
 }
 
 func TestNewNoConfidenceGovAction(t *testing.T) {
@@ -143,13 +149,12 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 	creds := []Credential{cred}
 	credEpochs := map[*Credential]uint{&cred: 42}
 
-	// Zero-value Rat is accepted by the constructor (it is not CBOR-encoded
-	// here because an empty cbor.Rat has no inner value to marshal).
-	zeroQuorum, err := NewUpdateCommitteeGovAction(
+	// Negative: a zero-value Rat has a nil inner value and panics when CBOR
+	// encoded, so the constructor must reject it up front.
+	_, err := NewUpdateCommitteeGovAction(
 		nil, creds, credEpochs, cbor.Rat{},
 	)
-	require.NoError(t, err)
-	assert.Equal(t, uint(GovActionTypeUpdateCommittee), zeroQuorum.Type)
+	require.Error(t, err)
 
 	// Populated Rat: full CBOR round-trip
 	action, err := NewUpdateCommitteeGovAction(
@@ -168,6 +173,15 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint(GovActionTypeUpdateCommittee), decoded.Type)
 	assert.Len(t, decoded.Credentials, 1)
+
+	// Negative: a nil credential key would panic in ToPlutusData
+	_, err = NewUpdateCommitteeGovAction(
+		nil,
+		creds,
+		map[*Credential]uint{nil: 1},
+		cbor.Rat{Rat: big.NewRat(2, 3)},
+	)
+	require.Error(t, err)
 }
 
 func TestNewNewConstitutionGovAction(t *testing.T) {

@@ -692,6 +692,14 @@ func NewTreasuryWithdrawalGovAction(
 			"treasury withdrawal requires at least one withdrawal",
 		)
 	}
+	// Nil address keys panic when the action is rendered to PlutusData.
+	for addr := range withdrawals {
+		if addr == nil {
+			return nil, errors.New(
+				"treasury withdrawal contains a nil address",
+			)
+		}
+	}
 	if len(policyHash) != 0 && len(policyHash) != Blake2b224Size {
 		return nil, fmt.Errorf(
 			"invalid policy hash length: expected %d bytes, got %d",
@@ -796,6 +804,19 @@ func NewUpdateCommitteeGovAction(
 	credEpochs map[*Credential]uint,
 	quorum cbor.Rat,
 ) (*UpdateCommitteeGovAction, error) {
+	// A zero-value cbor.Rat has a nil inner *big.Rat and panics when CBOR
+	// encoded, so require a populated quorum.
+	if quorum.Rat == nil {
+		return nil, errors.New("update committee requires a quorum")
+	}
+	// Nil credential keys panic when the action is rendered to PlutusData.
+	for cred := range credEpochs {
+		if cred == nil {
+			return nil, errors.New(
+				"update committee contains a nil credential",
+			)
+		}
+	}
 	return &UpdateCommitteeGovAction{
 		Type:        uint(GovActionTypeUpdateCommittee),
 		ActionId:    actionId,
