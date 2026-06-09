@@ -139,3 +139,80 @@ func (a *ConwayParameterChangeGovAction) ToPlutusData() data.PlutusData {
 func (a *ConwayParameterChangeGovAction) GetPolicyHash() []byte {
 	return a.PolicyHash
 }
+
+// NewConwayParameterChangeGovAction builds a parameter change governance
+// action. actionId is optional (nil means no parent action). policyHash is
+// optional, but when provided must be a 28-byte script hash.
+func NewConwayParameterChangeGovAction(
+	actionId *common.GovActionId,
+	paramUpdate ConwayProtocolParameterUpdate,
+	policyHash []byte,
+) (*ConwayParameterChangeGovAction, error) {
+	if len(policyHash) != 0 && len(policyHash) != common.Blake2b224Size {
+		return nil, fmt.Errorf(
+			"invalid policy hash length: expected %d bytes, got %d",
+			common.Blake2b224Size,
+			len(policyHash),
+		)
+	}
+	return &ConwayParameterChangeGovAction{
+		Type:        uint(common.GovActionTypeParameterChange),
+		ActionId:    actionId,
+		ParamUpdate: paramUpdate,
+		PolicyHash:  policyHash,
+	}, nil
+}
+
+// NewConwayGovAction wraps a governance action and sets the (non-serialized)
+// discriminant Type for in-memory consistency.
+func NewConwayGovAction(action common.GovAction) (ConwayGovAction, error) {
+	return ConwayGovAction{
+		Type:   conwayGovActionType(action),
+		Action: action,
+	}, nil
+}
+
+// conwayGovActionType maps a concrete governance action to its discriminant.
+// The returned value is only used for the in-memory ConwayGovAction.Type field,
+// which is not serialized.
+func conwayGovActionType(action common.GovAction) uint {
+	switch action.(type) {
+	case *ConwayParameterChangeGovAction:
+		return uint(common.GovActionTypeParameterChange)
+	case *common.HardForkInitiationGovAction:
+		return uint(common.GovActionTypeHardForkInitiation)
+	case *common.TreasuryWithdrawalGovAction:
+		return uint(common.GovActionTypeTreasuryWithdrawal)
+	case *common.NoConfidenceGovAction:
+		return uint(common.GovActionTypeNoConfidence)
+	case *common.UpdateCommitteeGovAction:
+		return uint(common.GovActionTypeUpdateCommittee)
+	case *common.NewConstitutionGovAction:
+		return uint(common.GovActionTypeNewConstitution)
+	case *common.InfoGovAction:
+		return uint(common.GovActionTypeInfo)
+	default:
+		// Unknown/foreign action: leave Type as the zero-value default.
+		return 0
+	}
+}
+
+// NewConwayProposalProcedure builds a Conway proposal procedure from a deposit,
+// reward account, governance action, and anchor.
+func NewConwayProposalProcedure(
+	deposit uint64,
+	rewardAccount common.Address,
+	action common.GovAction,
+	anchor common.GovAnchor,
+) (*ConwayProposalProcedure, error) {
+	govAction, err := NewConwayGovAction(action)
+	if err != nil {
+		return nil, err
+	}
+	return &ConwayProposalProcedure{
+		PPDeposit:       deposit,
+		PPRewardAccount: rewardAccount,
+		PPGovAction:     govAction,
+		PPAnchor:        anchor,
+	}, nil
+}
