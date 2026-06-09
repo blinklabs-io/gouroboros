@@ -4,6 +4,31 @@ title: Release notes
 
 # Release notes
 
+## v0.182.0 - governance constructors and 32-bit compatibility
+
+- **Date:** 2026-06-09
+- **Version:** 0.182.0
+
+### Summary
+
+This release adds Conway governance helper APIs with stronger validation for proposal and action creation, expands governance query examples and embedded documentation, restores reliable 32 bit builds, refreshes key dependencies and workflow upkeep, and keeps `RELEASE_NOTES.md` aligned with the latest published history.
+
+### New Features
+
+* Added Conway governance helper APIs so applications can build proposal procedures and governance actions with stronger validation and safer value handling.
+
+### Bug Fixes
+
+* Fixed 32 bit compatibility so supported builds no longer fail on overflowing integer comparisons and casts.
+
+### Additional Changes
+
+* Expanded governance query examples and Conway governance guidance so embedded documentation explains the newer query flows more clearly.
+* Updated `github.com/blinklabs-io/plutigo` to `v0.1.15`.
+* Refreshed `github.com/blinklabs-io/ouroboros-mock` to `v0.12.0`.
+* Advanced `actions/checkout` to `v6.0.3` in workflow automation.
+* Documented the prior `v0.181.0` release entry in `RELEASE_NOTES.md`.
+
 ## v0.181.0 - Leios support and ledger metadata helpers
 
 - **Date:** 2026-06-07
