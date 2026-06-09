@@ -21,6 +21,14 @@ This release introduces Conway governance constructor helpers with stronger vali
 
 * Fixed 32 bit compatibility so supported builds no longer fail on overflowing integer comparisons and casts.
 
+### Additional Changes
+
+* Expanded governance query examples and Conway governance guidance so library documentation and embedded references cover the newer query flows more clearly.
+* Updated `github.com/blinklabs-io/plutigo` to `v0.1.15`.
+* Refreshed `github.com/blinklabs-io/ouroboros-mock` to `v0.12.0`.
+* Advanced `actions/checkout` to `v6.0.3` in CI workflows.
+* Documented the prior `v0.181.0` release entry in `RELEASE_NOTES.md`.
+
 ## v0.181.0 - Leios support and ledger metadata helpers
 
 - **Date:** 2026-06-07
