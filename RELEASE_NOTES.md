@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release adds Conway governance helper APIs with stronger validation for proposal and action creation, expands governance query examples and embedded documentation, restores reliable 32 bit builds, refreshes key dependencies and workflow maintenance, and keeps `RELEASE_NOTES.md` aligned with the latest published history.
+This release adds Conway governance helper APIs with stronger validation for proposal and action creation, expands governance query examples and embedded documentation, restores reliable 32 bit builds, refreshes key dependencies and workflow upkeep, and keeps `RELEASE_NOTES.md` aligned with the latest published history.
 
 ### New Features
 
@@ -23,7 +23,7 @@ This release adds Conway governance helper APIs with stronger validation for pro
 
 ### Additional Changes
 
-* Expanded governance query examples and Conway governance guidance so library documentation and embedded references explain the newer query flows more clearly.
+* Expanded governance query examples and Conway governance guidance so embedded documentation explains the newer query flows more clearly.
 * Updated `github.com/blinklabs-io/plutigo` to `v0.1.15`.
 * Refreshed `github.com/blinklabs-io/ouroboros-mock` to `v0.12.0`.
 * Advanced `actions/checkout` to `v6.0.3` in workflow automation.
