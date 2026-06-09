@@ -15,8 +15,10 @@
 package conway
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -138,4 +140,97 @@ func (a *ConwayParameterChangeGovAction) ToPlutusData() data.PlutusData {
 // GetPolicyHash returns the policy script hash for this governance action
 func (a *ConwayParameterChangeGovAction) GetPolicyHash() []byte {
 	return a.PolicyHash
+}
+
+// NewConwayParameterChangeGovAction builds a parameter change governance
+// action. actionId is optional (nil means no parent action). policyHash is
+// optional, but when provided must be a 28-byte script hash.
+func NewConwayParameterChangeGovAction(
+	actionId *common.GovActionId,
+	paramUpdate ConwayProtocolParameterUpdate,
+	policyHash []byte,
+) (*ConwayParameterChangeGovAction, error) {
+	if len(policyHash) != 0 && len(policyHash) != common.Blake2b224Size {
+		return nil, fmt.Errorf(
+			"invalid policy hash length: expected %d bytes, got %d",
+			common.Blake2b224Size,
+			len(policyHash),
+		)
+	}
+	return &ConwayParameterChangeGovAction{
+		Type:        uint(common.GovActionTypeParameterChange),
+		ActionId:    actionId,
+		ParamUpdate: paramUpdate,
+		PolicyHash:  policyHash,
+	}, nil
+}
+
+// NewConwayGovAction wraps a governance action and sets the (non-serialized)
+// discriminant Type for in-memory consistency. A nil or unsupported action
+// returns an error.
+func NewConwayGovAction(action common.GovAction) (ConwayGovAction, error) {
+	actionType, err := conwayGovActionType(action)
+	if err != nil {
+		return ConwayGovAction{}, err
+	}
+	return ConwayGovAction{
+		Type:   actionType,
+		Action: action,
+	}, nil
+}
+
+// conwayGovActionType maps a concrete governance action to its discriminant.
+// The returned value is only used for the in-memory ConwayGovAction.Type field,
+// which is not serialized. An unknown or nil action returns an error rather than
+// silently defaulting to discriminant 0, which would be indistinguishable from a
+// valid parameter change action.
+func conwayGovActionType(action common.GovAction) (uint, error) {
+	if action == nil {
+		return 0, errors.New("governance action cannot be nil")
+	}
+	// A typed-nil pointer would otherwise match its concrete case below and wrap
+	// a nil action that encodes to CBOR null or panics in ToPlutusData; reject
+	// it before the type switch.
+	if rv := reflect.ValueOf(action); rv.Kind() == reflect.Pointer &&
+		rv.IsNil() {
+		return 0, errors.New("governance action cannot be nil")
+	}
+	switch action.(type) {
+	case *ConwayParameterChangeGovAction:
+		return uint(common.GovActionTypeParameterChange), nil
+	case *common.HardForkInitiationGovAction:
+		return uint(common.GovActionTypeHardForkInitiation), nil
+	case *common.TreasuryWithdrawalGovAction:
+		return uint(common.GovActionTypeTreasuryWithdrawal), nil
+	case *common.NoConfidenceGovAction:
+		return uint(common.GovActionTypeNoConfidence), nil
+	case *common.UpdateCommitteeGovAction:
+		return uint(common.GovActionTypeUpdateCommittee), nil
+	case *common.NewConstitutionGovAction:
+		return uint(common.GovActionTypeNewConstitution), nil
+	case *common.InfoGovAction:
+		return uint(common.GovActionTypeInfo), nil
+	default:
+		return 0, fmt.Errorf("unsupported governance action type: %T", action)
+	}
+}
+
+// NewConwayProposalProcedure builds a Conway proposal procedure from a deposit,
+// reward account, governance action, and anchor.
+func NewConwayProposalProcedure(
+	deposit uint64,
+	rewardAccount common.Address,
+	action common.GovAction,
+	anchor common.GovAnchor,
+) (*ConwayProposalProcedure, error) {
+	govAction, err := NewConwayGovAction(action)
+	if err != nil {
+		return nil, err
+	}
+	return &ConwayProposalProcedure{
+		PPDeposit:       deposit,
+		PPRewardAccount: rewardAccount,
+		PPGovAction:     govAction,
+		PPAnchor:        anchor,
+	}, nil
 }
