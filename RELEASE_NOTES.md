@@ -4,6 +4,54 @@ title: Release notes
 
 # Release notes
 
+## v0.182.0 - governance constructors and 32-bit compatibility
+
+- **Date:** 2026-06-09
+- **Version:** 0.182.0
+
+### Summary
+
+This release adds Conway governance helper APIs with stronger validation for proposal and action creation, expands governance query examples and embedded documentation, restores reliable 32 bit builds, refreshes key dependencies and workflow upkeep, and keeps `RELEASE_NOTES.md` aligned with the latest published history.
+
+### New Features
+
+* Added Conway governance helper APIs so applications can build proposal procedures and governance actions with stronger validation and safer value handling.
+
+### Bug Fixes
+
+* Fixed 32 bit compatibility so supported builds no longer fail on overflowing integer comparisons and casts.
+
+### Additional Changes
+
+* Expanded governance query examples and Conway governance guidance so embedded documentation explains the newer query flows more clearly.
+* Updated `github.com/blinklabs-io/plutigo` to `v0.1.15`.
+* Refreshed `github.com/blinklabs-io/ouroboros-mock` to `v0.12.0`.
+* Advanced `actions/checkout` to `v6.0.3` in workflow automation.
+* Documented the prior `v0.181.0` release entry in `RELEASE_NOTES.md`.
+
+## v0.181.0 - Leios support and ledger metadata helpers
+
+- **Date:** 2026-06-07
+- **Version:** 0.181.0
+
+### Summary
+
+This release expands Leios support through the Leios testnet network definition and typed endorser block handling, adds ledger metadata helpers for `JSON` parsing and metadata `CBOR` workflows, introduces voting procedure helper APIs for safer value management, and refreshes `RELEASE_NOTES.md` with the prior release entries.
+
+### New Features
+
+* Added the Leios testnet network definition so standard network lookups can target the Leios testnet with the published network magic `164` and its bootstrap peer.
+* Improved voting procedure helpers so applications can add or replace entries by value, look up existing procedures, clone procedure sets, receive defensive copies, and keep existing `CBOR` encoding behavior unchanged.
+* Expanded metadata helpers so applications can parse metadata `JSON` with or without detailed schemas, keep metadata map encoding in deterministic canonical `CBOR` order, and build Shelley auxiliary data that carries metadata only.
+
+### Breaking Changes
+
+* Updated Leios endorser block handling so applications now receive typed `CIP-0164` endorser blocks with stricter `CBOR` validation, and downstream code must rename the exported alias from `LeiosEndorderBlock` to `LeiosEndorserBlock`.
+
+### Additional Changes
+
+* Refreshed `RELEASE_NOTES.md` to include the prior `v0.180.0` and `v0.180.1` entries so the recent release history remains complete.
+
 ## v0.180.1 - Conway mint encoding fix
 
 - **Date:** 2026-06-03

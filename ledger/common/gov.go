@@ -434,6 +434,20 @@ func (a *GovAnchor) ToPlutusData() data.PlutusData {
 	)
 }
 
+// NewGovAnchor builds a GovAnchor from a URL and a 32-byte data hash.
+func NewGovAnchor(url string, dataHash []byte) (GovAnchor, error) {
+	if len(dataHash) != 32 {
+		return GovAnchor{}, fmt.Errorf(
+			"invalid gov anchor data hash length: expected 32 bytes, got %d",
+			len(dataHash),
+		)
+	}
+	return GovAnchor{
+		Url:      url,
+		DataHash: [32]byte(dataHash),
+	}, nil
+}
+
 type GovActionId struct {
 	cbor.StructAsArray
 	TransactionId [32]byte
@@ -527,6 +541,20 @@ func (id *GovActionId) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// NewGovActionId builds a GovActionId from a 32-byte transaction id and an index.
+func NewGovActionId(txId []byte, idx uint32) (GovActionId, error) {
+	if len(txId) != 32 {
+		return GovActionId{}, fmt.Errorf(
+			"invalid gov action id transaction id length: expected 32 bytes, got %d",
+			len(txId),
+		)
+	}
+	return GovActionId{
+		TransactionId: [32]byte(txId),
+		GovActionIdx:  idx,
+	}, nil
+}
+
 type ProposalProcedure interface {
 	isProposalProcedure()
 	ToPlutusData() data.PlutusData
@@ -601,6 +629,22 @@ func (a *HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
 
 func (a HardForkInitiationGovAction) isGovAction() {}
 
+// NewHardForkInitiationGovAction builds a hard fork initiation governance
+// action. actionId is optional (nil means no parent action).
+func NewHardForkInitiationGovAction(
+	actionId *GovActionId,
+	major uint,
+	minor uint,
+) (*HardForkInitiationGovAction, error) {
+	a := &HardForkInitiationGovAction{
+		Type:     uint(GovActionTypeHardForkInitiation),
+		ActionId: actionId,
+	}
+	a.ProtocolVersion.Major = major
+	a.ProtocolVersion.Minor = minor
+	return a, nil
+}
+
 type TreasuryWithdrawalGovAction struct {
 	cbor.StructAsArray
 	Type        uint
@@ -636,6 +680,40 @@ func (a *TreasuryWithdrawalGovAction) GetPolicyHash() []byte {
 	return a.PolicyHash
 }
 
+// NewTreasuryWithdrawalGovAction builds a treasury withdrawal governance
+// action. policyHash is optional, but when provided must be a 28-byte script
+// hash.
+func NewTreasuryWithdrawalGovAction(
+	withdrawals map[*Address]uint64,
+	policyHash []byte,
+) (*TreasuryWithdrawalGovAction, error) {
+	if len(withdrawals) == 0 {
+		return nil, errors.New(
+			"treasury withdrawal requires at least one withdrawal",
+		)
+	}
+	// Nil address keys panic when the action is rendered to PlutusData.
+	for addr := range withdrawals {
+		if addr == nil {
+			return nil, errors.New(
+				"treasury withdrawal contains a nil address",
+			)
+		}
+	}
+	if len(policyHash) != 0 && len(policyHash) != Blake2b224Size {
+		return nil, fmt.Errorf(
+			"invalid policy hash length: expected %d bytes, got %d",
+			Blake2b224Size,
+			len(policyHash),
+		)
+	}
+	return &TreasuryWithdrawalGovAction{
+		Type:        uint(GovActionTypeTreasuryWithdrawal),
+		Withdrawals: withdrawals,
+		PolicyHash:  policyHash,
+	}, nil
+}
+
 type NoConfidenceGovAction struct {
 	cbor.StructAsArray
 	Type     uint
@@ -653,6 +731,17 @@ func (a *NoConfidenceGovAction) ToPlutusData() data.PlutusData {
 }
 
 func (a NoConfidenceGovAction) isGovAction() {}
+
+// NewNoConfidenceGovAction builds a no confidence governance action. actionId
+// is optional (nil means no parent action).
+func NewNoConfidenceGovAction(
+	actionId *GovActionId,
+) (*NoConfidenceGovAction, error) {
+	return &NoConfidenceGovAction{
+		Type:     uint(GovActionTypeNoConfidence),
+		ActionId: actionId,
+	}, nil
+}
 
 type UpdateCommitteeGovAction struct {
 	cbor.StructAsArray
@@ -705,6 +794,38 @@ func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 
 func (a UpdateCommitteeGovAction) isGovAction() {}
 
+// NewUpdateCommitteeGovAction builds an update committee governance action.
+// actionId is optional (nil means no parent action). credentials are the
+// members to remove and credEpochs maps members to add to their expiration
+// epoch.
+func NewUpdateCommitteeGovAction(
+	actionId *GovActionId,
+	credentials []Credential,
+	credEpochs map[*Credential]uint,
+	quorum cbor.Rat,
+) (*UpdateCommitteeGovAction, error) {
+	// A zero-value cbor.Rat has a nil inner *big.Rat and panics when CBOR
+	// encoded, so require a populated quorum.
+	if quorum.Rat == nil {
+		return nil, errors.New("update committee requires a quorum")
+	}
+	// Nil credential keys panic when the action is rendered to PlutusData.
+	for cred := range credEpochs {
+		if cred == nil {
+			return nil, errors.New(
+				"update committee contains a nil credential",
+			)
+		}
+	}
+	return &UpdateCommitteeGovAction{
+		Type:        uint(GovActionTypeUpdateCommittee),
+		ActionId:    actionId,
+		Credentials: credentials,
+		CredEpochs:  credEpochs,
+		Quorum:      quorum,
+	}, nil
+}
+
 type NewConstitutionGovAction struct {
 	cbor.StructAsArray
 	Type         uint
@@ -738,6 +859,30 @@ func (a *NewConstitutionGovAction) ToPlutusData() data.PlutusData {
 
 func (a NewConstitutionGovAction) isGovAction() {}
 
+// NewNewConstitutionGovAction builds a new constitution governance action.
+// actionId is optional (nil means no parent action). scriptHash is optional,
+// but when provided must be a 28-byte guardrail script hash.
+func NewNewConstitutionGovAction(
+	actionId *GovActionId,
+	anchor GovAnchor,
+	scriptHash []byte,
+) (*NewConstitutionGovAction, error) {
+	if len(scriptHash) != 0 && len(scriptHash) != Blake2b224Size {
+		return nil, fmt.Errorf(
+			"invalid script hash length: expected %d bytes, got %d",
+			Blake2b224Size,
+			len(scriptHash),
+		)
+	}
+	a := &NewConstitutionGovAction{
+		Type:     uint(GovActionTypeNewConstitution),
+		ActionId: actionId,
+	}
+	a.Constitution.Anchor = anchor
+	a.Constitution.ScriptHash = scriptHash
+	return a, nil
+}
+
 type InfoGovAction struct {
 	cbor.StructAsArray
 	Type uint
@@ -748,3 +893,10 @@ func (a *InfoGovAction) ToPlutusData() data.PlutusData {
 }
 
 func (a InfoGovAction) isGovAction() {}
+
+// NewInfoGovAction builds an info governance action.
+func NewInfoGovAction() (*InfoGovAction, error) {
+	return &InfoGovAction{
+		Type: uint(GovActionTypeInfo),
+	}, nil
+}

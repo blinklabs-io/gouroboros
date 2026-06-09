@@ -1278,7 +1278,8 @@ func validateTxProof(txProof ByronTxProof, txPayload []byron.ByronTransaction) e
 	// Validate transaction count
 	txPayloadLen := len(txPayload)
 	// #nosec G115 -- len() cannot be negative, and a block with >2^32 txs is impossible
-	if txPayloadLen > 0xFFFFFFFF || uint32(txPayloadLen) != txProof.TxCount {
+	// int64 cast: on 32-bit targets untyped 0xFFFFFFFF overflows int
+	if int64(txPayloadLen) > 0xFFFFFFFF || uint32(txPayloadLen) != txProof.TxCount {
 		return &common.ValidationError{
 			Type:    common.ValidationErrorTypeBodyHash,
 			Message: "transaction count mismatch",
@@ -1545,7 +1546,8 @@ func toUint32(v any) (uint32, error) {
 		if x < 0 {
 			return 0, fmt.Errorf("negative value %d", x)
 		}
-		if x > 0xFFFFFFFF {
+		// int64 cast: on 32-bit targets untyped 0xFFFFFFFF overflows int
+		if int64(x) > 0xFFFFFFFF {
 			return 0, fmt.Errorf("value %d overflows uint32", x)
 		}
 		return uint32(x), nil

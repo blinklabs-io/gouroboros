@@ -312,7 +312,7 @@ func VerifyBlock(
 				"slot":         slot,
 				"block_number": blockNo,
 				"era":          era,
-				"max_int64":    math.MaxInt64,
+				"max_int64":    int64(math.MaxInt64), // int64 for 32-bit build
 			},
 			nil,
 		)

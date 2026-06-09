@@ -156,8 +156,9 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 
 	// Validate protocol magic fits in uint32
-	if genesis.ProtocolConsts.ProtocolMagic < 0 || genesis.ProtocolConsts.ProtocolMagic > math.MaxUint32 {
-		return ByronConfig{}, fmt.Errorf("invalid protocol magic: %d (must be 0 to %d)", genesis.ProtocolConsts.ProtocolMagic, math.MaxUint32)
+	// int64 cast: on 32-bit targets untyped math.MaxUint32 overflows int
+	if genesis.ProtocolConsts.ProtocolMagic < 0 || int64(genesis.ProtocolConsts.ProtocolMagic) > math.MaxUint32 {
+		return ByronConfig{}, fmt.Errorf("invalid protocol magic: %d (must be 0 to %d)", genesis.ProtocolConsts.ProtocolMagic, uint32(math.MaxUint32))
 	}
 
 	// Extract genesis delegate key hashes

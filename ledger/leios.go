@@ -23,7 +23,8 @@ import "github.com/blinklabs-io/gouroboros/ledger/leios"
 type (
 	LeiosBlockHeader             = leios.LeiosBlockHeader
 	LeiosCertificate             = leios.LeiosCertificate
-	LeiosEndorderBlock           = leios.LeiosEndorserBlock
+	LeiosEndorserBlock           = leios.LeiosEndorserBlock
+	LeiosTransactionReference    = leios.LeiosTransactionReference
 	LeiosRankingBlock            = leios.LeiosRankingBlock
 	LeiosTransaction             = leios.LeiosTransaction
 	LeiosTransactionBody         = leios.LeiosTransactionBody

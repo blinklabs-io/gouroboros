@@ -22,7 +22,6 @@ import "github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 type (
 	LeiosBlockHeader             = dijkstra.DijkstraBlockHeader
 	LeiosCertificate             = dijkstra.DijkstraLeiosCertificate
-	LeiosEndorserBlock           = dijkstra.DijkstraBlock
 	LeiosRankingBlock            = dijkstra.DijkstraBlock
 	LeiosTransaction             = dijkstra.DijkstraTransaction
 	LeiosTransactionBody         = dijkstra.DijkstraTransactionBody
@@ -48,7 +47,6 @@ var (
 	EraLeios = dijkstra.EraDijkstra
 
 	NewLeiosRankingBlockFromCbor    = dijkstra.NewDijkstraBlockFromCbor
-	NewLeiosEndorserBlockFromCbor   = dijkstra.NewDijkstraBlockFromCbor
 	NewLeiosBlockHeaderFromCbor     = dijkstra.NewDijkstraBlockHeaderFromCbor
 	NewLeiosTransactionFromCbor     = dijkstra.NewDijkstraTransactionFromCbor
 	NewLeiosTransactionBodyFromCbor = dijkstra.NewDijkstraTransactionBodyFromCbor
