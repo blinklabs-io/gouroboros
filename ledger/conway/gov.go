@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"reflect"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -184,6 +185,16 @@ func NewConwayGovAction(action common.GovAction) (ConwayGovAction, error) {
 // silently defaulting to discriminant 0, which would be indistinguishable from a
 // valid parameter change action.
 func conwayGovActionType(action common.GovAction) (uint, error) {
+	if action == nil {
+		return 0, errors.New("governance action cannot be nil")
+	}
+	// A typed-nil pointer would otherwise match its concrete case below and wrap
+	// a nil action that encodes to CBOR null or panics in ToPlutusData; reject
+	// it before the type switch.
+	if rv := reflect.ValueOf(action); rv.Kind() == reflect.Pointer &&
+		rv.IsNil() {
+		return 0, errors.New("governance action cannot be nil")
+	}
 	switch action.(type) {
 	case *ConwayParameterChangeGovAction:
 		return uint(common.GovActionTypeParameterChange), nil
@@ -199,8 +210,6 @@ func conwayGovActionType(action common.GovAction) (uint, error) {
 		return uint(common.GovActionTypeNewConstitution), nil
 	case *common.InfoGovAction:
 		return uint(common.GovActionTypeInfo), nil
-	case nil:
-		return 0, errors.New("governance action cannot be nil")
 	default:
 		return 0, fmt.Errorf("unsupported governance action type: %T", action)
 	}

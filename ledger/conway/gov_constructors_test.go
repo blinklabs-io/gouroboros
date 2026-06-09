@@ -135,6 +135,13 @@ func TestNewConwayGovActionRejectsInvalid(t *testing.T) {
 	_, err = NewConwayGovAction(unsupportedGovAction{})
 	require.Error(t, err)
 
+	// A typed-nil pointer must be rejected rather than matching its concrete
+	// case and wrapping a nil action, for both known and unsupported types.
+	_, err = NewConwayGovAction((*common.InfoGovAction)(nil))
+	require.Error(t, err)
+	_, err = NewConwayGovAction((*unsupportedGovAction)(nil))
+	require.Error(t, err)
+
 	// NewConwayProposalProcedure propagates the error instead of producing a
 	// procedure that encodes a CBOR-null governance action.
 	addr, err := common.NewAddress(
