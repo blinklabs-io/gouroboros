@@ -137,6 +137,10 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	// Create decode stage
 	p.decodeStage = NewDecodeStage(p.config.SkipBodyHashValidation)
 	p.applyStage = NewApplyStage(p.config.ApplyFunc, p.config.MaxPendingBlocks)
+	// When validation is enabled, require items to have actually passed
+	// validation before apply; ValidationError alone cannot distinguish
+	// "passed" from "never ran"
+	p.applyStage.SetRequireValidation(validationEnabled)
 
 	// Create decode worker pool
 	p.decodePool = NewStageWorkerPool(StageWorkerPoolConfig{

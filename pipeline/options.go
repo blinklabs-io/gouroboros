@@ -106,6 +106,9 @@ func WithDecodeWorkers(n int) PipelineOption {
 
 // WithValidateWorkers sets the number of validate workers.
 // Set to 0 to disable validation entirely (useful for trusted block sources).
+// When validation is enabled (n > 0), the apply stage refuses to apply any
+// block that has not actually passed validation, reporting
+// ErrBlockNotValidated on the errors channel.
 func WithValidateWorkers(n int) PipelineOption {
 	return func(c *PipelineConfig) {
 		if n >= 0 {

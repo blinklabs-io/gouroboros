@@ -705,6 +705,141 @@ func TestApplyStageOrdering_SkipsInvalidItems(t *testing.T) {
 	assert.Equal(t, []uint64{0, 2, 4}, appliedSeqs)
 }
 
+// newDecodedTestItem creates a decoded BlockItem that has NOT been validated
+// (SetValidation never called), so ValidationError() is nil despite no
+// validation having run.
+func newDecodedTestItem(t *testing.T, seq uint64) *BlockItem {
+	t.Helper()
+	rawCbor := getValidBlockCbor(t)
+	tip := createTestTip(1000+seq, 500+seq)
+	item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, seq)
+	block, err := ledger.NewBlockFromCbor(
+		uint(ledger.BlockTypeConway),
+		rawCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	item.SetBlock(block, time.Millisecond)
+	return item
+}
+
+func TestApplyStage_RequireValidation_SkipsUnvalidatedItems(t *testing.T) {
+	var appliedSeqs []uint64
+	var mu sync.Mutex
+
+	applyFunc := func(item *BlockItem) error {
+		mu.Lock()
+		appliedSeqs = append(appliedSeqs, item.SequenceNumber())
+		mu.Unlock()
+		return nil
+	}
+
+	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage.SetRequireValidation(true)
+
+	item := newDecodedTestItem(t, 0)
+
+	err := applyStage.Process(context.Background(), item)
+	require.NoError(t, err)
+
+	// The unvalidated item must not be applied, and the skip must be loud
+	assert.Empty(t, appliedSeqs)
+	assert.False(t, item.IsApplied())
+	assert.ErrorIs(t, item.ApplyError(), ErrBlockNotValidated)
+}
+
+func TestApplyStage_RequireValidation_AppliesValidatedItems(t *testing.T) {
+	var appliedSeqs []uint64
+	var mu sync.Mutex
+
+	applyFunc := func(item *BlockItem) error {
+		mu.Lock()
+		appliedSeqs = append(appliedSeqs, item.SequenceNumber())
+		mu.Unlock()
+		return nil
+	}
+
+	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage.SetRequireValidation(true)
+
+	item := newDecodedTestItem(t, 0)
+	item.SetValidation(true, "vrf", nil, time.Millisecond)
+
+	err := applyStage.Process(context.Background(), item)
+	require.NoError(t, err)
+
+	assert.Equal(t, []uint64{0}, appliedSeqs)
+	assert.True(t, item.IsApplied())
+	assert.NoError(t, item.ApplyError())
+}
+
+func TestApplyStage_RequireValidation_BufferedUnvalidatedItemsSkipped(t *testing.T) {
+	var appliedSeqs []uint64
+	var mu sync.Mutex
+
+	applyFunc := func(item *BlockItem) error {
+		mu.Lock()
+		appliedSeqs = append(appliedSeqs, item.SequenceNumber())
+		mu.Unlock()
+		return nil
+	}
+
+	applyStage := NewApplyStage(applyFunc, 0)
+	applyStage.SetRequireValidation(true)
+
+	// Item 1 is unvalidated and arrives first, so it is buffered and later
+	// released via the pending path; item 0 is validated
+	item1 := newDecodedTestItem(t, 1)
+	item0 := newDecodedTestItem(t, 0)
+	item0.SetValidation(true, "vrf", nil, time.Millisecond)
+
+	require.NoError(t, applyStage.Process(context.Background(), item1))
+	require.NoError(t, applyStage.Process(context.Background(), item0))
+
+	// Only the validated item is applied; the buffered unvalidated item is
+	// skipped with an explicit error
+	assert.Equal(t, []uint64{0}, appliedSeqs)
+	assert.False(t, item1.IsApplied())
+	assert.ErrorIs(t, item1.ApplyError(), ErrBlockNotValidated)
+}
+
+func TestApplyStage_NoRequireValidation_AppliesUnvalidatedItems(t *testing.T) {
+	var appliedSeqs []uint64
+	var mu sync.Mutex
+
+	applyFunc := func(item *BlockItem) error {
+		mu.Lock()
+		appliedSeqs = append(appliedSeqs, item.SequenceNumber())
+		mu.Unlock()
+		return nil
+	}
+
+	// Default behavior (validation disabled / trusted source) is unchanged
+	applyStage := NewApplyStage(applyFunc, 0)
+
+	item := newDecodedTestItem(t, 0)
+
+	err := applyStage.Process(context.Background(), item)
+	require.NoError(t, err)
+
+	assert.Equal(t, []uint64{0}, appliedSeqs)
+	assert.True(t, item.IsApplied())
+}
+
+func TestBlockPipeline_Start_WiresRequireValidation(t *testing.T) {
+	// Validation enabled -> apply stage must require validated items
+	p := NewBlockPipeline(WithValidateWorkers(1), WithEta0("00"))
+	require.NoError(t, p.Start(context.Background()))
+	defer p.Stop()
+	assert.True(t, p.applyStage.requireValidation)
+
+	// Validation disabled (default) -> apply stage accepts unvalidated items
+	p2 := NewBlockPipeline()
+	require.NoError(t, p2.Start(context.Background()))
+	defer p2.Stop()
+	assert.False(t, p2.applyStage.requireValidation)
+}
+
 func TestApplyStage_PendingCount(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 

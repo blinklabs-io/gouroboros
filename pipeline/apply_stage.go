@@ -24,6 +24,13 @@ import (
 // ErrPendingLimitExceeded is returned when the apply stage's pending buffer is full.
 var ErrPendingLimitExceeded = errors.New("pipeline: pending block limit exceeded")
 
+// ErrBlockNotValidated is returned when the apply stage requires validation
+// but receives a block that was never validated. This guards against blocks
+// reaching apply without passing through the validate stage.
+var ErrBlockNotValidated = errors.New(
+	"pipeline: block reached apply stage without validation",
+)
+
 // ApplyFunc is a function that applies a block to some state.
 // It is called in sequence order (by SequenceNumber).
 type ApplyFunc func(*BlockItem) error
@@ -34,9 +41,13 @@ type ApplyFunc func(*BlockItem) error
 // ProcessWithStatus must be called from a single goroutine to guarantee ordered
 // execution of ApplyFunc. The ApplyStageRunner provides this guarantee.
 type ApplyStage struct {
-	applyFunc  ApplyFunc
-	maxPending int
-	mu         sync.Mutex
+	applyFunc ApplyFunc
+	// requireValidation requires items to have passed validation (IsValid)
+	// before applying. ValidationError alone cannot distinguish "validation
+	// passed" from "validation never ran" (both are nil).
+	requireValidation bool
+	maxPending        int
+	mu                sync.Mutex
 	// pending holds out-of-order items waiting to be applied
 	pending map[uint64]*BlockItem
 	// nextSequence is the next sequence number to apply
@@ -54,6 +65,16 @@ func NewApplyStage(applyFunc ApplyFunc, maxPending int) *ApplyStage {
 		pending:      make(map[uint64]*BlockItem),
 		nextSequence: 0,
 	}
+}
+
+// SetRequireValidation sets whether items must have passed validation before
+// being applied. When enabled, an unvalidated item is not applied and its
+// apply error is set to ErrBlockNotValidated. Enable this whenever the
+// pipeline runs with validation so that blocks which bypass the validate
+// stage cannot be applied. Must be called before processing begins to avoid
+// data races.
+func (s *ApplyStage) SetRequireValidation(require bool) {
+	s.requireValidation = require
 }
 
 // Name returns the stage name.
@@ -89,10 +110,7 @@ func (s *ApplyStage) ProcessWithStatus(ctx context.Context, item *BlockItem) ([]
 	if item.SequenceNumber() == s.nextSequence {
 		s.nextSequence++
 		s.mu.Unlock()
-		// Apply if valid (no decode or validation errors)
-		if item.DecodeError() == nil && item.ValidationError() == nil {
-			s.applyItem(ctx, item)
-		}
+		s.maybeApply(ctx, item)
 		// Try to apply any buffered items that are now in order
 		buffered := s.applyPending(ctx)
 		// Return the input item plus any buffered items
@@ -113,6 +131,21 @@ func (s *ApplyStage) ProcessWithStatus(ctx context.Context, item *BlockItem) ([]
 		return nil, ErrPendingLimitExceeded
 	}
 	return nil, nil
+}
+
+// maybeApply applies the item if it passed all preceding stages: no decode or
+// validation errors, and (when validation is required) validation actually ran
+// and passed. Items failing the validation requirement are marked with
+// ErrBlockNotValidated so the skip is observable downstream.
+func (s *ApplyStage) maybeApply(ctx context.Context, item *BlockItem) {
+	if item.DecodeError() != nil || item.ValidationError() != nil {
+		return
+	}
+	if s.requireValidation && !item.IsValid() {
+		item.SetApplied(false, ErrBlockNotValidated, 0)
+		return
+	}
+	s.applyItem(ctx, item)
 }
 
 // applyItem applies a single item without holding the lock.
@@ -170,9 +203,7 @@ func (s *ApplyStage) applyPending(ctx context.Context) []*BlockItem {
 		s.mu.Unlock()
 
 		// Apply if valid, otherwise just advance (sequence already incremented)
-		if item.DecodeError() == nil && item.ValidationError() == nil {
-			s.applyItem(ctx, item)
-		}
+		s.maybeApply(ctx, item)
 
 		processed = append(processed, item)
 	}
