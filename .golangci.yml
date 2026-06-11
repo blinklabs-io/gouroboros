@@ -17,7 +17,7 @@ linters:
     - fatcontext
     - gocheckcompilerdirectives
     - gochecksumtype
-    - gomodguard
+    - gomodguard_v2
     - gosec
     - gosmopolitan
     - loggercheck
