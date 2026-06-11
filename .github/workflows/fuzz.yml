@@ -14,20 +14,23 @@ jobs:
     strategy:
       matrix:
         target:
-          - {package: "./cbor/...", fuzz: "FuzzDecode$"}
-          - {package: "./cbor/...", fuzz: "FuzzDecodeStruct$"}
-          - {package: "./ledger/...", fuzz: "FuzzNewBlockFromCbor"}
-          - {package: "./ledger/...", fuzz: "FuzzNewTransactionFromCbor"}
-          - {package: "./ledger/common/...", fuzz: "FuzzMultiAsset"}
-          - {package: "./ledger/common/...", fuzz: "FuzzValue"}
-          - {package: "./ledger/common/...", fuzz: "FuzzNewAddressFromBytes"}
-          - {package: "./ledger/common/...", fuzz: "FuzzNewAddress$"}
-          - {package: "./ledger/common/...", fuzz: "FuzzNewScriptHashFromBech32"}
-          - {package: "./kes/...", fuzz: "FuzzVerifySignedKES"}
-          - {package: "./kes/...", fuzz: "FuzzNewSumKesFromBytes"}
-          - {package: "./vrf/...", fuzz: "FuzzVerify$"}
-          - {package: "./vrf/...", fuzz: "FuzzVerifyAndHash$"}
-          - {package: "./vrf/...", fuzz: "FuzzProofToHash"}
+          # go test rejects -fuzz when the package pattern matches more than
+          # one package, so each entry must name the exact package containing
+          # the fuzz target (no /... wildcards).
+          - {package: "./cbor", fuzz: "FuzzDecode$"}
+          - {package: "./cbor", fuzz: "FuzzDecodeStruct$"}
+          - {package: "./ledger", fuzz: "FuzzNewBlockFromCbor"}
+          - {package: "./ledger", fuzz: "FuzzNewTransactionFromCbor"}
+          - {package: "./ledger/common", fuzz: "FuzzMultiAsset"}
+          - {package: "./ledger/common", fuzz: "FuzzValue"}
+          - {package: "./ledger/common", fuzz: "FuzzNewAddressFromBytes"}
+          - {package: "./ledger/common", fuzz: "FuzzNewAddress$"}
+          - {package: "./ledger/common", fuzz: "FuzzNewScriptHashFromBech32"}
+          - {package: "./kes", fuzz: "FuzzVerifySignedKES"}
+          - {package: "./kes", fuzz: "FuzzNewSumKesFromBytes"}
+          - {package: "./vrf", fuzz: "FuzzVerify$"}
+          - {package: "./vrf", fuzz: "FuzzVerifyAndHash$"}
+          - {package: "./vrf", fuzz: "FuzzProofToHash"}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3 https://github.com/actions/checkout/releases/tag/v6.0.3
 
