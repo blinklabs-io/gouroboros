@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package leios
+package common
 
 import (
 	"encoding/binary"
@@ -21,22 +21,21 @@ import (
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // LeiosEndorserBlock implements the experimental CIP-0164 endorser_block CDDL:
 //
 //	endorser_block = [ transaction_references : omap<hash32, uint16> ]
 //
-// This is not a normal ledger block and intentionally does not implement
-// common.Block.
+// Leios is an overlay protocol, not a ledger era. This is not a normal ledger
+// block and intentionally does not implement Block.
 type LeiosEndorserBlock struct {
 	cbor.DecodeStoreCbor
 	TransactionReferences []LeiosTransactionReference
 }
 
 type LeiosTransactionReference struct {
-	TransactionHash common.Blake2b256
+	TransactionHash Blake2b256
 	TransactionSize uint16
 }
 
@@ -110,7 +109,7 @@ func validateLeiosTransactionReferences(
 			"leios endorser block must contain at least one transaction reference",
 		)
 	}
-	seen := make(map[common.Blake2b256]struct{}, len(refs))
+	seen := make(map[Blake2b256]struct{}, len(refs))
 	for idx, ref := range refs {
 		if ref.TransactionSize == 0 {
 			return fmt.Errorf(
@@ -166,7 +165,7 @@ func decodeLeiosTransactionReferences(
 		)
 	}
 	refs := make([]LeiosTransactionReference, 0, count)
-	seen := make(map[common.Blake2b256]struct{}, count)
+	seen := make(map[Blake2b256]struct{}, count)
 	for idx := 0; idx < count; idx++ {
 		var hashBytes cbor.ByteString
 		if _, _, err := dec.Decode(&hashBytes); err != nil {
@@ -177,15 +176,15 @@ func decodeLeiosTransactionReferences(
 			)
 		}
 		hash := hashBytes.Bytes()
-		if len(hash) != common.Blake2b256Size {
+		if len(hash) != Blake2b256Size {
 			return nil, fmt.Errorf(
 				"leios transaction reference %d hash must be %d bytes, got %d",
 				idx,
-				common.Blake2b256Size,
+				Blake2b256Size,
 				len(hash),
 			)
 		}
-		txHash := common.NewBlake2b256(hash)
+		txHash := NewBlake2b256(hash)
 		if _, ok := seen[txHash]; ok {
 			return nil, fmt.Errorf(
 				"duplicate leios endorser block transaction reference at index %d",
