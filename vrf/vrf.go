@@ -76,6 +76,11 @@ const (
 	PublicKeySize = 32
 )
 
+// ErrProofVerificationFailed is returned when a VRF proof fails
+// cryptographic verification against the provided message. It allows
+// callers to distinguish an invalid proof from malformed inputs.
+var ErrProofVerificationFailed = errors.New("issue verifying proof")
+
 // KeyGen generates a new VRF keypair from a 32-byte seed.
 // Returns (publicKey, secretKey) where secretKey is the original seed.
 //
@@ -221,7 +226,7 @@ func VerifyAndHash(publicKey []byte, proof []byte, msg []byte) ([]byte, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, errors.New("issue verifying proof")
+		return nil, ErrProofVerificationFailed
 	}
 	// proof to hash
 	return ProofToHash(proof)
