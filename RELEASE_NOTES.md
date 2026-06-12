@@ -4,6 +4,15 @@ title: Release notes
 
 # Release notes
 
+## v0.183.0
+
+- **Date:** 2026-06-12
+- **Version:** 0.183.0
+
+### Summary
+
+This release expands local state queries with account state access, aligns era support around the Dijkstra model for Leios related integrations, prevents validation enabled pipelines from applying blocks that never passed validation, and updates `RELEASE_NOTES.md` to include the prior `v0.182.0` entry.
+
 ## v0.182.0 - governance constructors and 32-bit compatibility
 
 - **Date:** 2026-06-09
