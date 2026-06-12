@@ -729,6 +729,31 @@ func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 	return &result, nil
 }
 
+func (c *Client) GetAccountState() (*AccountStateResult, error) {
+	c.Protocol.Logger().
+		Debug("calling GetAccountState()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyAccountState,
+	)
+	var result AccountStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) GetStakePoolParams(
 	poolIds []ledger.PoolId,
 ) (*StakePoolParamsResult, error) {
