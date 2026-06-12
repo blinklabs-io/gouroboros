@@ -71,6 +71,7 @@ const (
 	QueryTypeShelleyDRepStakeDistr         = 26
 	QueryTypeShelleyCommitteeMembersState  = 27
 	QueryTypeShelleyFilteredVoteDelegatees = 28
+	QueryTypeShelleyAccountState           = 29
 	QueryTypeShelleySPOStakeDistr          = 30
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
@@ -232,6 +233,7 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 			QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
 			QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
 			QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
+			QueryTypeShelleyAccountState:           &ShelleyAccountStateQuery{},
 			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
 			QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
 			QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
@@ -795,6 +797,23 @@ type StakePoolsResult struct {
 	Results []ledger.PoolId
 }
 
+// AccountState is the chain's treasury and reserves pots. Both are signed
+// because Coin is an Integer in the ledger (a misconfigured network can drive
+// reserves negative).
+type AccountState struct {
+	cbor.StructAsArray
+	Treasury int64
+	Reserves int64
+}
+
+// AccountStateResult is the result of GetAccountState. The account state is
+// wrapped in the single-element result array, so on the wire it is
+// [ [treasury, reserves] ].
+type AccountStateResult struct {
+	cbor.StructAsArray
+	State AccountState
+}
+
 type StakePoolParamsResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]struct {
@@ -987,6 +1006,10 @@ type ShelleySPOStakeDistrQuery struct {
 	cbor.StructAsArray
 	Type    int
 	PoolIds cbor.SetType[ledger.PoolId]
+}
+
+type ShelleyAccountStateQuery struct {
+	simpleQueryBase
 }
 
 type ShelleyGetProposalsQuery struct {
