@@ -13,6 +13,22 @@ title: Release notes
 
 This release expands local state queries with account state access, aligns era support around the Dijkstra model for Leios related integrations, prevents validation enabled pipelines from applying blocks that never passed validation, and updates `RELEASE_NOTES.md` to include the prior `v0.182.0` entry.
 
+### New Features
+
+* Added `GetAccountState` support so clients can request treasury and reserves without triggering `LocalStateQuery` decode failures or dropped connections, while pre-Conway calls now return a clear error instead of sending an unsupported query.
+
+### Breaking Changes
+
+* Updated Leios era handling so code importing Leios specific packages or relying on `EnableLeiosEra` must migrate to the Dijkstra era model and the updated package locations for Leios overlay types.
+
+### Bug Fixes
+
+* Fixed validation enabled pipeline enforcement so `ErrBlockNotValidated` now surfaces when a block never passed validation, and validation enabled pipelines no longer apply blocks that never actually passed validation.
+
+### Additional Changes
+
+* Refreshed `RELEASE_NOTES.md` to include the prior `v0.182.0` entry.
+
 ## v0.182.0 - governance constructors and 32-bit compatibility
 
 - **Date:** 2026-06-09
