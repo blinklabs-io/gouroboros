@@ -215,18 +215,66 @@ func TestValueDecodeMapWithUnhashableKeyIsWrapped(t *testing.T) {
 	}
 }
 
-func TestValueDecodeMapUnexpectedPanicIsNotSwallowed(t *testing.T) {
-	// { null: 1 }
-	cborData := test.DecodeHexString("a1f601")
+func TestValueDecodeMapWithNullKey(t *testing.T) {
+	testDefs := []struct {
+		name    string
+		cborHex string
+	}{
+		// { null: 1 }
+		{name: "NullKey", cborHex: "a1f601"},
+		// { undefined: 1 }
+		{name: "UndefinedKey", cborHex: "a1f701"},
+	}
+	for _, testDef := range testDefs {
+		t.Run(testDef.name, func(t *testing.T) {
+			cborData := test.DecodeHexString(testDef.cborHex)
+			var tmpValue cbor.Value
+			if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+				t.Fatalf("failed to decode CBOR map with null key: %s", err)
+			}
+			valueMap, ok := tmpValue.Value().(map[any]any)
+			if !ok {
+				t.Fatalf("expected map[any]any, got: %T", tmpValue.Value())
+			}
+			if len(valueMap) != 1 {
+				t.Fatalf("expected one map item, got: %d", len(valueMap))
+			}
+			value, ok := valueMap[nil]
+			if !ok {
+				t.Fatal("expected map entry with nil key")
+			}
+			if value != uint64(1) {
+				t.Fatalf("unexpected map value: %#v", value)
+			}
+		})
+	}
+}
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected unexpected panic to be re-panicked")
-		}
-	}()
+func TestValueDecodeMapWithNullKeyInNestedMapKey(t *testing.T) {
+	// { {null: 1}: 100 } -- a map key that is itself a map with a null key,
+	// matching the shape found by FuzzNewBlockFromCbor via tx metadata
+	cborData := test.DecodeHexString("a1a1f6011864")
 
 	var tmpValue cbor.Value
-	_, _ = cbor.Decode(cborData, &tmpValue)
+	if _, err := cbor.Decode(cborData, &tmpValue); err != nil {
+		t.Fatalf("failed to decode CBOR map with nested null key: %s", err)
+	}
+	valueMap, ok := tmpValue.Value().(map[any]any)
+	if !ok {
+		t.Fatalf("expected map[any]any, got: %T", tmpValue.Value())
+	}
+	if len(valueMap) != 1 {
+		t.Fatalf("expected one map item, got: %d", len(valueMap))
+	}
+	for key, value := range valueMap {
+		// The unhashable map key is wrapped as a pointer
+		if reflect.TypeOf(key).Kind() != reflect.Ptr {
+			t.Fatalf("expected unhashable key to be wrapped as pointer, got: %T", key)
+		}
+		if value != uint64(100) {
+			t.Fatalf("unexpected map value: %#v", value)
+		}
+	}
 }
 
 func TestValueMarshalJSON(t *testing.T) {
