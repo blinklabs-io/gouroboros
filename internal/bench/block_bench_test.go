@@ -15,6 +15,7 @@
 package bench
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -357,9 +358,11 @@ func BenchmarkBlockVRFVerification(b *testing.B) {
 	}
 
 	// Create test eta0 (32 bytes of zeros). This intentionally does not
-	// match the real epoch nonce, so VRF verification will fail. We use
-	// a fixed all-zero value because this benchmark isolates VRF
-	// cryptographic performance (Verify call cost), not correctness.
+	// match the real epoch nonce, so VRF verification fails with
+	// ErrProofVerificationFailed after performing the full cryptographic
+	// computation. We use a fixed all-zero value because this benchmark
+	// isolates VRF cryptographic performance (Verify call cost), not
+	// correctness.
 	eta0 := make([]byte, 32)
 
 	for _, vd := range vrfDataList {
@@ -374,7 +377,10 @@ func BenchmarkBlockVRFVerification(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				valid, err := vrf.Verify(vd.vrfKey, vd.proof, vd.output, vrfMsg)
-				if err != nil {
+				// The mismatched eta0 makes ErrProofVerificationFailed the
+				// expected outcome; any other error is a real failure
+				if err != nil &&
+					!errors.Is(err, vrf.ErrProofVerificationFailed) {
 					b.Fatalf("VRF verify failed: %v", err)
 				}
 				benchSink = valid
