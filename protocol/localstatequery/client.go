@@ -743,6 +743,12 @@ func (c *Client) GetAccountState() (*AccountStateResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	if currentEra < ledger.EraIdConway {
+		return nil, fmt.Errorf(
+			"GetAccountState requires Conway era or later (current era: %d)",
+			currentEra,
+		)
+	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyAccountState,
