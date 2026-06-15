@@ -6,7 +6,7 @@ toolchain go1.25.8
 
 require (
 	filippo.io/edwards25519 v1.2.0
-	github.com/blinklabs-io/ouroboros-mock v0.12.0
+	github.com/blinklabs-io/ouroboros-mock v0.13.0
 	github.com/blinklabs-io/plutigo v0.1.15
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/fxamacker/cbor/v2 v2.9.2
