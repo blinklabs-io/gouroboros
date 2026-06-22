@@ -40,24 +40,48 @@ type LeiosTransactionReference struct {
 }
 
 func (b *LeiosEndorserBlock) UnmarshalCBOR(cborData []byte) error {
-	var items []cbor.RawMessage
-	bytesRead, err := cbor.Decode(cborData, &items)
-	if err != nil {
-		return err
+	if len(cborData) == 0 {
+		return errors.New("empty leios endorser block")
 	}
-	if bytesRead != len(cborData) {
+	// The endorser block is carried in two wire shapes depending on the peer:
+	//
+	//   - CIP-0164 / dingo: [ transaction_references ] — the references map
+	//     wrapped in a single-element array (major type 4).
+	//   - IOG Leios prototype: { hash => size } — a bare references map
+	//     (major type 5), with no array wrapper.
+	//
+	// Accept both so dingo can fetch endorser blocks from the prototype relays
+	// while still round-tripping its own array-wrapped form.
+	var refsRaw cbor.RawMessage
+	switch majorType := cborData[0] >> 5; majorType {
+	case 4: // CBOR array: array-wrapped references
+		var items []cbor.RawMessage
+		bytesRead, err := cbor.Decode(cborData, &items)
+		if err != nil {
+			return err
+		}
+		if bytesRead != len(cborData) {
+			return fmt.Errorf(
+				"trailing bytes after leios endorser block: %d",
+				len(cborData)-bytesRead,
+			)
+		}
+		if len(items) != 1 {
+			return fmt.Errorf(
+				"invalid leios endorser block: expected 1 component, got %d",
+				len(items),
+			)
+		}
+		refsRaw = items[0]
+	case 5: // CBOR map: bare references map (prototype)
+		refsRaw = cborData
+	default:
 		return fmt.Errorf(
-			"trailing bytes after leios endorser block: %d",
-			len(cborData)-bytesRead,
+			"invalid leios endorser block: expected CBOR array or map, got major type %d",
+			majorType,
 		)
 	}
-	if len(items) != 1 {
-		return fmt.Errorf(
-			"invalid leios endorser block: expected 1 component, got %d",
-			len(items),
-		)
-	}
-	refs, err := decodeLeiosTransactionReferences(items[0])
+	refs, err := decodeLeiosTransactionReferences(refsRaw)
 	if err != nil {
 		return err
 	}

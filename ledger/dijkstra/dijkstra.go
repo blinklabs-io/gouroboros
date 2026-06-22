@@ -709,6 +709,36 @@ func (h *DijkstraBlockHeader) Era() common.Era {
 	return EraDijkstra
 }
 
+// LeiosEndorserBlockRef returns the endorser block referenced by this ranking
+// block via its Leios header extension. The extension's first element is the
+// endorser-block announcement [eb_hash, eb_size] (the same shape leios-notify
+// uses), identifying the endorser block whose transactions this ranking block
+// endorses. ok is false for pre-Leios-extension Dijkstra headers (which carry
+// no extension) or if the extension is not the expected [hash32, uint] shape.
+func (h *DijkstraBlockHeader) LeiosEndorserBlockRef() (
+	hash common.Blake2b256,
+	size uint64,
+	ok bool,
+) {
+	if len(h.LeiosHeaderExtension) == 0 {
+		return common.Blake2b256{}, 0, false
+	}
+	var pair []cbor.RawMessage
+	if _, err := cbor.Decode(h.LeiosHeaderExtension[0], &pair); err != nil ||
+		len(pair) != 2 {
+		return common.Blake2b256{}, 0, false
+	}
+	var hashBytes []byte
+	if _, err := cbor.Decode(pair[0], &hashBytes); err != nil ||
+		len(hashBytes) != common.Blake2b256Size {
+		return common.Blake2b256{}, 0, false
+	}
+	if _, err := cbor.Decode(pair[1], &size); err != nil {
+		return common.Blake2b256{}, 0, false
+	}
+	return common.NewBlake2b256(hashBytes), size, true
+}
+
 type DijkstraTransactionOutput struct {
 	cbor.DecodeStoreCbor
 	Output common.TransactionOutput
