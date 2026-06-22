@@ -21,7 +21,7 @@ import (
 )
 
 // benchSink prevents compiler dead-code elimination in benchmarks.
-var benchSink interface{}
+var benchSink any
 
 // BenchmarkTxDecode benchmarks transaction CBOR decoding by era.
 func BenchmarkTxDecode(b *testing.B) {

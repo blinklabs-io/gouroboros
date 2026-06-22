@@ -61,10 +61,7 @@ func DefaultPipelineConfig() PipelineConfig {
 	numCPU := runtime.NumCPU()
 
 	// Scale decode workers with CPU count (decode is faster than validate)
-	decodeWorkers := numCPU / 4
-	if decodeWorkers < 2 {
-		decodeWorkers = 2
-	}
+	decodeWorkers := max(numCPU/4, 2)
 
 	return PipelineConfig{
 		DecodeWorkers:      decodeWorkers,

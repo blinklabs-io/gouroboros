@@ -484,7 +484,7 @@ func TestRoundTrip(t *testing.T) {
 			assert.Equal(t, r1.Statistics, r2.Statistics)
 
 			// Path lookup is offset-stable across parses.
-			for off := 0; off < len(data); off++ {
+			for off := range data {
 				p1 := r1.Root.GetPathToOffset(off)
 				p2 := r2.Root.GetPathToOffset(off)
 				assert.Equal(t, p1, p2, "path mismatch at offset %d", off)

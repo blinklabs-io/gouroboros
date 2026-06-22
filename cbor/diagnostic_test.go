@@ -193,7 +193,7 @@ func TestParseDiagnosticIndefiniteTextString(t *testing.T) {
 
 func TestParseDiagnosticMaxNestedLevels(t *testing.T) {
 	data := make([]byte, 0, 260)
-	for i := 0; i < 257; i++ {
+	for range 257 {
 		data = append(data, 0x81)
 	}
 	data = append(data, 0x00)

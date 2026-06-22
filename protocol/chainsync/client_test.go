@@ -433,7 +433,7 @@ func TestSyncPipelining(t *testing.T) {
 	// Create test blocks
 	testBlocks := make([]ledger.BabbageBlock, totalBlocks)
 	blockCbors := make([][]byte, totalBlocks)
-	for i := 0; i < totalBlocks; i++ {
+	for i := range totalBlocks {
 		testBlocks[i] = ledger.BabbageBlock{
 			BlockHeader: &ledger.BabbageBlockHeader{},
 		}
@@ -587,7 +587,7 @@ func TestSyncPipelining(t *testing.T) {
 			if len(receivedBlocks) != totalBlocks {
 				t.Fatalf("expected %d blocks, received %d", totalBlocks, len(receivedBlocks))
 			}
-			for i := 0; i < totalBlocks; i++ {
+			for i := range totalBlocks {
 				expectedSlot := uint64(1000 + i)
 				if receivedBlocks[i] != expectedSlot {
 					t.Fatalf("block %d: expected slot %d, got %d", i, expectedSlot, receivedBlocks[i])

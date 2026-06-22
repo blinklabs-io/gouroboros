@@ -48,7 +48,7 @@ var (
 
 // marshalNativeScript encodes a native script struct to CBOR and unmarshals it
 // back into a NativeScript. Panics on encode/unmarshal errors.
-func marshalNativeScript(script interface{}) common.NativeScript {
+func marshalNativeScript(script any) common.NativeScript {
 	data, err := cbor.Encode(script)
 	if err != nil {
 		panic("failed to encode native script: " + err.Error())

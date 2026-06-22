@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"encoding/hex"
 	"math/big"
 	"strings"
 	"testing"
@@ -167,6 +168,87 @@ func TestDijkstraBlockMarshalUsesSevenItemEnvelope(t *testing.T) {
 	require.Equal(t, []byte{0x80}, []byte(raw[4]))
 	require.Equal(t, []byte{0x80}, []byte(raw[5]))
 	require.Equal(t, []byte{0x80}, []byte(raw[6]))
+}
+
+// leiosExtendedHeaderHex is a real Dijkstra block header captured from the
+// Leios prototype testnet (network magic 164) at slot 1309596. After the
+// Leios header extension activated mid-Dijkstra, the header body carries an
+// 11th element (a [hash, uint] pair) following protocol_version, which a plain
+// Babbage header decoder rejects.
+const leiosExtendedHeaderHex = "828b19ff661a0013fb9c582017f18b18364e406fdf68a72845f9b005119425ddd344d171a7d5dd005df8b7f058200c058acd8105777ffee584b5bc3e7507fe1615179bb2d291f83b089e7733de5f582017658451b63aa1614b7a93c12533a9d73032a599a411533cf5e88f9fb98343c58258405231c2bde7d989ef9df5f31dd636ad8bb6773ef1d3b1e54f35e9c2ebac647aa525b6a9219763b3a9e285a5f7acd8d1cf8c5c3ed2fc780a9f4b9f1f063a7346a05850d58cc6245cad4d434f6b17fc5af1d9d56df46f7d483af40b134f817903f0061ce3cac58fda15cfe085fa42407d03b40d207dad9d2255791f1c000bfebd36a3017aa274cbb138e6768199574e0466f8091a000151c158206f351bafba4758062454b2125a57419c3599e62be312ed0677411d4ad05c0f6184582022cead0f99f08fb8002d88ce78ec2b8bc2657b0b9e4b96f68b01dcc249e71671000058403f56eec6cb0cb526154a6fd0dcc27fe1efcbeabac244bc49c2c1ac304db52bd5d40da6960c6331a808307340c285b1abc94ea69a947ef64980f0015f1f77a607820c00825820a2dcb7c0d77a9ab7396d734665d5b25f7ead1ee0595704a90f9825c6b533925019567f5901c0103d6a7191e176f98c0dd438ba9fb84f665d17728eb659e26096fee55f9493f8d3914ebd42204b6d1ca0c93d0edab06235e7e44b5458c3ab676763dd1306d60388573c0fd8f581c24f0bbeb91eae9379d175fd6c532120acd570e3b83db66b03dade4cdfa86f4fc857c3c3580eeb14d5eb7922b2c83531aea1c725d9a296ee51a24b6006c0c0b4f0842ed247536aafe86b983252566d869ae04a3bab013ff55a116b7a220285cce2e49355b2e9aa316f3e4f71c4e1ffc880462bc49e39e064c783ce40c166b39673407fea92ed55a9721fdf9d3c06d38ec0edd2278effc70b9c985ec7c776edc22234f7659e4c085821c27756713ad2243080e1e32d28a635ff9f45309b537c142f880ff07898aa4cf5b2f26356e267a2c8fb425b324653c991d0c9138a27891be8d5d8a427446cce884e3cb4b3d9d9b3a8d551a3e0471091a4dffb3ef2868c9982a9fafcc6ef22ba750bf9a38c821e1c496511b98ee90e43b01f088e3a96e2ddb0be9309b63ca34c317e708d0a739f69e979f9b9a97cd608e1a64266877574542014af4f55223c6ff56eaa98730bde2ad7bef8d164b5a4d0a729e746714501986f1d97c69e5645befd8771bf628a3fdf6011bf8e438aaadc35"
+
+// TestDijkstraBlockHeaderDecodesLeiosExtension verifies that the Leios-extended
+// Dijkstra block header (11-field body) decodes, exposes the standard Babbage
+// fields, retains the extra Leios field, and round-trips byte-for-byte so the
+// header hash is stable.
+func TestDijkstraBlockHeaderDecodesLeiosExtension(t *testing.T) {
+	raw, err := hex.DecodeString(leiosExtendedHeaderHex)
+	require.NoError(t, err)
+
+	var header DijkstraBlockHeader
+	_, err = cbor.Decode(raw, &header)
+	require.NoError(t, err)
+
+	// Standard Babbage header fields decode positionally.
+	require.Equal(t, uint64(65382), header.BlockNumber())
+	require.Equal(t, uint64(1309596), header.SlotNumber())
+
+	// The 11th body element is retained verbatim.
+	require.Len(t, header.LeiosHeaderExtension, 1)
+
+	// The body's stored CBOR must be the ORIGINAL (Leios-extended) body bytes,
+	// not a re-encoding of the leading Babbage fields: KES signature
+	// verification (ledger.extractOriginalBodyCbor) is computed over the
+	// original header-body encoding.
+	var top []cbor.RawMessage
+	_, err = cbor.Decode(raw, &top)
+	require.NoError(t, err)
+	if len(top) == 0 {
+		t.Fatal("expected header CBOR to contain a body")
+	}
+	require.Equal(t, []byte(top[0]), header.Body.Cbor())
+
+	// Round-trips byte-for-byte so the header hash matches the wire bytes.
+	out, err := header.MarshalCBOR()
+	require.NoError(t, err)
+	require.Equal(t, raw, out)
+	require.Equal(t, common.Blake2b256Hash(raw), header.Hash())
+}
+
+// TestDijkstraBlockHeaderDecodesLegacyBabbageBody verifies that a plain
+// 10-field Babbage-shaped Dijkstra header (pre-Leios-extension) still decodes
+// with no Leios extension captured.
+func TestDijkstraBlockHeaderDecodesLegacyBabbageBody(t *testing.T) {
+	// Re-encode the captured header with only the first 10 body fields to
+	// model a legacy Dijkstra header.
+	full, err := hex.DecodeString(leiosExtendedHeaderHex)
+	require.NoError(t, err)
+	var top []cbor.RawMessage
+	_, err = cbor.Decode(full, &top)
+	require.NoError(t, err)
+	if len(top) < 2 {
+		t.Fatal("expected header CBOR to contain body and signature")
+	}
+	var bodyElems []cbor.RawMessage
+	_, err = cbor.Decode(top[0], &bodyElems)
+	require.NoError(t, err)
+	if len(bodyElems) < 10 {
+		t.Fatal("expected at least 10 header body fields")
+	}
+	legacyBody, err := cbor.Encode(bodyElems[:10])
+	require.NoError(t, err)
+	legacyHeader, err := cbor.Encode([]cbor.RawMessage{
+		cbor.RawMessage(legacyBody),
+		top[1],
+	})
+	require.NoError(t, err)
+
+	var header DijkstraBlockHeader
+	_, err = cbor.Decode(legacyHeader, &header)
+	require.NoError(t, err)
+	require.Nil(t, header.LeiosHeaderExtension)
+	require.Equal(t, uint64(65382), header.BlockNumber())
+	require.Equal(t, uint64(1309596), header.SlotNumber())
 }
 
 func TestDijkstraBlockBodyHashIncludesLeiosAndPerasCertSlots(t *testing.T) {

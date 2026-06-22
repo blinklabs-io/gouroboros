@@ -96,9 +96,17 @@ func (s *Server) handleRequestNext() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.RequestNextFunc == nil {
-		return errors.New(
-			"received leios-notify NotificationRequestNext message but no callback function is defined",
-		)
+		// No notification source is wired. This happens when a node negotiates
+		// an N2N version that includes the Leios mini-protocols but does not
+		// actively serve Leios notifications (e.g. a node following the chain
+		// over chainsync/blockfetch without participating in Leios diffusion).
+		// Leave the request pending in the Busy state instead of erroring:
+		// leios-notify has no response timeout and no await message, so a
+		// server with nothing to announce legitimately holds agency until it
+		// has a notification. Erroring here would tear down the whole
+		// connection -- including chainsync/blockfetch -- over an unanswered
+		// notification request.
+		return nil
 	}
 	resp, err := s.config.RequestNextFunc(
 		s.callbackContext,

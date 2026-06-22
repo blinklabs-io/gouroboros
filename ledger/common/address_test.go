@@ -824,7 +824,7 @@ func TestCIP0019_AllAddressTypes(t *testing.T) {
 	// Create valid test data for each address type
 	paymentHash := make([]byte, 28)
 	stakingHash := make([]byte, 28)
-	for i := 0; i < 28; i++ {
+	for i := range 28 {
 		paymentHash[i] = byte(i)
 		stakingHash[i] = byte(i + 28)
 	}

@@ -52,7 +52,7 @@ func TestDumpCborStructureMaxDepthNoPanic(t *testing.T) {
 func deeplyNestedArrayCbor(depth int) []byte {
 	// Repeating [ (0x81) around a final empty array [] (0x80)
 	ret := make([]byte, depth+1)
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		ret[i] = 0x81
 	}
 	ret[len(ret)-1] = 0x80
