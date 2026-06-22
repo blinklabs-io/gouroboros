@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release expands Dijkstra and Leios interoperability, improves CBOR safety and throughput, refreshes security related dependencies, and includes maintenance updates across examples, continuous integration, fuzzing, linting, and release history tracking.
+This release expands Dijkstra and Leios interoperability, improves `CBOR` safety and throughput, refreshes security related dependencies, and keeps examples, continuous integration, fuzzing, linting, and release history aligned with current library behavior.
 
 ### New Features
 
-* Added broader Dijkstra and Leios header interoperability so ranking blocks can carry Leios header extensions, endorser block references decode from both supported wire shapes, and Leios notifications can remain pending without interrupting other active protocols when no callback is configured.
+* Added broader Dijkstra and Leios header interoperability so ranking blocks can carry Leios header extensions, endorser block references decode from both supported wire shapes, and Leios notification requests stay open without interrupting other active protocols when no callback is configured.
 
 * Expanded Leios prototype interoperability so endorser block references, block transaction exchanges, and pushed vote notifications decode across the supported prototype and library message shapes.
 
@@ -23,7 +23,7 @@ This release expands Dijkstra and Leios interoperability, improves CBOR safety a
 
 * Fixed generic `CBOR` value decoding so maps that use `null` or undefined keys now decode cleanly instead of failing or panicking, including nested metadata shapes.
 
-* Introduced a dedicated VRF proof verification failure error so integrations can distinguish invalid proofs from malformed inputs, while benchmark coverage now fails only on unexpected verification errors.
+* Introduced a dedicated `VRF` proof verification failure error so integrations can distinguish invalid proofs from malformed inputs, while benchmark coverage now flags only unexpected verification errors.
 
 ### Performance
 
@@ -41,9 +41,9 @@ This release expands Dijkstra and Leios interoperability, improves CBOR safety a
 
 * Advanced GitHub Actions checkout workflows to `v7.0.0`.
 
-* Replaced the lint dependency guard with `gomodguard_v2` in the lint configuration.
+* Replaced the module guard in lint checks with `gomodguard_v2`.
 
-* Tightened fuzz workflow package targeting so each fuzz job runs against the exact package that owns the target.
+* Tightened fuzz workflow package targeting so each fuzz job runs against the exact package that owns its target.
 
 * Documented the prior `v0.183.0` release entry in `RELEASE_NOTES.md`.
 
