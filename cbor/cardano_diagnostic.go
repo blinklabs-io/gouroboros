@@ -590,7 +590,7 @@ func (w *cardanoWriter) writePlutusData(n *DiagnosticNode, depth int) {
 		w.writeRange(n)
 		w.b.WriteString("\n")
 		pairs := len(n.Children) / 2
-		for i := 0; i < pairs; i++ {
+		for i := range pairs {
 			w.b.WriteString(w.indent(depth + 1))
 			w.writePlutusData(&n.Children[i*2], depth+1)
 			w.b.WriteString(": ")

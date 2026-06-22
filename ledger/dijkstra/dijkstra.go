@@ -613,18 +613,96 @@ func decodeDijkstraPerasCertificate(
 	return &cert, nil
 }
 
+// babbageHeaderBodyFieldCount is the number of fields in a Babbage block
+// header body (block_number, slot, prev_hash, issuer_vkey, vrf_vkey,
+// vrf_result, block_body_size, block_body_hash, operational_cert,
+// protocol_version).
+const babbageHeaderBodyFieldCount = 10
+
 type DijkstraBlockHeader struct {
 	babbage.BabbageBlockHeader
+	// LeiosHeaderExtension holds the Dijkstra/Leios block-header fields that
+	// follow Babbage's protocol_version field. The leios-prototype testnet
+	// began emitting an extra trailing element (a [hash, uint] pair) once the
+	// Leios header extension activated mid-Dijkstra; earlier Dijkstra blocks
+	// carry the plain 10-field Babbage header body, for which this is nil. The
+	// elements are retained verbatim so the header round-trips and hashes
+	// identically to the bytes received on the wire.
+	LeiosHeaderExtension []cbor.RawMessage
 }
 
 func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
+	// Fast path: legacy Dijkstra headers are byte-for-byte Babbage headers
+	// with a 10-field body.
 	var tmp babbage.BabbageBlockHeader
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	if _, err := cbor.Decode(cborData, &tmp); err == nil {
+		h.BabbageBlockHeader = tmp
+		h.LeiosHeaderExtension = nil
+		h.SetCbor(cborData)
+		return nil
+	}
+	// Leios-extended header: the header body array carries extra trailing
+	// fields after protocol_version. Decode the leading Babbage fields and
+	// retain the remainder verbatim. The full original header CBOR is stored
+	// for hashing, so the trailing fields never need typed interpretation to
+	// follow the chain.
+	var top []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &top); err != nil {
 		return err
 	}
-	h.BabbageBlockHeader = tmp
+	if len(top) != 2 {
+		return fmt.Errorf(
+			"unexpected Dijkstra block header: expected 2 elements, got %d",
+			len(top),
+		)
+	}
+	var bodyElems []cbor.RawMessage
+	if _, err := cbor.Decode(top[0], &bodyElems); err != nil {
+		return err
+	}
+	if len(bodyElems) < babbageHeaderBodyFieldCount {
+		return fmt.Errorf(
+			"unexpected Dijkstra block header body: expected at least %d fields, got %d",
+			babbageHeaderBodyFieldCount,
+			len(bodyElems),
+		)
+	}
+	babbageBodyCbor, err := cbor.Encode(bodyElems[:babbageHeaderBodyFieldCount])
+	if err != nil {
+		return err
+	}
+	var body babbage.BabbageBlockHeaderBody
+	if _, err := cbor.Decode(babbageBodyCbor, &body); err != nil {
+		return err
+	}
+	// The leading-10-field re-encoding above is only used to populate the
+	// typed Babbage fields. The body's stored CBOR must remain the ORIGINAL
+	// body bytes (the full Leios-extended array), because KES signature
+	// verification is computed over the original header-body encoding -- see
+	// ledger.extractOriginalBodyCbor. Using the re-encoded 10-field bytes here
+	// makes KES verification fail on Leios-extended headers near the tip.
+	body.SetCbor([]byte(top[0]))
+	var signature []byte
+	if _, err := cbor.Decode(top[1], &signature); err != nil {
+		return err
+	}
+	h.Body = body
+	h.Signature = signature
+	h.LeiosHeaderExtension = bodyElems[babbageHeaderBodyFieldCount:]
 	h.SetCbor(cborData)
 	return nil
+}
+
+func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
+	// Decoded headers retain their original wire bytes (including any Leios
+	// extension), which must be reproduced verbatim so the header hash is
+	// stable.
+	if cborData := h.Cbor(); cborData != nil {
+		return cborData, nil
+	}
+	// Headers constructed in-process (no stored CBOR) have no Leios extension
+	// to preserve; fall back to the Babbage encoding.
+	return cbor.Encode(&h.BabbageBlockHeader)
 }
 
 func (h *DijkstraBlockHeader) Era() common.Era {

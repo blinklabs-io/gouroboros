@@ -833,7 +833,7 @@ func TestUtxowFailure_EraAwareDecoding_Conway(t *testing.T) {
 
 func TestUtxowFailure_InvalidMetadata_Conway(t *testing.T) {
 	// Test InvalidMetadata (tag 8) which has no payload
-	cborData, err := cbor.Encode([]interface{}{
+	cborData, err := cbor.Encode([]any{
 		uint(8), // Tag 8 = InvalidMetadata in Conway
 	})
 	require.NoError(t, err)
@@ -851,7 +851,7 @@ func TestUtxowFailure_InvalidMetadata_Conway(t *testing.T) {
 
 func TestConwayUtxowFailure_AllTags(t *testing.T) {
 	// Test that ConwayUtxowFailure can handle InvalidMetadata (tag 8, no payload)
-	cborData, err := cbor.Encode([]interface{}{uint(8)})
+	cborData, err := cbor.Encode([]any{uint(8)})
 	require.NoError(t, err)
 
 	conwayErr := &ConwayUtxowFailure{}
@@ -1033,7 +1033,7 @@ func TestShelleyUtxowFailure_Error(t *testing.T) {
 
 func TestUtxowFailure_EraAwareDecoding_Shelley(t *testing.T) {
 	// Test Shelley era decoding (tag 8 = InvalidMetadata)
-	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	cborData, err := cbor.Encode([]any{uint(ShelleyUtxowInvalidMetadata)})
 	require.NoError(t, err)
 
 	utxowErr := &UtxowFailure{}
@@ -1047,7 +1047,7 @@ func TestUtxowFailure_EraAwareDecoding_Shelley(t *testing.T) {
 
 func TestUtxowFailure_EraAwareDecoding_Allegra(t *testing.T) {
 	// Test Allegra era uses same tags as Shelley (tag 8 = InvalidMetadata)
-	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	cborData, err := cbor.Encode([]any{uint(ShelleyUtxowInvalidMetadata)})
 	require.NoError(t, err)
 
 	utxowErr := &UtxowFailure{}
@@ -1061,7 +1061,7 @@ func TestUtxowFailure_EraAwareDecoding_Allegra(t *testing.T) {
 
 func TestUtxowFailure_EraAwareDecoding_Mary(t *testing.T) {
 	// Test Mary era uses same tags as Shelley (tag 8 = InvalidMetadata)
-	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	cborData, err := cbor.Encode([]any{uint(ShelleyUtxowInvalidMetadata)})
 	require.NoError(t, err)
 
 	utxowErr := &UtxowFailure{}
@@ -1084,7 +1084,7 @@ func TestUtxowFailure_EraAwareDecoding_Alonzo(t *testing.T) {
 
 func TestShelleyUtxowFailure_UnmarshalCBOR_InvalidMetadata(t *testing.T) {
 	// Test ShelleyUtxowFailure can decode InvalidMetadata (no payload)
-	cborData, err := cbor.Encode([]interface{}{uint(ShelleyUtxowInvalidMetadata)})
+	cborData, err := cbor.Encode([]any{uint(ShelleyUtxowInvalidMetadata)})
 	require.NoError(t, err)
 
 	shelleyErr := &ShelleyUtxowFailure{}

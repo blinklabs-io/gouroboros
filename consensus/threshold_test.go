@@ -836,7 +836,7 @@ func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
 	highStakeEligible := 0
 	numSamples := 100
 
-	for i := 0; i < numSamples; i++ {
+	for i := range numSamples {
 		vrfOutput := make([]byte, 64)
 		// Deterministic pseudo-random data based on index
 		for j := range vrfOutput {

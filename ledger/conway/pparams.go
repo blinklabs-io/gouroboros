@@ -16,6 +16,7 @@ package conway
 
 import (
 	"errors"
+	"maps"
 	"math"
 	"math/big"
 
@@ -240,9 +241,7 @@ func (p *ConwayProtocolParameters) Update(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		for key, model := range paramUpdate.CostModels {
-			p.CostModels[key] = model
-		}
+		maps.Copy(p.CostModels, paramUpdate.CostModels)
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts

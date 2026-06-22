@@ -166,7 +166,7 @@ func decodeLeiosTransactionReferences(
 	}
 	refs := make([]LeiosTransactionReference, 0, count)
 	seen := make(map[Blake2b256]struct{}, count)
-	for idx := 0; idx < count; idx++ {
+	for idx := range count {
 		var hashBytes cbor.ByteString
 		if _, _, err := dec.Decode(&hashBytes); err != nil {
 			return nil, fmt.Errorf(

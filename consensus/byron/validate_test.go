@@ -470,7 +470,7 @@ func TestValidateSlotLeader(t *testing.T) {
 	// Generate 3 test keys to simulate genesis delegates
 	keys := make([]ed25519.PublicKey, 3)
 	keyHashes := make([][]byte, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pubKey, _, err := ed25519.GenerateKey(nil)
 		if err != nil {
 			t.Fatalf("ed25519.GenerateKey failed: %v", err)
@@ -576,7 +576,7 @@ func TestValidateSlotLeader(t *testing.T) {
 func TestSlotLeader(t *testing.T) {
 	// Generate 5 test key hashes
 	keyHashes := make([][]byte, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		keyHashes[i] = make([]byte, 28) // Blake2b224 hash size
 		keyHashes[i][0] = byte(i)       // Make each unique
 	}
@@ -1257,7 +1257,7 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	}
 
 	// Verify slot leader calculation works
-	for slot := uint64(0); slot < 6; slot++ {
+	for slot := range uint64(6) {
 		expectedIndex := int(slot % 3)
 		index, keyHash := config.SlotLeader(slot)
 		if index != expectedIndex {

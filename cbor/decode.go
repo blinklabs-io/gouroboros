@@ -550,7 +550,7 @@ func (d *StreamDecoder) SkipN(n int) (int, int, error) {
 	}
 
 	start := d.consumed + d.dec.NumBytesRead()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := d.dec.Skip(); err != nil {
 			return 0, 0, fmt.Errorf("skip item %d: %w", i, err)
 		}

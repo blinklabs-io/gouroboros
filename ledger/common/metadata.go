@@ -262,7 +262,7 @@ func mapFirstKeyType(b []byte) byte {
 			return 0xff
 		}
 		empty := true
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			if b[offset+i] != 0 {
 				empty = false
 				break

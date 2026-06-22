@@ -177,30 +177,30 @@ func TestBlockItem_ThreadSafety(t *testing.T) {
 	wg.Add(numGoroutines * 4) // 4 groups of concurrent operations
 
 	// Concurrent writers for SetBlock
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numIterations; j++ {
+			for j := range numIterations {
 				item.SetBlock(block, time.Duration(j)*time.Millisecond)
 			}
 		}()
 	}
 
 	// Concurrent writers for SetValidation
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numIterations; j++ {
+			for j := range numIterations {
 				item.SetValidation(true, "test", nil, time.Duration(j)*time.Millisecond)
 			}
 		}()
 	}
 
 	// Concurrent readers
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numIterations; j++ {
+			for range numIterations {
 				_ = item.Block()
 				_ = item.IsDecoded()
 				_ = item.IsValid()
@@ -209,10 +209,10 @@ func TestBlockItem_ThreadSafety(t *testing.T) {
 	}
 
 	// Concurrent writers for SetApplied
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numIterations; j++ {
+			for j := range numIterations {
 				item.SetApplied(true, nil, time.Duration(j)*time.Millisecond)
 			}
 		}()
@@ -302,7 +302,7 @@ func TestDecodeStageWorkerPool_MultipleWorkers(t *testing.T) {
 	errors := make(chan error, numItems)
 
 	// Populate input channel
-	for i := 0; i < numItems; i++ {
+	for i := range numItems {
 		tip := createTestTip(uint64(1000+i), uint64(500+i))
 		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 		input <- item
@@ -343,7 +343,7 @@ func TestDecodeStageWorkerPool_ItemsFlowThrough(t *testing.T) {
 
 	// Create items with specific sequence numbers
 	expectedSeqs := make(map[uint64]bool)
-	for i := 0; i < numItems; i++ {
+	for i := range numItems {
 		seq := uint64(100 + i)
 		expectedSeqs[seq] = false
 		tip := createTestTip(1000, 500)
@@ -634,7 +634,7 @@ func TestApplyStageOrdering_OutOfOrderReordering(t *testing.T) {
 
 	// Create items with sequence numbers
 	items := make([]*BlockItem, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
 		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 		// Decode and validate them
@@ -675,7 +675,7 @@ func TestApplyStageOrdering_SkipsInvalidItems(t *testing.T) {
 
 	// Create items - some valid, some invalid
 	items := make([]*BlockItem, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
 		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 
@@ -1054,9 +1054,7 @@ func TestBlockPipeline_SubmitAndResults(t *testing.T) {
 
 	// Decode worker
 	decoded := make(chan *BlockItem, numBlocks)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer close(decoded)
 		stage := NewDecodeStage(true)
 		for item := range input {
@@ -1067,13 +1065,11 @@ func TestBlockPipeline_SubmitAndResults(t *testing.T) {
 				statsMu.Unlock()
 			}
 		}
-	}()
+	})
 
 	// Validate worker (mock)
 	validated := make(chan *BlockItem, numBlocks)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer close(validated)
 		for item := range decoded {
 			if item.IsDecoded() {
@@ -1084,12 +1080,10 @@ func TestBlockPipeline_SubmitAndResults(t *testing.T) {
 			}
 			validated <- item
 		}
-	}()
+	})
 
 	// Apply worker
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer close(results)
 		for item := range validated {
 			if item.IsValid() {
@@ -1100,10 +1094,10 @@ func TestBlockPipeline_SubmitAndResults(t *testing.T) {
 			}
 			results <- item
 		}
-	}()
+	})
 
 	// Submit blocks
-	for i := 0; i < numBlocks; i++ {
+	for i := range numBlocks {
 		tip := createTestTip(uint64(1000+i), uint64(i))
 		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 		input <- item
@@ -1133,7 +1127,7 @@ func TestBlockPipeline_StatsUpdated(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 
 	// Simple stats tracking
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		submitted.Add(1)
 
 		tip := createTestTip(uint64(1000+i), uint64(i))
@@ -1171,7 +1165,7 @@ func TestPipelineBackpressure_SlowConsumer(t *testing.T) {
 
 	// Producer
 	go func() {
-		for i := 0; i < numBlocks; i++ {
+		for i := range numBlocks {
 			tip := createTestTip(uint64(i), uint64(i))
 			item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 			select {
@@ -1229,7 +1223,7 @@ func TestPipelineBackpressure_PrefetchBufferFillsUp(t *testing.T) {
 	input := make(chan *BlockItem, bufferSize)
 
 	// Fill buffer
-	for i := 0; i < bufferSize; i++ {
+	for i := range bufferSize {
 		tip := createTestTip(uint64(i), uint64(i))
 		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 		select {
@@ -1296,7 +1290,7 @@ func TestPipelineGracefulShutdown_InFlightItemsComplete(t *testing.T) {
 	}()
 
 	// Submit items
-	for i := 0; i < numItems; i++ {
+	for i := range numItems {
 		tip := createTestTip(uint64(i), uint64(i))
 		item := NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 		input <- item
@@ -1524,7 +1518,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 	tip := createTestTip(1000, 500)
 
 	// Run multiple iterations to increase likelihood of hitting the race
-	for iteration := 0; iteration < 100; iteration++ {
+	for iteration := range 100 {
 		p := NewBlockPipeline(
 			WithSkipBodyHashValidation(true),
 			WithValidateWorkers(1),
@@ -1551,7 +1545,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 		// Goroutine 1: Rapidly submit items
 		go func(ctx context.Context) {
 			defer wg.Done()
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				err := p.Submit(ctx, uint(ledger.BlockTypeConway), rawCbor, tip)
 				// Either no error, ErrPipelineStopped, or context.Canceled is acceptable.
 				// context.Canceled occurs when Stop() cancels the context before Submit
@@ -1607,7 +1601,7 @@ func TestApplyStageRunner_OutOfOrderItemsForwarded(t *testing.T) {
 
 	// Create 5 items with sequence numbers 0-4
 	items := make([]*BlockItem, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
 		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 
@@ -1691,7 +1685,7 @@ func TestApplyStageRunner_OutOfOrderErrorItemsForwardedOnce(t *testing.T) {
 	// Create 5 items with sequence numbers 0-4
 	// Items 1 and 3 will have validation errors
 	items := make([]*BlockItem, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		tip := createTestTip(1000+uint64(i), 500+uint64(i))
 		items[i] = NewBlockItem(uint(ledger.BlockTypeConway), rawCbor, tip, uint64(i))
 
@@ -1809,7 +1803,7 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 	require.NoError(t, err)
 
 	// Submit blocks
-	for i := 0; i < numBlocks; i++ {
+	for i := range numBlocks {
 		tip := createTestTip(uint64(1000+i), uint64(i))
 		err := pipeline.Submit(ctx, uint(ledger.BlockTypeConway), rawCbor, tip)
 		require.NoError(t, err)
@@ -1889,7 +1883,7 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	require.NoError(t, err)
 
 	// Submit blocks
-	for i := 0; i < numBlocks; i++ {
+	for i := range numBlocks {
 		tip := createTestTip(uint64(1000+i), uint64(i))
 		err := pipeline.Submit(ctx, uint(ledger.BlockTypeConway), rawCbor, tip)
 		require.NoError(t, err)

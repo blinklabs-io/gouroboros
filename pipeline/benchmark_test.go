@@ -91,8 +91,7 @@ func BenchmarkStageWorkerPool(b *testing.B) {
 			// b.SetBytes expects bytes per operation; use average block size
 			b.SetBytes(totalBytes / int64(len(blocks)))
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := b.Context()
 
 			// Use fixed-size buffers to avoid OOM when b.N is large
 			const bufferSize = 100
@@ -116,9 +115,7 @@ func BenchmarkStageWorkerPool(b *testing.B) {
 
 			// Feeder goroutine to avoid blocking on full channel
 			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				for i := 0; i < b.N; i++ {
 					block := blocks[i%len(blocks)]
 					item := pipeline.NewBlockItem(block.BlockType, block.Cbor, pcommon.Tip{}, uint64(i))
@@ -129,7 +126,7 @@ func BenchmarkStageWorkerPool(b *testing.B) {
 					}
 				}
 				close(input)
-			}()
+			})
 
 			// Drain output
 			received := 0
@@ -173,8 +170,7 @@ func BenchmarkBlockPipeline(b *testing.B) {
 		}
 		b.SetBytes(totalBytes / int64(len(blocks)))
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := b.Context()
 
 		// Create full pipeline (decode + apply, no validation for benchmark)
 		p := pipeline.NewBlockPipeline(
@@ -194,9 +190,7 @@ func BenchmarkBlockPipeline(b *testing.B) {
 
 		// Submit blocks
 		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := 0; i < b.N; i++ {
 				blk := blocks[i%len(blocks)]
 				tip := pcommon.Tip{BlockNumber: uint64(i)}
@@ -204,7 +198,7 @@ func BenchmarkBlockPipeline(b *testing.B) {
 					return
 				}
 			}
-		}()
+		})
 
 		// Receive results
 		received := 0
