@@ -19,6 +19,34 @@ This release expands Dijkstra and Leios interoperability, improves CBOR safety a
 
 * Expanded Leios prototype interoperability so endorser block references, block transaction exchanges, and pushed vote notifications decode across the supported prototype and library message shapes.
 
+### Bug Fixes
+
+* Fixed generic `CBOR` value decoding so maps that use `null` or undefined keys now decode cleanly instead of failing or panicking, including nested metadata shapes.
+
+* Introduced a dedicated VRF proof verification failure error so integrations can distinguish invalid proofs from malformed inputs, while benchmark coverage now fails only on unexpected verification errors.
+
+### Performance
+
+* Improved generic `CBOR` encode and decode throughput by reducing cache lock contention, while invalid generic inputs now return clear errors when callers pass unsupported values.
+
+### Security
+
+* Updated `golang.org/x/crypto` to `v0.53.0` and refreshed `golang.org/x/sys` to `v0.46.0` across the main module and example modules.
+
+### Additional Changes
+
+* Refreshed example module dependencies so the example builds stay tidy after the latest dependency updates.
+
+* Updated `github.com/blinklabs-io/ouroboros-mock` to `v0.13.0`.
+
+* Advanced GitHub Actions checkout workflows to `v7.0.0`.
+
+* Replaced the lint dependency guard with `gomodguard_v2` in the lint configuration.
+
+* Tightened fuzz workflow package targeting so each fuzz job runs against the exact package that owns the target.
+
+* Documented the prior `v0.183.0` release entry in `RELEASE_NOTES.md`.
+
 ## v0.183.0
 
 - **Date:** 2026-06-12
