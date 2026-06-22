@@ -126,9 +126,61 @@ func NewMsgBlockTxsRequest(
 	return m
 }
 
+// MarshalCBOR encodes the request as [msgType, point, bitmaps], where bitmaps
+// is an indefinite-length CBOR map (0xbf ... 0xff). The IOG Leios prototype
+// emits and expects the bitmaps map in indefinite-length form; encoding it as
+// a definite-length map causes the prototype relay to reject the request and
+// reset the connection.
+func (m *MsgBlockTxsRequest) MarshalCBOR() ([]byte, error) {
+	if raw := m.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	bitmaps, err := encodeBlockTxBitmaps(m.Bitmaps)
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode(
+		[]any{m.MessageType, m.Point, cbor.RawMessage(bitmaps)},
+	)
+}
+
+func encodeBlockTxBitmaps(bitmaps map[uint16]uint64) ([]byte, error) {
+	keys := make([]uint16, 0, len(bitmaps))
+	for k := range bitmaps {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	ret := []byte{0xbf} // indefinite-length map header
+	for _, k := range keys {
+		kc, err := cbor.Encode(k)
+		if err != nil {
+			return nil, err
+		}
+		vc, err := cbor.Encode(bitmaps[k])
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, kc...)
+		ret = append(ret, vc...)
+	}
+	ret = append(ret, 0xff) // break
+	return ret, nil
+}
+
+// MsgBlockTxs carries the transactions of an endorser block. Two wire shapes
+// are accepted for prototype interop:
+//
+//   - dingo: [tx_list] — just the transactions (2-element message).
+//   - IOG Leios prototype: [point, bitmaps, tx_list] — echoes the request's
+//     point and bitmaps alongside the transactions (4-element message).
+//
+// Point/Bitmaps are populated only when decoding the prototype form; encoding
+// emits the prototype form when Bitmaps is non-nil, otherwise the dingo form.
 type MsgBlockTxs struct {
 	protocol.MessageBase
-	TxsRaw []cbor.RawMessage
+	Point   pcommon.Point
+	Bitmaps map[uint16]uint64
+	TxsRaw  []cbor.RawMessage
 }
 
 func NewMsgBlockTxs(txs []cbor.RawMessage) *MsgBlockTxs {
@@ -139,6 +191,88 @@ func NewMsgBlockTxs(txs []cbor.RawMessage) *MsgBlockTxs {
 		TxsRaw: slices.Clone(txs),
 	}
 	return m
+}
+
+// NewMsgBlockTxsFull builds the prototype's 4-element block-txs response,
+// echoing the requested point and bitmaps alongside the transactions.
+func NewMsgBlockTxsFull(
+	point pcommon.Point,
+	bitmaps map[uint16]uint64,
+	txs []cbor.RawMessage,
+) *MsgBlockTxs {
+	m := &MsgBlockTxs{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeBlockTxs,
+		},
+		Point:   point,
+		Bitmaps: maps.Clone(bitmaps),
+		TxsRaw:  slices.Clone(txs),
+	}
+	return m
+}
+
+func (m *MsgBlockTxs) MarshalCBOR() ([]byte, error) {
+	if raw := m.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if m.Bitmaps != nil {
+		bitmaps, err := encodeBlockTxBitmaps(m.Bitmaps)
+		if err != nil {
+			return nil, err
+		}
+		return cbor.Encode(
+			[]any{
+				m.MessageType,
+				m.Point,
+				cbor.RawMessage(bitmaps),
+				m.TxsRaw,
+			},
+		)
+	}
+	return cbor.Encode([]any{m.MessageType, m.TxsRaw})
+}
+
+func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
+	var elems []cbor.RawMessage
+	if _, err := cbor.Decode(data, &elems); err != nil {
+		return err
+	}
+	switch len(elems) {
+	case 2: // [msgType, tx_list] — dingo form
+		var env struct {
+			cbor.StructAsArray
+			MessageType uint8
+			TxsRaw      []cbor.RawMessage
+		}
+		if _, err := cbor.Decode(data, &env); err != nil {
+			return err
+		}
+		m.MessageType = env.MessageType
+		m.TxsRaw = env.TxsRaw
+	case 4: // [msgType, point, bitmaps, tx_list] — prototype form
+		var env struct {
+			cbor.StructAsArray
+			MessageType uint8
+			Point       pcommon.Point
+			Bitmaps     map[uint16]uint64
+			TxsRaw      []cbor.RawMessage
+		}
+		if _, err := cbor.Decode(data, &env); err != nil {
+			return err
+		}
+		m.MessageType = env.MessageType
+		m.Point = env.Point
+		m.Bitmaps = env.Bitmaps
+		m.TxsRaw = env.TxsRaw
+	default:
+		return fmt.Errorf(
+			"%s: block txs: unexpected element count %d",
+			ProtocolName,
+			len(elems),
+		)
+	}
+	m.SetCbor(data)
+	return nil
 }
 
 type MsgVotesRequest struct {

@@ -121,9 +121,22 @@ func NewMsgBlockTxsOffer(point pcommon.Point) *MsgBlockTxsOffer {
 	return m
 }
 
+// MsgVotesOffer carries vote information over leios-notify (tag 4). It is
+// lenient about the per-vote element shape so dingo can interoperate with the
+// IOG Leios prototype, which diffuses vote data inline over this message
+// rather than over a standalone leios-votes mini-protocol:
+//
+//   - Votes holds vote IDs ([slot, voter_id], 2 elements) when the peer offers
+//     IDs to be fetched (dingo's offer-and-fetch design).
+//   - FullVotes holds complete votes ([slot, eb_hash, voter_id, signature], 4
+//     elements) when the peer pushes votes directly (the prototype dialect).
+//
+// After decoding, exactly one of Votes / FullVotes is populated depending on
+// the per-vote CBOR array length. Encoding prefers FullVotes when present.
 type MsgVotesOffer struct {
 	protocol.MessageBase
-	Votes []MsgVotesOfferVote
+	Votes     []MsgVotesOfferVote
+	FullVotes []lcommon.LeiosVote
 }
 
 type MsgVotesOfferVote = lcommon.LeiosVoteId
@@ -136,6 +149,92 @@ func NewMsgVotesOffer(votes []MsgVotesOfferVote) *MsgVotesOffer {
 		Votes: votes,
 	}
 	return m
+}
+
+// NewMsgVotesOfferFull builds a votes offer carrying full pushed votes, as the
+// Leios prototype diffuses them inline over leios-notify.
+func NewMsgVotesOfferFull(votes []lcommon.LeiosVote) *MsgVotesOffer {
+	m := &MsgVotesOffer{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeVotesOffer,
+		},
+		FullVotes: votes,
+	}
+	return m
+}
+
+func (m *MsgVotesOffer) MarshalCBOR() ([]byte, error) {
+	if raw := m.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if len(m.FullVotes) > 0 {
+		return cbor.Encode([]any{m.MessageType, m.FullVotes})
+	}
+	return cbor.Encode([]any{m.MessageType, m.Votes})
+}
+
+func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
+	// Decode the outer [msgType, [vote, ...]] envelope, capturing each vote
+	// as raw CBOR so we can branch on its element count without committing to
+	// a single per-vote shape.
+	var envelope struct {
+		cbor.StructAsArray
+		MessageType uint8
+		Votes       []cbor.RawMessage
+	}
+	if _, err := cbor.Decode(data, &envelope); err != nil {
+		return err
+	}
+	m.MessageType = envelope.MessageType
+	m.Votes = nil
+	m.FullVotes = nil
+	for idx, voteRaw := range envelope.Votes {
+		// Peek at the element count to distinguish a vote ID
+		// ([slot, voter_id]) from a full vote
+		// ([slot, eb_hash, voter_id, signature]).
+		var elems []cbor.RawMessage
+		if _, err := cbor.Decode(voteRaw, &elems); err != nil {
+			return fmt.Errorf(
+				"%s: votes offer: decode vote %d: %w",
+				ProtocolName,
+				idx,
+				err,
+			)
+		}
+		switch len(elems) {
+		case 2:
+			var id MsgVotesOfferVote
+			if _, err := cbor.Decode(voteRaw, &id); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode vote id %d: %w",
+					ProtocolName,
+					idx,
+					err,
+				)
+			}
+			m.Votes = append(m.Votes, id)
+		case 4:
+			var vote lcommon.LeiosVote
+			if _, err := cbor.Decode(voteRaw, &vote); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode full vote %d: %w",
+					ProtocolName,
+					idx,
+					err,
+				)
+			}
+			m.FullVotes = append(m.FullVotes, vote)
+		default:
+			return fmt.Errorf(
+				"%s: votes offer: vote %d has unexpected element count %d",
+				ProtocolName,
+				idx,
+				len(elems),
+			)
+		}
+	}
+	m.SetCbor(data)
+	return nil
 }
 
 type MsgDone struct {
