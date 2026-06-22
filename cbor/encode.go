@@ -60,29 +60,23 @@ func Encode(data any) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-var (
-	encodeGenericTypeCache      = map[reflect.Type]reflect.Type{}
-	encodeGenericTypeCacheMutex sync.RWMutex
-)
+var encodeGenericTypeCache = newGenericTypeCache()
 
 // EncodeGeneric encodes the specified object to CBOR without using the source object's
 // MarshalCBOR() function
 func EncodeGeneric(src any) ([]byte, error) {
 	// Get source type
 	valueSrc := reflect.ValueOf(src)
+	if valueSrc.Kind() != reflect.Pointer ||
+		valueSrc.IsNil() ||
+		valueSrc.Elem().Kind() != reflect.Struct {
+		return nil, errors.New("source must be a pointer to a struct")
+	}
 	typeSrc := valueSrc.Elem().Type()
-	// Check type cache
-	encodeGenericTypeCacheMutex.RLock()
-	tmpTypeSrc, ok := encodeGenericTypeCache[typeSrc]
-	encodeGenericTypeCacheMutex.RUnlock()
-	if !ok {
+	tmpTypeSrc, err := encodeGenericTypeCache.getOrCreate(typeSrc, func() (reflect.Type, error) {
 		// Create a duplicate(-ish) struct from the destination
 		// We do this so that we can bypass any custom MarshalCBOR() function on the
 		// source object
-		if valueSrc.Kind() != reflect.Pointer ||
-			valueSrc.Elem().Kind() != reflect.Struct {
-			return nil, errors.New("source must be a pointer to a struct")
-		}
 		srcTypeFields := []reflect.StructField{}
 		for i := range typeSrc.NumField() {
 			tmpField := typeSrc.Field(i)
@@ -90,11 +84,10 @@ func EncodeGeneric(src any) ([]byte, error) {
 				srcTypeFields = append(srcTypeFields, tmpField)
 			}
 		}
-		tmpTypeSrc = reflect.StructOf(srcTypeFields)
-		// Populate cache
-		encodeGenericTypeCacheMutex.Lock()
-		encodeGenericTypeCache[typeSrc] = tmpTypeSrc
-		encodeGenericTypeCacheMutex.Unlock()
+		return reflect.StructOf(srcTypeFields), nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	// Create temporary object with the type created above
 	tmpSrc := reflect.New(tmpTypeSrc)
