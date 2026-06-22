@@ -4,6 +4,21 @@ title: Release notes
 
 # Release notes
 
+## v0.184.0
+
+- **Date:** 2026-06-22
+- **Version:** 0.184.0
+
+### Summary
+
+This release expands Dijkstra and Leios interoperability, improves CBOR safety and throughput, refreshes security related dependencies, and includes maintenance updates across examples, continuous integration, fuzzing, linting, and release history tracking.
+
+### New Features
+
+* Added broader Dijkstra and Leios header interoperability so ranking blocks can carry Leios header extensions, endorser block references decode from both supported wire shapes, and Leios notifications can remain pending without interrupting other active protocols when no callback is configured.
+
+* Expanded Leios prototype interoperability so endorser block references, block transaction exchanges, and pushed vote notifications decode across the supported prototype and library message shapes.
+
 ## v0.183.0
 
 - **Date:** 2026-06-12
