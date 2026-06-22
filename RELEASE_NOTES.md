@@ -15,7 +15,7 @@ This release expands Dijkstra and Leios interoperability, improves `CBOR` safety
 
 ### New Features
 
-* Added broader Dijkstra and Leios header interoperability so ranking blocks can carry Leios header extensions, endorser block references decode from both supported wire shapes, and Leios notification requests stay open without interrupting other active protocols when no callback is configured.
+* Added broader Dijkstra and Leios header interoperability so ranking blocks can carry Leios header extensions, endorser block references decode from both supported wire shapes, and Leios notification requests can stay open without interrupting other active protocols when no callback is configured.
 
 * Expanded Leios prototype interoperability so endorser block references, block transaction exchanges, and pushed vote notifications decode across the supported prototype and library message shapes.
 
@@ -27,7 +27,7 @@ This release expands Dijkstra and Leios interoperability, improves `CBOR` safety
 
 ### Performance
 
-* Improved generic `CBOR` encode and decode throughput by reducing cache lock contention, while invalid generic inputs now return clear errors when callers pass unsupported values.
+* Improved generic `CBOR` encode and decode throughput by reducing cache lock contention, while invalid generic inputs now return clear errors for unsupported values.
 
 ### Security
 
