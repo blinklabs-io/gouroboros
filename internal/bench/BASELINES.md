@@ -1,8 +1,12 @@
 # Memory Allocation Baselines
 
-**Last Updated**: 2026-02-22
-**Go Version**: 1.24+
-**Platform**: linux/amd64
+**Last Updated**: 2026-06-11
+**Go Version**: 1.25.8
+**Platform**: linux/arm64
+
+> The previous snapshot (2026-02-22) was captured on linux/amd64. Time and
+> throughput deltas against that snapshot partly reflect the hardware change;
+> allocation counts and bytes are comparable across platforms.
 
 ## Overview
 
@@ -12,7 +16,7 @@ This document tracks memory allocation baselines for key validation paths in gou
 2. **Optimization Tracking**: Measure impact of performance improvements
 3. **Contributor Guidance**: Set expectations for new code
 
-All baseline values were captured after the completion of optimization work in PRs #1496-1503 and #1529.
+Values are means of `-count=3` runs of `go test -bench -benchmem` per package.
 
 ---
 
@@ -22,82 +26,90 @@ All baseline values were captured after the completion of optimization work in P
 
 | Operation | Allocs | Bytes | Time | Notes |
 |-----------|--------|-------|------|-------|
-| VRF KeyGen | 2 | 64 B | ~75us | Seed processing only |
-| VRF Prove | 11 | 736 B | ~760us | Scalar multiplication |
-| VRF Verify | 11 | 816 B | ~950us | Full verification |
-| VRF VerifyAndHash | 11 | 816 B | ~955us | Verify + hash extraction |
-| VRF ProofToHash | 2 | 224 B | ~38us | Hash extraction only |
-| MkInputVrf | 3 | 464 B | ~1.4us | VRF input creation |
+| VRF KeyGen | 2 | 64 B | ~66us | Seed processing only |
+| VRF Prove | 11 | 736 B | ~690us | Scalar multiplication |
+| VRF Verify | 11 | 816 B | ~825us | Full verification |
+| VRF VerifyAndHash | 11 | 816 B | ~812us | Verify + hash extraction |
+| VRF ProofToHash | 2 | 224 B | ~33us | Hash extraction only |
+| MkInputVrf | 3 | 464 B | ~1.5us | VRF input creation |
 
 ### KES Operations (`kes/`)
 
 | Operation | Allocs | Bytes | Time | Notes |
 |-----------|--------|-------|------|-------|
-| KES KeyGen (depth=6) | 255 | 8800 B | ~5ms | Cardano standard depth |
-| KES Sign (depth=6) | 1 | 448 B | ~180us | Single allocation |
-| KES Update (depth=6) | 3 | 736 B | ~78us | Key evolution |
-| KES Verify (depth=6) | 6 | 192 B | ~243us | Signature verification |
-| KES VerifySignedKES | 12 | 616 B | ~265us | Full verification path |
-| KES NewSumKesFromBytes (depth=6) | 6 | 424 B | ~1.1us | Signature deserialization |
-| KES HashPair | 1 | 32 B | ~843ns | Blake2b hash |
+| KES KeyGen (depth=6) | 255 | 8800 B | ~4.4ms | Cardano standard depth |
+| KES Sign (depth=6) | 10 | 830 B | ~166us | Was 1 alloc / 448 B in 2026-02-22 snapshot |
+| KES Update (depth=6) | 3 | 736 B | ~68us | Key evolution |
+| KES Verify (depth=6) | 6 | 192 B | ~211us | Signature verification |
+| KES VerifySignedKES | 12 | 616 B | ~217us | Full verification path |
+| KES NewSumKesFromBytes (depth=6) | 6 | 424 B | ~1.2us | Signature deserialization |
+| KES HashPair | 1 | 32 B | ~918ns | Blake2b hash |
 
 ### Block Validation (`internal/bench/`)
 
 | Operation | Era | Allocs | Bytes | Time | Notes |
 |-----------|-----|--------|-------|------|-------|
-| Block Validation | Shelley | 461 | 101 KB | ~2.4ms | Full validation |
-| Block Validation | Allegra | 1092 | 246 KB | ~3.1ms | |
-| Block Validation | Mary | 1136 | 236 KB | ~3.0ms | |
-| Block Validation | Alonzo | 1382 | 365 KB | ~3.5ms | |
-| Block Validation | Babbage | 5709 | 1014 KB | ~7.0ms | Largest blocks |
-| Block Validation | Conway | 2672 | 487 KB | ~4.4ms | |
-| Block Validation (pre-parsed) | All Eras | 20 | 1.5 KB | ~0.9ms | Skip decode |
-| VRF Verification | All Eras | 10 | 608 B | ~0.9ms | Block VRF check |
-| KES Verification | All Eras | 12 | 616 B | ~270us | Block KES check |
-| Body Hash | Shelley | 15 | 10 KB | ~42us | |
-| Body Hash | Babbage | 19 | 83 KB | ~328us | Largest body |
-| Body Hash | Conway | 18 | 39 KB | ~153us | |
+| Block Validation | Shelley | 430 | 94 KB | ~0.8ms | Full validation |
+| Block Validation | Allegra | 1031 | 220 KB | ~1.4ms | |
+| Block Validation | Mary | 1019 | 200 KB | ~1.4ms | |
+| Block Validation | Alonzo | 918 | 299 KB | ~1.4ms | |
+| Block Validation | Babbage | 3697 | 771 KB | ~3.9ms | Largest blocks |
+| Block Validation | Conway | 1924 | 394 KB | ~2.2ms | |
+| Block Validation (pre-parsed) | All Eras | 27-31 | 11-84 KB | ~0.4-0.8ms | Skip decode; bytes track block size |
+| VRF Verification | All Eras | 9 | 592 B | ~0.8ms | Block VRF check¹ |
+| KES Verification | All Eras | 12 | 616 B | ~215us | Block KES check |
+| Body Hash | Shelley | 15 | 10 KB | ~48us | |
+| Body Hash | Babbage | 19 | 83 KB | ~314us | Largest body |
+| Body Hash | Conway | 18 | 39 KB | ~152us | |
+
+¹ Measured with the BenchmarkBlockVRFVerification fix that tolerates
+`vrf.ErrProofVerificationFailed`; the benchmark aborted on every run before
+that fix.
 
 ### Block Decode (`internal/bench/`)
 
 | Operation | Era | Allocs | Bytes | Throughput | Notes |
 |-----------|-----|--------|-------|------------|-------|
-| CBOR Decode | Byron | 500 | 89 KB | 5.5 MB/s | |
-| CBOR Decode | Shelley | 441 | 100 KB | 8.2 MB/s | |
-| CBOR Decode | Allegra | 1072 | 245 KB | 6.7 MB/s | |
-| CBOR Decode | Mary | 1116 | 235 KB | 5.2 MB/s | |
-| CBOR Decode | Alonzo | 1362 | 363 KB | 6.4 MB/s | |
-| CBOR Decode | Babbage | 5689 | 1014 KB | 3.5 MB/s | |
-| CBOR Decode | Conway | 2652 | 485 KB | 3.5 MB/s | |
-| Parallel Decode | Byron | 500 | 89 KB | 19.6 MB/s | |
-| Parallel Decode | Shelley | 441 | 100 KB | 35.8 MB/s | |
-| Parallel Decode | Babbage | 5690 | 1005 KB | 25.2 MB/s | |
+| CBOR Decode | Byron | 500 | 89 KB | 5.3 MB/s | |
+| CBOR Decode | Shelley | 418 | 93 KB | 8.4 MB/s | |
+| CBOR Decode | Allegra | 1019 | 219 KB | 6.9 MB/s | |
+| CBOR Decode | Mary | 1007 | 200 KB | 5.5 MB/s | |
+| CBOR Decode | Alonzo | 906 | 298 KB | 8.2 MB/s | |
+| CBOR Decode | Babbage | 3685 | 771 KB | 5.1 MB/s | |
+| CBOR Decode | Conway | 1912 | 393 KB | 4.4 MB/s | |
+| Parallel Decode | Byron | 500 | 89 KB | 18.5 MB/s | |
+| Parallel Decode | Shelley | 418 | 93 KB | 25.2 MB/s | |
+| Parallel Decode | Babbage | 3685 | 771 KB | 28.9 MB/s | |
 
-### Transaction Validation (`internal/bench/`)
+### Transaction Operations (`internal/bench/`, `ledger/...`)
+
+The per-era "Tx Validation", "Value Balance", and "Witness Validation" rows
+from earlier snapshots no longer have corresponding benchmarks in the tree;
+the rows below are backed by benchmarks that exist today.
 
 | Operation | Era | Allocs | Bytes | Time | Notes |
 |-----------|-----|--------|-------|------|-------|
-| Tx Validation | Shelley | 64 | 5.3 KB | ~605us | Simple tx |
-| Tx Validation | Allegra | 32 | 3.7 KB | ~600us | |
-| Tx Validation | Mary | 42 | 4.5 KB | ~553us | |
-| Tx Validation | Alonzo | 44 | 5.3 KB | ~371us | |
-| Tx Validation | Babbage | 310 | 22.1 KB | ~1.4ms | |
-| Tx Validation | Conway | 220 | 18.7 KB | ~1.8ms | |
-| Value Balance | Shelley | 9 | 216 B | ~1.2us | |
-| Value Balance | Alonzo | 21 | 624 B | ~3.0us | |
-| Witness Validation | Shelley | 13 | 624 B | ~3.1us | |
-| Witness Validation | Alonzo | 28 | 6.5 KB | ~33us | |
+| Tx Decode | Shelley | 73 | 10.9 KB | ~41us | |
+| Tx Decode | Allegra | 179 | 26.8 KB | ~98us | |
+| Tx Decode | Mary | 340 | 46.3 KB | ~183us | |
+| Tx Decode | Alonzo | 332 | 116.6 KB | ~304us | |
+| Tx Decode | Babbage | 241 | 42.9 KB | ~177us | |
+| Tx Decode | Conway | 115 | 25.8 KB | ~89us | |
+| Tx Hash | All Eras | 4 | 480 B | ~2.3-5.0us | |
+| UtxoValidateValueNotConservedUtxo (MultiAsset) | Alonzo | 1080 | 85 KB | ~421us | `ledger/alonzo` |
+| ValidateScriptWitnesses (no scripts) | Common | 4166 | 141 KB | ~560us | `ledger/common` |
+| ValidateScriptWitnesses (with scripts) | Common | 4169 | 142 KB | ~605us | `ledger/common` |
 
 ### Consensus / Leader Election (`internal/bench/`)
 
 | Operation | Allocs | Bytes | Time | Notes |
 |-----------|--------|-------|------|-------|
-| CertifiedNatThreshold | 1221-1224 | 163-168 KB | ~4.1ms | big.Rat arithmetic |
-| VrfLeaderValue | 4 | 528 B | ~1.6us | Blake2b hash |
-| VRFOutputToInt | 1 | 64 B | ~139ns | big.Int conversion |
-| IsSlotLeader | 1240-1244 | 165-169 KB | ~5.3ms | Full leader check |
-| IsVRFOutputBelowThreshold | 5 | 592 B | ~1.8us | Threshold comparison |
-| Full Leader Election Workflow | 1242 | 167 KB | ~5.4ms | Complete flow |
+| CertifiedNatThreshold | 799-805 | ~135 KB | ~0.87ms | big.Rat arithmetic |
+| VrfLeaderValue | 5 | 552 B | ~2.0us | Blake2b hash |
+| VRFOutputToInt | 2 | 96 B | ~290ns | big.Int conversion |
+| IsSlotLeader | 819-825 | ~137 KB | ~2.3ms | Full leader check |
+| IsVRFOutputBelowThreshold | 5 | 592 B | ~2.0us | Threshold comparison |
+| Full Leader Election Workflow | 824 | 137 KB | ~2.3ms | Complete flow |
 
 ---
 
@@ -114,6 +126,9 @@ go test -bench=. -benchmem ./kes/... -run=^$ 2>&1 | tee kes_bench.txt
 
 # Internal benchmarks (block, tx, consensus, CBOR)
 go test -bench=. -benchmem ./internal/bench/... -run=^$ 2>&1 | tee internal_bench.txt
+
+# Ledger rule benchmarks (value balance, script witnesses)
+go test -bench=. -benchmem ./ledger/... -run=^$ 2>&1 | tee ledger_bench.txt
 ```
 
 ### Compare Against Previous Run
@@ -174,7 +189,7 @@ go test -bench='BenchmarkBlockValidation/Era_Conway' -benchmem ./internal/bench/
 | VRF Verify | ~15 allocs | 11 allocs | ~27% |
 | KES Verify (depth=6) | ~12 allocs | 6 allocs | ~50% |
 | MkInputVrf | ~5 allocs | 3 allocs | ~40% |
-| Threshold Calc | ~2000 allocs | ~1220 allocs | ~39% |
+| Threshold Calc | ~2000 allocs | ~800 allocs | ~60% |
 
 ---
 
