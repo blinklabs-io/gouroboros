@@ -4,6 +4,15 @@ title: Release notes
 
 # Release notes
 
+## v0.185.0
+
+- **Date:** 2026-06-23
+- **Version:** 0.185.0
+
+### Summary
+
+This release renames the Musashi test network identifier, refreshes benchmark baseline documentation with current commands and results, and keeps `RELEASE_NOTES.md` aligned with the latest published release history.
+
 ## v0.184.0
 
 - **Date:** 2026-06-22
