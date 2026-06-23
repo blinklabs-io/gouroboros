@@ -21,7 +21,7 @@ This release renames the Leios test network identifier to Musashi, refreshes ben
 
 * Refreshed benchmark reference documentation with current commands, a Go `1.25.8` environment on Linux arm64, and updated benchmark results.
 
-* Documented the prior `v0.184.0` release in `RELEASE_NOTES.md`.
+* Documented the prior `v0.184.0` entry in `RELEASE_NOTES.md`.
 
 * Polished the wording in the `v0.184.0` release notes in `RELEASE_NOTES.md`.
 
