@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release renames the Musashi test network identifier, refreshes benchmark reference documentation with current commands and results, and keeps `RELEASE_NOTES.md` aligned with the latest published release history.
+This release renames the Musashi test network identifier, refreshes benchmark reference documentation with current commands and results, and updates `RELEASE_NOTES.md` to keep the published release history current.
 
 ### Breaking Changes
 
@@ -19,11 +19,11 @@ This release renames the Musashi test network identifier, refreshes benchmark re
 
 ### Additional Changes
 
-* Refreshed benchmark reference documentation with current commands, a Go `1.25.8` Linux arm64 environment, and updated benchmark results.
+* Refreshed benchmark reference documentation with current commands, a Go `1.25.8` environment on Linux arm64, and updated benchmark results.
 
 * Documented the prior `v0.184.0` release in `RELEASE_NOTES.md`.
 
-* Refined the `v0.184.0` release notes in `RELEASE_NOTES.md` for clearer wording and formatting consistency.
+* Refined the `v0.184.0` release notes in `RELEASE_NOTES.md` with clearer wording and formatting consistency.
 
 ## v0.184.0
 
