@@ -13,6 +13,18 @@ title: Release notes
 
 This release renames the Musashi test network identifier, refreshes benchmark baseline documentation with current commands and results, and keeps `RELEASE_NOTES.md` aligned with the latest published release history.
 
+### Breaking Changes
+
+* Updated the Cardano test network identifier from Leios to Musashi, requiring integrations that select the former test network value to switch to the new name.
+
+### Additional Changes
+
+* Refreshed benchmark baseline documentation with current commands, a Go `1.25.8` linux arm64 environment, and updated benchmark rows.
+
+* Documented the prior `v0.184.0` release entry in `RELEASE_NOTES.md`.
+
+* Refined the `v0.184.0` release entry in `RELEASE_NOTES.md` for clearer wording and formatting consistency.
+
 ## v0.184.0
 
 - **Date:** 2026-06-22
