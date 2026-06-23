@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release renames the Musashi test network identifier, refreshes benchmark reference documentation with current commands and results, and updates `RELEASE_NOTES.md` to keep the published release history current.
+This release renames the Leios test network identifier to Musashi, refreshes benchmark reference documentation with current commands and results, and updates `RELEASE_NOTES.md` to keep the published release history current.
 
 ### Breaking Changes
 
@@ -23,7 +23,9 @@ This release renames the Musashi test network identifier, refreshes benchmark re
 
 * Documented the prior `v0.184.0` release in `RELEASE_NOTES.md`.
 
-* Refined the `v0.184.0` release notes in `RELEASE_NOTES.md` with clearer wording and formatting consistency.
+* Polished the wording in the `v0.184.0` release notes in `RELEASE_NOTES.md`.
+
+* Refined the formatting and terminology in the `v0.184.0` release notes in `RELEASE_NOTES.md`.
 
 ## v0.184.0
 
