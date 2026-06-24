@@ -16,138 +16,119 @@ package txsubmission
 
 import (
 	"encoding/hex"
-	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testDefinition struct {
+	Name        string
 	CborHex     string
-	Message     protocol.Message
+	Message     func() protocol.Message
 	MessageType uint
 }
 
-// TODO(testing): Expand test coverage for remaining message types (RequestTxIds, ReplyTxIds, etc.)
 var tests = []testDefinition{
 	{
+		Name:    "RequestTxIds",
+		CborHex: "8400f50a14",
+		Message: func() protocol.Message {
+			return NewMsgRequestTxIds(true, 10, 20)
+		},
+		MessageType: MessageTypeRequestTxIds,
+	},
+	{
+		Name: "ReplyTxIds",
+		CborHex: "82019f" +
+			"8282015820" + testTxIdHex(0x01, 0x02) + "1864" +
+			"8282025820" + testTxIdHex(0x03, 0x04) + "18c8" +
+			"ff",
+		Message: func() protocol.Message {
+			return NewMsgReplyTxIds([]TxIdAndSize{
+				{TxId: testTxId(1, 0x01, 0x02), Size: 100},
+				{TxId: testTxId(2, 0x03, 0x04), Size: 200},
+			})
+		},
+		MessageType: MessageTypeReplyTxIds,
+	},
+	{
+		Name: "RequestTxs",
+		CborHex: "82029f" +
+			"82015820" + testTxIdHex(0x01) +
+			"82025820" + testTxIdHex(0x02) +
+			"ff",
+		Message: func() protocol.Message {
+			return NewMsgRequestTxs([]TxId{
+				testTxId(1, 0x01),
+				testTxId(2, 0x02),
+			})
+		},
+		MessageType: MessageTypeRequestTxs,
+	},
+	{
+		Name: "ReplyTxs",
+		CborHex: "82039f" +
+			"8201d81843010203" +
+			"8202d81843040506" +
+			"ff",
+		Message: func() protocol.Message {
+			return NewMsgReplyTxs([]TxBody{
+				{EraId: 1, TxBody: []byte{0x01, 0x02, 0x03}},
+				{EraId: 2, TxBody: []byte{0x04, 0x05, 0x06}},
+			})
+		},
+		MessageType: MessageTypeReplyTxs,
+	},
+	{
+		Name:        "Done",
 		CborHex:     "8104",
-		Message:     NewMsgDone(),
+		Message:     func() protocol.Message { return NewMsgDone() },
 		MessageType: MessageTypeDone,
 	},
 	{
+		Name:        "Init",
 		CborHex:     "8106",
-		Message:     NewMsgInit(),
+		Message:     func() protocol.Message { return NewMsgInit() },
 		MessageType: MessageTypeInit,
 	},
 }
 
 func TestDecode(t *testing.T) {
 	for _, test := range tests {
-		cborData, err := hex.DecodeString(test.CborHex)
-		if err != nil {
-			t.Fatalf("failed to decode CBOR hex: %s", err)
-		}
-		msg, err := NewMsgFromCbor(test.MessageType, cborData)
-		if err != nil {
-			t.Fatalf("failed to decode CBOR: %s", err)
-		}
-		// Set the raw CBOR so the comparison should succeed
-		test.Message.SetCbor(cborData)
-		if !reflect.DeepEqual(msg, test.Message) {
-			t.Fatalf(
-				"CBOR did not decode to expected message object\n  got: %#v\n  wanted: %#v",
-				msg,
-				test.Message,
-			)
-		}
+		t.Run(test.Name, func(t *testing.T) {
+			cborData, err := hex.DecodeString(test.CborHex)
+			require.NoError(t, err)
+			msg, err := NewMsgFromCbor(test.MessageType, cborData)
+			require.NoError(t, err)
+			expected := test.Message()
+			expected.SetCbor(cborData)
+			require.Equal(t, expected, msg)
+		})
 	}
 }
 
 func TestEncode(t *testing.T) {
 	for _, test := range tests {
-		cborData, err := cbor.Encode(test.Message)
-		if err != nil {
-			t.Fatalf("failed to encode message to CBOR: %s", err)
-		}
-		cborHex := hex.EncodeToString(cborData)
-		if cborHex != test.CborHex {
-			t.Fatalf(
-				"message did not encode to expected CBOR\n  got: %s\n  wanted: %s",
-				cborHex,
-				test.CborHex,
-			)
-		}
+		t.Run(test.Name, func(t *testing.T) {
+			cborData, err := cbor.Encode(test.Message())
+			require.NoError(t, err)
+			require.Equal(t, test.CborHex, hex.EncodeToString(cborData))
+		})
 	}
 }
 
-func TestMsgRequestTxIds(t *testing.T) {
-	msg := NewMsgRequestTxIds(true, 10, 20) // blocking, ack, req
-
-	// Test encoding
-	encoded, err := cbor.Encode(msg)
-	assert.NoError(t, err)
-
-	// Test decoding
-	decoded, err := NewMsgFromCbor(MessageTypeRequestTxIds, encoded)
-	assert.NoError(t, err)
-	assert.Equal(t, msg.Blocking, decoded.(*MsgRequestTxIds).Blocking)
-	assert.Equal(t, msg.Ack, decoded.(*MsgRequestTxIds).Ack)
-	assert.Equal(t, msg.Req, decoded.(*MsgRequestTxIds).Req)
+func testTxId(eraId uint16, txIdPrefix ...byte) TxId {
+	var txId [32]byte
+	copy(txId[:], txIdPrefix)
+	return TxId{
+		EraId: eraId,
+		TxId:  txId,
+	}
 }
 
-func TestMsgReplyTxIds(t *testing.T) {
-	txIds := []TxIdAndSize{
-		{TxId: TxId{EraId: 1, TxId: [32]byte{0x01, 0x02}}, Size: 100},
-		{TxId: TxId{EraId: 2, TxId: [32]byte{0x03, 0x04}}, Size: 200},
-	}
-	msg := NewMsgReplyTxIds(txIds)
-
-	encoded, err := cbor.Encode(msg)
-	assert.NoError(t, err)
-
-	decoded, err := NewMsgFromCbor(MessageTypeReplyTxIds, encoded)
-	assert.NoError(t, err)
-	assert.Len(t, decoded.(*MsgReplyTxIds).TxIds, 2)
-	assert.Equal(
-		t,
-		txIds[0].TxId.EraId,
-		decoded.(*MsgReplyTxIds).TxIds[0].TxId.EraId,
-	)
-	assert.Equal(t, txIds[0].Size, decoded.(*MsgReplyTxIds).TxIds[0].Size)
-}
-
-func TestMsgRequestTxs(t *testing.T) {
-	txIds := []TxId{
-		{EraId: 1, TxId: [32]byte{0x01}},
-		{EraId: 2, TxId: [32]byte{0x02}},
-	}
-	msg := NewMsgRequestTxs(txIds)
-
-	encoded, err := cbor.Encode(msg)
-	assert.NoError(t, err)
-
-	decoded, err := NewMsgFromCbor(MessageTypeRequestTxs, encoded)
-	assert.NoError(t, err)
-	assert.Len(t, decoded.(*MsgRequestTxs).TxIds, 2)
-	assert.Equal(t, txIds[0].EraId, decoded.(*MsgRequestTxs).TxIds[0].EraId)
-}
-
-func TestMsgReplyTxs(t *testing.T) {
-	txs := []TxBody{
-		{EraId: 1, TxBody: []byte{0x01, 0x02, 0x03}},
-		{EraId: 2, TxBody: []byte{0x04, 0x05, 0x06}},
-	}
-	msg := NewMsgReplyTxs(txs)
-
-	encoded, err := cbor.Encode(msg)
-	assert.NoError(t, err)
-
-	decoded, err := NewMsgFromCbor(MessageTypeReplyTxs, encoded)
-	assert.NoError(t, err)
-	assert.Len(t, decoded.(*MsgReplyTxs).Txs, 2)
-	assert.Equal(t, txs[0].EraId, decoded.(*MsgReplyTxs).Txs[0].EraId)
-	assert.Equal(t, txs[0].TxBody, decoded.(*MsgReplyTxs).Txs[0].TxBody)
+func testTxIdHex(txIdPrefix ...byte) string {
+	txId := testTxId(0, txIdPrefix...).TxId
+	return hex.EncodeToString(txId[:])
 }
