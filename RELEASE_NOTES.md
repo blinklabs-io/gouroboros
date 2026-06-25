@@ -19,7 +19,7 @@ This release restores reliable `GetDRepState` decoding for Conway governance wor
 
 ### Additional Changes
 
-* Strengthened TxSubmission message coverage with broader scenario based and byte exact `CBOR` checks across supported message types, improving regression detection and confidence in protocol message compatibility.
+* Strengthened TxSubmission message coverage with broader scenario based and byte exact checks across supported message types, improving regression detection and confidence in protocol message compatibility.
 
 ## v0.184.0
 
