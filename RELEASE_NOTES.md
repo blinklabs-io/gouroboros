@@ -11,15 +11,15 @@ title: Release notes
 
 ### Summary
 
-This release restores reliable `GetDRepState` decoding for Conway governance workflows when registered DReps are present, and it improves TxSubmission message verification so protocol compatibility stays more reliable over time.
+This release restores `GetDRepState` compatibility with cardano-node and cardano-cli for Conway governance workflows, and it strengthens TxSubmission message encoding and decoding reliability so protocol compatibility stays more reliable over time.
 
 ### Bug Fixes
 
-* Restored `GetDRepState` compatibility so cardano-node, cardano-cli, and other clients can decode DRep state correctly with the expected four part response, including delegator information and the correct anchor value layout.
+* Restored `GetDRepState` compatibility so cardano-node, cardano-cli, and other clients can decode DRep state correctly with the expected four element wire format, including delegator information and the correct anchor encoding shape.
 
 ### Additional Changes
 
-* Strengthened TxSubmission message coverage with broader scenario based and byte exact checks across supported message types, improving regression detection and confidence in protocol message compatibility.
+* Strengthened TxSubmission message coverage with broader table driven and byte exact `CBOR` checks across supported message types, improving regression detection and confidence in protocol message compatibility.
 
 ## v0.184.0
 
