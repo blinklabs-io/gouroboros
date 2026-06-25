@@ -1121,12 +1121,64 @@ func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
 	}
 }
 
-// DRepStateEntry represents the state of a single DRep
+// DRepStateEntry represents the state of a single DRep.
+//
+// On the wire it is the cardano-node GetDRepState value: a 4-element array
+//
+//	[ expiry, anchor, deposit, delegators ]
+//
+// where anchor is a StrictMaybe encoded as a list ([] for none, [anchor] for
+// some — not a CBOR null), and delegators is a CBOR set (tag 258) of the stake
+// credentials currently delegating their voting power to this DRep. cardano
+// clients (cardano-cli) decode this exact shape; emitting a 3-element array (no
+// delegators) or a CBOR null anchor makes them fail with a size mismatch.
 type DRepStateEntry struct {
-	cbor.StructAsArray
-	Expiry  uint64             // Epoch when DRep expires
-	Anchor  *lcommon.GovAnchor // Optional metadata anchor
-	Deposit uint64             // Deposit amount
+	Expiry     uint64             // Epoch when DRep expires
+	Anchor     *lcommon.GovAnchor // Optional metadata anchor
+	Deposit    uint64             // Deposit amount
+	Delegators []StakeCredential  // Stake credentials delegating to this DRep
+}
+
+func (e DRepStateEntry) MarshalCBOR() ([]byte, error) {
+	// StrictMaybe Anchor: SNothing -> [], SJust -> [anchor].
+	anchor := []any{}
+	if e.Anchor != nil {
+		anchor = []any{*e.Anchor}
+	}
+	// Delegators as a CBOR set (tag 258); empty when the DRep has none.
+	delegators := make(cbor.Set, len(e.Delegators))
+	for i := range e.Delegators {
+		delegators[i] = e.Delegators[i]
+	}
+	return cbor.Encode([]any{
+		e.Expiry,
+		anchor,
+		e.Deposit,
+		delegators,
+	})
+}
+
+func (e *DRepStateEntry) UnmarshalCBOR(data []byte) error {
+	var raw struct {
+		cbor.StructAsArray
+		Expiry     uint64
+		Anchor     []lcommon.GovAnchor
+		Deposit    uint64
+		Delegators []StakeCredential
+	}
+	if _, err := cbor.Decode(data, &raw); err != nil {
+		return err
+	}
+	e.Expiry = raw.Expiry
+	if len(raw.Anchor) > 0 {
+		anchor := raw.Anchor[0]
+		e.Anchor = &anchor
+	} else {
+		e.Anchor = nil
+	}
+	e.Deposit = raw.Deposit
+	e.Delegators = raw.Delegators
+	return nil
 }
 
 // DRepStateResult represents the DRep state query result.
