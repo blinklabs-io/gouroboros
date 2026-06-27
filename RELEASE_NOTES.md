@@ -21,6 +21,29 @@ This release restores `GetDRepState` compatibility with cardano-node and cardano
 
 * Strengthened TxSubmission message coverage with broader table driven and byte exact `CBOR` checks across supported message types, improving regression detection and confidence in protocol message compatibility.
 
+## v0.185.0
+
+- **Date:** 2026-06-23
+- **Version:** 0.185.0
+
+### Summary
+
+This release renames the Leios test network identifier to Musashi, refreshes benchmark reference documentation with current commands and results, and updates `RELEASE_NOTES.md` to keep the published release history current.
+
+### Breaking Changes
+
+* Updated the Cardano test network identifier from Leios to Musashi, requiring integrations that select the former test network value to switch to the new name.
+
+### Additional Changes
+
+* Refreshed benchmark reference documentation with current commands, a Go `1.25.8` environment on Linux arm64, and updated benchmark results.
+
+* Documented the prior `v0.184.0` entry in `RELEASE_NOTES.md`.
+
+* Polished the wording in the `v0.184.0` release notes in `RELEASE_NOTES.md`.
+
+* Refined the formatting and terminology in the `v0.184.0` release notes in `RELEASE_NOTES.md`.
+
 ## v0.184.0
 
 - **Date:** 2026-06-22
