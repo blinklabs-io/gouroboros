@@ -17,6 +17,7 @@ package ledger
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
 	"strings"
 	"testing"
 
@@ -25,6 +26,47 @@ import (
 
 // Test seed for deterministic key generation (exactly 32 bytes)
 var opCertTestSeed = []byte("test_seed_for_opcert_validate!!X")
+
+// TestVerifyOpCertSignatureRealCardanoCert is a known-answer test against a
+// real cardano-cli NodeOperationalCertificate. It guards the signable
+// representation: the cold signature verifies only over the raw OCertSignable
+// bytes (KES vkey || counter || period), NOT a CBOR encoding. If this test
+// fails, VerifyOpCertSignature has drifted from cardano-node and would reject
+// real blocks.
+func TestVerifyOpCertSignatureRealCardanoCert(t *testing.T) {
+	mustHex := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			t.Fatalf("decode hex: %v", err)
+		}
+		return b
+	}
+	// Values decoded from a real cardano-cli opcert (issue 0, KES period 0).
+	opCert := &OpCert{
+		KesVkey: mustHex(
+			"4cd49bb05e9885142fe7af1481107995298771fd1a24e72b506a4d600ee2b312",
+		),
+		IssueNumber: 0,
+		KesPeriod:   0,
+		ColdSignature: mustHex(
+			"89fc9e9f551b2ea873bf31643659d049152d5c8e8de86be4056370bccc5fa62d" +
+				"d12e3f152f1664e614763e46eaa7a17ed366b5cef19958773d1ab96941442e0b",
+		),
+	}
+	coldVkey := mustHex(
+		"5a3d778e76741a009e29d23093cfe046131808d34d7c864967b515e98dfc3583",
+	)
+	if err := VerifyOpCertSignature(opCert, coldVkey); err != nil {
+		t.Fatalf("real cardano-cli opcert must verify: %v", err)
+	}
+	// A flipped signature must be rejected.
+	bad := *opCert
+	bad.ColdSignature = append([]byte(nil), opCert.ColdSignature...)
+	bad.ColdSignature[0] ^= 0xFF
+	if err := VerifyOpCertSignature(&bad, coldVkey); err == nil {
+		t.Fatal("tampered opcert signature must be rejected")
+	}
+}
 
 // TestCreateAndVerifyOpCert tests creating and verifying an OpCert
 func TestCreateAndVerifyOpCert(t *testing.T) {

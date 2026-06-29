@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/vrf"
@@ -425,22 +424,18 @@ func (v *HeaderValidator) validateOpCertSignature(
 		)
 	}
 
-	// The OpCert signature is over CBOR encoding of: [hot_vkey, sequence_number, kes_period]
-	opCertBody := []any{
+	// The OpCert signature is over the raw OCertSignable representation
+	// (hot_vkey || sequence_number || kes_period), not a CBOR encoding.
+	opCertBody := common.OpCertSignableBytes(
 		input.OpCertHotVkey,
-		input.OpCertSequenceNumber,
-		input.OpCertKesPeriod,
-	}
-
-	opCertBodyBytes, err := cbor.Encode(opCertBody)
-	if err != nil {
-		return fmt.Errorf("failed to encode OpCert body: %w", err)
-	}
+		uint64(input.OpCertSequenceNumber),
+		uint64(input.OpCertKesPeriod),
+	)
 
 	// Verify Ed25519 signature
 	valid := ed25519.Verify(
 		input.IssuerVkey,
-		opCertBodyBytes,
+		opCertBody,
 		input.OpCertSignature,
 	)
 	if !valid {
