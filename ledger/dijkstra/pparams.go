@@ -570,7 +570,9 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 			data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))),
 		)
 	}
-	// TODO(enhancement): Add CostModels serialization for Plutus data conversion.
+	if u.CostModels != nil {
+		push(18, common.CostModelsToPlutusData(u.CostModels))
+	}
 	if u.ExecutionCosts != nil {
 		push(19,
 			data.NewList(
