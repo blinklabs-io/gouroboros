@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
 
@@ -324,6 +325,69 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 	require.NotEmpty(t, raw)
 	require.NotEmpty(t, decoded.BlockHeader.Cbor())
 	require.Equal(t, []byte(raw[0]), decoded.BlockHeader.Cbor())
+}
+
+func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
+	blockBody := DijkstraBlockBody{
+		TransactionBodies: []DijkstraTransactionBody{
+			{TxFee: 1},
+		},
+		TransactionWitnessSets: []DijkstraTransactionWitnessSet{
+			{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagGuarding, Index: 0}: {
+							Data: common.Datum{
+								Data: data.NewInteger(big.NewInt(42)),
+							},
+							ExUnits: common.ExUnits{
+								Memory: 11,
+								Steps:  22,
+							},
+						},
+					},
+				},
+			},
+		},
+		InvalidTransactions: []uint{},
+	}
+	block := DijkstraBlock{
+		BlockHeader: &DijkstraBlockHeader{
+			BabbageBlockHeader: babbage.BabbageBlockHeader{
+				Body: babbage.BabbageBlockHeaderBody{
+					BlockBodyHash: blockBody.Hash(),
+					VrfKey:        make([]byte, 32),
+					VrfResult: common.VrfResult{
+						Output: []byte{},
+						Proof:  make([]byte, 80),
+					},
+					OpCert: babbage.BabbageOpCert{
+						HotVkey:   make([]byte, 32),
+						Signature: make([]byte, 64),
+					},
+					ProtoVersion: babbage.BabbageProtoVersion{
+						Major: MinProtocolVersionDijkstra,
+					},
+				},
+				Signature: make([]byte, 448),
+			},
+		},
+		BlockBody: blockBody,
+	}
+
+	blockCbor, err := block.MarshalCBOR()
+	require.NoError(t, err)
+
+	decoded, err := NewDijkstraBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, decoded.BlockBody.TransactionWitnessSets, 1)
+
+	redeemers := decoded.BlockBody.TransactionWitnessSets[0].WsRedeemers
+	require.Equal(t, 1, redeemers.Len())
+	redeemer := redeemers.Value(0, common.RedeemerTagGuarding)
+	require.Equal(t, int64(11), redeemer.ExUnits.Memory)
+	require.Equal(t, int64(22), redeemer.ExUnits.Steps)
+	require.Equal(t, blockBody.Hash(), decoded.BlockBodyHash())
 }
 
 func TestIsCborNullOnlyAcceptsEncodedNull(t *testing.T) {

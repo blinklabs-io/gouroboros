@@ -1195,7 +1195,7 @@ func (r *DijkstraRedeemers) UnmarshalCBOR(cborData []byte) error {
 		return errors.New("dijkstra redeemers must use map encoding")
 	}
 	var redeemers map[common.RedeemerKey]common.RedeemerValue
-	if err := cbor.DecodeGeneric(cborData, &redeemers); err != nil {
+	if _, err := cbor.Decode(cborData, &redeemers); err != nil {
 		return err
 	}
 	if len(redeemers) == 0 {
