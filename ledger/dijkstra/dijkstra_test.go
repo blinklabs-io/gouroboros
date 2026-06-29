@@ -328,6 +328,7 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 }
 
 func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
+	expectedRedeemerData := data.NewInteger(big.NewInt(42))
 	blockBody := DijkstraBlockBody{
 		TransactionBodies: []DijkstraTransactionBody{
 			{TxFee: 1},
@@ -338,7 +339,7 @@ func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
 					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 						{Tag: common.RedeemerTagGuarding, Index: 0}: {
 							Data: common.Datum{
-								Data: data.NewInteger(big.NewInt(42)),
+								Data: expectedRedeemerData,
 							},
 							ExUnits: common.ExUnits{
 								Memory: 11,
@@ -385,6 +386,14 @@ func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
 	redeemers := decoded.BlockBody.TransactionWitnessSets[0].WsRedeemers
 	require.Equal(t, 1, redeemers.Len())
 	redeemer := redeemers.Value(0, common.RedeemerTagGuarding)
+	require.NotNil(t, redeemer.Data.Data)
+	require.True(
+		t,
+		expectedRedeemerData.Equal(redeemer.Data.Data),
+		"redeemer data mismatch: got %s, want %s",
+		redeemer.Data.Data,
+		expectedRedeemerData,
+	)
 	require.Equal(t, int64(11), redeemer.ExUnits.Memory)
 	require.Equal(t, int64(22), redeemer.ExUnits.Steps)
 	require.Equal(t, blockBody.Hash(), decoded.BlockBodyHash())
