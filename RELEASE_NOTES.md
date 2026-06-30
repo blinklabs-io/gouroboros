@@ -11,13 +11,13 @@ title: Release notes
 
 ### Summary
 
-This release fixes operational certificate verification compatibility, corrects Dijkstra redeemer decoding, adds missing cost model serialization for Conway and Dijkstra protocol parameter updates, refreshes key dependencies, and updates CI workflow tooling.
+This release fixes operational certificate verification compatibility, corrects Dijkstra redeemer decoding, preserves protocol parameter cost model updates during data conversion, refreshes key dependencies, and updates workflow tooling.
 
 ### Bug Fixes
 
-* Fixed operational certificate signing and verification so the library now uses the raw `OCertSignable` byte representation, allowing real Cardano operational certificates and headers to verify correctly instead of being rejected.
-* Corrected Dijkstra redeemer witness map decoding so redeemer data and execution units stay intact during block decoding and synchronization instead of causing decode failures.
-* Updated Conway and Dijkstra protocol parameter updates to serialize cost models into `PlutusData` deterministically, so governance and script context consumers retain those updates.
+* Fixed operational certificate signing and verification so the library now uses the correct raw certificate bytes, allowing real Cardano operational certificates and headers to verify correctly instead of being rejected.
+* Corrected Dijkstra redeemer decoding so redeemer data and execution units stay intact during block decoding and synchronization instead of failing to load.
+* Updated Conway and Dijkstra protocol parameter updates to preserve cost model updates during deterministic data conversion, so governance and script context consumers retain those values.
 
 ### Additional Changes
 
