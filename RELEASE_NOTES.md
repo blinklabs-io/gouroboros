@@ -4,6 +4,27 @@ title: Release notes
 
 # Release notes
 
+## v0.186.1
+
+- **Date:** 2026-06-30
+- **Version:** 0.186.1
+
+### Summary
+
+This release fixes operational certificate verification compatibility, corrects Dijkstra redeemer decoding, adds missing cost model serialization for Conway and Dijkstra protocol parameter updates, refreshes key dependencies, and updates CI workflow tooling.
+
+### Bug Fixes
+
+* Fixed operational certificate signing and verification so the library now uses the raw `OCertSignable` byte representation, allowing real Cardano operational certificates and headers to verify correctly instead of being rejected.
+* Corrected Dijkstra redeemer witness map decoding so redeemer data and execution units stay intact during block decoding and synchronization instead of causing decode failures.
+* Updated Conway and Dijkstra protocol parameter updates to serialize cost models into `PlutusData` deterministically, so governance and script context consumers retain those updates.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` to `v0.1.16`, bringing upstream Plutus related security, validation, and performance improvements to consumers of this module.
+* Refreshed `github.com/blinklabs-io/ouroboros-mock` to `v0.14.0`, updating the bundled mock and fixture dependency for developers and test consumers.
+* Advanced `actions/setup-go` to `v6.5.0`, refreshing Go toolchain setup in repository workflows.
+
 ## v0.186.0
 
 - **Date:** 2026-06-25
