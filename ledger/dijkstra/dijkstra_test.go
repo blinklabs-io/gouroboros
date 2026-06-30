@@ -24,8 +24,13 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
+
+func testPlutusInteger(v int64) data.PlutusData {
+	return data.NewInteger(big.NewInt(v))
+}
 
 func minimalTxBody() map[uint]any {
 	return map[uint]any{
@@ -601,6 +606,50 @@ func TestDijkstraProtocolParametersUpdatePreservesLeiosStakeInvariant(t *testing
 		pparams.CommitteeStakeCoverage.Cmp(big.NewRat(99, 100)),
 	)
 	require.Equal(t, 0, pparams.QuorumStakeThreshold.Cmp(big.NewRat(4, 5)))
+}
+
+func TestDijkstraProtocolParameterUpdateToPlutusDataCostModels(t *testing.T) {
+	maxRefScriptSizePerBlock := uint32(1234)
+	maxRefScriptSizePerTx := uint32(4321)
+	refScriptCostStride := uint32(64)
+	update := DijkstraProtocolParameterUpdate{
+		CostModels: map[uint][]int64{
+			3: {9, 8},
+			1: {7},
+		},
+		MaxRefScriptSizePerBlock: &maxRefScriptSizePerBlock,
+		MaxRefScriptSizePerTx:    &maxRefScriptSizePerTx,
+		RefScriptCostStride:      &refScriptCostStride,
+		RefScriptCostMultiplier:  &cbor.Rat{Rat: big.NewRat(5, 2)},
+	}
+	expected := data.NewMap([][2]data.PlutusData{
+		{
+			testPlutusInteger(18),
+			data.NewMap([][2]data.PlutusData{
+				{
+					testPlutusInteger(1),
+					data.NewList(testPlutusInteger(7)),
+				},
+				{
+					testPlutusInteger(3),
+					data.NewList(
+						testPlutusInteger(9),
+						testPlutusInteger(8),
+					),
+				},
+			}),
+		},
+		{testPlutusInteger(34), testPlutusInteger(1234)},
+		{testPlutusInteger(35), testPlutusInteger(4321)},
+		{testPlutusInteger(36), testPlutusInteger(64)},
+		{
+			testPlutusInteger(37),
+			data.NewList(testPlutusInteger(5), testPlutusInteger(2)),
+		},
+	})
+
+	result := update.ToPlutusData()
+	require.True(t, expected.Equal(result), "got %#v", result)
 }
 
 func TestDijkstraParameterChangeGovActionDecodesDijkstraUpdateFields(t *testing.T) {

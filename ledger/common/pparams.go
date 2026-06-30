@@ -16,8 +16,12 @@ package common
 
 import (
 	"log/slog"
+	"maps"
+	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -62,4 +66,26 @@ func ConvertToUtxorpcCardanoCostModels(
 		}
 	}
 	return costModels
+}
+
+// CostModelsToPlutusData converts ledger cost-model updates to a PlutusData map.
+func CostModelsToPlutusData(models map[uint][]int64) data.PlutusData {
+	keys := slices.Collect(maps.Keys(models))
+	slices.Sort(keys)
+	pairs := make([][2]data.PlutusData, 0, len(keys))
+	for _, key := range keys {
+		values := models[key]
+		valueItems := make([]data.PlutusData, len(values))
+		for i, value := range values {
+			valueItems[i] = data.NewInteger(big.NewInt(value))
+		}
+		pairs = append(
+			pairs,
+			[2]data.PlutusData{
+				data.NewInteger(new(big.Int).SetUint64(uint64(key))),
+				data.NewList(valueItems...),
+			},
+		)
+	}
+	return data.NewMap(pairs)
 }
