@@ -331,6 +331,78 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 	require.Equal(t, []byte(raw[0]), decoded.BlockHeader.Cbor())
 }
 
+func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
+	expectedRedeemerData := data.NewInteger(big.NewInt(42))
+	blockBody := DijkstraBlockBody{
+		TransactionBodies: []DijkstraTransactionBody{
+			{TxFee: 1},
+		},
+		TransactionWitnessSets: []DijkstraTransactionWitnessSet{
+			{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagGuarding, Index: 0}: {
+							Data: common.Datum{
+								Data: expectedRedeemerData,
+							},
+							ExUnits: common.ExUnits{
+								Memory: 11,
+								Steps:  22,
+							},
+						},
+					},
+				},
+			},
+		},
+		InvalidTransactions: []uint{},
+	}
+	block := DijkstraBlock{
+		BlockHeader: &DijkstraBlockHeader{
+			BabbageBlockHeader: babbage.BabbageBlockHeader{
+				Body: babbage.BabbageBlockHeaderBody{
+					BlockBodyHash: blockBody.Hash(),
+					VrfKey:        make([]byte, 32),
+					VrfResult: common.VrfResult{
+						Output: []byte{},
+						Proof:  make([]byte, 80),
+					},
+					OpCert: babbage.BabbageOpCert{
+						HotVkey:   make([]byte, 32),
+						Signature: make([]byte, 64),
+					},
+					ProtoVersion: babbage.BabbageProtoVersion{
+						Major: MinProtocolVersionDijkstra,
+					},
+				},
+				Signature: make([]byte, 448),
+			},
+		},
+		BlockBody: blockBody,
+	}
+
+	blockCbor, err := block.MarshalCBOR()
+	require.NoError(t, err)
+
+	decoded, err := NewDijkstraBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, decoded.BlockBody.TransactionWitnessSets, 1)
+
+	redeemers := decoded.BlockBody.TransactionWitnessSets[0].WsRedeemers
+	require.Equal(t, 1, redeemers.Len())
+	redeemer := redeemers.Value(0, common.RedeemerTagGuarding)
+	require.NotNil(t, redeemer.Data.Data)
+	require.True(
+		t,
+		expectedRedeemerData.Equal(redeemer.Data.Data),
+		"redeemer data mismatch: got %s, want %s",
+		redeemer.Data.Data,
+		expectedRedeemerData,
+	)
+	require.Equal(t, int64(11), redeemer.ExUnits.Memory)
+	require.Equal(t, int64(22), redeemer.ExUnits.Steps)
+	require.Equal(t, blockBody.Hash(), decoded.BlockBodyHash())
+}
+
 func TestIsCborNullOnlyAcceptsEncodedNull(t *testing.T) {
 	require.True(t, isCborNull(cbor.RawMessage{0xf6}))
 	require.False(t, isCborNull(nil))
