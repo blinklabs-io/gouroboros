@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release fixes operational certificate verification compatibility, corrects Dijkstra redeemer decoding, preserves protocol parameter cost model updates during data conversion, refreshes key dependencies, and updates workflow tooling.
+This release fixes operational certificate verification compatibility, corrects Dijkstra redeemer decoding, preserves protocol parameter cost model updates during deterministic data conversion, refreshes key dependencies, and updates workflow tooling.
 
 ### Bug Fixes
 
