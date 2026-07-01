@@ -438,6 +438,24 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	// Reject duplicate members in any tag-258 witness set field.
+	// Untagged array fields are left unchecked so pre-Conway encodings remain valid.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.VkeyWitnesses,
+		&tmp.WsNativeScripts,
+		&tmp.BootstrapWitnesses,
+		&tmp.WsPlutusV1Scripts,
+		&tmp.WsPlutusData,
+		&tmp.WsPlutusV2Scripts,
+		&tmp.WsPlutusV3Scripts,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
+	}
 	*w = ConwayTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil
@@ -587,6 +605,20 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	var tmp tConwayTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	// Reject duplicate members in any tag-258 set field on the transaction body.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.TxInputs,
+		&tmp.TxCollateral,
+		&tmp.TxRequiredSigners,
+		&tmp.TxReferenceInputs,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
 	}
 	*b = ConwayTransactionBody(tmp)
 	b.SetCborReference(cborData)
