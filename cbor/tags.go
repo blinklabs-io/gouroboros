@@ -263,7 +263,7 @@ func (t *SetType[T]) CheckForDuplicates() error {
 		}
 		key := string(encoded)
 		if _, exists := seen[key]; exists {
-			return errors.New("duplicate member in witness set")
+			return errors.New("duplicate member in set")
 		}
 		seen[key] = struct{}{}
 	}

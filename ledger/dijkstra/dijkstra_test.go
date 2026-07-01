@@ -363,7 +363,7 @@ func TestDijkstraWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
 	}
 	var ws DijkstraTransactionWitnessSet
 	err := ws.UnmarshalCBOR(dupCbor)
-	require.ErrorContains(t, err, "duplicate member in witness set")
+	require.ErrorContains(t, err, "duplicate member in set")
 }
 
 func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
@@ -380,7 +380,7 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
 	}
 	var body DijkstraTransactionBody
 	err := body.UnmarshalCBOR(dupCbor)
-	require.ErrorContains(t, err, "duplicate member in witness set")
+	require.ErrorContains(t, err, "duplicate member in set")
 }
 
 func TestDijkstraWitnessSetAllowsDuplicateUntaggedVkeyWitness(t *testing.T) {
