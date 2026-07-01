@@ -210,6 +210,87 @@ func TestConwayTx_Utxorpc(t *testing.T) {
 	}
 }
 
+func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
+	input := testConwayShelleyInput()
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{input, input}, true),
+	})
+	assert.NoError(t, err)
+
+	var body ConwayTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	assert.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestConwayTransactionBodyRejectsDuplicateTaggedSetFields(t *testing.T) {
+	input := testConwayShelleyInput()
+	var signer common.Blake2b224
+	signer[0] = 1
+	tests := []struct {
+		name  string
+		field uint
+		value any
+	}{
+		{
+			name:  "collateral",
+			field: 13,
+			value: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input, input},
+				true,
+			),
+		},
+		{
+			name:  "required signers",
+			field: 14,
+			value: cbor.NewSetType([]common.Blake2b224{signer, signer}, true),
+		},
+		{
+			name:  "reference inputs",
+			field: 18,
+			value: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input, input},
+				true,
+			),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				tt.field: tt.value,
+			})
+			assert.NoError(t, err)
+
+			var body ConwayTransactionBody
+			err = body.UnmarshalCBOR(bodyCbor)
+			assert.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
+func TestConwayWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
+	dupCbor := []byte{
+		0xa1,             // map(1)
+		0x00,             // key: 0  (VkeyWitnesses field)
+		0xd9, 0x01, 0x02, // tag(258) - CBOR set
+		0x82,                         // array(2)
+		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
+		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	}
+
+	var ws ConwayTransactionWitnessSet
+	err := ws.UnmarshalCBOR(dupCbor)
+	assert.ErrorContains(t, err, "duplicate member in set")
+}
+
+func testConwayShelleyInput() shelley.ShelleyTransactionInput {
+	var txId common.Blake2b256
+	txId[0] = 1
+	return shelley.ShelleyTransactionInput{
+		TxId:        txId,
+		OutputIndex: 0,
+	}
+}
+
 func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
 	// Test CBOR round-trip for transactions with reference inputs (CIP-0031)
 
