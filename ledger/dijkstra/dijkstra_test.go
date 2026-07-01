@@ -331,6 +331,73 @@ func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
 	require.Equal(t, []byte(raw[0]), decoded.BlockHeader.Cbor())
 }
 
+func TestDijkstraRedeemersRejectsDuplicateMapKey(t *testing.T) {
+	// Craft a raw CBOR map with two identical RedeemerKey entries.
+	// RedeemerKey{Tag:0, Index:0} encodes as StructAsArray [0,0] = 82 00 00.
+	// RedeemerValue{Datum(int 1), ExUnits{1,1}} encodes as [1,[1,1]] = 82 01 82 01 01.
+	// DupMapKeyEnforcedAPF on the shared decode mode must reject this before rule evaluation.
+	dupCbor := []byte{
+		0xa2,                          // map(2)
+		0x82, 0x00, 0x00,              // key:   [0, 0]
+		0x82, 0x01, 0x82, 0x01, 0x01, // value: [1, [1, 1]]
+		0x82, 0x00, 0x00,              // key:   [0, 0]  -- duplicate
+		0x82, 0x02, 0x82, 0x02, 0x02, // value: [2, [2, 2]]
+	}
+	var r DijkstraRedeemers
+	err := r.UnmarshalCBOR(dupCbor)
+	require.Error(t, err)
+}
+
+func TestDijkstraWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
+	// Craft a witness set CBOR where field 0 (vkey witnesses) is a tag-258 set
+	// containing two identical VkeyWitness entries.
+	// VkeyWitness{Vkey:[0x01], Signature:[0x02]} = 82 41 01 41 02.
+	// The Dijkstra guard introduced in UnmarshalCBOR must reject this.
+	dupCbor := []byte{
+		0xa1,                         // map(1)
+		0x00,                         // key: 0  (VkeyWitnesses field)
+		0xd9, 0x01, 0x02,             // tag(258) — CBOR set
+		0x82,                         // array(2)
+		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
+		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
+	}
+	var ws DijkstraTransactionWitnessSet
+	err := ws.UnmarshalCBOR(dupCbor)
+	require.ErrorContains(t, err, "duplicate member in witness set")
+}
+
+func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
+	// Craft a transaction body where field 23 (TxSubTransactions) is a tag-258 set
+	// containing two identical minimal sub-transactions.
+	// Minimal sub-transaction = [empty-body, empty-witness, null] = 83 a0 a0 f6.
+	dupCbor := []byte{
+		0xa1,                         // map(1)
+		0x17,                         // key: 23 (TxSubTransactions field)
+		0xd9, 0x01, 0x02,             // tag(258) — CBOR set
+		0x82,                         // array(2)
+		0x83, 0xa0, 0xa0, 0xf6,       // sub-tx: [empty-body, empty-witness, null]
+		0x83, 0xa0, 0xa0, 0xf6,       // duplicate
+	}
+	var body DijkstraTransactionBody
+	err := body.UnmarshalCBOR(dupCbor)
+	require.ErrorContains(t, err, "duplicate member in witness set")
+}
+
+func TestDijkstraWitnessSetAllowsDuplicateUntaggedVkeyWitness(t *testing.T) {
+	// Untagged arrays (no tag 258) are not checked for duplicates so that
+	// pre-Dijkstra encodings decoded via this path remain accepted.
+	dupCbor := []byte{
+		0xa1,                         // map(1)
+		0x00,                         // key: 0  (VkeyWitnesses field)
+		// plain array — no tag 258
+		0x82,                         // array(2)
+		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
+		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate — must NOT be rejected
+	}
+	var ws DijkstraTransactionWitnessSet
+	require.NoError(t, ws.UnmarshalCBOR(dupCbor))
+}
+
 func TestDijkstraBlockDecodesRedeemerWitnessMap(t *testing.T) {
 	expectedRedeemerData := data.NewInteger(big.NewInt(42))
 	blockBody := DijkstraBlockBody{
