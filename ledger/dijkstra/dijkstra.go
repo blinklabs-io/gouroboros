@@ -829,6 +829,9 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	g.SetCbor(cborData)
 	var credentials cbor.SetType[common.Credential]
 	if _, err := cbor.Decode(cborData, &credentials); err == nil {
+		if err := credentials.CheckForDuplicates(); err != nil {
+			return err
+		}
 		if len(credentials.Items()) == 0 {
 			return errors.New("dijkstra guards must not be empty")
 		}
@@ -838,6 +841,9 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	}
 	var keyHashes cbor.SetType[common.Blake2b224]
 	if _, err := cbor.Decode(cborData, &keyHashes); err != nil {
+		return err
+	}
+	if err := keyHashes.CheckForDuplicates(); err != nil {
 		return err
 	}
 	if len(keyHashes.Items()) == 0 {
@@ -906,6 +912,20 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	var tmp tDijkstraTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	// Reject duplicate members in any tag-258 set field on the transaction body.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.TxInputs,
+		&tmp.TxCollateral,
+		&tmp.TxReferenceInputs,
+		&tmp.TxSubTransactions,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
 	}
 	*b = DijkstraTransactionBody(tmp)
 	b.SetCborReference(cborData)
@@ -1112,6 +1132,12 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {
+		return err
+	}
+	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
+		return err
+	}
 	*b = DijkstraSubTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
@@ -1269,6 +1295,25 @@ func (w *DijkstraTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	var tmp tDijkstraTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	// Reject duplicate members in any tag-258 witness set field.
+	// Untagged array fields are left unchecked so pre-Dijkstra encodings remain valid.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.VkeyWitnesses,
+		&tmp.WsNativeScripts,
+		&tmp.BootstrapWitnesses,
+		&tmp.WsPlutusV1Scripts,
+		&tmp.WsPlutusData,
+		&tmp.WsPlutusV2Scripts,
+		&tmp.WsPlutusV3Scripts,
+		&tmp.WsPlutusV4Scripts,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
 	}
 	*w = DijkstraTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
