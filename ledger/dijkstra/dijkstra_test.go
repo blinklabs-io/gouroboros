@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -337,10 +338,10 @@ func TestDijkstraRedeemersRejectsDuplicateMapKey(t *testing.T) {
 	// RedeemerValue{Datum(int 1), ExUnits{1,1}} encodes as [1,[1,1]] = 82 01 82 01 01.
 	// DupMapKeyEnforcedAPF on the shared decode mode must reject this before rule evaluation.
 	dupCbor := []byte{
-		0xa2,                          // map(2)
-		0x82, 0x00, 0x00,              // key:   [0, 0]
+		0xa2,             // map(2)
+		0x82, 0x00, 0x00, // key:   [0, 0]
 		0x82, 0x01, 0x82, 0x01, 0x01, // value: [1, [1, 1]]
-		0x82, 0x00, 0x00,              // key:   [0, 0]  -- duplicate
+		0x82, 0x00, 0x00, // key:   [0, 0]  -- duplicate
 		0x82, 0x02, 0x82, 0x02, 0x02, // value: [2, [2, 2]]
 	}
 	var r DijkstraRedeemers
@@ -354,9 +355,9 @@ func TestDijkstraWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
 	// VkeyWitness{Vkey:[0x01], Signature:[0x02]} = 82 41 01 41 02.
 	// The Dijkstra guard introduced in UnmarshalCBOR must reject this.
 	dupCbor := []byte{
-		0xa1,                         // map(1)
-		0x00,                         // key: 0  (VkeyWitnesses field)
-		0xd9, 0x01, 0x02,             // tag(258) — CBOR set
+		0xa1,             // map(1)
+		0x00,             // key: 0  (VkeyWitnesses field)
+		0xd9, 0x01, 0x02, // tag(258) — CBOR set
 		0x82,                         // array(2)
 		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}
 		0x82, 0x41, 0x01, 0x41, 0x02, // duplicate
@@ -371,15 +372,108 @@ func TestDijkstraTransactionBodyRejectsDuplicateSubTransaction(t *testing.T) {
 	// containing two identical minimal sub-transactions.
 	// Minimal sub-transaction = [empty-body, empty-witness, null] = 83 a0 a0 f6.
 	dupCbor := []byte{
-		0xa1,                         // map(1)
-		0x17,                         // key: 23 (TxSubTransactions field)
-		0xd9, 0x01, 0x02,             // tag(258) — CBOR set
-		0x82,                         // array(2)
-		0x83, 0xa0, 0xa0, 0xf6,       // sub-tx: [empty-body, empty-witness, null]
-		0x83, 0xa0, 0xa0, 0xf6,       // duplicate
+		0xa1,             // map(1)
+		0x17,             // key: 23 (TxSubTransactions field)
+		0xd9, 0x01, 0x02, // tag(258) — CBOR set
+		0x82,                   // array(2)
+		0x83, 0xa0, 0xa0, 0xf6, // sub-tx: [empty-body, empty-witness, null]
+		0x83, 0xa0, 0xa0, 0xf6, // duplicate
 	}
 	var body DijkstraTransactionBody
 	err := body.UnmarshalCBOR(dupCbor)
+	require.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
+	input := testShelleyInput()
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]shelley.ShelleyTransactionInput{input, input}, true),
+	})
+	require.NoError(t, err)
+
+	var body DijkstraTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionInputs(t *testing.T) {
+	input := testShelleyInput()
+	subTx := []any{
+		map[uint]any{
+			0: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input, input},
+				true,
+			),
+		},
+		map[uint]any{},
+		nil,
+	}
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		23: cbor.NewSetType([]any{subTx}, true),
+	})
+	require.NoError(t, err)
+
+	var body DijkstraTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionReferenceInputs(t *testing.T) {
+	refInput := testShelleyInput()
+	subTx := DijkstraSubTransaction{
+		Body: DijkstraSubTransactionBody{
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{refInput, refInput},
+				true,
+			),
+		},
+	}
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		23: cbor.NewSetType([]DijkstraSubTransaction{subTx}, true),
+	})
+	require.NoError(t, err)
+
+	var body DijkstraTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "duplicate member in set")
+}
+
+func testShelleyInput() shelley.ShelleyTransactionInput {
+	var txId common.Blake2b256
+	txId[0] = 1
+	return shelley.ShelleyTransactionInput{
+		TxId:        txId,
+		OutputIndex: 0,
+	}
+}
+
+func TestDijkstraTransactionBodyRejectsDuplicateCredentialGuards(t *testing.T) {
+	var hash common.Blake2b224
+	hash[0] = 1
+	guard := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: hash,
+	}
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		14: cbor.NewSetType([]common.Credential{guard, guard}, true),
+	})
+	require.NoError(t, err)
+
+	var body DijkstraTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestDijkstraTransactionBodyRejectsDuplicateKeyHashGuards(t *testing.T) {
+	var hash common.Blake2b224
+	hash[0] = 1
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		14: cbor.NewSetType([]common.Blake2b224{hash, hash}, true),
+	})
+	require.NoError(t, err)
+
+	var body DijkstraTransactionBody
+	err = body.UnmarshalCBOR(bodyCbor)
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
@@ -387,8 +481,8 @@ func TestDijkstraWitnessSetAllowsDuplicateUntaggedVkeyWitness(t *testing.T) {
 	// Untagged arrays (no tag 258) are not checked for duplicates so that
 	// pre-Dijkstra encodings decoded via this path remain accepted.
 	dupCbor := []byte{
-		0xa1,                         // map(1)
-		0x00,                         // key: 0  (VkeyWitnesses field)
+		0xa1, // map(1)
+		0x00, // key: 0  (VkeyWitnesses field)
 		// plain array — no tag 258
 		0x82,                         // array(2)
 		0x82, 0x41, 0x01, 0x41, 0x02, // VkeyWitness{[0x01], [0x02]}

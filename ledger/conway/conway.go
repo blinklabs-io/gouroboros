@@ -493,6 +493,7 @@ func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	// Check if the set is wrapped in a CBOR tag
 	// This is mostly needed so we can remember whether it was Set-wrapped for CBOR encoding
 	var tmpTag cbor.RawTag
+	s.useSet = false
 	if _, err := cbor.Decode(data, &tmpTag); err == nil {
 		if tmpTag.Number != cbor.CborTagSet {
 			return errors.New("unexpected tag type")
@@ -505,6 +506,25 @@ func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	s.items = tmpData
+	return nil
+}
+
+func (s *ConwayTransactionInputSet) CheckForDuplicates() error {
+	if !s.useSet {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(s.items))
+	for _, item := range s.items {
+		encoded, err := cbor.Encode(item)
+		if err != nil {
+			return err
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate member in set")
+		}
+		seen[key] = struct{}{}
+	}
 	return nil
 }
 

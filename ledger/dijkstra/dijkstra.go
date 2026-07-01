@@ -829,6 +829,9 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	g.SetCbor(cborData)
 	var credentials cbor.SetType[common.Credential]
 	if _, err := cbor.Decode(cborData, &credentials); err == nil {
+		if err := credentials.CheckForDuplicates(); err != nil {
+			return err
+		}
 		if len(credentials.Items()) == 0 {
 			return errors.New("dijkstra guards must not be empty")
 		}
@@ -838,6 +841,9 @@ func (g *DijkstraGuards) UnmarshalCBOR(cborData []byte) error {
 	}
 	var keyHashes cbor.SetType[common.Blake2b224]
 	if _, err := cbor.Decode(cborData, &keyHashes); err != nil {
+		return err
+	}
+	if err := keyHashes.CheckForDuplicates(); err != nil {
 		return err
 	}
 	if len(keyHashes.Items()) == 0 {
@@ -912,6 +918,7 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		CheckForDuplicates() error
 	}
 	for _, c := range []duplicateChecker{
+		&tmp.TxInputs,
 		&tmp.TxCollateral,
 		&tmp.TxReferenceInputs,
 		&tmp.TxSubTransactions,
@@ -1123,6 +1130,12 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tDijkstraSubTransactionBody DijkstraSubTransactionBody
 	var tmp tDijkstraSubTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {
+		return err
+	}
+	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
 		return err
 	}
 	*b = DijkstraSubTransactionBody(tmp)
