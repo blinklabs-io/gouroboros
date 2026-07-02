@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package leios
+package common
 
 import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,11 +25,11 @@ func TestLeiosEndorserBlockRoundTrip(t *testing.T) {
 	block := LeiosEndorserBlock{
 		TransactionReferences: []LeiosTransactionReference{
 			{
-				TransactionHash: common.NewBlake2b256([]byte{0x01}),
+				TransactionHash: NewBlake2b256([]byte{0x01}),
 				TransactionSize: 42,
 			},
 			{
-				TransactionHash: common.NewBlake2b256([]byte{0x02}),
+				TransactionHash: NewBlake2b256([]byte{0x02}),
 				TransactionSize: 65535,
 			},
 		},
@@ -50,7 +49,7 @@ func TestLeiosEndorserBlockRoundTrip(t *testing.T) {
 }
 
 func TestLeiosEndorserBlockRejectsDuplicateReferences(t *testing.T) {
-	hash := common.NewBlake2b256([]byte{0x01})
+	hash := NewBlake2b256([]byte{0x01})
 	block := LeiosEndorserBlock{
 		TransactionReferences: []LeiosTransactionReference{
 			{TransactionHash: hash, TransactionSize: 1},
@@ -68,7 +67,7 @@ func TestLeiosEndorserBlockRejectsEmptyReferences(t *testing.T) {
 	_, err := cbor.Encode(&block)
 	require.ErrorContains(t, err, "at least one transaction reference")
 
-	refMap, err := cbor.Encode(map[common.Blake2b256]uint16{})
+	refMap, err := cbor.Encode(map[Blake2b256]uint16{})
 	require.NoError(t, err)
 	blockCbor, err := cbor.Encode([]any{cbor.RawMessage(refMap)})
 	require.NoError(t, err)
@@ -81,7 +80,7 @@ func TestLeiosEndorserBlockRejectsZeroTxSize(t *testing.T) {
 	block := LeiosEndorserBlock{
 		TransactionReferences: []LeiosTransactionReference{
 			{
-				TransactionHash: common.NewBlake2b256([]byte{0x01}),
+				TransactionHash: NewBlake2b256([]byte{0x01}),
 				TransactionSize: 0,
 			},
 		},
@@ -90,8 +89,8 @@ func TestLeiosEndorserBlockRejectsZeroTxSize(t *testing.T) {
 	_, err := cbor.Encode(&block)
 	require.ErrorContains(t, err, "zero size")
 
-	refMap, err := cbor.Encode(map[common.Blake2b256]uint16{
-		common.NewBlake2b256([]byte{0x01}): 0,
+	refMap, err := cbor.Encode(map[Blake2b256]uint16{
+		NewBlake2b256([]byte{0x01}): 0,
 	})
 	require.NoError(t, err)
 	blockCbor, err := cbor.Encode([]any{cbor.RawMessage(refMap)})
@@ -113,7 +112,7 @@ func TestLeiosEndorserBlockRejectsTrailingBytes(t *testing.T) {
 	block := LeiosEndorserBlock{
 		TransactionReferences: []LeiosTransactionReference{
 			{
-				TransactionHash: common.NewBlake2b256([]byte{0x01}),
+				TransactionHash: NewBlake2b256([]byte{0x01}),
 				TransactionSize: 42,
 			},
 		},
@@ -131,8 +130,8 @@ func TestLeiosEndorserBlockRejectsTrailingBytes(t *testing.T) {
 }
 
 func TestLeiosEndorserBlockRejectsOversizedTxSize(t *testing.T) {
-	hash := common.NewBlake2b256([]byte{0x01})
-	refMap, err := cbor.Encode(map[common.Blake2b256]uint64{
+	hash := NewBlake2b256([]byte{0x01})
+	refMap, err := cbor.Encode(map[Blake2b256]uint64{
 		hash: 65536,
 	})
 	require.NoError(t, err)

@@ -48,10 +48,7 @@ func NewDecodeError(
 ) *DecodeError {
 	var raw []byte
 	if len(rawBytes) > 0 {
-		n := len(rawBytes)
-		if n > maxRawBytesPreview {
-			n = maxRawBytesPreview
-		}
+		n := min(len(rawBytes), maxRawBytesPreview)
 		raw = make([]byte, n)
 		copy(raw, rawBytes[:n])
 	}
@@ -128,10 +125,7 @@ func (e *DecodeError) WithDiagnostic(data []byte, opts DiagnosticOptions) string
 	}
 	raw := e.RawBytes
 	if len(raw) == 0 && len(data) > 0 && e.Offset >= 0 && e.Offset < len(data) {
-		end := e.Offset + maxRawBytesPreview
-		if end > len(data) {
-			end = len(data)
-		}
+		end := min(e.Offset+maxRawBytesPreview, len(data))
 		raw = data[e.Offset:end]
 	}
 	if len(raw) > 0 {

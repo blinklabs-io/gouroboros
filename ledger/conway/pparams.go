@@ -16,6 +16,7 @@ package conway
 
 import (
 	"errors"
+	"maps"
 	"math"
 	"math/big"
 
@@ -240,9 +241,7 @@ func (p *ConwayProtocolParameters) Update(
 		if p.CostModels == nil {
 			p.CostModels = make(map[uint][]int64)
 		}
-		for key, model := range paramUpdate.CostModels {
-			p.CostModels[key] = model
-		}
+		maps.Copy(p.CostModels, paramUpdate.CostModels)
 	}
 	if paramUpdate.ExecutionCosts != nil {
 		p.ExecutionCosts = *paramUpdate.ExecutionCosts
@@ -564,7 +563,9 @@ func (u ConwayProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 			data.NewInteger(new(big.Int).SetUint64(uint64(*u.AdaPerUtxoByte))),
 		)
 	}
-	// TODO(enhancement): Add CostModels serialization for Plutus data conversion
+	if u.CostModels != nil {
+		push(18, common.CostModelsToPlutusData(u.CostModels))
+	}
 	if u.ExecutionCosts != nil {
 		push(19,
 			data.NewList(

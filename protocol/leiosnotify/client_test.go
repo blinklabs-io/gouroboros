@@ -414,7 +414,7 @@ func TestNotificationLoopDrainsOnStop(t *testing.T) {
 	client.notificationChan <- NewMsgBlockAnnouncement([]byte{0x01})
 
 	// Send 3 remaining pipelined messages (should be drained without calling NotificationFunc)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		select {
 		case client.notificationChan <- NewMsgBlockAnnouncement([]byte{byte(i + 2)}):
 		case <-time.After(time.Second):

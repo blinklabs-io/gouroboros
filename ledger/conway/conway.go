@@ -438,6 +438,24 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	// Reject duplicate members in any tag-258 witness set field.
+	// Untagged array fields are left unchecked so pre-Conway encodings remain valid.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.VkeyWitnesses,
+		&tmp.WsNativeScripts,
+		&tmp.BootstrapWitnesses,
+		&tmp.WsPlutusV1Scripts,
+		&tmp.WsPlutusData,
+		&tmp.WsPlutusV2Scripts,
+		&tmp.WsPlutusV3Scripts,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
+	}
 	*w = ConwayTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil
@@ -493,6 +511,7 @@ func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	// Check if the set is wrapped in a CBOR tag
 	// This is mostly needed so we can remember whether it was Set-wrapped for CBOR encoding
 	var tmpTag cbor.RawTag
+	s.useSet = false
 	if _, err := cbor.Decode(data, &tmpTag); err == nil {
 		if tmpTag.Number != cbor.CborTagSet {
 			return errors.New("unexpected tag type")
@@ -505,6 +524,25 @@ func (s *ConwayTransactionInputSet) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	s.items = tmpData
+	return nil
+}
+
+func (s *ConwayTransactionInputSet) CheckForDuplicates() error {
+	if !s.useSet {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(s.items))
+	for _, item := range s.items {
+		encoded, err := cbor.Encode(item)
+		if err != nil {
+			return err
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate member in set")
+		}
+		seen[key] = struct{}{}
+	}
 	return nil
 }
 
@@ -567,6 +605,20 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	var tmp tConwayTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	// Reject duplicate members in any tag-258 set field on the transaction body.
+	type duplicateChecker interface {
+		CheckForDuplicates() error
+	}
+	for _, c := range []duplicateChecker{
+		&tmp.TxInputs,
+		&tmp.TxCollateral,
+		&tmp.TxRequiredSigners,
+		&tmp.TxReferenceInputs,
+	} {
+		if err := c.CheckForDuplicates(); err != nil {
+			return err
+		}
 	}
 	*b = ConwayTransactionBody(tmp)
 	b.SetCborReference(cborData)

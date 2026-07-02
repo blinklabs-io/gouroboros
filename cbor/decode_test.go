@@ -361,6 +361,35 @@ func TestDecodeGeneric(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "destination must be a pointer to a struct")
 	})
+
+	cborData, _ := hex.DecodeString(validCborHex)
+	for _, test := range []struct {
+		name string
+		dest any
+	}{
+		{
+			name: "non-pointer struct",
+			dest: decodeGenericTestStruct{},
+		},
+		{
+			name: "nil interface",
+			dest: nil,
+		},
+		{
+			name: "typed nil pointer",
+			dest: (*decodeGenericTestStruct)(nil),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := cbor.DecodeGeneric(cborData, test.dest)
+			require.Error(t, err)
+			assert.Contains(
+				t,
+				err.Error(),
+				"destination must be a pointer to a struct",
+			)
+		})
+	}
 }
 
 func TestDecodeGenericTypeCache(t *testing.T) {

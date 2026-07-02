@@ -187,7 +187,7 @@ func parseArrayDiagnosticNode(
 			children = append(children, *child)
 		}
 	} else {
-		for idx := 0; idx < length; idx++ {
+		for range length {
 			child, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
@@ -250,7 +250,7 @@ func parseMapDiagnosticNode(
 			pairs = append(pairs, [2]any{keyNode.Value, valNode.Value})
 		}
 	} else {
-		for idx := 0; idx < length; idx++ {
+		for range length {
 			keyNode, err := parseDiagnosticNode(dec, depth+1)
 			if err != nil {
 				return nil, err
@@ -635,10 +635,7 @@ func (n *DiagnosticNode) writeHexDump(
 		return
 	}
 
-	headerLen := n.cborHeaderLen()
-	if headerLen > len(n.RawBytes) {
-		headerLen = len(n.RawBytes)
-	}
+	headerLen := min(n.cborHeaderLen(), len(n.RawBytes))
 	headerBytes := n.RawBytes[:headerLen]
 
 	label := n.structureLabel()
@@ -810,7 +807,7 @@ func formatHexBytes(data []byte, maxBytes int) string {
 		return strings.Join(parts, " ")
 	}
 	parts := make([]string, maxBytes)
-	for i := 0; i < maxBytes; i++ {
+	for i := range maxBytes {
 		parts[i] = fmt.Sprintf("%02x", data[i])
 	}
 	return strings.Join(parts, " ") + fmt.Sprintf(" ... (%d bytes)", len(data))

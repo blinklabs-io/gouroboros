@@ -335,7 +335,7 @@ func TestStopAfterConnectionClose(t *testing.T) {
 func TestStopAfterConnectionCloseStress(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		t.Run(fmt.Sprintf("iteration_%02d", i), func(t *testing.T) {
 			conversation := []ouroboros_mock.ConversationEntry{
 				ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
@@ -380,7 +380,7 @@ func TestStopAfterConnectionCloseStress(t *testing.T) {
 				require.Fail(t, "connection did not close within timeout")
 			}
 
-			for stopAttempt := 0; stopAttempt < 3; stopAttempt++ {
+			for range 3 {
 				require.NoError(t, client.Stop())
 			}
 			require.True(t, client.IsDone())

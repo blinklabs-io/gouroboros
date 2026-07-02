@@ -45,8 +45,6 @@ type ProtocolVersion struct {
 	EnableBabbageEra           bool
 	EnableConwayEra            bool
 	EnableDijkstraEra          bool
-	// Deprecated: Leios is delivered within the Dijkstra era.
-	EnableLeiosEra bool
 	// NtC only
 	EnableLocalQueryProtocol     bool
 	EnableLocalTxMonitorProtocol bool
@@ -188,7 +186,6 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableBabbageEra:             true,
 		EnableConwayEra:              true,
 		EnableDijkstraEra:            true,
-		EnableLeiosEra:               true,
 		EnableLocalTxMonitorProtocol: true,
 	},
 
@@ -291,7 +288,6 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableBabbageEra:           true,
 		EnableConwayEra:            true,
 		EnableDijkstraEra:          true,
-		EnableLeiosEra:             true,
 		EnableFullDuplex:           true,
 		EnablePeerSharingProtocol:  true,
 	},

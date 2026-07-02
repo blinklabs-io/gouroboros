@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/kes"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // OpCert represents an Operational Certificate used in Cardano consensus.
@@ -44,7 +44,8 @@ func (e *OpCertError) Error() string {
 }
 
 // VerifyOpCertSignature verifies the cold key signature on an OpCert.
-// The signature covers CBOR([kes_vkey, issue_number, kes_period]).
+// The signature covers the raw OCertSignable representation
+// (KES vkey || issue number || KES period); see common.OpCertSignableBytes.
 func VerifyOpCertSignature(opCert *OpCert, coldVkey []byte) error {
 	if opCert == nil {
 		return errors.New("opcert is nil")
@@ -82,21 +83,17 @@ func VerifyOpCertSignature(opCert *OpCert, coldVkey []byte) error {
 		}
 	}
 
-	// Create the message to verify: CBOR([kes_vkey, issue_number, kes_period])
-	certData := []any{
+	// The cold key signs the raw OCertSignable representation, not a CBOR
+	// encoding.
+	signable := common.OpCertSignableBytes(
 		opCert.KesVkey,
 		opCert.IssueNumber,
 		opCert.KesPeriod,
-	}
-
-	certCbor, err := cbor.Encode(certData)
-	if err != nil {
-		return fmt.Errorf("failed to encode certificate data: %w", err)
-	}
+	)
 
 	// Verify signature using cold verification key
 	pubKey := ed25519.PublicKey(coldVkey)
-	if !ed25519.Verify(pubKey, certCbor, opCert.ColdSignature) {
+	if !ed25519.Verify(pubKey, signable, opCert.ColdSignature) {
 		return &OpCertError{
 			Field:   "cold_signature",
 			Message: "signature verification failed",
@@ -269,20 +266,11 @@ func CreateOpCert(
 		)
 	}
 
-	// Create the message to sign: CBOR([kes_vkey, issue_number, kes_period])
-	certData := []any{
-		kesVkey,
-		issueNumber,
-		kesPeriod,
-	}
-
-	certCbor, err := cbor.Encode(certData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode certificate data: %w", err)
-	}
+	// Sign the raw OCertSignable representation, not a CBOR encoding.
+	signable := common.OpCertSignableBytes(kesVkey, issueNumber, kesPeriod)
 
 	// Sign with cold key
-	signature := ed25519.Sign(privateKey, certCbor)
+	signature := ed25519.Sign(privateKey, signable)
 
 	return &OpCert{
 		KesVkey:       kesVkey,

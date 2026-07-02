@@ -19,6 +19,7 @@ package ledger
 
 import (
 	"encoding/hex"
+	"slices"
 	"testing"
 )
 
@@ -80,13 +81,7 @@ func FuzzNewBlockFromCbor(f *testing.F) {
 	f.Fuzz(func(t *testing.T, blockType uint, data []byte) {
 		// Only test valid block types to avoid noise from invalid types
 		validTypes := []uint{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
-		isValid := false
-		for _, vt := range validTypes {
-			if blockType == vt {
-				isValid = true
-				break
-			}
-		}
+		isValid := slices.Contains(validTypes, blockType)
 		if !isValid {
 			return
 		}
@@ -143,13 +138,7 @@ func FuzzNewBlockHeaderFromCbor(f *testing.F) {
 	f.Fuzz(func(t *testing.T, blockType uint, data []byte) {
 		// Only test valid block types to avoid noise from invalid types
 		validTypes := []uint{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
-		isValid := false
-		for _, vt := range validTypes {
-			if blockType == vt {
-				isValid = true
-				break
-			}
-		}
+		isValid := slices.Contains(validTypes, blockType)
 		if !isValid {
 			return
 		}
@@ -185,13 +174,7 @@ func FuzzNewTransactionFromCbor(f *testing.F) {
 	f.Fuzz(func(t *testing.T, txType uint, data []byte) {
 		// Only test valid tx types to avoid noise from invalid types
 		validTypes := []uint{0, 1, 2, 3, 4, 5, 6, 7}
-		isValid := false
-		for _, vt := range validTypes {
-			if txType == vt {
-				isValid = true
-				break
-			}
-		}
+		isValid := slices.Contains(validTypes, txType)
 		if !isValid {
 			return
 		}

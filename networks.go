@@ -70,9 +70,9 @@ var (
 			},
 		},
 	}
-	NetworkCardanoLeios = Network{
+	NetworkCardanoMusashi = Network{
 		Id:           common.AddressNetworkTestnet,
-		Name:         "leios",
+		Name:         "musashi",
 		NetworkMagic: 164,
 		BootstrapPeers: []NetworkBootstrapPeer{
 			{
@@ -150,7 +150,7 @@ var networks = []Network{
 	NetworkCardanoPreprod,
 	NetworkCardanoPreview,
 	NetworkCardanoSancho,
-	NetworkCardanoLeios,
+	NetworkCardanoMusashi,
 	NetworkPrimeMainnet,
 	NetworkPrimeTestnet,
 	NetworkDevnet,

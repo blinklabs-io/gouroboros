@@ -248,6 +248,28 @@ func (t *SetType[T]) Items() []T {
 	return ret
 }
 
+// CheckForDuplicates returns an error if the set was decoded from a CBOR tag-258
+// set and contains duplicate members (compared by CBOR encoding).
+// Untagged arrays are not checked so that pre-Dijkstra eras are unaffected.
+func (t *SetType[T]) CheckForDuplicates() error {
+	if !t.useTag {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(t.items))
+	for _, item := range t.items {
+		encoded, err := Encode(item)
+		if err != nil {
+			return err
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			return errors.New("duplicate member in set")
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
 func (t SetType[T]) MarshalJSON() ([]byte, error) {
 	if t.items == nil {
 		return []byte("[]"), nil

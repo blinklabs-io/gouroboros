@@ -251,6 +251,47 @@ func TestMsgBlockTxs(t *testing.T) {
 	assert.Equal(t, txs, msg.TxsRaw)
 }
 
+func TestMsgBlockTxsFullUsesRequestBitmapEncoding(t *testing.T) {
+	point := pcommon.NewPoint(123, []byte{0x01, 0x02})
+	bitmaps := map[uint16]uint64{
+		0:  1,
+		64: 0x00ff000000000000,
+	}
+
+	requestEncoded, err := cbor.Encode(
+		NewMsgBlockTxsRequest(point, bitmaps),
+	)
+	require.NoError(t, err)
+
+	responseEncoded, err := cbor.Encode(
+		NewMsgBlockTxsFull(
+			point,
+			bitmaps,
+			[]cbor.RawMessage{[]byte{0x82, 0x01, 0x02}},
+		),
+	)
+	require.NoError(t, err)
+
+	var requestElems []cbor.RawMessage
+	_, err = cbor.Decode(requestEncoded, &requestElems)
+	require.NoError(t, err)
+
+	var responseElems []cbor.RawMessage
+	_, err = cbor.Decode(responseEncoded, &responseElems)
+	require.NoError(t, err)
+
+	require.Len(t, requestElems, 3)
+	require.Len(t, responseElems, 4)
+	require.NotEmpty(t, responseElems[2])
+	assert.Equal(t, requestElems[2], responseElems[2])
+	assert.Equal(t, byte(0xbf), responseElems[2][0])
+	assert.Equal(t, byte(0xff), responseElems[2][len(responseElems[2])-1])
+
+	decoded, err := NewMsgFromCbor(MessageTypeBlockTxs, responseEncoded)
+	require.NoError(t, err)
+	assert.Equal(t, bitmaps, decoded.(*MsgBlockTxs).Bitmaps)
+}
+
 func TestMsgVotesRequest(t *testing.T) {
 	voteIds := []MsgVotesRequestVoteId{
 		{SlotNo: 100, VoterId: 1},
@@ -355,11 +396,12 @@ func TestMsgDone(t *testing.T) {
 }
 
 func TestNewMsgFromCborUnknownType(t *testing.T) {
-	// Test with unknown message type - the NewMsgFromCbor function tries to decode
-	// into a nil pointer, which results in an error
+	// Test with unknown message type - the NewMsgFromCbor function tries to
+	// decode into a nil pointer, which results in an error
 	data := []byte{0x80} // empty array
 	msg, err := NewMsgFromCbor(999, data)
-	// When the message type is unknown, ret is nil, and cbor.Decode(data, nil) returns an error
+	// When the message type is unknown, ret is nil, and
+	// cbor.Decode(data, nil) returns an error
 	assert.Error(t, err)
 	assert.Nil(t, msg)
 }

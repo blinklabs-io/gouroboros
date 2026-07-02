@@ -140,6 +140,30 @@ func TestEncodeGeneric(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "source must be a pointer to a struct")
 	})
+
+	for _, test := range []struct {
+		name string
+		src  any
+	}{
+		{
+			name: "non-pointer struct",
+			src:  encodeGenericTestStruct{},
+		},
+		{
+			name: "nil interface",
+			src:  nil,
+		},
+		{
+			name: "typed nil pointer",
+			src:  (*encodeGenericTestStruct)(nil),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := cbor.EncodeGeneric(test.src)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "source must be a pointer to a struct")
+		})
+	}
 }
 
 func TestEncodeGenericRoundTrip(t *testing.T) {

@@ -109,7 +109,7 @@ func TestIsDone(t *testing.T) {
 
 		close(doneChan)
 
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			require.True(t, p.IsDone(), "IsDone() call %d should return true", i+1)
 		}
 	})

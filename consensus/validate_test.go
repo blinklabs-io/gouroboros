@@ -19,7 +19,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/vrf"
@@ -486,15 +485,16 @@ func TestValidateHeaderFull(t *testing.T) {
 		t.Fatalf("KES sign failed: %v", err)
 	}
 
-	// Create OpCert signature: cold key signs CBOR([hot_vkey, sequence_number, kes_period])
+	// Create OpCert signature: cold key signs the raw OCertSignable
+	// representation (hot_vkey || sequence_number || kes_period).
 	opCertSeqNum := uint32(0)
 	opCertKesPeriod := uint32(0)
-	opCertBody := []any{kesPk, opCertSeqNum, opCertKesPeriod}
-	opCertBodyBytes, err := cbor.Encode(opCertBody)
-	if err != nil {
-		t.Fatalf("CBOR encode failed: %v", err)
-	}
-	opCertSignature := ed25519.Sign(coldPrivateKey, opCertBodyBytes)
+	opCertBody := common.OpCertSignableBytes(
+		kesPk,
+		uint64(opCertSeqNum),
+		uint64(opCertKesPeriod),
+	)
+	opCertSignature := ed25519.Sign(coldPrivateKey, opCertBody)
 
 	prevHash := make([]byte, 32)
 
@@ -597,15 +597,16 @@ func TestValidateOpCertSignature(t *testing.T) {
 	coldPrivateKey := ed25519.NewKeyFromSeed(coldSeed)
 	coldPublicKey := coldPrivateKey.Public().(ed25519.PublicKey)
 
-	// Create valid OpCert signature
+	// Create valid OpCert signature over the raw OCertSignable representation
+	// (hot_vkey || sequence_number || kes_period).
 	opCertSeqNum := uint32(5)
 	opCertKesPeriod := uint32(10)
-	opCertBody := []any{kesPk, opCertSeqNum, opCertKesPeriod}
-	opCertBodyBytes, err := cbor.Encode(opCertBody)
-	if err != nil {
-		t.Fatalf("CBOR encode failed: %v", err)
-	}
-	opCertSignature := ed25519.Sign(coldPrivateKey, opCertBodyBytes)
+	opCertBody := common.OpCertSignableBytes(
+		kesPk,
+		uint64(opCertSeqNum),
+		uint64(opCertKesPeriod),
+	)
+	opCertSignature := ed25519.Sign(coldPrivateKey, opCertBody)
 
 	// Test valid signature
 	input := &ValidateHeaderInput{

@@ -196,29 +196,23 @@ func DecodeById(
 	return ret, nil
 }
 
-var (
-	decodeGenericTypeCache      = map[reflect.Type]reflect.Type{}
-	decodeGenericTypeCacheMutex sync.RWMutex
-)
+var decodeGenericTypeCache = newGenericTypeCache()
 
 // DecodeGeneric decodes the specified CBOR into the destination object without using the
 // destination object's UnmarshalCBOR() function
 func DecodeGeneric(cborData []byte, dest any) error {
 	// Get destination type
 	valueDest := reflect.ValueOf(dest)
+	if valueDest.Kind() != reflect.Pointer ||
+		valueDest.IsNil() ||
+		valueDest.Elem().Kind() != reflect.Struct {
+		return errors.New("destination must be a pointer to a struct")
+	}
 	typeDest := valueDest.Elem().Type()
-	// Check type cache
-	decodeGenericTypeCacheMutex.RLock()
-	tmpTypeDest, ok := decodeGenericTypeCache[typeDest]
-	decodeGenericTypeCacheMutex.RUnlock()
-	if !ok {
+	tmpTypeDest, err := decodeGenericTypeCache.getOrCreate(typeDest, func() (reflect.Type, error) {
 		// Create a duplicate(-ish) struct from the destination
 		// We do this so that we can bypass any custom UnmarshalCBOR() function on the
 		// destination object
-		if valueDest.Kind() != reflect.Pointer ||
-			valueDest.Elem().Kind() != reflect.Struct {
-			return errors.New("destination must be a pointer to a struct")
-		}
 		destTypeFields := []reflect.StructField{}
 		for i := range typeDest.NumField() {
 			tmpField := typeDest.Field(i)
@@ -226,11 +220,10 @@ func DecodeGeneric(cborData []byte, dest any) error {
 				destTypeFields = append(destTypeFields, tmpField)
 			}
 		}
-		tmpTypeDest = reflect.StructOf(destTypeFields)
-		// Populate cache
-		decodeGenericTypeCacheMutex.Lock()
-		decodeGenericTypeCache[typeDest] = tmpTypeDest
-		decodeGenericTypeCacheMutex.Unlock()
+		return reflect.StructOf(destTypeFields), nil
+	})
+	if err != nil {
+		return err
 	}
 	// Create temporary object with the type created above
 	tmpDest := reflect.New(tmpTypeDest)
@@ -550,7 +543,7 @@ func (d *StreamDecoder) SkipN(n int) (int, int, error) {
 	}
 
 	start := d.consumed + d.dec.NumBytesRead()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := d.dec.Skip(); err != nil {
 			return 0, 0, fmt.Errorf("skip item %d: %w", i, err)
 		}

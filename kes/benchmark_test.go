@@ -78,7 +78,7 @@ func BenchmarkSignAtDifferentPeriods(b *testing.B) {
 			}
 
 			// Update key to desired period
-			for p := uint64(0); p < period; p++ {
+			for range period {
 				sk, err = Update(sk)
 				if err != nil {
 					b.Fatal(err)
@@ -139,7 +139,7 @@ func BenchmarkUpdateMultiplePeriods(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				for j := 0; j < numUpdates; j++ {
+				for range numUpdates {
 					sk, err = Update(sk)
 					if err != nil {
 						b.Fatal(err)
@@ -160,7 +160,7 @@ func BenchmarkUpdateAtBoundary(b *testing.B) {
 			b.Fatal(err)
 		}
 		// Evolve to period 31
-		for p := 0; p < 31; p++ {
+		for range 31 {
 			sk, err = Update(sk)
 			if err != nil {
 				b.Fatal(err)
@@ -251,7 +251,7 @@ func BenchmarkVerifyAtDifferentPeriods(b *testing.B) {
 			}
 
 			// Update key to desired period
-			for p := uint64(0); p < period; p++ {
+			for range period {
 				sk, err = Update(sk)
 				if err != nil {
 					b.Fatal(err)

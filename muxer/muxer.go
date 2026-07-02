@@ -211,9 +211,7 @@ func (m *Muxer) RegisterProtocol(
 	m.protocolReceivers[protocolId][protocolRole] = receiverChan
 	m.protocolReceiversMutex.Unlock()
 	// Start Goroutine to handle outbound messages
-	m.waitGroup.Add(1)
-	go func() {
-		defer m.waitGroup.Done()
+	m.waitGroup.Go(func() {
 		for {
 			select {
 			case _, ok := <-m.doneChan:
@@ -231,7 +229,7 @@ func (m *Muxer) RegisterProtocol(
 				}
 			}
 		}
-	}()
+	})
 	return senderChan, receiver, m.doneChan
 }
 

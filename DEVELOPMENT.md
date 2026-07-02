@@ -37,7 +37,7 @@ gouroboros/
 │   ├── alonzo/          # Alonzo era (Plutus scripts)
 │   ├── babbage/         # Babbage era (reference scripts)
 │   ├── conway/          # Conway era (governance)
-│   └── leios/           # Leios era (experimental)
+│   └── dijkstra/        # Dijkstra era (includes Leios overlay support)
 ├── protocol/            # Ouroboros network mini-protocols
 │   ├── chainsync/       # Chain synchronization
 │   ├── blockfetch/      # Block retrieval

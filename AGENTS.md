@@ -1,6 +1,6 @@
 # Gouroboros Agent Guide
 
-Go library for Cardano: ledger validation across all eras (Byron→Leios), Ouroboros network protocols, CBOR. Primary agent reference; Claude-specific layer in `CLAUDE.md`.
+Go library for Cardano: ledger validation across all eras (Byron→Dijkstra), Ouroboros network protocols, CBOR. Primary agent reference; Claude-specific layer in `CLAUDE.md`.
 
 ## Commands
 
@@ -32,7 +32,7 @@ pipeline/          block processing (decode → validate → apply)
 internal/test/     test utilities + conformance harness
 ```
 
-Era lineage: Shelley → Allegra → Mary → Alonzo → Babbage → Conway → Leios. Byron is standalone.
+Era lineage: Shelley → Allegra → Mary → Alonzo → Babbage → Conway → Dijkstra. Byron is standalone. Leios is not an era — it is a higher-throughput overlay protocol introduced in the Dijkstra era (types in `ledger/common/leios*.go`, protocols in `protocol/leios{fetch,notify,votes}/`).
 
 ## Validation rule signature
 

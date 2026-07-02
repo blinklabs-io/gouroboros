@@ -147,9 +147,14 @@ func (v *Value) processMap(data []byte) (err error) {
 	// Extract actual value from each child value
 	newValue := map[any]any{}
 	for key, value := range tmpValue {
-		keyValue := key.Value()
+		// CBOR null/undefined map keys decode to a nil *Value, which is
+		// represented as a nil map key
+		var keyValue any
+		if key != nil {
+			keyValue = key.Value()
+		}
 		// Use a pointer for unhashable key types
-		if !reflect.TypeOf(keyValue).Comparable() {
+		if keyValue != nil && !reflect.TypeOf(keyValue).Comparable() {
 			keyValue = &keyValue
 		}
 		newValue[keyValue] = value.Value()

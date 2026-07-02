@@ -470,9 +470,7 @@ func (c *Connection) setupConnection() error {
 	// Create muxer instance
 	c.muxer = muxer.New(c.conn)
 	// Start Goroutine to pass along errors from the muxer
-	c.waitGroup.Add(1)
-	go func() {
-		defer c.waitGroup.Done()
+	c.waitGroup.Go(func() {
 		select {
 		case <-c.doneChan:
 			return
@@ -502,7 +500,7 @@ func (c *Connection) setupConnection() error {
 			// Close connection on muxer errors
 			c.Close()
 		}
-	}()
+	})
 	protoOptions := protocol.ProtocolOptions{
 		ConnectionId: c.id,
 		Muxer:        c.muxer,
@@ -592,9 +590,7 @@ func (c *Connection) setupConnection() error {
 	// Provide the negotiated protocol version to the various mini-protocols
 	protoOptions.Version = c.handshakeVersion
 	// Start Goroutine to pass along errors from the mini-protocols
-	c.waitGroup.Add(1)
-	go func() {
-		defer c.waitGroup.Done()
+	c.waitGroup.Go(func() {
 		select {
 		case <-c.doneChan:
 			// Return if we're shutting down
@@ -608,7 +604,7 @@ func (c *Connection) setupConnection() error {
 			// Close connection on mini-protocol errors
 			c.Close()
 		}
-	}()
+	})
 	// Configure the relevant mini-protocols
 	if c.useNodeToNodeProto {
 		versionNtN := protocol.GetProtocolVersion(c.handshakeVersion)

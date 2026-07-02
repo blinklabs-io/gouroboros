@@ -71,6 +71,7 @@ const (
 	QueryTypeShelleyDRepStakeDistr         = 26
 	QueryTypeShelleyCommitteeMembersState  = 27
 	QueryTypeShelleyFilteredVoteDelegatees = 28
+	QueryTypeShelleyAccountState           = 29
 	QueryTypeShelleySPOStakeDistr          = 30
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
@@ -232,6 +233,7 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 			QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
 			QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
 			QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
+			QueryTypeShelleyAccountState:           &ShelleyAccountStateQuery{},
 			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
 			QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
 			QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
@@ -795,6 +797,23 @@ type StakePoolsResult struct {
 	Results []ledger.PoolId
 }
 
+// AccountState is the chain's treasury and reserves pots. Both are signed
+// because Coin is an Integer in the ledger (a misconfigured network can drive
+// reserves negative).
+type AccountState struct {
+	cbor.StructAsArray
+	Treasury int64
+	Reserves int64
+}
+
+// AccountStateResult is the result of GetAccountState. The account state is
+// wrapped in the single-element result array, so on the wire it is
+// [ [treasury, reserves] ].
+type AccountStateResult struct {
+	cbor.StructAsArray
+	State AccountState
+}
+
 type StakePoolParamsResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]struct {
@@ -989,6 +1008,10 @@ type ShelleySPOStakeDistrQuery struct {
 	PoolIds cbor.SetType[ledger.PoolId]
 }
 
+type ShelleyAccountStateQuery struct {
+	simpleQueryBase
+}
+
 type ShelleyGetProposalsQuery struct {
 	simpleQueryBase
 }
@@ -1098,12 +1121,64 @@ func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
 	}
 }
 
-// DRepStateEntry represents the state of a single DRep
+// DRepStateEntry represents the state of a single DRep.
+//
+// On the wire it is the cardano-node GetDRepState value: a 4-element array
+//
+//	[ expiry, anchor, deposit, delegators ]
+//
+// where anchor is a StrictMaybe encoded as a list ([] for none, [anchor] for
+// some — not a CBOR null), and delegators is a CBOR set (tag 258) of the stake
+// credentials currently delegating their voting power to this DRep. cardano
+// clients (cardano-cli) decode this exact shape; emitting a 3-element array (no
+// delegators) or a CBOR null anchor makes them fail with a size mismatch.
 type DRepStateEntry struct {
-	cbor.StructAsArray
-	Expiry  uint64             // Epoch when DRep expires
-	Anchor  *lcommon.GovAnchor // Optional metadata anchor
-	Deposit uint64             // Deposit amount
+	Expiry     uint64             // Epoch when DRep expires
+	Anchor     *lcommon.GovAnchor // Optional metadata anchor
+	Deposit    uint64             // Deposit amount
+	Delegators []StakeCredential  // Stake credentials delegating to this DRep
+}
+
+func (e DRepStateEntry) MarshalCBOR() ([]byte, error) {
+	// StrictMaybe Anchor: SNothing -> [], SJust -> [anchor].
+	anchor := []any{}
+	if e.Anchor != nil {
+		anchor = []any{*e.Anchor}
+	}
+	// Delegators as a CBOR set (tag 258); empty when the DRep has none.
+	delegators := make(cbor.Set, len(e.Delegators))
+	for i := range e.Delegators {
+		delegators[i] = e.Delegators[i]
+	}
+	return cbor.Encode([]any{
+		e.Expiry,
+		anchor,
+		e.Deposit,
+		delegators,
+	})
+}
+
+func (e *DRepStateEntry) UnmarshalCBOR(data []byte) error {
+	var raw struct {
+		cbor.StructAsArray
+		Expiry     uint64
+		Anchor     []lcommon.GovAnchor
+		Deposit    uint64
+		Delegators []StakeCredential
+	}
+	if _, err := cbor.Decode(data, &raw); err != nil {
+		return err
+	}
+	e.Expiry = raw.Expiry
+	if len(raw.Anchor) > 0 {
+		anchor := raw.Anchor[0]
+		e.Anchor = &anchor
+	} else {
+		e.Anchor = nil
+	}
+	e.Deposit = raw.Deposit
+	e.Delegators = raw.Delegators
+	return nil
 }
 
 // DRepStateResult represents the DRep state query result.

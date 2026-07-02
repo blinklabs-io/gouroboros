@@ -63,7 +63,7 @@ func init() {
 }
 
 // consensusSink prevents compiler dead-code elimination in benchmarks.
-var consensusSink interface{}
+var consensusSink any
 
 // consensusParallelSink is an atomic sink for use in RunParallel benchmarks
 // to avoid data races when multiple goroutines store results concurrently.

@@ -75,7 +75,7 @@ type BlockPipeline struct {
 	metrics *PipelineMetrics
 
 	// State
-	sequenceCounter uint64
+	sequenceCounter atomic.Uint64
 	ctx             context.Context
 	cancel          context.CancelFunc
 	started         atomic.Bool
@@ -137,6 +137,10 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	// Create decode stage
 	p.decodeStage = NewDecodeStage(p.config.SkipBodyHashValidation)
 	p.applyStage = NewApplyStage(p.config.ApplyFunc, p.config.MaxPendingBlocks)
+	// When validation is enabled, require items to have actually passed
+	// validation before apply; ValidationError alone cannot distinguish
+	// "passed" from "never ran"
+	p.applyStage.SetRequireValidation(validationEnabled)
 
 	// Create decode worker pool
 	p.decodePool = NewStageWorkerPool(StageWorkerPoolConfig{
@@ -224,7 +228,7 @@ func (p *BlockPipeline) Submit(ctx context.Context, blockType uint, rawCbor []by
 	// Allocate sequence number only once, then send.
 	// We use a single blocking select to avoid sequence gaps that would occur
 	// if we allocated in a non-blocking attempt that failed.
-	item := NewBlockItem(blockType, rawCbor, tip, atomic.AddUint64(&p.sequenceCounter, 1)-1)
+	item := NewBlockItem(blockType, rawCbor, tip, p.sequenceCounter.Add(1)-1)
 
 	select {
 	case p.submitChan <- item:

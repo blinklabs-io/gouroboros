@@ -27,9 +27,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
+
+func testPlutusInteger(v int64) data.PlutusData {
+	return data.NewInteger(big.NewInt(v))
+}
 
 func TestConwayProtocolParamsUpdate(t *testing.T) {
 	testDefs := []struct {
@@ -1112,6 +1117,40 @@ func TestConwayProtocolParameters_CborRoundTrip(t *testing.T) {
 		params.MinFeeRefScriptCostPerByte.Rat.RatString(),
 		decoded.MinFeeRefScriptCostPerByte.Rat.RatString(),
 	)
+}
+
+func TestConwayProtocolParameterUpdateToPlutusDataCostModels(t *testing.T) {
+	update := conway.ConwayProtocolParameterUpdate{
+		CostModels: map[uint][]int64{
+			2: {8, 7},
+			0: {1, 2, 3},
+		},
+	}
+	expected := data.NewMap([][2]data.PlutusData{
+		{
+			testPlutusInteger(18),
+			data.NewMap([][2]data.PlutusData{
+				{
+					testPlutusInteger(0),
+					data.NewList(
+						testPlutusInteger(1),
+						testPlutusInteger(2),
+						testPlutusInteger(3),
+					),
+				},
+				{
+					testPlutusInteger(2),
+					data.NewList(
+						testPlutusInteger(8),
+						testPlutusInteger(7),
+					),
+				},
+			}),
+		},
+	})
+
+	result := update.ToPlutusData()
+	assert.True(t, expected.Equal(result), "got %#v", result)
 }
 
 func TestConwayProtocolParameterUpdate_BootstrapRestrictedFields(t *testing.T) {

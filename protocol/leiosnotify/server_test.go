@@ -15,17 +15,56 @@
 package leiosnotify
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func readLeiosNotifyTestSegment(
+	t *testing.T,
+	conn net.Conn,
+) (*muxer.Segment, error) {
+	t.Helper()
+	header := muxer.SegmentHeader{}
+	if err := binary.Read(conn, binary.BigEndian, &header); err != nil {
+		return nil, err
+	}
+	payload := make([]byte, header.PayloadLength)
+	if _, err := io.ReadFull(conn, payload); err != nil {
+		return nil, err
+	}
+	return &muxer.Segment{
+		SegmentHeader: header,
+		Payload:       payload,
+	}, nil
+}
+
+func writeLeiosNotifyTestSegment(
+	t *testing.T,
+	conn net.Conn,
+	segment *muxer.Segment,
+) {
+	t.Helper()
+	require.NotNil(t, segment)
+	buf := &bytes.Buffer{}
+	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
+	_, err := buf.Write(segment.Payload)
+	require.NoError(t, err)
+	_, err = conn.Write(buf.Bytes())
+	require.NoError(t, err)
+}
 
 func TestNewServer(t *testing.T) {
 	connId := connection.ConnectionId{
@@ -88,8 +127,70 @@ func TestHandleRequestNext_NilCallback(t *testing.T) {
 
 	err := server.handleRequestNext()
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	// With no callback wired, the request is left pending (the server holds
+	// agency until it has a notification) rather than tearing down the
+	// connection. leios-notify has no response timeout or await message, so
+	// this is valid protocol behavior for a node that does not serve
+	// notifications.
+	assert.NoError(t, err)
+	assert.False(t, server.IsDone(), "nil callback must not stop the protocol")
+	assert.Equal(t, connId, server.callbackContext.ConnectionId)
+}
+
+func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+
+	m := muxer.New(connA)
+	defer m.Stop()
+
+	cfg := NewConfig()
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			Muxer:        m,
+		},
+		&cfg,
+	)
+	server.Start()
+	defer server.Protocol.Stop()
+	m.Start()
+
+	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+
+	require.Eventually(t, func() bool {
+		return !server.IsInTerminalOrIdleState()
+	}, time.Second, 10*time.Millisecond, "server should remain in Busy")
+	assert.False(t, server.IsDone(), "pending request must not close protocol")
+	assert.Equal(t, connId, server.callbackContext.ConnectionId)
+	assert.Equal(t, server, server.callbackContext.Server)
+
+	response := NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02})
+	require.NoError(t, server.SendMessage(response))
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	segment, err := readLeiosNotifyTestSegment(t, connB)
+	require.NoError(t, err)
+	assert.True(t, segment.IsResponse())
+	assert.Equal(t, ProtocolId, segment.GetProtocolId())
+
+	msg, err := NewMsgFromCbor(MessageTypeBlockAnnouncement, segment.Payload)
+	require.NoError(t, err)
+	if msg == nil {
+		t.Fatal("expected block announcement message")
+	}
+	assert.Equal(t, response.Type(), msg.Type())
 }
 
 func TestHandleRequestNext_NilConfig(t *testing.T) {
@@ -106,8 +207,8 @@ func TestHandleRequestNext_NilConfig(t *testing.T) {
 
 	err := server.handleRequestNext()
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	// A nil config likewise leaves the request pending rather than erroring.
+	assert.NoError(t, err)
 }
 
 func TestHandleRequestNext_CallbackError(t *testing.T) {
