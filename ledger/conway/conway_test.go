@@ -222,6 +222,45 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{
+			name: "mint duplicate policy",
+			body: append(
+				[]byte{0xa1, 0x09},
+				testDuplicatePolicyMultiAssetCbor(0x11)...,
+			),
+		},
+		{
+			name: "mint duplicate asset name",
+			body: append(
+				[]byte{0xa1, 0x09},
+				testDuplicateAssetNameMultiAssetCbor(0x22)...,
+			),
+		},
+		{
+			name: "output duplicate asset name",
+			body: append(
+				[]byte{0xa1, 0x01, 0x81},
+				testBabbageOutputWithAssetsCbor(
+					t,
+					testDuplicateAssetNameMultiAssetCbor(0x33),
+				)...,
+			),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body ConwayTransactionBody
+			err := body.UnmarshalCBOR(tt.body)
+			assert.ErrorContains(t, err, "duplicate map key")
+		})
+	}
+}
+
 func TestConwayTransactionBodyRejectsDuplicateTaggedSetFields(t *testing.T) {
 	input := testConwayShelleyInput()
 	var signer common.Blake2b224
@@ -289,6 +328,42 @@ func testConwayShelleyInput() shelley.ShelleyTransactionInput {
 		TxId:        txId,
 		OutputIndex: 0,
 	}
+}
+
+func testDuplicatePolicyMultiAssetCbor(policyByte byte) []byte {
+	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
+	ret := []byte{0xa2, 0x58, 0x1c}
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa1, 0x41, 0xaa, 0x01, 0x58, 0x1c)
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa1, 0x41, 0xbb, 0x02)
+	return ret
+}
+
+func testDuplicateAssetNameMultiAssetCbor(policyByte byte) []byte {
+	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
+	ret := []byte{0xa1, 0x58, 0x1c}
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa2, 0x41, 0xcc, 0x01, 0x41, 0xcc, 0x09)
+	return ret
+}
+
+func testBabbageOutputWithAssetsCbor(t *testing.T, assets []byte) []byte {
+	t.Helper()
+	addr, err := common.NewAddressFromBytes(
+		test.DecodeHexString(
+			"40000000000000000000000000000000000000000000000000000000008198bd431b03",
+		),
+	)
+	assert.NoError(t, err)
+	addrCbor, err := cbor.Encode(addr)
+	assert.NoError(t, err)
+
+	ret := []byte{0xa2, 0x00}
+	ret = append(ret, addrCbor...)
+	ret = append(ret, 0x01, 0x82, 0x01)
+	ret = append(ret, assets...)
+	return ret
 }
 
 func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {

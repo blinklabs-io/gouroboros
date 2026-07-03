@@ -1406,3 +1406,96 @@ func TestAddInt64Checked(t *testing.T) {
 		})
 	}
 }
+
+// TestMultiAssetUnmarshalDuplicatePolicyLastWins verifies that decoding a
+// MultiAsset whose outer (PolicyID) map contains a duplicate key does not error
+// and resolves last-wins, matching pre-Conway (protocol version < 9)
+// cardano-ledger Map.fromList semantics. Such transactions exist on the
+// canonical preprod Babbage chain, so rejecting them would wedge sync.
+func TestMultiAssetUnmarshalDuplicatePolicyLastWins(t *testing.T) {
+	// 28-byte PolicyID, repeated as two outer map entries.
+	policyBytes := bytes.Repeat([]byte{0x11}, Blake2b224Size)
+	policyHex := hex.EncodeToString(policyBytes)
+	// a2                              outer map, 2 pairs
+	//   581c <28-byte policy>         key: PolicyID
+	//   a1 41 aa 01                   value: { 0xAA: 1 }
+	//   581c <28-byte policy>         key: same PolicyID (duplicate)
+	//   a1 41 bb 02                   value: { 0xBB: 2 }
+	cborHex := "a2" +
+		"581c" + policyHex + "a141aa01" +
+		"581c" + policyHex + "a141bb02"
+	cborData, err := hex.DecodeString(cborHex)
+	assert.NoError(t, err)
+
+	var ma MultiAsset[MultiAssetTypeMint]
+	if err := ma.UnmarshalCBOR(cborData); err != nil {
+		t.Fatalf("unexpected error decoding MultiAsset with duplicate PolicyID: %v", err)
+	}
+	assert.ErrorContains(t, ma.CheckForDuplicateKeys(), "duplicate map key")
+
+	policy := NewBlake2b224(policyBytes)
+	// Last-wins: only the second entry survives, so the policy maps to {0xBB: 2}
+	// and the first entry's {0xAA: 1} is discarded entirely.
+	if len(ma.data) != 1 {
+		t.Fatalf("expected 1 policy after last-wins merge, got %d", len(ma.data))
+	}
+	inner, ok := ma.data[policy]
+	if !ok {
+		t.Fatalf("expected surviving policy %x to be present", policyBytes)
+	}
+	if len(inner) != 1 {
+		t.Fatalf("expected surviving inner asset map to have 1 entry, got %d", len(inner))
+	}
+	last := ma.Asset(policy, []byte{0xBB})
+	if last == nil || last.Int64() != 2 {
+		t.Fatalf("expected last-wins asset 0xBB == 2, got %v", last)
+	}
+	if dropped := ma.Asset(policy, []byte{0xAA}); dropped != nil {
+		t.Fatalf("expected first duplicate asset 0xAA to be discarded, got %v", dropped)
+	}
+}
+
+// TestMultiAssetUnmarshalDuplicateAssetNameLastWins verifies that a duplicate
+// key in the inner (AssetName) map is also tolerated and resolved last-wins,
+// not just the outer (PolicyID) map. Both maps decode through the same lenient
+// path into Go maps, so both follow pre-Conway (protocol version < 9)
+// cardano-ledger Map.fromList semantics. This pins the behavior MultiAsset
+// relies on; a future change to strict decoding must not silently regress it.
+func TestMultiAssetUnmarshalDuplicateAssetNameLastWins(t *testing.T) {
+	policyBytes := bytes.Repeat([]byte{0x22}, Blake2b224Size)
+	policyHex := hex.EncodeToString(policyBytes)
+	// a1                              outer map, 1 pair
+	//   581c <28-byte policy>         key: PolicyID
+	//   a2                            value: inner map, 2 pairs
+	//     41 cc 01                    key: 0xCC -> 1
+	//     41 cc 09                    key: 0xCC (duplicate) -> 9
+	cborHex := "a1" +
+		"581c" + policyHex +
+		"a2" + "41cc01" + "41cc09"
+	cborData, err := hex.DecodeString(cborHex)
+	assert.NoError(t, err)
+
+	var ma MultiAsset[MultiAssetTypeMint]
+	if err := ma.UnmarshalCBOR(cborData); err != nil {
+		t.Fatalf("unexpected error decoding MultiAsset with duplicate AssetName: %v", err)
+	}
+	assert.ErrorContains(t, ma.CheckForDuplicateKeys(), "duplicate map key")
+
+	policy := NewBlake2b224(policyBytes)
+	if len(ma.data) != 1 {
+		t.Fatalf("expected 1 policy, got %d", len(ma.data))
+	}
+	inner, ok := ma.data[policy]
+	if !ok {
+		t.Fatalf("expected policy %x to be present", policyBytes)
+	}
+	// Last-wins: the duplicate AssetName collapses to a single entry with the
+	// second value.
+	if len(inner) != 1 {
+		t.Fatalf("expected 1 inner asset after last-wins merge, got %d", len(inner))
+	}
+	last := ma.Asset(policy, []byte{0xCC})
+	if last == nil || last.Int64() != 9 {
+		t.Fatalf("expected last-wins asset 0xCC == 9, got %v", last)
+	}
+}

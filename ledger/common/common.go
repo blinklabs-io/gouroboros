@@ -267,7 +267,8 @@ type (
 // MultiAsset represents a collection of policies, assets, and quantities. It's used for
 // TX outputs (uint64) and TX asset minting (int64 to allow for negative values for burning)
 type MultiAsset[T int64 | uint64 | *big.Int] struct {
-	data map[Blake2b224]map[cbor.ByteString]T
+	data             map[Blake2b224]map[cbor.ByteString]T
+	duplicateMapKeys bool
 }
 
 // NewMultiAsset creates a MultiAsset with the specified data
@@ -290,14 +291,40 @@ type multiAssetJson[T int64 | uint64 | *big.Int] struct {
 }
 
 func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
-	_, err := cbor.Decode(data, &(m.data))
-	return err
+	var decoded map[Blake2b224]map[cbor.ByteString]T
+	m.duplicateMapKeys = false
+	if _, err := cbor.Decode(data, &decoded); err == nil {
+		m.data = decoded
+		return nil
+	} else if !cbor.IsDuplicateMapKeyError(err) {
+		return err
+	}
+
+	// Pre-Conway (protocol version < 9) cardano-ledger decodes value/mint maps
+	// with Map.fromList, accepting duplicate PolicyID / AssetName keys and
+	// keeping the last one. Such transactions exist on canonical pre-Conway
+	// chains, so keep lenient last-wins decoding while recording that Conway+
+	// era decoders must reject this value.
+	m.duplicateMapKeys = true
+	decoded = nil
+	if _, err := cbor.DecodeLenient(data, &decoded); err != nil {
+		return err
+	}
+	m.data = decoded
+	return nil
 }
 
 func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 	// The CBOR library is configured with SortCoreDeterministic, so direct encoding
 	// of the map produces deterministic output without manual sorting
 	return cbor.Encode(m.data)
+}
+
+func (m *MultiAsset[T]) CheckForDuplicateKeys() error {
+	if m != nil && m.duplicateMapKeys {
+		return errors.New("duplicate map key in multiasset")
+	}
+	return nil
 }
 
 func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
@@ -325,6 +352,7 @@ func (m *MultiAsset[T]) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &tmpAssets); err != nil {
 		return err
 	}
+	m.duplicateMapKeys = false
 	if m.data == nil {
 		m.data = make(map[Blake2b224]map[cbor.ByteString]T)
 	}
