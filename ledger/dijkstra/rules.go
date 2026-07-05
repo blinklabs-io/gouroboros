@@ -82,6 +82,15 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateCommitteeCertificates,
 	UtxoValidateCCVotingRestrictions,
 	UtxoValidateMalformedReferenceScripts,
+	UtxoValidateRefScriptSizePerTx,
+}
+
+func dijkstraPparams(pp common.ProtocolParameters) (*DijkstraProtocolParameters, error) {
+	p, ok := pp.(*DijkstraProtocolParameters)
+	if !ok {
+		return nil, errors.New("pparams are not DijkstraProtocolParameters")
+	}
+	return p, nil
 }
 
 func conwayPparams(
@@ -1625,4 +1634,65 @@ func UtxoValidateMalformedReferenceScripts(
 		}
 	}
 	return nil
+}
+
+func UtxoValidateRefScriptSizePerTx(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, err := dijkstraPparams(pp)
+	if err != nil {
+		return err
+	}
+	maxSize := tmpPparams.MaxRefScriptSizePerTx
+	if maxSize == 0 {
+		return nil
+	}
+	totalSize := refScriptSize(tx)
+	if totalSize > uint64(maxSize) {
+		return common.RefScriptSizePerTxTooLargeError{
+			TxSize:  totalSize,
+			MaxSize: uint64(maxSize),
+		}
+	}
+	return nil
+}
+
+func ValidateRefScriptSizePerBlock(
+	block *DijkstraBlock,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, err := dijkstraPparams(pp)
+	if err != nil {
+		return err
+	}
+	maxSize := tmpPparams.MaxRefScriptSizePerBlock
+	if maxSize == 0 {
+		return nil
+	}
+	var totalSize uint64
+	for _, tx := range block.Transactions() {
+		totalSize += refScriptSize(tx)
+	}
+	if totalSize > uint64(maxSize) {
+		return common.RefScriptSizePerBlockTooLargeError{
+			BlockSize: totalSize,
+			MaxSize:   uint64(maxSize),
+		}
+	}
+	return nil
+}
+
+func refScriptSize(tx common.Transaction) uint64 {
+	var totalSize uint64
+	for _, output := range tx.Outputs() {
+		scriptRef := output.ScriptRef()
+		if scriptRef == nil {
+			continue
+		}
+		totalSize += uint64(len(scriptRef.RawScriptBytes()))
+	}
+	return totalSize
 }
