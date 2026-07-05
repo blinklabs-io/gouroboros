@@ -4,6 +4,25 @@ title: Release notes
 
 # Release notes
 
+## v0.186.2
+
+- **Date:** 2026-07-05
+- **Version:** 0.186.2
+
+### Summary
+
+This release clarifies the published release history, tightens duplicate-member validation in Dijkstra and Conway tagged set decoding, and makes pre-Conway `MultiAsset` decoding more tolerant of duplicate map keys.
+
+### Bug Fixes
+
+* Fixed duplicate-member validation in Dijkstra and Conway tagged set decoding and added negative fixtures for duplicate witness, redeemer, sub-transaction, input, and guard set members.
+
+* Improved pre-Conway `MultiAsset` decoding to accept duplicate `PolicyID` and `AssetName` keys with last-wins behavior while Conway and Dijkstra still reject duplicate `MultiAsset` keys after decode.
+
+### Additional Changes
+
+* Updated the prior `v0.186.1` release note wording for clarity and consistency.
+
 ## v0.186.1
 
 - **Date:** 2026-06-30
