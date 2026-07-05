@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release clarifies the published release history, tightens duplicate-member validation in Dijkstra and Conway tagged set decoding, and makes pre-Conway `MultiAsset` decoding more tolerant of duplicate map keys.
+This release tightens duplicate-member validation in Dijkstra and Conway tagged set decoding and makes pre-Conway `MultiAsset` decoding more tolerant of duplicate map keys.
 
 ### Bug Fixes
 
