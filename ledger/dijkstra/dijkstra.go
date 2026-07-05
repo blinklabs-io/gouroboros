@@ -769,6 +769,9 @@ func (o *DijkstraTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 			cborData[0],
 		)
 	}
+	if err := checkMultiAssetDuplicateKeys(o.Output.Assets()); err != nil {
+		return err
+	}
 	o.SetCborReference(cborData)
 	return nil
 }
@@ -927,9 +930,28 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
+		return err
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := checkMultiAssetDuplicateKeys(
+			tmp.TxCollateralReturn.Assets(),
+		); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+	}
 	*b = DijkstraTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
+	assets *common.MultiAsset[T],
+) error {
+	if assets == nil {
+		return nil
+	}
+	return assets.CheckForDuplicateKeys()
 }
 
 func (b *DijkstraTransactionBody) Inputs() []common.TransactionInput {
@@ -1136,6 +1158,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
+		return err
+	}
+	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
 	}
 	*b = DijkstraSubTransactionBody(tmp)

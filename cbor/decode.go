@@ -34,6 +34,10 @@ var (
 	cachedStrictDecMode     _cbor.DecMode
 	cachedStrictDecModeErr  error
 	cachedStrictDecModeOnce sync.Once
+
+	cachedLenientDecMode     _cbor.DecMode
+	cachedLenientDecModeErr  error
+	cachedLenientDecModeOnce sync.Once
 )
 
 const cborMaxNestedLevels = 256
@@ -73,6 +77,13 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 	return dec.NumBytesRead(), err
 }
 
+// IsDuplicateMapKeyError returns true when err wraps fxamacker's duplicate map
+// key error.
+func IsDuplicateMapKeyError(err error) bool {
+	var dupErr *_cbor.DupMapKeyError
+	return errors.As(err, &dupErr)
+}
+
 // getStrictDecMode returns a cached DecMode with stricter limits for untrusted
 // network data. Uses sync.Once for thread-safe lazy initialization.
 // Returns the cached error if initialization failed.
@@ -103,6 +114,57 @@ func DecodeStrict(dataBytes []byte, dest any) (int, error) {
 	}
 	if decMode == nil {
 		return 0, errors.New("CBOR strict decoder mode not initialized")
+	}
+	dec := decMode.NewDecoder(data)
+	err = dec.Decode(dest)
+	return dec.NumBytesRead(), err
+}
+
+// getLenientDecMode returns a cached DecMode that mirrors getDecMode() but keeps
+// DupMapKeyQuiet (last-wins) instead of DupMapKeyEnforcedAPF. This matches the
+// pre-Conway (protocol version < 9) cardano-ledger map decoding semantics, which
+// use Map.fromList (later duplicate key wins, earlier discarded) rather than
+// rejecting duplicates. Uses sync.Once for thread-safe lazy initialization.
+// Returns the cached error if initialization failed.
+func getLenientDecMode() (_cbor.DecMode, error) {
+	cachedLenientDecModeOnce.Do(func() {
+		decOptions := _cbor.DecOptions{
+			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+			// DupMapKeyQuiet: keep the last value for a duplicate key without
+			// erroring. fxamacker decodes into a Go map via SetMapIndex per
+			// entry, so a repeated key overwrites, which is byte-for-byte the
+			// same resolution as cardano-ledger's Map.fromList for PV < 9.
+			DupMapKey:       _cbor.DupMapKeyQuiet,
+			MaxNestedLevels: cborMaxNestedLevels,
+			// Match getDecMode() limits: Cardano ledger state snapshots contain
+			// stake distribution maps that can exceed 1M entries on mainnet.
+			MaxMapPairs:      10_000_000,
+			MaxArrayElements: 10_000_000,
+		}
+		cachedLenientDecMode, cachedLenientDecModeErr = decOptions.DecModeWithTags(customTagSet)
+	})
+	return cachedLenientDecMode, cachedLenientDecModeErr
+}
+
+// DecodeLenient decodes CBOR data without rejecting duplicate map keys. How a
+// duplicate key is resolved is destination-type dependent, because it is
+// delegated to the underlying CBOR library's DupMapKeyQuiet mode, which "uses
+// faster of keep first or keep last depending on Go data type": decoding into a
+// Go map (MultiAsset's only current use) resolves last-wins, matching pre-Conway
+// (protocol version < 9) cardano-ledger Map.fromList semantics; decoding into a
+// Go struct may instead keep the first value written for a repeated field.
+// Callers that require last-wins semantics MUST therefore decode into a map, not
+// a struct. It is intended only for structures where Cardano consensus
+// historically permitted duplicate keys (e.g. pre-Conway MultiAsset value/mint
+// maps). Use Decode (strict, rejects duplicates) everywhere else.
+func DecodeLenient(dataBytes []byte, dest any) (int, error) {
+	data := bytes.NewReader(dataBytes)
+	decMode, err := getLenientDecMode()
+	if err != nil {
+		return 0, err
+	}
+	if decMode == nil {
+		return 0, errors.New("CBOR lenient decoder mode not initialized")
 	}
 	dec := decMode.NewDecoder(data)
 	err = dec.Decode(dest)

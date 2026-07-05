@@ -620,9 +620,33 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
+		return err
+	}
+	for idx := range tmp.TxOutputs {
+		if err := checkMultiAssetDuplicateKeys(tmp.TxOutputs[idx].Assets()); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := checkMultiAssetDuplicateKeys(
+			tmp.TxCollateralReturn.Assets(),
+		); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+	}
 	*b = ConwayTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
+	assets *common.MultiAsset[T],
+) error {
+	if assets == nil {
+		return nil
+	}
+	return assets.CheckForDuplicateKeys()
 }
 
 func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {

@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"bytes"
 	"encoding/hex"
 	"math/big"
 	"strings"
@@ -47,6 +48,42 @@ func minimalWitnessSet() map[uint]any {
 
 func minimalTxParts() []any {
 	return []any{minimalTxBody(), minimalWitnessSet(), nil}
+}
+
+func testDuplicatePolicyMultiAssetCbor(policyByte byte) []byte {
+	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
+	ret := []byte{0xa2, 0x58, 0x1c}
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa1, 0x41, 0xaa, 0x01, 0x58, 0x1c)
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa1, 0x41, 0xbb, 0x02)
+	return ret
+}
+
+func testDuplicateAssetNameMultiAssetCbor(policyByte byte) []byte {
+	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
+	ret := []byte{0xa1, 0x58, 0x1c}
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa2, 0x41, 0xcc, 0x01, 0x41, 0xcc, 0x09)
+	return ret
+}
+
+func testDijkstraOutputWithAssetsCbor(t *testing.T, assets []byte) []byte {
+	t.Helper()
+	addrBytes, err := hex.DecodeString(
+		"40000000000000000000000000000000000000000000000000000000008198bd431b03",
+	)
+	require.NoError(t, err)
+	addr, err := common.NewAddressFromBytes(addrBytes)
+	require.NoError(t, err)
+	addrCbor, err := cbor.Encode(addr)
+	require.NoError(t, err)
+
+	ret := []byte{0xa2, 0x00}
+	ret = append(ret, addrCbor...)
+	ret = append(ret, 0x01, 0x82, 0x01)
+	ret = append(ret, assets...)
+	return ret
 }
 
 func minimalBlockBodyParts(invalidTxs []uint) []any {
@@ -347,6 +384,45 @@ func TestDijkstraRedeemersRejectsDuplicateMapKey(t *testing.T) {
 	var r DijkstraRedeemers
 	err := r.UnmarshalCBOR(dupCbor)
 	require.Error(t, err)
+}
+
+func TestDijkstraRejectsDuplicateMultiAssetKeys(t *testing.T) {
+	t.Run("body mint duplicate policy", func(t *testing.T) {
+		bodyCbor := append(
+			[]byte{0xa1, 0x09},
+			testDuplicatePolicyMultiAssetCbor(0x44)...,
+		)
+		var body DijkstraTransactionBody
+		err := body.UnmarshalCBOR(bodyCbor)
+		require.ErrorContains(t, err, "duplicate map key")
+	})
+	t.Run("body mint duplicate asset name", func(t *testing.T) {
+		bodyCbor := append(
+			[]byte{0xa1, 0x09},
+			testDuplicateAssetNameMultiAssetCbor(0x55)...,
+		)
+		var body DijkstraTransactionBody
+		err := body.UnmarshalCBOR(bodyCbor)
+		require.ErrorContains(t, err, "duplicate map key")
+	})
+	t.Run("output duplicate asset name", func(t *testing.T) {
+		outputCbor := testDijkstraOutputWithAssetsCbor(
+			t,
+			testDuplicateAssetNameMultiAssetCbor(0x66),
+		)
+		var output DijkstraTransactionOutput
+		err := output.UnmarshalCBOR(outputCbor)
+		require.ErrorContains(t, err, "duplicate map key")
+	})
+	t.Run("subtransaction mint duplicate policy", func(t *testing.T) {
+		bodyCbor := append(
+			[]byte{0xa1, 0x09},
+			testDuplicatePolicyMultiAssetCbor(0x77)...,
+		)
+		var body DijkstraSubTransactionBody
+		err := body.UnmarshalCBOR(bodyCbor)
+		require.ErrorContains(t, err, "duplicate map key")
+	})
 }
 
 func TestDijkstraWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
