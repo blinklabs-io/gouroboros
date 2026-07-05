@@ -513,11 +513,28 @@ func TestUtxoValidateRefScriptSizePerTxZeroLimitSkipped(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Verifies Conway protocol params do not fail Dijkstra per-tx validation.
+func TestUtxoValidateRefScriptSizePerTxConwayParams(t *testing.T) {
+	pp := &conway.ConwayProtocolParameters{}
+	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(99999), 0, nil, pp)
+	require.NoError(t, err)
+}
+
 // Verifies a block with reference scripts below the per-block limit passes.
 func TestValidateRefScriptSizePerBlockBelowLimit(t *testing.T) {
 	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 300}
 	err := ValidateRefScriptSizePerBlock(
 		blockWithRefScripts([]int{100}, []int{100}),
+		pp,
+	)
+	require.NoError(t, err)
+}
+
+// Verifies Conway protocol params do not fail Dijkstra per-block validation.
+func TestValidateRefScriptSizePerBlockConwayParams(t *testing.T) {
+	pp := &conway.ConwayProtocolParameters{}
+	err := ValidateRefScriptSizePerBlock(
+		blockWithRefScripts([]int{99999}, []int{99999}),
 		pp,
 	)
 	require.NoError(t, err)

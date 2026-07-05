@@ -86,11 +86,16 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 }
 
 func dijkstraPparams(pp common.ProtocolParameters) (*DijkstraProtocolParameters, error) {
-	p, ok := pp.(*DijkstraProtocolParameters)
-	if !ok {
-		return nil, errors.New("pparams are not DijkstraProtocolParameters")
+	switch p := pp.(type) {
+	case *DijkstraProtocolParameters:
+		return p, nil
+	case *conway.ConwayProtocolParameters:
+		return &DijkstraProtocolParameters{
+			ConwayProtocolParameters: *p,
+		}, nil
+	default:
+		return nil, errors.New("pparams are not expected type")
 	}
-	return p, nil
 }
 
 func conwayPparams(
