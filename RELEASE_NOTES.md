@@ -15,13 +15,13 @@ This release tightens duplicate-member validation in Dijkstra and Conway tagged 
 
 ### Bug Fixes
 
-* Fixed duplicate-member validation in Dijkstra and Conway tagged set decoding and added negative fixtures for duplicate witness, redeemer, sub-transaction, input, and guard set members.
+* Strengthened duplicate-member validation in Dijkstra and Conway tagged set decoding and added negative fixtures for duplicate witness, redeemer, sub-transaction, input, and guard set members.
 
 * Improved pre-Conway `MultiAsset` decoding to accept duplicate `PolicyID` and `AssetName` keys with last-wins behavior while Conway and Dijkstra still reject duplicate `MultiAsset` keys after decode.
 
 ### Additional Changes
 
-* Updated the prior `v0.186.1` release note wording for clarity and consistency.
+* Refined the prior `v0.186.1` release note wording for clarity and consistency.
 
 ## v0.186.1
 
