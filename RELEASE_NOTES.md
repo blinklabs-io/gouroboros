@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release restores Conway witness decoding for tolerated duplicate set members and refreshes CI linting tooling.
+This release fixes Conway witness decoding for tolerated duplicate set members and keeps CI linting tooling current.
 
 ### Bug Fixes
 
@@ -19,7 +19,7 @@ This release restores Conway witness decoding for tolerated duplicate set member
 
 ### Additional Changes
 
-* Updated the lint workflow to use `golangci-lint` action v9.3.0, keeping CI checks current without changing application behavior.
+* Updated the lint workflow to use `golangci-lint` action v9.3.0, leaving application runtime unchanged.
 
 ## v0.186.2
 
