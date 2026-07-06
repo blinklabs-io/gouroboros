@@ -184,6 +184,11 @@ func TestDijkstraBlockBodyRejectsInvalidTransactionIndexOutOfRange(t *testing.T)
 }
 
 func TestDijkstraBlockMarshalUsesSevenItemEnvelope(t *testing.T) {
+	sig := make([]byte, common.LeiosBlsSignatureSize)
+	leiosCert := &DijkstraLeiosCertificate{
+		Signers:             []byte{0x01},
+		AggregatedSignature: sig,
+	}
 	block := DijkstraBlock{
 		BlockBody: DijkstraBlockBody{
 			TransactionBodies: []DijkstraTransactionBody{
@@ -191,7 +196,7 @@ func TestDijkstraBlockMarshalUsesSevenItemEnvelope(t *testing.T) {
 			},
 			TransactionWitnessSets: []DijkstraTransactionWitnessSet{{}},
 			InvalidTransactions:    []uint{},
-			LeiosCertificate:       &DijkstraLeiosCertificate{},
+			LeiosCertificate:       leiosCert,
 			PerasCertificate:       &DijkstraPerasCertificate{},
 		},
 	}
@@ -203,13 +208,17 @@ func TestDijkstraBlockMarshalUsesSevenItemEnvelope(t *testing.T) {
 	_, err = cbor.Decode(blockCbor, &raw)
 	require.NoError(t, err)
 	require.Len(t, raw, 7)
-	// When a Leios cert is present, the prototype encodes empty transaction
-	// components and resolves the EB closure through LeiosDB.
+	// Per CIP-0164 a block that carries a Leios certificate carries no
+	// Dijkstra-era transactions, so the transaction components encode empty.
 	require.Equal(t, []byte{0x80}, []byte(raw[1]))
 	require.Equal(t, []byte{0x80}, []byte(raw[2]))
 	require.Equal(t, []byte{0xa0}, []byte(raw[3]))
 	require.Equal(t, []byte{0x80}, []byte(raw[4]))
-	require.Equal(t, []byte{0x80}, []byte(raw[5]))
+	// raw[5] is the real Leios certificate [signers, aggregated_signature].
+	expectedCert, err := cbor.Encode([]any{[]byte{0x01}, sig})
+	require.NoError(t, err)
+	require.Equal(t, expectedCert, []byte(raw[5]))
+	// raw[6] is the Peras certificate placeholder (empty list).
 	require.Equal(t, []byte{0x80}, []byte(raw[6]))
 }
 
@@ -304,23 +313,24 @@ func TestDijkstraBlockBodyHashIncludesLeiosAndPerasCertSlots(t *testing.T) {
 	require.NotEqual(t, withoutCerts.Hash(), withCerts.Hash())
 }
 
-func TestDijkstraLeiosCertificateMatchesCddlPlaceholder(t *testing.T) {
-	raw, err := cbor.Encode([]any{})
+// prototype-2026w27 replaced the empty-list leios_cert placeholder with a real
+// two-field certificate (IntersectMBO/cardano-ledger #5872); the old empty-list
+// form is no longer valid. Full round-trip coverage is in
+// dijkstra_leios_w27_test.go.
+func TestDijkstraLeiosCertificateRejectsEmptyPlaceholder(t *testing.T) {
+	empty, err := cbor.Encode([]any{})
 	require.NoError(t, err)
-	require.Equal(t, []byte{0x80}, raw)
+	require.Equal(t, []byte{0x80}, empty)
 
 	var cert DijkstraLeiosCertificate
-	require.NoError(t, cert.UnmarshalCBOR(raw))
-	require.Equal(t, raw, cert.Cbor())
+	require.Error(t, cert.UnmarshalCBOR(empty))
 
-	encoded, err := cbor.Encode(&cert)
+	sig := make([]byte, common.LeiosBlsSignatureSize)
+	realCert, err := cbor.Encode([]any{[]byte{0x03}, sig})
 	require.NoError(t, err)
-	require.Equal(t, raw, encoded)
-
-	nonEmpty, err := cbor.Encode([]any{uint64(99)})
-	require.NoError(t, err)
-	err = cert.UnmarshalCBOR(nonEmpty)
-	require.ErrorContains(t, err, "empty list")
+	require.NoError(t, cert.UnmarshalCBOR(realCert))
+	require.Equal(t, []byte{0x03}, cert.Signers)
+	require.Len(t, cert.AggregatedSignature, common.LeiosBlsSignatureSize)
 }
 
 func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
