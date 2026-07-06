@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -455,4 +456,116 @@ func TestUtxoValidatePlutusScriptsGuardingRedeemer(t *testing.T) {
 		&DijkstraProtocolParameters{},
 	)
 	require.ErrorAs(t, err, &common.MissingScriptWitnessesError{})
+}
+
+func txWithRefScripts(sizes ...int) *DijkstraTransaction {
+	outputs := make([]DijkstraTransactionOutput, len(sizes))
+	for i, size := range sizes {
+		script := make(common.PlutusV4Script, size)
+		outputs[i] = DijkstraTransactionOutput{
+			Output: babbage.BabbageTransactionOutput{
+				TxOutScriptRef: &common.ScriptRef{
+					Script: script,
+				},
+			},
+		}
+	}
+	return &DijkstraTransaction{
+		Body: DijkstraTransactionBody{TxOutputs: outputs},
+	}
+}
+
+func blockWithRefScripts(txScriptSizes ...[]int) *DijkstraBlock {
+	txs := make([]DijkstraTransaction, len(txScriptSizes))
+	for i, sizes := range txScriptSizes {
+		txs[i] = *txWithRefScripts(sizes...)
+	}
+	return &DijkstraBlock{
+		BlockBody: DijkstraBlockBody{Transactions: txs},
+	}
+}
+
+// Verifies a transaction with reference scripts below the per-tx limit passes.
+func TestUtxoValidateRefScriptSizePerTxBelowLimit(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 200}
+	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(100), 0, nil, pp)
+	require.NoError(t, err)
+}
+
+// Verifies a transaction with reference scripts exactly at the per-tx limit passes.
+func TestUtxoValidateRefScriptSizePerTxAtLimit(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
+	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(100), 0, nil, pp)
+	require.NoError(t, err)
+}
+
+// Verifies a transaction exceeding the per-tx reference-script limit fails.
+func TestUtxoValidateRefScriptSizePerTxExceedsLimit(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 100}
+	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(60, 60), 0, nil, pp)
+	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
+}
+
+// Verifies a zero per-tx reference-script limit skips size validation.
+func TestUtxoValidateRefScriptSizePerTxZeroLimitSkipped(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerTx: 0}
+	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(99999), 0, nil, pp)
+	require.NoError(t, err)
+}
+
+// Verifies Conway protocol params do not fail Dijkstra per-tx validation.
+func TestUtxoValidateRefScriptSizePerTxConwayParams(t *testing.T) {
+	pp := &conway.ConwayProtocolParameters{}
+	err := UtxoValidateRefScriptSizePerTx(txWithRefScripts(99999), 0, nil, pp)
+	require.NoError(t, err)
+}
+
+// Verifies a block with reference scripts below the per-block limit passes.
+func TestValidateRefScriptSizePerBlockBelowLimit(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 300}
+	err := ValidateRefScriptSizePerBlock(
+		blockWithRefScripts([]int{100}, []int{100}),
+		pp,
+	)
+	require.NoError(t, err)
+}
+
+// Verifies Conway protocol params do not fail Dijkstra per-block validation.
+func TestValidateRefScriptSizePerBlockConwayParams(t *testing.T) {
+	pp := &conway.ConwayProtocolParameters{}
+	err := ValidateRefScriptSizePerBlock(
+		blockWithRefScripts([]int{99999}, []int{99999}),
+		pp,
+	)
+	require.NoError(t, err)
+}
+
+// Verifies a block with reference scripts exactly at the per-block limit passes.
+func TestValidateRefScriptSizePerBlockAtLimit(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 200}
+	err := ValidateRefScriptSizePerBlock(
+		blockWithRefScripts([]int{100}, []int{50, 50}),
+		pp,
+	)
+	require.NoError(t, err)
+}
+
+// Verifies a block exceeding the per-block reference-script limit fails.
+func TestValidateRefScriptSizePerBlockExceedsLimit(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 200}
+	err := ValidateRefScriptSizePerBlock(
+		blockWithRefScripts([]int{100}, []int{60, 60}),
+		pp,
+	)
+	require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
+}
+
+// Verifies a zero per-block reference-script limit skips size validation.
+func TestValidateRefScriptSizePerBlockZeroLimitSkipped(t *testing.T) {
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 0}
+	err := ValidateRefScriptSizePerBlock(
+		blockWithRefScripts([]int{99999}, []int{99999}),
+		pp,
+	)
+	require.NoError(t, err)
 }

@@ -558,6 +558,20 @@ func VerifyBlock(
 				)
 			}
 		}
+		if dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock); ok {
+			if err := dijkstra.ValidateRefScriptSizePerBlock(dijkstraBlock, config.ProtocolParameters); err != nil {
+				return false, "", 0, 0, common.NewValidationError(
+					common.ValidationErrorTypeTransaction,
+					"block reference-script size validation failed",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+						"era":          era,
+					},
+					err,
+				)
+			}
+		}
 	}
 
 	// Verify stake pool registration (can be skipped via config)
