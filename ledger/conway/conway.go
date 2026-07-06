@@ -438,17 +438,22 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 witness set field.
-	// Untagged array fields are left unchecked so pre-Conway encodings remain valid.
+	// Conway (protocol versions 9-11) tolerates duplicate members in the
+	// witness-set sets that cardano-ledger decodes via Set/Map.fromList: vkey
+	// witnesses, bootstrap witnesses, native scripts, and plutus data all
+	// silently deduplicate at decode and only begin rejecting duplicates at
+	// protocol version 12 (Dijkstra, handled by DijkstraTransactionWitnessSet).
+	// Plutus script sets, by contrast, reject duplicates from version 9
+	// (cardano-ledger scriptDecoderV9 / decodeMapLikeEnforceNoDuplicates), like
+	// the tx-body sets. Only enforce the fields cardano-ledger enforces in
+	// Conway; enforcing the tolerated fields rejects valid historical blocks at
+	// decode (issue #1853). Untagged array fields are left unchecked so
+	// pre-Conway encodings remain valid.
 	type duplicateChecker interface {
 		CheckForDuplicates() error
 	}
 	for _, c := range []duplicateChecker{
-		&tmp.VkeyWitnesses,
-		&tmp.WsNativeScripts,
-		&tmp.BootstrapWitnesses,
 		&tmp.WsPlutusV1Scripts,
-		&tmp.WsPlutusData,
 		&tmp.WsPlutusV2Scripts,
 		&tmp.WsPlutusV3Scripts,
 	} {

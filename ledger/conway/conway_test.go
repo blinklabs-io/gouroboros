@@ -306,7 +306,11 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedSetFields(t *testing.T) {
 	}
 }
 
-func TestConwayWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
+// Conway (protocol versions 9-11) tolerates duplicate vkey witnesses:
+// cardano-ledger decodes them via Set.fromList and only begins rejecting
+// duplicates at protocol version 12 (Dijkstra). Rejecting at decode in Conway
+// wrongly rejects valid historical blocks (issue #1853).
+func TestConwayWitnessSetToleratesDuplicateTaggedVkeyWitness(t *testing.T) {
 	dupCbor := []byte{
 		0xa1,             // map(1)
 		0x00,             // key: 0  (VkeyWitnesses field)
@@ -318,7 +322,96 @@ func TestConwayWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
 
 	var ws ConwayTransactionWitnessSet
 	err := ws.UnmarshalCBOR(dupCbor)
+	assert.NoError(t, err,
+		"Conway must tolerate duplicate vkey witnesses (dedup at decode, matching cardano-ledger pv 9-11)")
+}
+
+func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		field  byte
+		member []byte
+	}{
+		{
+			name:  "bootstrap witnesses",
+			field: 0x02,
+			member: []byte{
+				0x84,                   // BootstrapWitness
+				0x41, 0x01, 0x41, 0x02, // public key, signature
+				0x41, 0x03, 0x41, 0x04, // chain code, attributes
+			},
+		},
+		{
+			name:   "native scripts",
+			field:  0x01,
+			member: []byte{0x82, 0x00, 0x41, 0x01}, // pubkey script
+		},
+		{
+			name:   "plutus data",
+			field:  0x04,
+			member: []byte{0x00}, // integer datum
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ws ConwayTransactionWitnessSet
+			err := ws.UnmarshalCBOR(
+				duplicateTaggedWitnessSetFieldCbor(tt.field, tt.member),
+			)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// Plutus script sets reject duplicates from protocol version 9 (cardano-ledger
+// scriptDecoderV9), so Conway must still reject them at decode.
+func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV1Script(t *testing.T) {
+	dupCbor := []byte{
+		0xa1,             // map(1)
+		0x03,             // key: 3  (WsPlutusV1Scripts field)
+		0xd9, 0x01, 0x02, // tag(258) - CBOR set
+		0x82,       // array(2)
+		0x41, 0x01, // PlutusV1Script [0x01]
+		0x41, 0x01, // duplicate
+	}
+
+	var ws ConwayTransactionWitnessSet
+	err := ws.UnmarshalCBOR(dupCbor)
 	assert.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV2AndV3Scripts(t *testing.T) {
+	tests := []struct {
+		name  string
+		field byte
+	}{
+		{name: "Plutus V2", field: 0x06},
+		{name: "Plutus V3", field: 0x07},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ws ConwayTransactionWitnessSet
+			err := ws.UnmarshalCBOR(
+				duplicateTaggedWitnessSetFieldCbor(
+					tt.field,
+					[]byte{0x41, 0x01},
+				),
+			)
+			assert.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
+func duplicateTaggedWitnessSetFieldCbor(field byte, member []byte) []byte {
+	ret := []byte{
+		0xa1,             // map(1)
+		field,            // witness set field key
+		0xd9, 0x01, 0x02, // tag(258) - CBOR set
+		0x82, // array(2)
+	}
+	ret = append(ret, member...)
+	ret = append(ret, member...)
+	return ret
 }
 
 func testConwayShelleyInput() shelley.ShelleyTransactionInput {
