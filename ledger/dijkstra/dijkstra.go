@@ -192,30 +192,67 @@ func (b *DijkstraBlock) CalculatedBlockBodyHash() common.Blake2b256 {
 	return b.BlockBody.Hash()
 }
 
-// DijkstraLeiosCertificate matches the generated Dijkstra CDDL in
-// IntersectMBO/cardano-ledger at c47305fcf47bd77437b837d0dfb9cb4181bfbc77:
+// DijkstraLeiosCertificate is the in-body Leios certificate added in the
+// ouroboros-leios prototype-2026w27 release (IntersectMBO/cardano-ledger #5872):
 //
-//	block = [..., leios_cert : leios_cert / nil, peras_cert : peras_cert / nil]
-//	leios_cert = []
-//	peras_cert = []
+//	block_body = [..., leios_certificate : leios_certificate / nil, peras_certificate : peras_certificate / nil]
+//	leios_certificate = [ signers : bytes ; committee signer bitfield
+//	                    , aggregated_signature : leios_signature ]
+//	leios_signature = bytes .size 48
 //
-// The Leios and Peras slots are always present and nullable. When non-null,
-// the current Dijkstra CDDL placeholder is an empty CBOR list, not the CIP-0164
-// stake-committee EB certificate payload.
+// It certifies the endorser block announced by an earlier ranking block; the
+// ranking block whose header sets leios_certified carries it in its body. Per
+// CIP-0164 a block that carries a Leios certificate carries no Dijkstra-era
+// transactions.
 type DijkstraLeiosCertificate struct {
 	cbor.DecodeStoreCbor
+	Signers             []byte
+	AggregatedSignature []byte
 }
 
 func (c *DijkstraLeiosCertificate) UnmarshalCBOR(cborData []byte) error {
-	return decodeDijkstraEmptyCertificate(
-		cborData,
-		"Dijkstra Leios certificate",
-		&c.DecodeStoreCbor,
-	)
+	var items []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &items); err != nil {
+		return fmt.Errorf("decode Dijkstra Leios certificate: %w", err)
+	}
+	if len(items) != 2 {
+		return fmt.Errorf(
+			"dijkstra Leios certificate must have 2 fields, got %d",
+			len(items),
+		)
+	}
+	var signers []byte
+	if _, err := cbor.Decode(items[0], &signers); err != nil {
+		return fmt.Errorf(
+			"decode Dijkstra Leios certificate signers: %w",
+			err,
+		)
+	}
+	var aggSig []byte
+	if _, err := cbor.Decode(items[1], &aggSig); err != nil {
+		return fmt.Errorf(
+			"decode Dijkstra Leios certificate aggregated signature: %w",
+			err,
+		)
+	}
+	if len(aggSig) != common.LeiosBlsSignatureSize {
+		return fmt.Errorf(
+			"invalid Dijkstra Leios certificate aggregated signature length: expected %d, got %d",
+			common.LeiosBlsSignatureSize,
+			len(aggSig),
+		)
+	}
+	c.Signers = signers
+	c.AggregatedSignature = aggSig
+	c.SetCbor(cborData)
+	return nil
 }
 
 func (c DijkstraLeiosCertificate) MarshalCBOR() ([]byte, error) {
-	return marshalDijkstraEmptyCertificate(c.DecodeStoreCbor)
+	if raw := c.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	return cbor.Encode([]any{c.Signers, c.AggregatedSignature})
 }
 
 type DijkstraPerasCertificate struct {
@@ -622,12 +659,14 @@ const babbageHeaderBodyFieldCount = 10
 type DijkstraBlockHeader struct {
 	babbage.BabbageBlockHeader
 	// LeiosHeaderExtension holds the Dijkstra/Leios block-header fields that
-	// follow Babbage's protocol_version field. The leios-prototype testnet
-	// began emitting an extra trailing element (a [hash, uint] pair) once the
-	// Leios header extension activated mid-Dijkstra; earlier Dijkstra blocks
-	// carry the plain 10-field Babbage header body, for which this is nil. The
-	// elements are retained verbatim so the header round-trips and hashes
-	// identically to the bytes received on the wire.
+	// follow Babbage's protocol_version field. As of the ouroboros-leios
+	// prototype-2026w27 release (IntersectMBO/cardano-ledger #5889) these are
+	// two fields: leios_certified (bool) and leios_announcement
+	// ([announced_eb : hash32, announced_eb_size : uint .size 4] / nil). Earlier
+	// Dijkstra blocks carry the plain 10-field Babbage header body, for which
+	// this is nil. The elements are retained verbatim so the header round-trips
+	// and hashes identically to the bytes received on the wire; use
+	// LeiosCertified and LeiosAnnouncement for typed access.
 	LeiosHeaderExtension []cbor.RawMessage
 }
 
@@ -709,22 +748,42 @@ func (h *DijkstraBlockHeader) Era() common.Era {
 	return EraDijkstra
 }
 
-// LeiosEndorserBlockRef returns the endorser block referenced by this ranking
-// block via its Leios header extension. The extension's first element is the
-// endorser-block announcement [eb_hash, eb_size] (the same shape leios-notify
-// uses), identifying the endorser block whose transactions this ranking block
-// endorses. ok is false for pre-Leios-extension Dijkstra headers (which carry
-// no extension) or if the extension is not the expected [hash32, uint] shape.
-func (h *DijkstraBlockHeader) LeiosEndorserBlockRef() (
+// LeiosCertified reports whether this ranking block certifies the endorser
+// block announced by an earlier ranking block. It is the leios_certified header
+// field added in the ouroboros-leios prototype-2026w27 release
+// (IntersectMBO/cardano-ledger #5889); when true, the block body carries the
+// leios_certificate. present is false for pre-Leios-extension Dijkstra headers,
+// which carry no extension.
+func (h *DijkstraBlockHeader) LeiosCertified() (certified bool, present bool) {
+	if len(h.LeiosHeaderExtension) == 0 {
+		return false, false
+	}
+	if _, err := cbor.Decode(h.LeiosHeaderExtension[0], &certified); err != nil {
+		return false, false
+	}
+	return certified, true
+}
+
+// LeiosAnnouncement returns the endorser block this ranking block announces via
+// its Leios header extension. It is the leios_announcement header field added in
+// the ouroboros-leios prototype-2026w27 release (IntersectMBO/cardano-ledger
+// #5889):
+//
+//	leios_announcement = [announced_eb : hash32, announced_eb_size : uint .size 4]
+//
+// ok is false when the block announces no endorser block (leios_announcement is
+// nil), for pre-Leios-extension Dijkstra headers, or if the field is not the
+// expected [hash32, uint] shape.
+func (h *DijkstraBlockHeader) LeiosAnnouncement() (
 	hash common.Blake2b256,
 	size uint64,
 	ok bool,
 ) {
-	if len(h.LeiosHeaderExtension) == 0 {
+	if len(h.LeiosHeaderExtension) < 2 {
 		return common.Blake2b256{}, 0, false
 	}
 	var pair []cbor.RawMessage
-	if _, err := cbor.Decode(h.LeiosHeaderExtension[0], &pair); err != nil ||
+	if _, err := cbor.Decode(h.LeiosHeaderExtension[1], &pair); err != nil ||
 		len(pair) != 2 {
 		return common.Blake2b256{}, 0, false
 	}
