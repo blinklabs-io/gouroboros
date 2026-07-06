@@ -11,21 +11,21 @@ title: Release notes
 
 ### Summary
 
-This release adds Dijkstra reference-script size checks and aligns Leios block encoding with the prototype-2026w27 certificate shape, including a breaking accessor update for downstream consumers.
+This release adds Dijkstra reference-script size checks and updates Leios block handling for prototype-2026w27 certificates, including a breaking accessor change for downstream consumers.
 
 ### New Features
 
-* Added Dijkstra reference-script size limit enforcement so oversized scripts fail against configured per-transaction and per-block limits with typed errors.
+* Added Dijkstra reference-script size limit enforcement so oversized scripts now fail against configured per-transaction and per-block limits with typed errors.
 
 ### Breaking Changes
 
-* Updated Leios block headers to expose typed `LeiosCertified` and `LeiosAnnouncement` accessors instead of `LeiosEndorserBlockRef`, and the decoder now rejects malformed placeholder certificates and wrongly shaped payloads.
+* Updated Leios block headers to expose typed `LeiosCertified` and `LeiosAnnouncement` accessors instead of `LeiosEndorserBlockRef`, and the decoder now rejects malformed placeholder certificates and other wrongly shaped payloads.
 
 ### Bug Fixes
 
-* Fixed Dijkstra block encoding so Leios certificates now follow the prototype-2026w27 in-body layout, including empty transaction component slots when a Leios certificate is present.
+* Fixed Dijkstra block encoding so Leios certificates now use the prototype-2026w27 in-body layout and include empty transaction component slots when a Leios certificate is present.
 
-* Improved Leios certificate decoding so only real certificates with `Signers` and `AggregatedSignature` fields round trip successfully.
+* Improved Leios certificate decoding so only well formed certificates with `Signers` and `AggregatedSignature` fields load successfully.
 
 ## v0.186.2
 
