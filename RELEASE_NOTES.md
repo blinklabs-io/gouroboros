@@ -4,6 +4,23 @@ title: Release notes
 
 # Release notes
 
+## v0.186.3
+
+- **Date:** 2026-07-06
+- **Version:** 0.186.3
+
+### Summary
+
+This release fixes Conway witness decoding for tolerated duplicate set members and updates CI linting tooling.
+
+### Bug Fixes
+
+* Fixed Conway witness decoding so historical blocks with duplicate `vkey` witnesses, `bootstrap` witnesses, `native` scripts, or `Plutus` data now load successfully in Conway protocol versions 9 through 11 instead of failing with `duplicate member in set`, while `Plutus` script sets still reject duplicates.
+
+### Additional Changes
+
+* Updated the lint workflow to use a newer `golangci-lint` action, keeping CI checks current without changing application behavior.
+
 ## v0.186.2
 
 - **Date:** 2026-07-05
