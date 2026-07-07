@@ -48,14 +48,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgVotesOffer{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
+	default:
+		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, msgType)
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
-	if ret != nil {
-		// Store the raw message CBOR
-		ret.SetCbor(data)
-	}
+	// Store the raw message CBOR
+	ret.SetCbor(data)
 	return ret, nil
 }
 
@@ -132,7 +132,8 @@ func NewMsgBlockTxsOffer(point pcommon.Point) *MsgBlockTxsOffer {
 //     elements) when the peer pushes votes directly (the prototype dialect).
 //
 // After decoding, exactly one of Votes / FullVotes is populated depending on
-// the per-vote CBOR array length. Encoding prefers FullVotes when present.
+// the known per-vote CBOR array length. Encoding prefers FullVotes when
+// present.
 type MsgVotesOffer struct {
 	protocol.MessageBase
 	Votes     []MsgVotesOfferVote
@@ -224,9 +225,54 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 				)
 			}
 			m.FullVotes = append(m.FullVotes, vote)
+		case 3:
+			// prototype-2026w27 (the deployed musashi relay) diffuses a vote as
+			// a 3-element array [endorser_block_hash (hash32), voter_id (uint),
+			// signature (bytes .size 48)] — the 4-element full vote with the
+			// leading slot field dropped. Verified against live captures from
+			// leios-node.play.dev.cardano.org:3001 (network magic 164). Decode
+			// the three fields; SlotNo is left zero because the wire omits it.
+			var ebHash []byte
+			if _, err := cbor.Decode(elems[0], &ebHash); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode vote %d endorser block hash: %w",
+					ProtocolName, idx, err,
+				)
+			}
+			if len(ebHash) != lcommon.Blake2b256Size {
+				return fmt.Errorf(
+					"%s: votes offer: vote %d endorser block hash is %d bytes, expected %d",
+					ProtocolName, idx, len(ebHash), lcommon.Blake2b256Size,
+				)
+			}
+			var voterId uint64
+			if _, err := cbor.Decode(elems[1], &voterId); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode vote %d voter id: %w",
+					ProtocolName, idx, err,
+				)
+			}
+			var sig []byte
+			if _, err := cbor.Decode(elems[2], &sig); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode vote %d signature: %w",
+					ProtocolName, idx, err,
+				)
+			}
+			if len(sig) != lcommon.LeiosBlsSignatureSize {
+				return fmt.Errorf(
+					"%s: votes offer: vote %d signature is %d bytes, expected %d",
+					ProtocolName, idx, len(sig), lcommon.LeiosBlsSignatureSize,
+				)
+			}
+			m.FullVotes = append(m.FullVotes, lcommon.LeiosVote{
+				EndorserBlockHash: lcommon.NewBlake2b256(ebHash),
+				VoterId:           voterId,
+				VoteSignature:     sig,
+			})
 		default:
 			return fmt.Errorf(
-				"%s: votes offer: vote %d has unexpected element count %d",
+				"%s: votes offer: vote %d unexpected element count %d",
 				ProtocolName,
 				idx,
 				len(elems),

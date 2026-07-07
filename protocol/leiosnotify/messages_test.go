@@ -15,10 +15,12 @@
 package leiosnotify
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
@@ -198,13 +200,11 @@ func TestMsgDone(t *testing.T) {
 }
 
 func TestNewMsgFromCborUnknownType(t *testing.T) {
-	// Test with unknown message type - the NewMsgFromCbor function tries to decode
-	// into a nil pointer, which results in an error
 	data := []byte{0x80} // empty array
 	msg, err := NewMsgFromCbor(999, data)
-	// When the message type is unknown, ret is nil, and cbor.Decode(data, nil) returns an error
-	assert.Error(t, err)
-	assert.Nil(t, msg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown message type 999")
+	require.Nil(t, msg)
 }
 
 func TestMsgVotesOfferEmpty(t *testing.T) {
@@ -234,4 +234,58 @@ func TestMsgBlockAnnouncementEmpty(t *testing.T) {
 	// After CBOR round-trip, empty RawMessage may decode differently
 	// so we just check it's not nil
 	assert.NotNil(t, decodedMsg)
+}
+
+// TestMsgVotesOfferThreeElementVote verifies decoding the prototype-2026w27
+// deployed vote shape: a 3-element array [endorser_block_hash (hash32),
+// voter_id (uint), signature (bytes .size 48)] — the full LeiosVote with the
+// leading slot dropped. Shape confirmed from live musashi captures.
+func TestMsgVotesOfferThreeElementVote(t *testing.T) {
+	ebHash := bytes.Repeat([]byte{0xAB}, lcommon.Blake2b256Size)
+	sig := bytes.Repeat([]byte{0xCD}, lcommon.LeiosBlsSignatureSize)
+	voteCbor, err := cbor.Encode([]any{ebHash, uint64(7), sig})
+	require.NoError(t, err)
+	msgCbor, err := cbor.Encode([]any{
+		uint(MessageTypeVotesOffer),
+		[]cbor.RawMessage{cbor.RawMessage(voteCbor)},
+	})
+	require.NoError(t, err)
+
+	var m MsgVotesOffer
+	require.NoError(t, m.UnmarshalCBOR(msgCbor))
+	require.Len(t, m.FullVotes, 1)
+	require.Empty(t, m.Votes)
+	v := m.FullVotes[0]
+	assert.Equal(t, uint64(0), v.SlotNo, "3-element vote omits slot")
+	assert.Equal(t, ebHash, v.EndorserBlockHash.Bytes())
+	assert.Equal(t, uint64(7), v.VoterId)
+	assert.Equal(t, sig, v.VoteSignature)
+
+	// A 3-element vote with a wrong-length signature is rejected.
+	badCbor, err := cbor.Encode([]any{ebHash, uint64(7), []byte{0x01, 0x02}})
+	require.NoError(t, err)
+	badMsg, err := cbor.Encode([]any{
+		uint(MessageTypeVotesOffer),
+		[]cbor.RawMessage{cbor.RawMessage(badCbor)},
+	})
+	require.NoError(t, err)
+	var m2 MsgVotesOffer
+	require.ErrorContains(t, m2.UnmarshalCBOR(badMsg), "signature is 2 bytes")
+}
+
+func TestMsgVotesOfferUnknownVoteShape(t *testing.T) {
+	voteCbor, err := cbor.Encode([]any{uint64(100)})
+	require.NoError(t, err)
+	msgCbor, err := cbor.Encode([]any{
+		uint(MessageTypeVotesOffer),
+		[]cbor.RawMessage{cbor.RawMessage(voteCbor)},
+	})
+	require.NoError(t, err)
+
+	var m MsgVotesOffer
+	require.ErrorContains(
+		t,
+		m.UnmarshalCBOR(msgCbor),
+		"votes offer: vote 0 unexpected element count 1",
+	)
 }
