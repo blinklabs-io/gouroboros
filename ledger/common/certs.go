@@ -525,12 +525,41 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 			Hostname *string `json:"hostname,omitempty"`
 		} `json:"relays"`
 		PoolMetadata *PoolMetadata `json:"poolMetadata,omitempty"`
+
+		// Shelley genesis staking.pools uses different field names than the
+		// on-chain / API representation above for the same values. Accept both
+		// so pools declared in genesis parse correctly — otherwise a genesis
+		// pool's VRF key hash is dropped and reads as all-zeros, which breaks
+		// header VRF-key validation for that pool's blocks.
+		PublicKey string        `json:"publicKey"`
+		Vrf       string        `json:"vrf"`
+		Owners    []string      `json:"owners"`
+		Metadata  *PoolMetadata `json:"metadata,omitempty"`
 	}
 
 	var tmp tempPool
 	//nolint:musttag
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return fmt.Errorf("failed to unmarshal pool registration: %w", err)
+	}
+
+	// Resolve fields that have distinct genesis-staking names, preferring the
+	// on-chain/API name when both are present.
+	operator := tmp.Operator
+	if operator == "" {
+		operator = tmp.PublicKey
+	}
+	vrfKeyHash := tmp.VrfKeyHash
+	if vrfKeyHash == "" {
+		vrfKeyHash = tmp.Vrf
+	}
+	poolOwners := tmp.PoolOwners
+	if len(poolOwners) == 0 {
+		poolOwners = tmp.Owners
+	}
+	poolMetadata := tmp.PoolMetadata
+	if poolMetadata == nil {
+		poolMetadata = tmp.Metadata
 	}
 
 	p.Pledge = tmp.Pledge
@@ -545,7 +574,7 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 			Hostname: relay.Hostname,
 		}
 	}
-	p.PoolMetadata = tmp.PoolMetadata
+	p.PoolMetadata = poolMetadata
 
 	// Handle margin field
 	if len(tmp.Margin) > 0 {
@@ -585,8 +614,8 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert operator key
-	if tmp.Operator != "" {
-		opBytes, err := hex.DecodeString(tmp.Operator)
+	if operator != "" {
+		opBytes, err := hex.DecodeString(operator)
 		if err != nil {
 			return fmt.Errorf("invalid operator key: %w", err)
 		}
@@ -594,8 +623,8 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert VRF key hash
-	if tmp.VrfKeyHash != "" {
-		vrfBytes, err := hex.DecodeString(tmp.VrfKeyHash)
+	if vrfKeyHash != "" {
+		vrfBytes, err := hex.DecodeString(vrfKeyHash)
 		if err != nil {
 			return fmt.Errorf("invalid VRF key hash: %w", err)
 		}
@@ -603,9 +632,9 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert pool owners
-	if len(tmp.PoolOwners) > 0 {
-		owners := make([]AddrKeyHash, len(tmp.PoolOwners))
-		for i, owner := range tmp.PoolOwners {
+	if len(poolOwners) > 0 {
+		owners := make([]AddrKeyHash, len(poolOwners))
+		for i, owner := range poolOwners {
 			ownerBytes, err := hex.DecodeString(owner)
 			if err != nil {
 				return fmt.Errorf("invalid pool owner key: %w", err)
