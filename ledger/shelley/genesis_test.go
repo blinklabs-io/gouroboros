@@ -320,6 +320,18 @@ func TestGenesisStaking(t *testing.T) {
 			t.Errorf("Expected pool cost 340000000, got %d", pool.Cost)
 		}
 
+		// The VRF key hash must be parsed from the genesis "vrf" field.
+		// If it is dropped it reads as all-zeros, which breaks consensus
+		// header VRF-key validation for this pool's blocks.
+		expectedVrf := "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		if got := hex.EncodeToString(pool.VrfKeyHash[:]); got != expectedVrf {
+			t.Errorf(
+				"Expected pool VRF key hash %s, got %s",
+				expectedVrf,
+				got,
+			)
+		}
+
 		// Test delegators
 		if len(delegators) != 1 {
 			t.Errorf("Expected 1 delegator mapping, got %d", len(delegators))
@@ -367,6 +379,18 @@ func TestGenesisStaking(t *testing.T) {
 		// Test pool data
 		if pool.Cost != 340000000 {
 			t.Errorf("Expected pool cost 340000000, got %d", pool.Cost)
+		}
+
+		// The VRF key hash must be parsed from the genesis "vrf" field.
+		// If it is dropped it reads as all-zeros, which breaks consensus
+		// header VRF-key validation for this pool's blocks.
+		expectedVrf := "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		if got := hex.EncodeToString(pool.VrfKeyHash[:]); got != expectedVrf {
+			t.Errorf(
+				"Expected pool VRF key hash %s, got %s",
+				expectedVrf,
+				got,
+			)
 		}
 
 		// Test delegators
