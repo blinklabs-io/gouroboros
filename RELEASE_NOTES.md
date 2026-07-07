@@ -27,6 +27,23 @@ This release adds Dijkstra reference-script size checks and updates Leios certif
 
 * Improved Leios certificate decoding so only well-formed certificates with `Signers` and `AggregatedSignature` fields load successfully.
 
+## v0.186.3
+
+- **Date:** 2026-07-06
+- **Version:** 0.186.3
+
+### Summary
+
+This release fixes Conway witness decoding for tolerated duplicate set members and keeps CI linting tooling current.
+
+### Bug Fixes
+
+* Fixed Conway witness decoding so historical blocks with duplicate `vkey` witnesses, `bootstrap` witnesses, `native` scripts, or `Plutus` data now decode successfully in Conway protocol versions 9 through 11 instead of failing with `duplicate member in set`, while `Plutus` script sets still reject duplicates.
+
+### Additional Changes
+
+* Updated the lint workflow to use `golangci-lint` action v9.3.0, leaving application runtime unchanged.
+
 ## v0.186.2
 
 - **Date:** 2026-07-05
