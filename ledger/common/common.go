@@ -1179,6 +1179,288 @@ func extractByronOutputOffsets(
 	}
 }
 
+// isDijkstraBlock checks whether a decoded block array represents a Dijkstra
+// (prototype-2026w27) block. A Dijkstra block is a 2-element array
+// [header, block_body] where block_body is a 4-element array
+// [invalid_transactions/nil, transactions, leios_certificate/nil,
+// peras_certificate/nil] and each transaction is a 3-element array
+// [transaction_body, transaction_witness_set, auxiliary_data/nil].
+//
+// The 2-element top level distinguishes Dijkstra from Byron (3-element) and
+// Shelley+ (4+ element) blocks. The nested shape check guards against
+// misclassifying an unrelated 2-element value (e.g. a Byron epoch-boundary
+// block, whose second element is a bytestring array, not a 4-element array).
+func isDijkstraBlock(blockArray []cbor.RawMessage) bool {
+	if len(blockArray) != 2 {
+		return false
+	}
+	var bodyParts []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(blockArray[1]), &bodyParts); err != nil {
+		return false
+	}
+	if len(bodyParts) != 4 {
+		return false
+	}
+	// bodyParts[1] is the transactions array.
+	var txs []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(bodyParts[1]), &txs); err != nil {
+		return false
+	}
+	// If there are transactions, verify the first one is a 3-element array.
+	if len(txs) > 0 {
+		var tx []cbor.RawMessage
+		if _, err := cbor.Decode([]byte(txs[0]), &tx); err != nil {
+			return false
+		}
+		if len(tx) != 3 {
+			return false
+		}
+	}
+	return true
+}
+
+// extractDijkstraTransactionOffsets extracts transaction offsets from a
+// Dijkstra (prototype-2026w27) block. The block is [header, block_body] with
+// block_body = [invalid_transactions/nil, transactions, leios_certificate/nil,
+// peras_certificate/nil] and each transaction a complete
+// [transaction_body, transaction_witness_set, auxiliary_data/nil] array (not
+// the pre-Dijkstra parallel body/witness/metadata segments).
+func extractDijkstraTransactionOffsets(
+	cborData []byte,
+	blockArray []cbor.RawMessage,
+) (*BlockTransactionOffsets, error) {
+	if len(blockArray) != 2 {
+		return nil, fmt.Errorf(
+			"dijkstra block has %d elements, expected 2",
+			len(blockArray),
+		)
+	}
+
+	topCount, topHeaderSize, topIndefinite := cborArrayInfo(cborData)
+	if topCount < 0 && !topIndefinite {
+		return nil, errors.New("invalid Dijkstra block array")
+	}
+	if !topIndefinite && topCount != 2 {
+		return nil, fmt.Errorf(
+			"dijkstra block has %d elements, expected 2",
+			topCount,
+		)
+	}
+
+	var bodyParts []cbor.RawMessage
+	if _, err := cbor.Decode([]byte(blockArray[1]), &bodyParts); err != nil {
+		return nil, fmt.Errorf("failed to decode Dijkstra block body: %w", err)
+	}
+	if len(bodyParts) != 4 {
+		return nil, fmt.Errorf(
+			"dijkstra block body has %d elements, expected 4",
+			len(bodyParts),
+		)
+	}
+
+	blockDecoder, err := cbor.NewStreamDecoder(cborData[topHeaderSize:])
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := blockDecoder.Skip(); err != nil {
+		return nil, fmt.Errorf("failed to skip Dijkstra block header: %w", err)
+	}
+	bodyOffset, bodyRaw, err := blockDecoder.DecodeRaw(new(cbor.RawMessage))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode Dijkstra block body: %w", err)
+	}
+	blockBodyOffset := topHeaderSize + uint32(
+		bodyOffset,
+	) // #nosec G115 -- Cardano blocks are <<4GiB
+
+	bodyCount, bodyHeaderSize, bodyIndefinite := cborArrayInfo(bodyRaw)
+	if bodyCount < 0 && !bodyIndefinite {
+		return nil, errors.New("invalid Dijkstra block body array")
+	}
+	if !bodyIndefinite && bodyCount != 4 {
+		return nil, fmt.Errorf(
+			"dijkstra block body has %d elements, expected 4",
+			bodyCount,
+		)
+	}
+
+	bodyDecoder, err := cbor.NewStreamDecoder(bodyRaw[bodyHeaderSize:])
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := bodyDecoder.Skip(); err != nil {
+		return nil, fmt.Errorf("failed to skip invalid_transactions: %w", err)
+	}
+	txsOffset, txsRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to decode Dijkstra transactions: %w",
+			err,
+		)
+	}
+	txsArrayOffset := blockBodyOffset + bodyHeaderSize + uint32(
+		txsOffset,
+	) // #nosec G115 -- Cardano blocks are <<4GiB
+
+	var txs []cbor.RawMessage
+	if _, err := cbor.Decode(txsRaw, &txs); err != nil {
+		return nil, fmt.Errorf(
+			"failed to decode Dijkstra transactions: %w",
+			err,
+		)
+	}
+	if len(txs) == 0 {
+		return &BlockTransactionOffsets{
+			Transactions: []TransactionLocation{},
+		}, nil
+	}
+
+	txsCount, txsHeaderSize, txsIndefinite := cborArrayInfo(txsRaw)
+	if txsCount < 0 && !txsIndefinite {
+		return nil, errors.New("invalid Dijkstra transactions array")
+	}
+	if !txsIndefinite && txsCount != len(txs) {
+		return nil, fmt.Errorf(
+			"dijkstra transactions array has %d elements, decoded %d",
+			txsCount,
+			len(txs),
+		)
+	}
+
+	result := &BlockTransactionOffsets{
+		Transactions: make([]TransactionLocation, len(txs)),
+	}
+
+	// Walk each transaction [transaction_body, transaction_witness_set, aux/nil].
+	txsDecoder, err := cbor.NewStreamDecoder(txsRaw[txsHeaderSize:])
+	if err != nil {
+		return nil, err
+	}
+	for i := range txs {
+		txOffset, rawTx, err := txsDecoder.DecodeRaw(new(cbor.RawMessage))
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode Dijkstra transaction %d: %w",
+				i,
+				err,
+			)
+		}
+		txPos := txsArrayOffset + txsHeaderSize + uint32(
+			txOffset,
+		) // #nosec G115 -- Cardano blocks are <<4GiB
+
+		var txParts []cbor.RawMessage
+		if _, err := cbor.Decode(rawTx, &txParts); err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode Dijkstra transaction %d: %w", i, err,
+			)
+		}
+		if len(txParts) != 3 {
+			return nil, fmt.Errorf(
+				"dijkstra transaction %d has %d elements, expected 3",
+				i, len(txParts),
+			)
+		}
+
+		txCount, txHeaderSize, txIndefinite := cborArrayInfo(rawTx)
+		if txCount < 0 && !txIndefinite {
+			return nil, fmt.Errorf(
+				"invalid Dijkstra transaction %d array",
+				i,
+			)
+		}
+		if !txIndefinite && txCount != 3 {
+			return nil, fmt.Errorf(
+				"dijkstra transaction %d has %d elements, expected 3",
+				i,
+				txCount,
+			)
+		}
+
+		txDecoder, err := cbor.NewStreamDecoder(rawTx[txHeaderSize:])
+		if err != nil {
+			return nil, err
+		}
+		bodyOffset, bodyBytes, err := txDecoder.DecodeRaw(new(cbor.RawMessage))
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode Dijkstra transaction %d body: %w",
+				i,
+				err,
+			)
+		}
+		witnessOffset, witnessBytes, err := txDecoder.DecodeRaw(
+			new(cbor.RawMessage),
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode Dijkstra transaction %d witness set: %w",
+				i,
+				err,
+			)
+		}
+		auxOffset, auxBytes, err := txDecoder.DecodeRaw(new(cbor.RawMessage))
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to decode Dijkstra transaction %d auxiliary data: %w",
+				i,
+				err,
+			)
+		}
+
+		bodyStart := txPos + txHeaderSize + uint32(
+			bodyOffset,
+		) // #nosec G115 -- Cardano blocks are <<4GiB
+		bodyLen := uint32(
+			len(bodyBytes),
+		) // #nosec G115 -- Cardano blocks are <<4GiB
+		witnessStart := txPos + txHeaderSize + uint32(
+			witnessOffset,
+		) // #nosec G115 -- Cardano blocks are <<4GiB
+		witnessLen := uint32(
+			len(witnessBytes),
+		) // #nosec G115 -- Cardano blocks are <<4GiB
+		auxStart := txPos + txHeaderSize + uint32(
+			auxOffset,
+		) // #nosec G115 -- Cardano blocks are <<4GiB
+		auxLen := uint32(
+			len(auxBytes),
+		) // #nosec G115 -- Cardano blocks are <<4GiB
+
+		result.Transactions[i].Body = ByteRange{
+			Offset: bodyStart,
+			Length: bodyLen,
+		}
+		result.Transactions[i].Witness = ByteRange{
+			Offset: witnessStart,
+			Length: witnessLen,
+		}
+		// auxiliary_data is CBOR null (0xf6) when absent; only record real
+		// metadata so the zero ByteRange keeps its "no metadata" meaning.
+		if len(auxBytes) != 1 || auxBytes[0] != 0xf6 {
+			result.Transactions[i].Metadata = ByteRange{
+				Offset: auxStart,
+				Length: auxLen,
+			}
+		}
+
+		// Populate output and witness-component offsets, matching the Shelley+
+		// path so downstream DOFF indexing works identically.
+		extractOutputOffsets(
+			bodyBytes,
+			bodyStart,
+			&result.Transactions[i],
+		)
+		extractWitnessComponentOffsets(
+			witnessBytes,
+			witnessStart,
+			&result.Transactions[i],
+		)
+	}
+
+	return result, nil
+}
+
 // ExtractTransactionOffsets extracts byte offsets for all transactions in a block.
 // This enables efficient CBOR extraction from block data without full deserialization.
 //
@@ -1193,6 +1475,15 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	if _, err := cbor.Decode(cborData, &blockArray); err != nil {
 		return nil, fmt.Errorf("failed to decode block array: %w", err)
 	}
+
+	// Detect Dijkstra (prototype-2026w27) blocks. Unlike pre-Dijkstra eras,
+	// these are a 2-element array [header, block_body] where transactions live
+	// inline inside block_body rather than as parallel top-level segments, so
+	// they must be recognized before the generic short-block early return.
+	if isDijkstraBlock(blockArray) {
+		return extractDijkstraTransactionOffsets(cborData, blockArray)
+	}
+
 	if len(blockArray) < 3 {
 		// Block doesn't have separated components (e.g., Byron EBB)
 		// Return empty slice instead of nil to prevent nil pointer dereference
@@ -1334,6 +1625,7 @@ const (
 	witnessKeyRedeemers        = 5
 	witnessKeyPlutusV2Scripts  = 6
 	witnessKeyPlutusV3Scripts  = 7
+	witnessKeyPlutusV4Scripts  = 8
 )
 
 // extractOutputOffsets parses a transaction body to find output CBOR positions.
@@ -1521,6 +1813,9 @@ func extractWitnessComponentOffsets(
 
 		case witnessKeyPlutusV3Scripts:
 			extractScriptArrayOffsets(valueBytes, absOffset, ScriptRefTypePlutusV3, loc.Scripts)
+
+		case witnessKeyPlutusV4Scripts:
+			extractScriptArrayOffsets(valueBytes, absOffset, ScriptRefTypePlutusV4, loc.Scripts)
 		}
 	}
 }

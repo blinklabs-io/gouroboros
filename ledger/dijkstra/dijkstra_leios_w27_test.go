@@ -15,6 +15,9 @@
 package dijkstra
 
 import (
+	"encoding/hex"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -120,4 +123,82 @@ func TestDijkstraLeiosHeaderExtensionAccessors(t *testing.T) {
 	assert.False(t, present)
 	_, _, ok = hLegacy.LeiosAnnouncement()
 	assert.False(t, ok)
+}
+
+// prototype-2026w27 (IntersectMBO/cardano-ledger a24a2d69b) defines
+// peras_certificate as an opaque byte string (peras_certificate = bytes;
+// peras_certificate / nil), replacing the earlier empty-list placeholder.
+func TestDijkstraPerasCertificateRoundTrip(t *testing.T) {
+	// Present: an opaque byte string round-trips verbatim.
+	body := DijkstraBlockBody{
+		Transactions:     []DijkstraTransaction{},
+		PerasCertificate: []byte{0xde, 0xad, 0xbe, 0xef},
+	}
+	raw, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var decoded DijkstraBlockBody
+	require.NoError(t, decoded.UnmarshalCBOR(raw))
+	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, decoded.PerasCertificate)
+
+	// Absent: a nil peras_certificate encodes as CBOR null and decodes to nil.
+	bodyNil := DijkstraBlockBody{Transactions: []DijkstraTransaction{}}
+	rawNil, err := bodyNil.MarshalCBOR()
+	require.NoError(t, err)
+	var items []cbor.RawMessage
+	_, err = cbor.Decode(rawNil, &items)
+	require.NoError(t, err)
+	require.Len(t, items, 4)
+	assert.Equal(t, []byte{0xf6}, []byte(items[3])) // peras field is CBOR null
+	var decodedNil DijkstraBlockBody
+	require.NoError(t, decodedNil.UnmarshalCBOR(rawNil))
+	assert.Nil(t, decodedNil.PerasCertificate)
+}
+
+// TestDijkstraDecodeRealMusashiBlock decodes a block captured live from the
+// respun ouroboros-leios prototype-2026w27 "musashi" testnet (network magic
+// 164, fetched over node-to-node from leios-node.play.dev.cardano.org:3001 at
+// slot 566037 / block 28091). It exercises the full Dijkstra wire format
+// against real bytes: the two-element [header, block_body] envelope, the
+// four-field block_body, and the 12-field Leios-extended header body.
+//
+// NewDijkstraBlockFromCbor verifies the block body hash against the header
+// during parsing, so a successful decode proves the body-hash computation is
+// correct for a real block. Musashi carries no transaction or endorser-block
+// activity yet (txsProcessedNum stays 0 and no leios_certificate has appeared
+// on-chain), so this representative block has no transactions and null
+// certificate slots.
+func TestDijkstraDecodeRealMusashiBlock(t *testing.T) {
+	hexData, err := os.ReadFile("testdata/musashi_dijkstra_block.hex")
+	require.NoError(t, err)
+	raw, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
+	require.NoError(t, err)
+
+	blk, err := NewDijkstraBlockFromCbor(raw)
+	require.NoError(t, err)
+
+	// Two-element [header, block_body] envelope with a four-field body.
+	var top []cbor.RawMessage
+	_, err = cbor.Decode(raw, &top)
+	require.NoError(t, err)
+	require.Len(t, top, 2)
+	var body []cbor.RawMessage
+	_, err = cbor.Decode(top[1], &body)
+	require.NoError(t, err)
+	require.Len(t, body, 4)
+
+	// Header identity + Leios extension present (12-field header body).
+	assert.Equal(t, uint64(566037), blk.SlotNumber())
+	assert.Equal(t, uint64(28091), blk.BlockNumber())
+	_, present := blk.BlockHeader.LeiosCertified()
+	assert.True(t, present, "musashi headers carry the 12-field Leios extension")
+
+	// Representative of the current txless, endorser-block-less chain.
+	assert.Empty(t, blk.Transactions())
+	assert.Nil(t, blk.BlockBody.LeiosCertificate)
+	assert.Nil(t, blk.BlockBody.PerasCertificate)
+
+	// Re-encoding a decoded block reproduces the exact wire bytes.
+	remar, err := blk.MarshalCBOR()
+	require.NoError(t, err)
+	assert.Equal(t, raw, remar)
 }
