@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release improves Conway redeemer decoding so block syncing keeps moving when duplicate redeemer keys appear in data accepted by `cardano-node`.
+This release improves Conway redeemer decoding so block syncing keeps moving when duplicate redeemer keys appear in block data accepted by `cardano-node`.
 
 ### Bug Fixes
 
