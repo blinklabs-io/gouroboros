@@ -73,13 +73,18 @@ type DijkstraBlock struct {
 }
 
 func (b *DijkstraBlock) UnmarshalCBOR(cborData []byte) error {
+	// A Dijkstra (prototype-2026w27) block is a 2-element array:
+	//   block = [header, block_body]
+	// This differs from the pre-Dijkstra segwit layout that spread the body's
+	// components (tx bodies, witnesses, metadata, invalid txs) as additional
+	// top-level array elements.
 	var items []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &items); err != nil {
 		return err
 	}
-	if len(items) != 7 {
+	if len(items) != 2 {
 		return fmt.Errorf(
-			"invalid Dijkstra block: expected 7 components, got %d",
+			"invalid Dijkstra block: expected 2 components, got %d",
 			len(items),
 		)
 	}
@@ -88,8 +93,8 @@ func (b *DijkstraBlock) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("decode Dijkstra block header: %w", err)
 	}
 	var body DijkstraBlockBody
-	if err := body.decodeComponents(items[1:]); err != nil {
-		return err
+	if _, err := cbor.Decode(items[1], &body); err != nil {
+		return fmt.Errorf("decode Dijkstra block body: %w", err)
 	}
 	b.BlockHeader = &header
 	b.BlockBody = body
@@ -101,15 +106,7 @@ func (b *DijkstraBlock) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	components, err := b.BlockBody.componentCbors()
-	if err != nil {
-		return nil, err
-	}
-	items := []any{b.BlockHeader}
-	for _, component := range components {
-		items = append(items, cbor.RawMessage(component))
-	}
-	return cbor.Encode(items)
+	return cbor.Encode([]any{b.BlockHeader, b.BlockBody})
 }
 
 func (DijkstraBlock) Type() int {
@@ -149,10 +146,9 @@ func (b *DijkstraBlock) Era() common.Era {
 }
 
 func (b *DijkstraBlock) Transactions() []common.Transaction {
-	if len(b.BlockBody.Transactions) == 0 &&
-		len(b.BlockBody.TransactionBodies) > 0 {
-		_ = b.BlockBody.rebuildTransactions()
-	}
+	// Each transaction's IsValid() already reflects membership in the block
+	// body's invalid_transactions index set (applied at decode time); a tx at
+	// index i is invalid iff i is in that set.
 	ret := make([]common.Transaction, len(b.BlockBody.Transactions))
 	for idx := range b.BlockBody.Transactions {
 		ret[idx] = &b.BlockBody.Transactions[idx]
@@ -255,62 +251,29 @@ func (c DijkstraLeiosCertificate) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode([]any{c.Signers, c.AggregatedSignature})
 }
 
-type DijkstraPerasCertificate struct {
-	cbor.DecodeStoreCbor
-}
-
-func (c *DijkstraPerasCertificate) UnmarshalCBOR(cborData []byte) error {
-	return decodeDijkstraEmptyCertificate(
-		cborData,
-		"Dijkstra Peras certificate",
-		&c.DecodeStoreCbor,
-	)
-}
-
-func (c DijkstraPerasCertificate) MarshalCBOR() ([]byte, error) {
-	return marshalDijkstraEmptyCertificate(c.DecodeStoreCbor)
-}
-
-func decodeDijkstraEmptyCertificate(
-	cborData []byte,
-	name string,
-	store *cbor.DecodeStoreCbor,
-) error {
-	var items []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &items); err != nil {
-		return err
-	}
-	if len(items) != 0 {
-		return fmt.Errorf("%s must be an empty list", name)
-	}
-	store.SetCbor(cborData)
-	return nil
-}
-
-func marshalDijkstraEmptyCertificate(
-	store cbor.DecodeStoreCbor,
-) ([]byte, error) {
-	if raw := store.Cbor(); len(raw) > 0 {
-		return raw, nil
-	}
-	return cbor.Encode([]any{})
-}
-
+// DijkstraBlockBody is the Dijkstra (prototype-2026w27) block body. Per the
+// authoritative cardano-ledger Dijkstra CDDL it is a 4-element array:
+//
+//	block_body =
+//	  [ invalid_transactions : invalid_transactions / nil
+//	  , transactions         : [* transaction]
+//	  , leios_certificate     : leios_certificate / nil
+//	  , peras_certificate     : peras_certificate / nil ]
+//
+// Unlike pre-Dijkstra eras, transactions are stored inline (each a full
+// [transaction_body, transaction_witness_set, auxiliary_data/nil] array) rather
+// than as parallel tx-body / witness-set / metadata segments, and per-tx
+// validity is conveyed by the invalid_transactions index set rather than a
+// per-transaction is_valid flag.
 type DijkstraBlockBody struct {
 	cbor.DecodeStoreCbor
-	InvalidTransactions    []uint
-	Transactions           []DijkstraTransaction
-	TransactionBodies      []DijkstraTransactionBody
-	TransactionWitnessSets []DijkstraTransactionWitnessSet
-	TransactionMetadataSet common.TransactionMetadataSet
-	LeiosCertificate       *DijkstraLeiosCertificate
-	PerasCertificate       *DijkstraPerasCertificate
-	txBodiesCbor           []byte
-	txWitnessesCbor        []byte
-	txMetadataSetCbor      []byte
-	invalidTxsCbor         []byte
-	leiosCertificateCbor   []byte
-	perasCertificateCbor   []byte
+	InvalidTransactions []uint
+	Transactions        []DijkstraTransaction
+	LeiosCertificate    *DijkstraLeiosCertificate
+	// PerasCertificate is the block_body peras_certificate field, which the
+	// Dijkstra CDDL defines as an opaque byte string (peras_certificate =
+	// bytes; peras_certificate / nil). It is nil when the field is CBOR null.
+	PerasCertificate []byte
 }
 
 func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
@@ -318,16 +281,53 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &items); err != nil {
 		return err
 	}
-	if len(items) != 6 {
+	if len(items) != 4 {
 		return fmt.Errorf(
-			"invalid Dijkstra block body: expected 6 components, got %d",
+			"invalid Dijkstra block body: expected 4 components, got %d",
 			len(items),
 		)
 	}
-	if err := b.decodeComponents(items); err != nil {
+	// items[0]: invalid_transactions / nil
+	invalidTxs, err := decodeInvalidTransactions(items[0])
+	if err != nil {
 		return err
 	}
-	b.SetCborReference(cborData)
+	// items[1]: transactions [* transaction]
+	var txs []DijkstraTransaction
+	if _, err := cbor.Decode(items[1], &txs); err != nil {
+		return fmt.Errorf("decode Dijkstra transactions: %w", err)
+	}
+	// items[2]: leios_certificate / nil
+	leiosCert, err := decodeDijkstraLeiosCertificate(items[2])
+	if err != nil {
+		return err
+	}
+	// items[3]: peras_certificate / nil
+	perasCert, err := decodeDijkstraPerasCertificate(items[3])
+	if err != nil {
+		return err
+	}
+	// A transaction at index i is invalid iff i is in invalid_transactions;
+	// every index must reference an existing transaction.
+	invalidTxMap := make(map[uint]bool, len(invalidTxs))
+	for _, invalidTxIdx := range invalidTxs {
+		if invalidTxIdx >= uint(len(txs)) {
+			return fmt.Errorf(
+				"invalid transaction index %d outside transaction list length %d",
+				invalidTxIdx,
+				len(txs),
+			)
+		}
+		invalidTxMap[invalidTxIdx] = true
+	}
+	for idx := range txs {
+		txs[idx].TxIsValid = !invalidTxMap[uint(idx)]
+	}
+	b.InvalidTransactions = invalidTxs
+	b.Transactions = txs
+	b.LeiosCertificate = leiosCert
+	b.PerasCertificate = perasCert
+	b.SetCbor(cborData)
 	return nil
 }
 
@@ -335,293 +335,62 @@ func (b DijkstraBlockBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	components, err := b.componentCbors()
-	if err != nil {
-		return nil, err
+	// invalid_transactions is a nonempty_set / nil: an empty set encodes as
+	// CBOR null, matching the reference node's on-wire encoding.
+	var invalidField any
+	if invalidTxs := b.invalidTransactionsForEncoding(); len(invalidTxs) > 0 {
+		invalidField = invalidTxs
 	}
-	items := make([]any, 0, len(components))
-	for _, component := range components {
-		items = append(items, cbor.RawMessage(component))
+	txs := b.Transactions
+	if txs == nil {
+		txs = []DijkstraTransaction{}
 	}
-	return cbor.Encode(items)
+	var leiosField any
+	if b.LeiosCertificate != nil {
+		leiosField = b.LeiosCertificate
+	}
+	var perasField any
+	if b.PerasCertificate != nil {
+		perasField = b.PerasCertificate
+	}
+	return cbor.Encode([]any{invalidField, txs, leiosField, perasField})
 }
 
+// Hash computes the Dijkstra block body hash. The prototype-2026w27 node stores
+// blake2b256 over the block_body CBOR itself (verified against live blocks on
+// network magic 164), replacing the pre-Dijkstra segwit hash-of-concatenated-
+// segment-hashes.
 func (b DijkstraBlockBody) Hash() common.Blake2b256 {
-	components, err := b.componentCbors()
+	cborData, err := b.MarshalCBOR()
 	if err != nil {
 		panic("CBOR encoding that should never fail has failed: " + err.Error())
 	}
-	bodyHashes := make([]byte, 0, len(components)*32)
-	for _, component := range components {
-		componentHash := common.Blake2b256Hash(component)
-		bodyHashes = append(bodyHashes, componentHash[:]...)
-	}
-	return common.Blake2b256Hash(bodyHashes)
+	return common.Blake2b256Hash(cborData)
 }
 
-func (b *DijkstraBlockBody) decodeComponents(items []cbor.RawMessage) error {
-	if len(items) != 6 {
-		return fmt.Errorf(
-			"invalid Dijkstra block body: expected 6 components, got %d",
-			len(items),
-		)
-	}
-	var bodies []DijkstraTransactionBody
-	if _, err := cbor.Decode(items[0], &bodies); err != nil {
-		return fmt.Errorf("decode Dijkstra transaction bodies: %w", err)
-	}
-	var witnesses []DijkstraTransactionWitnessSet
-	if _, err := cbor.Decode(items[1], &witnesses); err != nil {
-		return fmt.Errorf("decode Dijkstra transaction witnesses: %w", err)
-	}
-	if len(bodies) != len(witnesses) {
-		return fmt.Errorf(
-			"different number of transaction bodies (%d) and witness sets (%d)",
-			len(bodies),
-			len(witnesses),
-		)
-	}
-	var metadataSet common.TransactionMetadataSet
-	if _, err := cbor.Decode(items[2], &metadataSet); err != nil {
-		return fmt.Errorf("decode Dijkstra auxiliary data set: %w", err)
-	}
-	invalidTxs, err := decodeInvalidTransactions(items[3])
-	if err != nil {
-		return err
-	}
-	for _, invalidTxIdx := range invalidTxs {
-		if invalidTxIdx >= uint(len(bodies)) {
-			return fmt.Errorf(
-				"invalid transaction index %d outside transaction list length %d",
-				invalidTxIdx,
-				len(bodies),
-			)
-		}
-	}
-	leiosCert, err := decodeDijkstraLeiosCertificate(items[4])
-	if err != nil {
-		return err
-	}
-	perasCert, err := decodeDijkstraPerasCertificate(items[5])
-	if err != nil {
-		return err
-	}
-	b.TransactionBodies = bodies
-	b.TransactionWitnessSets = witnesses
-	b.TransactionMetadataSet = metadataSet
-	b.InvalidTransactions = invalidTxs
-	b.LeiosCertificate = leiosCert
-	b.PerasCertificate = perasCert
-	b.txBodiesCbor = items[0]
-	b.txWitnessesCbor = items[1]
-	b.txMetadataSetCbor = items[2]
-	b.invalidTxsCbor = items[3]
-	b.leiosCertificateCbor = items[4]
-	b.perasCertificateCbor = items[5]
-	return b.rebuildTransactions()
-}
-
-func (b *DijkstraBlockBody) rebuildTransactions() error {
-	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
-		return fmt.Errorf(
-			"different number of transaction bodies (%d) and witness sets (%d)",
-			len(b.TransactionBodies),
-			len(b.TransactionWitnessSets),
-		)
-	}
-	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
-	for _, invalidTxIdx := range b.InvalidTransactions {
-		if invalidTxIdx >= uint(len(b.TransactionBodies)) {
-			return fmt.Errorf(
-				"invalid transaction index %d outside transaction list length %d",
-				invalidTxIdx,
-				len(b.TransactionBodies),
-			)
-		}
-		invalidTxMap[invalidTxIdx] = true
-	}
-	txs := make([]DijkstraTransaction, len(b.TransactionBodies))
-	for idx := range b.TransactionBodies {
-		tx := DijkstraTransaction{
-			Body:       b.TransactionBodies[idx],
-			WitnessSet: b.TransactionWitnessSets[idx],
-			TxIsValid:  !invalidTxMap[uint(idx)],
-		}
-		if raw, ok := b.TransactionMetadataSet.GetRawMetadata(uint(idx)); ok &&
-			len(raw) > 0 {
-			if err := decodeAuxiliaryDataInto(
-				raw,
-				&tx.TxMetadata,
-				&tx.auxData,
-			); err != nil {
-				return fmt.Errorf(
-					"decode Dijkstra transaction %d auxiliary data: %w",
-					idx,
-					err,
-				)
-			}
-		} else if metadata, ok := b.TransactionMetadataSet.GetMetadata(uint(idx)); ok {
-			tx.TxMetadata = metadata
-		}
-		txs[idx] = tx
-	}
-	b.Transactions = txs
-	return nil
-}
-
-func (b DijkstraBlockBody) componentCbors() ([][]byte, error) {
-	if b.hasComponentCbors() {
-		return [][]byte{
-			b.txBodiesCbor,
-			b.txWitnessesCbor,
-			b.txMetadataSetCbor,
-			b.invalidTxsCbor,
-			b.leiosCertificateCbor,
-			b.perasCertificateCbor,
-		}, nil
-	}
-	return b.encodeComponentCbors()
-}
-
-func (b DijkstraBlockBody) hasComponentCbors() bool {
-	return len(b.txBodiesCbor) > 0 &&
-		len(b.txWitnessesCbor) > 0 &&
-		len(b.txMetadataSetCbor) > 0 &&
-		len(b.invalidTxsCbor) > 0 &&
-		len(b.leiosCertificateCbor) > 0 &&
-		len(b.perasCertificateCbor) > 0
-}
-
-func (b DijkstraBlockBody) encodeComponentCbors() ([][]byte, error) {
-	bodies, witnesses, metadata, invalidTxs := b.componentsForEncoding()
-	if b.LeiosCertificate != nil {
-		bodies = []DijkstraTransactionBody{}
-		witnesses = []DijkstraTransactionWitnessSet{}
-		metadata = map[uint]cbor.RawMessage{}
-		invalidTxs = []uint{}
-	}
-	if len(bodies) != len(witnesses) {
-		return nil, fmt.Errorf(
-			"different number of transaction bodies (%d) and witness sets (%d)",
-			len(bodies),
-			len(witnesses),
-		)
-	}
-	txBodiesCbor, err := cbor.Encode(bodies)
-	if err != nil {
-		return nil, fmt.Errorf("encode Dijkstra transaction bodies: %w", err)
-	}
-	txWitnessesCbor, err := cbor.Encode(witnesses)
-	if err != nil {
-		return nil, fmt.Errorf("encode Dijkstra transaction witnesses: %w", err)
-	}
-	txMetadataSetCbor, err := encodeDijkstraMetadataSet(
-		b.TransactionMetadataSet,
-		metadata,
-	)
-	if err != nil {
-		return nil, err
-	}
-	invalidTxsCbor, err := cbor.Encode(invalidTxs)
-	if err != nil {
-		return nil, fmt.Errorf("encode Dijkstra invalid transactions: %w", err)
-	}
-	leiosCertificateCbor, err := encodeDijkstraOptionalCertificate(
-		b.LeiosCertificate,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("encode Dijkstra Leios certificate: %w", err)
-	}
-	perasCertificateCbor, err := encodeDijkstraOptionalCertificate(
-		b.PerasCertificate,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("encode Dijkstra Peras certificate: %w", err)
-	}
-	return [][]byte{
-		txBodiesCbor,
-		txWitnessesCbor,
-		txMetadataSetCbor,
-		invalidTxsCbor,
-		leiosCertificateCbor,
-		perasCertificateCbor,
-	}, nil
-}
-
-func (b DijkstraBlockBody) componentsForEncoding() (
-	[]DijkstraTransactionBody,
-	[]DijkstraTransactionWitnessSet,
-	map[uint]cbor.RawMessage,
-	[]uint,
-) {
-	if len(b.TransactionBodies) > 0 || len(b.TransactionWitnessSets) > 0 {
-		invalidTxs := b.InvalidTransactions
-		if invalidTxs == nil {
-			invalidTxs = []uint{}
-		}
-		return b.TransactionBodies, b.TransactionWitnessSets, nil, invalidTxs
-	}
-	txBodies := make([]DijkstraTransactionBody, len(b.Transactions))
-	txWitnesses := make([]DijkstraTransactionWitnessSet, len(b.Transactions))
-	metadata := make(map[uint]cbor.RawMessage)
-	invalidTxs := make([]uint, 0, len(b.InvalidTransactions))
+// invalidTransactionsForEncoding derives the sorted invalid_transactions index
+// set from the block body's transactions and any explicitly set indices. A
+// transaction is invalid when its IsValid() is false. The result feeds the
+// nonempty_set / nil field: an empty result is encoded as CBOR null.
+func (b DijkstraBlockBody) invalidTransactionsForEncoding() []uint {
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
 	}
 	for idx, tx := range b.Transactions {
-		txBodies[idx] = tx.Body
-		txWitnesses[idx] = tx.WitnessSet
-		if !tx.IsValid() && !invalidTxMap[uint(idx)] {
-			invalidTxs = append(invalidTxs, uint(idx))
-		}
-		if tx.auxData != nil && len(tx.auxData.Cbor()) > 0 {
-			metadata[uint(idx)] = tx.auxData.Cbor()
-		} else if tx.TxMetadata != nil && len(tx.TxMetadata.Cbor()) > 0 {
-			metadata[uint(idx)] = tx.TxMetadata.Cbor()
+		if !tx.IsValid() {
+			invalidTxMap[uint(idx)] = true
 		}
 	}
-	invalidTxs = append(invalidTxs, b.InvalidTransactions...)
-	slices.Sort(invalidTxs)
-	return txBodies, txWitnesses, metadata, invalidTxs
-}
-
-func encodeDijkstraMetadataSet(
-	metadataSet common.TransactionMetadataSet,
-	metadata map[uint]cbor.RawMessage,
-) ([]byte, error) {
-	if raw := metadataSet.Cbor(); len(raw) > 0 {
-		return raw, nil
+	if len(invalidTxMap) == 0 {
+		return nil
 	}
-	if metadata == nil {
-		metadata = map[uint]cbor.RawMessage{}
+	ret := make([]uint, 0, len(invalidTxMap))
+	for idx := range invalidTxMap {
+		ret = append(ret, idx)
 	}
-	ret, err := cbor.Encode(metadata)
-	if err != nil {
-		return nil, fmt.Errorf("encode Dijkstra auxiliary data set: %w", err)
-	}
-	return ret, nil
-}
-
-func encodeDijkstraOptionalCertificate(
-	cert any,
-) ([]byte, error) {
-	switch c := cert.(type) {
-	case nil:
-		return cbor.Encode(nil)
-	case *DijkstraLeiosCertificate:
-		if c == nil {
-			return cbor.Encode(nil)
-		}
-		return c.MarshalCBOR()
-	case *DijkstraPerasCertificate:
-		if c == nil {
-			return cbor.Encode(nil)
-		}
-		return c.MarshalCBOR()
-	default:
-		return nil, fmt.Errorf("unsupported Dijkstra certificate type %T", cert)
-	}
+	slices.Sort(ret)
+	return ret
 }
 
 func decodeDijkstraLeiosCertificate(
@@ -637,17 +406,26 @@ func decodeDijkstraLeiosCertificate(
 	return &cert, nil
 }
 
+// decodeDijkstraPerasCertificate decodes the block_body peras_certificate
+// field. The Dijkstra CDDL defines it as an opaque byte string
+// (peras_certificate = bytes; peras_certificate / nil), so a null field
+// returns nil and any present value is returned as its raw bytes.
 func decodeDijkstraPerasCertificate(
 	raw cbor.RawMessage,
-) (*DijkstraPerasCertificate, error) {
+) ([]byte, error) {
 	if isCborNull(raw) {
 		return nil, nil
 	}
-	var cert DijkstraPerasCertificate
+	var cert []byte
 	if _, err := cbor.Decode(raw, &cert); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra Peras certificate: %w", err)
 	}
-	return &cert, nil
+	if cert == nil {
+		// Present-but-empty (0x40) stays non-nil so it round-trips as bytes
+		// rather than collapsing to the null field.
+		cert = []byte{}
+	}
+	return cert, nil
 }
 
 // babbageHeaderBodyFieldCount is the number of fields in a Babbage block
@@ -1849,11 +1627,18 @@ func decodeInvalidTransactions(raw cbor.RawMessage) ([]uint, error) {
 	if isCborNull(raw) {
 		return nil, nil
 	}
-	var txIndices []uint
+	// invalid_transactions = nonempty_set<transaction_index>, which the CDDL
+	// allows as either a tag-258 set or a plain array; SetType accepts both.
+	var txIndices cbor.SetType[uint64]
 	if _, err := cbor.Decode(raw, &txIndices); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
 	}
-	return txIndices, nil
+	items := txIndices.Items()
+	ret := make([]uint, len(items))
+	for i, idx := range items {
+		ret[i] = uint(idx)
+	}
+	return ret, nil
 }
 
 func decodeAuxiliaryDataInto(

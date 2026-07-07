@@ -58,6 +58,51 @@ func eraAtLeast(era common.Era, min common.Era) bool {
 	return ok && currentOrder >= minOrder
 }
 
+// validateDijkstraBlockBodyHash validates a Dijkstra block's body hash. The
+// block is [header, block_body] and the header's block_body_hash is blake2b256
+// over the block_body CBOR (confirmed against live prototype-2026w27 blocks),
+// unlike the pre-Dijkstra segwit hash of concatenated per-segment hashes.
+func validateDijkstraBlockBodyHash(
+	rawCbor []byte,
+	expectedBodyHash common.Blake2b256,
+) error {
+	var raw []cbor.RawMessage
+	if _, err := cbor.Decode(rawCbor, &raw); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeBodyHash,
+			"failed to decode Dijkstra block CBOR for body hash validation",
+			map[string]any{"era": dijkstra.EraNameDijkstra},
+			err,
+		)
+	}
+	if len(raw) != 2 {
+		return common.NewValidationError(
+			common.ValidationErrorTypeBodyHash,
+			"invalid Dijkstra block CBOR structure for body hash validation",
+			map[string]any{
+				"era":           dijkstra.EraNameDijkstra,
+				"expected":      2,
+				"actual_length": len(raw),
+			},
+			nil,
+		)
+	}
+	actualBodyHash := common.Blake2b256Hash(raw[1])
+	if actualBodyHash != expectedBodyHash {
+		return common.NewValidationError(
+			common.ValidationErrorTypeBodyHash,
+			dijkstra.EraNameDijkstra+" block body hash mismatch during parsing",
+			map[string]any{
+				"era":           dijkstra.EraNameDijkstra,
+				"expected_hash": expectedBodyHash.String(),
+				"actual_hash":   actualBodyHash.String(),
+			},
+			nil,
+		)
+	}
+	return nil
+}
+
 func eraOrder(era common.Era) (int, bool) {
 	switch era {
 	case byron.EraByron:
@@ -492,17 +537,27 @@ func VerifyBlock(
 		}
 		era := block.Era()
 		eraName := era.Name
-		minLength := 4
 		if era == dijkstra.EraDijkstra {
-			minLength = 7
-		} else if eraAtLeast(era, alonzo.EraAlonzo) {
-			minLength = 5
-		}
-		if err := common.ValidateBlockBodyHash(rawCbor, expectedBodyHash, eraName, minLength); err != nil {
-			return false, "", 0, 0, fmt.Errorf(
-				"VerifyBlock: %w",
-				err,
-			)
+			// A Dijkstra (prototype-2026w27) block is [header, block_body];
+			// its block_body_hash is blake2b256 over the block_body CBOR, not
+			// the pre-Dijkstra concatenation of per-segment hashes.
+			if err := validateDijkstraBlockBodyHash(rawCbor, expectedBodyHash); err != nil {
+				return false, "", 0, 0, fmt.Errorf(
+					"VerifyBlock: %w",
+					err,
+				)
+			}
+		} else {
+			minLength := 4
+			if eraAtLeast(era, alonzo.EraAlonzo) {
+				minLength = 5
+			}
+			if err := common.ValidateBlockBodyHash(rawCbor, expectedBodyHash, eraName, minLength); err != nil {
+				return false, "", 0, 0, fmt.Errorf(
+					"VerifyBlock: %w",
+					err,
+				)
+			}
 		}
 	}
 
