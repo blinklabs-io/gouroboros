@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release improves Conway redeemer decoding so block syncing continues when duplicate redeemer keys appear in data accepted by `cardano-node`.
+This release improves Conway redeemer decoding so block syncing keeps moving when duplicate redeemer keys appear in data accepted by `cardano-node`.
 
 ### Bug Fixes
 
-* Fixed Conway redeemer decoding so duplicate `(tag, index)` keys now fall back to lenient decoding after a duplicate map key error, while redeemer hashes still derive from the original `CBOR` bytes.
+* Fixed Conway redeemer decoding so duplicate `(tag, index)` keys now trigger lenient decoding after a duplicate map key error, while redeemer hashes still come from the original `CBOR` bytes.
 
 ## v0.187.1
 
