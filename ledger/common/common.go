@@ -1229,6 +1229,13 @@ func extractDijkstraTransactionOffsets(
 	cborData []byte,
 	blockArray []cbor.RawMessage,
 ) (*BlockTransactionOffsets, error) {
+	if len(blockArray) != 2 {
+		return nil, fmt.Errorf(
+			"dijkstra block has %d elements, expected 2",
+			len(blockArray),
+		)
+	}
+
 	topArrayHeader := cborArrayHeaderSize(len(blockArray))
 
 	// blockArray[0] = header, blockArray[1] = block_body
@@ -1315,7 +1322,7 @@ func extractDijkstraTransactionOffsets(
 		}
 		// auxiliary_data is CBOR null (0xf6) when absent; only record real
 		// metadata so the zero ByteRange keeps its "no metadata" meaning.
-		if !(len(txParts[2]) == 1 && txParts[2][0] == 0xf6) {
+		if len(txParts[2]) != 1 || txParts[2][0] != 0xf6 {
 			result.Transactions[i].Metadata = ByteRange{
 				Offset: auxStart,
 				Length: auxLen,

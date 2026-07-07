@@ -210,6 +210,7 @@ func TestExtractTransactionOffsetsDijkstra(t *testing.T) {
 	var tx1Parts []cbor.RawMessage
 	_, err = cbor.Decode([]byte(txs[1]), &tx1Parts)
 	require.NoError(t, err)
+	require.Len(t, tx1Parts, 3)
 	m := offsets.Transactions[1].Metadata
 	require.NotZero(t, m.Length)
 	assert.Equal(t, []byte(tx1Parts[2]), blockCbor[m.Offset:m.Offset+m.Length])
