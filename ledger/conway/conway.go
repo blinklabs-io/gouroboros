@@ -290,8 +290,25 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 		// Modern map form — clear any stale legacy state
 		r.legacy = false
 		r.legacyRedeemers = alonzo.AlonzoRedeemers{}
-		_, err := cbor.Decode(cborData, &(r.Redeemers))
-		return err
+		if _, err := cbor.Decode(cborData, &(r.Redeemers)); err != nil {
+			if !cbor.IsDuplicateMapKeyError(err) {
+				return err
+			}
+			// A Redeemers map with a duplicate (tag, index) key. cardano-ledger
+			// decodes this map last-wins and cardano-node accepts such blocks,
+			// so they appear on canonical chains (gouroboros #1860: a preview
+			// block carries a duplicate (Spend, 0) redeemer that cardano-node
+			// accepts). Reject-on-duplicate poisons every peer serving the block
+			// and stalls sync, so decode leniently (last-wins) to match
+			// consensus. Hash-safe: redeemer/tx/block hashes are computed over
+			// the stored raw CBOR (SetCbor above), so lenient struct decoding
+			// never changes them.
+			r.Redeemers = nil
+			if _, err := cbor.DecodeLenient(cborData, &(r.Redeemers)); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	// Legacy array form — clear any stale map state
 	r.Redeemers = nil
