@@ -227,3 +227,81 @@ func TestExtractTransactionOffsetsDijkstra(t *testing.T) {
 	o := offsets.Transactions[1].Outputs[0]
 	assert.Equal(t, []byte(outputs[0]), blockCbor[o.Offset:o.Offset+o.Length])
 }
+
+func TestExtractTransactionOffsetsDijkstraUsesWireOffsets(t *testing.T) {
+	nonMinimalArray := func(items ...[]byte) []byte {
+		ret := []byte{0x98, byte(len(items))}
+		for _, item := range items {
+			ret = append(ret, item...)
+		}
+		return ret
+	}
+
+	txBody := []byte{
+		0xa2,             // map(2)
+		0x01,             // outputs
+		0x81,             // array(1)
+		0x82,             // legacy output array(2)
+		0x42, 0xde, 0xad, // address bytes
+		0x05,       // amount
+		0x02, 0x14, // fee
+	}
+	plutusV4Script := []byte{0x42, 0x41, 0x00}
+	txWitness := append(
+		[]byte{
+			0xa1, // map(1)
+			0x08, // Plutus V4 scripts
+			0x81, // array(1)
+		},
+		plutusV4Script...,
+	)
+	txMetadata := []byte{
+		0xa1,             // map(1)
+		0x19, 0x02, 0xa2, // 674
+		0x64, 'm', 'e', 't', 'a',
+	}
+	tx := nonMinimalArray(txBody, txWitness, txMetadata)
+	txs := nonMinimalArray(tx)
+	blockBody := nonMinimalArray([]byte{0xf6}, txs, []byte{0xf6}, []byte{0xf6})
+	blockCbor := nonMinimalArray([]byte{0x80}, blockBody)
+
+	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, offsets.Transactions, 1)
+
+	loc := offsets.Transactions[0]
+	assert.Equal(
+		t,
+		txBody,
+		blockCbor[loc.Body.Offset:loc.Body.Offset+loc.Body.Length],
+	)
+	assert.Equal(
+		t,
+		txWitness,
+		blockCbor[loc.Witness.Offset:loc.Witness.Offset+loc.Witness.Length],
+	)
+	assert.Equal(
+		t,
+		txMetadata,
+		blockCbor[loc.Metadata.Offset:loc.Metadata.Offset+loc.Metadata.Length],
+	)
+
+	require.Len(t, loc.Outputs, 1)
+	output := loc.Outputs[0]
+	assert.Equal(
+		t,
+		txBody[3:8],
+		blockCbor[output.Offset:output.Offset+output.Length],
+	)
+
+	scriptHash := common.Blake2b224Hash(
+		append([]byte{common.ScriptRefTypePlutusV4}, plutusV4Script...),
+	)
+	scriptRange, ok := loc.Scripts[scriptHash]
+	require.True(t, ok)
+	assert.Equal(
+		t,
+		plutusV4Script,
+		blockCbor[scriptRange.Offset:scriptRange.Offset+scriptRange.Length],
+	)
+}

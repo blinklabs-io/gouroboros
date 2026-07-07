@@ -293,9 +293,17 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	// items[1]: transactions [* transaction]
-	var txs []DijkstraTransaction
-	if _, err := cbor.Decode(items[1], &txs); err != nil {
+	var rawTxs []cbor.RawMessage
+	if _, err := cbor.Decode(items[1], &rawTxs); err != nil {
 		return fmt.Errorf("decode Dijkstra transactions: %w", err)
+	}
+	txs := make([]DijkstraTransaction, len(rawTxs))
+	for idx, rawTx := range rawTxs {
+		tx, err := newDijkstraTransactionFromCbor(rawTx, false)
+		if err != nil {
+			return fmt.Errorf("decode Dijkstra transaction %d: %w", idx, err)
+		}
+		txs[idx] = *tx
 	}
 	// items[2]: leios_certificate / nil
 	leiosCert, err := decodeDijkstraLeiosCertificate(items[2])
@@ -1631,6 +1639,9 @@ func decodeInvalidTransactions(raw cbor.RawMessage) ([]uint, error) {
 	// allows as either a tag-258 set or a plain array; SetType accepts both.
 	var txIndices cbor.SetType[uint64]
 	if _, err := cbor.Decode(raw, &txIndices); err != nil {
+		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
+	}
+	if err := txIndices.CheckForDuplicates(); err != nil {
 		return nil, fmt.Errorf("decode Dijkstra invalid transactions: %w", err)
 	}
 	items := txIndices.Items()

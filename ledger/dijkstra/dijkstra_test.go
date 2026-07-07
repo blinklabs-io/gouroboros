@@ -178,6 +178,36 @@ func TestDijkstraBlockBodyAppliesInvalidTransactionIndices(t *testing.T) {
 	require.False(t, blockBody.Transactions[0].IsValid())
 }
 
+func TestDijkstraBlockBodyRejectsTransactionIsValidFlag(t *testing.T) {
+	parts := minimalTxParts()
+	withTrue := []any{parts[0], parts[1], true, parts[2]}
+	bodyCbor, err := cbor.Encode([]any{
+		nil,
+		[]any{withTrue},
+		nil,
+		nil,
+	})
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	err = blockBody.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "cannot include is_valid")
+}
+
+func TestDijkstraBlockBodyRejectsDuplicateTaggedInvalidTransactions(t *testing.T) {
+	bodyCbor, err := cbor.Encode([]any{
+		cbor.NewSetType([]uint64{0, 0}, true),
+		[]any{minimalTxParts()},
+		nil,
+		nil,
+	})
+	require.NoError(t, err)
+
+	var blockBody DijkstraBlockBody
+	err = blockBody.UnmarshalCBOR(bodyCbor)
+	require.ErrorContains(t, err, "duplicate member in set")
+}
+
 func TestDijkstraBlockBodyRejectsInvalidTransactionIndexOutOfRange(t *testing.T) {
 	bodyCbor, err := cbor.Encode(minimalBlockBodyParts([]uint{1}))
 	require.NoError(t, err)

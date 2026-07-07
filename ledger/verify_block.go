@@ -19,6 +19,7 @@
 package ledger
 
 import (
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -88,7 +89,7 @@ func validateDijkstraBlockBodyHash(
 		)
 	}
 	actualBodyHash := common.Blake2b256Hash(raw[1])
-	if actualBodyHash != expectedBodyHash {
+	if subtle.ConstantTimeCompare(actualBodyHash[:], expectedBodyHash[:]) != 1 {
 		return common.NewValidationError(
 			common.ValidationErrorTypeBodyHash,
 			dijkstra.EraNameDijkstra+" block body hash mismatch during parsing",
