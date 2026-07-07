@@ -11,15 +11,15 @@ title: Release notes
 
 ### Summary
 
-This release aligns Dijkstra ledger handling with the reference CDDL and fixes genesis staking pool parsing so pool metadata and VRF keys load correctly.
+This release improves Dijkstra block compatibility and restores correct handling for genesis staking pool metadata and VRF keys.
 
 ### Breaking Changes
 
-* Updated Dijkstra block bodies to the new `Transactions`, `InvalidTransactions`, `LeiosCertificate`, and `PerasCertificate` layout, and block verification now checks `blake2b256(block_body)`.
+* Updated Dijkstra block bodies to the new `Transactions`, `InvalidTransactions`, `LeiosCertificate`, and `PerasCertificate` layout, and applications that read or build Dijkstra blocks must now use the `blake2b256(block_body)` hash check.
 
 ### Bug Fixes
 
-* Fixed genesis staking pool parsing so `publicKey`, `vrf`, `owners`, and `metadata` values load from Shelley genesis data and preserve the correct VRF key hash.
+* Fixed genesis staking pool parsing so Shelley `publicKey`, `vrf`, `owners`, and `metadata` aliases load correctly and preserve the expected VRF key hash.
 
 * Improved Dijkstra decoding and encoding so inline transactions, transaction offsets, and Plutus V4 witness script offsets match the reference CDDL.
 
