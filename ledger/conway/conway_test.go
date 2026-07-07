@@ -28,6 +28,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConwayRedeemersIter(t *testing.T) {
@@ -597,5 +598,45 @@ func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
 		cborData,
 		reEncoded,
 		"CBOR round-trip should be byte-identical",
+	)
+}
+
+// TestConwayRedeemersDuplicateKeyLenient verifies that a Redeemers map carrying
+// a duplicate (tag, index) key — which cardano-node accepts and strict decoding
+// rejects — is decoded leniently (last-wins) instead of failing the block.
+// See gouroboros #1860.
+func TestConwayRedeemersDuplicateKeyLenient(t *testing.T) {
+	// Redeemers map with two entries under the same key [Spend(0), index 0]:
+	//   { [0,0]: [0,[1,2]], [0,0]: [0,[3,4]] }
+	// Plutus data is the bare integer 0; the value's second element is
+	// ExUnits [mem, steps].
+	dupCbor := []byte{
+		0xA2,             // map(2)
+		0x82, 0x00, 0x00, // key [Spend, 0]
+		0x82, 0x00, 0x82, 0x01, 0x02, // value [datum=0, exUnits=[1,2]]
+		0x82, 0x00, 0x00, // key [Spend, 0] (duplicate)
+		0x82, 0x00, 0x82, 0x03, 0x04, // value [datum=0, exUnits=[3,4]]
+	}
+	// Strict decode rejects the duplicate key (the pre-fix behavior that
+	// wedged preview sync).
+	var strict map[common.RedeemerKey]common.RedeemerValue
+	_, strictErr := cbor.Decode(dupCbor, &strict)
+	assert.Error(t, strictErr)
+	assert.True(
+		t,
+		cbor.IsDuplicateMapKeyError(strictErr),
+		"expected a duplicate-map-key error, got %v",
+		strictErr,
+	)
+	// ConwayRedeemers decodes it, keeping the last value for the duplicate key.
+	var r ConwayRedeemers
+	require.NoError(t, r.UnmarshalCBOR(dupCbor))
+	key := common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 0}
+	assert.Len(t, r.Redeemers, 1)
+	assert.Equal(
+		t,
+		common.ExUnits{Memory: 3, Steps: 4},
+		r.Redeemers[key].ExUnits,
+		"duplicate key should resolve last-wins",
 	)
 }
