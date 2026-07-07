@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.187.3
+
+- **Date:** 2026-07-07
+- **Version:** 0.187.3
+
+### Summary
+
+This release improves Conway redeemer decoding so block syncing continues when duplicate redeemer keys appear in data accepted by `cardano-node`.
+
+### Bug Fixes
+
+* Fixed Conway redeemer decoding so duplicate `(tag, index)` keys now fall back to lenient decoding after a duplicate map key error, while redeemer hashes still derive from the original `CBOR` bytes.
+
 ## v0.187.1
 
 - **Date:** 2026-07-07
