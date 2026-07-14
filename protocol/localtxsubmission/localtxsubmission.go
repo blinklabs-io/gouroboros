@@ -43,6 +43,14 @@ var StateMap = protocol.StateMap{
 				MsgType:  MessageTypeSubmitTx,
 				NewState: stateBusy,
 			},
+			{
+				// The client may terminate the protocol from Idle. cardano-cli
+				// sends MsgDone to cleanly close after a submit; without this
+				// transition the connection is torn down with a protocol error
+				// (dingo issue #2788).
+				MsgType:  MessageTypeDone,
+				NewState: stateDone,
+			},
 		},
 	},
 	stateBusy: protocol.StateMapEntry{
