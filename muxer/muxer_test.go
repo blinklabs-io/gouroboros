@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/muxer"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
 
@@ -36,6 +37,14 @@ type mockConn struct {
 	writeBuf *bytes.Buffer
 	closed   bool
 	mu       sync.Mutex
+}
+
+type failingWriteConn struct {
+	*mockConn
+}
+
+func (*failingWriteConn) Write([]byte) (int, error) {
+	return 0, errors.New("test: forced write failure")
 }
 
 func newMockConn() *mockConn {
@@ -405,6 +414,54 @@ func TestMuxerSendReceive(t *testing.T) {
 	// Check payload
 	if !bytes.Equal(written[8:], payload) {
 		t.Errorf("expected payload %v, got %v", payload, written[8:])
+	}
+}
+
+func TestMuxerReportsSegmentDelivery(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	tests := []struct {
+		name      string
+		conn      net.Conn
+		wantError bool
+	}{
+		{
+			name: "success",
+			conn: newMockConn(),
+		},
+		{
+			name:      "write failure",
+			conn:      &failingWriteConn{mockConn: newMockConn()},
+			wantError: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := muxer.New(test.conn)
+			defer m.Stop()
+			sendChan, _, _ := m.RegisterProtocol(
+				0x01,
+				muxer.ProtocolRoleInitiator,
+			)
+			m.Start()
+
+			deliveryChan := make(chan error, 1)
+			segment := muxer.NewSegment(0x01, []byte("test"), false)
+			require.NotNil(t, segment)
+			segment.SetDeliveryChan(deliveryChan)
+			sendChan <- segment
+
+			select {
+			case err := <-deliveryChan:
+				if test.wantError {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for segment delivery result")
+			}
+		})
 	}
 }
 

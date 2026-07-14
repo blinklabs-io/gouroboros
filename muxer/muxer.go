@@ -223,7 +223,9 @@ func (m *Muxer) RegisterProtocol(
 				if !ok {
 					return
 				}
-				if err := m.Send(msg); err != nil {
+				err := m.Send(msg)
+				msg.reportDelivery(err)
+				if err != nil {
 					m.sendError(err)
 					return
 				}
