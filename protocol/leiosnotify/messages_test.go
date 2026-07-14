@@ -236,10 +236,8 @@ func TestMsgBlockAnnouncementEmpty(t *testing.T) {
 	assert.NotNil(t, decodedMsg)
 }
 
-// TestMsgVotesOfferThreeElementVote verifies decoding the prototype-2026w27
-// deployed vote shape: a 3-element array [endorser_block_hash (hash32),
-// voter_id (uint), signature (bytes .size 48)] — the full LeiosVote with the
-// leading slot dropped. Shape confirmed from live musashi captures.
+// TestMsgVotesOfferThreeElementVote verifies the current prototype vote shape:
+// [announcing_rb_hash, voter_id, signature].
 func TestMsgVotesOfferThreeElementVote(t *testing.T) {
 	ebHash := bytes.Repeat([]byte{0xAB}, lcommon.Blake2b256Size)
 	sig := bytes.Repeat([]byte{0xCD}, lcommon.LeiosBlsSignatureSize)
@@ -253,11 +251,11 @@ func TestMsgVotesOfferThreeElementVote(t *testing.T) {
 
 	var m MsgVotesOffer
 	require.NoError(t, m.UnmarshalCBOR(msgCbor))
-	require.Len(t, m.FullVotes, 1)
+	require.Len(t, m.PrototypeVotes, 1)
 	require.Empty(t, m.Votes)
-	v := m.FullVotes[0]
-	assert.Equal(t, uint64(0), v.SlotNo, "3-element vote omits slot")
-	assert.Equal(t, ebHash, v.EndorserBlockHash.Bytes())
+	require.Empty(t, m.FullVotes)
+	v := m.PrototypeVotes[0]
+	assert.Equal(t, ebHash, v.AnnouncingRbHash.Bytes())
 	assert.Equal(t, uint64(7), v.VoterId)
 	assert.Equal(t, sig, v.VoteSignature)
 
@@ -271,6 +269,19 @@ func TestMsgVotesOfferThreeElementVote(t *testing.T) {
 	require.NoError(t, err)
 	var m2 MsgVotesOffer
 	require.ErrorContains(t, m2.UnmarshalCBOR(badMsg), "signature is 2 bytes")
+}
+
+func TestMsgVotesOfferPrototypeRoundTrip(t *testing.T) {
+	vote := PrototypeVote{
+		AnnouncingRbHash: lcommon.NewBlake2b256(bytes.Repeat([]byte{0xAB}, 32)),
+		VoterId:          7,
+		VoteSignature:    bytes.Repeat([]byte{0xCD}, lcommon.LeiosBlsSignatureSize),
+	}
+	raw, err := NewMsgVotesOfferPrototype([]PrototypeVote{vote}).MarshalCBOR()
+	require.NoError(t, err)
+	var decoded MsgVotesOffer
+	require.NoError(t, decoded.UnmarshalCBOR(raw))
+	require.Equal(t, []PrototypeVote{vote}, decoded.PrototypeVotes)
 }
 
 func TestMsgVotesOfferUnknownVoteShape(t *testing.T) {
