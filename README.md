@@ -22,7 +22,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [ ] Muxer
     - [X] support for multiple mini-protocols over single connection
     - [X] support for separate initiator and responder instance for each protocol
-    - [ ] support for buffer limits for each mini-protocol
+    - [X] support for buffer limits for each mini-protocol
   - [ ] Protocols
     - [X] Handshake
       - [X] Client support
@@ -59,18 +59,18 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [X] Current protocol parameters
         - [ ] Future protocol parameters
         - [X] Stake distribution
-        - [ ] Non-myopic member rewards
-        - [ ] Proposed protocol parameter updates
+        - [X] Non-myopic member rewards
+        - [X] Proposed protocol parameter updates
         - [X] UTxOs by address
-        - [ ] UTxO whole
+        - [X] UTxO whole
         - [X] UTxO by TxIn
-        - [ ] Debug epoch state
-        - [ ] Filtered delegations and reward accounts
+        - [X] Debug epoch state
+        - [X] Filtered delegations and reward accounts
         - [X] Genesis config
-        - [ ] Reward provenance
+        - [X] Reward provenance
         - [X] Stake pools
         - [X] Stake pool params
-        - [ ] Reward info pools
+        - [X] Reward info pools
         - [X] Pool state
         - [X] Stake snapshots
         - [X] Pool distribution
@@ -81,7 +81,11 @@ This is not an exhaustive list of existing and planned features, but it covers t
         - [X] SPO stake distribution ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
         - [X] Committee state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
         - [X] Filtered vote delegatees ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Governance proposals ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Ratification state ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
         - [ ] Treasury ([CIP-1694](https://cips.cardano.org/cip/CIP-1694))
+        - [X] Account state (treasury/reserves)
+        - [X] Ledger peer snapshot
     - [X] LeiosFetch ([CIP-0164](https://cips.cardano.org/cip/CIP-0164))
       - [X] Client support
       - [X] Server support
@@ -143,6 +147,12 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] TX inputs
       - [X] TX outputs
       - [X] Parameter updates
+    - [X] Dijkstra
+      - [X] Blocks
+      - [X] Transactions
+      - [X] TX inputs
+      - [X] TX outputs
+      - [X] Parameter updates
   - [X] Transaction attributes
     - [X] Inputs
     - [X] Outputs
@@ -193,13 +203,13 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Byron consensus (OBFT header validation)
 - [X] Testing
   - [X] Test framework for mocking Ouroboros conversations
-  - [X] Conformance tests (2200+ passing)
-    - [X] Ledger rules (314 tests via Amaru vectors)
+  - [X] Conformance tests (3400+ passing)
+    - [X] Ledger rules (315 tests via Amaru vectors)
     - [X] VRF cryptography (29 vectors + 15 unit tests)
     - [X] KES cryptography (14 tests via input-output-hk/kes vectors)
-    - [X] Consensus (212 tests for leader election, threshold, selection)
+    - [X] Consensus (222 tests for leader election, threshold, selection)
     - [X] Byron blocks (15 tests from mainnet/testnet/conformance)
-  - [X] Fuzz testing (75 targets with nightly CI)
+  - [X] Fuzz testing (19 targets, 14 in nightly CI)
   - [X] CBOR deserialization and serialization
     - [X] Protocol messages
     - [X] Ledger
