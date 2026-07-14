@@ -15,11 +15,14 @@ The LocalTxSubmission protocol submits transactions to the local node's mempool.
 ```
 ┌──────┐    SubmitTx     ┌──────┐
 │ Idle │ ───────────────►│ Busy │
-└──────┘                 └──┬───┘
-   ▲                        │
-   │                        │ AcceptTx
-   │                        │ RejectTx
-   │                        │
+└──┬───┘                 └──┬───┘
+   ▲  │                     │
+   │  │ Done                │ AcceptTx
+   │  │                     │ RejectTx
+   │  ▼                     │
+   │ ┌──────┐               │
+   │ │ Done │               │
+   │ └──────┘               │
    └────────────────────────┘
 ```
 
@@ -38,6 +41,7 @@ The LocalTxSubmission protocol submits transactions to the local node's mempool.
 | `SubmitTx` | 0 | Client → Server | Submit a transaction |
 | `AcceptTx` | 1 | Server → Client | Transaction accepted |
 | `RejectTx` | 2 | Server → Client | Transaction rejected |
+| `Done` | 3 | Client → Server | Terminate protocol |
 
 ## State Transitions
 
@@ -45,6 +49,7 @@ The LocalTxSubmission protocol submits transactions to the local node's mempool.
 | Message | New State |
 |---------|-----------|
 | `SubmitTx` | Busy |
+| `Done` | Done |
 
 ### From Busy (Server Agency)
 | Message | New State |
