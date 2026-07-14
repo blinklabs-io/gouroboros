@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release keeps the published release history current by adding the prior `v0.187.3` entry.
+This release keeps the published release history current by recording the prior `v0.187.3` entry.
 
 ### Additional Changes
 
-* Documented the prior `v0.187.3` entry in the published release history so recent changes stay easy to review.
+* Updated the release history to include the prior `v0.187.3` entry so recent changes remain easy to review.
 
 ## v0.187.3
 
