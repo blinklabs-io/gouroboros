@@ -4,6 +4,15 @@ title: Release notes
 
 # Release notes
 
+## v0.187.4
+
+- **Date:** 2026-07-14
+- **Version:** 0.187.4
+
+### Summary
+
+This release updates the published release history so the prior `v0.187.3` changes are included for reference.
+
 ## v0.187.3
 
 - **Date:** 2026-07-07
