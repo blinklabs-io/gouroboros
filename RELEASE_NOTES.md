@@ -13,6 +13,10 @@ title: Release notes
 
 This release updates the published release history so the prior `v0.187.3` changes are included for reference.
 
+### Additional Changes
+
+* Updated the published release history to include the prior `v0.187.3` entry, making the recent release record easier to follow.
+
 ## v0.187.3
 
 - **Date:** 2026-07-07
