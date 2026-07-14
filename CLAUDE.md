@@ -2,17 +2,17 @@
 
 Companion to `AGENTS.md`; read that first. This file: Claude-specific facts and workflow rules.
 
-## Conformance snapshot (2026-04-09)
+## Conformance snapshot (2026-07-13)
 
 | Metric | Value |
 |--------|-------|
-| Test functions | 2537 (100% passing) |
-| Ledger rule vectors | 314/314 (via Amaru) |
+| Test functions | 3461 (100% passing) |
+| Ledger rule vectors | 315/315 (via Amaru) |
 | VRF | 29 vectors + 15 unit tests |
 | KES | 14 (input-output-hk/kes) |
-| Consensus | 212 |
+| Consensus | 222 |
 | Byron blocks | 15 |
-| Fuzz targets | 75 (nightly CI) |
+| Fuzz targets | 19 (14 in nightly CI) |
 
 Update this table when counts change.
 
