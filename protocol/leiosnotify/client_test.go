@@ -204,6 +204,7 @@ func TestConfig(t *testing.T) {
 
 	// Test config with options
 	requestNextCalled := false
+	responseSentCalled := false
 
 	cfg = NewConfig(
 		WithTimeout(120*time.Second),
@@ -211,14 +212,24 @@ func TestConfig(t *testing.T) {
 			requestNextCalled = true
 			return nil, nil
 		}),
+		WithResponseSentFunc(func(
+			CallbackContext,
+			protocol.Message,
+			error,
+		) {
+			responseSentCalled = true
+		}),
 	)
 
 	assert.Equal(t, 120*time.Second, cfg.Timeout)
 	assert.NotNil(t, cfg.RequestNextFunc)
+	assert.NotNil(t, cfg.ResponseSentFunc)
 
 	// Test that callback can be invoked
 	_, _ = cfg.RequestNextFunc(CallbackContext{})
 	assert.True(t, requestNextCalled)
+	cfg.ResponseSentFunc(CallbackContext{}, nil, nil)
+	assert.True(t, responseSentCalled)
 }
 
 func TestProtocolConstants(t *testing.T) {
