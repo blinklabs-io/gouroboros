@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.188.0
+
+- **Date:** 2026-07-14
+- **Version:** 0.188.0
+
+### Summary
+
+This release lets `leiosnotify` producers confirm that `RequestNext` responses were actually written before they commit or release delivery state, and it refreshes repository documentation to reflect current protocol coverage and test scope.
+
+### New Features
+
+* Added delivery confirmation for `leiosnotify` `RequestNext` responses so producers can wait for the final write result before they commit or release delivery state, and failed writes or shutdowns now return a clear error instead of only confirming that the response was queued.
+
 ## v0.187.4
 
 - **Date:** 2026-07-14
