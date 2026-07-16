@@ -115,6 +115,17 @@ func (c *Client) startTimer() {
 	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)
 }
 
+// Stop stops the keep-alive protocol client and cancels any pending timers.
+func (c *Client) Stop() {
+	c.timerMutex.Lock()
+	if c.timer != nil {
+		c.timer.Stop()
+		c.timer = nil
+	}
+	c.timerMutex.Unlock()
+	c.Protocol.Stop()
+}
+
 // messageHandler handles incoming protocol messages for the client.
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
@@ -149,9 +160,11 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 			msg.Cookie,
 		)
 	}
-	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
-		// Call the user callback function
-		return c.config.KeepAliveResponseFunc(c.callbackContext, msg.Cookie)
+
+	// Call optional notification callback if provided
+	if c.config != nil && c.config.OnKeepAliveResponseReceived != nil {
+		c.config.OnKeepAliveResponseReceived(c.callbackContext.ConnectionId, msg.Cookie)
 	}
+
 	return nil
 }
