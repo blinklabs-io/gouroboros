@@ -11,15 +11,15 @@ title: Release notes
 
 ### Summary
 
-This release lets `leiosnotify` producers confirm that `RequestNext` responses were actually written before they commit or release delivery state, and it refreshes repository documentation to reflect current protocol coverage and test scope.
+This release lets `leiosnotify` producers confirm that responses were sent before they commit or release delivery state, and it refreshes repository documentation to reflect current protocol coverage and test scope.
 
 ### New Features
 
-* Added delivery confirmation for `leiosnotify` `RequestNext` responses so producers can wait for the final write result before they commit or release delivery state, and failed writes or shutdowns now return a clear error instead of only confirming that the response was queued.
+* Improved `leiosnotify` response handling so producers can confirm that a `RequestNext` response was sent before they commit or release delivery state, and failed sends or shutdowns now return a clear error instead of only confirming that the response was accepted for delivery.
 
 ### Additional Changes
 
-* Updated repository documentation to reflect current protocol coverage, Dijkstra ledger support, and the latest conformance and test totals without changing library runtime behavior.
+* Refreshed repository documentation to reflect current protocol coverage, Dijkstra ledger support, and the latest conformance and test totals without changing library runtime behavior.
 
 ## v0.187.4
 
