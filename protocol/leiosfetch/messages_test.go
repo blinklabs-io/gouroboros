@@ -143,6 +143,16 @@ func getTestDefinitions() []testDefinition {
 			Message:     NewMsgDone(),
 			MessageType: MessageTypeDone,
 		},
+		{
+			Name:        "MsgNoBlock",
+			Message:     NewMsgNoBlock(),
+			MessageType: MessageTypeNoBlock,
+		},
+		{
+			Name:        "MsgNoBlockTxs",
+			Message:     NewMsgNoBlockTxs(),
+			MessageType: MessageTypeNoBlockTxs,
+		},
 	}
 }
 
@@ -393,6 +403,34 @@ func TestMsgDone(t *testing.T) {
 	msg := NewMsgDone()
 
 	assert.Equal(t, uint8(MessageTypeDone), msg.Type())
+}
+
+func TestMsgNoBlock(t *testing.T) {
+	msg := NewMsgNoBlock()
+
+	assert.Equal(t, uint8(MessageTypeNoBlock), msg.Type())
+
+	encoded, err := cbor.Encode(msg)
+	require.NoError(t, err)
+
+	decoded, err := NewMsgFromCbor(MessageTypeNoBlock, encoded)
+	require.NoError(t, err)
+	assert.IsType(t, &MsgNoBlock{}, decoded)
+	assert.Equal(t, uint8(MessageTypeNoBlock), decoded.Type())
+}
+
+func TestMsgNoBlockTxs(t *testing.T) {
+	msg := NewMsgNoBlockTxs()
+
+	assert.Equal(t, uint8(MessageTypeNoBlockTxs), msg.Type())
+
+	encoded, err := cbor.Encode(msg)
+	require.NoError(t, err)
+
+	decoded, err := NewMsgFromCbor(MessageTypeNoBlockTxs, encoded)
+	require.NoError(t, err)
+	assert.IsType(t, &MsgNoBlockTxs{}, decoded)
+	assert.Equal(t, uint8(MessageTypeNoBlockTxs), decoded.Type())
 }
 
 func TestNewMsgFromCborUnknownType(t *testing.T) {
