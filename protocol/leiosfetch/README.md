@@ -20,14 +20,14 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
          │  Idle  │                  │ Block │
          └────┬───┘                  └───┬───┘
               │                          │
-              │ BlockTxsRequest          │ Block
+              │ BlockTxsRequest          │ Block / NoBlock
               │                          │
               ▼                          ▼
          ┌──────────┐               ┌──────┐
          │ BlockTxs │               │ Idle │
          └────┬─────┘               └──────┘
               │
-              │ BlockTxs
+              │ BlockTxs / NoBlockTxs
               ▼
          ┌──────┐
          │ Idle │
@@ -87,6 +87,12 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | `LastBlockAndTxsInRange` | 7 | Server → Client | Last block in range |
 | `NextBlockAndTxsInRange` | 8 | Server → Client | Next block in range |
 | `Done` | 9 | Client → Server | Terminate protocol |
+| `NoBlock` | 10 | Server → Client | Requested block not available |
+| `NoBlockTxs` | 11 | Server → Client | Requested block transactions not available |
+
+> **Note:** Type IDs `10` and `11` are placeholders pending confirmation against
+> the Leios protocol spec (CIP-0164 or equivalent), consistent with the other
+> IDs in this experimental protocol.
 
 ## State Transitions
 
@@ -103,11 +109,13 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | Message | New State |
 |---------|-----------|
 | `Block` | Idle |
+| `NoBlock` | Idle |
 
 ### From BlockTxs (Server Agency)
 | Message | New State |
 |---------|-----------|
 | `BlockTxs` | Idle |
+| `NoBlockTxs` | Idle |
 
 ### From Votes (Server Agency)
 | Message | New State |
@@ -161,6 +169,22 @@ for _, block := range blocks {
     // Process each block
 }
 ```
+
+## Not-found responses
+
+A server that cannot serve a requested endorser block (for example, an
+already-synced relay whose in-memory cache has expired) responds with `NoBlock`
+or `NoBlockTxs` instead of returning an error. This lets the server decline
+gracefully rather than triggering a protocol violation that tears down the
+whole node-to-node connection.
+
+- A `BlockRequestFunc` / `BlockTxsRequestFunc` callback signals not-found by
+  returning `ErrBlockNotFound` / `ErrBlockTxsNotFound` (directly or wrapped
+  with `fmt.Errorf("...: %w", ...)`). Any other error is still treated as a
+  protocol violation.
+- The client's `BlockRequest` / `BlockTxsRequest` returns the matching sentinel
+  error to the caller, who can distinguish "not available" from a real protocol
+  error with `errors.Is`.
 
 ## Notes
 

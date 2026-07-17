@@ -112,6 +112,23 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 		msgBlockRequest.Point,
 	)
 	if err != nil {
+		// A not-found signal is answered with MsgNoBlock rather than being
+		// propagated as a protocol violation that tears down the connection.
+		if errors.Is(err, ErrBlockNotFound) {
+			s.Protocol.Logger().
+				Debug("endorser block not available",
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "server",
+					"connection_id", s.callbackContext.ConnectionId.String(),
+					"point", fmt.Sprintf(
+						"%d.%x",
+						msgBlockRequest.Point.Slot,
+						msgBlockRequest.Point.Hash,
+					),
+				)
+			return s.SendMessage(NewMsgNoBlock())
+		}
 		return err
 	}
 	if resp == nil {
@@ -145,6 +162,23 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 		msgBlockTxsRequest.Bitmaps,
 	)
 	if err != nil {
+		// A not-found signal is answered with MsgNoBlockTxs rather than being
+		// propagated as a protocol violation that tears down the connection.
+		if errors.Is(err, ErrBlockTxsNotFound) {
+			s.Protocol.Logger().
+				Debug("endorser block transactions not available",
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "server",
+					"connection_id", s.callbackContext.ConnectionId.String(),
+					"point", fmt.Sprintf(
+						"%d.%x",
+						msgBlockTxsRequest.Point.Slot,
+						msgBlockTxsRequest.Point.Hash,
+					),
+				)
+			return s.SendMessage(NewMsgNoBlockTxs())
+		}
 		return err
 	}
 	if resp == nil {

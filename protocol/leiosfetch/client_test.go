@@ -81,8 +81,18 @@ func TestClientMessageHandler(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:        "NoBlock message",
+			msg:         NewMsgNoBlock(),
+			expectError: false,
+		},
+		{
 			name:        "BlockTxs message",
 			msg:         NewMsgBlockTxs(nil),
+			expectError: false,
+		},
+		{
+			name:        "NoBlockTxs message",
+			msg:         NewMsgNoBlockTxs(),
 			expectError: false,
 		},
 		{
@@ -110,9 +120,9 @@ func TestClientMessageHandler(t *testing.T) {
 			go func() {
 				defer close(done)
 				switch tc.msg.Type() {
-				case MessageTypeBlock:
+				case MessageTypeBlock, MessageTypeNoBlock:
 					<-client.blockResultChan
-				case MessageTypeBlockTxs:
+				case MessageTypeBlockTxs, MessageTypeNoBlockTxs:
 					<-client.blockTxsResultChan
 				case MessageTypeVotes:
 					<-client.votesResultChan
@@ -203,11 +213,25 @@ func TestStateTransitions(t *testing.T) {
 		assert.Equal(t, expected, trans.NewState)
 	}
 
-	// Test transitions from Block state
+	// Test transitions from Block state: both Block and NoBlock return to Idle
 	blockEntry := StateMap[StateBlock]
-	require.Len(t, blockEntry.Transitions, 1)
-	assert.Equal(t, uint8(MessageTypeBlock), blockEntry.Transitions[0].MsgType)
-	assert.Equal(t, StateIdle, blockEntry.Transitions[0].NewState)
+	require.Len(t, blockEntry.Transitions, 2)
+	blockTransitions := map[uint8]protocol.State{}
+	for _, trans := range blockEntry.Transitions {
+		blockTransitions[trans.MsgType] = trans.NewState
+	}
+	assert.Equal(t, StateIdle, blockTransitions[MessageTypeBlock])
+	assert.Equal(t, StateIdle, blockTransitions[MessageTypeNoBlock])
+
+	// Test transitions from BlockTxs state: both BlockTxs and NoBlockTxs return to Idle
+	blockTxsEntry := StateMap[StateBlockTxs]
+	require.Len(t, blockTxsEntry.Transitions, 2)
+	blockTxsTransitions := map[uint8]protocol.State{}
+	for _, trans := range blockTxsEntry.Transitions {
+		blockTxsTransitions[trans.MsgType] = trans.NewState
+	}
+	assert.Equal(t, StateIdle, blockTxsTransitions[MessageTypeBlockTxs])
+	assert.Equal(t, StateIdle, blockTxsTransitions[MessageTypeNoBlockTxs])
 
 	// Test transitions from BlockRange state
 	blockRangeEntry := StateMap[StateBlockRange]
