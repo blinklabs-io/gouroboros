@@ -415,8 +415,9 @@ func TestMsgNoBlock(t *testing.T) {
 
 	decoded, err := NewMsgFromCbor(MessageTypeNoBlock, encoded)
 	require.NoError(t, err)
-	assert.IsType(t, &MsgNoBlock{}, decoded)
-	assert.Equal(t, uint8(MessageTypeNoBlock), decoded.Type())
+	decodedMsg, ok := decoded.(*MsgNoBlock)
+	require.True(t, ok, "expected *MsgNoBlock")
+	assert.Equal(t, uint8(MessageTypeNoBlock), decodedMsg.MessageType)
 }
 
 func TestMsgNoBlockTxs(t *testing.T) {
@@ -429,8 +430,9 @@ func TestMsgNoBlockTxs(t *testing.T) {
 
 	decoded, err := NewMsgFromCbor(MessageTypeNoBlockTxs, encoded)
 	require.NoError(t, err)
-	assert.IsType(t, &MsgNoBlockTxs{}, decoded)
-	assert.Equal(t, uint8(MessageTypeNoBlockTxs), decoded.Type())
+	decodedMsg, ok := decoded.(*MsgNoBlockTxs)
+	require.True(t, ok, "expected *MsgNoBlockTxs")
+	assert.Equal(t, uint8(MessageTypeNoBlockTxs), decodedMsg.MessageType)
 }
 
 func TestNewMsgFromCborUnknownType(t *testing.T) {

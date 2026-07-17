@@ -22,7 +22,7 @@ import "errors"
 // client's BlockRequest returns it to the caller when the server sends
 // MsgNoBlock. Callers can test for it with errors.Is.
 var ErrBlockNotFound = errors.New(
-	"leios-fetch: endorser block not available",
+	"endorser block not available",
 )
 
 // ErrBlockTxsNotFound signals that the requested endorser block transactions
@@ -31,5 +31,5 @@ var ErrBlockNotFound = errors.New(
 // down the connection; the client's BlockTxsRequest returns it to the caller
 // when the server sends MsgNoBlockTxs. Callers can test for it with errors.Is.
 var ErrBlockTxsNotFound = errors.New(
-	"leios-fetch: endorser block transactions not available",
+	"endorser block transactions not available",
 )

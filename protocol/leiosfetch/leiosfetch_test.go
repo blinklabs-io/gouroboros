@@ -15,7 +15,6 @@
 package leiosfetch_test
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -123,12 +122,7 @@ func TestBlockRequestNoBlock(t *testing.T) {
 				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
 			)
 			require.Error(t, err)
-			assert.True(
-				t,
-				errors.Is(err, leiosfetch.ErrBlockNotFound),
-				"expected ErrBlockNotFound, got: %v",
-				err,
-			)
+			assert.ErrorIs(t, err, leiosfetch.ErrBlockNotFound)
 			assert.Nil(t, resp)
 		},
 	)
@@ -160,12 +154,7 @@ func TestBlockTxsRequestNoBlockTxs(t *testing.T) {
 				map[uint16]uint64{0: 0xff00000000000000},
 			)
 			require.Error(t, err)
-			assert.True(
-				t,
-				errors.Is(err, leiosfetch.ErrBlockTxsNotFound),
-				"expected ErrBlockTxsNotFound, got: %v",
-				err,
-			)
+			assert.ErrorIs(t, err, leiosfetch.ErrBlockTxsNotFound)
 			assert.Nil(t, resp)
 		},
 	)
