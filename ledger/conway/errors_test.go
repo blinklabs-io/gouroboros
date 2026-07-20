@@ -16,6 +16,23 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestWithdrawalNotDelegatedToDRepError(t *testing.T) {
+	addr, err := common.NewAddressFromBytes(append(
+		[]byte{0xe1},
+		make([]byte, common.AddressHashSize)...,
+	))
+	assert.NoError(t, err)
+	testErr := conway.WithdrawalNotDelegatedToDRepError{
+		RewardAddress: addr,
+	}
+	assert.Contains(t, testErr.Error(), addr.String())
+	assert.Equal(
+		t,
+		"ledger state does not support DRep delegation lookups",
+		conway.DRepDelegationStateUnavailableError{}.Error(),
+	)
+}
+
 func TestConway_CostModelsPresent_UnresolvedReferenceInputReturnsError(
 	t *testing.T,
 ) {

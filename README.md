@@ -147,12 +147,15 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] TX inputs
       - [X] TX outputs
       - [X] Parameter updates
+      - [X] Reward withdrawals require a DRep vote delegation at PV10/PV11
     - [X] Dijkstra
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
       - [X] TX outputs
       - [X] Parameter updates
+      - [X] Reward withdrawals no longer require a DRep vote delegation at
+        PV12+ ([CIP-0181](https://cips.cardano.org/cip/CIP-0181))
   - [X] Transaction attributes
     - [X] Inputs
     - [X] Outputs
@@ -160,7 +163,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Fees
     - [X] TTL
     - [X] Certificates
-    - [X] Staking reward withdrawls
+    - [X] Staking reward withdrawals
     - [X] Protocol parameter updates
     - [X] Auxiliary data hash
     - [X] Validity interval start

@@ -51,6 +51,141 @@ func makeConwayRewardAddress(
 	return addr
 }
 
+type drepDelegationLedgerState struct {
+	common.LedgerState
+	lookup func(common.Credential) (*common.Drep, error)
+}
+
+type ledgerStateWithoutDRepDelegation struct {
+	common.LedgerState
+}
+
+func (s drepDelegationLedgerState) DRepDelegation(
+	credential common.Credential,
+) (*common.Drep, error) {
+	return s.lookup(credential)
+}
+
+func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
+	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
+	rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
+	tx := &conway.ConwayTransaction{
+		Body: conway.ConwayTransactionBody{
+			TxWithdrawals: map[*common.Address]uint64{
+				&rewardAddr: 1_000_000,
+			},
+		},
+		TxIsValid: true,
+	}
+	baseState := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+		Build()
+	undelegatedState := drepDelegationLedgerState{
+		LedgerState: baseState,
+		lookup: func(
+			common.Credential,
+		) (*common.Drep, error) {
+			return nil, nil
+		},
+	}
+
+	tests := []struct {
+		name      string
+		major     uint
+		wantError bool
+	}{
+		{name: "PV9 bootstrap", major: common.ProtocolVersionConway},
+		{
+			name:      "PV10 Plomin",
+			major:     common.ProtocolVersionPlomin,
+			wantError: true,
+		},
+		{
+			name:      "PV11 Van Rossem",
+			major:     common.ProtocolVersionVanRossem,
+			wantError: true,
+		},
+		{name: "PV12 CIP-181", major: common.ProtocolVersionDijkstra},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pp := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: tc.major,
+				},
+			}
+			err := conway.UtxoValidateWithdrawals(
+				tx,
+				0,
+				undelegatedState,
+				pp,
+			)
+			if tc.wantError {
+				var target conway.WithdrawalNotDelegatedToDRepError
+				require.ErrorAs(t, err, &target)
+				assert.Equal(t, rewardAddr, target.RewardAddress)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+
+	t.Run("PV10 delegated", func(t *testing.T) {
+		delegatedState := drepDelegationLedgerState{
+			LedgerState: baseState,
+			lookup: func(
+				credential common.Credential,
+			) (*common.Drep, error) {
+				assert.Equal(t, stakeKeyHash, credential.Credential)
+				return &common.Drep{}, nil
+			},
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionPlomin,
+			},
+		}
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			tx,
+			0,
+			delegatedState,
+			pp,
+		))
+	})
+
+	t.Run("PV10 requires delegation lookup support", func(t *testing.T) {
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionPlomin,
+			},
+		}
+		err := conway.UtxoValidateWithdrawals(
+			tx,
+			0,
+			ledgerStateWithoutDRepDelegation{LedgerState: baseState},
+			pp,
+		)
+		var target conway.DRepDelegationStateUnavailableError
+		require.ErrorAs(t, err, &target)
+	})
+
+	t.Run("phase-2 invalid skips DRep delegation check", func(t *testing.T) {
+		invalidTx := *tx
+		invalidTx.TxIsValid = false
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionPlomin,
+			},
+		}
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			&invalidTx,
+			0,
+			baseState,
+			pp,
+		))
+	})
+}
+
 func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 	// Required vkey witnesses
 	t.Run("no required signers", func(t *testing.T) {
