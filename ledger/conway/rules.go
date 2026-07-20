@@ -2553,7 +2553,7 @@ func UtxoValidateWithdrawals(
 		return DRepDelegationStateUnavailableError{}
 	}
 	for addr := range tx.Withdrawals() {
-		credential, ok := rewardAddressCredential(addr)
+		credential, ok := addr.StakeCredential()
 		if !ok {
 			continue
 		}
@@ -2568,34 +2568,6 @@ func UtxoValidateWithdrawals(
 		}
 	}
 	return nil
-}
-
-func rewardAddressCredential(addr *common.Address) (common.Credential, bool) {
-	if addr == nil {
-		return common.Credential{}, false
-	}
-	stakingPayload := addr.StakingPayload()
-	if stakingPayload == nil {
-		return common.Credential{}, false
-	}
-	switch payload := stakingPayload.(type) {
-	case common.AddressPayloadKeyHash:
-		return common.Credential{
-			CredType: common.CredentialTypeAddrKeyHash,
-			Credential: common.NewBlake2b224(
-				payload.Hash.Bytes(),
-			),
-		}, true
-	case common.AddressPayloadScriptHash:
-		return common.Credential{
-			CredType: common.CredentialTypeScriptHash,
-			Credential: common.NewBlake2b224(
-				payload.Hash.Bytes(),
-			),
-		}, true
-	default:
-		return common.Credential{}, false
-	}
 }
 
 func UtxoValidateCommitteeCertificates(

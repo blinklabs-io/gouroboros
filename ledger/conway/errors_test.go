@@ -14,6 +14,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithdrawalNotDelegatedToDRepError(t *testing.T) {
@@ -21,7 +22,7 @@ func TestWithdrawalNotDelegatedToDRepError(t *testing.T) {
 		[]byte{0xe1},
 		make([]byte, common.AddressHashSize)...,
 	))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	testErr := conway.WithdrawalNotDelegatedToDRepError{
 		RewardAddress: addr,
 	}

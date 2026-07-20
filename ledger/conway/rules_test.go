@@ -51,21 +51,6 @@ func makeConwayRewardAddress(
 	return addr
 }
 
-type drepDelegationLedgerState struct {
-	common.LedgerState
-	lookup func(common.Credential) (*common.Drep, error)
-}
-
-type ledgerStateWithoutDRepDelegation struct {
-	common.LedgerState
-}
-
-func (s drepDelegationLedgerState) DRepDelegation(
-	credential common.Credential,
-) (*common.Drep, error) {
-	return s.lookup(credential)
-}
-
 func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
 	rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
@@ -80,14 +65,14 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 	baseState := mockledger.NewLedgerStateBuilder().
 		WithRewardAccountBalance(stakeKeyHash, 1_000_000).
 		Build()
-	undelegatedState := drepDelegationLedgerState{
-		LedgerState: baseState,
-		lookup: func(
+	undelegatedState := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+		WithDRepDelegation(func(
 			common.Credential,
 		) (*common.Drep, error) {
 			return nil, nil
-		},
-	}
+		}).
+		Build()
 
 	tests := []struct {
 		name      string
@@ -131,15 +116,15 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 	}
 
 	t.Run("PV10 delegated", func(t *testing.T) {
-		delegatedState := drepDelegationLedgerState{
-			LedgerState: baseState,
-			lookup: func(
+		delegatedState := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+			WithDRepDelegation(func(
 				credential common.Credential,
 			) (*common.Drep, error) {
 				assert.Equal(t, stakeKeyHash, credential.Credential)
 				return &common.Drep{}, nil
-			},
-		}
+			}).
+			Build()
 		pp := &conway.ConwayProtocolParameters{
 			ProtocolVersion: common.ProtocolParametersProtocolVersion{
 				Major: common.ProtocolVersionPlomin,
@@ -162,7 +147,7 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		err := conway.UtxoValidateWithdrawals(
 			tx,
 			0,
-			ledgerStateWithoutDRepDelegation{LedgerState: baseState},
+			struct{ common.LedgerState }{LedgerState: baseState},
 			pp,
 		)
 		var target conway.DRepDelegationStateUnavailableError
