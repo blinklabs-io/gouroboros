@@ -279,12 +279,12 @@ func (c *Client) Stop() error {
 	}
 
 	c.lifecycleMutex.Lock()
-	defer c.lifecycleMutex.Unlock()
 
 	if c.lifecycleState != clientStateRunning {
 		if busyLocked {
 			c.busyMutex.Unlock()
 		}
+		c.lifecycleMutex.Unlock()
 		return nil
 	}
 
@@ -300,6 +300,9 @@ func (c *Client) Stop() error {
 	if !c.IsDone() {
 		msg := NewMsgDone()
 		sendErr = c.SendMessage(msg)
+		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
+			sendErr = nil
+		}
 		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
 	}
 	if busyLocked {
@@ -312,7 +315,9 @@ func (c *Client) Stop() error {
 		c.readyForNextBlockChan = nil
 	}
 
-	// Stop/unregister the underlying protocol instance.
+	// Stop/unregister the underlying protocol instance, then wait for it to
+	// finish so IsDone reports the completed shutdown when Stop returns.
+	doneChan := c.DoneChan()
 	c.Protocol.Stop()
 	c.lifecycleState = clientStateStopped
 	// Unblock any goroutine waiting for an in-progress start.
@@ -320,6 +325,8 @@ func (c *Client) Stop() error {
 		close(c.startingDone)
 		c.startingDone = nil
 	}
+	c.lifecycleMutex.Unlock()
+	<-doneChan
 	return sendErr
 }
 
