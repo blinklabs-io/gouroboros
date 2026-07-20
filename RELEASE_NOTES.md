@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release improves `leiosfetch` error handling, tightens Conway reward withdrawal validation on protocol major versions 10 and 11, and refreshes release history and build tooling.
+This release improves `leiosfetch` error handling, tightens Conway reward withdrawal validation on protocol major versions 10 and 11, and refreshes release history plus workflow tooling.
 
 ### New Features
 
-* Improved `leiosfetch` request handling so missing data now returns `MsgNoBlock` and `MsgNoBlockTxs` in band, keeps the protocol session open, and lets callers distinguish not found responses from protocol failures with typed sentinel errors.
+* Improved `leiosfetch` request handling so missing data now returns `MsgNoBlock` and `MsgNoBlockTxs` in band, keeps the connection open, and lets callers distinguish not found responses from protocol failures with typed sentinel errors.
 
 ### Bug Fixes
 
@@ -23,10 +23,10 @@ This release improves `leiosfetch` error handling, tightens Conway reward withdr
 
 ### Additional Changes
 
-* Updated `github.com/blinklabs-io/plutigo` from `v0.1.16` to `v0.1.17`, including the chain sync shutdown synchronization fix so `Stop` now waits for protocol shutdown to complete and no longer surfaces `ErrProtocolShuttingDown` during teardown.
+* Updated `github.com/blinklabs-io/plutigo` from `v0.1.16` to `v0.1.17`, including the chain sync shutdown fix so `Stop` now waits for protocol shutdown to complete and no longer surfaces `ErrProtocolShuttingDown` during teardown.
 * Refreshed GitHub Actions workflows to pin `actions/setup-go` `v7.0.0` across the Go workflow files.
-* Preserved the prior `v0.187.4` release notes entry so the published history stays complete.
-* Recorded the prior `v0.188.0` release notes entry so the published history stays current.
+* Preserved the prior `v0.187.4` release history entry so the published history stays complete.
+* Recorded the prior `v0.188.0` release history entry so the published history stays current.
 
 ## v0.188.0
 
