@@ -44,7 +44,7 @@ grep -cE "^    --- FAIL: TestRulesConformanceVectors/" /tmp/conformance.txt
 
 ## Rules Claude gets wrong without being told
 
-1. Era delegation is not universal. Conway `UtxoValidateWithdrawals` has its own body with an intentional spec deviation (`NOTE:`). Grep the function before describing behavior.
+1. Era delegation is not universal — grep the era's function body before describing behavior; don't assume it forwards to the previous era. E.g. `conway.UtxoValidateWithdrawals` (`ledger/conway/rules.go`) skips phase-2-invalid txs, checks reward-account registration, requires a DRep vote delegation at PV10/PV11, and removes that requirement at PV12 per CIP-181.
 2. `DecodeStoreCbor` requires a custom `UnmarshalCBOR` that calls `SetCbor(cborData)`. Missing → `Cbor()` returns nil → hashing breaks.
 3. Hash from preserved `.Cbor()` bytes. Never re-encode and hash.
 4. CBOR `EncMode`/`DecMode` are globally cached via `sync.Once` in `cbor/{encode,decode}.go`. Don't construct per call.

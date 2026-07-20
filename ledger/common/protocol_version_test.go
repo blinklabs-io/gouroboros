@@ -30,6 +30,7 @@ func TestProtocolVersionConstants(t *testing.T) {
 	assert.Equal(t, uint(9), ProtocolVersionConway)
 	assert.Equal(t, uint(10), ProtocolVersionPlomin)
 	assert.Equal(t, uint(11), ProtocolVersionVanRossem)
+	assert.Equal(t, uint(12), ProtocolVersionDijkstra)
 }
 
 func TestIsProtocolVersionAtLeast(t *testing.T) {

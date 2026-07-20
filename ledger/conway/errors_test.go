@@ -14,7 +14,25 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestWithdrawalNotDelegatedToDRepError(t *testing.T) {
+	addr, err := common.NewAddressFromBytes(append(
+		[]byte{0xe1},
+		make([]byte, common.AddressHashSize)...,
+	))
+	require.NoError(t, err)
+	testErr := conway.WithdrawalNotDelegatedToDRepError{
+		RewardAddress: addr,
+	}
+	assert.Contains(t, testErr.Error(), addr.String())
+	assert.Equal(
+		t,
+		"ledger state does not support DRep delegation lookups",
+		conway.DRepDelegationStateUnavailableError{}.Error(),
+	)
+}
 
 func TestConway_CostModelsPresent_UnresolvedReferenceInputReturnsError(
 	t *testing.T,

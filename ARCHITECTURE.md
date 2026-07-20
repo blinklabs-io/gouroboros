@@ -40,7 +40,7 @@ Gouroboros is a Go implementation of the Cardano blockchain protocol, providing 
         ┌────────┴─────────────────────────────────┐
         │  Era-Specific Implementations            │
         │  Byron → Shelley → Allegra → Mary →      │
-        │  Alonzo → Babbage → Conway → Leios       │
+        │  Alonzo → Babbage → Conway → Dijkstra    │
         └───────────────────────────────────────────┘
              │
     ┌────────┴──────────────┬──────────────┬────────────┐
@@ -139,7 +139,9 @@ type TransactionBody interface {
 
 ### Era Hierarchy
 
-Each era builds on the previous, delegating unchanged validation rules:
+Post-Byron eras build on their predecessors and may delegate individual
+validation rules when their behavior is unchanged. Delegation is not
+universal; era-specific rule bodies must be inspected before assuming it.
 
 ```
 Byron (genesis)
@@ -149,12 +151,18 @@ Byron (genesis)
               └─ Alonzo (Plutus scripts)
                   └─ Babbage (reference scripts)
                       └─ Conway (governance)
-                          └─ Leios (experimental)
+                          └─ Dijkstra (PV12)
 ```
+
+Leios is not a ledger era. It is a higher-throughput overlay protocol
+introduced with Dijkstra; its shared ledger types live in
+`ledger/common/leios*.go`, and its mini-protocols live under
+`protocol/leios{fetch,notify,votes}/`.
 
 ### Validation Pattern
 
-Each era defines validation rules that delegate to earlier eras for unchanged logic:
+Each era defines its validation rules. A rule can delegate to an earlier era
+when its behavior is unchanged:
 
 ```go
 // shelley/rules.go - defines base rules
@@ -181,8 +189,38 @@ func UtxoValidateTimeToLive(tx, slot, ls, pp) error {
 | Mary | Multi-asset support (native tokens) |
 | Alonzo | Plutus smart contracts, redeemers, datums |
 | Babbage | Reference scripts, inline datums |
-| Conway | On-chain governance, DReps, proposals |
-| Leios | Experimental (input blocks, endorser blocks) |
+| Conway | Governance; PV10/PV11 DRep-gated reward withdrawals |
+| Dijkstra | PV12; CIP-181 removes the reward-withdrawal DRep gate |
+
+### Conway Reward Withdrawal Gate
+
+`conway.UtxoValidateWithdrawals` has an era-specific implementation. It skips
+withdrawal validation for phase-2-invalid transactions, then applies the
+Shelley reward-account registration check. For transactions with withdrawals,
+the remaining behavior is selected by the active major protocol version:
+
+| Protocol version | DRep vote delegation required? |
+|------------------|-------------------------------|
+| PV9 and earlier | No |
+| PV10 (Plomin) and PV11 (Van Rossem) | Yes |
+| PV12 (Dijkstra) and later | No, per CIP-181 |
+
+The active protocol version comes from
+`conway.ConwayProtocolParameters.ProtocolMajorVersion`; Dijkstra protocol
+parameters inherit that method. At PV10/PV11, ledger states must additionally
+implement the optional `common.DRepDelegationState` capability:
+
+```go
+type DRepDelegationState interface {
+    DRepDelegation(Credential) (*Drep, error)
+}
+```
+
+A `nil` delegation rejects the withdrawal with
+`WithdrawalNotDelegatedToDRepError`. A ledger state that cannot perform the
+lookup returns `DRepDelegationStateUnavailableError`. The capability is kept
+separate from `common.LedgerState` so implementations that do not validate
+PV10/PV11 withdrawals do not need to provide it.
 
 ## Protocol Layer (protocol/)
 
@@ -465,7 +503,8 @@ ls := ledgertest.NewLedgerStateBuilder().
 
 ## Design Principles
 
-1. Era Delegation: Later eras delegate unchanged rules to earlier eras, minimizing duplication.
+1. Era Delegation: Later eras may delegate unchanged rules to earlier eras,
+   while changed rules retain era-specific implementations.
 
 2. Interface-Based Validation: Rules operate on interfaces, enabling easy mocking and cross-era compatibility.
 

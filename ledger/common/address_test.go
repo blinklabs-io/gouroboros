@@ -320,6 +320,51 @@ func TestAddressStakeAddress(t *testing.T) {
 	}
 }
 
+func TestAddressStakeCredential(t *testing.T) {
+	credentialHash := NewBlake2b224([]byte("stake-credential"))
+	tests := []struct {
+		name     string
+		addr     *Address
+		wantType uint
+		wantOK   bool
+	}{
+		{
+			name: "key hash",
+			addr: &Address{stakingPayload: AddressPayloadKeyHash{
+				Hash: AddrKeyHash(credentialHash),
+			}},
+			wantType: CredentialTypeAddrKeyHash,
+			wantOK:   true,
+		},
+		{
+			name: "script hash",
+			addr: &Address{stakingPayload: AddressPayloadScriptHash{
+				Hash: ScriptHash(credentialHash),
+			}},
+			wantType: CredentialTypeScriptHash,
+			wantOK:   true,
+		},
+		{
+			name: "pointer",
+			addr: &Address{stakingPayload: AddressPayloadPointer{
+				Slot: 1,
+			}},
+		},
+		{name: "absent", addr: &Address{}},
+		{name: "nil address"},
+	}
+	for _, testDef := range tests {
+		t.Run(testDef.name, func(t *testing.T) {
+			credential, ok := testDef.addr.StakeCredential()
+			assert.Equal(t, testDef.wantOK, ok)
+			if testDef.wantOK {
+				assert.Equal(t, testDef.wantType, credential.CredType)
+				assert.Equal(t, credentialHash, credential.Credential)
+			}
+		})
+	}
+}
+
 func TestAddressPaymentAddress_MixedCase(t *testing.T) {
 	// address with mixed case Byron address
 	mixedCaseAddress := "Ae2tdPwUPEYwFx4dmJheyNPPYXtvHbJLeCaA96o6Y2iiUL18cAt7AizN2zG"
