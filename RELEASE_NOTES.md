@@ -4,6 +4,30 @@ title: Release notes
 
 # Release notes
 
+## v0.188.1
+
+- **Date:** 2026-07-20
+- **Version:** 0.188.1
+
+### Summary
+
+This release improves `leiosfetch` error handling, tightens Conway reward withdrawal validation on protocol major versions 10 and 11, and refreshes release history and workflow automation.
+
+### New Features
+
+* Improved `leiosfetch` request handling so missing data now returns `MsgNoBlock` and `MsgNoBlockTxs` in band, keeps the client connection open, and lets callers distinguish not found responses from protocol failures with typed sentinel errors.
+
+### Bug Fixes
+
+* Fixed Conway reward withdrawal validation so protocol major versions 10 and 11 now require `DRep` delegation, return explicit validation errors when a withdrawing stake credential is not delegated, and fail when delegation lookup is unavailable; protocol version 12 and later keep the existing behavior.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` from `v0.1.16` to `v0.1.17`, including the chain sync shutdown fix so `Stop` now waits for protocol shutdown to complete and no longer surfaces `ErrProtocolShuttingDown` during teardown.
+* Refreshed GitHub Actions workflows to pin `actions/setup-go` `v7.0.0` across the Go workflow files.
+* Preserved the prior `v0.187.4` release history entry so the published notes stay complete.
+* Recorded the prior `v0.188.0` release history entry so the published notes stay current.
+
 ## v0.188.0
 
 - **Date:** 2026-07-14
