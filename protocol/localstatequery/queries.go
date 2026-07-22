@@ -716,8 +716,7 @@ type GenesisConfigResultProtocolParameters struct {
 // TODO (#864)
 type DebugNewEpochStateResult any
 
-// TODO (#865)
-type DebugChainDepStateResult any
+// DebugChainDepStateResult (#865) is defined in chain_dep_state.go.
 
 // RewardProvenanceResult is the result of the GetRewardProvenance query.
 // CBOR: array(1)[array(16)[epochLength, poolMints, maxLovelaceSupply,
