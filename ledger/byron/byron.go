@@ -1204,6 +1204,9 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if tmp.BlockHeader == nil {
+		return errors.New("byron EBB block missing header")
+	}
 	*b = ByronEpochBoundaryBlock(tmp)
 	b.SetCbor(cborData)
 	return nil
