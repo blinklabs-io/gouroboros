@@ -902,12 +902,18 @@ func (c *Client) GetStakeSnapshots(
 	if err != nil {
 		return nil, err
 	}
-	// Wrap the poolIds in a CBOR set (tag 258)
-	poolIdSet := cbor.NewSetType(poolIds, true)
+	// GetStakeSnapshots takes a StrictMaybe (Set PoolId), encoded as a
+	// list: an empty list selects all pools (SNothing), while a
+	// single-element list holding a tag-258 set restricts the result to
+	// those pools (SJust). See dingo issue #2917.
+	poolFilter := []any{}
+	if len(poolIds) > 0 {
+		poolFilter = append(poolFilter, cbor.NewSetType(poolIds, true))
+	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyStakeSnapshots,
-		poolIdSet,
+		poolFilter,
 	)
 	// The result is wrapped in a single-element array
 	var wrappedResult []StakeSnapshotsResult
