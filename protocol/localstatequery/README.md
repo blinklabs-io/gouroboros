@@ -152,6 +152,8 @@ client.Release()
 - **GetRewardProvenance**: Reward calculation details
 - **GetStakePools**: Registered stake pools
 - **GetStakePoolParams**: Stake pool parameters
+- **GetOpCertCounters**: On-chain operational-certificate counters (pool cold-key hash → highest accepted opcert issue number), the counter a synced node enforces
+- **DebugChainDepState**: Full consensus chain-dependent state (opcert counters, last slot, and evolving/candidate/epoch nonces); supports both the Praos (Babbage+) and TPraos (Shelley–Alonzo) serialisations
 
 ## Notes
 
