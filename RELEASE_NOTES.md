@@ -11,20 +11,20 @@ title: Release notes
 
 ### Summary
 
-This release improves LocalStateQuery visibility into operational certificate counters, hardens Byron EBB decoding, and refreshes repository automation and CBOR maintenance.
+This release improves on-chain operational certificate visibility in LocalStateQuery, hardens Byron EBB decoding, and cleans up repository automation and CBOR maintenance.
 
 ### New Features
 
-* Improved `LocalStateQuery` decoding so consumers can query authoritative operational certificate counters through the typed `GetOpCertCounters` helper and protocol aware `DebugChainDepState` results for Praos and TPraos nodes.
+* Improved `LocalStateQuery` decoding so consumers can query on-chain operational certificate counters through the typed `GetOpCertCounters` helper and protocol aware `DebugChainDepState` results for Praos and TPraos nodes.
 
 ### Bug Fixes
 
-* Fixed Byron EBB decoding so a null block header now fails fast with `byron EBB block missing header` instead of allowing later nil pointer dereferences.
+* Fixed Byron EBB decoding so a null header now fails fast with `byron EBB block missing header` instead of allowing later nil pointer dereferences.
 
 ### Additional Changes
 
-* Updated repository automation to remove the issue close date action and keep issue closure handling focused on the remaining workflow steps.
-* Refined the CBOR implementation with a modernization pass that keeps the code base cleaner and easier to maintain.
+* Updated repository automation to remove the issue close date action and simplify issue closure handling.
+* Refined the CBOR implementation with a modernization pass that keeps the codebase cleaner and easier to maintain.
 
 ## v0.188.1
 
