@@ -21,25 +21,25 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // poolKeyHashHex is an arbitrary 28-byte block-issuer (pool cold) key hash
 // used across the chain-dep-state fixtures.
-const poolKeyHashHex = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
+const poolKeyHashHex = "0102030405060708090a0b0c0d0e0f10" +
+	"1112131415161718191a1b1c"
 
 // poolKeyHashHex2 is a second, distinct 28-byte key hash for multi-pool cases.
-const poolKeyHashHex2 = "1c1b1a191817161514131211100f0e0d0c0b0a090807060504030201"
+const poolKeyHashHex2 = "1c1b1a191817161514131211100f0e0d" +
+	"0c0b0a090807060504030201"
 
 func blake224(t *testing.T, s string) ledger.Blake2b224 {
 	t.Helper()
 	var h ledger.Blake2b224
 	raw, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatalf("decode key hash %q: %s", s, err)
-	}
-	if len(raw) != len(h) {
-		t.Fatalf("key hash %q: expected %d bytes, got %d", s, len(h), len(raw))
-	}
+	require.NoError(t, err, "decode key hash %q", s)
+	require.Len(t, raw, len(h), "key hash %q wrong length", s)
 	copy(h[:], raw)
 	return h
 }
@@ -75,14 +75,9 @@ func TestDebugChainDepStateQueryBuildShelleyQuery(t *testing.T) {
 	const era = 6 // Conway
 	q := buildShelleyQuery(era, QueryTypeShelleyDebugChainDepState)
 	data, err := cbor.Encode(q)
-	if err != nil {
-		t.Fatalf("encode: %s", err)
-	}
+	require.NoError(t, err)
 	// [0, [0, [6, [13]]]]  =>  82 00 82 00 82 06 81 0d
-	want := "820082008206810d"
-	if got := hex.EncodeToString(data); got != want {
-		t.Fatalf("built query mismatch:\n  got:  %s\n  want: %s", got, want)
-	}
+	require.Equal(t, "820082008206810d", hex.EncodeToString(data))
 }
 
 // TestDebugChainDepStatePraos decodes a Praos (Babbage+/Conway) chain-dep-state
@@ -102,44 +97,33 @@ func TestDebugChainDepStatePraos(t *testing.T) {
 		nonceNeutral,            // last epoch block
 	}
 	wire, err := cbor.Encode([]any{chainDepStateVersionPraos, inner})
-	if err != nil {
-		t.Fatalf("encode fixture: %s", err)
-	}
+	require.NoError(t, err, "encode fixture")
 
 	var got DebugChainDepStateResult
-	if _, err := cbor.Decode(wire, &got); err != nil {
-		t.Fatalf("decode: %s", err)
-	}
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
 
-	if got.Protocol != ChainDepStateProtocolPraos {
-		t.Fatalf("protocol: got %d want Praos", got.Protocol)
-	}
-	if !got.LastSlot.HasSlot || got.LastSlot.Slot != 9_000_000 {
-		t.Fatalf("last slot: got %#v want At 9000000", got.LastSlot)
-	}
-	if v, ok := got.OpCertCounter(pool1); !ok || v != 7 {
-		t.Fatalf("pool1 counter: got (%d,%v) want (7,true)", v, ok)
-	}
-	if v, ok := got.OpCertCounter(pool2); !ok || v != 42 {
-		t.Fatalf("pool2 counter: got (%d,%v) want (42,true)", v, ok)
-	}
-	if got.EvolvingNonce.Type != lcommon.NonceTypeNonce {
-		t.Fatalf("evolving nonce type: got %d want Nonce", got.EvolvingNonce.Type)
-	}
-	if hex.EncodeToString(got.EvolvingNonce.Value[:]) != hex.EncodeToString(hash32(0xaa)) {
-		t.Fatalf("evolving nonce value mismatch")
-	}
-	if got.CandidateNonce.Type != lcommon.NonceTypeNeutral {
-		t.Fatalf("candidate nonce: got type %d want Neutral", got.CandidateNonce.Type)
-	}
+	assert.Equal(t, ChainDepStateProtocolPraos, got.Protocol)
+	assert.True(t, got.LastSlot.HasSlot)
+	assert.Equal(t, uint64(9_000_000), got.LastSlot.Slot)
+
+	v, ok := got.OpCertCounter(pool1)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(7), v)
+	v, ok = got.OpCertCounter(pool2)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(42), v)
+
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.EvolvingNonce.Type)
+	assert.Equal(t, hash32(0xaa), got.EvolvingNonce.Value[:])
+	assert.Equal(t, uint(lcommon.NonceTypeNeutral), got.CandidateNonce.Type)
+
 	// Praos-only nonces must be populated.
-	if got.EpochNonce == nil || got.EpochNonce.Type != lcommon.NonceTypeNonce {
-		t.Fatalf("epoch nonce: got %#v want non-nil Nonce", got.EpochNonce)
-	}
-	if got.PreviousEpochNonce == nil || got.LabNonce == nil ||
-		got.LastEpochBlockNonce == nil {
-		t.Fatal("Praos-only nonce pointers must be non-nil")
-	}
+	require.NotNil(t, got.EpochNonce)
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.EpochNonce.Type)
+	assert.NotNil(t, got.PreviousEpochNonce)
+	assert.NotNil(t, got.LabNonce)
+	assert.NotNil(t, got.LastEpochBlockNonce)
 }
 
 // TestDebugChainDepStateTPraos decodes a TPraos (Shelley..Alonzo)
@@ -157,34 +141,75 @@ func TestDebugChainDepStateTPraos(t *testing.T) {
 		},
 	}
 	wire, err := cbor.Encode([]any{chainDepStateVersionTPraos, inner})
-	if err != nil {
-		t.Fatalf("encode fixture: %s", err)
-	}
+	require.NoError(t, err, "encode fixture")
 
 	var got DebugChainDepStateResult
-	if _, err := cbor.Decode(wire, &got); err != nil {
-		t.Fatalf("decode: %s", err)
-	}
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
 
-	if got.Protocol != ChainDepStateProtocolTPraos {
-		t.Fatalf("protocol: got %d want TPraos", got.Protocol)
+	assert.Equal(t, ChainDepStateProtocolTPraos, got.Protocol)
+	assert.True(t, got.LastSlot.HasSlot)
+	assert.Equal(t, uint64(123), got.LastSlot.Slot)
+
+	v, ok := got.OpCertCounter(pool1)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(3), v)
+
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.EvolvingNonce.Type)
+	assert.Equal(t, uint(lcommon.NonceTypeNeutral), got.CandidateNonce.Type)
+
+	assert.Nil(t, got.EpochNonce)
+	assert.Nil(t, got.PreviousEpochNonce)
+	assert.Nil(t, got.LabNonce)
+	assert.Nil(t, got.LastEpochBlockNonce)
+}
+
+// TestDebugChainDepStateReusedResultClearsPraosNonces guards against stale
+// state: decoding a TPraos result into a value previously populated by a Praos
+// decode must leave every Praos-only nonce nil.
+func TestDebugChainDepStateReusedResultClearsPraosNonces(t *testing.T) {
+	pool1 := blake224(t, poolKeyHashHex)
+
+	praosInner := []any{
+		slotAt(10),
+		map[ledger.Blake2b224]uint64{pool1: 1},
+		nonceHash(hash32(0x11)),
+		nonceHash(hash32(0x22)),
+		nonceHash(hash32(0x33)),
+		nonceHash(hash32(0x44)),
+		nonceHash(hash32(0x55)),
+		nonceHash(hash32(0x66)),
 	}
-	if !got.LastSlot.HasSlot || got.LastSlot.Slot != 123 {
-		t.Fatalf("last slot: got %#v want At 123", got.LastSlot)
+	praosWire, err := cbor.Encode([]any{chainDepStateVersionPraos, praosInner})
+	require.NoError(t, err)
+
+	// Reuse the same result value for the second decode.
+	var result DebugChainDepStateResult
+	_, err = cbor.Decode(praosWire, &result)
+	require.NoError(t, err)
+	require.NotNil(t, result.EpochNonce, "Praos decode should populate nonces")
+
+	tpraosInner := []any{
+		slotAt(20),
+		[]any{
+			map[ledger.Blake2b224]uint64{pool1: 2},
+			nonceHash(hash32(0x77)),
+			nonceNeutral,
+		},
 	}
-	if v, ok := got.OpCertCounter(pool1); !ok || v != 3 {
-		t.Fatalf("pool1 counter: got (%d,%v) want (3,true)", v, ok)
-	}
-	if got.EvolvingNonce.Type != lcommon.NonceTypeNonce {
-		t.Fatalf("evolving nonce: got type %d want Nonce", got.EvolvingNonce.Type)
-	}
-	if got.CandidateNonce.Type != lcommon.NonceTypeNeutral {
-		t.Fatalf("candidate nonce: got type %d want Neutral", got.CandidateNonce.Type)
-	}
-	if got.EpochNonce != nil || got.PreviousEpochNonce != nil ||
-		got.LabNonce != nil || got.LastEpochBlockNonce != nil {
-		t.Fatal("TPraos result must leave Praos-only nonce pointers nil")
-	}
+	tpraosWire, err := cbor.Encode(
+		[]any{chainDepStateVersionTPraos, tpraosInner},
+	)
+	require.NoError(t, err)
+
+	_, err = cbor.Decode(tpraosWire, &result)
+	require.NoError(t, err)
+
+	assert.Equal(t, ChainDepStateProtocolTPraos, result.Protocol)
+	assert.Nil(t, result.EpochNonce)
+	assert.Nil(t, result.PreviousEpochNonce)
+	assert.Nil(t, result.LabNonce)
+	assert.Nil(t, result.LastEpochBlockNonce)
 }
 
 // TestDebugChainDepStateOriginSlot verifies a chain-dep-state taken at chain
@@ -201,22 +226,16 @@ func TestDebugChainDepStateOriginSlot(t *testing.T) {
 		nonceNeutral,
 	}
 	wire, err := cbor.Encode([]any{chainDepStateVersionPraos, inner})
-	if err != nil {
-		t.Fatalf("encode fixture: %s", err)
-	}
+	require.NoError(t, err, "encode fixture")
+
 	var got DebugChainDepStateResult
-	if _, err := cbor.Decode(wire, &got); err != nil {
-		t.Fatalf("decode: %s", err)
-	}
-	if got.LastSlot.HasSlot {
-		t.Fatalf("expected origin slot, got %#v", got.LastSlot)
-	}
-	if len(got.OpCertCounters) != 0 {
-		t.Fatalf("expected empty counters, got %d", len(got.OpCertCounters))
-	}
-	if _, ok := got.OpCertCounter(blake224(t, poolKeyHashHex)); ok {
-		t.Fatal("absent pool must return ok=false")
-	}
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
+
+	assert.False(t, got.LastSlot.HasSlot)
+	assert.Empty(t, got.OpCertCounters)
+	_, ok := got.OpCertCounter(blake224(t, poolKeyHashHex))
+	assert.False(t, ok, "absent pool must return ok=false")
 }
 
 // TestDebugChainDepStateGolden pins the exact Praos wire bytes so the decoded
@@ -232,26 +251,22 @@ func TestDebugChainDepStateGolden(t *testing.T) {
 		"820088820101a1581c" + poolKeyHashHex + "01" +
 			"810081008100810081008100",
 	)
-	if err != nil {
-		t.Fatalf("hex: %s", err)
-	}
+	require.NoError(t, err, "hex")
+
 	var got DebugChainDepStateResult
-	if _, err := cbor.Decode(wire, &got); err != nil {
-		t.Fatalf("decode: %s", err)
-	}
-	if got.Protocol != ChainDepStateProtocolPraos {
-		t.Fatalf("protocol: got %d want Praos", got.Protocol)
-	}
-	if !got.LastSlot.HasSlot || got.LastSlot.Slot != 1 {
-		t.Fatalf("last slot: got %#v want At 1", got.LastSlot)
-	}
-	if v, ok := got.OpCertCounter(blake224(t, poolKeyHashHex)); !ok || v != 1 {
-		t.Fatalf("counter: got (%d,%v) want (1,true)", v, ok)
-	}
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
+
+	assert.Equal(t, ChainDepStateProtocolPraos, got.Protocol)
+	assert.True(t, got.LastSlot.HasSlot)
+	assert.Equal(t, uint64(1), got.LastSlot.Slot)
+
+	v, ok := got.OpCertCounter(blake224(t, poolKeyHashHex))
+	assert.True(t, ok)
+	assert.Equal(t, uint64(1), v)
+
 	for _, n := range []lcommon.Nonce{got.EvolvingNonce, got.CandidateNonce} {
-		if n.Type != lcommon.NonceTypeNeutral {
-			t.Fatalf("expected neutral nonce, got type %d", n.Type)
-		}
+		assert.Equal(t, uint(lcommon.NonceTypeNeutral), n.Type)
 	}
 }
 
@@ -260,13 +275,11 @@ func TestDebugChainDepStateGolden(t *testing.T) {
 // producing an empty/mislabelled result.
 func TestDebugChainDepStateRejectsUnknownVersion(t *testing.T) {
 	wire, err := cbor.Encode([]any{uint64(2), []any{}})
-	if err != nil {
-		t.Fatalf("encode fixture: %s", err)
-	}
+	require.NoError(t, err, "encode fixture")
+
 	var got DebugChainDepStateResult
-	if _, err := cbor.Decode(wire, &got); err == nil {
-		t.Fatal("expected decode error for unknown version, got nil")
-	}
+	_, err = cbor.Decode(wire, &got)
+	require.Error(t, err, "expected decode error for unknown version")
 }
 
 // TestDebugChainDepStateOpCertCounterLookup exercises the per-pool lookup
@@ -289,9 +302,8 @@ func TestDebugChainDepStateOpCertCounterLookup(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			v, ok := r.OpCertCounter(tc.pool)
-			if v != tc.wantVal || ok != tc.wantOk {
-				t.Fatalf("got (%d,%v) want (%d,%v)", v, ok, tc.wantVal, tc.wantOk)
-			}
+			assert.Equal(t, tc.wantVal, v)
+			assert.Equal(t, tc.wantOk, ok)
 		})
 	}
 }

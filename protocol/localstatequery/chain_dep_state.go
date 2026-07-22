@@ -158,8 +158,13 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 		r.OpCertCounters = t.PrtclState.OpCertCounters
 		r.EvolvingNonce = t.PrtclState.EvolvingNonce
 		r.CandidateNonce = t.PrtclState.CandidateNonce
-		// EpochNonce and the other Praos-only nonces do not exist in TPraos;
-		// they are left nil.
+		// EpochNonce and the other Praos-only nonces do not exist in TPraos.
+		// Clear them explicitly so decoding into a reused result cannot leave
+		// stale Praos values from a previous decode.
+		r.EpochNonce = nil
+		r.PreviousEpochNonce = nil
+		r.LabNonce = nil
+		r.LastEpochBlockNonce = nil
 	default:
 		return fmt.Errorf(
 			"unsupported ChainDepState serialisation version: %d",
