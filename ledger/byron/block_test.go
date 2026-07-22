@@ -90,6 +90,19 @@ func TestByronBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 }
 
+func TestByronEpochBoundaryBlockNullHeader(t *testing.T) {
+	// [null, [], []]: an EBB block whose header is CBOR null
+	dataBytes, err := hex.DecodeString("83f68080")
+	if err != nil {
+		t.Fatalf("Failed to decode hex string into CBOR bytes: %v", err)
+	}
+	var block byron.ByronEpochBoundaryBlock
+	err = block.UnmarshalCBOR(dataBytes)
+	if err == nil {
+		t.Fatal("expected error decoding EBB block with null header, got none")
+	}
+}
+
 func TestByronTransaction_Utxorpc(t *testing.T) {
 	// Decode the hex string to bytes
 	blockBytes, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
