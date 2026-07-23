@@ -11,13 +11,13 @@ title: Release notes
 
 ### Summary
 
-This release fixes local state query decoding and brings stake snapshot requests in line with the wire format expected by `cardano-node`.
+This release fixes local state query decoding and aligns stake snapshot requests with the format expected by `cardano-node`.
 
 ### Bug Fixes
 
-* Fixed local state query decoding so GetCBOR-wrapped Shelley queries now complete instead of closing the node-to-client connection when array and struct shapes do not match.
-* Improved stake snapshot handling so all-pools and specific-pool requests now use the pool filter shape expected by `cardano-node`.
-* Updated `Client.GetStakeSnapshots` to send the pool filter in that accepted wire shape.
+* Fixed local state query decoding so GetCBOR-wrapped Shelley queries now complete instead of closing the node-to-client connection when array and struct values do not match.
+* Improved stake snapshot handling so all-pools and specific-pool requests now match the pool filter format expected by `cardano-node`.
+* Updated `Client.GetStakeSnapshots` to send the pool filter in the accepted format.
 
 ### Additional Changes
 
