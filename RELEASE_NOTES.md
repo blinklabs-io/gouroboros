@@ -4,6 +4,25 @@ title: Release notes
 
 # Release notes
 
+## v0.189.1
+
+- **Date:** 2026-07-23
+- **Version:** 0.189.1
+
+### Summary
+
+This release fixes local state query decoding and aligns stake snapshot requests with the format expected by `cardano-node`.
+
+### Bug Fixes
+
+* Fixed local state query decoding so GetCBOR-wrapped Shelley queries now complete instead of closing the node-to-client connection when array and struct values do not match.
+* Improved stake snapshot handling so all-pools and specific-pool requests now match the pool filter format expected by `cardano-node`.
+* Updated `Client.GetStakeSnapshots` to send the pool filter in the accepted format.
+
+### Additional Changes
+
+* Added byte-exact coverage for specific-pool, all-pools, and malformed multi-set `StrictMaybe` stake snapshot payloads.
+
 ## v0.188.1
 
 - **Date:** 2026-07-20
