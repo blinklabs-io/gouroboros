@@ -15,7 +15,7 @@ This release fixes Conway zero withdrawal handling in ledger validation.
 
 ### Bug Fixes
 
-* Fixed Conway zero withdrawal handling so zero withdrawal amounts now validate correctly during Conway transaction processing.
+* Fixed Conway zero withdrawal handling so withdrawals with a zero amount now validate correctly during Conway transaction processing.
 
 ## v0.189.1
 
