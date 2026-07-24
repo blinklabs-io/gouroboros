@@ -2520,8 +2520,9 @@ func UtxoValidateDelegation(
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
 // For phase-2 invalid transactions (IsValid=false), withdrawal validation is
 // skipped since their effects are reverted and only collateral rules apply.
-// PV10 and PV11 also require each withdrawing stake credential to have a DRep
-// vote delegation. PV12 removes that requirement per CIP-181.
+// PV10 and PV11 also require each stake credential withdrawing a non-zero
+// amount to have a DRep vote delegation. PV12 removes that requirement per
+// CIP-181.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
@@ -2534,7 +2535,8 @@ func UtxoValidateWithdrawals(
 	if err := shelley.UtxoValidateWithdrawals(tx, slot, ls, pp); err != nil {
 		return err
 	}
-	if len(tx.Withdrawals()) == 0 {
+	withdrawals := tx.Withdrawals()
+	if len(withdrawals) == 0 {
 		return nil
 	}
 	versionedPparams, ok := pp.(interface {
@@ -2548,11 +2550,18 @@ func UtxoValidateWithdrawals(
 		protocolMajor >= common.ProtocolVersionDijkstra {
 		return nil
 	}
-	delegationState, ok := ls.(common.DRepDelegationState)
-	if !ok {
-		return DRepDelegationStateUnavailableError{}
-	}
-	for addr := range tx.Withdrawals() {
+	var delegationState common.DRepDelegationState
+	for addr, amount := range withdrawals {
+		if amount == nil || amount.Sign() == 0 {
+			continue
+		}
+		if delegationState == nil {
+			var ok bool
+			delegationState, ok = ls.(common.DRepDelegationState)
+			if !ok {
+				return DRepDelegationStateUnavailableError{}
+			}
+		}
 		credential, ok := addr.StakeCredential()
 		if !ok {
 			continue
