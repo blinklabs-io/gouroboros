@@ -4,6 +4,17 @@ title: Release notes
 
 # Release notes
 
+## v0.189.2
+
+- **Date:** 2026-07-24
+- **Version:** 0.189.2
+
+This release fixes Conway zero withdrawal handling in ledger validation.
+
+### Bug Fixes
+
+* Fixed Conway zero withdrawal handling so zero withdrawal amounts now validate correctly during Conway transaction processing.
+
 ## v0.189.1
 
 - **Date:** 2026-07-23
