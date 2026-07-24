@@ -576,6 +576,36 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 	return &result, nil
 }
 
+// GetStakeDelegDeposits returns the deposits currently locked by the requested
+// registered stake credentials.
+func (c *Client) GetStakeDelegDeposits(
+	creds []StakeCredential,
+) (*StakeDelegDepositsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetStakeDelegDeposits(creds: %+v)", creds),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakeDelegDeposits,
+		cbor.NewSetType(creds, true),
+	)
+	var result StakeDelegDepositsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetGenesisConfig()",
@@ -1392,6 +1422,7 @@ func (c *Client) GetProposals() (*ProposalsResult, error) {
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyGetProposals,
+		cbor.NewSetType([]lcommon.GovActionId{}, true),
 	)
 	var result ProposalsResult
 	if err := c.runQuery(query, &result); err != nil {
