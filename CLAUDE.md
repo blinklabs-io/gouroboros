@@ -53,6 +53,7 @@ grep -cE "^    --- FAIL: TestRulesConformanceVectors/" /tmp/conformance.txt
 7. `NOTE:` comments mark load-bearing intentional decisions. Don't "clean them up".
 8. `NewTransactionBuilder()` returns `*MockTransaction`; use the concrete type for `WithWithdrawals`, `WithCollateral`, `WithReferenceInputs`, etc. The `TransactionBuilder` interface doesn't expose them.
 9. All mock fixtures live in `github.com/blinklabs-io/ouroboros-mock`. Never inline local mocks. Missing fixture → add it upstream, bump the dep.
+10. Types embedding `DecodeStoreCbor` short-circuit `MarshalCBOR()` to the stored bytes whenever `Cbor()` is non-nil. Mutating a decoded struct's fields and re-marshaling silently re-emits the pre-mutation bytes — call `SetCbor(nil)` first to force a real re-encode.
 
 ## Performance
 
