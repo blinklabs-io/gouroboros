@@ -15,7 +15,7 @@ This release adds stake address info query support and Leios pool registration c
 
 ### New Features
 
-* Added support for stake address info queries.
+* Added stake address info query support.
 
 ### Bug Fixes
 
