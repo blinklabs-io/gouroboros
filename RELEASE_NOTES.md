@@ -4,6 +4,23 @@ title: Release notes
 
 # Release notes
 
+## v0.189.3
+
+- **Date:** 2026-07-25
+- **Version:** 0.189.3
+
+### Summary
+
+This release improves ChainSync rollforward debug logging and keeps the published release history current.
+
+### Bug Fixes
+
+* Fixed the ChainSync rollforward debug log so rollforward events now produce clearer debug output.
+
+### Additional Changes
+
+* Updated the release history to include the `v0.189.2` entry.
+
 ## v0.189.2
 
 - **Date:** 2026-07-24
