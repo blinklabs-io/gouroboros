@@ -943,7 +943,7 @@ func TestGetDRepStatePreConway(t *testing.T) {
 func TestGetProposalsEmpty(t *testing.T) {
 	// Empty proposals list
 	expectedResult := localstatequery.ProposalsResult{}
-	cborData, err := cbor.Encode(expectedResult)
+	cborData, err := cbor.Encode([]any{expectedResult})
 	if err != nil {
 		t.Fatalf("unexpected error encoding: %s", err)
 	}
@@ -1100,7 +1100,7 @@ func TestGetProposalsSingleProposal(t *testing.T) {
 		ExpiresAfter:      110,
 	}
 	expectedResult := localstatequery.ProposalsResult{proposal}
-	cborData, err := cbor.Encode(expectedResult)
+	cborData, err := cbor.Encode([]any{expectedResult})
 	if err != nil {
 		t.Fatalf("unexpected error encoding: %s", err)
 	}
@@ -1211,7 +1211,7 @@ func TestFilteredVoteDelegateesResultDecode(t *testing.T) {
 			Credential: drepCredBytes,
 		},
 	}
-	cborData, err := cbor.Encode(encodableMap)
+	cborData, err := cbor.Encode([]any{encodableMap})
 	require.NoError(t, err, "unexpected error encoding map")
 
 	// Decode into FilteredVoteDelegateesResult
@@ -1247,7 +1247,7 @@ func TestGetFilteredVoteDelegatees(t *testing.T) {
 			Credential: drepCredBytes,
 		},
 	}
-	cborData, err := cbor.Encode(encodableMap)
+	cborData, err := cbor.Encode([]any{encodableMap})
 	require.NoError(t, err, "unexpected error encoding result")
 
 	conversation := append(

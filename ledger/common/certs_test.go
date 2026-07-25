@@ -313,3 +313,20 @@ func TestLeiosKeyRejectsInvalidLengths(t *testing.T) {
 		})
 	}
 }
+
+func TestDrepCBORRoundTrip(t *testing.T) {
+	testCases := []Drep{
+		{Type: DrepTypeAddrKeyHash, Credential: make([]byte, 28)},
+		{Type: DrepTypeScriptHash, Credential: bytes.Repeat([]byte{0xaa}, 28)},
+		{Type: DrepTypeAbstain},
+		{Type: DrepTypeNoConfidence},
+	}
+	for _, expected := range testCases {
+		encoded, err := cbor.Encode(expected)
+		require.NoError(t, err)
+		var actual Drep
+		_, err = cbor.Decode(encoded, &actual)
+		require.NoError(t, err)
+		require.Equal(t, expected, actual)
+	}
+}

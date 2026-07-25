@@ -142,6 +142,17 @@ type Drep struct {
 	Credential []byte
 }
 
+func (d Drep) MarshalCBOR() ([]byte, error) {
+	switch d.Type {
+	case DrepTypeAddrKeyHash, DrepTypeScriptHash:
+		return cbor.Encode([]any{d.Type, d.Credential})
+	case DrepTypeAbstain, DrepTypeNoConfidence:
+		return cbor.Encode([]any{d.Type})
+	default:
+		return nil, fmt.Errorf("unknown drep type: %d", d.Type)
+	}
+}
+
 func (d *Drep) UnmarshalCBOR(data []byte) error {
 	drepType, err := cbor.DecodeIdFromList(data)
 	if err != nil {

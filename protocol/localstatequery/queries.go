@@ -63,6 +63,7 @@ const (
 	QueryTypeShelleyPoolState                           = 19
 	QueryTypeShelleyStakeSnapshots                      = 20
 	QueryTypeShelleyPoolDistr                           = 21
+	QueryTypeShelleyStakeDelegDeposits                  = 22
 
 	// Conway governance queries (v8+)
 	QueryTypeShelleyConstitution           = 23
@@ -236,6 +237,7 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleyPoolState:                           &ShelleyPoolStateQuery{},
 		QueryTypeShelleyStakeSnapshots:                      &ShelleyStakeSnapshotsQuery{},
 		QueryTypeShelleyPoolDistr:                           &ShelleyPoolDistrQuery{},
+		QueryTypeShelleyStakeDelegDeposits:                  &ShelleyStakeDelegDepositsQuery{},
 		// Conway governance queries
 		QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
 		QueryTypeShelleyGovState:               &ShelleyGovStateQuery{},
@@ -372,6 +374,15 @@ func (q *ShelleyCborQuery) MarshalCBOR() ([]byte, error) {
 }
 
 type ShelleyFilteredDelegationAndRewardAccountsQuery struct {
+	cbor.StructAsArray
+	Type  int
+	Creds cbor.SetType[StakeCredential]
+}
+
+// ShelleyStakeDelegDepositsQuery returns the deposit locked by each requested
+// registered stake credential. It was added with node-to-client version 16 and
+// is used by cardano-cli query stake-address-info.
+type ShelleyStakeDelegDepositsQuery struct {
 	cbor.StructAsArray
 	Type  int
 	Creds cbor.SetType[StakeCredential]
@@ -741,6 +752,22 @@ type FilteredDelegationsAndRewardAccountsResult struct {
 	Rewards     map[StakeCredential]uint64
 }
 
+// StakeDelegDepositsResult is the result of GetStakeDelegDeposits.
+// The map is wrapped in a one-element array by the Shelley era codec.
+type StakeDelegDepositsResult map[StakeCredential]uint64
+
+func (r *StakeDelegDepositsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Deposits map[StakeCredential]uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = tmp.Deposits
+	return nil
+}
+
 func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
@@ -1099,7 +1126,9 @@ type ShelleyAccountStateQuery struct {
 }
 
 type ShelleyGetProposalsQuery struct {
-	simpleQueryBase
+	cbor.StructAsArray
+	Type      int
+	ActionIds cbor.SetType[lcommon.GovActionId]
 }
 
 type ShelleyGetRatifyStateQuery struct {
@@ -1465,7 +1494,20 @@ type CommitteeMembersStateResult struct {
 // FilteredVoteDelegateesResult represents the vote delegatees
 // for stake credentials.
 // The result maps stake credentials to their DRep delegations
+// and is wrapped in a one-element array by the Shelley era codec.
 type FilteredVoteDelegateesResult map[StakeCredential]lcommon.Drep
+
+func (r *FilteredVoteDelegateesResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Delegatees map[StakeCredential]lcommon.Drep
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = tmp.Delegatees
+	return nil
+}
 
 // SPOStakeDistrResult represents the SPO stake distribution for governance
 // Maps pool IDs to their governance voting power
@@ -1476,7 +1518,20 @@ type SPOStakeDistrResult struct {
 
 // ProposalsResult represents the result of a GetProposals query.
 // It contains a list of governance action states for all active proposals.
+// The list is wrapped in a one-element array by the Shelley era codec.
 type ProposalsResult []GovActionState
+
+func (r *ProposalsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Proposals []GovActionState
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = tmp.Proposals
+	return nil
+}
 
 // EnactState represents the enactment state within a ratify state result.
 // It contains the current committee, constitution, protocol parameters,
