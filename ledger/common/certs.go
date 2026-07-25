@@ -413,25 +413,45 @@ type LeiosKey struct {
 	PossessionProof []byte `json:"possessionProof"`
 }
 
+func (k LeiosKey) validate() error {
+	if len(k.PublicKey) != LeiosBlsPublicKeySize {
+		return fmt.Errorf(
+			"invalid Leios BLS public key length: expected %d, got %d",
+			LeiosBlsPublicKeySize,
+			len(k.PublicKey),
+		)
+	}
+	if len(k.PossessionProof) != LeiosBlsPossessionProofSize {
+		return fmt.Errorf(
+			"invalid Leios BLS possession proof length: expected %d, got %d",
+			LeiosBlsPossessionProofSize,
+			len(k.PossessionProof),
+		)
+	}
+	return nil
+}
+
 func (k *LeiosKey) UnmarshalCBOR(data []byte) error {
 	type tmpLeiosKey LeiosKey
 	var tmp tmpLeiosKey
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	if len(tmp.PublicKey) != LeiosBlsPublicKeySize {
-		return fmt.Errorf(
-			"invalid Leios BLS public key length: expected %d, got %d",
-			LeiosBlsPublicKeySize,
-			len(tmp.PublicKey),
-		)
+	if err := LeiosKey(tmp).validate(); err != nil {
+		return err
 	}
-	if len(tmp.PossessionProof) != LeiosBlsPossessionProofSize {
-		return fmt.Errorf(
-			"invalid Leios BLS possession proof length: expected %d, got %d",
-			LeiosBlsPossessionProofSize,
-			len(tmp.PossessionProof),
-		)
+	*k = LeiosKey(tmp)
+	return nil
+}
+
+func (k *LeiosKey) UnmarshalJSON(data []byte) error {
+	type tmpLeiosKey LeiosKey
+	var tmp tmpLeiosKey
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	if err := LeiosKey(tmp).validate(); err != nil {
+		return err
 	}
 	*k = LeiosKey(tmp)
 	return nil
@@ -766,6 +786,9 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// NOTE: UnmarshalCBOR caches the original CBOR bytes, and MarshalCBOR returns
+// those bytes for both 10- and 11-field variants. Call SetCbor(nil) before
+// marshaling mutated fields.
 func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 	if cborData := c.Cbor(); cborData != nil {
 		return cborData, nil

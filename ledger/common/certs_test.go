@@ -299,6 +299,17 @@ func TestLeiosKeyRejectsInvalidLengths(t *testing.T) {
 			var decoded LeiosKey
 			_, err = cbor.Decode(encoded, &decoded)
 			require.Error(t, err)
+
+			encoded, err = json.Marshal(struct {
+				PublicKey       []byte `json:"publicKey"`
+				PossessionProof []byte `json:"possessionProof"`
+			}{
+				PublicKey:       test.key,
+				PossessionProof: test.proof,
+			})
+			require.NoError(t, err)
+			err = json.Unmarshal(encoded, &decoded)
+			require.Error(t, err)
 		})
 	}
 }
