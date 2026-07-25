@@ -11,11 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release improves ChainSync rollforward debug logging and keeps the release history current with the prior v0.189.2 entry.
-
-### Bug Fixes
-
-* Fixed the ChainSync rollforward debug log so rollforward events now surface clearer debug output.
+This release keeps the published release history current by recording the prior `v0.189.2` entry.
 
 ### Additional Changes
 
