@@ -11,12 +11,15 @@ title: Release notes
 
 ### Summary
 
-This release adds stake address info query support, improves Leios pool registration certificate compatibility for prototype2026-w30, and keeps the release history current.
+This release adds stake address info query support and extends Leios pool registration certificate compatibility for prototype2026-w30.
+
+### New Features
+
+* Added stake address info query support so local state query clients can return stake delegation deposit information.
 
 ### Bug Fixes
 
-* Fixed local state query handling so stake address info queries now return stake delegation deposit information.
-* Fixed `PoolRegistrationCertificate` handling so clients can decode and re-encode certificates with optional `LeiosKey` values, accept both 10-field and 11-field CBOR layouts, validate Leios key sizes, and preserve exact CBOR round trips.
+* Expanded `PoolRegistrationCertificate` handling so clients can decode and re-encode certificates with optional `LeiosKey` values, accept both 10-field and 11-field CBOR layouts, validate Leios key sizes, and preserve exact CBOR round trips.
 
 ### Additional Changes
 
