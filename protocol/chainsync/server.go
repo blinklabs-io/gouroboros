@@ -160,7 +160,10 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 		s.callbackContext.ConnectionId.String(),
 	)
 	if p.Mode() == protocol.ProtocolModeNodeToNode {
-		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
+		eraId, ok := ledger.BlockToBlockHeaderTypeMap[blockType]
+		if !ok {
+			return fmt.Errorf("unknown block type: %d", blockType)
+		}
 		msg, err := NewMsgRollForwardNtN(
 			eraId,
 			0,

@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,4 +93,18 @@ func TestLogRollForwardDoesNotLogBlockData(t *testing.T) {
 		"deadbeef",
 		"serialized block data should not be logged",
 	)
+}
+
+func TestRollForwardNtNRejectsUnknownBlockType(t *testing.T) {
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Mode:         protocol.ProtocolModeNodeToNode,
+		},
+		nil,
+	)
+
+	err := server.RollForward(999, nil, Tip{})
+
+	require.EqualError(t, err, "unknown block type: 999")
 }
