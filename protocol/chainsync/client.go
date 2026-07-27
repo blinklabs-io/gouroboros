@@ -796,7 +796,6 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	var callbackErr error
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*MsgRollForwardNtN)
-		c.sendCurrentTip(msg.Tip)
 
 		var blockHeader ledger.BlockHeader
 		var blockHeaderBytes []byte
@@ -809,9 +808,17 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
 		default:
 			// Map block header type to block type
-			blockType = ledger.BlockHeaderToBlockTypeMap[blockEra]
+			var ok bool
+			blockType, ok = ledger.BlockHeaderToBlockTypeMap[blockEra]
+			if !ok {
+				return fmt.Errorf(
+					"unknown block header era: %d",
+					blockEra,
+				)
+			}
 			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
 		}
+		c.sendCurrentTip(msg.Tip)
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
 			// Decode header
 			var err error

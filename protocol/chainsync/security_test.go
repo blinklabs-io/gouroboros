@@ -15,10 +15,13 @@
 package chainsync
 
 import (
+	"net"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
@@ -73,4 +76,71 @@ func TestWrappedHeaderUnmarshalRejectsNonByteByronTagContent(t *testing.T) {
 	err = wrapped.UnmarshalCBOR(data)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "wrapped byron header tag content must be []byte")
+}
+
+func TestHandleRollForwardNtNRejectsUnknownHeaderEra(t *testing.T) {
+	callbackCalled := false
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Mode:         protocol.ProtocolModeNodeToNode,
+		},
+		&Config{
+			RollForwardFunc: func(
+				CallbackContext,
+				uint,
+				any,
+				Tip,
+			) error {
+				callbackCalled = true
+				return nil
+			},
+		},
+	)
+	const unknownEra = uint(999)
+	msg := &MsgRollForwardNtN{
+		WrappedHeader: WrappedHeader{Era: unknownEra},
+	}
+
+	err := client.handleRollForward(msg)
+
+	require.EqualError(t, err, "unknown block header era: 999")
+	require.False(t, callbackCalled)
+}
+
+func TestHandleRollForwardNtNUnknownEraSkipsRawCallback(t *testing.T) {
+	callbackCalled := false
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Mode:         protocol.ProtocolModeNodeToNode,
+		},
+		&Config{
+			RollForwardRawFunc: func(
+				CallbackContext,
+				uint,
+				[]byte,
+				Tip,
+			) error {
+				callbackCalled = true
+				return nil
+			},
+		},
+	)
+	const unknownEra = uint(999)
+	msg := &MsgRollForwardNtN{
+		WrappedHeader: WrappedHeader{Era: unknownEra},
+	}
+
+	err := client.handleRollForward(msg)
+
+	require.EqualError(t, err, "unknown block header era: 999")
+	require.False(t, callbackCalled)
+}
+
+func testConnectionId() connection.ConnectionId {
+	return connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{},
+		RemoteAddr: &net.TCPAddr{},
+	}
 }
