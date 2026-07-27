@@ -4,6 +4,27 @@ title: Release notes
 
 # Release notes
 
+## v0.189.4
+
+- **Date:** 2026-07-25
+- **Version:** 0.189.4
+
+### Summary
+
+This release adds stake address info query support and Leios pool registration certificate compatibility for prototype2026-w30.
+
+### New Features
+
+* Added stake address info query support.
+
+### Bug Fixes
+
+* Expanded `PoolRegistrationCertificate` handling so clients can decode and re-encode certificates with optional `LeiosKey` values, accept both 10-field and 11-field CBOR layouts, reject malformed Leios key sizes, and preserve exact CBOR round trips.
+
+### Additional Changes
+
+* Updated the release history to include the `v0.189.3` maintenance entry.
+
 ## v0.189.3
 
 - **Date:** 2026-07-25
