@@ -164,10 +164,25 @@ func IsSlotLeaderWithMode(
 	}
 
 	// Step 3: Compute threshold (mode-aware)
-	threshold := CertifiedNatThresholdWithMode(poolStake, totalStake, activeSlotCoeff, mode)
+	threshold, err := CertifiedNatThresholdWithMode(
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		mode,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Step 4: Check eligibility (mode-aware)
-	eligible := IsVRFOutputBelowThresholdWithMode(output, threshold, mode)
+	eligible, err := IsVRFOutputBelowThresholdWithMode(
+		output,
+		threshold,
+		mode,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &LeaderElectionResult{
 		Eligible:  eligible,
@@ -193,7 +208,14 @@ func IsSlotLeaderFromComponents(
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
 ) bool {
-	return IsSlotLeaderFromComponentsWithMode(vrfOutput, poolStake, totalStake, activeSlotCoeff, ConsensusModeCPraos)
+	eligible, _ := IsSlotLeaderFromComponentsWithMode(
+		vrfOutput,
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		ConsensusModeCPraos,
+	)
+	return eligible
 }
 
 // IsSlotLeaderFromComponentsWithMode performs leader election check from pre-computed
@@ -206,22 +228,37 @@ func IsSlotLeaderFromComponents(
 //   - activeSlotCoeff: the active slot coefficient (f)
 //   - mode: the consensus mode (CPRAOS or TPraos)
 //
-// Returns true if the pool is eligible to be the slot leader.
+// Returns true if the pool is eligible to be the slot leader, or an error if
+// the consensus mode is unknown.
 func IsSlotLeaderFromComponentsWithMode(
 	vrfOutput []byte,
 	poolStake uint64,
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
 	mode ConsensusMode,
-) bool {
-	if activeSlotCoeff == nil || totalStake == 0 || poolStake == 0 {
-		return false
-	}
-	if len(vrfOutput) != 64 {
-		return false
+) (bool, error) {
+	switch mode {
+	case ConsensusModeCPraos, ConsensusModeTPraos:
+	default:
+		return false, fmt.Errorf("unknown consensus mode: %d", mode)
 	}
 
-	threshold := CertifiedNatThresholdWithMode(poolStake, totalStake, activeSlotCoeff, mode)
+	if activeSlotCoeff == nil || totalStake == 0 || poolStake == 0 {
+		return false, nil
+	}
+	if len(vrfOutput) != 64 {
+		return false, nil
+	}
+
+	threshold, err := CertifiedNatThresholdWithMode(
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		mode,
+	)
+	if err != nil {
+		return false, err
+	}
 	return IsVRFOutputBelowThresholdWithMode(vrfOutput, threshold, mode)
 }
 
