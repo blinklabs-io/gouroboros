@@ -11,16 +11,16 @@ title: Release notes
 
 ### Summary
 
-This release hardens consensus mode threshold handling, rejects unknown values in node to node chainsync roll forward paths, and updates the checkout action used by CI workflows.
+This release improves consensus mode threshold handling, rejects unknown values in node-to-node chainsync roll-forward paths, and updates the checkout action used by CI workflows.
 
 ### Bug Fixes
 
-* Fixed node to node chainsync roll forward handling so unknown eras and block types now return explicit errors instead of being treated as valid values.
-* Fixed consensus mode threshold handling so unknown modes now return errors and mode specific thresholds use the correct upper bounds.
+* Fixed node-to-node chainsync roll-forward handling so unknown eras and block types now return explicit errors instead of being treated as valid values.
+* Improved consensus mode threshold handling so unknown modes now return errors and mode-specific thresholds use the correct upper bounds.
 
 ### Additional Changes
 
-* Updated the release history to include the v0.189.4 maintenance entry.
+* Refreshed the release history to include the v0.189.4 maintenance entry.
 * Updated CI workflows to use `actions/checkout` `v7.0.1`.
 
 ## v0.189.4
