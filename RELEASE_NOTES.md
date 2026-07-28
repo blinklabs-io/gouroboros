@@ -4,6 +4,21 @@ title: Release notes
 
 # Release notes
 
+## v0.189.5
+
+- **Date:** 2026-07-27
+- **Version:** 0.189.5
+
+### Summary
+
+This release hardens consensus mode threshold handling, rejects unknown values in node to node chainsync roll forward paths, and updates the checkout action used by CI workflows.
+
+### Bug Fixes
+
+* Fixed node to node chainsync roll forward handling so unknown eras and block types now return explicit errors instead of being treated as valid values.
+
+### Additional Changes
+
 ## v0.189.4
 
 - **Date:** 2026-07-25
