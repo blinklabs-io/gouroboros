@@ -1196,9 +1196,17 @@ type ByronEpochBoundaryBlock struct {
 	BlockHeader *ByronEpochBoundaryBlockHeader
 	Body        []common.Blake2b224
 	Extra       []any
+	bodyRaw     []byte // Original CBOR for body proof validation
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
+	// Decode as raw parts first so the body's original CBOR is preserved.
+	// The header's proof is a hash of exactly these bytes, and re-encoding
+	// is not guaranteed to reproduce them.
+	var rawParts []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
+		return err
+	}
 	type tByronEpochBoundaryBlock ByronEpochBoundaryBlock
 	var tmp tByronEpochBoundaryBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1208,8 +1216,17 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 		return errors.New("byron EBB block missing header")
 	}
 	*b = ByronEpochBoundaryBlock(tmp)
+	if len(rawParts) >= 2 {
+		b.bodyRaw = []byte(rawParts[1])
+	}
 	b.SetCbor(cborData)
 	return nil
+}
+
+// BodyCbor returns the original CBOR bytes of the epoch boundary block body.
+// This is used for body proof validation.
+func (b *ByronEpochBoundaryBlock) BodyCbor() []byte {
+	return b.bodyRaw
 }
 
 func (ByronEpochBoundaryBlock) Type() int {
@@ -1265,9 +1282,22 @@ func (b *ByronEpochBoundaryBlock) BlockBodyHash() common.Blake2b256 {
 func NewByronEpochBoundaryBlockFromCbor(
 	data []byte, config ...common.VerifyConfig,
 ) (*ByronEpochBoundaryBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var byronEbbBlock ByronEpochBoundaryBlock
 	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron EBB block error: %w", err)
+	}
+	// Bind the body to the header. Without this the header, and so the
+	// block hash, can be genuine while the body has been substituted.
+	if !cfg.SkipBodyHashValidation {
+		if err := byronEbbBlock.ValidateBodyProof(); err != nil {
+			return nil, err
+		}
 	}
 	return &byronEbbBlock, nil
 }
@@ -1286,9 +1316,22 @@ func NewByronMainBlockFromCbor(
 	data []byte,
 	config ...common.VerifyConfig,
 ) (*ByronMainBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var byronMainBlock ByronMainBlock
 	if _, err := cbor.Decode(data, &byronMainBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron main block error: %w", err)
+	}
+	// Bind the body to the header. Without this the header, and so the
+	// block hash, can be genuine while the body has been substituted.
+	if !cfg.SkipBodyHashValidation {
+		if err := byronMainBlock.ValidateBodyProof(); err != nil {
+			return nil, err
+		}
 	}
 	return &byronMainBlock, nil
 }

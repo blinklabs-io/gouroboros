@@ -432,6 +432,22 @@ stake distribution, active slot coefficient, max KES evolutions, or operational
 certificate sequence state. Production chain validation must combine these
 checks with chain-context consensus validation before accepting a block.
 
+Binding the body to the header happens at decode, inside `NewBlockFromCbor`,
+not in `VerifyBlock()`. Every era does this by default and skips it only when
+the caller passes `common.VerifyConfig{SkipBodyHashValidation: true}`. Without
+it a header — and so the block hash and slot — can be genuine while the body
+has been replaced, so a caller accepting blocks from a source it does not
+trust must leave it enabled.
+
+Shelley and later compare a single body hash. Byron instead carries a body
+proof, `[tx_proof, ssc_proof, dlg_proof, upd_proof]`, where `tx_proof` is
+`[tx_count, merkle_root, witnesses_hash]`. `ledger/byron` recomputes the
+transaction count, the merkle root over transaction bodies, the hash over the
+witness list, and the delegation and update payload hashes; epoch boundary
+blocks carry no transactions and are covered by a single body hash. Byron
+merkle roots (`byron.MerkleRoot`) tag leaves and branches distinctly and split
+at the largest power of two below the item count, matching cardano-ledger.
+
 ## Block Pipeline (pipeline/)
 
 The `pipeline` package provides a staged block processing pipeline with worker pools:
