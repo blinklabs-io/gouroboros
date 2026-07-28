@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release improves consensus mode threshold handling, rejects unknown values in node-to-node chainsync roll-forward paths, and updates the checkout action used by CI workflows.
+This release improves consensus mode threshold handling, rejects unknown values in node-to-node chainsync roll-forward paths, and refreshes the checkout action used by CI workflows.
 
 ### Bug Fixes
 
@@ -20,7 +20,7 @@ This release improves consensus mode threshold handling, rejects unknown values 
 
 ### Additional Changes
 
-* Refreshed the release history to include the v0.189.4 maintenance entry.
+* Recorded the v0.189.4 maintenance entry in the release history.
 * Updated CI workflows to use `actions/checkout` `v7.0.1`.
 
 ## v0.189.4
