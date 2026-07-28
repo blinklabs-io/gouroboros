@@ -1212,6 +1212,21 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+// BodyCbor returns the original CBOR bytes of the epoch boundary block body,
+// sliced out of the block CBOR that DecodeStoreCbor already preserves. The
+// header's proof hashes exactly these bytes, so they are read back rather than
+// re-encoded.
+func (b *ByronEpochBoundaryBlock) BodyCbor() []byte {
+	var parts []cbor.RawMessage
+	if _, err := cbor.Decode(b.Cbor(), &parts); err != nil {
+		return nil
+	}
+	if len(parts) < 2 {
+		return nil
+	}
+	return []byte(parts[1])
+}
+
 func (ByronEpochBoundaryBlock) Type() int {
 	return BlockTypeByronEbb
 }
@@ -1265,9 +1280,22 @@ func (b *ByronEpochBoundaryBlock) BlockBodyHash() common.Blake2b256 {
 func NewByronEpochBoundaryBlockFromCbor(
 	data []byte, config ...common.VerifyConfig,
 ) (*ByronEpochBoundaryBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var byronEbbBlock ByronEpochBoundaryBlock
 	if _, err := cbor.Decode(data, &byronEbbBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron EBB block error: %w", err)
+	}
+	// Bind the body to the header. Without this the header, and so the
+	// block hash, can be genuine while the body has been substituted.
+	if !cfg.SkipBodyHashValidation {
+		if err := byronEbbBlock.ValidateBodyProof(); err != nil {
+			return nil, err
+		}
 	}
 	return &byronEbbBlock, nil
 }
@@ -1286,9 +1314,22 @@ func NewByronMainBlockFromCbor(
 	data []byte,
 	config ...common.VerifyConfig,
 ) (*ByronMainBlock, error) {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+	// Default: validation enabled (SkipBodyHashValidation = false)
+
 	var byronMainBlock ByronMainBlock
 	if _, err := cbor.Decode(data, &byronMainBlock); err != nil {
 		return nil, fmt.Errorf("decode Byron main block error: %w", err)
+	}
+	// Bind the body to the header. Without this the header, and so the
+	// block hash, can be genuine while the body has been substituted.
+	if !cfg.SkipBodyHashValidation {
+		if err := byronMainBlock.ValidateBodyProof(); err != nil {
+			return nil, err
+		}
 	}
 	return &byronMainBlock, nil
 }
