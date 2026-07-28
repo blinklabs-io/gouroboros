@@ -16,6 +16,7 @@ This release hardens consensus mode threshold handling, rejects unknown values i
 ### Bug Fixes
 
 * Fixed node to node chainsync roll forward handling so unknown eras and block types now return explicit errors instead of being treated as valid values.
+* Fixed consensus mode threshold handling so unknown modes now return errors and mode specific thresholds use the correct upper bounds.
 
 ### Additional Changes
 
