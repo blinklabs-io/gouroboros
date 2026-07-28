@@ -1196,17 +1196,9 @@ type ByronEpochBoundaryBlock struct {
 	BlockHeader *ByronEpochBoundaryBlockHeader
 	Body        []common.Blake2b224
 	Extra       []any
-	bodyRaw     []byte // Original CBOR for body proof validation
 }
 
 func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
-	// Decode as raw parts first so the body's original CBOR is preserved.
-	// The header's proof is a hash of exactly these bytes, and re-encoding
-	// is not guaranteed to reproduce them.
-	var rawParts []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawParts); err != nil {
-		return err
-	}
 	type tByronEpochBoundaryBlock ByronEpochBoundaryBlock
 	var tmp tByronEpochBoundaryBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -1216,17 +1208,23 @@ func (b *ByronEpochBoundaryBlock) UnmarshalCBOR(cborData []byte) error {
 		return errors.New("byron EBB block missing header")
 	}
 	*b = ByronEpochBoundaryBlock(tmp)
-	if len(rawParts) >= 2 {
-		b.bodyRaw = []byte(rawParts[1])
-	}
 	b.SetCbor(cborData)
 	return nil
 }
 
-// BodyCbor returns the original CBOR bytes of the epoch boundary block body.
-// This is used for body proof validation.
+// BodyCbor returns the original CBOR bytes of the epoch boundary block body,
+// sliced out of the block CBOR that DecodeStoreCbor already preserves. The
+// header's proof hashes exactly these bytes, so they are read back rather than
+// re-encoded.
 func (b *ByronEpochBoundaryBlock) BodyCbor() []byte {
-	return b.bodyRaw
+	var parts []cbor.RawMessage
+	if _, err := cbor.Decode(b.Cbor(), &parts); err != nil {
+		return nil
+	}
+	if len(parts) < 2 {
+		return nil
+	}
+	return []byte(parts[1])
 }
 
 func (ByronEpochBoundaryBlock) Type() int {
