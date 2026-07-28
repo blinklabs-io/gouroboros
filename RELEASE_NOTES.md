@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release improves Byron block integrity checks during decode.
+This release strengthens Byron block handling during CBOR decode.
 
 ### Bug Fixes
 
-* Fixed Byron block decoding so CBOR decode now validates the body proof and rejects tampered or substituted bodies unless `SkipBodyHashValidation` is set.
+* Fixed Byron block decoding so CBOR decode validates the body proof and rejects tampered or substituted bodies unless `SkipBodyHashValidation` is set.
 
 ## v0.189.4
 
