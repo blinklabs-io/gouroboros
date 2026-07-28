@@ -444,7 +444,10 @@ proof, `[tx_proof, ssc_proof, dlg_proof, upd_proof]`, where `tx_proof` is
 `[tx_count, merkle_root, witnesses_hash]`. `ledger/byron` recomputes the
 transaction count, the merkle root over transaction bodies, the hash over the
 witness list, and the delegation and update payload hashes; epoch boundary
-blocks carry no transactions and are covered by a single body hash. Byron
+blocks carry no transactions and are covered by a single body hash. `ssc_proof`
+is not recomputed — see the `NOTE:` in `ledger/byron/bodyproof.go` — so an
+alteration confined to the shared-seed payload is not detected, while
+transaction contents are fully covered. Byron
 merkle roots (`byron.MerkleRoot`) tag leaves and branches distinctly and split
 at the largest power of two below the item count, matching cardano-ledger.
 

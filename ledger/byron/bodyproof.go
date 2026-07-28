@@ -63,6 +63,18 @@ func (b *ByronMainBlock) ValidateBodyProof() error {
 	if err := b.validateTxProof(proof[bodyProofTxIndex]); err != nil {
 		return err
 	}
+	// NOTE: ssc_proof (index 1) is deliberately not checked. Its hashes are
+	// taken over cardano-ledger's own encoding of the SSC sub-payloads, which
+	// is not the encoding carried inline in the block: for the mainnet block
+	// in internal/testdata the payload part hashes to 25777aca... while the
+	// header records d36a2619..., so the two are not the same bytes. Modelling
+	// SscPayload well enough to reproduce it is a separate piece of work, and
+	// guessing the encoding from the one available fixture -- whose SSC
+	// payload is empty -- would give false assurance for the non-empty case.
+	//
+	// The consequence is that an alteration confined to the SSC payload is not
+	// detected here. SSC carries shared-seed material, not transactions, so
+	// transaction contents remain fully covered by the tx proof above.
 	if err := checkPayloadHash(
 		"delegation", proof[bodyProofDlgIndex], b.Body.DlgPayloadCbor(),
 	); err != nil {
@@ -107,7 +119,14 @@ func (b *ByronMainBlock) validateTxProof(rawProof any) error {
 			)
 		}
 		bodies = append(bodies, body)
-		witnesses = append(witnesses, tx.WitnessesCbor())
+		witness := tx.WitnessesCbor()
+		if len(witness) == 0 {
+			return fmt.Errorf(
+				"%w: transaction %d has no preserved witness CBOR",
+				ErrBodyProofMismatch, i,
+			)
+		}
+		witnesses = append(witnesses, witness)
 	}
 
 	if err := checkHash(
