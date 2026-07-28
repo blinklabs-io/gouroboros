@@ -21,6 +21,7 @@ This release hardens consensus mode threshold handling, rejects unknown values i
 ### Additional Changes
 
 * Updated the release history to include the v0.189.4 maintenance entry.
+* Updated CI workflows to use `actions/checkout` `v7.0.1`.
 
 ## v0.189.4
 
