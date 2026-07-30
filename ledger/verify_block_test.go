@@ -16,6 +16,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -151,22 +152,12 @@ func TestDetermineBlockTypeCoversDeclaredProtocolRanges(t *testing.T) {
 		for major := tc.minMajor; major <= tc.maxMajor; major++ {
 			t.Run(fmt.Sprintf("%s major %d", tc.name, major), func(t *testing.T) {
 				headerCbor, err := encodeTestHeader(major, tc.babbageLike)
-				if err != nil {
-					t.Fatalf("failed to encode header: %v", err)
-				}
+				require.NoError(t, err, "failed to encode header")
 				blockType, err := DetermineBlockType(headerCbor)
-				if err != nil {
-					t.Fatalf(
-						"major %d declared by %s was rejected: %v",
-						major, tc.name, err,
-					)
-				}
-				if blockType != tc.blockType {
-					t.Fatalf(
-						"major %d classified as %d, want %d",
-						major, blockType, tc.blockType,
-					)
-				}
+				require.NoErrorf(t, err,
+					"major %d declared by %s was rejected", major, tc.name)
+				require.Equalf(t, tc.blockType, blockType,
+					"major %d classified as the wrong era", major)
 			})
 		}
 	}
@@ -185,15 +176,11 @@ func TestDetermineBlockTypeRejectsUndeclaredProtocolMajor(t *testing.T) {
 			}
 			t.Run(fmt.Sprintf("%s major %d", shape, major), func(t *testing.T) {
 				headerCbor, err := encodeTestHeader(major, babbageLike)
-				if err != nil {
-					t.Fatalf("failed to encode header: %v", err)
-				}
-				if _, err := DetermineBlockType(headerCbor); err == nil {
-					t.Fatalf(
-						"major %d is declared by no era but was classified",
-						major,
-					)
-				}
+				require.NoError(t, err, "failed to encode header")
+				_, err = DetermineBlockType(headerCbor)
+				require.Errorf(t, err,
+					"major %d is declared by no era but was classified",
+					major)
 			})
 		}
 	}
