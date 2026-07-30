@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/stretchr/testify/require"
 )
 
 type testDefinition struct {
@@ -130,4 +131,12 @@ func TestServerNilConfigSubmitTxReturnsError(t *testing.T) {
 	if err := server.handleSubmitTx(NewMsgSubmitTx(0, nil)); err == nil {
 		t.Fatal("expected missing callback error")
 	}
+}
+
+func TestNewMsgFromCborUnknownType(t *testing.T) {
+	msg, err := NewMsgFromCbor(999, []byte{0x80})
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.Contains(t, err.Error(), ProtocolName)
+	require.Contains(t, err.Error(), "999")
 }
