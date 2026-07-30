@@ -1808,3 +1808,131 @@ func TestUtxoValidatePlutusScriptsUnsupported_Babbage(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+func TestUtxoValidateExtraneousRedeemers_Babbage(t *testing.T) {
+	testInput := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		0,
+	)
+	testAddr := common.Address{}
+	baseBody := func() babbage.BabbageTransactionBody {
+		return babbage.BabbageTransactionBody{
+			TxInputs: shelley.NewShelleyTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{testInput},
+			),
+			TxCertificates: []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeStakeRegistration),
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeCredential: common.Credential{},
+					},
+				},
+			},
+			TxWithdrawals: map[*common.Address]uint64{
+				&testAddr: 0,
+			},
+			TxMint: func() *common.MultiAsset[common.MultiAssetTypeMint] {
+				ma := common.NewMultiAsset[common.MultiAssetTypeMint](
+					map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
+						common.NewBlake2b224([]byte{1, 2, 3}): {
+							cbor.NewByteString([]byte("token")): big.NewInt(1),
+						},
+					},
+				)
+				return &ma
+			}(),
+		}
+	}
+
+	t.Run("unknown tag is extraneous", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTag(99)},
+			},
+		}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
+	})
+
+	t.Run("guarding tag is extraneous", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTagGuarding},
+			},
+		}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
+	})
+
+	t.Run("spend index out of range", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTagSpend, Index: 1},
+			},
+		}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
+	})
+
+	t.Run("mint index out of range", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTagMint, Index: 1},
+			},
+		}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
+	})
+
+	t.Run("cert index out of range", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTagCert, Index: 1},
+			},
+		}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
+	})
+
+	t.Run("reward index out of range", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTagReward, Index: 1},
+			},
+		}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		require.Error(t, err)
+		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
+	})
+
+	t.Run("in-range redeemers for every supported tag pass", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+			Redeemers: []alonzo.AlonzoRedeemer{
+				{Tag: common.RedeemerTagSpend, Index: 0},
+				{Tag: common.RedeemerTagMint, Index: 0},
+				{Tag: common.RedeemerTagCert, Index: 0},
+				{Tag: common.RedeemerTagReward, Index: 0},
+			},
+		}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("no redeemers is valid", func(t *testing.T) {
+		tx := &babbage.BabbageTransaction{Body: baseBody()}
+		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+		assert.NoError(t, err)
+	})
+}

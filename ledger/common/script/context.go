@@ -214,7 +214,7 @@ func NewTxInfoV1FromTransaction(
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
-	redeemers := redeemersInfo(
+	redeemers, err := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
 			resolvedInputs,
@@ -227,6 +227,9 @@ func NewTxInfoV1FromTransaction(
 			witnessDatums,
 		),
 	)
+	if err != nil {
+		return TxInfoV1{}, err
+	}
 	tmpData := dataInfo(tx.Witnesses())
 	ret := TxInfoV1{
 		Inputs:       expandInputs(inputs, resolvedInputs),
@@ -324,7 +327,7 @@ func NewTxInfoV2FromTransaction(
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
-	redeemers := redeemersInfo(
+	redeemers, err := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
 			resolvedInputs,
@@ -337,6 +340,9 @@ func NewTxInfoV2FromTransaction(
 			witnessDatums,
 		),
 	)
+	if err != nil {
+		return TxInfoV2{}, err
+	}
 	tmpData := dataInfo(tx.Witnesses())
 	ret := TxInfoV2{
 		Inputs: expandInputs(inputs, resolvedInputs),
@@ -423,7 +429,7 @@ func NewTxInfoV3FromTransaction(
 	votes := votingInfo(tx.VotingProcedures())
 	proposalProcedures := tx.ProposalProcedures()
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
-	redeemers := redeemersInfo(
+	redeemers, err := redeemersInfo(
 		tx.Witnesses(),
 		scriptPurposeBuilder(
 			resolvedInputs,
@@ -436,6 +442,9 @@ func NewTxInfoV3FromTransaction(
 			witnessDatums,
 		),
 	)
+	if err != nil {
+		return TxInfoV3{}, err
+	}
 	tmpData := dataInfo(tx.Witnesses())
 	ret := TxInfoV3{
 		Inputs: expandInputs(inputs, resolvedInputs),
@@ -689,21 +698,21 @@ func buildWitnessDatums(
 func redeemersInfo(
 	witnessSet lcommon.TransactionWitnessSet,
 	toScriptPurpose toScriptPurposeFunc,
-) KeyValuePairs[ScriptPurpose, Redeemer] {
+) (KeyValuePairs[ScriptPurpose, Redeemer], error) {
 	if witnessSet == nil {
-		return KeyValuePairs[ScriptPurpose, Redeemer]{}
+		return KeyValuePairs[ScriptPurpose, Redeemer]{}, nil
 	}
 	redeemers := witnessSet.Redeemers()
 	if redeemers == nil {
-		return KeyValuePairs[ScriptPurpose, Redeemer]{}
+		return KeyValuePairs[ScriptPurpose, Redeemer]{}, nil
 	}
 	redeemerKeys := sortedRedeemerKeys(redeemers)
 	ret := make(KeyValuePairs[ScriptPurpose, Redeemer], 0, len(redeemerKeys))
 	for _, key := range redeemerKeys {
 		redeemerValue := redeemers.Value(uint(key.Index), key.Tag)
-		purpose := toScriptPurpose(key)
-		if purpose == nil {
-			continue
+		purpose, err := toScriptPurpose(key)
+		if err != nil {
+			return nil, err
 		}
 		ret = append(
 			ret,
@@ -718,7 +727,7 @@ func redeemersInfo(
 			},
 		)
 	}
-	return ret
+	return ret, nil
 }
 
 func signatoriesInfo(

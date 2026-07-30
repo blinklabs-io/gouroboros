@@ -25,8 +25,9 @@ import (
 
 func TestBuildScriptPurposeGuardingRedeemerDoesNotPanic(t *testing.T) {
 	var purpose script.ScriptPurpose
+	var err error
 	require.NotPanics(t, func() {
-		purpose = script.BuildScriptPurpose(
+		purpose, err = script.BuildScriptPurpose(
 			common.RedeemerKey{Tag: common.RedeemerTagGuarding},
 			nil,
 			nil,
@@ -39,6 +40,7 @@ func TestBuildScriptPurposeGuardingRedeemerDoesNotPanic(t *testing.T) {
 		)
 	})
 	require.Nil(t, purpose)
+	require.ErrorAs(t, err, &script.UnmatchedRedeemerError{})
 }
 
 func TestBuildScriptPurposeSpendingNilOutputDoesNotPanic(t *testing.T) {
@@ -53,8 +55,9 @@ func TestBuildScriptPurposeSpendingNilOutputDoesNotPanic(t *testing.T) {
 		},
 	}
 	var purpose script.ScriptPurpose
+	var err error
 	require.NotPanics(t, func() {
-		purpose = script.BuildScriptPurpose(
+		purpose, err = script.BuildScriptPurpose(
 			common.RedeemerKey{Tag: common.RedeemerTagSpend},
 			resolvedInputs,
 			[]common.TransactionInput{input},
@@ -67,4 +70,5 @@ func TestBuildScriptPurposeSpendingNilOutputDoesNotPanic(t *testing.T) {
 		)
 	})
 	require.Nil(t, purpose)
+	require.ErrorAs(t, err, &script.UnmatchedRedeemerError{})
 }

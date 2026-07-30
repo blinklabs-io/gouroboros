@@ -31,6 +31,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/stretchr/testify/require"
 )
 
 func buildTxInfoV1(
@@ -613,4 +614,55 @@ func TestScriptContextV3(t *testing.T) {
 			},
 		)
 	}
+}
+
+// TestNewTxInfoFromTransactionUnmatchedRedeemer asserts that context
+// construction fails closed (returns an error) instead of silently
+// dropping a redeemer that doesn't map to any valid script purpose, for
+// each of the TxInfo builders (V1/V2/V3).
+func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
+	// A spending redeemer with index 0, but the transaction has no inputs,
+	// so the redeemer can't be matched to any input.
+	newTx := func() *conway.ConwayTransaction {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}: {},
+			},
+		}
+		return tx
+	}
+
+	t.Run("V1", func(t *testing.T) {
+		_, err := script.NewTxInfoV1FromTransaction(
+			preprodSlotState,
+			newTx(),
+			nil,
+		)
+		require.Error(t, err)
+		var unmatchedErr script.UnmatchedRedeemerError
+		require.ErrorAs(t, err, &unmatchedErr)
+	})
+
+	t.Run("V2", func(t *testing.T) {
+		_, err := script.NewTxInfoV2FromTransaction(
+			preprodSlotState,
+			newTx(),
+			nil,
+		)
+		require.Error(t, err)
+		var unmatchedErr script.UnmatchedRedeemerError
+		require.ErrorAs(t, err, &unmatchedErr)
+	})
+
+	t.Run("V3", func(t *testing.T) {
+		_, err := script.NewTxInfoV3FromTransaction(
+			preprodSlotState,
+			newTx(),
+			nil,
+		)
+		require.Error(t, err)
+		var unmatchedErr script.UnmatchedRedeemerError
+		require.ErrorAs(t, err, &unmatchedErr)
+	})
 }

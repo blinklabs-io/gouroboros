@@ -501,6 +501,80 @@ func ValidateScriptWitnesses(tx Transaction, ls LedgerState) error {
 	return nil
 }
 
+// ValidateExtraneousRedeemers checks that every redeemer in the
+// transaction's witness set has a tag/index that maps to a real script
+// purpose: a spending redeemer must index an existing input, a minting
+// redeemer an existing (distinct, sorted) mint policy, a certifying
+// redeemer an existing certificate, a reward redeemer an existing
+// withdrawal, a voting redeemer an existing voter, and a proposing redeemer
+// an existing proposal procedure. Any redeemer whose index is out of range
+// for its tag's category, or whose tag is not one of the above (e.g.
+// RedeemerTagGuarding, which this shared check always treats as
+// extraneous), causes ExtraneousRedeemerError to be returned for that
+// redeemer. Eras that define additional redeemer purposes (e.g. Dijkstra's
+// guarding redeemers) must check for and accept those before delegating the
+// remaining redeemers to this function, since it fails closed on anything
+// it doesn't recognize.
+func ValidateExtraneousRedeemers(tx Transaction) error {
+	wits := tx.Witnesses()
+	if wits == nil {
+		return nil
+	}
+	redeemers := wits.Redeemers()
+	if redeemers == nil {
+		return nil
+	}
+
+	// Get counts for each purpose type
+	inputCount := len(tx.Inputs())
+	certCount := len(tx.Certificates())
+	withdrawalCount := len(tx.Withdrawals())
+	proposalCount := len(tx.ProposalProcedures())
+
+	// Count distinct mint policies
+	mintPolicyCount := 0
+	if mint := tx.AssetMint(); mint != nil {
+		mintPolicyCount = len(mint.Policies())
+	}
+
+	// Count voters (each voter is a separate purpose index)
+	voterCount := 0
+	if votingProcs := tx.VotingProcedures(); votingProcs != nil {
+		voterCount = len(votingProcs)
+	}
+
+	// Check each redeemer
+	for redeemerKey := range redeemers.Iter() {
+		var maxIndex int
+		switch redeemerKey.Tag {
+		case RedeemerTagSpend:
+			maxIndex = inputCount
+		case RedeemerTagMint:
+			maxIndex = mintPolicyCount
+		case RedeemerTagCert:
+			maxIndex = certCount
+		case RedeemerTagReward:
+			maxIndex = withdrawalCount
+		case RedeemerTagVoting:
+			maxIndex = voterCount
+		case RedeemerTagProposing:
+			maxIndex = proposalCount
+		case RedeemerTagGuarding:
+			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
+		default:
+			// Any unrecognized tag doesn't map to a purpose this shared
+			// check understands.
+			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
+		}
+
+		if int(redeemerKey.Index) >= maxIndex {
+			return ExtraneousRedeemerError{RedeemerKey: redeemerKey}
+		}
+	}
+
+	return nil
+}
+
 // ValidateRedeemerAndScriptWitnesses performs lightweight checks between redeemers and Plutus scripts.
 func ValidateRedeemerAndScriptWitnesses(tx Transaction, ls LedgerState) error {
 	wits := tx.Witnesses()
