@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -144,5 +145,21 @@ func TestServerNilConfigAcquireReturnsError(t *testing.T) {
 	}()
 	if err := server.handleAcquire(); err == nil {
 		t.Fatal("expected missing callback error")
+	}
+}
+
+func TestNewMsgFromCborUnknownType(t *testing.T) {
+	msg, err := NewMsgFromCbor(999, []byte{0x80})
+	if err == nil {
+		t.Fatal("expected error for unknown message type")
+	}
+	if msg != nil {
+		t.Fatalf("expected nil message, got %#v", msg)
+	}
+	if !strings.Contains(err.Error(), ProtocolName) {
+		t.Fatalf("expected error to contain protocol name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "999") {
+		t.Fatalf("expected error to contain unknown message type, got: %v", err)
 	}
 }

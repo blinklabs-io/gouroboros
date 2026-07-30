@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/stretchr/testify/require"
 )
 
 type testDefinition struct {
@@ -254,4 +255,12 @@ func readFileString(path string) string {
 		return ""
 	}
 	return string(data)
+}
+
+func TestNewMsgFromCborUnknownType(t *testing.T) {
+	msg, err := NewMsgFromCbor(999, []byte{0x80})
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.Contains(t, err.Error(), ProtocolName)
+	require.Contains(t, err.Error(), "999")
 }
