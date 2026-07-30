@@ -132,3 +132,11 @@ func testTxIdHex(txIdPrefix ...byte) string {
 	txId := testTxId(0, txIdPrefix...).TxId
 	return hex.EncodeToString(txId[:])
 }
+
+func TestNewMsgFromCborUnknownType(t *testing.T) {
+	msg, err := NewMsgFromCbor(999, []byte{0x80})
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.Contains(t, err.Error(), ProtocolName)
+	require.Contains(t, err.Error(), "999")
+}

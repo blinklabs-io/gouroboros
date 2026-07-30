@@ -41,6 +41,12 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgRejectTx{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
+	default:
+		return nil, fmt.Errorf(
+			"%s: unknown message type: %d",
+			ProtocolName,
+			msgType,
+		)
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
