@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 	"testing"
@@ -1390,6 +1391,34 @@ func TestUtxoFailure_UnknownEra(t *testing.T) {
 		utxoErr.Err,
 	)
 	assert.Equal(t, uint8(99), unknownErr.Era)
+}
+
+// TestUtxoFailure_KnownConstructorMalformedPayload verifies that a
+// recognized UTXO failure constructor tag whose payload fails to decode
+// surfaces the real decode error, instead of being masked as an
+// UnknownUtxoFailureError.
+func TestUtxoFailure_KnownConstructorMalformedPayload(t *testing.T) {
+	// ConwayUtxoBadInputsUTxO is a known tag, but its payload should be
+	// an array of inputs, not a string.
+	innerCbor, err := cbor.Encode(
+		[]any{uint(ConwayUtxoBadInputsUTxO), "not-an-input-list"},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdConway), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.Error(t, err)
+
+	var unknownErr *UnknownUtxoFailureError
+	require.False(
+		t,
+		errors.As(err, &unknownErr),
+		"expected a real decode error, not UnknownUtxoFailureError",
+	)
 }
 
 // TestApplyTxError_UnknownFailureType verifies that an unrecognized

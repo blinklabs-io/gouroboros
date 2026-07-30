@@ -822,6 +822,12 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 
 	newErr, err := cbor.DecodeById(tmpData.Err, errorMap)
 	if err != nil {
+		if _, known := errorMap[failureType]; known {
+			// Recognized constructor tag whose payload we couldn't
+			// decode: a real decode failure, not an unknown-failure
+			// case, so propagate it instead of masking it.
+			return err
+		}
 		// Known era, unrecognized constructor tag: preserve the tag
 		// instead of silently decoding as an opaque GenericError. err
 		// is deliberately not propagated for the same reason as above.
