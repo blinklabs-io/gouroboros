@@ -666,3 +666,53 @@ func TestNewTxInfoFromTransactionUnmatchedRedeemer(t *testing.T) {
 		require.ErrorAs(t, err, &unmatchedErr)
 	})
 }
+
+// TestNewTxInfoFromTransactionUnknownRedeemerTag asserts that a redeemer
+// carrying a tag outside the set of tags known to sortedRedeemerKeys (e.g.
+// an unrecognized/future tag) is still surfaced and rejected with
+// UnmatchedRedeemerError, rather than being silently omitted from the built
+// TxInfo. See https://github.com/blinklabs-io/gouroboros/issues/1869.
+func TestNewTxInfoFromTransactionUnknownRedeemerTag(t *testing.T) {
+	newTx := func() *conway.ConwayTransaction {
+		tx := &conway.ConwayTransaction{}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTag(99), Index: 0}: {},
+			},
+		}
+		return tx
+	}
+
+	t.Run("V1", func(t *testing.T) {
+		_, err := script.NewTxInfoV1FromTransaction(
+			preprodSlotState,
+			newTx(),
+			nil,
+		)
+		require.Error(t, err)
+		var unmatchedErr script.UnmatchedRedeemerError
+		require.ErrorAs(t, err, &unmatchedErr)
+	})
+
+	t.Run("V2", func(t *testing.T) {
+		_, err := script.NewTxInfoV2FromTransaction(
+			preprodSlotState,
+			newTx(),
+			nil,
+		)
+		require.Error(t, err)
+		var unmatchedErr script.UnmatchedRedeemerError
+		require.ErrorAs(t, err, &unmatchedErr)
+	})
+
+	t.Run("V3", func(t *testing.T) {
+		_, err := script.NewTxInfoV3FromTransaction(
+			preprodSlotState,
+			newTx(),
+			nil,
+		)
+		require.Error(t, err)
+		var unmatchedErr script.UnmatchedRedeemerError
+		require.ErrorAs(t, err, &unmatchedErr)
+	})
+}

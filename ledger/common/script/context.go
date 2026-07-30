@@ -16,6 +16,7 @@ package script
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"math/big"
 	"slices"
@@ -569,29 +570,16 @@ func sortedRedeemerKeys(
 	if redeemers == nil {
 		return []lcommon.RedeemerKey{}
 	}
-	tags := []lcommon.RedeemerTag{
-		lcommon.RedeemerTagSpend,
-		lcommon.RedeemerTagMint,
-		lcommon.RedeemerTagCert,
-		lcommon.RedeemerTagReward,
-		lcommon.RedeemerTagVoting,
-		lcommon.RedeemerTagProposing,
-	}
 	ret := make([]lcommon.RedeemerKey, 0)
-	for _, tag := range tags {
-		idxs := redeemers.Indexes(tag)
-		slices.Sort(idxs)
-		for _, idx := range idxs {
-			ret = append(
-				ret,
-				lcommon.RedeemerKey{
-					Tag: tag,
-					// nolint:gosec
-					Index: uint32(idx),
-				},
-			)
-		}
+	for key := range redeemers.Iter() {
+		ret = append(ret, key)
 	}
+	slices.SortFunc(ret, func(a, b lcommon.RedeemerKey) int {
+		if a.Tag != b.Tag {
+			return cmp.Compare(a.Tag, b.Tag)
+		}
+		return cmp.Compare(a.Index, b.Index)
+	})
 	return ret
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -456,6 +457,67 @@ func TestUtxoValidatePlutusScriptsGuardingRedeemer(t *testing.T) {
 		&DijkstraProtocolParameters{},
 	)
 	require.ErrorAs(t, err, &common.MissingScriptWitnessesError{})
+}
+
+// TestNewTxInfoFromTransactionGuardingRedeemer proves that
+// transactionWithoutGuardingRedeemers (used by validateGuardingPlutusScripts
+// when building a TxInfo for guard-script evaluation) is both necessary and
+// sufficient to keep a genuine RedeemerTagGuarding entry from tripping the
+// generic redeemer-purpose builder's fail-closed check.
+//
+// Without the wrapper, the shared script-context code can't build a
+// ScriptPurpose for a guarding redeemer (it's handled separately, outside
+// the generic purpose builder) and now correctly rejects it with
+// UnmatchedRedeemerError. With the wrapper in place, the guarding redeemer
+// is filtered out before reaching the purpose builder, so TxInfo
+// construction succeeds, matching how validateGuardingPlutusScripts already
+// calls it in production for the non-guarding path.
+func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
+	guardScript := common.PlutusV4Script{0x41, 0x00}
+	guardCred := testGuardScriptCredential(guardScript)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{guardCred},
+			},
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	ls := mockledger.NewLedgerStateBuilder().Build()
+
+	t.Run("unwrapped fails closed", func(t *testing.T) {
+		_, err := script.NewTxInfoV1FromTransaction(ls, tx, nil)
+		var unmatchedErr script.UnmatchedRedeemerError
+		require.ErrorAs(t, err, &unmatchedErr)
+
+		_, err = script.NewTxInfoV2FromTransaction(ls, tx, nil)
+		require.ErrorAs(t, err, &unmatchedErr)
+
+		_, err = script.NewTxInfoV3FromTransaction(ls, tx, nil)
+		require.ErrorAs(t, err, &unmatchedErr)
+	})
+
+	t.Run("wrapped succeeds", func(t *testing.T) {
+		wrapped := transactionWithoutGuardingRedeemers{Transaction: tx}
+
+		_, err := script.NewTxInfoV1FromTransaction(ls, wrapped, nil)
+		require.NoError(t, err)
+
+		_, err = script.NewTxInfoV2FromTransaction(ls, wrapped, nil)
+		require.NoError(t, err)
+
+		_, err = script.NewTxInfoV3FromTransaction(ls, wrapped, nil)
+		require.NoError(t, err)
+	})
 }
 
 func txWithRefScripts(sizes ...int) *DijkstraTransaction {
