@@ -407,6 +407,15 @@ func TestMsgDone(t *testing.T) {
 	runTests(tests, t)
 }
 
+// TestNewMsgFromCborUnknownType tests handling of unknown message type
+func TestNewMsgFromCborUnknownType(t *testing.T) {
+	msg, err := NewMsgFromCbor(protocol.ProtocolModeNodeToClient, 99, []byte{})
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.Contains(t, err.Error(), "unknown message type")
+	require.Contains(t, err.Error(), ProtocolName)
+}
+
 // TestConfigDefaults verifies that when a Config is created directly without
 // using NewConfig(), the Client and Server apply default values for zero fields.
 // This fixes issue #1299 where PipelineLimit=0 caused sync to stall.

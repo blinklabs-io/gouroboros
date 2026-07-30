@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -142,6 +143,23 @@ func TestEncode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+// TestNewMsgFromCborUnknownType tests handling of unknown message type
+func TestNewMsgFromCborUnknownType(t *testing.T) {
+	msg, err := NewMsgFromCbor(99, []byte{})
+	if err == nil {
+		t.Fatalf("expected error for unknown message type, got nil")
+	}
+	if msg != nil {
+		t.Fatalf("expected nil message for unknown message type, got %#v", msg)
+	}
+	if !strings.Contains(err.Error(), "unknown message type") {
+		t.Fatalf("error does not contain expected text: %s", err)
+	}
+	if !strings.Contains(err.Error(), ProtocolName) {
+		t.Fatalf("error does not contain protocol name: %s", err)
 	}
 }
 

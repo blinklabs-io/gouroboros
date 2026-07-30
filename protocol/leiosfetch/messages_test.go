@@ -436,14 +436,14 @@ func TestMsgNoBlockTxs(t *testing.T) {
 }
 
 func TestNewMsgFromCborUnknownType(t *testing.T) {
-	// Test with unknown message type - the NewMsgFromCbor function tries to
-	// decode into a nil pointer, which results in an error
+	// Test with unknown message type - NewMsgFromCbor should reject it
+	// explicitly before attempting to decode
 	data := []byte{0x80} // empty array
 	msg, err := NewMsgFromCbor(999, data)
-	// When the message type is unknown, ret is nil, and
-	// cbor.Decode(data, nil) returns an error
-	assert.Error(t, err)
-	assert.Nil(t, msg)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	assert.Contains(t, err.Error(), "unknown message type: 999")
+	assert.Contains(t, err.Error(), ProtocolName)
 }
 
 func TestMsgBlockTxsRequestEmptyBitmaps(t *testing.T) {

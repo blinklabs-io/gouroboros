@@ -159,3 +159,12 @@ func TestMsgBlockAllEras(t *testing.T) {
 		})
 	}
 }
+
+// TestNewMsgFromCborUnknownType tests handling of unknown message type
+func TestNewMsgFromCborUnknownType(t *testing.T) {
+	msg, err := NewMsgFromCbor(99, []byte{})
+	require.Error(t, err)
+	require.Nil(t, msg)
+	require.Contains(t, err.Error(), "unknown message type")
+	require.Contains(t, err.Error(), ProtocolName)
+}
