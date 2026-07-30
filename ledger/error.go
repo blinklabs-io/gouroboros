@@ -161,10 +161,14 @@ const (
 // Helper type to make the code a little cleaner
 type NewErrorFromCborFunc func([]byte) (error, error)
 
-// getEraSpecificUtxoFailureConstants returns the correct error constants for the given era
+// getEraSpecificUtxoFailureConstants returns the correct error constants
+// for the given era. It returns an error for any era it does not
+// explicitly recognize instead of silently guessing another era's
+// constructor numbering, since a wrong guess would misdecode the failure
+// payload (Conway, for example, completely renumbered these tags).
 func getEraSpecificUtxoFailureConstants(
 	eraId uint8,
-) (map[int]any, int, int, int, int) {
+) (map[int]any, int, int, int, int, error) {
 	baseMap := map[int]any{
 		UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
 		UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
@@ -191,13 +195,13 @@ func getEraSpecificUtxoFailureConstants(
 		baseMap[UtxoFailureScriptsNotPaidUtxoAlonzo] = &ScriptsNotPaidUtxo{}
 		baseMap[UtxoFailureExUnitsTooBigUtxoAlonzo] = &ExUnitsTooBigUtxo{}
 		baseMap[UtxoFailureCollateralContainsNonAdaAlonzo] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoAlonzo, UtxoFailureScriptsNotPaidUtxoAlonzo, UtxoFailureExUnitsTooBigUtxoAlonzo, UtxoFailureCollateralContainsNonAdaAlonzo
+		return baseMap, UtxoFailureOutputTooBigUtxoAlonzo, UtxoFailureScriptsNotPaidUtxoAlonzo, UtxoFailureExUnitsTooBigUtxoAlonzo, UtxoFailureCollateralContainsNonAdaAlonzo, nil
 	case EraIdBabbage:
 		baseMap[UtxoFailureOutputTooBigUtxoBabbage] = &OutputTooBigUtxo{}
 		baseMap[UtxoFailureScriptsNotPaidUtxoBabbage] = &ScriptsNotPaidUtxo{}
 		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
 		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage
+		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage, nil
 	case EraIdConway:
 		// Conway completely renumbered UTXO failure tags - use Conway-specific map
 		conwayMap := map[int]any{
@@ -225,14 +229,23 @@ func getEraSpecificUtxoFailureConstants(
 			ConwayUtxoBabbageOutputTooSmallUTxO:   &BabbageOutputTooSmallUTxO{},
 			ConwayUtxoBabbageNonDisjointRefInputs: &BabbageNonDisjointRefInputs{},
 		}
-		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA
+		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA, nil
+	case EraIdShelley, EraIdAllegra, EraIdMary:
+		// Shelley, Allegra, and Mary predate Plutus scripts and
+		// collateral, so the Alonzo/Babbage/Conway-only failure kinds
+		// (OutputTooBigUtxo, ScriptsNotPaidUtxo, ExUnitsTooBigUtxo,
+		// CollateralContainsNonADA) cannot occur in these eras. baseMap
+		// alone (without any era-specific additions) is correct here.
+		return baseMap, 0, 0, 0, 0, nil
 	default:
-		// For other eras (Byron, Shelley, Allegra, Mary), use Babbage constants as fallback
-		baseMap[UtxoFailureOutputTooBigUtxoBabbage] = &OutputTooBigUtxo{}
-		baseMap[UtxoFailureScriptsNotPaidUtxoBabbage] = &ScriptsNotPaidUtxo{}
-		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
-		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage
+		// Byron and any future/unrecognized era: don't guess at another
+		// era's constructor numbering. The caller surfaces this as an
+		// UnknownUtxoFailureError instead of silently misdecoding using
+		// Babbage's tag numbers.
+		return nil, 0, 0, 0, 0, fmt.Errorf(
+			"getEraSpecificUtxoFailureConstants: unrecognized era id %d",
+			eraId,
+		)
 	}
 }
 
@@ -261,6 +274,70 @@ func (e *GenericError) UnmarshalCBOR(data []byte) error {
 
 func (e *GenericError) Error() string {
 	return fmt.Sprintf("GenericError (%v)", e.Value)
+}
+
+// UnknownApplyTxFailureError preserves the era, the raw LEDGER-level
+// failure constructor tag, and the raw CBOR bytes for an ApplyTxError
+// failure that this era-aware decoder does not recognize. It is returned
+// instead of silently decoding the failure as a GenericError, which would
+// otherwise discard the tag/era context needed to diagnose a
+// forward-incompatible or malformed constructor.
+type UnknownApplyTxFailureError struct {
+	Era         uint8
+	FailureType int
+	Cbor        []byte
+}
+
+func (e *UnknownApplyTxFailureError) Error() string {
+	return fmt.Sprintf(
+		"UnknownApplyTxFailureError (Era %d, FailureType %d)",
+		e.Era,
+		e.FailureType,
+	)
+}
+
+// UnknownUtxowFailureError preserves the era, the raw UTXOW failure
+// constructor tag, and the raw CBOR bytes for a UTXOW failure that this
+// era-aware decoder does not recognize. This covers both an unrecognized
+// era (where we don't know the constructor numbering at all) and a known
+// era with an unrecognized constructor tag. It is returned instead of
+// silently guessing another era's constructor numbering (e.g. Babbage) or
+// decoding as a GenericError, both of which lose the tag/era context
+// needed to diagnose a forward-incompatible or malformed constructor.
+type UnknownUtxowFailureError struct {
+	Era         uint8
+	FailureType int
+	Cbor        []byte
+}
+
+func (e *UnknownUtxowFailureError) Error() string {
+	return fmt.Sprintf(
+		"UnknownUtxowFailureError (Era %d, FailureType %d)",
+		e.Era,
+		e.FailureType,
+	)
+}
+
+// UnknownUtxoFailureError preserves the era, the raw UTXO failure
+// constructor tag, and the raw CBOR bytes for a UTXO failure that this
+// era-aware decoder does not recognize. This covers both an unrecognized
+// era (where we don't know the constructor numbering at all) and a known
+// era with an unrecognized constructor tag. It is returned instead of
+// silently guessing another era's constructor numbering (e.g. Babbage) or
+// decoding as a GenericError, both of which lose the tag/era context
+// needed to diagnose a forward-incompatible or malformed constructor.
+type UnknownUtxoFailureError struct {
+	Era         uint8
+	FailureType int
+	Cbor        []byte
+}
+
+func (e *UnknownUtxoFailureError) Error() string {
+	return fmt.Sprintf(
+		"UnknownUtxoFailureError (Era %d, FailureType %d)",
+		e.Era,
+		e.FailureType,
+	)
 }
 
 func NewEraMismatchErrorFromCbor(cborData []byte) (error, error) {
@@ -423,13 +500,13 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 			}
 			newErr = incorrectWithdrawals
 		default:
-			if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-				return err
-			} else {
-				newErr = tmpErr
-			}
-			if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
-				return err
+			// Unrecognized LEDGER-level failure constructor: preserve
+			// the era, tag, and raw bytes instead of silently decoding
+			// as an opaque GenericError.
+			newErr = &UnknownApplyTxFailureError{
+				Era:         e.era,
+				FailureType: failureType,
+				Cbor:        failure,
 			}
 		}
 		e.Failures = append(e.Failures, newErr)
@@ -491,8 +568,15 @@ func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
 		// Conway uses flat enumeration (no wrapping)
 		return e.unmarshalConway(data, tmpFailure, failureType)
 	default:
-		// For unknown eras (Byron or future eras), try Babbage as fallback
-		return e.unmarshalBabbage(data, tmpFailure, failureType)
+		// Unknown era (Byron or a future era this decoder doesn't yet
+		// know about): we don't know this era's UTXOW constructor
+		// numbering, so don't guess by decoding as Babbage.
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
+		}
+		return nil
 	}
 }
 
@@ -526,11 +610,12 @@ func (e *UtxowFailure) unmarshalShelley(data []byte, tmpFailure []cbor.RawMessag
 	case ShelleyUtxowExtraneousScriptWitnesses:
 		newErr = &ExtraneousScriptWitnessesUTXOW{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
@@ -565,11 +650,12 @@ func (e *UtxowFailure) unmarshalAlonzo(data []byte, tmpFailure []cbor.RawMessage
 	case AlonzoUtxowExtraRedeemers:
 		newErr = &ExtraRedeemers{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -606,11 +692,12 @@ func (e *UtxowFailure) unmarshalBabbage(data []byte, tmpFailure []cbor.RawMessag
 		e.Err = newErr
 		return nil
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -672,11 +759,12 @@ func (e *UtxowFailure) unmarshalConway(data []byte, tmpFailure []cbor.RawMessage
 		e.Err = newErr
 		return nil
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
@@ -707,13 +795,42 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	e.Era = tmpData.Era
-	errorMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(tmpData.Era)
+
+	// Best-effort extraction of the raw constructor tag, for error
+	// context, independent of whether we recognize the era/tag below.
+	failureType, idErr := cbor.DecodeIdFromList(tmpData.Err)
+	if idErr != nil {
+		failureType = -1
+	}
+
+	errorMap, _, _, _, _, mapErr := getEraSpecificUtxoFailureConstants(
+		tmpData.Era,
+	)
+	if mapErr != nil {
+		// Unrecognized era: we don't know this era's constructor
+		// numbering, so don't guess at another era's (e.g. Babbage's).
+		// mapErr is deliberately not propagated: it's turned into a
+		// typed UnknownUtxoFailureError value instead of a hard decode
+		// failure.
+		e.Err = &UnknownUtxoFailureError{
+			Era:         tmpData.Era,
+			FailureType: failureType,
+			Cbor:        tmpData.Err,
+		}
+		return nil //nolint:nilerr
+	}
+
 	newErr, err := cbor.DecodeById(tmpData.Err, errorMap)
 	if err != nil {
-		newErr, err = NewGenericErrorFromCbor(tmpData.Err)
-		if err != nil {
-			return fmt.Errorf("failed to parse UtxoFailure: %w", err)
+		// Known era, unrecognized constructor tag: preserve the tag
+		// instead of silently decoding as an opaque GenericError. err
+		// is deliberately not propagated for the same reason as above.
+		e.Err = &UnknownUtxoFailureError{
+			Era:         tmpData.Era,
+			FailureType: failureType,
+			Cbor:        tmpData.Err,
 		}
+		return nil //nolint:nilerr
 	}
 	e.Err = newErr.(error)
 	return nil
@@ -980,20 +1097,37 @@ type ScriptsNotPaidUtxo struct {
 }
 
 func (e *ScriptsNotPaidUtxo) MarshalCBOR() ([]byte, error) {
-	// Use era-specific constant - we'll use Conway as default since it has the most recent structure
-	// In practice, this should be set when the error is created, but we provide a sensible fallback
-	constantToUse := UtxoFailureScriptsNotPaidUtxoConway
-	if e.Type != 0 {
-		constantToUse = int(e.Type)
-	}
-	// Bounds check to prevent integer overflow
-	if constantToUse < 0 || constantToUse > 255 {
-		return nil, fmt.Errorf(
-			"ScriptsNotPaidUtxo: invalid constructor index %d (must be 0-255)",
-			constantToUse,
+	// The era-specific constructor index must be set explicitly by the
+	// caller before marshaling. We used to default silently to Conway's
+	// numbering when Type was unset, which would emit the wrong bytes
+	// for Alonzo/Babbage callers that forgot to set it.
+	if e.Type == 0 {
+		return nil, errors.New(
+			"ScriptsNotPaidUtxo: Type (era-specific constructor index) " +
+				"must be set explicitly before marshaling; use one of " +
+				"UtxoFailureScriptsNotPaidUtxoAlonzo/Babbage/Conway",
 		)
 	}
-	e.Type = uint8(constantToUse)
+	validConstructors := []int{
+		UtxoFailureScriptsNotPaidUtxoAlonzo,
+		UtxoFailureScriptsNotPaidUtxoBabbage,
+		UtxoFailureScriptsNotPaidUtxoConway,
+	}
+	isValid := false
+	for _, valid := range validConstructors {
+		if int(e.Type) == valid {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return nil, fmt.Errorf(
+			"ScriptsNotPaidUtxo: invalid constructor index %d, expected one of %v",
+			e.Type,
+			validConstructors,
+		)
+	}
+	constantToUse := int(e.Type)
 
 	utxoMap := make(
 		map[common.TransactionInput]common.TransactionOutput,
@@ -1139,19 +1273,38 @@ type CollateralContainsNonADA struct {
 }
 
 func (e *CollateralContainsNonADA) MarshalCBOR() ([]byte, error) {
-	// Use era-specific constant - fallback to Conway if not set
-	constantToUse := UtxoFailureCollateralContainsNonAdaConway
-	if e.Type != 0 {
-		constantToUse = int(e.Type)
-	}
-	// Bounds check
-	if constantToUse < 0 || constantToUse > 255 {
-		return nil, fmt.Errorf(
-			"CollateralContainsNonADA: invalid constructor index %d (must be 0-255)",
-			constantToUse,
+	// The era-specific constructor index must be set explicitly by the
+	// caller before marshaling. We used to default silently to Conway's
+	// numbering when Type was unset, which would emit the wrong bytes
+	// for Alonzo/Babbage callers that forgot to set it.
+	if e.Type == 0 {
+		return nil, errors.New(
+			"CollateralContainsNonADA: Type (era-specific constructor " +
+				"index) must be set explicitly before marshaling; use " +
+				"one of UtxoFailureCollateralContainsNonAdaAlonzo/" +
+				"Babbage/Conway",
 		)
 	}
-	e.Type = uint8(constantToUse)
+	validConstructors := []int{
+		UtxoFailureCollateralContainsNonAdaAlonzo,
+		UtxoFailureCollateralContainsNonAdaBabbage,
+		UtxoFailureCollateralContainsNonAdaConway,
+	}
+	isValid := false
+	for _, valid := range validConstructors {
+		if int(e.Type) == valid {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return nil, fmt.Errorf(
+			"CollateralContainsNonADA: invalid constructor index %d, expected one of %v",
+			e.Type,
+			validConstructors,
+		)
+	}
+	constantToUse := int(e.Type)
 	arr := []any{constantToUse, e.Provided.Value()}
 	return cbor.Encode(arr)
 }
@@ -1558,11 +1711,12 @@ func (e *ShelleyUtxowFailure) UnmarshalCBOR(data []byte) error {
 	case ShelleyUtxowExtraneousScriptWitnesses:
 		newErr = &ExtraneousScriptWitnessesUTXOW{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         EraIdShelley,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
@@ -1613,11 +1767,12 @@ func (e *AlonzoUtxowFailure) UnmarshalCBOR(data []byte) error {
 	case AlonzoUtxowExtraRedeemers:
 		newErr = &ExtraRedeemers{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         EraIdAlonzo,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -1660,11 +1815,12 @@ func (e *BabbageUtxoFailure) UnmarshalCBOR(data []byte) error {
 	case BabbageUtxoNonDisjointRefInputs:
 		newErr = &BabbageNonDisjointRefInputs{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxoFailureError{
+			Era:         EraIdBabbage,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -1903,11 +2059,12 @@ func (e *ConwayUtxowFailure) UnmarshalCBOR(data []byte) error {
 		e.Err = newErr
 		return nil
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         EraIdConway,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {

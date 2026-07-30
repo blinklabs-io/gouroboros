@@ -70,6 +70,9 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR(t *testing.T) {
 
 	// Marshal to CBOR
 	original := &ScriptsNotPaidUtxo{
+		UtxoFailureErrorBase: UtxoFailureErrorBase{
+			Type: UtxoFailureScriptsNotPaidUtxoConway,
+		},
 		Utxos: utxos,
 	}
 	originalCborData, err := original.MarshalCBOR()
@@ -195,7 +198,12 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	}
 
 	// Test Byron inputs
-	byronError := &ScriptsNotPaidUtxo{Utxos: byronUtxos}
+	byronError := &ScriptsNotPaidUtxo{
+		UtxoFailureErrorBase: UtxoFailureErrorBase{
+			Type: UtxoFailureScriptsNotPaidUtxoConway,
+		},
+		Utxos: byronUtxos,
+	}
 	byronCborData, err := byronError.MarshalCBOR()
 	if err != nil {
 		t.Fatalf("Byron marshal failed: %v", err)
@@ -359,7 +367,12 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	}
 
 	// Test Shelley inputs
-	shelleyError := &ScriptsNotPaidUtxo{Utxos: shelleyUtxos}
+	shelleyError := &ScriptsNotPaidUtxo{
+		UtxoFailureErrorBase: UtxoFailureErrorBase{
+			Type: UtxoFailureScriptsNotPaidUtxoConway,
+		},
+		Utxos: shelleyUtxos,
+	}
 	shelleyCborData, err := shelleyError.MarshalCBOR()
 	if err != nil {
 		t.Fatalf("Shelley marshal failed: %v", err)
@@ -505,16 +518,16 @@ func TestScriptsNotPaidUtxo_MarshalUnmarshalCBOR_AllEras(t *testing.T) {
 	)
 }
 
-func TestScriptsNotPaidUtxo_TypeFieldAssignment(t *testing.T) {
-	// Create test addresses
+// TestScriptsNotPaidUtxo_RequiresExplicitType verifies that MarshalCBOR no
+// longer silently defaults to Conway's constructor numbering when Type is
+// left unset. Forward compatibility requires the caller to be explicit
+// about which era's constructor tag it means, rather than guessing.
+func TestScriptsNotPaidUtxo_RequiresExplicitType(t *testing.T) {
 	addr1, err := common.NewAddress(
 		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
 	)
-	if err != nil {
-		t.Fatalf("Failed to create address 1: %v", err)
-	}
+	require.NoError(t, err)
 
-	// Create test UTxO
 	input1 := shelley.NewShelleyTransactionInput(
 		"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 		0,
@@ -529,29 +542,63 @@ func TestScriptsNotPaidUtxo_TypeFieldAssignment(t *testing.T) {
 		},
 	}
 
-	// Test marshal and unmarshal
-	original := &ScriptsNotPaidUtxo{Utxos: utxos}
-	cborData, err := original.MarshalCBOR()
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
+	// Type unset (zero value): must error instead of silently picking
+	// Conway's constructor index.
+	unset := &ScriptsNotPaidUtxo{Utxos: utxos}
+	_, err = unset.MarshalCBOR()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Type")
+
+	// Type explicitly set to Conway's constructor index: succeeds and
+	// round-trips using that exact tag.
+	withType := &ScriptsNotPaidUtxo{
+		UtxoFailureErrorBase: UtxoFailureErrorBase{
+			Type: UtxoFailureScriptsNotPaidUtxoConway,
+		},
+		Utxos: utxos,
 	}
+	cborData, err := withType.MarshalCBOR()
+	require.NoError(t, err)
 
 	var decoded ScriptsNotPaidUtxo
-	if err := decoded.UnmarshalCBOR(cborData); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
+	require.NoError(t, decoded.UnmarshalCBOR(cborData))
+	assert.Equal(
+		t,
+		uint8(UtxoFailureScriptsNotPaidUtxoConway),
+		decoded.Type,
+	)
+}
 
-	// Verify the Type field is correctly set (should default to Conway era)
-	if decoded.Type != UtxoFailureScriptsNotPaidUtxoConway {
-		t.Errorf(
-			"Expected Type field to be %d (UtxoFailureScriptsNotPaidUtxoConway), got %d",
-			UtxoFailureScriptsNotPaidUtxoConway,
-			decoded.Type,
-		)
-	}
+// TestCollateralContainsNonADA_RequiresExplicitType mirrors
+// TestScriptsNotPaidUtxo_RequiresExplicitType for CollateralContainsNonADA,
+// whose MarshalCBOR used to silently default to Conway's constructor
+// numbering when Type was unset.
+func TestCollateralContainsNonADA_RequiresExplicitType(t *testing.T) {
+	providedCbor, err := cbor.Encode(uint64(500))
+	require.NoError(t, err)
+	var provided cbor.Value
+	_, err = cbor.Decode(providedCbor, &provided)
+	require.NoError(t, err)
 
-	t.Logf(
-		"Type field correctly set to %d (Conway era) after CBOR unmarshaling",
+	unset := &CollateralContainsNonADA{Provided: provided}
+	_, err = unset.MarshalCBOR()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Type")
+
+	withType := &CollateralContainsNonADA{
+		UtxoFailureErrorBase: UtxoFailureErrorBase{
+			Type: UtxoFailureCollateralContainsNonAdaConway,
+		},
+		Provided: provided,
+	}
+	cborData, err := withType.MarshalCBOR()
+	require.NoError(t, err)
+
+	var decoded CollateralContainsNonADA
+	require.NoError(t, decoded.UnmarshalCBOR(cborData))
+	assert.Equal(
+		t,
+		uint8(UtxoFailureCollateralContainsNonAdaConway),
 		decoded.Type,
 	)
 }
@@ -1154,7 +1201,10 @@ func TestConwayUtxoFailure_TagMappings(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Verify the Conway-specific map is returned for Conway era
-			errorMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(EraIdConway)
+			errorMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+				EraIdConway,
+			)
+			require.NoError(t, err)
 
 			// Check the tag maps to the expected error type
 			errType, exists := errorMap[tc.conwayTag]
@@ -1168,8 +1218,14 @@ func TestConwayUtxoFailure_TagMappings(t *testing.T) {
 // TestConwayVsAlonzoUtxoTagDifferences verifies that Conway and Alonzo/Babbage
 // have different tag mappings for the same error types.
 func TestConwayVsAlonzoUtxoTagDifferences(t *testing.T) {
-	conwayMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(EraIdConway)
-	alonzoMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(EraIdAlonzo)
+	conwayMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+		EraIdConway,
+	)
+	require.NoError(t, err)
+	alonzoMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+		EraIdAlonzo,
+	)
+	require.NoError(t, err)
 
 	// In Conway, tag 0 = UtxosFailure
 	// In Alonzo, tag 0 = BadInputsUtxo
@@ -1186,4 +1242,176 @@ func TestConwayVsAlonzoUtxoTagDifferences(t *testing.T) {
 
 	assert.IsType(t, &BadInputsUtxo{}, conwayTag1, "Conway tag 1 should be BadInputsUtxo")
 	assert.IsType(t, &OutsideValidityIntervalUtxo{}, alonzoTag1, "Alonzo tag 1 should be OutsideValidityIntervalUtxo")
+}
+
+// =============================================================================
+// Unknown Era/Constructor Preservation Tests
+//
+// These tests cover gouroboros issue #1868: unknown era/constructor
+// combinations must be preserved (era, raw constructor tag, and raw CBOR)
+// rather than silently decoded as a GenericError or by guessing another
+// era's (e.g. Babbage's or Conway's) constructor numbering.
+// =============================================================================
+
+// TestGetEraSpecificUtxoFailureConstants_UnknownEra verifies that an
+// unrecognized era id returns an error instead of silently falling back to
+// Babbage's constructor numbering.
+func TestGetEraSpecificUtxoFailureConstants_UnknownEra(t *testing.T) {
+	_, _, _, _, _, err := getEraSpecificUtxoFailureConstants(99)
+	require.Error(t, err)
+}
+
+// TestGetEraSpecificUtxoFailureConstants_Byron verifies that Byron (era id
+// 0) — which predates this UTXO failure wire format entirely — is treated
+// as unrecognized rather than silently mapped onto Babbage's numbering.
+func TestGetEraSpecificUtxoFailureConstants_Byron(t *testing.T) {
+	_, _, _, _, _, err := getEraSpecificUtxoFailureConstants(EraIdByron)
+	require.Error(t, err)
+}
+
+// TestUtxowFailure_UnknownEra verifies that UtxowFailure.UnmarshalCBOR
+// surfaces a typed UnknownUtxowFailureError for an era it doesn't
+// recognize, preserving era/tag/CBOR context, instead of silently
+// decoding the payload as though it were Babbage.
+func TestUtxowFailure_UnknownEra(t *testing.T) {
+	cborData, err := cbor.Encode([]any{uint(3)})
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = 99 // unrecognized era
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	unknownErr, ok := utxowErr.Err.(*UnknownUtxowFailureError)
+	require.True(
+		t,
+		ok,
+		"Expected *UnknownUtxowFailureError, got %T",
+		utxowErr.Err,
+	)
+	assert.Equal(t, uint8(99), unknownErr.Era)
+	assert.Equal(t, 3, unknownErr.FailureType)
+	assert.Equal(t, cborData, unknownErr.Cbor)
+	assert.Contains(t, unknownErr.Error(), "99")
+}
+
+// TestUtxowFailure_UnknownConstructorTag verifies that an unrecognized
+// UTXOW constructor tag within a *known* era surfaces a typed
+// UnknownUtxowFailureError (preserving the tag) instead of a GenericError.
+func TestUtxowFailure_UnknownConstructorTag(t *testing.T) {
+	testCases := []struct {
+		name string
+		era  uint8
+	}{
+		{"Shelley", EraIdShelley},
+		{"Allegra", EraIdAllegra},
+		{"Mary", EraIdMary},
+		{"Alonzo", EraIdAlonzo},
+		{"Babbage", EraIdBabbage},
+		{"Conway", EraIdConway},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Tag 250 does not exist in any era's UTXOW failure
+			// enumeration.
+			cborData, err := cbor.Encode(
+				[]any{uint(250), []any{}},
+			)
+			require.NoError(t, err)
+
+			utxowErr := &UtxowFailure{}
+			utxowErr.era = tc.era
+			err = utxowErr.UnmarshalCBOR(cborData)
+			require.NoError(t, err)
+
+			unknownErr, ok := utxowErr.Err.(*UnknownUtxowFailureError)
+			require.True(
+				t,
+				ok,
+				"Expected *UnknownUtxowFailureError, got %T",
+				utxowErr.Err,
+			)
+			assert.Equal(t, tc.era, unknownErr.Era)
+			assert.Equal(t, 250, unknownErr.FailureType)
+		})
+	}
+}
+
+// TestUtxoFailure_UnknownConstructorId verifies that an unrecognized UTXO
+// failure constructor id within a known era surfaces a typed
+// UnknownUtxoFailureError (preserving the era, tag, and raw CBOR) instead
+// of silently decoding as a GenericError.
+func TestUtxoFailure_UnknownConstructorId(t *testing.T) {
+	// Tag 250 does not exist in Conway's (or any era's) UTXO failure
+	// enumeration.
+	innerCbor, err := cbor.Encode([]any{uint(250)})
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdConway), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	unknownErr, ok := utxoErr.Err.(*UnknownUtxoFailureError)
+	require.True(
+		t,
+		ok,
+		"Expected *UnknownUtxoFailureError, got %T",
+		utxoErr.Err,
+	)
+	assert.Equal(t, uint8(EraIdConway), unknownErr.Era)
+	assert.Equal(t, 250, unknownErr.FailureType)
+	assert.Equal(t, innerCbor, unknownErr.Cbor)
+}
+
+// TestUtxoFailure_UnknownEra verifies that UtxoFailure.UnmarshalCBOR
+// surfaces a typed UnknownUtxoFailureError for an era it doesn't
+// recognize, instead of silently decoding using Babbage's numbering.
+func TestUtxoFailure_UnknownEra(t *testing.T) {
+	innerCbor, err := cbor.Encode([]any{uint(0)})
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(99), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	unknownErr, ok := utxoErr.Err.(*UnknownUtxoFailureError)
+	require.True(
+		t,
+		ok,
+		"Expected *UnknownUtxoFailureError, got %T",
+		utxoErr.Err,
+	)
+	assert.Equal(t, uint8(99), unknownErr.Era)
+}
+
+// TestApplyTxError_UnknownFailureType verifies that an unrecognized
+// LEDGER-level failure constructor tag surfaces a typed
+// UnknownApplyTxFailureError instead of a GenericError.
+func TestApplyTxError_UnknownFailureType(t *testing.T) {
+	failure := []any{uint(250)}
+	cborData, err := cbor.Encode([]any{failure})
+	require.NoError(t, err)
+
+	applyErr := &ApplyTxError{era: EraIdConway}
+	err = applyErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+	require.Len(t, applyErr.Failures, 1)
+
+	unknownErr, ok := applyErr.Failures[0].(*UnknownApplyTxFailureError)
+	require.True(
+		t,
+		ok,
+		"Expected *UnknownApplyTxFailureError, got %T",
+		applyErr.Failures[0],
+	)
+	assert.Equal(t, uint8(EraIdConway), unknownErr.Era)
+	assert.Equal(t, 250, unknownErr.FailureType)
 }
