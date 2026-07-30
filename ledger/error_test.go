@@ -1444,3 +1444,210 @@ func TestApplyTxError_UnknownFailureType(t *testing.T) {
 	assert.Equal(t, uint8(EraIdConway), unknownErr.Era)
 	assert.Equal(t, 250, unknownErr.FailureType)
 }
+
+// =============================================================================
+// Reviewer-reported regression tests (PR #1923 "Requesting changes")
+// =============================================================================
+
+// TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags
+// verifies that Shelley, Allegra, and Mary's UTXO failure constant map does
+// NOT include the Alonzo+-only collateral/Plutus-related tags (12, 17, 18,
+// 19, 20), while still including the era-agnostic base tags (0-11). Prior
+// to the fix, these eras reused baseMap unmodified, so tag 12 collided with
+// UtxoFailureInsufficientCollateral even though collateral doesn't exist
+// pre-Alonzo.
+func TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags(
+	t *testing.T,
+) {
+	preAlonzoOnlyTags := []int{
+		UtxoFailureInsufficientCollateral,  // 12
+		UtxoFailureWrongNetworkInTxBody,    // 17
+		UtxoFailureOutsideForecast,         // 18
+		UtxoFailureTooManyCollateralInputs, // 19
+		UtxoFailureNoCollateralInputs,      // 20
+	}
+	baseTags := []int{
+		UtxoFailureBadInputsUtxo,
+		UtxoFailureOutsideValidityIntervalUtxo,
+		UtxoFailureMaxTxSizeUtxo,
+		UtxoFailureInputSetEmpty,
+		UtxoFailureFeeTooSmallUtxo,
+		UtxoFailureValueNotConservedUtxo,
+		UtxoFailureOutputTooSmallUtxo,
+		UtxoFailureUtxosFailure,
+		UtxoFailureWrongNetwork,
+		UtxoFailureWrongNetworkWithdrawal,
+		UtxoFailureOutputBootAddrAttrsTooBig,
+		UtxoFailureTriesToForgeAda,
+	}
+
+	testCases := []struct {
+		name string
+		era  uint8
+	}{
+		{"Shelley", EraIdShelley},
+		{"Allegra", EraIdAllegra},
+		{"Mary", EraIdMary},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			errorMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+				tc.era,
+			)
+			require.NoError(t, err)
+
+			for _, tag := range preAlonzoOnlyTags {
+				_, exists := errorMap[tag]
+				assert.False(
+					t,
+					exists,
+					"%s: tag %d should not exist pre-Alonzo",
+					tc.name,
+					tag,
+				)
+			}
+			for _, tag := range baseTags {
+				_, exists := errorMap[tag]
+				assert.True(
+					t,
+					exists,
+					"%s: tag %d should exist pre-Alonzo",
+					tc.name,
+					tag,
+				)
+			}
+		})
+	}
+}
+
+// TestUtxoFailure_PreAlonzoCollateralTagIsUnknown reproduces the reviewer's
+// exact repro: [EraIdShelley, [12, 1, 2]] must decode as
+// *UnknownUtxoFailureError, NOT as *InsufficientCollateral, since collateral
+// does not exist in Shelley/Allegra/Mary and tag 12 is not a real
+// constructor in these eras.
+func TestUtxoFailure_PreAlonzoCollateralTagIsUnknown(t *testing.T) {
+	testCases := []struct {
+		name string
+		era  uint8
+	}{
+		{"Shelley", EraIdShelley},
+		{"Allegra", EraIdAllegra},
+		{"Mary", EraIdMary},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			innerCbor, err := cbor.Encode(
+				[]any{uint(12), uint(1), uint(2)},
+			)
+			require.NoError(t, err)
+			cborData, err := cbor.Encode(
+				[]any{tc.era, cbor.RawMessage(innerCbor)},
+			)
+			require.NoError(t, err)
+
+			var utxoErr UtxoFailure
+			err = utxoErr.UnmarshalCBOR(cborData)
+			require.NoError(t, err)
+
+			unknownErr, ok := utxoErr.Err.(*UnknownUtxoFailureError)
+			require.True(
+				t,
+				ok,
+				"Expected *UnknownUtxoFailureError, got %T",
+				utxoErr.Err,
+			)
+			assert.Equal(t, tc.era, unknownErr.Era)
+			assert.Equal(t, 12, unknownErr.FailureType)
+
+			_, isCollateral := utxoErr.Err.(*InsufficientCollateral)
+			assert.False(
+				t,
+				isCollateral,
+				"%s: tag 12 must not decode as InsufficientCollateral",
+				tc.name,
+			)
+		})
+	}
+}
+
+// TestGetEraSpecificUtxoFailureConstants_Dijkstra verifies that Dijkstra
+// shares Conway's UTXO failure constructor numbering (Dijkstra defines no
+// UTXO/UTXOW-specific failure kinds of its own and the cardano-ledger
+// CHANGELOG describes it as mimicking Conway "for now").
+func TestGetEraSpecificUtxoFailureConstants_Dijkstra(t *testing.T) {
+	dijkstraMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+		EraIdDijkstra,
+	)
+	require.NoError(t, err)
+	conwayMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+		EraIdConway,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, len(conwayMap), len(dijkstraMap))
+	for tag, conwayVal := range conwayMap {
+		dijkstraVal, exists := dijkstraMap[tag]
+		require.True(t, exists, "Dijkstra map missing tag %d", tag)
+		assert.IsType(t, conwayVal, dijkstraVal)
+	}
+}
+
+// TestUtxowFailure_Dijkstra verifies that a Dijkstra UtxowFailure decodes
+// using Conway's constructor numbering instead of falling through to the
+// default case (which would produce *UnknownUtxowFailureError for every
+// Dijkstra failure, even well-formed ones). This test would fail against
+// the old behavior where Dijkstra was not handled in the era switch.
+func TestUtxowFailure_Dijkstra(t *testing.T) {
+	// Tag 8 = ConwayUtxowInvalidMetadata, which has no payload.
+	cborData, err := cbor.Encode([]any{
+		uint(ConwayUtxowInvalidMetadata),
+	})
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdDijkstra
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	_, ok := utxowErr.Err.(*InvalidMetadata)
+	require.True(
+		t,
+		ok,
+		"Expected *InvalidMetadata, got %T",
+		utxowErr.Err,
+	)
+
+	_, isUnknown := utxowErr.Err.(*UnknownUtxowFailureError)
+	assert.False(
+		t,
+		isUnknown,
+		"Dijkstra UtxowFailure must not fall back to UnknownUtxowFailureError",
+	)
+}
+
+// TestUtxoFailure_MalformedInnerValueReturnsError reproduces the
+// reviewer's repro: a Conway UtxoFailure whose inner value is a CBOR
+// string rather than a constructor-tagged list must surface a real
+// (non-nil) decode error, instead of "successfully" decoding as
+// UnknownUtxoFailureError{FailureType: -1}.
+func TestUtxoFailure_MalformedInnerValueReturnsError(t *testing.T) {
+	malformedInner, err := cbor.Encode("not-a-constructor-list")
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdConway), cbor.RawMessage(malformedInner)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.Error(
+		t,
+		err,
+		"malformed inner value must surface a real decode error",
+	)
+	assert.Nil(
+		t,
+		utxoErr.Err,
+		"Err should not be populated when UnmarshalCBOR returns an error",
+	)
+}

@@ -202,8 +202,15 @@ func getEraSpecificUtxoFailureConstants(
 		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
 		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
 		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage, nil
-	case EraIdConway:
-		// Conway completely renumbered UTXO failure tags - use Conway-specific map
+	case EraIdConway, EraIdDijkstra:
+		// Conway completely renumbered UTXO failure tags - use
+		// Conway-specific map. Dijkstra "mimics Conway era behavior for
+		// now" (cardano-ledger CHANGELOG.md, 10.6/10.7 Dijkstra
+		// entries) and defines no Dijkstra-specific UTXO/UTXOW failure
+		// constants of its own (ledger/dijkstra/errors.go has none, and
+		// ledger/dijkstra/rules.go delegates its UTXO validation rules
+		// directly to the conway package), so it shares Conway's
+		// constructor numbering rather than guessing at a distinct one.
 		conwayMap := map[int]any{
 			ConwayUtxoUtxosFailure:                &UtxosFailure{},
 			ConwayUtxoBadInputsUTxO:               &BadInputsUtxo{},
@@ -232,11 +239,36 @@ func getEraSpecificUtxoFailureConstants(
 		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA, nil
 	case EraIdShelley, EraIdAllegra, EraIdMary:
 		// Shelley, Allegra, and Mary predate Plutus scripts and
-		// collateral, so the Alonzo/Babbage/Conway-only failure kinds
-		// (OutputTooBigUtxo, ScriptsNotPaidUtxo, ExUnitsTooBigUtxo,
-		// CollateralContainsNonADA) cannot occur in these eras. baseMap
-		// alone (without any era-specific additions) is correct here.
-		return baseMap, 0, 0, 0, 0, nil
+		// collateral entirely, so baseMap (which includes the
+		// collateral-related tags added for Alonzo's UTXO failure
+		// enumeration: UtxoFailureInsufficientCollateral (12),
+		// UtxoFailureWrongNetworkInTxBody (17),
+		// UtxoFailureOutsideForecast (18),
+		// UtxoFailureTooManyCollateralInputs (19), and
+		// UtxoFailureNoCollateralInputs (20)) is NOT correct here: tag
+		// 12 in these pre-Alonzo eras doesn't exist at all, so decoding
+		// it as InsufficientCollateral would misdecode a genuinely
+		// unknown/malformed tag as a real (and wrong) failure kind. The
+		// only failure kinds that exist in Shelley/Allegra/Mary are the
+		// era-agnostic base UTXO failures numbered 0-11 (BadInputsUtxo
+		// through TriesToForgeAda); use an explicit map literal (rather
+		// than filtering baseMap procedurally) so the set of valid
+		// pre-Alonzo tags is easy to audit here.
+		shelleyMap := map[int]any{
+			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
+			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
+			UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
+			UtxoFailureInputSetEmpty:               &InputSetEmptyUtxo{},
+			UtxoFailureFeeTooSmallUtxo:             &FeeTooSmallUtxo{},
+			UtxoFailureValueNotConservedUtxo:       &ValueNotConservedUtxo{},
+			UtxoFailureOutputTooSmallUtxo:          &OutputTooSmallUtxo{},
+			UtxoFailureUtxosFailure:                &UtxosFailure{},
+			UtxoFailureWrongNetwork:                &WrongNetwork{},
+			UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+			UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
+			UtxoFailureTriesToForgeAda:             &TriesToForgeADA{},
+		}
+		return shelleyMap, 0, 0, 0, 0, nil
 	default:
 		// Byron and any future/unrecognized era: don't guess at another
 		// era's constructor numbering. The caller surfaces this as an
@@ -564,8 +596,16 @@ func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
 	case EraIdBabbage:
 		// Babbage wraps Alonzo failures in tag 1, adds Babbage-specific tags
 		return e.unmarshalBabbage(data, tmpFailure, failureType)
-	case EraIdConway:
-		// Conway uses flat enumeration (no wrapping)
+	case EraIdConway, EraIdDijkstra:
+		// Conway uses flat enumeration (no wrapping). Dijkstra defines
+		// no UTXOW-specific failure kinds or constructor numbering of
+		// its own (ledger/dijkstra/errors.go has none, and
+		// ledger/dijkstra/rules.go's UtxoValidationRules delegates
+		// UTXOW-relevant validation directly to the conway package) and
+		// the cardano-ledger CHANGELOG.md describes Dijkstra as
+		// mimicking Conway era behavior "for now", so Dijkstra shares
+		// Conway's decoder rather than falling through to
+		// UnknownUtxowFailureError for every Dijkstra failure.
 		return e.unmarshalConway(data, tmpFailure, failureType)
 	default:
 		// Unknown era (Byron or a future era this decoder doesn't yet
@@ -796,11 +836,19 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 	}
 	e.Era = tmpData.Era
 
-	// Best-effort extraction of the raw constructor tag, for error
-	// context, independent of whether we recognize the era/tag below.
+	// Extract the raw constructor tag. A failure here means tmpData.Err
+	// is structurally malformed (e.g. a CBOR string/map where a
+	// constructor-tagged list was expected), which is a genuine decode
+	// error, not an unknown-failure case: UnknownUtxoFailureError is
+	// reserved for when tag extraction succeeds but the resulting tag
+	// isn't present in the era's map. Propagate idErr instead of masking
+	// it behind a placeholder tag.
 	failureType, idErr := cbor.DecodeIdFromList(tmpData.Err)
 	if idErr != nil {
-		failureType = -1
+		return fmt.Errorf(
+			"UtxoFailure: failed to extract constructor tag: %w",
+			idErr,
+		)
 	}
 
 	errorMap, _, _, _, _, mapErr := getEraSpecificUtxoFailureConstants(
