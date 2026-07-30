@@ -38,6 +38,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/vrf"
 )
 
+// The era packages own the protocol-major ranges their blocks may carry, and
+// DetermineBlockType classifies against those. These single values are kept
+// for callers that already reference them; they name the first major of each
+// era and are not the authority on its extent.
 const (
 	HeaderBodyLengthShelleyLike = 15
 	HeaderBodyLengthBabbageLike = 10
@@ -49,6 +53,12 @@ const (
 	ProtoMajorConway            = 9
 	ProtoMajorDijkstra          = 12
 )
+
+// inProtocolRange reports whether a header's protocol major falls within an
+// era's declared range, inclusive at both ends.
+func inProtocolRange(protoMajor, min, max uint64) bool {
+	return protoMajor >= min && protoMajor <= max
+}
 
 func eraAtLeast(era common.Era, min common.Era) bool {
 	currentOrder, ok := eraOrder(era)
@@ -149,14 +159,30 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 		if !ok {
 			return 0, errors.New("invalid proto major")
 		}
-		switch protoMajor {
-		case ProtoMajorShelley:
+		switch {
+		case inProtocolRange(
+			protoMajor,
+			shelley.MinProtocolVersionShelley,
+			shelley.MaxProtocolVersionShelley,
+		):
 			return BlockTypeShelley, nil
-		case ProtoMajorAllegra:
+		case inProtocolRange(
+			protoMajor,
+			allegra.MinProtocolVersionAllegra,
+			allegra.MaxProtocolVersionAllegra,
+		):
 			return BlockTypeAllegra, nil
-		case ProtoMajorMary:
+		case inProtocolRange(
+			protoMajor,
+			mary.MinProtocolVersionMary,
+			mary.MaxProtocolVersionMary,
+		):
 			return BlockTypeMary, nil
-		case ProtoMajorAlonzo:
+		case inProtocolRange(
+			protoMajor,
+			alonzo.MinProtocolVersionAlonzo,
+			alonzo.MaxProtocolVersionAlonzo,
+		):
 			return BlockTypeAlonzo, nil
 		default:
 			return 0, fmt.Errorf(
@@ -180,17 +206,35 @@ func DetermineBlockType(headerCbor []byte) (uint, error) {
 			return 0, errors.New("invalid proto major")
 		}
 		switch {
-		case protoMajor == ProtoMajorBabbage:
+		case inProtocolRange(
+			protoMajor,
+			babbage.MinProtocolVersionBabbage,
+			babbage.MaxProtocolVersionBabbage,
+		):
 			return BlockTypeBabbage, nil
-		case protoMajor >= conway.MinProtocolVersionConway &&
-			protoMajor <= conway.MaxProtocolVersionConway:
+		case inProtocolRange(
+			protoMajor,
+			conway.MinProtocolVersionConway,
+			conway.MaxProtocolVersionConway,
+		):
 			return BlockTypeConway, nil
-		case protoMajor >= dijkstra.MinProtocolVersionDijkstra &&
-			protoMajor <= dijkstra.MaxProtocolVersionDijkstra:
+		case inProtocolRange(
+			protoMajor,
+			dijkstra.MinProtocolVersionDijkstra,
+			dijkstra.MaxProtocolVersionDijkstra,
+		):
 			return BlockTypeDijkstra, nil
-		case protoMajor == ProtoMajorAlonzo:
+		case inProtocolRange(
+			protoMajor,
+			alonzo.MinProtocolVersionAlonzo,
+			alonzo.MaxProtocolVersionAlonzo,
+		):
 			return BlockTypeAlonzo, nil
-		case protoMajor == ProtoMajorMary:
+		case inProtocolRange(
+			protoMajor,
+			mary.MinProtocolVersionMary,
+			mary.MaxProtocolVersionMary,
+		):
 			return BlockTypeMary, nil
 		default:
 			return 0, fmt.Errorf(
