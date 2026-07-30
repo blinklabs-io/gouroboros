@@ -593,6 +593,29 @@ func (a *Address) StakingPayload() AddressPayload {
 	return a.stakingPayload
 }
 
+// StakeCredential returns the key or script credential carried by the
+// address's staking payload. Pointer and absent staking payloads do not contain
+// a credential.
+func (a *Address) StakeCredential() (Credential, bool) {
+	if a == nil {
+		return Credential{}, false
+	}
+	switch payload := a.stakingPayload.(type) {
+	case AddressPayloadKeyHash:
+		return Credential{
+			CredType:   CredentialTypeAddrKeyHash,
+			Credential: NewBlake2b224(payload.Hash.Bytes()),
+		}, true
+	case AddressPayloadScriptHash:
+		return Credential{
+			CredType:   CredentialTypeScriptHash,
+			Credential: NewBlake2b224(payload.Hash.Bytes()),
+		}, true
+	default:
+		return Credential{}, false
+	}
+}
+
 func (a *Address) ByronAttr() ByronAddressAttributes {
 	return a.byronAddressAttr
 }

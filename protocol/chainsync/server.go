@@ -17,6 +17,7 @@ package chainsync
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -151,21 +152,18 @@ func (s *Server) AwaitReply() error {
 
 func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 	p := s.ProtocolInstance()
-	p.Logger().
-		Debug(
-			fmt.Sprintf("calling RollForward(blockType: %+x, blockData: %x, tip: {Point: {Slot: %d, Hash: %x}, BlockNumber: %d})",
-				blockType,
-				blockData,
-				tip.Point.Slot, tip.Point.Hash,
-				tip.BlockNumber,
-			),
-			"component", "network",
-			"protocol", ProtocolName,
-			"role", "server",
-			"connection_id", s.callbackContext.ConnectionId.String(),
-		)
+	logRollForward(
+		p.Logger(),
+		blockType,
+		blockData,
+		tip,
+		s.callbackContext.ConnectionId.String(),
+	)
 	if p.Mode() == protocol.ProtocolModeNodeToNode {
-		eraId := ledger.BlockToBlockHeaderTypeMap[blockType]
+		eraId, ok := ledger.BlockToBlockHeaderTypeMap[blockType]
+		if !ok {
+			return fmt.Errorf("unknown block type: %d", blockType)
+		}
 		msg, err := NewMsgRollForwardNtN(
 			eraId,
 			0,
@@ -195,6 +193,27 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 		}
 		return p.SendMessage(msg)
 	}
+}
+
+func logRollForward(
+	logger *slog.Logger,
+	blockType uint,
+	blockData []byte,
+	tip Tip,
+	connectionId string,
+) {
+	logger.Debug(
+		"calling RollForward",
+		"block_type", blockType,
+		"block_size", len(blockData),
+		"tip_slot", tip.Point.Slot,
+		"tip_hash", tip.Point.Hash,
+		"tip_block_number", tip.BlockNumber,
+		"component", "network",
+		"protocol", ProtocolName,
+		"role", "server",
+		"connection_id", connectionId,
+	)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {

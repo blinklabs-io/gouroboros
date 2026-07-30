@@ -125,6 +125,44 @@ func TestSubmitTxAccept(t *testing.T) {
 	)
 }
 
+// TestSubmitTxAcceptThenDone reproduces the cardano-cli submit flow from dingo
+// issue #2788: submit a transaction, receive AcceptTx, then cleanly close the
+// protocol by sending MsgDone from the Idle state. Before the Idle->Done
+// transition existed, Stop() produced a protocol-state error that tore down the
+// node-to-client connection.
+func TestSubmitTxAcceptThenDone(t *testing.T) {
+	testTx := test.DecodeHexString("abcdef0123456789")
+	conversation := append(
+		conversationHandshakeSubmitTx,
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localtxsubmission.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localtxsubmission.NewMsgAcceptTx(),
+			},
+		},
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localtxsubmission.ProtocolId,
+			MessageType: localtxsubmission.MessageTypeDone,
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			if err := oConn.LocalTxSubmission().Client.SubmitTx(
+				ledger.TxTypeBabbage,
+				testTx,
+			); err != nil {
+				t.Fatalf("received unexpected error on SubmitTx: %s", err)
+			}
+			if err := oConn.LocalTxSubmission().Client.Stop(); err != nil {
+				t.Fatalf("received unexpected error on Stop: %s", err)
+			}
+		},
+	)
+}
+
 func TestSubmitTxRject(t *testing.T) {
 	testTx := test.DecodeHexString("abcdef0123456789")
 	expectedErr := localtxsubmission.TransactionRejectedError{

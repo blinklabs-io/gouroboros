@@ -4,6 +4,239 @@ title: Release notes
 
 # Release notes
 
+## v0.189.4
+
+- **Date:** 2026-07-25
+- **Version:** 0.189.4
+
+### Summary
+
+This release adds stake address info query support and Leios pool registration certificate compatibility for prototype2026-w30.
+
+### New Features
+
+* Added stake address info query support.
+
+### Bug Fixes
+
+* Expanded `PoolRegistrationCertificate` handling so clients can decode and re-encode certificates with optional `LeiosKey` values, accept both 10-field and 11-field CBOR layouts, reject malformed Leios key sizes, and preserve exact CBOR round trips.
+
+### Additional Changes
+
+* Updated the release history to include the `v0.189.3` maintenance entry.
+
+## v0.189.3
+
+- **Date:** 2026-07-25
+- **Version:** 0.189.3
+
+### Summary
+
+This release keeps the published release history current by recording the prior `v0.189.2` entry.
+
+### Additional Changes
+
+* Updated the release history to include the prior `v0.189.2` entry.
+
+## v0.189.2
+
+- **Date:** 2026-07-24
+- **Version:** 0.189.2
+
+### Summary
+
+This release fixes Conway zero withdrawal handling in ledger validation.
+
+### Bug Fixes
+
+* Fixed Conway zero withdrawal handling so withdrawals with a zero amount now validate correctly during Conway transaction processing.
+
+## v0.189.1
+
+- **Date:** 2026-07-23
+- **Version:** 0.189.1
+
+### Summary
+
+This release fixes local state query decoding and aligns stake snapshot requests with the format expected by `cardano-node`.
+
+### Bug Fixes
+
+* Fixed local state query decoding so GetCBOR-wrapped Shelley queries now complete instead of closing the node-to-client connection when array and struct values do not match.
+* Improved stake snapshot handling so all-pools and specific-pool requests now match the pool filter format expected by `cardano-node`.
+* Updated `Client.GetStakeSnapshots` to send the pool filter in the accepted format.
+
+### Additional Changes
+
+* Added byte-exact coverage for specific-pool, all-pools, and malformed multi-set `StrictMaybe` stake snapshot payloads.
+
+## v0.189.0
+
+- **Date:** 2026-07-22
+- **Version:** 0.189.0
+
+### Summary
+
+This release improves on-chain operational certificate visibility in LocalStateQuery, hardens Byron EBB decoding, and updates repository automation and CBOR maintenance.
+
+### New Features
+
+* Improved `LocalStateQuery` decoding so consumers can query current on-chain operational certificate counters through the typed `GetOpCertCounters` helper and protocol aware `DebugChainDepState` results for Praos and TPraos nodes.
+
+### Bug Fixes
+
+* Fixed Byron EBB decoding so a null header now fails fast with `byron EBB block missing header` instead of allowing later nil pointer dereferences.
+
+### Additional Changes
+
+* Updated repository automation to remove the issue close date action and streamline issue closure handling.
+* Refined the CBOR implementation with a modernization pass that keeps the codebase cleaner and easier to maintain.
+
+## v0.188.1
+
+- **Date:** 2026-07-20
+- **Version:** 0.188.1
+
+### Summary
+
+This release improves `leiosfetch` error handling, tightens Conway reward withdrawal validation on protocol major versions 10 and 11, and refreshes release history and workflow automation.
+
+### New Features
+
+* Improved `leiosfetch` request handling so missing data now returns `MsgNoBlock` and `MsgNoBlockTxs` in band, keeps the client connection open, and lets callers distinguish not found responses from protocol failures with typed sentinel errors.
+
+### Bug Fixes
+
+* Fixed Conway reward withdrawal validation so protocol major versions 10 and 11 now require `DRep` delegation, return explicit validation errors when a withdrawing stake credential is not delegated, and fail when delegation lookup is unavailable; protocol version 12 and later keep the existing behavior.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` from `v0.1.16` to `v0.1.17`, including the chain sync shutdown fix so `Stop` now waits for protocol shutdown to complete and no longer surfaces `ErrProtocolShuttingDown` during teardown.
+* Refreshed GitHub Actions workflows to pin `actions/setup-go` `v7.0.0` across the Go workflow files.
+* Preserved the prior `v0.187.4` release history entry so the published notes stay complete.
+* Recorded the prior `v0.188.0` release history entry so the published notes stay current.
+
+## v0.188.0
+
+- **Date:** 2026-07-14
+- **Version:** 0.188.0
+
+### Summary
+
+This release lets `leiosnotify` producers confirm that responses were written before they commit or release delivery state, and it refreshes published documentation to reflect current protocol coverage and test scope.
+
+### New Features
+
+* Improved `leiosnotify` response handling so producers can confirm that a `RequestNext` response was written before they commit or release delivery state, and failed sends or shutdowns now return a clear error instead of only confirming that the response was queued for sending.
+
+### Additional Changes
+
+* Updated published documentation to reflect current protocol coverage, Dijkstra ledger support, and the latest conformance and test totals without changing library runtime behavior.
+
+## v0.187.4
+
+- **Date:** 2026-07-14
+- **Version:** 0.187.4
+
+### Summary
+
+This release keeps the published release history current by recording the prior `v0.187.3` entry.
+
+### Additional Changes
+
+* Updated the release history to include the prior `v0.187.3` entry so recent changes remain easy to review.
+
+## v0.187.3
+
+- **Date:** 2026-07-07
+- **Version:** 0.187.3
+
+### Summary
+
+This release improves Conway redeemer decoding so block syncing keeps moving when duplicate redeemer keys appear in block data accepted by `cardano-node`.
+
+### Bug Fixes
+
+* Fixed Conway redeemer decoding so duplicate `(tag, index)` keys now trigger lenient decoding after a duplicate map key error, while redeemer hashes still come from the original `CBOR` bytes.
+
+## v0.187.1
+
+- **Date:** 2026-07-07
+- **Version:** 0.187.1
+
+### Summary
+
+This release improves Dijkstra block compatibility and restores correct validation for genesis staking pool metadata and VRF keys.
+
+### Breaking Changes
+
+* Updated Dijkstra block bodies to the new `Transactions`, `InvalidTransactions`, `LeiosCertificate`, and `PerasCertificate` layout, and applications that read or build Dijkstra blocks must now validate them with `blake2b256(block_body)`.
+
+### Bug Fixes
+
+* Fixed genesis staking pool parsing so Shelley `publicKey`, `vrf`, `owners`, and `metadata` aliases load correctly and pools validate with the expected VRF key hash.
+
+* Improved Dijkstra decoding and encoding so inline transactions, transaction offsets, and Plutus V4 witness script offsets match the reference CDDL.
+
+## v0.187.0
+
+- **Date:** 2026-07-06
+- **Version:** 0.187.0
+
+### Summary
+
+This release adds Dijkstra reference-script size checks and updates Leios certificate handling for prototype-2026w27, including a breaking accessor update for downstream consumers.
+
+### New Features
+
+* Added Dijkstra reference-script size limit enforcement so oversized scripts now fail against configured per-transaction and per-block limits with typed errors.
+
+### Breaking Changes
+
+* Updated Leios block headers to expose typed `LeiosCertified` and `LeiosAnnouncement` accessors instead of `LeiosEndorserBlockRef`, and the decoder now rejects malformed placeholder certificates and other wrongly shaped payloads.
+
+### Bug Fixes
+
+* Fixed Dijkstra block encoding so Leios certificates now use the prototype-2026w27 in-body layout and include empty transaction component slots when a Leios certificate is present.
+
+* Improved Leios certificate decoding so only well-formed certificates with `Signers` and `AggregatedSignature` fields load successfully.
+
+## v0.186.3
+
+- **Date:** 2026-07-06
+- **Version:** 0.186.3
+
+### Summary
+
+This release fixes Conway witness decoding for tolerated duplicate set members and keeps CI linting tooling current.
+
+### Bug Fixes
+
+* Fixed Conway witness decoding so historical blocks with duplicate `vkey` witnesses, `bootstrap` witnesses, `native` scripts, or `Plutus` data now decode successfully in Conway protocol versions 9 through 11 instead of failing with `duplicate member in set`, while `Plutus` script sets still reject duplicates.
+
+### Additional Changes
+
+* Updated the lint workflow to use `golangci-lint` action v9.3.0, leaving application runtime unchanged.
+
+## v0.186.2
+
+- **Date:** 2026-07-05
+- **Version:** 0.186.2
+
+### Summary
+
+This release tightens duplicate-member validation in Dijkstra and Conway tagged set decoding and makes pre-Conway `MultiAsset` decoding more tolerant of duplicate map keys.
+
+### Bug Fixes
+
+* Strengthened duplicate-member validation in Dijkstra and Conway tagged set decoding and added negative fixtures for duplicate witness, redeemer, sub-transaction, input, and guard set members.
+
+* Improved pre-Conway `MultiAsset` decoding to accept duplicate `PolicyID` and `AssetName` keys with last-wins behavior while Conway and Dijkstra still reject duplicate `MultiAsset` keys after decode.
+
+### Additional Changes
+
+* Refined the prior `v0.186.1` release note wording for clarity and consistency.
+
 ## v0.186.1
 
 - **Date:** 2026-06-30

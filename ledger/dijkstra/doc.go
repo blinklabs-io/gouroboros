@@ -21,8 +21,20 @@
 // maintained in IntersectMBO/cardano-ledger. The pinned version we aim to be
 // compatible with is:
 //
-//	https://github.com/IntersectMBO/cardano-ledger/blob/c47305fcf47bd77437b837d0dfb9cb4181bfbc77/eras/dijkstra/impl/cddl/data/dijkstra.cddl
+//	https://github.com/IntersectMBO/cardano-ledger/blob/a24a2d69b6251d41bad96e53dbd40aabfe1bb25c/eras/dijkstra/impl/cddl/data/dijkstra.cddl
 //
-// When updating types to track upstream changes, bump the commit hash above so
-// it always records the exact CDDL revision this package was validated against.
+// This is the commit the respun ouroboros-leios prototype-2026w27 "musashi"
+// testnet is built against (dated 2026-06-29, two days before the network's
+// 2026-07-01 systemStart). At this revision block = [header, block_body] with a
+// four-field block_body ([invalid_transactions, transactions, leios_certificate,
+// peras_certificate]) and leios_certificate = [signers, aggregated_signature :
+// bytes .size 48]. An earlier revision used a flat seven-element segwit block;
+// this package tracks the two-element form the deployed network actually serves.
+//
+// A verbatim copy of that revision's CDDL is vendored at
+// testdata/dijkstra.cddl for reference and diffing against upstream.
+//
+// When updating types to track upstream changes, bump the commit hash above,
+// refresh testdata/dijkstra.cddl from the same revision, and keep them in sync
+// so this package always records the exact CDDL it was validated against.
 package dijkstra

@@ -133,6 +133,10 @@ func (c *Client) BlockRequest(
 	if !ok {
 		return nil, protocol.ErrProtocolShuttingDown
 	}
+	// The server reported the endorser block as not available
+	if _, ok := resp.(*MsgNoBlock); ok {
+		return nil, ErrBlockNotFound
+	}
 	return resp, nil
 }
 
@@ -148,6 +152,10 @@ func (c *Client) BlockTxsRequest(
 	resp, ok := <-c.blockTxsResultChan
 	if !ok {
 		return nil, protocol.ErrProtocolShuttingDown
+	}
+	// The server reported the endorser block transactions as not available
+	if _, ok := resp.(*MsgNoBlockTxs); ok {
+		return nil, ErrBlockTxsNotFound
 	}
 	return resp, nil
 }
@@ -196,8 +204,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	switch msg.Type() {
 	case MessageTypeBlock:
 		c.handleBlock(msg)
+	case MessageTypeNoBlock:
+		c.handleNoBlock(msg)
 	case MessageTypeBlockTxs:
 		c.handleBlockTxs(msg)
+	case MessageTypeNoBlockTxs:
+		c.handleNoBlockTxs(msg)
 	case MessageTypeVotes:
 		c.handleVotes(msg)
 	case MessageTypeNextBlockAndTxsInRange:
@@ -218,7 +230,29 @@ func (c *Client) handleBlock(msg protocol.Message) {
 	c.blockResultChan <- msg
 }
 
+func (c *Client) handleNoBlock(msg protocol.Message) {
+	c.Protocol.Logger().
+		Debug("endorser block not available",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.blockResultChan <- msg
+}
+
 func (c *Client) handleBlockTxs(msg protocol.Message) {
+	c.blockTxsResultChan <- msg
+}
+
+func (c *Client) handleNoBlockTxs(msg protocol.Message) {
+	c.Protocol.Logger().
+		Debug("endorser block transactions not available",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
 	c.blockTxsResultChan <- msg
 }
 

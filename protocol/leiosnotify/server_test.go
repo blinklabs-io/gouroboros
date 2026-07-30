@@ -66,6 +66,18 @@ func writeLeiosNotifyTestSegment(
 	require.NoError(t, err)
 }
 
+type leiosNotifyFailWriteConn struct {
+	net.Conn
+}
+
+var errLeiosNotifyTestWrite = errors.New(
+	"test: forced transport write failure",
+)
+
+func (leiosNotifyFailWriteConn) Write([]byte) (int, error) {
+	return 0, errLeiosNotifyTestWrite
+}
+
 func TestNewServer(t *testing.T) {
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
@@ -110,6 +122,169 @@ func TestHandleRequestNext_CallbackIsCalled(t *testing.T) {
 	// Error is expected because we return an error from the callback
 	assert.Error(t, err)
 	assert.True(t, called, "expected RequestNextFunc to be called")
+}
+
+func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+
+	response := NewMsgBlockAnnouncement(cbor.RawMessage{0x82, 0x01, 0x02})
+	type sendResult struct {
+		msg protocol.Message
+		err error
+	}
+	resultCh := make(chan sendResult, 1)
+	cfg := NewConfig(
+		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
+			return response, nil
+		}),
+		WithResponseSentFunc(func(
+			_ CallbackContext,
+			msg protocol.Message,
+			err error,
+		) {
+			resultCh <- sendResult{msg: msg, err: err}
+		}),
+	)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        m,
+	}, &cfg)
+	server.Start()
+	defer server.Protocol.Stop()
+	m.Start()
+
+	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	_, err = readLeiosNotifyTestSegment(t, connB)
+	require.NoError(t, err)
+
+	select {
+	case result := <-resultCh:
+		require.Same(t, response, result.msg)
+		require.NoError(t, result.err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for response send callback")
+	}
+}
+
+func TestHandleRequestNextReportsFailedSend(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	resultCh := make(chan error, 1)
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(leiosNotifyFailWriteConn{Conn: connA})
+	defer m.Stop()
+	cfg := NewConfig(
+		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
+			return NewMsgBlockAnnouncement(cbor.RawMessage{0x81, 0x01}), nil
+		}),
+		WithResponseSentFunc(func(
+			_ CallbackContext,
+			_ protocol.Message,
+			err error,
+		) {
+			resultCh <- err
+		}),
+	)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        m,
+	}, &cfg)
+	server.Start()
+	defer server.Protocol.Stop()
+	m.Start()
+
+	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+
+	select {
+	case sendErr := <-resultCh:
+		require.ErrorIs(t, sendErr, errLeiosNotifyTestWrite)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for failed response send callback")
+	}
+}
+
+func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+
+	requestCalled := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	resultCh := make(chan error, 1)
+	cfg := NewConfig(
+		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
+			close(requestCalled)
+			// Keep the response from being queued until shutdown is observable.
+			<-releaseRequest
+			return NewMsgBlockAnnouncement(cbor.RawMessage{0x81, 0x01}), nil
+		}),
+		WithResponseSentFunc(func(
+			_ CallbackContext,
+			_ protocol.Message,
+			err error,
+		) {
+			resultCh <- err
+		}),
+	)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        m,
+	}, &cfg)
+	server.Start()
+	m.Start()
+
+	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
+	require.NoError(t, err)
+	writeLeiosNotifyTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+	select {
+	case <-requestCalled:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for request callback")
+	}
+	server.Protocol.Stop()
+	close(releaseRequest)
+
+	select {
+	case sendErr := <-resultCh:
+		require.ErrorIs(t, sendErr, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for shutdown delivery callback")
+	}
 }
 
 func TestHandleRequestNext_NilCallback(t *testing.T) {

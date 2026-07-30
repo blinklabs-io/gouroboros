@@ -15,10 +15,153 @@
 package protocol
 
 import (
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestEnqueueMessageReturnsWhenFullQueueShutsDown(t *testing.T) {
+	tests := []struct {
+		name     string
+		shutdown func(*Protocol)
+	}{
+		{
+			name: "protocol stop",
+			shutdown: func(p *Protocol) {
+				close(p.stopChan)
+			},
+		},
+		{
+			name: "protocol done",
+			shutdown: func(p *Protocol) {
+				close(p.doneChan)
+			},
+		},
+		{
+			name: "muxer done",
+			shutdown: func(p *Protocol) {
+				close(p.muxerDoneChan)
+			},
+		},
+		{
+			name: "receive loop done",
+			shutdown: func(p *Protocol) {
+				close(p.recvDoneChan)
+			},
+		},
+		{
+			name: "send loop done",
+			shutdown: func(p *Protocol) {
+				close(p.sendDoneChan)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			p := &Protocol{
+				stopChan:      make(chan struct{}),
+				doneChan:      make(chan struct{}),
+				muxerDoneChan: make(chan bool),
+				recvDoneChan:  make(chan struct{}),
+				sendDoneChan:  make(chan struct{}),
+				sendQueueChan: make(chan outboundMessage, 1),
+			}
+			p.sendQueueChan <- outboundMessage{}
+
+			msg := &MessageBase{}
+			msg.SetCbor([]byte{0x80})
+			resultChan := make(chan error, 1)
+			go func() {
+				resultChan <- p.enqueueMessage(msg, nil)
+			}()
+
+			require.Eventually(t, func() bool {
+				p.pendingBytesMu.Lock()
+				defer p.pendingBytesMu.Unlock()
+				return p.pendingSendBytes == 1
+			}, time.Second, time.Millisecond)
+
+			test.shutdown(p)
+			select {
+			case err := <-resultChan:
+				require.ErrorIs(t, err, ErrProtocolShuttingDown)
+			case <-time.After(time.Second):
+				t.Fatal("enqueueMessage remained blocked during shutdown")
+			}
+
+			p.pendingBytesMu.Lock()
+			defer p.pendingBytesMu.Unlock()
+			require.Zero(t, p.pendingSendBytes)
+		})
+	}
+}
+
+func TestWaitForMessageDeliveryPrefersReportedResult(t *testing.T) {
+	deliveryErr := errors.New("write failed")
+
+	tests := []struct {
+		name     string
+		shutdown func(*Protocol)
+	}{
+		{
+			name: "protocol stop",
+			shutdown: func(p *Protocol) {
+				close(p.stopChan)
+			},
+		},
+		{
+			name: "protocol done",
+			shutdown: func(p *Protocol) {
+				close(p.doneChan)
+			},
+		},
+		{
+			name: "muxer done",
+			shutdown: func(p *Protocol) {
+				close(p.muxerDoneChan)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for range 100 {
+				deliveryChan := make(chan error, 1)
+				deliveryChan <- deliveryErr
+				p := &Protocol{
+					stopChan:      make(chan struct{}),
+					doneChan:      make(chan struct{}),
+					muxerDoneChan: make(chan bool),
+				}
+				test.shutdown(p)
+
+				require.ErrorIs(
+					t,
+					p.waitForMessageDelivery(deliveryChan),
+					deliveryErr,
+				)
+			}
+		})
+	}
+}
+
+func TestWaitForMessageDeliveryReportsShutdownWithoutResult(t *testing.T) {
+	p := &Protocol{
+		stopChan:      make(chan struct{}),
+		doneChan:      make(chan struct{}),
+		muxerDoneChan: make(chan bool),
+	}
+	close(p.stopChan)
+
+	require.ErrorIs(
+		t,
+		p.waitForMessageDelivery(make(chan error, 1)),
+		ErrProtocolShuttingDown,
+	)
+}
 
 func TestIsDone(t *testing.T) {
 	stateIdle := NewState(1, "Idle")

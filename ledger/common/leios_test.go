@@ -102,6 +102,20 @@ func TestLeiosVoteRejectsInvalidSignatureLength(t *testing.T) {
 	assert.Contains(t, err.Error(), "VoteSignature")
 }
 
+func TestLeiosPrototypeVoteRejectsInvalidSignatureLength(t *testing.T) {
+	encoded, err := cbor.Encode([]any{
+		NewBlake2b256([]byte{0x01}),
+		uint64(42),
+		[]byte{0xaa},
+	})
+	require.NoError(t, err)
+
+	var decoded LeiosPrototypeVote
+	_, err = cbor.Decode(encoded, &decoded)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "VoteSignature")
+}
+
 func TestLeiosEbCertificateCborRoundTrip(t *testing.T) {
 	cert := LeiosEbCertificate{
 		SlotNo:              99,

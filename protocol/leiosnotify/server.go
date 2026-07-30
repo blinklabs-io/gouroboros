@@ -119,10 +119,11 @@ func (s *Server) handleRequestNext() error {
 			"received leios-notify NotificationRequestNext message but callback returned nil",
 		)
 	}
-	if err := s.SendMessage(resp); err != nil {
-		return err
+	sendErr := s.SendMessageAndWait(resp)
+	if s.config.ResponseSentFunc != nil {
+		s.config.ResponseSentFunc(s.callbackContext, resp, sendErr)
 	}
-	return nil
+	return sendErr
 }
 
 func (s *Server) handleDone() {

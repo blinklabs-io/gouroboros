@@ -625,26 +625,9 @@ func UtxoValidateWithdrawals(
 	}
 
 	for addr := range withdrawals {
-		// Extract credential from reward address staking payload
-		stakingPayload := addr.StakingPayload()
-		if stakingPayload == nil {
+		cred, ok := addr.StakeCredential()
+		if !ok {
 			continue
-		}
-
-		var cred common.Credential
-		switch p := stakingPayload.(type) {
-		case common.AddressPayloadKeyHash:
-			cred = common.Credential{
-				CredType:   common.CredentialTypeAddrKeyHash,
-				Credential: common.NewBlake2b224(p.Hash.Bytes()),
-			}
-		case common.AddressPayloadScriptHash:
-			cred = common.Credential{
-				CredType:   common.CredentialTypeScriptHash,
-				Credential: common.NewBlake2b224(p.Hash.Bytes()),
-			}
-		default:
-			continue // Pointer addresses not supported
 		}
 
 		// Check if reward account is registered

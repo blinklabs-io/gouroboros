@@ -176,3 +176,43 @@ var ErrMalformedReferenceScripts = errors.New("malformed reference scripts")
 func (MalformedReferenceScriptsError) Is(target error) bool {
 	return target == ErrMalformedReferenceScripts
 }
+
+// RefScriptSizePerTxTooLargeError indicates the total reference-script size in a
+// transaction's outputs exceeds the per-transaction limit.
+type RefScriptSizePerTxTooLargeError struct {
+	TxSize  uint64
+	MaxSize uint64
+}
+
+func (e RefScriptSizePerTxTooLargeError) Error() string {
+	return fmt.Sprintf(
+		"reference-script size per transaction too large: %d > %d",
+		e.TxSize, e.MaxSize,
+	)
+}
+
+var ErrRefScriptSizePerTxTooLarge = errors.New("reference-script size per transaction too large")
+
+func (RefScriptSizePerTxTooLargeError) Is(target error) bool {
+	return target == ErrRefScriptSizePerTxTooLarge
+}
+
+// RefScriptSizePerBlockTooLargeError indicates the total reference-script size
+// in a block's transaction outputs exceeds the per-block limit.
+type RefScriptSizePerBlockTooLargeError struct {
+	BlockSize uint64
+	MaxSize   uint64
+}
+
+func (e RefScriptSizePerBlockTooLargeError) Error() string {
+	return fmt.Sprintf(
+		"reference-script size per block too large: %d > %d",
+		e.BlockSize, e.MaxSize,
+	)
+}
+
+var ErrRefScriptSizePerBlockTooLarge = errors.New("reference-script size per block too large")
+
+func (RefScriptSizePerBlockTooLargeError) Is(target error) bool {
+	return target == ErrRefScriptSizePerBlockTooLarge
+}

@@ -141,8 +141,11 @@ type DRepRegistration struct {
 	Deposit    uint64
 }
 
-type DRepDelegation struct {
-	DRep Blake2b224
+// DRepDelegationState is the optional ledger-state capability used to query
+// governance vote delegations. Ledger states used to validate PV10 or PV11
+// reward withdrawals must implement this interface.
+type DRepDelegationState interface {
+	DRepDelegation(Credential) (*Drep, error)
 }
 
 type PoolDelegation struct {

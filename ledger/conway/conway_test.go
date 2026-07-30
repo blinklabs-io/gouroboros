@@ -28,6 +28,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConwayRedeemersIter(t *testing.T) {
@@ -222,6 +223,45 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{
+			name: "mint duplicate policy",
+			body: append(
+				[]byte{0xa1, 0x09},
+				testDuplicatePolicyMultiAssetCbor(0x11)...,
+			),
+		},
+		{
+			name: "mint duplicate asset name",
+			body: append(
+				[]byte{0xa1, 0x09},
+				testDuplicateAssetNameMultiAssetCbor(0x22)...,
+			),
+		},
+		{
+			name: "output duplicate asset name",
+			body: append(
+				[]byte{0xa1, 0x01, 0x81},
+				testBabbageOutputWithAssetsCbor(
+					t,
+					testDuplicateAssetNameMultiAssetCbor(0x33),
+				)...,
+			),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body ConwayTransactionBody
+			err := body.UnmarshalCBOR(tt.body)
+			assert.ErrorContains(t, err, "duplicate map key")
+		})
+	}
+}
+
 func TestConwayTransactionBodyRejectsDuplicateTaggedSetFields(t *testing.T) {
 	input := testConwayShelleyInput()
 	var signer common.Blake2b224
@@ -267,7 +307,11 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedSetFields(t *testing.T) {
 	}
 }
 
-func TestConwayWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
+// Conway (protocol versions 9-11) tolerates duplicate vkey witnesses:
+// cardano-ledger decodes them via Set.fromList and only begins rejecting
+// duplicates at protocol version 12 (Dijkstra). Rejecting at decode in Conway
+// wrongly rejects valid historical blocks (issue #1853).
+func TestConwayWitnessSetToleratesDuplicateTaggedVkeyWitness(t *testing.T) {
 	dupCbor := []byte{
 		0xa1,             // map(1)
 		0x00,             // key: 0  (VkeyWitnesses field)
@@ -279,7 +323,96 @@ func TestConwayWitnessSetRejectsDuplicateTaggedVkeyWitness(t *testing.T) {
 
 	var ws ConwayTransactionWitnessSet
 	err := ws.UnmarshalCBOR(dupCbor)
+	assert.NoError(t, err,
+		"Conway must tolerate duplicate vkey witnesses (dedup at decode, matching cardano-ledger pv 9-11)")
+}
+
+func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		field  byte
+		member []byte
+	}{
+		{
+			name:  "bootstrap witnesses",
+			field: 0x02,
+			member: []byte{
+				0x84,                   // BootstrapWitness
+				0x41, 0x01, 0x41, 0x02, // public key, signature
+				0x41, 0x03, 0x41, 0x04, // chain code, attributes
+			},
+		},
+		{
+			name:   "native scripts",
+			field:  0x01,
+			member: []byte{0x82, 0x00, 0x41, 0x01}, // pubkey script
+		},
+		{
+			name:   "plutus data",
+			field:  0x04,
+			member: []byte{0x00}, // integer datum
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ws ConwayTransactionWitnessSet
+			err := ws.UnmarshalCBOR(
+				duplicateTaggedWitnessSetFieldCbor(tt.field, tt.member),
+			)
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// Plutus script sets reject duplicates from protocol version 9 (cardano-ledger
+// scriptDecoderV9), so Conway must still reject them at decode.
+func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV1Script(t *testing.T) {
+	dupCbor := []byte{
+		0xa1,             // map(1)
+		0x03,             // key: 3  (WsPlutusV1Scripts field)
+		0xd9, 0x01, 0x02, // tag(258) - CBOR set
+		0x82,       // array(2)
+		0x41, 0x01, // PlutusV1Script [0x01]
+		0x41, 0x01, // duplicate
+	}
+
+	var ws ConwayTransactionWitnessSet
+	err := ws.UnmarshalCBOR(dupCbor)
 	assert.ErrorContains(t, err, "duplicate member in set")
+}
+
+func TestConwayWitnessSetRejectsDuplicateTaggedPlutusV2AndV3Scripts(t *testing.T) {
+	tests := []struct {
+		name  string
+		field byte
+	}{
+		{name: "Plutus V2", field: 0x06},
+		{name: "Plutus V3", field: 0x07},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ws ConwayTransactionWitnessSet
+			err := ws.UnmarshalCBOR(
+				duplicateTaggedWitnessSetFieldCbor(
+					tt.field,
+					[]byte{0x41, 0x01},
+				),
+			)
+			assert.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
+func duplicateTaggedWitnessSetFieldCbor(field byte, member []byte) []byte {
+	ret := []byte{
+		0xa1,             // map(1)
+		field,            // witness set field key
+		0xd9, 0x01, 0x02, // tag(258) - CBOR set
+		0x82, // array(2)
+	}
+	ret = append(ret, member...)
+	ret = append(ret, member...)
+	return ret
 }
 
 func testConwayShelleyInput() shelley.ShelleyTransactionInput {
@@ -289,6 +422,42 @@ func testConwayShelleyInput() shelley.ShelleyTransactionInput {
 		TxId:        txId,
 		OutputIndex: 0,
 	}
+}
+
+func testDuplicatePolicyMultiAssetCbor(policyByte byte) []byte {
+	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
+	ret := []byte{0xa2, 0x58, 0x1c}
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa1, 0x41, 0xaa, 0x01, 0x58, 0x1c)
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa1, 0x41, 0xbb, 0x02)
+	return ret
+}
+
+func testDuplicateAssetNameMultiAssetCbor(policyByte byte) []byte {
+	policy := bytes.Repeat([]byte{policyByte}, common.Blake2b224Size)
+	ret := []byte{0xa1, 0x58, 0x1c}
+	ret = append(ret, policy...)
+	ret = append(ret, 0xa2, 0x41, 0xcc, 0x01, 0x41, 0xcc, 0x09)
+	return ret
+}
+
+func testBabbageOutputWithAssetsCbor(t *testing.T, assets []byte) []byte {
+	t.Helper()
+	addr, err := common.NewAddressFromBytes(
+		test.DecodeHexString(
+			"40000000000000000000000000000000000000000000000000000000008198bd431b03",
+		),
+	)
+	assert.NoError(t, err)
+	addrCbor, err := cbor.Encode(addr)
+	assert.NoError(t, err)
+
+	ret := []byte{0xa2, 0x00}
+	ret = append(ret, addrCbor...)
+	ret = append(ret, 0x01, 0x82, 0x01)
+	ret = append(ret, assets...)
+	return ret
 }
 
 func TestConwayTx_WithReferenceInputs_CborRoundTrip(t *testing.T) {
@@ -429,5 +598,45 @@ func TestConwayTx_WithReferenceScripts_CborRoundTrip(t *testing.T) {
 		cborData,
 		reEncoded,
 		"CBOR round-trip should be byte-identical",
+	)
+}
+
+// TestConwayRedeemersDuplicateKeyLenient verifies that a Redeemers map carrying
+// a duplicate (tag, index) key — which cardano-node accepts and strict decoding
+// rejects — is decoded leniently (last-wins) instead of failing the block.
+// See gouroboros #1860.
+func TestConwayRedeemersDuplicateKeyLenient(t *testing.T) {
+	// Redeemers map with two entries under the same key [Spend(0), index 0]:
+	//   { [0,0]: [0,[1,2]], [0,0]: [0,[3,4]] }
+	// Plutus data is the bare integer 0; the value's second element is
+	// ExUnits [mem, steps].
+	dupCbor := []byte{
+		0xA2,             // map(2)
+		0x82, 0x00, 0x00, // key [Spend, 0]
+		0x82, 0x00, 0x82, 0x01, 0x02, // value [datum=0, exUnits=[1,2]]
+		0x82, 0x00, 0x00, // key [Spend, 0] (duplicate)
+		0x82, 0x00, 0x82, 0x03, 0x04, // value [datum=0, exUnits=[3,4]]
+	}
+	// Strict decode rejects the duplicate key (the pre-fix behavior that
+	// wedged preview sync).
+	var strict map[common.RedeemerKey]common.RedeemerValue
+	_, strictErr := cbor.Decode(dupCbor, &strict)
+	assert.Error(t, strictErr)
+	assert.True(
+		t,
+		cbor.IsDuplicateMapKeyError(strictErr),
+		"expected a duplicate-map-key error, got %v",
+		strictErr,
+	)
+	// ConwayRedeemers decodes it, keeping the last value for the duplicate key.
+	var r ConwayRedeemers
+	require.NoError(t, r.UnmarshalCBOR(dupCbor))
+	key := common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 0}
+	assert.Len(t, r.Redeemers, 1)
+	assert.Equal(
+		t,
+		common.ExUnits{Memory: 3, Steps: 4},
+		r.Redeemers[key].ExUnits,
+		"duplicate key should resolve last-wins",
 	)
 }

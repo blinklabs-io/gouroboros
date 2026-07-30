@@ -26,6 +26,11 @@ import (
 )
 
 // NOTE: these are dummy message IDs and will probably need to be changed
+//
+// NOTE: MessageTypeNoBlock and MessageTypeNoBlockTxs (10 and 11) are
+// placeholder IDs. They must be confirmed against the Leios protocol spec
+// (CIP-0164 or equivalent) before they can be relied on for wire interop with
+// the IOG prototype relay.
 const (
 	MessageTypeBlockRequest           = 0
 	MessageTypeBlock                  = 1
@@ -37,6 +42,8 @@ const (
 	MessageTypeLastBlockAndTxsInRange = 7
 	MessageTypeNextBlockAndTxsInRange = 8
 	MessageTypeDone                   = 9
+	MessageTypeNoBlock                = 10
+	MessageTypeNoBlockTxs             = 11
 )
 
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
@@ -62,6 +69,10 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgNextBlockAndTxsInRange{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
+	case MessageTypeNoBlock:
+		ret = &MsgNoBlock{}
+	case MessageTypeNoBlockTxs:
+		ret = &MsgNoBlockTxs{}
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
@@ -402,6 +413,38 @@ func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeDone,
+		},
+	}
+	return m
+}
+
+// MsgNoBlock is the server's response to a BlockRequest for an endorser block
+// that is not available. It lets the server decline gracefully instead of
+// returning an error that would tear down the connection.
+type MsgNoBlock struct {
+	protocol.MessageBase
+}
+
+func NewMsgNoBlock() *MsgNoBlock {
+	m := &MsgNoBlock{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeNoBlock,
+		},
+	}
+	return m
+}
+
+// MsgNoBlockTxs is the server's response to a BlockTxsRequest whose endorser
+// block transactions are not available. It lets the server decline gracefully
+// instead of returning an error that would tear down the connection.
+type MsgNoBlockTxs struct {
+	protocol.MessageBase
+}
+
+func NewMsgNoBlockTxs() *MsgNoBlockTxs {
+	m := &MsgNoBlockTxs{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeNoBlockTxs,
 		},
 	}
 	return m

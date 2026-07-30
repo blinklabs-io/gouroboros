@@ -279,12 +279,12 @@ func (c *Client) Stop() error {
 	}
 
 	c.lifecycleMutex.Lock()
-	defer c.lifecycleMutex.Unlock()
 
 	if c.lifecycleState != clientStateRunning {
 		if busyLocked {
 			c.busyMutex.Unlock()
 		}
+		c.lifecycleMutex.Unlock()
 		return nil
 	}
 
@@ -300,6 +300,9 @@ func (c *Client) Stop() error {
 	if !c.IsDone() {
 		msg := NewMsgDone()
 		sendErr = c.SendMessage(msg)
+		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
+			sendErr = nil
+		}
 		_ = c.WaitSendQueueDrained(250 * time.Millisecond)
 	}
 	if busyLocked {
@@ -312,7 +315,9 @@ func (c *Client) Stop() error {
 		c.readyForNextBlockChan = nil
 	}
 
-	// Stop/unregister the underlying protocol instance.
+	// Stop/unregister the underlying protocol instance, then wait for it to
+	// finish so IsDone reports the completed shutdown when Stop returns.
+	doneChan := c.DoneChan()
 	c.Protocol.Stop()
 	c.lifecycleState = clientStateStopped
 	// Unblock any goroutine waiting for an in-progress start.
@@ -320,6 +325,8 @@ func (c *Client) Stop() error {
 		close(c.startingDone)
 		c.startingDone = nil
 	}
+	c.lifecycleMutex.Unlock()
+	<-doneChan
 	return sendErr
 }
 
@@ -789,7 +796,6 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	var callbackErr error
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*MsgRollForwardNtN)
-		c.sendCurrentTip(msg.Tip)
 
 		var blockHeader ledger.BlockHeader
 		var blockHeaderBytes []byte
@@ -802,9 +808,17 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
 		default:
 			// Map block header type to block type
-			blockType = ledger.BlockHeaderToBlockTypeMap[blockEra]
+			var ok bool
+			blockType, ok = ledger.BlockHeaderToBlockTypeMap[blockEra]
+			if !ok {
+				return fmt.Errorf(
+					"unknown block header era: %d",
+					blockEra,
+				)
+			}
 			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
 		}
+		c.sendCurrentTip(msg.Tip)
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
 			// Decode header
 			var err error

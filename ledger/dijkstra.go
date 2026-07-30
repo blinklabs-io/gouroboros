@@ -25,7 +25,6 @@ type (
 	DijkstraBlockBody               = dijkstra.DijkstraBlockBody
 	DijkstraBlockHeader             = dijkstra.DijkstraBlockHeader
 	DijkstraLeiosCertificate        = dijkstra.DijkstraLeiosCertificate
-	DijkstraPerasCertificate        = dijkstra.DijkstraPerasCertificate
 	DijkstraTransaction             = dijkstra.DijkstraTransaction
 	DijkstraTransactionBody         = dijkstra.DijkstraTransactionBody
 	DijkstraTransactionOutput       = dijkstra.DijkstraTransactionOutput

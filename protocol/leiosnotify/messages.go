@@ -48,14 +48,14 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgVotesOffer{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
+	default:
+		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, msgType)
 	}
 	if _, err := cbor.Decode(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
-	if ret != nil {
-		// Store the raw message CBOR
-		ret.SetCbor(data)
-	}
+	// Store the raw message CBOR
+	ret.SetCbor(data)
 	return ret, nil
 }
 
@@ -128,16 +128,22 @@ func NewMsgBlockTxsOffer(point pcommon.Point) *MsgBlockTxsOffer {
 //
 //   - Votes holds vote IDs ([slot, voter_id], 2 elements) when the peer offers
 //     IDs to be fetched (dingo's offer-and-fetch design).
-//   - FullVotes holds complete votes ([slot, eb_hash, voter_id, signature], 4
-//     elements) when the peer pushes votes directly (the prototype dialect).
+//   - FullVotes holds legacy complete votes
+//     ([slot, eb_hash, voter_id, signature], 4 elements).
+//   - PrototypeVotes holds current prototype votes
+//     ([announcing_rb_hash, voter_id, signature], 3 elements).
 //
-// After decoding, exactly one of Votes / FullVotes is populated depending on
-// the per-vote CBOR array length. Encoding prefers FullVotes when present.
+// After decoding, exactly one of Votes, FullVotes, or PrototypeVotes is
+// populated depending on the known per-vote CBOR array length. Encoding
+// prefers PrototypeVotes, then FullVotes, when present.
 type MsgVotesOffer struct {
 	protocol.MessageBase
-	Votes     []MsgVotesOfferVote
-	FullVotes []lcommon.LeiosVote
+	Votes          []MsgVotesOfferVote
+	FullVotes      []lcommon.LeiosVote
+	PrototypeVotes []lcommon.LeiosPrototypeVote
 }
+
+type PrototypeVote = lcommon.LeiosPrototypeVote
 
 type MsgVotesOfferVote = lcommon.LeiosVoteId
 
@@ -163,9 +169,20 @@ func NewMsgVotesOfferFull(votes []lcommon.LeiosVote) *MsgVotesOffer {
 	return m
 }
 
+// NewMsgVotesOfferPrototype builds a current-prototype pushed vote offer.
+func NewMsgVotesOfferPrototype(votes []PrototypeVote) *MsgVotesOffer {
+	return &MsgVotesOffer{
+		MessageBase:    protocol.MessageBase{MessageType: MessageTypeVotesOffer},
+		PrototypeVotes: votes,
+	}
+}
+
 func (m *MsgVotesOffer) MarshalCBOR() ([]byte, error) {
 	if raw := m.Cbor(); len(raw) > 0 {
 		return raw, nil
+	}
+	if len(m.PrototypeVotes) > 0 {
+		return cbor.Encode([]any{m.MessageType, m.PrototypeVotes})
 	}
 	if len(m.FullVotes) > 0 {
 		return cbor.Encode([]any{m.MessageType, m.FullVotes})
@@ -188,6 +205,7 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 	m.MessageType = envelope.MessageType
 	m.Votes = nil
 	m.FullVotes = nil
+	m.PrototypeVotes = nil
 	for idx, voteRaw := range envelope.Votes {
 		// Peek at the element count to distinguish a vote ID
 		// ([slot, voter_id]) from a full vote
@@ -224,9 +242,50 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 				)
 			}
 			m.FullVotes = append(m.FullVotes, vote)
+		case 3:
+			// The current prototype signs and diffuses the announcing ranking
+			// block hash, not the endorser-block point.
+			var rbHash []byte
+			if _, err := cbor.Decode(elems[0], &rbHash); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode vote %d announcing RB hash: %w",
+					ProtocolName, idx, err,
+				)
+			}
+			if len(rbHash) != lcommon.Blake2b256Size {
+				return fmt.Errorf(
+					"%s: votes offer: vote %d announcing RB hash is %d bytes, expected %d",
+					ProtocolName, idx, len(rbHash), lcommon.Blake2b256Size,
+				)
+			}
+			var voterId uint64
+			if _, err := cbor.Decode(elems[1], &voterId); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode vote %d voter id: %w",
+					ProtocolName, idx, err,
+				)
+			}
+			var sig []byte
+			if _, err := cbor.Decode(elems[2], &sig); err != nil {
+				return fmt.Errorf(
+					"%s: votes offer: decode vote %d signature: %w",
+					ProtocolName, idx, err,
+				)
+			}
+			if len(sig) != lcommon.LeiosBlsSignatureSize {
+				return fmt.Errorf(
+					"%s: votes offer: vote %d signature is %d bytes, expected %d",
+					ProtocolName, idx, len(sig), lcommon.LeiosBlsSignatureSize,
+				)
+			}
+			m.PrototypeVotes = append(m.PrototypeVotes, PrototypeVote{
+				AnnouncingRbHash: lcommon.NewBlake2b256(rbHash),
+				VoterId:          voterId,
+				VoteSignature:    sig,
+			})
 		default:
 			return fmt.Errorf(
-				"%s: votes offer: vote %d has unexpected element count %d",
+				"%s: votes offer: vote %d unexpected element count %d",
 				ProtocolName,
 				idx,
 				len(elems),

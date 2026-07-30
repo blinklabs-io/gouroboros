@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -79,7 +80,13 @@ func CertifiedNatThreshold(
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
 ) *big.Int {
-	return CertifiedNatThresholdWithMode(poolStake, totalStake, activeSlotCoeff, ConsensusModeCPraos)
+	threshold, _ := CertifiedNatThresholdWithMode(
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		ConsensusModeCPraos,
+	)
+	return threshold
 }
 
 // CertifiedNatThresholdWithMode computes the leadership threshold for a pool
@@ -92,20 +99,32 @@ func CertifiedNatThreshold(
 // For TPraos (Shelley-Alonzo):
 //
 //	T = 2^512 * (1 - (1-f)^σ)
+//
+// Returns an error if the consensus mode is unknown.
 func CertifiedNatThresholdWithMode(
 	poolStake uint64,
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
 	mode ConsensusMode,
-) *big.Int {
+) (*big.Int, error) {
+	var upperBound *big.Int
+	switch mode {
+	case ConsensusModeCPraos:
+		upperBound = twoTo256
+	case ConsensusModeTPraos:
+		upperBound = twoTo512
+	default:
+		return nil, fmt.Errorf("unknown consensus mode: %d", mode)
+	}
+
 	if activeSlotCoeff == nil {
-		return big.NewInt(0)
+		return big.NewInt(0), nil
 	}
 	if totalStake == 0 {
-		return big.NewInt(0)
+		return big.NewInt(0), nil
 	}
 	if poolStake == 0 {
-		return big.NewInt(0)
+		return big.NewInt(0), nil
 	}
 	if poolStake > totalStake {
 		poolStake = totalStake
@@ -136,14 +155,6 @@ func CertifiedNatThresholdWithMode(
 		oneMinusFPowerSigma,
 	)
 
-	// Select the appropriate upper bound based on consensus mode
-	var upperBound *big.Int
-	if mode == ConsensusModeTPraos {
-		upperBound = twoTo512
-	} else {
-		upperBound = twoTo256
-	}
-
 	// threshold = floor(probability * upperBound)
 	upperBoundFloat := new(big.Float).SetPrec(prec).SetInt(upperBound)
 	thresholdFloat := new(big.Float).SetPrec(prec).Mul(
@@ -152,7 +163,7 @@ func CertifiedNatThresholdWithMode(
 	)
 	threshold, _ := thresholdFloat.Int(nil)
 
-	return threshold
+	return threshold, nil
 }
 
 // lnOneMinusFloat computes ln(1-x) for 0 < x < 1 using Taylor series:
@@ -248,7 +259,12 @@ func VRFOutputToInt(output []byte) *big.Int {
 // It first computes the CPRAOS leader value (BLAKE2b-256 hash with "L" prefix)
 // then compares against the threshold.
 func IsVRFOutputBelowThreshold(vrfOutput []byte, threshold *big.Int) bool {
-	return IsVRFOutputBelowThresholdWithMode(vrfOutput, threshold, ConsensusModeCPraos)
+	below, _ := IsVRFOutputBelowThresholdWithMode(
+		vrfOutput,
+		threshold,
+		ConsensusModeCPraos,
+	)
+	return below
 }
 
 // IsVRFOutputBelowThresholdWithMode checks if a VRF output is below the leadership
@@ -261,25 +277,33 @@ func IsVRFOutputBelowThreshold(vrfOutput []byte, threshold *big.Int) bool {
 // For TPraos (Shelley-Alonzo):
 //   - Uses raw 64-byte VRF output directly
 //   - Compares against threshold (based on 2^512)
-//
-// Unknown consensus modes are treated as CPRAOS (the current default).
-func IsVRFOutputBelowThresholdWithMode(vrfOutput []byte, threshold *big.Int, mode ConsensusMode) bool {
+func IsVRFOutputBelowThresholdWithMode(
+	vrfOutput []byte,
+	threshold *big.Int,
+	mode ConsensusMode,
+) (bool, error) {
+	var useRawOutput bool
+	switch mode {
+	case ConsensusModeCPraos:
+	case ConsensusModeTPraos:
+		useRawOutput = true
+	default:
+		return false, fmt.Errorf("unknown consensus mode: %d", mode)
+	}
+
 	if threshold == nil {
-		return false
+		return false, nil
 	}
 	if len(vrfOutput) == 0 {
-		return false
+		return false, nil
 	}
 
 	var leaderValue []byte
-	if mode == ConsensusModeTPraos {
-		// TPraos: use raw VRF output directly
+	if useRawOutput {
 		leaderValue = vrfOutput
 	} else {
-		// CPRAOS (default): hash with "L" prefix
 		leaderValue = VrfLeaderValue(vrfOutput)
 	}
-
 	vrfInt := VRFOutputToInt(leaderValue)
-	return vrfInt.Cmp(threshold) < 0
+	return vrfInt.Cmp(threshold) < 0, nil
 }

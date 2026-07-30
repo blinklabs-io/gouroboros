@@ -37,6 +37,36 @@ type LeiosVote struct {
 	VoteSignature     []byte
 }
 
+// LeiosPrototypeVote is the current prototype vote wire shape. Its signed
+// message is AnnouncingRbHash. Slot and endorser-block identity are resolved
+// from the announcing ranking block by the consumer.
+type LeiosPrototypeVote struct {
+	cbor.StructAsArray
+	AnnouncingRbHash Blake2b256
+	VoterId          uint64
+	VoteSignature    []byte
+}
+
+func (v *LeiosPrototypeVote) UnmarshalCBOR(cborData []byte) error {
+	type tLeiosPrototypeVote LeiosPrototypeVote
+	var tmp tLeiosPrototypeVote
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := LeiosPrototypeVote(tmp).Validate(); err != nil {
+		return err
+	}
+	*v = LeiosPrototypeVote(tmp)
+	return nil
+}
+
+func (v LeiosPrototypeVote) Validate() error {
+	return ValidateLeiosSignature(
+		"LeiosPrototypeVote: VoteSignature",
+		v.VoteSignature,
+	)
+}
+
 func (v LeiosVote) MarshalCBOR() ([]byte, error) {
 	if raw := v.Cbor(); len(raw) > 0 {
 		return raw, nil

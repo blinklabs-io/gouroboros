@@ -50,7 +50,7 @@ type Protocol struct {
 	muxerSendChan       chan *muxer.Segment
 	muxerRecvChan       chan *muxer.Segment
 	muxerDoneChan       chan bool
-	sendQueueChan       chan Message
+	sendQueueChan       chan outboundMessage
 	recvDoneChan        chan struct{}
 	recvQueueChan       chan Message
 	recvReadyChan       chan bool
@@ -121,6 +121,11 @@ type protocolStateTransition struct {
 	errorChan chan<- error
 }
 
+type outboundMessage struct {
+	message      Message
+	deliveryChan chan error
+}
+
 // MessageHandlerFunc represents a function that handles an incoming message
 type MessageHandlerFunc func(Message) error
 
@@ -168,7 +173,7 @@ func (p *Protocol) Start() {
 		}
 
 		// Create channels
-		p.sendQueueChan = make(chan Message, 80)
+		p.sendQueueChan = make(chan outboundMessage, 80)
 		p.recvQueueChan = make(chan Message, p.config.RecvQueueSize)
 		p.recvReadyChan = make(chan bool, 1)
 		p.sendReadyChan = make(chan bool, 1)
@@ -313,11 +318,56 @@ func (p *Protocol) getCurrentState() State {
 
 // SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
+	return p.enqueueMessage(msg, nil)
+}
+
+// SendMessageAndWait queues a message and waits until its final muxer segment
+// is written to the underlying connection. It returns an error if the write
+// fails or the protocol shuts down before delivery completes.
+func (p *Protocol) SendMessageAndWait(msg Message) error {
+	deliveryChan := make(chan error, 1)
+	if err := p.enqueueMessage(msg, deliveryChan); err != nil {
+		return err
+	}
+	return p.waitForMessageDelivery(deliveryChan)
+}
+
+func (p *Protocol) waitForMessageDelivery(deliveryChan <-chan error) error {
+	select {
+	case err := <-deliveryChan:
+		return err
+	case <-p.stopChan:
+		return deliveryResultOrShutdown(deliveryChan)
+	case <-p.doneChan:
+		return deliveryResultOrShutdown(deliveryChan)
+	case <-p.muxerDoneChan:
+		return deliveryResultOrShutdown(deliveryChan)
+	}
+}
+
+// deliveryResultOrShutdown preserves a delivery result that was reported
+// immediately before its corresponding shutdown signal became observable.
+func deliveryResultOrShutdown(deliveryChan <-chan error) error {
+	select {
+	case err := <-deliveryChan:
+		return err
+	default:
+		return ErrProtocolShuttingDown
+	}
+}
+
+func (p *Protocol) enqueueMessage(msg Message, deliveryChan chan error) error {
 	// Immediately return if we're already shutting down
 	select {
 	case <-p.stopChan:
 		return ErrProtocolShuttingDown
 	case <-p.doneChan:
+		return ErrProtocolShuttingDown
+	case <-p.muxerDoneChan:
+		return ErrProtocolShuttingDown
+	case <-p.recvDoneChan:
+		return ErrProtocolShuttingDown
+	case <-p.sendDoneChan:
 		return ErrProtocolShuttingDown
 	default:
 	}
@@ -350,8 +400,25 @@ func (p *Protocol) SendMessage(msg Message) error {
 	}
 	p.pendingSendBytes += msgLen
 	p.pendingBytesMu.Unlock()
-	p.sendQueueChan <- msg
-	return nil
+	outbound := outboundMessage{
+		message:      msg,
+		deliveryChan: deliveryChan,
+	}
+	select {
+	case p.sendQueueChan <- outbound:
+		return nil
+	case <-p.stopChan:
+	case <-p.doneChan:
+	case <-p.muxerDoneChan:
+	case <-p.recvDoneChan:
+	case <-p.sendDoneChan:
+	}
+
+	// The message was accounted for above but never reached the queue.
+	p.pendingBytesMu.Lock()
+	p.pendingSendBytes -= msgLen
+	p.pendingBytesMu.Unlock()
+	return ErrProtocolShuttingDown
 }
 
 // SendError sends an error to the handler in the Ouroboros object and stops the protocol.
@@ -428,6 +495,7 @@ waitSendReadyChan:
 		payloadBuf := bytes.NewBuffer(nil)
 		msgCount := 0
 		queueTransition := false
+		var deliveryChan chan error
 	readSendQueueLoop:
 		for {
 			// Get next message from send queue
@@ -437,11 +505,12 @@ waitSendReadyChan:
 			case <-p.recvDoneChan:
 				// Break out of send loop if we're shutting down
 				return
-			case msg, ok := <-p.sendQueueChan:
+			case outbound, ok := <-p.sendQueueChan:
 				if !ok {
 					// We're shutting down
 					return
 				}
+				msg := outbound.message
 				msgCount = msgCount + 1
 
 				// Get raw CBOR from message
@@ -489,6 +558,10 @@ waitSendReadyChan:
 					// Queue any state transitions after the initial one for this message batch
 					queueTransition = true
 				}
+				if outbound.deliveryChan != nil {
+					deliveryChan = outbound.deliveryChan
+					break readSendQueueLoop
+				}
 
 				// We don't want more than maxMessagesPerSegment messages in a segment
 				if msgCount >= maxMessagesPerSegment {
@@ -520,6 +593,18 @@ waitSendReadyChan:
 				segmentPayload,
 				isResponse,
 			)
+			if segment == nil {
+				p.SendError(
+					fmt.Errorf(
+						"%s: failed to create muxer segment",
+						p.config.Name,
+					),
+				)
+				return
+			}
+			if deliveryChan != nil && segmentPayloadLength == payloadBuf.Len() {
+				segment.SetDeliveryChan(deliveryChan)
+			}
 			select {
 			case <-p.stopChan:
 				return

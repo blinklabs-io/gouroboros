@@ -81,6 +81,7 @@ type LeiosNotify struct {
 type Config struct {
 	NotificationFunc NotificationFunc
 	PipelineLimit    int
+	ResponseSentFunc ResponseSentFunc
 	RequestNextFunc  RequestNextFunc
 	Timeout          time.Duration
 }
@@ -100,6 +101,7 @@ type CallbackContext struct {
 // Callback function types
 type (
 	RequestNextFunc  func(CallbackContext) (protocol.Message, error)
+	ResponseSentFunc func(CallbackContext, protocol.Message, error)
 	NotificationFunc func(CallbackContext, protocol.Message) error
 )
 
@@ -186,6 +188,18 @@ func WithRequestNextFunc(
 ) LeiosNotifyOptionFunc {
 	return func(c *Config) {
 		c.RequestNextFunc = requestNextFunc
+	}
+}
+
+// WithResponseSentFunc registers a callback invoked after the server attempts
+// to send a response returned by RequestNextFunc. The callback receives the
+// send result so notification sources can commit or release delivery
+// reservations without advancing them before transport delivery.
+func WithResponseSentFunc(
+	responseSentFunc ResponseSentFunc,
+) LeiosNotifyOptionFunc {
+	return func(c *Config) {
+		c.ResponseSentFunc = responseSentFunc
 	}
 }
 

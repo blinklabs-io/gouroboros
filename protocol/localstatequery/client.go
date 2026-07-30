@@ -576,6 +576,36 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 	return &result, nil
 }
 
+// GetStakeDelegDeposits returns the deposits currently locked by the requested
+// registered stake credentials.
+func (c *Client) GetStakeDelegDeposits(
+	creds []StakeCredential,
+) (*StakeDelegDepositsResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetStakeDelegDeposits(creds: %+v)", creds),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakeDelegDeposits,
+		cbor.NewSetType(creds, true),
+	)
+	var result StakeDelegDepositsResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetGenesisConfig()",
@@ -626,6 +656,23 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 	return &result, nil
 }
 
+// DebugChainDepState returns the consensus chain-dependent state for the
+// acquired point (Shelley sub-query 13).
+//
+// Use this to read the authoritative on-chain operational-certificate counters
+// the node enforces during block validation: [DebugChainDepStateResult]
+// exposes OpCertCounters, a map from each block-issuer key hash (a stake pool's
+// cold-key hash) to the highest operational-certificate issue number the chain
+// has accepted for it. For the common case of just the counters, prefer
+// [Client.GetOpCertCounters].
+//
+// The result also carries the last-applied slot and the evolving/candidate
+// nonces (plus the Praos-only epoch nonces), so it can be combined with the
+// slots-per-KES-period value from [Client.GetGenesisConfig] to derive
+// KES-period-info for a pool's operational certificate.
+//
+// The decoder handles both the Praos (Babbage era and later, including Conway)
+// and TPraos (Shelley through Alonzo) serialisations.
 func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling DebugChainDepState()",
@@ -649,6 +696,22 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// GetOpCertCounters returns the authoritative on-chain operational-certificate
+// issue-number counter the node enforces for each block issuer (a stake pool's
+// cold-key hash). The value for a pool is the highest opcert issue number the
+// chain has accepted; a block presenting a lower number is rejected.
+//
+// This is a typed convenience wrapper over [Client.DebugChainDepState] for the
+// common case of reading only the counters. Use [DebugChainDepStateResult] via
+// DebugChainDepState directly when the slot or nonce fields are also needed.
+func (c *Client) GetOpCertCounters() (map[ledger.Blake2b224]uint64, error) {
+	result, err := c.DebugChainDepState()
+	if err != nil {
+		return nil, err
+	}
+	return result.OpCertCounters, nil
 }
 
 func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
@@ -869,12 +932,18 @@ func (c *Client) GetStakeSnapshots(
 	if err != nil {
 		return nil, err
 	}
-	// Wrap the poolIds in a CBOR set (tag 258)
-	poolIdSet := cbor.NewSetType(poolIds, true)
+	// GetStakeSnapshots takes a StrictMaybe (Set PoolId), encoded as a
+	// list: an empty list selects all pools (SNothing), while a
+	// single-element list holding a tag-258 set restricts the result to
+	// those pools (SJust). See dingo issue #2917.
+	poolFilter := []any{}
+	if len(poolIds) > 0 {
+		poolFilter = append(poolFilter, cbor.NewSetType(poolIds, true))
+	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyStakeSnapshots,
-		poolIdSet,
+		poolFilter,
 	)
 	// The result is wrapped in a single-element array
 	var wrappedResult []StakeSnapshotsResult
@@ -1353,6 +1422,7 @@ func (c *Client) GetProposals() (*ProposalsResult, error) {
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyGetProposals,
+		cbor.NewSetType([]lcommon.GovActionId{}, true),
 	)
 	var result ProposalsResult
 	if err := c.runQuery(query, &result); err != nil {

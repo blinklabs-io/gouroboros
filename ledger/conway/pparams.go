@@ -62,6 +62,11 @@ type ConwayProtocolParameters struct {
 	MinFeeRefScriptCostPerByte *cbor.Rat
 }
 
+// ProtocolMajorVersion returns the active major protocol version.
+func (p *ConwayProtocolParameters) ProtocolMajorVersion() uint {
+	return p.ProtocolVersion.Major
+}
+
 // KeyDepositAmount returns the key deposit as a *big.Int
 func (p *ConwayProtocolParameters) KeyDepositAmount() *big.Int {
 	return new(big.Int).SetUint64(uint64(p.KeyDeposit))

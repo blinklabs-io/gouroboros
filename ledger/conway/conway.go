@@ -290,8 +290,25 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 		// Modern map form — clear any stale legacy state
 		r.legacy = false
 		r.legacyRedeemers = alonzo.AlonzoRedeemers{}
-		_, err := cbor.Decode(cborData, &(r.Redeemers))
-		return err
+		if _, err := cbor.Decode(cborData, &(r.Redeemers)); err != nil {
+			if !cbor.IsDuplicateMapKeyError(err) {
+				return err
+			}
+			// A Redeemers map with a duplicate (tag, index) key. cardano-ledger
+			// decodes this map last-wins and cardano-node accepts such blocks,
+			// so they appear on canonical chains (gouroboros #1860: a preview
+			// block carries a duplicate (Spend, 0) redeemer that cardano-node
+			// accepts). Reject-on-duplicate poisons every peer serving the block
+			// and stalls sync, so decode leniently (last-wins) to match
+			// consensus. Hash-safe: redeemer/tx/block hashes are computed over
+			// the stored raw CBOR (SetCbor above), so lenient struct decoding
+			// never changes them.
+			r.Redeemers = nil
+			if _, err := cbor.DecodeLenient(cborData, &(r.Redeemers)); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	// Legacy array form — clear any stale map state
 	r.Redeemers = nil
@@ -438,17 +455,22 @@ func (w *ConwayTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	// Reject duplicate members in any tag-258 witness set field.
-	// Untagged array fields are left unchecked so pre-Conway encodings remain valid.
+	// Conway (protocol versions 9-11) tolerates duplicate members in the
+	// witness-set sets that cardano-ledger decodes via Set/Map.fromList: vkey
+	// witnesses, bootstrap witnesses, native scripts, and plutus data all
+	// silently deduplicate at decode and only begin rejecting duplicates at
+	// protocol version 12 (Dijkstra, handled by DijkstraTransactionWitnessSet).
+	// Plutus script sets, by contrast, reject duplicates from version 9
+	// (cardano-ledger scriptDecoderV9 / decodeMapLikeEnforceNoDuplicates), like
+	// the tx-body sets. Only enforce the fields cardano-ledger enforces in
+	// Conway; enforcing the tolerated fields rejects valid historical blocks at
+	// decode (issue #1853). Untagged array fields are left unchecked so
+	// pre-Conway encodings remain valid.
 	type duplicateChecker interface {
 		CheckForDuplicates() error
 	}
 	for _, c := range []duplicateChecker{
-		&tmp.VkeyWitnesses,
-		&tmp.WsNativeScripts,
-		&tmp.BootstrapWitnesses,
 		&tmp.WsPlutusV1Scripts,
-		&tmp.WsPlutusData,
 		&tmp.WsPlutusV2Scripts,
 		&tmp.WsPlutusV3Scripts,
 	} {
@@ -620,9 +642,33 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return err
 		}
 	}
+	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
+		return err
+	}
+	for idx := range tmp.TxOutputs {
+		if err := checkMultiAssetDuplicateKeys(tmp.TxOutputs[idx].Assets()); err != nil {
+			return fmt.Errorf("transaction output %d: %w", idx, err)
+		}
+	}
+	if tmp.TxCollateralReturn != nil {
+		if err := checkMultiAssetDuplicateKeys(
+			tmp.TxCollateralReturn.Assets(),
+		); err != nil {
+			return fmt.Errorf("collateral return: %w", err)
+		}
+	}
 	*b = ConwayTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
+	assets *common.MultiAsset[T],
+) error {
+	if assets == nil {
+		return nil
+	}
+	return assets.CheckForDuplicateKeys()
 }
 
 func (b *ConwayTransactionBody) Inputs() []common.TransactionInput {

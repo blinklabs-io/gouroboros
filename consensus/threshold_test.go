@@ -195,6 +195,37 @@ func TestIsVRFOutputBelowThreshold(t *testing.T) {
 	}
 }
 
+func TestThresholdHelpersRejectUnknownConsensusMode(t *testing.T) {
+	const unknownMode = ConsensusMode(99)
+
+	threshold, err := CertifiedNatThresholdWithMode(
+		1,
+		1,
+		big.NewRat(1, 20),
+		unknownMode,
+	)
+	require.EqualError(t, err, "unknown consensus mode: 99")
+	require.Nil(t, threshold)
+
+	below, err := IsVRFOutputBelowThresholdWithMode(
+		make([]byte, 64),
+		big.NewInt(1),
+		unknownMode,
+	)
+	require.EqualError(t, err, "unknown consensus mode: 99")
+	require.False(t, below)
+
+	eligible, err := IsSlotLeaderFromComponentsWithMode(
+		make([]byte, 64),
+		1,
+		1,
+		big.NewRat(1, 20),
+		unknownMode,
+	)
+	require.EqualError(t, err, "unknown consensus mode: 99")
+	require.False(t, eligible)
+}
+
 func TestDifferentActiveSlotCoefficients(t *testing.T) {
 	totalStake := uint64(1000000000)
 	poolStake := uint64(500000000) // 50%

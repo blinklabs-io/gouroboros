@@ -324,6 +324,25 @@ func (e DelegateVoteToUnregisteredDRepError) Error() string {
 // WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
 type WithdrawalFromUnregisteredRewardAccountError = shelley.WithdrawalFromUnregisteredRewardAccountError
 
+// WithdrawalNotDelegatedToDRepError indicates a PV10/PV11 reward withdrawal
+// whose stake credential has no governance vote delegation.
+type WithdrawalNotDelegatedToDRepError struct {
+	RewardAddress common.Address
+}
+
+func (e WithdrawalNotDelegatedToDRepError) Error() string {
+	return "reward withdrawal is not delegated to a DRep: " +
+		e.RewardAddress.String()
+}
+
+// DRepDelegationStateUnavailableError indicates that a ledger state cannot
+// answer the DRep-delegation query required for PV10/PV11 withdrawals.
+type DRepDelegationStateUnavailableError struct{}
+
+func (DRepDelegationStateUnavailableError) Error() string {
+	return "ledger state does not support DRep delegation lookups"
+}
+
 // StakeCredentialAlreadyRegisteredError indicates attempting to register an already registered stake credential
 type StakeCredentialAlreadyRegisteredError struct {
 	Credential common.Credential

@@ -15,6 +15,7 @@
 package cbor
 
 import (
+	"maps"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -55,9 +56,7 @@ func (c *genericTypeCache) getOrCreate(
 	}
 
 	nextTypes := make(map[reflect.Type]reflect.Type, len(currentTypes)+1)
-	for cachedSrcType, cachedType := range currentTypes {
-		nextTypes[cachedSrcType] = cachedType
-	}
+	maps.Copy(nextTypes, currentTypes)
 	nextTypes[srcType] = createdType
 	c.types.Store(&nextTypes)
 	return createdType, nil

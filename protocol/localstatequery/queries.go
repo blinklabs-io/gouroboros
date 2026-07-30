@@ -63,6 +63,7 @@ const (
 	QueryTypeShelleyPoolState                           = 19
 	QueryTypeShelleyStakeSnapshots                      = 20
 	QueryTypeShelleyPoolDistr                           = 21
+	QueryTypeShelleyStakeDelegDeposits                  = 22
 
 	// Conway governance queries (v8+)
 	QueryTypeShelleyConstitution           = 23
@@ -200,52 +201,64 @@ func (q *ShelleyQuery) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	// Decode query
-	tmpQuery, err := decodeQuery(
-		tmpData.Inner.SubQuery,
-		"Block",
-		map[int]any{
-			QueryTypeShelleyLedgerTip:                           &ShelleyLedgerTipQuery{},
-			QueryTypeShelleyEpochNo:                             &ShelleyEpochNoQuery{},
-			QueryTypeShelleyNonMyopicMemberRewards:              &ShelleyNonMyopicMemberRewardsQuery{},
-			QueryTypeShelleyCurrentProtocolParams:               &ShelleyCurrentProtocolParamsQuery{},
-			QueryTypeShelleyProposedProtocolParamsUpdates:       &ShelleyProposedProtocolParamsUpdatesQuery{},
-			QueryTypeShelleyStakeDistribution:                   &ShelleyStakeDistributionQuery{},
-			QueryTypeShelleyUtxoByAddress:                       &ShelleyUtxoByAddressQuery{},
-			QueryTypeShelleyUtxoWhole:                           &ShelleyUtxoWholeQuery{},
-			QueryTypeShelleyDebugEpochState:                     &ShelleyDebugEpochStateQuery{},
-			QueryTypeShelleyCbor:                                &ShelleyCborQuery{},
-			QueryTypeShelleyFilteredDelegationAndRewardAccounts: &ShelleyFilteredDelegationAndRewardAccountsQuery{},
-			QueryTypeShelleyGenesisConfig:                       &ShelleyGenesisConfigQuery{},
-			QueryTypeShelleyDebugNewEpochState:                  &ShelleyDebugNewEpochStateQuery{},
-			QueryTypeShelleyDebugChainDepState:                  &ShelleyDebugChainDepStateQuery{},
-			QueryTypeShelleyRewardProvenance:                    &ShelleyRewardProvenanceQuery{},
-			QueryTypeShelleyUtxoByTxin:                          &ShelleyUtxoByTxinQuery{},
-			QueryTypeShelleyStakePools:                          &ShelleyStakePoolsQuery{},
-			QueryTypeShelleyStakePoolParams:                     &ShelleyStakePoolParamsQuery{},
-			QueryTypeShelleyRewardInfoPools:                     &ShelleyRewardInfoPoolsQuery{},
-			QueryTypeShelleyPoolState:                           &ShelleyPoolStateQuery{},
-			QueryTypeShelleyStakeSnapshots:                      &ShelleyStakeSnapshotsQuery{},
-			QueryTypeShelleyPoolDistr:                           &ShelleyPoolDistrQuery{},
-			// Conway governance queries
-			QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
-			QueryTypeShelleyGovState:               &ShelleyGovStateQuery{},
-			QueryTypeShelleyDRepState:              &ShelleyDRepStateQuery{},
-			QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
-			QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
-			QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
-			QueryTypeShelleyAccountState:           &ShelleyAccountStateQuery{},
-			QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
-			QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
-			QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
-			QueryTypeShelleyGetLedgerPeerSnapshot:  &ShelleyGetLedgerPeerSnapshotQuery{},
-		},
-	)
+	tmpQuery, err := decodeShelleyQuery(tmpData.Inner.SubQuery)
 	if err != nil {
 		return err
 	}
 	q.Era = tmpData.Inner.Era
 	q.Query = tmpQuery
 	return nil
+}
+
+// shelleyQueryTypes returns a fresh decode target for every Shelley
+// block-query leaf. A new map with new pointer values is built per call so
+// concurrent decodes never share mutable state.
+func shelleyQueryTypes() map[int]any {
+	return map[int]any{
+		QueryTypeShelleyLedgerTip:                           &ShelleyLedgerTipQuery{},
+		QueryTypeShelleyEpochNo:                             &ShelleyEpochNoQuery{},
+		QueryTypeShelleyNonMyopicMemberRewards:              &ShelleyNonMyopicMemberRewardsQuery{},
+		QueryTypeShelleyCurrentProtocolParams:               &ShelleyCurrentProtocolParamsQuery{},
+		QueryTypeShelleyProposedProtocolParamsUpdates:       &ShelleyProposedProtocolParamsUpdatesQuery{},
+		QueryTypeShelleyStakeDistribution:                   &ShelleyStakeDistributionQuery{},
+		QueryTypeShelleyUtxoByAddress:                       &ShelleyUtxoByAddressQuery{},
+		QueryTypeShelleyUtxoWhole:                           &ShelleyUtxoWholeQuery{},
+		QueryTypeShelleyDebugEpochState:                     &ShelleyDebugEpochStateQuery{},
+		QueryTypeShelleyCbor:                                &ShelleyCborQuery{},
+		QueryTypeShelleyFilteredDelegationAndRewardAccounts: &ShelleyFilteredDelegationAndRewardAccountsQuery{},
+		QueryTypeShelleyGenesisConfig:                       &ShelleyGenesisConfigQuery{},
+		QueryTypeShelleyDebugNewEpochState:                  &ShelleyDebugNewEpochStateQuery{},
+		QueryTypeShelleyDebugChainDepState:                  &ShelleyDebugChainDepStateQuery{},
+		QueryTypeShelleyRewardProvenance:                    &ShelleyRewardProvenanceQuery{},
+		QueryTypeShelleyUtxoByTxin:                          &ShelleyUtxoByTxinQuery{},
+		QueryTypeShelleyStakePools:                          &ShelleyStakePoolsQuery{},
+		QueryTypeShelleyStakePoolParams:                     &ShelleyStakePoolParamsQuery{},
+		QueryTypeShelleyRewardInfoPools:                     &ShelleyRewardInfoPoolsQuery{},
+		QueryTypeShelleyPoolState:                           &ShelleyPoolStateQuery{},
+		QueryTypeShelleyStakeSnapshots:                      &ShelleyStakeSnapshotsQuery{},
+		QueryTypeShelleyPoolDistr:                           &ShelleyPoolDistrQuery{},
+		QueryTypeShelleyStakeDelegDeposits:                  &ShelleyStakeDelegDepositsQuery{},
+		// Conway governance queries
+		QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
+		QueryTypeShelleyGovState:               &ShelleyGovStateQuery{},
+		QueryTypeShelleyDRepState:              &ShelleyDRepStateQuery{},
+		QueryTypeShelleyDRepStakeDistr:         &ShelleyDRepStakeDistrQuery{},
+		QueryTypeShelleyCommitteeMembersState:  &ShelleyCommitteeMembersStateQuery{},
+		QueryTypeShelleyFilteredVoteDelegatees: &ShelleyFilteredVoteDelegateesQuery{},
+		QueryTypeShelleyAccountState:           &ShelleyAccountStateQuery{},
+		QueryTypeShelleySPOStakeDistr:          &ShelleySPOStakeDistrQuery{},
+		QueryTypeShelleyGetProposals:           &ShelleyGetProposalsQuery{},
+		QueryTypeShelleyGetRatifyState:         &ShelleyGetRatifyStateQuery{},
+		QueryTypeShelleyGetLedgerPeerSnapshot:  &ShelleyGetLedgerPeerSnapshotQuery{},
+	}
+}
+
+// decodeShelleyQuery decodes a single Shelley block-query leaf (the
+// [tag, args...] form without the surrounding era wrapper). It is shared by
+// the era-wrapped path in ShelleyQuery and by the inner query carried by the
+// GetCBOR combinator (ShelleyCborQuery).
+func decodeShelleyQuery(data []byte) (any, error) {
+	return decodeQuery(data, "Block", shelleyQueryTypes())
 }
 
 type HardForkQuery struct {
@@ -324,11 +337,52 @@ type ShelleyDebugEpochStateQuery struct {
 	simpleQueryBase
 }
 
+// ShelleyCborQuery is the GetCBOR query combinator (Shelley sub-query 9).
+// It wraps an inner Shelley block-query whose result the client wants
+// returned as raw serialised CBOR (CBOR-in-CBOR, tag 24). On the wire it is
+// [9, innerQuery]; cardano-cli emits this shape for several queries,
+// e.g. `query stake-snapshot`. Modelling it as a bare [9] (simpleQueryBase)
+// made any GetCBOR-wrapped query fail to decode with "cannot decode CBOR
+// array to struct with different number of elements", closing the NtC
+// connection. See dingo issue #2917.
 type ShelleyCborQuery struct {
-	simpleQueryBase
+	cbor.StructAsArray
+	Type  int
+	Query any
+}
+
+func (q *ShelleyCborQuery) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Type     int
+		SubQuery cbor.RawMessage
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	inner, err := decodeShelleyQuery(tmp.SubQuery)
+	if err != nil {
+		return err
+	}
+	q.Type = tmp.Type
+	q.Query = inner
+	return nil
+}
+
+func (q *ShelleyCborQuery) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode([]any{q.Type, q.Query})
 }
 
 type ShelleyFilteredDelegationAndRewardAccountsQuery struct {
+	cbor.StructAsArray
+	Type  int
+	Creds cbor.SetType[StakeCredential]
+}
+
+// ShelleyStakeDelegDepositsQuery returns the deposit locked by each requested
+// registered stake credential. It was added with node-to-client version 16 and
+// is used by cardano-cli query stake-address-info.
+type ShelleyStakeDelegDepositsQuery struct {
 	cbor.StructAsArray
 	Type  int
 	Creds cbor.SetType[StakeCredential]
@@ -374,8 +428,52 @@ type ShelleyPoolStateQuery struct {
 	simpleQueryBase
 }
 
+// ShelleyStakeSnapshotsQuery is GetStakeSnapshots (Shelley sub-query 20).
+// On the wire it is [20, poolFilter] where poolFilter is a StrictMaybe of a
+// pool-id set, encoded as a list: [] (SNothing) means "all pools", while
+// [ 258{poolids} ] (SJust) restricts the result to the given pools. It was
+// previously modelled as a bare [20] (simpleQueryBase), which could not
+// decode the pool-filter argument once the GetCBOR wrapper around it was
+// decodable. See dingo issue #2917.
 type ShelleyStakeSnapshotsQuery struct {
-	simpleQueryBase
+	cbor.StructAsArray
+	Type  int
+	Pools []cbor.SetType[ledger.PoolId]
+}
+
+func (q *ShelleyStakeSnapshotsQuery) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Type  int
+		Pools []cbor.SetType[ledger.PoolId]
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	// The pool filter is a StrictMaybe (Set PoolId): SNothing ([]) or SJust
+	// ([set]). The CBOR array decodes into a Go slice of any length, so
+	// reject a malformed encoding that carries more than one set rather than
+	// silently dropping the extras in PoolFilter.
+	if len(tmp.Pools) > 1 {
+		return fmt.Errorf(
+			"invalid GetStakeSnapshots pool filter: expected at most one pool set, got %d",
+			len(tmp.Pools),
+		)
+	}
+	q.Type = tmp.Type
+	q.Pools = tmp.Pools
+	return nil
+}
+
+// PoolFilter reports the pool IDs the query is restricted to. When all is
+// true the query covers every pool (the StrictMaybe was SNothing) and pools
+// is nil; when all is false only the returned pools are requested (which may
+// be empty for an explicit SJust of the empty set).
+func (q *ShelleyStakeSnapshotsQuery) PoolFilter() (pools []ledger.PoolId, all bool) {
+	if len(q.Pools) == 0 {
+		return nil, true
+	}
+	return q.Pools[0].Items(), false
 }
 
 type ShelleyPoolDistrQuery struct {
@@ -654,6 +752,22 @@ type FilteredDelegationsAndRewardAccountsResult struct {
 	Rewards     map[StakeCredential]uint64
 }
 
+// StakeDelegDepositsResult is the result of GetStakeDelegDeposits.
+// The map is wrapped in a one-element array by the Shelley era codec.
+type StakeDelegDepositsResult map[StakeCredential]uint64
+
+func (r *StakeDelegDepositsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Deposits map[StakeCredential]uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = tmp.Deposits
+	return nil
+}
+
 func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
@@ -716,8 +830,7 @@ type GenesisConfigResultProtocolParameters struct {
 // TODO (#864)
 type DebugNewEpochStateResult any
 
-// TODO (#865)
-type DebugChainDepStateResult any
+// DebugChainDepStateResult (#865) is defined in chain_dep_state.go.
 
 // RewardProvenanceResult is the result of the GetRewardProvenance query.
 // CBOR: array(1)[array(16)[epochLength, poolMints, maxLovelaceSupply,
@@ -1013,7 +1126,9 @@ type ShelleyAccountStateQuery struct {
 }
 
 type ShelleyGetProposalsQuery struct {
-	simpleQueryBase
+	cbor.StructAsArray
+	Type      int
+	ActionIds cbor.SetType[lcommon.GovActionId]
 }
 
 type ShelleyGetRatifyStateQuery struct {
@@ -1379,7 +1494,20 @@ type CommitteeMembersStateResult struct {
 // FilteredVoteDelegateesResult represents the vote delegatees
 // for stake credentials.
 // The result maps stake credentials to their DRep delegations
+// and is wrapped in a one-element array by the Shelley era codec.
 type FilteredVoteDelegateesResult map[StakeCredential]lcommon.Drep
+
+func (r *FilteredVoteDelegateesResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Delegatees map[StakeCredential]lcommon.Drep
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = tmp.Delegatees
+	return nil
+}
 
 // SPOStakeDistrResult represents the SPO stake distribution for governance
 // Maps pool IDs to their governance voting power
@@ -1390,7 +1518,20 @@ type SPOStakeDistrResult struct {
 
 // ProposalsResult represents the result of a GetProposals query.
 // It contains a list of governance action states for all active proposals.
+// The list is wrapped in a one-element array by the Shelley era codec.
 type ProposalsResult []GovActionState
+
+func (r *ProposalsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Proposals []GovActionState
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = tmp.Proposals
+	return nil
+}
 
 // EnactState represents the enactment state within a ratify state result.
 // It contains the current committee, constitution, protocol parameters,

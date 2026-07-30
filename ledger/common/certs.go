@@ -142,6 +142,17 @@ type Drep struct {
 	Credential []byte
 }
 
+func (d Drep) MarshalCBOR() ([]byte, error) {
+	switch d.Type {
+	case DrepTypeAddrKeyHash, DrepTypeScriptHash:
+		return cbor.Encode([]any{d.Type, d.Credential})
+	case DrepTypeAbstain, DrepTypeNoConfidence:
+		return cbor.Encode([]any{d.Type})
+	default:
+		return nil, fmt.Errorf("unknown drep type: %d", d.Type)
+	}
+}
+
 func (d *Drep) UnmarshalCBOR(data []byte) error {
 	drepType, err := cbor.DecodeIdFromList(data)
 	if err != nil {
@@ -399,6 +410,64 @@ type (
 	VrfKeyHash       = Blake2b256
 )
 
+const (
+	LeiosBlsPublicKeySize       = 96
+	LeiosBlsPossessionProofSize = 48
+)
+
+// LeiosKey is the BLS12-381 verification key and proof of possession
+// optionally registered with a Dijkstra-era stake pool. The prototype accepts
+// this data but does not use it for committee voting yet.
+type LeiosKey struct {
+	cbor.StructAsArray
+	PublicKey       []byte `json:"publicKey"`
+	PossessionProof []byte `json:"possessionProof"`
+}
+
+func (k LeiosKey) validate() error {
+	if len(k.PublicKey) != LeiosBlsPublicKeySize {
+		return fmt.Errorf(
+			"invalid Leios BLS public key length: expected %d, got %d",
+			LeiosBlsPublicKeySize,
+			len(k.PublicKey),
+		)
+	}
+	if len(k.PossessionProof) != LeiosBlsPossessionProofSize {
+		return fmt.Errorf(
+			"invalid Leios BLS possession proof length: expected %d, got %d",
+			LeiosBlsPossessionProofSize,
+			len(k.PossessionProof),
+		)
+	}
+	return nil
+}
+
+func (k *LeiosKey) UnmarshalCBOR(data []byte) error {
+	type tmpLeiosKey LeiosKey
+	var tmp tmpLeiosKey
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if err := LeiosKey(tmp).validate(); err != nil {
+		return err
+	}
+	*k = LeiosKey(tmp)
+	return nil
+}
+
+func (k *LeiosKey) UnmarshalJSON(data []byte) error {
+	type tmpLeiosKey LeiosKey
+	var tmp tmpLeiosKey
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	if err := LeiosKey(tmp).validate(); err != nil {
+		return err
+	}
+	*k = LeiosKey(tmp)
+	return nil
+}
+
 type PoolMetadata struct {
 	cbor.StructAsArray
 	Url  string
@@ -499,6 +568,7 @@ type PoolRegistrationCertificate struct {
 	CertType             uint          `json:"certType,omitempty"`
 	Operator             PoolKeyHash   `json:"operator"`
 	VrfKeyHash           VrfKeyHash    `json:"vrfKeyHash"`
+	LeiosKey             *LeiosKey     `json:"leiosKey,omitempty"`
 	Pledge               uint64        `json:"pledge"`
 	Cost                 uint64        `json:"cost"`
 	Margin               GenesisRat    `json:"margin"`
@@ -512,6 +582,7 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	type tempPool struct {
 		Operator      string          `json:"operator"`
 		VrfKeyHash    string          `json:"vrfKeyHash"`
+		LeiosKey      *LeiosKey       `json:"leiosKey,omitempty"`
 		Pledge        uint64          `json:"pledge"`
 		Cost          uint64          `json:"cost"`
 		Margin        json.RawMessage `json:"margin"`
@@ -525,6 +596,16 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 			Hostname *string `json:"hostname,omitempty"`
 		} `json:"relays"`
 		PoolMetadata *PoolMetadata `json:"poolMetadata,omitempty"`
+
+		// Shelley genesis staking.pools uses different field names than the
+		// on-chain / API representation above for the same values. Accept both
+		// so pools declared in genesis parse correctly — otherwise a genesis
+		// pool's VRF key hash is dropped and reads as all-zeros, which breaks
+		// header VRF-key validation for that pool's blocks.
+		PublicKey string        `json:"publicKey"`
+		Vrf       string        `json:"vrf"`
+		Owners    []string      `json:"owners"`
+		Metadata  *PoolMetadata `json:"metadata,omitempty"`
 	}
 
 	var tmp tempPool
@@ -533,8 +614,28 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("failed to unmarshal pool registration: %w", err)
 	}
 
+	// Resolve fields that have distinct genesis-staking names, preferring the
+	// on-chain/API name when both are present.
+	operator := tmp.Operator
+	if operator == "" {
+		operator = tmp.PublicKey
+	}
+	vrfKeyHash := tmp.VrfKeyHash
+	if vrfKeyHash == "" {
+		vrfKeyHash = tmp.Vrf
+	}
+	poolOwners := tmp.PoolOwners
+	if len(poolOwners) == 0 {
+		poolOwners = tmp.Owners
+	}
+	poolMetadata := tmp.PoolMetadata
+	if poolMetadata == nil {
+		poolMetadata = tmp.Metadata
+	}
+
 	p.Pledge = tmp.Pledge
 	p.Cost = tmp.Cost
+	p.LeiosKey = tmp.LeiosKey
 	p.Relays = make([]PoolRelay, len(tmp.Relays))
 	for i, relay := range tmp.Relays {
 		p.Relays[i] = PoolRelay{
@@ -545,7 +646,7 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 			Hostname: relay.Hostname,
 		}
 	}
-	p.PoolMetadata = tmp.PoolMetadata
+	p.PoolMetadata = poolMetadata
 
 	// Handle margin field
 	if len(tmp.Margin) > 0 {
@@ -585,8 +686,8 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert operator key
-	if tmp.Operator != "" {
-		opBytes, err := hex.DecodeString(tmp.Operator)
+	if operator != "" {
+		opBytes, err := hex.DecodeString(operator)
 		if err != nil {
 			return fmt.Errorf("invalid operator key: %w", err)
 		}
@@ -594,8 +695,8 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert VRF key hash
-	if tmp.VrfKeyHash != "" {
-		vrfBytes, err := hex.DecodeString(tmp.VrfKeyHash)
+	if vrfKeyHash != "" {
+		vrfBytes, err := hex.DecodeString(vrfKeyHash)
 		if err != nil {
 			return fmt.Errorf("invalid VRF key hash: %w", err)
 		}
@@ -603,9 +704,9 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	}
 
 	// Convert pool owners
-	if len(tmp.PoolOwners) > 0 {
-		owners := make([]AddrKeyHash, len(tmp.PoolOwners))
-		for i, owner := range tmp.PoolOwners {
+	if len(poolOwners) > 0 {
+		owners := make([]AddrKeyHash, len(poolOwners))
+		for i, owner := range poolOwners {
 			ownerBytes, err := hex.DecodeString(owner)
 			if err != nil {
 				return fmt.Errorf("invalid pool owner key: %w", err)
@@ -621,14 +722,115 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 func (c PoolRegistrationCertificate) isCertificate() {}
 
 func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
-	type tPoolRegistrationCertificate PoolRegistrationCertificate
-	var tmp tPoolRegistrationCertificate
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+	type legacyPoolRegistrationCertificate struct {
+		cbor.StructAsArray
+		CertType      uint
+		Operator      PoolKeyHash
+		VrfKeyHash    VrfKeyHash
+		Pledge        uint64
+		Cost          uint64
+		Margin        GenesisRat
+		RewardAccount AddrKeyHash
+		PoolOwners    []AddrKeyHash
+		Relays        []PoolRelay
+		PoolMetadata  *PoolMetadata
+	}
+	type leiosPoolRegistrationCertificate struct {
+		cbor.StructAsArray
+		CertType      uint
+		Operator      PoolKeyHash
+		VrfKeyHash    VrfKeyHash
+		LeiosKey      *LeiosKey
+		Pledge        uint64
+		Cost          uint64
+		Margin        GenesisRat
+		RewardAccount AddrKeyHash
+		PoolOwners    []AddrKeyHash
+		Relays        []PoolRelay
+		PoolMetadata  *PoolMetadata
+	}
+
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
 		return err
 	}
-	*c = PoolRegistrationCertificate(tmp)
+	switch len(fields) {
+	case 10:
+		var tmp legacyPoolRegistrationCertificate
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		c.CertType = tmp.CertType
+		c.Operator = tmp.Operator
+		c.VrfKeyHash = tmp.VrfKeyHash
+		c.LeiosKey = nil
+		c.Pledge = tmp.Pledge
+		c.Cost = tmp.Cost
+		c.Margin = tmp.Margin
+		c.RewardAccount = tmp.RewardAccount
+		c.PoolOwners = tmp.PoolOwners
+		c.Relays = tmp.Relays
+		c.PoolMetadata = tmp.PoolMetadata
+	case 11:
+		var tmp leiosPoolRegistrationCertificate
+		if _, err := cbor.Decode(cborData, &tmp); err != nil {
+			return err
+		}
+		c.CertType = tmp.CertType
+		c.Operator = tmp.Operator
+		c.VrfKeyHash = tmp.VrfKeyHash
+		c.LeiosKey = tmp.LeiosKey
+		c.Pledge = tmp.Pledge
+		c.Cost = tmp.Cost
+		c.Margin = tmp.Margin
+		c.RewardAccount = tmp.RewardAccount
+		c.PoolOwners = tmp.PoolOwners
+		c.Relays = tmp.Relays
+		c.PoolMetadata = tmp.PoolMetadata
+	default:
+		return fmt.Errorf(
+			"invalid pool registration certificate: expected 10 or 11 fields, got %d",
+			len(fields),
+		)
+	}
 	c.SetCbor(cborData)
 	return nil
+}
+
+// NOTE: UnmarshalCBOR caches the original CBOR bytes, and MarshalCBOR returns
+// those bytes for both 10- and 11-field variants. Call SetCbor(nil) before
+// marshaling mutated fields.
+func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
+	if cborData := c.Cbor(); cborData != nil {
+		return cborData, nil
+	}
+	if c.LeiosKey == nil {
+		return cbor.Encode([]any{
+			c.CertType,
+			c.Operator,
+			c.VrfKeyHash,
+			c.Pledge,
+			c.Cost,
+			c.Margin,
+			c.RewardAccount,
+			c.PoolOwners,
+			c.Relays,
+			c.PoolMetadata,
+		})
+	}
+	return cbor.Encode([]any{
+		c.CertType,
+		c.Operator,
+		c.VrfKeyHash,
+		c.LeiosKey,
+		c.Pledge,
+		c.Cost,
+		c.Margin,
+		c.RewardAccount,
+		c.PoolOwners,
+		c.Relays,
+		c.PoolMetadata,
+	})
 }
 
 func (c *PoolRegistrationCertificate) Utxorpc() (*utxorpc.Certificate, error) {

@@ -36,9 +36,7 @@ func TestEncodeGenericTypeCacheConcurrent(t *testing.T) {
 	errs := make(chan error, goroutines)
 	results := make(chan []byte, goroutines*iterations)
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range iterations {
 				result, err := cbor.EncodeGeneric(src)
 				if err != nil {
@@ -47,7 +45,7 @@ func TestEncodeGenericTypeCacheConcurrent(t *testing.T) {
 				}
 				results <- result
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -73,9 +71,7 @@ func TestDecodeGenericTypeCacheConcurrent(t *testing.T) {
 	errs := make(chan error, goroutines)
 	results := make(chan *decodeGenericTestStruct, goroutines*iterations)
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range iterations {
 				dest := &decodeGenericTestStruct{}
 				if err := cbor.DecodeGeneric(cborData, dest); err != nil {
@@ -84,7 +80,7 @@ func TestDecodeGenericTypeCacheConcurrent(t *testing.T) {
 				}
 				results <- dest
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

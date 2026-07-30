@@ -26,7 +26,6 @@ import (
 
 type DijkstraProtocolParameters struct {
 	conway.ConwayProtocolParameters
-	// TODO: Wire reference-script size limits into Dijkstra validation rules.
 	MaxRefScriptSizePerBlock uint32
 	MaxRefScriptSizePerTx    uint32
 	RefScriptCostStride      uint32

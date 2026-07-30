@@ -371,16 +371,28 @@ func TestVerifyBlockBody(t *testing.T) {
 					"Dijkstra",
 				)
 				dijkstraHeader := header.(*dijkstra.DijkstraBlockHeader)
+				// Dijkstra stores transactions inline (body + witness set +
+				// metadata), with validity conveyed by the block body's
+				// invalid_transactions index set rather than a per-tx flag.
+				dijkstraTxs := make(
+					[]dijkstra.DijkstraTransaction,
+					len(transactionBodies),
+				)
+				for i := range transactionBodies {
+					tx := dijkstra.DijkstraTransaction{
+						Body:      transactionBodies[i],
+						TxIsValid: true,
+					}
+					if md, ok := metadataSet.GetMetadata(uint(i)); ok {
+						tx.TxMetadata = md
+					}
+					dijkstraTxs[i] = tx
+				}
 				block = &dijkstra.DijkstraBlock{
 					BlockHeader: dijkstraHeader,
 					BlockBody: dijkstra.DijkstraBlockBody{
-						TransactionBodies: transactionBodies,
-						TransactionWitnessSets: make(
-							[]dijkstra.DijkstraTransactionWitnessSet,
-							len(txs),
-						),
-						TransactionMetadataSet: metadataSet,
-						InvalidTransactions:    []uint{},
+						Transactions:        dijkstraTxs,
+						InvalidTransactions: []uint{},
 					},
 				}
 			default:

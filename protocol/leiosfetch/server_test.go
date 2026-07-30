@@ -15,16 +15,108 @@
 package leiosfetch
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"testing"
+	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func readLeiosFetchTestSegment(
+	t *testing.T,
+	conn net.Conn,
+) (*muxer.Segment, error) {
+	t.Helper()
+	header := muxer.SegmentHeader{}
+	if err := binary.Read(conn, binary.BigEndian, &header); err != nil {
+		return nil, err
+	}
+	payload := make([]byte, header.PayloadLength)
+	if _, err := io.ReadFull(conn, payload); err != nil {
+		return nil, err
+	}
+	return &muxer.Segment{
+		SegmentHeader: header,
+		Payload:       payload,
+	}, nil
+}
+
+func writeLeiosFetchTestSegment(
+	t *testing.T,
+	conn net.Conn,
+	segment *muxer.Segment,
+) {
+	t.Helper()
+	require.NotNil(t, segment)
+	buf := &bytes.Buffer{}
+	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
+	_, err := buf.Write(segment.Payload)
+	require.NoError(t, err)
+	_, err = conn.Write(buf.Bytes())
+	require.NoError(t, err)
+}
+
+// sendNotFoundTest drives a real server over a muxer, sending it the given
+// request and returning the message type of the server's response segment. It
+// is used to verify that a not-found callback signal produces the graceful
+// MsgNoBlock/MsgNoBlockTxs response instead of tearing down the connection.
+func sendNotFoundTest(
+	t *testing.T,
+	cfg Config,
+	request protocol.Message,
+) uint {
+	t.Helper()
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        m,
+	}, &cfg)
+	server.Start()
+	defer server.Protocol.Stop()
+	m.Start()
+
+	requestData, err := cbor.Encode(request)
+	require.NoError(t, err)
+	writeLeiosFetchTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(ProtocolId, requestData, false),
+	)
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	segment, err := readLeiosFetchTestSegment(t, connB)
+	require.NoError(t, err)
+	assert.True(t, segment.IsResponse())
+	assert.Equal(t, ProtocolId, segment.GetProtocolId())
+
+	var elems []cbor.RawMessage
+	_, err = cbor.Decode(segment.Payload, &elems)
+	require.NoError(t, err)
+	require.NotEmpty(t, elems)
+	var msgType uint
+	_, err = cbor.Decode(elems[0], &msgType)
+	require.NoError(t, err)
+	return msgType
+}
 
 func TestNewServer(t *testing.T) {
 	connId := connection.ConnectionId{
@@ -165,6 +257,79 @@ func TestHandleBlockRequest_NilResponse(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "callback returned nil")
+}
+
+func TestHandleBlockRequestNotFoundSendsMsgNoBlock(t *testing.T) {
+	cfg := NewConfig(
+		WithBlockRequestFunc(func(CallbackContext, pcommon.Point) (protocol.Message, error) {
+			return nil, ErrBlockNotFound
+		}),
+	)
+	msgType := sendNotFoundTest(
+		t,
+		cfg,
+		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
+}
+
+func TestHandleBlockRequestWrappedNotFoundSendsMsgNoBlock(t *testing.T) {
+	cfg := NewConfig(
+		WithBlockRequestFunc(func(_ CallbackContext, point pcommon.Point) (protocol.Message, error) {
+			return nil, fmt.Errorf(
+				"cache miss for %d: %w",
+				point.Slot,
+				ErrBlockNotFound,
+			)
+		}),
+	)
+	msgType := sendNotFoundTest(
+		t,
+		cfg,
+		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
+}
+
+func TestHandleBlockTxsRequestNotFoundSendsMsgNoBlockTxs(t *testing.T) {
+	cfg := NewConfig(
+		WithBlockTxsRequestFunc(func(CallbackContext, pcommon.Point, map[uint16]uint64) (protocol.Message, error) {
+			return nil, ErrBlockTxsNotFound
+		}),
+	)
+	msgType := sendNotFoundTest(
+		t,
+		cfg,
+		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
+}
+
+func TestHandleBlockRequest_NonNotFoundErrorPropagates(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+
+	expectedError := errors.New("some other failure")
+	cfg := NewConfig(
+		WithBlockRequestFunc(func(CallbackContext, pcommon.Point) (protocol.Message, error) {
+			return nil, expectedError
+		}),
+	)
+
+	server := &Server{
+		config:          &cfg,
+		callbackContext: CallbackContext{ConnectionId: connId},
+	}
+	server.initProtocol()
+
+	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
+	err := server.handleBlockRequest(msg)
+
+	// A non-not-found error is still propagated as a protocol violation
+	assert.Equal(t, expectedError, err)
+	assert.NotErrorIs(t, err, ErrBlockNotFound)
 }
 
 func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {

@@ -40,7 +40,25 @@ type SegmentHeader struct {
 // the actual payload
 type Segment struct {
 	SegmentHeader
-	Payload []byte
+	Payload      []byte
+	deliveryChan chan<- error
+}
+
+// SetDeliveryChan registers a channel that receives the result of writing the
+// segment to the underlying connection. The channel must be buffered so muxer
+// shutdown cannot block on an abandoned receiver.
+func (s *Segment) SetDeliveryChan(deliveryChan chan<- error) {
+	s.deliveryChan = deliveryChan
+}
+
+func (s *Segment) reportDelivery(err error) {
+	if s.deliveryChan == nil {
+		return
+	}
+	select {
+	case s.deliveryChan <- err:
+	default:
+	}
 }
 
 // NewSegment returns a new Segment given a protocol ID, payload bytes, and whether the segment
