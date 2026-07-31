@@ -91,6 +91,15 @@ const (
 	ConwayUtxowMalformedReferenceScripts    = 17
 	ConwayUtxowScriptIntegrityHashMismatch  = 18
 
+	// Dijkstra-only UTXOW failure tags. Dijkstra's UTXOW predicate
+	// failure (DijkstraUtxowPredFailure) shares Conway's tags 0-18
+	// unchanged and adds two new constructors for guarded-subtransaction
+	// validation (confirmed against cardano-ledger
+	// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxow.hs,
+	// EncCBOR/DecCBOR instances).
+	DijkstraUtxowMissingRequiredGuards = 19
+	DijkstraUtxowMalformedGuardDatums  = 20
+
 	// Conway UTXO failure tags (renumbered from Babbage)
 	ConwayUtxoUtxosFailure                = 0
 	ConwayUtxoBadInputsUTxO               = 1
@@ -116,6 +125,40 @@ const (
 	ConwayUtxoBabbageOutputTooSmallUTxO   = 21
 	ConwayUtxoBabbageNonDisjointRefInputs = 22
 
+	// Dijkstra UTXO failure tags. Dijkstra shares Conway's tags 0-7
+	// (UtxosFailure through WrongNetwork) unchanged; tag 8
+	// (WrongNetworkWithdrawal) has no Dijkstra equivalent, see below.
+	// Its Utxo.hs does NOT carry forward a separate OutputTooSmallUTxO
+	// constructor at tag 9 the way Conway does: everything from
+	// OutputBootAddrAttrsTooBig onward is shifted down by one tag versus
+	// Conway's numbering (cardano-ledger
+	// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxo.hs).
+	// Reusing Conway's map/constants here would misdecode a Dijkstra
+	// OutputBootAddrAttrsTooBig (tag 9) as OutputTooSmallUTxO, a Dijkstra
+	// OutputTooBigUTxO (tag 10) as OutputBootAddrAttrsTooBig, and so on.
+	DijkstraUtxoOutputBootAddrAttrsTooBig = 9
+	DijkstraUtxoOutputTooBigUTxO          = 10
+	DijkstraUtxoInsufficientCollateral    = 11
+	DijkstraUtxoScriptsNotPaidUTxO        = 12
+	DijkstraUtxoExUnitsTooBigUTxO         = 13
+	DijkstraUtxoCollateralContainsNonADA  = 14
+	DijkstraUtxoWrongNetworkInTxBody      = 15
+	DijkstraUtxoOutsideForecast           = 16
+	DijkstraUtxoTooManyCollateralInputs   = 17
+	DijkstraUtxoNoCollateralInputs        = 18
+
+	// Dijkstra-only UTXO failure tags 19-24 (confirmed against
+	// cardano-ledger eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/
+	// Rules/Utxo.hs, EncCBOR/DecCBOR instances for
+	// DijkstraUtxoPredFailure). Tag 23 is deliberately absent: Dijkstra's
+	// decCBOR has no case for it (falls through to `Invalid n`), so there
+	// is no real constructor at tag 23 to map here.
+	DijkstraUtxoIncorrectTotalCollateral        = 19
+	DijkstraUtxoBabbageOutputTooSmallUTxO       = 20
+	DijkstraUtxoBabbageNonDisjointRefInputs     = 21
+	DijkstraUtxoPtrPresentInCollateralReturn    = 22
+	DijkstraUtxoWithdrawalsExceedAccountBalance = 24
+
 	UtxoFailureFromAlonzo = 1
 
 	UtxoFailureBadInputsUtxo               = 0
@@ -139,6 +182,9 @@ const (
 
 // Era-specific constants for errors that differ between Cardano eras
 const (
+	// Allegra/Mary era error constants (Shelley has no equivalent tag)
+	UtxoFailureOutputTooBigUtxoAllegraMary = 12
+
 	// Alonzo era error constants
 	UtxoFailureOutputTooBigUtxoAlonzo         = 12
 	UtxoFailureScriptsNotPaidUtxoAlonzo       = 14
@@ -161,10 +207,14 @@ const (
 // Helper type to make the code a little cleaner
 type NewErrorFromCborFunc func([]byte) (error, error)
 
-// getEraSpecificUtxoFailureConstants returns the correct error constants for the given era
+// getEraSpecificUtxoFailureConstants returns the correct error constants
+// for the given era. It returns an error for any era it does not
+// explicitly recognize instead of silently guessing another era's
+// constructor numbering, since a wrong guess would misdecode the failure
+// payload (Conway, for example, completely renumbered these tags).
 func getEraSpecificUtxoFailureConstants(
 	eraId uint8,
-) (map[int]any, int, int, int, int) {
+) (map[int]any, int, int, int, int, error) {
 	baseMap := map[int]any{
 		UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
 		UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
@@ -191,15 +241,16 @@ func getEraSpecificUtxoFailureConstants(
 		baseMap[UtxoFailureScriptsNotPaidUtxoAlonzo] = &ScriptsNotPaidUtxo{}
 		baseMap[UtxoFailureExUnitsTooBigUtxoAlonzo] = &ExUnitsTooBigUtxo{}
 		baseMap[UtxoFailureCollateralContainsNonAdaAlonzo] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoAlonzo, UtxoFailureScriptsNotPaidUtxoAlonzo, UtxoFailureExUnitsTooBigUtxoAlonzo, UtxoFailureCollateralContainsNonAdaAlonzo
+		return baseMap, UtxoFailureOutputTooBigUtxoAlonzo, UtxoFailureScriptsNotPaidUtxoAlonzo, UtxoFailureExUnitsTooBigUtxoAlonzo, UtxoFailureCollateralContainsNonAdaAlonzo, nil
 	case EraIdBabbage:
 		baseMap[UtxoFailureOutputTooBigUtxoBabbage] = &OutputTooBigUtxo{}
 		baseMap[UtxoFailureScriptsNotPaidUtxoBabbage] = &ScriptsNotPaidUtxo{}
 		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
 		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage
+		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage, nil
 	case EraIdConway:
-		// Conway completely renumbered UTXO failure tags - use Conway-specific map
+		// Conway completely renumbered UTXO failure tags - use
+		// Conway-specific map.
 		conwayMap := map[int]any{
 			ConwayUtxoUtxosFailure:                &UtxosFailure{},
 			ConwayUtxoBadInputsUTxO:               &BadInputsUtxo{},
@@ -225,14 +276,136 @@ func getEraSpecificUtxoFailureConstants(
 			ConwayUtxoBabbageOutputTooSmallUTxO:   &BabbageOutputTooSmallUTxO{},
 			ConwayUtxoBabbageNonDisjointRefInputs: &BabbageNonDisjointRefInputs{},
 		}
-		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA
+		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA, nil
+	case EraIdDijkstra:
+		// Dijkstra reuses Conway's tags 0-7 (UtxosFailure through
+		// WrongNetwork) verbatim, but its Utxo.hs does not
+		// carry forward a distinct OutputTooSmallUTxO constructor at
+		// tag 9 the way Conway does: everything from
+		// OutputBootAddrAttrsTooBig onward is shifted down by one tag
+		// versus Conway (cardano-ledger
+		// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxo.hs).
+		// Aliasing this to Conway's map/constants would misdecode a
+		// Dijkstra OutputBootAddrAttrsTooBig (tag 9) as
+		// OutputTooSmallUTxO, a Dijkstra OutputTooBigUTxO (tag 10) as
+		// OutputBootAddrAttrsTooBig, and so on. Tags 19-24 (beyond
+		// NoCollateralInputs at 18) are confirmed against
+		// cardano-ledger's EncCBOR/DecCBOR instances for
+		// DijkstraUtxoPredFailure: 19=IncorrectTotalCollateralField,
+		// 20=BabbageOutputTooSmallUTxO, 21=BabbageNonDisjointRefInputs
+		// (all three reuse the existing Babbage/Conway Go types below,
+		// since their field layout is unchanged in Dijkstra),
+		// 22=PtrPresentInCollateralReturn (new: the collateral return
+		// output uses a pointer-address stake reference, which Dijkstra
+		// disallows), and 24=WithdrawalsExceedAccountBalance (new:
+		// per-account withdrawals across a tx batch exceed the account's
+		// original balance). Tag 23 does not exist in Dijkstra's decCBOR
+		// (it falls through to `Invalid n` there), so it is deliberately
+		// left unmapped here too instead of being invented. Tag 8
+		// (ConwayUtxoWrongNetworkWithdrawal) is likewise absent from
+		// Dijkstra's encCBOR/decCBOR: the constructor list jumps
+		// directly from WrongNetwork at tag 7 to
+		// OutputBootAddrAttrsTooBig at tag 9, so tag 8 also falls
+		// through to `Invalid n` there and must not be mapped to
+		// WrongNetworkWithdrawal here.
+		dijkstraMap := map[int]any{
+			ConwayUtxoUtxosFailure:                      &UtxosFailure{},
+			ConwayUtxoBadInputsUTxO:                     &BadInputsUtxo{},
+			ConwayUtxoOutsideValidityIntervalUTxO:       &OutsideValidityIntervalUtxo{},
+			ConwayUtxoMaxTxSizeUTxO:                     &MaxTxSizeUtxo{},
+			ConwayUtxoInputSetEmptyUTxO:                 &InputSetEmptyUtxo{},
+			ConwayUtxoFeeTooSmallUTxO:                   &FeeTooSmallUtxo{},
+			ConwayUtxoValueNotConservedUTxO:             &ValueNotConservedUtxo{},
+			ConwayUtxoWrongNetwork:                      &WrongNetwork{},
+			DijkstraUtxoOutputBootAddrAttrsTooBig:       &OutputBootAddrAttrsTooBig{},
+			DijkstraUtxoOutputTooBigUTxO:                &OutputTooBigUtxo{},
+			DijkstraUtxoInsufficientCollateral:          &InsufficientCollateral{},
+			DijkstraUtxoScriptsNotPaidUTxO:              &ScriptsNotPaidUtxo{},
+			DijkstraUtxoExUnitsTooBigUTxO:               &ExUnitsTooBigUtxo{},
+			DijkstraUtxoCollateralContainsNonADA:        &CollateralContainsNonADA{},
+			DijkstraUtxoWrongNetworkInTxBody:            &WrongNetworkInTxBody{},
+			DijkstraUtxoOutsideForecast:                 &OutsideForecast{},
+			DijkstraUtxoTooManyCollateralInputs:         &TooManyCollateralInputs{},
+			DijkstraUtxoNoCollateralInputs:              &NoCollateralInputs{},
+			DijkstraUtxoIncorrectTotalCollateral:        &IncorrectTotalCollateralField{},
+			DijkstraUtxoBabbageOutputTooSmallUTxO:       &BabbageOutputTooSmallUTxO{},
+			DijkstraUtxoBabbageNonDisjointRefInputs:     &BabbageNonDisjointRefInputs{},
+			DijkstraUtxoPtrPresentInCollateralReturn:    &PtrPresentInCollateralReturn{},
+			DijkstraUtxoWithdrawalsExceedAccountBalance: &WithdrawalsExceedAccountBalance{},
+		}
+		return dijkstraMap,
+			DijkstraUtxoOutputTooBigUTxO,
+			DijkstraUtxoScriptsNotPaidUTxO,
+			DijkstraUtxoExUnitsTooBigUTxO,
+			DijkstraUtxoCollateralContainsNonADA,
+			nil
+	case EraIdShelley:
+		// Shelley predates Plutus scripts and collateral entirely, so
+		// baseMap (which includes the collateral-related tags added
+		// for Alonzo's UTXO failure enumeration:
+		// UtxoFailureInsufficientCollateral (12),
+		// UtxoFailureWrongNetworkInTxBody (17),
+		// UtxoFailureOutsideForecast (18),
+		// UtxoFailureTooManyCollateralInputs (19), and
+		// UtxoFailureNoCollateralInputs (20)) is NOT correct here: tag
+		// 12 doesn't exist at all in Shelley, so decoding it as
+		// InsufficientCollateral would misdecode a genuinely
+		// unknown/malformed tag as a real (and wrong) failure kind.
+		// The authoritative Shelley Utxo.hs constructor list is tags
+		// 0-10 only (BadInputsUtxo through OutputBootAddrAttrsTooBig):
+		// tag 11 is NOT TriesToForgeADA in Shelley (unlike the
+		// Alonzo+/baseMap numbering, where TriesToForgeAda legitimately
+		// occupies tag 11), so it's deliberately excluded here too.
+		// Allegra/Mary additionally define OutputTooBigUTxO at tag 12
+		// (also not TriesToForgeADA at tag 11), so they cannot share
+		// this map either; see the EraIdAllegra, EraIdMary case below.
+		// Use an explicit map literal (rather than filtering baseMap
+		// procedurally) so the set of valid Shelley tags is easy to
+		// audit here.
+		shelleyMap := map[int]any{
+			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
+			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
+			UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
+			UtxoFailureInputSetEmpty:               &InputSetEmptyUtxo{},
+			UtxoFailureFeeTooSmallUtxo:             &FeeTooSmallUtxo{},
+			UtxoFailureValueNotConservedUtxo:       &ValueNotConservedUtxo{},
+			UtxoFailureOutputTooSmallUtxo:          &OutputTooSmallUtxo{},
+			UtxoFailureUtxosFailure:                &UtxosFailure{},
+			UtxoFailureWrongNetwork:                &WrongNetwork{},
+			UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+			UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
+		}
+		return shelleyMap, 0, 0, 0, 0, nil
+	case EraIdAllegra, EraIdMary:
+		// Allegra and Mary share Shelley's tags 0-10 but additionally
+		// define OutputTooBigUTxO at tag 12 (tag 11 is not
+		// TriesToForgeADA in Allegra/Mary either, so it's excluded the
+		// same as in Shelley). Sharing Shelley's map here would report
+		// a genuine Allegra/Mary tag 12 (OutputTooBigUTxO) as unknown.
+		allegraMaryMap := map[int]any{
+			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
+			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
+			UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
+			UtxoFailureInputSetEmpty:               &InputSetEmptyUtxo{},
+			UtxoFailureFeeTooSmallUtxo:             &FeeTooSmallUtxo{},
+			UtxoFailureValueNotConservedUtxo:       &ValueNotConservedUtxo{},
+			UtxoFailureOutputTooSmallUtxo:          &OutputTooSmallUtxo{},
+			UtxoFailureUtxosFailure:                &UtxosFailure{},
+			UtxoFailureWrongNetwork:                &WrongNetwork{},
+			UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+			UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
+			UtxoFailureOutputTooBigUtxoAllegraMary: &OutputTooBigUtxo{},
+		}
+		return allegraMaryMap, UtxoFailureOutputTooBigUtxoAllegraMary, 0, 0, 0, nil
 	default:
-		// For other eras (Byron, Shelley, Allegra, Mary), use Babbage constants as fallback
-		baseMap[UtxoFailureOutputTooBigUtxoBabbage] = &OutputTooBigUtxo{}
-		baseMap[UtxoFailureScriptsNotPaidUtxoBabbage] = &ScriptsNotPaidUtxo{}
-		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
-		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
-		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage
+		// Byron and any future/unrecognized era: don't guess at another
+		// era's constructor numbering. The caller surfaces this as an
+		// UnknownUtxoFailureError instead of silently misdecoding using
+		// Babbage's tag numbers.
+		return nil, 0, 0, 0, 0, fmt.Errorf(
+			"getEraSpecificUtxoFailureConstants: unrecognized era id %d",
+			eraId,
+		)
 	}
 }
 
@@ -261,6 +434,70 @@ func (e *GenericError) UnmarshalCBOR(data []byte) error {
 
 func (e *GenericError) Error() string {
 	return fmt.Sprintf("GenericError (%v)", e.Value)
+}
+
+// UnknownApplyTxFailureError preserves the era, the raw LEDGER-level
+// failure constructor tag, and the raw CBOR bytes for an ApplyTxError
+// failure that this era-aware decoder does not recognize. It is returned
+// instead of silently decoding the failure as a GenericError, which would
+// otherwise discard the tag/era context needed to diagnose a
+// forward-incompatible or malformed constructor.
+type UnknownApplyTxFailureError struct {
+	Era         uint8
+	FailureType int
+	Cbor        []byte
+}
+
+func (e *UnknownApplyTxFailureError) Error() string {
+	return fmt.Sprintf(
+		"UnknownApplyTxFailureError (Era %d, FailureType %d)",
+		e.Era,
+		e.FailureType,
+	)
+}
+
+// UnknownUtxowFailureError preserves the era, the raw UTXOW failure
+// constructor tag, and the raw CBOR bytes for a UTXOW failure that this
+// era-aware decoder does not recognize. This covers both an unrecognized
+// era (where we don't know the constructor numbering at all) and a known
+// era with an unrecognized constructor tag. It is returned instead of
+// silently guessing another era's constructor numbering (e.g. Babbage) or
+// decoding as a GenericError, both of which lose the tag/era context
+// needed to diagnose a forward-incompatible or malformed constructor.
+type UnknownUtxowFailureError struct {
+	Era         uint8
+	FailureType int
+	Cbor        []byte
+}
+
+func (e *UnknownUtxowFailureError) Error() string {
+	return fmt.Sprintf(
+		"UnknownUtxowFailureError (Era %d, FailureType %d)",
+		e.Era,
+		e.FailureType,
+	)
+}
+
+// UnknownUtxoFailureError preserves the era, the raw UTXO failure
+// constructor tag, and the raw CBOR bytes for a UTXO failure that this
+// era-aware decoder does not recognize. This covers both an unrecognized
+// era (where we don't know the constructor numbering at all) and a known
+// era with an unrecognized constructor tag. It is returned instead of
+// silently guessing another era's constructor numbering (e.g. Babbage) or
+// decoding as a GenericError, both of which lose the tag/era context
+// needed to diagnose a forward-incompatible or malformed constructor.
+type UnknownUtxoFailureError struct {
+	Era         uint8
+	FailureType int
+	Cbor        []byte
+}
+
+func (e *UnknownUtxoFailureError) Error() string {
+	return fmt.Sprintf(
+		"UnknownUtxoFailureError (Era %d, FailureType %d)",
+		e.Era,
+		e.FailureType,
+	)
 }
 
 func NewEraMismatchErrorFromCbor(cborData []byte) (error, error) {
@@ -423,13 +660,13 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 			}
 			newErr = incorrectWithdrawals
 		default:
-			if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-				return err
-			} else {
-				newErr = tmpErr
-			}
-			if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
-				return err
+			// Unrecognized LEDGER-level failure constructor: preserve
+			// the era, tag, and raw bytes instead of silently decoding
+			// as an opaque GenericError.
+			newErr = &UnknownApplyTxFailureError{
+				Era:         e.era,
+				FailureType: failureType,
+				Cbor:        failure,
 			}
 		}
 		e.Failures = append(e.Failures, newErr)
@@ -488,11 +725,28 @@ func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
 		// Babbage wraps Alonzo failures in tag 1, adds Babbage-specific tags
 		return e.unmarshalBabbage(data, tmpFailure, failureType)
 	case EraIdConway:
-		// Conway uses flat enumeration (no wrapping)
+		// Conway uses flat enumeration (no wrapping).
 		return e.unmarshalConway(data, tmpFailure, failureType)
+	case EraIdDijkstra:
+		// Dijkstra's UTXOW predicate failure (DijkstraUtxowPredFailure,
+		// cardano-ledger
+		// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxow.hs)
+		// shares Conway's flat enumeration for tags 0-18 unchanged, but
+		// adds two Dijkstra-only constructors at tags 19 and 20 for
+		// guarded-subtransaction validation that Conway doesn't have.
+		// Falling back to unmarshalConway here would misreport those two
+		// as UnknownUtxowFailureError, so Dijkstra gets its own decoder.
+		return e.unmarshalDijkstra(data, tmpFailure, failureType)
 	default:
-		// For unknown eras (Byron or future eras), try Babbage as fallback
-		return e.unmarshalBabbage(data, tmpFailure, failureType)
+		// Unknown era (Byron or a future era this decoder doesn't yet
+		// know about): we don't know this era's UTXOW constructor
+		// numbering, so don't guess by decoding as Babbage.
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
+		}
+		return nil
 	}
 }
 
@@ -526,11 +780,12 @@ func (e *UtxowFailure) unmarshalShelley(data []byte, tmpFailure []cbor.RawMessag
 	case ShelleyUtxowExtraneousScriptWitnesses:
 		newErr = &ExtraneousScriptWitnessesUTXOW{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
@@ -565,11 +820,12 @@ func (e *UtxowFailure) unmarshalAlonzo(data []byte, tmpFailure []cbor.RawMessage
 	case AlonzoUtxowExtraRedeemers:
 		newErr = &ExtraRedeemers{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -606,11 +862,12 @@ func (e *UtxowFailure) unmarshalBabbage(data []byte, tmpFailure []cbor.RawMessag
 		e.Err = newErr
 		return nil
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -672,11 +929,45 @@ func (e *UtxowFailure) unmarshalConway(data []byte, tmpFailure []cbor.RawMessage
 		e.Err = newErr
 		return nil
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         e.era,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
+	}
+	if len(tmpFailure) >= 2 {
+		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+			return err
+		}
+	}
+	e.Err = newErr
+	return nil
+}
+
+// unmarshalDijkstra handles Dijkstra era UTXOW failures. Dijkstra's
+// DijkstraUtxowPredFailure shares Conway's flat enumeration for tags 0-18
+// unchanged (cardano-ledger
+// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxow.hs), so those
+// are delegated to unmarshalConway; tags 19 and 20 are Dijkstra-only
+// additions for guarded-subtransaction validation that Conway doesn't have.
+func (e *UtxowFailure) unmarshalDijkstra(
+	data []byte,
+	tmpFailure []cbor.RawMessage,
+	failureType int,
+) error {
+	var newErr error
+	switch failureType {
+	case DijkstraUtxowMissingRequiredGuards:
+		newErr = &MissingRequiredGuards{}
+	case DijkstraUtxowMalformedGuardDatums:
+		newErr = &MalformedGuardDatums{}
+	default:
+		// Tags 0-18 are shared with Conway's flat enumeration; any
+		// failureType not handled above (including truly unknown tags)
+		// falls through to unmarshalConway, whose default case already
+		// produces UnknownUtxowFailureError with the correct era.
+		return e.unmarshalConway(data, tmpFailure, failureType)
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
@@ -689,6 +980,75 @@ func (e *UtxowFailure) unmarshalConway(data []byte, tmpFailure []cbor.RawMessage
 
 func (e *UtxowFailure) Error() string {
 	return fmt.Sprintf("UtxowFailure (%s)", e.Err)
+}
+
+// MissingRequiredGuards represents guard credentials that subtransactions
+// require but that are absent from the top-level guard set. Dijkstra-only
+// (UTXOW constructor tag 19); introduced for guarded-subtransaction
+// validation.
+// Upstream: DijkstraUtxowPredFailure.MissingRequiredGuards
+//
+//	(NonEmptySet (Credential Guard))
+//
+// CBOR (constructor payload only, tag already stripped by the caller):
+//
+//	[credential, ...]
+type MissingRequiredGuards struct {
+	Guards []common.Credential
+}
+
+func (e *MissingRequiredGuards) UnmarshalCBOR(cborData []byte) error {
+	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *MissingRequiredGuards) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MissingRequiredGuards ([")
+	for idx, cred := range e.Guards {
+		sb.WriteString(cred.Credential.String())
+		if idx < len(e.Guards)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// MalformedGuardDatums represents guard credentials whose datum presence in
+// requiredTopLevelGuards is inconsistent. Dijkstra-only (UTXOW constructor
+// tag 20); introduced for guarded-subtransaction validation.
+// Upstream: DijkstraUtxowPredFailure.MalformedGuardDatums
+//
+//	(NonEmptySet (Credential Guard))
+//
+// CBOR (constructor payload only, tag already stripped by the caller):
+//
+//	[credential, ...]
+type MalformedGuardDatums struct {
+	Guards []common.Credential
+}
+
+func (e *MalformedGuardDatums) UnmarshalCBOR(cborData []byte) error {
+	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *MalformedGuardDatums) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MalformedGuardDatums ([")
+	for idx, cred := range e.Guards {
+		sb.WriteString(cred.Credential.String())
+		if idx < len(e.Guards)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
 }
 
 type UtxoFailure struct {
@@ -707,13 +1067,56 @@ func (e *UtxoFailure) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	e.Era = tmpData.Era
-	errorMap, _, _, _, _ := getEraSpecificUtxoFailureConstants(tmpData.Era)
+
+	// Extract the raw constructor tag. A failure here means tmpData.Err
+	// is structurally malformed (e.g. a CBOR string/map where a
+	// constructor-tagged list was expected), which is a genuine decode
+	// error, not an unknown-failure case: UnknownUtxoFailureError is
+	// reserved for when tag extraction succeeds but the resulting tag
+	// isn't present in the era's map. Propagate idErr instead of masking
+	// it behind a placeholder tag.
+	failureType, idErr := cbor.DecodeIdFromList(tmpData.Err)
+	if idErr != nil {
+		return fmt.Errorf(
+			"UtxoFailure: failed to extract constructor tag: %w",
+			idErr,
+		)
+	}
+
+	errorMap, _, _, _, _, mapErr := getEraSpecificUtxoFailureConstants(
+		tmpData.Era,
+	)
+	if mapErr != nil {
+		// Unrecognized era: we don't know this era's constructor
+		// numbering, so don't guess at another era's (e.g. Babbage's).
+		// mapErr is deliberately not propagated: it's turned into a
+		// typed UnknownUtxoFailureError value instead of a hard decode
+		// failure.
+		e.Err = &UnknownUtxoFailureError{
+			Era:         tmpData.Era,
+			FailureType: failureType,
+			Cbor:        tmpData.Err,
+		}
+		return nil //nolint:nilerr
+	}
+
 	newErr, err := cbor.DecodeById(tmpData.Err, errorMap)
 	if err != nil {
-		newErr, err = NewGenericErrorFromCbor(tmpData.Err)
-		if err != nil {
-			return fmt.Errorf("failed to parse UtxoFailure: %w", err)
+		if _, known := errorMap[failureType]; known {
+			// Recognized constructor tag whose payload we couldn't
+			// decode: a real decode failure, not an unknown-failure
+			// case, so propagate it instead of masking it.
+			return err
 		}
+		// Known era, unrecognized constructor tag: preserve the tag
+		// instead of silently decoding as an opaque GenericError. err
+		// is deliberately not propagated for the same reason as above.
+		e.Err = &UnknownUtxoFailureError{
+			Era:         tmpData.Era,
+			FailureType: failureType,
+			Cbor:        tmpData.Err,
+		}
+		return nil //nolint:nilerr
 	}
 	e.Err = newErr.(error)
 	return nil
@@ -973,27 +1376,46 @@ func (e *InsufficientCollateral) Error() string {
 
 // ScriptsNotPaidUtxo represents the ScriptsNotPaidUTxO error from cardano-ledger.
 // Haskell: ScriptsNotPaidUTxO !(UTxO era) where UTxO era = Map TxIn TxOut
-// CBOR: [14, utxo_map]
+// CBOR: [14, utxo_map] (Alonzo/Babbage), [13, utxo_map] (Conway),
+// [12, utxo_map] (Dijkstra)
 type ScriptsNotPaidUtxo struct {
 	UtxoFailureErrorBase
 	Utxos []common.Utxo // Each Utxo contains Id (input) and Output
 }
 
 func (e *ScriptsNotPaidUtxo) MarshalCBOR() ([]byte, error) {
-	// Use era-specific constant - we'll use Conway as default since it has the most recent structure
-	// In practice, this should be set when the error is created, but we provide a sensible fallback
-	constantToUse := UtxoFailureScriptsNotPaidUtxoConway
-	if e.Type != 0 {
-		constantToUse = int(e.Type)
-	}
-	// Bounds check to prevent integer overflow
-	if constantToUse < 0 || constantToUse > 255 {
-		return nil, fmt.Errorf(
-			"ScriptsNotPaidUtxo: invalid constructor index %d (must be 0-255)",
-			constantToUse,
+	// The era-specific constructor index must be set explicitly by the
+	// caller before marshaling. We used to default silently to Conway's
+	// numbering when Type was unset, which would emit the wrong bytes
+	// for Alonzo/Babbage callers that forgot to set it.
+	if e.Type == 0 {
+		return nil, errors.New(
+			"ScriptsNotPaidUtxo: Type (era-specific constructor index) " +
+				"must be set explicitly before marshaling; use one of " +
+				"UtxoFailureScriptsNotPaidUtxoAlonzo/Babbage/Conway",
 		)
 	}
-	e.Type = uint8(constantToUse)
+	validConstructors := []int{
+		UtxoFailureScriptsNotPaidUtxoAlonzo,
+		UtxoFailureScriptsNotPaidUtxoBabbage,
+		UtxoFailureScriptsNotPaidUtxoConway,
+		DijkstraUtxoScriptsNotPaidUTxO,
+	}
+	isValid := false
+	for _, valid := range validConstructors {
+		if int(e.Type) == valid {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return nil, fmt.Errorf(
+			"ScriptsNotPaidUtxo: invalid constructor index %d, expected one of %v",
+			e.Type,
+			validConstructors,
+		)
+	}
+	constantToUse := int(e.Type)
 
 	utxoMap := make(
 		map[common.TransactionInput]common.TransactionOutput,
@@ -1028,6 +1450,7 @@ func (e *ScriptsNotPaidUtxo) UnmarshalCBOR(data []byte) error {
 		UtxoFailureScriptsNotPaidUtxoAlonzo,
 		UtxoFailureScriptsNotPaidUtxoBabbage,
 		UtxoFailureScriptsNotPaidUtxoConway,
+		DijkstraUtxoScriptsNotPaidUTxO,
 	}
 
 	isValid := false
@@ -1132,26 +1555,47 @@ func (e *ExUnitsTooBigUtxo) Error() string {
 }
 
 // CollateralContainsNonADA represents the CollateralContainsNonADA error from cardano-ledger.
-// CBOR: [16, provided] (Alonzo/Babbage), [15, provided] (Conway)
+// CBOR: [16, provided] (Alonzo/Babbage), [15, provided] (Conway),
+// [14, provided] (Dijkstra)
 type CollateralContainsNonADA struct {
 	UtxoFailureErrorBase
 	Provided cbor.Value
 }
 
 func (e *CollateralContainsNonADA) MarshalCBOR() ([]byte, error) {
-	// Use era-specific constant - fallback to Conway if not set
-	constantToUse := UtxoFailureCollateralContainsNonAdaConway
-	if e.Type != 0 {
-		constantToUse = int(e.Type)
-	}
-	// Bounds check
-	if constantToUse < 0 || constantToUse > 255 {
-		return nil, fmt.Errorf(
-			"CollateralContainsNonADA: invalid constructor index %d (must be 0-255)",
-			constantToUse,
+	// The era-specific constructor index must be set explicitly by the
+	// caller before marshaling. We used to default silently to Conway's
+	// numbering when Type was unset, which would emit the wrong bytes
+	// for Alonzo/Babbage callers that forgot to set it.
+	if e.Type == 0 {
+		return nil, errors.New(
+			"CollateralContainsNonADA: Type (era-specific constructor " +
+				"index) must be set explicitly before marshaling; use " +
+				"one of UtxoFailureCollateralContainsNonAdaAlonzo/" +
+				"Babbage/Conway",
 		)
 	}
-	e.Type = uint8(constantToUse)
+	validConstructors := []int{
+		UtxoFailureCollateralContainsNonAdaAlonzo,
+		UtxoFailureCollateralContainsNonAdaBabbage,
+		UtxoFailureCollateralContainsNonAdaConway,
+		DijkstraUtxoCollateralContainsNonADA,
+	}
+	isValid := false
+	for _, valid := range validConstructors {
+		if int(e.Type) == valid {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return nil, fmt.Errorf(
+			"CollateralContainsNonADA: invalid constructor index %d, expected one of %v",
+			e.Type,
+			validConstructors,
+		)
+	}
+	constantToUse := int(e.Type)
 	arr := []any{constantToUse, e.Provided.Value()}
 	return cbor.Encode(arr)
 }
@@ -1172,11 +1616,12 @@ func (e *CollateralContainsNonADA) UnmarshalCBOR(data []byte) error {
 		UtxoFailureCollateralContainsNonAdaAlonzo,
 		UtxoFailureCollateralContainsNonAdaBabbage,
 		UtxoFailureCollateralContainsNonAdaConway,
+		DijkstraUtxoCollateralContainsNonADA,
 	}
 	isValid := false
 	for _, valid := range validConstructors {
 		//nolint:gosec // G115: integer overflow conversion int -> uint64
-		// Safe conversion since constants are small positive values (15, 16)
+		// Safe conversion since constants are small positive values (14, 15, 16)
 		if tmp.ConstructorIdx == uint64(valid) {
 			isValid = true
 			break
@@ -1372,6 +1817,49 @@ func (e *BabbageNonDisjointRefInputs) Error() string {
 }
 
 // =============================================================================
+// Dijkstra-only UTXO Predicate Failures
+// =============================================================================
+
+// PtrPresentInCollateralReturn represents the Dijkstra-only
+// PtrPresentInCollateralReturn error from cardano-ledger: the collateral
+// return output uses a pointer-address stake reference, which Dijkstra
+// disallows.
+// CBOR: [22, txout]
+type PtrPresentInCollateralReturn struct {
+	UtxoFailureErrorBase
+	Output TxOut
+}
+
+func (e *PtrPresentInCollateralReturn) Error() string {
+	return fmt.Sprintf(
+		"PtrPresentInCollateralReturn (Output %s)",
+		e.Output.String(),
+	)
+}
+
+// WithdrawalsExceedAccountBalance represents the Dijkstra-only
+// WithdrawalsExceedAccountBalance error from cardano-ledger: total
+// withdrawals for one or more accounts across a transaction batch exceed
+// the account's original balance. The Haskell field is
+// NonEmptyMap AccountAddress (Mismatch RelLTEQ Coin); rather than assume
+// the wire-level encoding of AccountAddress (not otherwise represented in
+// this codebase), the map is preserved as a generic cbor.Value, mirroring
+// the same approach already used for IncorrectWithdrawals and
+// WrongNetworkWithdrawal above.
+// CBOR: [24, {account_address: [supplied, expected], ...}]
+type WithdrawalsExceedAccountBalance struct {
+	UtxoFailureErrorBase
+	Withdrawals cbor.Value
+}
+
+func (e *WithdrawalsExceedAccountBalance) Error() string {
+	return fmt.Sprintf(
+		"WithdrawalsExceedAccountBalance (Withdrawals %v)",
+		e.Withdrawals.Value(),
+	)
+}
+
+// =============================================================================
 // Alonzo UTXOW Predicate Failures (wrapped by Babbage)
 // =============================================================================
 
@@ -1558,11 +2046,12 @@ func (e *ShelleyUtxowFailure) UnmarshalCBOR(data []byte) error {
 	case ShelleyUtxowExtraneousScriptWitnesses:
 		newErr = &ExtraneousScriptWitnessesUTXOW{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         EraIdShelley,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
@@ -1613,11 +2102,12 @@ func (e *AlonzoUtxowFailure) UnmarshalCBOR(data []byte) error {
 	case AlonzoUtxowExtraRedeemers:
 		newErr = &ExtraRedeemers{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         EraIdAlonzo,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -1660,11 +2150,12 @@ func (e *BabbageUtxoFailure) UnmarshalCBOR(data []byte) error {
 	case BabbageUtxoNonDisjointRefInputs:
 		newErr = &BabbageNonDisjointRefInputs{}
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxoFailureError{
+			Era:         EraIdBabbage,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
 		return err
@@ -1903,11 +2394,12 @@ func (e *ConwayUtxowFailure) UnmarshalCBOR(data []byte) error {
 		e.Err = newErr
 		return nil
 	default:
-		if tmpErr, err := NewGenericErrorFromCbor(data); err != nil {
-			return err
-		} else {
-			newErr = tmpErr
+		e.Err = &UnknownUtxowFailureError{
+			Era:         EraIdConway,
+			FailureType: failureType,
+			Cbor:        data,
 		}
+		return nil
 	}
 	if len(tmpFailure) >= 2 {
 		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
