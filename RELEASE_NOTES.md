@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.190.0
+
+- **Date:** 2026-07-28
+- **Version:** 0.190.0
+
+### Summary
+
+This release strengthens Byron block validation during CBOR decode.
+
+### Bug Fixes
+
+* Fixed Byron block decoding so body proof validation now runs during CBOR decode and rejects tampered or substituted bodies unless `SkipBodyHashValidation` is set.
+
 ## v0.189.5
 
 - **Date:** 2026-07-27
