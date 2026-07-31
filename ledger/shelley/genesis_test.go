@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -208,6 +209,62 @@ func TestGenesisMarshalCBORInvalidNetworkId(t *testing.T) {
 	_, err := tmpGenesis.MarshalCBOR()
 	if err == nil {
 		t.Fatalf("expected error for invalid network ID, got nil")
+	}
+}
+
+// Confirms the getNetworkId() refactor preserves the original encoded
+// values (Testnet=0, Mainnet=1) for valid network ids.
+func TestGenesisMarshalCBORValidNetworkId(t *testing.T) {
+	testDefs := []struct {
+		networkId             string
+		expectedNetworkIdCbor uint64
+	}{
+		{networkId: "Testnet", expectedNetworkIdCbor: 0},
+		{networkId: "Mainnet", expectedNetworkIdCbor: 1},
+	}
+	for _, testDef := range testDefs {
+		tmpGenesis := shelley.ShelleyGenesis{
+			NetworkId: testDef.networkId,
+			ActiveSlotsCoeff: common.GenesisRat{
+				Rat: big.NewRat(5, 100),
+			},
+			SlotLength: common.GenesisRat{
+				Rat: big.NewRat(1, 1),
+			},
+			ProtocolParameters: shelley.ShelleyGenesisProtocolParams{
+				A0:               &common.GenesisRat{Rat: big.NewRat(3, 10)},
+				Rho:              &common.GenesisRat{Rat: big.NewRat(3, 1000)},
+				Tau:              &common.GenesisRat{Rat: big.NewRat(2, 10)},
+				Decentralization: &common.GenesisRat{Rat: big.NewRat(1, 1)},
+			},
+		}
+		cborData, err := tmpGenesis.MarshalCBOR()
+		if err != nil {
+			t.Fatalf(
+				"unexpected error marshaling %s genesis: %s",
+				testDef.networkId,
+				err,
+			)
+		}
+		var decoded []any
+		if _, err := cbor.Decode(cborData, &decoded); err != nil {
+			t.Fatalf("unexpected error decoding CBOR: %s", err)
+		}
+		gotNetworkId, ok := decoded[2].(uint64)
+		if !ok {
+			t.Fatalf(
+				"expected network ID field to decode as uint64, got %T",
+				decoded[2],
+			)
+		}
+		if gotNetworkId != testDef.expectedNetworkIdCbor {
+			t.Fatalf(
+				"for %s, expected encoded network ID %d, got %d",
+				testDef.networkId,
+				testDef.expectedNetworkIdCbor,
+				gotNetworkId,
+			)
+		}
 	}
 }
 
