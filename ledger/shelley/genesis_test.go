@@ -199,6 +199,18 @@ func TestGenesisFromJson(t *testing.T) {
 	}
 }
 
+// Guards against a regression where an unrecognized NetworkId silently
+// encoded as testnet instead of returning an error.
+func TestGenesisMarshalCBORInvalidNetworkId(t *testing.T) {
+	tmpGenesis := shelley.ShelleyGenesis{
+		NetworkId: "Regtest",
+	}
+	_, err := tmpGenesis.MarshalCBOR()
+	if err == nil {
+		t.Fatalf("expected error for invalid network ID, got nil")
+	}
+}
+
 func TestGenesisUtxos(t *testing.T) {
 	testHexAddr := "000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad"
 	testAmount := uint64(120_000_000_000_000)
