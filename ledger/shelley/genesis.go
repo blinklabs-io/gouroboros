@@ -114,6 +114,11 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 		)
 	}
 
+	networkId, err := g.getNetworkId()
+	if err != nil {
+		return nil, err
+	}
+
 	slotLengthMs := &big.Rat{}
 	tmpData := []any{
 		[]any{
@@ -122,7 +127,7 @@ func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
 			g.SystemStart.Nanosecond() * 1000,
 		},
 		g.NetworkMagic,
-		map[string]int{"Testnet": 0, "Mainnet": 1}[g.NetworkId],
+		networkId,
 		[]any{
 			g.ActiveSlotsCoeff.Num().Int64(),
 			g.ActiveSlotsCoeff.Denom().Int64(),
