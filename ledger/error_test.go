@@ -1451,16 +1451,22 @@ func TestApplyTxError_UnknownFailureType(t *testing.T) {
 
 // TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags
 // verifies that Shelley, Allegra, and Mary's UTXO failure constant map does
-// NOT include the Alonzo+-only collateral/Plutus-related tags (12, 17, 18,
-// 19, 20), while still including the era-agnostic base tags (0-11). Prior
-// to the fix, these eras reused baseMap unmodified, so tag 12 collided with
-// UtxoFailureInsufficientCollateral even though collateral doesn't exist
-// pre-Alonzo.
+// NOT include the Alonzo+-only collateral/Plutus-related tags (17, 18, 19,
+// 20) or tag 11 (which is not TriesToForgeADA, or anything else, in any of
+// these three eras), while still including the era-agnostic base tags
+// (0-10). Tag 12 is checked separately (see
+// TestGetEraSpecificUtxoFailureConstants_ShelleyVsAllegraMary): it's absent
+// from Shelley but a real Allegra/Mary constructor (OutputTooBigUTxO), so it
+// can't be lumped in with the eras-agnostic exclusions/inclusions here.
+// Prior to the fix, these eras reused baseMap unmodified, so tag 12
+// collided with UtxoFailureInsufficientCollateral even though collateral
+// doesn't exist pre-Alonzo, and tag 11 incorrectly decoded as
+// TriesToForgeADA.
 func TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags(
 	t *testing.T,
 ) {
-	preAlonzoOnlyTags := []int{
-		UtxoFailureInsufficientCollateral,  // 12
+	excludedTags := []int{
+		UtxoFailureTriesToForgeAda,         // 11 - not real in any of the three
 		UtxoFailureWrongNetworkInTxBody,    // 17
 		UtxoFailureOutsideForecast,         // 18
 		UtxoFailureTooManyCollateralInputs, // 19
@@ -1478,7 +1484,6 @@ func TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags(
 		UtxoFailureWrongNetwork,
 		UtxoFailureWrongNetworkWithdrawal,
 		UtxoFailureOutputBootAddrAttrsTooBig,
-		UtxoFailureTriesToForgeAda,
 	}
 
 	testCases := []struct {
@@ -1496,7 +1501,7 @@ func TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags(
 			)
 			require.NoError(t, err)
 
-			for _, tag := range preAlonzoOnlyTags {
+			for _, tag := range excludedTags {
 				_, exists := errorMap[tag]
 				assert.False(
 					t,
@@ -1516,6 +1521,132 @@ func TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags(
 					tag,
 				)
 			}
+
+			// Tag 12 must never decode as InsufficientCollateral in any
+			// of these three eras (collateral doesn't exist pre-Alonzo).
+			_, isCollateral := errorMap[UtxoFailureInsufficientCollateral].(*InsufficientCollateral)
+			assert.False(
+				t,
+				isCollateral,
+				"%s: tag 12 must not decode as InsufficientCollateral",
+				tc.name,
+			)
+		})
+	}
+}
+
+// TestGetEraSpecificUtxoFailureConstants_ShelleyVsAllegraMary verifies that
+// Shelley cannot share a UTXO failure constructor map with Allegra/Mary:
+// Allegra/Mary define OutputTooBigUTxO at tag 12, which does not exist in
+// Shelley. Tag 11 (TriesToForgeADA in the Alonzo+ base numbering) is not a
+// real constructor in any of the three, so it's excluded from all of them.
+func TestGetEraSpecificUtxoFailureConstants_ShelleyVsAllegraMary(t *testing.T) {
+	shelleyMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+		EraIdShelley,
+	)
+	require.NoError(t, err)
+	allegraMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+		EraIdAllegra,
+	)
+	require.NoError(t, err)
+	maryMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
+		EraIdMary,
+	)
+	require.NoError(t, err)
+
+	// Tag 12 (OutputTooBigUTxO) must not exist for Shelley.
+	_, shelleyHasTag12 := shelleyMap[UtxoFailureOutputTooBigUtxoAllegraMary]
+	assert.False(t, shelleyHasTag12, "Shelley must not have tag 12")
+
+	// Tag 12 must decode as OutputTooBigUTxO for Allegra and Mary.
+	for name, m := range map[string]map[int]any{
+		"Allegra": allegraMap,
+		"Mary":    maryMap,
+	} {
+		val, exists := m[UtxoFailureOutputTooBigUtxoAllegraMary]
+		require.True(t, exists, "%s: tag 12 should exist", name)
+		assert.IsType(t, &OutputTooBigUtxo{}, val)
+	}
+
+	// Tag 11 must not exist in any of the three (not TriesToForgeADA, not
+	// anything else).
+	for name, m := range map[string]map[int]any{
+		"Shelley": shelleyMap,
+		"Allegra": allegraMap,
+		"Mary":    maryMap,
+	} {
+		_, exists := m[UtxoFailureTriesToForgeAda]
+		assert.False(t, exists, "%s: tag 11 should not exist", name)
+	}
+}
+
+// TestUtxoFailure_ShelleyTag11And12AreUnknown reproduces the reviewer's
+// exact repro: Shelley tag 11 and tag 12 must each decode as
+// *UnknownUtxoFailureError, since neither is a real Shelley constructor
+// (tag 11 is not TriesToForgeADA in Shelley, and tag 12 is Allegra/Mary's
+// OutputTooBigUTxO, which doesn't exist in Shelley at all).
+func TestUtxoFailure_ShelleyTag11And12AreUnknown(t *testing.T) {
+	for _, tag := range []int{11, 12} {
+		t.Run(fmt.Sprintf("tag%d", tag), func(t *testing.T) {
+			innerCbor, err := cbor.Encode([]any{uint(tag)})
+			require.NoError(t, err)
+			cborData, err := cbor.Encode(
+				[]any{uint8(EraIdShelley), cbor.RawMessage(innerCbor)},
+			)
+			require.NoError(t, err)
+
+			var utxoErr UtxoFailure
+			err = utxoErr.UnmarshalCBOR(cborData)
+			require.NoError(t, err)
+
+			unknownErr, ok := utxoErr.Err.(*UnknownUtxoFailureError)
+			require.True(
+				t,
+				ok,
+				"Expected *UnknownUtxoFailureError, got %T",
+				utxoErr.Err,
+			)
+			assert.Equal(t, uint8(EraIdShelley), unknownErr.Era)
+			assert.Equal(t, tag, unknownErr.FailureType)
+		})
+	}
+}
+
+// TestUtxoFailure_AllegraMaryOutputTooBigUtxo verifies that Allegra and Mary
+// tag 12 decodes as *OutputTooBigUtxo (the reviewer-confirmed real wire
+// tag), rather than being reported unknown (as it would be if these eras
+// shared Shelley's tag-0-10-only map).
+func TestUtxoFailure_AllegraMaryOutputTooBigUtxo(t *testing.T) {
+	testCases := []struct {
+		name string
+		era  uint8
+	}{
+		{"Allegra", EraIdAllegra},
+		{"Mary", EraIdMary},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			innerCbor, err := cbor.Encode(
+				[]any{uint(UtxoFailureOutputTooBigUtxoAllegraMary), []any{}},
+			)
+			require.NoError(t, err)
+			cborData, err := cbor.Encode(
+				[]any{tc.era, cbor.RawMessage(innerCbor)},
+			)
+			require.NoError(t, err)
+
+			var utxoErr UtxoFailure
+			err = utxoErr.UnmarshalCBOR(cborData)
+			require.NoError(t, err)
+
+			_, ok := utxoErr.Err.(*OutputTooBigUtxo)
+			require.True(
+				t,
+				ok,
+				"%s: expected *OutputTooBigUtxo, got %T",
+				tc.name,
+				utxoErr.Err,
+			)
 		})
 	}
 }
@@ -1523,16 +1654,15 @@ func TestGetEraSpecificUtxoFailureConstants_PreAlonzoExcludesCollateralTags(
 // TestUtxoFailure_PreAlonzoCollateralTagIsUnknown reproduces the reviewer's
 // exact repro: [EraIdShelley, [12, 1, 2]] must decode as
 // *UnknownUtxoFailureError, NOT as *InsufficientCollateral, since collateral
-// does not exist in Shelley/Allegra/Mary and tag 12 is not a real
-// constructor in these eras.
+// does not exist in Shelley and tag 12 is not a real Shelley constructor
+// (unlike Allegra/Mary, where tag 12 is the real OutputTooBigUTxO
+// constructor — see TestUtxoFailure_AllegraMaryOutputTooBigUtxo).
 func TestUtxoFailure_PreAlonzoCollateralTagIsUnknown(t *testing.T) {
 	testCases := []struct {
 		name string
 		era  uint8
 	}{
 		{"Shelley", EraIdShelley},
-		{"Allegra", EraIdAllegra},
-		{"Mary", EraIdMary},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1571,25 +1701,216 @@ func TestUtxoFailure_PreAlonzoCollateralTagIsUnknown(t *testing.T) {
 }
 
 // TestGetEraSpecificUtxoFailureConstants_Dijkstra verifies that Dijkstra
-// shares Conway's UTXO failure constructor numbering (Dijkstra defines no
-// UTXO/UTXOW-specific failure kinds of its own and the cardano-ledger
-// CHANGELOG describes it as mimicking Conway "for now").
+// has its own UTXO failure constructor map: it shares Conway's tags 0-8
+// verbatim, but tags 9 onward are shifted down by one relative to Conway
+// (Dijkstra's Utxo.hs does not carry forward a distinct OutputTooSmallUTxO
+// constructor). Reusing Conway's map/constants for Dijkstra would misdecode
+// these tags as the wrong concrete error types.
 func TestGetEraSpecificUtxoFailureConstants_Dijkstra(t *testing.T) {
 	dijkstraMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
 		EraIdDijkstra,
 	)
 	require.NoError(t, err)
-	conwayMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
-		EraIdConway,
+
+	// Tags 0-8 are shared verbatim with Conway.
+	sharedTags := []int{
+		ConwayUtxoUtxosFailure,
+		ConwayUtxoBadInputsUTxO,
+		ConwayUtxoOutsideValidityIntervalUTxO,
+		ConwayUtxoMaxTxSizeUTxO,
+		ConwayUtxoInputSetEmptyUTxO,
+		ConwayUtxoFeeTooSmallUTxO,
+		ConwayUtxoValueNotConservedUTxO,
+		ConwayUtxoWrongNetwork,
+		ConwayUtxoWrongNetworkWithdrawal,
+	}
+	for _, tag := range sharedTags {
+		_, exists := dijkstraMap[tag]
+		assert.True(t, exists, "Dijkstra map missing shared tag %d", tag)
+	}
+
+	// Conway's tag 9 (OutputTooSmallUTxO) does not exist as a distinct
+	// Dijkstra constructor: Dijkstra's tag 9 (same numeric value) must
+	// decode as OutputBootAddrAttrsTooBig instead.
+	_, isOutputTooSmall := dijkstraMap[ConwayUtxoOutputTooSmallUTxO].(*OutputTooSmallUtxo)
+	assert.False(
+		t,
+		isOutputTooSmall,
+		"Dijkstra tag 9 must not decode as OutputTooSmallUTxO",
+	)
+
+	// Tags 9, 10, 11, and 18 are the reviewer-confirmed real Dijkstra wire
+	// tags: OutputBootAddrAttrsTooBig, OutputTooBigUTxO,
+	// InsufficientCollateral, and NoCollateralInputs, respectively.
+	testCases := []struct {
+		name string
+		tag  int
+		want any
+	}{
+		{
+			"tag 9 is OutputBootAddrAttrsTooBig",
+			DijkstraUtxoOutputBootAddrAttrsTooBig,
+			&OutputBootAddrAttrsTooBig{},
+		},
+		{
+			"tag 10 is OutputTooBigUTxO",
+			DijkstraUtxoOutputTooBigUTxO,
+			&OutputTooBigUtxo{},
+		},
+		{
+			"tag 11 is InsufficientCollateral",
+			DijkstraUtxoInsufficientCollateral,
+			&InsufficientCollateral{},
+		},
+		{
+			"tag 18 is NoCollateralInputs",
+			DijkstraUtxoNoCollateralInputs,
+			&NoCollateralInputs{},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			val, exists := dijkstraMap[tc.tag]
+			require.True(t, exists, "Dijkstra map missing tag %d", tc.tag)
+			assert.IsType(t, tc.want, val)
+		})
+	}
+
+	require.Equal(t, DijkstraUtxoOutputBootAddrAttrsTooBig, 9)
+	require.Equal(t, DijkstraUtxoOutputTooBigUTxO, 10)
+	require.Equal(t, DijkstraUtxoInsufficientCollateral, 11)
+	require.Equal(t, DijkstraUtxoNoCollateralInputs, 18)
+}
+
+// TestUtxoFailure_DijkstraTagMappings reproduces the reviewer's repro: a
+// Dijkstra UtxoFailure with tag 9 must decode as OutputBootAddrAttrsTooBig
+// (not OutputTooSmallUTxO, which is what Conway's aliased map would
+// incorrectly produce).
+func TestUtxoFailure_DijkstraTagMappings(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{uint(DijkstraUtxoOutputBootAddrAttrsTooBig), []any{}},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, len(conwayMap), len(dijkstraMap))
-	for tag, conwayVal := range conwayMap {
-		dijkstraVal, exists := dijkstraMap[tag]
-		require.True(t, exists, "Dijkstra map missing tag %d", tag)
-		assert.IsType(t, conwayVal, dijkstraVal)
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	_, ok := utxoErr.Err.(*OutputBootAddrAttrsTooBig)
+	require.True(
+		t,
+		ok,
+		"Expected *OutputBootAddrAttrsTooBig, got %T",
+		utxoErr.Err,
+	)
+}
+
+// TestUtxoFailure_DijkstraScriptsNotPaidUtxo verifies that a real Dijkstra
+// ScriptsNotPaidUTxO failure (tag 12) round-trips through
+// UtxoFailure.UnmarshalCBOR as *ScriptsNotPaidUtxo, not as a hard decode
+// error. ScriptsNotPaidUtxo.UnmarshalCBOR independently hard-validates the
+// constructor tag against a fixed list of valid indices, so this must be
+// exercised via the full envelope (not just a reflection check on the
+// era map) to catch a validConstructors list that omits Dijkstra's tag.
+func TestUtxoFailure_DijkstraScriptsNotPaidUtxo(t *testing.T) {
+	addr, err := common.NewAddress(
+		"addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd",
+	)
+	require.NoError(t, err)
+
+	inner := &ScriptsNotPaidUtxo{
+		UtxoFailureErrorBase: UtxoFailureErrorBase{
+			Type: DijkstraUtxoScriptsNotPaidUTxO,
+		},
+		Utxos: []common.Utxo{
+			{
+				Id: shelley.NewShelleyTransactionInput(
+					"deadbeef00000000000000000000000000000000000000000000000000000000",
+					0,
+				),
+				Output: &shelley.ShelleyTransactionOutput{
+					OutputAddress: addr,
+					OutputAmount:  1000,
+				},
+			},
+		},
 	}
+	innerCbor, err := inner.MarshalCBOR()
+	require.NoError(t, err)
+
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*ScriptsNotPaidUtxo)
+	require.True(
+		t,
+		ok,
+		"Expected *ScriptsNotPaidUtxo, got %T",
+		utxoErr.Err,
+	)
+	require.Len(t, decoded.Utxos, 1)
+	assert.Equal(
+		t,
+		uint8(DijkstraUtxoScriptsNotPaidUTxO),
+		decoded.Type,
+	)
+}
+
+// TestUtxoFailure_DijkstraCollateralContainsNonADA verifies that a real
+// Dijkstra CollateralContainsNonADA failure (tag 14) round-trips through
+// UtxoFailure.UnmarshalCBOR as *CollateralContainsNonADA, not as a hard
+// decode error. CollateralContainsNonADA.UnmarshalCBOR independently
+// hard-validates the constructor tag against a fixed list of valid
+// indices, so this must be exercised via the full envelope (not just a
+// reflection check on the era map) to catch a validConstructors list that
+// omits Dijkstra's tag.
+func TestUtxoFailure_DijkstraCollateralContainsNonADA(t *testing.T) {
+	providedCbor, err := cbor.Encode(uint64(500))
+	require.NoError(t, err)
+	var provided cbor.Value
+	_, err = cbor.Decode(providedCbor, &provided)
+	require.NoError(t, err)
+
+	inner := &CollateralContainsNonADA{
+		UtxoFailureErrorBase: UtxoFailureErrorBase{
+			Type: DijkstraUtxoCollateralContainsNonADA,
+		},
+		Provided: provided,
+	}
+	innerCbor, err := inner.MarshalCBOR()
+	require.NoError(t, err)
+
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*CollateralContainsNonADA)
+	require.True(
+		t,
+		ok,
+		"Expected *CollateralContainsNonADA, got %T",
+		utxoErr.Err,
+	)
+	assert.Equal(
+		t,
+		uint8(DijkstraUtxoCollateralContainsNonADA),
+		decoded.Type,
+	)
 }
 
 // TestUtxowFailure_Dijkstra verifies that a Dijkstra UtxowFailure decodes

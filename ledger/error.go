@@ -116,6 +116,27 @@ const (
 	ConwayUtxoBabbageOutputTooSmallUTxO   = 21
 	ConwayUtxoBabbageNonDisjointRefInputs = 22
 
+	// Dijkstra UTXO failure tags. Dijkstra shares Conway's tags 0-8
+	// (UtxosFailure through WrongNetworkWithdrawal) unchanged, but its
+	// Utxo.hs does NOT carry forward a separate OutputTooSmallUTxO
+	// constructor at tag 9 the way Conway does: everything from
+	// OutputBootAddrAttrsTooBig onward is shifted down by one tag versus
+	// Conway's numbering (cardano-ledger
+	// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxo.hs).
+	// Reusing Conway's map/constants here would misdecode a Dijkstra
+	// OutputBootAddrAttrsTooBig (tag 9) as OutputTooSmallUTxO, a Dijkstra
+	// OutputTooBigUTxO (tag 10) as OutputBootAddrAttrsTooBig, and so on.
+	DijkstraUtxoOutputBootAddrAttrsTooBig = 9
+	DijkstraUtxoOutputTooBigUTxO          = 10
+	DijkstraUtxoInsufficientCollateral    = 11
+	DijkstraUtxoScriptsNotPaidUTxO        = 12
+	DijkstraUtxoExUnitsTooBigUTxO         = 13
+	DijkstraUtxoCollateralContainsNonADA  = 14
+	DijkstraUtxoWrongNetworkInTxBody      = 15
+	DijkstraUtxoOutsideForecast           = 16
+	DijkstraUtxoTooManyCollateralInputs   = 17
+	DijkstraUtxoNoCollateralInputs        = 18
+
 	UtxoFailureFromAlonzo = 1
 
 	UtxoFailureBadInputsUtxo               = 0
@@ -139,6 +160,9 @@ const (
 
 // Era-specific constants for errors that differ between Cardano eras
 const (
+	// Allegra/Mary era error constants (Shelley has no equivalent tag)
+	UtxoFailureOutputTooBigUtxoAllegraMary = 12
+
 	// Alonzo era error constants
 	UtxoFailureOutputTooBigUtxoAlonzo         = 12
 	UtxoFailureScriptsNotPaidUtxoAlonzo       = 14
@@ -202,15 +226,9 @@ func getEraSpecificUtxoFailureConstants(
 		baseMap[UtxoFailureExUnitsTooBigUtxoBabbage] = &ExUnitsTooBigUtxo{}
 		baseMap[UtxoFailureCollateralContainsNonAdaBabbage] = &CollateralContainsNonADA{}
 		return baseMap, UtxoFailureOutputTooBigUtxoBabbage, UtxoFailureScriptsNotPaidUtxoBabbage, UtxoFailureExUnitsTooBigUtxoBabbage, UtxoFailureCollateralContainsNonAdaBabbage, nil
-	case EraIdConway, EraIdDijkstra:
+	case EraIdConway:
 		// Conway completely renumbered UTXO failure tags - use
-		// Conway-specific map. Dijkstra "mimics Conway era behavior for
-		// now" (cardano-ledger CHANGELOG.md, 10.6/10.7 Dijkstra
-		// entries) and defines no Dijkstra-specific UTXO/UTXOW failure
-		// constants of its own (ledger/dijkstra/errors.go has none, and
-		// ledger/dijkstra/rules.go delegates its UTXO validation rules
-		// directly to the conway package), so it shares Conway's
-		// constructor numbering rather than guessing at a distinct one.
+		// Conway-specific map.
 		conwayMap := map[int]any{
 			ConwayUtxoUtxosFailure:                &UtxosFailure{},
 			ConwayUtxoBadInputsUTxO:               &BadInputsUtxo{},
@@ -237,23 +255,73 @@ func getEraSpecificUtxoFailureConstants(
 			ConwayUtxoBabbageNonDisjointRefInputs: &BabbageNonDisjointRefInputs{},
 		}
 		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA, nil
-	case EraIdShelley, EraIdAllegra, EraIdMary:
-		// Shelley, Allegra, and Mary predate Plutus scripts and
-		// collateral entirely, so baseMap (which includes the
-		// collateral-related tags added for Alonzo's UTXO failure
-		// enumeration: UtxoFailureInsufficientCollateral (12),
+	case EraIdDijkstra:
+		// Dijkstra reuses Conway's tags 0-8 (UtxosFailure through
+		// WrongNetworkWithdrawal) verbatim, but its Utxo.hs does not
+		// carry forward a distinct OutputTooSmallUTxO constructor at
+		// tag 9 the way Conway does: everything from
+		// OutputBootAddrAttrsTooBig onward is shifted down by one tag
+		// versus Conway (cardano-ledger
+		// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxo.hs).
+		// Aliasing this to Conway's map/constants would misdecode a
+		// Dijkstra OutputBootAddrAttrsTooBig (tag 9) as
+		// OutputTooSmallUTxO, a Dijkstra OutputTooBigUTxO (tag 10) as
+		// OutputBootAddrAttrsTooBig, and so on. Dijkstra-only
+		// constructors this map cannot yet confirm against the real
+		// wire encoding (e.g. Conway's IncorrectTotalCollateral,
+		// BabbageOutputTooSmallUTxO, BabbageNonDisjointRefInputs tags)
+		// are deliberately left out, so those tags fall through to
+		// UnknownUtxoFailureError instead of being guessed at.
+		dijkstraMap := map[int]any{
+			ConwayUtxoUtxosFailure:                &UtxosFailure{},
+			ConwayUtxoBadInputsUTxO:               &BadInputsUtxo{},
+			ConwayUtxoOutsideValidityIntervalUTxO: &OutsideValidityIntervalUtxo{},
+			ConwayUtxoMaxTxSizeUTxO:               &MaxTxSizeUtxo{},
+			ConwayUtxoInputSetEmptyUTxO:           &InputSetEmptyUtxo{},
+			ConwayUtxoFeeTooSmallUTxO:             &FeeTooSmallUtxo{},
+			ConwayUtxoValueNotConservedUTxO:       &ValueNotConservedUtxo{},
+			ConwayUtxoWrongNetwork:                &WrongNetwork{},
+			ConwayUtxoWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+			DijkstraUtxoOutputBootAddrAttrsTooBig: &OutputBootAddrAttrsTooBig{},
+			DijkstraUtxoOutputTooBigUTxO:          &OutputTooBigUtxo{},
+			DijkstraUtxoInsufficientCollateral:    &InsufficientCollateral{},
+			DijkstraUtxoScriptsNotPaidUTxO:        &ScriptsNotPaidUtxo{},
+			DijkstraUtxoExUnitsTooBigUTxO:         &ExUnitsTooBigUtxo{},
+			DijkstraUtxoCollateralContainsNonADA:  &CollateralContainsNonADA{},
+			DijkstraUtxoWrongNetworkInTxBody:      &WrongNetworkInTxBody{},
+			DijkstraUtxoOutsideForecast:           &OutsideForecast{},
+			DijkstraUtxoTooManyCollateralInputs:   &TooManyCollateralInputs{},
+			DijkstraUtxoNoCollateralInputs:        &NoCollateralInputs{},
+		}
+		return dijkstraMap,
+			DijkstraUtxoOutputTooBigUTxO,
+			DijkstraUtxoScriptsNotPaidUTxO,
+			DijkstraUtxoExUnitsTooBigUTxO,
+			DijkstraUtxoCollateralContainsNonADA,
+			nil
+	case EraIdShelley:
+		// Shelley predates Plutus scripts and collateral entirely, so
+		// baseMap (which includes the collateral-related tags added
+		// for Alonzo's UTXO failure enumeration:
+		// UtxoFailureInsufficientCollateral (12),
 		// UtxoFailureWrongNetworkInTxBody (17),
 		// UtxoFailureOutsideForecast (18),
 		// UtxoFailureTooManyCollateralInputs (19), and
 		// UtxoFailureNoCollateralInputs (20)) is NOT correct here: tag
-		// 12 in these pre-Alonzo eras doesn't exist at all, so decoding
-		// it as InsufficientCollateral would misdecode a genuinely
-		// unknown/malformed tag as a real (and wrong) failure kind. The
-		// only failure kinds that exist in Shelley/Allegra/Mary are the
-		// era-agnostic base UTXO failures numbered 0-11 (BadInputsUtxo
-		// through TriesToForgeAda); use an explicit map literal (rather
-		// than filtering baseMap procedurally) so the set of valid
-		// pre-Alonzo tags is easy to audit here.
+		// 12 doesn't exist at all in Shelley, so decoding it as
+		// InsufficientCollateral would misdecode a genuinely
+		// unknown/malformed tag as a real (and wrong) failure kind.
+		// The authoritative Shelley Utxo.hs constructor list is tags
+		// 0-10 only (BadInputsUtxo through OutputBootAddrAttrsTooBig):
+		// tag 11 is NOT TriesToForgeADA in Shelley (unlike the
+		// Alonzo+/baseMap numbering, where TriesToForgeAda legitimately
+		// occupies tag 11), so it's deliberately excluded here too.
+		// Allegra/Mary additionally define OutputTooBigUTxO at tag 12
+		// (also not TriesToForgeADA at tag 11), so they cannot share
+		// this map either; see the EraIdAllegra, EraIdMary case below.
+		// Use an explicit map literal (rather than filtering baseMap
+		// procedurally) so the set of valid Shelley tags is easy to
+		// audit here.
 		shelleyMap := map[int]any{
 			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
 			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
@@ -266,9 +334,29 @@ func getEraSpecificUtxoFailureConstants(
 			UtxoFailureWrongNetwork:                &WrongNetwork{},
 			UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
 			UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
-			UtxoFailureTriesToForgeAda:             &TriesToForgeADA{},
 		}
 		return shelleyMap, 0, 0, 0, 0, nil
+	case EraIdAllegra, EraIdMary:
+		// Allegra and Mary share Shelley's tags 0-10 but additionally
+		// define OutputTooBigUTxO at tag 12 (tag 11 is not
+		// TriesToForgeADA in Allegra/Mary either, so it's excluded the
+		// same as in Shelley). Sharing Shelley's map here would report
+		// a genuine Allegra/Mary tag 12 (OutputTooBigUTxO) as unknown.
+		allegraMaryMap := map[int]any{
+			UtxoFailureBadInputsUtxo:               &BadInputsUtxo{},
+			UtxoFailureOutsideValidityIntervalUtxo: &OutsideValidityIntervalUtxo{},
+			UtxoFailureMaxTxSizeUtxo:               &MaxTxSizeUtxo{},
+			UtxoFailureInputSetEmpty:               &InputSetEmptyUtxo{},
+			UtxoFailureFeeTooSmallUtxo:             &FeeTooSmallUtxo{},
+			UtxoFailureValueNotConservedUtxo:       &ValueNotConservedUtxo{},
+			UtxoFailureOutputTooSmallUtxo:          &OutputTooSmallUtxo{},
+			UtxoFailureUtxosFailure:                &UtxosFailure{},
+			UtxoFailureWrongNetwork:                &WrongNetwork{},
+			UtxoFailureWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
+			UtxoFailureOutputBootAddrAttrsTooBig:   &OutputBootAddrAttrsTooBig{},
+			UtxoFailureOutputTooBigUtxoAllegraMary: &OutputTooBigUtxo{},
+		}
+		return allegraMaryMap, UtxoFailureOutputTooBigUtxoAllegraMary, 0, 0, 0, nil
 	default:
 		// Byron and any future/unrecognized era: don't guess at another
 		// era's constructor numbering. The caller surfaces this as an
@@ -1144,7 +1232,8 @@ func (e *InsufficientCollateral) Error() string {
 
 // ScriptsNotPaidUtxo represents the ScriptsNotPaidUTxO error from cardano-ledger.
 // Haskell: ScriptsNotPaidUTxO !(UTxO era) where UTxO era = Map TxIn TxOut
-// CBOR: [14, utxo_map]
+// CBOR: [14, utxo_map] (Alonzo/Babbage), [13, utxo_map] (Conway),
+// [12, utxo_map] (Dijkstra)
 type ScriptsNotPaidUtxo struct {
 	UtxoFailureErrorBase
 	Utxos []common.Utxo // Each Utxo contains Id (input) and Output
@@ -1166,6 +1255,7 @@ func (e *ScriptsNotPaidUtxo) MarshalCBOR() ([]byte, error) {
 		UtxoFailureScriptsNotPaidUtxoAlonzo,
 		UtxoFailureScriptsNotPaidUtxoBabbage,
 		UtxoFailureScriptsNotPaidUtxoConway,
+		DijkstraUtxoScriptsNotPaidUTxO,
 	}
 	isValid := false
 	for _, valid := range validConstructors {
@@ -1216,6 +1306,7 @@ func (e *ScriptsNotPaidUtxo) UnmarshalCBOR(data []byte) error {
 		UtxoFailureScriptsNotPaidUtxoAlonzo,
 		UtxoFailureScriptsNotPaidUtxoBabbage,
 		UtxoFailureScriptsNotPaidUtxoConway,
+		DijkstraUtxoScriptsNotPaidUTxO,
 	}
 
 	isValid := false
@@ -1320,7 +1411,8 @@ func (e *ExUnitsTooBigUtxo) Error() string {
 }
 
 // CollateralContainsNonADA represents the CollateralContainsNonADA error from cardano-ledger.
-// CBOR: [16, provided] (Alonzo/Babbage), [15, provided] (Conway)
+// CBOR: [16, provided] (Alonzo/Babbage), [15, provided] (Conway),
+// [14, provided] (Dijkstra)
 type CollateralContainsNonADA struct {
 	UtxoFailureErrorBase
 	Provided cbor.Value
@@ -1343,6 +1435,7 @@ func (e *CollateralContainsNonADA) MarshalCBOR() ([]byte, error) {
 		UtxoFailureCollateralContainsNonAdaAlonzo,
 		UtxoFailureCollateralContainsNonAdaBabbage,
 		UtxoFailureCollateralContainsNonAdaConway,
+		DijkstraUtxoCollateralContainsNonADA,
 	}
 	isValid := false
 	for _, valid := range validConstructors {
@@ -1379,11 +1472,12 @@ func (e *CollateralContainsNonADA) UnmarshalCBOR(data []byte) error {
 		UtxoFailureCollateralContainsNonAdaAlonzo,
 		UtxoFailureCollateralContainsNonAdaBabbage,
 		UtxoFailureCollateralContainsNonAdaConway,
+		DijkstraUtxoCollateralContainsNonADA,
 	}
 	isValid := false
 	for _, valid := range validConstructors {
 		//nolint:gosec // G115: integer overflow conversion int -> uint64
-		// Safe conversion since constants are small positive values (15, 16)
+		// Safe conversion since constants are small positive values (14, 15, 16)
 		if tmp.ConstructorIdx == uint64(valid) {
 			isValid = true
 			break
