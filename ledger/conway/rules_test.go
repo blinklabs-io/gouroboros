@@ -3034,6 +3034,299 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 	})
 }
 
+func TestUtxoValidateDelegation_DRepType(t *testing.T) {
+	const unknownDrepType = 42
+
+	stakeKeyHash := common.Blake2b224Hash([]byte("vote-delegation-stake-key"))
+	stakeCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: stakeKeyHash,
+	}
+	drepKeyHash := common.NewBlake2b224(
+		bytes.Repeat([]byte{0xAB}, common.Blake2b224Size),
+	)
+
+	mkTx := func(drep common.Drep) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: []common.CertificateWrapper{
+					{Certificate: &common.VoteDelegationCertificate{
+						StakeCredential: stakeCred,
+						Drep:            drep,
+					}},
+				},
+			},
+		}
+	}
+
+	// poolKeyHash/poolCert back the StakeVoteDelegationCertificate and
+	// StakeVoteRegistrationDelegationCertificate cases below: both check
+	// pool registration before the DRep, so the pool must already be
+	// registered for the DRep-type check to be reached at all.
+	poolKeyHash := common.PoolKeyHash{0x07, 0x08, 0x09}
+	poolCert := &common.PoolRegistrationCertificate{Operator: poolKeyHash}
+
+	// certTypeCases enumerates every delegation certificate variant that
+	// carries a Drep field, so the invalid-DRep-type rejection is verified
+	// through all 4 call sites in UtxoValidateDelegation
+	// (ledger/conway/rules.go), not just VoteDelegationCertificate.
+	// StakeRegistrationDelegationCertificate is intentionally excluded: it
+	// has no Drep field.
+	certTypeCases := []struct {
+		name    string
+		buildLS func() common.LedgerState
+		buildTx func(drep common.Drep) *conway.ConwayTransaction
+	}{
+		{
+			name: "VoteDelegationCertificate",
+			buildLS: func() common.LedgerState {
+				return mockledger.NewLedgerStateBuilder().
+					WithStakeCredentialRegistered(stakeKeyHash, true).
+					Build()
+			},
+			buildTx: mkTx,
+		},
+		{
+			name: "StakeVoteDelegationCertificate",
+			buildLS: func() common.LedgerState {
+				return mockledger.NewLedgerStateBuilder().
+					WithStakeCredentialRegistered(stakeKeyHash, true).
+					WithPools(
+						[]*common.PoolRegistrationCertificate{poolCert},
+					).
+					Build()
+			},
+			buildTx: func(drep common.Drep) *conway.ConwayTransaction {
+				return &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{
+							{Certificate: &common.StakeVoteDelegationCertificate{
+								StakeCredential: stakeCred,
+								PoolKeyHash:     poolKeyHash,
+								Drep:            drep,
+							}},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "VoteRegistrationDelegationCertificate",
+			buildLS: func() common.LedgerState {
+				return mockledger.NewLedgerStateBuilder().Build()
+			},
+			buildTx: func(drep common.Drep) *conway.ConwayTransaction {
+				return &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{
+							{Certificate: &common.VoteRegistrationDelegationCertificate{
+								StakeCredential: stakeCred,
+								Drep:            drep,
+							}},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "StakeVoteRegistrationDelegationCertificate",
+			buildLS: func() common.LedgerState {
+				return mockledger.NewLedgerStateBuilder().
+					WithPools(
+						[]*common.PoolRegistrationCertificate{poolCert},
+					).
+					Build()
+			},
+			buildTx: func(drep common.Drep) *conway.ConwayTransaction {
+				return &conway.ConwayTransaction{
+					Body: conway.ConwayTransactionBody{
+						TxCertificates: []common.CertificateWrapper{
+							{Certificate: &common.StakeVoteRegistrationDelegationCertificate{
+								StakeCredential: stakeCred,
+								PoolKeyHash:     poolKeyHash,
+								Drep:            drep,
+							}},
+						},
+					},
+				}
+			},
+		},
+	}
+
+	invalidCredCases := []struct {
+		name       string
+		credential []byte
+	}{
+		{
+			name:       "unknown DRep type with 28-byte credential is rejected",
+			credential: drepKeyHash.Bytes(),
+		},
+		{
+			name:       "unknown DRep type with empty credential is rejected",
+			credential: nil,
+		},
+		{
+			name:       "unknown DRep type with malformed (short) credential is rejected",
+			credential: []byte{0x01, 0x02},
+		},
+	}
+
+	for _, ctc := range certTypeCases {
+		t.Run(ctc.name, func(t *testing.T) {
+			for _, icc := range invalidCredCases {
+				t.Run(icc.name, func(t *testing.T) {
+					ls := ctc.buildLS()
+					tx := ctc.buildTx(common.Drep{
+						Type:       unknownDrepType,
+						Credential: icc.credential,
+					})
+
+					err := conway.UtxoValidateDelegation(
+						tx,
+						0,
+						ls,
+						&conway.ConwayProtocolParameters{},
+					)
+					require.Error(t, err)
+					var target conway.InvalidDRepTypeError
+					require.ErrorAs(t, err, &target)
+					assert.Equal(t, unknownDrepType, target.DrepType)
+				})
+			}
+		})
+	}
+
+	t.Run(
+		"known key hash DRep type behaves as before: unregistered is rejected",
+		func(t *testing.T) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithStakeCredentialRegistered(stakeKeyHash, true).
+				WithDRepRegistration(func(
+					common.Blake2b224,
+				) (*common.DRepRegistration, error) {
+					return nil, nil
+				}).
+				Build()
+			tx := mkTx(common.Drep{
+				Type:       common.DrepTypeAddrKeyHash,
+				Credential: drepKeyHash.Bytes(),
+			})
+
+			err := conway.UtxoValidateDelegation(
+				tx,
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			require.Error(t, err)
+			var target conway.DelegateVoteToUnregisteredDRepError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(
+				t,
+				uint(common.CredentialTypeAddrKeyHash),
+				target.DRepCredential.CredType,
+			)
+			assert.Equal(
+				t,
+				common.NewBlake2b224(drepKeyHash.Bytes()),
+				target.DRepCredential.Credential,
+			)
+		},
+	)
+
+	t.Run(
+		"known key hash DRep type behaves as before: registered is allowed",
+		func(t *testing.T) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithStakeCredentialRegistered(stakeKeyHash, true).
+				WithDRepRegistration(func(
+					common.Blake2b224,
+				) (*common.DRepRegistration, error) {
+					return &common.DRepRegistration{}, nil
+				}).
+				Build()
+			tx := mkTx(common.Drep{
+				Type:       common.DrepTypeAddrKeyHash,
+				Credential: drepKeyHash.Bytes(),
+			})
+
+			err := conway.UtxoValidateDelegation(
+				tx,
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"known script hash DRep type behaves as before: unregistered is rejected",
+		func(t *testing.T) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithStakeCredentialRegistered(stakeKeyHash, true).
+				WithDRepRegistration(func(
+					common.Blake2b224,
+				) (*common.DRepRegistration, error) {
+					return nil, nil
+				}).
+				Build()
+			tx := mkTx(common.Drep{
+				Type:       common.DrepTypeScriptHash,
+				Credential: drepKeyHash.Bytes(),
+			})
+
+			err := conway.UtxoValidateDelegation(
+				tx,
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			require.Error(t, err)
+			var target conway.DelegateVoteToUnregisteredDRepError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(
+				t,
+				uint(common.CredentialTypeScriptHash),
+				target.DRepCredential.CredType,
+			)
+		},
+	)
+
+	t.Run("Abstain DRep type requires no registration", func(t *testing.T) {
+		ls := mockledger.NewLedgerStateBuilder().
+			WithStakeCredentialRegistered(stakeKeyHash, true).
+			Build()
+		tx := mkTx(common.Drep{Type: common.DrepTypeAbstain})
+
+		err := conway.UtxoValidateDelegation(
+			tx,
+			0,
+			ls,
+			&conway.ConwayProtocolParameters{},
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run(
+		"NoConfidence DRep type requires no registration",
+		func(t *testing.T) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithStakeCredentialRegistered(stakeKeyHash, true).
+				Build()
+			tx := mkTx(common.Drep{Type: common.DrepTypeNoConfidence})
+
+			err := conway.UtxoValidateDelegation(
+				tx,
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			require.NoError(t, err)
+		},
+	)
+}
+
 func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 	mkPp := func(major uint) *conway.ConwayProtocolParameters {
 		return &conway.ConwayProtocolParameters{
