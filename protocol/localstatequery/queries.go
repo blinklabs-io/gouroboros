@@ -785,47 +785,8 @@ func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) 
 	return nil
 }
 
-type GenesisConfigResult struct {
-	cbor.StructAsArray
-	Start             SystemStartResult
-	NetworkMagic      int
-	NetworkId         uint8
-	ActiveSlotsCoeff  []any
-	SecurityParam     int
-	EpochLength       int
-	SlotsPerKESPeriod int
-	MaxKESEvolutions  int
-	SlotLength        int
-	UpdateQuorum      int
-	MaxLovelaceSupply int64
-	ProtocolParams    GenesisConfigResultProtocolParameters
-	// This value contains maps with bytestring keys, which we can't parse yet
-	GenDelegs cbor.RawMessage
-	Unknown1  any
-	Unknown2  any
-}
-
-type GenesisConfigResultProtocolParameters struct {
-	cbor.StructAsArray
-	MinFeeA               int
-	MinFeeB               int
-	MaxBlockBodySize      int
-	MaxTxSize             int
-	MaxBlockHeaderSize    int
-	KeyDeposit            int
-	PoolDeposit           int
-	EMax                  int
-	NOpt                  int
-	A0                    []int
-	Rho                   []int
-	Tau                   []int
-	DecentralizationParam []int
-	ExtraEntropy          any
-	ProtocolVersionMajor  int
-	ProtocolVersionMinor  int
-	MinUTxOValue          int
-	MinPoolCost           int
-}
+// GenesisConfigResult and GenesisConfigResultProtocolParameters are defined in
+// genesis_config.go, which carries the two wire layouts.
 
 // TODO (#864)
 type DebugNewEpochStateResult any

@@ -188,6 +188,25 @@ var protocolVersions = map[uint16]ProtocolVersion{
 		EnableDijkstraEra:            true,
 		EnableLocalTxMonitorProtocol: true,
 	},
+	// Replaced the GetCurrentProtocolParams and GetGenesisConfig result
+	// encodings with the ledger's own, in place of the older serialisation the
+	// node had been vendoring. GetGenesisConfig changes shape on the wire; see
+	// GenesisConfigResult. GetCurrentProtocolParams does not, because the
+	// vendored encoding differs from the ledger's only up to Babbage, and a
+	// node that negotiates this version is past those eras. The eras and
+	// mini-protocols are unchanged from version 20.
+	(21 + ProtocolVersionNtCOffset): {
+		NewVersionDataFromCborFunc:   NewVersionDataNtC15andUpFromCbor,
+		EnableLocalQueryProtocol:     true,
+		EnableShelleyEra:             true,
+		EnableAllegraEra:             true,
+		EnableMaryEra:                true,
+		EnableAlonzoEra:              true,
+		EnableBabbageEra:             true,
+		EnableConwayEra:              true,
+		EnableDijkstraEra:            true,
+		EnableLocalTxMonitorProtocol: true,
+	},
 
 	//
 	// We don't bother supporting NtN protocol versions before 7 (when Alonzo was enabled)

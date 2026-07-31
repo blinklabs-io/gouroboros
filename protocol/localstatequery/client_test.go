@@ -1356,9 +1356,9 @@ func TestGenesisConfigJSON(t *testing.T) {
 			MinUTxOValue:          1000000,
 			MinPoolCost:           340000000,
 		},
-		GenDelegs: []byte("mocked_cbor_data"),
-		Unknown1:  nil,
-		Unknown2:  nil,
+		GenDelegs:    []byte("mocked_cbor_data"),
+		InitialFunds: nil,
+		Staking:      nil,
 	}
 
 	// Marshal to JSON
