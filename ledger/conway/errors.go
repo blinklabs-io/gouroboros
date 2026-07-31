@@ -321,6 +321,18 @@ func (e DelegateVoteToUnregisteredDRepError) Error() string {
 	)
 }
 
+// InvalidDRepTypeError indicates a delegation certificate referenced a DRep
+// with a type other than key hash, script hash, Abstain, or NoConfidence.
+// This guards against programmatically constructed (non-CBOR-decoded)
+// transactions carrying a common.Drep with an out-of-range Type value.
+type InvalidDRepTypeError struct {
+	DrepType int
+}
+
+func (e InvalidDRepTypeError) Error() string {
+	return fmt.Sprintf("invalid DRep type: %d", e.DrepType)
+}
+
 // WithdrawalFromUnregisteredRewardAccountError indicates withdrawal from an unregistered reward account
 type WithdrawalFromUnregisteredRewardAccountError = shelley.WithdrawalFromUnregisteredRewardAccountError
 

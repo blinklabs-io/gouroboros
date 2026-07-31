@@ -2307,38 +2307,49 @@ func UtxoValidateDelegation(
 		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
 	}
 
-	// Helper to check if DRep is registered (in state or in-tx)
-	// Returns true for special DRep types (Abstain, NoConfidence) as they don't need registration
-	isDRepRegistered := func(drep common.Drep) bool {
-		// Special DRep types don't require registration
-		if drep.Type == common.DrepTypeAbstain ||
-			drep.Type == common.DrepTypeNoConfidence {
-			return true
+	// Helper to check if DRep is registered (in state or in-tx).
+	// Returns true for special DRep types (Abstain, NoConfidence) as they
+	// don't need registration. Any DRep type other than key hash, script
+	// hash, Abstain, or NoConfidence is rejected outright via
+	// InvalidDRepTypeError -- this closes a gap where a programmatically
+	// constructed (non-CBOR-decoded) common.Drep could carry an
+	// out-of-range Type value and be treated as an unregistered key/script
+	// hash DRep instead of being rejected.
+	isDRepRegistered := func(drep common.Drep) (bool, error) {
+		switch drep.Type {
+		case common.DrepTypeAbstain, common.DrepTypeNoConfidence:
+			// Special DRep types don't require registration
+			return true, nil
+		case common.DrepTypeAddrKeyHash, common.DrepTypeScriptHash:
+			// For key hash and script hash types, check registration
+			if len(drep.Credential) != 28 {
+				return false, nil
+			}
+			var credHash common.Blake2b224
+			copy(credHash[:], drep.Credential)
+			// Check in-tx registrations first
+			if inTxDRepRegs[credHash] {
+				return true, nil
+			}
+			// Check ledger state
+			reg, err := ls.DRepRegistration(credHash)
+			return err == nil && reg != nil, nil
+		default:
+			return false, InvalidDRepTypeError{DrepType: drep.Type}
 		}
-		// For key hash and script hash types, check registration
-		if len(drep.Credential) != 28 {
-			return false
-		}
-		var credHash common.Blake2b224
-		copy(credHash[:], drep.Credential)
-		// Check in-tx registrations first
-		if inTxDRepRegs[credHash] {
-			return true
-		}
-		// Check ledger state
-		reg, err := ls.DRepRegistration(credHash)
-		return err == nil && reg != nil
 	}
 
-	// Helper to convert Drep type to credential type safely
+	// Helper to convert Drep type to credential type. Only ever invoked
+	// after isDRepRegistered has confirmed the type is one of
+	// DrepTypeAddrKeyHash/DrepTypeScriptHash (any other type returns an
+	// error from isDRepRegistered before this is reached), so the default
+	// case below is unreachable and does not fall back silently.
 	drepTypeToCredType := func(drepType int) uint {
 		switch drepType {
-		case common.DrepTypeAddrKeyHash:
-			return common.CredentialTypeAddrKeyHash
 		case common.DrepTypeScriptHash:
 			return common.CredentialTypeScriptHash
 		default:
-			return common.CredentialTypeAddrKeyHash // fallback
+			return common.CredentialTypeAddrKeyHash
 		}
 	}
 
@@ -2408,7 +2419,11 @@ func UtxoValidateDelegation(
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
 			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			if !isDRepRegistered(c.Drep) {
+			drepRegistered, err := isDRepRegistered(c.Drep)
+			if err != nil {
+				return err
+			}
+			if !drepRegistered {
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
 					CredType:   drepTypeToCredType(c.Drep.Type),
 					Credential: common.NewBlake2b224(c.Drep.Credential),
@@ -2425,7 +2440,11 @@ func UtxoValidateDelegation(
 				return DelegateUnregisteredStakeCredentialError{Credential: c.StakeCredential}
 			}
 			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			if !isDRepRegistered(c.Drep) {
+			drepRegistered, err := isDRepRegistered(c.Drep)
+			if err != nil {
+				return err
+			}
+			if !drepRegistered {
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
 					CredType:   drepTypeToCredType(c.Drep.Type),
 					Credential: common.NewBlake2b224(c.Drep.Credential),
@@ -2444,7 +2463,11 @@ func UtxoValidateDelegation(
 			// This cert registers AND delegates, so mark as registered first
 			inTxStakeRegs[c.StakeCredential.Credential] = true
 			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			if !isDRepRegistered(c.Drep) {
+			drepRegistered, err := isDRepRegistered(c.Drep)
+			if err != nil {
+				return err
+			}
+			if !drepRegistered {
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
 					CredType:   drepTypeToCredType(c.Drep.Type),
 					Credential: common.NewBlake2b224(c.Drep.Credential),
@@ -2459,7 +2482,11 @@ func UtxoValidateDelegation(
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			// Check if target DRep is registered (except for Abstain/NoConfidence)
-			if !isDRepRegistered(c.Drep) {
+			drepRegistered, err := isDRepRegistered(c.Drep)
+			if err != nil {
+				return err
+			}
+			if !drepRegistered {
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
 					CredType:   drepTypeToCredType(c.Drep.Type),
 					Credential: common.NewBlake2b224(c.Drep.Credential),
