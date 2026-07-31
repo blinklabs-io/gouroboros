@@ -16,6 +16,7 @@ package common
 
 import (
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -1072,6 +1073,51 @@ func TestCIP0019_NetworkIdEdgeCases(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedNetworkId, addr.NetworkId())
 			}
+		})
+	}
+}
+
+func TestCIP0019_ReservedAddressTypes(t *testing.T) {
+	// Types 9-13 are reserved by CIP-0019 and must not decode as valid
+	// addresses, even when followed by a plausible-looking payload
+	paymentHash := make([]byte, 28)
+	stakingHash := make([]byte, 28)
+
+	for reservedType := uint8(9); reservedType <= 13; reservedType++ {
+		t.Run(fmt.Sprintf("reserved type %d with payload", reservedType), func(t *testing.T) {
+			header := (reservedType << 4) | AddressNetworkMainnet
+			addrBytes := append([]byte{header}, paymentHash...)
+			addrBytes = append(addrBytes, stakingHash...)
+
+			_, err := NewAddressFromBytes(addrBytes)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid address type")
+		})
+
+		t.Run(fmt.Sprintf("reserved type %d single byte header", reservedType), func(t *testing.T) {
+			header := (reservedType << 4) | AddressNetworkMainnet
+			_, err := NewAddressFromBytes([]byte{header})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid address type")
+		})
+	}
+}
+
+func TestCIP0019_RawBytesInvalidNetworkId(t *testing.T) {
+	// Raw byte decoding must reject non-Byron addresses with a network id
+	// other than testnet (0) or mainnet (1), matching NewAddressFromParts
+	paymentHash := make([]byte, 28)
+	stakingHash := make([]byte, 28)
+
+	for _, invalidNetworkId := range []uint8{2, 15} {
+		t.Run(fmt.Sprintf("network id %d", invalidNetworkId), func(t *testing.T) {
+			header := (AddressTypeKeyKey << 4) | invalidNetworkId
+			addrBytes := append([]byte{header}, paymentHash...)
+			addrBytes = append(addrBytes, stakingHash...)
+
+			_, err := NewAddressFromBytes(addrBytes)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid network ID")
 		})
 	}
 }

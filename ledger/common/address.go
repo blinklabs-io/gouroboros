@@ -309,6 +309,29 @@ func (a *Address) populateFromBytes(data []byte) error {
 		}
 		return nil
 	}
+	// Validate network ID for non-Byron addresses
+	if a.networkId != AddressNetworkTestnet &&
+		a.networkId != AddressNetworkMainnet {
+		return fmt.Errorf("invalid network ID: %d", a.networkId)
+	}
+	// Validate that the address type is one of the known CIP-0019 types.
+	// Types 9-13 are reserved and must be rejected rather than silently
+	// decoding as an address with no payment/staking payload
+	switch a.addressType {
+	case AddressTypeKeyKey,
+		AddressTypeScriptKey,
+		AddressTypeKeyScript,
+		AddressTypeScriptScript,
+		AddressTypeKeyPointer,
+		AddressTypeScriptPointer,
+		AddressTypeKeyNone,
+		AddressTypeScriptNone,
+		AddressTypeNoneKey,
+		AddressTypeNoneScript:
+		// Known address type
+	default:
+		return fmt.Errorf("invalid address type: %d", a.addressType)
+	}
 	// Payment payload
 	payload := data[1:]
 	switch a.addressType {
