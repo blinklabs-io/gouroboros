@@ -58,6 +58,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	UtxoValidateExUnitsTooBigUtxo,
 	UtxoValidateTooManyCollateralInputs,
 	UtxoValidateNativeScripts,
+	UtxoValidateExtraneousRedeemers,
 	UtxoValidatePlutusScripts,
 	UtxoValidateDelegation,
 	UtxoValidateWithdrawals,
@@ -105,6 +106,21 @@ func UtxoValidatePlutusScripts(
 	pp common.ProtocolParameters,
 ) error {
 	return common.ValidateUnsupportedPlutusExecution(tx, "Babbage")
+}
+
+// UtxoValidateExtraneousRedeemers checks that all redeemers have valid
+// purposes: a spending redeemer's index must reference an existing input,
+// a minting redeemer an existing mint policy, a certifying redeemer an
+// existing certificate, and a reward redeemer an existing withdrawal.
+// Babbage predates governance, so voting/proposing/guarding redeemer tags
+// are always extraneous here.
+func UtxoValidateExtraneousRedeemers(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	return common.ValidateExtraneousRedeemers(tx)
 }
 
 // UtxoValidateRequiredVKeyWitnesses ensures required signers are accompanied by vkey witnesses

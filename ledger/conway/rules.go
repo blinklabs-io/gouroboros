@@ -636,60 +636,13 @@ func UtxoValidateExtraneousRedeemers(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	wits := tx.Witnesses()
-	if wits == nil {
-		return nil
-	}
-	redeemers := wits.Redeemers()
-	if redeemers == nil {
-		return nil
-	}
-
-	// Get counts for each purpose type
-	inputCount := len(tx.Inputs())
-	certCount := len(tx.Certificates())
-	withdrawalCount := len(tx.Withdrawals())
-	proposalCount := len(tx.ProposalProcedures())
-
-	// Count distinct mint policies
-	mintPolicyCount := 0
-	if mint := tx.AssetMint(); mint != nil {
-		mintPolicyCount = len(mint.Policies())
-	}
-
-	// Count voters (each voter is a separate purpose index)
-	voterCount := 0
-	if votingProcs := tx.VotingProcedures(); votingProcs != nil {
-		voterCount = len(votingProcs)
-	}
-
-	// Check each redeemer
-	for redeemerKey := range redeemers.Iter() {
-		var maxIndex int
-		switch redeemerKey.Tag {
-		case common.RedeemerTagSpend:
-			maxIndex = inputCount
-		case common.RedeemerTagMint:
-			maxIndex = mintPolicyCount
-		case common.RedeemerTagCert:
-			maxIndex = certCount
-		case common.RedeemerTagReward:
-			maxIndex = withdrawalCount
-		case common.RedeemerTagVoting:
-			maxIndex = voterCount
-		case common.RedeemerTagProposing:
-			maxIndex = proposalCount
-		case common.RedeemerTagGuarding:
-			return ExtraRedeemerError{RedeemerKey: redeemerKey}
-		default:
-			return ExtraRedeemerError{RedeemerKey: redeemerKey}
+	if err := common.ValidateExtraneousRedeemers(tx); err != nil {
+		var extraErr common.ExtraneousRedeemerError
+		if errors.As(err, &extraErr) {
+			return ExtraRedeemerError{RedeemerKey: extraErr.RedeemerKey}
 		}
-
-		if int(redeemerKey.Index) >= maxIndex {
-			return ExtraRedeemerError{RedeemerKey: redeemerKey}
-		}
+		return err
 	}
-
 	return nil
 }
 
@@ -2087,7 +2040,7 @@ func UtxoValidatePlutusScripts(
 	// Execute each redeemer's script
 	for redeemerKey, redeemerValue := range redeemers.Iter() {
 		// Build script purpose for this redeemer
-		purpose := script.BuildScriptPurpose(
+		purpose, err := script.BuildScriptPurpose(
 			redeemerKey,
 			resolvedInputsMap,
 			inputs,
@@ -2098,7 +2051,7 @@ func UtxoValidatePlutusScripts(
 			proposalProcedures,
 			witnessDatums,
 		)
-		if purpose == nil {
+		if err != nil {
 			// Redeemer doesn't match any valid purpose (index out of bounds, etc.)
 			return ExtraRedeemerError{RedeemerKey: redeemerKey}
 		}

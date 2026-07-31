@@ -16,6 +16,7 @@ package script
 
 import (
 	"bytes"
+	"fmt"
 	"math/big"
 	"slices"
 	"strings"
@@ -23,6 +24,24 @@ import (
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
 )
+
+// UnmatchedRedeemerError indicates a redeemer's tag/index does not
+// correspond to any valid script purpose that scriptPurposeBuilder or
+// BuildScriptPurpose can construct for the transaction (e.g. the index is
+// out of range for its tag's category, the referenced input could not be
+// resolved, or the tag itself is not a purpose these builders support, such
+// as RedeemerTagGuarding).
+type UnmatchedRedeemerError struct {
+	RedeemerKey lcommon.RedeemerKey
+}
+
+func (e UnmatchedRedeemerError) Error() string {
+	return fmt.Sprintf(
+		"redeemer tag=%d index=%d does not match any script purpose",
+		e.RedeemerKey.Tag,
+		e.RedeemerKey.Index,
+	)
+}
 
 type ScriptPurpose interface {
 	isScriptPurpose()
@@ -287,7 +306,9 @@ type ScriptInfoGuarding struct {
 
 func (ScriptInfoGuarding) isScriptInfo() {}
 
-type toScriptPurposeFunc func(lcommon.RedeemerKey) ScriptPurpose
+type toScriptPurposeFunc func(
+	lcommon.RedeemerKey,
+) (ScriptPurpose, error)
 
 // scriptPurposeBuilder creates a reusable function preloaded with information about a particular transaction
 // The witnessDatums parameter allows looking up datums from the transaction witness set
@@ -302,11 +323,13 @@ func scriptPurposeBuilder(
 	proposalProcedures []lcommon.ProposalProcedure,
 	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
 ) toScriptPurposeFunc {
-	return func(redeemerKey lcommon.RedeemerKey) ScriptPurpose {
+	return func(
+		redeemerKey lcommon.RedeemerKey,
+	) (ScriptPurpose, error) {
 		switch redeemerKey.Tag {
 		case lcommon.RedeemerTagSpend:
 			if int(redeemerKey.Index) >= len(inputs) {
-				return nil
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			var datum data.PlutusData
 			tmpInput := inputs[redeemerKey.Index]
@@ -317,7 +340,7 @@ func scriptPurposeBuilder(
 					resolvedInput = tmpResolvedInput
 					resolved = true
 					if resolvedInput.Output == nil {
-						return nil
+						return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 					}
 					if tmpDatum := resolvedInput.Output.Datum(); tmpDatum != nil {
 						// Inline datum - use it directly
@@ -332,16 +355,16 @@ func scriptPurposeBuilder(
 				}
 			}
 			if !resolved {
-				return nil
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeSpending{
 				Input: resolvedInput,
 				Datum: datum,
-			}
+			}, nil
 		case lcommon.RedeemerTagMint:
 			mintPolicies := mint.Policies()
 			if int(redeemerKey.Index) >= len(mintPolicies) {
-				return nil
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			slices.SortFunc(
 				mintPolicies,
@@ -349,44 +372,46 @@ func scriptPurposeBuilder(
 			)
 			return ScriptPurposeMinting{
 				PolicyId: mintPolicies[redeemerKey.Index],
-			}
+			}, nil
 		case lcommon.RedeemerTagCert:
 			if int(redeemerKey.Index) >= len(certificates) {
-				return nil
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeCertifying{
 				Index:       redeemerKey.Index,
 				Certificate: certificates[redeemerKey.Index],
-			}
+			}, nil
 		case lcommon.RedeemerTagReward:
 			if int(redeemerKey.Index) >= len(withdrawals) {
-				return nil
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeRewarding{
 				StakeCredential: lcommon.Credential{
 					CredType:   lcommon.CredentialTypeScriptHash,
 					Credential: withdrawals[redeemerKey.Index].Key.StakeKeyHash(),
 				},
-			}
+			}, nil
 		case lcommon.RedeemerTagVoting:
 			if int(redeemerKey.Index) >= len(votes) {
-				return nil
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeVoting{
 				Voter: *(votes[redeemerKey.Index].Key),
-			}
+			}, nil
 		case lcommon.RedeemerTagProposing:
 			if int(redeemerKey.Index) >= len(proposalProcedures) {
-				return nil
+				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeProposing{
 				Index:             redeemerKey.Index,
 				ProposalProcedure: proposalProcedures[redeemerKey.Index],
-			}
+			}, nil
 		case lcommon.RedeemerTagGuarding:
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		default:
-			return nil
+			// Any unrecognized tag isn't a purpose this builder can
+			// construct.
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 	}
 }
@@ -405,19 +430,19 @@ func BuildScriptPurpose(
 	votes lcommon.VotingProcedures,
 	proposalProcedures []lcommon.ProposalProcedure,
 	witnessDatums map[lcommon.Blake2b256]*lcommon.Datum,
-) ScriptPurpose {
+) (ScriptPurpose, error) {
 	switch redeemerKey.Tag {
 	case lcommon.RedeemerTagSpend:
 		if int(redeemerKey.Index) >= len(inputs) {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		tmpInput := inputs[redeemerKey.Index]
 		utxo, ok := resolvedInputs[tmpInput.String()]
 		if !ok {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		if utxo.Output == nil {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		var datum data.PlutusData
 		if d := utxo.Output.Datum(); d != nil {
@@ -432,11 +457,11 @@ func BuildScriptPurpose(
 		return ScriptPurposeSpending{
 			Input: utxo,
 			Datum: datum,
-		}
+		}, nil
 	case lcommon.RedeemerTagMint:
 		policies := mint.Policies()
 		if int(redeemerKey.Index) >= len(policies) {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		slices.SortFunc(
 			policies,
@@ -444,15 +469,15 @@ func BuildScriptPurpose(
 		)
 		return ScriptPurposeMinting{
 			PolicyId: policies[redeemerKey.Index],
-		}
+		}, nil
 	case lcommon.RedeemerTagCert:
 		if int(redeemerKey.Index) >= len(certificates) {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		return ScriptPurposeCertifying{
 			Index:       redeemerKey.Index,
 			Certificate: certificates[redeemerKey.Index],
-		}
+		}, nil
 	case lcommon.RedeemerTagReward:
 		// Extract and sort withdrawal addresses for deterministic ordering
 		sortedAddrs := make([]*lcommon.Address, 0, len(withdrawals))
@@ -469,7 +494,7 @@ func BuildScriptPurpose(
 			return bytes.Compare(aBytes, bBytes)
 		})
 		if int(redeemerKey.Index) >= len(sortedAddrs) {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		addr := sortedAddrs[redeemerKey.Index]
 		return ScriptPurposeRewarding{
@@ -477,7 +502,7 @@ func BuildScriptPurpose(
 				CredType:   lcommon.CredentialTypeScriptHash,
 				Credential: addr.StakeKeyHash(),
 			},
-		}
+		}, nil
 	case lcommon.RedeemerTagVoting:
 		// Extract and sort voters for deterministic ordering
 		sortedVoters := make([]*lcommon.Voter, 0, len(votes))
@@ -512,22 +537,23 @@ func BuildScriptPurpose(
 			return 1
 		})
 		if int(redeemerKey.Index) >= len(sortedVoters) {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		return ScriptPurposeVoting{
 			Voter: *sortedVoters[redeemerKey.Index],
-		}
+		}, nil
 	case lcommon.RedeemerTagProposing:
 		if int(redeemerKey.Index) >= len(proposalProcedures) {
-			return nil
+			return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 		}
 		return ScriptPurposeProposing{
 			Index:             redeemerKey.Index,
 			ProposalProcedure: proposalProcedures[redeemerKey.Index],
-		}
+		}, nil
 	case lcommon.RedeemerTagGuarding:
-		return nil
+		return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 	default:
-		return nil
+		// Any unrecognized tag isn't a purpose this function can construct.
+		return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 	}
 }
