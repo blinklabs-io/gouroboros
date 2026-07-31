@@ -23,6 +23,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -207,9 +210,7 @@ func TestGenesisMarshalCBORInvalidNetworkId(t *testing.T) {
 		NetworkId: "Regtest",
 	}
 	_, err := tmpGenesis.MarshalCBOR()
-	if err == nil {
-		t.Fatalf("expected error for invalid network ID, got nil")
-	}
+	require.Error(t, err)
 }
 
 // Confirms the getNetworkId() refactor preserves the original encoded
@@ -239,32 +240,16 @@ func TestGenesisMarshalCBORValidNetworkId(t *testing.T) {
 			},
 		}
 		cborData, err := tmpGenesis.MarshalCBOR()
-		if err != nil {
-			t.Fatalf(
-				"unexpected error marshaling %s genesis: %s",
-				testDef.networkId,
-				err,
-			)
-		}
+		require.NoError(t, err, "unexpected error marshaling %s genesis", testDef.networkId)
+
 		var decoded []any
-		if _, err := cbor.Decode(cborData, &decoded); err != nil {
-			t.Fatalf("unexpected error decoding CBOR: %s", err)
-		}
+		_, err = cbor.Decode(cborData, &decoded)
+		require.NoError(t, err, "unexpected error decoding CBOR")
+		require.Greater(t, len(decoded), 2, "decoded genesis has too few fields")
+
 		gotNetworkId, ok := decoded[2].(uint64)
-		if !ok {
-			t.Fatalf(
-				"expected network ID field to decode as uint64, got %T",
-				decoded[2],
-			)
-		}
-		if gotNetworkId != testDef.expectedNetworkIdCbor {
-			t.Fatalf(
-				"for %s, expected encoded network ID %d, got %d",
-				testDef.networkId,
-				testDef.expectedNetworkIdCbor,
-				gotNetworkId,
-			)
-		}
+		require.True(t, ok, "expected network ID field to decode as uint64, got %T", decoded[2])
+		assert.Equal(t, testDef.expectedNetworkIdCbor, gotNetworkId, "for %s", testDef.networkId)
 	}
 }
 
