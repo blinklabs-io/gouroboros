@@ -944,7 +944,11 @@ func TestApplyTxError_IncorrectWithdrawals_Shelley(t *testing.T) {
 		"Expected *IncorrectWithdrawals, got %T",
 		applyErr.Failures[0],
 	)
-	assert.Equal(t, uint8(ShelleyLedgerIncompleteWithdrawals), incorrectWithdrawals.Type)
+	assert.Equal(
+		t,
+		uint8(ShelleyLedgerIncompleteWithdrawals),
+		incorrectWithdrawals.Type,
+	)
 	// Validate that the withdrawals payload was preserved.
 	assert.Equal(t, withdrawalsCbor, incorrectWithdrawals.Withdrawals.Cbor())
 }
@@ -989,7 +993,11 @@ func TestApplyTxError_IncorrectWithdrawals_Babbage(t *testing.T) {
 		"Expected *IncorrectWithdrawals, got %T",
 		applyErr.Failures[0],
 	)
-	assert.Equal(t, uint8(ShelleyLedgerIncompleteWithdrawals), incorrectWithdrawals.Type)
+	assert.Equal(
+		t,
+		uint8(ShelleyLedgerIncompleteWithdrawals),
+		incorrectWithdrawals.Type,
+	)
 	// Validate that the withdrawals payload was preserved.
 	assert.Equal(t, withdrawalsCbor, incorrectWithdrawals.Withdrawals.Cbor())
 }
@@ -1027,7 +1035,11 @@ func TestApplyTxError_IncorrectWithdrawals_Conway(t *testing.T) {
 		"Expected *IncorrectWithdrawals, got %T",
 		applyErr.Failures[0],
 	)
-	assert.Equal(t, uint8(ConwayLedgerIncompleteWithdrawals), incorrectWithdrawals.Type)
+	assert.Equal(
+		t,
+		uint8(ConwayLedgerIncompleteWithdrawals),
+		incorrectWithdrawals.Type,
+	)
 	// Validate that the withdrawals payload was preserved.
 	assert.Equal(t, withdrawalsCbor, incorrectWithdrawals.Withdrawals.Cbor())
 }
@@ -1209,7 +1221,12 @@ func TestConwayUtxoFailure_TagMappings(t *testing.T) {
 
 			// Check the tag maps to the expected error type
 			errType, exists := errorMap[tc.conwayTag]
-			require.True(t, exists, "Conway tag %d should exist in error map", tc.conwayTag)
+			require.True(
+				t,
+				exists,
+				"Conway tag %d should exist in error map",
+				tc.conwayTag,
+			)
 			assert.Contains(t, fmt.Sprintf("%T", errType), tc.expectedErr,
 				"Conway tag %d should map to %s", tc.conwayTag, tc.expectedErr)
 		})
@@ -1233,16 +1250,36 @@ func TestConwayVsAlonzoUtxoTagDifferences(t *testing.T) {
 	conwayTag0 := conwayMap[0]
 	alonzoTag0 := alonzoMap[0]
 
-	assert.IsType(t, &UtxosFailure{}, conwayTag0, "Conway tag 0 should be UtxosFailure")
-	assert.IsType(t, &BadInputsUtxo{}, alonzoTag0, "Alonzo tag 0 should be BadInputsUtxo")
+	assert.IsType(
+		t,
+		&UtxosFailure{},
+		conwayTag0,
+		"Conway tag 0 should be UtxosFailure",
+	)
+	assert.IsType(
+		t,
+		&BadInputsUtxo{},
+		alonzoTag0,
+		"Alonzo tag 0 should be BadInputsUtxo",
+	)
 
 	// In Conway, tag 1 = BadInputsUTxO
 	// In Alonzo, tag 1 = OutsideValidityIntervalUtxo
 	conwayTag1 := conwayMap[1]
 	alonzoTag1 := alonzoMap[1]
 
-	assert.IsType(t, &BadInputsUtxo{}, conwayTag1, "Conway tag 1 should be BadInputsUtxo")
-	assert.IsType(t, &OutsideValidityIntervalUtxo{}, alonzoTag1, "Alonzo tag 1 should be OutsideValidityIntervalUtxo")
+	assert.IsType(
+		t,
+		&BadInputsUtxo{},
+		conwayTag1,
+		"Conway tag 1 should be BadInputsUtxo",
+	)
+	assert.IsType(
+		t,
+		&OutsideValidityIntervalUtxo{},
+		alonzoTag1,
+		"Alonzo tag 1 should be OutsideValidityIntervalUtxo",
+	)
 }
 
 // =============================================================================
@@ -2218,4 +2255,156 @@ func TestUtxoFailure_MalformedInnerValueReturnsError(t *testing.T) {
 		utxoErr.Err,
 		"Err should not be populated when UnmarshalCBOR returns an error",
 	)
+}
+
+// TestUtxowFailure_DijkstraMissingRequiredGuards verifies that a real
+// Dijkstra MissingRequiredGuards failure (UTXOW tag 19) round-trips through
+// UtxowFailure.UnmarshalCBOR as *MissingRequiredGuards with its guard
+// credentials intact, instead of falling back to
+// UnknownUtxowFailureError (which is what Conway's decoder, whose switch
+// only covers tags 0-18, would incorrectly produce).
+func TestUtxowFailure_DijkstraMissingRequiredGuards(t *testing.T) {
+	guard1 := common.Credential{
+		CredType: common.CredentialTypeAddrKeyHash,
+		Credential: common.NewBlake2b224(
+			[]byte("12345678901234567890123456789012"),
+		),
+	}
+	guard2 := common.Credential{
+		CredType: common.CredentialTypeScriptHash,
+		Credential: common.NewBlake2b224(
+			[]byte("abcdefghijklmnopqrstuvwxyz123456"),
+		),
+	}
+	payload, err := cbor.Encode([]any{guard1, guard2})
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{
+			uint(DijkstraUtxowMissingRequiredGuards),
+			cbor.RawMessage(payload),
+		},
+	)
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdDijkstra
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxowErr.Err.(*MissingRequiredGuards)
+	require.True(
+		t,
+		ok,
+		"Expected *MissingRequiredGuards, got %T",
+		utxowErr.Err,
+	)
+	require.Len(t, decoded.Guards, 2)
+	assert.Equal(t, guard1.CredType, decoded.Guards[0].CredType)
+	assert.Equal(t, guard1.Credential, decoded.Guards[0].Credential)
+	assert.Equal(t, guard2.CredType, decoded.Guards[1].CredType)
+	assert.Equal(t, guard2.Credential, decoded.Guards[1].Credential)
+
+	_, isUnknown := utxowErr.Err.(*UnknownUtxowFailureError)
+	assert.False(
+		t,
+		isUnknown,
+		"Dijkstra tag 19 must not fall back to UnknownUtxowFailureError",
+	)
+
+	errStr := decoded.Error()
+	assert.Contains(t, errStr, "MissingRequiredGuards")
+	assert.Contains(t, errStr, guard1.Credential.String())
+	assert.Contains(t, errStr, guard2.Credential.String())
+}
+
+// TestUtxowFailure_DijkstraMalformedGuardDatums verifies that a real
+// Dijkstra MalformedGuardDatums failure (UTXOW tag 20) round-trips through
+// UtxowFailure.UnmarshalCBOR as *MalformedGuardDatums with its guard
+// credentials intact, instead of falling back to
+// UnknownUtxowFailureError.
+func TestUtxowFailure_DijkstraMalformedGuardDatums(t *testing.T) {
+	guard := common.Credential{
+		CredType: common.CredentialTypeScriptHash,
+		Credential: common.NewBlake2b224(
+			[]byte("11112222333344445555666677778888"),
+		),
+	}
+	payload, err := cbor.Encode([]any{guard})
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{
+			uint(DijkstraUtxowMalformedGuardDatums),
+			cbor.RawMessage(payload),
+		},
+	)
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdDijkstra
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxowErr.Err.(*MalformedGuardDatums)
+	require.True(
+		t,
+		ok,
+		"Expected *MalformedGuardDatums, got %T",
+		utxowErr.Err,
+	)
+	require.Len(t, decoded.Guards, 1)
+	assert.Equal(t, guard.CredType, decoded.Guards[0].CredType)
+	assert.Equal(t, guard.Credential, decoded.Guards[0].Credential)
+
+	_, isUnknown := utxowErr.Err.(*UnknownUtxowFailureError)
+	assert.False(
+		t,
+		isUnknown,
+		"Dijkstra tag 20 must not fall back to UnknownUtxowFailureError",
+	)
+
+	errStr := decoded.Error()
+	assert.Contains(t, errStr, "MalformedGuardDatums")
+	assert.Contains(t, errStr, guard.Credential.String())
+}
+
+// TestUtxowFailure_DijkstraSharesConwayTags0To18 verifies that Dijkstra's
+// UTXOW decoder still falls through to Conway's shared tags (0-18) for
+// constructors Dijkstra doesn't redefine, so adding tags 19/20 doesn't
+// regress the pre-existing shared enumeration.
+func TestUtxowFailure_DijkstraSharesConwayTags0To18(t *testing.T) {
+	// Tag 8 = InvalidMetadata, no payload, shared with Conway.
+	cborData, err := cbor.Encode([]any{uint(ConwayUtxowInvalidMetadata)})
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdDijkstra
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	_, ok := utxowErr.Err.(*InvalidMetadata)
+	require.True(t, ok, "Expected *InvalidMetadata, got %T", utxowErr.Err)
+}
+
+// TestUtxowFailure_DijkstraUnknownTagBeyond20 verifies that a Dijkstra
+// UTXOW constructor tag beyond the known range (0-20) still produces
+// UnknownUtxowFailureError rather than a hard decode error or a
+// misattributed type.
+func TestUtxowFailure_DijkstraUnknownTagBeyond20(t *testing.T) {
+	cborData, err := cbor.Encode([]any{uint(21), []any{}})
+	require.NoError(t, err)
+
+	utxowErr := &UtxowFailure{}
+	utxowErr.era = EraIdDijkstra
+	err = utxowErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	unknownErr, ok := utxowErr.Err.(*UnknownUtxowFailureError)
+	require.True(
+		t,
+		ok,
+		"Expected *UnknownUtxowFailureError, got %T",
+		utxowErr.Err,
+	)
+	assert.Equal(t, uint8(EraIdDijkstra), unknownErr.Era)
+	assert.Equal(t, 21, unknownErr.FailureType)
 }

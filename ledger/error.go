@@ -91,6 +91,15 @@ const (
 	ConwayUtxowMalformedReferenceScripts    = 17
 	ConwayUtxowScriptIntegrityHashMismatch  = 18
 
+	// Dijkstra-only UTXOW failure tags. Dijkstra's UTXOW predicate
+	// failure (DijkstraUtxowPredFailure) shares Conway's tags 0-18
+	// unchanged and adds two new constructors for guarded-subtransaction
+	// validation (confirmed against cardano-ledger
+	// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxow.hs,
+	// EncCBOR/DecCBOR instances).
+	DijkstraUtxowMissingRequiredGuards = 19
+	DijkstraUtxowMalformedGuardDatums  = 20
+
 	// Conway UTXO failure tags (renumbered from Babbage)
 	ConwayUtxoUtxosFailure                = 0
 	ConwayUtxoBadInputsUTxO               = 1
@@ -715,17 +724,19 @@ func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
 	case EraIdBabbage:
 		// Babbage wraps Alonzo failures in tag 1, adds Babbage-specific tags
 		return e.unmarshalBabbage(data, tmpFailure, failureType)
-	case EraIdConway, EraIdDijkstra:
-		// Conway uses flat enumeration (no wrapping). Dijkstra defines
-		// no UTXOW-specific failure kinds or constructor numbering of
-		// its own (ledger/dijkstra/errors.go has none, and
-		// ledger/dijkstra/rules.go's UtxoValidationRules delegates
-		// UTXOW-relevant validation directly to the conway package) and
-		// the cardano-ledger CHANGELOG.md describes Dijkstra as
-		// mimicking Conway era behavior "for now", so Dijkstra shares
-		// Conway's decoder rather than falling through to
-		// UnknownUtxowFailureError for every Dijkstra failure.
+	case EraIdConway:
+		// Conway uses flat enumeration (no wrapping).
 		return e.unmarshalConway(data, tmpFailure, failureType)
+	case EraIdDijkstra:
+		// Dijkstra's UTXOW predicate failure (DijkstraUtxowPredFailure,
+		// cardano-ledger
+		// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxow.hs)
+		// shares Conway's flat enumeration for tags 0-18 unchanged, but
+		// adds two Dijkstra-only constructors at tags 19 and 20 for
+		// guarded-subtransaction validation that Conway doesn't have.
+		// Falling back to unmarshalConway here would misreport those two
+		// as UnknownUtxowFailureError, so Dijkstra gets its own decoder.
+		return e.unmarshalDijkstra(data, tmpFailure, failureType)
 	default:
 		// Unknown era (Byron or a future era this decoder doesn't yet
 		// know about): we don't know this era's UTXOW constructor
@@ -934,8 +945,110 @@ func (e *UtxowFailure) unmarshalConway(data []byte, tmpFailure []cbor.RawMessage
 	return nil
 }
 
+// unmarshalDijkstra handles Dijkstra era UTXOW failures. Dijkstra's
+// DijkstraUtxowPredFailure shares Conway's flat enumeration for tags 0-18
+// unchanged (cardano-ledger
+// eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/Rules/Utxow.hs), so those
+// are delegated to unmarshalConway; tags 19 and 20 are Dijkstra-only
+// additions for guarded-subtransaction validation that Conway doesn't have.
+func (e *UtxowFailure) unmarshalDijkstra(
+	data []byte,
+	tmpFailure []cbor.RawMessage,
+	failureType int,
+) error {
+	var newErr error
+	switch failureType {
+	case DijkstraUtxowMissingRequiredGuards:
+		newErr = &MissingRequiredGuards{}
+	case DijkstraUtxowMalformedGuardDatums:
+		newErr = &MalformedGuardDatums{}
+	default:
+		// Tags 0-18 are shared with Conway's flat enumeration; any
+		// failureType not handled above (including truly unknown tags)
+		// falls through to unmarshalConway, whose default case already
+		// produces UnknownUtxowFailureError with the correct era.
+		return e.unmarshalConway(data, tmpFailure, failureType)
+	}
+	if len(tmpFailure) >= 2 {
+		if _, err := cbor.Decode(tmpFailure[1], newErr); err != nil {
+			return err
+		}
+	}
+	e.Err = newErr
+	return nil
+}
+
 func (e *UtxowFailure) Error() string {
 	return fmt.Sprintf("UtxowFailure (%s)", e.Err)
+}
+
+// MissingRequiredGuards represents guard credentials that subtransactions
+// require but that are absent from the top-level guard set. Dijkstra-only
+// (UTXOW constructor tag 19); introduced for guarded-subtransaction
+// validation.
+// Upstream: DijkstraUtxowPredFailure.MissingRequiredGuards
+//
+//	(NonEmptySet (Credential Guard))
+//
+// CBOR (constructor payload only, tag already stripped by the caller):
+//
+//	[credential, ...]
+type MissingRequiredGuards struct {
+	Guards []common.Credential
+}
+
+func (e *MissingRequiredGuards) UnmarshalCBOR(cborData []byte) error {
+	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *MissingRequiredGuards) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MissingRequiredGuards ([")
+	for idx, cred := range e.Guards {
+		sb.WriteString(cred.Credential.String())
+		if idx < len(e.Guards)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
+}
+
+// MalformedGuardDatums represents guard credentials whose datum presence in
+// requiredTopLevelGuards is inconsistent. Dijkstra-only (UTXOW constructor
+// tag 20); introduced for guarded-subtransaction validation.
+// Upstream: DijkstraUtxowPredFailure.MalformedGuardDatums
+//
+//	(NonEmptySet (Credential Guard))
+//
+// CBOR (constructor payload only, tag already stripped by the caller):
+//
+//	[credential, ...]
+type MalformedGuardDatums struct {
+	Guards []common.Credential
+}
+
+func (e *MalformedGuardDatums) UnmarshalCBOR(cborData []byte) error {
+	if _, err := cbor.Decode(cborData, &e.Guards); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (e *MalformedGuardDatums) Error() string {
+	var sb strings.Builder
+	sb.WriteString("MalformedGuardDatums ([")
+	for idx, cred := range e.Guards {
+		sb.WriteString(cred.Credential.String())
+		if idx < len(e.Guards)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	sb.WriteString("])")
+	return sb.String()
 }
 
 type UtxoFailure struct {
