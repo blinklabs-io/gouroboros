@@ -116,9 +116,10 @@ const (
 	ConwayUtxoBabbageOutputTooSmallUTxO   = 21
 	ConwayUtxoBabbageNonDisjointRefInputs = 22
 
-	// Dijkstra UTXO failure tags. Dijkstra shares Conway's tags 0-8
-	// (UtxosFailure through WrongNetworkWithdrawal) unchanged, but its
-	// Utxo.hs does NOT carry forward a separate OutputTooSmallUTxO
+	// Dijkstra UTXO failure tags. Dijkstra shares Conway's tags 0-7
+	// (UtxosFailure through WrongNetwork) unchanged; tag 8
+	// (WrongNetworkWithdrawal) has no Dijkstra equivalent, see below.
+	// Its Utxo.hs does NOT carry forward a separate OutputTooSmallUTxO
 	// constructor at tag 9 the way Conway does: everything from
 	// OutputBootAddrAttrsTooBig onward is shifted down by one tag versus
 	// Conway's numbering (cardano-ledger
@@ -136,6 +137,18 @@ const (
 	DijkstraUtxoOutsideForecast           = 16
 	DijkstraUtxoTooManyCollateralInputs   = 17
 	DijkstraUtxoNoCollateralInputs        = 18
+
+	// Dijkstra-only UTXO failure tags 19-24 (confirmed against
+	// cardano-ledger eras/dijkstra/impl/src/Cardano/Ledger/Dijkstra/
+	// Rules/Utxo.hs, EncCBOR/DecCBOR instances for
+	// DijkstraUtxoPredFailure). Tag 23 is deliberately absent: Dijkstra's
+	// decCBOR has no case for it (falls through to `Invalid n`), so there
+	// is no real constructor at tag 23 to map here.
+	DijkstraUtxoIncorrectTotalCollateral        = 19
+	DijkstraUtxoBabbageOutputTooSmallUTxO       = 20
+	DijkstraUtxoBabbageNonDisjointRefInputs     = 21
+	DijkstraUtxoPtrPresentInCollateralReturn    = 22
+	DijkstraUtxoWithdrawalsExceedAccountBalance = 24
 
 	UtxoFailureFromAlonzo = 1
 
@@ -256,8 +269,8 @@ func getEraSpecificUtxoFailureConstants(
 		}
 		return conwayMap, ConwayUtxoOutputTooBigUTxO, ConwayUtxoScriptsNotPaidUTxO, ConwayUtxoExUnitsTooBigUTxO, ConwayUtxoCollateralContainsNonADA, nil
 	case EraIdDijkstra:
-		// Dijkstra reuses Conway's tags 0-8 (UtxosFailure through
-		// WrongNetworkWithdrawal) verbatim, but its Utxo.hs does not
+		// Dijkstra reuses Conway's tags 0-7 (UtxosFailure through
+		// WrongNetwork) verbatim, but its Utxo.hs does not
 		// carry forward a distinct OutputTooSmallUTxO constructor at
 		// tag 9 the way Conway does: everything from
 		// OutputBootAddrAttrsTooBig onward is shifted down by one tag
@@ -266,32 +279,50 @@ func getEraSpecificUtxoFailureConstants(
 		// Aliasing this to Conway's map/constants would misdecode a
 		// Dijkstra OutputBootAddrAttrsTooBig (tag 9) as
 		// OutputTooSmallUTxO, a Dijkstra OutputTooBigUTxO (tag 10) as
-		// OutputBootAddrAttrsTooBig, and so on. Dijkstra-only
-		// constructors this map cannot yet confirm against the real
-		// wire encoding (e.g. Conway's IncorrectTotalCollateral,
-		// BabbageOutputTooSmallUTxO, BabbageNonDisjointRefInputs tags)
-		// are deliberately left out, so those tags fall through to
-		// UnknownUtxoFailureError instead of being guessed at.
+		// OutputBootAddrAttrsTooBig, and so on. Tags 19-24 (beyond
+		// NoCollateralInputs at 18) are confirmed against
+		// cardano-ledger's EncCBOR/DecCBOR instances for
+		// DijkstraUtxoPredFailure: 19=IncorrectTotalCollateralField,
+		// 20=BabbageOutputTooSmallUTxO, 21=BabbageNonDisjointRefInputs
+		// (all three reuse the existing Babbage/Conway Go types below,
+		// since their field layout is unchanged in Dijkstra),
+		// 22=PtrPresentInCollateralReturn (new: the collateral return
+		// output uses a pointer-address stake reference, which Dijkstra
+		// disallows), and 24=WithdrawalsExceedAccountBalance (new:
+		// per-account withdrawals across a tx batch exceed the account's
+		// original balance). Tag 23 does not exist in Dijkstra's decCBOR
+		// (it falls through to `Invalid n` there), so it is deliberately
+		// left unmapped here too instead of being invented. Tag 8
+		// (ConwayUtxoWrongNetworkWithdrawal) is likewise absent from
+		// Dijkstra's encCBOR/decCBOR: the constructor list jumps
+		// directly from WrongNetwork at tag 7 to
+		// OutputBootAddrAttrsTooBig at tag 9, so tag 8 also falls
+		// through to `Invalid n` there and must not be mapped to
+		// WrongNetworkWithdrawal here.
 		dijkstraMap := map[int]any{
-			ConwayUtxoUtxosFailure:                &UtxosFailure{},
-			ConwayUtxoBadInputsUTxO:               &BadInputsUtxo{},
-			ConwayUtxoOutsideValidityIntervalUTxO: &OutsideValidityIntervalUtxo{},
-			ConwayUtxoMaxTxSizeUTxO:               &MaxTxSizeUtxo{},
-			ConwayUtxoInputSetEmptyUTxO:           &InputSetEmptyUtxo{},
-			ConwayUtxoFeeTooSmallUTxO:             &FeeTooSmallUtxo{},
-			ConwayUtxoValueNotConservedUTxO:       &ValueNotConservedUtxo{},
-			ConwayUtxoWrongNetwork:                &WrongNetwork{},
-			ConwayUtxoWrongNetworkWithdrawal:      &WrongNetworkWithdrawal{},
-			DijkstraUtxoOutputBootAddrAttrsTooBig: &OutputBootAddrAttrsTooBig{},
-			DijkstraUtxoOutputTooBigUTxO:          &OutputTooBigUtxo{},
-			DijkstraUtxoInsufficientCollateral:    &InsufficientCollateral{},
-			DijkstraUtxoScriptsNotPaidUTxO:        &ScriptsNotPaidUtxo{},
-			DijkstraUtxoExUnitsTooBigUTxO:         &ExUnitsTooBigUtxo{},
-			DijkstraUtxoCollateralContainsNonADA:  &CollateralContainsNonADA{},
-			DijkstraUtxoWrongNetworkInTxBody:      &WrongNetworkInTxBody{},
-			DijkstraUtxoOutsideForecast:           &OutsideForecast{},
-			DijkstraUtxoTooManyCollateralInputs:   &TooManyCollateralInputs{},
-			DijkstraUtxoNoCollateralInputs:        &NoCollateralInputs{},
+			ConwayUtxoUtxosFailure:                      &UtxosFailure{},
+			ConwayUtxoBadInputsUTxO:                     &BadInputsUtxo{},
+			ConwayUtxoOutsideValidityIntervalUTxO:       &OutsideValidityIntervalUtxo{},
+			ConwayUtxoMaxTxSizeUTxO:                     &MaxTxSizeUtxo{},
+			ConwayUtxoInputSetEmptyUTxO:                 &InputSetEmptyUtxo{},
+			ConwayUtxoFeeTooSmallUTxO:                   &FeeTooSmallUtxo{},
+			ConwayUtxoValueNotConservedUTxO:             &ValueNotConservedUtxo{},
+			ConwayUtxoWrongNetwork:                      &WrongNetwork{},
+			DijkstraUtxoOutputBootAddrAttrsTooBig:       &OutputBootAddrAttrsTooBig{},
+			DijkstraUtxoOutputTooBigUTxO:                &OutputTooBigUtxo{},
+			DijkstraUtxoInsufficientCollateral:          &InsufficientCollateral{},
+			DijkstraUtxoScriptsNotPaidUTxO:              &ScriptsNotPaidUtxo{},
+			DijkstraUtxoExUnitsTooBigUTxO:               &ExUnitsTooBigUtxo{},
+			DijkstraUtxoCollateralContainsNonADA:        &CollateralContainsNonADA{},
+			DijkstraUtxoWrongNetworkInTxBody:            &WrongNetworkInTxBody{},
+			DijkstraUtxoOutsideForecast:                 &OutsideForecast{},
+			DijkstraUtxoTooManyCollateralInputs:         &TooManyCollateralInputs{},
+			DijkstraUtxoNoCollateralInputs:              &NoCollateralInputs{},
+			DijkstraUtxoIncorrectTotalCollateral:        &IncorrectTotalCollateralField{},
+			DijkstraUtxoBabbageOutputTooSmallUTxO:       &BabbageOutputTooSmallUTxO{},
+			DijkstraUtxoBabbageNonDisjointRefInputs:     &BabbageNonDisjointRefInputs{},
+			DijkstraUtxoPtrPresentInCollateralReturn:    &PtrPresentInCollateralReturn{},
+			DijkstraUtxoWithdrawalsExceedAccountBalance: &WithdrawalsExceedAccountBalance{},
 		}
 		return dijkstraMap,
 			DijkstraUtxoOutputTooBigUTxO,
@@ -1670,6 +1701,49 @@ func (e *BabbageNonDisjointRefInputs) Error() string {
 	}
 	sb.WriteString("])")
 	return sb.String()
+}
+
+// =============================================================================
+// Dijkstra-only UTXO Predicate Failures
+// =============================================================================
+
+// PtrPresentInCollateralReturn represents the Dijkstra-only
+// PtrPresentInCollateralReturn error from cardano-ledger: the collateral
+// return output uses a pointer-address stake reference, which Dijkstra
+// disallows.
+// CBOR: [22, txout]
+type PtrPresentInCollateralReturn struct {
+	UtxoFailureErrorBase
+	Output TxOut
+}
+
+func (e *PtrPresentInCollateralReturn) Error() string {
+	return fmt.Sprintf(
+		"PtrPresentInCollateralReturn (Output %s)",
+		e.Output.String(),
+	)
+}
+
+// WithdrawalsExceedAccountBalance represents the Dijkstra-only
+// WithdrawalsExceedAccountBalance error from cardano-ledger: total
+// withdrawals for one or more accounts across a transaction batch exceed
+// the account's original balance. The Haskell field is
+// NonEmptyMap AccountAddress (Mismatch RelLTEQ Coin); rather than assume
+// the wire-level encoding of AccountAddress (not otherwise represented in
+// this codebase), the map is preserved as a generic cbor.Value, mirroring
+// the same approach already used for IncorrectWithdrawals and
+// WrongNetworkWithdrawal above.
+// CBOR: [24, {account_address: [supplied, expected], ...}]
+type WithdrawalsExceedAccountBalance struct {
+	UtxoFailureErrorBase
+	Withdrawals cbor.Value
+}
+
+func (e *WithdrawalsExceedAccountBalance) Error() string {
+	return fmt.Sprintf(
+		"WithdrawalsExceedAccountBalance (Withdrawals %v)",
+		e.Withdrawals.Value(),
+	)
 }
 
 // =============================================================================

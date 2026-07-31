@@ -1701,18 +1701,21 @@ func TestUtxoFailure_PreAlonzoCollateralTagIsUnknown(t *testing.T) {
 }
 
 // TestGetEraSpecificUtxoFailureConstants_Dijkstra verifies that Dijkstra
-// has its own UTXO failure constructor map: it shares Conway's tags 0-8
+// has its own UTXO failure constructor map: it shares Conway's tags 0-7
 // verbatim, but tags 9 onward are shifted down by one relative to Conway
 // (Dijkstra's Utxo.hs does not carry forward a distinct OutputTooSmallUTxO
 // constructor). Reusing Conway's map/constants for Dijkstra would misdecode
-// these tags as the wrong concrete error types.
+// these tags as the wrong concrete error types. Tag 8
+// (ConwayUtxoWrongNetworkWithdrawal in Conway's numbering) is not shared:
+// Dijkstra's constructor list jumps directly from WrongNetwork at tag 7 to
+// OutputBootAddrAttrsTooBig at tag 9, so tag 8 must be absent from the map.
 func TestGetEraSpecificUtxoFailureConstants_Dijkstra(t *testing.T) {
 	dijkstraMap, _, _, _, _, err := getEraSpecificUtxoFailureConstants(
 		EraIdDijkstra,
 	)
 	require.NoError(t, err)
 
-	// Tags 0-8 are shared verbatim with Conway.
+	// Tags 0-7 are shared verbatim with Conway.
 	sharedTags := []int{
 		ConwayUtxoUtxosFailure,
 		ConwayUtxoBadInputsUTxO,
@@ -1722,12 +1725,20 @@ func TestGetEraSpecificUtxoFailureConstants_Dijkstra(t *testing.T) {
 		ConwayUtxoFeeTooSmallUTxO,
 		ConwayUtxoValueNotConservedUTxO,
 		ConwayUtxoWrongNetwork,
-		ConwayUtxoWrongNetworkWithdrawal,
 	}
 	for _, tag := range sharedTags {
 		_, exists := dijkstraMap[tag]
 		assert.True(t, exists, "Dijkstra map missing shared tag %d", tag)
 	}
+
+	// Tag 8 (ConwayUtxoWrongNetworkWithdrawal) must be absent: Dijkstra
+	// has no corresponding constructor at this tag.
+	_, hasTag8 := dijkstraMap[ConwayUtxoWrongNetworkWithdrawal]
+	assert.False(
+		t,
+		hasTag8,
+		"Dijkstra map must not contain tag 8 (ConwayUtxoWrongNetworkWithdrawal)",
+	)
 
 	// Conway's tag 9 (OutputTooSmallUTxO) does not exist as a distinct
 	// Dijkstra constructor: Dijkstra's tag 9 (same numeric value) must
@@ -1911,6 +1922,242 @@ func TestUtxoFailure_DijkstraCollateralContainsNonADA(t *testing.T) {
 		uint8(DijkstraUtxoCollateralContainsNonADA),
 		decoded.Type,
 	)
+}
+
+// TestUtxoFailure_DijkstraIncorrectTotalCollateral verifies that a real
+// Dijkstra IncorrectTotalCollateralField failure (tag 19) round-trips
+// through UtxoFailure.UnmarshalCBOR as *IncorrectTotalCollateralField
+// instead of falling back to *UnknownUtxoFailureError.
+func TestUtxoFailure_DijkstraIncorrectTotalCollateral(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{
+			uint(DijkstraUtxoIncorrectTotalCollateral),
+			int64(-100),
+			uint64(500),
+		},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*IncorrectTotalCollateralField)
+	require.True(
+		t,
+		ok,
+		"Expected *IncorrectTotalCollateralField, got %T",
+		utxoErr.Err,
+	)
+	assert.Equal(t, int64(-100), decoded.BalanceComputed)
+	assert.Equal(t, uint64(500), decoded.TotalCollateral)
+}
+
+// TestUtxoFailure_DijkstraBabbageOutputTooSmallUTxO verifies that a real
+// Dijkstra BabbageOutputTooSmallUTxO failure (tag 20) round-trips through
+// UtxoFailure.UnmarshalCBOR as *BabbageOutputTooSmallUTxO instead of
+// falling back to *UnknownUtxoFailureError.
+func TestUtxoFailure_DijkstraBabbageOutputTooSmallUTxO(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{
+			uint(DijkstraUtxoBabbageOutputTooSmallUTxO),
+			[]any{
+				[]any{"placeholder-txout", uint64(2000000)},
+			},
+		},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*BabbageOutputTooSmallUTxO)
+	require.True(
+		t,
+		ok,
+		"Expected *BabbageOutputTooSmallUTxO, got %T",
+		utxoErr.Err,
+	)
+	require.Len(t, decoded.Outputs, 1)
+	assert.Equal(t, uint64(2000000), decoded.Outputs[0].MinRequired)
+}
+
+// TestUtxoFailure_DijkstraBabbageNonDisjointRefInputs verifies that a real
+// Dijkstra BabbageNonDisjointRefInputs failure (tag 21) round-trips through
+// UtxoFailure.UnmarshalCBOR as *BabbageNonDisjointRefInputs instead of
+// falling back to *UnknownUtxoFailureError.
+func TestUtxoFailure_DijkstraBabbageNonDisjointRefInputs(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{
+			uint(DijkstraUtxoBabbageNonDisjointRefInputs),
+			[]any{
+				[]any{
+					cbor.NewByteString(
+						[]byte{
+							0xde, 0xad, 0xbe, 0xef,
+						},
+					),
+					uint8(0),
+				},
+			},
+		},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*BabbageNonDisjointRefInputs)
+	require.True(
+		t,
+		ok,
+		"Expected *BabbageNonDisjointRefInputs, got %T",
+		utxoErr.Err,
+	)
+	require.Len(t, decoded.Inputs, 1)
+	assert.Equal(t, uint8(0), decoded.Inputs[0].TxIx)
+}
+
+// TestUtxoFailure_DijkstraPtrPresentInCollateralReturn verifies that the
+// new Dijkstra-only PtrPresentInCollateralReturn failure (tag 22) round-trips
+// through UtxoFailure.UnmarshalCBOR as *PtrPresentInCollateralReturn instead
+// of falling back to *UnknownUtxoFailureError.
+func TestUtxoFailure_DijkstraPtrPresentInCollateralReturn(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{
+			uint(DijkstraUtxoPtrPresentInCollateralReturn),
+			"placeholder-collateral-return-txout",
+		},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*PtrPresentInCollateralReturn)
+	require.True(
+		t,
+		ok,
+		"Expected *PtrPresentInCollateralReturn, got %T",
+		utxoErr.Err,
+	)
+	assert.Equal(
+		t,
+		"placeholder-collateral-return-txout",
+		decoded.Output.Value.Value(),
+	)
+}
+
+// TestUtxoFailure_DijkstraWithdrawalsExceedAccountBalance verifies that the
+// new Dijkstra-only WithdrawalsExceedAccountBalance failure (tag 24)
+// round-trips through UtxoFailure.UnmarshalCBOR as
+// *WithdrawalsExceedAccountBalance instead of falling back to
+// *UnknownUtxoFailureError.
+func TestUtxoFailure_DijkstraWithdrawalsExceedAccountBalance(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{
+			uint(DijkstraUtxoWithdrawalsExceedAccountBalance),
+			map[uint64][]any{
+				1: {uint64(5_000_000), uint64(1_000_000)},
+			},
+		},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*WithdrawalsExceedAccountBalance)
+	require.True(
+		t,
+		ok,
+		"Expected *WithdrawalsExceedAccountBalance, got %T",
+		utxoErr.Err,
+	)
+	require.NotNil(t, decoded.Withdrawals.Value())
+}
+
+// TestUtxoFailure_DijkstraTag23Unmapped verifies that tag 23 (which has no
+// corresponding constructor in Dijkstra's decCBOR -- it falls through to
+// `Invalid n` in cardano-ledger) surfaces as *UnknownUtxoFailureError
+// instead of being misdecoded as some other constructor.
+func TestUtxoFailure_DijkstraTag23Unmapped(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{uint(23), []any{}},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*UnknownUtxoFailureError)
+	require.True(
+		t,
+		ok,
+		"Expected *UnknownUtxoFailureError, got %T",
+		utxoErr.Err,
+	)
+	assert.Equal(t, 23, decoded.FailureType)
+}
+
+// TestUtxoFailure_DijkstraTag8Unmapped verifies that tag 8
+// (ConwayUtxoWrongNetworkWithdrawal in Conway's numbering) has no
+// corresponding constructor in Dijkstra's decCBOR -- the constructor list
+// jumps directly from WrongNetwork at tag 7 to OutputBootAddrAttrsTooBig at
+// tag 9, so tag 8 falls through to `Invalid n` in cardano-ledger -- and
+// surfaces as *UnknownUtxoFailureError instead of being misdecoded as
+// *WrongNetworkWithdrawal.
+func TestUtxoFailure_DijkstraTag8Unmapped(t *testing.T) {
+	innerCbor, err := cbor.Encode(
+		[]any{uint(8), []any{}},
+	)
+	require.NoError(t, err)
+	cborData, err := cbor.Encode(
+		[]any{uint8(EraIdDijkstra), cbor.RawMessage(innerCbor)},
+	)
+	require.NoError(t, err)
+
+	var utxoErr UtxoFailure
+	err = utxoErr.UnmarshalCBOR(cborData)
+	require.NoError(t, err)
+
+	decoded, ok := utxoErr.Err.(*UnknownUtxoFailureError)
+	require.True(
+		t,
+		ok,
+		"Expected *UnknownUtxoFailureError, got %T",
+		utxoErr.Err,
+	)
+	assert.Equal(t, 8, decoded.FailureType)
 }
 
 // TestUtxowFailure_Dijkstra verifies that a Dijkstra UtxowFailure decodes
