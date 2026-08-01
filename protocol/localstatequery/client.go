@@ -991,6 +991,46 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	return &result, nil
 }
 
+// GetPoolDistr2 returns the ledger's pool stake distribution, which replaces
+// GetPoolDistr from node-to-client protocol version 21.
+//
+// Passing no pool IDs asks about every pool. The reply carries each pool's
+// total delegated stake and the total active stake across all pools, neither of
+// which GetPoolDistr returned.
+func (c *Client) GetPoolDistr2(
+	poolIds []ledger.PoolId,
+) (*PoolDistr2Result, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf("calling GetPoolDistr2(poolIds: %+v)", poolIds),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	// The pool filter is a StrictMaybe encoded as a list, so an empty list asks
+	// about every pool rather than about none.
+	poolFilter := []any{}
+	if len(poolIds) > 0 {
+		poolFilter = append(poolFilter, cbor.NewSetType(poolIds, true))
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyPoolDistr2,
+		poolFilter,
+	)
+	var result PoolDistr2Result
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // GetConstitution returns the current on-chain constitution (CIP-1694).
 //
 // Use this to read the constitution that governance actions are checked
