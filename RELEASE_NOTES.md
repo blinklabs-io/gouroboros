@@ -15,10 +15,11 @@ This release adds node-to-client protocol version 21 support and makes protocol 
 
 ### New Features
 
-* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding. Integrations must use the renamed `InitialFunds` and `Staking` fields.
+* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding.
 
 ### Breaking Changes
 
+* Renamed `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
 * Adjusted marshaling for `ScriptsNotPaidUtxo` and `CollateralContainsNonADA` to require recognized `Type` values, so callers must set a supported `Type` explicitly.
 
 ### Bug Fixes
