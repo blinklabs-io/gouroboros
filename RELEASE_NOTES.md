@@ -4,6 +4,31 @@ title: Release notes
 
 # Release notes
 
+## v0.191.0
+
+- **Date:** 2026-08-01
+- **Version:** 0.191.0
+
+### Summary
+
+This release adds node-to-client protocol version 21 support and tightens protocol and ledger validation so unsupported values now fail with explicit errors.
+
+### New Features
+
+* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding with the renamed `InitialFunds` and `Staking` fields.
+
+### Breaking Changes
+
+* Required recognized `Type` values before marshaling `ScriptsNotPaidUtxo` and `CollateralContainsNonADA`, so callers must set a supported `Type` explicitly.
+
+### Bug Fixes
+
+* Fixed unknown protocol message handling so `NewMsgFromCbor` returns a protocol-scoped error for unsupported numeric message types instead of attempting CBOR decoding into a nil target.
+* Improved ledger failure decoding so unknown UTXO, UTXOW, and LEDGER failure constructors preserve their era id, constructor tag, and raw CBOR bytes in typed unknown errors.
+* Rejected unsupported genesis network identifiers during `ShelleyGenesis.MarshalCBOR` instead of silently encoding them as testnet.
+* Rejected unsupported DRep types during Conway delegation validation with `InvalidDrepTypeError`.
+* Rejected reserved CIP-0019 address types and invalid network identifiers during raw address decoding.
+
 ## v0.190.0
 
 - **Date:** 2026-07-28
