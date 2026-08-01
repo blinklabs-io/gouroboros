@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMsgInitEncoding tests MsgInit message encoding
@@ -218,7 +219,8 @@ func TestMsgReplyMessagesLegacyEncodingDecodes(t *testing.T) {
 	parsed, err := NewMsgFromCbor(uint(MessageTypeReplyMessages), data)
 	assert.NoError(t, err)
 	decoded, ok := parsed.(*MsgReplyMessages)
-	assert.True(t, ok)
+	require.True(t, ok)
+	require.NotEmpty(t, decoded.Messages)
 	assert.Equal(t, []byte("id1"), decoded.Messages[0].MessageID)
 	assert.Equal(t, []byte("id1"), decoded.Messages[0].Payload.MessageID)
 }
