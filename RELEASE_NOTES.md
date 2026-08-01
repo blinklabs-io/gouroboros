@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release adds node-to-client protocol version 21 support and hardens protocol and ledger validation so unsupported values now fail with explicit errors.
+This release adds node-to-client protocol version 21 support and makes protocol and ledger validation fail closed on unsupported values.
 
 ### New Features
 
-* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding; integrations must use the renamed `InitialFunds` and `Staking` fields.
+* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding. Integrations must use the renamed `InitialFunds` and `Staking` fields.
 
 ### Breaking Changes
 
@@ -24,7 +24,7 @@ This release adds node-to-client protocol version 21 support and hardens protoco
 ### Bug Fixes
 
 * Fixed unknown protocol message handling so `NewMsgFromCbor` returns a protocol-scoped error for unsupported numeric message types instead of attempting CBOR decoding into a nil target.
-* Improved ledger failure decoding so unknown UTXO, UTXOW, and LEDGER failure constructors preserve their era id, constructor tag, and raw CBOR bytes in typed unknown errors.
+* Improved ledger failure decoding so unknown UTXO, UTXOW, and LEDGER failure constructors now preserve their era identifier, constructor tag, and raw CBOR bytes in typed unknown errors.
 * Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers instead of silently encoding them as testnet.
 * Hardened Conway delegation validation so unsupported DRep types now return `InvalidDrepTypeError` instead of being treated as `AddrKeyHash` values.
 * Tightened raw CIP-0019 address decoding so reserved address types and invalid network identifiers now fail with explicit validation errors.
