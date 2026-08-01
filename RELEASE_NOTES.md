@@ -19,7 +19,7 @@ This release adds node-to-client protocol version 21 support and makes protocol 
 
 ### Breaking Changes
 
-* Renamed `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
+* Renamed the `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` fields to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
 * Adjusted marshaling for `ScriptsNotPaidUtxo` and `CollateralContainsNonADA` to require recognized `Type` values, so callers must set a supported `Type` explicitly.
 
 ### Bug Fixes
