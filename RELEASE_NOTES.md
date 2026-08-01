@@ -11,23 +11,23 @@ title: Release notes
 
 ### Summary
 
-This release adds node-to-client protocol version 21 support and tightens protocol and ledger validation so unsupported values now fail with explicit errors.
+This release adds node-to-client protocol version 21 support and hardens protocol and ledger validation so unsupported values now fail with explicit errors.
 
 ### New Features
 
-* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding with the renamed `InitialFunds` and `Staking` fields.
+* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding; integrations must use the renamed `InitialFunds` and `Staking` fields.
 
 ### Breaking Changes
 
-* Required recognized `Type` values before marshaling `ScriptsNotPaidUtxo` and `CollateralContainsNonADA`, so callers must set a supported `Type` explicitly.
+* Adjusted marshaling for `ScriptsNotPaidUtxo` and `CollateralContainsNonADA` to require recognized `Type` values, so callers must set a supported `Type` explicitly.
 
 ### Bug Fixes
 
 * Fixed unknown protocol message handling so `NewMsgFromCbor` returns a protocol-scoped error for unsupported numeric message types instead of attempting CBOR decoding into a nil target.
 * Improved ledger failure decoding so unknown UTXO, UTXOW, and LEDGER failure constructors preserve their era id, constructor tag, and raw CBOR bytes in typed unknown errors.
-* Rejected unsupported genesis network identifiers during `ShelleyGenesis.MarshalCBOR` instead of silently encoding them as testnet.
-* Rejected unsupported DRep types during Conway delegation validation with `InvalidDrepTypeError`.
-* Rejected reserved CIP-0019 address types and invalid network identifiers during raw address decoding.
+* Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers instead of silently encoding them as testnet.
+* Hardened Conway delegation validation so unsupported DRep types now return `InvalidDrepTypeError` instead of being treated as `AddrKeyHash` values.
+* Tightened raw CIP-0019 address decoding so reserved address types and invalid network identifiers now fail with explicit validation errors.
 
 ## v0.190.0
 
