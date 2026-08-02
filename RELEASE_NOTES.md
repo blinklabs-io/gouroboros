@@ -17,6 +17,28 @@ This release adds node-to-client protocol version 21 support, improves protocol 
 
 * Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21 and use `GetPoolDistr2`.
 
+### Breaking Changes
+
+* Renamed the `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` fields to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
+
+* Required explicit `Type` values when marshaling `ScriptsNotPaidUtxo` and `CollateralContainsNonADA`.
+
+### Bug Fixes
+
+* Fixed unknown protocol message handling so `NewMsgFromCbor` now returns a protocol-scoped error for unsupported numeric message types instead of decoding into a nil target across `blockfetch`, `chainsync`, `handshake`, `keepalive`, `leiosfetch`, `localstatequery`, `localtxmonitor`, `localtxsubmission`, `peersharing`, and `txsubmission`.
+
+* Improved ledger failure decoding so unknown `UTXO`, `UTXOW`, and `LEDGER` constructors now preserve their constructor details in typed unknown errors.
+
+* Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers instead of silently encoding them as testnet.
+
+* Hardened Conway delegation validation so unsupported `DRep` types now fail with `InvalidDRepTypeError` instead of falling back to `AddrKeyHash`.
+
+* Tightened raw `CIP-0019` address decoding so reserved address types `9` through `13` and invalid network identifiers now return explicit validation errors.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` to `v0.2.0`.
+
 ## v0.191.0
 
 - **Date:** 2026-08-01
