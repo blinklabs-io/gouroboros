@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release improves resilience when field reported issues surface.
+This release improves resilience when field reported issues occur.
 
 ### Bug Fixes
 
-* Fixed handling for field reported issues so the library responds more reliably when those cases surface.
+* Fixed handling for field reported issues so the library responds more reliably in those cases.
 
 ## v0.191.0
 
