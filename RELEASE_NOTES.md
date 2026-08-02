@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release adds node-to-client protocol version 21 support, improves protocol error handling, and tightens ledger validation for unsupported values.
+This release adds node-to-client protocol version 21 support and tightens validation for unsupported protocol, ledger, and address values.
 
 ### New Features
 
-* Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21 and use `GetPoolDistr2`.
+* Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21 and use `GetPoolDistr2` with the updated query flow.
 
 ### Breaking Changes
 
@@ -27,11 +27,11 @@ This release adds node-to-client protocol version 21 support, improves protocol 
 
 * Fixed unknown protocol message handling so `NewMsgFromCbor` now returns a protocol-scoped error for unsupported numeric message types instead of decoding into a nil target across `blockfetch`, `chainsync`, `handshake`, `keepalive`, `leiosfetch`, `localstatequery`, `localtxmonitor`, `localtxsubmission`, `peersharing`, and `txsubmission`.
 
-* Improved ledger failure decoding so unknown `UTXO`, `UTXOW`, and `LEDGER` constructors now preserve their constructor details in typed unknown errors.
+* Improved ledger failure decoding so unknown `UTXO`, `UTXOW`, and `LEDGER` constructors now preserve their constructor details in typed errors, giving callers clearer diagnostics.
 
-* Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers instead of silently encoding them as testnet.
+* Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers when encoding Shelley genesis data instead of silently treating them as testnet.
 
-* Hardened Conway delegation validation so unsupported `DRep` types now fail with `InvalidDRepTypeError` instead of falling back to `AddrKeyHash`.
+* Hardened Conway delegation validation so unsupported `DRep` types now fail closed across delegation certificates instead of being treated as ordinary key hash values.
 
 * Tightened raw `CIP-0019` address decoding so reserved address types `9` through `13` and invalid network identifiers now return explicit validation errors.
 
