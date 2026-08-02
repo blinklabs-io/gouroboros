@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.191.1
+
+- **Date:** 2026-08-02
+- **Version:** 0.191.1
+
+### Summary
+
+This release adds node-to-client protocol version 21 support, improves protocol error handling, and tightens ledger validation for unsupported values.
+
+### New Features
+
+* Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21 and use `GetPoolDistr2`.
+
 ## v0.191.0
 
 - **Date:** 2026-08-01
