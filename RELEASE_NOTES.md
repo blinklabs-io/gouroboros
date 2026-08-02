@@ -21,11 +21,11 @@ This release adds node-to-client protocol version 21 support and tightens valida
 
 * Renamed the `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` fields to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
 
-* Required explicit `Type` values when marshaling `ScriptsNotPaidUtxo` and `CollateralContainsNonADA`.
+* Required explicit `Type` values when marshaling `ScriptsNotPaidUtxo` and `CollateralContainsNonADA`, so callers must set a supported value before encoding.
 
 ### Bug Fixes
 
-* Fixed unknown protocol message handling so `NewMsgFromCbor` now returns a protocol-scoped error for unsupported numeric message types instead of decoding into a nil target across `blockfetch`, `chainsync`, `handshake`, `keepalive`, `leiosfetch`, `localstatequery`, `localtxmonitor`, `localtxsubmission`, `peersharing`, and `txsubmission`.
+* Fixed unknown protocol message handling so `NewMsgFromCbor` returns a protocol-scoped error for unsupported numeric message types across `blockfetch`, `chainsync`, `handshake`, `keepalive`, `leiosfetch`, `localstatequery`, `localtxmonitor`, `localtxsubmission`, `peersharing`, and `txsubmission`.
 
 * Improved ledger failure decoding so unknown `UTXO`, `UTXOW`, and `LEDGER` constructors now preserve their constructor details in typed errors, giving callers clearer diagnostics.
 
