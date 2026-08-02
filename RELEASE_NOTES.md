@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release adds node-to-client protocol version 21 support and tightens validation for unsupported protocol, ledger, and address values.
+This release adds node-to-client protocol version 21 support, dual-layout `GenesisConfigResult` handling, and tighter validation for unsupported protocol, ledger, and address values.
 
 ### New Features
 
-* Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21 and use `GetPoolDistr2` with the updated query flow.
+* Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21, use `GetPoolDistr2`, and work with `GenesisConfigResult` values in both supported layouts.
 
 ### Breaking Changes
 
