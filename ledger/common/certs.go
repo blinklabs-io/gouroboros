@@ -691,6 +691,13 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid operator key: %w", err)
 		}
+		if len(opBytes) != Blake2b224Size {
+			return fmt.Errorf(
+				"invalid operator key length: expected %d, got %d",
+				Blake2b224Size,
+				len(opBytes),
+			)
+		}
 		p.Operator = PoolKeyHash(opBytes)
 	}
 
