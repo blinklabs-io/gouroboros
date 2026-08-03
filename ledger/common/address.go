@@ -92,6 +92,7 @@ type Address struct {
 func NewAddress(addr string) (Address, error) {
 	var decoded []byte
 	hrp, data, err := bech32.DecodeNoLimit(addr)
+	isBech32 := err == nil
 	if err == nil {
 		decoded, err = bech32.ConvertBits(data, 5, 8, false)
 		if err != nil {
@@ -114,29 +115,29 @@ func NewAddress(addr string) (Address, error) {
 	if err != nil {
 		return Address{}, err
 	}
-	if hrp != "" && !strings.EqualFold(hrp, a.generateHRP()) {
-		return Address{}, fmt.Errorf(
-			"address HRP %q does not match expected HRP %q",
-			hrp,
-			a.generateHRP(),
-		)
+	if isBech32 {
+		expectedHRP := a.generateHRP()
+		if !strings.EqualFold(hrp, expectedHRP) {
+			return Address{}, fmt.Errorf(
+				"address HRP %q does not match expected HRP %q",
+				hrp,
+				expectedHRP,
+			)
+		}
 	}
 	return a, nil
 }
 
 func hasShelleyAddressHRP(addr string) bool {
-	lowerAddr := strings.ToLower(addr)
-	for _, prefix := range []string{
-		"addr1",
-		"addr_test1",
-		"stake1",
-		"stake_test1",
-	} {
-		if strings.HasPrefix(lowerAddr, prefix) {
-			return true
-		}
-	}
-	return false
+	return hasFoldedPrefix(addr, "addr1") ||
+		hasFoldedPrefix(addr, "addr_test1") ||
+		hasFoldedPrefix(addr, "stake1") ||
+		hasFoldedPrefix(addr, "stake_test1")
+}
+
+func hasFoldedPrefix(value, prefix string) bool {
+	return len(value) >= len(prefix) &&
+		strings.EqualFold(value[:len(prefix)], prefix)
 }
 
 // NewAddressFromBytes returns an Address based on the raw bytes provided
