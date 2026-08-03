@@ -23,6 +23,8 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var tagsTestDefs = []struct {
@@ -174,15 +176,21 @@ func TestRatUnmarshalCBORErrors(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error but got none")
 			}
-			if !reflect.DeepEqual(err.Error(), tt.expectError) && !contains(err.Error(), tt.expectError) {
-				t.Errorf("expected error containing %q, got %q", tt.expectError, err.Error())
+			if !reflect.DeepEqual(err.Error(), tt.expectError) &&
+				!contains(err.Error(), tt.expectError) {
+				t.Errorf(
+					"expected error containing %q, got %q",
+					tt.expectError,
+					err.Error(),
+				)
 			}
 		})
 	}
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+	return len(s) >= len(substr) &&
+		(s == substr || len(s) > 0 && containsHelper(s, substr))
 }
 
 func containsHelper(s, substr string) bool {
@@ -278,4 +286,31 @@ func TestSetTypeMarshalCBORWithoutTag(t *testing.T) {
 	if encoded[0] != 0x83 { // array of 3 elements
 		t.Errorf("expected plain array, got 0x%02x", encoded[0])
 	}
+}
+
+// TestSetTypeMarshalCBORPreservesOriginalBytes verifies that a SetType
+// decoded from CBOR that isn't in canonical form (here, a non-minimally
+// encoded uint) round-trips through MarshalCBOR() with its exact original
+// bytes rather than silently re-encoding to a different (canonical) form.
+// See GitHub issue #1929.
+func TestSetTypeMarshalCBORPreservesOriginalBytes(t *testing.T) {
+	// [1, 1] where the second element is non-minimally encoded as a
+	// 1-byte-follow uint (0x1801) instead of the canonical 0x01.
+	origHex := "82011801"
+	orig, err := hex.DecodeString(origHex)
+	require.NoError(t, err)
+
+	var setType cbor.SetType[uint64]
+	_, err = cbor.Decode(orig, &setType)
+	require.NoError(t, err)
+
+	wire, err := cbor.Encode(&setType)
+	require.NoError(t, err)
+
+	assert.Equal(
+		t,
+		orig,
+		wire,
+		"MarshalCBOR() should return the original decoded bytes",
+	)
 }

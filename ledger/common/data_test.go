@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -298,5 +299,74 @@ func TestDatumRoundtripAndHash(t *testing.T) {
 			other.Hash().String(),
 			expected.String(),
 		)
+	}
+}
+
+// TestDatumMarshalCBORPreservesOriginalBytes verifies that a Datum decoded
+// from non-canonical (relative to plutigo's re-encoding) CBOR round-trips
+// through MarshalCBOR() with its exact original bytes, preserving the
+// invariant that blake2b256(MarshalCBOR()) == Hash(). See GitHub issue
+// #1929: MarshalCBOR previously always re-encoded via plutigo's data.Encode,
+// which can silently diverge from the bytes actually hashed (and present on
+// chain) for non-canonical encodings (chunked byte strings, non-minimal
+// integer encodings, indefinite-length wrapping, etc).
+func TestDatumMarshalCBORPreservesOriginalBytes(t *testing.T) {
+	testCases := []struct {
+		name string
+		hex  string
+	}{
+		{
+			name: "ChunkedByteString100Bytes",
+			hex:  "d8799f5864" + strings.Repeat("ab", 100) + "ff",
+		},
+		{
+			name: "NonMinimalUint8",
+			hex:  "1801",
+		},
+		{
+			name: "NonMinimalUint16",
+			hex:  "190001",
+		},
+		{
+			name: "BigNumTag",
+			hex:  "c24101",
+		},
+		{
+			name: "IndefiniteByteString",
+			hex:  "5f4161ff",
+		},
+		{
+			name: "IndefiniteConstrWithDefiniteInner",
+			hex:  "d8669f18809f01ffff",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			orig, err := hex.DecodeString(tc.hex)
+			require.NoError(t, err)
+
+			var d common.Datum
+			_, err = cbor.Decode(orig, &d)
+			require.NoError(t, err)
+
+			wire, err := d.MarshalCBOR()
+			require.NoError(t, err)
+
+			assert.Equal(
+				t,
+				orig,
+				wire,
+				"MarshalCBOR() should return the original decoded bytes",
+			)
+
+			expectedHash := common.Blake2b256Hash(wire)
+			assert.Equal(
+				t,
+				expectedHash,
+				d.Hash(),
+				"blake2b256(MarshalCBOR()) must equal Hash()",
+			)
+		})
 	}
 }
