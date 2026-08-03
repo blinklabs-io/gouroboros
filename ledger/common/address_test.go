@@ -1456,6 +1456,20 @@ func TestNewAddressValidatesBech32HRP(t *testing.T) {
 	}
 }
 
+// TestNewAddressRejectsBech32ByronAddress verifies that a Byron payload cannot
+// bypass its Base58-only encoding requirement by using a matching Bech32 HRP.
+func TestNewAddressRejectsBech32ByronAddress(t *testing.T) {
+	const byronAddress = "Ae2tdPwUPEYwFx4dmJheyNPPYXtvHbJLeCaA96o6Y2iiUL18cAt7AizN2zG"
+	const bech32ByronAddress = "addr_test1stvpskppsdvpcpyxtepdyde6mklt6hf2e7quwcxgfztszs5gnalwwccfrwsqqxhsrytd2vqclr3"
+
+	_, err := NewAddress(byronAddress)
+	require.NoError(t, err)
+
+	_, err = NewAddress(bech32ByronAddress)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "byron addresses must use base58 encoding")
+}
+
 func TestCIP0019_PaymentAndStakeAddressExtraction(t *testing.T) {
 	tests := []struct {
 		name              string

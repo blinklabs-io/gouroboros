@@ -116,6 +116,11 @@ func NewAddress(addr string) (Address, error) {
 		return Address{}, err
 	}
 	if isBech32 {
+		if a.addressType == AddressTypeByron {
+			return Address{}, errors.New(
+				"byron addresses must use base58 encoding",
+			)
+		}
 		expectedHRP := a.generateHRP()
 		if !strings.EqualFold(hrp, expectedHRP) {
 			return Address{}, fmt.Errorf(
