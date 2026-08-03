@@ -102,7 +102,7 @@ func NewAddress(addr string) (Address, error) {
 		// A string with a known Shelley HRP was intended to be bech32. Do not
 		// reinterpret a checksum or mixed-case failure as a Byron address.
 		if hasShelleyAddressHRP(addr) {
-			return Address{}, fmt.Errorf("invalid bech32 address: %w", err)
+			return Address{}, err
 		}
 		// bech32 failed — try base58 (Byron addresses)
 		decoded = base58.Decode(addr)
