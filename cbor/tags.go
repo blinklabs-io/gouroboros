@@ -235,7 +235,7 @@ func (t *SetType[T]) MarshalCBOR() ([]byte, error) {
 	// re-marshaling round-trips exactly, rather than potentially producing
 	// different bytes if an item's own re-encoding is non-canonical
 	// relative to how it was originally encoded on the wire.
-	if cborData := t.Cbor(); len(cborData) > 0 {
+	if cborData := t.Cbor(); cborData != nil {
 		return cborData, nil
 	}
 	tmpItems := make([]any, len(t.items))

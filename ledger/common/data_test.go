@@ -316,8 +316,26 @@ func TestDatumMarshalCBORPreservesOriginalBytes(t *testing.T) {
 		hex  string
 	}{
 		{
-			name: "ChunkedByteString100Bytes",
+			// A definite-length byte string of 100 bytes (wrapped in an
+			// indefinite-length Constr 0 array). It is NOT chunked
+			// itself -- only the surrounding array is indefinite -- but
+			// at 100 bytes it exceeds plutigo's 64-byte chunking
+			// threshold, so a naive re-encode via plutigo would split it
+			// into multiple chunks and fail to reproduce these exact
+			// bytes. This is the original real-world case that motivated
+			// issue #1929.
+			name: "LargeDefiniteByteString100Bytes",
 			hex:  "d8799f5864" + strings.Repeat("ab", 100) + "ff",
+		},
+		{
+			// A genuinely chunked (indefinite-length, multi-chunk) byte
+			// string: two definite-length chunks (64 bytes + 36 bytes)
+			// wrapped in an indefinite-length byte string, totaling 100
+			// bytes -- exercising real on-wire chunking rather than just
+			// a large definite-length string.
+			name: "ChunkedIndefiniteByteString100Bytes",
+			hex: "5f5840" + strings.Repeat("ab", 64) +
+				"5824" + strings.Repeat("cd", 36) + "ff",
 		},
 		{
 			name: "NonMinimalUint8",

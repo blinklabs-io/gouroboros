@@ -88,7 +88,7 @@ func (d *Datum) MarshalCBOR() ([]byte, error) {
 	// blake2b256(MarshalCBOR()) == Hash(). Falling back to re-encoding via
 	// plutigo is only correct when there is no original encoding to
 	// preserve (e.g. a Datum built directly from Go data).
-	if cborData := d.Cbor(); len(cborData) > 0 {
+	if cborData := d.Cbor(); cborData != nil {
 		return cborData, nil
 	}
 	tmpCbor, err := data.Encode(d.Data)
