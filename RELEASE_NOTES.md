@@ -17,6 +17,41 @@ This release improves resilience when field reported issues occur.
 
 * Fixed handling for field reported issues so the library responds more reliably in those cases.
 
+## v0.191.1
+
+- **Date:** 2026-08-02
+- **Version:** 0.191.1
+
+### Summary
+
+This release adds node-to-client protocol version 21 support, dual-layout `GenesisConfigResult` handling, and tighter validation for unsupported protocol, ledger, and address values.
+
+### New Features
+
+* Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21, use `GetPoolDistr2`, and work with `GenesisConfigResult` values in both supported layouts.
+
+### Breaking Changes
+
+* Renamed the `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` fields to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
+
+* Required explicit `Type` values when marshaling `ScriptsNotPaidUtxo` and `CollateralContainsNonADA`, so callers must set a supported value before encoding.
+
+### Bug Fixes
+
+* Fixed unknown protocol message handling so `NewMsgFromCbor` returns a protocol-scoped error for unsupported numeric message types across `blockfetch`, `chainsync`, `handshake`, `keepalive`, `leiosfetch`, `localstatequery`, `localtxmonitor`, `localtxsubmission`, `peersharing`, and `txsubmission`.
+
+* Improved ledger failure decoding so unknown `UTXO`, `UTXOW`, and `LEDGER` constructors now preserve their constructor details in typed errors, giving callers clearer diagnostics.
+
+* Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers when encoding Shelley genesis data instead of silently treating them as testnet.
+
+* Hardened Conway delegation validation so unsupported `DRep` types now fail closed across delegation certificates instead of being treated as ordinary key hash values.
+
+* Tightened raw `CIP-0019` address decoding so reserved address types `9` through `13` and invalid network identifiers now return explicit validation errors.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` to `v0.2.0`.
+
 ## v0.191.0
 
 - **Date:** 2026-08-01
