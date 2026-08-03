@@ -4,6 +4,19 @@ title: Release notes
 
 # Release notes
 
+## v0.191.2
+
+- **Date:** 2026-08-02
+- **Version:** 0.191.2
+
+### Summary
+
+This release improves resilience when field reported issues occur.
+
+### Bug Fixes
+
+* Fixed handling for field reported issues so the library responds more reliably in those cases.
+
 ## v0.191.1
 
 - **Date:** 2026-08-02
