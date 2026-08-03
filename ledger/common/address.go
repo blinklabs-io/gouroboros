@@ -21,6 +21,7 @@ import (
 	"hash/crc32"
 	"io"
 	"math/big"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -86,18 +87,22 @@ type Address struct {
 	byronAddressAttr ByronAddressAttributes
 }
 
-// NewAddress returns an Address based on the provided bech32/base58 address string
-// It detects if the string has mixed case assumes it is a base58 encoded address
-// otherwise, it assumes it is bech32 encoded
+// NewAddress returns an Address based on the provided bech32/base58 address
+// string.
 func NewAddress(addr string) (Address, error) {
 	var decoded []byte
-	_, data, err := bech32.DecodeNoLimit(addr)
+	hrp, data, err := bech32.DecodeNoLimit(addr)
 	if err == nil {
 		decoded, err = bech32.ConvertBits(data, 5, 8, false)
 		if err != nil {
 			return Address{}, err
 		}
 	} else {
+		// A string with a known Shelley HRP was intended to be bech32. Do not
+		// reinterpret a checksum or mixed-case failure as a Byron address.
+		if hasShelleyAddressHRP(addr) {
+			return Address{}, fmt.Errorf("invalid bech32 address: %w", err)
+		}
 		// bech32 failed — try base58 (Byron addresses)
 		decoded = base58.Decode(addr)
 		if len(decoded) == 0 {
@@ -109,7 +114,29 @@ func NewAddress(addr string) (Address, error) {
 	if err != nil {
 		return Address{}, err
 	}
+	if hrp != "" && !strings.EqualFold(hrp, a.generateHRP()) {
+		return Address{}, fmt.Errorf(
+			"address HRP %q does not match expected HRP %q",
+			hrp,
+			a.generateHRP(),
+		)
+	}
 	return a, nil
+}
+
+func hasShelleyAddressHRP(addr string) bool {
+	lowerAddr := strings.ToLower(addr)
+	for _, prefix := range []string{
+		"addr1",
+		"addr_test1",
+		"stake1",
+		"stake_test1",
+	} {
+		if strings.HasPrefix(lowerAddr, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewAddressFromBytes returns an Address based on the raw bytes provided

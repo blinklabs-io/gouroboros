@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1373,6 +1374,84 @@ func TestCIP0019_InvalidBech32Inputs(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+// TestNewAddressRejectsCorruptedShelleyAddress verifies that single-character
+// Bech32 corruptions cannot be accepted through the Byron Base58 fallback.
+func TestNewAddressRejectsCorruptedShelleyAddress(t *testing.T) {
+	paymentHash := make([]byte, AddressHashSize)
+	stakeHash := make([]byte, AddressHashSize)
+	for i := range paymentHash {
+		paymentHash[i] = 0xaa
+		stakeHash[i] = 0xbb
+	}
+	addr, err := NewAddressFromParts(
+		AddressTypeKeyKey,
+		AddressNetworkMainnet,
+		paymentHash,
+		stakeHash,
+	)
+	require.NoError(t, err)
+
+	encoded := addr.String()
+	separator := strings.LastIndexByte(encoded, '1')
+	require.Positive(t, separator)
+	const mutationCharacters = "qpzry9x8gf2tvdw0s3jn54khce6mua7l1"
+
+	// A Bech32 checksum detects every single-character substitution. Verify
+	// that none of those failures can be accepted through the Byron fallback.
+	for pos := separator + 1; pos < len(encoded)-6; pos++ {
+		for _, replacement := range mutationCharacters {
+			if byte(replacement) == encoded[pos] {
+				continue
+			}
+			corrupted := []byte(encoded)
+			corrupted[pos] = byte(replacement)
+			_, err := NewAddress(string(corrupted))
+			require.Error(
+				t,
+				err,
+				"accepted corruption at position %d with %q",
+				pos,
+				replacement,
+			)
+		}
+	}
+}
+
+// TestNewAddressValidatesBech32HRP verifies that the textual HRP agrees with
+// the address type and network encoded in the decoded header.
+func TestNewAddressValidatesBech32HRP(t *testing.T) {
+	const paymentAddress = "addr1q862w5ru0hpxl4r6vezgtegrfqve0dm2dp3yj2f7y4arrf223wd3fr6qcumc6873am478xnxmfp8lgpe6q6ju9ttjgns2xavze"
+	_, words, err := bech32.DecodeNoLimit(paymentAddress)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		hrp  string
+	}{
+		{
+			name: "payment address with stake HRP",
+			hrp:  "stake",
+		},
+		{
+			name: "mainnet address with testnet HRP",
+			hrp:  "addr_test",
+		},
+		{
+			name: "unknown HRP",
+			hrp:  "wrong",
+		},
+	}
+	for _, testDef := range tests {
+		t.Run(testDef.name, func(t *testing.T) {
+			encoded, err := bech32.Encode(testDef.hrp, words)
+			require.NoError(t, err)
+			_, err = NewAddress(encoded)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "does not match expected HRP")
 		})
 	}
 }
