@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestByronBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
@@ -93,14 +94,10 @@ func TestByronBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 func TestByronEpochBoundaryBlockNullHeader(t *testing.T) {
 	// [null, [], []]: an EBB block whose header is CBOR null
 	dataBytes, err := hex.DecodeString("83f68080")
-	if err != nil {
-		t.Fatalf("Failed to decode hex string into CBOR bytes: %v", err)
-	}
+	require.NoError(t, err, "Failed to decode hex string into CBOR bytes: %v", err)
 	var block byron.ByronEpochBoundaryBlock
 	err = block.UnmarshalCBOR(dataBytes)
-	if err == nil {
-		t.Fatal("expected error decoding EBB block with null header, got none")
-	}
+	require.Error(t, err, "expected error decoding EBB block with null header, got none")
 }
 
 func TestByronTransaction_Utxorpc(t *testing.T) {

@@ -275,6 +275,12 @@ func TestPoolRegistrationCertificateLeiosKey(t *testing.T) {
 	})
 }
 
+func TestPoolRegistrationCertificateRejectsShortOperatorKey(t *testing.T) {
+	var cert PoolRegistrationCertificate
+	err := json.Unmarshal([]byte(`{"publicKey":"01"}`), &cert)
+	require.Error(t, err)
+}
+
 func TestLeiosKeyRejectsInvalidLengths(t *testing.T) {
 	tests := []struct {
 		name  string

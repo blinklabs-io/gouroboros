@@ -21,6 +21,7 @@ import (
 	"hash/crc32"
 	"io"
 	"math/big"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
@@ -86,18 +87,23 @@ type Address struct {
 	byronAddressAttr ByronAddressAttributes
 }
 
-// NewAddress returns an Address based on the provided bech32/base58 address string
-// It detects if the string has mixed case assumes it is a base58 encoded address
-// otherwise, it assumes it is bech32 encoded
+// NewAddress returns an Address based on the provided bech32/base58 address
+// string.
 func NewAddress(addr string) (Address, error) {
 	var decoded []byte
-	_, data, err := bech32.DecodeNoLimit(addr)
+	hrp, data, err := bech32.DecodeNoLimit(addr)
+	isBech32 := err == nil
 	if err == nil {
 		decoded, err = bech32.ConvertBits(data, 5, 8, false)
 		if err != nil {
 			return Address{}, err
 		}
 	} else {
+		// A string with a known Shelley HRP was intended to be bech32. Do not
+		// reinterpret a checksum or mixed-case failure as a Byron address.
+		if hasShelleyAddressHRP(addr) {
+			return Address{}, err
+		}
 		// bech32 failed — try base58 (Byron addresses)
 		decoded = base58.Decode(addr)
 		if len(decoded) == 0 {
@@ -109,7 +115,34 @@ func NewAddress(addr string) (Address, error) {
 	if err != nil {
 		return Address{}, err
 	}
+	if isBech32 {
+		if a.addressType == AddressTypeByron {
+			return Address{}, errors.New(
+				"byron addresses must use base58 encoding",
+			)
+		}
+		expectedHRP := a.generateHRP()
+		if !strings.EqualFold(hrp, expectedHRP) {
+			return Address{}, fmt.Errorf(
+				"address HRP %q does not match expected HRP %q",
+				hrp,
+				expectedHRP,
+			)
+		}
+	}
 	return a, nil
+}
+
+func hasShelleyAddressHRP(addr string) bool {
+	return hasFoldedPrefix(addr, "addr1") ||
+		hasFoldedPrefix(addr, "addr_test1") ||
+		hasFoldedPrefix(addr, "stake1") ||
+		hasFoldedPrefix(addr, "stake_test1")
+}
+
+func hasFoldedPrefix(value, prefix string) bool {
+	return len(value) >= len(prefix) &&
+		strings.EqualFold(value[:len(prefix)], prefix)
 }
 
 // NewAddressFromBytes returns an Address based on the raw bytes provided

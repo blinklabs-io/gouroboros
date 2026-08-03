@@ -4,6 +4,112 @@ title: Release notes
 
 # Release notes
 
+## v0.191.2
+
+- **Date:** 2026-08-02
+- **Version:** 0.191.2
+
+### Summary
+
+This release improves resilience when field reported issues occur.
+
+### Bug Fixes
+
+* Fixed handling for field reported issues so the library responds more reliably in those cases.
+
+## v0.191.1
+
+- **Date:** 2026-08-02
+- **Version:** 0.191.1
+
+### Summary
+
+This release adds node-to-client protocol version 21 support, dual-layout `GenesisConfigResult` handling, and tighter validation for unsupported protocol, ledger, and address values.
+
+### New Features
+
+* Added node-to-client protocol version 21 support so `cardano-cli` and other clients can negotiate v21, use `GetPoolDistr2`, and work with `GenesisConfigResult` values in both supported layouts.
+
+### Breaking Changes
+
+* Renamed the `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` fields to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
+
+* Required explicit `Type` values when marshaling `ScriptsNotPaidUtxo` and `CollateralContainsNonADA`, so callers must set a supported value before encoding.
+
+### Bug Fixes
+
+* Fixed unknown protocol message handling so `NewMsgFromCbor` returns a protocol-scoped error for unsupported numeric message types across `blockfetch`, `chainsync`, `handshake`, `keepalive`, `leiosfetch`, `localstatequery`, `localtxmonitor`, `localtxsubmission`, `peersharing`, and `txsubmission`.
+
+* Improved ledger failure decoding so unknown `UTXO`, `UTXOW`, and `LEDGER` constructors now preserve their constructor details in typed errors, giving callers clearer diagnostics.
+
+* Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers when encoding Shelley genesis data instead of silently treating them as testnet.
+
+* Hardened Conway delegation validation so unsupported `DRep` types now fail closed across delegation certificates instead of being treated as ordinary key hash values.
+
+* Tightened raw `CIP-0019` address decoding so reserved address types `9` through `13` and invalid network identifiers now return explicit validation errors.
+
+### Additional Changes
+
+* Updated `github.com/blinklabs-io/plutigo` to `v0.2.0`.
+
+## v0.191.0
+
+- **Date:** 2026-08-01
+- **Version:** 0.191.0
+
+### Summary
+
+This release adds node-to-client protocol version 21 support and makes protocol and ledger validation fail closed on unsupported values.
+
+### New Features
+
+* Added node-to-client protocol version 21 support, including `GetPoolDistr2` handling and dual-layout `GenesisConfigResult` encoding and decoding.
+
+### Breaking Changes
+
+* Renamed the `GenesisConfigResult.Unknown1` and `GenesisConfigResult.Unknown2` fields to `GenesisConfigResult.InitialFunds` and `GenesisConfigResult.Staking`.
+* Adjusted marshaling for `ScriptsNotPaidUtxo` and `CollateralContainsNonADA` to require recognized `Type` values, so callers must set a supported `Type` explicitly.
+
+### Bug Fixes
+
+* Fixed unknown protocol message handling so `NewMsgFromCbor` returns a protocol-scoped error for unsupported numeric message types instead of attempting CBOR decoding into a nil target.
+* Improved ledger failure decoding so unknown UTXO, UTXOW, and LEDGER failure constructors now preserve their era identifier, constructor tag, and raw CBOR bytes in typed unknown errors.
+* Updated `ShelleyGenesis.MarshalCBOR` to reject unsupported network identifiers instead of silently encoding them as testnet.
+* Hardened Conway delegation validation so unsupported DRep types now return `InvalidDrepTypeError` instead of being treated as `AddrKeyHash` values.
+* Tightened raw CIP-0019 address decoding so reserved address types and invalid network identifiers now fail with explicit validation errors.
+
+## v0.190.0
+
+- **Date:** 2026-07-28
+- **Version:** 0.190.0
+
+### Summary
+
+This release strengthens Byron block validation during CBOR decode.
+
+### Bug Fixes
+
+* Fixed Byron block decoding so body proof validation now runs during CBOR decode and rejects tampered or substituted bodies unless `SkipBodyHashValidation` is set.
+
+## v0.189.5
+
+- **Date:** 2026-07-27
+- **Version:** 0.189.5
+
+### Summary
+
+This release improves consensus mode threshold handling, rejects unknown values in node-to-node chainsync roll-forward paths, and refreshes the checkout action used by CI workflows.
+
+### Bug Fixes
+
+* Fixed node-to-node chainsync roll-forward handling so unknown eras and block types now return explicit errors instead of being treated as valid values.
+* Improved consensus mode threshold handling so unknown modes now return errors and mode-specific thresholds use the correct upper bounds.
+
+### Additional Changes
+
+* Recorded the v0.189.4 maintenance entry in the release history.
+* Updated CI workflows to use `actions/checkout` `v7.0.1`.
+
 ## v0.189.4
 
 - **Date:** 2026-07-25

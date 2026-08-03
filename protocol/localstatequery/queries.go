@@ -80,6 +80,10 @@ const (
 	// GetLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node 10.7+).
 	// The v15+ wire layout includes a peer-kind byte: [34, peerKindTag].
 	QueryTypeShelleyGetLedgerPeerSnapshot = 34
+
+	// GetPoolDistr2 (Shelley sub-query 36) replaces GetPoolDistr from NtC v21.
+	// cardano-cli sends it while computing a leadership schedule.
+	QueryTypeShelleyPoolDistr2 = 36
 )
 
 // LedgerPeerKind selects which ledger peers the snapshot covers.
@@ -237,6 +241,7 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleyPoolState:                           &ShelleyPoolStateQuery{},
 		QueryTypeShelleyStakeSnapshots:                      &ShelleyStakeSnapshotsQuery{},
 		QueryTypeShelleyPoolDistr:                           &ShelleyPoolDistrQuery{},
+		QueryTypeShelleyPoolDistr2:                          &ShelleyPoolDistr2Query{},
 		QueryTypeShelleyStakeDelegDeposits:                  &ShelleyStakeDelegDepositsQuery{},
 		// Conway governance queries
 		QueryTypeShelleyConstitution:           &ShelleyConstitutionQuery{},
@@ -478,6 +483,51 @@ func (q *ShelleyStakeSnapshotsQuery) PoolFilter() (pools []ledger.PoolId, all bo
 
 type ShelleyPoolDistrQuery struct {
 	simpleQueryBase
+}
+
+// ShelleyPoolDistr2Query is GetPoolDistr2 (Shelley sub-query 36), which
+// replaces GetPoolDistr from node-to-client protocol version 21. The wire form
+// is unchanged from its predecessor -- [36, poolFilter], where poolFilter is a
+// StrictMaybe of a pool-id set encoded as a list, so [] means "all pools" and
+// [ 258{poolids} ] restricts the result. Only the reply differs; see
+// PoolDistr2Result.
+type ShelleyPoolDistr2Query struct {
+	cbor.StructAsArray
+	Type  int
+	Pools []cbor.SetType[ledger.PoolId]
+}
+
+func (q *ShelleyPoolDistr2Query) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Type  int
+		Pools []cbor.SetType[ledger.PoolId]
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	// A StrictMaybe holds at most one value. Reject a malformed encoding that
+	// carries more than one set rather than silently dropping the extras.
+	if len(tmp.Pools) > 1 {
+		return fmt.Errorf(
+			"invalid GetPoolDistr2 pool filter: expected at most one pool set, got %d",
+			len(tmp.Pools),
+		)
+	}
+	q.Type = tmp.Type
+	q.Pools = tmp.Pools
+	return nil
+}
+
+// PoolFilter reports the pool IDs the query is restricted to. When all is true
+// the query covers every pool (the StrictMaybe was SNothing) and pools is nil;
+// when all is false only the returned pools are requested (which may be empty
+// for an explicit SJust of the empty set).
+func (q *ShelleyPoolDistr2Query) PoolFilter() (pools []ledger.PoolId, all bool) {
+	if len(q.Pools) == 0 {
+		return nil, true
+	}
+	return q.Pools[0].Items(), false
 }
 
 func decodeQuery(
@@ -785,47 +835,8 @@ func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) 
 	return nil
 }
 
-type GenesisConfigResult struct {
-	cbor.StructAsArray
-	Start             SystemStartResult
-	NetworkMagic      int
-	NetworkId         uint8
-	ActiveSlotsCoeff  []any
-	SecurityParam     int
-	EpochLength       int
-	SlotsPerKESPeriod int
-	MaxKESEvolutions  int
-	SlotLength        int
-	UpdateQuorum      int
-	MaxLovelaceSupply int64
-	ProtocolParams    GenesisConfigResultProtocolParameters
-	// This value contains maps with bytestring keys, which we can't parse yet
-	GenDelegs cbor.RawMessage
-	Unknown1  any
-	Unknown2  any
-}
-
-type GenesisConfigResultProtocolParameters struct {
-	cbor.StructAsArray
-	MinFeeA               int
-	MinFeeB               int
-	MaxBlockBodySize      int
-	MaxTxSize             int
-	MaxBlockHeaderSize    int
-	KeyDeposit            int
-	PoolDeposit           int
-	EMax                  int
-	NOpt                  int
-	A0                    []int
-	Rho                   []int
-	Tau                   []int
-	DecentralizationParam []int
-	ExtraEntropy          any
-	ProtocolVersionMajor  int
-	ProtocolVersionMinor  int
-	MinUTxOValue          int
-	MinPoolCost           int
-}
+// GenesisConfigResult and GenesisConfigResultProtocolParameters are defined in
+// genesis_config.go, which carries the two wire layouts.
 
 // TODO (#864)
 type DebugNewEpochStateResult any
@@ -1065,6 +1076,28 @@ type StakeSnapshotsResult struct {
 	TotalStakeMark uint64
 	TotalStakeSet  uint64
 	TotalStakeGo   uint64
+}
+
+// PoolDistr2Result is the GetPoolDistr2 reply: the ledger's own pool
+// distribution rather than the consensus one that GetPoolDistr returned.
+//
+// It carries two values its predecessor did not. Each pool's entry gains the
+// total stake delegated to it, alongside the fraction and VRF hash the old
+// entry held, and the record as a whole gains the total active stake across
+// all pools. Both are needed to check a pool's leader eligibility without
+// re-deriving the denominator.
+type PoolDistr2Result struct {
+	cbor.StructAsArray
+	Pools            map[ledger.PoolId]PoolDistr2IndividualStake
+	TotalActiveStake uint64
+}
+
+// PoolDistr2IndividualStake is one pool's entry in a GetPoolDistr2 reply.
+type PoolDistr2IndividualStake struct {
+	cbor.StructAsArray
+	StakeFraction  *cbor.Rat
+	TotalPoolStake uint64
+	VrfHash        ledger.Blake2b256
 }
 
 // PoolDistrResult represents the pool distribution result.

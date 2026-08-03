@@ -130,3 +130,43 @@ func TestGetProtocolVersionMapDMQNtCMithril(t *testing.T) {
 		})
 	}
 }
+
+// TestNtCVersion21Supported covers the handshake half of node-to-client
+// protocol version 21.
+//
+// cardano-cli gates several queries on the negotiated version rather than on
+// the reply it gets back, so a node that stops at 20 is refused before it can
+// answer anything — `query leadership-schedule` reports that it needs a newer
+// version and never sends the query.
+func TestNtCVersion21Supported(t *testing.T) {
+	const version = 21 + ProtocolVersionNtCOffset
+
+	assert.Contains(t, GetProtocolVersionsNtC(), uint16(version),
+		"version 21 must be offered during the handshake")
+
+	got := GetProtocolVersion(version)
+	require.NotNil(t, got.NewVersionDataFromCborFunc,
+		"version 21 needs the version data codec used from 15 onwards")
+
+	// Version 21 changes how two query results are serialised; it neither adds
+	// nor removes an era or a mini-protocol, so its capabilities are those of
+	// version 20.
+	previous := GetProtocolVersion(20 + ProtocolVersionNtCOffset)
+	assert.Equal(t, previous.EnableShelleyEra, got.EnableShelleyEra)
+	assert.Equal(t, previous.EnableAllegraEra, got.EnableAllegraEra)
+	assert.Equal(t, previous.EnableMaryEra, got.EnableMaryEra)
+	assert.Equal(t, previous.EnableAlonzoEra, got.EnableAlonzoEra)
+	assert.Equal(t, previous.EnableBabbageEra, got.EnableBabbageEra)
+	assert.Equal(t, previous.EnableConwayEra, got.EnableConwayEra)
+	assert.Equal(t, previous.EnableDijkstraEra, got.EnableDijkstraEra)
+	assert.Equal(
+		t,
+		previous.EnableLocalQueryProtocol,
+		got.EnableLocalQueryProtocol,
+	)
+	assert.Equal(
+		t,
+		previous.EnableLocalTxMonitorProtocol,
+		got.EnableLocalTxMonitorProtocol,
+	)
+}

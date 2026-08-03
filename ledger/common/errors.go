@@ -216,3 +216,21 @@ var ErrRefScriptSizePerBlockTooLarge = errors.New("reference-script size per blo
 func (RefScriptSizePerBlockTooLargeError) Is(target error) bool {
 	return target == ErrRefScriptSizePerBlockTooLarge
 }
+
+// ExtraneousRedeemerError indicates a redeemer whose tag/index does not
+// correspond to a valid script purpose in the transaction: the index is out
+// of range for its purpose category (spend/mint/cert/reward/voting/
+// proposing), or its tag is not one this validation recognizes as a valid
+// purpose (e.g. RedeemerTagGuarding, unless the caller has already
+// special-cased it).
+type ExtraneousRedeemerError struct {
+	RedeemerKey RedeemerKey
+}
+
+func (e ExtraneousRedeemerError) Error() string {
+	return fmt.Sprintf(
+		"extraneous redeemer: tag=%d, index=%d doesn't match any valid script purpose",
+		e.RedeemerKey.Tag,
+		e.RedeemerKey.Index,
+	)
+}

@@ -24,7 +24,9 @@ import (
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
@@ -403,5 +405,110 @@ func TestCalculateMinFee(t *testing.T) {
 		_, err = common.CalculateMinFee(1, uint(math.MaxUint64), 1)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "overflow")
+	})
+}
+
+func TestValidateExtraneousRedeemers_Common(t *testing.T) {
+	testInput := shelley.NewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		0,
+	)
+	votingVoter := &common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{0x10},
+	}
+	votingGovActionId := &common.GovActionId{}
+
+	baseBody := func() conway.ConwayTransactionBody {
+		return conway.ConwayTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{testInput},
+			),
+			TxCertificates: []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeStakeRegistration),
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeCredential: common.Credential{},
+					},
+				},
+			},
+			TxWithdrawals: map[*common.Address]uint64{
+				&common.Address{}: 0,
+			},
+			TxVotingProcedures: common.VotingProcedures{
+				votingVoter: {
+					votingGovActionId: common.VotingProcedure{Vote: 1},
+				},
+			},
+			TxProposalProcedures: []conway.ConwayProposalProcedure{{}},
+		}
+	}
+
+	t.Run("no witnesses is valid", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		require.NoError(t, common.ValidateExtraneousRedeemers(tx))
+	})
+
+	t.Run("unknown tag is extraneous", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTag(99)}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		var extraErr common.ExtraneousRedeemerError
+		require.ErrorAs(t, err, &extraErr)
+	})
+
+	t.Run("guarding tag is extraneous", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagGuarding}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
+	t.Run("voting index out of range", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagVoting, Index: 1}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
+	t.Run("proposing index out of range", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagProposing, Index: 1}: {},
+			},
+		}
+		err := common.ValidateExtraneousRedeemers(tx)
+		require.Error(t, err)
+		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+	})
+
+	t.Run("in-range redeemers for every tag pass", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{Body: baseBody()}
+		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+				{Tag: common.RedeemerTagSpend, Index: 0}:     {},
+				{Tag: common.RedeemerTagCert, Index: 0}:      {},
+				{Tag: common.RedeemerTagReward, Index: 0}:    {},
+				{Tag: common.RedeemerTagVoting, Index: 0}:    {},
+				{Tag: common.RedeemerTagProposing, Index: 0}: {},
+			},
+		}
+		require.NoError(t, common.ValidateExtraneousRedeemers(tx))
 	})
 }

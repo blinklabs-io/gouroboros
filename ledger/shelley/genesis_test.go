@@ -23,6 +23,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -196,6 +200,56 @@ func TestGenesisFromJson(t *testing.T) {
 			tmpGenesis,
 			expectedGenesisObj,
 		)
+	}
+}
+
+// Guards against a regression where an unrecognized NetworkId silently
+// encoded as testnet instead of returning an error.
+func TestGenesisMarshalCBORInvalidNetworkId(t *testing.T) {
+	tmpGenesis := shelley.ShelleyGenesis{
+		NetworkId: "Regtest",
+	}
+	_, err := tmpGenesis.MarshalCBOR()
+	require.Error(t, err)
+}
+
+// Confirms the getNetworkId() refactor preserves the original encoded
+// values (Testnet=0, Mainnet=1) for valid network ids.
+func TestGenesisMarshalCBORValidNetworkId(t *testing.T) {
+	testDefs := []struct {
+		networkId             string
+		expectedNetworkIdCbor uint64
+	}{
+		{networkId: "Testnet", expectedNetworkIdCbor: 0},
+		{networkId: "Mainnet", expectedNetworkIdCbor: 1},
+	}
+	for _, testDef := range testDefs {
+		tmpGenesis := shelley.ShelleyGenesis{
+			NetworkId: testDef.networkId,
+			ActiveSlotsCoeff: common.GenesisRat{
+				Rat: big.NewRat(5, 100),
+			},
+			SlotLength: common.GenesisRat{
+				Rat: big.NewRat(1, 1),
+			},
+			ProtocolParameters: shelley.ShelleyGenesisProtocolParams{
+				A0:               &common.GenesisRat{Rat: big.NewRat(3, 10)},
+				Rho:              &common.GenesisRat{Rat: big.NewRat(3, 1000)},
+				Tau:              &common.GenesisRat{Rat: big.NewRat(2, 10)},
+				Decentralization: &common.GenesisRat{Rat: big.NewRat(1, 1)},
+			},
+		}
+		cborData, err := tmpGenesis.MarshalCBOR()
+		require.NoError(t, err, "unexpected error marshaling %s genesis", testDef.networkId)
+
+		var decoded []any
+		_, err = cbor.Decode(cborData, &decoded)
+		require.NoError(t, err, "unexpected error decoding CBOR")
+		require.Greater(t, len(decoded), 2, "decoded genesis has too few fields")
+
+		gotNetworkId, ok := decoded[2].(uint64)
+		require.True(t, ok, "expected network ID field to decode as uint64, got %T", decoded[2])
+		assert.Equal(t, testDef.expectedNetworkIdCbor, gotNetworkId, "for %s", testDef.networkId)
 	}
 }
 

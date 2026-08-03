@@ -477,7 +477,11 @@ func validateGuardingPlutusScripts(
 		case common.PlutusV4Script:
 			if !txInfoV3Built {
 				var err error
-				txInfoV3, err = script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+				txInfoV3, err = script.NewTxInfoV3FromTransaction(
+					ls,
+					transactionWithoutGuardingRedeemers{Transaction: tx},
+					resolvedInputs,
+				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
 				}
@@ -503,7 +507,11 @@ func validateGuardingPlutusScripts(
 		case common.PlutusV3Script:
 			if !txInfoV3Built {
 				var err error
-				txInfoV3, err = script.NewTxInfoV3FromTransaction(ls, tx, resolvedInputs)
+				txInfoV3, err = script.NewTxInfoV3FromTransaction(
+					ls,
+					transactionWithoutGuardingRedeemers{Transaction: tx},
+					resolvedInputs,
+				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
 				}
@@ -529,7 +537,11 @@ func validateGuardingPlutusScripts(
 		case common.PlutusV2Script:
 			if !txInfoV2Built {
 				var err error
-				txInfoV2, err = script.NewTxInfoV2FromTransaction(ls, tx, resolvedInputs)
+				txInfoV2, err = script.NewTxInfoV2FromTransaction(
+					ls,
+					transactionWithoutGuardingRedeemers{Transaction: tx},
+					resolvedInputs,
+				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
 				}
@@ -559,7 +571,11 @@ func validateGuardingPlutusScripts(
 		case common.PlutusV1Script:
 			if !txInfoV1Built {
 				var err error
-				txInfoV1, err = script.NewTxInfoV1FromTransaction(ls, tx, resolvedInputs)
+				txInfoV1, err = script.NewTxInfoV1FromTransaction(
+					ls,
+					transactionWithoutGuardingRedeemers{Transaction: tx},
+					resolvedInputs,
+				)
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
 				}
