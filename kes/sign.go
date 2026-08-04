@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 
 	"golang.org/x/crypto/blake2b"
 )
@@ -36,6 +37,42 @@ type SecretKey struct {
 	Period    uint64
 	Data      []byte // The raw key bytes
 	publicKey []byte // Cached public key (computed once, never changes)
+}
+
+// wipe overwrites the given buffer with zeros in a way the compiler is not
+// permitted to elide as a dead store.
+//
+// Go provides no guaranteed-secure zeroization primitive. This helper uses the
+// established best-effort pattern: the write loop lives in a //go:noinline
+// function (so the call site cannot prove the stores are dead and remove them)
+// and runtime.KeepAlive pins the backing array until the loop completes.
+//
+// CAVEAT: this only wipes THIS backing array. Go's garbage collector or stack
+// growth may have copied the secret elsewhere earlier in its lifetime; those
+// copies cannot be reached from here and are outside the guarantees of this
+// package. Callers needing stronger assurances should hold KES secrets in
+// mlock'd, non-GC-managed memory and wipe that buffer as well.
+//
+//go:noinline
+func wipe(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+	runtime.KeepAlive(b)
+}
+
+// Zeroize erases all secret material held by the key and renders it unusable.
+// After Zeroize, Sign and Update return an error for this key. The (public,
+// non-secret) cached public key is retained so PublicKey still works.
+//
+// See the wipe caveat regarding residual copies the Go runtime may have made.
+func (sk *SecretKey) Zeroize() {
+	if sk == nil {
+		return
+	}
+	wipe(sk.Data)
+	sk.Data = nil
+	sk.Period = 0
 }
 
 // secretKeySize returns the size of a KES secret key for a given depth
@@ -172,6 +209,9 @@ func Sign(sk *SecretKey, period uint64, message []byte) ([]byte, error) {
 	if sk == nil {
 		return nil, errors.New("secret key is nil")
 	}
+	if sk.Data == nil {
+		return nil, errors.New("secret key has been erased")
+	}
 
 	maxPeriod := uint64(1) << sk.Depth
 	if period >= maxPeriod {
@@ -261,10 +301,25 @@ func signInternal(
 }
 
 // Update evolves the secret key to the next period.
-// Returns the updated key, or error if key is exhausted.
+// Returns the evolved key, or an error if the key is exhausted, erased or nil.
+//
+// Update is forward-secure: it consumes the input key IN PLACE. On success the
+// spent predecessor (sk) is erased (its secret material zeroized, sk.Data set to
+// nil) so it can no longer sign, and the returned key is the only usable one.
+// The evolved key's own backing array is derived so it retains no period-N leaf
+// material. On the exhausted/erased/nil paths sk is left unchanged.
+//
+// Migration note: earlier revisions returned the evolved key WITHOUT erasing the
+// input, leaving the caller holding a still-signable copy of the spent period.
+// The established call pattern `sk, err = kes.Update(sk)` is unaffected — it
+// overwrites the reference that Update has already erased. Callers must not
+// retain or reuse the pre-Update *SecretKey.
 func Update(sk *SecretKey) (*SecretKey, error) {
 	if sk == nil {
 		return nil, errors.New("secret key is nil")
+	}
+	if sk.Data == nil {
+		return nil, errors.New("secret key has been erased")
 	}
 
 	maxPeriod := uint64(1) << sk.Depth
@@ -278,21 +333,30 @@ func Update(sk *SecretKey) (*SecretKey, error) {
 		)
 	}
 
-	// Create a copy of the key data
+	// Derive the evolved key into a fresh backing array. updateInternal
+	// overwrites the spent leaf and zeroes any used seed within this copy, so
+	// the evolved key holds no material from period sk.Period.
 	newData := make([]byte, len(sk.Data))
 	copy(newData, sk.Data)
 
-	err := updateInternal(sk.Depth, sk.Period, newData)
-	if err != nil {
+	if err := updateInternal(sk.Depth, sk.Period, newData); err != nil {
+		// Don't leak partially-derived secret material on failure.
+		wipe(newData)
 		return nil, err
 	}
 
-	return &SecretKey{
+	evolved := &SecretKey{
 		Depth:     sk.Depth,
 		Period:    newPeriod,
 		Data:      newData,
 		publicKey: sk.publicKey, // Preserve the cached public key (it never changes)
-	}, nil
+	}
+
+	// Forward security: erase the spent predecessor in place so the
+	// pre-evolution key can no longer produce signatures.
+	sk.Zeroize()
+
+	return evolved, nil
 }
 
 // updateInternal recursively updates the secret key
@@ -300,9 +364,7 @@ func updateInternal(depth uint64, period uint64, data []byte) error {
 	if depth == 0 {
 		// At depth 0, zero out the old key for forward security.
 		// This ensures compromising future keys doesn't reveal past signing capability.
-		for i := range kesEd25519KeySize {
-			data[i] = 0
-		}
+		wipe(data[0:kesEd25519KeySize])
 		return nil
 	}
 
@@ -325,9 +387,7 @@ func updateInternal(depth uint64, period uint64, data []byte) error {
 		}
 
 		// Zero out the seed (it's been used)
-		for i := range 32 {
-			data[seedOffset+i] = 0
-		}
+		wipe(data[seedOffset : seedOffset+32])
 
 		return nil
 	} else {
