@@ -83,6 +83,14 @@ func (d *Datum) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (d *Datum) MarshalCBOR() ([]byte, error) {
+	// Prefer the original stored CBOR (set on decode via SetCbor) so that
+	// re-marshaling round-trips exactly, preserving the invariant that
+	// blake2b256(MarshalCBOR()) == Hash(). Falling back to re-encoding via
+	// plutigo is only correct when there is no original encoding to
+	// preserve (e.g. a Datum built directly from Go data).
+	if cborData := d.Cbor(); cborData != nil {
+		return cborData, nil
+	}
 	tmpCbor, err := data.Encode(d.Data)
 	if err != nil {
 		return nil, err
