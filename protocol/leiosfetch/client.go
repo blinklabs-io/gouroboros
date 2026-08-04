@@ -15,6 +15,7 @@
 package leiosfetch
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -52,14 +53,13 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[StateBlock]; ok {
-		entry.Timeout = c.config.Timeout
-		stateMap[StateBlock] = entry
-	}
-	if entry, ok := stateMap[StateBlockTxs]; ok {
-		entry.Timeout = c.config.Timeout
-		stateMap[StateBlockTxs] = entry
-	}
+	// NOTE: StateBlock and StateBlockTxs intentionally do NOT get a
+	// protocol-level timeout. A missing response to a BlockRequest /
+	// BlockTxsRequest must fail only that individual request (bounded by the
+	// caller-supplied context), never tear down the shared multiplexed
+	// connection. The protocol-level timeout fires p.SendError(), which is
+	// fatal to every mini-protocol on the same bearer (chainsync, blockfetch,
+	// etc.), so it must not be wired for these two states.
 	if entry, ok := stateMap[StateVotes]; ok {
 		entry.Timeout = c.config.Timeout
 		stateMap[StateVotes] = entry
@@ -121,27 +121,44 @@ func (c *Client) Stop() error {
 	return err
 }
 
-// BlockRequest fetches the requested EB identified by the specified point
+// BlockRequest fetches the requested EB identified by the specified point.
+//
+// The wait for a response is bounded by the provided context. If the context
+// is cancelled or its deadline is exceeded before a response arrives, the
+// context error is returned. This failure is local to this request: it does
+// NOT emit a protocol error and does NOT tear down the shared multiplexed
+// connection. A response that arrives after the context is done is dropped by
+// the receive path (see handleBlock/handleNoBlock).
 func (c *Client) BlockRequest(
+	ctx context.Context,
 	point pcommon.Point,
 ) (protocol.Message, error) {
 	msg := NewMsgBlockRequest(point)
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}
-	resp, ok := <-c.blockResultChan
-	if !ok {
-		return nil, protocol.ErrProtocolShuttingDown
+	select {
+	case resp, ok := <-c.blockResultChan:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		// The server reported the endorser block as not available
+		if _, ok := resp.(*MsgNoBlock); ok {
+			return nil, ErrBlockNotFound
+		}
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	// The server reported the endorser block as not available
-	if _, ok := resp.(*MsgNoBlock); ok {
-		return nil, ErrBlockNotFound
-	}
-	return resp, nil
 }
 
-// BlockTxsRequest fetches the requested TXs identified by the specified point and TX bitmaps
+// BlockTxsRequest fetches the requested TXs identified by the specified point and TX bitmaps.
+//
+// As with BlockRequest, the wait is bounded by the provided context and a
+// context cancellation/deadline returns the context error without tearing down
+// the shared connection.
 func (c *Client) BlockTxsRequest(
+	ctx context.Context,
 	point pcommon.Point,
 	bitmaps map[uint16]uint64,
 ) (protocol.Message, error) {
@@ -149,15 +166,19 @@ func (c *Client) BlockTxsRequest(
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}
-	resp, ok := <-c.blockTxsResultChan
-	if !ok {
-		return nil, protocol.ErrProtocolShuttingDown
+	select {
+	case resp, ok := <-c.blockTxsResultChan:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		// The server reported the endorser block transactions as not available
+		if _, ok := resp.(*MsgNoBlockTxs); ok {
+			return nil, ErrBlockTxsNotFound
+		}
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	// The server reported the endorser block transactions as not available
-	if _, ok := resp.(*MsgNoBlockTxs); ok {
-		return nil, ErrBlockTxsNotFound
-	}
-	return resp, nil
 }
 
 // VotesRequest fetches the requested votes
@@ -226,8 +247,32 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	return err
 }
 
+// deliverResult delivers a response to a waiting request without blocking the
+// protocol receive loop. If no caller is currently waiting on the channel (for
+// example, because the request was abandoned after its context expired), the
+// response is dropped. The mini-protocol state transition back to StateIdle is
+// driven independently by protocol.handleMessage before this handler runs, so
+// dropping the message here never leaves the mini-protocol wedged.
+func (c *Client) deliverResult(
+	ch chan protocol.Message,
+	msg protocol.Message,
+) {
+	select {
+	case ch <- msg:
+	default:
+		c.Protocol.Logger().
+			Debug("dropping unawaited leios-fetch response",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+				"message_type", msg.Type(),
+			)
+	}
+}
+
 func (c *Client) handleBlock(msg protocol.Message) {
-	c.blockResultChan <- msg
+	c.deliverResult(c.blockResultChan, msg)
 }
 
 func (c *Client) handleNoBlock(msg protocol.Message) {
@@ -238,11 +283,11 @@ func (c *Client) handleNoBlock(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	c.blockResultChan <- msg
+	c.deliverResult(c.blockResultChan, msg)
 }
 
 func (c *Client) handleBlockTxs(msg protocol.Message) {
-	c.blockTxsResultChan <- msg
+	c.deliverResult(c.blockTxsResultChan, msg)
 }
 
 func (c *Client) handleNoBlockTxs(msg protocol.Message) {
@@ -253,7 +298,7 @@ func (c *Client) handleNoBlockTxs(msg protocol.Message) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	c.blockTxsResultChan <- msg
+	c.deliverResult(c.blockTxsResultChan, msg)
 }
 
 func (c *Client) handleVotes(msg protocol.Message) {

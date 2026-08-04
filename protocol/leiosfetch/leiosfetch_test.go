@@ -15,6 +15,8 @@
 package leiosfetch_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -119,6 +121,7 @@ func TestBlockRequestNoBlock(t *testing.T) {
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			resp, err := oConn.LeiosFetch().Client.BlockRequest(
+				context.Background(),
 				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
 			)
 			require.Error(t, err)
@@ -150,12 +153,133 @@ func TestBlockTxsRequestNoBlockTxs(t *testing.T) {
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			resp, err := oConn.LeiosFetch().Client.BlockTxsRequest(
+				context.Background(),
 				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
 				map[uint16]uint64{0: 0xff00000000000000},
 			)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, leiosfetch.ErrBlockTxsNotFound)
 			assert.Nil(t, resp)
+		},
+	)
+}
+
+// TestBlockRequestContextCancelledNonFatal verifies that when a BlockRequest
+// receives no response, the caller-supplied context bounds the wait and the
+// request returns the context error. Critically, this must NOT emit a protocol
+// error (the runTest harness panics on any error delivered to the shared
+// connection ErrorChan), proving that an unanswered leios-fetch request does
+// not tear down the multiplexed connection that other mini-protocols share.
+func TestBlockRequestContextCancelledNonFatal(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		// The server receives the request but never responds.
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRequest,
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				200*time.Millisecond,
+			)
+			defer cancel()
+			resp, err := oConn.LeiosFetch().Client.BlockRequest(
+				ctx,
+				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			)
+			require.Error(t, err)
+			assert.True(
+				t,
+				errors.Is(err, context.DeadlineExceeded),
+				"expected context deadline error, got %v",
+				err,
+			)
+			assert.Nil(t, resp)
+		},
+	)
+}
+
+// TestBlockRequestSubsequentAfterAbandoned verifies that after a BlockRequest
+// is abandoned via its context, a subsequent BlockRequest on the same client
+// still completes normally. The late response to the abandoned request arrives
+// after the caller has given up; it drives the mini-protocol state back to
+// Idle (and is then delivered/dropped without blocking the receive loop), so
+// the client remains usable for further requests.
+func TestBlockRequestSubsequentAfterAbandoned(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		// First request: the server delays past the caller's context
+		// deadline before finally sending a (now unawaited) response.
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRequest,
+		},
+		ouroboros_mock.ConversationEntrySleep{
+			Duration: 300 * time.Millisecond,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgBlock([]byte{0x82, 0x01, 0x02}),
+			},
+		},
+		// Second request: served normally.
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgBlock([]byte{0x82, 0x03, 0x04}),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			client := oConn.LeiosFetch().Client
+			// First request: abandoned when its short context expires
+			// before the (delayed) server response arrives.
+			ctx1, cancel1 := context.WithTimeout(
+				context.Background(),
+				100*time.Millisecond,
+			)
+			defer cancel1()
+			resp1, err1 := client.BlockRequest(
+				ctx1,
+				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			)
+			require.Error(t, err1)
+			assert.True(
+				t,
+				errors.Is(err1, context.DeadlineExceeded),
+				"expected context deadline error, got %v",
+				err1,
+			)
+			assert.Nil(t, resp1)
+
+			// Second request on the same client must still complete.
+			ctx2, cancel2 := context.WithTimeout(
+				context.Background(),
+				2*time.Second,
+			)
+			defer cancel2()
+			resp2, err2 := client.BlockRequest(
+				ctx2,
+				pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+			)
+			require.NoError(t, err2)
+			require.NotNil(t, resp2)
+			assert.IsType(t, &leiosfetch.MsgBlock{}, resp2)
 		},
 	)
 }
