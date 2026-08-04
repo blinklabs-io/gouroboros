@@ -1848,4 +1848,44 @@ func TestPopulateFromBytesAllowsKnownMalformedMainnetAddresses(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected trailing byte")
 	})
+
+	t.Run(
+		"whitelisted trailer is rejected on testnet even though it is allowed on mainnet",
+		func(t *testing.T) {
+			payload := make([]byte, AddressHashSize)
+			// {0} and {44} are both in knownMalformedAddressTrailers.
+			for _, trailer := range [][]byte{{0}, {44}} {
+				mainnetHeader := byte(
+					AddressTypeKeyNone<<4,
+				) | byte(
+					AddressNetworkMainnet,
+				)
+				mainnetAddrBytes := append([]byte{mainnetHeader}, payload...)
+				mainnetAddrBytes = append(mainnetAddrBytes, trailer...)
+				_, err := NewAddressFromBytes(mainnetAddrBytes)
+				require.NoError(
+					t,
+					err,
+					"expected whitelisted trailer %v to be allowed on mainnet",
+					trailer,
+				)
+
+				testnetHeader := byte(
+					AddressTypeKeyNone<<4,
+				) | byte(
+					AddressNetworkTestnet,
+				)
+				testnetAddrBytes := append([]byte{testnetHeader}, payload...)
+				testnetAddrBytes = append(testnetAddrBytes, trailer...)
+				_, err = NewAddressFromBytes(testnetAddrBytes)
+				require.Error(
+					t,
+					err,
+					"expected whitelisted trailer %v to be rejected on testnet",
+					trailer,
+				)
+				assert.Contains(t, err.Error(), "unexpected trailing byte")
+			}
+		},
+	)
 }

@@ -429,9 +429,13 @@ func (a *Address) populateFromBytes(data []byte) error {
 	// exact trailing byte sequences known to have appeared on mainnet
 	// (mirroring the TRAILING_WHITELIST approach taken by
 	// cardano-multiplatform-lib) to allow them to keep decoding, while
-	// rejecting any other unexpected trailing data outright.
+	// rejecting any other unexpected trailing data outright. The known
+	// malformed addresses are all mainnet addresses, so we only consult
+	// the whitelist for mainnet; a testnet address is never exempted, even
+	// if its trailing bytes happen to collide with a whitelisted sequence.
 	if len(payload) > 0 {
-		if !isKnownMalformedAddressTrailer(payload) {
+		if a.networkId != AddressNetworkMainnet ||
+			!isKnownMalformedAddressTrailer(payload) {
 			return fmt.Errorf(
 				"invalid address data: %d unexpected trailing byte(s)",
 				len(payload),
