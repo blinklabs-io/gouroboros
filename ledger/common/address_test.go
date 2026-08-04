@@ -478,7 +478,13 @@ func TestBech32Roundtrip_MainnetExamples(t *testing.T) {
 }
 
 func TestBech32Roundtrip_TestnetExample(t *testing.T) {
-	s := "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrsxvt6scmqvvrw720"
+	// NOTE: this was previously a malformed pointer address (a zero
+	// payment key hash followed by the CIP-19 example pointer fields
+	// duplicated twice, leaving 6 trailing garbage bytes after a
+	// well-formed pointer encoding). That is no longer accepted (see
+	// gouroboros#1931), so this uses the corrected address with a
+	// single, well-formed pointer encoding.
+	s := "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrz9xs7v"
 	a, err := NewAddress(s)
 	assert.Nil(t, err)
 	assert.Equal(t, s, a.String())
@@ -756,8 +762,15 @@ func TestAddressBech32_CIP0005(t *testing.T) {
 			addressType: 0, // payment key hash
 		},
 		{
+			// NOTE: this fixture previously encoded a zero payment key
+			// hash followed by the CIP-19 example pointer fields
+			// (slot=2498243, txIndex=27, certIndex=3) duplicated twice,
+			// which produced 6 trailing garbage bytes after a
+			// well-formed pointer encoding. That is no longer accepted
+			// (see gouroboros#1931), so this uses the corrected address
+			// with a single, well-formed pointer encoding.
 			name:        "Testnet payment address",
-			address:     "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrsxvt6scmqvvrw720",
+			address:     "addr_test1gqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqypnz75xxcrz9xs7v",
 			expectedHRP: "addr_test",
 			networkId:   0, // testnet
 			addressType: 4, // key pointer (this address is actually a pointer address)
@@ -1666,4 +1679,213 @@ func TestCIP0019_ByronAddressAttributes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPopulateFromBytesRejectsInvalidNetworkId covers gouroboros#1931 case 1:
+// NewAddressFromBytes must reject network ids other than testnet (0) and
+// mainnet (1), matching NewAddressFromParts.
+func TestPopulateFromBytesRejectsInvalidNetworkId(t *testing.T) {
+	payload := make([]byte, 2*AddressHashSize)
+	for _, networkId := range []uint8{2, 6, 9, 15} {
+		t.Run(fmt.Sprintf("network id %d", networkId), func(t *testing.T) {
+			header := byte(AddressTypeKeyKey<<4) | networkId
+			addrBytes := append([]byte{header}, payload...)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid network ID")
+		})
+	}
+	// Valid network ids must still be accepted
+	for _, networkId := range []uint8{
+		AddressNetworkTestnet,
+		AddressNetworkMainnet,
+	} {
+		t.Run(fmt.Sprintf("valid network id %d", networkId), func(t *testing.T) {
+			header := byte(AddressTypeKeyKey<<4) | networkId
+			addrBytes := append([]byte{header}, payload...)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestPopulateFromBytesRejectsUndefinedAddressTypes covers gouroboros#1931
+// case 2: undefined address types must be rejected rather than routed into
+// extraData.
+func TestPopulateFromBytesRejectsUndefinedAddressTypes(t *testing.T) {
+	payload := make([]byte, 2*AddressHashSize)
+	for _, addrType := range []uint8{9, 11, 13} {
+		t.Run(fmt.Sprintf("type %d", addrType), func(t *testing.T) {
+			header := byte(addrType<<4) | byte(AddressNetworkMainnet)
+			addrBytes := append([]byte{header}, payload...)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid address type")
+		})
+	}
+}
+
+// TestPopulateFromBytesRejectsTrailingBytes covers gouroboros#1931 case 3:
+// a payload that is longer than the address type requires must be rejected,
+// rather than silently stashed in extraData.
+func TestPopulateFromBytesRejectsTrailingBytes(t *testing.T) {
+	t.Run(
+		"type 6 (KeyNone) with exact 28-byte payload is valid",
+		func(t *testing.T) {
+			header := byte(AddressTypeKeyNone<<4) | byte(AddressNetworkMainnet)
+			payload := make([]byte, AddressHashSize)
+			addrBytes := append([]byte{header}, payload...)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"type 6 (KeyNone) with 29-byte payload is rejected",
+		func(t *testing.T) {
+			header := byte(AddressTypeKeyNone<<4) | byte(AddressNetworkMainnet)
+			// The trailing byte is 0xFF (not 0x00) since a single trailing
+			// 0x00 byte matches a known, whitelisted historical mainnet
+			// address (see
+			// TestPopulateFromBytesAllowsKnownMalformedMainnetAddresses)
+			// and must remain accepted; this checks that an *arbitrary*
+			// trailing byte is rejected.
+			payload := append(make([]byte, AddressHashSize), 0xFF)
+			addrBytes := append([]byte{header}, payload...)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unexpected trailing byte")
+		},
+	)
+
+	t.Run(
+		"type 0 (KeyKey) with 57-byte payload is rejected",
+		func(t *testing.T) {
+			header := byte(AddressTypeKeyKey<<4) | byte(AddressNetworkMainnet)
+			payload := append(make([]byte, 2*AddressHashSize), 0xFF)
+			addrBytes := append([]byte{header}, payload...)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unexpected trailing byte")
+		},
+	)
+
+	t.Run(
+		"type 4 (KeyPointer) with trailing byte after pointer fields is rejected",
+		func(t *testing.T) {
+			header := byte(
+				AddressTypeKeyPointer<<4,
+			) | byte(
+				AddressNetworkMainnet,
+			)
+			paymentHash := make([]byte, AddressHashSize)
+			// Well-formed minimal pointer encoding (slot=0, txIndex=0,
+			// certIndex=0) followed by one unexpected trailing byte.
+			addrBytes := append([]byte{header}, paymentHash...)
+			addrBytes = append(addrBytes, 0x00, 0x00, 0x00, 0xFF)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unexpected trailing byte")
+		},
+	)
+
+	t.Run(
+		"type 4 (KeyPointer) with no trailing bytes is valid",
+		func(t *testing.T) {
+			header := byte(
+				AddressTypeKeyPointer<<4,
+			) | byte(
+				AddressNetworkMainnet,
+			)
+			paymentHash := make([]byte, AddressHashSize)
+			addrBytes := append([]byte{header}, paymentHash...)
+			addrBytes = append(addrBytes, 0x00, 0x00, 0x00)
+			_, err := NewAddressFromBytes(addrBytes)
+			require.NoError(t, err)
+		},
+	)
+}
+
+// TestPopulateFromBytesAllowsKnownMalformedMainnetAddresses ensures the
+// small, fixed set of addresses known to exist on Cardano mainnet with
+// extra trailing bytes (see
+// https://github.com/IntersectMBO/cardano-ledger/issues/2729 and
+// https://github.com/blinklabs-io/gouroboros/issues/519) continue to
+// decode, even though arbitrary trailing bytes are now rejected.
+func TestPopulateFromBytesAllowsKnownMalformedMainnetAddresses(t *testing.T) {
+	tests := []struct {
+		name       string
+		addressHex string
+	}{
+		{
+			name:       "type 0 (KeyKey) with 21 known trailing bytes",
+			addressHex: "015bad085057ac10ecc7060f7ac41edd6f63068d8963ef7d86ca58669e5ecf2d283418a60be5a848a2380eb721000da1e0bbf39733134beca4cb57afb0b35fc89c63061c9914e055001a518c7516",
+		},
+		{
+			name:       "type 6 (KeyNone) with 1 known trailing byte",
+			addressHex: "61549b5a20e449a3e394b762705f64b9a26b99013003a2bfdba239967c00",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addrBytes, err := hex.DecodeString(tt.addressHex)
+			require.NoError(t, err)
+			addr, err := NewAddressFromBytes(addrBytes)
+			require.NoError(t, err)
+			roundTrip, err := addr.Bytes()
+			require.NoError(t, err)
+			assert.Equal(t, addrBytes, roundTrip)
+		})
+	}
+
+	t.Run("unknown trailing bytes are still rejected", func(t *testing.T) {
+		header := byte(AddressTypeKeyNone<<4) | byte(AddressNetworkMainnet)
+		payload := make([]byte, AddressHashSize)
+		// Trailing byte value not in the known whitelist.
+		addrBytes := append([]byte{header}, payload...)
+		addrBytes = append(addrBytes, 0x2A)
+		_, err := NewAddressFromBytes(addrBytes)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected trailing byte")
+	})
+
+	t.Run(
+		"whitelisted trailer is rejected on testnet even though it is allowed on mainnet",
+		func(t *testing.T) {
+			payload := make([]byte, AddressHashSize)
+			// {0} and {44} are both in knownMalformedAddressTrailers.
+			for _, trailer := range [][]byte{{0}, {44}} {
+				mainnetHeader := byte(
+					AddressTypeKeyNone<<4,
+				) | byte(
+					AddressNetworkMainnet,
+				)
+				mainnetAddrBytes := append([]byte{mainnetHeader}, payload...)
+				mainnetAddrBytes = append(mainnetAddrBytes, trailer...)
+				_, err := NewAddressFromBytes(mainnetAddrBytes)
+				require.NoError(
+					t,
+					err,
+					"expected whitelisted trailer %v to be allowed on mainnet",
+					trailer,
+				)
+
+				testnetHeader := byte(
+					AddressTypeKeyNone<<4,
+				) | byte(
+					AddressNetworkTestnet,
+				)
+				testnetAddrBytes := append([]byte{testnetHeader}, payload...)
+				testnetAddrBytes = append(testnetAddrBytes, trailer...)
+				_, err = NewAddressFromBytes(testnetAddrBytes)
+				require.Error(
+					t,
+					err,
+					"expected whitelisted trailer %v to be rejected on testnet",
+					trailer,
+				)
+				assert.Contains(t, err.Error(), "unexpected trailing byte")
+			}
+		},
+	)
 }
