@@ -308,6 +308,20 @@ func (b *BlockBuilder) BuildHeader(
 				err,
 			)
 		}
+		if len(nonceVrfProof) != vrf.ProofSize {
+			return nil, leaderResult, fmt.Errorf(
+				"nonce VRF proof: expected %d bytes, got %d",
+				vrf.ProofSize,
+				len(nonceVrfProof),
+			)
+		}
+		if len(nonceVrfOutput) != vrf.OutputSize {
+			return nil, leaderResult, fmt.Errorf(
+				"nonce VRF output: expected %d bytes, got %d",
+				vrf.OutputSize,
+				len(nonceVrfOutput),
+			)
+		}
 	}
 
 	// Step 2: Construct header body

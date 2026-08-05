@@ -963,6 +963,18 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 	vrfProof := leaderResult.Proof
 	vrfOutput := leaderResult.Output
 
+	// The nonce VRF certificate (bheaderEta, seedEta) is independent of
+	// the leader VRF (seedL) checked above and must also be present and
+	// valid for a full TPraos header to validate.
+	nonceVrfInput, err := vrf.MkSeedTPraos(
+		int64(slot),
+		epochNonce,
+		vrf.SeedEta(),
+	)
+	require.NoError(t, err)
+	nonceVrfProof, nonceVrfOutput, err := vrfSigner.Prove(nonceVrfInput)
+	require.NoError(t, err)
+
 	// slot is well within KES period 0 given the default network config's
 	// SlotsPerKESPeriod, so sign at period 0 to match OpCertKesPeriod.
 	message := []byte("test header body for tpraos full validation!!!")
@@ -987,6 +999,8 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 		VrfKey:               vrfSigner.PublicKey(),
 		VrfProof:             vrfProof,
 		VrfOutput:            vrfOutput,
+		NonceVrfProof:        nonceVrfProof,
+		NonceVrfOutput:       nonceVrfOutput,
 		KesSignature:         kesSig,
 		HeaderBodyCbor:       message,
 		OpCertHotVkey:        kesPk,
