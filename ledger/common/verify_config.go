@@ -111,11 +111,25 @@ type VerifyConfig struct {
 	// SkipStakePoolValidation disables stake pool registration validation in VerifyBlock().
 	// When false (default), LedgerState must be set.
 	SkipStakePoolValidation bool
+	// SkipBlockLimitsValidation disables block-wide execution-unit and
+	// serialized-size limit enforcement in VerifyBlock() (the BBODY
+	// block-level checks: sum of transaction ExUnits against
+	// ppMaxBlockExUnits, and block body/header size against
+	// ppMaxBlockBodySize/ppMaxBlockHeaderSize). Unlike the other Skip*
+	// flags, this check does not require LedgerState and runs independently
+	// of SkipTransactionValidation: it only needs ProtocolParameters (for
+	// the limits) and, for the size checks, the block's raw CBOR. It is a
+	// no-op when ProtocolParameters is nil or the block has neither
+	// transactions nor raw CBOR available.
+	SkipBlockLimitsValidation bool
 	// LedgerState provides the current ledger state for transaction validation.
 	// Required if SkipTransactionValidation or SkipStakePoolValidation is false.
 	LedgerState LedgerState
-	// ProtocolParameters provides the current protocol parameters for transaction validation.
-	// Required if SkipTransactionValidation is false.
+	// ProtocolParameters provides the current protocol parameters for
+	// transaction validation and block-limits validation.
+	// Required if SkipTransactionValidation is false. When set and
+	// SkipBlockLimitsValidation is false, also enables block-wide
+	// execution-unit and size validation (see SkipBlockLimitsValidation).
 	ProtocolParameters ProtocolParameters
 }
 
@@ -174,4 +188,49 @@ func ValidateBlockBodyHash(
 		)
 	}
 	return nil
+}
+
+// BlockBodySizeFromCbor returns the serialized size, in bytes, of a block's
+// body from the block's original raw CBOR: the sum of the raw CBOR lengths
+// of every top-level array element after the header (element 0).
+//
+// This matches cardano-ledger's default blockBodySize, which for
+// pre-Dijkstra blocks is the concatenation of transaction_bodies,
+// transaction_witness_sets, auxiliary_data_set, and (Alonzo+)
+// invalid_transactions, each encoded as normal top-level CBOR values with no
+// extra wrapping array around the group; and for Dijkstra (a 2-element
+// [header, block_body] block) is simply the single block_body element.
+// Summing raw[1:] covers both shapes without era-specific branching.
+//
+// NOTE: this re-decodes the entire block CBOR into []cbor.RawMessage just to
+// sum the lengths of the top-level elements, which is redundant with the
+// decode VerifyBlock's caller has typically already done (or will do) to
+// obtain the block/transactions in the first place. On the sync-pipeline hot
+// path this is an extra full re-tokenization of the block. A proper fix
+// would thread already-decoded top-level element boundaries (or their
+// lengths) through from the call site instead of handing this function raw
+// bytes, but that requires a larger refactor of how VerifyBlock threads CBOR
+// through the pipeline. As a low-risk mitigation, the call in VerifyBlock
+// only invokes this when MaxBlockBodySize > 0 (i.e. the limit is actually
+// enabled), so the redundant decode is skipped entirely when the check is a
+// no-op. Tracked as a known follow-up rather than addressed here.
+func BlockBodySizeFromCbor(rawCbor []byte) (uint64, error) {
+	var raw []cbor.RawMessage
+	if _, err := cbor.Decode(rawCbor, &raw); err != nil {
+		return 0, fmt.Errorf(
+			"failed to decode block CBOR for body size calculation: %w",
+			err,
+		)
+	}
+	if len(raw) < 2 {
+		return 0, fmt.Errorf(
+			"invalid block CBOR structure for body size calculation: expected at least 2 elements, got %d",
+			len(raw),
+		)
+	}
+	var size uint64
+	for _, item := range raw[1:] {
+		size += uint64(len(item))
+	}
+	return size, nil
 }

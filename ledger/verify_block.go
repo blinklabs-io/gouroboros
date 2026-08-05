@@ -308,6 +308,137 @@ func extractHeaderFields(
 	}
 }
 
+// blockLevelLimits extracts the block-wide maximum body size, maximum
+// header size, and (for Alonzo+) maximum execution-unit budget from the
+// era-specific protocol parameters. There is no shared getter across eras
+// for these fields (each era owns its own concrete ProtocolParameters
+// struct), so this mirrors the same type-assertion pattern the era's own
+// UtxoValidateMaxTxSizeUtxo/UtxoValidateExUnitsTooBigUtxo per-transaction
+// rules use. allegra.AllegraProtocolParameters is a type alias for
+// shelley.ShelleyProtocolParameters, so it is covered by the Shelley case.
+//
+// ProtocolParameters is a public single-method interface, so callers may
+// pass an implementation that isn't one of the era's concrete pparams
+// structs (e.g. a mock or custom type). This fails closed: an unrecognized
+// type returns an error rather than silently disabling block-wide limit
+// enforcement, matching the per-era per-transaction rules' own
+// "pparams are not the expected type" convention. Callers that legitimately
+// don't want block-limit enforcement (e.g. because they pass a mock
+// ProtocolParameters unrelated to block limits) must opt out explicitly via
+// VerifyConfig.SkipBlockLimitsValidation rather than relying on an
+// unrecognized type to silently disable the check.
+func blockLevelLimits(
+	pp common.ProtocolParameters,
+) (
+	maxBodySize, maxHeaderSize uint64,
+	maxExUnits common.ExUnits,
+	hasMaxExUnits bool,
+	err error,
+) {
+	switch p := pp.(type) {
+	case *shelley.ShelleyProtocolParameters:
+		return uint64(p.MaxBlockBodySize),
+			uint64(p.MaxBlockHeaderSize),
+			common.ExUnits{},
+			false,
+			nil
+	case *mary.MaryProtocolParameters:
+		return uint64(p.MaxBlockBodySize),
+			uint64(p.MaxBlockHeaderSize),
+			common.ExUnits{},
+			false,
+			nil
+	case *alonzo.AlonzoProtocolParameters:
+		return uint64(p.MaxBlockBodySize),
+			uint64(p.MaxBlockHeaderSize),
+			p.MaxBlockExUnits,
+			true,
+			nil
+	case *babbage.BabbageProtocolParameters:
+		return uint64(p.MaxBlockBodySize),
+			uint64(p.MaxBlockHeaderSize),
+			p.MaxBlockExUnits,
+			true,
+			nil
+	case *conway.ConwayProtocolParameters:
+		return uint64(p.MaxBlockBodySize),
+			uint64(p.MaxBlockHeaderSize),
+			p.MaxBlockExUnits,
+			true,
+			nil
+	case *dijkstra.DijkstraProtocolParameters:
+		return uint64(p.MaxBlockBodySize),
+			uint64(p.MaxBlockHeaderSize),
+			p.MaxBlockExUnits,
+			true,
+			nil
+	default:
+		return 0, 0, common.ExUnits{}, false, fmt.Errorf(
+			"unsupported protocol parameters type %T for block-limit validation",
+			pp,
+		)
+	}
+}
+
+// sumBlockExUnits sums the ExUnits (memory, steps) across every redeemer in
+// every transaction in the block. This reuses the same
+// TransactionWitnessRedeemers mechanism that each era's per-transaction
+// UtxoValidateExUnitsTooBigUtxo rule sums over, so the block-wide total is
+// computed from the same source of truth as the per-transaction check.
+func sumBlockExUnits(txs []common.Transaction) (common.ExUnits, error) {
+	var totalMemory, totalSteps int64
+	for _, tx := range txs {
+		witnesses := tx.Witnesses()
+		if witnesses == nil {
+			continue
+		}
+		redeemers := witnesses.Redeemers()
+		if redeemers == nil {
+			continue
+		}
+		for _, value := range redeemers.Iter() {
+			// Execution units are non-negative by protocol definition even
+			// though ExUnits stores them as signed int64. Reject a negative
+			// Memory or Steps before it is added to the running total: a
+			// malformed redeemer with a negative value would otherwise
+			// reduce the block-wide sum and could mask a budget that
+			// actually exceeds ppMaxBlockExUnits.
+			if value.ExUnits.Memory < 0 {
+				return common.ExUnits{}, fmt.Errorf(
+					"negative execution-unit memory in redeemer: %d",
+					value.ExUnits.Memory,
+				)
+			}
+			if value.ExUnits.Steps < 0 {
+				return common.ExUnits{}, fmt.Errorf(
+					"negative execution-unit steps in redeemer: %d",
+					value.ExUnits.Steps,
+				)
+			}
+			var ok bool
+			totalMemory, ok = common.AddInt64Checked(
+				totalMemory,
+				value.ExUnits.Memory,
+			)
+			if !ok {
+				return common.ExUnits{}, errors.New(
+					"block total execution-unit memory overflow",
+				)
+			}
+			totalSteps, ok = common.AddInt64Checked(
+				totalSteps,
+				value.ExUnits.Steps,
+			)
+			if !ok {
+				return common.ExUnits{}, errors.New(
+					"block total execution-unit steps overflow",
+				)
+			}
+		}
+	}
+	return common.ExUnits{Memory: totalMemory, Steps: totalSteps}, nil
+}
+
 // VerifyBlock performs block-local structural, cryptographic, and ledger
 // validation. It checks data available from the block and supplied verification
 // config, including body hash, VRF proof bytes, KES signature, transactions,
@@ -602,6 +733,154 @@ func VerifyBlock(
 					"VerifyBlock: %w",
 					err,
 				)
+			}
+		}
+	}
+
+	// Verify block-wide execution-unit budget (BBODY: sum of every
+	// transaction's ExUnits must not exceed ppMaxBlockExUnits) and the block
+	// body/header sizes against ppMaxBlockBodySize/ppMaxBlockHeaderSize,
+	// using the exact serialized CBOR representation (can be skipped via
+	// config).
+	//
+	// This is intentionally independent of SkipTransactionValidation: it is
+	// a block-local structural/resource check, not a per-transaction UTxO
+	// rule, so it needs neither LedgerState nor a full per-transaction pass.
+	// It runs before the per-transaction validation loop below so that an
+	// oversized or over-budget block is rejected cheaply, without paying
+	// the cost of fully validating (and potentially executing Plutus
+	// scripts for) every transaction in a block that is doomed regardless.
+	// It only runs when there is something to check (at least one
+	// transaction, for the ExUnits budget, or the block's raw CBOR is
+	// available, for the size checks) and ProtocolParameters is set;
+	// blockLevelLimits type-asserts config.ProtocolParameters to the era's
+	// concrete pparams struct (there is no shared getter across eras, and
+	// no other way to confirm it matches the block's actual era), mirroring
+	// the same assumption the per-era rules make. An unrecognized
+	// ProtocolParameters implementation is a hard configuration error (see
+	// blockLevelLimits); callers who don't want block-limit enforcement must
+	// opt out explicitly via config.SkipBlockLimitsValidation.
+	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation &&
+		config.ProtocolParameters != nil {
+		txs := block.Transactions()
+		rawBlockCbor := block.Cbor()
+		headerCbor := header.Cbor()
+		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
+			maxBodySize, maxHeaderSize, maxExUnits, hasMaxExUnits, limitsErr := blockLevelLimits(
+				config.ProtocolParameters,
+			)
+			if limitsErr != nil {
+				return false, "", 0, 0, common.NewValidationError(
+					common.ValidationErrorTypeConfiguration,
+					"unable to determine block-wide limits from protocol parameters",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+						"era":          era,
+					},
+					limitsErr,
+				)
+			}
+			// A zero-value MaxBlockExUnits (both Memory and Steps unset)
+			// is treated as "no limit" and skipped, consistent with the
+			// maxBodySize > 0 / maxHeaderSize > 0 guards below.
+			hasNonZeroMaxExUnits := maxExUnits.Memory > 0 ||
+				maxExUnits.Steps > 0
+			if hasMaxExUnits && hasNonZeroMaxExUnits && len(txs) > 0 {
+				totalExUnits, sumErr := sumBlockExUnits(txs)
+				if sumErr != nil {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeTransaction,
+						"failed to sum block execution units",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						sumErr,
+					)
+				}
+				if totalExUnits.Memory > maxExUnits.Memory ||
+					totalExUnits.Steps > maxExUnits.Steps {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"block total execution units exceed protocol maximum",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+							"total_memory": totalExUnits.Memory,
+							"total_steps":  totalExUnits.Steps,
+							"max_memory":   maxExUnits.Memory,
+							"max_steps":    maxExUnits.Steps,
+						},
+						common.BlockExUnitsTooBigError{
+							TotalExUnits:    totalExUnits,
+							MaxBlockExUnits: maxExUnits,
+						},
+					)
+				}
+			}
+			// headerSize is derived from the header's own preserved CBOR
+			// bytes, which is independent of whether the full block's raw
+			// CBOR (rawBlockCbor) is available, so this check must not be
+			// nested inside the rawBlockCbor guard below.
+			if len(headerCbor) > 0 && maxHeaderSize > 0 {
+				headerSize := uint64(len(headerCbor))
+				if headerSize > maxHeaderSize {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"block header size exceeds protocol maximum",
+						map[string]any{
+							"block_slot":      slot,
+							"block_number":    blockNo,
+							"era":             era,
+							"header_size":     headerSize,
+							"max_header_size": maxHeaderSize,
+						},
+						common.BlockHeaderSizeTooBigError{
+							HeaderSize:         headerSize,
+							MaxBlockHeaderSize: maxHeaderSize,
+						},
+					)
+				}
+			}
+			// The body-size calculation requires the full raw block CBOR
+			// (it sums the lengths of the top-level elements after the
+			// header). It is gated on maxBodySize > 0 ("no limit") here,
+			// not just at the comparison below, so it is never wastefully
+			// computed when the limit is disabled.
+			if len(rawBlockCbor) > 0 && maxBodySize > 0 {
+				bodySize, sizeErr := common.BlockBodySizeFromCbor(rawBlockCbor)
+				if sizeErr != nil {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"failed to calculate block body size",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						sizeErr,
+					)
+				}
+				if bodySize > maxBodySize {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"block body size exceeds protocol maximum",
+						map[string]any{
+							"block_slot":    slot,
+							"block_number":  blockNo,
+							"era":           era,
+							"body_size":     bodySize,
+							"max_body_size": maxBodySize,
+						},
+						common.BlockBodySizeTooBigError{
+							BlockBodySize:    bodySize,
+							MaxBlockBodySize: maxBodySize,
+						},
+					)
+				}
 			}
 		}
 	}

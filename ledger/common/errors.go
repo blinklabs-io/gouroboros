@@ -191,7 +191,9 @@ func (e RefScriptSizePerTxTooLargeError) Error() string {
 	)
 }
 
-var ErrRefScriptSizePerTxTooLarge = errors.New("reference-script size per transaction too large")
+var ErrRefScriptSizePerTxTooLarge = errors.New(
+	"reference-script size per transaction too large",
+)
 
 func (RefScriptSizePerTxTooLargeError) Is(target error) bool {
 	return target == ErrRefScriptSizePerTxTooLarge
@@ -211,7 +213,9 @@ func (e RefScriptSizePerBlockTooLargeError) Error() string {
 	)
 }
 
-var ErrRefScriptSizePerBlockTooLarge = errors.New("reference-script size per block too large")
+var ErrRefScriptSizePerBlockTooLarge = errors.New(
+	"reference-script size per block too large",
+)
 
 func (RefScriptSizePerBlockTooLargeError) Is(target error) bool {
 	return target == ErrRefScriptSizePerBlockTooLarge
@@ -233,4 +237,75 @@ func (e ExtraneousRedeemerError) Error() string {
 		e.RedeemerKey.Tag,
 		e.RedeemerKey.Index,
 	)
+}
+
+// BlockExUnitsTooBigError indicates the sum of transaction execution units
+// across an entire block exceeds the protocol's maximum block execution-unit
+// budget (ppMaxBlockExUnits). This is a block-wide (BBODY) check in addition
+// to each transaction's own per-transaction ExUnits limit.
+type BlockExUnitsTooBigError struct {
+	TotalExUnits    ExUnits
+	MaxBlockExUnits ExUnits
+}
+
+func (e BlockExUnitsTooBigError) Error() string {
+	return fmt.Sprintf(
+		"block ExUnits too big: total %d/%d steps/memory, maximum %d/%d steps/memory",
+		e.TotalExUnits.Steps,
+		e.TotalExUnits.Memory,
+		e.MaxBlockExUnits.Steps,
+		e.MaxBlockExUnits.Memory,
+	)
+}
+
+// Sentinel error for block ExUnits too big so callers can use errors.Is
+var ErrBlockExUnitsTooBig = errors.New("block ExUnits too big")
+
+func (BlockExUnitsTooBigError) Is(target error) bool {
+	return target == ErrBlockExUnitsTooBig
+}
+
+// BlockBodySizeTooBigError indicates a block's serialized body size (the
+// exact CBOR bytes of the block minus its header) exceeds the protocol's
+// maximum block body size (ppMaxBlockBodySize).
+type BlockBodySizeTooBigError struct {
+	BlockBodySize    uint64
+	MaxBlockBodySize uint64
+}
+
+func (e BlockBodySizeTooBigError) Error() string {
+	return fmt.Sprintf(
+		"block body size too big: size %d, max %d",
+		e.BlockBodySize,
+		e.MaxBlockBodySize,
+	)
+}
+
+// Sentinel error for block body size too big so callers can use errors.Is
+var ErrBlockBodySizeTooBig = errors.New("block body size too big")
+
+func (BlockBodySizeTooBigError) Is(target error) bool {
+	return target == ErrBlockBodySizeTooBig
+}
+
+// BlockHeaderSizeTooBigError indicates a block header's serialized size
+// exceeds the protocol's maximum block header size (ppMaxBlockHeaderSize).
+type BlockHeaderSizeTooBigError struct {
+	HeaderSize         uint64
+	MaxBlockHeaderSize uint64
+}
+
+func (e BlockHeaderSizeTooBigError) Error() string {
+	return fmt.Sprintf(
+		"block header size too big: size %d, max %d",
+		e.HeaderSize,
+		e.MaxBlockHeaderSize,
+	)
+}
+
+// Sentinel error for block header size too big so callers can use errors.Is
+var ErrBlockHeaderSizeTooBig = errors.New("block header size too big")
+
+func (BlockHeaderSizeTooBigError) Is(target error) bool {
+	return target == ErrBlockHeaderSizeTooBig
 }

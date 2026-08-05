@@ -2,11 +2,11 @@
 
 Companion to `AGENTS.md`; read that first. This file: Claude-specific facts and workflow rules.
 
-## Conformance snapshot (2026-07-13)
+## Conformance snapshot (2026-08-05)
 
 | Metric | Value |
 |--------|-------|
-| Test functions | 3461 (100% passing) |
+| Test functions | 3468 (100% passing) |
 | Ledger rule vectors | 315/315 (via Amaru) |
 | VRF | 29 vectors + 15 unit tests |
 | KES | 14 (input-output-hk/kes) |
