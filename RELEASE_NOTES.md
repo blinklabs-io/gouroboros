@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release improves address validation, CBOR round-trip behavior, consensus handling, request timeout handling, and block safety limits.
+This release improves address validation, CBOR round-trip behavior, TPraos-aware consensus handling, request timeout handling, and block safety limits.
 
 ### Bug Fixes
 
@@ -19,7 +19,7 @@ This release improves address validation, CBOR round-trip behavior, consensus ha
 
 * Improved CBOR marshaling so `Datum` and `SetType` keep original encoded bytes when they are available, preserving byte-exact round trips and hash consistency.
 
-* Strengthened address payload decoding so unexpected trailing bytes now fail validation, while a small compatibility allowlist preserves a few historical mainnet trailers for compatibility.
+* Strengthened address payload decoding so unexpected trailing bytes now fail validation, while a small allowlist preserves a few historical mainnet trailers to keep older data working.
 
 * Hardened block requests so `leiosfetch` honors the caller context and treats timeouts as local failures without tearing down the shared connection.
 
