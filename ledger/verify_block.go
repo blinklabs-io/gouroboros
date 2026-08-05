@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -370,7 +371,15 @@ func blockLevelLimits(
 		// as "no limits configured" rather than failing the whole block.
 		// SkipBlockLimitsValidation remains the explicit way to opt out;
 		// this is the implicit fallback for types that simply don't carry
-		// block-limit fields.
+		// block-limit fields. Surface this with a warning (matching the
+		// slog.Warn convention already used in
+		// ledger/common/pparams.go:ConvertToUtxorpcCardanoCostModels) so an
+		// unexpected pparams type isn't a fully silent no-op, without
+		// changing the fail-open behavior itself.
+		slog.Warn(
+			"unrecognized ProtocolParameters implementation: block-wide size and ExUnits limits are not enforced",
+			"protocol_parameters_type", fmt.Sprintf("%T", pp),
+		)
 		return 0, 0, common.ExUnits{}, false
 	}
 }

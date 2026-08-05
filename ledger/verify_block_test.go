@@ -1,8 +1,10 @@
 package ledger
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"testing"
@@ -900,6 +902,16 @@ func TestBlockLevelLimits(t *testing.T) {
 			// of the era's concrete pparams structs (e.g. a mock). This must
 			// not fail the whole block; it is treated the same as "no limits
 			// configured" rather than a hard error.
+			// blockLevelLimits must still surface the unrecognized type via
+			// a warning log (matching the slog.Warn convention already used
+			// in ledger/common/pparams.go), even though it fails open.
+			var logBuf bytes.Buffer
+			prevLogger := slog.Default()
+			slog.SetDefault(
+				slog.New(slog.NewTextHandler(&logBuf, nil)),
+			)
+			defer slog.SetDefault(prevLogger)
+
 			pp := &mockledger.MockProtocolParamsRules{}
 			bodySize, headerSize, exUnits, hasExUnits := blockLevelLimits(
 				pp,
@@ -908,6 +920,12 @@ func TestBlockLevelLimits(t *testing.T) {
 			assert.Equal(t, uint64(0), headerSize)
 			assert.False(t, hasExUnits)
 			assert.Equal(t, common.ExUnits{}, exUnits)
+			assert.Contains(t, logBuf.String(), "level=WARN")
+			assert.Contains(
+				t,
+				logBuf.String(),
+				"unrecognized ProtocolParameters implementation",
+			)
 		},
 	)
 }
