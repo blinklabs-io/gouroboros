@@ -115,14 +115,14 @@ func TestClientMessageHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// The Block/BlockTxs handlers deliver results to a per-request
-			// slot, so register a waiter first; the Votes/BlockRange handlers
-			// deliver with a blocking send to a shared channel, so park a
-			// receiver. Either way a single messageHandler call routes the
-			// message deterministically, with no busy-spin. A goroutine parked
-			// on the delivery channel forwards the routed message so we can
-			// assert delivery under a bounded deadline.
-			got := make(chan protocol.Message, 1)
+			// The Block/BlockTxs handlers deliver results to a per-request slot
+			// (a non-blocking send), so register a waiter first. The
+			// Votes/BlockRange handlers deliver with a blocking send to a shared
+			// channel, so the main goroutine below acts as the parked receiver.
+			// messageHandler runs in a helper goroutine: for a slot delivery it
+			// returns immediately, and for a blocking-send delivery it unblocks
+			// as soon as the main goroutine receives. Either way the helper is
+			// guaranteed to exit, so no goroutine dangles on a failed subtest.
 			var deliverCh chan protocol.Message
 			switch tc.msg.Type() {
 			case MessageTypeBlock, MessageTypeNoBlock:
@@ -144,24 +144,134 @@ func TestClientMessageHandler(t *testing.T) {
 			case MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
 				deliverCh = client.blockRangeResultChan
 			}
+			errCh := make(chan error, 1)
 			go func() {
-				got <- <-deliverCh
+				errCh <- client.messageHandler(tc.msg)
 			}()
 
-			err := client.messageHandler(tc.msg)
-			if tc.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-
+			// Receive the routed message under a bounded deadline.
 			select {
-			case m := <-got:
+			case m := <-deliverCh:
 				assert.Equal(t, tc.msg, m)
 			case <-time.After(time.Second):
 				t.Fatal("handler did not route message")
 			}
+
+			// Confirm the handler returned (and its error expectation) under a
+			// bounded deadline so the helper goroutine cannot dangle.
+			select {
+			case err := <-errCh:
+				if tc.expectError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("handler did not return")
+			}
 		})
+	}
+}
+
+// TestRequestSlotAbandonAfterDeliverKeepsNextWaiter reproduces the
+// deliver-vs-context-cancel race between two requests on the same slot.
+//
+// Request A registers its waiter and its response is delivered (freeing the
+// slot). A's context also fires, so A's select may pick the cancellation branch
+// and call abandon with its own delivery channel. Before that abandon runs,
+// request B acquires the freed slot and registers its own waiter. abandon must
+// only clear the waiter it still owns: passing A's channel while B owns the slot
+// must be a no-op, so B's response is delivered to B rather than dropped.
+//
+// The ordering (deliver A, acquire B, then abandon A) is driven explicitly so
+// the regression is exercised deterministically rather than via scheduler luck.
+func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	client := NewClient(protocol.ProtocolOptions{ConnectionId: connId}, nil)
+
+	// Request A acquires the slot and registers its delivery channel.
+	wA, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	require.NoError(t, err)
+
+	// A's response arrives: delivered to wA and the slot is freed.
+	msgA := NewMsgBlock([]byte{0xaa, 0xbb})
+	require.True(t, client.blockSlot.deliver(msgA))
+
+	// Request B acquires the now-free slot and registers its own channel.
+	wB, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	require.NoError(t, err)
+
+	// A's late context cancellation abandons using A's own channel. B owns the
+	// slot now, so this must not disturb B's registration.
+	client.blockSlot.abandon(wA)
+
+	// B's response must be delivered to B (not dropped).
+	msgB := NewMsgBlock([]byte{0xcc, 0xdd})
+	require.True(
+		t,
+		client.blockSlot.deliver(msgB),
+		"B's response was dropped: abandon(wA) erased B's waiter",
+	)
+
+	// B receives its own payload, not A's.
+	select {
+	case got := <-wB:
+		gotBlock, ok := got.(*MsgBlock)
+		require.True(t, ok)
+		assert.Equal(t, []byte{0xcc, 0xdd}, []byte(gotBlock.BlockRaw))
+	case <-time.After(time.Second):
+		t.Fatal("request B did not receive its response")
+	}
+
+	// A's earlier response is still buffered on its own channel, unaffected.
+	select {
+	case got := <-wA:
+		gotBlock, ok := got.(*MsgBlock)
+		require.True(t, ok)
+		assert.Equal(t, []byte{0xaa, 0xbb}, []byte(gotBlock.BlockRaw))
+	case <-time.After(time.Second):
+		t.Fatal("request A's buffered response went missing")
+	}
+}
+
+// TestRequestSlotReleaseAfterReacquireKeepsNextWaiter is the release-path
+// analogue of the abandon race: once the slot has been freed and reacquired by
+// a newer request, calling release with the previous request's channel must be
+// a no-op and must not free the slot out from under the newer waiter.
+func TestRequestSlotReleaseAfterReacquireKeepsNextWaiter(t *testing.T) {
+	connId := connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+	client := NewClient(protocol.ProtocolOptions{ConnectionId: connId}, nil)
+
+	wA, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	require.NoError(t, err)
+	// Free the slot via a delivery, then reacquire for request B.
+	require.True(t, client.blockSlot.deliver(NewMsgBlock([]byte{0x01})))
+	<-wA
+	wB, err := client.blockSlot.acquire(context.Background(), client.DoneChan())
+	require.NoError(t, err)
+
+	// A stale release using A's channel must not touch B's registration.
+	client.blockSlot.release(wA)
+
+	msgB := NewMsgBlock([]byte{0x02})
+	require.True(
+		t,
+		client.blockSlot.deliver(msgB),
+		"B's response was dropped: release(wA) erased B's waiter",
+	)
+	select {
+	case got := <-wB:
+		gotBlock, ok := got.(*MsgBlock)
+		require.True(t, ok)
+		assert.Equal(t, []byte{0x02}, []byte(gotBlock.BlockRaw))
+	case <-time.After(time.Second):
+		t.Fatal("request B did not receive its response")
 	}
 }
 

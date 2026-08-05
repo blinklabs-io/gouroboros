@@ -88,9 +88,17 @@ func (s *requestSlot) acquire(
 // rather than mis-delivered, while leaving the slot busy until that response
 // arrives (or the protocol shuts down). It is used when a caller's context
 // expires before a response is received.
-func (s *requestSlot) abandon() {
+//
+// The caller passes the delivery channel it registered in acquire. The slot is
+// only mutated while that channel is still the live waiter (s.waiter == w). If
+// the response already arrived (deliver cleared and freed the slot) and a
+// different request has since acquired the slot, s.waiter now belongs to that
+// newer request, so this is a no-op and the newer waiter is left intact.
+func (s *requestSlot) abandon(w chan protocol.Message) {
 	s.mu.Lock()
-	s.waiter = nil
+	if s.waiter == w {
+		s.waiter = nil
+	}
 	s.mu.Unlock()
 }
 
@@ -98,10 +106,18 @@ func (s *requestSlot) abandon() {
 // goroutine waiting in acquire. It is used when the request message could not
 // be sent, or the protocol is shutting down, so no response will ever arrive
 // to drain the slot.
-func (s *requestSlot) release() {
+//
+// As with abandon, the caller passes the delivery channel it registered in
+// acquire and the slot is only cleared and freed while that channel is still
+// the live waiter (s.waiter == w). If the slot was already freed and reacquired
+// by a newer request, this is a no-op so the newer request's registration is
+// not disturbed.
+func (s *requestSlot) release(w chan protocol.Message) {
 	s.mu.Lock()
-	s.waiter = nil
-	s.freeLocked()
+	if s.waiter == w {
+		s.waiter = nil
+		s.freeLocked()
+	}
 	s.mu.Unlock()
 }
 
@@ -242,7 +258,7 @@ func (c *Client) BlockRequest(
 	}
 	msg := NewMsgBlockRequest(point)
 	if err := c.SendMessage(msg); err != nil {
-		c.blockSlot.release()
+		c.blockSlot.release(w)
 		return nil, err
 	}
 	select {
@@ -253,10 +269,10 @@ func (c *Client) BlockRequest(
 		}
 		return resp, nil
 	case <-ctx.Done():
-		c.blockSlot.abandon()
+		c.blockSlot.abandon(w)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
-		c.blockSlot.release()
+		c.blockSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
@@ -277,7 +293,7 @@ func (c *Client) BlockTxsRequest(
 	}
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessage(msg); err != nil {
-		c.blockTxsSlot.release()
+		c.blockTxsSlot.release(w)
 		return nil, err
 	}
 	select {
@@ -288,10 +304,10 @@ func (c *Client) BlockTxsRequest(
 		}
 		return resp, nil
 	case <-ctx.Done():
-		c.blockTxsSlot.abandon()
+		c.blockTxsSlot.abandon(w)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
-		c.blockTxsSlot.release()
+		c.blockTxsSlot.release(w)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
 }
