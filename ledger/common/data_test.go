@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -298,5 +299,92 @@ func TestDatumRoundtripAndHash(t *testing.T) {
 			other.Hash().String(),
 			expected.String(),
 		)
+	}
+}
+
+// TestDatumMarshalCBORPreservesOriginalBytes verifies that a Datum decoded
+// from non-canonical (relative to plutigo's re-encoding) CBOR round-trips
+// through MarshalCBOR() with its exact original bytes, preserving the
+// invariant that blake2b256(MarshalCBOR()) == Hash(). See GitHub issue
+// #1929: MarshalCBOR previously always re-encoded via plutigo's data.Encode,
+// which can silently diverge from the bytes actually hashed (and present on
+// chain) for non-canonical encodings (chunked byte strings, non-minimal
+// integer encodings, indefinite-length wrapping, etc).
+func TestDatumMarshalCBORPreservesOriginalBytes(t *testing.T) {
+	testCases := []struct {
+		name string
+		hex  string
+	}{
+		{
+			// A definite-length byte string of 100 bytes (wrapped in an
+			// indefinite-length Constr 0 array). It is NOT chunked
+			// itself -- only the surrounding array is indefinite -- but
+			// at 100 bytes it exceeds plutigo's 64-byte chunking
+			// threshold, so a naive re-encode via plutigo would split it
+			// into multiple chunks and fail to reproduce these exact
+			// bytes. This is the original real-world case that motivated
+			// issue #1929.
+			name: "LargeDefiniteByteString100Bytes",
+			hex:  "d8799f5864" + strings.Repeat("ab", 100) + "ff",
+		},
+		{
+			// A genuinely chunked (indefinite-length, multi-chunk) byte
+			// string: two definite-length chunks (64 bytes + 36 bytes)
+			// wrapped in an indefinite-length byte string, totaling 100
+			// bytes -- exercising real on-wire chunking rather than just
+			// a large definite-length string.
+			name: "ChunkedIndefiniteByteString100Bytes",
+			hex: "5f5840" + strings.Repeat("ab", 64) +
+				"5824" + strings.Repeat("cd", 36) + "ff",
+		},
+		{
+			name: "NonMinimalUint8",
+			hex:  "1801",
+		},
+		{
+			name: "NonMinimalUint16",
+			hex:  "190001",
+		},
+		{
+			name: "BigNumTag",
+			hex:  "c24101",
+		},
+		{
+			name: "IndefiniteByteString",
+			hex:  "5f4161ff",
+		},
+		{
+			name: "IndefiniteConstrWithDefiniteInner",
+			hex:  "d8669f18809f01ffff",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			orig, err := hex.DecodeString(tc.hex)
+			require.NoError(t, err)
+
+			var d common.Datum
+			_, err = cbor.Decode(orig, &d)
+			require.NoError(t, err)
+
+			wire, err := d.MarshalCBOR()
+			require.NoError(t, err)
+
+			assert.Equal(
+				t,
+				orig,
+				wire,
+				"MarshalCBOR() should return the original decoded bytes",
+			)
+
+			expectedHash := common.Blake2b256Hash(wire)
+			assert.Equal(
+				t,
+				expectedHash,
+				d.Hash(),
+				"blake2b256(MarshalCBOR()) must equal Hash()",
+			)
+		})
 	}
 }
