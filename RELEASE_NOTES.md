@@ -25,7 +25,7 @@ This release improves address validation, CBOR round-trip behavior, TPraos-aware
 
 * Strengthened address payload decoding so unexpected trailing bytes now fail validation, while a small allowlist preserves a few historical mainnet trailers to keep older data working.
 
-* Improved block request handling so `leiosfetch` now treats request timeouts as local failures without tearing down the shared connection.
+* Improved block request handling so `leiosfetch` now treats request timeouts as local failures and keeps the shared connection open.
 
 * Expanded consensus validation so generic header checks and block building now handle both CPraos and TPraos, including the TPraos nonce VRF certificate and mode-aware leadership checks.
 
