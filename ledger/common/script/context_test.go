@@ -18,7 +18,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -269,31 +268,6 @@ var scriptContextV1TestDefs = []struct {
 	},
 }
 
-func expectedPrePV10Cbor(t *testing.T, name string, pv10Cbor string) string {
-	t.Helper()
-	// The table stores the PV10+ expectation. Pre-PV10 is the same context with
-	// the zero-ADA mint entry removed.
-	replacements := map[string][2]string{
-		"SimpleSend": {
-			"182aa140a1400080",
-			"182aa080",
-		},
-		"Mint": {
-			"182aa340a14000",
-			"182aa2",
-		},
-	}
-	replacement, ok := replacements[name]
-	if !ok {
-		t.Fatalf("missing pre-PV10 expected CBOR replacement for %q", name)
-	}
-	ret := strings.Replace(pv10Cbor, replacement[0], replacement[1], 1)
-	if ret == pv10Cbor {
-		t.Fatalf("pre-PV10 expected CBOR replacement did not match for %q", name)
-	}
-	return ret
-}
-
 func TestScriptContextV1(t *testing.T) {
 	for _, testDef := range scriptContextV1TestDefs {
 		t.Run(
@@ -325,13 +299,25 @@ func TestScriptContextV1(t *testing.T) {
 					expectedCbor  string
 				}{
 					{
+						// The V1/V2 txInfoMint rendering does not depend on the
+						// protocol version: cardano-ledger's transMintValue is
+						// ungated, so a pre-Plomin major must produce the same
+						// zero-ada entry as PV10+.
 						name:          "PV9",
 						protocolMajor: common.ProtocolVersionConway,
-						expectedCbor: expectedPrePV10Cbor(
-							t,
-							testDef.name,
-							testDef.expectedCbor,
-						),
+						expectedCbor:  testDef.expectedCbor,
+					},
+					{
+						// Babbage-era major, and the zero value left by a caller
+						// that never assigns ProtocolMajor.
+						name:          "PV8",
+						protocolMajor: 8,
+						expectedCbor:  testDef.expectedCbor,
+					},
+					{
+						name:          "unset major",
+						protocolMajor: 0,
+						expectedCbor:  testDef.expectedCbor,
 					},
 					{
 						name:          "PV10",
@@ -431,13 +417,25 @@ func TestScriptContextV2(t *testing.T) {
 					expectedCbor  string
 				}{
 					{
+						// The V1/V2 txInfoMint rendering does not depend on the
+						// protocol version: cardano-ledger's transMintValue is
+						// ungated, so a pre-Plomin major must produce the same
+						// zero-ada entry as PV10+.
 						name:          "PV9",
 						protocolMajor: common.ProtocolVersionConway,
-						expectedCbor: expectedPrePV10Cbor(
-							t,
-							testDef.name,
-							testDef.expectedCbor,
-						),
+						expectedCbor:  testDef.expectedCbor,
+					},
+					{
+						// Babbage-era major, and the zero value left by a caller
+						// that never assigns ProtocolMajor.
+						name:          "PV8",
+						protocolMajor: 8,
+						expectedCbor:  testDef.expectedCbor,
+					},
+					{
+						name:          "unset major",
+						protocolMajor: 0,
+						expectedCbor:  testDef.expectedCbor,
 					},
 					{
 						name:          "PV10",

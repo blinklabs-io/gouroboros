@@ -92,40 +92,38 @@ type TxInfo interface {
 }
 
 type TxInfoV1 struct {
-	Inputs        []ResolvedInput
-	Outputs       []lcommon.TransactionOutput
-	Fee           *big.Int
-	Mint          lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
-	Certificates  []lcommon.Certificate
-	Withdrawals   Pairs[*lcommon.Address, *big.Int]
-	ValidRange    TimeRange
-	Signatories   []lcommon.Blake2b224
-	Data          KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
-	Redeemers     KeyValuePairs[ScriptPurpose, Redeemer]
-	Id            lcommon.Blake2b256
+	Inputs       []ResolvedInput
+	Outputs      []lcommon.TransactionOutput
+	Fee          *big.Int
+	Mint         lcommon.MultiAsset[lcommon.MultiAssetTypeMint]
+	Certificates []lcommon.Certificate
+	Withdrawals  Pairs[*lcommon.Address, *big.Int]
+	ValidRange   TimeRange
+	Signatories  []lcommon.Blake2b224
+	Data         KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
+	Redeemers    KeyValuePairs[ScriptPurpose, Redeemer]
+	Id           lcommon.Blake2b256
+	// ProtocolMajor no longer affects the txInfoMint rendering, which matches
+	// cardano-ledger at every protocol version. Retained so existing callers
+	// that set it keep compiling.
 	ProtocolMajor uint
 }
 
 func (TxInfoV1) isTxInfo() {}
 
-func mintToPlutusData(
-	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
-	protocolMajor uint,
-) data.PlutusData {
-	if !lcommon.IsProtocolVersionAtLeast(
-		protocolMajor,
-		0,
-		lcommon.ProtocolVersionPlomin,
-	) {
-		return mint.ToPlutusData()
-	}
-	return mintWithZeroAda(mint)
-}
-
-// mintWithZeroAda renders PV10+ txInfoMint for PlutusV1/V2 as cardano-ledger
-// does: transMintValue m = transCoinToValue zero <> transMultiAsset m. That
-// prepends a zero-lovelace ada entry ({"":{"":0}}), even when nothing is
-// minted. PlutusV3 uses the V3 MintValue representation, so TxInfoV3 keeps
+// mintWithZeroAda renders txInfoMint for PlutusV1/V2 as cardano-ledger does:
+// transMintValue m = transCoinToValue zero <> transMultiAsset m. That prepends a
+// zero-lovelace ada entry ({"":{"":0}}), even when nothing is minted.
+//
+// This applies at every protocol version. cardano-ledger's transMintValue takes
+// no protocol version and has no branch, and Alonzo, Babbage and Conway all
+// route their V1/V2 txInfo through that one function. Gating it on PV10 made
+// every pre-Plomin script that inspects txInfoMint see a mint field one entry
+// short, so its execution cost diverged from the node that produced the block.
+//
+// PlutusV3 differs: Conway defines its own transMintValue as
+// PV3.UnsafeMintValue . PV1.getValue . transMultiAsset, dropping the ada entry
+// because V3 uses the MintValue representation. TxInfoV3 therefore keeps
 // t.Mint.ToPlutusData().
 func mintWithZeroAda(
 	mint lcommon.MultiAsset[lcommon.MultiAssetTypeMint],
@@ -175,7 +173,7 @@ func (t TxInfoV1) ToPlutusData() data.PlutusData {
 				CoinBigInt: t.Fee,
 			},
 		}.ToPlutusData(),
-		mintToPlutusData(t.Mint, t.ProtocolMajor),
+		mintWithZeroAda(t.Mint),
 		WithPartialCertificates{
 			t.Certificates,
 		}.ToPlutusData(),
@@ -261,7 +259,10 @@ type TxInfoV2 struct {
 	Redeemers       KeyValuePairs[ScriptPurpose, Redeemer]
 	Data            KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
 	Id              lcommon.Blake2b256
-	ProtocolMajor   uint
+	// ProtocolMajor no longer affects the txInfoMint rendering, which matches
+	// cardano-ledger at every protocol version. Retained so existing callers
+	// that set it keep compiling.
+	ProtocolMajor uint
 }
 
 func (TxInfoV2) isTxInfo() {}
@@ -287,7 +288,7 @@ func (t TxInfoV2) ToPlutusData() data.PlutusData {
 				CoinBigInt: t.Fee,
 			},
 		}.ToPlutusData(),
-		mintToPlutusData(t.Mint, t.ProtocolMajor),
+		mintWithZeroAda(t.Mint),
 		WithPartialCertificates{
 			t.Certificates,
 		}.ToPlutusData(),
