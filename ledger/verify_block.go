@@ -23,7 +23,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -319,68 +318,65 @@ func extractHeaderFields(
 // shelley.ShelleyProtocolParameters, so it is covered by the Shelley case.
 //
 // ProtocolParameters is a public single-method interface, so callers may
-// legitimately pass an implementation (e.g. a mock, or a custom type) that
-// isn't one of the era's concrete pparams structs. Unlike the per-era
-// per-transaction rules (which fail closed because a mismatched type there
-// signals a real caller bug — the pparams must match the tx's era), an
-// unrecognized type here just means block-limit enforcement isn't
-// available for this pp implementation: it is treated as "no limits
-// configured" (zero sizes, no ExUnits budget) rather than a hard error, so
-// callers who never asked for block-limit enforcement aren't forced into
-// it just because they pass a mock/custom ProtocolParameters.
+// pass an implementation that isn't one of the era's concrete pparams
+// structs (e.g. a mock or custom type). This fails closed: an unrecognized
+// type returns an error rather than silently disabling block-wide limit
+// enforcement, matching the per-era per-transaction rules' own
+// "pparams are not the expected type" convention. Callers that legitimately
+// don't want block-limit enforcement (e.g. because they pass a mock
+// ProtocolParameters unrelated to block limits) must opt out explicitly via
+// VerifyConfig.SkipBlockLimitsValidation rather than relying on an
+// unrecognized type to silently disable the check.
 func blockLevelLimits(
 	pp common.ProtocolParameters,
 ) (
 	maxBodySize, maxHeaderSize uint64,
 	maxExUnits common.ExUnits,
 	hasMaxExUnits bool,
+	err error,
 ) {
 	switch p := pp.(type) {
 	case *shelley.ShelleyProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			common.ExUnits{},
-			false
+			false,
+			nil
 	case *mary.MaryProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			common.ExUnits{},
-			false
+			false,
+			nil
 	case *alonzo.AlonzoProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true
+			true,
+			nil
 	case *babbage.BabbageProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true
+			true,
+			nil
 	case *conway.ConwayProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true
+			true,
+			nil
 	case *dijkstra.DijkstraProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true
+			true,
+			nil
 	default:
-		// Unsupported/unrecognized ProtocolParameters implementation: treat
-		// as "no limits configured" rather than failing the whole block.
-		// SkipBlockLimitsValidation remains the explicit way to opt out;
-		// this is the implicit fallback for types that simply don't carry
-		// block-limit fields. Surface this with a warning (matching the
-		// slog.Warn convention already used in
-		// ledger/common/pparams.go:ConvertToUtxorpcCardanoCostModels) so an
-		// unexpected pparams type isn't a fully silent no-op, without
-		// changing the fail-open behavior itself.
-		slog.Warn(
-			"unrecognized ProtocolParameters implementation: block-wide size and ExUnits limits are not enforced",
-			"protocol_parameters_type", fmt.Sprintf("%T", pp),
+		return 0, 0, common.ExUnits{}, false, fmt.Errorf(
+			"unsupported protocol parameters type %T for block-limit validation",
+			pp,
 		)
-		return 0, 0, common.ExUnits{}, false
 	}
 }
 
@@ -401,6 +397,24 @@ func sumBlockExUnits(txs []common.Transaction) (common.ExUnits, error) {
 			continue
 		}
 		for _, value := range redeemers.Iter() {
+			// Execution units are non-negative by protocol definition even
+			// though ExUnits stores them as signed int64. Reject a negative
+			// Memory or Steps before it is added to the running total: a
+			// malformed redeemer with a negative value would otherwise
+			// reduce the block-wide sum and could mask a budget that
+			// actually exceeds ppMaxBlockExUnits.
+			if value.ExUnits.Memory < 0 {
+				return common.ExUnits{}, fmt.Errorf(
+					"negative execution-unit memory in redeemer: %d",
+					value.ExUnits.Memory,
+				)
+			}
+			if value.ExUnits.Steps < 0 {
+				return common.ExUnits{}, fmt.Errorf(
+					"negative execution-unit steps in redeemer: %d",
+					value.ExUnits.Steps,
+				)
+			}
 			var ok bool
 			totalMemory, ok = common.AddInt64Checked(
 				totalMemory,
@@ -743,17 +757,30 @@ func VerifyBlock(
 	// concrete pparams struct (there is no shared getter across eras, and
 	// no other way to confirm it matches the block's actual era), mirroring
 	// the same assumption the per-era rules make. An unrecognized
-	// ProtocolParameters implementation is treated as "no limits
-	// configured" (see blockLevelLimits), not a hard error.
+	// ProtocolParameters implementation is a hard configuration error (see
+	// blockLevelLimits); callers who don't want block-limit enforcement must
+	// opt out explicitly via config.SkipBlockLimitsValidation.
 	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation &&
 		config.ProtocolParameters != nil {
 		txs := block.Transactions()
 		rawBlockCbor := block.Cbor()
 		headerCbor := header.Cbor()
 		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
-			maxBodySize, maxHeaderSize, maxExUnits, hasMaxExUnits := blockLevelLimits(
+			maxBodySize, maxHeaderSize, maxExUnits, hasMaxExUnits, limitsErr := blockLevelLimits(
 				config.ProtocolParameters,
 			)
+			if limitsErr != nil {
+				return false, "", 0, 0, common.NewValidationError(
+					common.ValidationErrorTypeConfiguration,
+					"unable to determine block-wide limits from protocol parameters",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+						"era":          era,
+					},
+					limitsErr,
+				)
+			}
 			// A zero-value MaxBlockExUnits (both Memory and Steps unset)
 			// is treated as "no limit" and skipped, consistent with the
 			// maxBodySize > 0 / maxHeaderSize > 0 guards below.

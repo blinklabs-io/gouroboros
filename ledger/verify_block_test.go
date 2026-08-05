@@ -1,10 +1,8 @@
 package ledger
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"math"
 	"strings"
 	"testing"
@@ -608,6 +606,12 @@ func TestVerifyBlock_TransactionValidation(t *testing.T) {
 		SkipBodyHashValidation:    true,  // Skip to focus on transaction validation
 		SkipTransactionValidation: false, // Enable transaction validation
 		SkipStakePoolValidation:   true,  // Skip stake pool validation
+		// MockProtocolParamsRules isn't one of the era's concrete pparams
+		// structs blockLevelLimits recognizes, and this test isn't
+		// exercising block-limit enforcement, so it must opt out
+		// explicitly rather than relying on an unrecognized type to
+		// silently disable the check.
+		SkipBlockLimitsValidation: true,
 		LedgerState: mockledger.NewLedgerStateBuilder().
 			WithPoolCurrentState(func(poolKeyHash common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
 				return &common.PoolRegistrationCertificate{
@@ -697,6 +701,12 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 		SkipBodyHashValidation:    true,  // Skip to focus on stake pool validation
 		SkipTransactionValidation: true,  // Skip transaction validation
 		SkipStakePoolValidation:   false, // Enable stake pool validation
+		// MockProtocolParamsRules isn't one of the era's concrete pparams
+		// structs blockLevelLimits recognizes, and this test isn't
+		// exercising block-limit enforcement, so it must opt out
+		// explicitly rather than relying on an unrecognized type to
+		// silently disable the check.
+		SkipBlockLimitsValidation: true,
 		LedgerState: mockledger.NewLedgerStateBuilder().
 			WithPoolCurrentState(func(poolKeyHash common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
 				return &common.PoolRegistrationCertificate{
@@ -781,15 +791,16 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 // TestBlockLevelLimits covers blockLevelLimits' era-specific extraction of
 // MaxBlockBodySize/MaxBlockHeaderSize/MaxBlockExUnits, including the
 // pre-Alonzo eras (no ExUnits budget) and an unrecognized pparams type
-// (treated as "no limits configured", not a hard error, since
-// ProtocolParameters is a public interface any caller may implement).
+// (fail-closed, matching the era rules' own "pparams are not expected type"
+// convention).
 func TestBlockLevelLimits(t *testing.T) {
 	t.Run("shelley has no ExUnits", func(t *testing.T) {
 		pp := &shelley.ShelleyProtocolParameters{
 			MaxBlockBodySize:   1000,
 			MaxBlockHeaderSize: 100,
 		}
-		bodySize, headerSize, exUnits, hasExUnits := blockLevelLimits(pp)
+		bodySize, headerSize, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
 		assert.Equal(t, uint64(1000), bodySize)
 		assert.Equal(t, uint64(100), headerSize)
 		assert.False(t, hasExUnits)
@@ -801,7 +812,8 @@ func TestBlockLevelLimits(t *testing.T) {
 			MaxBlockBodySize:   2000,
 			MaxBlockHeaderSize: 200,
 		}
-		bodySize, headerSize, _, hasExUnits := blockLevelLimits(pp)
+		bodySize, headerSize, _, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
 		assert.Equal(t, uint64(2000), bodySize)
 		assert.Equal(t, uint64(200), headerSize)
 		assert.False(t, hasExUnits)
@@ -812,7 +824,8 @@ func TestBlockLevelLimits(t *testing.T) {
 			MaxBlockBodySize:   3000,
 			MaxBlockHeaderSize: 300,
 		}
-		bodySize, headerSize, _, hasExUnits := blockLevelLimits(pp)
+		bodySize, headerSize, _, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
 		assert.Equal(t, uint64(3000), bodySize)
 		assert.Equal(t, uint64(300), headerSize)
 		assert.False(t, hasExUnits)
@@ -827,7 +840,8 @@ func TestBlockLevelLimits(t *testing.T) {
 				Steps:  1_000_000_000,
 			},
 		}
-		bodySize, headerSize, exUnits, hasExUnits := blockLevelLimits(pp)
+		bodySize, headerSize, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
 		assert.Equal(t, uint64(4000), bodySize)
 		assert.Equal(t, uint64(400), headerSize)
 		assert.True(t, hasExUnits)
@@ -847,7 +861,8 @@ func TestBlockLevelLimits(t *testing.T) {
 				Steps:  2_000_000_000,
 			},
 		}
-		_, _, exUnits, hasExUnits := blockLevelLimits(pp)
+		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
 		assert.True(t, hasExUnits)
 		assert.Equal(
 			t,
@@ -865,7 +880,8 @@ func TestBlockLevelLimits(t *testing.T) {
 				Steps:  3_000_000_000,
 			},
 		}
-		_, _, exUnits, hasExUnits := blockLevelLimits(pp)
+		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
 		assert.True(t, hasExUnits)
 		assert.Equal(
 			t,
@@ -885,7 +901,8 @@ func TestBlockLevelLimits(t *testing.T) {
 				},
 			},
 		}
-		_, _, exUnits, hasExUnits := blockLevelLimits(pp)
+		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
 		assert.True(t, hasExUnits)
 		assert.Equal(
 			t,
@@ -894,38 +911,89 @@ func TestBlockLevelLimits(t *testing.T) {
 		)
 	})
 
-	t.Run(
-		"unrecognized type is treated as no limits configured",
-		func(t *testing.T) {
-			// ProtocolParameters is a public single-method interface, so
-			// callers may legitimately pass an implementation that isn't one
-			// of the era's concrete pparams structs (e.g. a mock). This must
-			// not fail the whole block; it is treated the same as "no limits
-			// configured" rather than a hard error.
-			// blockLevelLimits must still surface the unrecognized type via
-			// a warning log (matching the slog.Warn convention already used
-			// in ledger/common/pparams.go), even though it fails open.
-			var logBuf bytes.Buffer
-			prevLogger := slog.Default()
-			slog.SetDefault(
-				slog.New(slog.NewTextHandler(&logBuf, nil)),
-			)
-			defer slog.SetDefault(prevLogger)
+	t.Run("unrecognized type is a hard error", func(t *testing.T) {
+		pp := &mockledger.MockProtocolParamsRules{}
+		_, _, _, _, err := blockLevelLimits(pp)
+		assert.Error(t, err)
+	})
+}
 
-			pp := &mockledger.MockProtocolParamsRules{}
-			bodySize, headerSize, exUnits, hasExUnits := blockLevelLimits(
-				pp,
+// TestVerifyBlock_UnrecognizedProtocolParameters covers the VerifyBlock
+// call site (not just blockLevelLimits in isolation): an unrecognized
+// ProtocolParameters implementation must fail closed when block-limit
+// validation is enabled, and SkipBlockLimitsValidation is the only
+// sanctioned way for a caller to opt out of that enforcement.
+func TestVerifyBlock_UnrecognizedProtocolParameters(t *testing.T) {
+	headerCborBytes, err := hex.DecodeString(
+		"828a1a00a60faf1a0817580c58204eac1e7264c0e80436b04687e75d46d6a0d6b2338c2abb73a14fafbd689f69b2582012209e0b93f0128f670c9a02781c5466c4c4be003da3a51344b6a94f709ce51f58209c1a5fc5dec0a4b822d5a3b254ce9b168299479127aadcf97506ef257517fff682584023c2d70c24c44041644f5152f7e8a1bb580e516eb8e73c7df287116adb5f009c0c001feccfeebdf34c2275d1fce859c6c46182631b6306d5fd2724ac7ab1c6be58500dbe31ef7c00c34b6522e983d223e05075359cb170668d960b8cebfced178287ee6ca5cfc6e8e60aec97fd197aebfefc24aae695680631d575c6dacdfd9efc5687e46eb2a5c04a755c7f260af9ef830819c5ea5820d2b74b6333637801f2e9c7265792d5b8fc1647f9056d67c769dbac27f25f2fd08458200946347d22a3b6da29d79102424973c932b898808ff2436fa138df102484230a0a1904165840c75619c3ebad0758349eb1dedc154a8cd280d8189d6da973b4a147b0cdb0f60442d493feeba64167a05b5fc40bc695192bf1c08afad3c07ebd33cb5925f378018209015901c00a8442332bd3f33a4d78fe2736a75110b528a1e7501bc7887910d1475fc0e425f49a84f94e98f87047916cf622f3db1f61b60c5f06709769f98c4cc67de8f50c320c6772b647ac9916765b6985d4eafccb54e71064d01df41f8d0638ed5cd62b7b6e49ba15dd87cc687ab87d3fb22490d355e8fa9c5f7c24ed88b800fcc4cb1f1b54e65b5ba82c442f4643caadc86583072b8b6956f4f9a4530c29873f7231605efd7a7f961a863530512ef86b50f9b1004748c31fa07978f2ece7d8e76ffde67d713015824b28e19f05f0383c2def3cdeb67247f33f5eae329c38a375b2eb06a586dcc2e102a776a6deaad1741f2a7f5aa604074698e876afab4455278fd84a1db5768078e2848cc85e3c8a0b48630a2622832ecd2dbb3c505df2a70b93b49ce99616f601e5e2004a8ce8926319c23f2a26ac8550cb1c05c9d2d25fc5fcd122fc35b057a71d6e961250c99b19a7bfd9acdc60a8151d6c81ef2d7d69a62fd0f17d184dd753cce9a2e9c32b53baf317e31c6c5e3cf8ea8b203b413ae8b0253db53d0cbe19b0f0547a0e67d3591d1cade6ceb4a47779ba4a09e7526280acb62200f42c98f6185ea9da3daf47aa3d10ffe5307331fa3430af6c6361154943c39375",
+	)
+	require.NoError(t, err)
+	eta0Hex := "4ef95a10f639d0cf16bb963c3a580d4bf2a95b6ae7848702665884843e3c661d"
+	slotsPerKesPeriod := uint64(129600)
+
+	blockType, err := DetermineBlockType(headerCborBytes)
+	require.NoError(t, err)
+	header, err := NewBlockHeaderFromCbor(blockType, headerCborBytes)
+	require.NoError(t, err)
+	conwayHeader, ok := header.(*conway.ConwayBlockHeader)
+	require.True(t, ok)
+	newBlock := func() *conway.ConwayBlock {
+		return &conway.ConwayBlock{
+			BlockHeader:            conwayHeader,
+			TransactionBodies:      []conway.ConwayTransactionBody{},
+			TransactionWitnessSets: []conway.ConwayTransactionWitnessSet{},
+			TransactionMetadataSet: common.TransactionMetadataSet{},
+			InvalidTransactions:    []uint{},
+		}
+	}
+	ledgerState := mockledger.NewLedgerStateBuilder().
+		WithPoolCurrentState(func(poolKeyHash common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
+			return &common.PoolRegistrationCertificate{
+				Operator:   poolKeyHash,
+				VrfKeyHash: testVRFKeyHash,
+			}, nil, nil
+		}).
+		Build()
+
+	t.Run("unrecognized ProtocolParameters fails closed", func(t *testing.T) {
+		config := common.VerifyConfig{
+			SkipBodyHashValidation:  true,
+			SkipStakePoolValidation: true,
+			LedgerState:             ledgerState,
+			ProtocolParameters:      &mockledger.MockProtocolParamsRules{},
+		}
+		_, _, _, _, err := VerifyBlock(
+			newBlock(),
+			eta0Hex,
+			slotsPerKesPeriod,
+			config,
+		)
+		require.Error(t, err)
+		assert.Contains(
+			t,
+			err.Error(),
+			"unable to determine block-wide limits from protocol parameters",
+		)
+	})
+
+	t.Run(
+		"SkipBlockLimitsValidation bypasses the error",
+		func(t *testing.T) {
+			config := common.VerifyConfig{
+				SkipBodyHashValidation:    true,
+				SkipStakePoolValidation:   true,
+				SkipBlockLimitsValidation: true,
+				LedgerState:               ledgerState,
+				ProtocolParameters:        &mockledger.MockProtocolParamsRules{},
+			}
+			isValid, _, _, _, err := VerifyBlock(
+				newBlock(),
+				eta0Hex,
+				slotsPerKesPeriod,
+				config,
 			)
-			assert.Equal(t, uint64(0), bodySize)
-			assert.Equal(t, uint64(0), headerSize)
-			assert.False(t, hasExUnits)
-			assert.Equal(t, common.ExUnits{}, exUnits)
-			assert.Contains(t, logBuf.String(), "level=WARN")
-			assert.Contains(
-				t,
-				logBuf.String(),
-				"unrecognized ProtocolParameters implementation",
-			)
+			require.NoError(t, err)
+			assert.True(t, isValid)
 		},
 	)
 }
@@ -1004,6 +1072,53 @@ func TestSumBlockExUnits(t *testing.T) {
 			assert.Error(t, err)
 		},
 	)
+
+	t.Run("negative decoded memory is rejected", func(t *testing.T) {
+		// ExUnits{Memory, Steps int64} has no custom UnmarshalCBOR, so a
+		// malformed redeemer whose serialized ExUnits array contains a CBOR
+		// negative integer (major type 1) decodes into a negative int64
+		// without any decode-time rejection. Confirm the decoded value is
+		// actually negative before relying on it, then confirm
+		// sumBlockExUnits rejects it rather than silently including it (and
+		// thereby reducing) the block-wide total.
+		var exUnits common.ExUnits
+		// CBOR: [-1, 5] -> array(2) [negint(1) => -1, uint(5)]
+		_, err := cbor.Decode([]byte{0x82, 0x20, 0x05}, &exUnits)
+		require.NoError(t, err)
+		require.Equal(
+			t,
+			common.ExUnits{Memory: -1, Steps: 5},
+			exUnits,
+		)
+
+		txs := []common.Transaction{newTxWithRedeemer(
+			exUnits.Memory,
+			exUnits.Steps,
+		)}
+		total, err := sumBlockExUnits(txs)
+		assert.Error(t, err)
+		assert.Equal(t, common.ExUnits{}, total)
+	})
+
+	t.Run("negative decoded steps is rejected", func(t *testing.T) {
+		var exUnits common.ExUnits
+		// CBOR: [5, -1] -> array(2) [uint(5), negint(1) => -1]
+		_, err := cbor.Decode([]byte{0x82, 0x05, 0x20}, &exUnits)
+		require.NoError(t, err)
+		require.Equal(
+			t,
+			common.ExUnits{Memory: 5, Steps: -1},
+			exUnits,
+		)
+
+		txs := []common.Transaction{newTxWithRedeemer(
+			exUnits.Memory,
+			exUnits.Steps,
+		)}
+		total, err := sumBlockExUnits(txs)
+		assert.Error(t, err)
+		assert.Equal(t, common.ExUnits{}, total)
+	})
 }
 
 func mustBuildInput(t *testing.T) common.TransactionInput {
