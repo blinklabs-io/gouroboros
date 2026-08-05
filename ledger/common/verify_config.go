@@ -201,6 +201,19 @@ func ValidateBlockBodyHash(
 // extra wrapping array around the group; and for Dijkstra (a 2-element
 // [header, block_body] block) is simply the single block_body element.
 // Summing raw[1:] covers both shapes without era-specific branching.
+//
+// NOTE: this re-decodes the entire block CBOR into []cbor.RawMessage just to
+// sum the lengths of the top-level elements, which is redundant with the
+// decode VerifyBlock's caller has typically already done (or will do) to
+// obtain the block/transactions in the first place. On the sync-pipeline hot
+// path this is an extra full re-tokenization of the block. A proper fix
+// would thread already-decoded top-level element boundaries (or their
+// lengths) through from the call site instead of handing this function raw
+// bytes, but that requires a larger refactor of how VerifyBlock threads CBOR
+// through the pipeline. As a low-risk mitigation, the call in VerifyBlock
+// only invokes this when MaxBlockBodySize > 0 (i.e. the limit is actually
+// enabled), so the redundant decode is skipped entirely when the check is a
+// no-op. Tracked as a known follow-up rather than addressed here.
 func BlockBodySizeFromCbor(rawCbor []byte) (uint64, error) {
 	var raw []cbor.RawMessage
 	if _, err := cbor.Decode(rawCbor, &raw); err != nil {

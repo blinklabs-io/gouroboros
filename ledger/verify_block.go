@@ -316,56 +316,62 @@ func extractHeaderFields(
 // UtxoValidateMaxTxSizeUtxo/UtxoValidateExUnitsTooBigUtxo per-transaction
 // rules use. allegra.AllegraProtocolParameters is a type alias for
 // shelley.ShelleyProtocolParameters, so it is covered by the Shelley case.
+//
+// ProtocolParameters is a public single-method interface, so callers may
+// legitimately pass an implementation (e.g. a mock, or a custom type) that
+// isn't one of the era's concrete pparams structs. Unlike the per-era
+// per-transaction rules (which fail closed because a mismatched type there
+// signals a real caller bug — the pparams must match the tx's era), an
+// unrecognized type here just means block-limit enforcement isn't
+// available for this pp implementation: it is treated as "no limits
+// configured" (zero sizes, no ExUnits budget) rather than a hard error, so
+// callers who never asked for block-limit enforcement aren't forced into
+// it just because they pass a mock/custom ProtocolParameters.
 func blockLevelLimits(
 	pp common.ProtocolParameters,
 ) (
 	maxBodySize, maxHeaderSize uint64,
 	maxExUnits common.ExUnits,
 	hasMaxExUnits bool,
-	err error,
 ) {
 	switch p := pp.(type) {
 	case *shelley.ShelleyProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			common.ExUnits{},
-			false,
-			nil
+			false
 	case *mary.MaryProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			common.ExUnits{},
-			false,
-			nil
+			false
 	case *alonzo.AlonzoProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true,
-			nil
+			true
 	case *babbage.BabbageProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true,
-			nil
+			true
 	case *conway.ConwayProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true,
-			nil
+			true
 	case *dijkstra.DijkstraProtocolParameters:
 		return uint64(p.MaxBlockBodySize),
 			uint64(p.MaxBlockHeaderSize),
 			p.MaxBlockExUnits,
-			true,
-			nil
+			true
 	default:
-		return 0, 0, common.ExUnits{}, false, fmt.Errorf(
-			"unsupported protocol parameters type %T for block-limit validation",
-			pp,
-		)
+		// Unsupported/unrecognized ProtocolParameters implementation: treat
+		// as "no limits configured" rather than failing the whole block.
+		// SkipBlockLimitsValidation remains the explicit way to opt out;
+		// this is the implicit fallback for types that simply don't carry
+		// block-limit fields.
+		return 0, 0, common.ExUnits{}, false
 	}
 }
 
@@ -708,6 +714,141 @@ func VerifyBlock(
 		}
 	}
 
+	// Verify block-wide execution-unit budget (BBODY: sum of every
+	// transaction's ExUnits must not exceed ppMaxBlockExUnits) and the block
+	// body/header sizes against ppMaxBlockBodySize/ppMaxBlockHeaderSize,
+	// using the exact serialized CBOR representation (can be skipped via
+	// config).
+	//
+	// This is intentionally independent of SkipTransactionValidation: it is
+	// a block-local structural/resource check, not a per-transaction UTxO
+	// rule, so it needs neither LedgerState nor a full per-transaction pass.
+	// It runs before the per-transaction validation loop below so that an
+	// oversized or over-budget block is rejected cheaply, without paying
+	// the cost of fully validating (and potentially executing Plutus
+	// scripts for) every transaction in a block that is doomed regardless.
+	// It only runs when there is something to check (at least one
+	// transaction, for the ExUnits budget, or the block's raw CBOR is
+	// available, for the size checks) and ProtocolParameters is set;
+	// blockLevelLimits type-asserts config.ProtocolParameters to the era's
+	// concrete pparams struct (there is no shared getter across eras, and
+	// no other way to confirm it matches the block's actual era), mirroring
+	// the same assumption the per-era rules make. An unrecognized
+	// ProtocolParameters implementation is treated as "no limits
+	// configured" (see blockLevelLimits), not a hard error.
+	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation &&
+		config.ProtocolParameters != nil {
+		txs := block.Transactions()
+		rawBlockCbor := block.Cbor()
+		headerCbor := header.Cbor()
+		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
+			maxBodySize, maxHeaderSize, maxExUnits, hasMaxExUnits := blockLevelLimits(
+				config.ProtocolParameters,
+			)
+			// A zero-value MaxBlockExUnits (both Memory and Steps unset)
+			// is treated as "no limit" and skipped, consistent with the
+			// maxBodySize > 0 / maxHeaderSize > 0 guards below.
+			hasNonZeroMaxExUnits := maxExUnits.Memory > 0 ||
+				maxExUnits.Steps > 0
+			if hasMaxExUnits && hasNonZeroMaxExUnits && len(txs) > 0 {
+				totalExUnits, sumErr := sumBlockExUnits(txs)
+				if sumErr != nil {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeTransaction,
+						"failed to sum block execution units",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						sumErr,
+					)
+				}
+				if totalExUnits.Memory > maxExUnits.Memory ||
+					totalExUnits.Steps > maxExUnits.Steps {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"block total execution units exceed protocol maximum",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+							"total_memory": totalExUnits.Memory,
+							"total_steps":  totalExUnits.Steps,
+							"max_memory":   maxExUnits.Memory,
+							"max_steps":    maxExUnits.Steps,
+						},
+						common.BlockExUnitsTooBigError{
+							TotalExUnits:    totalExUnits,
+							MaxBlockExUnits: maxExUnits,
+						},
+					)
+				}
+			}
+			// headerSize is derived from the header's own preserved CBOR
+			// bytes, which is independent of whether the full block's raw
+			// CBOR (rawBlockCbor) is available, so this check must not be
+			// nested inside the rawBlockCbor guard below.
+			if len(headerCbor) > 0 && maxHeaderSize > 0 {
+				headerSize := uint64(len(headerCbor))
+				if headerSize > maxHeaderSize {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"block header size exceeds protocol maximum",
+						map[string]any{
+							"block_slot":      slot,
+							"block_number":    blockNo,
+							"era":             era,
+							"header_size":     headerSize,
+							"max_header_size": maxHeaderSize,
+						},
+						common.BlockHeaderSizeTooBigError{
+							HeaderSize:         headerSize,
+							MaxBlockHeaderSize: maxHeaderSize,
+						},
+					)
+				}
+			}
+			// The body-size calculation requires the full raw block CBOR
+			// (it sums the lengths of the top-level elements after the
+			// header). It is gated on maxBodySize > 0 ("no limit") here,
+			// not just at the comparison below, so it is never wastefully
+			// computed when the limit is disabled.
+			if len(rawBlockCbor) > 0 && maxBodySize > 0 {
+				bodySize, sizeErr := common.BlockBodySizeFromCbor(rawBlockCbor)
+				if sizeErr != nil {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"failed to calculate block body size",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						sizeErr,
+					)
+				}
+				if bodySize > maxBodySize {
+					return false, "", 0, 0, common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"block body size exceeds protocol maximum",
+						map[string]any{
+							"block_slot":    slot,
+							"block_number":  blockNo,
+							"era":           era,
+							"body_size":     bodySize,
+							"max_body_size": maxBodySize,
+						},
+						common.BlockBodySizeTooBigError{
+							BlockBodySize:    bodySize,
+							MaxBlockBodySize: maxBodySize,
+						},
+					)
+				}
+			}
+		}
+	}
+
 	// Verify transactions (can be skipped via config)
 	// Requires LedgerState and ProtocolParameters in config if enabled.
 	if block.Era() != byron.EraByron && !config.SkipTransactionValidation {
@@ -772,135 +913,6 @@ func VerifyBlock(
 					},
 					err,
 				)
-			}
-		}
-	}
-
-	// Verify block-wide execution-unit budget (BBODY: sum of every
-	// transaction's ExUnits must not exceed ppMaxBlockExUnits) and the block
-	// body/header sizes against ppMaxBlockBodySize/ppMaxBlockHeaderSize,
-	// using the exact serialized CBOR representation (can be skipped via
-	// config).
-	//
-	// This is intentionally independent of SkipTransactionValidation: it is
-	// a block-local structural/resource check, not a per-transaction UTxO
-	// rule, so it needs neither LedgerState nor a full per-transaction pass.
-	// It only runs when there is something to check (at least one
-	// transaction, for the ExUnits budget, or the block's raw CBOR is
-	// available, for the size checks) and ProtocolParameters is set;
-	// blockLevelLimits type-asserts config.ProtocolParameters to the era's
-	// concrete pparams struct (there is no shared getter across eras, and
-	// no other way to confirm it matches the block's actual era), mirroring
-	// the same assumption the per-era rules make.
-	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation &&
-		config.ProtocolParameters != nil {
-		txs := block.Transactions()
-		rawBlockCbor := block.Cbor()
-		if len(txs) > 0 || len(rawBlockCbor) > 0 {
-			maxBodySize, maxHeaderSize, maxExUnits, hasMaxExUnits, limitsErr := blockLevelLimits(
-				config.ProtocolParameters,
-			)
-			if limitsErr != nil {
-				return false, "", 0, 0, common.NewValidationError(
-					common.ValidationErrorTypeConfiguration,
-					"unable to determine block-wide limits from protocol parameters",
-					map[string]any{
-						"block_slot":   slot,
-						"block_number": blockNo,
-						"era":          era,
-					},
-					limitsErr,
-				)
-			}
-			// A zero-value MaxBlockExUnits (both Memory and Steps unset)
-			// is treated as "no limit" and skipped, consistent with the
-			// maxBodySize > 0 / maxHeaderSize > 0 guards below.
-			hasNonZeroMaxExUnits := maxExUnits.Memory > 0 ||
-				maxExUnits.Steps > 0
-			if hasMaxExUnits && hasNonZeroMaxExUnits && len(txs) > 0 {
-				totalExUnits, sumErr := sumBlockExUnits(txs)
-				if sumErr != nil {
-					return false, "", 0, 0, common.NewValidationError(
-						common.ValidationErrorTypeTransaction,
-						"failed to sum block execution units",
-						map[string]any{
-							"block_slot":   slot,
-							"block_number": blockNo,
-							"era":          era,
-						},
-						sumErr,
-					)
-				}
-				if totalExUnits.Memory > maxExUnits.Memory ||
-					totalExUnits.Steps > maxExUnits.Steps {
-					return false, "", 0, 0, common.NewValidationError(
-						common.ValidationErrorTypeProtocol,
-						"block total execution units exceed protocol maximum",
-						map[string]any{
-							"block_slot":   slot,
-							"block_number": blockNo,
-							"era":          era,
-							"total_memory": totalExUnits.Memory,
-							"total_steps":  totalExUnits.Steps,
-							"max_memory":   maxExUnits.Memory,
-							"max_steps":    maxExUnits.Steps,
-						},
-						common.BlockExUnitsTooBigError{
-							TotalExUnits:    totalExUnits,
-							MaxBlockExUnits: maxExUnits,
-						},
-					)
-				}
-			}
-			if len(rawBlockCbor) > 0 {
-				headerSize := uint64(len(header.Cbor()))
-				if maxHeaderSize > 0 && headerSize > maxHeaderSize {
-					return false, "", 0, 0, common.NewValidationError(
-						common.ValidationErrorTypeProtocol,
-						"block header size exceeds protocol maximum",
-						map[string]any{
-							"block_slot":      slot,
-							"block_number":    blockNo,
-							"era":             era,
-							"header_size":     headerSize,
-							"max_header_size": maxHeaderSize,
-						},
-						common.BlockHeaderSizeTooBigError{
-							HeaderSize:         headerSize,
-							MaxBlockHeaderSize: maxHeaderSize,
-						},
-					)
-				}
-				bodySize, sizeErr := common.BlockBodySizeFromCbor(rawBlockCbor)
-				if sizeErr != nil {
-					return false, "", 0, 0, common.NewValidationError(
-						common.ValidationErrorTypeProtocol,
-						"failed to calculate block body size",
-						map[string]any{
-							"block_slot":   slot,
-							"block_number": blockNo,
-							"era":          era,
-						},
-						sizeErr,
-					)
-				}
-				if maxBodySize > 0 && bodySize > maxBodySize {
-					return false, "", 0, 0, common.NewValidationError(
-						common.ValidationErrorTypeProtocol,
-						"block body size exceeds protocol maximum",
-						map[string]any{
-							"block_slot":    slot,
-							"block_number":  blockNo,
-							"era":           era,
-							"body_size":     bodySize,
-							"max_body_size": maxBodySize,
-						},
-						common.BlockBodySizeTooBigError{
-							BlockBodySize:    bodySize,
-							MaxBlockBodySize: maxBodySize,
-						},
-					)
-				}
 			}
 		}
 	}

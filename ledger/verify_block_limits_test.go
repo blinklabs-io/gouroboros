@@ -259,6 +259,32 @@ func TestVerifyBlock_BlockLimits_BodySizeTooBig(t *testing.T) {
 	)
 }
 
+// TestVerifyBlock_BlockLimits_ZeroLimitsAreUnlimited confirms that leaving
+// MaxBlockExUnits, MaxBlockBodySize, and MaxBlockHeaderSize at their zero
+// values is treated as "unlimited" (each guard is skipped), not as a limit
+// of zero, so VerifyBlock still passes.
+func TestVerifyBlock_BlockLimits_ZeroLimitsAreUnlimited(t *testing.T) {
+	block := buildBlockLimitsTestBlock(t, 3, common.ExUnits{
+		Memory: 1_000_000,
+		Steps:  100_000_000,
+	})
+
+	pp := &conway.ConwayProtocolParameters{
+		MaxBlockBodySize:   0,
+		MaxBlockHeaderSize: 0,
+		MaxBlockExUnits:    common.ExUnits{},
+	}
+
+	valid, _, _, _, err := ledger.VerifyBlock(
+		block,
+		blockLimitsTestEta0Hex,
+		blockLimitsTestSlotsPerKesPeriod,
+		blockLimitsTestVerifyConfig(pp),
+	)
+	require.NoError(t, err)
+	require.True(t, valid)
+}
+
 // TestVerifyBlock_BlockLimits_HeaderSizeTooBig is the negative fixture for
 // a block whose serialized header size exceeds ppMaxBlockHeaderSize.
 func TestVerifyBlock_BlockLimits_HeaderSizeTooBig(t *testing.T) {

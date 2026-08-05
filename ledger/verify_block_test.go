@@ -3,6 +3,7 @@ package ledger
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -778,16 +779,15 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 // TestBlockLevelLimits covers blockLevelLimits' era-specific extraction of
 // MaxBlockBodySize/MaxBlockHeaderSize/MaxBlockExUnits, including the
 // pre-Alonzo eras (no ExUnits budget) and an unrecognized pparams type
-// (fail-closed, matching the era rules' own "pparams are not expected type"
-// convention).
+// (treated as "no limits configured", not a hard error, since
+// ProtocolParameters is a public interface any caller may implement).
 func TestBlockLevelLimits(t *testing.T) {
 	t.Run("shelley has no ExUnits", func(t *testing.T) {
 		pp := &shelley.ShelleyProtocolParameters{
 			MaxBlockBodySize:   1000,
 			MaxBlockHeaderSize: 100,
 		}
-		bodySize, headerSize, exUnits, hasExUnits, err := blockLevelLimits(pp)
-		require.NoError(t, err)
+		bodySize, headerSize, exUnits, hasExUnits := blockLevelLimits(pp)
 		assert.Equal(t, uint64(1000), bodySize)
 		assert.Equal(t, uint64(100), headerSize)
 		assert.False(t, hasExUnits)
@@ -799,8 +799,7 @@ func TestBlockLevelLimits(t *testing.T) {
 			MaxBlockBodySize:   2000,
 			MaxBlockHeaderSize: 200,
 		}
-		bodySize, headerSize, _, hasExUnits, err := blockLevelLimits(pp)
-		require.NoError(t, err)
+		bodySize, headerSize, _, hasExUnits := blockLevelLimits(pp)
 		assert.Equal(t, uint64(2000), bodySize)
 		assert.Equal(t, uint64(200), headerSize)
 		assert.False(t, hasExUnits)
@@ -811,8 +810,7 @@ func TestBlockLevelLimits(t *testing.T) {
 			MaxBlockBodySize:   3000,
 			MaxBlockHeaderSize: 300,
 		}
-		bodySize, headerSize, _, hasExUnits, err := blockLevelLimits(pp)
-		require.NoError(t, err)
+		bodySize, headerSize, _, hasExUnits := blockLevelLimits(pp)
 		assert.Equal(t, uint64(3000), bodySize)
 		assert.Equal(t, uint64(300), headerSize)
 		assert.False(t, hasExUnits)
@@ -827,8 +825,7 @@ func TestBlockLevelLimits(t *testing.T) {
 				Steps:  1_000_000_000,
 			},
 		}
-		bodySize, headerSize, exUnits, hasExUnits, err := blockLevelLimits(pp)
-		require.NoError(t, err)
+		bodySize, headerSize, exUnits, hasExUnits := blockLevelLimits(pp)
 		assert.Equal(t, uint64(4000), bodySize)
 		assert.Equal(t, uint64(400), headerSize)
 		assert.True(t, hasExUnits)
@@ -848,8 +845,7 @@ func TestBlockLevelLimits(t *testing.T) {
 				Steps:  2_000_000_000,
 			},
 		}
-		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
-		require.NoError(t, err)
+		_, _, exUnits, hasExUnits := blockLevelLimits(pp)
 		assert.True(t, hasExUnits)
 		assert.Equal(
 			t,
@@ -867,8 +863,7 @@ func TestBlockLevelLimits(t *testing.T) {
 				Steps:  3_000_000_000,
 			},
 		}
-		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
-		require.NoError(t, err)
+		_, _, exUnits, hasExUnits := blockLevelLimits(pp)
 		assert.True(t, hasExUnits)
 		assert.Equal(
 			t,
@@ -888,8 +883,7 @@ func TestBlockLevelLimits(t *testing.T) {
 				},
 			},
 		}
-		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
-		require.NoError(t, err)
+		_, _, exUnits, hasExUnits := blockLevelLimits(pp)
 		assert.True(t, hasExUnits)
 		assert.Equal(
 			t,
@@ -898,11 +892,24 @@ func TestBlockLevelLimits(t *testing.T) {
 		)
 	})
 
-	t.Run("unrecognized type is a hard error", func(t *testing.T) {
-		pp := &mockledger.MockProtocolParamsRules{}
-		_, _, _, _, err := blockLevelLimits(pp)
-		assert.Error(t, err)
-	})
+	t.Run(
+		"unrecognized type is treated as no limits configured",
+		func(t *testing.T) {
+			// ProtocolParameters is a public single-method interface, so
+			// callers may legitimately pass an implementation that isn't one
+			// of the era's concrete pparams structs (e.g. a mock). This must
+			// not fail the whole block; it is treated the same as "no limits
+			// configured" rather than a hard error.
+			pp := &mockledger.MockProtocolParamsRules{}
+			bodySize, headerSize, exUnits, hasExUnits := blockLevelLimits(
+				pp,
+			)
+			assert.Equal(t, uint64(0), bodySize)
+			assert.Equal(t, uint64(0), headerSize)
+			assert.False(t, hasExUnits)
+			assert.Equal(t, common.ExUnits{}, exUnits)
+		},
+	)
 }
 
 // TestSumBlockExUnits verifies the block-wide ExUnits sum aggregates every
@@ -967,6 +974,18 @@ func TestSumBlockExUnits(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, common.ExUnits{}, total)
 	})
+
+	t.Run(
+		"memory overflow across transactions is an error",
+		func(t *testing.T) {
+			txs := []common.Transaction{
+				newTxWithRedeemer(math.MaxInt64, 1),
+				newTxWithRedeemer(1, 1),
+			}
+			_, err := sumBlockExUnits(txs)
+			assert.Error(t, err)
+		},
+	)
 }
 
 func mustBuildInput(t *testing.T) common.TransactionInput {
