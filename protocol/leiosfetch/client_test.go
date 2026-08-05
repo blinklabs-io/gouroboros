@@ -15,8 +15,8 @@
 package leiosfetch
 
 import (
+	"context"
 	"net"
-	"runtime"
 	"testing"
 	"time"
 
@@ -115,69 +115,52 @@ func TestClientMessageHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// The Block/BlockTxs handlers now deliver results with a
-			// non-blocking send, so a response is dropped unless a caller is
-			// already parked on the result channel. The Votes/BlockRange
-			// handlers still deliver with a blocking send. To exercise routing
-			// deterministically for both, run a persistent drainer goroutine
-			// on the appropriate result channel (so a receiver is effectively
-			// always parked) and retry messageHandler until the drainer
-			// records a delivery. Calls are sequential, so at most one send is
-			// ever in flight; the drainer absorbs every send (preventing a
-			// blocking handler from wedging) and exits on stop.
+			// The Block/BlockTxs handlers deliver results to a per-request
+			// slot, so register a waiter first; the Votes/BlockRange handlers
+			// deliver with a blocking send to a shared channel, so park a
+			// receiver. Either way a single messageHandler call routes the
+			// message deterministically, with no busy-spin. A goroutine parked
+			// on the delivery channel forwards the routed message so we can
+			// assert delivery under a bounded deadline.
 			got := make(chan protocol.Message, 1)
-			stop := make(chan struct{})
-			done := make(chan struct{})
+			var deliverCh chan protocol.Message
+			switch tc.msg.Type() {
+			case MessageTypeBlock, MessageTypeNoBlock:
+				w, err := client.blockSlot.acquire(
+					context.Background(),
+					client.DoneChan(),
+				)
+				require.NoError(t, err)
+				deliverCh = w
+			case MessageTypeBlockTxs, MessageTypeNoBlockTxs:
+				w, err := client.blockTxsSlot.acquire(
+					context.Background(),
+					client.DoneChan(),
+				)
+				require.NoError(t, err)
+				deliverCh = w
+			case MessageTypeVotes:
+				deliverCh = client.votesResultChan
+			case MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
+				deliverCh = client.blockRangeResultChan
+			}
 			go func() {
-				defer close(done)
-				var ch chan protocol.Message
-				switch tc.msg.Type() {
-				case MessageTypeBlock, MessageTypeNoBlock:
-					ch = client.blockResultChan
-				case MessageTypeBlockTxs, MessageTypeNoBlockTxs:
-					ch = client.blockTxsResultChan
-				case MessageTypeVotes:
-					ch = client.votesResultChan
-				case MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
-					ch = client.blockRangeResultChan
-				}
-				for {
-					select {
-					case m := <-ch:
-						// Record only the first delivery; drop the rest.
-						select {
-						case got <- m:
-						default:
-						}
-					case <-stop:
-						return
-					}
-				}
+				got <- <-deliverCh
 			}()
 
-			deadline := time.Now().Add(time.Second)
-			delivered := false
-			for !delivered {
-				err := client.messageHandler(tc.msg)
-				if tc.expectError {
-					assert.Error(t, err)
-				} else {
-					assert.NoError(t, err)
-				}
-				select {
-				case <-got:
-					delivered = true
-				default:
-					require.False(
-						t,
-						time.Now().After(deadline),
-						"handler did not route message",
-					)
-					runtime.Gosched()
-				}
+			err := client.messageHandler(tc.msg)
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
-			close(stop)
-			<-done
+
+			select {
+			case m := <-got:
+				assert.Equal(t, tc.msg, m)
+			case <-time.After(time.Second):
+				t.Fatal("handler did not route message")
+			}
 		})
 	}
 }

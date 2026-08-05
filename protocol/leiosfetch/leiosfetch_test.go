@@ -164,6 +164,109 @@ func TestBlockTxsRequestNoBlockTxs(t *testing.T) {
 	)
 }
 
+// TestBlockRequestSuccess verifies the normal path: the server answers a
+// BlockRequest with MsgBlock and the caller receives the exact block payload.
+// Because the per-request delivery channel is registered before the request
+// message is sent, the response cannot be dropped even if it arrives before
+// the caller parks on the channel.
+func TestBlockRequestSuccess(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgBlock([]byte{0x82, 0x0a, 0x0b}),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			resp, err := oConn.LeiosFetch().Client.BlockRequest(
+				context.Background(),
+				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			)
+			require.NoError(t, err)
+			require.IsType(t, &leiosfetch.MsgBlock{}, resp)
+			assert.Equal(
+				t,
+				[]byte{0x82, 0x0a, 0x0b},
+				[]byte(resp.(*leiosfetch.MsgBlock).BlockRaw),
+			)
+		},
+	)
+}
+
+// TestBlockRequestSubsequentAfterAbandonedNoResponse verifies that when a
+// BlockRequest is abandoned via its context and NO response ever arrives, a
+// subsequent BlockRequest still fails cleanly with its own context error and
+// does NOT tear down the shared multiplexed connection. The runTest harness
+// panics on any error delivered to the connection ErrorChan, so completing
+// without a panic proves the connection stays alive (no SendError / fatal
+// teardown from a request issued after an abandoned one).
+func TestBlockRequestSubsequentAfterAbandonedNoResponse(t *testing.T) {
+	conversation := append(
+		conversationHandshake,
+		// The server receives the first request and never responds. The
+		// second request never reaches the wire because the client blocks it
+		// until the first (never-arriving) response drains.
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRequest,
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			client := oConn.LeiosFetch().Client
+			ctx1, cancel1 := context.WithTimeout(
+				context.Background(),
+				150*time.Millisecond,
+			)
+			defer cancel1()
+			resp1, err1 := client.BlockRequest(
+				ctx1,
+				pcommon.NewPoint(12345, []byte{0x01, 0x02, 0x03, 0x04}),
+			)
+			require.Error(t, err1)
+			assert.True(
+				t,
+				errors.Is(err1, context.DeadlineExceeded),
+				"expected context deadline error, got %v",
+				err1,
+			)
+			assert.Nil(t, resp1)
+
+			// Subsequent request: also bounded by its own context. It must
+			// return a context error, not tear down the connection.
+			ctx2, cancel2 := context.WithTimeout(
+				context.Background(),
+				150*time.Millisecond,
+			)
+			defer cancel2()
+			resp2, err2 := client.BlockRequest(
+				ctx2,
+				pcommon.NewPoint(23456, []byte{0x05, 0x06, 0x07, 0x08}),
+			)
+			require.Error(t, err2)
+			assert.True(
+				t,
+				errors.Is(err2, context.DeadlineExceeded),
+				"expected context deadline error, got %v",
+				err2,
+			)
+			assert.Nil(t, resp2)
+		},
+	)
+}
+
 // TestBlockRequestContextCancelledNonFatal verifies that when a BlockRequest
 // receives no response, the caller-supplied context bounds the wait and the
 // request returns the context error. Critically, this must NOT emit a protocol
@@ -279,7 +382,17 @@ func TestBlockRequestSubsequentAfterAbandoned(t *testing.T) {
 			)
 			require.NoError(t, err2)
 			require.NotNil(t, resp2)
-			assert.IsType(t, &leiosfetch.MsgBlock{}, resp2)
+			require.IsType(t, &leiosfetch.MsgBlock{}, resp2)
+			// Assert the exact payload for the SECOND request. The late
+			// response to the abandoned first request carried {0x82,0x01,0x02};
+			// if correlation were broken it would be mis-delivered here. Only
+			// the second request's own response {0x82,0x03,0x04} is correct.
+			block2 := resp2.(*leiosfetch.MsgBlock)
+			assert.Equal(
+				t,
+				[]byte{0x82, 0x03, 0x04},
+				[]byte(block2.BlockRaw),
+			)
 		},
 	)
 }
