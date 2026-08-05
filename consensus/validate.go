@@ -251,37 +251,69 @@ func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 	return nil
 }
 
-// validateVRFProof verifies the VRF proof.
-func (v *HeaderValidator) validateVRFProof(
-	input *ValidateHeaderInput,
+// verifyCertifiedVRF verifies a VRF certificate (proof + output) against the
+// given VRF key, slot, and epoch nonce, deriving the VRF input from seed.
+// It holds the plumbing shared by the leader VRF check (validateVRFProof,
+// seed = vrf.SeedL()) and the TPraos-only nonce VRF check
+// (validateNonceVRFProof, seed = vrf.SeedEta()): epoch-nonce length
+// validation, VRF key/proof/output size validation, VRF input construction,
+// and vrf.Verify.
+//
+// label is prepended to the VRF-specific error messages so nonce VRF
+// failures can be distinguished from leader VRF failures (e.g. "nonce ");
+// pass "" for the leader VRF check. checkOutputSize controls whether the
+// output length is validated up front: validateVRFProof historically relies
+// on vrf.Verify's constant-time comparison to reject a size-mismatched
+// output (returning the generic "verification returned false" error), so it
+// passes false to preserve that behavior; validateNonceVRFProof passes true.
+func (v *HeaderValidator) verifyCertifiedVRF(
+	slot uint64,
+	epochNonce []byte,
+	vrfKey []byte,
+	proof []byte,
+	output []byte,
+	seed []byte,
+	checkOutputSize bool,
+	label string,
 ) ([]byte, error) {
-	// Validate EpochNonce is exactly 32 bytes to prevent panic in vrf.MkInputVrf
-	if len(input.EpochNonce) != 32 {
+	// Validate EpochNonce is exactly 32 bytes to prevent panic in
+	// vrf.MkInputVrf / vrf.MkSeedTPraos.
+	if len(epochNonce) != 32 {
 		return nil, fmt.Errorf(
 			"epoch nonce must be 32 bytes, got %d",
-			len(input.EpochNonce),
+			len(epochNonce),
 		)
 	}
 
-	if len(input.VrfKey) != vrf.PublicKeySize {
+	if len(vrfKey) != vrf.PublicKeySize {
 		return nil, fmt.Errorf(
 			"invalid VRF key size: expected %d, got %d",
 			vrf.PublicKeySize,
-			len(input.VrfKey),
+			len(vrfKey),
 		)
 	}
 
-	if len(input.VrfProof) != vrf.ProofSize {
+	if len(proof) != vrf.ProofSize {
 		return nil, fmt.Errorf(
-			"invalid VRF proof size: expected %d, got %d",
+			"invalid %sVRF proof size: expected %d, got %d",
+			label,
 			vrf.ProofSize,
-			len(input.VrfProof),
+			len(proof),
+		)
+	}
+
+	if checkOutputSize && len(output) != vrf.OutputSize {
+		return nil, fmt.Errorf(
+			"invalid %sVRF output size: expected %d, got %d",
+			label,
+			vrf.OutputSize,
+			len(output),
 		)
 	}
 
 	// Compute VRF input message. TPraos (Shelley-Alonzo) and CPraos
 	// (Babbage+) use different VRF input constructions: TPraos XORs the
-	// base hash with the seedL constant (Cardano.Protocol.TPraos.Rules.
+	// base hash with the seed constant (Cardano.Protocol.TPraos.Rules.
 	// Overlay.vrfChecks), while CPraos uses the raw
 	// blake2b-256(slot || nonce) (Ouroboros.Consensus.Protocol.Praos.VRF.
 	// mkInputVRF).
@@ -291,49 +323,63 @@ func (v *HeaderValidator) validateVRFProof(
 	switch v.mode {
 	case ConsensusModeTPraos:
 		vrfInput, err = vrf.MkSeedTPraos(
-			int64(input.Slot), //nolint:gosec
-			input.EpochNonce,
-			vrf.SeedL(),
+			int64(slot), //nolint:gosec
+			epochNonce,
+			seed,
 		)
 	case ConsensusModeCPraos:
 		vrfInput, err = vrf.MkInputVrf(
-			int64(input.Slot), //nolint:gosec
-			input.EpochNonce,
+			int64(slot), //nolint:gosec
+			epochNonce,
 		)
 	default:
 		return nil, fmt.Errorf("unknown consensus mode: %d", v.mode)
 	}
 	if err != nil {
 		return nil, fmt.Errorf(
-			"invalid VRF input parameters at slot %d: %w",
-			input.Slot,
+			"invalid %sVRF input parameters at slot %d: %w",
+			label,
+			slot,
 			err,
 		)
 	}
 
 	// Verify VRF proof
-	valid, err := vrf.Verify(
-		input.VrfKey,
-		input.VrfProof,
-		input.VrfOutput,
-		vrfInput,
-	)
+	valid, err := vrf.Verify(vrfKey, proof, output, vrfInput)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"VRF verification failed at slot %d: %w",
-			input.Slot,
+			"%sVRF verification failed at slot %d: %w",
+			label,
+			slot,
 			err,
 		)
 	}
 
 	if !valid {
 		return nil, fmt.Errorf(
-			"VRF proof verification returned false at slot %d",
-			input.Slot,
+			"%sVRF proof verification returned false at slot %d",
+			label,
+			slot,
 		)
 	}
 
-	return input.VrfOutput, nil
+	return output, nil
+}
+
+// validateVRFProof verifies the VRF proof.
+func (v *HeaderValidator) validateVRFProof(
+	input *ValidateHeaderInput,
+) ([]byte, error) {
+	return v.verifyCertifiedVRF(
+		input.Slot,
+		input.EpochNonce,
+		input.VrfKey,
+		input.VrfProof,
+		input.VrfOutput,
+		vrf.SeedL(),
+		false,
+		"",
+	)
 }
 
 // validateNonceVRFProof verifies the TPraos-only nonce VRF proof
@@ -354,74 +400,17 @@ func (v *HeaderValidator) validateNonceVRFProof(
 		return nil
 	}
 
-	// Validate EpochNonce is exactly 32 bytes to prevent panic in
-	// vrf.MkSeedTPraos.
-	if len(input.EpochNonce) != 32 {
-		return fmt.Errorf(
-			"epoch nonce must be 32 bytes, got %d",
-			len(input.EpochNonce),
-		)
-	}
-
-	if len(input.VrfKey) != vrf.PublicKeySize {
-		return fmt.Errorf(
-			"invalid VRF key size: expected %d, got %d",
-			vrf.PublicKeySize,
-			len(input.VrfKey),
-		)
-	}
-
-	if len(input.NonceVrfProof) != vrf.ProofSize {
-		return fmt.Errorf(
-			"invalid nonce VRF proof size: expected %d, got %d",
-			vrf.ProofSize,
-			len(input.NonceVrfProof),
-		)
-	}
-
-	if len(input.NonceVrfOutput) != vrf.OutputSize {
-		return fmt.Errorf(
-			"invalid nonce VRF output size: expected %d, got %d",
-			vrf.OutputSize,
-			len(input.NonceVrfOutput),
-		)
-	}
-
-	nonceVrfInput, err := vrf.MkSeedTPraos(
-		int64(input.Slot), //nolint:gosec
+	_, err := v.verifyCertifiedVRF(
+		input.Slot,
 		input.EpochNonce,
-		vrf.SeedEta(),
-	)
-	if err != nil {
-		return fmt.Errorf(
-			"invalid nonce VRF input parameters at slot %d: %w",
-			input.Slot,
-			err,
-		)
-	}
-
-	valid, err := vrf.Verify(
 		input.VrfKey,
 		input.NonceVrfProof,
 		input.NonceVrfOutput,
-		nonceVrfInput,
+		vrf.SeedEta(),
+		true,
+		"nonce ",
 	)
-	if err != nil {
-		return fmt.Errorf(
-			"nonce VRF verification failed at slot %d: %w",
-			input.Slot,
-			err,
-		)
-	}
-
-	if !valid {
-		return fmt.Errorf(
-			"nonce VRF proof verification returned false at slot %d",
-			input.Slot,
-		)
-	}
-
-	return nil
+	return err
 }
 
 // validateLeadership checks if the VRF output satisfies the leadership threshold.
