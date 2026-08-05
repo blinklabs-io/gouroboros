@@ -144,6 +144,118 @@ func TestVerifySignedKES(t *testing.T) {
 	)
 }
 
+func TestUpdateErasesSpentKey(t *testing.T) {
+	sk, _, err := KeyGen(CardanoKesDepth, testSeed)
+	require.NoError(t, err, "KeyGen failed")
+
+	// Hold a reference to the original backing array so we can prove it was
+	// wiped after evolution (Zeroize sets sk.Data = nil).
+	oldData := sk.Data
+
+	sk1, err := Update(sk)
+	require.NoError(t, err, "Update failed")
+	require.Equal(t, uint64(1), sk1.Period, "evolved key wrong period")
+
+	// The spent predecessor must be erased and unusable.
+	require.Nil(t, sk.Data, "spent key Data not cleared")
+	require.Equal(
+		t,
+		make([]byte, len(oldData)),
+		oldData,
+		"spent key backing array not zeroed",
+	)
+	_, err = Sign(sk, 0, []byte("should fail"))
+	require.Error(t, err, "erased key must not sign")
+
+	// The evolved key must sign and verify at the new period.
+	message := []byte("test message at period 1")
+	sig, err := Sign(sk1, 1, message)
+	require.NoError(t, err, "evolved key sign failed")
+	require.True(
+		t,
+		VerifySignedKES(PublicKey(sk1), 1, message, sig),
+		"evolved signature failed to verify",
+	)
+}
+
+func TestZeroize(t *testing.T) {
+	sk, _, err := KeyGen(CardanoKesDepth, testSeed)
+	require.NoError(t, err, "KeyGen failed")
+
+	data := sk.Data
+	sk.Zeroize()
+
+	require.Nil(t, sk.Data, "Data not cleared after Zeroize")
+	require.Equal(
+		t,
+		make([]byte, len(data)),
+		data,
+		"backing array not zeroed after Zeroize",
+	)
+
+	_, err = Sign(sk, 0, []byte("x"))
+	require.Error(t, err, "zeroized key must not sign")
+	_, err = Update(sk)
+	require.Error(t, err, "zeroized key must not evolve")
+
+	// Zeroize on a nil key and a double Zeroize must not panic.
+	require.NotPanics(t, func() { sk.Zeroize() }, "double Zeroize panicked")
+	var nilKey *SecretKey
+	require.NotPanics(t, func() { nilKey.Zeroize() }, "nil Zeroize panicked")
+}
+
+func TestUpdateExhaustionUnchanged(t *testing.T) {
+	sk, _, err := KeyGen(CardanoKesDepth, testSeed)
+	require.NoError(t, err, "KeyGen failed")
+
+	maxPeriod := MaxPeriod(CardanoKesDepth)
+	// Evolve to the final valid period (maxPeriod - 1).
+	for range maxPeriod - 1 {
+		sk, err = Update(sk)
+		require.NoError(t, err, "Update failed during evolve chain")
+	}
+	require.Equal(t, maxPeriod-1, sk.Period, "did not reach final period")
+
+	// One more evolution is exhausted and must leave the key unchanged/usable.
+	before := append([]byte(nil), sk.Data...)
+	_, err = Update(sk)
+	require.Error(t, err, "expected exhaustion error")
+	require.NotNil(t, sk.Data, "exhausted Update must not erase the key")
+	require.Equal(t, before, sk.Data, "exhausted Update mutated the key")
+
+	// The key at the final period must still sign.
+	message := []byte("final period")
+	sig, err := Sign(sk, maxPeriod-1, message)
+	require.NoError(t, err, "sign at final period failed")
+	require.True(
+		t,
+		VerifySignedKES(PublicKey(sk), maxPeriod-1, message, sig),
+		"final period signature failed to verify",
+	)
+}
+
+func TestFullEvolveChainVerifies(t *testing.T) {
+	sk, pk, err := KeyGen(CardanoKesDepth, testSeed)
+	require.NoError(t, err, "KeyGen failed")
+
+	maxPeriod := MaxPeriod(CardanoKesDepth)
+	message := []byte("evolve chain message")
+	for period := range maxPeriod {
+		sig, err := Sign(sk, period, message)
+		require.NoErrorf(t, err, "sign failed at period %d", period)
+		require.Truef(
+			t,
+			VerifySignedKES(pk, period, message, sig),
+			"verify failed at period %d",
+			period,
+		)
+		if period < maxPeriod-1 {
+			sk, err = Update(sk)
+			require.NoErrorf(t, err, "update failed at period %d", period)
+		}
+	}
+}
+
 func TestHashPair(t *testing.T) {
 	left := make([]byte, PublicKeySize)
 	right := make([]byte, PublicKeySize)
