@@ -16,6 +16,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -150,15 +151,18 @@ func TestDetermineBlockTypeCoversDeclaredProtocolRanges(t *testing.T) {
 
 	for _, tc := range testCases {
 		for major := tc.minMajor; major <= tc.maxMajor; major++ {
-			t.Run(fmt.Sprintf("%s major %d", tc.name, major), func(t *testing.T) {
-				headerCbor, err := encodeTestHeader(major, tc.babbageLike)
-				require.NoError(t, err, "failed to encode header")
-				blockType, err := DetermineBlockType(headerCbor)
-				require.NoErrorf(t, err,
-					"major %d declared by %s was rejected", major, tc.name)
-				require.Equalf(t, tc.blockType, blockType,
-					"major %d classified as the wrong era", major)
-			})
+			t.Run(
+				fmt.Sprintf("%s major %d", tc.name, major),
+				func(t *testing.T) {
+					headerCbor, err := encodeTestHeader(major, tc.babbageLike)
+					require.NoError(t, err, "failed to encode header")
+					blockType, err := DetermineBlockType(headerCbor)
+					require.NoErrorf(t, err,
+						"major %d declared by %s was rejected", major, tc.name)
+					require.Equalf(t, tc.blockType, blockType,
+						"major %d classified as the wrong era", major)
+				},
+			)
 		}
 	}
 }
@@ -769,4 +773,220 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBlockLevelLimits covers blockLevelLimits' era-specific extraction of
+// MaxBlockBodySize/MaxBlockHeaderSize/MaxBlockExUnits, including the
+// pre-Alonzo eras (no ExUnits budget) and an unrecognized pparams type
+// (fail-closed, matching the era rules' own "pparams are not expected type"
+// convention).
+func TestBlockLevelLimits(t *testing.T) {
+	t.Run("shelley has no ExUnits", func(t *testing.T) {
+		pp := &shelley.ShelleyProtocolParameters{
+			MaxBlockBodySize:   1000,
+			MaxBlockHeaderSize: 100,
+		}
+		bodySize, headerSize, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(1000), bodySize)
+		assert.Equal(t, uint64(100), headerSize)
+		assert.False(t, hasExUnits)
+		assert.Equal(t, common.ExUnits{}, exUnits)
+	})
+
+	t.Run("allegra alias covered by shelley case", func(t *testing.T) {
+		pp := &allegra.AllegraProtocolParameters{
+			MaxBlockBodySize:   2000,
+			MaxBlockHeaderSize: 200,
+		}
+		bodySize, headerSize, _, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(2000), bodySize)
+		assert.Equal(t, uint64(200), headerSize)
+		assert.False(t, hasExUnits)
+	})
+
+	t.Run("mary has no ExUnits", func(t *testing.T) {
+		pp := &mary.MaryProtocolParameters{
+			MaxBlockBodySize:   3000,
+			MaxBlockHeaderSize: 300,
+		}
+		bodySize, headerSize, _, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(3000), bodySize)
+		assert.Equal(t, uint64(300), headerSize)
+		assert.False(t, hasExUnits)
+	})
+
+	t.Run("alonzo has ExUnits", func(t *testing.T) {
+		pp := &alonzo.AlonzoProtocolParameters{
+			MaxBlockBodySize:   4000,
+			MaxBlockHeaderSize: 400,
+			MaxBlockExUnits: common.ExUnits{
+				Memory: 5_000_000,
+				Steps:  1_000_000_000,
+			},
+		}
+		bodySize, headerSize, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(4000), bodySize)
+		assert.Equal(t, uint64(400), headerSize)
+		assert.True(t, hasExUnits)
+		assert.Equal(
+			t,
+			common.ExUnits{Memory: 5_000_000, Steps: 1_000_000_000},
+			exUnits,
+		)
+	})
+
+	t.Run("babbage has ExUnits", func(t *testing.T) {
+		pp := &babbage.BabbageProtocolParameters{
+			MaxBlockBodySize:   5000,
+			MaxBlockHeaderSize: 500,
+			MaxBlockExUnits: common.ExUnits{
+				Memory: 6_000_000,
+				Steps:  2_000_000_000,
+			},
+		}
+		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
+		assert.True(t, hasExUnits)
+		assert.Equal(
+			t,
+			common.ExUnits{Memory: 6_000_000, Steps: 2_000_000_000},
+			exUnits,
+		)
+	})
+
+	t.Run("conway has ExUnits", func(t *testing.T) {
+		pp := &conway.ConwayProtocolParameters{
+			MaxBlockBodySize:   6000,
+			MaxBlockHeaderSize: 600,
+			MaxBlockExUnits: common.ExUnits{
+				Memory: 7_000_000,
+				Steps:  3_000_000_000,
+			},
+		}
+		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
+		assert.True(t, hasExUnits)
+		assert.Equal(
+			t,
+			common.ExUnits{Memory: 7_000_000, Steps: 3_000_000_000},
+			exUnits,
+		)
+	})
+
+	t.Run("dijkstra has ExUnits", func(t *testing.T) {
+		pp := &dijkstra.DijkstraProtocolParameters{
+			ConwayProtocolParameters: conway.ConwayProtocolParameters{
+				MaxBlockBodySize:   7000,
+				MaxBlockHeaderSize: 700,
+				MaxBlockExUnits: common.ExUnits{
+					Memory: 8_000_000,
+					Steps:  4_000_000_000,
+				},
+			},
+		}
+		_, _, exUnits, hasExUnits, err := blockLevelLimits(pp)
+		require.NoError(t, err)
+		assert.True(t, hasExUnits)
+		assert.Equal(
+			t,
+			common.ExUnits{Memory: 8_000_000, Steps: 4_000_000_000},
+			exUnits,
+		)
+	})
+
+	t.Run("unrecognized type is a hard error", func(t *testing.T) {
+		pp := &mockledger.MockProtocolParamsRules{}
+		_, _, _, _, err := blockLevelLimits(pp)
+		assert.Error(t, err)
+	})
+}
+
+// TestSumBlockExUnits verifies the block-wide ExUnits sum aggregates every
+// redeemer across every transaction, using the same TransactionWitnessRedeemers
+// mechanism (real ConwayRedeemers, not a bespoke mock) that each era's
+// per-transaction UtxoValidateExUnitsTooBigUtxo rule sums over.
+func TestSumBlockExUnits(t *testing.T) {
+	newTxWithRedeemer := func(memory, steps int64) common.Transaction {
+		tx, err := mockledger.NewTransactionBuilder().
+			WithInputs(mustBuildInput(t)).
+			WithOutputs(mustBuildOutput(t)).
+			WithFee(200000).
+			Build()
+		require.NoError(t, err)
+		mockTx, ok := tx.(*mockledger.MockTransaction)
+		require.True(t, ok)
+		mockTx.WithWitnesses(
+			mockledger.NewMockTransactionWitnessSet().WithRedeemers(
+				conway.ConwayRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagSpend, Index: 0}: {
+							ExUnits: common.ExUnits{
+								Memory: memory,
+								Steps:  steps,
+							},
+						},
+					},
+				},
+			),
+		)
+		return mockTx
+	}
+
+	t.Run("sums across transactions", func(t *testing.T) {
+		txs := []common.Transaction{
+			newTxWithRedeemer(1_000_000, 100_000_000),
+			newTxWithRedeemer(1_500_000, 300_000_000),
+		}
+		total, err := sumBlockExUnits(txs)
+		require.NoError(t, err)
+		assert.Equal(
+			t,
+			common.ExUnits{Memory: 2_500_000, Steps: 400_000_000},
+			total,
+		)
+	})
+
+	t.Run("empty transaction list sums to zero", func(t *testing.T) {
+		total, err := sumBlockExUnits(nil)
+		require.NoError(t, err)
+		assert.Equal(t, common.ExUnits{}, total)
+	})
+
+	t.Run("transaction without witnesses is skipped", func(t *testing.T) {
+		tx, err := mockledger.NewTransactionBuilder().
+			WithInputs(mustBuildInput(t)).
+			WithOutputs(mustBuildOutput(t)).
+			WithFee(200000).
+			Build()
+		require.NoError(t, err)
+		total, err := sumBlockExUnits([]common.Transaction{tx})
+		require.NoError(t, err)
+		assert.Equal(t, common.ExUnits{}, total)
+	})
+}
+
+func mustBuildInput(t *testing.T) common.TransactionInput {
+	t.Helper()
+	txId := make([]byte, 32)
+	txId[0] = 0x01
+	input, err := mockledger.NewTransactionInputBuilder().
+		WithTxId(txId).
+		WithIndex(0).
+		Build()
+	require.NoError(t, err)
+	return input
+}
+
+func mustBuildOutput(t *testing.T) common.TransactionOutput {
+	t.Helper()
+	output, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress("addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd").
+		WithLovelace(1_000_000).
+		Build()
+	require.NoError(t, err)
+	return output
 }
