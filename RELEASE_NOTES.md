@@ -4,6 +4,33 @@ title: Release notes
 
 # Release notes
 
+## v0.191.3
+
+- **Date:** 2026-08-05
+- **Version:** 0.191.3
+
+### Summary
+
+This release improves address validation, CBOR round-trip behavior, TPraos-aware consensus handling, request timeout handling, and block safety limits.
+
+### Breaking Changes
+
+* Updated `Client.BlockRequest` and `Client.BlockTxsRequest` to require a `context.Context`, and removed the protocol-level timeout for `StateBlock` and `StateBlockTxs`.
+
+### Bug Fixes
+
+* Fixed address decoding so invalid Bech32 values now stay invalid instead of falling back to Base58, reducing accidental acceptance of malformed addresses.
+
+* Improved CBOR marshaling so `Datum` and `SetType` keep original encoded bytes when they are available, preserving byte-exact round trips and hash consistency.
+
+* Strengthened address payload decoding so unexpected trailing bytes now fail validation, while a small allowlist preserves a few historical mainnet trailers to keep older data working.
+
+* Improved block request handling so `leiosfetch` now treats request timeouts as local failures and keeps the shared connection open.
+
+* Expanded consensus validation so generic header checks and block building now handle both CPraos and TPraos, including the TPraos nonce VRF certificate and mode-aware leadership checks.
+
+* Updated block verification so `VerifyBlock` applies block-wide execution and size limits, improving protection against oversized or over-executed blocks.
+
 ## v0.191.2
 
 - **Date:** 2026-08-02
