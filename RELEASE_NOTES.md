@@ -15,7 +15,7 @@ This release improves address validation, CBOR round-trip behavior, TPraos-aware
 
 ### Breaking Changes
 
-* Required callers of `Client.BlockRequest` and `Client.BlockTxsRequest` to provide a `context.Context`, and removed the protocol-level timeout for `StateBlock` and `StateBlockTxs`.
+* Updated `Client.BlockRequest` and `Client.BlockTxsRequest` to require a `context.Context`, and removed the protocol-level timeout for `StateBlock` and `StateBlockTxs`.
 
 ### Bug Fixes
 
