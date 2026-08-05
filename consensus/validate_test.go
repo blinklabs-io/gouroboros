@@ -164,7 +164,11 @@ func TestValidatePrevHash(t *testing.T) {
 		PrevHeaderHash: nil,
 	}
 	err = validator.validatePrevHash(input)
-	require.EqualError(t, err, "previous header hash is required for non-genesis blocks")
+	require.EqualError(
+		t,
+		err,
+		"previous header hash is required for non-genesis blocks",
+	)
 
 	// Valid: genesis block may omit previous hash
 	input = &ValidateHeaderInput{
@@ -339,7 +343,11 @@ func TestValidateLeadership(t *testing.T) {
 	err := validator.validateLeadership(input, zeroOutput)
 
 	if expectedEligible {
-		require.NoError(t, err, "expected no error for eligible VRF output with 100%% stake")
+		require.NoError(
+			t,
+			err,
+			"expected no error for eligible VRF output with 100%% stake",
+		)
 	} else {
 		require.Error(t, err, "expected error for non-eligible VRF output")
 	}
@@ -768,6 +776,262 @@ func TestPreviewNetworkConfig(t *testing.T) {
 			validator.slotsPerKESPeriod,
 		)
 	}
+}
+
+// TestNewHeaderValidatorWithMode verifies that the constructor stores the
+// requested consensus mode and that the default constructor still defaults
+// to CPRAOS (ConsensusModeCPraos is the zero value), preserving prior
+// behavior for all existing callers.
+func TestNewHeaderValidatorWithMode(t *testing.T) {
+	cpraosValidator := NewHeaderValidator(testNetworkConfig())
+	require.Equal(t, ConsensusModeCPraos, cpraosValidator.mode)
+
+	tpraosValidator := NewHeaderValidatorWithMode(
+		testNetworkConfig(),
+		ConsensusModeTPraos,
+	)
+	require.Equal(t, ConsensusModeTPraos, tpraosValidator.mode)
+}
+
+// TestValidateVRFProofTPraos exercises the TPraos-mode VRF input
+// construction (MkSeedTPraos with the seedL constant), as used by
+// Shelley through Alonzo headers.
+func TestValidateVRFProofTPraos(t *testing.T) {
+	validator := NewHeaderValidatorWithMode(
+		testNetworkConfig(),
+		ConsensusModeTPraos,
+	)
+
+	seed := []byte("test_vrf_seed_for_tpraos_valid!!")
+	pk, sk, err := vrf.KeyGen(seed)
+	require.NoError(t, err)
+
+	epochNonce := make([]byte, 32)
+	for i := range epochNonce {
+		epochNonce[i] = byte(i)
+	}
+
+	slot := uint64(1000)
+	vrfInput, err := vrf.MkSeedTPraos(int64(slot), epochNonce, vrf.SeedL())
+	require.NoError(t, err)
+	proof, output, err := vrf.Prove(sk, vrfInput)
+	require.NoError(t, err)
+
+	// Valid: TPraos-constructed proof verifies under a TPraos validator.
+	input := &ValidateHeaderInput{
+		Slot:       slot,
+		EpochNonce: epochNonce,
+		VrfKey:     pk,
+		VrfProof:   proof,
+		VrfOutput:  output,
+	}
+	gotOutput, err := validator.validateVRFProof(input)
+	require.NoError(t, err)
+	require.Equal(t, output, gotOutput)
+
+	// Invalid: the same proof does not verify under a CPRAOS validator,
+	// because the CPRAOS and TPraos VRF input constructions differ.
+	cpraosValidator := NewHeaderValidator(testNetworkConfig())
+	_, err = cpraosValidator.validateVRFProof(input)
+	require.Error(t, err)
+
+	// Invalid: a CPRAOS-constructed proof for the same key/slot/nonce does
+	// not verify under a TPraos validator.
+	cpraosInput, err := vrf.MkInputVrf(int64(slot), epochNonce)
+	require.NoError(t, err)
+	cpraosProof, cpraosOutput, err := vrf.Prove(sk, cpraosInput)
+	require.NoError(t, err)
+	crossInput := &ValidateHeaderInput{
+		Slot:       slot,
+		EpochNonce: epochNonce,
+		VrfKey:     pk,
+		VrfProof:   cpraosProof,
+		VrfOutput:  cpraosOutput,
+	}
+	_, err = validator.validateVRFProof(crossInput)
+	require.Error(t, err)
+}
+
+// TestValidateLeadershipTPraos exercises the TPraos leadership threshold
+// semantics: the raw 64-byte VRF output is compared directly (no
+// BLAKE2b-256 "L"-prefix hashing) against a threshold derived from 2^512.
+func TestValidateLeadershipTPraos(t *testing.T) {
+	validator := NewHeaderValidatorWithMode(
+		testNetworkConfig(),
+		ConsensusModeTPraos,
+	)
+
+	activeSlotCoeff := big.NewRat(1, 20) // 0.05
+	threshold, err := CertifiedNatThresholdWithMode(
+		1000000000,
+		1000000000,
+		activeSlotCoeff,
+		ConsensusModeTPraos,
+	)
+	require.NoError(t, err)
+
+	// Valid: zero VRF output is always numerically below any positive
+	// threshold, so it must be accepted as eligible under TPraos, where
+	// the raw output is compared directly (no leader-value hashing).
+	zeroOutput := make([]byte, 64)
+	input := &ValidateHeaderInput{
+		PoolStake:  1000000000,
+		TotalStake: 1000000000, // 100% stake
+	}
+	err = validator.validateLeadership(input, zeroOutput)
+	require.NoError(t, err)
+	require.Positive(
+		t,
+		threshold.Sign(),
+		"threshold should be positive for nonzero stake",
+	)
+
+	// Invalid: the maximum possible VRF output (2^512 - 1) can never be
+	// below a threshold that is strictly less than 2^512.
+	maxOutput := make([]byte, 64)
+	for i := range maxOutput {
+		maxOutput[i] = 0xFF
+	}
+	err = validator.validateLeadership(input, maxOutput)
+	require.Error(t, err)
+
+	// Invalid: zero total stake.
+	input = &ValidateHeaderInput{
+		PoolStake:  1000,
+		TotalStake: 0,
+	}
+	err = validator.validateLeadership(input, zeroOutput)
+	require.Error(t, err)
+}
+
+// TestValidateHeaderFullTPraosValid builds a fully valid Shelley-era
+// (TPraos) header end-to-end -- VRF proof, KES signature, and OpCert
+// signature -- and confirms ValidateHeader accepts it when the validator
+// is configured for ConsensusModeTPraos.
+func TestValidateHeaderFullTPraosValid(t *testing.T) {
+	validator := NewHeaderValidatorWithMode(
+		testNetworkConfig(),
+		ConsensusModeTPraos,
+	)
+
+	vrfSigner, err := NewSimpleVRFSigner(
+		[]byte("test_vrf_seed_for_tpraos_full!!!"),
+	)
+	require.NoError(t, err)
+
+	kesSeed := []byte("test_kes_seed_for_tpraos_full!!!")
+	kesSk, kesPk, err := kes.KeyGen(kes.CardanoKesDepth, kesSeed)
+	require.NoError(t, err)
+
+	coldSeed := []byte("test_cold_key_for_tpraos_full!!!")
+	coldPrivateKey := ed25519.NewKeyFromSeed(coldSeed)
+	coldPublicKey := coldPrivateKey.Public().(ed25519.PublicKey)
+
+	epochNonce := make([]byte, 32)
+	for i := range epochNonce {
+		epochNonce[i] = byte(i)
+	}
+
+	// Use the validator's own active slot coefficient (from
+	// testNetworkConfig) and 100% relative stake so the leadership check
+	// performed below by validateLeadership uses the same threshold used
+	// here. slot 5 is a fixed, deterministically-eligible slot for this
+	// exact seed/epochNonce/stake/coefficient combination -- chosen so a
+	// genuine regression in the TPraos VRF input or threshold computation
+	// fails this test loudly instead of silently skipping it.
+	activeSlotCoeff := validator.activeSlotCoeff
+	poolStake := uint64(1000000000)
+	totalStake := uint64(1000000000)
+	const slot = uint64(5)
+
+	leaderResult, err := IsSlotLeaderWithMode(
+		slot,
+		epochNonce,
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		vrfSigner,
+		ConsensusModeTPraos,
+	)
+	require.NoError(t, err)
+	require.True(
+		t,
+		leaderResult.Eligible,
+		"expected slot %d to be deterministically eligible",
+		slot,
+	)
+	vrfProof := leaderResult.Proof
+	vrfOutput := leaderResult.Output
+
+	// The nonce VRF certificate (bheaderEta, seedEta) is independent of
+	// the leader VRF (seedL) checked above and must also be present and
+	// valid for a full TPraos header to validate.
+	nonceVrfInput, err := vrf.MkSeedTPraos(
+		int64(slot),
+		epochNonce,
+		vrf.SeedEta(),
+	)
+	require.NoError(t, err)
+	nonceVrfProof, nonceVrfOutput, err := vrfSigner.Prove(nonceVrfInput)
+	require.NoError(t, err)
+
+	// slot is well within KES period 0 given the default network config's
+	// SlotsPerKESPeriod, so sign at period 0 to match OpCertKesPeriod.
+	message := []byte("test header body for tpraos full validation!!!")
+	kesSig, err := kes.Sign(kesSk, 0, message)
+	require.NoError(t, err)
+
+	opCertSeqNum := uint32(0)
+	opCertKesPeriod := uint32(0)
+	opCertBody := common.OpCertSignableBytes(
+		kesPk,
+		uint64(opCertSeqNum),
+		uint64(opCertKesPeriod),
+	)
+	opCertSignature := ed25519.Sign(coldPrivateKey, opCertBody)
+
+	prevHash := make([]byte, 32)
+	input := &ValidateHeaderInput{
+		Slot:                 slot,
+		BlockNumber:          1,
+		PrevHash:             prevHash,
+		IssuerVkey:           coldPublicKey,
+		VrfKey:               vrfSigner.PublicKey(),
+		VrfProof:             vrfProof,
+		VrfOutput:            vrfOutput,
+		NonceVrfProof:        nonceVrfProof,
+		NonceVrfOutput:       nonceVrfOutput,
+		KesSignature:         kesSig,
+		HeaderBodyCbor:       message,
+		OpCertHotVkey:        kesPk,
+		OpCertSequenceNumber: opCertSeqNum,
+		OpCertKesPeriod:      opCertKesPeriod,
+		OpCertSignature:      opCertSignature,
+		PrevSlot:             0,
+		PrevBlockNumber:      0,
+		PrevHeaderHash:       prevHash, // matches PrevHash for a valid non-genesis header
+		EpochNonce:           epochNonce,
+		PoolStake:            poolStake,
+		TotalStake:           totalStake,
+	}
+
+	result := validator.ValidateHeader(input)
+	require.True(
+		t,
+		result.Valid,
+		"unexpected validation errors: %v",
+		result.Errors,
+	)
+	require.Empty(t, result.Errors)
+	require.Equal(t, vrfOutput, result.VrfOutput)
+
+	// Invalid: the identical header data fails VRF verification when
+	// validated under CPraos mode, because CPraos and TPraos use different
+	// VRF input constructions and threshold interpretations.
+	cpraosValidator := NewHeaderValidator(testNetworkConfig())
+	cpraosResult := cpraosValidator.ValidateHeader(input)
+	require.False(t, cpraosResult.Valid)
+	require.NotEmpty(t, cpraosResult.Errors)
 }
 
 func TestCustomNetworkConfig(t *testing.T) {
