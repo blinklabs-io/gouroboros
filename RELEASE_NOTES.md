@@ -11,21 +11,21 @@ title: Release notes
 
 ### Summary
 
-This release improves address handling, CBOR round tripping, consensus validation, request timeouts, and block safety checks.
+This release improves address validation, CBOR round-trip behavior, consensus handling, request timeout handling, and block safety limits.
 
 ### Bug Fixes
 
 * Fixed address decoding so invalid Bech32 values now stay invalid instead of falling back to Base58, reducing accidental acceptance of malformed addresses.
 
-* Improved CBOR marshaling so `Datum` and `SetType` keep original encoded bytes when they are available, preserving byte exact round trips and hash consistency.
+* Improved CBOR marshaling so `Datum` and `SetType` keep original encoded bytes when they are available, preserving byte-exact round trips and hash consistency.
 
 * Strengthened address payload decoding so unexpected trailing bytes now fail validation, while a small compatibility allowlist preserves a few historical mainnet trailers for compatibility.
 
 * Hardened block requests so `leiosfetch` honors the caller context and treats timeouts as local failures without tearing down the shared connection.
 
-* Expanded consensus validation so generic header checks and block building now handle both CPraos and TPraos, including the TPraos nonce VRF certificate and mode aware leadership checks.
+* Expanded consensus validation so generic header checks and block building now handle both CPraos and TPraos, including the TPraos nonce VRF certificate and mode-aware leadership checks.
 
-* Updated block verification so `VerifyBlock` applies block wide execution and size limits, improving protection against oversized or over executed blocks.
+* Updated block verification so `VerifyBlock` applies block-wide execution and size limits, improving protection against oversized or over-executed blocks.
 
 ## v0.191.2
 
