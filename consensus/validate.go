@@ -31,14 +31,28 @@ type HeaderValidator struct {
 	slotsPerKESPeriod uint64
 	maxKESEvolutions  uint64
 	activeSlotCoeff   *big.Rat
+	mode              ConsensusMode
 }
 
-// NewHeaderValidator creates a new header validator.
+// NewHeaderValidator creates a new header validator using CPRAOS consensus
+// (Babbage and later eras). For Shelley through Alonzo (TPraos) headers,
+// use NewHeaderValidatorWithMode with ConsensusModeTPraos.
 func NewHeaderValidator(config NetworkConfig) *HeaderValidator {
+	return NewHeaderValidatorWithMode(config, ConsensusModeCPraos)
+}
+
+// NewHeaderValidatorWithMode creates a new header validator for the given
+// consensus mode. Use ConsensusModeTPraos for Shelley through Alonzo era
+// headers and ConsensusModeCPraos for Babbage and later era headers.
+func NewHeaderValidatorWithMode(
+	config NetworkConfig,
+	mode ConsensusMode,
+) *HeaderValidator {
 	return &HeaderValidator{
 		slotsPerKESPeriod: config.SlotsPerKESPeriod,
 		maxKESEvolutions:  config.MaxKESEvolutions,
 		activeSlotCoeff:   config.ActiveSlotCoeffRat(),
+		mode:              mode,
 	}
 }
 
@@ -205,9 +219,12 @@ func (v *HeaderValidator) validateBlockNumber(
 // validatePrevHash checks that prev hash matches.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 	if input.BlockNumber > 0 && len(input.PrevHeaderHash) == 0 {
-		return errors.New("previous header hash is required for non-genesis blocks")
+		return errors.New(
+			"previous header hash is required for non-genesis blocks",
+		)
 	}
-	if len(input.PrevHeaderHash) > 0 && !bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
+	if len(input.PrevHeaderHash) > 0 &&
+		!bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
 		return fmt.Errorf(
 			"previous hash does not match: got %x, expected %x",
 			input.PrevHash,
@@ -245,12 +262,30 @@ func (v *HeaderValidator) validateVRFProof(
 		)
 	}
 
-	// Compute VRF input message
+	// Compute VRF input message. TPraos (Shelley-Alonzo) and CPraos
+	// (Babbage+) use different VRF input constructions: TPraos XORs the
+	// base hash with the seedL constant (Cardano.Protocol.TPraos.Rules.
+	// Overlay.vrfChecks), while CPraos uses the raw
+	// blake2b-256(slot || nonce) (Ouroboros.Consensus.Protocol.Praos.VRF.
+	// mkInputVRF).
 	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
-	vrfInput, err := vrf.MkInputVrf(
-		int64(input.Slot), //nolint:gosec
-		input.EpochNonce,
-	)
+	var vrfInput []byte
+	var err error
+	switch v.mode {
+	case ConsensusModeTPraos:
+		vrfInput, err = vrf.MkSeedTPraos(
+			int64(input.Slot), //nolint:gosec
+			input.EpochNonce,
+			vrf.SeedL(),
+		)
+	case ConsensusModeCPraos:
+		vrfInput, err = vrf.MkInputVrf(
+			int64(input.Slot), //nolint:gosec
+			input.EpochNonce,
+		)
+	default:
+		return nil, fmt.Errorf("unknown consensus mode: %d", v.mode)
+	}
 	if err != nil {
 		return nil, fmt.Errorf(
 			"invalid VRF input parameters at slot %d: %w",
@@ -293,12 +328,24 @@ func (v *HeaderValidator) validateLeadership(
 		return errors.New("total stake cannot be zero")
 	}
 
-	threshold := CertifiedNatThreshold(
+	threshold, err := CertifiedNatThresholdWithMode(
 		input.PoolStake,
 		input.TotalStake,
 		v.activeSlotCoeff,
+		v.mode,
 	)
-	if !IsVRFOutputBelowThreshold(vrfOutput, threshold) {
+	if err != nil {
+		return err
+	}
+	belowThreshold, err := IsVRFOutputBelowThresholdWithMode(
+		vrfOutput,
+		threshold,
+		v.mode,
+	)
+	if err != nil {
+		return err
+	}
+	if !belowThreshold {
 		return fmt.Errorf(
 			"VRF output does not satisfy leadership threshold at slot %d",
 			input.Slot,

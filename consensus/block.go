@@ -34,6 +34,7 @@ type BlockBuilder struct {
 	poolId          []byte
 	issuerVkey      []byte
 	activeSlotCoeff *big.Rat
+	mode            ConsensusMode
 }
 
 // OperationalCert represents an operational certificate for block production.
@@ -44,7 +45,9 @@ type OperationalCert struct {
 	Signature      []byte // Cold key signature (64 bytes)
 }
 
-// NewBlockBuilder creates a new block builder.
+// NewBlockBuilder creates a new block builder using CPRAOS consensus
+// (Babbage and later eras). For Shelley through Alonzo (TPraos) block
+// building, use NewBlockBuilderWithMode with ConsensusModeTPraos.
 //
 // Parameters:
 //   - vrfSigner: VRF signer for leader election proofs
@@ -61,6 +64,38 @@ func NewBlockBuilder(
 	issuerVkey []byte,
 	activeSlotCoeff *big.Rat,
 ) *BlockBuilder {
+	return NewBlockBuilderWithMode(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		activeSlotCoeff,
+		ConsensusModeCPraos,
+	)
+}
+
+// NewBlockBuilderWithMode creates a new block builder for the given
+// consensus mode. Use ConsensusModeTPraos for Shelley through Alonzo era
+// block building and ConsensusModeCPraos for Babbage and later eras.
+//
+// Parameters:
+//   - vrfSigner: VRF signer for leader election proofs
+//   - kesSigner: KES signer for block header signatures
+//   - opCert: operational certificate binding KES key to cold key
+//   - poolId: the pool ID (cold verification key hash)
+//   - issuerVkey: the pool's cold verification key (32 bytes)
+//   - activeSlotCoeff: active slot coefficient for leader election
+//   - mode: the consensus mode (CPRAOS or TPraos)
+func NewBlockBuilderWithMode(
+	vrfSigner VRFSigner,
+	kesSigner KESSigner,
+	opCert *OperationalCert,
+	poolId []byte,
+	issuerVkey []byte,
+	activeSlotCoeff *big.Rat,
+	mode ConsensusMode,
+) *BlockBuilder {
 	return &BlockBuilder{
 		vrfSigner:       vrfSigner,
 		kesSigner:       kesSigner,
@@ -68,17 +103,29 @@ func NewBlockBuilder(
 		poolId:          poolId,
 		issuerVkey:      issuerVkey,
 		activeSlotCoeff: activeSlotCoeff,
+		mode:            mode,
 	}
 }
 
 // HeaderBody contains the fields of a block header body.
 // This is a simplified representation that can be serialized to CBOR.
+//
+// VrfOutput/VrfProof always carry the leader VRF certificate (bheaderL,
+// seedL = mkNonceFromNumber(1) for TPraos; the single VrfResult for
+// CPraos). NonceVrfOutput/NonceVrfProof additionally carry the TPraos-only
+// nonce VRF certificate (bheaderEta, seedEta = mkNonceFromNumber(0)),
+// used for epoch nonce evolution; they are unused (nil) for CPraos-mode
+// headers, which have no separate nonce VRF field.
 type HeaderBody struct {
-	BlockNumber          uint64
-	Slot                 uint64
-	PrevHash             []byte // 32 bytes
-	IssuerVkey           []byte // 32 bytes
-	VrfKey               []byte // 32 bytes
+	BlockNumber uint64
+	Slot        uint64
+	PrevHash    []byte // 32 bytes
+	IssuerVkey  []byte // 32 bytes
+	VrfKey      []byte // 32 bytes
+	// NonceVrfOutput and NonceVrfProof are set only for TPraos-mode
+	// headers (Shelley through Alonzo).
+	NonceVrfOutput       []byte // 64 bytes (TPraos only)
+	NonceVrfProof        []byte // 80 bytes (TPraos only)
 	VrfOutput            []byte // 64 bytes
 	VrfProof             []byte // 80 bytes
 	BlockBodySize        uint64
@@ -209,20 +256,58 @@ func (b *BlockBuilder) BuildHeader(
 		)
 	}
 
-	// Step 1: Check leader eligibility
-	leaderResult, err := IsSlotLeader(
+	// Step 1: Check leader eligibility (mode-aware: TPraos for
+	// Shelley-Alonzo, CPraos for Babbage+)
+	leaderResult, err := IsSlotLeaderWithMode(
 		input.Slot,
 		input.EpochNonce,
 		input.PoolStake,
 		input.TotalStake,
 		b.activeSlotCoeff,
 		b.vrfSigner,
+		b.mode,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !leaderResult.Eligible {
 		return nil, leaderResult, ErrNotSlotLeader
+	}
+
+	// Step 1b: TPraos headers additionally carry a nonce VRF certificate
+	// (bheaderEta, seedEta = mkNonceFromNumber(0)) alongside the leader
+	// VRF certificate (bheaderL, seedL = mkNonceFromNumber(1)) computed
+	// above via IsSlotLeaderWithMode. The nonce VRF is independent of
+	// leader eligibility and feeds epoch nonce evolution; it has no
+	// equivalent field in CPraos headers.
+	var nonceVrfProof, nonceVrfOutput []byte
+	if b.mode == ConsensusModeTPraos {
+		if input.Slot > math.MaxInt64 {
+			return nil, leaderResult, fmt.Errorf(
+				"slot %d exceeds maximum int64 value for VRF input",
+				input.Slot,
+			)
+		}
+		nonceVrfInput, nErr := vrf.MkSeedTPraos(
+			int64(input.Slot), //nolint:gosec // G115: validated above
+			input.EpochNonce,
+			vrf.SeedEta(),
+		)
+		if nErr != nil {
+			return nil, leaderResult, fmt.Errorf(
+				"failed to create nonce VRF input: %w",
+				nErr,
+			)
+		}
+		nonceVrfProof, nonceVrfOutput, err = b.vrfSigner.Prove(
+			nonceVrfInput,
+		)
+		if err != nil {
+			return nil, leaderResult, fmt.Errorf(
+				"failed to generate nonce VRF proof: %w",
+				err,
+			)
+		}
 	}
 
 	// Step 2: Construct header body
@@ -232,6 +317,8 @@ func (b *BlockBuilder) BuildHeader(
 		PrevHash:             input.PrevHash,
 		IssuerVkey:           b.issuerVkey,
 		VrfKey:               b.vrfSigner.PublicKey(),
+		NonceVrfOutput:       nonceVrfOutput,
+		NonceVrfProof:        nonceVrfProof,
 		VrfOutput:            leaderResult.Output,
 		VrfProof:             leaderResult.Proof,
 		BlockBodySize:        input.BlockBodySize,
@@ -264,11 +351,25 @@ func (b *BlockBuilder) BuildHeader(
 	return header, leaderResult, nil
 }
 
-// serializeHeaderBody serializes the header body to CBOR for signing.
-// This matches the format expected by Cardano nodes.
+// serializeHeaderBody serializes the header body to CBOR for signing,
+// dispatching on the builder's consensus mode. This matches the format
+// expected by Cardano nodes for the corresponding era.
 func (b *BlockBuilder) serializeHeaderBody(body *HeaderBody) ([]byte, error) {
-	// The header body is encoded as a CBOR array with specific structure
-	// matching Babbage/Conway format
+	switch b.mode {
+	case ConsensusModeTPraos:
+		return serializeHeaderBodyTPraos(body)
+	case ConsensusModeCPraos:
+		return serializeHeaderBodyCPraos(body)
+	default:
+		return nil, fmt.Errorf("unknown consensus mode: %d", b.mode)
+	}
+}
+
+// serializeHeaderBodyCPraos serializes the header body to CBOR using the
+// Babbage/Conway (CPraos) wire format: a 10-element array with the
+// (single) leader VRF result, OpCert, and protocol version each nested as
+// their own sub-array. Matches ledger/babbage.BabbageBlockHeaderBody.
+func serializeHeaderBodyCPraos(body *HeaderBody) ([]byte, error) {
 	bodyArray := []any{
 		body.BlockNumber,
 		body.Slot,
@@ -293,6 +394,37 @@ func (b *BlockBuilder) serializeHeaderBody(body *HeaderBody) ([]byte, error) {
 	return cbor.Encode(bodyArray)
 }
 
+// serializeHeaderBodyTPraos serializes the header body to CBOR using the
+// Shelley-Alonzo (TPraos) wire format: a flat 15-element array with two
+// separate VRF result sub-arrays -- NonceVrf (bheaderEta, seedEta) and
+// LeaderVrf (bheaderL, seedL) -- and flat (non-nested) OpCert and
+// protocol version fields. Matches
+// ledger/shelley.ShelleyBlockHeaderBody's field order exactly (also used
+// unmodified by allegra/mary/alonzo).
+func serializeHeaderBodyTPraos(body *HeaderBody) ([]byte, error) {
+	bodyArray := []any{
+		body.BlockNumber,
+		body.Slot,
+		body.PrevHash,
+		body.IssuerVkey,
+		body.VrfKey,
+		// NonceVrf is encoded as [output, proof]
+		[]any{body.NonceVrfOutput, body.NonceVrfProof},
+		// LeaderVrf is encoded as [output, proof]
+		[]any{body.VrfOutput, body.VrfProof},
+		body.BlockBodySize,
+		body.BlockBodyHash,
+		body.OpCertHotVkey,
+		body.OpCertSequenceNumber,
+		body.OpCertKesPeriod,
+		body.OpCertSignature,
+		body.ProtoMajor,
+		body.ProtoMinor,
+	}
+
+	return cbor.Encode(bodyArray)
+}
+
 // CheckSlotLeadership checks if the block builder is eligible for a slot
 // without constructing a full header.
 func (b *BlockBuilder) CheckSlotLeadership(
@@ -311,13 +443,14 @@ func (b *BlockBuilder) CheckSlotLeadership(
 			len(epochNonce),
 		)
 	}
-	return IsSlotLeader(
+	return IsSlotLeaderWithMode(
 		slot,
 		epochNonce,
 		poolStake,
 		totalStake,
 		b.activeSlotCoeff,
 		b.vrfSigner,
+		b.mode,
 	)
 }
 
