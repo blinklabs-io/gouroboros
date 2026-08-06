@@ -4,6 +4,27 @@ title: Release notes
 
 # Release notes
 
+## v0.192.0
+
+- **Date:** 2026-08-06
+- **Version:** 0.192.0
+
+### Summary
+
+This release strengthens KES key lifecycle handling and keeps `txInfoMint` rendering aligned with `cardano-ledger` across all protocol versions.
+
+### Security
+
+* Improved KES key lifecycle handling so a successful `kes.Update` now zeroizes the input `SecretKey` in place while `Sign` and `Update` reject zeroized keys.
+
+### Bug Fixes
+
+* Fixed Plutus V1 and V2 `txInfoMint` rendering so the zero ADA entry now appears at every protocol version, matching `cardano-ledger` and no longer depending on `ProtocolMajor`.
+
+### Deprecations
+
+* Deprecated `TxInfoV1.ProtocolMajor` and `TxInfoV2.ProtocolMajor` in script contexts.
+
 ## v0.191.3
 
 - **Date:** 2026-08-05
