@@ -135,9 +135,12 @@ func CalculateAdaPots(
 	params RewardParameters,
 	epochFees uint64,
 	totalBlocksInEpoch uint32,
-) AdaPots {
+) (AdaPots, error) {
 	// Calculate eta (pool performance factor)
-	eta := calculateEta(totalBlocksInEpoch, params)
+	eta, err := calculateEta(totalBlocksInEpoch, params)
+	if err != nil {
+		return AdaPots{}, err
+	}
 
 	// Calculate monetary expansion (rho * eta * reserves)
 	// rho is in millionths (3000 = 0.3%)
@@ -186,19 +189,18 @@ func CalculateAdaPots(
 		Rewards:  rewardPot.Uint64(),
 	}
 
-	return newPots
+	return newPots, nil
 }
 
 // calculateEta calculates the pool performance factor (η)
 // Following Amaru's approach: eta = min(1, blocks_produced / (epoch_length * active_slot_coeff))
-func calculateEta(totalBlocksInEpoch uint32, params RewardParameters) *big.Rat {
-	// Defensive guards
+func calculateEta(totalBlocksInEpoch uint32, params RewardParameters) (*big.Rat, error) {
 	activeSlotsCoeff := params.ActiveSlotsCoeff
-	if activeSlotsCoeff == nil {
-		activeSlotsCoeff = new(big.Rat).SetInt64(0) // Treat nil as zero
+	if activeSlotsCoeff == nil || activeSlotsCoeff.Sign() <= 0 {
+		return nil, errors.New("active slots coefficient must be positive")
 	}
 	if params.ExpectedSlotsPerEpoch == 0 {
-		return new(big.Rat).SetInt64(0) // Avoid division by zero
+		return nil, errors.New("expected slots per epoch must be positive")
 	}
 
 	// Calculate expected blocks: epoch_length * active_slot_coeff
@@ -217,7 +219,7 @@ func calculateEta(totalBlocksInEpoch uint32, params RewardParameters) *big.Rat {
 		eta = oneRat
 	}
 
-	return eta
+	return eta, nil
 }
 
 // calculatePoolPerformance calculates the apparent performance of a pool

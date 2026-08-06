@@ -39,12 +39,13 @@ func TestCalculateAdaPots(t *testing.T) {
 	epochFees := uint64(1000000)        // 1 million ADA in fees
 	totalBlocksInEpoch := uint32(21600) // Expected blocks per epoch
 
-	newPots := common.CalculateAdaPots(
+	newPots, err := common.CalculateAdaPots(
 		currentPots,
 		params,
 		epochFees,
 		totalBlocksInEpoch,
 	)
+	require.NoError(t, err)
 
 	// Expected monetary expansion: 1000000000 * 0.003 * eta
 	// With Amaru approach: expected_blocks = 432000 * 0.05 = 21600
