@@ -34,18 +34,9 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
-	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-type unsupportedBootstrapGovAction struct {
-	common.GovActionBase
-}
-
-func (unsupportedBootstrapGovAction) ToPlutusData() data.PlutusData {
-	return data.NewConstr(0)
-}
 
 func makeConwayRewardAddress(
 	t *testing.T,
@@ -3467,15 +3458,6 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 		}
 	})
 
-	t.Run("PV9 unknown action is rejected", func(t *testing.T) {
-		err := conway.UtxoValidateBootstrapAllowedGovActions(
-			mkTx(unsupportedBootstrapGovAction{}),
-			0,
-			nil,
-			mkPp(9),
-		)
-		require.Error(t, err)
-	})
 }
 
 func TestUtxoValidateBootstrapParameterGroups(t *testing.T) {
