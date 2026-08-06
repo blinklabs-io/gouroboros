@@ -11,7 +11,7 @@ title: Release notes
 
 ### Summary
 
-This release strengthens KES key lifecycle handling through forward secure erasure and keeps `txInfoMint` rendering consistent across all protocol versions.
+This release strengthens KES key lifecycle handling and keeps `txInfoMint` rendering aligned with `cardano-ledger` across all protocol versions.
 
 ### Security
 
@@ -23,7 +23,7 @@ This release strengthens KES key lifecycle handling through forward secure erasu
 
 ### Deprecations
 
-* Deprecated `TxInfoV1.ProtocolMajor` and `TxInfoV2.ProtocolMajor` for script context consumers.
+* Deprecated `TxInfoV1.ProtocolMajor` and `TxInfoV2.ProtocolMajor` in script contexts.
 
 ## v0.191.3
 
