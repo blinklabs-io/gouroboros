@@ -64,6 +64,54 @@ func TestCalculateAdaPots(t *testing.T) {
 	assert.Equal(t, expectedRewards, newPots.Rewards)
 }
 
+func TestCalculateAdaPotsRejectsInvalidEtaParameters(t *testing.T) {
+	baseParams := common.RewardParameters{
+		ActiveSlotsCoeff:      big.NewRat(1, 20),
+		ExpectedSlotsPerEpoch: 432000,
+	}
+	currentPots := common.AdaPots{Reserves: 100, Treasury: 200, Rewards: 300}
+
+	tests := []struct {
+		name   string
+		modify func(*common.RewardParameters)
+	}{
+		{
+			name: "nil active slots coefficient",
+			modify: func(params *common.RewardParameters) {
+				params.ActiveSlotsCoeff = nil
+			},
+		},
+		{
+			name: "zero active slots coefficient",
+			modify: func(params *common.RewardParameters) {
+				params.ActiveSlotsCoeff = new(big.Rat)
+			},
+		},
+		{
+			name: "negative active slots coefficient",
+			modify: func(params *common.RewardParameters) {
+				params.ActiveSlotsCoeff = big.NewRat(-1, 20)
+			},
+		},
+		{
+			name: "zero expected slots per epoch",
+			modify: func(params *common.RewardParameters) {
+				params.ExpectedSlotsPerEpoch = 0
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			params := baseParams
+			tc.modify(&params)
+			pots, err := common.CalculateAdaPots(currentPots, params, 0, 0)
+			require.Error(t, err)
+			assert.Equal(t, common.AdaPots{}, pots)
+		})
+	}
+}
+
 func TestCalculateRewards(t *testing.T) {
 	// Setup test data
 	pots := common.AdaPots{
