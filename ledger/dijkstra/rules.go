@@ -545,7 +545,6 @@ func validateGuardingPlutusScripts(
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
 				}
-				txInfoV2.ProtocolMajor = pp.ProtocolVersion.Major
 				txInfoV2Built = true
 			}
 			ctx := script.NewScriptContextV1V2(txInfoV2, purpose)
@@ -579,7 +578,6 @@ func validateGuardingPlutusScripts(
 				if err != nil {
 					return conway.ScriptContextConstructionError{Err: err}
 				}
-				txInfoV1.ProtocolMajor = pp.ProtocolVersion.Major
 				txInfoV1Built = true
 			}
 			ctx := script.NewScriptContextV1V2(txInfoV1, purpose)
