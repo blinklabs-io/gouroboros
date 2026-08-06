@@ -23,8 +23,27 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
+
+type unsupportedBootstrapGovAction struct {
+	common.GovActionBase
+}
+
+func (unsupportedBootstrapGovAction) ToPlutusData() data.PlutusData {
+	return data.NewConstr(0)
+}
+
+func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
+	tx := &DijkstraTransaction{}
+	tx.Body.TxProposalProcedures = []DijkstraProposalProcedure{{
+		PPGovAction: DijkstraGovAction{Action: unsupportedBootstrapGovAction{}},
+	}}
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionConway
+	require.Error(t, UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, pp))
+}
 
 func testGuardCredential() common.Credential {
 	var guardHash common.Blake2b224

@@ -271,10 +271,8 @@ func UtxoValidateBootstrapAllowedGovActions(
 			continue
 		}
 		// NOTE: closed-set type-switch over the 7 GovActionType constants in
-		// ledger/common/gov.go. Permissive default is intentional — matches
-		// cardano-ledger's deny-list semantics. New GovAction types added to
-		// common will fall into the default arm and be allowed at PV9; an
-		// explicit case must be added here to gate them.
+		// ledger/common/gov.go. Unknown GovAction implementations are rejected
+		// by the default arm; add an explicit case when a new action is supported.
 		switch govAction.(type) {
 		case *common.InfoGovAction:
 			// always allowed
