@@ -380,17 +380,20 @@ func TestJavaReferenceScenarios(t *testing.T) {
 
 		// expected_blocks = 432000 * 0.05 = 21600
 		// With 21600 blocks (exactly expected), eta = min(1, 21600/21600) = 1
-		eta := calculateEta(21600, params)
+		eta, err := calculateEta(21600, params)
+		require.NoError(t, err)
 		etaFloat, _ := eta.Float64()
 		assert.Equal(t, 1.0, etaFloat)
 
 		// With 10800 blocks (half of expected), eta = 10800/21600 = 0.5
-		eta = calculateEta(10800, params)
+		eta, err = calculateEta(10800, params)
+		require.NoError(t, err)
 		etaFloat, _ = eta.Float64()
 		assert.Equal(t, 0.5, etaFloat)
 
 		// With 5400 blocks (quarter of expected), eta = 5400/21600 = 0.25
-		eta = calculateEta(5400, params)
+		eta, err = calculateEta(5400, params)
+		require.NoError(t, err)
 		etaFloat, _ = eta.Float64()
 		assert.Equal(t, 0.25, etaFloat)
 	})
@@ -451,12 +454,13 @@ func TestJavaReferenceScenarios(t *testing.T) {
 		// total_rewards = 1,500,000 + 1,000,000 = 2,500,000
 		// treasury_tax = 2,500,000 * 0.2 = 500,000
 		// available_rewards = 2,500,000 - 500,000 = 2,000,000
-		newPots := CalculateAdaPots(
+		newPots, err := CalculateAdaPots(
 			currentPots,
 			params,
 			1000000,
 			10800,
 		)
+		require.NoError(t, err)
 
 		assert.Equal(t, uint64(1000000000-1500000), newPots.Reserves)
 		assert.Equal(t, uint64(200000000+500000), newPots.Treasury)
@@ -584,19 +588,22 @@ func TestAmaruCompatibility(t *testing.T) {
 		// Test case: 10800 blocks produced, expected calculation
 		// expected_blocks = 432000 * 0.05 = 21600
 		// eta = min(1, 10800/21600) = 0.5
-		eta := calculateEta(10800, params)
+		eta, err := calculateEta(10800, params)
+		require.NoError(t, err)
 		etaFloat, _ := eta.Float64()
 		assert.Equal(t, 0.5, etaFloat)
 
 		// Test case: 21600 blocks produced (exactly expected)
 		// eta = min(1, 21600/21600) = 1
-		eta = calculateEta(21600, params)
+		eta, err = calculateEta(21600, params)
+		require.NoError(t, err)
 		etaFloat, _ = eta.Float64()
 		assert.Equal(t, 1.0, etaFloat)
 
 		// Test case: 5400 blocks produced (quarter of expected)
 		// eta = min(1, 5400/21600) = 0.25
-		eta = calculateEta(5400, params)
+		eta, err = calculateEta(5400, params)
+		require.NoError(t, err)
 		etaFloat, _ = eta.Float64()
 		assert.Equal(t, 0.25, etaFloat)
 	})
@@ -664,12 +671,13 @@ func TestAmaruCompatibility(t *testing.T) {
 		// total_rewards = 1,500,000 + 1,000,000 = 2,500,000
 		// treasury_tax = 2,500,000 * 0.2 = 500,000
 		// available_rewards = 2,500,000 - 500,000 = 2,000,000
-		newPots := CalculateAdaPots(
+		newPots, err := CalculateAdaPots(
 			currentPots,
 			params,
 			1000000,
 			10800,
 		)
+		require.NoError(t, err)
 
 		assert.Equal(t, uint64(1000000000-1500000), newPots.Reserves)
 		assert.Equal(t, uint64(200000000+500000), newPots.Treasury)
