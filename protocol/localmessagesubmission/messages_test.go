@@ -21,7 +21,12 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type unsupportedRejectReason struct{}
+
+func (unsupportedRejectReason) RejectReasonType() uint8 { return 99 }
 
 // TestMsgSubmitMessageType tests MsgSubmitMessage type and field access
 func TestMsgSubmitMessageType(t *testing.T) {
@@ -76,10 +81,10 @@ func TestMsgSubmitMessageCBORRoundTrip(t *testing.T) {
 	}
 
 	data, err := cbor.Encode(msg)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	parsed, err := NewMsgFromCbor(uint(MessageTypeSubmitMessage), data)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Type assertion and deep field equality checks
 	parsedMsg, ok := parsed.(*MsgSubmitMessage)
@@ -140,7 +145,7 @@ func TestMsgSubmitMessageCBORRoundTrip(t *testing.T) {
 
 	// Deterministic re-encode
 	reencoded, err := cbor.Encode(parsedMsg)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, data, reencoded)
 }
 
@@ -154,9 +159,9 @@ func TestMsgAcceptMessageEncoding(t *testing.T) {
 
 	assert.Equal(t, uint8(MessageTypeAcceptMessage), msg.Type())
 	data, err := cbor.Encode(msg)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	parsed, err := NewMsgFromCbor(uint(MessageTypeAcceptMessage), data)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, uint8(MessageTypeAcceptMessage), parsed.Type())
 }
 
@@ -167,7 +172,7 @@ func TestMsgRejectMessageEncoding(t *testing.T) {
 	}
 
 	msg, err := NewMsgRejectMessage(invalidReason)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, uint8(MessageTypeRejectMessage), msg.Type())
 	assert.NotNil(t, msg.Reason)
@@ -175,24 +180,24 @@ func TestMsgRejectMessageEncoding(t *testing.T) {
 
 	// Verify deterministic encoding: two equivalent messages should encode identically.
 	data, err := cbor.Encode(msg)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Recreate the same message and re-encode
 	msg2, err := NewMsgRejectMessage(invalidReason)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	data2, err := cbor.Encode(msg2)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, data, data2)
 
 	// Verify decode round-trip preserves Reason
 	parsed, err := NewMsgFromCbor(uint(MessageTypeRejectMessage), data)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	parsedMsg, ok := parsed.(*MsgRejectMessage)
 	if !ok {
 		t.Fatalf("expected *MsgRejectMessage, got %T", parsed)
 	}
 	// Convert back to public API type and check fields
 	rr, err := pcommon.FromRejectReasonData(parsedMsg.Reason)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	inv, ok := rr.(pcommon.InvalidReason)
 	if !ok {
 		t.Fatalf("expected InvalidReason, got %T", rr)
@@ -205,7 +210,7 @@ func TestMsgRejectMessageAlreadyReceived(t *testing.T) {
 	reason := pcommon.AlreadyReceivedReason{}
 
 	msg, err := NewMsgRejectMessage(reason)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, uint8(1), msg.Reason.RejectReasonType())
 }
@@ -215,7 +220,7 @@ func TestMsgRejectMessageExpired(t *testing.T) {
 	reason := pcommon.ExpiredReason{}
 
 	msg, err := NewMsgRejectMessage(reason)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, uint8(2), msg.Reason.RejectReasonType())
 }
@@ -227,9 +232,26 @@ func TestMsgRejectMessageOther(t *testing.T) {
 	}
 
 	msg, err := NewMsgRejectMessage(reason)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, uint8(3), msg.Reason.RejectReasonType())
+}
+
+func TestMsgRejectMessageRejectsUnsupportedReasons(t *testing.T) {
+	_, err := NewMsgRejectMessage(nil)
+	require.Error(t, err)
+
+	_, err = NewMsgRejectMessage(unsupportedRejectReason{})
+	require.Error(t, err)
+
+	_, err = NewMsgRejectMessage((*pcommon.InvalidReason)(nil))
+	require.Error(t, err)
+
+	_, err = NewMsgRejectMessage(&pcommon.InvalidReason{Message: "invalid"})
+	require.NoError(t, err)
+
+	_, err = pcommon.FromRejectReasonData(pcommon.RejectReasonData{Type: 4})
+	require.Error(t, err)
 }
 
 // TestMsgDoneEncoding tests MsgDone encoding

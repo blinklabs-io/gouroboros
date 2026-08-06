@@ -346,9 +346,37 @@ func ToRejectReasonData(rr RejectReason) (RejectReasonData, error) {
 		return RejectReasonData{Type: 3, Message: v.Message}, nil
 	case RejectReasonData:
 		if v.Type > 3 {
-			return RejectReasonData{}, fmt.Errorf("reject reason type out of range: %d", v.Type)
+			return RejectReasonData{}, fmt.Errorf(
+				"reject reason type out of range: %d",
+				v.Type,
+			)
 		}
 		return v, nil
+	case *InvalidReason:
+		if v == nil {
+			return RejectReasonData{}, errors.New("reject reason is nil")
+		}
+		return RejectReasonData{Type: 0, Message: v.Message}, nil
+	case *AlreadyReceivedReason:
+		if v == nil {
+			return RejectReasonData{}, errors.New("reject reason is nil")
+		}
+		return RejectReasonData{Type: 1}, nil
+	case *ExpiredReason:
+		if v == nil {
+			return RejectReasonData{}, errors.New("reject reason is nil")
+		}
+		return RejectReasonData{Type: 2}, nil
+	case *OtherReason:
+		if v == nil {
+			return RejectReasonData{}, errors.New("reject reason is nil")
+		}
+		return RejectReasonData{Type: 3, Message: v.Message}, nil
+	case *RejectReasonData:
+		if v == nil {
+			return RejectReasonData{}, errors.New("reject reason is nil")
+		}
+		return ToRejectReasonData(*v)
 	default:
 		return RejectReasonData{}, fmt.Errorf("unsupported reject reason type %T", rr)
 	}
