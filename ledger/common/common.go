@@ -303,20 +303,9 @@ func pruneZeroAssets[T int64 | uint64 | *big.Int](
 	if data == nil {
 		return nil
 	}
-	isZero := func(v T) bool {
-		switch tv := any(v).(type) {
-		case int64:
-			return tv == 0
-		case uint64:
-			return tv == 0
-		case *big.Int:
-			return tv == nil || tv.Sign() == 0
-		}
-		return false
-	}
 	for policy, assets := range data {
 		for name, qty := range assets {
-			if isZero(qty) {
+			if amountIsZero(qty) {
 				delete(assets, name)
 			}
 		}

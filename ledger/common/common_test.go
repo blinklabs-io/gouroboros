@@ -1550,3 +1550,38 @@ func TestMultiAssetDecodePrunesZeroQuantities(t *testing.T) {
 		ma.Asset(policies[0], assets[0]),
 	)
 }
+
+// TestMultiAssetDecodePrunesZeroQuantitiesWithDuplicateKeys covers the lenient
+// decode path. Pre-Conway values may carry duplicate policy or asset keys, which
+// UnmarshalCBOR re-decodes with DecodeLenient on a last-wins basis, and that
+// path prunes too. Here the winning value is zero, so the asset and then its
+// now-empty policy must both disappear while the duplicate-key flag still
+// records that a Conway+ decoder has to reject the value.
+func TestMultiAssetDecodePrunesZeroQuantitiesWithDuplicateKeys(t *testing.T) {
+	policy, err := hex.DecodeString(
+		"1654dce4e3529f13b1b6f8b0cfb9e0cbd0b2a70b8bbcbcd0d0e0f1a2",
+	)
+	require.NoError(t, err)
+
+	// Hand-built because an encoder cannot emit a duplicate map key:
+	//   a1                       map(1)
+	//     581c <28-byte policy>
+	//     a2                     map(2), duplicate asset name
+	//       42 5549  1901f4      "UI" -> 500
+	//       42 5549  00          "UI" -> 0   (last wins)
+	encoded := []byte{0xa1, 0x58, 0x1c}
+	encoded = append(encoded, policy...)
+	encoded = append(encoded,
+		0xa2,
+		0x42, 0x55, 0x49, 0x19, 0x01, 0xf4,
+		0x42, 0x55, 0x49, 0x00,
+	)
+
+	var ma MultiAsset[MultiAssetTypeOutput]
+	require.NoError(t, ma.UnmarshalCBOR(encoded))
+
+	assert.True(t, ma.duplicateMapKeys,
+		"the duplicate key must still be recorded for Conway+ rejection")
+	assert.Empty(t, ma.Policies(),
+		"last-wins zero must be pruned, emptying and dropping the policy")
+}
