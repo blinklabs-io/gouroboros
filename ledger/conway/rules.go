@@ -299,9 +299,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 				ActionType: common.GovActionTypeNewConstitution,
 			}
 		default:
-			// Any new GovAction type added to ledger/common is implicitly
-			// allowed here; this branch exists so the assumption is visible
-			// at the call site rather than only in the NOTE above.
+			return fmt.Errorf("unknown governance action type %T", govAction)
 		}
 	}
 	return nil
@@ -2342,12 +2340,14 @@ func UtxoValidateDelegation(
 	// DrepTypeAddrKeyHash/DrepTypeScriptHash (any other type returns an
 	// error from isDRepRegistered before this is reached), so the default
 	// case below is unreachable and does not fall back silently.
-	drepTypeToCredType := func(drepType int) uint {
+	drepTypeToCredType := func(drepType int) (uint, error) {
 		switch drepType {
+		case common.DrepTypeAddrKeyHash:
+			return common.CredentialTypeAddrKeyHash, nil
 		case common.DrepTypeScriptHash:
-			return common.CredentialTypeScriptHash
+			return common.CredentialTypeScriptHash, nil
 		default:
-			return common.CredentialTypeAddrKeyHash
+			return 0, InvalidDRepTypeError{DrepType: drepType}
 		}
 	}
 
@@ -2422,8 +2422,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}
@@ -2443,8 +2447,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}
@@ -2466,8 +2474,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}
@@ -2485,8 +2497,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}
