@@ -182,7 +182,10 @@ func (c *Client) handleRejectMessage(msg protocol.Message) error {
 		)
 	if c.config.RejectMessageFunc != nil {
 		// Convert concrete RejectReasonData back to a RejectReason interface expected by the callback.
-		rr := pcommon.FromRejectReasonData(msgReject.Reason)
+		rr, err := pcommon.FromRejectReasonData(msgReject.Reason)
+		if err != nil {
+			return err
+		}
 		c.config.RejectMessageFunc(c.callbackContext, rr)
 	}
 	return nil

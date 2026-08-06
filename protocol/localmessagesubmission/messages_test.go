@@ -166,7 +166,8 @@ func TestMsgRejectMessageEncoding(t *testing.T) {
 		Message: "Invalid signature",
 	}
 
-	msg := NewMsgRejectMessage(invalidReason)
+	msg, err := NewMsgRejectMessage(invalidReason)
+	assert.NoError(t, err)
 
 	assert.Equal(t, uint8(MessageTypeRejectMessage), msg.Type())
 	assert.NotNil(t, msg.Reason)
@@ -176,7 +177,8 @@ func TestMsgRejectMessageEncoding(t *testing.T) {
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
 	// Recreate the same message and re-encode
-	msg2 := NewMsgRejectMessage(invalidReason)
+	msg2, err := NewMsgRejectMessage(invalidReason)
+	assert.NoError(t, err)
 	data2, err := cbor.Encode(msg2)
 	assert.NoError(t, err)
 	assert.Equal(t, data, data2)
@@ -189,7 +191,8 @@ func TestMsgRejectMessageEncoding(t *testing.T) {
 		t.Fatalf("expected *MsgRejectMessage, got %T", parsed)
 	}
 	// Convert back to public API type and check fields
-	rr := pcommon.FromRejectReasonData(parsedMsg.Reason)
+	rr, err := pcommon.FromRejectReasonData(parsedMsg.Reason)
+	assert.NoError(t, err)
 	inv, ok := rr.(pcommon.InvalidReason)
 	if !ok {
 		t.Fatalf("expected InvalidReason, got %T", rr)
@@ -201,7 +204,8 @@ func TestMsgRejectMessageEncoding(t *testing.T) {
 func TestMsgRejectMessageAlreadyReceived(t *testing.T) {
 	reason := pcommon.AlreadyReceivedReason{}
 
-	msg := NewMsgRejectMessage(reason)
+	msg, err := NewMsgRejectMessage(reason)
+	assert.NoError(t, err)
 
 	assert.Equal(t, uint8(1), msg.Reason.RejectReasonType())
 }
@@ -210,7 +214,8 @@ func TestMsgRejectMessageAlreadyReceived(t *testing.T) {
 func TestMsgRejectMessageExpired(t *testing.T) {
 	reason := pcommon.ExpiredReason{}
 
-	msg := NewMsgRejectMessage(reason)
+	msg, err := NewMsgRejectMessage(reason)
+	assert.NoError(t, err)
 
 	assert.Equal(t, uint8(2), msg.Reason.RejectReasonType())
 }
@@ -221,7 +226,8 @@ func TestMsgRejectMessageOther(t *testing.T) {
 		Message: "Some other reason",
 	}
 
-	msg := NewMsgRejectMessage(reason)
+	msg, err := NewMsgRejectMessage(reason)
+	assert.NoError(t, err)
 
 	assert.Equal(t, uint8(3), msg.Reason.RejectReasonType())
 }

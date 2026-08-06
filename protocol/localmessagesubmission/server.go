@@ -115,9 +115,12 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		rejectMsg := NewMsgRejectMessage(
+		rejectMsg, err := NewMsgRejectMessage(
 			pcommon.OtherReason{Message: err.Error()},
 		)
+		if err != nil {
+			return err
+		}
 		return s.SendMessage(rejectMsg)
 	}
 
@@ -132,9 +135,12 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 					"connection_id", s.callbackContext.ConnectionId.String(),
 					"error", err,
 				)
-			rejectMsg := NewMsgRejectMessage(
+			rejectMsg, err := NewMsgRejectMessage(
 				pcommon.InvalidReason{Message: err.Error()},
 			)
+			if err != nil {
+				return err
+			}
 			return s.SendMessage(rejectMsg)
 		}
 	}
@@ -148,9 +154,12 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 					"connection_id", s.callbackContext.ConnectionId.String(),
 					"error", err,
 				)
-			rejectMsg := NewMsgRejectMessage(
+			rejectMsg, err := NewMsgRejectMessage(
 				pcommon.InvalidReason{Message: err.Error()},
 			)
+			if err != nil {
+				return err
+			}
 			return s.SendMessage(rejectMsg)
 		}
 	}
@@ -172,7 +181,10 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"reason", reason,
 			)
-		rejectMsg := NewMsgRejectMessage(reason)
+		rejectMsg, err := NewMsgRejectMessage(reason)
+		if err != nil {
+			return err
+		}
 		if err := s.SendMessage(rejectMsg); err != nil {
 			return err
 		}

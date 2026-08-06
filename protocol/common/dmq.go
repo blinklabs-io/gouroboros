@@ -331,24 +331,26 @@ func (r RejectReasonData) RejectReasonType() uint8 {
 }
 
 // ToRejectReasonData converts any RejectReason implementation into a concrete RejectReasonData.
-func ToRejectReasonData(rr RejectReason) RejectReasonData {
+func ToRejectReasonData(rr RejectReason) (RejectReasonData, error) {
 	if rr == nil {
-		return RejectReasonData{Type: 3}
+		return RejectReasonData{}, errors.New("reject reason is nil")
 	}
 	switch v := rr.(type) {
 	case InvalidReason:
-		return RejectReasonData{Type: 0, Message: v.Message}
+		return RejectReasonData{Type: 0, Message: v.Message}, nil
 	case AlreadyReceivedReason:
-		return RejectReasonData{Type: 1}
+		return RejectReasonData{Type: 1}, nil
 	case ExpiredReason:
-		return RejectReasonData{Type: 2}
+		return RejectReasonData{Type: 2}, nil
 	case OtherReason:
-		return RejectReasonData{Type: 3, Message: v.Message}
+		return RejectReasonData{Type: 3, Message: v.Message}, nil
 	case RejectReasonData:
-		return v
+		if v.Type > 3 {
+			return RejectReasonData{}, fmt.Errorf("reject reason type out of range: %d", v.Type)
+		}
+		return v, nil
 	default:
-		// Fallback: encode as OtherReason with type 3
-		return RejectReasonData{Type: 3}
+		return RejectReasonData{}, fmt.Errorf("unsupported reject reason type %T", rr)
 	}
 }
 
@@ -406,17 +408,17 @@ func (r *RejectReasonData) UnmarshalCBOR(data []byte) error {
 
 // FromRejectReasonData converts RejectReasonData back to a concrete public API type.
 // This is used during decoding to reconstruct the public RejectReason interface type.
-func FromRejectReasonData(data RejectReasonData) RejectReason {
+func FromRejectReasonData(data RejectReasonData) (RejectReason, error) {
 	switch data.Type {
 	case 0:
-		return InvalidReason{Message: data.Message}
+		return InvalidReason{Message: data.Message}, nil
 	case 1:
-		return AlreadyReceivedReason{}
+		return AlreadyReceivedReason{}, nil
 	case 2:
-		return ExpiredReason{}
+		return ExpiredReason{}, nil
 	case 3:
-		return OtherReason{Message: data.Message}
+		return OtherReason{Message: data.Message}, nil
 	default:
-		return OtherReason{Message: data.Message}
+		return nil, fmt.Errorf("unknown reject reason type: %d", data.Type)
 	}
 }
