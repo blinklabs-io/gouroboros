@@ -54,38 +54,30 @@ const (
 // merkle root over transaction bodies, and a hash over the witness list, so
 // altering, adding, or removing any transaction changes it.
 //
-// This is a block-local, structural validator: it does not check ssc_proof's
-// hashes, only that the SSC proof entry parses (see the NOTE below). It is
-// exposed as the day-to-day validator because tx/dlg/upd proofs cover
-// everything a single block can attest to on its own. For full validation
-// including the actual ssc_proof hashes, accumulate the epoch's blocks into
-// a ByronEpochSscState and call ValidateBodyProofWithSscState instead.
+// This is a block-local, structural validator: for ssc_proof (index 1) it
+// only checks that the header body proof parses as a 4-element array --
+// i.e. that a ssc_proof entry is present at all -- and does not parse the
+// entry's own shape (proof type, hash count) or check any of its hashes
+// (see the NOTE below). It is exposed as the day-to-day validator because
+// tx/dlg/upd proofs cover everything a single block can attest to on its
+// own. For full validation including the actual ssc_proof hashes,
+// accumulate the epoch's blocks into a ByronEpochSscState and call
+// ValidateBodyProofWithSscState instead.
 func (b *ByronMainBlock) ValidateBodyProof() error {
-	proof, ok := b.BlockHeader.BodyProof.([]any)
-	if !ok || len(proof) < bodyProofLength {
-		return fmt.Errorf(
-			"%w: header body proof is not a %d-element array",
-			ErrBodyProofMismatch, bodyProofLength,
-		)
+	proof, err := b.bodyProofArray()
+	if err != nil {
+		return err
 	}
 	if err := b.validateTxProof(proof[bodyProofTxIndex]); err != nil {
 		return err
 	}
-	// NOTE: ssc_proof (index 1) is deliberately not checked here beyond
-	// parsing. Its hashes are taken over cardano-ledger's own encoding of the
-	// SSC sub-payloads, which is not the encoding carried inline in the
-	// block: for the mainnet block in internal/testdata the payload part
-	// hashes to 25777aca... while the header records d36a2619..., so the two
-	// are not the same bytes. Modelling SscPayload well enough to reproduce
-	// it is a separate piece of work, and guessing the encoding from the one
-	// available fixture -- whose SSC payload is empty -- would give false
-	// assurance for the non-empty case.
-	//
-	// More fundamentally, ssc_proof's hashes are computed over epoch-wide
-	// accumulated state (see ByronEpochSscState's NOTE), not this block's
-	// payload in isolation, so no amount of per-block encoding fidelity would
-	// make this check block-local. Use ValidateBodyProofWithSscState, which
-	// takes that state explicitly, for a real check of ssc_proof.
+	// NOTE: ssc_proof (index 1) is deliberately not checked here beyond the
+	// bodyProofArray call above confirming it is present. Its hashes are
+	// computed over epoch-wide accumulated state (see ByronEpochSscState's
+	// NOTE), not this block's payload in isolation, so no amount of
+	// per-block encoding fidelity would make this check block-local. Use
+	// ValidateBodyProofWithSscState, which takes that state explicitly, for
+	// a real check of ssc_proof.
 	//
 	// The consequence of skipping it here is that an alteration confined to
 	// the SSC payload is not detected by this validator. SSC carries
@@ -110,9 +102,22 @@ func (b *ByronMainBlock) ValidateBodyProof() error {
 // including this one, into sscState via ByronEpochSscState.AccumulateBlock,
 // in block order, before calling this method. See ByronEpochSscState's NOTE
 // for why the SSC proof cannot be checked from a single block alone.
+//
+// Before checking sscState's hashes, this also confirms the proof's own
+// declared SSC type (its first element) matches the discriminant of the
+// block's own SscPayload: a header whose ssc_proof structurally claims one
+// SSC type (e.g. CertificatesProof) while the body actually carries a
+// different payload type (e.g. CommitmentsPayload) is rejected here, rather
+// than silently checking hashes against the wrong shape of accumulated
+// state.
 func (b *ByronMainBlock) ValidateBodyProofWithSscState(
 	sscState *ByronEpochSscState,
 ) error {
+	if b == nil || b.BlockHeader == nil {
+		return fmt.Errorf(
+			"%w: block or block header is nil", ErrBodyProofMismatch,
+		)
+	}
 	if err := b.ValidateBodyProof(); err != nil {
 		return err
 	}
@@ -122,14 +127,33 @@ func (b *ByronMainBlock) ValidateBodyProofWithSscState(
 			ErrBodyProofMismatch,
 		)
 	}
+	proof, err := b.bodyProofArray()
+	if err != nil {
+		return err
+	}
+	payloadType, _, err := decodeSscPayloadParts(b.Body.SscPayload)
+	if err != nil {
+		return fmt.Errorf("%w: ssc payload: %w", ErrBodyProofMismatch, err)
+	}
+	return sscState.checkProof(proof[bodyProofSscIndex], payloadType)
+}
+
+// bodyProofArray returns the header's body proof as a validated array,
+// guarding against a nil receiver or nil BlockHeader.
+func (b *ByronMainBlock) bodyProofArray() ([]any, error) {
+	if b == nil || b.BlockHeader == nil {
+		return nil, fmt.Errorf(
+			"%w: block or block header is nil", ErrBodyProofMismatch,
+		)
+	}
 	proof, ok := b.BlockHeader.BodyProof.([]any)
 	if !ok || len(proof) < bodyProofLength {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: header body proof is not a %d-element array",
 			ErrBodyProofMismatch, bodyProofLength,
 		)
 	}
-	return sscState.checkProof(proof[bodyProofSscIndex])
+	return proof, nil
 }
 
 func (b *ByronMainBlock) validateTxProof(rawProof any) error {

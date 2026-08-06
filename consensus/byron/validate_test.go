@@ -1167,14 +1167,17 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 // ValidateBodyHashWithSscState against the real, unmodified mainnet
 // fixture. Accumulating the block's own (empty) CertificatesPayload must
 // succeed -- that's the wire-shape regression this type shipped with
-// initially (see byron.ByronEpochSscState's package tests) -- but this
-// package's canonical hash of the resulting (empty) state is not proven to
-// reproduce cardano-ledger's real ssc_proof byte-for-byte (see
-// byron.ByronEpochSscState's NOTE), so the overall call is still expected
-// to fail here. The failure must come from the ssc_proof check
-// specifically, i.e. after this file's own transaction/delegation/update
-// checks already passed, and must surface as a *common.ValidationError
-// like every other exported function in this file.
+// initially (see byron.ByronEpochSscState's package tests) -- and this
+// package's canonical hash of the resulting (empty) state, the CBOR
+// encoding of an empty map (0xa0), reproduces the real header's ssc_proof
+// hash for this block exactly, so the overall call succeeds too. (An
+// earlier version of this package computed the canonical hash over a
+// tag-258 set encoding instead of a genuine CBOR map, which did not match
+// the real header hash even for this trivial empty case -- see
+// byron.ByronEpochSscState's NOTE for the map-vs-set distinction this
+// fixture caught.) Non-empty ssc_proof parity with cardano-ledger's real
+// mainnet encoding remains otherwise unconfirmed, since no such fixture is
+// available.
 func TestValidateBodyHashWithSscState_RealMainnetBlock(t *testing.T) {
 	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
 	require.NoError(t, err)
@@ -1188,12 +1191,7 @@ func TestValidateBodyHashWithSscState_RealMainnetBlock(t *testing.T) {
 	sscState := byron.NewByronEpochSscState()
 	require.NoError(t, sscState.AccumulateBlock(block))
 
-	err = ValidateBodyHashWithSscState(block, sscState)
-	require.Error(t, err)
-	var valErr *common.ValidationError
-	require.ErrorAs(t, err, &valErr)
-	assert.Equal(t, common.ValidationErrorTypeBodyHash, valErr.Type)
-	assert.Contains(t, valErr.Message, "ssc_proof")
+	assert.NoError(t, ValidateBodyHashWithSscState(block, sscState))
 }
 
 // TestValidateBodyHashWithSscState_NilBlock confirms the nil-block error
@@ -1222,6 +1220,7 @@ func TestValidateBodyHashWithSscState_MissingState(t *testing.T) {
 	require.Error(t, err)
 	var valErr *common.ValidationError
 	require.ErrorAs(t, err, &valErr)
+	require.NotNil(t, valErr)
 	assert.Equal(t, common.ValidationErrorTypeBodyHash, valErr.Type)
 }
 

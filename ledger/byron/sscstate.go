@@ -15,11 +15,9 @@
 package byron
 
 import (
-	"bytes"
 	"crypto/sha3"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -85,17 +83,21 @@ const (
 // and NewByronAddressRedeem (ledger/common/address.go) already apply to
 // full Byron address-root payloads. Those two helpers are scoped to that
 // specific address-root CBOR structure, not a bare public key, so
-// stakeholderIDFromPubkey below re-applies the same three-step primitive
-// directly to the pubkey-only case ssccomm/ssccert entries carry. Openings
-// and shares, by contrast, really are CBOR maps keyed directly by a
-// 28-byte ID.
+// stakeholderIDFromPubkeyCbor below re-applies the same three-step
+// primitive directly to the pubkey-only case ssccomm/ssccert entries carry.
+// Openings and shares, by contrast, really are CBOR maps keyed directly by
+// a 28-byte ID.
 //
-// The canonical byte encoding this type hashes accumulated entries with
-// (stakeholder IDs sorted ascending, each entry's preserved CBOR bytes
-// concatenated in that order) is otherwise defined by this package and is
-// internally consistent for this validator, but is not proven to reproduce
-// cardano-ledger's own historical mainnet encoding of these sets/maps
-// byte-for-byte.
+// The canonical byte encoding this type hashes accumulated entries with is
+// the CBOR encoding of a genuine, definite-length map from each 28-byte
+// stakeholder ID to that entry's preserved CBOR bytes, keys ascending (see
+// canonicalMapHash) -- matching cardano-sl's own HashMap StakeholderId ...
+// hashes, not a bespoke concatenation of raw bytes. This is confirmed for
+// the empty-map case against the bundled mainnet fixture's own (empty)
+// CertificatesPayload, whose header ssc_proof hash this package now
+// reproduces exactly (see TestValidateBodyHashWithSscState_RealMainnetBlock
+// in consensus/byron); it is not separately confirmed against a real,
+// non-empty mainnet ssc_proof, since no such fixture is available.
 type ByronEpochSscState struct {
 	Commitments     map[common.Blake2b224][]byte
 	Openings        map[common.Blake2b224][]byte
@@ -153,13 +155,13 @@ func (s *ByronEpochSscState) AccumulateBlock(block *ByronMainBlock) error {
 		}
 		switch sscType {
 		case SscTypeCommitments:
-			mergeStakeholderMap(s.Commitments, primary)
+			mergeStakeholderMap(&s.Commitments, primary)
 		case SscTypeOpenings:
-			mergeStakeholderMap(s.Openings, primary)
+			mergeStakeholderMap(&s.Openings, primary)
 		case SscTypeShares:
-			mergeStakeholderMap(s.Shares, primary)
+			mergeStakeholderMap(&s.Shares, primary)
 		}
-		mergeStakeholderMap(s.VssCertificates, certs)
+		mergeStakeholderMap(&s.VssCertificates, certs)
 	case SscTypeCertificates:
 		if len(rest) != 1 {
 			return fmt.Errorf(
@@ -175,7 +177,7 @@ func (s *ByronEpochSscState) AccumulateBlock(block *ByronMainBlock) error {
 				ErrBodyProofMismatch, err,
 			)
 		}
-		mergeStakeholderMap(s.VssCertificates, certs)
+		mergeStakeholderMap(&s.VssCertificates, certs)
 	default:
 		return fmt.Errorf(
 			"%w: unknown ssc payload type %d", ErrBodyProofMismatch, sscType,
@@ -201,7 +203,16 @@ func decodePrimaryEntries(
 // checkProof validates a block's ssc_proof (the raw, decoded proof entry at
 // bodyProofSscIndex) against this epoch state's currently accumulated
 // hashes.
-func (s *ByronEpochSscState) checkProof(rawProof any) error {
+//
+// expectedType is the discriminant of the block's own SscPayload (see
+// decodeSscPayloadParts); the proof's declared type is required to match
+// it, so a header whose ssc_proof structurally claims a different SSC type
+// than the body's actual payload is rejected here rather than silently
+// checked against the wrong shape of accumulated state.
+func (s *ByronEpochSscState) checkProof(
+	rawProof any,
+	expectedType uint64,
+) error {
 	proofSlice, ok := rawProof.([]any)
 	if !ok || len(proofSlice) < 2 {
 		return fmt.Errorf(
@@ -212,6 +223,13 @@ func (s *ByronEpochSscState) checkProof(rawProof any) error {
 	sscType, err := asUint(proofSlice[0])
 	if err != nil {
 		return fmt.Errorf("%w: ssc proof type: %w", ErrBodyProofMismatch, err)
+	}
+	if sscType != expectedType {
+		return fmt.Errorf(
+			"%w: ssc proof declares type %d, but the block's own ssc "+
+				"payload is type %d",
+			ErrBodyProofMismatch, sscType, expectedType,
+		)
 	}
 	switch sscType {
 	case SscTypeCommitments, SscTypeOpenings, SscTypeShares:
@@ -241,6 +259,12 @@ func (s *ByronEpochSscState) checkProof(rawProof any) error {
 			s.CertificatesHash(),
 		)
 	case SscTypeCertificates:
+		if len(proofSlice) != 2 {
+			return fmt.Errorf(
+				"%w: ssc proof type %d requires exactly 2 elements, got %d",
+				ErrBodyProofMismatch, sscType, len(proofSlice),
+			)
+		}
 		return checkHash(
 			"ssc vss certificates hash",
 			proofSlice[1],
@@ -330,7 +354,9 @@ func decodeStakeholderMap(
 // (ssccomm or ssccert, per the CDDL), each a CBOR array whose element at
 // pubkeyFieldIndex is the contributor's raw public key. Since neither entry
 // shape carries a pre-hashed stakeholder ID, the accumulator key is derived
-// with stakeholderIDFromPubkey. The full entry's original CBOR bytes are
+// with stakeholderIDFromPubkeyCbor, applied directly to the field's
+// preserved CBOR bytes rather than a decoded-and-re-encoded copy (see that
+// function's doc comment for why). The full entry's original CBOR bytes are
 // preserved as the map value.
 func decodeIdentitySet(
 	raw cbor.RawMessage,
@@ -353,47 +379,41 @@ func decodeIdentitySet(
 				i, len(fields), pubkeyFieldIndex,
 			)
 		}
-		var pubkeyBytes []byte
-		if _, err := cbor.Decode(
-			fields[pubkeyFieldIndex], &pubkeyBytes,
-		); err != nil {
-			return nil, fmt.Errorf(
-				"decoding set entry %d public key: %w", i, err,
-			)
-		}
-		key, err := stakeholderIDFromPubkey(pubkeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"deriving stakeholder ID for set entry %d: %w", i, err,
-			)
-		}
+		key := stakeholderIDFromPubkeyCbor(fields[pubkeyFieldIndex])
 		result[key] = []byte(item)
 	}
 	return result, nil
 }
 
-// stakeholderIDFromPubkey derives a Byron StakeholderId from a raw public
-// key using cardano-sl's generic `addressHash` primitive:
-// blake2b_224(sha3_256(cbor_serialize(x))). This is the same double-hash
-// primitive ledger/common's computeByronAddressRoot (verify.go) and
-// NewByronAddressRedeem (address.go) apply to full Byron address-root
-// payloads -- see the citation on computeByronAddressRoot ("This matches
-// the Amaru implementation") -- just applied here to a bare public key
-// rather than an address-root structure, since that's what ssccomm/ssccert
-// entries carry (see ByronEpochSscState's doc comment).
-func stakeholderIDFromPubkey(pubkey []byte) (common.Blake2b224, error) {
-	encoded, err := cbor.Encode(pubkey)
-	if err != nil {
-		return common.Blake2b224{}, fmt.Errorf(
-			"cbor-encoding public key: %w", err,
-		)
-	}
-	sha3Sum := sha3.Sum256(encoded)
-	return common.Blake2b224Hash(sha3Sum[:]), nil
+// stakeholderIDFromPubkeyCbor derives a Byron StakeholderId from the
+// preserved CBOR encoding of a raw public key, applying cardano-sl's
+// generic `addressHash` primitive: blake2b_224(sha3_256(cbor_bytes)). This
+// is the same double-hash primitive ledger/common's computeByronAddressRoot
+// (verify.go) and NewByronAddressRedeem (address.go) apply to full Byron
+// address-root payloads -- see the citation on computeByronAddressRoot
+// ("This matches the Amaru implementation") -- just applied here to a bare
+// public key rather than an address-root structure, since that's what
+// ssccomm/ssccert entries carry (see ByronEpochSscState's doc comment).
+//
+// The caller must pass the field's original, preserved CBOR bytes, not a
+// decoded-and-re-encoded copy: if the wire encoding is not canonical (e.g.
+// an indefinite-length byte string, or a non-minimal length header), the
+// re-encoded bytes would differ from what was actually hashed on the wire,
+// silently deriving the wrong stakeholder ID.
+func stakeholderIDFromPubkeyCbor(pubkeyCbor []byte) common.Blake2b224 {
+	sha3Sum := sha3.Sum256(pubkeyCbor)
+	return common.Blake2b224Hash(sha3Sum[:])
 }
 
-// mergeStakeholderMap folds src into dst, with entries in src overwriting
+// mergeStakeholderMap folds src into *dst, with entries in src overwriting
 // any existing entry for the same stakeholder.
+//
+// dst is a pointer to the destination map, rather than the map itself,
+// because a caller may reach AccumulateBlock via a zero-value
+// &ByronEpochSscState{} instead of NewByronEpochSscState(), leaving the
+// destination field nil; assigning through the pointer here lazily
+// initializes it in place instead of panicking with "assignment to entry in
+// nil map" or silently requiring the constructor.
 //
 // Whether a given block's own SSC payload carries only its newly-seen
 // entries (a delta) or a full running snapshot of everything seen so far in
@@ -404,28 +424,39 @@ func stakeholderIDFromPubkey(pubkey []byte) (common.Blake2b224, error) {
 // later, more complete snapshot's entries supersede the same stakeholder's
 // earlier ones with no other effect.
 func mergeStakeholderMap(
-	dst, src map[common.Blake2b224][]byte,
+	dst *map[common.Blake2b224][]byte,
+	src map[common.Blake2b224][]byte,
 ) {
+	if *dst == nil {
+		*dst = make(map[common.Blake2b224][]byte, len(src))
+	}
 	for k, v := range src {
-		dst[k] = v
+		(*dst)[k] = v
 	}
 }
 
 // canonicalMapHash computes this package's canonical hash of a stakeholder
-// map: the blake2b-256 hash of each entry's stakeholder ID followed by its
-// preserved CBOR bytes, concatenated in ascending stakeholder ID order.
+// map: the blake2b-256 hash of the CBOR encoding of a genuine, definite-
+// length CBOR map from each 28-byte stakeholder ID to that entry's
+// preserved CBOR bytes, with keys ordered per RFC 8949's core deterministic
+// encoding (ascending, since all keys here are fixed-length byte strings).
+//
+// This mirrors cardano-sl's own commitment/opening/share/certificate
+// hashes, which are computed over the CBOR encoding of a genuine map
+// (HashMap StakeholderId ...), not a bespoke concatenation of raw bytes:
+// for the bundled mainnet fixture's empty VssCertificatesMap, this produces
+// blake2b256(0xa0) -- the CBOR encoding of an empty map -- which matches
+// the real header's ssc_proof hash for that block exactly.
 func canonicalMapHash(m map[common.Blake2b224][]byte) common.Blake2b256 {
-	keys := make([]common.Blake2b224, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+	encoded := make(map[cbor.ByteString]cbor.RawMessage, len(m))
+	for k, v := range m {
+		encoded[cbor.NewByteString(k.Bytes())] = cbor.RawMessage(v)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		return bytes.Compare(keys[i].Bytes(), keys[j].Bytes()) < 0
-	})
-	var buf bytes.Buffer
-	for _, k := range keys {
-		buf.Write(k.Bytes())
-		buf.Write(m[k])
+	data, err := cbor.Encode(encoded)
+	if err != nil {
+		// encoded's keys are fixed-length byte strings and its values are
+		// already-valid, previously-decoded CBOR bytes; this cannot fail.
+		panic("CBOR encoding that should never fail has failed: " + err.Error())
 	}
-	return common.Blake2b256Hash(buf.Bytes())
+	return common.Blake2b256Hash(data)
 }

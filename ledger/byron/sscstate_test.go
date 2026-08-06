@@ -354,7 +354,7 @@ func TestByronEpochSscStateCertificatesOnly(t *testing.T) {
 	sscState := byron.NewByronEpochSscState()
 	require.NoError(t, sscState.AccumulateBlock(block))
 	// The accumulator key is derived internally from the pubkey (see
-	// stakeholderIDFromPubkey); this test doesn't assume any particular
+	// stakeholderIDFromPubkeyCbor); this test doesn't assume any particular
 	// derivation, only that accumulating one entry produces exactly one
 	// key, which is what gets tampered with below.
 	require.Len(t, sscState.VssCertificates, 1)
@@ -424,4 +424,106 @@ func TestByronEpochSscStateOpeningsAndShares(t *testing.T) {
 	sharesBlock := decodeWithSscPayload(t, sharesPayload)
 	require.NoError(t, sscState.AccumulateBlock(sharesBlock))
 	require.Contains(t, sscState.Shares, stakeholder)
+}
+
+// TestByronEpochSscStateZeroValueAccumulateBlockIsSafe confirms that
+// AccumulateBlock does not panic when called on a zero-value
+// &byron.ByronEpochSscState{} rather than one built via
+// byron.NewByronEpochSscState(): the exported maps must be lazily
+// initialized by the merge, not assumed non-nil.
+func TestByronEpochSscStateZeroValueAccumulateBlockIsSafe(t *testing.T) {
+	pubkey := sscPubkey(0xff)
+
+	payload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		mustEncodeSet(t, sscCertEntry(pubkey, "cert-zero")),
+	})
+	require.NoError(t, err)
+
+	block := decodeWithSscPayload(t, payload)
+
+	sscState := &byron.ByronEpochSscState{}
+	require.NotPanics(t, func() {
+		require.NoError(t, sscState.AccumulateBlock(block))
+	})
+	require.Len(t, sscState.VssCertificates, 1)
+}
+
+// TestByronEpochSscStateCertificatesProofRejectsMalformedLength confirms
+// that a CertificatesProof with more than its required 2 elements is
+// rejected, matching the exact-length strictness other proof shapes
+// already have.
+func TestByronEpochSscStateCertificatesProofRejectsMalformedLength(
+	t *testing.T,
+) {
+	pubkey := sscPubkey(0xcd)
+
+	payload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		mustEncodeSet(t, sscCertEntry(pubkey, "cert-malformed")),
+	})
+	require.NoError(t, err)
+
+	block := decodeWithSscPayload(t, payload)
+
+	sscState := byron.NewByronEpochSscState()
+	require.NoError(t, sscState.AccumulateBlock(block))
+
+	// A malformed 3-element CertificatesProof: [type, hash, extra].
+	malformedProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		sscState.CertificatesHash().Bytes(),
+		sscState.CertificatesHash().Bytes(),
+	})
+	require.NoError(t, err)
+
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, malformedProof,
+	)
+	malformedBlock, err := byron.NewByronMainBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+
+	err = malformedBlock.ValidateBodyProofWithSscState(sscState)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}
+
+// TestByronEpochSscStateRejectsProofPayloadTypeMismatch confirms that a
+// header ssc_proof whose declared SSC type does not match the type of SSC
+// payload the block's own body actually carries is rejected, rather than
+// being checked against the wrong shape of accumulated state.
+func TestByronEpochSscStateRejectsProofPayloadTypeMismatch(t *testing.T) {
+	pubkey := sscPubkey(0xce)
+
+	// The block's own body carries a CertificatesPayload.
+	payload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		mustEncodeSet(t, sscCertEntry(pubkey, "cert-mismatch")),
+	})
+	require.NoError(t, err)
+
+	block := decodeWithSscPayload(t, payload)
+
+	sscState := byron.NewByronEpochSscState()
+	require.NoError(t, sscState.AccumulateBlock(block))
+
+	// The header's ssc_proof structurally claims CommitmentsProof (type 0),
+	// a different SSC type than the body's own CertificatesPayload (type
+	// 3).
+	mismatchedProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCommitments),
+		sscState.CommitmentsHash().Bytes(),
+		sscState.CertificatesHash().Bytes(),
+	})
+	require.NoError(t, err)
+
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, mismatchedProof,
+	)
+	mismatchedBlock, err := byron.NewByronMainBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+
+	err = mismatchedBlock.ValidateBodyProofWithSscState(sscState)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }

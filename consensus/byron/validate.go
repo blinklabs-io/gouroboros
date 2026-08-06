@@ -1014,6 +1014,14 @@ func ValidateBodyHash(block *byron.ByronMainBlock) error {
 // *common.ValidationError, matching every other exported function in this
 // file.
 //
+// Concretely, this means the dominant per-block cost -- the transaction
+// Merkle root over every transaction body (see MerkleRoot in the ledger
+// package) -- is computed twice per call to this function: once by
+// ValidateBodyHash's own validateTxProof, and again inside
+// ValidateBodyProofWithSscState's call to ValidateBodyProof. Callers that
+// validate every block of a busy epoch through this function, rather than
+// ValidateBodyHash alone, pay that doubled cost on every one of them.
+//
 // Wiring point for future work: this package tracks per-epoch consensus
 // parameters (ByronConfig.SlotsPerEpoch, SlotToEpoch,
 // IsEpochBoundarySlot) but does not itself carry an accumulated
