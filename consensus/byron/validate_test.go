@@ -21,8 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1159,6 +1161,139 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestValidateBodyHashWithSscState_RealMainnetBlock exercises
+// ValidateBodyHashWithSscState against the real, unmodified mainnet
+// fixture. Accumulating the block's own (empty) CertificatesPayload must
+// succeed -- that's the wire-shape regression this type shipped with
+// initially (see byron.ByronEpochSscState's package tests) -- but this
+// package's canonical hash of the resulting (empty) state is not proven to
+// reproduce cardano-ledger's real ssc_proof byte-for-byte (see
+// byron.ByronEpochSscState's NOTE), so the overall call is still expected
+// to fail here. The failure must come from the ssc_proof check
+// specifically, i.e. after this file's own transaction/delegation/update
+// checks already passed, and must surface as a *common.ValidationError
+// like every other exported function in this file.
+func TestValidateBodyHashWithSscState_RealMainnetBlock(t *testing.T) {
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+
+	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
+	require.NoError(t, err)
+
+	// This file's own pipeline, run alone, passes: tx/dlg/upd are unaffected.
+	require.NoError(t, ValidateBodyHash(block))
+
+	sscState := byron.NewByronEpochSscState()
+	require.NoError(t, sscState.AccumulateBlock(block))
+
+	err = ValidateBodyHashWithSscState(block, sscState)
+	require.Error(t, err)
+	var valErr *common.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Equal(t, common.ValidationErrorTypeBodyHash, valErr.Type)
+	assert.Contains(t, valErr.Message, "ssc_proof")
+}
+
+// TestValidateBodyHashWithSscState_NilBlock confirms the nil-block error
+// path returns the same *common.ValidationError type as every other
+// exported function in this file.
+func TestValidateBodyHashWithSscState_NilBlock(t *testing.T) {
+	err := ValidateBodyHashWithSscState(nil, byron.NewByronEpochSscState())
+	require.Error(t, err)
+	var valErr *common.ValidationError
+	require.ErrorAs(t, err, &valErr)
+}
+
+// TestValidateBodyHashWithSscState_MissingState confirms an ssc_proof
+// mismatch (here, from a nil state) surfaces as a *common.ValidationError,
+// consistent with every other exported function in this file, rather than
+// a bare ledger/byron error that callers type-asserting
+// *common.ValidationError would silently miss.
+func TestValidateBodyHashWithSscState_MissingState(t *testing.T) {
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+
+	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
+	require.NoError(t, err)
+
+	err = ValidateBodyHashWithSscState(block, nil)
+	require.Error(t, err)
+	var valErr *common.ValidationError
+	require.ErrorAs(t, err, &valErr)
+	assert.Equal(t, common.ValidationErrorTypeBodyHash, valErr.Type)
+}
+
+// withRealSscProof returns a copy of the real mainnet fixture's CBOR with
+// its header ssc_proof (body-proof element 1) replaced, preserving the
+// unmodified (empty) SSC payload and every other component -- including
+// the transaction, delegation, and update proofs -- byte for byte. This
+// exercises ValidateBodyHashWithSscState's success path with a real
+// accumulated state, without needing to fabricate a whole valid block.
+func withRealSscProof(t *testing.T, sscProof []byte) []byte {
+	t.Helper()
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+
+	var block []cbor.RawMessage
+	_, err = cbor.Decode(blockBytes, &block)
+	require.NoError(t, err)
+	require.Len(t, block, 3)
+
+	var header []cbor.RawMessage
+	_, err = cbor.Decode(block[0], &header)
+	require.NoError(t, err)
+	require.Len(t, header, 5)
+
+	var bodyProof []cbor.RawMessage
+	_, err = cbor.Decode(header[2], &bodyProof)
+	require.NoError(t, err)
+	require.Len(t, bodyProof, 4)
+	bodyProof[1] = sscProof
+
+	newBodyProof, err := cbor.Encode(bodyProof)
+	require.NoError(t, err)
+	header[2] = newBodyProof
+
+	newHeader, err := cbor.Encode(header)
+	require.NoError(t, err)
+	block[0] = newHeader
+
+	tampered, err := cbor.Encode(block)
+	require.NoError(t, err)
+	return tampered
+}
+
+// TestValidateBodyHashWithSscState_Success confirms the success path: when
+// the header's ssc_proof actually matches this package's canonical hash of
+// the accumulated state, ValidateBodyHashWithSscState returns nil. This
+// isolates ValidateBodyHashWithSscState's own forwarding/wrapping logic
+// from the (separately documented, and separately tested in
+// ledger/byron) question of whether that canonical hash matches
+// cardano-ledger's real mainnet encoding.
+func TestValidateBodyHashWithSscState_Success(t *testing.T) {
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
+	require.NoError(t, err)
+
+	sscState := byron.NewByronEpochSscState()
+	require.NoError(t, sscState.AccumulateBlock(block))
+
+	realProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		sscState.CertificatesHash().Bytes(),
+	})
+	require.NoError(t, err)
+
+	patchedBytes := withRealSscProof(t, realProof)
+	patchedBlock, err := byron.NewByronMainBlockFromCbor(patchedBytes)
+	require.NoError(t, err)
+
+	freshState := byron.NewByronEpochSscState()
+	require.NoError(t, freshState.AccumulateBlock(patchedBlock))
+	assert.NoError(t, ValidateBodyHashWithSscState(patchedBlock, freshState))
 }
 
 // Test genesis config similar to mainnet for NewByronConfigFromGenesis test

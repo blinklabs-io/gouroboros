@@ -926,6 +926,13 @@ const (
 // 2. Computing the merkle roots from transaction bodies and witnesses
 // 3. Hashing the delegation and update payloads
 // 4. Comparing computed values against the header's body proof
+//
+// This is a block-local, structural validator: the SSC proof (see
+// validateSscProof) is only checked for internal consistency, not against
+// its actual hashes, because those hashes depend on state accumulated
+// across every block of the epoch and cannot be recovered from one block
+// in isolation. For a real check of the SSC proof, use
+// ValidateBodyHashWithSscState.
 func ValidateBodyHash(block *byron.ByronMainBlock) error {
 	if block == nil {
 		return &common.ValidationError{
@@ -984,6 +991,54 @@ func ValidateBodyHash(block *byron.ByronMainBlock) error {
 		return err
 	}
 
+	return nil
+}
+
+// ValidateBodyHashWithSscState performs full body-proof validation of a
+// Byron main block: this file's own ValidateBodyHash pipeline (parsing
+// BodyProof and checking the transaction, delegation, and update proofs,
+// including its fallback-to-re-encode paths), followed by a real check of
+// the block's ssc_proof against sscState's epoch-accumulated SSC hashes via
+// byron.ByronMainBlock.ValidateBodyProofWithSscState in the ledger package
+// -- the check ValidateBodyHash itself cannot perform (see its doc comment
+// and byron.ByronEpochSscState's NOTE).
+//
+// These two halves are independently implemented and are not proven
+// equivalent to each other on every input: ValidateBodyHash's own
+// transaction/delegation/update checks run first, unchanged, and then
+// ValidateBodyProofWithSscState separately re-runs the ledger package's own
+// equivalent transaction/delegation/update checks before its ssc_proof
+// check. Running both is intentional belt-and-suspenders given the lack of
+// an equivalence proof between the two pipelines, not redundancy to be
+// optimized away. Every failure, from either half, is returned as a
+// *common.ValidationError, matching every other exported function in this
+// file.
+//
+// Wiring point for future work: this package tracks per-epoch consensus
+// parameters (ByronConfig.SlotsPerEpoch, SlotToEpoch,
+// IsEpochBoundarySlot) but does not itself carry an accumulated
+// byron.ByronEpochSscState across the sequence of blocks in an epoch --
+// there is no block-validation loop in this package to thread it
+// through. Callers that do drive such a loop (e.g. a chain follower)
+// should construct one byron.ByronEpochSscState per epoch, call
+// AccumulateBlock for every main block of that epoch in order, and pass
+// it to this function instead of calling ValidateBodyHash alone.
+func ValidateBodyHashWithSscState(
+	block *byron.ByronMainBlock,
+	sscState *byron.ByronEpochSscState,
+) error {
+	if err := ValidateBodyHash(block); err != nil {
+		return err
+	}
+	// block is guaranteed non-nil here: ValidateBodyHash(nil) always
+	// returns a non-nil error above.
+	if err := block.ValidateBodyProofWithSscState(sscState); err != nil {
+		return &common.ValidationError{
+			Type:    common.ValidationErrorTypeBodyHash,
+			Message: "ssc_proof validation against epoch state failed",
+			Cause:   err,
+		}
+	}
 	return nil
 }
 
