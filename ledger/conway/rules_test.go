@@ -3457,6 +3457,7 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 			t.Fatalf("got ActionType %d, want %d (TreasuryWithdrawal)", bdErr.ActionType, common.GovActionTypeTreasuryWithdrawal)
 		}
 	})
+
 }
 
 func TestUtxoValidateBootstrapParameterGroups(t *testing.T) {

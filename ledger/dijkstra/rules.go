@@ -184,6 +184,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 				ActionType: common.GovActionTypeNewConstitution,
 			}
 		default:
+			return fmt.Errorf("unknown governance action type %T", govAction)
 		}
 	}
 	return nil
