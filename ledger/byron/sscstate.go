@@ -406,6 +406,11 @@ func decodeIdentitySet(
 				"decoding set entry %d public key: %w", i, err,
 			)
 		}
+		if len(pubkeyBytes) == 0 {
+			return nil, fmt.Errorf(
+				"set entry %d has empty public key", i,
+			)
+		}
 		key := stakeholderIDFromPubkeyCbor(pubkeyField)
 		result[key] = []byte(item)
 	}

@@ -542,6 +542,36 @@ func TestByronEpochSscStateRejectsMalformedPubkeyField(t *testing.T) {
 	}
 }
 
+// TestByronEpochSscStateRejectsEmptyPubkeyField confirms that a set entry
+// whose public-key field is a genuine, well-formed CBOR byte string but has
+// zero length (wire encoding 0x40) is rejected by decodeIdentitySet, rather
+// than being accepted as a valid stakeholder public key. This is distinct
+// from TestByronEpochSscStateRejectsMalformedPubkeyField: a zero-length byte
+// string passes the major-type check there (it genuinely is major type 2),
+// so it needs its own, explicit length check after decoding.
+func TestByronEpochSscStateRejectsEmptyPubkeyField(t *testing.T) {
+	// A malformed ssccert entry: [vsspubkey, pubkey, epochid, signature],
+	// with the pubkey field (index 1) encoded as an empty CBOR byte
+	// string ([]byte{} encodes to the wire bytes 0x40).
+	malformedEntry := []any{
+		"vsspubkey", []byte{}, uint64(0), "sig",
+	}
+
+	payload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		mustEncodeSet(t, malformedEntry),
+	})
+	require.NoError(t, err)
+
+	block := decodeWithSscPayload(t, payload)
+
+	sscState := byron.NewByronEpochSscState()
+	err = sscState.AccumulateBlock(block)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	assert.Empty(t, sscState.VssCertificates)
+}
+
 // TestByronEpochSscStateRejectsProofPayloadTypeMismatch confirms that a
 // header ssc_proof whose declared SSC type does not match the type of SSC
 // payload the block's own body actually carries is rejected, rather than
