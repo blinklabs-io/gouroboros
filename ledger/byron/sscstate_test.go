@@ -489,30 +489,57 @@ func TestByronEpochSscStateCertificatesProofRejectsMalformedLength(
 }
 
 // TestByronEpochSscStateRejectsMalformedPubkeyField confirms that a set
-// entry whose public-key field is not a CBOR byte string (here, a CBOR
-// array) is rejected by decodeIdentitySet rather than silently accepted and
-// hashed into the accumulator as if it were a valid public key.
+// entry whose public-key field is not a CBOR byte string is rejected by
+// decodeIdentitySet rather than silently accepted and hashed into the
+// accumulator as if it were a valid public key.
+//
+// The array-of-uints case exercises fxamacker/cbor's permissive
+// decode-into-[]byte behavior directly: parseArrayToSlice happily converts a
+// CBOR array of small (0-255) unsigned integers into a Go []byte, so a naive
+// "does this field decode into []byte" check would accept a major-type-4
+// array as if it were a major-type-2 byte string. The array-of-strings case
+// is kept alongside it since it exercises the same "field is an array, not a
+// byte string" shape via a different, incidental failure mode (each element
+// fails to decode as a uint8).
 func TestByronEpochSscStateRejectsMalformedPubkeyField(t *testing.T) {
-	// A malformed ssccert entry: [vsspubkey, pubkey, epochid, signature],
-	// with the pubkey field (index 1) encoded as a CBOR array instead of a
-	// byte string.
-	malformedEntry := []any{
-		"vsspubkey", []any{"not", "a", "pubkey"}, uint64(0), "sig",
+	tests := []struct {
+		name          string
+		malformedFits []any
+	}{
+		{
+			name:          "array of text strings",
+			malformedFits: []any{"not", "a", "pubkey"},
+		},
+		{
+			name:          "array of small unsigned integers",
+			malformedFits: []any{uint64(1), uint64(2), uint64(3)},
+		},
 	}
 
-	payload, err := cbor.Encode([]any{
-		uint64(byron.SscTypeCertificates),
-		mustEncodeSet(t, malformedEntry),
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// A malformed ssccert entry: [vsspubkey, pubkey, epochid,
+			// signature], with the pubkey field (index 1) encoded as a
+			// CBOR array instead of a byte string.
+			malformedEntry := []any{
+				"vsspubkey", tt.malformedFits, uint64(0), "sig",
+			}
 
-	block := decodeWithSscPayload(t, payload)
+			payload, err := cbor.Encode([]any{
+				uint64(byron.SscTypeCertificates),
+				mustEncodeSet(t, malformedEntry),
+			})
+			require.NoError(t, err)
 
-	sscState := byron.NewByronEpochSscState()
-	err = sscState.AccumulateBlock(block)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
-	assert.Empty(t, sscState.VssCertificates)
+			block := decodeWithSscPayload(t, payload)
+
+			sscState := byron.NewByronEpochSscState()
+			err = sscState.AccumulateBlock(block)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+			assert.Empty(t, sscState.VssCertificates)
+		})
+	}
 }
 
 // TestByronEpochSscStateRejectsProofPayloadTypeMismatch confirms that a

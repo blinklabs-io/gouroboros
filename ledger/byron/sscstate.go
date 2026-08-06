@@ -379,13 +379,34 @@ func decodeIdentitySet(
 				i, len(fields), pubkeyFieldIndex,
 			)
 		}
+		pubkeyField := fields[pubkeyFieldIndex]
+		if len(pubkeyField) == 0 {
+			return nil, fmt.Errorf(
+				"set entry %d has empty public key field", i,
+			)
+		}
+		// Enforce the field's actual CBOR major type is byte string
+		// (major type 2), not just "decodes into something
+		// []byte-shaped": decoding straight into a Go []byte is too
+		// permissive here, since fxamacker/cbor also routes a CBOR
+		// array of small (0-255) unsigned integers through
+		// parseArrayToSlice into a []byte, which would silently
+		// accept a wrong-shaped field (e.g. major-type-4 array
+		// [1, 2, 3]) as if it were a genuine byte string.
+		if pubkeyField[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
+			return nil, fmt.Errorf(
+				"set entry %d public key field is not a CBOR byte string (major type 0x%x)",
+				i,
+				pubkeyField[0]&cbor.CborTypeMask,
+			)
+		}
 		var pubkeyBytes []byte
-		if _, err := cbor.Decode(fields[pubkeyFieldIndex], &pubkeyBytes); err != nil {
+		if _, err := cbor.Decode(pubkeyField, &pubkeyBytes); err != nil {
 			return nil, fmt.Errorf(
 				"decoding set entry %d public key: %w", i, err,
 			)
 		}
-		key := stakeholderIDFromPubkeyCbor(fields[pubkeyFieldIndex])
+		key := stakeholderIDFromPubkeyCbor(pubkeyField)
 		result[key] = []byte(item)
 	}
 	return result, nil
