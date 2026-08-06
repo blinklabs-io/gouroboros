@@ -87,6 +87,13 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 	// Convert the wire indices to the platform type without discarding values.
 	result := make([]uint, 0, len(tmp.InvalidTransactions))
 	for _, val := range tmp.InvalidTransactions {
+		if val >= uint64(len(tmp.TransactionBodies)) {
+			return fmt.Errorf(
+				"invalid transaction index %d outside transaction list length %d",
+				val,
+				len(tmp.TransactionBodies),
+			)
+		}
 		converted := uint(val)
 		if uint64(converted) != val {
 			return fmt.Errorf("invalid transaction index %d overflows uint", val)
@@ -837,7 +844,9 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Handle metadata (component 4, always present - either data or CBOR nil)
 	metadataRaw := []byte(txArray[3])
-	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
+		!(len(metadataRaw) == 1 &&
+			(metadataRaw[0] == 0xF4 || metadataRaw[0] == 0xF5)) {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
@@ -852,8 +861,15 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 		} else {
 			// Fallback to old method for backward compatibility
 			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if fallbackErr != nil {
-				return fmt.Errorf("failed to decode auxiliary data: %w", fallbackErr)
+			if fallbackErr != nil || metadata == nil {
+				if fallbackErr == nil {
+					fallbackErr = errors.New("metadata fallback returned no metadata")
+				}
+				return fmt.Errorf(
+					"failed to decode auxiliary data: %w (metadata fallback: %v)",
+					err,
+					fallbackErr,
+				)
 			}
 			if metadata != nil {
 				t.TxMetadata = metadata

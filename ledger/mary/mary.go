@@ -364,7 +364,9 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	metadataRaw := []byte(txArray[2])
-	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
+		!(len(metadataRaw) == 1 &&
+			(metadataRaw[0] == 0xF4 || metadataRaw[0] == 0xF5)) {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
@@ -379,8 +381,15 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 		} else {
 			// Fallback to old method for backward compatibility
 			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if fallbackErr != nil {
-				return fmt.Errorf("failed to decode auxiliary data: %w", fallbackErr)
+			if fallbackErr != nil || metadata == nil {
+				if fallbackErr == nil {
+					fallbackErr = errors.New("metadata fallback returned no metadata")
+				}
+				return fmt.Errorf(
+					"failed to decode auxiliary data: %w (metadata fallback: %v)",
+					err,
+					fallbackErr,
+				)
 			}
 			if metadata != nil {
 				t.TxMetadata = metadata
