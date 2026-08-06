@@ -11,11 +11,11 @@ title: Release notes
 
 ### Summary
 
-This release strengthens KES key lifecycle handling and keeps `txInfoMint` rendering consistent across all protocol versions.
+This release strengthens KES key lifecycle handling through forward secure erasure and keeps `txInfoMint` rendering consistent across all protocol versions.
 
 ### Security
 
-* Improved KES key lifecycle handling so a successful `kes.Update` now zeroizes the input `SecretKey` in place, and `Sign` and `Update` reject zeroized keys.
+* Improved KES key lifecycle handling so a successful `kes.Update` now zeroizes the input `SecretKey` in place while `Sign` and `Update` reject zeroized keys.
 
 ### Bug Fixes
 
