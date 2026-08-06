@@ -31,14 +31,28 @@ type HeaderValidator struct {
 	slotsPerKESPeriod uint64
 	maxKESEvolutions  uint64
 	activeSlotCoeff   *big.Rat
+	mode              ConsensusMode
 }
 
-// NewHeaderValidator creates a new header validator.
+// NewHeaderValidator creates a new header validator using CPRAOS consensus
+// (Babbage and later eras). For Shelley through Alonzo (TPraos) headers,
+// use NewHeaderValidatorWithMode with ConsensusModeTPraos.
 func NewHeaderValidator(config NetworkConfig) *HeaderValidator {
+	return NewHeaderValidatorWithMode(config, ConsensusModeCPraos)
+}
+
+// NewHeaderValidatorWithMode creates a new header validator for the given
+// consensus mode. Use ConsensusModeTPraos for Shelley through Alonzo era
+// headers and ConsensusModeCPraos for Babbage and later era headers.
+func NewHeaderValidatorWithMode(
+	config NetworkConfig,
+	mode ConsensusMode,
+) *HeaderValidator {
 	return &HeaderValidator{
 		slotsPerKESPeriod: config.SlotsPerKESPeriod,
 		maxKESEvolutions:  config.MaxKESEvolutions,
 		activeSlotCoeff:   config.ActiveSlotCoeffRat(),
+		mode:              mode,
 	}
 }
 
@@ -54,6 +68,16 @@ type ValidateHeaderInput struct {
 	VrfOutput      []byte
 	KesSignature   []byte
 	HeaderBodyCbor []byte
+
+	// NonceVrfProof and NonceVrfOutput carry the TPraos-only nonce VRF
+	// certificate (bheaderEta, seedEta = mkNonceFromNumber(0)), which
+	// drives epoch nonce evolution and is independent of the leader VRF
+	// (VrfProof/VrfOutput, seedL) verified above. They are TPraos-only:
+	// leave unset (nil) for ConsensusModeCPraos headers, which have no
+	// separate nonce VRF field; validateNonceVRFProof is a no-op in that
+	// mode.
+	NonceVrfProof  []byte
+	NonceVrfOutput []byte
 
 	// KesPeriod is reserved for future validation. Currently unused because
 	// KES period is computed from Slot / SlotsPerKESPeriod in validation.
@@ -99,10 +123,11 @@ type ValidateResult struct {
 //  3. PrevHash matches hash of previous header
 //  4. VRF proof is valid
 //  5. VRF output satisfies leadership threshold
-//  6. KES period is within valid range
-//  7. KES signature is valid
-//  8. OpCert signature is valid (cold key signed the hot key)
-//  9. VRF key matches pool registration (if RegisteredVrfKeyHash provided)
+//  6. TPraos-only: nonce VRF proof is valid (no-op for CPraos)
+//  7. KES period is within valid range
+//  8. KES signature is valid
+//  9. OpCert signature is valid (cold key signed the hot key)
+//  10. VRF key matches pool registration (if RegisteredVrfKeyHash provided)
 func (v *HeaderValidator) ValidateHeader(
 	input *ValidateHeaderInput,
 ) *ValidateResult {
@@ -146,25 +171,31 @@ func (v *HeaderValidator) ValidateHeader(
 		}
 	}
 
-	// 6. Validate KES period
+	// 6. Validate TPraos-only nonce VRF proof (no-op for CPraos)
+	if err := v.validateNonceVRFProof(input); err != nil {
+		result.Valid = false
+		result.Errors = append(result.Errors, err)
+	}
+
+	// 7. Validate KES period
 	if err := v.validateKESPeriod(input); err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
 	}
 
-	// 7. Validate KES signature
+	// 8. Validate KES signature
 	if err := v.validateKESSignature(input); err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
 	}
 
-	// 8. Validate OpCert signature (cold key signed the hot key)
+	// 9. Validate OpCert signature (cold key signed the hot key)
 	if err := v.validateOpCertSignature(input); err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
 	}
 
-	// 9. Validate VRF key matches pool registration (if provided)
+	// 10. Validate VRF key matches pool registration (if provided)
 	if err := v.validateVRFKeyRegistration(input); err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
@@ -205,9 +236,12 @@ func (v *HeaderValidator) validateBlockNumber(
 // validatePrevHash checks that prev hash matches.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 	if input.BlockNumber > 0 && len(input.PrevHeaderHash) == 0 {
-		return errors.New("previous header hash is required for non-genesis blocks")
+		return errors.New(
+			"previous header hash is required for non-genesis blocks",
+		)
 	}
-	if len(input.PrevHeaderHash) > 0 && !bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
+	if len(input.PrevHeaderHash) > 0 &&
+		!bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
 		return fmt.Errorf(
 			"previous hash does not match: got %x, expected %x",
 			input.PrevHash,
@@ -217,71 +251,166 @@ func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 	return nil
 }
 
-// validateVRFProof verifies the VRF proof.
-func (v *HeaderValidator) validateVRFProof(
-	input *ValidateHeaderInput,
+// verifyCertifiedVRF verifies a VRF certificate (proof + output) against the
+// given VRF key, slot, and epoch nonce, deriving the VRF input from seed.
+// It holds the plumbing shared by the leader VRF check (validateVRFProof,
+// seed = vrf.SeedL()) and the TPraos-only nonce VRF check
+// (validateNonceVRFProof, seed = vrf.SeedEta()): epoch-nonce length
+// validation, VRF key/proof/output size validation, VRF input construction,
+// and vrf.Verify.
+//
+// label is prepended to the VRF-specific error messages so nonce VRF
+// failures can be distinguished from leader VRF failures (e.g. "nonce ");
+// pass "" for the leader VRF check. checkOutputSize controls whether the
+// output length is validated up front: validateVRFProof historically relies
+// on vrf.Verify's constant-time comparison to reject a size-mismatched
+// output (returning the generic "verification returned false" error), so it
+// passes false to preserve that behavior; validateNonceVRFProof passes true.
+func (v *HeaderValidator) verifyCertifiedVRF(
+	slot uint64,
+	epochNonce []byte,
+	vrfKey []byte,
+	proof []byte,
+	output []byte,
+	seed []byte,
+	checkOutputSize bool,
+	label string,
 ) ([]byte, error) {
-	// Validate EpochNonce is exactly 32 bytes to prevent panic in vrf.MkInputVrf
-	if len(input.EpochNonce) != 32 {
+	// Validate EpochNonce is exactly 32 bytes to prevent panic in
+	// vrf.MkInputVrf / vrf.MkSeedTPraos.
+	if len(epochNonce) != 32 {
 		return nil, fmt.Errorf(
 			"epoch nonce must be 32 bytes, got %d",
-			len(input.EpochNonce),
+			len(epochNonce),
 		)
 	}
 
-	if len(input.VrfKey) != vrf.PublicKeySize {
+	if len(vrfKey) != vrf.PublicKeySize {
 		return nil, fmt.Errorf(
 			"invalid VRF key size: expected %d, got %d",
 			vrf.PublicKeySize,
-			len(input.VrfKey),
+			len(vrfKey),
 		)
 	}
 
-	if len(input.VrfProof) != vrf.ProofSize {
+	if len(proof) != vrf.ProofSize {
 		return nil, fmt.Errorf(
-			"invalid VRF proof size: expected %d, got %d",
+			"invalid %sVRF proof size: expected %d, got %d",
+			label,
 			vrf.ProofSize,
-			len(input.VrfProof),
+			len(proof),
 		)
 	}
 
-	// Compute VRF input message
+	if checkOutputSize && len(output) != vrf.OutputSize {
+		return nil, fmt.Errorf(
+			"invalid %sVRF output size: expected %d, got %d",
+			label,
+			vrf.OutputSize,
+			len(output),
+		)
+	}
+
+	// Compute VRF input message. TPraos (Shelley-Alonzo) and CPraos
+	// (Babbage+) use different VRF input constructions: TPraos XORs the
+	// base hash with the seed constant (Cardano.Protocol.TPraos.Rules.
+	// Overlay.vrfChecks), while CPraos uses the raw
+	// blake2b-256(slot || nonce) (Ouroboros.Consensus.Protocol.Praos.VRF.
+	// mkInputVRF).
 	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
-	vrfInput, err := vrf.MkInputVrf(
-		int64(input.Slot), //nolint:gosec
-		input.EpochNonce,
-	)
+	var vrfInput []byte
+	var err error
+	switch v.mode {
+	case ConsensusModeTPraos:
+		vrfInput, err = vrf.MkSeedTPraos(
+			int64(slot), //nolint:gosec
+			epochNonce,
+			seed,
+		)
+	case ConsensusModeCPraos:
+		vrfInput, err = vrf.MkInputVrf(
+			int64(slot), //nolint:gosec
+			epochNonce,
+		)
+	default:
+		return nil, fmt.Errorf("unknown consensus mode: %d", v.mode)
+	}
 	if err != nil {
 		return nil, fmt.Errorf(
-			"invalid VRF input parameters at slot %d: %w",
-			input.Slot,
+			"invalid %sVRF input parameters at slot %d: %w",
+			label,
+			slot,
 			err,
 		)
 	}
 
 	// Verify VRF proof
-	valid, err := vrf.Verify(
-		input.VrfKey,
-		input.VrfProof,
-		input.VrfOutput,
-		vrfInput,
-	)
+	valid, err := vrf.Verify(vrfKey, proof, output, vrfInput)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"VRF verification failed at slot %d: %w",
-			input.Slot,
+			"%sVRF verification failed at slot %d: %w",
+			label,
+			slot,
 			err,
 		)
 	}
 
 	if !valid {
 		return nil, fmt.Errorf(
-			"VRF proof verification returned false at slot %d",
-			input.Slot,
+			"%sVRF proof verification returned false at slot %d",
+			label,
+			slot,
 		)
 	}
 
-	return input.VrfOutput, nil
+	return output, nil
+}
+
+// validateVRFProof verifies the VRF proof.
+func (v *HeaderValidator) validateVRFProof(
+	input *ValidateHeaderInput,
+) ([]byte, error) {
+	return v.verifyCertifiedVRF(
+		input.Slot,
+		input.EpochNonce,
+		input.VrfKey,
+		input.VrfProof,
+		input.VrfOutput,
+		vrf.SeedL(),
+		false,
+		"",
+	)
+}
+
+// validateNonceVRFProof verifies the TPraos-only nonce VRF proof
+// (bheaderEta, seedEta = mkNonceFromNumber(0)). This certificate drives
+// epoch nonce evolution and is independent of the leader VRF (bheaderL,
+// seedL) verified by validateVRFProof above. CPraos headers carry no
+// separate nonce VRF field, so this is a no-op for ConsensusModeCPraos.
+//
+// Without this check, a TPraos header with a missing or forged nonce VRF
+// certificate would be accepted as structurally valid, causing a real
+// validator to diverge from the chain once the epoch nonce is derived from
+// unverified nonce VRF outputs.
+func (v *HeaderValidator) validateNonceVRFProof(
+	input *ValidateHeaderInput,
+) error {
+	// Nonce VRF has no equivalent in CPraos headers.
+	if v.mode != ConsensusModeTPraos {
+		return nil
+	}
+
+	_, err := v.verifyCertifiedVRF(
+		input.Slot,
+		input.EpochNonce,
+		input.VrfKey,
+		input.NonceVrfProof,
+		input.NonceVrfOutput,
+		vrf.SeedEta(),
+		true,
+		"nonce ",
+	)
+	return err
 }
 
 // validateLeadership checks if the VRF output satisfies the leadership threshold.
@@ -293,12 +422,24 @@ func (v *HeaderValidator) validateLeadership(
 		return errors.New("total stake cannot be zero")
 	}
 
-	threshold := CertifiedNatThreshold(
+	threshold, err := CertifiedNatThresholdWithMode(
 		input.PoolStake,
 		input.TotalStake,
 		v.activeSlotCoeff,
+		v.mode,
 	)
-	if !IsVRFOutputBelowThreshold(vrfOutput, threshold) {
+	if err != nil {
+		return err
+	}
+	belowThreshold, err := IsVRFOutputBelowThresholdWithMode(
+		vrfOutput,
+		threshold,
+		v.mode,
+	)
+	if err != nil {
+		return err
+	}
+	if !belowThreshold {
 		return fmt.Errorf(
 			"VRF output does not satisfy leadership threshold at slot %d",
 			input.Slot,

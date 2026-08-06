@@ -16,11 +16,17 @@ package consensus
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"errors"
 	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/kes"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/vrf"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Test seeds (32 bytes each)
@@ -405,6 +411,671 @@ func TestBuildHeaderNilSigners(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for nil opCert")
 	}
+}
+
+// TestNewBlockBuilderWithMode verifies that the constructor stores the
+// requested consensus mode and that the default constructor still
+// defaults to CPRAOS (ConsensusModeCPraos is the zero value), preserving
+// prior behavior for all existing callers.
+func TestNewBlockBuilderWithMode(t *testing.T) {
+	vrfSigner, err := NewSimpleVRFSigner(testVRFSeedBlock)
+	require.NoError(t, err, "failed to create VRF signer")
+	kesSigner, err := NewSimpleKESSigner(testKESSeed)
+	require.NoError(t, err, "failed to create KES signer")
+	opCert := &OperationalCert{
+		HotVkey:        kesSigner.PublicKey(),
+		SequenceNumber: 1,
+		KesPeriod:      0,
+		Signature:      make([]byte, 64),
+	}
+	issuerVkey := make([]byte, 32)
+	poolId := make([]byte, 28)
+
+	cpraosBuilder := NewBlockBuilder(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		big.NewRat(1, 20),
+	)
+	require.Equal(
+		t,
+		ConsensusModeCPraos,
+		cpraosBuilder.mode,
+		"expected default mode ConsensusModeCPraos",
+	)
+
+	tpraosBuilder := NewBlockBuilderWithMode(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		big.NewRat(1, 20),
+		ConsensusModeTPraos,
+	)
+	require.Equal(
+		t,
+		ConsensusModeTPraos,
+		tpraosBuilder.mode,
+		"expected mode ConsensusModeTPraos",
+	)
+}
+
+// tpraosEligibleTestSlot is a fixed slot number that was verified to be
+// leader-eligible for this exact combination of testVRFSeedBlock, a
+// 32-byte epoch nonce of sequential bytes 0..31, 100% relative stake, and a
+// 99/100 active slot coefficient. Leader eligibility is probabilistic (a
+// function of the VRF output for the given input), not structurally
+// guaranteed, so this slot is not automatically safe to reuse if any of
+// those inputs (seed, nonce, stake, coefficient) change -- it was chosen,
+// rather than looping and skipping if no eligible slot is found, so that a
+// genuine regression in the TPraos VRF input or threshold computation
+// fails this test loudly instead of silently skipping it.
+const tpraosEligibleTestSlot = 1
+
+// TestBuildHeaderTPraosEligible builds a header using a TPraos-mode block
+// builder and confirms the resulting VRF proof/output were constructed
+// with the TPraos VRF input (MkSeedTPraos + seedL), not the CPraos input
+// (MkInputVrf).
+func TestBuildHeaderTPraosEligible(t *testing.T) {
+	vrfSigner, err := NewSimpleVRFSigner(testVRFSeedBlock)
+	require.NoError(t, err, "failed to create VRF signer")
+	kesSigner, err := NewSimpleKESSigner(testKESSeed)
+	require.NoError(t, err, "failed to create KES signer")
+
+	opCert := &OperationalCert{
+		HotVkey:        kesSigner.PublicKey(),
+		SequenceNumber: 1,
+		KesPeriod:      0,
+		Signature:      make([]byte, 64),
+	}
+
+	issuerVkey := make([]byte, 32)
+	for i := range issuerVkey {
+		issuerVkey[i] = byte(i)
+	}
+	poolId := make([]byte, 28)
+
+	// Use a high active slot coefficient and 100% relative stake so that
+	// tpraosEligibleTestSlot is deterministically eligible.
+	builder := NewBlockBuilderWithMode(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		big.NewRat(99, 100), // 99% active slots
+		ConsensusModeTPraos,
+	)
+
+	epochNonce := make([]byte, 32)
+	for i := range epochNonce {
+		epochNonce[i] = byte(i)
+	}
+
+	prevHash := make([]byte, 32)
+	bodyHash := make([]byte, 32)
+	eligibleSlot := uint64(tpraosEligibleTestSlot)
+
+	input := BuildHeaderInput{
+		Slot:          eligibleSlot,
+		BlockNumber:   eligibleSlot,
+		PrevHash:      prevHash,
+		EpochNonce:    epochNonce,
+		PoolStake:     1000000000,
+		TotalStake:    1000000000, // 100% stake
+		BlockBodyHash: bodyHash,
+		BlockBodySize: 1024,
+		ProtoMajor:    2,
+		ProtoMinor:    0,
+	}
+
+	header, result, err := builder.BuildHeader(input)
+	require.NoError(
+		t,
+		err,
+		"BuildHeader failed for deterministically eligible slot %d",
+		eligibleSlot,
+	)
+	require.NotNil(t, header, "expected non-nil header")
+	require.NotNil(t, result)
+	require.True(t, result.Eligible, "expected eligible result")
+
+	// The VRF proof/output must verify under the TPraos VRF input
+	// construction for the slot that was actually used.
+	tpraosInput, err := vrf.MkSeedTPraos(
+		int64(eligibleSlot),
+		epochNonce,
+		vrf.SeedL(),
+	)
+	require.NoError(t, err, "vrf.MkSeedTPraos failed")
+	valid, err := vrf.Verify(
+		vrfSigner.PublicKey(),
+		header.Body.VrfProof,
+		header.Body.VrfOutput,
+		tpraosInput,
+	)
+	require.NoError(t, err, "vrf.Verify failed")
+	require.True(
+		t,
+		valid,
+		"expected VRF proof to verify under TPraos VRF input construction",
+	)
+
+	// It must NOT verify under the CPraos VRF input construction, proving
+	// the TPraos-mode builder did not fall back to CPraos semantics. A
+	// mismatched message can surface either as a verification failure or
+	// as an error from the underlying ECVRF check, so either outcome
+	// confirms the proof does not verify under CPraos semantics.
+	cpraosInput, err := vrf.MkInputVrf(int64(eligibleSlot), epochNonce)
+	require.NoError(t, err, "vrf.MkInputVrf failed")
+	crossValid, crossErr := vrf.Verify(
+		vrfSigner.PublicKey(),
+		header.Body.VrfProof,
+		header.Body.VrfOutput,
+		cpraosInput,
+	)
+	if crossErr == nil {
+		require.False(
+			t,
+			crossValid,
+			"VRF proof unexpectedly verified under CPraos VRF input construction",
+		)
+	}
+
+	// The nonce VRF certificate (bheaderEta, seedEta) must also be
+	// present and must independently verify against the seedEta-based
+	// TPraos VRF input -- it is required for epoch nonce evolution and is
+	// distinct from the leader VRF certificate checked above.
+	require.Len(
+		t,
+		header.Body.NonceVrfOutput,
+		64,
+		"expected 64-byte nonce VRF output",
+	)
+	require.Len(
+		t,
+		header.Body.NonceVrfProof,
+		80,
+		"expected 80-byte nonce VRF proof",
+	)
+	require.False(
+		t,
+		bytes.Equal(header.Body.NonceVrfOutput, header.Body.VrfOutput),
+		"expected nonce VRF output to differ from leader VRF output",
+	)
+	nonceVrfInput, err := vrf.MkSeedTPraos(
+		int64(eligibleSlot),
+		epochNonce,
+		vrf.SeedEta(),
+	)
+	require.NoError(t, err, "vrf.MkSeedTPraos (seedEta) failed")
+	nonceValid, err := vrf.Verify(
+		vrfSigner.PublicKey(),
+		header.Body.NonceVrfProof,
+		header.Body.NonceVrfOutput,
+		nonceVrfInput,
+	)
+	require.NoError(t, err, "vrf.Verify (nonce VRF) failed")
+	require.True(
+		t,
+		nonceValid,
+		"expected nonce VRF proof to verify under seedEta-based TPraos VRF input",
+	)
+}
+
+// TestBuildHeaderTPraosSerializesFlat15ElementShape confirms that
+// BuildHeader with ConsensusModeTPraos serializes the header body as the
+// flat 15-element array used by ledger/shelley.ShelleyBlockHeaderBody
+// (also shared unmodified by allegra/mary/alonzo), with two distinct
+// nested [output, proof] VRF result sub-arrays (NonceVrf, then
+// LeaderVrf) rather than the Babbage/Conway single-VRF 10-element shape.
+func TestBuildHeaderTPraosSerializesFlat15ElementShape(t *testing.T) {
+	vrfSigner, err := NewSimpleVRFSigner(testVRFSeedBlock)
+	require.NoError(t, err, "failed to create VRF signer")
+	kesSigner, err := NewSimpleKESSigner(testKESSeed)
+	require.NoError(t, err, "failed to create KES signer")
+	opCert := &OperationalCert{
+		HotVkey:        kesSigner.PublicKey(),
+		SequenceNumber: 1,
+		KesPeriod:      0,
+		Signature:      make([]byte, 64),
+	}
+	issuerVkey := make([]byte, 32)
+	for i := range issuerVkey {
+		issuerVkey[i] = byte(i)
+	}
+	poolId := make([]byte, 28)
+
+	builder := NewBlockBuilderWithMode(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		big.NewRat(99, 100),
+		ConsensusModeTPraos,
+	)
+
+	epochNonce := make([]byte, 32)
+	for i := range epochNonce {
+		epochNonce[i] = byte(i)
+	}
+	prevHash := make([]byte, 32)
+	bodyHash := make([]byte, 32)
+
+	header, _, err := builder.BuildHeader(BuildHeaderInput{
+		Slot:          tpraosEligibleTestSlot,
+		BlockNumber:   1,
+		PrevHash:      prevHash,
+		EpochNonce:    epochNonce,
+		PoolStake:     1000000000,
+		TotalStake:    1000000000,
+		BlockBodyHash: bodyHash,
+		BlockBodySize: 1024,
+		ProtoMajor:    2,
+		ProtoMinor:    0,
+	})
+	require.NoError(t, err, "BuildHeader failed")
+
+	bodyBytes, err := builder.serializeHeaderBody(&header.Body)
+	require.NoError(t, err, "serializeHeaderBody failed")
+
+	var decoded []any
+	_, err = cbor.Decode(bodyBytes, &decoded)
+	require.NoError(t, err, "failed to decode serialized TPraos header body")
+	require.Len(
+		t,
+		decoded,
+		15,
+		"expected flat 15-element TPraos header body array",
+	)
+
+	// Element 5 (index 5, 0-based) is NonceVrf, element 6 is LeaderVrf.
+	// Each must be its own 2-element [output, proof] sub-array, and the
+	// two must be distinct VRF results (not the same field encoded
+	// twice).
+	nonceVrf, ok := decoded[5].([]any)
+	require.True(
+		t,
+		ok && len(nonceVrf) == 2,
+		"expected NonceVrf as a 2-element sub-array, got %#v",
+		decoded[5],
+	)
+	leaderVrf, ok := decoded[6].([]any)
+	require.True(
+		t,
+		ok && len(leaderVrf) == 2,
+		"expected LeaderVrf as a 2-element sub-array, got %#v",
+		decoded[6],
+	)
+	nonceOutput, ok := nonceVrf[0].([]byte)
+	require.True(
+		t,
+		ok,
+		"expected NonceVrf output to decode as bytes, got %#v",
+		nonceVrf[0],
+	)
+	leaderOutput, ok := leaderVrf[0].([]byte)
+	require.True(
+		t,
+		ok,
+		"expected LeaderVrf output to decode as bytes, got %#v",
+		leaderVrf[0],
+	)
+	require.False(
+		t,
+		bytes.Equal(nonceOutput, leaderOutput),
+		"expected NonceVrf and LeaderVrf outputs to be distinct",
+	)
+
+	// OpCert and protocol version fields must be flat (not nested
+	// sub-arrays), matching ShelleyBlockHeaderBody's field layout.
+	for _, idx := range []int{9, 10, 11, 12, 13, 14} {
+		_, isArray := decoded[idx].([]any)
+		require.False(
+			t,
+			isArray,
+			"expected element %d to be a flat field, got a nested array",
+			idx,
+		)
+	}
+}
+
+// TestBuildHeaderCPraosSerializesUnchanged10ElementShape is a regression
+// test confirming that CPraos-mode (Babbage+) block building still
+// produces the pre-existing 10-element header body shape with a single
+// nested VRF result, unaffected by the TPraos-mode changes above.
+func TestBuildHeaderCPraosSerializesUnchanged10ElementShape(t *testing.T) {
+	vrfSigner, err := NewSimpleVRFSigner(testVRFSeedBlock)
+	require.NoError(t, err, "failed to create VRF signer")
+	kesSigner, err := NewSimpleKESSigner(testKESSeed)
+	require.NoError(t, err, "failed to create KES signer")
+	opCert := &OperationalCert{
+		HotVkey:        kesSigner.PublicKey(),
+		SequenceNumber: 1,
+		KesPeriod:      0,
+		Signature:      make([]byte, 64),
+	}
+	issuerVkey := make([]byte, 32)
+	for i := range issuerVkey {
+		issuerVkey[i] = byte(i)
+	}
+	poolId := make([]byte, 28)
+
+	// Default constructor: CPraos mode.
+	builder := NewBlockBuilder(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		big.NewRat(99, 100),
+	)
+
+	epochNonce := make([]byte, 32)
+	for i := range epochNonce {
+		epochNonce[i] = byte(i)
+	}
+	prevHash := make([]byte, 32)
+	bodyHash := make([]byte, 32)
+
+	header, _, err := builder.BuildHeader(BuildHeaderInput{
+		Slot:          tpraosEligibleTestSlot,
+		BlockNumber:   1,
+		PrevHash:      prevHash,
+		EpochNonce:    epochNonce,
+		PoolStake:     1000000000,
+		TotalStake:    1000000000,
+		BlockBodyHash: bodyHash,
+		BlockBodySize: 1024,
+		ProtoMajor:    9,
+		ProtoMinor:    0,
+	})
+	require.NoError(t, err, "BuildHeader failed")
+
+	// CPraos headers carry no nonce VRF certificate.
+	require.Nil(
+		t,
+		header.Body.NonceVrfOutput,
+		"expected no nonce VRF output for a CPraos-mode header",
+	)
+	require.Nil(
+		t,
+		header.Body.NonceVrfProof,
+		"expected no nonce VRF proof for a CPraos-mode header",
+	)
+
+	bodyBytes, err := builder.serializeHeaderBody(&header.Body)
+	require.NoError(t, err, "serializeHeaderBody failed")
+
+	var decoded []any
+	_, err = cbor.Decode(bodyBytes, &decoded)
+	require.NoError(t, err, "failed to decode serialized CPraos header body")
+	require.Len(
+		t,
+		decoded,
+		10,
+		"expected unchanged 10-element CPraos header body array",
+	)
+	vrfResult, ok := decoded[5].([]any)
+	require.True(
+		t,
+		ok && len(vrfResult) == 2,
+		"expected a single 2-element VRF result sub-array at index 5, got %#v",
+		decoded[5],
+	)
+}
+
+// TestBuildHeaderTPraosRoundTripsWithHeaderValidator builds a header with
+// a TPraos-mode BlockBuilder and feeds the result directly into a
+// TPraos-mode HeaderValidator, proving the block-building and
+// header-validation halves of the TPraos support agree with each other
+// (not just each independently exercising plausible-looking TPraos
+// logic). This covers the full pipeline: leader VRF construction
+// (seedL), the nonce VRF construction (seedEta), the flat 15-element
+// TPraos wire shape used for KES signing, the KES signature itself, and
+// the OpCert signature. It also confirms that a corrupted or missing
+// nonce VRF certificate is rejected by the validator, since the nonce VRF
+// drives epoch nonce evolution and must not be accepted unverified.
+func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
+	vrfSigner, err := NewSimpleVRFSigner(testVRFSeedBlock)
+	require.NoError(t, err, "failed to create VRF signer")
+	// Use the full Cardano KES depth here (unlike other BlockBuilder
+	// tests, which use a shrunk test depth for speed): the validator
+	// side enforces the real 448-byte Cardano KES signature size, so the
+	// round trip needs a signer that actually produces that size.
+	kesSk, kesPk, err := kes.KeyGen(
+		kes.CardanoKesDepth,
+		[]byte("test_kes_seed_for_tpraos_rtrip!!"),
+	)
+	require.NoError(t, err, "kes.KeyGen failed")
+	kesSigner := &SimpleKESSigner{sk: kesSk, publicKey: kesPk, period: 0}
+
+	// Cold key signs the OpCert (hot_vkey || seq_num || kes_period).
+	coldSeed := []byte("test_cold_key_for_tpraos_rtrip!!")
+	coldPrivateKey := ed25519.NewKeyFromSeed(coldSeed)
+	coldPublicKey := coldPrivateKey.Public().(ed25519.PublicKey)
+
+	opCertSeqNum := uint32(1)
+	opCertKesPeriod := uint32(0)
+	opCertBody := common.OpCertSignableBytes(
+		kesSigner.PublicKey(),
+		uint64(opCertSeqNum),
+		uint64(opCertKesPeriod),
+	)
+	opCert := &OperationalCert{
+		HotVkey:        kesSigner.PublicKey(),
+		SequenceNumber: opCertSeqNum,
+		KesPeriod:      opCertKesPeriod,
+		Signature:      ed25519.Sign(coldPrivateKey, opCertBody),
+	}
+
+	// Must match the validator's active slot coefficient below so both
+	// sides agree on the leadership threshold.
+	activeSlotCoeff := big.NewRat(99, 100)
+	poolStake := uint64(1000000000)
+	totalStake := uint64(1000000000)
+
+	builder := NewBlockBuilderWithMode(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		make([]byte, 28), // poolId
+		coldPublicKey,    // issuerVkey
+		activeSlotCoeff,
+		ConsensusModeTPraos,
+	)
+
+	epochNonce := make([]byte, 32)
+	for i := range epochNonce {
+		epochNonce[i] = byte(i)
+	}
+	prevHash := make([]byte, 32)
+	bodyHash := make([]byte, 32)
+
+	header, leaderResult, err := builder.BuildHeader(BuildHeaderInput{
+		Slot:          tpraosEligibleTestSlot,
+		BlockNumber:   1,
+		PrevHash:      prevHash,
+		EpochNonce:    epochNonce,
+		PoolStake:     poolStake,
+		TotalStake:    totalStake,
+		BlockBodyHash: bodyHash,
+		BlockBodySize: 1024,
+		ProtoMajor:    2,
+		ProtoMinor:    0,
+	})
+	require.NoError(
+		t,
+		err,
+		"BuildHeader failed for deterministically eligible slot %d",
+		tpraosEligibleTestSlot,
+	)
+	require.NotNil(t, leaderResult)
+	require.True(t, leaderResult.Eligible, "expected eligible leader result")
+
+	// Recompute the exact bytes that were KES-signed, the same way
+	// BuildHeader does internally, so the validator can check the KES
+	// signature against them.
+	headerBodyCbor, err := builder.serializeHeaderBody(&header.Body)
+	require.NoError(t, err, "serializeHeaderBody failed")
+
+	validatorConfig := NetworkConfig{
+		ActiveSlotCoeff:   common.GenesisRat{Rat: activeSlotCoeff},
+		SlotsPerKESPeriod: 129600,
+		MaxKESEvolutions:  62,
+	}
+	validator := NewHeaderValidatorWithMode(
+		validatorConfig,
+		ConsensusModeTPraos,
+	)
+
+	input := &ValidateHeaderInput{
+		Slot:                 header.Body.Slot,
+		BlockNumber:          header.Body.BlockNumber,
+		PrevHash:             header.Body.PrevHash,
+		IssuerVkey:           header.Body.IssuerVkey,
+		VrfKey:               header.Body.VrfKey,
+		VrfProof:             header.Body.VrfProof,
+		VrfOutput:            header.Body.VrfOutput,
+		NonceVrfProof:        header.Body.NonceVrfProof,
+		NonceVrfOutput:       header.Body.NonceVrfOutput,
+		KesSignature:         header.Signature,
+		HeaderBodyCbor:       headerBodyCbor,
+		OpCertHotVkey:        header.Body.OpCertHotVkey,
+		OpCertSequenceNumber: header.Body.OpCertSequenceNumber,
+		OpCertKesPeriod:      header.Body.OpCertKesPeriod,
+		OpCertSignature:      header.Body.OpCertSignature,
+		PrevSlot:             0,
+		PrevBlockNumber:      0,
+		PrevHeaderHash:       prevHash,
+		EpochNonce:           epochNonce,
+		PoolStake:            poolStake,
+		TotalStake:           totalStake,
+	}
+
+	result := validator.ValidateHeader(input)
+	require.True(
+		t,
+		result.Valid,
+		"expected BuildHeader's TPraos output to validate successfully under HeaderValidator's TPraos path, got errors: %v",
+		result.Errors,
+	)
+	require.True(
+		t,
+		bytes.Equal(result.VrfOutput, header.Body.VrfOutput),
+		"expected returned VRF output to match the built header's leader VRF output",
+	)
+
+	// Cross-check: the same header must NOT validate under a CPraos
+	// validator, confirming build and validate are consistently
+	// TPraos-specific on both sides, not accidentally cross-compatible.
+	cpraosValidator := NewHeaderValidator(validatorConfig)
+	cpraosResult := cpraosValidator.ValidateHeader(input)
+	require.False(
+		t,
+		cpraosResult.Valid,
+		"expected TPraos-built header to fail validation under a CPraos validator",
+	)
+
+	// A header with a corrupted nonce VRF output must be rejected: the
+	// nonce VRF drives epoch nonce evolution and must be verified
+	// independently of the leader VRF.
+	corruptedNonceInput := *input
+	corruptedNonceOutput := bytes.Clone(header.Body.NonceVrfOutput)
+	corruptedNonceOutput[0] ^= 0xFF
+	corruptedNonceInput.NonceVrfOutput = corruptedNonceOutput
+	corruptedResult := validator.ValidateHeader(&corruptedNonceInput)
+	require.False(
+		t,
+		corruptedResult.Valid,
+		"expected a header with a corrupted nonce VRF output to be rejected",
+	)
+	require.NotEmpty(t, corruptedResult.Errors)
+
+	// A header with a missing nonce VRF certificate must also be
+	// rejected, rather than silently accepted as if TPraos had no nonce
+	// VRF requirement.
+	missingNonceInput := *input
+	missingNonceInput.NonceVrfProof = nil
+	missingNonceInput.NonceVrfOutput = nil
+	missingResult := validator.ValidateHeader(&missingNonceInput)
+	require.False(
+		t,
+		missingResult.Valid,
+		"expected a header with a missing nonce VRF certificate to be rejected",
+	)
+	require.NotEmpty(t, missingResult.Errors)
+}
+
+// TestCheckSlotLeadershipModeAffectsThreshold verifies that CPraos and
+// TPraos modes compute leadership thresholds on different scales (2^256
+// vs 2^512), confirming BlockBuilder threads its consensus mode through
+// to CheckSlotLeadership.
+func TestCheckSlotLeadershipModeAffectsThreshold(t *testing.T) {
+	vrfSigner, err := NewSimpleVRFSigner(testVRFSeedBlock)
+	require.NoError(t, err, "failed to create VRF signer")
+	kesSigner, err := NewSimpleKESSigner(testKESSeed)
+	require.NoError(t, err, "failed to create KES signer")
+	opCert := &OperationalCert{
+		HotVkey:        kesSigner.PublicKey(),
+		SequenceNumber: 1,
+		KesPeriod:      0,
+		Signature:      make([]byte, 64),
+	}
+	issuerVkey := make([]byte, 32)
+	poolId := make([]byte, 28)
+
+	cpraosBuilder := NewBlockBuilder(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		big.NewRat(1, 20),
+	)
+	tpraosBuilder := NewBlockBuilderWithMode(
+		vrfSigner,
+		kesSigner,
+		opCert,
+		poolId,
+		issuerVkey,
+		big.NewRat(1, 20),
+		ConsensusModeTPraos,
+	)
+
+	epochNonce := make([]byte, 32)
+
+	cpraosResult, err := cpraosBuilder.CheckSlotLeadership(
+		1000,
+		epochNonce,
+		500000000,
+		1000000000,
+	)
+	require.NoError(t, err, "CheckSlotLeadership (CPraos) failed")
+	tpraosResult, err := tpraosBuilder.CheckSlotLeadership(
+		1000,
+		epochNonce,
+		500000000,
+		1000000000,
+	)
+	require.NoError(t, err, "CheckSlotLeadership (TPraos) failed")
+
+	require.LessOrEqual(
+		t,
+		cpraosResult.Threshold.BitLen(),
+		256,
+		"expected CPraos threshold to fit within 256 bits",
+	)
+	require.Greater(
+		t,
+		tpraosResult.Threshold.BitLen(),
+		256,
+		"expected TPraos threshold to exceed 256 bits",
+	)
 }
 
 func TestCheckSlotLeadership(t *testing.T) {
