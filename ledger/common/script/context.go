@@ -103,9 +103,10 @@ type TxInfoV1 struct {
 	Data         KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
 	Redeemers    KeyValuePairs[ScriptPurpose, Redeemer]
 	Id           lcommon.Blake2b256
-	// ProtocolMajor no longer affects the txInfoMint rendering, which matches
-	// cardano-ledger at every protocol version. Retained so existing callers
-	// that set it keep compiling.
+	// Deprecated: ProtocolMajor has no effect. The txInfoMint rendering matches
+	// cardano-ledger at every protocol version, so nothing reads this field. It
+	// is retained only so existing callers that assign it keep compiling, and
+	// will be removed in a future release.
 	ProtocolMajor uint
 }
 
@@ -259,9 +260,10 @@ type TxInfoV2 struct {
 	Redeemers       KeyValuePairs[ScriptPurpose, Redeemer]
 	Data            KeyValuePairs[lcommon.Blake2b256, data.PlutusData]
 	Id              lcommon.Blake2b256
-	// ProtocolMajor no longer affects the txInfoMint rendering, which matches
-	// cardano-ledger at every protocol version. Retained so existing callers
-	// that set it keep compiling.
+	// Deprecated: ProtocolMajor has no effect. The txInfoMint rendering matches
+	// cardano-ledger at every protocol version, so nothing reads this field. It
+	// is retained only so existing callers that assign it keep compiling, and
+	// will be removed in a future release.
 	ProtocolMajor uint
 }
 
