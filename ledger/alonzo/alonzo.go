@@ -818,8 +818,11 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if err == nil && metadata != nil {
+			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
+			if fallbackErr != nil {
+				return fmt.Errorf("failed to decode auxiliary data: %w", fallbackErr)
+			}
+			if metadata != nil {
 				t.TxMetadata = metadata
 			}
 		}
