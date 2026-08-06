@@ -379,6 +379,12 @@ func decodeIdentitySet(
 				i, len(fields), pubkeyFieldIndex,
 			)
 		}
+		var pubkeyBytes []byte
+		if _, err := cbor.Decode(fields[pubkeyFieldIndex], &pubkeyBytes); err != nil {
+			return nil, fmt.Errorf(
+				"decoding set entry %d public key: %w", i, err,
+			)
+		}
 		key := stakeholderIDFromPubkeyCbor(fields[pubkeyFieldIndex])
 		result[key] = []byte(item)
 	}
