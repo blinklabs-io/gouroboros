@@ -168,19 +168,25 @@ func TestIsVRFOutputBelowThreshold(t *testing.T) {
 	// Test with threshold just above the leader value
 	thresholdAbove := new(big.Int).Add(leaderValueInt, big.NewInt(1))
 	if !IsVRFOutputBelowThreshold(vrfOutput, thresholdAbove) {
-		t.Error("VRF output should be below threshold when threshold > leader value")
+		t.Error(
+			"VRF output should be below threshold when threshold > leader value",
+		)
 	}
 
 	// Test with threshold equal to the leader value (should not be below)
 	if IsVRFOutputBelowThreshold(vrfOutput, leaderValueInt) {
-		t.Error("VRF output should not be below threshold when threshold == leader value")
+		t.Error(
+			"VRF output should not be below threshold when threshold == leader value",
+		)
 	}
 
 	// Test with threshold below the leader value
 	if leaderValueInt.Sign() > 0 {
 		thresholdBelow := new(big.Int).Sub(leaderValueInt, big.NewInt(1))
 		if IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
-			t.Error("VRF output should not be below threshold when threshold < leader value")
+			t.Error(
+				"VRF output should not be below threshold when threshold < leader value",
+			)
 		}
 	}
 
@@ -352,7 +358,10 @@ func TestZeroOutputLeaderValue(t *testing.T) {
 
 	// The leader value should be 32 bytes
 	if len(leaderValue) != 32 {
-		t.Errorf("expected 32-byte leader value, got %d bytes", len(leaderValue))
+		t.Errorf(
+			"expected 32-byte leader value, got %d bytes",
+			len(leaderValue),
+		)
 	}
 
 	// The leader value should be deterministic
@@ -379,7 +388,9 @@ func TestZeroOutputLeaderValue(t *testing.T) {
 	)
 
 	if eligible != eligibleFromFunc {
-		t.Error("IsSlotLeaderFromComponents result should match manual comparison")
+		t.Error(
+			"IsSlotLeaderFromComponents result should match manual comparison",
+		)
 	}
 }
 
@@ -403,8 +414,11 @@ func TestMaxOutputNeverEligible(t *testing.T) {
 		activeSlotCoeff,
 	)
 
-	require.False(t, eligible,
-		"maximum VRF output should not be eligible with the deterministic hash result")
+	require.False(
+		t,
+		eligible,
+		"maximum VRF output should not be eligible with the deterministic hash result",
+	)
 }
 
 func TestVRFOutputOrder(t *testing.T) {
@@ -494,7 +508,10 @@ func TestVrfLeaderValueReturns32Bytes(t *testing.T) {
 
 			result := VrfLeaderValue(input)
 			if len(result) != 32 {
-				t.Errorf("VrfLeaderValue should return 32 bytes, got %d", len(result))
+				t.Errorf(
+					"VrfLeaderValue should return 32 bytes, got %d",
+					len(result),
+				)
 			}
 		})
 	}
@@ -521,7 +538,11 @@ func TestVrfLeaderValueAppliesLPrefix(t *testing.T) {
 	expected := hasher.Sum(nil)
 
 	if !bytes.Equal(result, expected) {
-		t.Errorf("VrfLeaderValue did not apply 'L' (0x4C) prefix correctly\nexpected: %x\ngot: %x", expected, result)
+		t.Errorf(
+			"VrfLeaderValue did not apply 'L' (0x4C) prefix correctly\nexpected: %x\ngot: %x",
+			expected,
+			result,
+		)
 	}
 }
 
@@ -542,7 +563,11 @@ func TestVrfLeaderValueKnownVector(t *testing.T) {
 
 	result := VrfLeaderValue(zeroInput)
 	if !bytes.Equal(result, expected) {
-		t.Errorf("VrfLeaderValue failed for known vector\nexpected: %x\ngot: %x", expected, result)
+		t.Errorf(
+			"VrfLeaderValue failed for known vector\nexpected: %x\ngot: %x",
+			expected,
+			result,
+		)
 	}
 
 	// The result should be deterministic
@@ -563,7 +588,9 @@ func TestVrfLeaderValueDifferentInputsProduceDifferentOutputs(t *testing.T) {
 	result2 := VrfLeaderValue(input2)
 
 	if bytes.Equal(result1, result2) {
-		t.Error("different inputs should produce different VrfLeaderValue outputs")
+		t.Error(
+			"different inputs should produce different VrfLeaderValue outputs",
+		)
 	}
 }
 
@@ -572,13 +599,19 @@ func TestVrfLeaderValueEmptyInput(t *testing.T) {
 	// Empty input should still work - BLAKE2b-256(0x4C)
 	result := VrfLeaderValue(nil)
 	if len(result) != 32 {
-		t.Errorf("VrfLeaderValue(nil) should return 32 bytes, got %d", len(result))
+		t.Errorf(
+			"VrfLeaderValue(nil) should return 32 bytes, got %d",
+			len(result),
+		)
 	}
 
 	// Also test empty slice
 	result2 := VrfLeaderValue([]byte{})
 	if len(result2) != 32 {
-		t.Errorf("VrfLeaderValue(empty) should return 32 bytes, got %d", len(result2))
+		t.Errorf(
+			"VrfLeaderValue(empty) should return 32 bytes, got %d",
+			len(result2),
+		)
 	}
 
 	// nil and empty slice should produce the same result
@@ -617,7 +650,10 @@ func TestCertifiedNatThreshold256BitBased(t *testing.T) {
 
 	// Verify it's NOT in the 512-bit range
 	if bitLen > 300 {
-		t.Errorf("threshold appears to be 512-bit based, not 256-bit (bitLen=%d)", bitLen)
+		t.Errorf(
+			"threshold appears to be 512-bit based, not 256-bit (bitLen=%d)",
+			bitLen,
+		)
 	}
 }
 
@@ -654,9 +690,16 @@ func TestCertifiedNatThresholdWith32ByteLeaderValue(t *testing.T) {
 // TestThreshold256BitUpperBound verifies the threshold never exceeds 2^256.
 func TestThreshold256BitUpperBound(t *testing.T) {
 	// Even with 100% stake and high active slot coefficient, threshold should be < 2^256
-	highActiveSlotCoeff := big.NewRat(9, 10) // 0.9 (90% - unrealistic but good for testing)
+	highActiveSlotCoeff := big.NewRat(
+		9,
+		10,
+	) // 0.9 (90% - unrealistic but good for testing)
 
-	threshold := CertifiedNatThreshold(1000000000, 1000000000, highActiveSlotCoeff)
+	threshold := CertifiedNatThreshold(
+		1000000000,
+		1000000000,
+		highActiveSlotCoeff,
+	)
 
 	twoTo256 := new(big.Int).Exp(big.NewInt(2), big.NewInt(256), nil)
 	if threshold.Cmp(twoTo256) >= 0 {
@@ -691,12 +734,17 @@ func TestIsVRFOutputBelowThresholdHashesFirst(t *testing.T) {
 
 	// Should be below when threshold is above
 	if !IsVRFOutputBelowThreshold(vrfOutput, thresholdAbove) {
-		t.Error("VRF output should be below threshold when threshold > leader value")
+		t.Error(
+			"VRF output should be below threshold when threshold > leader value",
+		)
 	}
 
 	// Should NOT be below when threshold is below
-	if leaderValueInt.Sign() > 0 && IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
-		t.Error("VRF output should not be below threshold when threshold < leader value")
+	if leaderValueInt.Sign() > 0 &&
+		IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
+		t.Error(
+			"VRF output should not be below threshold when threshold < leader value",
+		)
 	}
 }
 
@@ -706,7 +754,9 @@ func TestIsVRFOutputBelowThresholdNilThreshold(t *testing.T) {
 
 	result := IsVRFOutputBelowThreshold(vrfOutput, nil)
 	if result {
-		t.Error("IsVRFOutputBelowThreshold should return false for nil threshold")
+		t.Error(
+			"IsVRFOutputBelowThreshold should return false for nil threshold",
+		)
 	}
 }
 
@@ -717,7 +767,9 @@ func TestIsVRFOutputBelowThresholdEmptyOutput(t *testing.T) {
 	// Empty output should return false (invalid input)
 	result := IsVRFOutputBelowThreshold([]byte{}, threshold)
 	if result {
-		t.Error("IsVRFOutputBelowThreshold should return false for empty output")
+		t.Error(
+			"IsVRFOutputBelowThreshold should return false for empty output",
+		)
 	}
 
 	// Nil output should also return false
@@ -734,7 +786,9 @@ func TestIsVRFOutputBelowThresholdZeroThreshold(t *testing.T) {
 	// Zero threshold - nothing should be below it (leader value is always >= 0)
 	result := IsVRFOutputBelowThreshold(vrfOutput, big.NewInt(0))
 	if result {
-		t.Error("IsVRFOutputBelowThreshold should return false for zero threshold")
+		t.Error(
+			"IsVRFOutputBelowThreshold should return false for zero threshold",
+		)
 	}
 }
 
@@ -753,7 +807,11 @@ func TestIsVRFOutputBelowThresholdMaxThreshold(t *testing.T) {
 	// a 256-bit value. This value will always be < 2^256 - 1 (the max threshold),
 	// so the result should always be true.
 	result := IsVRFOutputBelowThreshold(vrfOutput, maxThreshold)
-	require.True(t, result, "leader value should always be below max 256-bit threshold")
+	require.True(
+		t,
+		result,
+		"leader value should always be below max 256-bit threshold",
+	)
 }
 
 // TestIsVRFOutputBelowThresholdDeterminism verifies deterministic behavior.
@@ -798,16 +856,27 @@ func TestCPRAOSLeaderElectionIntegration(t *testing.T) {
 		poolStake := stakePercent * 10000
 		totalStake := uint64(1000000)
 
-		threshold := CertifiedNatThreshold(poolStake, totalStake, activeSlotCoeff)
+		threshold := CertifiedNatThreshold(
+			poolStake,
+			totalStake,
+			activeSlotCoeff,
+		)
 
 		// Threshold should be positive for non-zero stake
 		if threshold.Sign() <= 0 {
-			t.Errorf("threshold should be positive for %d%% stake", stakePercent)
+			t.Errorf(
+				"threshold should be positive for %d%% stake",
+				stakePercent,
+			)
 		}
 
 		// Threshold bit length should be in 256-bit range
 		if threshold.BitLen() > 256 {
-			t.Errorf("threshold bit length %d exceeds 256 for %d%% stake", threshold.BitLen(), stakePercent)
+			t.Errorf(
+				"threshold bit length %d exceeds 256 for %d%% stake",
+				threshold.BitLen(),
+				stakePercent,
+			)
 		}
 
 		// Step 3: Check if leader value is below threshold
@@ -817,7 +886,10 @@ func TestCPRAOSLeaderElectionIntegration(t *testing.T) {
 		// Verify IsVRFOutputBelowThreshold matches manual comparison
 		isLeaderFunc := IsVRFOutputBelowThreshold(vrfOutput, threshold)
 		if isLeader != isLeaderFunc {
-			t.Errorf("IsVRFOutputBelowThreshold result mismatch for %d%% stake", stakePercent)
+			t.Errorf(
+				"IsVRFOutputBelowThreshold result mismatch for %d%% stake",
+				stakePercent,
+			)
 		}
 	}
 }
@@ -832,7 +904,11 @@ func TestCPRAOSZeroOutputLeaderValueComparison(t *testing.T) {
 
 	// Any pool with non-zero stake should have a positive threshold
 	threshold := CertifiedNatThreshold(1, 1000000000000, activeSlotCoeff)
-	require.True(t, threshold.Sign() > 0, "threshold should be positive for tiny but non-zero stake")
+	require.True(
+		t,
+		threshold.Sign() > 0,
+		"threshold should be positive for tiny but non-zero stake",
+	)
 
 	// The leader value for zero VRF output (deterministic hash result)
 	leaderValue := VrfLeaderValue(vrfOutput)
@@ -843,7 +919,12 @@ func TestCPRAOSZeroOutputLeaderValueComparison(t *testing.T) {
 	// Verify the comparison works without panic and produces a deterministic result
 	cmpResult := leaderValueInt.Cmp(threshold)
 	// Run again to verify determinism
-	require.Equal(t, cmpResult, leaderValueInt.Cmp(threshold), "comparison should be deterministic")
+	require.Equal(
+		t,
+		cmpResult,
+		leaderValueInt.Cmp(threshold),
+		"comparison should be deterministic",
+	)
 }
 
 // TestCPRAOSHighStakeIncreasesEligibility verifies higher stake increases election probability.
@@ -854,8 +935,16 @@ func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
 	// Generate many VRF outputs and count how many are eligible at different stake levels
 	// Note: This is a statistical test - we use a deterministic seed for reproducibility
 
-	lowStakeThreshold := CertifiedNatThreshold(100000000, totalStake, activeSlotCoeff)  // 10%
-	highStakeThreshold := CertifiedNatThreshold(500000000, totalStake, activeSlotCoeff) // 50%
+	lowStakeThreshold := CertifiedNatThreshold(
+		100000000,
+		totalStake,
+		activeSlotCoeff,
+	) // 10%
+	highStakeThreshold := CertifiedNatThreshold(
+		500000000,
+		totalStake,
+		activeSlotCoeff,
+	) // 50%
 
 	// Higher stake should have higher threshold (more likely to be eligible)
 	if highStakeThreshold.Cmp(lowStakeThreshold) <= 0 {
@@ -887,8 +976,11 @@ func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
 
 	// High stake should have at least as many eligible slots as low stake
 	if highStakeEligible < lowStakeEligible {
-		t.Errorf("high stake eligibility (%d) should be >= low stake eligibility (%d)",
-			highStakeEligible, lowStakeEligible)
+		t.Errorf(
+			"high stake eligibility (%d) should be >= low stake eligibility (%d)",
+			highStakeEligible,
+			lowStakeEligible,
+		)
 	}
 }
 
@@ -1005,8 +1097,7 @@ func TestThresholdAccuracyPartialStake(t *testing.T) {
 		thresholdF05.String(), upperBound.String())
 }
 
-// TestLnOneMinusConvergence verifies that lnOneMinus converges for x=0.5,
-// which is the boundary case that required increasing the term count.
+// TestLnOneMinusConvergence verifies that lnOneMinus converges for x=0.5.
 func TestLnOneMinusConvergence(t *testing.T) {
 	// ln(1-0.5) = ln(0.5) = -0.693147...
 	x := big.NewRat(1, 2)
@@ -1016,7 +1107,6 @@ func TestLnOneMinusConvergence(t *testing.T) {
 	approx, _ := result.Float64()
 
 	// ln(0.5) ≈ -0.693147180559945...
-	// With 100 terms the relative error should be negligible
 	require.InDelta(t, -0.693147180559945, approx, 1e-10,
 		"lnOneMinus(0.5) should be approximately ln(0.5)")
 }

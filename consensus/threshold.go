@@ -16,7 +16,9 @@ package consensus
 
 import (
 	"fmt"
+	"math"
 	"math/big"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -51,12 +53,16 @@ const thresholdPrecision = 1024
 // twoTo256 is 2^256, the upper bound for CPRAOS leader value comparison.
 // WARNING: These package-level big.Int values must not be mutated. Always use
 // them as read-only constants. Create new big.Int instances for calculations.
-var twoTo256 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsCPraos), nil)
+var twoTo256 = new(
+	big.Int,
+).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsCPraos), nil)
 
 // twoTo512 is 2^512, the upper bound for TPraos leader value comparison.
 // WARNING: This package-level big.Int value must not be mutated. Always use
 // it as a read-only constant. Create new big.Int instances for calculations.
-var twoTo512 = new(big.Int).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsTPraos), nil)
+var twoTo512 = new(
+	big.Int,
+).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsTPraos), nil)
 
 // CertifiedNatThreshold computes the leadership threshold for a pool using CPRAOS.
 // For TPraos compatibility, use CertifiedNatThresholdWithMode.
@@ -142,7 +148,8 @@ func CertifiedNatThresholdWithMode(
 	// (1-f)^σ ≈ exp(σ * ln(1-f))
 	//
 	// We use big.Float internally to avoid the O(n²) GCD normalization
-	// cost of big.Rat arithmetic over 100 Taylor series terms.
+	// cost of big.Rat arithmetic over the many Taylor series terms
+	// involved (see lnOneMinusFloat/expFloat below).
 	f := new(big.Float).SetPrec(prec).SetRat(activeSlotCoeff)
 	lnVal := lnOneMinusFloat(f)
 	product := new(big.Float).SetPrec(prec).Mul(sigma, lnVal)
@@ -166,57 +173,231 @@ func CertifiedNatThresholdWithMode(
 	return threshold, nil
 }
 
-// lnOneMinusFloat computes ln(1-x) for 0 < x < 1 using Taylor series:
-// ln(1-x) = -x - x²/2 - x³/3 - x⁴/4 - ...
+// NOTE: lnOneMinusFloat and expFloat previously used a *fixed* 100-term
+// Taylor series applied directly to the raw arguments. That is only
+// accurate when the argument is small. ln(1-x) converges at rate O(x^n/n),
+// so as the active slot coefficient f (i.e. x here) approaches 1, 100
+// terms is nowhere near enough: differential testing against an
+// independent continued-fraction implementation of ln (mirroring
+// IntersectMBO/cardano-ledger's Cardano.Ledger.NonIntegral) showed the old
+// code's threshold diverging from the true value by several *percent* of
+// its magnitude for f around 0.9-0.99 (values used on some fast
+// devnets/testnets), not merely a boundary rounding sliver. That is a real
+// eligibility-decision bug, not just theoretical imprecision.
 //
-// Uses big.Float arithmetic with fixed precision to avoid the expensive
-// GCD normalization that big.Rat incurs on every operation.
-// 100 terms provides sufficient precision for active slot coefficients
-// up to f=0.5 and beyond.
-func lnOneMinusFloat(x *big.Float) *big.Float {
-	const terms = 100
+// The functions below fix this by range-reducing the argument first, so
+// the number of Taylor terms required is bounded independently of the
+// input's magnitude:
+//   - lnOneMinusFloat/lnPositiveFloat normalize the input to a mantissa in
+//     [0.5, 1) (via big.Float.MantExp) and use the fast-converging
+//     artanh-based series ln(m) = 2*atanh((m-1)/(m+1)), whose ratio |z| is
+//     always <= 1/3 regardless of the original input.
+//   - expFloat halves the argument down (via MantExp) until it is tiny,
+//     applies the Taylor series there (where it converges very fast), then
+//     squares the result back up.
+//
+// numTermsForArtanhSeries/numTermsForExpSeries derive term counts that are
+// provably sufficient (with a safety margin) for seriesTargetBits of
+// accuracy, rather than relying on a hand-picked constant that happens to
+// work for "typical" inputs.
 
+// seriesTargetBits is the number of bits of accuracy the ln/exp series
+// truncation error is sized against. This is deliberately *not* tied to
+// thresholdPrecision (the big.Float mantissa width used for all
+// arithmetic in this file): thresholdPrecision provides headroom against
+// ordinary rounding in the surrounding multiply/floor pipeline, whereas
+// the series only needs to be accurate enough that its own truncation
+// error can never change which integer floor(probability*upperBound)
+// rounds to. The largest upperBound in use is TPraos's 2^512, so an
+// absolute error in probability below 2^-512 suffices; the extra
+// guardBits below keeps a comfortable margin. Sizing terms off
+// thresholdPrecision (1024) instead of this would roughly double the
+// term count for no correctness benefit -- pure allocation/CPU cost.
+const seriesTargetBits = vrfOutputBitsTPraos + guardBits
+
+// guardBits is the safety margin (in bits) added on top of the minimum
+// required accuracy when deriving term counts.
+const guardBits = 64
+
+// log2Of3 = log2(3), used to size the artanh series: since the reduced
+// argument z satisfies |z| <= 1/3, the term magnitude shrinks by a factor
+// of at least 3^2=9 every two terms.
+const log2Of3 = 1.5849625007211562
+
+// numTermsForArtanhSeries returns a term count sufficient to compute
+// ln(m) for m in [0.5, 1) to seriesTargetBits bits of precision via
+// ln(m) = 2*atanh((m-1)/(m+1)). Because m is always normalized to
+// [0.5, 1), |z| <= 1/3 always -- the term count needed is fixed,
+// independent of the original input's magnitude.
+func numTermsForArtanhSeries() int {
+	n := math.Ceil(float64(seriesTargetBits) / (2 * log2Of3))
+	return int(n) + 16
+}
+
+// expReductionBits controls how small |x/2^k| must be before applying the
+// Taylor series in expFloat. Reducing to a fixed small magnitude bounds the
+// number of Taylor terms needed to a value independent of the original
+// |x|, unlike applying the series directly to x (whose required term count
+// grows with |x|, and would silently lose precision for the large negative
+// exponents ln(1-f) produces as f approaches 1).
+const expReductionBits = 16
+
+// numTermsForExpSeries returns a term count sufficient to compute exp(y)
+// for |y| <= 2^-reductionBits to seriesTargetBits bits of precision. This
+// bound conservatively ignores the n! denominator (i.e. treats the series
+// as if it only decayed geometrically by 2^-reductionBits per term), so it
+// is an over-estimate, not a tight one.
+func numTermsForExpSeries(reductionBits int) int {
+	n := math.Ceil(float64(seriesTargetBits) / float64(reductionBits))
+	return int(n) + 16
+}
+
+// atanhSeries computes atanh(z) = z + z^3/3 + z^5/5 + ... for the given
+// number of terms.
+func atanhSeries(z *big.Float, terms int) *big.Float {
+	prec := z.Prec()
+	z2 := new(big.Float).SetPrec(prec).Mul(z, z)
+	term := new(big.Float).SetPrec(prec).Set(z)
+	sum := new(big.Float).SetPrec(prec).Set(z)
+	denom := new(big.Float).SetPrec(prec)
+	scratch := new(big.Float).SetPrec(prec)
+
+	for n := 1; n < terms; n++ {
+		term.Mul(term, z2)
+		denom.SetInt64(int64(2*n + 1))
+		scratch.Quo(term, denom)
+		sum.Add(sum, scratch)
+	}
+
+	return sum
+}
+
+// lnNormalized computes ln(m) for m in [0.5, 1) using the fast-converging
+// series ln(m) = 2*atanh((m-1)/(m+1)). Since m is restricted to [0.5, 1),
+// |z| = |(m-1)/(m+1)| <= 1/3 always, giving a fixed, input-independent
+// convergence rate.
+func lnNormalized(m *big.Float, terms int) *big.Float {
+	prec := m.Prec()
+	one := new(big.Float).SetPrec(prec).SetInt64(1)
+	z := new(big.Float).SetPrec(prec).Quo(
+		new(big.Float).SetPrec(prec).Sub(m, one),
+		new(big.Float).SetPrec(prec).Add(m, one),
+	)
+	two := new(big.Float).SetPrec(prec).SetInt64(2)
+	return new(big.Float).SetPrec(prec).Mul(two, atanhSeries(z, terms))
+}
+
+var (
+	ln2Once   sync.Once
+	ln2Cached *big.Float
+)
+
+// ln2Float returns ln(2) at the requested precision, computed once (at
+// thresholdPrecision) and cached; if a higher precision is requested it is
+// recomputed fresh rather than serving a truncated cached value.
+func ln2Float(prec uint) *big.Float {
+	if prec <= thresholdPrecision {
+		ln2Once.Do(func() {
+			ln2Cached = computeLn2(thresholdPrecision)
+		})
+		return new(big.Float).SetPrec(prec).Set(ln2Cached)
+	}
+	return computeLn2(prec)
+}
+
+// computeLn2 computes ln(2) = -ln(0.5) using lnNormalized, since 0.5 is
+// already in the required [0.5, 1) range.
+func computeLn2(prec uint) *big.Float {
+	half := new(big.Float).SetPrec(prec).SetFloat64(0.5)
+	terms := numTermsForArtanhSeries()
+	lnHalf := lnNormalized(half, terms)
+	return new(big.Float).SetPrec(prec).Neg(lnHalf)
+}
+
+// lnPositiveFloat computes ln(y) for y > 0, by normalizing y to a mantissa
+// m in [0.5, 1) with y = m * 2^exp (via big.Float.MantExp) and computing
+// ln(y) = ln(m) + exp*ln(2). This bounds the series' required term count
+// independently of how large or small y is.
+func lnPositiveFloat(y *big.Float) *big.Float {
+	prec := y.Prec()
+
+	mant := new(big.Float).SetPrec(prec)
+	exp := y.MantExp(mant) // y = mant * 2^exp, 0.5 <= mant < 1
+
+	terms := numTermsForArtanhSeries()
+	lnMant := lnNormalized(mant, terms)
+
+	if exp == 0 {
+		return lnMant
+	}
+
+	ln2 := ln2Float(prec)
+	expTerm := new(big.Float).SetPrec(prec).Mul(
+		new(big.Float).SetPrec(prec).SetInt64(int64(exp)),
+		ln2,
+	)
+	return new(big.Float).SetPrec(prec).Add(lnMant, expTerm)
+}
+
+// lnOneMinusFloat computes ln(1-x) for 0 < x < 1 by delegating to
+// lnPositiveFloat on y = 1-x. See the NOTE above this section for why a
+// direct fixed-term power series in x is unsafe as x -> 1.
+func lnOneMinusFloat(x *big.Float) *big.Float {
 	prec := x.Prec()
-	result := new(big.Float).SetPrec(prec)
-	xPower := new(big.Float).SetPrec(prec).Set(x) // x^n, starts at x^1
-	term := new(big.Float).SetPrec(prec)
+	one := new(big.Float).SetPrec(prec).SetInt64(1)
+	y := new(big.Float).SetPrec(prec).Sub(one, x)
+	return lnPositiveFloat(y)
+}
+
+// taylorExpSeries computes exp(y) = 1 + y + y^2/2! + y^3/3! + ... for |y|
+// small (see expReductionBits) using the given term count.
+func taylorExpSeries(y *big.Float, terms int) *big.Float {
+	prec := y.Prec()
+	one := new(big.Float).SetPrec(prec).SetInt64(1)
+	result := new(big.Float).SetPrec(prec).Set(one)
+	term := new(big.Float).SetPrec(prec).Set(one)
 	nFloat := new(big.Float).SetPrec(prec)
 
 	for n := 1; n <= terms; n++ {
-		// term = xPower / n
+		term.Mul(term, y)
 		nFloat.SetInt64(int64(n))
-		term.Quo(xPower, nFloat)
-		// result -= term
-		result.Sub(result, term)
-		// xPower *= x for next iteration
-		xPower.Mul(xPower, x)
+		term.Quo(term, nFloat)
+		result.Add(result, term)
 	}
 
 	return result
 }
 
-// expFloat computes exp(x) for a big.Float x using Taylor series:
-// exp(x) = 1 + x + x²/2! + x³/3! + x⁴/4! + ...
-//
-// Uses big.Float arithmetic with fixed precision for efficiency.
-// 100 terms provides sufficient precision for active slot coefficients
-// up to f=0.5 and beyond.
+// expFloat computes exp(x) for a big.Float x by halving x down (via
+// big.Float.MantExp) until it is small enough for the Taylor series to
+// converge within a bounded number of terms, then squaring the result
+// back up. See the NOTE above this section for why applying the series
+// directly to x is unsafe for the large-magnitude arguments that arise
+// from ln(1-f) as f -> 1.
 func expFloat(x *big.Float) *big.Float {
-	const terms = 100
-
 	prec := x.Prec()
-	one := new(big.Float).SetPrec(prec).SetInt64(1)
-	result := new(big.Float).SetPrec(prec).Set(one) // Start with 1
-	term := new(big.Float).SetPrec(prec).Set(one)   // x^n / n!
-	nFloat := new(big.Float).SetPrec(prec)
 
-	for n := 1; n <= terms; n++ {
-		// term = term * x / n
-		term.Mul(term, x)
-		nFloat.SetInt64(int64(n))
-		term.Quo(term, nFloat)
-		// result += term
-		result.Add(result, term)
+	if x.Sign() == 0 {
+		return new(big.Float).SetPrec(prec).SetInt64(1)
+	}
+
+	mant := new(big.Float).SetPrec(prec)
+	e := x.MantExp(mant) // x = mant * 2^e, 0.5 <= |mant| < 1
+
+	k := e + expReductionBits
+	if k < 0 {
+		k = 0
+	}
+
+	// y = x / 2^k, so |y| <= 2^-expReductionBits (or |x| itself, if that
+	// was already smaller).
+	y := new(big.Float).SetPrec(prec).SetMantExp(x, -k)
+
+	terms := numTermsForExpSeries(expReductionBits)
+	result := taylorExpSeries(y, terms)
+
+	for i := 0; i < k; i++ {
+		result.Mul(result, result)
 	}
 
 	return result
