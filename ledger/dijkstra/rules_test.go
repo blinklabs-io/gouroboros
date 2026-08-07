@@ -21,10 +21,21 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
+	commontestdata "github.com/blinklabs-io/gouroboros/ledger/common/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
+	tx := &DijkstraTransaction{}
+	tx.Body.TxProposalProcedures = []DijkstraProposalProcedure{{
+		PPGovAction: DijkstraGovAction{Action: commontestdata.UnsupportedGovAction{}},
+	}}
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionConway
+	require.Error(t, UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, pp))
+}
 
 func testGuardCredential() common.Credential {
 	var guardHash common.Blake2b224

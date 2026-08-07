@@ -804,7 +804,9 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Handle metadata (component 4, always present - either data or CBOR nil)
 	metadataRaw := []byte(txArray[3])
-	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
+		(len(metadataRaw) != 1 ||
+			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
@@ -818,8 +820,18 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if err == nil && metadata != nil {
+			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
+			if fallbackErr != nil || metadata == nil {
+				if fallbackErr == nil {
+					fallbackErr = errors.New("metadata fallback returned no metadata")
+				}
+				return fmt.Errorf(
+					"failed to decode auxiliary data: %w (metadata fallback: %w)",
+					err,
+					fallbackErr,
+				)
+			}
+			if metadata != nil {
 				t.TxMetadata = metadata
 			}
 		}

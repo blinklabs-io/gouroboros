@@ -290,11 +290,37 @@ type multiAssetJson[T int64 | uint64 | *big.Int] struct {
 	Amount      string `json:"amount"`
 }
 
+// pruneZeroAssets removes zero-quantity assets, and any policy left with no
+// assets, matching cardano-ledger. Its Value decoder applies
+// pruneZeroMultiAsset (eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs), so a
+// zero-quantity entry never reaches any ledger rule or the Plutus script
+// context. Keeping one makes a script that traverses the value do measurably
+// more work than the node that produced the block, so its execution cost
+// diverges.
+func pruneZeroAssets[T int64 | uint64 | *big.Int](
+	data map[Blake2b224]map[cbor.ByteString]T,
+) map[Blake2b224]map[cbor.ByteString]T {
+	if data == nil {
+		return nil
+	}
+	for policy, assets := range data {
+		for name, qty := range assets {
+			if amountIsZero(qty) {
+				delete(assets, name)
+			}
+		}
+		if len(assets) == 0 {
+			delete(data, policy)
+		}
+	}
+	return data
+}
+
 func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 	var decoded map[Blake2b224]map[cbor.ByteString]T
 	m.duplicateMapKeys = false
 	if _, err := cbor.Decode(data, &decoded); err == nil {
-		m.data = decoded
+		m.data = pruneZeroAssets(decoded)
 		return nil
 	} else if !cbor.IsDuplicateMapKeyError(err) {
 		return err
@@ -310,7 +336,7 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.DecodeLenient(data, &decoded); err != nil {
 		return err
 	}
-	m.data = decoded
+	m.data = pruneZeroAssets(decoded)
 	return nil
 }
 

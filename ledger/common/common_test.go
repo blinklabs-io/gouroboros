@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBlake2b256_MarshalCBOR_ZeroHash(t *testing.T) {
@@ -1498,4 +1499,89 @@ func TestMultiAssetUnmarshalDuplicateAssetNameLastWins(t *testing.T) {
 	if last == nil || last.Int64() != 9 {
 		t.Fatalf("expected last-wins asset 0xCC == 9, got %v", last)
 	}
+}
+
+// TestMultiAssetDecodePrunesZeroQuantities pins decode-time pruning of
+// zero-quantity assets, matching cardano-ledger. Its Value decoder applies
+// pruneZeroMultiAsset (eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs), so a
+// zero entry never reaches a ledger rule or the Plutus script context.
+//
+// Keeping one is not cosmetic. A script that walks the value of an input or
+// output does measurably more work than the node that produced the block, so
+// its execution cost diverges and phase-2 validation rejects a transaction the
+// chain already accepted. Observed on preview: a burn left a zero-quantity
+// entry in an output, and every script in that transaction cost more than its
+// declared budget.
+func TestMultiAssetDecodePrunesZeroQuantities(t *testing.T) {
+	policyA := "1654dce4e3529f13b1b6f8b0cfb9e0cbd0b2a70b8bbcbcd0d0e0f1a2"
+	policyB := "3b8684b73e1b8f5c3206676d4dda66e96535b05d650c8de4105256d4"
+	mkPolicy := func(hexStr string) Blake2b224 {
+		raw, err := hex.DecodeString(hexStr)
+		require.NoError(t, err)
+		return NewBlake2b224(raw)
+	}
+
+	// One policy keeps a non-zero asset beside a zero one; the other has only a
+	// zero asset and must disappear entirely.
+	src := map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+		mkPolicy(policyA): {
+			cbor.NewByteString([]byte{0x55, 0x49}): big.NewInt(500),
+			cbor.NewByteString([]byte{0x46, 0x32}): big.NewInt(0),
+		},
+		mkPolicy(policyB): {
+			cbor.NewByteString([]byte{0x46, 0x32}): big.NewInt(0),
+		},
+	}
+	encoded, err := cbor.Encode(src)
+	require.NoError(t, err)
+
+	var ma MultiAsset[MultiAssetTypeOutput]
+	require.NoError(t, ma.UnmarshalCBOR(encoded))
+
+	policies := ma.Policies()
+	require.Len(t, policies, 1, "a policy left with no assets must be dropped")
+	assert.Equal(t, mkPolicy(policyA), policies[0])
+
+	assets := ma.Assets(policies[0])
+	require.Len(t, assets, 1, "the zero-quantity asset must be dropped")
+	assert.Equal(
+		t,
+		big.NewInt(500),
+		ma.Asset(policies[0], assets[0]),
+	)
+}
+
+// TestMultiAssetDecodePrunesZeroQuantitiesWithDuplicateKeys covers the lenient
+// decode path. Pre-Conway values may carry duplicate policy or asset keys, which
+// UnmarshalCBOR re-decodes with DecodeLenient on a last-wins basis, and that
+// path prunes too. Here the winning value is zero, so the asset and then its
+// now-empty policy must both disappear while the duplicate-key flag still
+// records that a Conway+ decoder has to reject the value.
+func TestMultiAssetDecodePrunesZeroQuantitiesWithDuplicateKeys(t *testing.T) {
+	policy, err := hex.DecodeString(
+		"1654dce4e3529f13b1b6f8b0cfb9e0cbd0b2a70b8bbcbcd0d0e0f1a2",
+	)
+	require.NoError(t, err)
+
+	// Hand-built because an encoder cannot emit a duplicate map key:
+	//   a1                       map(1)
+	//     581c <28-byte policy>
+	//     a2                     map(2), duplicate asset name
+	//       42 5549  1901f4      "UI" -> 500
+	//       42 5549  00          "UI" -> 0   (last wins)
+	encoded := []byte{0xa1, 0x58, 0x1c}
+	encoded = append(encoded, policy...)
+	encoded = append(encoded,
+		0xa2,
+		0x42, 0x55, 0x49, 0x19, 0x01, 0xf4,
+		0x42, 0x55, 0x49, 0x00,
+	)
+
+	var ma MultiAsset[MultiAssetTypeOutput]
+	require.NoError(t, ma.UnmarshalCBOR(encoded))
+
+	assert.True(t, ma.duplicateMapKeys,
+		"the duplicate key must still be recorded for Conway+ rejection")
+	assert.Empty(t, ma.Policies(),
+		"last-wins zero must be pruned, emptying and dropping the policy")
 }

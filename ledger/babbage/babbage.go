@@ -74,7 +74,7 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 		TransactionBodies      []BabbageTransactionBody
 		TransactionWitnessSets []BabbageTransactionWitnessSet
 		TransactionMetadataSet common.TransactionMetadataSet
-		InvalidTransactions    []any
+		InvalidTransactions    []uint64
 	}
 
 	var tmp tmpBabbageBlock
@@ -82,35 +82,21 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Convert []any to []uint with validation
-	const maxReasonableIndex = 1000000 // Reasonable upper bound for transaction indices
+	// Convert the wire indices to the platform type without discarding values.
 	result := make([]uint, 0, len(tmp.InvalidTransactions))
-	for _, v := range tmp.InvalidTransactions {
-		switch val := v.(type) {
-		case uint:
-			if val > maxReasonableIndex {
-				continue // Skip unreasonably large indices
-			}
-			result = append(result, val)
-		case uint64:
-			if val > maxReasonableIndex {
-				continue // Skip unreasonably large indices
-			}
-			result = append(result, uint(val))
-		case int:
-			if val < 0 || val > maxReasonableIndex {
-				continue // Skip negative or unreasonably large indices
-			}
-			result = append(result, uint(val)) //nolint:gosec // bounds checked above
-		case int64:
-			if val < 0 || val > maxReasonableIndex {
-				continue // Skip negative or unreasonably large indices
-			}
-			result = append(result, uint(val)) //nolint:gosec // bounds checked above
-		default:
-			// Skip invalid types (strings, floats, etc.)
-			continue
+	for _, val := range tmp.InvalidTransactions {
+		if val >= uint64(len(tmp.TransactionBodies)) {
+			return fmt.Errorf(
+				"invalid transaction index %d outside transaction list length %d",
+				val,
+				len(tmp.TransactionBodies),
+			)
 		}
+		converted := uint(val)
+		if uint64(converted) != val {
+			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+		}
+		result = append(result, converted)
 	}
 	if len(result) == 0 {
 		b.InvalidTransactions = nil
@@ -1004,7 +990,9 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Handle metadata (component 4, always present - either data or CBOR nil)
 	metadataRaw := []byte(txArray[3])
-	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
+		(len(metadataRaw) != 1 ||
+			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
@@ -1018,8 +1006,18 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if err == nil && metadata != nil {
+			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
+			if fallbackErr != nil || metadata == nil {
+				if fallbackErr == nil {
+					fallbackErr = errors.New("metadata fallback returned no metadata")
+				}
+				return fmt.Errorf(
+					"failed to decode auxiliary data: %w (metadata fallback: %w)",
+					err,
+					fallbackErr,
+				)
+			}
+			if metadata != nil {
 				t.TxMetadata = metadata
 			}
 		}

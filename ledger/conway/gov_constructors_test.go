@@ -19,21 +19,19 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/plutigo/data"
+	commontestdata "github.com/blinklabs-io/gouroboros/ledger/common/testdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// unsupportedGovAction satisfies common.GovAction (via the embedded
-// GovActionBase) but is not one of the known Conway action types, so
-// NewConwayGovAction must reject it rather than silently coerce it to
-// discriminant 0.
-type unsupportedGovAction struct {
-	common.GovActionBase
-}
-
-func (unsupportedGovAction) ToPlutusData() data.PlutusData {
-	return data.NewConstr(0)
+func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
+	tx := &ConwayTransaction{}
+	tx.Body.TxProposalProcedures = []ConwayProposalProcedure{{
+		PPGovAction: ConwayGovAction{Action: commontestdata.UnsupportedGovAction{}},
+	}}
+	pp := &ConwayProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionConway
+	require.Error(t, UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, pp))
 }
 
 func TestNewConwayParameterChangeGovAction(t *testing.T) {
@@ -132,14 +130,14 @@ func TestNewConwayGovActionRejectsInvalid(t *testing.T) {
 
 	// An action that satisfies common.GovAction but is not a known Conway type
 	// must be rejected rather than silently coerced to discriminant 0.
-	_, err = NewConwayGovAction(unsupportedGovAction{})
+	_, err = NewConwayGovAction(commontestdata.UnsupportedGovAction{})
 	require.Error(t, err)
 
 	// A typed-nil pointer must be rejected rather than matching its concrete
 	// case and wrapping a nil action, for both known and unsupported types.
 	_, err = NewConwayGovAction((*common.InfoGovAction)(nil))
 	require.Error(t, err)
-	_, err = NewConwayGovAction((*unsupportedGovAction)(nil))
+	_, err = NewConwayGovAction((*commontestdata.UnsupportedGovAction)(nil))
 	require.Error(t, err)
 
 	// NewConwayProposalProcedure propagates the error instead of producing a

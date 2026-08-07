@@ -341,7 +341,9 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 	// Handle metadata (component 3, index 2) - always present, but may be CBOR nil
 	// Store raw auxiliary data bytes (including any scripts)
 	metadataRaw := []byte(txArray[2])
-	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 {
+	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
+		(len(metadataRaw) != 1 ||
+			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data
@@ -355,8 +357,18 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 			}
 		} else {
 			// Fallback to old method for backward compatibility
-			metadata, err := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
-			if err == nil && metadata != nil {
+			metadata, fallbackErr := common.DecodeAuxiliaryDataToMetadata(metadataRaw)
+			if fallbackErr != nil || metadata == nil {
+				if fallbackErr == nil {
+					fallbackErr = errors.New("metadata fallback returned no metadata")
+				}
+				return fmt.Errorf(
+					"failed to decode auxiliary data: %w (metadata fallback: %w)",
+					err,
+					fallbackErr,
+				)
+			}
+			if metadata != nil {
 				t.TxMetadata = metadata
 			}
 		}

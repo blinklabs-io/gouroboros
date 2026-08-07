@@ -170,10 +170,10 @@ func (m *MessageAuthenticator) IsSPOPoolRegistered(poolID string) bool {
 // It verifies: operational certificate, KES signature, SPO pool registration,
 // message ID, and KES period rotation. Returns error if verification fails
 // (which is a protocol violation and should result in peer disconnection).
-// VerifyMessage verifies a message using no explicit slot (slot==0). Use VerifyMessageWithSlot
+// VerifyMessage verifies a message using no explicit slot. Use VerifyMessageWithSlot
 // when the caller has an explicit slot value to supply.
 func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
-	return m.verifyMessageInternal(msg, 0)
+	return m.verifyMessageInternal(msg, nil)
 }
 
 // VerifyMessageWithSlot verifies a message using an explicit slot value. When available,
@@ -183,14 +183,14 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 	msg *DmqMessage,
 	slot uint64,
 ) error {
-	return m.verifyMessageInternal(msg, slot)
+	return m.verifyMessageInternal(msg, &slot)
 }
 
-// verifyMessageInternal contains the core verification logic. If slot==0, the verifier
-// will compute a slot based on kesPeriod * slotsPerKesPeriod as a fallback.
+// verifyMessageInternal contains the core verification logic. A nil slot means
+// that the verifier should derive the slot from the KES period.
 func (m *MessageAuthenticator) verifyMessageInternal(
 	msg *DmqMessage,
-	slot uint64,
+	slot *uint64,
 ) error {
 	if m.disableValidation {
 		return nil
@@ -280,11 +280,11 @@ func (m *MessageAuthenticator) verifyOperationalCertificate(
 }
 
 // verifyKESSignature verifies the KES signature over the message payload (CBOR encoded).
-// If slot==0, a fallback slot will be computed from the KES period and configured
+// If slot is nil, a slot will be computed from the KES period and configured
 // slots per KES period.
 func (m *MessageAuthenticator) verifyKESSignature(
 	msg *DmqMessage,
-	slot uint64,
+	slot *uint64,
 ) error {
 	if len(msg.KESSignature) != 448 {
 		return fmt.Errorf(
@@ -320,9 +320,9 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		kesVerifier, ok := kesVerifierVal.(func([]byte, []byte, []byte, uint64, uint64, uint64) (bool, error))
 		if ok {
 			kesPeriod := msg.Payload.KESPeriod
-			computedSlot := slot
-			if computedSlot == 0 {
-				computedSlot = kesPeriod * m.slotsPerKesPeriod
+			computedSlot := kesPeriod * m.slotsPerKesPeriod
+			if slot != nil {
+				computedSlot = *slot
 			}
 			// Log the slot used for verification to aid debugging
 			m.logger.Debug(

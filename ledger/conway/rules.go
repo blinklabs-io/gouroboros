@@ -271,10 +271,8 @@ func UtxoValidateBootstrapAllowedGovActions(
 			continue
 		}
 		// NOTE: closed-set type-switch over the 7 GovActionType constants in
-		// ledger/common/gov.go. Permissive default is intentional — matches
-		// cardano-ledger's deny-list semantics. New GovAction types added to
-		// common will fall into the default arm and be allowed at PV9; an
-		// explicit case must be added here to gate them.
+		// ledger/common/gov.go. Unknown GovAction implementations are rejected
+		// by the default arm; add an explicit case when a new action is supported.
 		switch govAction.(type) {
 		case *common.InfoGovAction:
 			// always allowed
@@ -299,9 +297,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 				ActionType: common.GovActionTypeNewConstitution,
 			}
 		default:
-			// Any new GovAction type added to ledger/common is implicitly
-			// allowed here; this branch exists so the assumption is visible
-			// at the call site rather than only in the NOTE above.
+			return fmt.Errorf("unknown governance action type %T", govAction)
 		}
 	}
 	return nil
@@ -2156,7 +2152,6 @@ func UtxoValidatePlutusScripts(
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
-				txInfoV2.ProtocolMajor = conwayPparams.ProtocolVersion.Major
 				txInfoV2Built = true
 			}
 			// Build V1V2 context
@@ -2189,7 +2184,6 @@ func UtxoValidatePlutusScripts(
 				if err != nil {
 					return ScriptContextConstructionError{Err: err}
 				}
-				txInfoV1.ProtocolMajor = conwayPparams.ProtocolVersion.Major
 				txInfoV1Built = true
 			}
 			// Build V1V2 context
@@ -2344,12 +2338,14 @@ func UtxoValidateDelegation(
 	// DrepTypeAddrKeyHash/DrepTypeScriptHash (any other type returns an
 	// error from isDRepRegistered before this is reached), so the default
 	// case below is unreachable and does not fall back silently.
-	drepTypeToCredType := func(drepType int) uint {
+	drepTypeToCredType := func(drepType int) (uint, error) {
 		switch drepType {
+		case common.DrepTypeAddrKeyHash:
+			return common.CredentialTypeAddrKeyHash, nil
 		case common.DrepTypeScriptHash:
-			return common.CredentialTypeScriptHash
+			return common.CredentialTypeScriptHash, nil
 		default:
-			return common.CredentialTypeAddrKeyHash
+			return 0, InvalidDRepTypeError{DrepType: drepType}
 		}
 	}
 
@@ -2424,8 +2420,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}
@@ -2445,8 +2445,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}
@@ -2468,8 +2472,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}
@@ -2487,8 +2495,12 @@ func UtxoValidateDelegation(
 				return err
 			}
 			if !drepRegistered {
+				credType, err := drepTypeToCredType(c.Drep.Type)
+				if err != nil {
+					return err
+				}
 				return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-					CredType:   drepTypeToCredType(c.Drep.Type),
+					CredType:   credType,
 					Credential: common.NewBlake2b224(c.Drep.Credential),
 				}}
 			}

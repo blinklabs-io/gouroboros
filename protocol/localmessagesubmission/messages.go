@@ -67,13 +67,17 @@ type MsgRejectMessage struct {
 }
 
 // NewMsgRejectMessage creates a new MsgRejectMessage
-func NewMsgRejectMessage(reason pcommon.RejectReason) *MsgRejectMessage {
+func NewMsgRejectMessage(reason pcommon.RejectReason) (*MsgRejectMessage, error) {
+	reasonData, err := pcommon.ToRejectReasonData(reason)
+	if err != nil {
+		return nil, err
+	}
 	return &MsgRejectMessage{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeRejectMessage,
 		},
-		Reason: pcommon.ToRejectReasonData(reason),
-	}
+		Reason: reasonData,
+	}, nil
 }
 
 // MsgDone represents the protocol completion message
