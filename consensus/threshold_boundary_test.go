@@ -53,12 +53,8 @@ const refSeriesTerms = 4000
 // tighter than what's representable at refPrec but doesn't force every
 // last loop iteration.
 func refEpsilon() *big.Float {
-	eps := new(big.Float).SetPrec(refPrec).SetInt64(1)
-	two := new(big.Float).SetPrec(refPrec).SetInt64(2)
-	for i := 0; i < int(refPrec)-64; i++ {
-		eps.Quo(eps, two)
-	}
-	return eps
+	one := new(big.Float).SetPrec(refPrec).SetInt64(1)
+	return new(big.Float).SetPrec(refPrec).SetMantExp(one, -(int(refPrec) - 64))
 }
 
 // refIpowInt computes base^n for any integer n (including negative) via
@@ -354,9 +350,12 @@ func TestCertifiedNatThresholdDifferentialAgainstIndependentReference(
 						// ULP in pathological cases -- but any real
 						// approximation bug shows up as a large relative
 						// error, not an off-by-a-few-integers rounding
-						// artifact. Require the discrepancy to be
-						// vanishingly small relative to the threshold's
-						// own magnitude.
+						// artifact. Require the discrepancy to be bounded
+						// by a small absolute number of integers (diff <=
+						// 15); against the threshold's ~2^256 magnitude
+						// that bound is negligible in practice, even
+						// though it is an absolute bound, not a relative
+						// one.
 						require.True(t, diff.BitLen() <= 4,
 							"threshold diverges from independent reference: "+
 								"got=%s want=%s diffBits=%d",
@@ -393,6 +392,12 @@ func TestLeaderEligibilityBoundaryAgainstIndependentReference(t *testing.T) {
 		{"f=0.9,sigma=0.9", big.NewRat(9, 10), 9, 10},
 		{"f=0.99,sigma=0.99", big.NewRat(99, 100), 99, 100},
 		{"f=0.999,tiny-sigma", big.NewRat(999, 1000), 1, 1_000_000},
+		// Exact-rational cutoff: full stake (sigma=1) with f=1/2 makes
+		// (1-f)^sigma = 1-f = 0.5 exactly, so the true cutoff lands
+		// exactly on an integer (2^N/2). This is the case that exposed
+		// the off-by-one flooring bug fixed for
+		// CertifiedNatThresholdWithMode's full-stake handling.
+		{"f=0.5,sigma=1(full-stake-exact)", big.NewRat(1, 2), 1, 1},
 	}
 
 	modes := []struct {

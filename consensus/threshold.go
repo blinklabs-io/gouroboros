@@ -64,6 +64,11 @@ var twoTo512 = new(
 	big.Int,
 ).Exp(big.NewInt(2), big.NewInt(vrfOutputBitsTPraos), nil)
 
+// bigRatOne is the rational value 1, used to bound the valid domain of the
+// active slot coefficient (a probability, so 0 <= f <= 1).
+// WARNING: This package-level big.Rat value must not be mutated.
+var bigRatOne = big.NewRat(1, 1)
+
 // CertifiedNatThreshold computes the leadership threshold for a pool using CPRAOS.
 // For TPraos compatibility, use CertifiedNatThresholdWithMode.
 //
@@ -126,6 +131,21 @@ func CertifiedNatThresholdWithMode(
 	if activeSlotCoeff == nil {
 		return big.NewInt(0), nil
 	}
+	// Domain guard: f must be a valid probability, i.e. 0 <= f <= 1.
+	// f <= 0 is a degenerate "never lead" case: 1-(1-f)^sigma = 0
+	// regardless of sigma (this holds for f == 0 exactly, and we treat
+	// any non-positive f the same way rather than feeding it into the
+	// ln/exp pipeline, which assumes 1-f > 0).
+	if activeSlotCoeff.Sign() <= 0 {
+		return big.NewInt(0), nil
+	}
+	fCmpOne := activeSlotCoeff.Cmp(bigRatOne)
+	if fCmpOne > 0 {
+		return nil, fmt.Errorf(
+			"activeSlotCoeff must not exceed 1 (100%%), got %s",
+			activeSlotCoeff.RatString(),
+		)
+	}
 	if totalStake == 0 {
 		return big.NewInt(0), nil
 	}
@@ -134,6 +154,25 @@ func CertifiedNatThresholdWithMode(
 	}
 	if poolStake > totalStake {
 		poolStake = totalStake
+	}
+	// f == 1 means certain leadership for any pool with positive stake
+	// (sigma > 0 here, since poolStake/totalStake are both non-zero
+	// above): (1-f)^sigma = 0^sigma = 0, so probability = 1 and the
+	// threshold is exactly the upper bound. Handle this exactly rather
+	// than falling into the ln/exp pipeline, which is only valid for
+	// 1-f > 0.
+	if fCmpOne == 0 {
+		return new(big.Int).Set(upperBound), nil
+	}
+	// sigma == 1 (full stake) means (1-f)^sigma == 1-f exactly, so the
+	// threshold can be computed exactly via rational arithmetic instead
+	// of the ln/exp pipeline, avoiding any residual floating-point error
+	// that could otherwise push an exact-rational cutoff across an
+	// integer boundary (see the full-stake, f=1/2 differential test).
+	if poolStake == totalStake {
+		exact := new(big.Int).Mul(upperBound, activeSlotCoeff.Num())
+		exact.Quo(exact, activeSlotCoeff.Denom())
+		return exact, nil
 	}
 
 	const prec = thresholdPrecision

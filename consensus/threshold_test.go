@@ -1110,3 +1110,140 @@ func TestLnOneMinusConvergence(t *testing.T) {
 	require.InDelta(t, -0.693147180559945, approx, 1e-10,
 		"lnOneMinus(0.5) should be approximately ln(0.5)")
 }
+
+// =============================================================================
+// activeSlotCoeff domain guard tests (f <= 0, f == 1, f > 1)
+// =============================================================================
+
+// TestCertifiedNatThresholdActiveSlotCoeffZero verifies that f == 0 produces
+// an exact zero threshold: 1-(1-0)^sigma == 0 for any sigma, so a pool can
+// never be a leader when the active slot coefficient is zero.
+func TestCertifiedNatThresholdActiveSlotCoeffZero(t *testing.T) {
+	f := big.NewRat(0, 1)
+
+	for _, mode := range []ConsensusMode{ConsensusModeCPraos, ConsensusModeTPraos} {
+		threshold, err := CertifiedNatThresholdWithMode(
+			500_000_000,
+			1_000_000_000,
+			f,
+			mode,
+		)
+		require.NoError(t, err)
+		require.Equal(t, big.NewInt(0), threshold,
+			"f=0 must produce an exact zero threshold")
+	}
+}
+
+// TestCertifiedNatThresholdActiveSlotCoeffNegative verifies that a negative
+// (invalid) active slot coefficient is treated the same as f == 0, rather
+// than being fed into the ln/exp pipeline (which assumes 1-f > 0).
+func TestCertifiedNatThresholdActiveSlotCoeffNegative(t *testing.T) {
+	f := big.NewRat(-1, 20)
+
+	threshold, err := CertifiedNatThresholdWithMode(
+		500_000_000,
+		1_000_000_000,
+		f,
+		ConsensusModeCPraos,
+	)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(0), threshold,
+		"negative activeSlotCoeff must produce a zero threshold, not an error")
+}
+
+// TestCertifiedNatThresholdActiveSlotCoeffOne verifies that f == 1 (certain
+// leadership) produces an exact threshold equal to the mode's upper bound
+// for any pool with positive stake, without going through the ln/exp
+// pipeline (which is only valid for 1-f > 0).
+func TestCertifiedNatThresholdActiveSlotCoeffOne(t *testing.T) {
+	f := big.NewRat(1, 1)
+
+	cases := []struct {
+		name       string
+		mode       ConsensusMode
+		upperBound *big.Int
+	}{
+		{"CPraos", ConsensusModeCPraos, twoTo256},
+		{"TPraos", ConsensusModeTPraos, twoTo512},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(
+				500_000_000,
+				1_000_000_000,
+				f,
+				c.mode,
+			)
+			require.NoError(t, err)
+			require.Equal(t, 0, threshold.Cmp(c.upperBound),
+				"f=1 must produce a threshold exactly equal to the "+
+					"upper bound: got %s, want %s",
+				threshold.String(), c.upperBound.String())
+		})
+	}
+
+	// A pool with zero stake can never lead, even at f=1 (sigma=0 means
+	// (1-f)^sigma = 0^0 = 1, so probability = 0).
+	threshold, err := CertifiedNatThresholdWithMode(
+		0,
+		1_000_000_000,
+		f,
+		ConsensusModeCPraos,
+	)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(0), threshold,
+		"zero pool stake must yield a zero threshold even at f=1")
+}
+
+// TestCertifiedNatThresholdActiveSlotCoeffAboveOne verifies that an
+// activeSlotCoeff greater than 1 (not a valid probability) is rejected with
+// an error rather than silently producing a wrong threshold.
+func TestCertifiedNatThresholdActiveSlotCoeffAboveOne(t *testing.T) {
+	f := big.NewRat(3, 2) // 1.5, invalid
+
+	threshold, err := CertifiedNatThresholdWithMode(
+		500_000_000,
+		1_000_000_000,
+		f,
+		ConsensusModeCPraos,
+	)
+	require.Error(t, err)
+	require.Nil(t, threshold)
+}
+
+// TestCertifiedNatThresholdFullStakeExactHalf verifies the previously
+// mis-rounded exact-rational cutoff: a full-stake pool (sigma=1) with
+// f=1/2 has an exact mathematical threshold of upperBound/2 (since
+// (1-f)^sigma = 1-f = 0.5 exactly), and the result must land exactly on
+// that value rather than one below it due to residual floating-point error.
+func TestCertifiedNatThresholdFullStakeExactHalf(t *testing.T) {
+	f := big.NewRat(1, 2)
+
+	cases := []struct {
+		name       string
+		mode       ConsensusMode
+		upperBound *big.Int
+	}{
+		{"CPraos", ConsensusModeCPraos, twoTo256},
+		{"TPraos", ConsensusModeTPraos, twoTo512},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(
+				1_000_000_000,
+				1_000_000_000,
+				f,
+				c.mode,
+			)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Rsh(c.upperBound, 1) // upperBound / 2
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"full-stake f=1/2 threshold must be exactly "+
+					"upperBound/2: got %s, want %s",
+				threshold.String(), expected.String())
+		})
+	}
+}
