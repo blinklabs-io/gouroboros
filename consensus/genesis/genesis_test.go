@@ -17,6 +17,8 @@ package genesis
 import (
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // testGenesisConfig returns a GenesisConfig for testing with mainnet-like parameters.
@@ -47,33 +49,34 @@ func TestComputeGenesisWindow(t *testing.T) {
 func TestComputeGenesisWindowCeiling(t *testing.T) {
 	// k=2160, f=7/100: 3*2160*100/7 = 648000/7 = 92571.43... -> 92572.
 	window := ComputeGenesisWindow(2160, big.NewRat(7, 100))
-	if window != 92572 {
-		t.Errorf(
-			"expected ceiling(648000/7) = 92572, got %d",
-			window,
-		)
-	}
+	assert.Equal(
+		t, uint64(92572), window, "expected ceiling(648000/7) = 92572",
+	)
 
 	// Exact division is unaffected: k=10, f=1/2 -> 3*10*2 = 60.
 	window = ComputeGenesisWindow(10, big.NewRat(1, 2))
-	if window != 60 {
-		t.Errorf("expected 60, got %d", window)
-	}
+	assert.Equal(t, uint64(60), window, "expected exact division 60")
 }
 
 // TestComputeGenesisWindowDegenerateCoefficients pins the guard: nil, zero,
 // and negative active-slot coefficients all yield a zero window rather than
 // a garbage value.
 func TestComputeGenesisWindowDegenerateCoefficients(t *testing.T) {
-	if got := ComputeGenesisWindow(2160, nil); got != 0 {
-		t.Errorf("nil coefficient: expected 0, got %d", got)
-	}
-	if got := ComputeGenesisWindow(2160, big.NewRat(0, 1)); got != 0 {
-		t.Errorf("zero coefficient: expected 0, got %d", got)
-	}
-	if got := ComputeGenesisWindow(2160, big.NewRat(-1, 20)); got != 0 {
-		t.Errorf("negative coefficient: expected 0, got %d", got)
-	}
+	assert.Zero(
+		t,
+		ComputeGenesisWindow(2160, nil),
+		"nil coefficient: expected 0",
+	)
+	assert.Zero(
+		t,
+		ComputeGenesisWindow(2160, big.NewRat(0, 1)),
+		"zero coefficient: expected 0",
+	)
+	assert.Zero(
+		t,
+		ComputeGenesisWindow(2160, big.NewRat(-1, 20)),
+		"negative coefficient: expected 0",
+	)
 }
 
 // TestNewGenesisSelectorDerivedWindowCeiling pins the derived-window path
@@ -85,12 +88,10 @@ func TestNewGenesisSelectorDerivedWindowCeiling(t *testing.T) {
 		ActiveSlotCoeff: big.NewRat(7, 100),
 	})
 	// 3*2160*100/7 = 648000/7 = 92571.43... -> 92572.
-	if selector.config.GenesisWindow != 92572 {
-		t.Errorf(
-			"expected derived window 92572, got %d",
-			selector.config.GenesisWindow,
-		)
-	}
+	assert.Equal(
+		t, uint64(92572), selector.config.GenesisWindow,
+		"expected derived window 92572",
+	)
 }
 
 func TestGenesisConfig(t *testing.T) {
