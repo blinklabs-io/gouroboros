@@ -15,7 +15,12 @@
 package consensus
 
 import (
+	"math/big"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/consensus/genesis"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewPraosChainSelector(t *testing.T) {
@@ -57,9 +62,44 @@ func TestCompareEqualLengthVRFTiebreaker(t *testing.T) {
 	chainB := NewSimpleChainTip(1000, 100, highVRF)
 
 	result := selector.Compare(chainA, chainB)
-	if result <= 0 {
-		t.Error("chain with lower VRF output should be preferred")
-	}
+	assert.Positive(
+		t, result, "chain with lower VRF output should be preferred",
+	)
+
+	// Reverse direction: the higher-VRF chain must lose symmetrically.
+	result = selector.Compare(chainB, chainA)
+	assert.Negative(
+		t, result, "chain with higher VRF output should not be preferred",
+	)
+}
+
+// TestCompareEmptyVRFOutputs locks the missing-VRF branches of Compare:
+// a chain without a VRF output loses the tiebreak; two chains without VRF
+// outputs are equal. These branches sit on the density-tie fallthrough
+// path of CompareWithDensity, so they are load-bearing for Genesis
+// selection as well.
+func TestCompareEmptyVRFOutputs(t *testing.T) {
+	selector := NewPraosChainSelector(2160)
+
+	withVRF := NewSimpleChainTip(1000, 100, []byte{0x42})
+	noVRFa := NewSimpleChainTip(1000, 100, nil)
+	noVRFb := NewSimpleChainTip(1000, 100, []byte{})
+
+	assert.Negative(
+		t,
+		selector.Compare(noVRFa, withVRF),
+		"chain missing VRF output should lose the tiebreak",
+	)
+	assert.Positive(
+		t,
+		selector.Compare(withVRF, noVRFa),
+		"chain with VRF output should win over one without",
+	)
+	assert.Zero(
+		t,
+		selector.Compare(noVRFa, noVRFb),
+		"two chains without VRF outputs should be equal",
+	)
 }
 
 func TestCompareEqualChains(t *testing.T) {
@@ -175,107 +215,323 @@ func TestPreferredSingleCandidate(t *testing.T) {
 	}
 }
 
-func TestCompareWithDensity(t *testing.T) {
-	selector := NewPraosChainSelector(2160)
-
-	// Two chains with equal length but different density
+// TestCompareWithDensityIssue1936Regression is the regression test from
+// issue #1936: a LONGER deep fork with LOWER density within the genesis
+// window must lose to a shorter, denser chain. Before the fix,
+// CompareWithDensity ran the longest-chain comparison first, so the longer
+// sparse chain won and density was never consulted.
+func TestCompareWithDensityIssue1936Regression(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, 129600)
 	vrf := make([]byte, 64)
+	forkSlot := uint64(1000)
+	// Window covers slots 1001..130600.
 
-	// Chain A: 100 blocks in 200 slots (density = 0.5)
-	chainA := NewSimpleChainTipWithDensity(1200, 100, vrf, 100, 200)
+	// Honest shape: shorter overall (block 1400), 4 blocks in the window.
+	shorterDense := NewSimpleChainTipWithBlockSlots(
+		9000, 1400, vrf, []uint64{1010, 1020, 1030, 1040},
+	)
+	// Adversarial shape: longer overall (block 1500), 1 block in the
+	// window, the rest far beyond it.
+	longerSparse := NewSimpleChainTipWithBlockSlots(
+		201000, 1500, vrf, []uint64{1100, 150000, 180000, 200500},
+	)
 
-	// Chain B: 100 blocks in 500 slots (density = 0.2)
-	chainB := NewSimpleChainTipWithDensity(1500, 100, vrf, 100, 500)
-
-	// With standard Compare, they're equal (same block number, same VRF)
-	result := selector.Compare(chainA, chainB)
-	if result != 0 {
-		t.Error("standard compare should show equal chains")
-	}
-
-	// With density comparison, chain A should be preferred (higher density)
-	result = selector.CompareWithDensity(chainA, chainB, 1000)
-	if result <= 0 {
-		t.Error("chain with higher density should be preferred")
-	}
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(shorterDense, longerSparse, forkSlot),
+		"denser chain must win the deep-fork comparison",
+	)
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(longerSparse, shorterDense, forkSlot),
+		"sparser chain must lose the deep-fork comparison",
+	)
 }
 
-func TestIsDeepFork(t *testing.T) {
-	selector := NewPraosChainSelector(2160) // k = 2160
+// TestCompareWithDensityWindowBoundary pins the exact window contract:
+// blocks at slots forkSlot+1 .. forkSlot+windowSlots inclusive count,
+// matching ouroboros-consensus densityDisconnect, which clips the candidate
+// suffix at firstSlotAfterGenesisWindow = succ(intersection) + sgen (i.e.
+// keeps slots <= intersection + sgen).
+func TestCompareWithDensityWindowBoundary(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, 100)
+	vrf := make([]byte, 64)
+	forkSlot := uint64(1000)
+	// Window covers slots 1001..1100.
 
-	// Fork at slot 1000, current slot 2000 - not deep (1000 slots)
-	if selector.IsDeepFork(1000, 2000) {
-		t.Error("fork 1000 slots ago should not be deep (k=2160)")
-	}
+	inWindow := NewSimpleChainTipWithBlockSlots(
+		1100, 10, vrf, []uint64{1100}, // last slot inside the window
+	)
+	pastWindow := NewSimpleChainTipWithBlockSlots(
+		1101, 10, vrf, []uint64{1101}, // first slot past the window
+	)
 
-	// Fork at slot 1000, current slot 5000 - deep (4000 slots)
-	if !selector.IsDeepFork(1000, 5000) {
-		t.Error("fork 4000 slots ago should be deep (k=2160)")
-	}
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(inWindow, pastWindow, forkSlot),
+		"block at forkSlot+window must count toward density",
+	)
 
-	// Fork at slot 1000, current slot 3161 - exactly at boundary (2161 slots)
-	if !selector.IsDeepFork(1000, 3161) {
-		t.Error("fork 2161 slots ago should be deep (k=2160)")
-	}
+	atForkSlot := NewSimpleChainTipWithBlockSlots(
+		1000, 10, vrf, []uint64{1000}, // the intersection itself
+	)
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(inWindow, atForkSlot, forkSlot),
+		"block at the fork slot itself must not count",
+	)
+}
 
-	// Fork at slot 1000, current slot 3160 - just under boundary (2160 slots)
-	if selector.IsDeepFork(1000, 3160) {
-		t.Error("fork exactly 2160 slots ago should not be deep")
-	}
+// TestCompareWithDensityEqualFallsThroughToCompare pins the tie rule:
+// equal within-window density falls through to the ordinary Praos
+// comparison (the ordering-context adaptation of GDD's tie handling, as the
+// Dingo node also does for fork resolution).
+func TestCompareWithDensityEqualFallsThroughToCompare(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, 100)
+	vrf := make([]byte, 64)
+	forkSlot := uint64(1000)
 
-	// Edge case: current slot before fork slot
-	if selector.IsDeepFork(2000, 1000) {
-		t.Error("fork in future should not be deep")
-	}
+	longer := NewSimpleChainTipWithBlockSlots(
+		5000, 200, vrf, []uint64{1010, 1020},
+	)
+	shorter := NewSimpleChainTipWithBlockSlots(
+		4000, 100, vrf, []uint64{1030, 1040},
+	)
+
+	// Equal density (2 blocks each in window) -> ordinary rule -> longer
+	// chain preferred, in both argument orders.
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(longer, shorter, forkSlot),
+		"equal density must fall through to Compare (longer wins)",
+	)
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(shorter, longer, forkSlot),
+		"equal density must fall through to Compare (shorter loses)",
+	)
+}
+
+// TestCompareWithDensityEqualDensityEqualLengthVRFDecides locks the FULL
+// fallthrough chain end-to-end: equal within-window density, equal block
+// number, so the decision reaches Compare's VRF tiebreak.
+func TestCompareWithDensityEqualDensityEqualLengthVRFDecides(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, 100)
+	forkSlot := uint64(1000)
+
+	lowVRF := make([]byte, 64)
+	lowVRF[63] = 0x01
+	highVRF := make([]byte, 64)
+	highVRF[0] = 0xFF
+
+	a := NewSimpleChainTipWithBlockSlots(
+		2000, 100, lowVRF, []uint64{1010, 1020},
+	)
+	b := NewSimpleChainTipWithBlockSlots(
+		2000, 100, highVRF, []uint64{1030, 1040},
+	)
+
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(a, b, forkSlot),
+		"density and length tied: lower VRF must win via Compare",
+	)
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(b, a, forkSlot),
+		"density and length tied: higher VRF must lose via Compare",
+	)
+}
+
+// TestCompareWithDensityZeroWindowFallsBack documents the misconfiguration
+// path: a selector without a genesis window cannot apply the density rule
+// and falls back to the ordinary comparison (loudly, via slog).
+func TestCompareWithDensityZeroWindowFallsBack(t *testing.T) {
+	selector := NewPraosChainSelector(2160) // no window configured
+	vrf := make([]byte, 64)
+
+	shorterDense := NewSimpleChainTipWithBlockSlots(
+		9000, 100, vrf, []uint64{1010, 1020, 1030},
+	)
+	longerSparse := NewSimpleChainTipWithBlockSlots(
+		201000, 200, vrf, []uint64{150000},
+	)
+
+	// Without a window the ordinary rule governs: longer chain wins, in
+	// both argument orders.
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(longerSparse, shorterDense, 1000),
+		"zero window must fall back to ordinary comparison",
+	)
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(shorterDense, longerSparse, 1000),
+		"zero window fallback must be symmetric",
+	)
+}
+
+// TestCompareWithDensityNilChains mirrors the nil handling of Compare.
+func TestCompareWithDensityNilChains(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, 100)
+	vrf := make([]byte, 64)
+	chain := NewSimpleChainTipWithBlockSlots(1100, 10, vrf, []uint64{1050})
+
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(nil, chain, 1000),
+		"valid chain should be preferred over nil",
+	)
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(chain, nil, 1000),
+		"valid chain should be preferred over nil",
+	)
+	assert.Zero(
+		t,
+		selector.CompareWithDensity(nil, nil, 1000),
+		"nil vs nil should be equal",
+	)
+}
+
+// TestGenesisWindowMainnetCrossCheck ties the selector's window to the
+// shared derivation: 3k/f (cardano-ledger computeStabilityWindow, used by
+// ouroboros-consensus as the Shelley-era genesis window) = 129600 slots on
+// mainnet (k=2160, f=1/20).
+func TestGenesisWindowMainnetCrossCheck(t *testing.T) {
+	window := genesis.ComputeGenesisWindow(2160, big.NewRat(1, 20))
+	require.Equal(
+		t, uint64(129600), window,
+		"expected mainnet genesis window 129600",
+	)
+	selector := NewPraosChainSelectorWithWindow(2160, window)
+	assert.Equal(
+		t, uint64(129600), selector.GenesisWindowSlots,
+		"expected selector window 129600",
+	)
+}
+
+// TestExceedsMaxRollback pins the corrected unit and boundary: k bounds
+// rollback depth in BLOCKS (ouroboros-consensus SecurityParam: "the number
+// of /blocks/ we can roll back, not the number of /slots/"). A rollback of
+// exactly k blocks is permitted; k+1 is not ("we never switch to chains
+// that fork off more than k blocks ago").
+func TestExceedsMaxRollback(t *testing.T) {
+	selector := NewPraosChainSelector(2160) // k = 2160 blocks
+
+	// Fork point 1000 blocks behind the tip - well within k.
+	assert.False(
+		t,
+		selector.ExceedsMaxRollback(4000, 5000),
+		"rollback of 1000 blocks should be within k=2160",
+	)
+
+	// Rollback of exactly k blocks - still permitted.
+	assert.False(
+		t,
+		selector.ExceedsMaxRollback(1000, 3160),
+		"rollback of exactly k=2160 blocks should be permitted",
+	)
+
+	// Rollback of k+1 blocks - exceeds, not adoptable.
+	assert.True(
+		t,
+		selector.ExceedsMaxRollback(1000, 3161),
+		"rollback of 2161 blocks should exceed k=2160",
+	)
+
+	// Far beyond k.
+	assert.True(
+		t,
+		selector.ExceedsMaxRollback(1000, 100000),
+		"rollback of 99000 blocks should exceed k=2160",
+	)
+
+	// Edge case: fork point ahead of the tip (no rollback at all).
+	assert.False(
+		t,
+		selector.ExceedsMaxRollback(2000, 1000),
+		"fork point ahead of tip requires no rollback",
+	)
 }
 
 func TestPreferredWithDensity(t *testing.T) {
-	selector := NewPraosChainSelector(2160)
-
+	selector := NewPraosChainSelectorWithWindow(2160, 100)
 	vrf := make([]byte, 64)
+	forkSlot := uint64(1000)
+	// Window covers slots 1001..1100.
 
+	// The densest candidate (3 blocks in window) is also the SHORTEST -
+	// density must still win.
+	densest := NewSimpleChainTipWithBlockSlots(
+		1090, 50, vrf, []uint64{1010, 1050, 1090},
+	)
 	candidates := []ChainTip{
-		NewSimpleChainTipWithDensity(1500, 100, vrf, 100, 500), // density 0.2
-		NewSimpleChainTipWithDensity(
-			1200,
-			100,
-			vrf,
-			100,
-			200,
-		), // density 0.5 (preferred)
-		NewSimpleChainTipWithDensity(1300, 100, vrf, 100, 300), // density 0.33
+		NewSimpleChainTipWithBlockSlots(
+			5000, 500, vrf, []uint64{1020},
+		), // 1 in window, longest
+		densest,
+		NewSimpleChainTipWithBlockSlots(
+			3000, 300, vrf, []uint64{1030, 1060},
+		), // 2 in window
 	}
 
-	preferred := selector.PreferredWithDensity(candidates, 1000)
-	if preferred == nil {
-		t.Fatal("expected non-nil preferred chain")
-	}
+	preferred := selector.PreferredWithDensity(candidates, forkSlot)
+	require.NotNil(t, preferred, "expected non-nil preferred chain")
+	assert.Same(
+		t, densest, preferred,
+		"expected densest candidate preferred despite being shortest",
+	)
 
-	// The one with density 0.5 should be preferred
-	if preferred.Density(1000) != 0.5 {
-		t.Errorf("expected density 0.5, got %f", preferred.Density(1000))
-	}
+	// Empty candidate set returns nil.
+	assert.Nil(
+		t,
+		selector.PreferredWithDensity(nil, forkSlot),
+		"expected nil for empty candidates",
+	)
+
+	// Full tie (same density, length, VRF): the FIRST candidate is kept,
+	// mirroring Preferred's stick-with-incumbent behavior.
+	first := NewSimpleChainTipWithBlockSlots(
+		2000, 100, vrf, []uint64{1010},
+	)
+	second := NewSimpleChainTipWithBlockSlots(
+		2000, 100, vrf, []uint64{1020},
+	)
+	tied := selector.PreferredWithDensity(
+		[]ChainTip{first, second}, forkSlot,
+	)
+	assert.Same(t, first, tied, "full tie must keep the first candidate")
 }
 
-func TestSimpleChainTipDensityCalculation(t *testing.T) {
+// TestSimpleChainTipBlocksInWindow pins the exact counting contract of the
+// test helper: slots forkSlot+1 .. forkSlot+windowSlots inclusive.
+func TestSimpleChainTipBlocksInWindow(t *testing.T) {
 	vrf := make([]byte, 64)
+	tip := NewSimpleChainTipWithBlockSlots(
+		2000, 100, vrf,
+		[]uint64{1000, 1001, 1050, 1100, 1101, 2000},
+	)
 
-	// Pre-computed density
-	tip := NewSimpleChainTipWithDensity(2000, 100, vrf, 50, 100)
-	density := tip.Density(1900) // forkSlot doesn't matter when pre-computed
-	if density != 0.5 {
-		t.Errorf("expected density 0.5, got %f", density)
-	}
+	// forkSlot=1000, window=100 -> slots 1001..1100 -> 1001, 1050, 1100.
+	assert.Equal(
+		t, uint64(3), tip.BlocksInWindow(1000, 100),
+		"expected 3 blocks in window",
+	)
 
-	// Without pre-computed values, density returns 0
-	tip2 := NewSimpleChainTip(1000, 100, vrf)
-	density2 := tip2.Density(500)
-	if density2 != 0 {
-		t.Errorf(
-			"expected density 0 without pre-computed values, got %f",
-			density2,
-		)
-	}
+	// Slot equal to forkSlot is excluded; slot forkSlot+window included.
+	assert.Equal(
+		t, uint64(4), tip.BlocksInWindow(1000, 101),
+		"expected 4 blocks with window 101",
+	)
+
+	// A tip without block slots counts zero.
+	empty := NewSimpleChainTip(1000, 100, vrf)
+	assert.Zero(
+		t,
+		empty.BlocksInWindow(500, 1000),
+		"expected 0 blocks without block slots",
+	)
 }
 
 func TestChainSelectionWithMainnetParams(t *testing.T) {
