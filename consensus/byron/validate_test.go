@@ -1163,73 +1163,13 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 	}
 }
 
-// TestValidateBodyHashWithSscState_RealMainnetBlock exercises
-// ValidateBodyHashWithSscState against the real, unmodified mainnet
-// fixture. Accumulating the block's own (empty) CertificatesPayload must
-// succeed -- that's the wire-shape regression this type shipped with
-// initially (see byron.ByronEpochSscState's package tests) -- and this
-// package's canonical hash of the resulting (empty) state, the CBOR
-// encoding of an empty map (0xa0), reproduces the real header's ssc_proof
-// hash for this block exactly, so the overall call succeeds too. (An
-// earlier version of this package computed the canonical hash over a
-// tag-258 set encoding instead of a genuine CBOR map, which did not match
-// the real header hash even for this trivial empty case -- see
-// byron.ByronEpochSscState's NOTE for the map-vs-set distinction this
-// fixture caught.) Non-empty ssc_proof parity with cardano-ledger's real
-// mainnet encoding remains otherwise unconfirmed, since no such fixture is
-// available.
-func TestValidateBodyHashWithSscState_RealMainnetBlock(t *testing.T) {
-	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
-	require.NoError(t, err)
-
-	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
-	require.NoError(t, err)
-
-	// This file's own pipeline, run alone, passes: tx/dlg/upd are unaffected.
-	require.NoError(t, ValidateBodyHash(block))
-
-	sscState := byron.NewByronEpochSscState()
-	require.NoError(t, sscState.AccumulateBlock(block))
-
-	assert.NoError(t, ValidateBodyHashWithSscState(block, sscState))
-}
-
-// TestValidateBodyHashWithSscState_NilBlock confirms the nil-block error
-// path returns the same *common.ValidationError type as every other
-// exported function in this file.
-func TestValidateBodyHashWithSscState_NilBlock(t *testing.T) {
-	err := ValidateBodyHashWithSscState(nil, byron.NewByronEpochSscState())
-	require.Error(t, err)
-	var valErr *common.ValidationError
-	require.ErrorAs(t, err, &valErr)
-}
-
-// TestValidateBodyHashWithSscState_MissingState confirms an ssc_proof
-// mismatch (here, from a nil state) surfaces as a *common.ValidationError,
-// consistent with every other exported function in this file, rather than
-// a bare ledger/byron error that callers type-asserting
-// *common.ValidationError would silently miss.
-func TestValidateBodyHashWithSscState_MissingState(t *testing.T) {
-	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
-	require.NoError(t, err)
-
-	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
-	require.NoError(t, err)
-
-	err = ValidateBodyHashWithSscState(block, nil)
-	require.Error(t, err)
-	var valErr *common.ValidationError
-	require.ErrorAs(t, err, &valErr)
-	require.NotNil(t, valErr)
-	assert.Equal(t, common.ValidationErrorTypeBodyHash, valErr.Type)
-}
-
 // withRealSscProof returns a copy of the real mainnet fixture's CBOR with
 // its header ssc_proof (body-proof element 1) replaced, preserving the
 // unmodified (empty) SSC payload and every other component -- including
 // the transaction, delegation, and update proofs -- byte for byte. This
-// exercises ValidateBodyHashWithSscState's success path with a real
-// accumulated state, without needing to fabricate a whole valid block.
+// exercises ValidateBodyHash's ssc_proof success path with a synthetic
+// (but locally consistent) proof value, without needing to fabricate a
+// whole valid block.
 func withRealSscProof(t *testing.T, sscProof []byte) []byte {
 	t.Helper()
 	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
@@ -1264,14 +1204,14 @@ func withRealSscProof(t *testing.T, sscProof []byte) []byte {
 	return tampered
 }
 
-// TestValidateBodyHashWithSscState_Success confirms the success path: when
-// the header's ssc_proof actually matches this package's canonical hash of
-// the accumulated state, ValidateBodyHashWithSscState returns nil. This
-// isolates ValidateBodyHashWithSscState's own forwarding/wrapping logic
-// from the (separately documented, and separately tested in
-// ledger/byron) question of whether that canonical hash matches
-// cardano-ledger's real mainnet encoding.
-func TestValidateBodyHashWithSscState_Success(t *testing.T) {
+// TestValidateBodyHash_SscProofSuccess confirms ValidateBodyHash's ssc_proof
+// success path: when the header's ssc_proof actually matches
+// byron.ByronEpochSscState's canonical hash of the block's own (empty)
+// CertificatesPayload, ValidateBodyHash returns nil. This isolates
+// ValidateBodyHash's own ssc_proof check from the (separately documented,
+// and separately tested in ledger/byron) question of whether that
+// canonical hash matches cardano-ledger's real mainnet encoding.
+func TestValidateBodyHash_SscProofSuccess(t *testing.T) {
 	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
 	require.NoError(t, err)
 	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
@@ -1290,9 +1230,7 @@ func TestValidateBodyHashWithSscState_Success(t *testing.T) {
 	patchedBlock, err := byron.NewByronMainBlockFromCbor(patchedBytes)
 	require.NoError(t, err)
 
-	freshState := byron.NewByronEpochSscState()
-	require.NoError(t, freshState.AccumulateBlock(patchedBlock))
-	assert.NoError(t, ValidateBodyHashWithSscState(patchedBlock, freshState))
+	assert.NoError(t, ValidateBodyHash(patchedBlock))
 }
 
 // Test genesis config similar to mainnet for NewByronConfigFromGenesis test

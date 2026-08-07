@@ -76,11 +76,14 @@ func sscCommEntry(pubkey []byte, tag string) []any {
 	return []any{pubkey, tag + "-shares", tag + "-sig"}
 }
 
-// sscCertEntry builds an ssccert entry: [vsspubkey, pubkey, epochid,
-// signature]. Only the pubkey field (index 1) is ever interpreted by
-// decodeIdentitySet.
+// sscCertEntry builds an ssccert entry: [vsspubkey, epochid, signature,
+// pubkey]. Only the pubkey field (index 3) is ever interpreted by
+// decodeIdentitySet -- see certificatePubkeyFieldIndex's doc comment for
+// why this field order, confirmed against real mainnet data, differs from
+// cardano-ledger's own published (but apparently incorrect, for this one
+// field) Byron CDDL comment.
 func sscCertEntry(pubkey []byte, tag string) []any {
-	return []any{tag + "-vsspubkey", pubkey, uint64(0), tag + "-sig"}
+	return []any{tag + "-vsspubkey", uint64(0), tag + "-sig", pubkey}
 }
 
 // toStakeholderCborMap builds a real CBOR map keyed by 28-byte IDs, matching
@@ -171,10 +174,11 @@ func withSscPayloadAndProof(
 
 // decodeWithSscPayload decodes a mainnet Byron main block after replacing
 // its SSC payload and ssc_proof with the given raw bytes. It uses a
-// placeholder ssc_proof to get past decode-time structural validation
-// (which never inspects that entry -- see ValidateBodyProof's NOTE), so
-// callers that need a specific header proof value must patch it in
-// afterwards with withSscPayloadAndProof.
+// placeholder ssc_proof, and so decodes with decode-time body-proof
+// validation (which now fully validates ssc_proof -- see
+// ValidateBodyProof's doc comment) explicitly disabled, so callers that
+// need a specific header proof value can patch it in afterwards with
+// withSscPayloadAndProof and decode again with validation enabled.
 func decodeWithSscPayload(
 	t *testing.T,
 	sscPayload []byte,
@@ -184,7 +188,9 @@ func decodeWithSscPayload(
 	tampered := withSscPayloadAndProof(
 		t, mainnetByronBlock(t), sscPayload, placeholderProof,
 	)
-	block, err := byron.NewByronMainBlockFromCbor(tampered)
+	block, err := byron.NewByronMainBlockFromCbor(
+		tampered, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	require.NoError(t, err)
 	return block
 }
@@ -207,131 +213,105 @@ func TestByronEpochSscStateAccumulatesRealMainnetBlock(t *testing.T) {
 	assert.Empty(t, sscState.Shares)
 }
 
-// TestByronEpochSscStateValidatesAccumulatedProof builds a small two-block
-// mock epoch: an earlier block contributing stakeholder A's commitment and
-// VSS certificate, and a later block additionally contributing stakeholder
-// B's. The later block's ssc_proof is computed over the state accumulated
-// through both blocks, matching how a real ssc_proof depends on the whole
-// epoch rather than a single block.
-func TestByronEpochSscStateValidatesAccumulatedProof(t *testing.T) {
+// TestByronEpochSscStateValidatesBlockLocalProof builds a single block's
+// CommitmentsPayload contributed by two distinct stakeholders and confirms
+// its ssc_proof, computed entirely from that block's own payload (see
+// checkSscProofLocal's doc comment), validates via the block-local
+// ValidateBodyProof. ByronEpochSscState is used here only to compute the
+// expected VSS certificates hash for the synthetic proof this test builds
+// -- it is not consulted by ValidateBodyProof itself (see
+// ByronEpochSscState's doc comment).
+func TestByronEpochSscStateValidatesBlockLocalProof(t *testing.T) {
 	pubkeyA := sscPubkey(0xaa)
 	pubkeyB := sscPubkey(0xbb)
 
-	prevPayload := encodeSscCommitmentsPayload(
+	comms := mustEncodeSet(
 		t,
-		mustEncodeSet(t, sscCommEntry(pubkeyA, "commitment-a")),
-		mustEncodeSet(t, sscCertEntry(pubkeyA, "cert-a")),
+		sscCommEntry(pubkeyA, "commitment-a"),
+		sscCommEntry(pubkeyB, "commitment-b"),
 	)
-	currPayload := encodeSscCommitmentsPayload(
+	certs := mustEncodeSet(
 		t,
-		mustEncodeSet(t, sscCommEntry(pubkeyB, "commitment-b")),
-		mustEncodeSet(t, sscCertEntry(pubkeyB, "cert-b")),
+		sscCertEntry(pubkeyA, "cert-a"),
+		sscCertEntry(pubkeyB, "cert-b"),
 	)
+	payload := encodeSscCommitmentsPayload(t, comms, certs)
 
-	prevBlock := decodeWithSscPayload(t, prevPayload)
-	currBlockPlaceholder := decodeWithSscPayload(t, currPayload)
-
-	// Accumulate both blocks of the mock epoch, in order, to learn the
-	// hashes the later block's real ssc_proof must carry.
-	expectedState := byron.NewByronEpochSscState()
-	require.NoError(t, expectedState.AccumulateBlock(prevBlock))
-	require.NoError(t, expectedState.AccumulateBlock(currBlockPlaceholder))
+	certState := byron.NewByronEpochSscState()
+	require.NoError(
+		t,
+		certState.AccumulateBlock(decodeWithSscPayload(t, payload)),
+	)
+	require.Len(t, certState.VssCertificates, 2)
 
 	realProof, err := cbor.Encode([]any{
 		uint64(byron.SscTypeCommitments),
-		expectedState.CommitmentsHash().Bytes(),
-		expectedState.CertificatesHash().Bytes(),
+		common.Blake2b256Hash(comms).Bytes(),
+		certState.CertificatesHash().Bytes(),
 	})
 	require.NoError(t, err)
 
-	currBlockCbor := withSscPayloadAndProof(
-		t, mainnetByronBlock(t), currPayload, realProof,
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, realProof,
 	)
-	currBlock, err := byron.NewByronMainBlockFromCbor(currBlockCbor)
+	block, err := byron.NewByronMainBlockFromCbor(blockCbor)
 	require.NoError(t, err)
 
-	// A fresh accumulation, folding the same two blocks in order, must
-	// validate the later block's ssc_proof.
-	sscState := byron.NewByronEpochSscState()
-	require.NoError(t, sscState.AccumulateBlock(prevBlock))
-	require.NoError(t, sscState.AccumulateBlock(currBlock))
-	assert.NoError(t, currBlock.ValidateBodyProofWithSscState(sscState))
-
-	// The block-local structural validator alone must still pass: it never
-	// looks at ssc_proof's hashes.
-	assert.NoError(t, currBlock.ValidateBodyProof())
+	assert.NoError(t, block.ValidateBodyProof())
 }
 
-// TestByronEpochSscStateRejectsTamperedEarlierCommitment demonstrates the
-// epoch-wide dependency the issue describes: tampering with an *earlier*
-// block's contribution is only detectable by a *later* block's ssc_proof,
-// because that proof is computed over state accumulated across the epoch,
-// not over the later block's own payload alone.
-func TestByronEpochSscStateRejectsTamperedEarlierCommitment(t *testing.T) {
-	pubkeyA := sscPubkey(0xaa)
+// TestByronEpochSscStateTamperingIsBlockLocal demonstrates that a real
+// ssc_proof binds only to its own block's payload: tampering a *different*
+// block's commitment has no way to reach this block's own proof at all --
+// ValidateBodyProof takes no cross-block state as input in the first place
+// -- while tampering *this* block's own commitment is still detected. This
+// contrasts with the epoch-wide accumulation this package originally
+// assumed ssc_proof required; see checkSscProofLocal's doc comment for the
+// real mainnet vectors that disproved it.
+func TestByronEpochSscStateTamperingIsBlockLocal(t *testing.T) {
 	pubkeyB := sscPubkey(0xbb)
 
-	prevPayload := encodeSscCommitmentsPayload(
-		t,
-		mustEncodeSet(t, sscCommEntry(pubkeyA, "commitment-a")),
-		mustEncodeSet(t, sscCertEntry(pubkeyA, "cert-a")),
-	)
-	currPayload := encodeSscCommitmentsPayload(
-		t,
-		mustEncodeSet(t, sscCommEntry(pubkeyB, "commitment-b")),
-		mustEncodeSet(t, sscCertEntry(pubkeyB, "cert-b")),
-	)
+	comms := mustEncodeSet(t, sscCommEntry(pubkeyB, "commitment-b"))
+	certs := mustEncodeSet(t, sscCertEntry(pubkeyB, "cert-b"))
+	payload := encodeSscCommitmentsPayload(t, comms, certs)
 
-	prevBlock := decodeWithSscPayload(t, prevPayload)
-	currBlockPlaceholder := decodeWithSscPayload(t, currPayload)
-
-	expectedState := byron.NewByronEpochSscState()
-	require.NoError(t, expectedState.AccumulateBlock(prevBlock))
-	require.NoError(t, expectedState.AccumulateBlock(currBlockPlaceholder))
+	certState := byron.NewByronEpochSscState()
+	require.NoError(
+		t,
+		certState.AccumulateBlock(decodeWithSscPayload(t, payload)),
+	)
 
 	realProof, err := cbor.Encode([]any{
 		uint64(byron.SscTypeCommitments),
-		expectedState.CommitmentsHash().Bytes(),
-		expectedState.CertificatesHash().Bytes(),
+		common.Blake2b256Hash(comms).Bytes(),
+		certState.CertificatesHash().Bytes(),
 	})
 	require.NoError(t, err)
 
-	currBlockCbor := withSscPayloadAndProof(
-		t, mainnetByronBlock(t), currPayload, realProof,
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, realProof,
 	)
-	currBlock, err := byron.NewByronMainBlockFromCbor(currBlockCbor)
+	block, err := byron.NewByronMainBlockFromCbor(blockCbor)
 	require.NoError(t, err)
+	require.NoError(t, block.ValidateBodyProof())
 
-	// Rebuild the earlier block with a different commitment for the same
-	// contributor -- a substitution confined entirely to a block earlier in
-	// the epoch than the one we are about to validate.
-	tamperedPrevPayload := encodeSscCommitmentsPayload(
+	// Tampering *this* block's own commitment is detected: rebuild the same
+	// block with an altered commitment entry but the same (now stale) real
+	// proof.
+	tamperedPayload := encodeSscCommitmentsPayload(
 		t,
-		mustEncodeSet(t, sscCommEntry(pubkeyA, "commitment-a-tampered")),
-		mustEncodeSet(t, sscCertEntry(pubkeyA, "cert-a")),
+		mustEncodeSet(t, sscCommEntry(pubkeyB, "commitment-b-tampered")),
+		certs,
 	)
-	tamperedPrevBlock := decodeWithSscPayload(t, tamperedPrevPayload)
-
-	sscState := byron.NewByronEpochSscState()
-	require.NoError(t, sscState.AccumulateBlock(tamperedPrevBlock))
-	require.NoError(t, sscState.AccumulateBlock(currBlock))
-
-	err = currBlock.ValidateBodyProofWithSscState(sscState)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
-
-	// The block-local structural validator cannot see this: the tampering
-	// is entirely in a different, earlier block.
-	assert.NoError(t, currBlock.ValidateBodyProof())
-}
-
-// TestByronEpochSscStateRequiresState confirms the stateful validator
-// refuses to silently skip the ssc_proof check when no state is supplied.
-func TestByronEpochSscStateRequiresState(t *testing.T) {
-	block, err := byron.NewByronMainBlockFromCbor(mainnetByronBlock(t))
+	tamperedBlockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), tamperedPayload, realProof,
+	)
+	tamperedBlock, err := byron.NewByronMainBlockFromCbor(
+		tamperedBlockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	require.NoError(t, err)
 
-	err = block.ValidateBodyProofWithSscState(nil)
+	err = tamperedBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -355,13 +335,8 @@ func TestByronEpochSscStateCertificatesOnly(t *testing.T) {
 	require.NoError(t, sscState.AccumulateBlock(block))
 	// The accumulator key is derived internally from the pubkey (see
 	// stakeholderIDFromPubkeyCbor); this test doesn't assume any particular
-	// derivation, only that accumulating one entry produces exactly one
-	// key, which is what gets tampered with below.
+	// derivation, only that accumulating one entry produces exactly one key.
 	require.Len(t, sscState.VssCertificates, 1)
-	var certKey common.Blake2b224
-	for k := range sscState.VssCertificates {
-		certKey = k
-	}
 
 	realProof, err := cbor.Encode([]any{
 		uint64(byron.SscTypeCertificates),
@@ -375,15 +350,54 @@ func TestByronEpochSscStateCertificatesOnly(t *testing.T) {
 	realBlock, err := byron.NewByronMainBlockFromCbor(blockCbor)
 	require.NoError(t, err)
 
-	freshState := byron.NewByronEpochSscState()
-	require.NoError(t, freshState.AccumulateBlock(realBlock))
-	assert.NoError(t, realBlock.ValidateBodyProofWithSscState(freshState))
+	assert.NoError(t, realBlock.ValidateBodyProof())
 
-	// Tamper the accumulated certificate directly and confirm detection.
-	freshState.VssCertificates[certKey] = []byte(
-		mustEncode(t, "cert-c-tampered"),
+	// Tampering this block's own certificate entry, keeping the same (now
+	// stale) real proof, is detected.
+	tamperedPayload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		mustEncodeSet(t, sscCertEntry(pubkey, "cert-c-tampered")),
+	})
+	require.NoError(t, err)
+	tamperedBlockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), tamperedPayload, realProof,
 	)
-	err = realBlock.ValidateBodyProofWithSscState(freshState)
+	tamperedBlock, err := byron.NewByronMainBlockFromCbor(
+		tamperedBlockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = tamperedBlock.ValidateBodyProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
+	// Tampering specifically the certificate's pubkey field (index 3 --
+	// see certificatePubkeyFieldIndex's doc comment for why this field
+	// order, not the CDDL comment's, is the real one) is also detected.
+	// This is a regression check for the bug this package originally
+	// shipped with: using field index 1 (matching the incorrect published
+	// CDDL comment) instead of index 3 caused decodeIdentitySet to reject
+	// every real, non-empty ssccert entry outright, so a test that only
+	// tampers other fields could pass even with that bug present.
+	tamperedPubkeyEntry := []any{
+		"cert-c-vsspubkey", uint64(0), "cert-c-sig",
+		sscPubkey(0xcc + 1),
+	}
+	tamperedPubkeyPayload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		mustEncodeSet(t, tamperedPubkeyEntry),
+	})
+	require.NoError(t, err)
+	tamperedPubkeyBlockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), tamperedPubkeyPayload, realProof,
+	)
+	tamperedPubkeyBlock, err := byron.NewByronMainBlockFromCbor(
+		tamperedPubkeyBlockCbor,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = tamperedPubkeyBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -480,10 +494,12 @@ func TestByronEpochSscStateCertificatesProofRejectsMalformedLength(
 	blockCbor := withSscPayloadAndProof(
 		t, mainnetByronBlock(t), payload, malformedProof,
 	)
-	malformedBlock, err := byron.NewByronMainBlockFromCbor(blockCbor)
+	malformedBlock, err := byron.NewByronMainBlockFromCbor(
+		blockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	require.NoError(t, err)
 
-	err = malformedBlock.ValidateBodyProofWithSscState(sscState)
+	err = malformedBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
@@ -518,11 +534,11 @@ func TestByronEpochSscStateRejectsMalformedPubkeyField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// A malformed ssccert entry: [vsspubkey, pubkey, epochid,
-			// signature], with the pubkey field (index 1) encoded as a
+			// A malformed ssccert entry: [vsspubkey, epochid, signature,
+			// pubkey], with the pubkey field (index 3) encoded as a
 			// CBOR array instead of a byte string.
 			malformedEntry := []any{
-				"vsspubkey", tt.malformedFits, uint64(0), "sig",
+				"vsspubkey", uint64(0), "sig", tt.malformedFits,
 			}
 
 			payload, err := cbor.Encode([]any{
@@ -550,11 +566,11 @@ func TestByronEpochSscStateRejectsMalformedPubkeyField(t *testing.T) {
 // string passes the major-type check there (it genuinely is major type 2),
 // so it needs its own, explicit length check after decoding.
 func TestByronEpochSscStateRejectsEmptyPubkeyField(t *testing.T) {
-	// A malformed ssccert entry: [vsspubkey, pubkey, epochid, signature],
-	// with the pubkey field (index 1) encoded as an empty CBOR byte
+	// A malformed ssccert entry: [vsspubkey, epochid, signature, pubkey],
+	// with the pubkey field (index 3) encoded as an empty CBOR byte
 	// string ([]byte{} encodes to the wire bytes 0x40).
 	malformedEntry := []any{
-		"vsspubkey", []byte{}, uint64(0), "sig",
+		"vsspubkey", uint64(0), "sig", []byte{},
 	}
 
 	payload, err := cbor.Encode([]any{
@@ -604,10 +620,12 @@ func TestByronEpochSscStateRejectsProofPayloadTypeMismatch(t *testing.T) {
 	blockCbor := withSscPayloadAndProof(
 		t, mainnetByronBlock(t), payload, mismatchedProof,
 	)
-	mismatchedBlock, err := byron.NewByronMainBlockFromCbor(blockCbor)
+	mismatchedBlock, err := byron.NewByronMainBlockFromCbor(
+		blockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
 	require.NoError(t, err)
 
-	err = mismatchedBlock.ValidateBodyProofWithSscState(sscState)
+	err = mismatchedBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }

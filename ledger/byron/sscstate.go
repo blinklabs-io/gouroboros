@@ -33,39 +33,71 @@ const (
 	SscTypeCertificates = 3 // CertificatesPayload: VSS certificates only
 )
 
-// Field index of the signer's public key within each wire-level SSC entry,
-// per the CDDL below. Both entry shapes carry the signer's raw public key
-// rather than a pre-hashed stakeholder ID, so this package derives the
+// Field index of the signer's public key within each wire-level SSC entry.
+// Both entry shapes carry the signer's raw public key rather than a
+// pre-hashed stakeholder ID, so this package derives the certificate
 // accumulator's map key itself (see decodeIdentitySet).
+//
+// certificatePubkeyFieldIndex is 3, not 1: cardano-ledger's own published
+// Byron CDDL (eras/byron/ledger/impl/cddl-spec/byron.cddl in
+// input-output-hk/cardano-ledger) states
+// "ssccert = [vsspubkey, pubkey, epochid, signature]", putting pubkey at
+// index 1. Real, non-empty mainnet ssccert entries (fetched directly off
+// mainnet -- see sscstate_real_test.go) instead have a plain small uint
+// (the shared expiry epoch) at index 1, a 64-byte signature at index 2, and
+// the actual 64-byte extended signing key at index 3 -- i.e. the real wire
+// order is [vsspubkey, epochid, signature, pubkey], matching cardano-sl's
+// own VssCertificate record field order (vcVssKey, vcExpiryEpoch,
+// vcSignature, vcSigningKey), not the CDDL comment. Confirmed by the value
+// at index 3 being byte-identical to the ssccomm pubkey field of other real
+// commitment entries from the same handful of genesis-era stakeholders. The
+// CDDL file appears never to have been corrected for this field order
+// because cardano-ledger's own EncCBOR for this payload never reconstructs
+// real SSC content in the first place (see ByronEpochSscState's doc
+// comment) -- nothing in that codebase ever exercises this field order
+// against real data. Using index 1 here (matching the written but
+// apparently incorrect CDDL) makes decodeIdentitySet reject every real,
+// non-empty ssccert entry, since a small uint fails its byte-string check.
 const (
-	commitmentPubkeyFieldIndex  = 0 // ssccomm  = [pubkey, ..., signature]
-	certificatePubkeyFieldIndex = 1 // ssccert  = [vsspubkey, pubkey, ...]
+	commitmentPubkeyFieldIndex = 0 // ssccomm = [pubkey, ..., signature]
+	// ssccert = [vsspubkey, epochid, signature, pubkey]
+	certificatePubkeyFieldIndex = 3
 )
 
-// ByronEpochSscState accumulates the Shared Seed Computation (SSC) payload
-// contributions -- commitments, openings, shares, and VSS certificates --
-// carried by main blocks within a single Byron epoch, keyed by the
-// contributing stakeholder's ID.
+// ByronEpochSscState is a cross-block registry of the Shared Seed
+// Computation (SSC) contributions -- commitments, openings, shares, and VSS
+// certificates -- seen so far while walking a Byron epoch's main blocks in
+// order, keyed by the contributing stakeholder's ID.
 //
-// NOTE: ValidateBodyProof deliberately only checks the SSC proof
-// structurally (see its own NOTE) because a block's ssc_proof hashes are not
-// reproducible from that block's payload in isolation: cardano-sl's SSC
-// payload for a commitments/openings/shares block carries a VSS certificate
-// set that is a running snapshot of every certificate seen so far in the
-// epoch, so validating the proof for real requires folding every prior
-// block of the epoch into state before checking any one block. This type is
-// that per-epoch accumulator; ValidateBodyProofWithSscState is the validator
-// that consumes it.
+// This type is NOT connected to ssc_proof validation, despite its name and
+// this package's original design intent for it: real ssc_proof hashes turn
+// out to be entirely block-local, like every other body-proof component
+// (tx_proof, dlg_proof, upd_proof) -- see checkSscProofLocal's doc comment
+// (bodyproof.go) for how this was confirmed against real, non-empty
+// mainnet data, and why. ValidateBodyProof validates a block's ssc_proof
+// entirely from that block's own payload and never consults this type or
+// AccumulateBlock. This type remains available purely as a convenience for
+// callers that want a running view of an epoch's registered stakeholders
+// for some other purpose (e.g. a chain follower inspecting VSS certificate
+// coverage over time) -- not because anything in this package still needs
+// it for proof validation.
 //
 // The wire shapes decoded here (below) come from cardano-ledger's own Byron
 // CDDL spec (eras/byron/ledger/impl/cddl-spec/byron.cddl in
-// input-output-hk/cardano-ledger):
+// input-output-hk/cardano-ledger), with one correction: that spec's
+// "ssccert" comment orders pubkey before epochid; real mainnet data instead
+// orders them as shown below, matching cardano-sl's own VssCertificate
+// record field order -- see certificatePubkeyFieldIndex's doc comment for
+// how this was confirmed and why the published CDDL comment is wrong here.
 //
 //	ssccomm  = [pubkey, [{* vsspubkey => vssenc}, vssproof], signature]
 //	ssccomms = #6.258([* ssccomm])
 //	sscopens = {* stakeholderid => vsssec}
-//	sscshares = {* addressid => [addressid, [* vssdec]]}
-//	ssccert  = [vsspubkey, pubkey, epochid, signature]
+//	sscshares = {* addressid => sharesmap}
+//	sharesmap = {* addressid => vssdec}  ; a nested map, per
+//	    cardano-ledger's dropSharesMap/dropInnerSharesMap decoder -- not the
+//	    array shape an earlier version of this comment claimed
+//	ssccert  = [vsspubkey, epochid, signature, pubkey]
 //	ssccerts = #6.258([* ssccert])
 //	ssc = [0, ssccomms, ssccerts]
 //	    / [1, sscopens, ssccerts]
@@ -75,7 +107,7 @@ const (
 // Commitments and VSS certificates are therefore CBOR **sets** (tag 258) of
 // self-contained entries, not maps: neither ssccomm nor ssccert carries an
 // explicit stakeholder ID field, only the contributor's raw public key. This
-// package derives each entry's accumulator key as
+// package derives each certificate entry's map key as
 // Blake2b224Hash(sha3_256(cbor_serialize(pubkey))) -- the same double-hash
 // primitive cardano-sl's generic `addressHash` applies to turn a
 // serializable value into a StakeholderId, and the same primitive this
@@ -88,16 +120,10 @@ const (
 // Openings and shares, by contrast, really are CBOR maps keyed directly by
 // a 28-byte ID.
 //
-// The canonical byte encoding this type hashes accumulated entries with is
-// the CBOR encoding of a genuine, definite-length map from each 28-byte
-// stakeholder ID to that entry's preserved CBOR bytes, keys ascending (see
-// canonicalMapHash) -- matching cardano-sl's own HashMap StakeholderId ...
-// hashes, not a bespoke concatenation of raw bytes. This is confirmed for
-// the empty-map case against the bundled mainnet fixture's own (empty)
-// CertificatesPayload, whose header ssc_proof hash this package now
-// reproduces exactly (see TestValidateBodyHashWithSscState_RealMainnetBlock
-// in consensus/byron); it is not separately confirmed against a real,
-// non-empty mainnet ssc_proof, since no such fixture is available.
+// See canonicalMapHash's doc comment for the certificate hash's canonical
+// byte encoding (a genuine CBOR map, not the wire's tag-258 set) and
+// checkSscProofLocal's doc comment for how all of this is now confirmed
+// against real, non-empty mainnet data.
 type ByronEpochSscState struct {
 	Commitments     map[common.Blake2b224][]byte
 	Openings        map[common.Blake2b224][]byte
@@ -105,7 +131,7 @@ type ByronEpochSscState struct {
 	VssCertificates map[common.Blake2b224][]byte
 }
 
-// NewByronEpochSscState returns an empty per-epoch SSC accumulator.
+// NewByronEpochSscState returns an empty per-epoch SSC registry.
 func NewByronEpochSscState() *ByronEpochSscState {
 	return &ByronEpochSscState{
 		Commitments:     make(map[common.Blake2b224][]byte),
@@ -115,10 +141,13 @@ func NewByronEpochSscState() *ByronEpochSscState {
 	}
 }
 
-// AccumulateBlock folds a main block's own SSC payload into the epoch
-// state. Callers must invoke this for every main block of the epoch, in
-// block order, before validating that block or any later block's ssc_proof
-// with ValidateBodyProofWithSscState against this state.
+// AccumulateBlock folds a main block's own SSC payload into the registry.
+//
+// This is not needed, and never consulted, when validating a block's
+// ssc_proof: ValidateBodyProof validates entirely from each block's own
+// payload (see ByronEpochSscState's doc comment). Calling this remains
+// useful only for callers that want a running view of an epoch's
+// registered stakeholders for some other purpose.
 //
 // See ByronEpochSscState's doc comment for the wire shapes this decodes,
 // per cardano-ledger's Byron CDDL spec.
@@ -200,18 +229,88 @@ func decodePrimaryEntries(
 	return decodeStakeholderMap(raw)
 }
 
-// checkProof validates a block's ssc_proof (the raw, decoded proof entry at
-// bodyProofSscIndex) against this epoch state's currently accumulated
-// hashes.
+// checkSscProofLocal validates a block's ssc_proof (the raw, decoded proof
+// entry at bodyProofSscIndex) entirely from that same block's own,
+// already-decoded SscPayload parts (rest, as returned by
+// decodeSscPayloadParts) -- no cross-block state needed.
+//
+// This replaced an earlier, epoch-accumulation-based design (see
+// ByronEpochSscState's doc comment) after real, non-empty mainnet vectors
+// disproved its premise. Concretely, for three real, consecutive
+// CommitmentsPayload blocks within the same Byron epoch (mainnet slots
+// 21601, 21602, 21603), each block's own real header ssc_proof commitments
+// hash matches blake2b256 of *that block's own* commitments set bytes
+// alone -- not a hash of any multi-block union, and not a hash of a
+// stakeholder-keyed map rebuilt from that set. The same holds for a real
+// OpeningsPayload block (slot 30240) against its own openings map. A real
+// CommitmentsPayload block carrying 7 VSS certificates from 7 distinct
+// stakeholders (slot 129601, epoch 6) likewise matches its own certificate
+// set, but that block happens to be its epoch's *first* main block, so this
+// vector alone cannot distinguish "this block's own certificates" from "the
+// epoch's accumulated certificates so far" for the certificates field
+// specifically (they're identical at that point in the epoch). What does
+// establish certificate block-locality is cardano-sl's own type
+// declarations: SscPayload's constructors each carry their own
+// VssCertificatesMap value directly (see e.g. `CommitmentsPayload
+// !CommitmentsMap !VssCertificatesMap`), not a reference to any
+// epoch-spanning accumulator, so there is no accumulated state for a later
+// block's proof to depend on in the first place. See sscstate_real_test.go
+// for the fixtures and assertions the mainnet-vector claims above rest on.
+//
+// The two SSC payload categories hash differently, matching cardano-sl's
+// own documented behavior (input-output-hk/cardano-sl,
+// docs/block-processing/types.md, on VssCertificatesHash):
+//
+//   - Commitments, openings, and shares hash as blake2b256 of that field's
+//     own preserved wire bytes directly (a tag-258 set for commitments, a
+//     genuine CBOR map for openings/shares) -- no reconstruction at all.
+//   - VSS certificates hash as blake2b256 of a *rebuilt*, genuine CBOR map
+//     from each entry's stakeholder ID (derived from the corrected pubkey
+//     field -- see certificatePubkeyFieldIndex) to that entry's own
+//     preserved CBOR bytes, even though the wire format for certificates
+//     is the same kind of tag-258 set as commitments. cardano-sl's own
+//     docs explain why: "hashing is done after serialization, and at some
+//     point the serialization format for VssCertificatesHash was changed
+//     from a map to a set. Since we can't change the protocol easily at
+//     this point, for hashing we still use the map representation."
+//
+// SharesPayload's own hash is not independently confirmed against a real,
+// non-empty example: a genuinely non-empty SharesPayload only arises when
+// a commitment's own contributor fails to reveal their opening directly
+// and other stakeholders instead reveal decrypted shares of it -- a
+// failure-path event not found while scanning real mainnet blocks from
+// genesis through slot 1,650,000 (epoch 76, ~October 2018). That scan
+// covers roughly the first third of the classic-Ouroboros SSC era, not
+// "essentially the entire window" an earlier version of this comment
+// claimed: the OBFT hard fork (the end of that era) landed around March
+// 2019, epoch 105-108, some 30 epochs later. The scanning tooling used has
+// since been deleted and no log or artifact of exactly what it checked
+// survives, so treat "an exhaustive scan found nothing" as an unreproduced
+// claim, not an established fact.
+//
+// This is not purely a guess, though: SscTypeShares is handled by the
+// exact same code path as SscTypeOpenings immediately below (same case
+// branch, same blake2b256-of-raw-bytes computation), over the same kind
+// of wire shape per the CDDL -- both sscopens and sscshares are genuine
+// CBOR maps keyed by a 28-byte ID (see ByronEpochSscState's doc comment)
+// -- so confirming SscTypeOpenings's hash construction, as real data now
+// has, provides strong indirect evidence for SscTypeShares's too, even
+// without a genuinely non-empty SharesPayload vector to confirm it
+// directly. cardano-sl's own SscPayload type declares
+// `SharesProof !(Hash SharesMap) !VssCertificatesHash` -- a plain hash of
+// the shares map, with no map-vs-set encoding quirk of its own; that quirk
+// (see the VssCertificatesHash discussion above) is specific to
+// VssCertificatesMap/VssCertificatesHash, not shares.
 //
 // expectedType is the discriminant of the block's own SscPayload (see
 // decodeSscPayloadParts); the proof's declared type is required to match
 // it, so a header whose ssc_proof structurally claims a different SSC type
 // than the body's actual payload is rejected here rather than silently
-// checked against the wrong shape of accumulated state.
-func (s *ByronEpochSscState) checkProof(
+// checked against the wrong shape of payload.
+func checkSscProofLocal(
 	rawProof any,
 	expectedType uint64,
+	rest []cbor.RawMessage,
 ) error {
 	proofSlice, ok := rawProof.([]any)
 	if !ok || len(proofSlice) < 2 {
@@ -239,25 +338,28 @@ func (s *ByronEpochSscState) checkProof(
 				ErrBodyProofMismatch, sscType, len(proofSlice),
 			)
 		}
-		var primaryHash common.Blake2b256
-		switch sscType {
-		case SscTypeCommitments:
-			primaryHash = s.CommitmentsHash()
-		case SscTypeOpenings:
-			primaryHash = s.OpeningsHash()
-		case SscTypeShares:
-			primaryHash = s.SharesHash()
+		if len(rest) != 2 {
+			return fmt.Errorf(
+				"%w: ssc payload type %d requires 2 elements after the "+
+					"type, got %d",
+				ErrBodyProofMismatch, sscType, len(rest),
+			)
 		}
 		if err := checkHash(
-			"ssc primary hash", proofSlice[1], primaryHash,
+			"ssc primary hash",
+			proofSlice[1],
+			common.Blake2b256Hash(rest[0]),
 		); err != nil {
 			return err
 		}
-		return checkHash(
-			"ssc vss certificates hash",
-			proofSlice[2],
-			s.CertificatesHash(),
-		)
+		certsHash, err := localCertificatesHash(rest[1])
+		if err != nil {
+			return fmt.Errorf(
+				"%w: ssc payload vss certificates set: %w",
+				ErrBodyProofMismatch, err,
+			)
+		}
+		return checkHash("ssc vss certificates hash", proofSlice[2], certsHash)
 	case SscTypeCertificates:
 		if len(proofSlice) != 2 {
 			return fmt.Errorf(
@@ -265,11 +367,21 @@ func (s *ByronEpochSscState) checkProof(
 				ErrBodyProofMismatch, sscType, len(proofSlice),
 			)
 		}
-		return checkHash(
-			"ssc vss certificates hash",
-			proofSlice[1],
-			s.CertificatesHash(),
-		)
+		if len(rest) != 1 {
+			return fmt.Errorf(
+				"%w: ssc payload type %d requires 1 element after the "+
+					"type, got %d",
+				ErrBodyProofMismatch, sscType, len(rest),
+			)
+		}
+		certsHash, err := localCertificatesHash(rest[0])
+		if err != nil {
+			return fmt.Errorf(
+				"%w: ssc payload vss certificates set: %w",
+				ErrBodyProofMismatch, err,
+			)
+		}
+		return checkHash("ssc vss certificates hash", proofSlice[1], certsHash)
 	default:
 		return fmt.Errorf(
 			"%w: unknown ssc proof type %d", ErrBodyProofMismatch, sscType,
@@ -277,26 +389,57 @@ func (s *ByronEpochSscState) checkProof(
 	}
 }
 
-// CommitmentsHash returns this state's canonical hash of every stakeholder's
-// currently accumulated commitment.
+// localCertificatesHash decodes raw as a tag-258 VSS certificate set and
+// returns cardano-sl's VssCertificatesHash of it: canonicalMapHash of a
+// fresh map from each entry's own stakeholder ID to that entry's preserved
+// CBOR bytes, built from raw alone -- see checkSscProofLocal's doc comment
+// for why certificates hash via this rebuilt-map representation while
+// commitments/openings/shares hash via their preserved wire bytes
+// directly.
+func localCertificatesHash(raw cbor.RawMessage) (common.Blake2b256, error) {
+	certs, err := decodeIdentitySet(raw, certificatePubkeyFieldIndex)
+	if err != nil {
+		return common.Blake2b256{}, err
+	}
+	return canonicalMapHash(certs), nil
+}
+
+// CommitmentsHash returns this registry's canonical hash of every
+// stakeholder's currently accumulated commitment.
+//
+// This is never consulted by ValidateBodyProof (see ByronEpochSscState's
+// doc comment) -- it remains available only for callers with some other
+// use for a multi-block commitments view.
 func (s *ByronEpochSscState) CommitmentsHash() common.Blake2b256 {
 	return canonicalMapHash(s.Commitments)
 }
 
-// OpeningsHash returns this state's canonical hash of every stakeholder's
-// currently accumulated opening.
+// OpeningsHash returns this registry's canonical hash of every
+// stakeholder's currently accumulated opening.
+//
+// This is never consulted by ValidateBodyProof (see ByronEpochSscState's
+// doc comment) -- it remains available only for callers with some other
+// use for a multi-block openings view.
 func (s *ByronEpochSscState) OpeningsHash() common.Blake2b256 {
 	return canonicalMapHash(s.Openings)
 }
 
-// SharesHash returns this state's canonical hash of every stakeholder's
+// SharesHash returns this registry's canonical hash of every stakeholder's
 // currently accumulated shares.
+//
+// This is never consulted by ValidateBodyProof (see ByronEpochSscState's
+// doc comment) -- it remains available only for callers with some other
+// use for a multi-block shares view.
 func (s *ByronEpochSscState) SharesHash() common.Blake2b256 {
 	return canonicalMapHash(s.Shares)
 }
 
-// CertificatesHash returns this state's canonical hash of every
+// CertificatesHash returns this registry's canonical hash of every
 // stakeholder's currently accumulated VSS certificate.
+//
+// This is never consulted by ValidateBodyProof (see ByronEpochSscState's
+// doc comment) -- it remains available only for callers with some other
+// use for a multi-block certificates view.
 func (s *ByronEpochSscState) CertificatesHash() common.Blake2b256 {
 	return canonicalMapHash(s.VssCertificates)
 }
@@ -353,11 +496,11 @@ func decodeStakeholderMap(
 // decodeIdentitySet decodes a CBOR tag-258 set of self-contained entries
 // (ssccomm or ssccert, per the CDDL), each a CBOR array whose element at
 // pubkeyFieldIndex is the contributor's raw public key. Since neither entry
-// shape carries a pre-hashed stakeholder ID, the accumulator key is derived
-// with stakeholderIDFromPubkeyCbor, applied directly to the field's
-// preserved CBOR bytes rather than a decoded-and-re-encoded copy (see that
-// function's doc comment for why). The full entry's original CBOR bytes are
-// preserved as the map value.
+// shape carries a pre-hashed stakeholder ID, the map key is derived with
+// stakeholderIDFromPubkeyCbor, applied directly to the field's preserved
+// CBOR bytes rather than a decoded-and-re-encoded copy (see that function's
+// doc comment for why). The full entry's original CBOR bytes are preserved
+// as the map value.
 func decodeIdentitySet(
 	raw cbor.RawMessage,
 	pubkeyFieldIndex int,
@@ -446,15 +589,6 @@ func stakeholderIDFromPubkeyCbor(pubkeyCbor []byte) common.Blake2b224 {
 // destination field nil; assigning through the pointer here lazily
 // initializes it in place instead of panicking with "assignment to entry in
 // nil map" or silently requiring the constructor.
-//
-// Whether a given block's own SSC payload carries only its newly-seen
-// entries (a delta) or a full running snapshot of everything seen so far in
-// the epoch is not settled by this package -- see ByronEpochSscState's NOTE
-// on the open question of matching cardano-ledger's real accumulation
-// semantics byte-for-byte. Overwrite-on-merge is correct either way: under a
-// delta model it simply folds in what's new, and under a snapshot model a
-// later, more complete snapshot's entries supersede the same stakeholder's
-// earlier ones with no other effect.
 func mergeStakeholderMap(
 	dst *map[common.Blake2b224][]byte,
 	src map[common.Blake2b224][]byte,
@@ -473,12 +607,18 @@ func mergeStakeholderMap(
 // preserved CBOR bytes, with keys ordered per RFC 8949's core deterministic
 // encoding (ascending, since all keys here are fixed-length byte strings).
 //
-// This mirrors cardano-sl's own commitment/opening/share/certificate
-// hashes, which are computed over the CBOR encoding of a genuine map
-// (HashMap StakeholderId ...), not a bespoke concatenation of raw bytes:
-// for the bundled mainnet fixture's empty VssCertificatesMap, this produces
-// blake2b256(0xa0) -- the CBOR encoding of an empty map -- which matches
-// the real header's ssc_proof hash for that block exactly.
+// This is cardano-sl's VssCertificatesHash construction specifically (see
+// checkSscProofLocal's doc comment for the cardano-sl documentation quote
+// explaining why certificates hash this way, unlike
+// commitments/openings/shares): the CBOR encoding of a genuine map (HashMap
+// StakeholderId VssCertificate), not the tag-258 set the certificates are
+// actually transmitted as, and not a bespoke concatenation of raw bytes.
+// For the bundled mainnet fixture's empty VssCertificatesMap, this produces
+// blake2b256(0xa0) -- the CBOR encoding of an empty map -- matching that
+// block's real header ssc_proof hash exactly; for real, non-empty,
+// multi-stakeholder VSS certificate sets (mainnet slot 129601, epoch 6, 7
+// distinct stakeholders), it matches the real header hash too -- see
+// TestByronEpochSscStateRealMainnetCertificates in sscstate_real_test.go.
 func canonicalMapHash(m map[common.Blake2b224][]byte) common.Blake2b256 {
 	encoded := make(map[cbor.ByteString]cbor.RawMessage, len(m))
 	for k, v := range m {
