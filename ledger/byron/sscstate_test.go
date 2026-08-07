@@ -699,17 +699,42 @@ func TestByronEpochSscStateRejectsUntaggedCertificateSet(t *testing.T) {
 
 // TestByronEpochSscStateRejectsUntaggedCommitmentsSet confirms the same
 // tag-258 enforcement applies to CommitmentsPayload's commitments field
-// (ssccomms = #6.258([* ssccomm]) per the CDDL), not just VSS certificates:
-// decodeIdentitySet is the shared decode point for both fields, so a fix
-// scoped there covers commitments and certificates alike rather than
-// needing a duplicated per-caller check.
+// (ssccomms = #6.258([* ssccomm]) per the CDDL), not just VSS certificates,
+// and -- critically -- that ValidateBodyProof itself rejects it, not just
+// AccumulateBlock.
+//
+// The proof here is forged as blake2b256(untaggedComms) -- the exact hash
+// checkSscProofLocal would compute over the malformed commitments field --
+// paired with a valid certificates hash, so that the header's ssc_proof
+// genuinely matches what the primary-hash check alone would compute from
+// the malformed bytes. A test that instead left the proof at some stale or
+// placeholder value would only prove that a hash mismatch is detected,
+// which tells us nothing about whether the wire shape is validated at all:
+// it would pass identically even with no shape check whatsoever, simply
+// because the hash happens not to match. Forging the hash to genuinely
+// match closes that gap and isolates the shape check as the only thing that
+// can still reject this block.
+//
+// This is the regression for the real gap the CommitmentsPayload/
+// OpeningsPayload/SharesPayload primary field had: decodeIdentitySet (and
+// decodeStakeholderMap) already shape-validate on the AccumulateBlock path
+// via decodePrimaryEntries, but checkSscProofLocal's own primary-hash check
+// used to hash rest[0]'s raw preserved bytes directly, with no call through
+// decodePrimaryEntries or any other shape-validating decode first -- so an
+// untagged array (or any other wrong-shaped value) paired with a
+// freshly-recomputed header hash would previously pass ValidateBodyProof
+// outright, even though the real Byron node's own decoder
+// (dropCommitmentsMap) would reject that body at decode time.
 func TestByronEpochSscStateRejectsUntaggedCommitmentsSet(t *testing.T) {
 	pubkey := sscPubkey(0xf1)
+	certPubkey := sscPubkey(0xf2)
 	untaggedComms := mustEncodeUntaggedArray(
 		t, sscCommEntry(pubkey, "commitment-untagged"),
 	)
-	certs := mustEncodeSet(t, sscCertEntry(sscPubkey(0xf2), "cert-f2"))
+	certs := mustEncodeSet(t, sscCertEntry(certPubkey, "cert-f2"))
 
+	// AccumulateBlock rejects the untagged commitments field outright, via
+	// decodePrimaryEntries -> decodeIdentitySet's tag-258 check.
 	payload := encodeSscCommitmentsPayload(t, untaggedComms, certs)
 	block := decodeWithSscPayload(t, payload)
 
@@ -718,4 +743,125 @@ func TestByronEpochSscStateRejectsUntaggedCommitmentsSet(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 	assert.Empty(t, sscState.Commitments)
+
+	// A separate, well-formed CommitmentsPayload sharing the same VSS
+	// certificates, used only to derive the real, well-formed
+	// certificates hash the forged proof below needs for its second
+	// element -- this test is not about the certificates field at all, so
+	// that field must stay valid to isolate the commitments shape check.
+	certState := byron.NewByronEpochSscState()
+	require.NoError(t, certState.AccumulateBlock(decodeWithSscPayload(
+		t,
+		encodeSscCommitmentsPayload(
+			t, mustEncodeSet(t, sscCommEntry(pubkey, "commitment-wellformed")),
+			certs,
+		),
+	)))
+
+	// A proof recomputed directly over the malformed (untagged) commitments
+	// array, as an attacker who controls both body and header would do,
+	// rather than the blake2b256 of a well-formed tag-258 set.
+	forgedProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCommitments),
+		common.Blake2b256Hash(untaggedComms).Bytes(),
+		certState.CertificatesHash().Bytes(),
+	})
+	require.NoError(t, err)
+
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, forgedProof,
+	)
+	forgedBlock, err := byron.NewByronMainBlockFromCbor(
+		blockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = forgedBlock.ValidateBodyProof()
+	require.Error(
+		t, err,
+		"ValidateBodyProof must reject an untagged commitments field even "+
+			"when the header's ssc_proof hash genuinely matches it",
+	)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}
+
+// TestByronEpochSscStateRejectsNonMapOpeningsField is the OpeningsPayload
+// analog of TestByronEpochSscStateRejectsUntaggedCommitmentsSet: it confirms
+// ValidateBodyProof, not just AccumulateBlock, rejects an openings field
+// that is not a genuine CBOR map (sscopens = {* stakeholderid => vsssec} per
+// the CDDL; dropOpeningsMap in cardano-ledger requires a CBOR map), even
+// when the header's ssc_proof is forged to genuinely match
+// blake2b256(malformedOpenings). Commitments and openings/shares are
+// validated by two different shape checks inside decodePrimaryEntries
+// (decodeIdentitySet's tag-258 check vs. decodeStakeholderMap's map check),
+// so confirming the commitments case alone would not confirm this one: a
+// fix scoped only to sets, not maps, would pass the commitments test above
+// while still leaving this exact gap open for openings/shares.
+func TestByronEpochSscStateRejectsNonMapOpeningsField(t *testing.T) {
+	certPubkey := sscPubkey(0xf3)
+	// A plain CBOR array in place of the required real map -- the wrong
+	// wire shape for sscopens, which decodeStakeholderMap must reject.
+	nonMapOpenings := mustEncode(t, []any{"opening-wrong-shape"})
+	certs := mustEncodeSet(t, sscCertEntry(certPubkey, "cert-f3"))
+
+	payload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeOpenings),
+		nonMapOpenings,
+		certs,
+	})
+	require.NoError(t, err)
+	block := decodeWithSscPayload(t, payload)
+
+	// AccumulateBlock rejects the non-map openings field outright, via
+	// decodePrimaryEntries -> decodeStakeholderMap's map-shape check.
+	sscState := byron.NewByronEpochSscState()
+	err = sscState.AccumulateBlock(block)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	assert.Empty(t, sscState.Openings)
+
+	// A separate, well-formed OpeningsPayload sharing the same VSS
+	// certificates, used only to derive the real certificates hash the
+	// forged proof below needs for its second element.
+	certState := byron.NewByronEpochSscState()
+	require.NoError(t, certState.AccumulateBlock(decodeWithSscPayload(
+		t,
+		func() []byte {
+			b, encErr := cbor.Encode([]any{
+				uint64(byron.SscTypeOpenings),
+				toStakeholderCborMap(map[common.Blake2b224]cbor.RawMessage{
+					sscStakeholder(0xf4): mustEncode(t, "opening-wellformed"),
+				}),
+				certs,
+			})
+			require.NoError(t, encErr)
+			return b
+		}(),
+	)))
+
+	// A proof recomputed directly over the malformed (non-map) openings
+	// field, as an attacker who controls both body and header would do,
+	// rather than the blake2b256 of a genuine CBOR map.
+	forgedProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeOpenings),
+		common.Blake2b256Hash(nonMapOpenings).Bytes(),
+		certState.CertificatesHash().Bytes(),
+	})
+	require.NoError(t, err)
+
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, forgedProof,
+	)
+	forgedBlock, err := byron.NewByronMainBlockFromCbor(
+		blockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = forgedBlock.ValidateBodyProof()
+	require.Error(
+		t, err,
+		"ValidateBodyProof must reject a non-map openings field even when "+
+			"the header's ssc_proof hash genuinely matches it",
+	)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
