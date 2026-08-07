@@ -501,10 +501,32 @@ func decodeStakeholderMap(
 // CBOR bytes rather than a decoded-and-re-encoded copy (see that function's
 // doc comment for why). The full entry's original CBOR bytes are preserved
 // as the map value.
+//
+// The tag-258 wrapper is required, not optional: cbor.SetType's own
+// UnmarshalCBOR deliberately tolerates a plain, untagged array too (so that
+// pre-Dijkstra callers of that generic type are unaffected -- see its doc
+// comment in cbor/tags.go), but ssccomms/ssccerts are always tag-258 sets on
+// the real Byron wire (#6.258([* ssccomm]) / #6.258([* ssccert])), never a
+// bare array. Without this check, a malformed SSC body carrying an untagged
+// array in place of the required set would still decode here and hash
+// identically to a well-formed one, letting checkSscProofLocal validate a
+// block whose body does not actually conform to the Byron wire format.
 func decodeIdentitySet(
 	raw cbor.RawMessage,
 	pubkeyFieldIndex int,
 ) (map[common.Blake2b224][]byte, error) {
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(raw, &tag); err != nil {
+		return nil, fmt.Errorf(
+			"decoding identity set: expected a tag-258 wrapped set: %w", err,
+		)
+	}
+	if tag.Number != cbor.CborTagSet {
+		return nil, fmt.Errorf(
+			"decoding identity set: expected tag %d, got tag %d",
+			cbor.CborTagSet, tag.Number,
+		)
+	}
 	var set cbor.SetType[cbor.RawMessage]
 	if _, err := cbor.Decode(raw, &set); err != nil {
 		return nil, fmt.Errorf("decoding identity set: %w", err)

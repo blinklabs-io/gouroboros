@@ -69,6 +69,20 @@ func mustEncodeSet(t *testing.T, items ...[]any) cbor.RawMessage {
 	return cbor.RawMessage(b)
 }
 
+// mustEncodeUntaggedArray CBOR-encodes items as a plain, untagged array --
+// the shape decodeIdentitySet must reject for ssccomms/ssccerts, which are
+// always tag-258 sets on the real Byron wire, never a bare array.
+func mustEncodeUntaggedArray(t *testing.T, items ...[]any) cbor.RawMessage {
+	t.Helper()
+	untagged := make([]any, len(items))
+	for i, item := range items {
+		untagged[i] = item
+	}
+	b, err := cbor.Encode(untagged)
+	require.NoError(t, err)
+	return cbor.RawMessage(b)
+}
+
 // sscCommEntry builds an ssccomm entry: [pubkey, ..., signature]. Only the
 // pubkey field (index 0) is ever interpreted by decodeIdentitySet; the rest
 // only needs to be valid CBOR distinguishing one entry from another.
@@ -628,4 +642,80 @@ func TestByronEpochSscStateRejectsProofPayloadTypeMismatch(t *testing.T) {
 	err = mismatchedBlock.ValidateBodyProof()
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}
+
+// TestByronEpochSscStateRejectsUntaggedCertificateSet confirms that a
+// CertificatesPayload whose VSS certificate field is a plain, untagged CBOR
+// array -- rather than the required tag-258 set (ssccerts =
+// #6.258([* ssccert]) per the CDDL) -- is rejected by ValidateBodyProof, even
+// when its ssc_proof is recomputed to match that malformed array exactly.
+//
+// This is a regression for a real gap: decodeIdentitySet decoded via
+// cbor.SetType, which deliberately also accepts a plain untagged array (see
+// its own doc comment in cbor/tags.go, added for pre-Dijkstra callers of
+// that generic type) -- so a malformed body using an untagged array would
+// previously decode, hash, and validate successfully here, exactly as if it
+// were the well-formed tag-258 set the wire format actually requires.
+func TestByronEpochSscStateRejectsUntaggedCertificateSet(t *testing.T) {
+	pubkey := sscPubkey(0xf0)
+	untaggedCerts := mustEncodeUntaggedArray(
+		t, sscCertEntry(pubkey, "cert-untagged"),
+	)
+
+	payload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		untaggedCerts,
+	})
+	require.NoError(t, err)
+
+	// A proof recomputed directly over the malformed (untagged) array, as an
+	// attacker who controls both body and header would do, rather than the
+	// canonical rebuilt-map hash a well-formed tag-258 set would need.
+	forgedProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		common.Blake2b256Hash(untaggedCerts).Bytes(),
+	})
+	require.NoError(t, err)
+
+	blockCbor := withSscPayloadAndProof(
+		t, mainnetByronBlock(t), payload, forgedProof,
+	)
+	block, err := byron.NewByronMainBlockFromCbor(
+		blockCbor, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = block.ValidateBodyProof()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
+	// The same malformed shape is also rejected by AccumulateBlock, which
+	// shares decodeIdentitySet with the proof-validation path.
+	sscState := byron.NewByronEpochSscState()
+	err = sscState.AccumulateBlock(block)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}
+
+// TestByronEpochSscStateRejectsUntaggedCommitmentsSet confirms the same
+// tag-258 enforcement applies to CommitmentsPayload's commitments field
+// (ssccomms = #6.258([* ssccomm]) per the CDDL), not just VSS certificates:
+// decodeIdentitySet is the shared decode point for both fields, so a fix
+// scoped there covers commitments and certificates alike rather than
+// needing a duplicated per-caller check.
+func TestByronEpochSscStateRejectsUntaggedCommitmentsSet(t *testing.T) {
+	pubkey := sscPubkey(0xf1)
+	untaggedComms := mustEncodeUntaggedArray(
+		t, sscCommEntry(pubkey, "commitment-untagged"),
+	)
+	certs := mustEncodeSet(t, sscCertEntry(sscPubkey(0xf2), "cert-f2"))
+
+	payload := encodeSscCommitmentsPayload(t, untaggedComms, certs)
+	block := decodeWithSscPayload(t, payload)
+
+	sscState := byron.NewByronEpochSscState()
+	err := sscState.AccumulateBlock(block)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+	assert.Empty(t, sscState.Commitments)
 }

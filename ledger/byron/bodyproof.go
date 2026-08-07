@@ -61,6 +61,18 @@ const (
 // believing that they depended on epoch-wide accumulated state. Real,
 // non-empty mainnet vectors disproved that: see checkSscProofLocal's doc
 // comment (sscstate.go) for the vectors and reasoning.
+//
+// One caveat within ssc_proof itself: SscTypeShares (a SharesPayload block)
+// is validated by the exact same block-local hash construction as
+// SscTypeOpenings, which real mainnet data does confirm -- but that
+// construction has never been independently confirmed against a genuinely
+// non-empty SharesPayload vector of its own, since none was found in the
+// portion of mainnet scanned so far. Treat SharesPayload validation here as
+// resting on strong indirect evidence (same wire shape, same code path,
+// same cardano-sl type declaration as openings), not a directly confirmed
+// vector, until such a vector is found. See checkSscProofLocal's doc
+// comment (sscstate.go) for the full reasoning and what would close this
+// gap.
 func (b *ByronMainBlock) ValidateBodyProof() error {
 	proof, err := b.bodyProofArray()
 	if err != nil {
