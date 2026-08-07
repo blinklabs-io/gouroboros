@@ -86,17 +86,30 @@ var bigRatOne = big.NewRat(1, 1)
 //
 // This implementation uses arbitrary precision arithmetic to match
 // Cardano's ledger specification.
+//
+// This is a legacy no-error API kept for backward compatibility. The only
+// error CertifiedNatThresholdWithMode can currently return for the CPRAOS
+// mode used here is an out-of-domain activeSlotCoeff (f > 1, an invalid
+// probability). Rather than propagating that error or returning nil (which
+// would make the result unsafe to use with .Cmp/.Sign/.Bytes/etc. without a
+// nil check), this function conservatively treats invalid/out-of-domain
+// input the same way it already treats other degenerate input: as "never
+// lead", returning big.NewInt(0). Callers that need to detect invalid input
+// explicitly should use CertifiedNatThresholdWithMode instead.
 func CertifiedNatThreshold(
 	poolStake uint64,
 	totalStake uint64,
 	activeSlotCoeff *big.Rat,
 ) *big.Int {
-	threshold, _ := CertifiedNatThresholdWithMode(
+	threshold, err := CertifiedNatThresholdWithMode(
 		poolStake,
 		totalStake,
 		activeSlotCoeff,
 		ConsensusModeCPraos,
 	)
+	if err != nil {
+		return big.NewInt(0)
+	}
 	return threshold
 }
 

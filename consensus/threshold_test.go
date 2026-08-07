@@ -1212,6 +1212,30 @@ func TestCertifiedNatThresholdActiveSlotCoeffAboveOne(t *testing.T) {
 	require.Nil(t, threshold)
 }
 
+// TestCertifiedNatThresholdLegacyAPIAboveOneNeverNil verifies that the
+// legacy no-error CertifiedNatThreshold wrapper never returns nil, even for
+// an out-of-domain activeSlotCoeff (f > 1). CertifiedNatThresholdWithMode
+// returns an error in that case, and the wrapper must not silently
+// propagate that as a nil *big.Int, since callers routinely call
+// .Cmp/.Sign/.Bytes/etc. on the result without a nil check. Instead it must
+// conservatively fall back to big.NewInt(0), the same "never lead" default
+// used for other degenerate input.
+func TestCertifiedNatThresholdLegacyAPIAboveOneNeverNil(t *testing.T) {
+	f := big.NewRat(3, 2) // 1.5, invalid
+
+	threshold := CertifiedNatThreshold(
+		500_000_000,
+		1_000_000_000,
+		f,
+	)
+	require.NotNil(t, threshold,
+		"CertifiedNatThreshold must never return nil, even for invalid input")
+	require.Equal(t, big.NewInt(0), threshold,
+		"out-of-domain activeSlotCoeff must fall back to a zero threshold")
+	// Confirm the result is actually safe to use without a nil check.
+	require.Equal(t, 0, threshold.Sign())
+}
+
 // TestCertifiedNatThresholdFullStakeExactHalf verifies the previously
 // mis-rounded exact-rational cutoff: a full-stake pool (sigma=1) with
 // f=1/2 has an exact mathematical threshold of upperBound/2 (since
