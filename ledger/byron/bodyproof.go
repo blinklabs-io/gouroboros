@@ -32,6 +32,7 @@ var ErrBodyProofMismatch = errors.New("byron block body proof mismatch")
 // [tx_proof, ssc_proof, dlg_proof, upd_proof].
 const (
 	bodyProofTxIndex  = 0
+	bodyProofSscIndex = 1
 	bodyProofDlgIndex = 2
 	bodyProofUpdIndex = 3
 	bodyProofLength   = 4
@@ -46,35 +47,43 @@ const (
 	txProofLength         = 3
 )
 
-// ValidateBodyProof recomputes the transaction, delegation, and update proofs
-// from the block body and checks them against the header.
+// ValidateBodyProof recomputes the transaction, delegation, update, and SSC
+// proofs from the block body and checks them against the header.
 //
 // The transaction proof is the load-bearing one: it covers the count, a
 // merkle root over transaction bodies, and a hash over the witness list, so
 // altering, adding, or removing any transaction changes it.
+//
+// This is a fully block-local validator: every proof component, including
+// ssc_proof, is checked using only this block's own body -- no cross-block
+// or epoch-wide state is needed. This was not always true: an earlier
+// version of this function deliberately skipped ssc_proof's hashes,
+// believing that they depended on epoch-wide accumulated state. Real,
+// non-empty mainnet vectors disproved that: see checkSscProofLocal's doc
+// comment (sscstate.go) for the vectors and reasoning.
+//
+// One caveat within ssc_proof itself: SscTypeShares (a SharesPayload block)
+// is validated by the exact same block-local hash construction as
+// SscTypeOpenings, which real mainnet data does confirm -- but that
+// construction has never been independently confirmed against a genuinely
+// non-empty SharesPayload vector of its own, since none was found in the
+// portion of mainnet scanned so far. Treat SharesPayload validation here as
+// resting on strong indirect evidence (same wire shape, same code path,
+// same cardano-sl type declaration as openings), not a directly confirmed
+// vector, until such a vector is found. See checkSscProofLocal's doc
+// comment (sscstate.go) for the full reasoning and what would close this
+// gap.
 func (b *ByronMainBlock) ValidateBodyProof() error {
-	proof, ok := b.BlockHeader.BodyProof.([]any)
-	if !ok || len(proof) < bodyProofLength {
-		return fmt.Errorf(
-			"%w: header body proof is not a %d-element array",
-			ErrBodyProofMismatch, bodyProofLength,
-		)
+	proof, err := b.bodyProofArray()
+	if err != nil {
+		return err
 	}
 	if err := b.validateTxProof(proof[bodyProofTxIndex]); err != nil {
 		return err
 	}
-	// NOTE: ssc_proof (index 1) is deliberately not checked. Its hashes are
-	// taken over cardano-ledger's own encoding of the SSC sub-payloads, which
-	// is not the encoding carried inline in the block: for the mainnet block
-	// in internal/testdata the payload part hashes to 25777aca... while the
-	// header records d36a2619..., so the two are not the same bytes. Modelling
-	// SscPayload well enough to reproduce it is a separate piece of work, and
-	// guessing the encoding from the one available fixture -- whose SSC
-	// payload is empty -- would give false assurance for the non-empty case.
-	//
-	// The consequence is that an alteration confined to the SSC payload is not
-	// detected here. SSC carries shared-seed material, not transactions, so
-	// transaction contents remain fully covered by the tx proof above.
+	if err := b.ValidateSscProof(); err != nil {
+		return err
+	}
 	if err := checkPayloadHash(
 		"delegation", proof[bodyProofDlgIndex], b.Body.DlgPayloadCbor(),
 	); err != nil {
@@ -83,6 +92,50 @@ func (b *ByronMainBlock) ValidateBodyProof() error {
 	return checkPayloadHash(
 		"update", proof[bodyProofUpdIndex], b.Body.UpdPayloadCbor(),
 	)
+}
+
+// ValidateSscProof validates only a Byron main block's ssc_proof, entirely
+// from that block's own payload (see checkSscProofLocal's doc comment).
+//
+// This is split out from ValidateBodyProof for callers (e.g.
+// consensus/byron's ValidateBodyHash) that have already validated
+// tx_proof/dlg_proof/upd_proof through some other, independently
+// implemented pipeline and want to add a real ssc_proof check without
+// paying for a second, redundant pass over the transaction merkle root and
+// the other body components ValidateBodyProof would otherwise repeat.
+func (b *ByronMainBlock) ValidateSscProof() error {
+	if b == nil || b.BlockHeader == nil {
+		return fmt.Errorf(
+			"%w: block or block header is nil", ErrBodyProofMismatch,
+		)
+	}
+	proof, err := b.bodyProofArray()
+	if err != nil {
+		return err
+	}
+	payloadType, rest, err := decodeSscPayloadParts(b.Body.SscPayload)
+	if err != nil {
+		return fmt.Errorf("%w: ssc payload: %w", ErrBodyProofMismatch, err)
+	}
+	return checkSscProofLocal(proof[bodyProofSscIndex], payloadType, rest)
+}
+
+// bodyProofArray returns the header's body proof as a validated array,
+// guarding against a nil receiver or nil BlockHeader.
+func (b *ByronMainBlock) bodyProofArray() ([]any, error) {
+	if b == nil || b.BlockHeader == nil {
+		return nil, fmt.Errorf(
+			"%w: block or block header is nil", ErrBodyProofMismatch,
+		)
+	}
+	proof, ok := b.BlockHeader.BodyProof.([]any)
+	if !ok || len(proof) < bodyProofLength {
+		return nil, fmt.Errorf(
+			"%w: header body proof is not a %d-element array",
+			ErrBodyProofMismatch, bodyProofLength,
+		)
+	}
+	return proof, nil
 }
 
 func (b *ByronMainBlock) validateTxProof(rawProof any) error {

@@ -480,7 +480,15 @@ func TestRegressionCBOR(t *testing.T) {
 
 	// Expected allocation limits by era (measured 2026-02-10 + 10% headroom)
 	limits := map[string]int64{
-		"Byron":   550,  // Baseline: 500
+		// Byron baseline moved from 500 to 557 on 2026-08-06: decoding a
+		// Byron main block now fully validates ssc_proof's real hashes
+		// (see ledger/byron's checkSscProofLocal), not just its structural
+		// shape -- a genuine, deliberate increase in per-block decode work
+		// in exchange for actually detecting SSC-payload substitution,
+		// which was previously undetected. See
+		// TestByronEpochSscStateRealMainnet in ledger/byron for why this
+		// is now known to be correct and necessary.
+		"Byron":   615,  // Baseline: 557
 		"Shelley": 485,  // Baseline: 441
 		"Allegra": 1180, // Baseline: 1072
 		"Mary":    1230, // Baseline: 1116
