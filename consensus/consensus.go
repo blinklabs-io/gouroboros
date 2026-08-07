@@ -145,8 +145,19 @@ type ChainTip interface {
 	BlockNumber() uint64
 	// VRFOutput returns the VRF output of the tip block
 	VRFOutput() []byte
-	// Density returns block density for the chain (blocks / slots) - for deep fork comparison
-	Density(fromSlot uint64) float64
+	// BlocksInWindow returns the number of blocks on this chain whose slots
+	// lie within the genesis window after forkSlot: a block at slot s counts
+	// iff s > forkSlot && s-forkSlot <= windowSlots (state the bound this
+	// subtraction-form way in implementations too — computing
+	// forkSlot+windowSlots can wrap near the uint64 maximum). This is the
+	// Ouroboros Genesis density metric: an integer block count within a
+	// fixed window of slots after the intersection, matching
+	// ouroboros-consensus's densityDisconnect, which clips each candidate
+	// suffix at the first slot after the genesis window
+	// (succ(intersection) + sgen) and counts the headers that remain.
+	// Selection may call this once per pairwise comparison; implementations
+	// over large chains should precompute or index rather than rescan.
+	BlocksInWindow(forkSlot, windowSlots uint64) uint64
 }
 
 // ChainSelector determines the preferred chain

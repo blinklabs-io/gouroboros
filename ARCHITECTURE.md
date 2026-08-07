@@ -295,7 +295,7 @@ Implements Ouroboros Praos consensus primitives.
 | consensus.go | Core interfaces (VRFSigner, KESSigner, ConsensusHeader, etc.) |
 | block.go | Block construction (BlockBuilder, OperationalCert, Header) |
 | leader.go | Leader eligibility checking |
-| selection.go | Block producer selection |
+| selection.go | Chain selection (Praos ordering + Genesis density comparison) |
 | threshold.go | Leadership threshold calculation |
 | validate.go | Block validation |
 | byron/ | Byron-era consensus validation |

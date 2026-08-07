@@ -31,9 +31,15 @@ The threshold formula is: `T = 2^512 * (1 - (1-f)^σ)` where `f` is the active s
 ### Chain Selection (`selection.go`)
 
 - `PraosChainSelector` - Implements Praos chain selection rules:
-  1. Prefer longer chains (higher block number)
-  2. For equal length, prefer lower VRF output (tiebreaker)
-  3. For deep forks (>k slots), compare chain density
+  1. Ordinary comparison (`Compare`): prefer longer chains (higher block
+     number); for equal length, prefer lower VRF output (tiebreaker)
+  2. Genesis density comparison (`CompareWithDensity`, syncing context):
+     the chain with more blocks within the genesis window (3k/f slots after
+     the candidates' common intersection) wins regardless of total length;
+     equal density falls through to the ordinary comparison
+  3. `ExceedsMaxRollback` (replaces `IsDeepFork`): a fork requiring rollback
+     of more than k *blocks* (not slots) is not adoptable (canonical
+     ForkTooDeep refusal)
 
 ### Block Validation (`validate.go`)
 
