@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -43,12 +42,6 @@ const (
 	// TPraos uses raw 64-byte VRF output, so we compare against 2^512
 	vrfOutputBitsTPraos = 512
 )
-
-// thresholdPrecision is the number of mantissa bits used for big.Float
-// arithmetic in the Taylor series computation. 1024 bits provides ~308
-// decimal digits of precision, far exceeding the ~77 digits needed for
-// a 256-bit threshold result.
-const thresholdPrecision = 1024
 
 // twoTo256 is 2^256, the upper bound for CPRAOS leader value comparison.
 // WARNING: These package-level big.Int values must not be mutated. Always use
@@ -188,83 +181,350 @@ func CertifiedNatThresholdWithMode(
 		return exact, nil
 	}
 
-	const prec = thresholdPrecision
+	// Compute 1-f EXACTLY as a rational *before* any conversion to
+	// big.Float. big.Rat arithmetic is arbitrary precision, so this
+	// subtraction never loses information, unlike converting f itself to
+	// a fixed-precision big.Float first (see the NOTE above
+	// oneMinusFPowerSigmaBounds for why that ordering is unsafe: a
+	// rational f that is extremely close to 1, such as
+	// (2^2000-1)/2^2000, rounds to *exactly* 1.0 at any working mantissa
+	// precision on the order of a few hundred to a couple thousand bits,
+	// making a subsequent 1-f computation silently produce 0 instead of
+	// the true tiny positive value).
+	oneMinusF := new(big.Rat).Sub(bigRatOne, activeSlotCoeff)
 
-	// Calculate σ = poolStake / totalStake as a big.Float
-	sigma := new(big.Float).SetPrec(prec).Quo(
-		new(big.Float).SetPrec(prec).SetUint64(poolStake),
-		new(big.Float).SetPrec(prec).SetUint64(totalStake),
-	)
+	// Exact-rational fast path: generalizes the sigma=1 case above. If
+	// sigma's reduced denominator m is small enough to root-check
+	// economically, and (1-f)'s numerator and denominator are each an
+	// exact m-th power, then (1-f)^sigma is itself an exact rational,
+	// computed here with no ln/exp approximation (and hence no
+	// floating-point error) at all. This is what resolves both of the
+	// reported near-integer cutoffs: f=3/4,sigma=1/2 (1-f=1/4, a perfect
+	// square) and f=(2^2000-1)/2^2000,sigma=1/2 (1-f=2^-2000, also a
+	// perfect square).
+	if exact, ok := exactOneMinusFPowerSigmaThreshold(
+		oneMinusF,
+		poolStake,
+		totalStake,
+		upperBound,
+	); ok {
+		return exact, nil
+	}
 
-	// Calculate (1-f)^σ using the approximation:
-	// (1-f)^σ ≈ exp(σ * ln(1-f))
-	//
-	// We use big.Float internally to avoid the O(n²) GCD normalization
-	// cost of big.Rat arithmetic over the many Taylor series terms
-	// involved (see lnOneMinusFloat/expFloat below).
-	f := new(big.Float).SetPrec(prec).SetRat(activeSlotCoeff)
-	lnVal := lnOneMinusFloat(f)
-	product := new(big.Float).SetPrec(prec).Mul(sigma, lnVal)
-	oneMinusFPowerSigma := expFloat(product)
-
-	// Calculate 1 - (1-f)^σ
-	one := new(big.Float).SetPrec(prec).SetInt64(1)
-	probability := new(big.Float).SetPrec(prec).Sub(
-		one,
-		oneMinusFPowerSigma,
-	)
-
-	// threshold = floor(probability * upperBound)
-	upperBoundFloat := new(big.Float).SetPrec(prec).SetInt(upperBound)
-	thresholdFloat := new(big.Float).SetPrec(prec).Mul(
-		probability,
-		upperBoundFloat,
-	)
-	threshold, _ := thresholdFloat.Int(nil)
-
-	return threshold, nil
+	// General case: (1-f)^sigma is generically irrational, so compute it
+	// via the range-reduced ln/exp pipeline with a rigorously bounded
+	// error, escalating precision if the resulting interval straddles an
+	// integer boundary closely enough that floor(probability*upperBound)
+	// cannot yet be determined unambiguously. This never runs the
+	// pipeline more than once per precision level (see
+	// oneMinusFPowerSigmaBounds), so the common, well-separated-from-any-
+	// integer-boundary case costs the same as a single ln+exp evaluation,
+	// same as before this fix.
+	targetBits := uint(seriesTargetBits)
+	for {
+		threshold, resolved := thresholdFromBoundedProbability(
+			oneMinusF,
+			poolStake,
+			totalStake,
+			upperBound,
+			targetBits,
+		)
+		if resolved || targetBits >= maxThresholdEscalationBits {
+			// If the escalation cap is reached without resolving,
+			// the true value is -- to within astronomically
+			// unlikely odds -- exactly on an integer boundary that
+			// the exact-rational fast path above could not detect
+			// (e.g. sigma's reduced denominator exceeded
+			// maxExactRootDegree). threshold is the tight lower
+			// bound at the highest precision tried, the same
+			// conservative "when genuinely unsure, don't over-
+			// count eligibility" direction used elsewhere in this
+			// function for degenerate input.
+			return threshold, nil
+		}
+		targetBits *= 2
+	}
 }
 
-// NOTE: lnOneMinusFloat and expFloat previously used a *fixed* 100-term
-// Taylor series applied directly to the raw arguments. That is only
-// accurate when the argument is small. ln(1-x) converges at rate O(x^n/n),
-// so as the active slot coefficient f (i.e. x here) approaches 1, 100
-// terms is nowhere near enough: differential testing against an
-// independent continued-fraction implementation of ln (mirroring
-// IntersectMBO/cardano-ledger's Cardano.Ledger.NonIntegral) showed the old
-// code's threshold diverging from the true value by several *percent* of
-// its magnitude for f around 0.9-0.99 (values used on some fast
-// devnets/testnets), not merely a boundary rounding sliver. That is a real
-// eligibility-decision bug, not just theoretical imprecision.
+// maxExactRootDegree bounds how large sigma's reduced denominator may be
+// before exactOneMinusFPowerSigma gives up and defers to the escalating-
+// precision interval computation instead. For a genuine stake ratio (whose
+// reduced denominator is typically on the order of totalStake, often up to
+// ~2^64), an exact m-th root essentially never exists, and root-checking it
+// anyway would be needlessly expensive (an Exp of a value with on the order
+// of totalStake's own bit length). This cap keeps the fast-path attempt
+// itself cheap to try-and-fail for realistic inputs, while remaining large
+// enough to cover any plausible small-denominator boundary case (such as
+// the sigma=1/2 cases this generalizes from the sigma=1 fast path).
+const maxExactRootDegree = 4096
+
+// maxThresholdEscalationBits caps how far thresholdFromBoundedProbability's
+// caller grows the working precision (targetBits) before giving up and
+// returning a best-effort result. This is far beyond what any plausible
+// protocol parameter (activeSlotCoeff, pool/total stake) would require to
+// resolve -- reaching it means the true mathematical value is, to within
+// astronomically unlikely odds, exactly on an integer boundary in a way the
+// exact-rational fast path could not detect.
+const maxThresholdEscalationBits = 1 << 20 // ~1,048,576 bits
+
+// intervalGuardBits is extra working precision reserved, on top of the
+// current targetBits accuracy level, to keep ordinary floating-point
+// rounding error (and the bounded amplification that expFloatAtTarget's
+// repeated squaring introduces for large-magnitude arguments) from eating
+// into the declared error bound in oneMinusFPowerSigmaBounds. Half of this
+// margin is spent on the series truncation target (see
+// oneMinusFPowerSigmaBounds); the other half absorbs everything else.
+const intervalGuardBits = 128
+
+// exactIntegerNthRoot returns (r, true) if n == r^k exactly for some
+// non-negative integer r, and (nil, false) otherwise. n must be
+// non-negative; k must be >= 1. Uses Newton's method to find
+// floor(n^(1/k)), then verifies the result exactly via integer
+// exponentiation -- this is exact-or-nothing, never an approximation.
+func exactIntegerNthRoot(n *big.Int, k int64) (*big.Int, bool) {
+	if n.Sign() < 0 {
+		return nil, false
+	}
+	if n.Sign() == 0 {
+		return big.NewInt(0), true
+	}
+	if k == 1 {
+		return new(big.Int).Set(n), true
+	}
+
+	kBig := big.NewInt(k)
+	kMinus1 := big.NewInt(k - 1)
+
+	// Initial over-estimate: x0 ~= 2^(ceil(bitlen(n)/k)+1).
+	guessBits := n.BitLen()/int(k) + 1
+	x := new(big.Int).Lsh(big.NewInt(1), uint(guessBits))
+
+	// Newton's method for the integer k-th root converges monotonically
+	// downward from an over-estimate to floor(n^(1/k)).
+	for {
+		xPow := new(big.Int).Exp(x, kMinus1, nil)
+		if xPow.Sign() == 0 {
+			x.Lsh(x, 1)
+			continue
+		}
+		t := new(big.Int).Quo(n, xPow)
+		next := new(big.Int).Add(new(big.Int).Mul(kMinus1, x), t)
+		next.Quo(next, kBig)
+		if next.Cmp(x) >= 0 {
+			break
+		}
+		x = next
+	}
+	// Correct any remaining +/-1 slack to land exactly on
+	// floor(n^(1/k)).
+	for new(big.Int).Exp(x, kBig, nil).Cmp(n) > 0 {
+		x.Sub(x, big.NewInt(1))
+	}
+	for {
+		next := new(big.Int).Add(x, big.NewInt(1))
+		if new(big.Int).Exp(next, kBig, nil).Cmp(n) > 0 {
+			break
+		}
+		x = next
+	}
+
+	if new(big.Int).Exp(x, kBig, nil).Cmp(n) == 0 {
+		return x, true
+	}
+	return nil, false
+}
+
+// exactOneMinusFPowerSigma attempts to compute (1-f)^sigma exactly as a
+// rational. sigma = poolStake/totalStake is reduced to lowest terms n/m
+// (m >= 2 is guaranteed by the caller, which handles sigma=1 -- i.e. m=1 --
+// separately). If oneMinusF's numerator and denominator (already coprime,
+// per big.Rat's invariant) are each an exact m-th power, then
+// (1-f)^sigma = (numRoot/denRoot)^n exactly, computed via integer
+// exponentiation with no floating-point approximation at all.
+func exactOneMinusFPowerSigma(
+	oneMinusF *big.Rat,
+	poolStake, totalStake uint64,
+) (*big.Rat, bool) {
+	g := new(big.Int).GCD(
+		nil,
+		nil,
+		new(big.Int).SetUint64(poolStake),
+		new(big.Int).SetUint64(totalStake),
+	)
+	n := new(big.Int).Quo(new(big.Int).SetUint64(poolStake), g)
+	m := new(big.Int).Quo(new(big.Int).SetUint64(totalStake), g)
+	if !m.IsUint64() || m.Uint64() > maxExactRootDegree {
+		return nil, false
+	}
+	mDeg := m.Int64()
+
+	numRoot, ok := exactIntegerNthRoot(oneMinusF.Num(), mDeg)
+	if !ok {
+		return nil, false
+	}
+	denRoot, ok := exactIntegerNthRoot(oneMinusF.Denom(), mDeg)
+	if !ok {
+		return nil, false
+	}
+
+	return new(big.Rat).SetFrac(
+		new(big.Int).Exp(numRoot, n, nil),
+		new(big.Int).Exp(denRoot, n, nil),
+	), true
+}
+
+// exactOneMinusFPowerSigmaThreshold attempts the exact-rational fast path
+// (see exactOneMinusFPowerSigma) and, if successful, returns the exact
+// integer threshold floor(upperBound * (1-(1-f)^sigma)) computed via
+// integer arithmetic alone.
+func exactOneMinusFPowerSigmaThreshold(
+	oneMinusF *big.Rat,
+	poolStake, totalStake uint64,
+	upperBound *big.Int,
+) (*big.Int, bool) {
+	powerExact, ok := exactOneMinusFPowerSigma(oneMinusF, poolStake, totalStake)
+	if !ok {
+		return nil, false
+	}
+	probabilityExact := new(big.Rat).Sub(bigRatOne, powerExact)
+	threshold := new(big.Int).Mul(upperBound, probabilityExact.Num())
+	threshold.Quo(threshold, probabilityExact.Denom())
+	return threshold, true
+}
+
+// thresholdFromBoundedProbability computes rigorous lower/upper bounds on
+// the true integer threshold floor(upperBound*(1-(1-f)^sigma)) at the given
+// targetBits of accuracy (see oneMinusFPowerSigmaBounds), and reports
+// whether they agree (in which case the shared value is provably the
+// correct threshold). If they disagree, the caller should retry at a
+// higher targetBits; the returned threshold in that case is the (not yet
+// proven correct) lower bound, useful only as a last-resort fallback if an
+// escalation cap is reached.
+func thresholdFromBoundedProbability(
+	oneMinusF *big.Rat,
+	poolStake, totalStake uint64,
+	upperBound *big.Int,
+	targetBits uint,
+) (threshold *big.Int, resolved bool) {
+	lo, hi := oneMinusFPowerSigmaBounds(
+		oneMinusF,
+		poolStake,
+		totalStake,
+		targetBits,
+	)
+	workPrec := targetBits + intervalGuardBits
+
+	one := new(big.Float).SetPrec(workPrec).SetInt64(1)
+	upperBoundFloat := new(big.Float).SetPrec(workPrec).SetInt(upperBound)
+
+	// probability = 1 - (1-f)^sigma: since (1-f)^sigma's upper bound
+	// (hi) corresponds to probability's *lower* bound and vice versa.
+	probLo := new(big.Float).SetPrec(workPrec).Sub(one, hi)
+	probHi := new(big.Float).SetPrec(workPrec).Sub(one, lo)
+
+	thresholdLoFloat := new(big.Float).SetPrec(workPrec).Mul(
+		probLo,
+		upperBoundFloat,
+	)
+	thresholdHiFloat := new(big.Float).SetPrec(workPrec).Mul(
+		probHi,
+		upperBoundFloat,
+	)
+
+	thresholdLo, _ := thresholdLoFloat.Int(nil)
+	thresholdHi, _ := thresholdHiFloat.Int(nil)
+
+	return thresholdLo, thresholdLo.Cmp(thresholdHi) == 0
+}
+
+// oneMinusFPowerSigmaBounds computes conservative lower/upper bounds
+// [lo, hi] on the true mathematical value of (1-f)^sigma = oneMinusF^sigma,
+// such that lo <= true value <= hi is guaranteed, accurate to
+// approximately targetBits bits (relative). It evaluates the range-reduced
+// ln/exp pipeline (lnPositiveFloatAtTarget/expFloatAtTarget) exactly once
+// at a working precision with generous guard bits, then widens the single
+// result by a matching conservative error bound -- it does not re-run the
+// pipeline twice, so this costs about the same as a single ln+exp
+// evaluation regardless of whether the bound ultimately needs escalating.
+//
+// Error budget: half of intervalGuardBits is spent sizing the ln/exp
+// series truncation error to targetBits+intervalGuardBits/2 (rather than
+// just targetBits), so that even after expFloatAtTarget's bounded squaring
+// amplification (at most a factor of 2^(k) for k on the order of the
+// input's exponent plus a small constant -- utterly negligible for any
+// plausible activeSlotCoeff/stake ratio, whose ln argument magnitude is at
+// most on the order of thousands, not exponential in targetBits), the
+// accumulated error stays below 2^-targetBits relative, which is the bound
+// this function declares to its caller.
+func oneMinusFPowerSigmaBounds(
+	oneMinusF *big.Rat,
+	poolStake, totalStake uint64,
+	targetBits uint,
+) (lo, hi *big.Float) {
+	workPrec := targetBits + intervalGuardBits
+	seriesTarget := targetBits + intervalGuardBits/2
+
+	y := new(big.Float).SetPrec(workPrec).SetRat(oneMinusF)
+	sigma := new(big.Float).SetPrec(workPrec).Quo(
+		new(big.Float).SetPrec(workPrec).SetUint64(poolStake),
+		new(big.Float).SetPrec(workPrec).SetUint64(totalStake),
+	)
+
+	lnVal := lnPositiveFloatAtTarget(y, seriesTarget)
+	product := new(big.Float).SetPrec(workPrec).Mul(sigma, lnVal)
+	result := expFloatAtTarget(product, seriesTarget)
+
+	// Conservative relative error bound: result * 2^-targetBits.
+	eps := new(big.Float).SetPrec(workPrec).SetMantExp(
+		new(big.Float).SetPrec(workPrec).SetInt64(1),
+		-int(targetBits),
+	)
+	epsAbs := new(big.Float).SetPrec(workPrec).Mul(result, eps)
+	epsAbs.Abs(epsAbs)
+
+	lo = new(big.Float).SetPrec(workPrec).Sub(result, epsAbs)
+	hi = new(big.Float).SetPrec(workPrec).Add(result, epsAbs)
+	return lo, hi
+}
+
+// NOTE: the ln/exp series below previously (before range-reduction was
+// introduced) used a *fixed* 100-term Taylor series applied directly to
+// the raw arguments. That is only accurate when the argument is small.
+// ln(1-x) converges at rate O(x^n/n), so as the active slot coefficient f
+// (i.e. x here) approaches 1, 100 terms is nowhere near enough:
+// differential testing against an independent continued-fraction
+// implementation of ln (mirroring IntersectMBO/cardano-ledger's
+// Cardano.Ledger.NonIntegral) showed the old code's threshold diverging
+// from the true value by several *percent* of its magnitude for f around
+// 0.9-0.99 (values used on some fast devnets/testnets), not merely a
+// boundary rounding sliver. That is a real eligibility-decision bug, not
+// just theoretical imprecision.
 //
 // The functions below fix this by range-reducing the argument first, so
 // the number of Taylor terms required is bounded independently of the
 // input's magnitude:
-//   - lnOneMinusFloat/lnPositiveFloat normalize the input to a mantissa in
-//     [0.5, 1) (via big.Float.MantExp) and use the fast-converging
+//   - lnPositiveFloatAtTarget normalizes the input to a mantissa in
+//     [0.5, 1) (via big.Float.MantExp) and uses the fast-converging
 //     artanh-based series ln(m) = 2*atanh((m-1)/(m+1)), whose ratio |z| is
 //     always <= 1/3 regardless of the original input.
-//   - expFloat halves the argument down (via MantExp) until it is tiny,
-//     applies the Taylor series there (where it converges very fast), then
-//     squares the result back up.
+//   - expFloatAtTarget halves the argument down (via MantExp) until it is
+//     tiny, applies the Taylor series there (where it converges very
+//     fast), then squares the result back up.
 //
-// numTermsForArtanhSeries/numTermsForExpSeries derive term counts that are
-// provably sufficient (with a safety margin) for seriesTargetBits of
-// accuracy, rather than relying on a hand-picked constant that happens to
-// work for "typical" inputs.
+// numTermsForArtanhSeriesAtTarget/numTermsForExpSeriesAtTarget derive term
+// counts that are provably sufficient (with a safety margin) for a given
+// targetBits of accuracy, rather than relying on a hand-picked constant
+// that happens to work for "typical" inputs. targetBits itself is not
+// fixed: CertifiedNatThresholdWithMode starts at seriesTargetBits (enough
+// for any input that isn't suspiciously close to an integer threshold
+// cutoff) and escalates it via oneMinusFPowerSigmaBounds for the rare
+// cases that need more.
 
-// seriesTargetBits is the number of bits of accuracy the ln/exp series
-// truncation error is sized against. This is deliberately *not* tied to
-// thresholdPrecision (the big.Float mantissa width used for all
-// arithmetic in this file): thresholdPrecision provides headroom against
-// ordinary rounding in the surrounding multiply/floor pipeline, whereas
-// the series only needs to be accurate enough that its own truncation
-// error can never change which integer floor(probability*upperBound)
-// rounds to. The largest upperBound in use is TPraos's 2^512, so an
-// absolute error in probability below 2^-512 suffices; the extra
-// guardBits below keeps a comfortable margin. Sizing terms off
-// thresholdPrecision (1024) instead of this would roughly double the
-// term count for no correctness benefit -- pure allocation/CPU cost.
+// seriesTargetBits is the initial number of bits of accuracy the ln/exp
+// series truncation error is sized against, before any escalation. The
+// largest upperBound in use is TPraos's 2^512, so an absolute error in
+// probability below 2^-512 suffices for the overwhelming majority of
+// inputs; the extra guardBits below keeps a comfortable margin.
 const seriesTargetBits = vrfOutputBitsTPraos + guardBits
 
 // guardBits is the safety margin (in bits) added on top of the minimum
@@ -276,31 +536,31 @@ const guardBits = 64
 // of at least 3^2=9 every two terms.
 const log2Of3 = 1.5849625007211562
 
-// numTermsForArtanhSeries returns a term count sufficient to compute
-// ln(m) for m in [0.5, 1) to seriesTargetBits bits of precision via
+// numTermsForArtanhSeriesAtTarget returns a term count sufficient to
+// compute ln(m) for m in [0.5, 1) to targetBits bits of precision via
 // ln(m) = 2*atanh((m-1)/(m+1)). Because m is always normalized to
-// [0.5, 1), |z| <= 1/3 always -- the term count needed is fixed,
-// independent of the original input's magnitude.
-func numTermsForArtanhSeries() int {
-	n := math.Ceil(float64(seriesTargetBits) / (2 * log2Of3))
+// [0.5, 1), |z| <= 1/3 always -- the term count needed depends only on
+// targetBits, not on the original input's magnitude.
+func numTermsForArtanhSeriesAtTarget(targetBits uint) int {
+	n := math.Ceil(float64(targetBits) / (2 * log2Of3))
 	return int(n) + 16
 }
 
 // expReductionBits controls how small |x/2^k| must be before applying the
-// Taylor series in expFloat. Reducing to a fixed small magnitude bounds the
-// number of Taylor terms needed to a value independent of the original
-// |x|, unlike applying the series directly to x (whose required term count
-// grows with |x|, and would silently lose precision for the large negative
-// exponents ln(1-f) produces as f approaches 1).
+// Taylor series in expFloatAtTarget. Reducing to a fixed small magnitude
+// bounds the number of Taylor terms needed to a value independent of the
+// original |x|, unlike applying the series directly to x (whose required
+// term count grows with |x|, and would silently lose precision for the
+// large negative exponents ln(1-f) produces as f approaches 1).
 const expReductionBits = 16
 
-// numTermsForExpSeries returns a term count sufficient to compute exp(y)
-// for |y| <= 2^-reductionBits to seriesTargetBits bits of precision. This
+// numTermsForExpSeriesAtTarget returns a term count sufficient to compute
+// exp(y) for |y| <= 2^-reductionBits to targetBits bits of precision. This
 // bound conservatively ignores the n! denominator (i.e. treats the series
 // as if it only decayed geometrically by 2^-reductionBits per term), so it
 // is an over-estimate, not a tight one.
-func numTermsForExpSeries(reductionBits int) int {
-	n := math.Ceil(float64(seriesTargetBits) / float64(reductionBits))
+func numTermsForExpSeriesAtTarget(targetBits uint, reductionBits int) int {
+	n := math.Ceil(float64(targetBits) / float64(reductionBits))
 	return int(n) + 16
 }
 
@@ -339,66 +599,48 @@ func lnNormalized(m *big.Float, terms int) *big.Float {
 	return new(big.Float).SetPrec(prec).Mul(two, atanhSeries(z, terms))
 }
 
-var (
-	ln2Once   sync.Once
-	ln2Cached *big.Float
-)
-
-// ln2Float returns ln(2) at the requested precision, computed once (at
-// thresholdPrecision) and cached; if a higher precision is requested it is
-// recomputed fresh rather than serving a truncated cached value.
-func ln2Float(prec uint) *big.Float {
-	if prec <= thresholdPrecision {
-		ln2Once.Do(func() {
-			ln2Cached = computeLn2(thresholdPrecision)
-		})
-		return new(big.Float).SetPrec(prec).Set(ln2Cached)
-	}
-	return computeLn2(prec)
-}
-
-// computeLn2 computes ln(2) = -ln(0.5) using lnNormalized, since 0.5 is
-// already in the required [0.5, 1) range.
-func computeLn2(prec uint) *big.Float {
+// computeLn2AtTarget computes ln(2) = -ln(0.5) using lnNormalized (0.5 is
+// already in the required [0.5, 1) range), to targetBits bits of series
+// accuracy, for lnPositiveFloatAtTarget's callers. It is deliberately not
+// cached: it is only invoked a handful of times per
+// CertifiedNatThresholdWithMode call (at most once per precision-
+// escalation retry), so the cost of recomputing it at whatever targetBits
+// the caller currently needs is negligible next to caching it at a single
+// fixed precision that later callers might need to exceed anyway.
+func computeLn2AtTarget(prec, targetBits uint) *big.Float {
 	half := new(big.Float).SetPrec(prec).SetFloat64(0.5)
-	terms := numTermsForArtanhSeries()
+	terms := numTermsForArtanhSeriesAtTarget(targetBits)
 	lnHalf := lnNormalized(half, terms)
 	return new(big.Float).SetPrec(prec).Neg(lnHalf)
 }
 
-// lnPositiveFloat computes ln(y) for y > 0, by normalizing y to a mantissa
-// m in [0.5, 1) with y = m * 2^exp (via big.Float.MantExp) and computing
-// ln(y) = ln(m) + exp*ln(2). This bounds the series' required term count
-// independently of how large or small y is.
-func lnPositiveFloat(y *big.Float) *big.Float {
+// lnPositiveFloatAtTarget computes ln(y) for y > 0, by normalizing y to a
+// mantissa m in [0.5, 1) with y = m * 2^exp (via big.Float.MantExp) and
+// computing ln(y) = ln(m) + exp*ln(2), to targetBits bits of series
+// accuracy. This bounds the series' required term count independently of
+// how large or small y is, and independently of targetBits (used by the
+// escalating-precision interval computation in oneMinusFPowerSigmaBounds,
+// which may need far more accuracy than the baseline seriesTargetBits to
+// resolve values that land extremely close to an integer cutoff).
+func lnPositiveFloatAtTarget(y *big.Float, targetBits uint) *big.Float {
 	prec := y.Prec()
 
 	mant := new(big.Float).SetPrec(prec)
 	exp := y.MantExp(mant) // y = mant * 2^exp, 0.5 <= mant < 1
 
-	terms := numTermsForArtanhSeries()
+	terms := numTermsForArtanhSeriesAtTarget(targetBits)
 	lnMant := lnNormalized(mant, terms)
 
 	if exp == 0 {
 		return lnMant
 	}
 
-	ln2 := ln2Float(prec)
+	ln2 := computeLn2AtTarget(prec, targetBits)
 	expTerm := new(big.Float).SetPrec(prec).Mul(
 		new(big.Float).SetPrec(prec).SetInt64(int64(exp)),
 		ln2,
 	)
 	return new(big.Float).SetPrec(prec).Add(lnMant, expTerm)
-}
-
-// lnOneMinusFloat computes ln(1-x) for 0 < x < 1 by delegating to
-// lnPositiveFloat on y = 1-x. See the NOTE above this section for why a
-// direct fixed-term power series in x is unsafe as x -> 1.
-func lnOneMinusFloat(x *big.Float) *big.Float {
-	prec := x.Prec()
-	one := new(big.Float).SetPrec(prec).SetInt64(1)
-	y := new(big.Float).SetPrec(prec).Sub(one, x)
-	return lnPositiveFloat(y)
 }
 
 // taylorExpSeries computes exp(y) = 1 + y + y^2/2! + y^3/3! + ... for |y|
@@ -420,13 +662,13 @@ func taylorExpSeries(y *big.Float, terms int) *big.Float {
 	return result
 }
 
-// expFloat computes exp(x) for a big.Float x by halving x down (via
-// big.Float.MantExp) until it is small enough for the Taylor series to
-// converge within a bounded number of terms, then squaring the result
-// back up. See the NOTE above this section for why applying the series
-// directly to x is unsafe for the large-magnitude arguments that arise
-// from ln(1-f) as f -> 1.
-func expFloat(x *big.Float) *big.Float {
+// expFloatAtTarget computes exp(x) for a big.Float x by halving x down
+// (via big.Float.MantExp) until it is small enough for the Taylor series
+// to converge within a bounded number of terms (sufficient for targetBits
+// bits of accuracy), then squaring the result back up. See the NOTE above
+// this section for why applying the series directly to x is unsafe for
+// the large-magnitude arguments that arise from ln(1-f) as f -> 1.
+func expFloatAtTarget(x *big.Float, targetBits uint) *big.Float {
 	prec := x.Prec()
 
 	if x.Sign() == 0 {
@@ -445,7 +687,7 @@ func expFloat(x *big.Float) *big.Float {
 	// was already smaller).
 	y := new(big.Float).SetPrec(prec).SetMantExp(x, -k)
 
-	terms := numTermsForExpSeries(expReductionBits)
+	terms := numTermsForExpSeriesAtTarget(targetBits, expReductionBits)
 	result := taylorExpSeries(y, terms)
 
 	for i := 0; i < k; i++ {

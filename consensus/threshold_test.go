@@ -23,20 +23,27 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+// testPrec is the big.Float mantissa precision used by these test helpers.
+// It matches the working precision oneMinusFPowerSigmaBounds uses at the
+// baseline (unescalated) seriesTargetBits target.
+const testPrec = seriesTargetBits + intervalGuardBits
+
 // lnOneMinus computes ln(1-x) for 0 < x < 1 using Taylor series.
-// Test helper wrapping lnOneMinusFloat with big.Rat conversion.
+// Test helper wrapping lnPositiveFloatAtTarget with big.Rat conversion.
 func lnOneMinus(x *big.Rat) *big.Rat {
-	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
-	result := lnOneMinusFloat(xf)
+	one := new(big.Float).SetPrec(testPrec).SetInt64(1)
+	xf := new(big.Float).SetPrec(testPrec).SetRat(x)
+	y := new(big.Float).SetPrec(testPrec).Sub(one, xf)
+	result := lnPositiveFloatAtTarget(y, seriesTargetBits)
 	rat, _ := result.Rat(nil)
 	return rat
 }
 
 // expRational computes exp(x) for a rational x using Taylor series.
-// Test helper wrapping expFloat with big.Rat conversion.
+// Test helper wrapping expFloatAtTarget with big.Rat conversion.
 func expRational(x *big.Rat) *big.Rat {
-	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
-	result := expFloat(xf)
+	xf := new(big.Float).SetPrec(testPrec).SetRat(x)
+	result := expFloatAtTarget(xf, seriesTargetBits)
 	rat, _ := result.Rat(nil)
 	return rat
 }
@@ -1267,6 +1274,127 @@ func TestCertifiedNatThresholdFullStakeExactHalf(t *testing.T) {
 			require.Equal(t, 0, threshold.Cmp(expected),
 				"full-stake f=1/2 threshold must be exactly "+
 					"upperBound/2: got %s, want %s",
+				threshold.String(), expected.String())
+		})
+	}
+}
+
+// =============================================================================
+// Maintainer-reported partial-stake precision regressions (PR #1963 review)
+// =============================================================================
+
+// TestCertifiedNatThresholdPartialStakeExactCutoff reproduces the first
+// blocking review finding: f=3/4 with sigma=1/2 (e.g. poolStake=1,
+// totalStake=2) has (1-f)^sigma = (1/4)^(1/2) = 1/2 exactly, so the
+// mathematically exact threshold is precisely 2^(N-1) for an N-bit upper
+// bound. Feeding an *approximate* big.Float into the final floor()
+// previously produced 2^(N-1)-1 instead -- one integer below the exact
+// cutoff -- which, combined with the strict "<" eligibility comparison,
+// incorrectly rejected the valid leader value 2^(N-1)-1.
+func TestCertifiedNatThresholdPartialStakeExactCutoff(t *testing.T) {
+	f := big.NewRat(3, 4)
+
+	cases := []struct {
+		name       string
+		mode       ConsensusMode
+		bits       int
+		upperBound *big.Int
+	}{
+		{"CPraos", ConsensusModeCPraos, vrfOutputBitsCPraos, twoTo256},
+		{"TPraos", ConsensusModeTPraos, vrfOutputBitsTPraos, twoTo512},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(1, 2, f, c.mode)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Lsh(big.NewInt(1), uint(c.bits-1))
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"f=3/4,sigma=1/2 threshold must be exactly 2^(N-1): "+
+					"got %s, want %s",
+				threshold.String(), expected.String())
+
+			// For TPraos, IsVRFOutputBelowThresholdWithMode compares the
+			// raw bytes directly, so the exact boundary values can be
+			// driven through the public API. For CPraos, the public API
+			// hashes the input first (BLAKE2b-256 with "L" prefix), so
+			// instead replicate the same comparison the implementation
+			// performs internally after hashing
+			// (VRFOutputToInt(leaderValue).Cmp(threshold) < 0), using the
+			// exact boundary values as if they were already the
+			// post-hash leader value.
+			checkBelow := func(v *big.Int) bool {
+				buf := make([]byte, c.bits/8)
+				v.FillBytes(buf)
+				if c.mode == ConsensusModeTPraos {
+					below, err := IsVRFOutputBelowThresholdWithMode(
+						buf,
+						threshold,
+						c.mode,
+					)
+					require.NoError(t, err)
+					return below
+				}
+				return VRFOutputToInt(buf).Cmp(threshold) < 0
+			}
+
+			// The leader value immediately below the exact cutoff
+			// (2^(N-1)-1) must be classified eligible: it is strictly
+			// less than the threshold.
+			belowCutoff := new(big.Int).Sub(expected, big.NewInt(1))
+			require.True(t, checkBelow(belowCutoff),
+				"leader value 2^(N-1)-1 must be eligible (below "+
+					"the exact threshold 2^(N-1))")
+
+			// The cutoff value itself must NOT be eligible.
+			require.False(t, checkBelow(new(big.Int).Set(expected)),
+				"leader value exactly at the cutoff must not be eligible")
+		})
+	}
+}
+
+// TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss reproduces the
+// second blocking review finding: f=(2^2000-1)/2^2000 is a valid
+// probability strictly less than 1, but is close enough to 1 that
+// converting it directly to a big.Float at the (fixed, comparatively low)
+// working precision used elsewhere in this file rounds it to *exactly*
+// 1.0, before any 1-f subtraction ever happens. That silently produces a
+// materially wrong (too-small) threshold instead of the correct
+// near-upperBound value, and the domain guard (which checks the original
+// exact *big.Rat) does not catch it, since the *rational* value is validly
+// < 1 -- only its lossy float rounding is not.
+//
+// With sigma=1/2, 1-f = 2^-2000 is a perfect square, so
+// (1-f)^sigma = 2^-1000 exactly, giving an exact mathematical threshold of
+// upperBound*(1-2^-1000) = upperBound - 2^(N-1000). Since N (256 or 512)
+// is far smaller than 1000, that fractional term is far less than 1, so
+// floor(exact threshold) = upperBound-1 for both consensus modes.
+func TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss(t *testing.T) {
+	denomExp := int64(2000)
+	den := new(big.Int).Exp(big.NewInt(2), big.NewInt(denomExp), nil)
+	num := new(big.Int).Sub(den, big.NewInt(1))
+	f := new(big.Rat).SetFrac(num, den)
+
+	// sigma = 1/2 via poolStake=1, totalStake=2.
+	cases := []struct {
+		name       string
+		mode       ConsensusMode
+		upperBound *big.Int
+	}{
+		{"CPraos", ConsensusModeCPraos, twoTo256},
+		{"TPraos", ConsensusModeTPraos, twoTo512},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(1, 2, f, c.mode)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Sub(c.upperBound, big.NewInt(1))
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"f=(2^2000-1)/2^2000,sigma=1/2 threshold must be "+
+					"exactly upperBound-1: got %s, want %s",
 				threshold.String(), expected.String())
 		})
 	}

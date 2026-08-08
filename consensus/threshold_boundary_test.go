@@ -37,9 +37,25 @@ import (
 // Reference: https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/non-integral/src/Cardano/Ledger/NonIntegral.hs
 // =============================================================================
 
-// refPrec is higher than thresholdPrecision so that any residual
-// approximation error on either side of the differential comparison is
-// visible rather than accidentally hidden by matching precision.
+// refPrec is higher than the working precision production code normally
+// uses (seriesTargetBits+intervalGuardBits at the baseline, unescalated
+// precision level) so that any residual approximation error on either
+// side of the differential comparison is visible rather than accidentally
+// hidden by matching precision.
+//
+// NOTE: this reference implementation is *not* robust enough to raise
+// refPrec far enough to correctly represent activeSlotCoeff values that
+// are extremely close to 1 (e.g. f=(2^2000-1)/2^2000, used by
+// TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss in
+// threshold_test.go): doing so requires refPrec on the order of 2000+
+// mantissa bits, at which point refFindE/refLncf's own accumulated
+// rounding pushes exact-rational cutoffs (like the sigma=1, f=0.5 case
+// below) across their integer boundary in the opposite direction --
+// i.e. this reference implementation has exactly the same class of
+// precision sensitivity that this file's regression tests exist to catch
+// in the *production* code, just triggered at a different threshold. The
+// near-one denominator case is therefore exercised only via the
+// production-only exact-value assertions in threshold_test.go, not here.
 const refPrec = 2048
 
 // refSeriesTerms bounds the reference continued-fraction/Taylor loops.
@@ -398,6 +414,13 @@ func TestLeaderEligibilityBoundaryAgainstIndependentReference(t *testing.T) {
 		// the off-by-one flooring bug fixed for
 		// CertifiedNatThresholdWithMode's full-stake handling.
 		{"f=0.5,sigma=1(full-stake-exact)", big.NewRat(1, 2), 1, 1},
+		// Partial-stake exact-rational cutoff (PR #1963 review, blocking
+		// finding 1): f=3/4, sigma=1/2 makes (1-f)^sigma=(1/4)^(1/2)=1/2
+		// exactly, so the true cutoff lands exactly on an integer
+		// (2^(N-1)). Feeding an approximate big.Float into the final
+		// floor() previously produced 2^(N-1)-1 instead, incorrectly
+		// rejecting the valid leader value 2^(N-1)-1.
+		{"f=0.75,sigma=0.5(partial-stake-exact)", big.NewRat(3, 4), 1, 2},
 	}
 
 	modes := []struct {
