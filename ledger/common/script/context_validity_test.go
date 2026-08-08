@@ -19,11 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
-	"github.com/blinklabs-io/gouroboros/ledger/babbage"
-	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -93,105 +90,59 @@ func expectedValidityRange(
 	)
 }
 
-func validityTransaction(
+func requireValidityRange(
 	t *testing.T,
-	version string,
-	start *uint64,
-	end *uint64,
-) lcommon.Transaction {
+	fixture mockledger.ValidityIntervalFixture,
+	actual data.PlutusData,
+) {
 	t.Helper()
-	body := make(map[uint]uint64, 2)
-	if start != nil {
-		body[8] = *start
-	}
-	if end != nil {
-		body[3] = *end
-	}
-	bodyCbor, err := cbor.Encode(body)
-	require.NoError(t, err)
-	witnessCbor, err := cbor.Encode(map[uint]any{})
-	require.NoError(t, err)
-	txCbor, err := cbor.Encode([]any{
-		cbor.RawMessage(bodyCbor),
-		cbor.RawMessage(witnessCbor),
-		true,
-		nil,
-	})
-	require.NoError(t, err)
-	switch version {
-	case "V1":
-		tx, err := alonzo.NewAlonzoTransactionFromCbor(txCbor)
-		require.NoError(t, err)
-		return tx
-	case "V2":
-		tx, err := babbage.NewBabbageTransactionFromCbor(txCbor)
-		require.NoError(t, err)
-		return tx
-	default:
-		t.Fatalf("unsupported Plutus version %q", version)
-		return nil
-	}
+	expected := expectedValidityRange(fixture.StartSlot, fixture.EndSlot)
+	require.True(
+		t,
+		expected.Equal(actual),
+		"validity range mismatch:\n got: %s\nwant: %s",
+		actual,
+		expected,
+	)
 }
 
 func TestValidityRangeMatchesCardanoLedger(t *testing.T) {
-	zero := uint64(0)
-	five := uint64(5)
-	ten := uint64(10)
-	testCases := []struct {
-		name  string
-		start *uint64
-		end   *uint64
-	}{
-		{name: "unbounded"},
-		{name: "upper only", end: &ten},
-		{name: "lower only", start: &five},
-		{name: "both bounds", start: &five, end: &ten},
-		{name: "explicit zero lower", start: &zero, end: &ten},
-		{name: "explicit zero upper", end: &zero},
-		{name: "both explicit zero", start: &zero, end: &zero},
-	}
-	for _, version := range []string{"V1", "V2"} {
-		t.Run(version, func(t *testing.T) {
-			for _, testCase := range testCases {
-				t.Run(testCase.name, func(t *testing.T) {
-					tx := validityTransaction(
-						t,
-						version,
-						testCase.start,
-						testCase.end,
-					)
-					var actual data.PlutusData
-					switch version {
-					case "V1":
-						info, err := script.NewTxInfoV1FromTransaction(
-							validitySlotState{},
-							tx,
-							nil,
-						)
-						require.NoError(t, err)
-						actual = info.ValidRange.ToPlutusData()
-					case "V2":
-						info, err := script.NewTxInfoV2FromTransaction(
-							validitySlotState{},
-							tx,
-							nil,
-						)
-						require.NoError(t, err)
-						actual = info.ValidRange.ToPlutusData()
-					}
-					expected := expectedValidityRange(
-						testCase.start,
-						testCase.end,
-					)
-					require.True(
-						t,
-						expected.Equal(actual),
-						"validity range mismatch:\n got: %s\nwant: %s",
-						actual,
-						expected,
-					)
-				})
-			}
-		})
-	}
+	t.Run("V1", func(t *testing.T) {
+		for _, fixture := range mockledger.ValidityIntervalFixtures() {
+			t.Run(fixture.Name, func(t *testing.T) {
+				tx, err := fixture.AlonzoTransaction()
+				require.NoError(t, err)
+				info, err := script.NewTxInfoV1FromTransaction(
+					validitySlotState{},
+					tx,
+					nil,
+				)
+				require.NoError(t, err)
+				requireValidityRange(
+					t,
+					fixture,
+					info.ValidRange.ToPlutusData(),
+				)
+			})
+		}
+	})
+	t.Run("V2", func(t *testing.T) {
+		for _, fixture := range mockledger.ValidityIntervalFixtures() {
+			t.Run(fixture.Name, func(t *testing.T) {
+				tx, err := fixture.BabbageTransaction()
+				require.NoError(t, err)
+				info, err := script.NewTxInfoV2FromTransaction(
+					validitySlotState{},
+					tx,
+					nil,
+				)
+				require.NoError(t, err)
+				requireValidityRange(
+					t,
+					fixture,
+					info.ValidRange.ToPlutusData(),
+				)
+			})
+		}
+	})
 }
