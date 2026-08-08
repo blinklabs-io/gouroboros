@@ -1295,13 +1295,12 @@ func TestCertifiedNatThresholdPartialStakeExactCutoff(t *testing.T) {
 	f := big.NewRat(3, 4)
 
 	cases := []struct {
-		name       string
-		mode       ConsensusMode
-		bits       int
-		upperBound *big.Int
+		name string
+		mode ConsensusMode
+		bits int
 	}{
-		{"CPraos", ConsensusModeCPraos, vrfOutputBitsCPraos, twoTo256},
-		{"TPraos", ConsensusModeTPraos, vrfOutputBitsTPraos, twoTo512},
+		{"CPraos", ConsensusModeCPraos, vrfOutputBitsCPraos},
+		{"TPraos", ConsensusModeTPraos, vrfOutputBitsTPraos},
 	}
 
 	for _, c := range cases {
@@ -1396,6 +1395,95 @@ func TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss(t *testing.T) {
 				"f=(2^2000-1)/2^2000,sigma=1/2 threshold must be "+
 					"exactly upperBound-1: got %s, want %s",
 				threshold.String(), expected.String())
+		})
+	}
+}
+
+// TestCertifiedNatThresholdSigmaDenominatorAboveExactRootCap reproduces a
+// cubic-dev-ai review finding on this PR: exactOneMinusFPowerSigma used to
+// bail out immediately (before even attempting a root check) whenever
+// sigma's reduced denominator m exceeded a *fixed* constant
+// (maxExactRootDegree, 4096), deferring to the escalating-precision
+// interval computation in thresholdFromBoundedProbability instead. For an
+// exact-rational cutoff whose true value lands precisely on an integer
+// boundary, that interval never actually converges no matter how much
+// precision is thrown at it (lo approaches the boundary from below, hi
+// from above, forever straddling it), so the loop always ran all the way
+// to maxThresholdEscalationBits and returned its unproven lower bound --
+// silently wrong by exactly one, rejecting the valid leader value
+// immediately below the true cutoff.
+//
+// f=1-2^-4097 with sigma=1/4097 (poolStake=1, totalStake=4097) triggers
+// exactly this: sigma's reduced denominator is 4097, one past the old
+// fixed cap. 1-f = 2^-4097 is nonetheless a trivially-detectable perfect
+// 4097th power (numerator 1 = 1^4097, denominator 2^4097 = (2^1)^4097), so
+// (1-f)^sigma = (1/2)^1 = 1/2 exactly, and the mathematically exact
+// threshold is precisely upperBound/2 -- the same reduction as the
+// existing full-stake and partial-stake f=1/2-equivalent tests.
+//
+// The fix removes the fixed cutoff entirely: exactIntegerNthRoot is now a
+// complete decision procedure for any root degree, however large, so this
+// case (and any other sigma denominator, no matter how it is chosen) is
+// caught by the exact-rational fast path before the escalation loop is
+// ever consulted.
+func TestCertifiedNatThresholdSigmaDenominatorAboveExactRootCap(t *testing.T) {
+	den := new(big.Int).Exp(big.NewInt(2), big.NewInt(4097), nil)
+	num := new(big.Int).Sub(den, big.NewInt(1))
+	f := new(big.Rat).SetFrac(num, den)
+
+	// sigma = 1/4097 via poolStake=1, totalStake=4097. 4097 is one past
+	// the old maxExactRootDegree=4096 cap.
+	cases := []struct {
+		name string
+		mode ConsensusMode
+		bits int
+	}{
+		{"CPraos", ConsensusModeCPraos, vrfOutputBitsCPraos},
+		{"TPraos", ConsensusModeTPraos, vrfOutputBitsTPraos},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(
+				1,
+				4097,
+				f,
+				c.mode,
+			)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Lsh(big.NewInt(1), uint(c.bits-1))
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"f=1-2^-4097,sigma=1/4097 threshold must be exactly "+
+					"upperBound/2: got %s, want %s",
+				threshold.String(), expected.String())
+
+			// Same eligibility-boundary check as
+			// TestCertifiedNatThresholdPartialStakeExactCutoff: replicate
+			// the post-hash comparison directly for CPraos, since the
+			// public API hashes its input first.
+			checkBelow := func(v *big.Int) bool {
+				buf := make([]byte, c.bits/8)
+				v.FillBytes(buf)
+				if c.mode == ConsensusModeTPraos {
+					below, err := IsVRFOutputBelowThresholdWithMode(
+						buf,
+						threshold,
+						c.mode,
+					)
+					require.NoError(t, err)
+					return below
+				}
+				return VRFOutputToInt(buf).Cmp(threshold) < 0
+			}
+
+			belowCutoff := new(big.Int).Sub(expected, big.NewInt(1))
+			require.True(t, checkBelow(belowCutoff),
+				"leader value immediately below the exact cutoff "+
+					"upperBound/2 must be eligible")
+			require.False(t, checkBelow(new(big.Int).Set(expected)),
+				"leader value exactly at the cutoff upperBound/2 "+
+					"must not be eligible")
 		})
 	}
 }

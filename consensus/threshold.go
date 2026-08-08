@@ -62,6 +62,12 @@ var twoTo512 = new(
 // WARNING: This package-level big.Rat value must not be mutated.
 var bigRatOne = big.NewRat(1, 1)
 
+// bigIntOne is the integer value 1, used by exactIntegerNthRoot to detect
+// the trivial (and, for large root degrees, only tractable) case of a
+// perfect k-th root.
+// WARNING: This package-level big.Int value must not be mutated.
+var bigIntOne = big.NewInt(1)
+
 // CertifiedNatThreshold computes the leadership threshold for a pool using CPRAOS.
 // For TPraos compatibility, use CertifiedNatThresholdWithMode.
 //
@@ -230,41 +236,36 @@ func CertifiedNatThresholdWithMode(
 			targetBits,
 		)
 		if resolved || targetBits >= maxThresholdEscalationBits {
-			// If the escalation cap is reached without resolving,
-			// the true value is -- to within astronomically
-			// unlikely odds -- exactly on an integer boundary that
-			// the exact-rational fast path above could not detect
-			// (e.g. sigma's reduced denominator exceeded
-			// maxExactRootDegree). threshold is the tight lower
-			// bound at the highest precision tried, the same
-			// conservative "when genuinely unsure, don't over-
-			// count eligibility" direction used elsewhere in this
-			// function for degenerate input.
+			// Reaching the escalation cap without resolving means the
+			// true value is, to within astronomically unlikely odds,
+			// exactly on an integer boundary -- but unlike a generic
+			// irrational-looking value, an *exact rational* cutoff is
+			// always caught by the exactOneMinusFPowerSigmaThreshold
+			// fast path above, which is a complete decision procedure
+			// with no cap on sigma's reduced denominator (see
+			// exactIntegerNthRoot). So this branch is expected to be
+			// unreachable for a genuine exact-rational cutoff;
+			// threshold is the tight lower bound at the highest
+			// precision tried, the same conservative "when genuinely
+			// unsure, don't over-count eligibility" direction used
+			// elsewhere in this function for degenerate input, kept
+			// only as a last-resort fallback for the floating-point
+			// pipeline itself.
 			return threshold, nil
 		}
 		targetBits *= 2
 	}
 }
 
-// maxExactRootDegree bounds how large sigma's reduced denominator may be
-// before exactOneMinusFPowerSigma gives up and defers to the escalating-
-// precision interval computation instead. For a genuine stake ratio (whose
-// reduced denominator is typically on the order of totalStake, often up to
-// ~2^64), an exact m-th root essentially never exists, and root-checking it
-// anyway would be needlessly expensive (an Exp of a value with on the order
-// of totalStake's own bit length). This cap keeps the fast-path attempt
-// itself cheap to try-and-fail for realistic inputs, while remaining large
-// enough to cover any plausible small-denominator boundary case (such as
-// the sigma=1/2 cases this generalizes from the sigma=1 fast path).
-const maxExactRootDegree = 4096
-
 // maxThresholdEscalationBits caps how far thresholdFromBoundedProbability's
 // caller grows the working precision (targetBits) before giving up and
 // returning a best-effort result. This is far beyond what any plausible
 // protocol parameter (activeSlotCoeff, pool/total stake) would require to
-// resolve -- reaching it means the true mathematical value is, to within
-// astronomically unlikely odds, exactly on an integer boundary in a way the
-// exact-rational fast path could not detect.
+// resolve for a genuinely irrational (1-f)^sigma; an *exact rational*
+// cutoff is always caught first by exactOneMinusFPowerSigmaThreshold (a
+// complete decision procedure with no cap on sigma's reduced denominator),
+// so reaching this cap without resolving is expected to be unreachable in
+// practice.
 const maxThresholdEscalationBits = 1 << 20 // ~1,048,576 bits
 
 // intervalGuardBits is extra working precision reserved, on top of the
@@ -278,25 +279,57 @@ const intervalGuardBits = 128
 
 // exactIntegerNthRoot returns (r, true) if n == r^k exactly for some
 // non-negative integer r, and (nil, false) otherwise. n must be
-// non-negative; k must be >= 1. Uses Newton's method to find
-// floor(n^(1/k)), then verifies the result exactly via integer
-// exponentiation -- this is exact-or-nothing, never an approximation.
-func exactIntegerNthRoot(n *big.Int, k int64) (*big.Int, bool) {
+// non-negative; k must be a positive integer.
+//
+// This is exact-or-nothing, never an approximation, and -- critically -- it
+// is a *complete* decision procedure with no cap on k: for any k, however
+// large, it either proves no such r exists or finds r via Newton's method
+// and verifies it exactly via integer exponentiation. There is deliberately
+// no fixed cutoff on k here: k is, in this package's only caller, sigma's
+// reduced denominator, which is fully attacker/operator-controlled within
+// the uint64 stake range, so any fixed cap can always be defeated by
+// choosing a denominator one past it (see the review discussion this
+// resolves at exactOneMinusFPowerSigma). Instead:
+//
+//   - r == 1 is checked directly: 1^k == 1 for any k, however large, so
+//     this never needs Newton's method or a large exponentiation.
+//   - For r >= 2, a root can only exist if k < n.BitLen(): since
+//     2^k >= 2^n.BitLen() > n whenever k >= n.BitLen(), even the smallest
+//     non-trivial root already overshoots n. This *proves* non-existence
+//     for large k without computing anything large, rather than merely
+//     deferring the question to a slower path.
+//
+// Once past these checks, k is provably smaller than n.BitLen() (already a
+// materialized int), so it fits safely in an int64 for the Newton iteration
+// below, and every intermediate value Newton's method computes stays
+// within a small constant factor of n's own bit length -- the cost of this
+// function is bounded by n's size alone, never by k's magnitude.
+func exactIntegerNthRoot(n *big.Int, k *big.Int) (*big.Int, bool) {
 	if n.Sign() < 0 {
 		return nil, false
 	}
 	if n.Sign() == 0 {
 		return big.NewInt(0), true
 	}
-	if k == 1 {
+	if k.Sign() <= 0 {
+		return nil, false
+	}
+	if k.Cmp(bigIntOne) == 0 {
 		return new(big.Int).Set(n), true
 	}
+	if n.Cmp(bigIntOne) == 0 {
+		return big.NewInt(1), true
+	}
+	if k.Cmp(big.NewInt(int64(n.BitLen()))) >= 0 {
+		return nil, false
+	}
 
-	kBig := big.NewInt(k)
-	kMinus1 := big.NewInt(k - 1)
+	kInt := k.Int64()
+	kBig := big.NewInt(kInt)
+	kMinus1 := big.NewInt(kInt - 1)
 
 	// Initial over-estimate: x0 ~= 2^(ceil(bitlen(n)/k)+1).
-	guessBits := n.BitLen()/int(k) + 1
+	guessBits := n.BitLen()/int(kInt) + 1
 	x := new(big.Int).Lsh(big.NewInt(1), uint(guessBits))
 
 	// Newton's method for the integer k-th root converges monotonically
@@ -341,6 +374,17 @@ func exactIntegerNthRoot(n *big.Int, k int64) (*big.Int, bool) {
 // per big.Rat's invariant) are each an exact m-th power, then
 // (1-f)^sigma = (numRoot/denRoot)^n exactly, computed via integer
 // exponentiation with no floating-point approximation at all.
+//
+// There is no cap on m here: m is sigma's reduced denominator, fully
+// attacker/operator-controlled within the uint64 stake range (poolStake and
+// totalStake are both caller-supplied uint64s), so any fixed cap on it can
+// always be defeated by constructing a stake ratio whose reduced
+// denominator lands one past the cap -- exactIntegerNthRoot is a complete
+// decision procedure for exactly this reason (see its doc comment). Since
+// sigma < 1 strictly at this point in the pipeline (the sigma == 1 case is
+// handled separately by the caller), n < m always, which in turn bounds the
+// final Exp(root, n) calls below to the same order of magnitude as
+// oneMinusF's own bit length whenever a non-trivial (>= 2) root is found.
 func exactOneMinusFPowerSigma(
 	oneMinusF *big.Rat,
 	poolStake, totalStake uint64,
@@ -353,16 +397,12 @@ func exactOneMinusFPowerSigma(
 	)
 	n := new(big.Int).Quo(new(big.Int).SetUint64(poolStake), g)
 	m := new(big.Int).Quo(new(big.Int).SetUint64(totalStake), g)
-	if !m.IsUint64() || m.Uint64() > maxExactRootDegree {
-		return nil, false
-	}
-	mDeg := m.Int64()
 
-	numRoot, ok := exactIntegerNthRoot(oneMinusF.Num(), mDeg)
+	numRoot, ok := exactIntegerNthRoot(oneMinusF.Num(), m)
 	if !ok {
 		return nil, false
 	}
-	denRoot, ok := exactIntegerNthRoot(oneMinusF.Denom(), mDeg)
+	denRoot, ok := exactIntegerNthRoot(oneMinusF.Denom(), m)
 	if !ok {
 		return nil, false
 	}
