@@ -691,11 +691,20 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 		currentEra,
 		QueryTypeShelleyDebugChainDepState,
 	)
-	var result DebugChainDepStateResult
+	// The node answers a QueryIfCurrent query with a one-element array wrapping
+	// the result, as it does for every other Shelley query here. Decoding
+	// straight into DebugChainDepStateResult skips that layer and hands its
+	// UnmarshalCBOR the outer array, which it reports as "cannot unmarshal
+	// array into Go value of type struct { Version uint64; Inner RawMessage }"
+	// — the encodeVersion envelope it expects one level down.
+	result := []DebugChainDepStateResult{}
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	if len(result) == 0 {
+		return nil, errors.New("empty result from chain dep state query")
+	}
+	return &result[0], nil
 }
 
 // GetOpCertCounters returns the authoritative on-chain operational-certificate
