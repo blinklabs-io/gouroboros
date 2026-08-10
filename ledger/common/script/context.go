@@ -21,6 +21,7 @@ import (
 	"math/big"
 	"slices"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
 )
@@ -198,11 +199,7 @@ func NewTxInfoV1FromTransaction(
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
 ) (TxInfoV1, error) {
-	validityRange, err := validityRangeInfo(
-		slotState,
-		tx.ValidityIntervalStart(),
-		tx.TTL(),
-	)
+	validityRange, err := validityRangeInfo(slotState, tx)
 	if err != nil {
 		return TxInfoV1{}, err
 	}
@@ -315,11 +312,7 @@ func NewTxInfoV2FromTransaction(
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
 ) (TxInfoV2, error) {
-	validityRange, err := validityRangeInfo(
-		slotState,
-		tx.ValidityIntervalStart(),
-		tx.TTL(),
-	)
+	validityRange, err := validityRangeInfo(slotState, tx)
 	if err != nil {
 		return TxInfoV2{}, err
 	}
@@ -416,11 +409,7 @@ func NewTxInfoV3FromTransaction(
 	tx lcommon.Transaction,
 	resolvedInputs []lcommon.Utxo,
 ) (TxInfoV3, error) {
-	validityRange, err := validityRangeInfo(
-		slotState,
-		tx.ValidityIntervalStart(),
-		tx.TTL(),
-	)
+	validityRange, err := validityRangeInfo(slotState, tx)
 	if err != nil {
 		return TxInfoV3{}, err
 	}
@@ -479,22 +468,29 @@ func NewTxInfoV3FromTransaction(
 }
 
 type TimeRange struct {
-	lowerBound uint64
-	upperBound uint64
+	lowerBound        uint64
+	upperBound        uint64
+	lowerBoundPresent bool
+	upperBoundPresent bool
 }
 
 func (t TimeRange) ToPlutusData() data.PlutusData {
-	bound := func(bound uint64, isLower bool) data.PlutusData {
-		if bound > 0 {
+	bound := func(
+		value uint64,
+		present bool,
+		isLower bool,
+		closed bool,
+	) data.PlutusData {
+		if present {
 			return data.NewConstr(
 				0,
 				data.NewConstr(
 					1,
 					data.NewInteger(
-						new(big.Int).SetUint64(bound),
+						new(big.Int).SetUint64(value),
 					),
 				),
-				toPlutusData(isLower),
+				toPlutusData(closed),
 			)
 		} else {
 			var constrType uint = 0
@@ -511,8 +507,21 @@ func (t TimeRange) ToPlutusData() data.PlutusData {
 	}
 	return data.NewConstr(
 		0,
-		bound(t.lowerBound, true),
-		bound(t.upperBound, false),
+		bound(
+			t.lowerBound,
+			t.lowerBoundPresent,
+			true,
+			true,
+		),
+		bound(
+			t.upperBound,
+			t.upperBoundPresent,
+			false,
+			// cardano-ledger uses `to` (closed upper) for an
+			// upper-only interval, but `strictUpperBound` when
+			// both bounds are present.
+			!t.lowerBoundPresent,
+		),
 	)
 }
 
@@ -588,18 +597,20 @@ func sortedRedeemerKeys(
 
 func validityRangeInfo(
 	slotState lcommon.SlotState,
-	startSlot uint64,
-	endSlot uint64,
+	tx lcommon.Transaction,
 ) (TimeRange, error) {
 	var ret TimeRange
-	if startSlot > 0 {
+	startSlot := tx.ValidityIntervalStart()
+	endSlot := tx.TTL()
+	ret.lowerBoundPresent, ret.upperBoundPresent = validityBoundPresence(tx)
+	if ret.lowerBoundPresent {
 		startTime, err := slotState.SlotToTime(startSlot)
 		if err != nil {
 			return ret, err
 		}
 		ret.lowerBound = uint64(startTime.UnixMilli()) // nolint:gosec
 	}
-	if endSlot > 0 {
+	if ret.upperBoundPresent {
 		endTime, err := slotState.SlotToTime(endSlot)
 		if err != nil {
 			return ret, err
@@ -607,6 +618,27 @@ func validityRangeInfo(
 		ret.upperBound = uint64(endTime.UnixMilli()) // nolint:gosec
 	}
 	return ret, nil
+}
+
+func validityBoundPresence(tx lcommon.Transaction) (bool, bool) {
+	startPresent := tx.ValidityIntervalStart() > 0
+	endPresent := tx.TTL() > 0
+	txCbor := tx.Cbor()
+	if len(txCbor) == 0 {
+		return startPresent, endPresent
+	}
+	var txFields []cbor.RawMessage
+	if _, err := cbor.Decode(txCbor, &txFields); err != nil ||
+		len(txFields) == 0 {
+		return startPresent, endPresent
+	}
+	var bodyFields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(txFields[0], &bodyFields); err != nil {
+		return startPresent, endPresent
+	}
+	_, startPresent = bodyFields[8]
+	_, endPresent = bodyFields[3]
+	return startPresent, endPresent
 }
 
 func withdrawalsInfo(
