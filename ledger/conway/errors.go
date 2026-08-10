@@ -482,7 +482,7 @@ func (e StakePoolVotingRestrictionError) Error() string {
 // InfoAction, and all other voter types may only vote on bootstrap-eligible
 // actions (ParameterChange, HardForkInitiation, InfoAction).
 type BootstrapVotingRestrictionError struct {
-	VoterId     [28]byte
+	VoterId     common.Blake2b224
 	ActionId    common.GovActionId
 	Restriction string
 }

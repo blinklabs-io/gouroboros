@@ -22,6 +22,7 @@
 package conway_test
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -141,6 +142,89 @@ func TestUtxoValidateProposalReturnAccounts(t *testing.T) {
 			assert.Equal(t, unregisteredAddr, twErr.Addresses[0])
 		},
 	)
+
+	t.Run(
+		"PV10 rejects a base address as a return account",
+		func(t *testing.T) {
+			// A base address carries a staking payload, so
+			// addr.StakeCredential() succeeds for it even though it is not
+			// a reward_account per the CDDL (AddressTypeNoneKey /
+			// AddressTypeNoneScript only). It must be rejected as
+			// malformed here, not accepted just because the underlying
+			// credential happens to be registered.
+			baseAddr := makeConwayBaseAddress(t, registeredCred)
+			pp := mkConwayPp(common.ProtocolVersionPlomin, 0)
+			tx := mkProposalTx(0, baseAddr, &common.InfoGovAction{})
+			err := conway.UtxoValidateProposalReturnAccounts(tx, 0, ls, pp)
+			var acctErr conway.ProposalReturnAccountDoesNotExistError
+			require.ErrorAs(t, err, &acctErr)
+			assert.Equal(t, baseAddr, acctErr.Address)
+		},
+	)
+
+	t.Run(
+		"PV10 rejects a base address as a treasury withdrawal account",
+		func(t *testing.T) {
+			baseAddr := makeConwayBaseAddress(t, registeredCred)
+			pp := mkConwayPp(common.ProtocolVersionPlomin, 0)
+			action := &common.TreasuryWithdrawalGovAction{
+				Withdrawals: map[*common.Address]uint64{
+					&baseAddr: 1_000_000,
+				},
+			}
+			tx := mkProposalTx(0, registeredAddr, action)
+			err := conway.UtxoValidateProposalReturnAccounts(tx, 0, ls, pp)
+			var twErr conway.TreasuryWithdrawalReturnAccountsDoNotExistError
+			require.ErrorAs(t, err, &twErr)
+			require.Len(t, twErr.Addresses, 1)
+			assert.Equal(t, baseAddr, twErr.Addresses[0])
+		},
+	)
+
+	t.Run(
+		"PV10 multiple bad treasury withdrawal accounts sort deterministically",
+		func(t *testing.T) {
+			// Withdrawals is a map, so iteration order is non-deterministic
+			// across runs; the reported Addresses must still come back in
+			// the same (sorted-by-bytes) order every time.
+			unregisteredCredA := common.Blake2b224Hash(
+				[]byte("unregistered-return-a"),
+			)
+			unregisteredCredB := common.Blake2b224Hash(
+				[]byte("unregistered-return-b"),
+			)
+			addrA := makeConwayRewardAddress(t, unregisteredCredA)
+			addrB := makeConwayRewardAddress(t, unregisteredCredB)
+			pp := mkConwayPp(common.ProtocolVersionPlomin, 0)
+			action := &common.TreasuryWithdrawalGovAction{
+				Withdrawals: map[*common.Address]uint64{
+					&addrA: 1_000_000,
+					&addrB: 2_000_000,
+				},
+			}
+			tx := mkProposalTx(0, registeredAddr, action)
+			var wantAddrs []common.Address
+			addrABytes, _ := addrA.Bytes()
+			addrBBytes, _ := addrB.Bytes()
+			if bytes.Compare(addrABytes, addrBBytes) <= 0 {
+				wantAddrs = []common.Address{addrA, addrB}
+			} else {
+				wantAddrs = []common.Address{addrB, addrA}
+			}
+			for range 10 {
+				err := conway.UtxoValidateProposalReturnAccounts(
+					tx,
+					0,
+					ls,
+					pp,
+				)
+				var twErr conway.TreasuryWithdrawalReturnAccountsDoNotExistError
+				require.ErrorAs(t, err, &twErr)
+				require.Len(t, twErr.Addresses, 2)
+				assert.Equal(t, wantAddrs, twErr.Addresses)
+			}
+		},
+	)
 }
 
 func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
@@ -209,6 +293,52 @@ func TestUtxoValidateGovActionWellFormedness(t *testing.T) {
 		err := conway.UtxoValidateGovActionWellFormedness(tx, 0, nil, pp)
 		require.NoError(t, err)
 	})
+
+	t.Run(
+		"multiple conflicting credentials sort deterministically",
+		func(t *testing.T) {
+			// CredEpochs is a map, so iteration order is non-deterministic
+			// across runs; the reported Credentials must still come back
+			// in the same (sorted-by-type-then-hash) order every time.
+			credA := common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: common.Blake2b224Hash([]byte("cc-member-a")),
+			}
+			credB := common.Credential{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: common.Blake2b224Hash([]byte("cc-member-b")),
+			}
+			action := &common.UpdateCommitteeGovAction{
+				Credentials: []common.Credential{credA, credB},
+				CredEpochs: map[*common.Credential]uint{
+					&credA: 500,
+					&credB: 600,
+				},
+			}
+			tx := mkProposalTx(0, common.Address{}, action)
+			var wantCreds []common.Credential
+			if bytes.Compare(
+				credA.Credential.Bytes(),
+				credB.Credential.Bytes(),
+			) <= 0 {
+				wantCreds = []common.Credential{credA, credB}
+			} else {
+				wantCreds = []common.Credential{credB, credA}
+			}
+			for range 10 {
+				err := conway.UtxoValidateGovActionWellFormedness(
+					tx,
+					0,
+					nil,
+					pp,
+				)
+				var confErr conway.ConflictingCommitteeUpdateError
+				require.ErrorAs(t, err, &confErr)
+				require.Len(t, confErr.Credentials, 2)
+				assert.Equal(t, wantCreds, confErr.Credentials)
+			}
+		},
+	)
 }
 
 func TestUtxoValidateHardForkCanFollow(t *testing.T) {
@@ -402,6 +532,41 @@ func TestUtxoValidateUnknownGovActionIds(t *testing.T) {
 		require.Len(t, unkErr.ActionIds, 1)
 		assert.Equal(t, common.GovActionId{}, unkErr.ActionIds[0])
 	})
+
+	t.Run(
+		"multiple unknown action ids sort deterministically",
+		func(t *testing.T) {
+			// VotingProcedures is keyed by voter/action-id pointers with
+			// map iteration underneath; the reported ActionIds must still
+			// come back in the same (sorted-by-bytes) order every time.
+			unknownIdA := common.GovActionId{
+				TransactionId: common.Blake2b256{0xAA},
+			}
+			unknownIdB := common.GovActionId{
+				TransactionId: common.Blake2b256{0xBB},
+			}
+			v := voter
+			tx := &conway.ConwayTransaction{}
+			tx.Body.TxVotingProcedures = common.VotingProcedures{
+				&v: {
+					&unknownIdA: common.VotingProcedure{
+						Vote: common.GovVoteYes,
+					},
+					&unknownIdB: common.VotingProcedure{
+						Vote: common.GovVoteYes,
+					},
+				},
+			}
+			wantIds := []common.GovActionId{unknownIdA, unknownIdB}
+			for range 10 {
+				err := conway.UtxoValidateUnknownGovActionIds(tx, 0, ls, pp)
+				var unkErr conway.UnknownGovActionIdError
+				require.ErrorAs(t, err, &unkErr)
+				require.Len(t, unkErr.ActionIds, 2)
+				assert.Equal(t, wantIds, unkErr.ActionIds)
+			}
+		},
+	)
 }
 
 func TestUtxoValidateUnknownVoters(t *testing.T) {
@@ -490,6 +655,21 @@ func TestUtxoValidateUnknownVoters(t *testing.T) {
 		tx := mkVoteTx(voter, actionId, common.GovVoteYes)
 		require.NoError(t, conway.UtxoValidateUnknownVoters(tx, 0, emptyLs, pp))
 	})
+
+	t.Run("out-of-range voter type is rejected", func(t *testing.T) {
+		// Voter.Type is decoded from CBOR with no range check, so a value
+		// outside the five defined VoterType* constants (0-4) is possible
+		// on the wire. It must be rejected here, since no other rule in
+		// UtxoValidationRules validates voter type.
+		voter := common.Voter{
+			Type: 200,
+			Hash: common.Blake2b224{0x01},
+		}
+		tx := mkVoteTx(voter, actionId, common.GovVoteYes)
+		err := conway.UtxoValidateUnknownVoters(tx, 0, ls, pp)
+		var unkErr conway.UnknownVoterError
+		require.ErrorAs(t, err, &unkErr)
+	})
 }
 
 func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
@@ -541,6 +721,11 @@ func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
 	})
 }
 
+// NOTE: this deliberately does not add a PV11 (ProtocolVersionVanRossem)
+// case alongside the PV10 ("PV10 lifts the bootstrap voting restriction")
+// case below: isInConwayBootstrapPhase only distinguishes PV9 from
+// everything else, so PV10 and PV11 behave identically here and a PV11
+// case would add no real coverage.
 func TestUtxoValidateBootstrapVotingRestrictions(t *testing.T) {
 	infoId := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
 	pparamId := common.GovActionId{TransactionId: common.Blake2b256{0x02}}
@@ -624,6 +809,7 @@ func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
 	constitutionId := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
 	treasuryId := common.GovActionId{TransactionId: common.Blake2b256{0x02}}
 	noConfidenceId := common.GovActionId{TransactionId: common.Blake2b256{0x03}}
+	paramChangeId := common.GovActionId{TransactionId: common.Blake2b256{0x04}}
 	govActions := map[string]*common.GovActionState{
 		govActionKey(constitutionId): {
 			ActionId:   constitutionId,
@@ -636,6 +822,10 @@ func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
 		govActionKey(noConfidenceId): {
 			ActionId:   noConfidenceId,
 			ActionType: common.GovActionTypeNoConfidence,
+		},
+		govActionKey(paramChangeId): {
+			ActionId:   paramChangeId,
+			ActionType: common.GovActionTypeParameterChange,
 		},
 	}
 	ls := mockledger.NewLedgerStateBuilder().WithGovActions(govActions).Build()
@@ -666,6 +856,23 @@ func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
 			conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp),
 		)
 	})
+
+	// See the NOTE on UtxoValidateStakePoolVotingRestrictions: the ledger
+	// spec also restricts SPO votes on ParameterChange proposals that
+	// don't touch "security group" parameters, but this codebase does not
+	// classify ParameterChange fields into security-relevant groups, so
+	// that narrower restriction is intentionally unenforced. This pins
+	// that documented behavior rather than leaving it untested.
+	t.Run(
+		"SPO vote on ParameterChange is unenforced (documented gap)",
+		func(t *testing.T) {
+			tx := mkVoteTx(spoVoter, paramChangeId, common.GovVoteYes)
+			require.NoError(
+				t,
+				conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp),
+			)
+		},
+	)
 
 	t.Run("nil action id errors instead of being skipped", func(t *testing.T) {
 		tx := mkNilActionIdVoteTx(spoVoter, common.GovVoteYes)

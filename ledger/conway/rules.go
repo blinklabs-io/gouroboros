@@ -15,9 +15,11 @@
 package conway
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -532,6 +534,24 @@ func UtxoValidateGovActionWellFormedness(
 				}
 			}
 			if len(conflicting) > 0 {
+				// Map iteration order is non-deterministic; sort before
+				// constructing the error so the message is reproducible
+				// across runs.
+				slices.SortFunc(
+					conflicting,
+					func(a, b common.Credential) int {
+						if a.CredType != b.CredType {
+							if a.CredType < b.CredType {
+								return -1
+							}
+							return 1
+						}
+						return bytes.Compare(
+							a.Credential.Bytes(),
+							b.Credential.Bytes(),
+						)
+					},
+				)
 				return ConflictingCommitteeUpdateError{Credentials: conflicting}
 			}
 		}
@@ -691,6 +711,17 @@ func UtxoValidateProposalReturnAccounts(
 		return nil
 	}
 	isRegistered := func(addr common.Address) bool {
+		// The CDDL reward_account type only permits the two
+		// none-payment-credential address types (AddressTypeNoneKey /
+		// AddressTypeNoneScript). addr.StakeCredential() also succeeds for
+		// base, pointer, and enterprise addresses that happen to carry a
+		// staking payload, so without this check a base address would be
+		// wrongly accepted as a valid reward account here.
+		addrType := addr.Type()
+		if addrType != common.AddressTypeNoneKey &&
+			addrType != common.AddressTypeNoneScript {
+			return false
+		}
 		cred, ok := addr.StakeCredential()
 		return ok && ls.IsStakeCredentialRegistered(cred)
 	}
@@ -715,6 +746,17 @@ func UtxoValidateProposalReturnAccounts(
 			}
 		}
 		if len(badAddrs) > 0 {
+			// Map iteration order is non-deterministic; sort before
+			// constructing the error so the message is reproducible
+			// across runs.
+			slices.SortFunc(
+				badAddrs,
+				func(a, b common.Address) int {
+					aBytes, _ := a.Bytes()
+					bBytes, _ := b.Bytes()
+					return bytes.Compare(aBytes, bBytes)
+				},
+			)
 			return TreasuryWithdrawalReturnAccountsDoNotExistError{
 				Addresses: badAddrs,
 			}
@@ -3021,6 +3063,21 @@ func UtxoValidateUnknownGovActionIds(
 	if len(unknown) == 0 {
 		return nil
 	}
+	// Map iteration order is non-deterministic; sort before constructing
+	// the error so the message is reproducible across runs.
+	slices.SortFunc(unknown, func(a, b common.GovActionId) int {
+		if c := bytes.Compare(a.TransactionId[:], b.TransactionId[:]); c != 0 {
+			return c
+		}
+		switch {
+		case a.GovActionIdx < b.GovActionIdx:
+			return -1
+		case a.GovActionIdx > b.GovActionIdx:
+			return 1
+		default:
+			return 0
+		}
+	})
 	return UnknownGovActionIdError{ActionIds: unknown}
 }
 
@@ -3098,6 +3155,14 @@ func UtxoValidateUnknownVoters(
 			if !found {
 				return UnknownVoterError{Voter: *voter}
 			}
+
+		default:
+			// Voter.Type is decoded from CBOR with no range check, so
+			// values outside the five defined VoterType* constants are
+			// possible on the wire. Reject them here rather than silently
+			// falling through unvalidated, since no other rule in
+			// UtxoValidationRules checks voter type validity.
+			return UnknownVoterError{Voter: *voter}
 		}
 	}
 	return nil
