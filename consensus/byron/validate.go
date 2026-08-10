@@ -30,10 +30,11 @@ import (
 type HeaderValidator struct {
 	config           ByronConfig
 	genesisKeyHashes map[string]bool // Set of allowed genesis delegate key hashes
-	// SkipDelegationCertVerification bypasses delegation certificate signature verification.
-	// WARNING: Setting this to true reduces security. Only use when certificate verification
-	// is not possible (e.g., the exact cardano-crypto signature format is unknown).
-	// When false (default), validateDelegationCertSignature will return an error.
+	// SkipDelegationCertVerification bypasses delegation certificate signature
+	// verification. WARNING: Setting this to true reduces security and should
+	// only be used as an explicit, opt-in escape hatch (e.g. compatibility
+	// testing). When false (default), validateDelegationCertSignature
+	// cryptographically verifies the certificate signature and fails closed.
 	SkipDelegationCertVerification bool
 	// AllowSignatureFallback enables fallback to raw HeaderCbor verification when
 	// buildToSign fails. WARNING: This reduces security and should only be used
@@ -229,9 +230,12 @@ func (v *HeaderValidator) validateBlockNumber(
 // validatePrevHash checks previous hash linkage
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 	if input.PrevBlockNumber != 0 && len(input.PrevHeaderHash) == 0 {
-		return errors.New("previous header hash is required for non-genesis blocks")
+		return errors.New(
+			"previous header hash is required for non-genesis blocks",
+		)
 	}
-	if len(input.PrevHeaderHash) > 0 && !bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
+	if len(input.PrevHeaderHash) > 0 &&
+		!bytes.Equal(input.PrevHash, input.PrevHeaderHash) {
 		return fmt.Errorf(
 			"previous hash does not match: got %x, expected %x",
 			input.PrevHash,
@@ -403,25 +407,39 @@ func (v *HeaderValidator) validateProxySignature(
 	// Extract the inner structure: [[cert...], blockSig]
 	innerArray, ok := input.BlockSig[1].([]any)
 	if !ok {
-		return fmt.Errorf("expected []any for delegation sig, got %T", input.BlockSig[1])
+		return fmt.Errorf(
+			"expected []any for delegation sig, got %T",
+			input.BlockSig[1],
+		)
 	}
 
 	if len(innerArray) < 2 {
-		return fmt.Errorf("delegation sig inner array too short: %d", len(innerArray))
+		return fmt.Errorf(
+			"delegation sig inner array too short: %d",
+			len(innerArray),
+		)
 	}
 
 	// Extract the delegation certificate: [epoch/omega, issuerVK, delegateVK, certSig]
 	cert, ok := innerArray[0].([]any)
 	if !ok {
-		return fmt.Errorf("expected []any for delegation cert, got %T", innerArray[0])
+		return fmt.Errorf(
+			"expected []any for delegation cert, got %T",
+			innerArray[0],
+		)
 	}
 
 	if len(cert) < 4 {
-		return fmt.Errorf("delegation cert too short: expected 4 elements, got %d", len(cert))
+		return fmt.Errorf(
+			"delegation cert too short: expected 4 elements, got %d",
+			len(cert),
+		)
 	}
 
 	// Extract certificate components
-	epochOrOmega, err := extractUint64(cert[0]) // epochOrOmega - used for replay protection
+	epochOrOmega, err := extractUint64(
+		cert[0],
+	) // epochOrOmega - used for replay protection
 	if err != nil {
 		return fmt.Errorf("failed to extract epoch/omega from cert: %w", err)
 	}
@@ -444,22 +462,39 @@ func (v *HeaderValidator) validateProxySignature(
 	// Extract the block signature
 	blockSig, ok := innerArray[1].([]byte)
 	if !ok {
-		return fmt.Errorf("expected []byte for block signature, got %T", innerArray[1])
+		return fmt.Errorf(
+			"expected []byte for block signature, got %T",
+			innerArray[1],
+		)
 	}
 
 	// Validate key sizes
 	// Byron uses extended Ed25519 keys (64 bytes: 32-byte pubkey + 32-byte chaincode)
 	if len(issuerVK) != 64 {
-		return fmt.Errorf("invalid issuerVK size: got %d, expected 64", len(issuerVK))
+		return fmt.Errorf(
+			"invalid issuerVK size: got %d, expected 64",
+			len(issuerVK),
+		)
 	}
 	if len(delegateVK) != 64 {
-		return fmt.Errorf("invalid delegateVK size: got %d, expected 64", len(delegateVK))
+		return fmt.Errorf(
+			"invalid delegateVK size: got %d, expected 64",
+			len(delegateVK),
+		)
 	}
 	if len(certSig) != ed25519.SignatureSize {
-		return fmt.Errorf("invalid certSig size: got %d, expected %d", len(certSig), ed25519.SignatureSize)
+		return fmt.Errorf(
+			"invalid certSig size: got %d, expected %d",
+			len(certSig),
+			ed25519.SignatureSize,
+		)
 	}
 	if len(blockSig) != ed25519.SignatureSize {
-		return fmt.Errorf("invalid blockSig size: got %d, expected %d", len(blockSig), ed25519.SignatureSize)
+		return fmt.Errorf(
+			"invalid blockSig size: got %d, expected %d",
+			len(blockSig),
+			ed25519.SignatureSize,
+		)
 	}
 
 	// Validate that issuerVK matches the header's public key
@@ -470,23 +505,26 @@ func (v *HeaderValidator) validateProxySignature(
 			len(input.IssuerPubKey),
 		)
 	}
-	if len(input.IssuerPubKey) == 32 && !bytes.Equal(issuerVK[:32], input.IssuerPubKey) {
+	if len(input.IssuerPubKey) == 32 &&
+		!bytes.Equal(issuerVK[:32], input.IssuerPubKey) {
 		return fmt.Errorf(
 			"issuerVK in delegation cert does not match header issuer: cert=%x, header=%x",
-			issuerVK[:32], input.IssuerPubKey,
+			issuerVK[:32],
+			input.IssuerPubKey,
 		)
 	}
 
-	// Verify the delegation certificate signature
-	// The issuer signed the certificate to authorize the delegate.
-	// According to cardano-sl SignTag.hs and Certificate.hs:
-	// SignProxySK tag = 0x09
-	// Signed data = signTag || "00" || delegateVK || CBOR(epochOrOmega)
-	// Where signTag = 0x09 || CBOR(protocolMagic)
+	// Verify the delegation certificate signature.
+	// See validateDelegationCertSignature for the exact byte layout, taken
+	// from cardano-ledger-byron's Delegation/Certificate.hs and
+	// cardano-crypto's Signing/{Tag,Signature}.hs.
 	if err := v.validateDelegationCertSignature(
 		issuerVK, delegateVK, certSig, epochOrOmega,
 	); err != nil {
-		return fmt.Errorf("delegation certificate signature verification failed: %w", err)
+		return fmt.Errorf(
+			"delegation certificate signature verification failed: %w",
+			err,
+		)
 	}
 
 	// Verify the block signature
@@ -549,7 +587,10 @@ const (
 	byronSignTagMainBlock      = 0x07
 	byronSignTagMainBlockLight = 0x08
 	byronSignTagMainBlockHeavy = 0x09
-	byronSignTagProxySK        = 0x0a
+	// byronSignTagCertificate is SignCertificate from cardano-crypto's
+	// Cardano.Crypto.Signing.Tag: used to sign/verify delegation
+	// certificates (see validateDelegationCertSignature).
+	byronSignTagCertificate = 0x0a
 )
 
 // buildToSign constructs the ToSign data that is actually signed in Byron blocks.
@@ -561,9 +602,13 @@ const (
 // - Protocol version + Software version
 //
 // This is serialized as a CBOR array with 5 elements.
-func (v *HeaderValidator) buildToSign(input *ValidateHeaderInput) ([]byte, error) {
+func (v *HeaderValidator) buildToSign(
+	input *ValidateHeaderInput,
+) ([]byte, error) {
 	if len(input.HeaderCbor) == 0 {
-		return nil, errors.New("header CBOR is required for signature verification")
+		return nil, errors.New(
+			"header CBOR is required for signature verification",
+		)
 	}
 
 	// Parse the header to extract the individual components we need for ToSign
@@ -658,12 +703,26 @@ func extractUint64(v any) (uint64, error) {
 // validateDelegationCertSignature verifies the delegation certificate signature.
 // The issuer signs the certificate to authorize the delegate to produce blocks.
 //
-// According to cardano-sl SignTag.hs, the SignProxySK tag is 0x0a (SignCertificate).
-// The signed data format is:
+// This reproduces cardano-ledger-byron's Cardano.Chain.Delegation.Certificate
+// signing/verification exactly (verified against a real mainnet delegation
+// certificate, see TestValidateDelegationCertSignature):
 //
-//	signTag || "00" || delegateVK || CBOR(epochOrOmega)
+//	inner = "00" || CC.unXPub(delegateVK) || CBOR(epochOrOmega)
+//	  -- "00" is the two ASCII bytes 0x30 0x30, delegateVK is the raw
+//	  -- 64-byte extended verification key, and the epoch is CBOR-encoded.
 //
-// Where signTag = 0x0a || CBOR(protocolMagic)
+// signCertificate calls `safeSign protocolMagicId SignCertificate safeSigner
+// inner`, and safeSign (Cardano.Crypto.Signing.Signature) is defined as
+// `coerce . safeSignRaw pm (Just tag) ss . serialize'`, i.e. it CBOR-encodes
+// its ByteString argument (wrapping it in a CBOR byte-string header) before
+// prepending the sign tag and signing:
+//
+//	signed = signTag(pm, SignCertificate) || CBOR_bytestring(inner)
+//	signTag(pm, SignCertificate) = 0x0a || CBOR(protocolMagic)
+//
+// The certificate's own signature (certSig) is then a standard Ed25519
+// signature over `signed`, verifiable with the issuer's 32-byte Ed25519
+// public key (the first 32 bytes of the 64-byte extended issuerVK).
 func (v *HeaderValidator) validateDelegationCertSignature(
 	issuerVK, delegateVK, certSig []byte,
 	epochOrOmega uint64,
@@ -671,44 +730,72 @@ func (v *HeaderValidator) validateDelegationCertSignature(
 	// Check if verification should be skipped
 	if v.SkipDelegationCertVerification {
 		// WARNING: Skipping delegation certificate signature verification.
-		// This is acceptable for Byron because:
-		// 1. Block signature verification DOES work and proves delegate authorization
-		// 2. Byron is a concluded era (ended July 2020) - no new certificates possible
-		// 3. All certificates were validated when originally accepted on mainnet
-		// 4. Issuer key is validated against genesis delegates
-		_ = issuerVK
-		_ = delegateVK
-		_ = certSig
-		_ = epochOrOmega
+		// This escape hatch is only for callers who explicitly opt out
+		// (e.g. compatibility testing). It is not used by default: this
+		// validator verifies delegation certificate signatures fail-closed.
 		return nil
 	}
 
-	// KNOWN LIMITATION: Delegation certificate signature verification is not implemented.
-	//
-	// Despite extensive research and testing, the exact signature format used by
-	// cardano-crypto for delegation certificates has not been successfully reproduced.
-	//
-	// Documented format (from cardano-sl Certificate.hs):
-	//   sig = safeSign protocolMagicId SignCertificate safeSigner
-	//       $ mconcat [ "00"                                    -- ASCII "00" = 0x30 0x30
-	//                 , CC.unXPub (unVerificationKey delegateVK) -- 64 bytes raw XPub
-	//                 , serialize' epochNumber]                  -- CBOR-encoded epoch
-	//   signTag(pm, SignCertificate) = 0x0a + CBOR(protocolMagic)
-	//   Full signed data: 0x0a || CBOR(pm) || "00" || delegateVK || CBOR(epoch)
-	//
-	// However, standard Ed25519 verification fails with this format and many variations.
-	// This suggests cardano-crypto may use a non-standard Ed25519 variant or additional
-	// transformations.
-	//
-	// To implement: Would require either:
-	// - Discovering the exact signing transformation used
-	// - Finding reference implementation or test vectors
-	// - Pure Go reimplementation of cardano-crypto's extended Ed25519
-	return fmt.Errorf(
-		"delegation certificate signature verification not implemented: "+
-			"set SkipDelegationCertVerification=true to bypass (issuerVK=%x, epochOrOmega=%d)",
-		issuerVK[:8], epochOrOmega,
-	)
+	if len(issuerVK) != 64 {
+		return fmt.Errorf(
+			"invalid issuerVK size: got %d, expected 64",
+			len(issuerVK),
+		)
+	}
+	if len(delegateVK) != 64 {
+		return fmt.Errorf(
+			"invalid delegateVK size: got %d, expected 64",
+			len(delegateVK),
+		)
+	}
+	if len(certSig) != ed25519.SignatureSize {
+		return fmt.Errorf(
+			"invalid certSig size: got %d, expected %d",
+			len(certSig),
+			ed25519.SignatureSize,
+		)
+	}
+
+	// CBOR-encode the epoch/omega value
+	epochBytes, err := cbor.Encode(epochOrOmega)
+	if err != nil {
+		return fmt.Errorf("failed to encode epoch/omega: %w", err)
+	}
+
+	// inner = "00" || delegateVK || CBOR(epoch)
+	inner := make([]byte, 0, 2+len(delegateVK)+len(epochBytes))
+	inner = append(inner, '0', '0') // ASCII "00"
+	inner = append(inner, delegateVK...)
+	inner = append(inner, epochBytes...)
+
+	// safeSign CBOR-encodes its ByteString argument (wraps it as a CBOR
+	// byte string) before signing.
+	innerCbor, err := cbor.Encode(inner)
+	if err != nil {
+		return fmt.Errorf("failed to encode certificate payload: %w", err)
+	}
+
+	// Encode protocol magic for the SignCertificate tag
+	pmBytes, err := cbor.Encode(v.config.ProtocolMagic)
+	if err != nil {
+		return fmt.Errorf("failed to encode protocol magic: %w", err)
+	}
+
+	// signed = 0x0a || CBOR(protocolMagic) || CBOR_bytestring(inner)
+	signed := make([]byte, 0, 1+len(pmBytes)+len(innerCbor))
+	signed = append(signed, byronSignTagCertificate)
+	signed = append(signed, pmBytes...)
+	signed = append(signed, innerCbor...)
+
+	issuerPubKey := issuerVK[:32]
+	if !ed25519.Verify(issuerPubKey, signed, certSig) {
+		return fmt.Errorf(
+			"delegation certificate signature verification failed for epoch/omega %d",
+			epochOrOmega,
+		)
+	}
+
+	return nil
 }
 
 // validateGenesisDelegate checks if the issuer is a valid genesis delegate
@@ -1001,7 +1088,10 @@ func parseSscProof(proof any) (*ByronSscProof, error) {
 	}
 
 	if len(proofSlice) < 2 {
-		return nil, fmt.Errorf("sscProof too short: expected at least 2 elements, got %d", len(proofSlice))
+		return nil, fmt.Errorf(
+			"sscProof too short: expected at least 2 elements, got %d",
+			len(proofSlice),
+		)
 	}
 
 	result := &ByronSscProof{}
@@ -1021,19 +1111,29 @@ func parseSscProof(proof any) (*ByronSscProof, error) {
 	// Parse hash1 (always present)
 	hash1, ok := proofSlice[1].([]byte)
 	if !ok || len(hash1) != common.Blake2b256Size {
-		return nil, fmt.Errorf("invalid sscProof hash1: expected 32 bytes, got %T (len %d)",
-			proofSlice[1], len(hash1))
+		return nil, fmt.Errorf(
+			"invalid sscProof hash1: expected 32 bytes, got %T (len %d)",
+			proofSlice[1],
+			len(hash1),
+		)
 	}
 	copy(result.Hash1[:], hash1)
 
 	// For types 0-2, there should be a second hash (VSS certificates hash)
 	if proofType != SscTypeCertificates {
 		if len(proofSlice) < 3 {
-			return nil, fmt.Errorf("sscProof type %d requires 3 elements, got %d", proofType, len(proofSlice))
+			return nil, fmt.Errorf(
+				"sscProof type %d requires 3 elements, got %d",
+				proofType,
+				len(proofSlice),
+			)
 		}
 		hash2, ok := proofSlice[2].([]byte)
 		if !ok || len(hash2) != common.Blake2b256Size {
-			return nil, fmt.Errorf("invalid sscProof hash2: expected 32 bytes, got %T", proofSlice[2])
+			return nil, fmt.Errorf(
+				"invalid sscProof hash2: expected 32 bytes, got %T",
+				proofSlice[2],
+			)
 		}
 		h2 := common.Blake2b256{}
 		copy(h2[:], hash2)
@@ -1083,8 +1183,11 @@ func validateSscProof(proof ByronSscProof, payload cbor.Value) error {
 	// Validate proof structure based on type
 	if proof.Type != SscTypeCertificates && proof.Hash2 == nil {
 		return &common.ValidationError{
-			Type:    common.ValidationErrorTypeBodyHash,
-			Message: fmt.Sprintf("SSC proof type %d requires two hashes", proof.Type),
+			Type: common.ValidationErrorTypeBodyHash,
+			Message: fmt.Sprintf(
+				"SSC proof type %d requires two hashes",
+				proof.Type,
+			),
 		}
 	}
 
@@ -1274,12 +1377,16 @@ func parseByronBodyProof(bodyProof any) (*ByronBodyProof, error) {
 //   - Transaction count verification
 //   - Transaction body merkle root verification
 //   - Witness hash verification (see validateWitnessMerkleRoot)
-func validateTxProof(txProof ByronTxProof, txPayload []byron.ByronTransaction) error {
+func validateTxProof(
+	txProof ByronTxProof,
+	txPayload []byron.ByronTransaction,
+) error {
 	// Validate transaction count
 	txPayloadLen := len(txPayload)
 	// #nosec G115 -- len() cannot be negative, and a block with >2^32 txs is impossible
 	// int64 cast: on 32-bit targets untyped 0xFFFFFFFF overflows int
-	if int64(txPayloadLen) > 0xFFFFFFFF || uint32(txPayloadLen) != txProof.TxCount {
+	if int64(txPayloadLen) > 0xFFFFFFFF ||
+		uint32(txPayloadLen) != txProof.TxCount {
 		return &common.ValidationError{
 			Type:    common.ValidationErrorTypeBodyHash,
 			Message: "transaction count mismatch",

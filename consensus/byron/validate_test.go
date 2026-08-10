@@ -16,11 +16,13 @@ package byron
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
@@ -405,6 +407,152 @@ func TestValidateBlockSignature(t *testing.T) {
 	}
 }
 
+// TestValidateDelegationCertSignature_RealMainnetVector verifies a real
+// delegation certificate signature extracted from a mainnet Byron block
+// (slot 4471207), confirming the byte layout reproduced from
+// cardano-ledger-byron's Delegation/Certificate.hs and cardano-crypto's
+// Signing/{Tag,Signature}.hs.
+func TestValidateDelegationCertSignature_RealMainnetVector(t *testing.T) {
+	issuerVK, err := hex.DecodeString(
+		"1bc97a2fe02c297880ce8ecfd997fe4c1ec09ee10feeee9f686760166b05281d" +
+			"6283468ffd93becb0c956ccddd642df9b1244c915911185fa49355f6f22bfab9",
+	)
+	require.NoError(t, err)
+	delegateVK, err := hex.DecodeString(
+		"61261a95b7613ee6bf2067dad77b70349729b0c50d57bc1cf30de0db4a1e73a" +
+			"885d0054af7c23fc6c37919dba41c602a57e2d0f9329a7954b867338d6fb2c945",
+	)
+	require.NoError(t, err)
+	certSig, err := hex.DecodeString(
+		"e03e62f083df5576360e60a32e22bbb07b3c8df4fcab8079f1d6f61af3954d2" +
+			"42ba8a06516c395939f24096f3df14e103a7d9c2b80a68a9363cf1f27c7a4e307",
+	)
+	require.NoError(t, err)
+
+	config := testByronConfig() // ProtocolMagic = 764824073 (mainnet)
+	validator := NewHeaderValidator(config)
+
+	err = validator.validateDelegationCertSignature(
+		issuerVK, delegateVK, certSig, 0,
+	)
+	require.NoError(
+		t,
+		err,
+		"real mainnet delegation certificate signature should verify",
+	)
+
+	// Tampering with any input must fail closed.
+	tamperedSig := append([]byte{}, certSig...)
+	tamperedSig[0] ^= 0xFF
+	err = validator.validateDelegationCertSignature(
+		issuerVK, delegateVK, tamperedSig, 0,
+	)
+	require.Error(t, err, "tampered certificate signature must fail")
+
+	err = validator.validateDelegationCertSignature(
+		issuerVK, delegateVK, certSig, 1, // wrong epoch
+	)
+	require.Error(t, err, "wrong epoch must fail signature verification")
+
+	tamperedDelegateVK := append([]byte{}, delegateVK...)
+	tamperedDelegateVK[0] ^= 0xFF
+	err = validator.validateDelegationCertSignature(
+		issuerVK, tamperedDelegateVK, certSig, 0,
+	)
+	require.Error(
+		t,
+		err,
+		"tampered delegate key must fail signature verification",
+	)
+}
+
+// TestValidateDelegationCertSignature_Deterministic constructs a
+// delegation certificate signature with a freshly generated keypair using
+// the exact byte layout implemented in validateDelegationCertSignature, and
+// confirms both the valid signature is accepted and a tampered one is
+// rejected fail-closed.
+func TestValidateDelegationCertSignature_Deterministic(t *testing.T) {
+	issuerPub, issuerPriv, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
+	// Build a 64-byte "extended" verification key: 32-byte Ed25519 pubkey
+	// followed by a 32-byte chaincode (unused for verification purposes).
+	issuerVK := make([]byte, 64)
+	copy(issuerVK, issuerPub)
+	delegateVK := make([]byte, 64)
+	_, err = rand.Read(delegateVK)
+	require.NoError(t, err)
+
+	config := testByronConfig()
+	validator := NewHeaderValidator(config)
+
+	const epoch = uint64(3)
+
+	epochBytes, err := cbor.Encode(epoch)
+	require.NoError(t, err)
+	inner := make([]byte, 0, 2+len(delegateVK)+len(epochBytes))
+	inner = append(inner, '0', '0')
+	inner = append(inner, delegateVK...)
+	inner = append(inner, epochBytes...)
+	innerCbor, err := cbor.Encode(inner)
+	require.NoError(t, err)
+	pmBytes, err := cbor.Encode(config.ProtocolMagic)
+	require.NoError(t, err)
+
+	signed := make([]byte, 0, 1+len(pmBytes)+len(innerCbor))
+	signed = append(signed, 0x0a)
+	signed = append(signed, pmBytes...)
+	signed = append(signed, innerCbor...)
+
+	certSig := ed25519.Sign(issuerPriv, signed)
+
+	err = validator.validateDelegationCertSignature(
+		issuerVK, delegateVK, certSig, epoch,
+	)
+	require.NoError(
+		t,
+		err,
+		"deterministically constructed certificate signature should verify",
+	)
+
+	// SkipDelegationCertVerification is an explicit opt-out bypass and must
+	// still accept (i.e. not error) regardless of signature validity.
+	skipValidator := NewHeaderValidator(config)
+	skipValidator.SkipDelegationCertVerification = true
+	err = skipValidator.validateDelegationCertSignature(
+		issuerVK, delegateVK, make([]byte, ed25519.SignatureSize), epoch,
+	)
+	require.NoError(
+		t,
+		err,
+		"SkipDelegationCertVerification should bypass verification",
+	)
+
+	// Invalid (tampered) signature must fail closed by default.
+	tamperedSig := append([]byte{}, certSig...)
+	tamperedSig[0] ^= 0xFF
+	err = validator.validateDelegationCertSignature(
+		issuerVK, delegateVK, tamperedSig, epoch,
+	)
+	require.Error(t, err, "tampered signature must be rejected by default")
+
+	// Malformed key sizes must be rejected before attempting verification.
+	err = validator.validateDelegationCertSignature(
+		issuerVK[:32], delegateVK, certSig, epoch,
+	)
+	require.Error(t, err, "short issuerVK must be rejected")
+
+	err = validator.validateDelegationCertSignature(
+		issuerVK, delegateVK[:32], certSig, epoch,
+	)
+	require.Error(t, err, "short delegateVK must be rejected")
+
+	err = validator.validateDelegationCertSignature(
+		issuerVK, delegateVK, certSig[:32], epoch,
+	)
+	require.Error(t, err, "short certSig must be rejected")
+}
+
 func TestValidateGenesisDelegate(t *testing.T) {
 	// Generate test key
 	pubKey, _, err := ed25519.GenerateKey(nil)
@@ -605,9 +753,26 @@ func TestSlotLeader(t *testing.T) {
 
 	for _, tc := range tests {
 		index, keyHash := config.SlotLeader(tc.slot)
-		require.Equal(t, tc.expectedIndex, index, "SlotLeader(%d) index mismatch", tc.slot)
-		require.NotNil(t, keyHash, "SlotLeader(%d) returned nil key hash", tc.slot)
-		require.Equal(t, byte(tc.expectedIndex), keyHash[0], "SlotLeader(%d) returned wrong key hash", tc.slot)
+		require.Equal(
+			t,
+			tc.expectedIndex,
+			index,
+			"SlotLeader(%d) index mismatch",
+			tc.slot,
+		)
+		require.NotNil(
+			t,
+			keyHash,
+			"SlotLeader(%d) returned nil key hash",
+			tc.slot,
+		)
+		require.Equal(
+			t,
+			byte(tc.expectedIndex),
+			keyHash[0],
+			"SlotLeader(%d) returned wrong key hash",
+			tc.slot,
+		)
 	}
 
 	// Test with no genesis keys
@@ -787,7 +952,11 @@ func TestComputeMerkleRoot_Empty(t *testing.T) {
 	root := computeMerkleRoot(nil)
 	expected := common.Blake2b256Hash(nil)
 	if root != expected {
-		t.Errorf("empty merkle root mismatch: got %s, want %s", root.String(), expected.String())
+		t.Errorf(
+			"empty merkle root mismatch: got %s, want %s",
+			root.String(),
+			expected.String(),
+		)
 	}
 }
 
@@ -800,7 +969,11 @@ func TestComputeMerkleRoot_SingleItem(t *testing.T) {
 	leafData := append([]byte{0x00}, item...)
 	expected := common.Blake2b256Hash(leafData)
 	if root != expected {
-		t.Errorf("single item merkle root mismatch: got %s, want %s", root.String(), expected.String())
+		t.Errorf(
+			"single item merkle root mismatch: got %s, want %s",
+			root.String(),
+			expected.String(),
+		)
 	}
 }
 
@@ -821,7 +994,11 @@ func TestComputeMerkleRoot_TwoItems(t *testing.T) {
 	expected := common.Blake2b256Hash(branchData)
 
 	if root != expected {
-		t.Errorf("two item merkle root mismatch: got %s, want %s", root.String(), expected.String())
+		t.Errorf(
+			"two item merkle root mismatch: got %s, want %s",
+			root.String(),
+			expected.String(),
+		)
 	}
 }
 
@@ -858,7 +1035,11 @@ func TestComputeMerkleRoot_ThreeItems(t *testing.T) {
 	expected := common.Blake2b256Hash(rootData)
 
 	if root != expected {
-		t.Errorf("three item merkle root mismatch: got %s, want %s", root.String(), expected.String())
+		t.Errorf(
+			"three item merkle root mismatch: got %s, want %s",
+			root.String(),
+			expected.String(),
+		)
 	}
 }
 
@@ -908,8 +1089,19 @@ func TestParseByronBodyProof_InvalidInput(t *testing.T) {
 		{"not a slice", "string"},
 		{"wrong slice length", []any{1, 2, 3}},
 		{"invalid txProof", []any{"not a slice", []any{}, []byte{}, []byte{}}},
-		{"invalid txProof length", []any{[]any{1, 2}, []any{}, []byte{}, []byte{}}},
-		{"invalid dlgProof type", []any{[]any{uint64(0), make([]byte, 32), make([]byte, 32)}, []any{}, "not bytes", []byte{}}},
+		{
+			"invalid txProof length",
+			[]any{[]any{1, 2}, []any{}, []byte{}, []byte{}},
+		},
+		{
+			"invalid dlgProof type",
+			[]any{
+				[]any{uint64(0), make([]byte, 32), make([]byte, 32)},
+				[]any{},
+				"not bytes",
+				[]byte{},
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -942,9 +1134,13 @@ func TestParseByronBodyProof_ValidInput(t *testing.T) {
 	// Test type 0 (CommitmentsProof) with two hashes
 	input := []any{
 		[]any{uint64(5), txBodyRoot, txWitRoot}, // txProof
-		[]any{uint64(0), sscHash1, sscHash2},    // sscProof: type 0 (Commitments) needs two hashes
-		dlgProof,                                // dlgProof
-		updProof,                                // updProof
+		[]any{
+			uint64(0),
+			sscHash1,
+			sscHash2,
+		}, // sscProof: type 0 (Commitments) needs two hashes
+		dlgProof, // dlgProof
+		updProof, // updProof
 	}
 
 	proof, err := parseByronBodyProof(input)
@@ -998,9 +1194,12 @@ func TestParseByronBodyProof_CertificatesProof(t *testing.T) {
 
 	input := []any{
 		[]any{uint64(5), txBodyRoot, txWitRoot}, // txProof
-		[]any{uint64(3), sscHash},               // sscProof: type 3 (Certificates) needs one hash
-		dlgProof,                                // dlgProof
-		updProof,                                // updProof
+		[]any{
+			uint64(3),
+			sscHash,
+		}, // sscProof: type 3 (Certificates) needs one hash
+		dlgProof, // dlgProof
+		updProof, // updProof
 	}
 
 	proof, err := parseByronBodyProof(input)
@@ -1031,7 +1230,10 @@ func TestParseSscProof_InvalidInputs(t *testing.T) {
 		{"invalid type", []any{uint64(4), make([]byte, 32)}},
 		{"type 0 missing second hash", []any{uint64(0), make([]byte, 32)}},
 		{"invalid hash1 length", []any{uint64(3), make([]byte, 31)}},
-		{"invalid hash2 length", []any{uint64(0), make([]byte, 32), make([]byte, 31)}},
+		{
+			"invalid hash2 length",
+			[]any{uint64(0), make([]byte, 32), make([]byte, 31)},
+		},
 	}
 
 	for _, tc := range tests {
@@ -1128,7 +1330,10 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 
 	t.Logf("Block has %d transactions", txCount)
 	t.Logf("TxBodyMerkleRoot: %s", proof.TxProof.TxBodyMerkleRoot.String())
-	t.Logf("TxWitnessMerkleRoot: %s", proof.TxProof.TxWitnessMerkleRoot.String())
+	t.Logf(
+		"TxWitnessMerkleRoot: %s",
+		proof.TxProof.TxWitnessMerkleRoot.String(),
+	)
 	t.Logf("DlgProof: %s", proof.DlgProof.String())
 	t.Logf("UpdProof: %s", proof.UpdProof.String())
 
@@ -1153,7 +1358,11 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 	if sscPayload, ok := sscPayloadVal.([]any); ok && len(sscPayload) > 0 {
 		if payloadType, ok := sscPayload[0].(uint64); ok {
 			if proof.SscProof.Type != payloadType {
-				t.Errorf("SSC proof type mismatch: got %d, want %d", proof.SscProof.Type, payloadType)
+				t.Errorf(
+					"SSC proof type mismatch: got %d, want %d",
+					proof.SscProof.Type,
+					payloadType,
+				)
 			} else {
 				t.Logf("SSC proof type matches payload type: %d", payloadType)
 			}
@@ -1208,7 +1417,9 @@ const testByronGenesisJSON = `{
 }`
 
 func TestNewByronConfigFromGenesis(t *testing.T) {
-	genesis, err := byron.NewByronGenesisFromReader(strings.NewReader(testByronGenesisJSON))
+	genesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
 	if err != nil {
 		t.Fatalf("Failed to parse genesis: %v", err)
 	}
@@ -1231,7 +1442,11 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	// Verify slot duration (20000ms = 20s)
 	expectedDuration := 20 * time.Second
 	if config.SlotDuration != expectedDuration {
-		t.Errorf("SlotDuration: got %v, want %v", config.SlotDuration, expectedDuration)
+		t.Errorf(
+			"SlotDuration: got %v, want %v",
+			config.SlotDuration,
+			expectedDuration,
+		)
 	}
 
 	// Verify security parameter
@@ -1246,7 +1461,10 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 
 	// Verify key hashes are populated
 	if len(config.GenesisKeyHashes) != 3 {
-		t.Errorf("GenesisKeyHashes length: got %d, want 3", len(config.GenesisKeyHashes))
+		t.Errorf(
+			"GenesisKeyHashes length: got %d, want 3",
+			len(config.GenesisKeyHashes),
+		)
 	}
 
 	// Verify each key hash is 28 bytes
@@ -1261,7 +1479,12 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 		expectedIndex := int(slot % 3)
 		index, keyHash := config.SlotLeader(slot)
 		if index != expectedIndex {
-			t.Errorf("SlotLeader(%d) index: got %d, want %d", slot, index, expectedIndex)
+			t.Errorf(
+				"SlotLeader(%d) index: got %d, want %d",
+				slot,
+				index,
+				expectedIndex,
+			)
 		}
 		if keyHash == nil {
 			t.Errorf("SlotLeader(%d) returned nil key hash", slot)
@@ -1343,7 +1566,12 @@ func TestByronTxFeePolicy_CalculateMinFee(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fee := policy.CalculateMinFee(tc.txSize)
 			if fee != tc.expectedFee {
-				t.Errorf("CalculateMinFee(%d) = %d, want %d", tc.txSize, fee, tc.expectedFee)
+				t.Errorf(
+					"CalculateMinFee(%d) = %d, want %d",
+					tc.txSize,
+					fee,
+					tc.expectedFee,
+				)
 			}
 		})
 	}
@@ -1375,7 +1603,9 @@ func TestByronConfig_CalculateMinFee(t *testing.T) {
 }
 
 func TestNewByronConfigFromGenesis_FeePolicy(t *testing.T) {
-	genesis, err := byron.NewByronGenesisFromReader(strings.NewReader(testByronGenesisJSON))
+	genesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
 	if err != nil {
 		t.Fatalf("Failed to parse genesis: %v", err)
 	}
@@ -1387,10 +1617,16 @@ func TestNewByronConfigFromGenesis_FeePolicy(t *testing.T) {
 
 	// Verify fee policy was extracted
 	if config.TxFeePolicy.Summand != 155381000000000 {
-		t.Errorf("TxFeePolicy.Summand = %d, want 155381000000000", config.TxFeePolicy.Summand)
+		t.Errorf(
+			"TxFeePolicy.Summand = %d, want 155381000000000",
+			config.TxFeePolicy.Summand,
+		)
 	}
 	if config.TxFeePolicy.Multiplier != 43946000000 {
-		t.Errorf("TxFeePolicy.Multiplier = %d, want 43946000000", config.TxFeePolicy.Multiplier)
+		t.Errorf(
+			"TxFeePolicy.Multiplier = %d, want 43946000000",
+			config.TxFeePolicy.Multiplier,
+		)
 	}
 
 	// Verify fee calculation works
@@ -1402,7 +1638,14 @@ func TestNewByronConfigFromGenesis_FeePolicy(t *testing.T) {
 	t.Logf("Fee policy loaded from genesis:")
 	t.Logf("  Summand: %d (%.6f ADA base fee)", config.TxFeePolicy.Summand,
 		float64(config.TxFeePolicy.Summand)/float64(ByronFeeDivisor)/1_000_000)
-	t.Logf("  Multiplier: %d (%.6f lovelace/byte)", config.TxFeePolicy.Multiplier,
-		float64(config.TxFeePolicy.Multiplier)/float64(ByronFeeDivisor))
-	t.Logf("  Fee for 200-byte tx: %d lovelace (%.6f ADA)", fee, float64(fee)/1_000_000)
+	t.Logf(
+		"  Multiplier: %d (%.6f lovelace/byte)",
+		config.TxFeePolicy.Multiplier,
+		float64(config.TxFeePolicy.Multiplier)/float64(ByronFeeDivisor),
+	)
+	t.Logf(
+		"  Fee for 200-byte tx: %d lovelace (%.6f ADA)",
+		fee,
+		float64(fee)/1_000_000,
+	)
 }
