@@ -1509,3 +1509,70 @@ func TestCertifiedNatThresholdSigmaDenominatorAboveExactRootCap(t *testing.T) {
 		})
 	}
 }
+
+// TestEscalateThresholdCapReachedReturnsError verifies the cubic-dev-ai
+// review finding on this PR (Finding 1, blocking): if
+// CertifiedNatThresholdWithMode's precision-escalation loop reaches its
+// cap without resolving an integer-boundary ambiguity, it must return an
+// explicit error rather than silently returning the unproven lower bound
+// computed at the highest precision tried. Returning that unproven value
+// used to be the old behavior, and is exactly the "off-by-one on the
+// boundary leader" regression the review flagged: lowering
+// maxThresholdEscalationBits from 1<<20 to 1<<14 (for bounded worst-case
+// CPU time) made an unresolved cap-reached outcome, while still
+// astronomically unlikely, cheaper to hit than before -- so silently
+// trusting an unproven value there is no longer an acceptable trade-off.
+//
+// No known (activeSlotCoeff, poolStake, totalStake) input actually drives
+// CertifiedNatThresholdWithMode's real escalation loop as far as
+// maxThresholdEscalationBits (16,384 bits) without resolving: any *exact
+// rational* cutoff is caught first by the exact-rational fast path
+// (exactOneMinusFPowerSigmaThreshold), and a genuinely irrational
+// (1-f)^sigma landing closer to an integer boundary than 2^-16384 has no
+// known constructive example and is not practically searchable. So this
+// test exercises escalateThreshold -- the internal function that
+// implements the loop -- directly, with an artificially low startBits/
+// capBits pair, rather than driving the cap via the public API with a
+// real input. That is sufficient to prove the error-path logic itself
+// (the "reached cap without resolving -> explicit error, not a value"
+// branch) is correct in isolation, which is what this fix actually
+// changed; it does not (and cannot, absent a constructive counterexample)
+// prove that the real, production-sized cap is reachable at all -- see
+// maxThresholdEscalationBits' doc comment for why that's expected.
+func TestEscalateThresholdCapReachedReturnsError(t *testing.T) {
+	// f=1/3, sigma=1/2: (1-f)^sigma = (2/3)^(1/2) is irrational (2/3 is
+	// not a perfect square of a rational), so the exact-rational fast
+	// path never applies and thresholdFromBoundedProbability's interval
+	// genuinely needs real precision to resolve against a 2^256-magnitude
+	// upperBound. At a deliberately tiny targetBits=8, the resulting
+	// interval spans far more than a single integer in threshold units,
+	// so it is unresolved; capping at the same 8 bits forces the loop to
+	// hit its cap on the very first iteration.
+	oneMinusF := big.NewRat(2, 3)
+
+	threshold, err := escalateThreshold(oneMinusF, 1, 2, twoTo256, 8, 8)
+	require.Error(t, err,
+		"escalateThreshold must return an error when the cap is reached "+
+			"without resolving, not a silently-unproven value")
+	require.Nil(t, threshold,
+		"escalateThreshold must not return a non-nil value alongside an "+
+			"error, to avoid callers accidentally using an unproven result")
+	require.Contains(t, err.Error(), "escalation")
+
+	// Sanity check the other end: with a realistic startBits/capBits pair
+	// (matching seriesTargetBits/maxThresholdEscalationBits), the same
+	// (f, sigma) input resolves without error, confirming the artificial
+	// cap above -- not the input itself -- is what triggers the error.
+	threshold, err = escalateThreshold(
+		oneMinusF,
+		1,
+		2,
+		twoTo256,
+		seriesTargetBits,
+		maxThresholdEscalationBits,
+	)
+	require.NoError(t, err,
+		"the same (f, sigma) input must resolve without error at the "+
+			"real, production-sized startBits/capBits")
+	require.NotNil(t, threshold)
+}

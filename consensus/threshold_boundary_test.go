@@ -463,6 +463,37 @@ func TestLeaderEligibilityBoundaryAgainstIndependentReference(t *testing.T) {
 				// TestCertifiedNatThresholdDifferentialAgainstIndependentReference
 				// for the (deliberately looser) general accuracy bound
 				// against the same reference.
+				//
+				// cubic-dev-ai review (PR #1963, finding 2) questioned
+				// whether this exact-equality check is brittle: refPrec's own
+				// doc comment above notes that refFindE/refLncf's accumulated
+				// rounding can push an exact-rational cutoff across its
+				// integer boundary, and names this file's own two
+				// exact-rational cases (f=0.5/sigma=1, f=0.75/sigma=0.5) as an
+				// example. That drift, however, is specific to raising refPrec
+				// far past its current value (to the ~2000+ mantissa bits the
+				// near-one-f case in threshold_test.go would require), at
+				// which point refSeriesTerms' fixed 4000-iteration cap stops
+				// being enough to converge to the correspondingly tighter
+				// refEpsilon, leaving a much larger residual than usual. It is
+				// not a property of these two cases at refPrec's *current*
+				// value (2048): measured directly, the continued-fraction/
+				// Taylor residual for (1-f)^sigma (which equals exactly 0.5 in
+				// both cases) is on the order of a 2^-1989 relative error, i.e.
+				// an absolute error against even the largest upperBound in use
+				// here (2^512) of around 2^-1477 -- roughly 1450 bits of
+				// margin below what would be needed to shift floor() by even
+				// one integer. That margin would have to shrink by three
+				// orders of magnitude in bit-count before this check could
+				// plausibly flake, so it is kept as an exact equality (not a
+				// tolerance) for these specific cases. This reasoning is tied
+				// to *this* file's current case list at refPrec's current
+				// value: if refPrec, refSeriesTerms, or this file's case list
+				// changes (e.g. to add a near-one-f case), re-derive
+				// below/at/above from threshold instead of cutoff and loosen
+				// this to a tolerance, following the pattern
+				// TestCertifiedNatThresholdDifferentialAgainstIndependentReference
+				// already uses for exactly that reason.
 				diff := new(big.Int).Sub(threshold, cutoff)
 				require.True(t, diff.Sign() == 0,
 					"production threshold must equal the reference cutoff "+

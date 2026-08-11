@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -87,14 +86,18 @@ var bigIntOne = big.NewInt(1)
 // This implementation uses arbitrary precision arithmetic to match
 // Cardano's ledger specification.
 //
-// This is a legacy no-error API kept for backward compatibility. The only
-// error CertifiedNatThresholdWithMode can currently return for the CPRAOS
-// mode used here is an out-of-domain activeSlotCoeff (f > 1, an invalid
-// probability). Rather than propagating that error or returning nil (which
-// would make the result unsafe to use with .Cmp/.Sign/.Bytes/etc. without a
-// nil check), this function conservatively treats invalid/out-of-domain
-// input the same way it already treats other degenerate input: as "never
-// lead", returning big.NewInt(0). Callers that need to detect invalid input
+// This is a legacy no-error API kept for backward compatibility.
+// CertifiedNatThresholdWithMode can return an error for the CPRAOS mode
+// used here in two cases: an out-of-domain activeSlotCoeff (f > 1, an
+// invalid probability), or the precision-escalation loop exhausting
+// maxThresholdEscalationBits without resolving (see that constant's doc
+// comment -- expected to be unreachable in practice for a genuine (f,
+// sigma) input). Rather than propagating either error or returning nil
+// (which would make the result unsafe to use with .Cmp/.Sign/.Bytes/etc.
+// without a nil check), this function conservatively treats any error
+// from CertifiedNatThresholdWithMode the same way it already treats other
+// degenerate input: as "never lead", returning big.NewInt(0). Callers
+// that need to detect invalid input or an unresolved escalation
 // explicitly should use CertifiedNatThresholdWithMode instead.
 func CertifiedNatThreshold(
 	poolStake uint64,
@@ -220,7 +223,51 @@ func CertifiedNatThresholdWithMode(
 	// oneMinusFPowerSigmaBounds), so the common, well-separated-from-any-
 	// integer-boundary case costs the same as a single ln+exp evaluation,
 	// same as before this fix.
-	targetBits := uint(seriesTargetBits)
+	return escalateThreshold(
+		oneMinusF,
+		poolStake,
+		totalStake,
+		upperBound,
+		seriesTargetBits,
+		maxThresholdEscalationBits,
+	)
+}
+
+// escalateThreshold implements CertifiedNatThresholdWithMode's
+// precision-escalation loop for the general (non-exact-rational) case:
+// starting at startBits, it repeatedly widens the accuracy target passed
+// to thresholdFromBoundedProbability until either the resulting interval
+// resolves to a single integer floor (the provably correct threshold), or
+// targetBits reaches capBits without resolving.
+//
+// Reaching the cap without resolving does NOT fall back to returning the
+// unproven lower bound: that would silently return a value that has never
+// actually been shown to be correct, merely because a bounded amount of
+// working precision ran out. Instead this returns an explicit error, so
+// that a genuinely pathological/adversarial input (or a bug in the
+// declared error bound in oneMinusFPowerSigmaBounds) is visible to the
+// caller rather than silently producing a wrong eligibility decision. See
+// maxThresholdEscalationBits' doc comment for why this is expected to
+// never happen in practice for a genuine (f, sigma) input: any *exact
+// rational* cutoff is always caught by the exact-rational fast path in
+// CertifiedNatThresholdWithMode before this loop ever runs, and a
+// genuinely irrational value landing closer to an integer boundary than
+// 2^-capBits is astronomically unlikely for any realistic protocol
+// parameter.
+//
+// startBits and capBits are parameters (rather than always using
+// seriesTargetBits/maxThresholdEscalationBits directly) purely so tests
+// can exercise the cap-reached error path in isolation, by supplying a
+// startBits low enough that thresholdFromBoundedProbability's interval
+// doesn't resolve and a capBits at or below it -- see
+// TestEscalateThresholdCapReachedReturnsError.
+func escalateThreshold(
+	oneMinusF *big.Rat,
+	poolStake, totalStake uint64,
+	upperBound *big.Int,
+	startBits, capBits uint,
+) (*big.Int, error) {
+	targetBits := startBits
 	for {
 		threshold, resolved := thresholdFromBoundedProbability(
 			oneMinusF,
@@ -229,34 +276,31 @@ func CertifiedNatThresholdWithMode(
 			upperBound,
 			targetBits,
 		)
-		if resolved || targetBits >= maxThresholdEscalationBits {
-			// Reaching the escalation cap without resolving means the
-			// true value is, to within astronomically unlikely odds,
-			// exactly on an integer boundary -- but unlike a generic
-			// irrational-looking value, an *exact rational* cutoff is
-			// always caught by the exactOneMinusFPowerSigmaThreshold
-			// fast path above, which is a complete decision procedure
-			// with no cap on sigma's reduced denominator (see
-			// exactIntegerNthRoot). So this branch is expected to be
-			// unreachable for a genuine exact-rational cutoff;
-			// threshold is the tight lower bound at the highest
-			// precision tried, the same conservative "when genuinely
-			// unsure, don't over-count eligibility" direction used
-			// elsewhere in this function for degenerate input, kept
-			// only as a last-resort fallback for the floating-point
-			// pipeline itself.
-			if !resolved {
-				thresholdEscalationCapReachedCount.Add(1)
-			}
+		if resolved {
 			return threshold, nil
+		}
+		if targetBits >= capBits {
+			return nil, fmt.Errorf(
+				"threshold precision escalation reached %d bits without "+
+					"resolving an integer-boundary ambiguity for "+
+					"poolStake=%d totalStake=%d (1-activeSlotCoeff)=%s; "+
+					"this indicates either a pathological/adversarial "+
+					"input or (more likely, since the exact-rational fast "+
+					"path already catches every truly-exact cutoff, and "+
+					"this is astronomically rare for a genuine irrational "+
+					"value) a bug in the declared error bound in "+
+					"oneMinusFPowerSigmaBounds",
+				capBits, poolStake, totalStake, oneMinusF.RatString(),
+			)
 		}
 		targetBits *= 2
 	}
 }
 
-// maxThresholdEscalationBits caps how far thresholdFromBoundedProbability's
-// caller grows the working precision (targetBits) before giving up and
-// returning a best-effort result. This is far beyond what any plausible
+// maxThresholdEscalationBits caps how far escalateThreshold grows the
+// working precision (targetBits) before giving up and returning an
+// explicit error rather than an unproven best-effort result (see
+// escalateThreshold's doc comment). This is far beyond what any plausible
 // protocol parameter (activeSlotCoeff, pool/total stake) would require to
 // resolve for a genuinely irrational (1-f)^sigma; an *exact rational*
 // cutoff is always caught first by exactOneMinusFPowerSigmaThreshold (a
@@ -268,19 +312,8 @@ func CertifiedNatThresholdWithMode(
 // (seriesTargetBits, 576 bits) and bounds the worst-case cost of this
 // escalation loop -- if it is ever actually reached -- to roughly 0.1s,
 // rather than the multi-minute hang a much larger cap (e.g. 1<<20) would
-// permit in this exported, non-cancellable API. See
-// thresholdEscalationCapReachedCount for a cheap way to detect if this cap
-// is ever reached in practice.
+// permit in this exported, non-cancellable API.
 const maxThresholdEscalationBits = 1 << 14 // 16,384 bits
-
-// thresholdEscalationCapReachedCount counts how many times
-// CertifiedNatThresholdWithMode's precision-escalation loop has reached
-// maxThresholdEscalationBits without resolving. This is expected to stay at
-// zero in practice (see maxThresholdEscalationBits' doc comment); a nonzero
-// value indicates either a pathological input or a bug in the declared
-// error bound in oneMinusFPowerSigmaBounds, and is cheap to check from
-// tests or monitoring without adding logging to a hot path.
-var thresholdEscalationCapReachedCount atomic.Uint64
 
 // intervalGuardBits is extra working precision reserved, on top of the
 // current targetBits accuracy level, to keep ordinary floating-point
@@ -454,8 +487,9 @@ func exactOneMinusFPowerSigmaThreshold(
 // whether they agree (in which case the shared value is provably the
 // correct threshold). If they disagree, the caller should retry at a
 // higher targetBits; the returned threshold in that case is the (not yet
-// proven correct) lower bound, useful only as a last-resort fallback if an
-// escalation cap is reached.
+// proven correct) lower bound. escalateThreshold discards this
+// not-yet-proven value rather than returning it once its own escalation
+// cap is reached -- see that function's doc comment.
 func thresholdFromBoundedProbability(
 	oneMinusF *big.Rat,
 	poolStake, totalStake uint64,
