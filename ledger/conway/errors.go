@@ -434,7 +434,9 @@ type DuplicateVrfKeyError struct {
 func (e DuplicateVrfKeyError) Error() string {
 	return fmt.Sprintf(
 		"duplicate VRF key: pool %x attempted to register VRF key %x already in use by pool %x",
-		e.NewPoolId[:8], e.VrfKeyHash[:8], e.ExistingPoolId[:8],
+		e.NewPoolId[:8],
+		e.VrfKeyHash[:8],
+		e.ExistingPoolId[:8],
 	)
 }
 
@@ -449,6 +451,209 @@ type CCVotingRestrictionError struct {
 func (e CCVotingRestrictionError) Error() string {
 	return fmt.Sprintf(
 		"constitutional committee voting restriction: voter %x on action %x#%d - %s",
-		e.VoterId[:8], e.ActionId.TransactionId[:8], e.ActionId.GovActionIdx, e.Restriction,
+		e.VoterId[:8],
+		e.ActionId.TransactionId[:8],
+		e.ActionId.GovActionIdx,
+		e.Restriction,
+	)
+}
+
+// StakePoolVotingRestrictionError indicates a stake pool (SPO) voter violated
+// voting restrictions per the Conway ledger's isStakePoolVotingAllowed. SPOs
+// may never vote on NewConstitution or TreasuryWithdrawal actions.
+type StakePoolVotingRestrictionError struct {
+	VoterId     common.PoolKeyHash
+	ActionId    common.GovActionId
+	Restriction string
+}
+
+func (e StakePoolVotingRestrictionError) Error() string {
+	return fmt.Sprintf(
+		"stake pool voting restriction: voter %x on action %x#%d - %s",
+		e.VoterId[:8],
+		e.ActionId.TransactionId[:8],
+		e.ActionId.GovActionIdx,
+		e.Restriction,
+	)
+}
+
+// BootstrapVotingRestrictionError indicates a vote cast during the Conway
+// bootstrap phase (PV9) that is not permitted: DReps may only vote on
+// InfoAction, and all other voter types may only vote on bootstrap-eligible
+// actions (ParameterChange, HardForkInitiation, InfoAction).
+type BootstrapVotingRestrictionError struct {
+	VoterId     common.Blake2b224
+	ActionId    common.GovActionId
+	Restriction string
+}
+
+func (e BootstrapVotingRestrictionError) Error() string {
+	return fmt.Sprintf(
+		"bootstrap-phase voting restriction: voter %x on action %x#%d - %s",
+		e.VoterId[:8],
+		e.ActionId.TransactionId[:8],
+		e.ActionId.GovActionIdx,
+		e.Restriction,
+	)
+}
+
+// UnknownGovActionIdError indicates that a voting procedure referenced one or
+// more governance action IDs that do not exist in the ledger state
+// (ConwayGovPredFailure.GovActionsDoNotExist).
+type UnknownGovActionIdError struct {
+	ActionIds []common.GovActionId
+}
+
+func (e UnknownGovActionIdError) Error() string {
+	ids := make([]string, len(e.ActionIds))
+	for i, id := range e.ActionIds {
+		ids[i] = fmt.Sprintf("%x#%d", id.TransactionId[:8], id.GovActionIdx)
+	}
+	return "vote references unknown governance action id(s): " +
+		strings.Join(ids, ", ")
+}
+
+// UnknownVoterError indicates that a voting procedure was cast by a voter
+// that does not exist in the ledger state (e.g. an unregistered DRep, an
+// unregistered stake pool, or a credential not authorized as a committee hot
+// key). Corresponds to ConwayGovPredFailure.VotersDoNotExist.
+type UnknownVoterError struct {
+	Voter common.Voter
+}
+
+func (e UnknownVoterError) Error() string {
+	return fmt.Sprintf(
+		"vote cast by unknown voter: type=%d hash=%x",
+		e.Voter.Type,
+		e.Voter.Hash[:8],
+	)
+}
+
+// VotingOnExpiredGovActionError indicates a vote was cast on a governance
+// action whose expiry slot has already passed
+// (ConwayGovPredFailure.VotingOnExpiredGovAction).
+type VotingOnExpiredGovActionError struct {
+	Voter      common.Voter
+	ActionId   common.GovActionId
+	ExpirySlot uint64
+	Slot       uint64
+}
+
+func (e VotingOnExpiredGovActionError) Error() string {
+	return fmt.Sprintf(
+		"vote cast on expired governance action %x#%d (expired at slot %d, current slot %d)",
+		e.ActionId.TransactionId[:8],
+		e.ActionId.GovActionIdx,
+		e.ExpirySlot,
+		e.Slot,
+	)
+}
+
+// ProposalDepositIncorrectError indicates a proposal procedure's deposit does
+// not equal the protocol's GovActionDeposit parameter
+// (ConwayGovPredFailure.ProposalDepositIncorrect).
+type ProposalDepositIncorrectError struct {
+	Supplied uint64
+	Expected uint64
+}
+
+func (e ProposalDepositIncorrectError) Error() string {
+	return fmt.Sprintf(
+		"proposal deposit incorrect: supplied %d, expected %d",
+		e.Supplied,
+		e.Expected,
+	)
+}
+
+// ProposalReturnAccountDoesNotExistError indicates a proposal's return
+// (refund) address is not a registered reward account
+// (ConwayGovPredFailure.ProposalReturnAccountDoesNotExist).
+type ProposalReturnAccountDoesNotExistError struct {
+	Address common.Address
+}
+
+func (e ProposalReturnAccountDoesNotExistError) Error() string {
+	return "proposal return account does not exist: " + e.Address.String()
+}
+
+// TreasuryWithdrawalReturnAccountsDoNotExistError indicates one or more
+// treasury withdrawal destination addresses are not registered reward
+// accounts (ConwayGovPredFailure.TreasuryWithdrawalReturnAccountsDoNotExist).
+type TreasuryWithdrawalReturnAccountsDoNotExistError struct {
+	Addresses []common.Address
+}
+
+func (e TreasuryWithdrawalReturnAccountsDoNotExistError) Error() string {
+	addrs := make([]string, len(e.Addresses))
+	for i, addr := range e.Addresses {
+		addrs[i] = addr.String()
+	}
+	return "treasury withdrawal return account(s) do not exist: " +
+		strings.Join(addrs, ", ")
+}
+
+// ConflictingCommitteeUpdateError indicates an UpdateCommittee governance
+// action lists the same cold credential in both its removed-members set and
+// its added-members map (ConwayGovPredFailure.ConflictingCommitteeUpdate).
+type ConflictingCommitteeUpdateError struct {
+	Credentials []common.Credential
+}
+
+func (e ConflictingCommitteeUpdateError) Error() string {
+	creds := make([]string, len(e.Credentials))
+	for i, cred := range e.Credentials {
+		creds[i] = hex.EncodeToString(cred.Credential[:8])
+	}
+	return "update committee action lists credential(s) as both added and removed: " +
+		strings.Join(
+			creds,
+			", ",
+		)
+}
+
+// MalformedGovActionError indicates a governance action failed a structural
+// well-formedness check (ConwayGovPredFailure.MalformedProposal).
+type MalformedGovActionError struct {
+	Reason string
+}
+
+func (e MalformedGovActionError) Error() string {
+	return "malformed governance action: " + e.Reason
+}
+
+// BadHardForkProtocolVersionError indicates a HardForkInitiation governance
+// action proposes a protocol version that cannot legally follow the current
+// (or referenced ancestor) protocol version
+// (ConwayGovPredFailure.ProposalCantFollow).
+type BadHardForkProtocolVersionError struct {
+	Supplied common.ProtocolParametersProtocolVersion
+	Expected common.ProtocolParametersProtocolVersion
+}
+
+func (e BadHardForkProtocolVersionError) Error() string {
+	return fmt.Sprintf(
+		"hard fork protocol version %d.%d cannot follow current protocol version %d.%d",
+		e.Supplied.Major,
+		e.Supplied.Minor,
+		e.Expected.Major,
+		e.Expected.Minor,
+	)
+}
+
+// InvalidGovActionAncestorError indicates a governance action's referenced
+// ancestor (PrevGovActionId) does not exist, or exists but belongs to a
+// different governance-action "purpose" chain
+// (ConwayGovPredFailure.InvalidPrevGovActionId).
+type InvalidGovActionAncestorError struct {
+	ActionId common.GovActionId
+	Reason   string
+}
+
+func (e InvalidGovActionAncestorError) Error() string {
+	return fmt.Sprintf(
+		"invalid governance action ancestor %x#%d: %s",
+		e.ActionId.TransactionId[:8],
+		e.ActionId.GovActionIdx,
+		e.Reason,
 	)
 }
