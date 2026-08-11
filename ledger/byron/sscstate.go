@@ -234,6 +234,15 @@ func decodePrimaryEntries(
 // already-decoded SscPayload parts (rest, as returned by
 // decodeSscPayloadParts) -- no cross-block state needed.
 //
+// This is the opt-in, full-hash-comparison form (checkSscProofCore with
+// verifyHashes=true): it recomputes each hash the header claims and rejects
+// the block unless the header's value matches exactly. ValidateBodyProof
+// does NOT call this by default -- see checkSscProofCore's doc comment
+// and common.VerifyConfig.EnableByronSscProofHashValidation for why that
+// comparison is opt-in rather than applied unconditionally to every
+// decoded Byron main block, and checkSscProofShape for the structural-only
+// form ValidateBodyProof runs instead by default.
+//
 // This replaced an earlier, epoch-accumulation-based design (see
 // ByronEpochSscState's doc comment) after real, non-empty mainnet vectors
 // disproved its premise. Concretely, for three real, consecutive
@@ -256,6 +265,28 @@ func decodePrimaryEntries(
 // epoch-spanning accumulator, so there is no accumulated state for a later
 // block's proof to depend on in the first place. See sscstate_real_test.go
 // for the fixtures and assertions the mainnet-vector claims above rest on.
+//
+// NOTE: a discriminating real vector -- a non-first main block in an
+// epoch that already has non-empty VSS certificates from an earlier block
+// in that same epoch -- would settle the block-local-vs-epoch-accumulated
+// question for certificates definitively (block-local predicts that
+// block's own certificate set alone; epoch-accumulated predicts it
+// wouldn't). A chain-sync scan from mainnet slot 129601 (epoch 6's first
+// main block, the one 7-certificate vector already confirmed above)
+// forward through slot 145401 -- covering the main blocks across that
+// 15,801-slot range (slots 129601-145401 inclusive; Byron allows at most
+// one main block per slot, so that is an upper bound on the block count,
+// not the count itself), roughly the first three-quarters of epoch 6 --
+// found none: every other block in that range carried an empty VSS
+// certificate set. That is not itself evidence for either hypothesis (an
+// epoch-accumulated implementation could just as easily produce
+// all-empty certificate fields on every later block, if VSS certificates
+// are only actually (re)broadcast once near each epoch's start); it only
+// means the scan did not turn up a vector that could distinguish the two.
+// The conclusion that certificates hash block-locally therefore still
+// rests on cardano-sl's type-level SscPayload argument in the paragraph
+// above alone, not on a discriminating real vector -- treat it as
+// well-supported, not as settled by direct observation.
 //
 // The two SSC payload categories hash differently, matching cardano-sl's
 // own documented behavior (input-output-hk/cardano-sl,
@@ -328,6 +359,70 @@ func checkSscProofLocal(
 	expectedType uint64,
 	rest []cbor.RawMessage,
 ) error {
+	return checkSscProofCore(rawProof, expectedType, rest, true)
+}
+
+// checkSscProofShape validates a block's ssc_proof the same way
+// checkSscProofLocal does -- proof type, element counts, and the wire shape
+// of every field the proof hashes -- but does NOT compare any hash value
+// against the header. This is what ValidateBodyProof runs by default for
+// every decoded Byron main block (see NewByronMainBlockFromCbor);
+// checkSscProofLocal's full hash comparison is opt-in via
+// common.VerifyConfig.EnableByronSscProofHashValidation, exposed through
+// ByronMainBlock.ValidateSscProof.
+//
+// See checkSscProofCore's doc comment for why the hash comparison itself,
+// specifically, is not run unconditionally the way tx_proof/dlg_proof/
+// upd_proof's comparisons are.
+func checkSscProofShape(
+	rawProof any,
+	expectedType uint64,
+	rest []cbor.RawMessage,
+) error {
+	return checkSscProofCore(rawProof, expectedType, rest, false)
+}
+
+// checkSscProofCore implements both checkSscProofLocal (verifyHashes=true)
+// and checkSscProofShape (verifyHashes=false): the proof type, element
+// counts, and wire shape of every field are always validated; the actual
+// hash comparison against the header's claimed value is only performed
+// when verifyHashes is true.
+//
+// Splitting the hash comparison out behind verifyHashes exists because,
+// unlike tx_proof/dlg_proof/upd_proof, ssc_proof has no upstream reference
+// implementation to cross-check this package's own hash construction
+// against: modern cardano-ledger decodes SscProof as a unit type and
+// re-encodes a hardcoded placeholder regardless of the block's actual SSC
+// content, so cardano-node itself would accept a block whose ssc_proof
+// this comparison might reject. The construction below is confirmed
+// against a handful of real, non-empty mainnet blocks (see
+// checkSscProofLocal's doc comment, and sscstate_real_test.go) --
+// roughly 4-5 blocks, covering only two of the four SSC payload types
+// (CommitmentsPayload and OpeningsPayload) but exercising three of the
+// four distinct hash constructions those payloads use (the
+// commitments-field, openings-field, and certificates-field hashes; the
+// CommitmentsPayload vector happens to also carry a non-empty certificate
+// set). SharesPayload's hash construction has no confirmed non-empty
+// vector -- see checkSscProofLocal's doc comment -- out of Byron's
+// ~5,000,000 total blocks and 208 epochs -- and two real encoding bugs
+// were found and fixed in this construction during the same review round
+// that produced those vectors, which is evidence the construction is
+// subtle rather than settled. Making the hash comparison decode-gating by
+// default (as an earlier version of this function did) means any
+// undiscovered edge case in this construction turns into every real,
+// unrelated caller of NewByronMainBlockFromCbor failing to decode an
+// otherwise-genuine mainnet block. The structural checks this function
+// always performs (proof type and element counts matching the payload,
+// and the wire shape -- tag-258 set vs. genuine CBOR map -- of every field
+// the proof would hash) carry no such risk, since they only ever reject
+// input that the real Byron wire format could not have produced in the
+// first place; only the value comparison is gated.
+func checkSscProofCore(
+	rawProof any,
+	expectedType uint64,
+	rest []cbor.RawMessage,
+	verifyHashes bool,
+) error {
 	proofSlice, ok := rawProof.([]any)
 	if !ok || len(proofSlice) < 2 {
 		return fmt.Errorf(
@@ -369,10 +464,11 @@ func checkSscProofLocal(
 				ErrBodyProofMismatch, sscType, err,
 			)
 		}
-		if err := checkHash(
+		if err := checkHashOrShape(
 			"ssc primary hash",
 			proofSlice[1],
 			common.Blake2b256Hash(rest[0]),
+			verifyHashes,
 		); err != nil {
 			return err
 		}
@@ -383,7 +479,9 @@ func checkSscProofLocal(
 				ErrBodyProofMismatch, err,
 			)
 		}
-		return checkHash("ssc vss certificates hash", proofSlice[2], certsHash)
+		return checkHashOrShape(
+			"ssc vss certificates hash", proofSlice[2], certsHash, verifyHashes,
+		)
 	case SscTypeCertificates:
 		if len(proofSlice) != 2 {
 			return fmt.Errorf(
@@ -405,7 +503,9 @@ func checkSscProofLocal(
 				ErrBodyProofMismatch, err,
 			)
 		}
-		return checkHash("ssc vss certificates hash", proofSlice[1], certsHash)
+		return checkHashOrShape(
+			"ssc vss certificates hash", proofSlice[1], certsHash, verifyHashes,
+		)
 	default:
 		return fmt.Errorf(
 			"%w: unknown ssc proof type %d", ErrBodyProofMismatch, sscType,

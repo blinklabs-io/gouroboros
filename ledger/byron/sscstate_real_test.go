@@ -269,9 +269,15 @@ func TestByronEpochSscStateRealMainnet(t *testing.T) {
 	// The correctness gate itself: each real block's own ssc_proof, checked
 	// entirely from its own payload, validates -- across a
 	// CommitmentsPayload block with 3 distinct stakeholders (block3) and an
-	// OpeningsPayload block with 2 (block4).
+	// OpeningsPayload block with 2 (block4). This whole file is specifically
+	// about confirming the real hash comparison, so every ValidateBodyProof
+	// call here opts into it via
+	// common.VerifyConfig.EnableByronSscProofHashValidation -- the default,
+	// structural-only check would not exercise what these tests exist to
+	// prove.
+	hashCheckCfg := common.VerifyConfig{EnableByronSscProofHashValidation: true}
 	for _, b := range []*byron.ByronMainBlock{block1, block2, block3, block4} {
-		assert.NoError(t, b.ValidateBodyProof())
+		assert.NoError(t, b.ValidateBodyProof(hashCheckCfg))
 	}
 
 	// AccumulateBlock's registry view still works, for callers who want it,
@@ -298,7 +304,7 @@ func TestByronEpochSscStateRealMainnet(t *testing.T) {
 					return parts
 				},
 			)
-			err := tampered.ValidateBodyProof()
+			err := tampered.ValidateBodyProof(hashCheckCfg)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 		},
@@ -314,7 +320,7 @@ func TestByronEpochSscStateRealMainnet(t *testing.T) {
 					return parts
 				},
 			)
-			err := tampered.ValidateBodyProof()
+			err := tampered.ValidateBodyProof(hashCheckCfg)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 		},
@@ -339,7 +345,10 @@ func TestByronEpochSscStateRealMainnet(t *testing.T) {
 // vector by itself.
 func TestByronEpochSscStateRealMainnetCertificates(t *testing.T) {
 	block := decodeRealMainnetBlock(t, realEpoch6Slot129601Hex)
-	assert.NoError(t, block.ValidateBodyProof())
+	// Opt into the full hash comparison: see TestByronEpochSscStateRealMainnet's
+	// hashCheckCfg comment for why.
+	hashCheckCfg := common.VerifyConfig{EnableByronSscProofHashValidation: true}
+	assert.NoError(t, block.ValidateBodyProof(hashCheckCfg))
 
 	sscState := byron.NewByronEpochSscState()
 	require.NoError(t, sscState.AccumulateBlock(block))
@@ -354,7 +363,7 @@ func TestByronEpochSscStateRealMainnetCertificates(t *testing.T) {
 				return parts
 			},
 		)
-		err := tampered.ValidateBodyProof()
+		err := tampered.ValidateBodyProof(hashCheckCfg)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 	})
@@ -367,7 +376,7 @@ func TestByronEpochSscStateRealMainnetCertificates(t *testing.T) {
 				return parts
 			},
 		)
-		err := tampered.ValidateBodyProof()
+		err := tampered.ValidateBodyProof(hashCheckCfg)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 	})

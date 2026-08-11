@@ -52,28 +52,41 @@ const (
 //
 // The transaction proof is the load-bearing one: it covers the count, a
 // merkle root over transaction bodies, and a hash over the witness list, so
-// altering, adding, or removing any transaction changes it.
+// altering, adding, or removing any transaction changes it. tx_proof,
+// dlg_proof, and upd_proof are always checked by full hash comparison: real
+// mainnet blocks going through cardano-node's own decoder for years is a
+// safety net for those three fields being both correct and safe to enforce
+// unconditionally.
 //
-// This is a fully block-local validator: every proof component, including
-// ssc_proof, is checked using only this block's own body -- no cross-block
-// or epoch-wide state is needed. This was not always true: an earlier
-// version of this function deliberately skipped ssc_proof's hashes,
-// believing that they depended on epoch-wide accumulated state. Real,
-// non-empty mainnet vectors disproved that: see checkSscProofLocal's doc
-// comment (sscstate.go) for the vectors and reasoning.
+// ssc_proof does not have that same safety net (see
+// common.VerifyConfig.EnableByronSscProofHashValidation's doc comment and
+// checkSscProofCore's for the full reasoning), so by default this function
+// checks ssc_proof only structurally -- its declared type, element counts,
+// and the wire shape of every field it hashes, via ValidateSscProofShape --
+// without comparing any of its hash values against the header. Pass a
+// common.VerifyConfig with EnableByronSscProofHashValidation set to true to
+// additionally run the full hash comparison (ValidateSscProof) as part of
+// this call; NewByronMainBlockFromCbor forwards whatever VerifyConfig it
+// was given here, so that same flag controls decode-time behavior too.
 //
-// One caveat within ssc_proof itself: SscTypeShares (a SharesPayload block)
-// is validated by the exact same block-local hash construction as
-// SscTypeOpenings, which real mainnet data does confirm -- but that
-// construction has never been independently confirmed against a genuinely
-// non-empty SharesPayload vector of its own, since none was found in the
-// portion of mainnet scanned so far. Treat SharesPayload validation here as
-// resting on strong indirect evidence (same wire shape, same code path,
-// same cardano-sl type declaration as openings), not a directly confirmed
-// vector, until such a vector is found. See checkSscProofLocal's doc
-// comment (sscstate.go) for the full reasoning and what would close this
-// gap.
-func (b *ByronMainBlock) ValidateBodyProof() error {
+// This was not always the default: an earlier version of this function
+// unconditionally ran the full ssc_proof hash comparison, after an even
+// earlier version had deliberately skipped ssc_proof's hashes entirely,
+// believing that they depended on epoch-wide accumulated state -- real,
+// non-empty mainnet vectors disproved that belief, but the unconditional
+// hash comparison this replaced was reverted in favor of the opt-in scheme
+// here specifically because ssc_proof's construction has no upstream
+// reference oracle: see checkSscProofLocal's doc comment (sscstate.go) for
+// the vectors and reasoning, and checkSscProofCore's for why the hash
+// comparison itself, not the structural check, is what moved behind the
+// opt-in flag.
+func (b *ByronMainBlock) ValidateBodyProof(
+	config ...common.VerifyConfig,
+) error {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
 	proof, err := b.bodyProofArray()
 	if err != nil {
 		return err
@@ -81,7 +94,11 @@ func (b *ByronMainBlock) ValidateBodyProof() error {
 	if err := b.validateTxProof(proof[bodyProofTxIndex]); err != nil {
 		return err
 	}
-	if err := b.ValidateSscProof(); err != nil {
+	if cfg.EnableByronSscProofHashValidation {
+		if err := b.ValidateSscProof(); err != nil {
+			return err
+		}
+	} else if err := b.ValidateSscProofShape(); err != nil {
 		return err
 	}
 	if err := checkPayloadHash(
@@ -95,15 +112,37 @@ func (b *ByronMainBlock) ValidateBodyProof() error {
 }
 
 // ValidateSscProof validates only a Byron main block's ssc_proof, entirely
-// from that block's own payload (see checkSscProofLocal's doc comment).
+// from that block's own payload, including a full comparison of every hash
+// it carries against the header (see checkSscProofLocal's doc comment).
 //
-// This is split out from ValidateBodyProof for callers (e.g.
-// consensus/byron's ValidateBodyHash) that have already validated
-// tx_proof/dlg_proof/upd_proof through some other, independently
-// implemented pipeline and want to add a real ssc_proof check without
-// paying for a second, redundant pass over the transaction merkle root and
-// the other body components ValidateBodyProof would otherwise repeat.
+// This is the opt-in, full-hash form: ValidateBodyProof does not call this
+// by default (see its own doc comment and
+// common.VerifyConfig.EnableByronSscProofHashValidation) -- it is exposed
+// separately for callers that specifically want the full check, such as
+// consensus/byron's ValidateBodyHash when given that same opt-in flag, or
+// a caller that has already validated tx_proof/dlg_proof/upd_proof through
+// some other, independently implemented pipeline and wants to add a real
+// ssc_proof check without paying for a second, redundant pass over the
+// transaction merkle root and the other body components ValidateBodyProof
+// would otherwise repeat. See ValidateSscProofShape for the structural-only
+// check ValidateBodyProof runs by default instead.
 func (b *ByronMainBlock) ValidateSscProof() error {
+	return b.checkSscProof(true)
+}
+
+// ValidateSscProofShape validates only a Byron main block's ssc_proof
+// structurally -- its declared type, element counts, and the wire shape of
+// every field it would hash -- without comparing any hash value against
+// the header. This is what ValidateBodyProof runs by default; see its doc
+// comment, checkSscProofCore's, and ValidateSscProof for the opt-in form
+// that additionally compares hash values.
+func (b *ByronMainBlock) ValidateSscProofShape() error {
+	return b.checkSscProof(false)
+}
+
+// checkSscProof implements both ValidateSscProof (verifyHashes=true) and
+// ValidateSscProofShape (verifyHashes=false).
+func (b *ByronMainBlock) checkSscProof(verifyHashes bool) error {
 	if b == nil || b.BlockHeader == nil {
 		return fmt.Errorf(
 			"%w: block or block header is nil", ErrBodyProofMismatch,
@@ -117,7 +156,10 @@ func (b *ByronMainBlock) ValidateSscProof() error {
 	if err != nil {
 		return fmt.Errorf("%w: ssc payload: %w", ErrBodyProofMismatch, err)
 	}
-	return checkSscProofLocal(proof[bodyProofSscIndex], payloadType, rest)
+	if verifyHashes {
+		return checkSscProofLocal(proof[bodyProofSscIndex], payloadType, rest)
+	}
+	return checkSscProofShape(proof[bodyProofSscIndex], payloadType, rest)
 }
 
 // bodyProofArray returns the header's body proof as a validated array,
@@ -256,12 +298,9 @@ func checkHash(
 	expected any,
 	actual common.Blake2b256,
 ) error {
-	expectedBytes, ok := expected.([]byte)
-	if !ok || len(expectedBytes) != common.Blake2b256Size {
-		return fmt.Errorf(
-			"%w: %s in header is not a %d-byte hash",
-			ErrBodyProofMismatch, label, common.Blake2b256Size,
-		)
+	expectedBytes, err := checkHashShapeBytes(label, expected)
+	if err != nil {
+		return err
 	}
 	if !bytes.Equal(expectedBytes, actual[:]) {
 		return fmt.Errorf(
@@ -270,6 +309,49 @@ func checkHash(
 		)
 	}
 	return nil
+}
+
+// checkHashShape validates that a proof entry has the wire shape of a
+// blake2b-256 hash (32 raw bytes) without asserting anything about its
+// value. See checkHashOrShape for why some callers (ssc_proof by default)
+// need this shape-only form instead of checkHash's full comparison.
+func checkHashShape(label string, expected any) error {
+	_, err := checkHashShapeBytes(label, expected)
+	return err
+}
+
+// checkHashShapeBytes is checkHashShape's implementation, returning the
+// validated bytes so checkHash can reuse it instead of duplicating the
+// type/length assertion.
+func checkHashShapeBytes(label string, expected any) ([]byte, error) {
+	expectedBytes, ok := expected.([]byte)
+	if !ok || len(expectedBytes) != common.Blake2b256Size {
+		return nil, fmt.Errorf(
+			"%w: %s in header is not a %d-byte hash",
+			ErrBodyProofMismatch, label, common.Blake2b256Size,
+		)
+	}
+	return expectedBytes, nil
+}
+
+// checkHashOrShape validates that a proof entry has the shape of a
+// blake2b-256 hash and, only when verify is true, additionally compares it
+// against a locally computed value. This is what lets checkSscProofCore
+// implement both the opt-in, full-hash form (checkSscProofLocal) and the
+// always-on, structural-only form (checkSscProofShape) that
+// ValidateBodyProof runs by default -- see checkSscProofCore's doc comment
+// (sscstate.go) for why ssc_proof's hash comparison specifically is not
+// applied unconditionally the way tx_proof/dlg_proof/upd_proof's are.
+func checkHashOrShape(
+	label string,
+	expected any,
+	actual common.Blake2b256,
+	verify bool,
+) error {
+	if !verify {
+		return checkHashShape(label, expected)
+	}
+	return checkHash(label, expected, actual)
 }
 
 // asUint normalises the integer types the CBOR decoder may produce for a
