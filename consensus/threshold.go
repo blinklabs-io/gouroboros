@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
@@ -176,17 +177,6 @@ func CertifiedNatThresholdWithMode(
 	if fCmpOne == 0 {
 		return new(big.Int).Set(upperBound), nil
 	}
-	// sigma == 1 (full stake) means (1-f)^sigma == 1-f exactly, so the
-	// threshold can be computed exactly via rational arithmetic instead
-	// of the ln/exp pipeline, avoiding any residual floating-point error
-	// that could otherwise push an exact-rational cutoff across an
-	// integer boundary (see the full-stake, f=1/2 differential test).
-	if poolStake == totalStake {
-		exact := new(big.Int).Mul(upperBound, activeSlotCoeff.Num())
-		exact.Quo(exact, activeSlotCoeff.Denom())
-		return exact, nil
-	}
-
 	// Compute 1-f EXACTLY as a rational *before* any conversion to
 	// big.Float. big.Rat arithmetic is arbitrary precision, so this
 	// subtraction never loses information, unlike converting f itself to
@@ -196,18 +186,22 @@ func CertifiedNatThresholdWithMode(
 	// (2^2000-1)/2^2000, rounds to *exactly* 1.0 at any working mantissa
 	// precision on the order of a few hundred to a couple thousand bits,
 	// making a subsequent 1-f computation silently produce 0 instead of
-	// the true tiny positive value).
+	// the true tiny positive value). Note sigma == 1 (full stake) is not
+	// special-cased separately here: it is handled below by the general
+	// exact-rational fast path, since exactIntegerNthRoot's k==1 fast
+	// return makes an m=1 root check trivial and exact, giving the same
+	// result a dedicated sigma==1 branch would.
 	oneMinusF := new(big.Rat).Sub(bigRatOne, activeSlotCoeff)
 
-	// Exact-rational fast path: generalizes the sigma=1 case above. If
-	// sigma's reduced denominator m is small enough to root-check
-	// economically, and (1-f)'s numerator and denominator are each an
-	// exact m-th power, then (1-f)^sigma is itself an exact rational,
-	// computed here with no ln/exp approximation (and hence no
-	// floating-point error) at all. This is what resolves both of the
-	// reported near-integer cutoffs: f=3/4,sigma=1/2 (1-f=1/4, a perfect
-	// square) and f=(2^2000-1)/2^2000,sigma=1/2 (1-f=2^-2000, also a
-	// perfect square).
+	// Exact-rational fast path. If sigma's reduced denominator m is small
+	// enough to root-check economically (m=1, i.e. sigma=1/full stake,
+	// always is), and (1-f)'s numerator and denominator are each an exact
+	// m-th power, then (1-f)^sigma is itself an exact rational, computed
+	// here with no ln/exp approximation (and hence no floating-point
+	// error) at all. This is what resolves the full-stake f=1/2 case and
+	// both of the reported near-integer partial-stake cutoffs:
+	// f=3/4,sigma=1/2 (1-f=1/4, a perfect square) and
+	// f=(2^2000-1)/2^2000,sigma=1/2 (1-f=2^-2000, also a perfect square).
 	if exact, ok := exactOneMinusFPowerSigmaThreshold(
 		oneMinusF,
 		poolStake,
@@ -251,6 +245,9 @@ func CertifiedNatThresholdWithMode(
 			// elsewhere in this function for degenerate input, kept
 			// only as a last-resort fallback for the floating-point
 			// pipeline itself.
+			if !resolved {
+				thresholdEscalationCapReachedCount.Add(1)
+			}
 			return threshold, nil
 		}
 		targetBits *= 2
@@ -266,7 +263,24 @@ func CertifiedNatThresholdWithMode(
 // complete decision procedure with no cap on sigma's reduced denominator),
 // so reaching this cap without resolving is expected to be unreachable in
 // practice.
-const maxThresholdEscalationBits = 1 << 20 // ~1,048,576 bits
+//
+// 1<<14 (16,384 bits) is 32x the largest baseline target
+// (seriesTargetBits, 576 bits) and bounds the worst-case cost of this
+// escalation loop -- if it is ever actually reached -- to roughly 0.1s,
+// rather than the multi-minute hang a much larger cap (e.g. 1<<20) would
+// permit in this exported, non-cancellable API. See
+// thresholdEscalationCapReachedCount for a cheap way to detect if this cap
+// is ever reached in practice.
+const maxThresholdEscalationBits = 1 << 14 // 16,384 bits
+
+// thresholdEscalationCapReachedCount counts how many times
+// CertifiedNatThresholdWithMode's precision-escalation loop has reached
+// maxThresholdEscalationBits without resolving. This is expected to stay at
+// zero in practice (see maxThresholdEscalationBits' doc comment); a nonzero
+// value indicates either a pathological input or a bug in the declared
+// error bound in oneMinusFPowerSigmaBounds, and is cheap to check from
+// tests or monitoring without adding logging to a hot path.
+var thresholdEscalationCapReachedCount atomic.Uint64
 
 // intervalGuardBits is extra working precision reserved, on top of the
 // current targetBits accuracy level, to keep ordinary floating-point
@@ -333,13 +347,14 @@ func exactIntegerNthRoot(n *big.Int, k *big.Int) (*big.Int, bool) {
 	x := new(big.Int).Lsh(big.NewInt(1), uint(guessBits))
 
 	// Newton's method for the integer k-th root converges monotonically
-	// downward from an over-estimate to floor(n^(1/k)).
+	// downward from an over-estimate to floor(n^(1/k)). x stays >= 1
+	// throughout (it starts at 2^guessBits >= 2, and only ever decreases
+	// via the next.Cmp(x) >= 0 break guard below, at which point next is
+	// itself >= 1 since n >= 2 at this point in the function), so
+	// xPow = x^(k-1) is always >= 1 and never zero -- no defensive
+	// zero-check is needed here.
 	for {
 		xPow := new(big.Int).Exp(x, kMinus1, nil)
-		if xPow.Sign() == 0 {
-			x.Lsh(x, 1)
-			continue
-		}
 		t := new(big.Int).Quo(n, xPow)
 		next := new(big.Int).Add(new(big.Int).Mul(kMinus1, x), t)
 		next.Quo(next, kBig)
@@ -369,11 +384,12 @@ func exactIntegerNthRoot(n *big.Int, k *big.Int) (*big.Int, bool) {
 
 // exactOneMinusFPowerSigma attempts to compute (1-f)^sigma exactly as a
 // rational. sigma = poolStake/totalStake is reduced to lowest terms n/m
-// (m >= 2 is guaranteed by the caller, which handles sigma=1 -- i.e. m=1 --
-// separately). If oneMinusF's numerator and denominator (already coprime,
-// per big.Rat's invariant) are each an exact m-th power, then
-// (1-f)^sigma = (numRoot/denRoot)^n exactly, computed via integer
-// exponentiation with no floating-point approximation at all.
+// (m == 1 for sigma == 1, i.e. full stake -- exactIntegerNthRoot's k == 1
+// fast return makes that case trivially exact too, so it is not
+// special-cased here or by the caller). If oneMinusF's numerator and
+// denominator (already coprime, per big.Rat's invariant) are each an exact
+// m-th power, then (1-f)^sigma = (numRoot/denRoot)^n exactly, computed via
+// integer exponentiation with no floating-point approximation at all.
 //
 // There is no cap on m here: m is sigma's reduced denominator, fully
 // attacker/operator-controlled within the uint64 stake range (poolStake and
@@ -381,10 +397,10 @@ func exactIntegerNthRoot(n *big.Int, k *big.Int) (*big.Int, bool) {
 // always be defeated by constructing a stake ratio whose reduced
 // denominator lands one past the cap -- exactIntegerNthRoot is a complete
 // decision procedure for exactly this reason (see its doc comment). Since
-// sigma < 1 strictly at this point in the pipeline (the sigma == 1 case is
-// handled separately by the caller), n < m always, which in turn bounds the
-// final Exp(root, n) calls below to the same order of magnitude as
-// oneMinusF's own bit length whenever a non-trivial (>= 2) root is found.
+// sigma <= 1 at this point in the pipeline (poolStake is capped to
+// totalStake by the caller), n <= m always, which in turn bounds the final
+// Exp(root, n) calls below to the same order of magnitude as oneMinusF's
+// own bit length whenever a non-trivial (>= 2) root is found.
 func exactOneMinusFPowerSigma(
 	oneMinusF *big.Rat,
 	poolStake, totalStake uint64,
@@ -718,10 +734,7 @@ func expFloatAtTarget(x *big.Float, targetBits uint) *big.Float {
 	mant := new(big.Float).SetPrec(prec)
 	e := x.MantExp(mant) // x = mant * 2^e, 0.5 <= |mant| < 1
 
-	k := e + expReductionBits
-	if k < 0 {
-		k = 0
-	}
+	k := max(e+expReductionBits, 0)
 
 	// y = x / 2^k, so |y| <= 2^-expReductionBits (or |x| itself, if that
 	// was already smaller).

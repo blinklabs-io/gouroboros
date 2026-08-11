@@ -28,6 +28,34 @@ import (
 // baseline (unescalated) seriesTargetBits target.
 const testPrec = seriesTargetBits + intervalGuardBits
 
+// checkBelowThreshold reports whether v, interpreted as a bits-bit
+// big-endian leader value, is classified as eligible (below threshold)
+// under the given consensus mode. For TPraos, IsVRFOutputBelowThresholdWithMode
+// compares the raw bytes directly, so the exact boundary value v can be
+// driven through the public API as-is. For CPraos, the public API hashes
+// its input first (BLAKE2b-256 with "L" prefix) before comparing, so this
+// instead replicates the same comparison the implementation performs
+// internally after hashing (VRFOutputToInt(leaderValue).Cmp(threshold) < 0),
+// treating v as if it were already the post-hash leader value. Shared by
+// the boundary-value tests in this file and in threshold_boundary_test.go.
+func checkBelowThreshold(
+	t *testing.T,
+	bits int,
+	mode ConsensusMode,
+	threshold *big.Int,
+	v *big.Int,
+) bool {
+	t.Helper()
+	buf := make([]byte, bits/8)
+	v.FillBytes(buf)
+	if mode == ConsensusModeTPraos {
+		below, err := IsVRFOutputBelowThresholdWithMode(buf, threshold, mode)
+		require.NoError(t, err)
+		return below
+	}
+	return VRFOutputToInt(buf).Cmp(threshold) < 0
+}
+
 // lnOneMinus computes ln(1-x) for 0 < x < 1 using Taylor series.
 // Test helper wrapping lnPositiveFloatAtTarget with big.Rat conversion.
 func lnOneMinus(x *big.Rat) *big.Rat {
@@ -1318,37 +1346,34 @@ func TestCertifiedNatThresholdPartialStakeExactCutoff(t *testing.T) {
 			// raw bytes directly, so the exact boundary values can be
 			// driven through the public API. For CPraos, the public API
 			// hashes the input first (BLAKE2b-256 with "L" prefix), so
-			// instead replicate the same comparison the implementation
-			// performs internally after hashing
-			// (VRFOutputToInt(leaderValue).Cmp(threshold) < 0), using the
-			// exact boundary values as if they were already the
+			// checkBelowThreshold instead replicates the same comparison
+			// the implementation performs internally after hashing, using
+			// the exact boundary values as if they were already the
 			// post-hash leader value.
-			checkBelow := func(v *big.Int) bool {
-				buf := make([]byte, c.bits/8)
-				v.FillBytes(buf)
-				if c.mode == ConsensusModeTPraos {
-					below, err := IsVRFOutputBelowThresholdWithMode(
-						buf,
-						threshold,
-						c.mode,
-					)
-					require.NoError(t, err)
-					return below
-				}
-				return VRFOutputToInt(buf).Cmp(threshold) < 0
-			}
 
 			// The leader value immediately below the exact cutoff
 			// (2^(N-1)-1) must be classified eligible: it is strictly
 			// less than the threshold.
 			belowCutoff := new(big.Int).Sub(expected, big.NewInt(1))
-			require.True(t, checkBelow(belowCutoff),
+			require.True(
+				t,
+				checkBelowThreshold(t, c.bits, c.mode, threshold, belowCutoff),
 				"leader value 2^(N-1)-1 must be eligible (below "+
-					"the exact threshold 2^(N-1))")
+					"the exact threshold 2^(N-1))",
+			)
 
 			// The cutoff value itself must NOT be eligible.
-			require.False(t, checkBelow(new(big.Int).Set(expected)),
-				"leader value exactly at the cutoff must not be eligible")
+			require.False(
+				t,
+				checkBelowThreshold(
+					t,
+					c.bits,
+					c.mode,
+					threshold,
+					new(big.Int).Set(expected),
+				),
+				"leader value exactly at the cutoff must not be eligible",
+			)
 		})
 	}
 }
@@ -1459,31 +1484,28 @@ func TestCertifiedNatThresholdSigmaDenominatorAboveExactRootCap(t *testing.T) {
 				threshold.String(), expected.String())
 
 			// Same eligibility-boundary check as
-			// TestCertifiedNatThresholdPartialStakeExactCutoff: replicate
-			// the post-hash comparison directly for CPraos, since the
-			// public API hashes its input first.
-			checkBelow := func(v *big.Int) bool {
-				buf := make([]byte, c.bits/8)
-				v.FillBytes(buf)
-				if c.mode == ConsensusModeTPraos {
-					below, err := IsVRFOutputBelowThresholdWithMode(
-						buf,
-						threshold,
-						c.mode,
-					)
-					require.NoError(t, err)
-					return below
-				}
-				return VRFOutputToInt(buf).Cmp(threshold) < 0
-			}
-
+			// TestCertifiedNatThresholdPartialStakeExactCutoff: checkBelowThreshold
+			// replicates the post-hash comparison directly for CPraos,
+			// since the public API hashes its input first.
 			belowCutoff := new(big.Int).Sub(expected, big.NewInt(1))
-			require.True(t, checkBelow(belowCutoff),
+			require.True(
+				t,
+				checkBelowThreshold(t, c.bits, c.mode, threshold, belowCutoff),
 				"leader value immediately below the exact cutoff "+
-					"upperBound/2 must be eligible")
-			require.False(t, checkBelow(new(big.Int).Set(expected)),
+					"upperBound/2 must be eligible",
+			)
+			require.False(
+				t,
+				checkBelowThreshold(
+					t,
+					c.bits,
+					c.mode,
+					threshold,
+					new(big.Int).Set(expected),
+				),
 				"leader value exactly at the cutoff upperBound/2 "+
-					"must not be eligible")
+					"must not be eligible",
+			)
 		})
 	}
 }

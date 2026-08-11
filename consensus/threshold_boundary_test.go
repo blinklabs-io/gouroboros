@@ -448,58 +448,78 @@ func TestLeaderEligibilityBoundaryAgainstIndependentReference(t *testing.T) {
 				)
 				require.NoError(t, err)
 
-				// Sanity: production threshold must itself be close to
-				// the independently-computed cutoff (see the differential
-				// test above for the tight bound); here we only need it
-				// exact enough that the boundary values below don't
-				// straddle a difference between the two.
+				// The production threshold must be EXACTLY equal to the
+				// independently-computed reference cutoff for every case
+				// in this table -- not merely close. below/at/above are
+				// derived from cutoff, but checkBelowThreshold compares
+				// them against threshold, so the require.True(below) /
+				// require.False(at) assertions only test what they claim
+				// to test if threshold == cutoff exactly; otherwise a
+				// nonzero gap between the two could silently make those
+				// assertions pass (or fail) for the wrong reason. This
+				// has been verified to hold exactly (diff.Sign() == 0),
+				// not merely within a small tolerance, for every case in
+				// this table -- see also
+				// TestCertifiedNatThresholdDifferentialAgainstIndependentReference
+				// for the (deliberately looser) general accuracy bound
+				// against the same reference.
 				diff := new(big.Int).Sub(threshold, cutoff)
-				diff.Abs(diff)
-				require.True(t, diff.BitLen() <= 4,
-					"production threshold too far from reference cutoff "+
-						"to test boundary meaningfully")
+				require.True(t, diff.Sign() == 0,
+					"production threshold must equal the reference cutoff "+
+						"exactly to test the below/at/above boundary "+
+						"meaningfully: threshold=%s cutoff=%s diff=%s",
+					threshold.String(), cutoff.String(), diff.String())
 
 				below := new(big.Int).Sub(cutoff, big.NewInt(1))
 				at := new(big.Int).Set(cutoff)
 				above := new(big.Int).Add(cutoff, big.NewInt(1))
 
-				toBytes := func(v *big.Int) []byte {
-					buf := make([]byte, m.outputLen)
-					vb := v.Bytes()
-					copy(buf[m.outputLen-len(vb):], vb)
-					return buf
-				}
+				// checkBelowThreshold (shared with threshold_test.go) uses
+				// the public API directly for TPraos, and for CPraos
+				// replicates the same post-hash comparison the
+				// implementation performs internally, using the exact
+				// boundary values as if they were already the post-hash
+				// leader value -- this validates the same comparison
+				// logic the public API applies after hashing.
+				bits := m.outputLen * 8
 
-				// For TPraos, IsVRFOutputBelowThresholdWithMode uses the
-				// raw bytes directly, so we can drive the exact boundary
-				// values through the public API. For CPraos the public
-				// API hashes the input first (BLAKE2b-256 with "L"
-				// prefix), so we instead replicate the same comparison
-				// the implementation performs internally
-				// (VRFOutputToInt(leaderValue).Cmp(threshold) < 0) using
-				// the exact boundary values as if they were already the
-				// post-hash leader value -- this is exactly what
-				// IsVRFOutputBelowThresholdWithMode does after hashing,
-				// so it validates the same comparison logic.
-				checkBelow := func(v *big.Int) bool {
-					if m.mode == ConsensusModeTPraos {
-						ok, err := IsVRFOutputBelowThresholdWithMode(
-							toBytes(v),
-							threshold,
-							m.mode,
-						)
-						require.NoError(t, err)
-						return ok
-					}
-					return VRFOutputToInt(toBytes(v)).Cmp(threshold) < 0
-				}
-
-				require.True(t, checkBelow(below),
-					"value immediately below cutoff must be eligible")
-				require.False(t, checkBelow(at),
-					"value exactly at cutoff must not be eligible")
-				require.False(t, checkBelow(above),
-					"value immediately above cutoff must not be eligible")
+				// NOTE: gouroboros' eligibility rule compares the raw VRF
+				// leader value v against floor(X) via a strict "<", which
+				// differs from upstream cardano-node's real-number
+				// semantics (certNat < certNatMax*(1-(1-f)^sigma)) by at
+				// most one integer whenever X itself isn't exactly an
+				// integer: upstream would admit v == floor(X) as eligible
+				// in that case, gouroboros rejects it. This is a genuine,
+				// pre-existing, astronomically-low-probability (~2^-256)
+				// boundary discrepancy, known and accepted, and out of
+				// scope for this PR. Once threshold == cutoff exactly (as
+				// asserted above), the "at"/"above" checks below become
+				// tautological with respect to *this* implementation
+				// (threshold < threshold is trivially false) and so can't
+				// catch that discrepancy either way -- they only confirm
+				// this implementation is internally consistent with its
+				// own (integer) threshold value, not that the threshold
+				// itself matches upstream's real-number cutoff to the
+				// last possible integer. Bit-exact boundary agreement
+				// with cardano-node is unattainable by construction
+				// regardless: upstream's own Fixed E34 internal
+				// precision (~113 bits) is far short of exact real-number
+				// arithmetic.
+				require.True(
+					t,
+					checkBelowThreshold(t, bits, m.mode, threshold, below),
+					"value immediately below cutoff must be eligible",
+				)
+				require.False(
+					t,
+					checkBelowThreshold(t, bits, m.mode, threshold, at),
+					"value exactly at cutoff must not be eligible",
+				)
+				require.False(
+					t,
+					checkBelowThreshold(t, bits, m.mode, threshold, above),
+					"value immediately above cutoff must not be eligible",
+				)
 			})
 		}
 	}
