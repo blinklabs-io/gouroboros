@@ -19,7 +19,6 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
-	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +39,9 @@ import (
 // - First 32 bytes: Ed25519 public key
 // - Last 32 bytes: Chain code (for HD key derivation)
 // For signature verification, we only need the first 32 bytes.
-func extractByronIssuerPubKey(header *byron.ByronMainBlockHeader) ([]byte, error) {
+func extractByronIssuerPubKey(
+	header *byron.ByronMainBlockHeader,
+) ([]byte, error) {
 	pubKey := header.ConsensusData.PubKey
 
 	// Byron uses extended Ed25519 keys: 32 byte pubkey + 32 byte chaincode
@@ -60,7 +61,9 @@ func extractByronIssuerPubKey(header *byron.ByronMainBlockHeader) ([]byte, error
 }
 
 // extractByronExtendedPubKey extracts the full extended public key (pubkey + chaincode).
-func extractByronExtendedPubKey(header *byron.ByronMainBlockHeader) ([]byte, error) {
+func extractByronExtendedPubKey(
+	header *byron.ByronMainBlockHeader,
+) ([]byte, error) {
 	pubKey := header.ConsensusData.PubKey
 	if len(pubKey) != 64 {
 		return nil, fmt.Errorf(
@@ -78,16 +81,24 @@ func extractByronExtendedPubKey(header *byron.ByronMainBlockHeader) ([]byte, err
 // - [2, [[omega, issuerVK, delegateVK, cert], signature]] for lightweight delegation (BlockPSignatureLight)
 //
 // For types 1 and 2, the signature is inside a nested array structure.
-func extractByronBlockSignature(header *byron.ByronMainBlockHeader) ([]byte, error) {
+func extractByronBlockSignature(
+	header *byron.ByronMainBlockHeader,
+) ([]byte, error) {
 	blockSig := header.ConsensusData.BlockSig
 	if len(blockSig) < 2 {
-		return nil, fmt.Errorf("block signature array too short: %d elements", len(blockSig))
+		return nil, fmt.Errorf(
+			"block signature array too short: %d elements",
+			len(blockSig),
+		)
 	}
 
 	// Get signature type
 	sigType, ok := blockSig[0].(uint64)
 	if !ok {
-		return nil, fmt.Errorf("expected uint64 signature type, got %T", blockSig[0])
+		return nil, fmt.Errorf(
+			"expected uint64 signature type, got %T",
+			blockSig[0],
+		)
 	}
 
 	switch sigType {
@@ -95,11 +106,17 @@ func extractByronBlockSignature(header *byron.ByronMainBlockHeader) ([]byte, err
 		// Simple signature: [0, signature]
 		sig, ok := blockSig[1].([]byte)
 		if !ok {
-			return nil, fmt.Errorf("expected []byte signature, got %T", blockSig[1])
+			return nil, fmt.Errorf(
+				"expected []byte signature, got %T",
+				blockSig[1],
+			)
 		}
 		if len(sig) != ed25519.SignatureSize {
-			return nil, fmt.Errorf("invalid signature size: got %d, expected %d",
-				len(sig), ed25519.SignatureSize)
+			return nil, fmt.Errorf(
+				"invalid signature size: got %d, expected %d",
+				len(sig),
+				ed25519.SignatureSize,
+			)
 		}
 		return sig, nil
 
@@ -108,21 +125,32 @@ func extractByronBlockSignature(header *byron.ByronMainBlockHeader) ([]byte, err
 		// The second element is an array containing the cert and signature
 		innerArray, ok := blockSig[1].([]any)
 		if !ok {
-			return nil, fmt.Errorf("expected []any for delegation sig, got %T", blockSig[1])
+			return nil, fmt.Errorf(
+				"expected []any for delegation sig, got %T",
+				blockSig[1],
+			)
 		}
 		if len(innerArray) < 2 {
-			return nil, fmt.Errorf("delegation sig inner array too short: %d", len(innerArray))
+			return nil, fmt.Errorf(
+				"delegation sig inner array too short: %d",
+				len(innerArray),
+			)
 		}
 
 		// The signature is the last element of the inner array
 		sig, ok := innerArray[len(innerArray)-1].([]byte)
 		if !ok {
-			return nil, fmt.Errorf("expected []byte signature in delegation, got %T",
-				innerArray[len(innerArray)-1])
+			return nil, fmt.Errorf(
+				"expected []byte signature in delegation, got %T",
+				innerArray[len(innerArray)-1],
+			)
 		}
 		if len(sig) != ed25519.SignatureSize {
-			return nil, fmt.Errorf("invalid signature size: got %d, expected %d",
-				len(sig), ed25519.SignatureSize)
+			return nil, fmt.Errorf(
+				"invalid signature size: got %d, expected %d",
+				len(sig),
+				ed25519.SignatureSize,
+			)
 		}
 		return sig, nil
 
@@ -134,7 +162,9 @@ func extractByronBlockSignature(header *byron.ByronMainBlockHeader) ([]byte, err
 // extractByronDelegationCert extracts the delegation certificate from a Byron block signature.
 // Returns nil if the signature is a simple (type 0) signature.
 // For delegation signatures, returns the certificate array elements.
-func extractByronDelegationCert(header *byron.ByronMainBlockHeader) ([]any, error) {
+func extractByronDelegationCert(
+	header *byron.ByronMainBlockHeader,
+) ([]any, error) {
 	blockSig := header.ConsensusData.BlockSig
 	if len(blockSig) < 2 {
 		return nil, fmt.Errorf("block signature array too short")
@@ -163,7 +193,10 @@ func extractByronDelegationCert(header *byron.ByronMainBlockHeader) ([]any, erro
 	// The certificate is the first element
 	cert, ok := innerArray[0].([]any)
 	if !ok {
-		return nil, fmt.Errorf("expected []any for delegation cert, got %T", innerArray[0])
+		return nil, fmt.Errorf(
+			"expected []any for delegation cert, got %T",
+			innerArray[0],
+		)
 	}
 
 	return cert, nil
@@ -171,7 +204,9 @@ func extractByronDelegationCert(header *byron.ByronMainBlockHeader) ([]any, erro
 
 // extractByronHeaderCbor returns the CBOR-encoded header for signature verification.
 // In Byron, the signature is computed over the header body, not the full header.
-func extractByronHeaderCbor(header *byron.ByronMainBlockHeader) ([]byte, error) {
+func extractByronHeaderCbor(
+	header *byron.ByronMainBlockHeader,
+) ([]byte, error) {
 	headerCbor := header.Cbor()
 	if len(headerCbor) == 0 {
 		return nil, fmt.Errorf("header CBOR is empty")
@@ -489,13 +524,23 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 	// Test issuer pubkey extraction (just the 32-byte Ed25519 key)
 	pubKey, err := extractByronIssuerPubKey(header)
 	require.NoError(t, err, "Failed to extract issuer pubkey")
-	assert.Equal(t, ed25519.PublicKeySize, len(pubKey), "Issuer pubkey should be 32 bytes")
+	assert.Equal(
+		t,
+		ed25519.PublicKeySize,
+		len(pubKey),
+		"Issuer pubkey should be 32 bytes",
+	)
 	t.Logf("Issuer pubkey (Ed25519): %x", pubKey)
 
 	// Test block signature extraction
 	sig, err := extractByronBlockSignature(header)
 	require.NoError(t, err, "Failed to extract block signature")
-	assert.Equal(t, ed25519.SignatureSize, len(sig), "Block signature should be 64 bytes")
+	assert.Equal(
+		t,
+		ed25519.SignatureSize,
+		len(sig),
+		"Block signature should be 64 bytes",
+	)
 	t.Logf("Block signature: %x", sig)
 
 	// Test delegation certificate extraction
@@ -522,8 +567,16 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 		sigType, _ := header.ConsensusData.BlockSig[0].(uint64)
 		if sigType == 2 {
 			innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
-			require.True(t, ok, "sigType 2: expected []any for BlockSig[1], got %T", header.ConsensusData.BlockSig[1])
-			t.Logf("Lightweight delegation inner array: %d elements", len(innerArray))
+			require.True(
+				t,
+				ok,
+				"sigType 2: expected []any for BlockSig[1], got %T",
+				header.ConsensusData.BlockSig[1],
+			)
+			t.Logf(
+				"Lightweight delegation inner array: %d elements",
+				len(innerArray),
+			)
 			for i, elem := range innerArray {
 				switch v := elem.(type) {
 				case []byte:
@@ -555,7 +608,12 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 		// For signature type 1 (heavy), show structure too
 		if sigType == 1 {
 			innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
-			require.True(t, ok, "sigType 1: expected []any for BlockSig[1], got %T", header.ConsensusData.BlockSig[1])
+			require.True(
+				t,
+				ok,
+				"sigType 1: expected []any for BlockSig[1], got %T",
+				header.ConsensusData.BlockSig[1],
+			)
 			t.Logf("Heavy delegation inner array: %d elements", len(innerArray))
 			for i, elem := range innerArray {
 				switch v := elem.(type) {
@@ -595,7 +653,10 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 	t.Logf("Header CBOR length: %d bytes", len(headerCbor))
 
 	// Log the block signature structure for debugging
-	t.Logf("BlockSig structure: %d elements", len(header.ConsensusData.BlockSig))
+	t.Logf(
+		"BlockSig structure: %d elements",
+		len(header.ConsensusData.BlockSig),
+	)
 	sigType, _ := header.ConsensusData.BlockSig[0].(uint64)
 	switch sigType {
 	case 0:
@@ -603,7 +664,9 @@ func TestByronConsensusDataExtraction(t *testing.T) {
 	case 1:
 		t.Logf("  Signature type: BlockPSignatureHeavy (delegation)")
 	case 2:
-		t.Logf("  Signature type: BlockPSignatureLight (lightweight delegation)")
+		t.Logf(
+			"  Signature type: BlockPSignatureLight (lightweight delegation)",
+		)
 	}
 }
 
@@ -656,7 +719,9 @@ func TestByronBodyHashValidation(t *testing.T) {
 	}
 
 	if isZero {
-		t.Logf("WARNING: BlockBodyHash() returned zero hash - BodyProof extraction needs fix")
+		t.Logf(
+			"WARNING: BlockBodyHash() returned zero hash - BodyProof extraction needs fix",
+		)
 	}
 
 	// Get the body CBOR and compute hash
@@ -716,8 +781,9 @@ func TestByronFullHeaderValidation(t *testing.T) {
 	}
 
 	validator := byronConsensus.NewHeaderValidator(config)
-	// Skip delegation cert verification as the exact cardano-crypto format is unknown
-	validator.SkipDelegationCertVerification = true
+	// Delegation certificate signature verification is fully implemented
+	// (see consensus/byron.HeaderValidator.validateDelegationCertSignature),
+	// so the default fail-closed validator is used here without any bypass.
 
 	// Create validation input
 	// For testing without a previous block, we use dummy previous values
@@ -764,7 +830,12 @@ func TestByronFullHeaderValidation(t *testing.T) {
 	}
 
 	// Assert validation passed, including all errors in the failure message
-	require.True(t, result.Valid, "Full header validation should pass: %v", result.Errors)
+	require.True(
+		t,
+		result.Valid,
+		"Full header validation should pass: %v",
+		result.Errors,
+	)
 }
 
 // TestByronEnvelopeValidation tests envelope-only validation (no signature verification).
@@ -815,7 +886,12 @@ func TestByronEnvelopeValidation(t *testing.T) {
 	result := validator.ValidateHeader(input)
 
 	// Envelope validation should pass
-	require.True(t, result.Valid, "Envelope validation should pass: %v", result.Errors)
+	require.True(
+		t,
+		result.Valid,
+		"Envelope validation should pass: %v",
+		result.Errors,
+	)
 	t.Logf("Envelope validation PASSED for slot %d, block %d",
 		header.SlotNumber(), header.BlockNumber())
 }
@@ -844,7 +920,9 @@ func TestByronSignatureFormat(t *testing.T) {
 			case 1:
 				t.Logf("  Type: 1 (BlockPSignatureHeavy - delegation cert)")
 			case 2:
-				t.Logf("  Type: 2 (BlockPSignatureLight - lightweight delegation)")
+				t.Logf(
+					"  Type: 2 (BlockPSignatureLight - lightweight delegation)",
+				)
 			default:
 				t.Logf("  Type: %d (unknown)", sigType)
 			}
@@ -955,7 +1033,12 @@ func TestByronTestnetBlockValidation(t *testing.T) {
 	}
 
 	result := validator.ValidateHeader(input)
-	require.True(t, result.Valid, "Envelope validation should pass: %v", result.Errors)
+	require.True(
+		t,
+		result.Valid,
+		"Envelope validation should pass: %v",
+		result.Errors,
+	)
 	t.Logf("Testnet block envelope validation PASSED")
 }
 
@@ -1004,15 +1087,26 @@ func TestByronBodyProofStructure(t *testing.T) {
 	// 1. Compute the Merkle root of each body section
 	// 2. Combine them according to the Byron body proof algorithm
 	// 3. Compare with the stored proof
-	t.Logf("\nNote: Full body hash verification requires implementing Byron Merkle tree logic")
+	t.Logf(
+		"\nNote: Full body hash verification requires implementing Byron Merkle tree logic",
+	)
 }
 
-// TestByronDelegationCertFormats tests all possible delegation certificate signature formats
-// to discover which one Cardano actually uses.
-// SKIP: This is an exploratory test. The delegation certificate format is not yet fully understood.
-// The block signature verification works without verifying the delegation certificate.
+// TestByronDelegationCertFormats verifies the delegation certificate
+// signature on a real mainnet block using the byte layout reproduced from
+// cardano-ledger-byron's Cardano.Chain.Delegation.Certificate and
+// cardano-crypto's Cardano.Crypto.Signing.{Tag,Signature}:
+//
+//	inner  = "00" || delegateVK (64-byte raw XPub) || CBOR(epoch)
+//	signed = 0x0a || CBOR(protocolMagic) || CBOR_bytestring(inner)
+//
+// "00" is the two ASCII bytes 0x30 0x30 (not a single NUL byte), 0x0a is
+// cardano-crypto's SignCertificate tag, and the CBOR_bytestring wrapping of
+// `inner` comes from `safeSign`'s `serialize'` call on its ByteString
+// argument (Cardano.Crypto.Signing.Signature.safeSign). The result is a
+// standard Ed25519 signature verifiable with the issuer's 32-byte public
+// key (the first 32 bytes of the 64-byte extended issuerVK).
 func TestByronDelegationCertFormats(t *testing.T) {
-	t.Skip("Delegation certificate signature uses cardano-crypto's extended Ed25519 with unknown format")
 	data, err := hex.DecodeString(strings.TrimSpace(mainnetByronBlockHex))
 	require.NoError(t, err, "Failed to decode hex")
 
@@ -1022,16 +1116,16 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	header := block.BlockHeader
 
 	// Extract the delegation certificate components
-	// Structure: [2, [[omega, issuerVK, delegateVK, certSig], blockSig]]
+	// Structure: [2, [[epoch, issuerVK, delegateVK, certSig], blockSig]]
 	innerArray := header.ConsensusData.BlockSig[1].([]any)
 	cert := innerArray[0].([]any)
 
-	omega, _ := cert[0].(uint64)
+	epoch, _ := cert[0].(uint64)
 	issuerVK := cert[1].([]byte)
 	delegateVK := cert[2].([]byte)
 	certSig := cert[3].([]byte)
 
-	t.Logf("Omega: %d", omega)
+	t.Logf("Epoch: %d", epoch)
 	t.Logf("IssuerVK: %x", issuerVK)
 	t.Logf("DelegateVK: %x", delegateVK)
 	t.Logf("CertSig: %x", certSig)
@@ -1040,458 +1134,59 @@ func TestByronDelegationCertFormats(t *testing.T) {
 	// The issuer's Ed25519 public key is the first 32 bytes of the extended key
 	issuerPubKey := issuerVK[:32]
 
-	// Try many different formats
-	formats := []struct {
-		name string
-		data func() []byte
-	}{
-		{
-			name: "CRC32 protected: 0x0a + CBOR([pm, crc32]) + CBOR_bytes(delegateVK + CBOR(omega))",
-			data: func() []byte {
-				// CRC-protected protocol magic
-				pmCbor, _ := cbor.Encode(header.ProtocolMagic)
-				crc := crc32.ChecksumIEEE(pmCbor)
-				crcProtected, _ := cbor.Encode([]any{header.ProtocolMagic, crc})
-				// Data payload
-				omegaCbor, _ := cbor.Encode(omega)
-				dataPayload := append(delegateVK, omegaCbor...)
-				dataAsBytes, _ := cbor.Encode(dataPayload)
-				// Combine
-				buf := []byte{0x0a}
-				buf = append(buf, crcProtected...)
-				buf = append(buf, dataAsBytes...)
-				return buf
-			},
-		},
-		{
-			name: "Rust format: ['0','1'] + issuerVK + 0x0a + CBOR(pm) + CBOR((delegateVK, omega))",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				tuple, _ := cbor.Encode([]any{delegateVK, omega})
-				buf := []byte{'0', '1'}
-				buf = append(buf, issuerVK...)
-				buf = append(buf, 0x0a)
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		{
-			name: "Haskell format: 0x0a + CBOR(pm) + '00' + delegateVK + CBOR(omega)",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, []byte("00")...)
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "Simple format: 0x0a + CBOR(pm) + CBOR((delegateVK, omega))",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				tuple, _ := cbor.Encode([]any{delegateVK, omega})
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		{
-			name: "Just CBOR((delegateVK, omega))",
-			data: func() []byte {
-				tuple, _ := cbor.Encode([]any{delegateVK, omega})
-				return tuple
-			},
-		},
-		{
-			name: "Just CBOR((omega, delegateVK))",
-			data: func() []byte {
-				tuple, _ := cbor.Encode([]any{omega, delegateVK})
-				return tuple
-			},
-		},
-		{
-			name: "'00' + delegateVK + CBOR(omega)",
-			data: func() []byte {
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte("00")
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "0x00 (byte) + delegateVK + CBOR(omega)",
-			data: func() []byte {
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte{0x00}
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "CBOR(pm) + '00' + delegateVK + CBOR(omega)",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := pm
-				buf = append(buf, []byte("00")...)
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "delegateVK + CBOR(omega)",
-			data: func() []byte {
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := make([]byte, 0, len(delegateVK)+len(omegaBytes))
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "CBOR(omega) + delegateVK",
-			data: func() []byte {
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := make([]byte, 0, len(delegateVK)+len(omegaBytes))
-				buf = append(buf, omegaBytes...)
-				buf = append(buf, delegateVK...)
-				return buf
-			},
-		},
+	buildSignedMessage := func(epoch uint64, delegateVK []byte) []byte {
+		pm, err := cbor.Encode(header.ProtocolMagic)
+		require.NoError(t, err)
+		epochBytes, err := cbor.Encode(epoch)
+		require.NoError(t, err)
+
+		inner := make([]byte, 0, 2+len(delegateVK)+len(epochBytes))
+		inner = append(inner, '0', '0')
+		inner = append(inner, delegateVK...)
+		inner = append(inner, epochBytes...)
+
+		innerCbor, err := cbor.Encode(inner)
+		require.NoError(t, err)
+
+		signed := make([]byte, 0, 1+len(pm)+len(innerCbor))
+		signed = append(signed, 0x0a)
+		signed = append(signed, pm...)
+		signed = append(signed, innerCbor...)
+		return signed
 	}
 
-	for _, f := range formats {
-		signedData := f.data()
-		valid := ed25519.Verify(issuerPubKey, signedData, certSig)
-		if valid {
-			t.Logf("SUCCESS: %s", f.name)
-			t.Logf("  Signed data length: %d bytes", len(signedData))
-			t.Logf("  Signed data: %x", signedData)
-			return
-		}
-		t.Logf("FAILED: %s (len=%d)", f.name, len(signedData))
-	}
+	// Positive case: the real certificate signature must verify.
+	signed := buildSignedMessage(epoch, delegateVK)
+	require.True(
+		t,
+		ed25519.Verify(issuerPubKey, signed, certSig),
+		"delegation certificate signature should verify with the correct byte layout",
+	)
 
-	// Try additional formats with raw encoding
-	additionalFormats := []struct {
-		name string
-		data func() []byte
-	}{
-		{
-			name: "Raw: just omega as big-endian uint64",
-			data: func() []byte {
-				buf := make([]byte, 8)
-				buf[7] = byte(omega)
-				return append(delegateVK, buf...)
-			},
-		},
-		{
-			name: "CBOR array: [omega, delegateVK] definite",
-			data: func() []byte {
-				// Manually construct CBOR: 0x82 (2-elem array) + 0x00 (uint 0) + 0x5840 (64-byte bstr) + delegateVK
-				buf := []byte{0x82, 0x00, 0x58, 0x40}
-				buf = append(buf, delegateVK...)
-				return buf
-			},
-		},
-		{
-			name: "Just delegateVK",
-			data: func() []byte {
-				return delegateVK
-			},
-		},
-		{
-			name: "0x0a + CBOR(pm) + CBOR([omega, delegateVK])",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				tuple, _ := cbor.Encode([]any{omega, delegateVK})
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		{
-			name: "CBOR struct as array: [delegateVK, omega]",
-			data: func() []byte {
-				type pskData struct {
-					cbor.StructAsArray
-					DelegateVK []byte
-					Omega      uint64
-				}
-				d, _ := cbor.Encode(pskData{DelegateVK: delegateVK, Omega: omega})
-				return d
-			},
-		},
-		{
-			name: "With sign tag 0x0a only (no pm)",
-			data: func() []byte {
-				tuple, _ := cbor.Encode([]any{delegateVK, omega})
-				buf := []byte{0x0a}
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		{
-			name: "Blake2b256(delegateVK) + omega",
-			data: func() []byte {
-				hash := common.Blake2b256Hash(delegateVK)
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := hash.Bytes()
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "0x0a + pm_raw(4 bytes BE) + CBOR((delegateVK, omega))",
-			data: func() []byte {
-				pm := []byte{
-					byte(header.ProtocolMagic >> 24),
-					byte(header.ProtocolMagic >> 16),
-					byte(header.ProtocolMagic >> 8),
-					byte(header.ProtocolMagic),
-				}
-				tuple, _ := cbor.Encode([]any{delegateVK, omega})
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		// Additional formats based on block signature pattern
-		{
-			name: "'00' + issuerVK + 0x0a + CBOR(pm) + CBOR((delegateVK, omega))",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				tuple, _ := cbor.Encode([]any{delegateVK, omega})
-				buf := []byte{'0', '0'}
-				buf = append(buf, issuerVK...)
-				buf = append(buf, 0x0a)
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		{
-			name: "0x0a + CBOR(pm) + '00' + issuerVK + delegateVK + CBOR(omega)",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, '0', '0')
-				buf = append(buf, issuerVK...)
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "CBOR((omega, issuerVK, delegateVK))",
-			data: func() []byte {
-				tuple, _ := cbor.Encode([]any{omega, issuerVK, delegateVK})
-				return tuple
-			},
-		},
-		{
-			name: "CBOR((omega, delegateVK, issuerVK))",
-			data: func() []byte {
-				tuple, _ := cbor.Encode([]any{omega, delegateVK, issuerVK})
-				return tuple
-			},
-		},
-		{
-			name: "0x0a + CBOR(pm) + CBOR((omega, delegateVK))",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				tuple, _ := cbor.Encode([]any{omega, delegateVK})
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		{
-			name: "Just raw: delegateVK[:32] (Ed25519 portion only)",
-			data: func() []byte {
-				return delegateVK[:32]
-			},
-		},
-		{
-			name: "0x0a + CBOR(pm) + delegateVK[:32] + CBOR(omega)",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, delegateVK[:32]...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		{
-			name: "0x0a + CBOR(pm) + '00' + delegateVK[:32] + CBOR(omega)",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, '0', '0')
-				buf = append(buf, delegateVK[:32]...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		// Maybe it's over the full cert structure?
-		{
-			name: "CBOR([omega, delegateVK]) - cert payload only",
-			data: func() []byte {
-				tuple, _ := cbor.Encode([]any{omega, delegateVK})
-				return tuple
-			},
-		},
-		{
-			name: "0x0a + CBOR(pm) + CBOR([omega, delegateVK]) - full cert payload",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				tuple, _ := cbor.Encode([]any{omega, delegateVK})
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		{
-			name: "Full cert as CBOR: [omega, issuerVK, delegateVK]",
-			data: func() []byte {
-				tuple, _ := cbor.Encode([]any{omega, issuerVK, delegateVK})
-				return tuple
-			},
-		},
-		{
-			name: "0x0a + CBOR(pm) + CBOR([omega, issuerVK, delegateVK])",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				tuple, _ := cbor.Encode([]any{omega, issuerVK, delegateVK})
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, tuple...)
-				return buf
-			},
-		},
-		// Try with epoch as Word64 (8 bytes)
-		{
-			name: "0x0a + CBOR(pm) + '00' + delegateVK + omega_uint64_cbor",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				// Force epoch as 8-byte CBOR: 0x1b + 8 bytes
-				omegaBytes := []byte{0x1b, 0, 0, 0, 0, 0, 0, 0, 0}
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, '0', '0')
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		// No signTag - just payload
-		{
-			name: "'00' + delegateVK + omega (no tag)",
-			data: func() []byte {
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte{'0', '0'}
-				buf = append(buf, delegateVK...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-		// Reverse: omega first
-		{
-			name: "0x0a + CBOR(pm) + omega + '00' + delegateVK",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				omegaBytes, _ := cbor.Encode(omega)
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, omegaBytes...)
-				buf = append(buf, '0', '0')
-				buf = append(buf, delegateVK...)
-				return buf
-			},
-		},
-		// Chain code only
-		{
-			name: "0x0a + CBOR(pm) + '00' + chainCode + CBOR(omega)",
-			data: func() []byte {
-				pm, _ := cbor.Encode(header.ProtocolMagic)
-				omegaBytes, _ := cbor.Encode(omega)
-				chainCode := delegateVK[32:] // Second 32 bytes
-				buf := []byte{0x0a}
-				buf = append(buf, pm...)
-				buf = append(buf, '0', '0')
-				buf = append(buf, chainCode...)
-				buf = append(buf, omegaBytes...)
-				return buf
-			},
-		},
-	}
+	// Negative cases: fail closed on tampering.
+	wrongEpoch := buildSignedMessage(epoch+1, delegateVK)
+	assert.False(
+		t,
+		ed25519.Verify(issuerPubKey, wrongEpoch, certSig),
+		"signature must not verify against a different epoch",
+	)
 
-	for _, f := range additionalFormats {
-		signedData := f.data()
-		valid := ed25519.Verify(issuerPubKey, signedData, certSig)
-		if valid {
-			t.Logf("SUCCESS: %s", f.name)
-			t.Logf("  Signed data length: %d bytes", len(signedData))
-			t.Logf("  Signed data: %x", signedData)
-			return
-		}
-		t.Logf("FAILED: %s (len=%d)", f.name, len(signedData))
-	}
+	tamperedDelegateVK := append([]byte{}, delegateVK...)
+	tamperedDelegateVK[0] ^= 0xFF
+	wrongDelegate := buildSignedMessage(epoch, tamperedDelegateVK)
+	assert.False(
+		t,
+		ed25519.Verify(issuerPubKey, wrongDelegate, certSig),
+		"signature must not verify against a tampered delegate key",
+	)
 
-	// Also try with delegate's public key (maybe it's a self-signed key?)
-	delegatePubKey := delegateVK[:32]
-	t.Logf("Trying with delegate's public key: %x", delegatePubKey)
-
-	for _, f := range formats {
-		signedData := f.data()
-		valid := ed25519.Verify(delegatePubKey, signedData, certSig)
-		if valid {
-			t.Logf("SUCCESS with delegate key: %s", f.name)
-			t.Logf("  Signed data length: %d bytes", len(signedData))
-			t.Logf("  Signed data: %x", signedData)
-			return
-		}
-	}
-
-	for _, f := range additionalFormats {
-		signedData := f.data()
-		valid := ed25519.Verify(delegatePubKey, signedData, certSig)
-		if valid {
-			t.Logf("SUCCESS with delegate key: %s", f.name)
-			t.Logf("  Signed data length: %d bytes", len(signedData))
-			t.Logf("  Signed data: %x", signedData)
-			return
-		}
-	}
-
-	t.Log("Delegate key also failed")
-
-	// Let's also check if the header's public key is different
-	headerPubKey := header.ConsensusData.PubKey[:32]
-	t.Logf("Header PubKey (Ed25519): %x", headerPubKey)
-	t.Logf("IssuerVK[:32]: %x", issuerPubKey)
-	t.Logf("DelegateVK[:32]: %x", delegatePubKey)
-	t.Logf("Same header/issuer? %v", bytes.Equal(headerPubKey, issuerPubKey))
-
-	require.Fail(t, "No format worked!")
+	tamperedSig := append([]byte{}, certSig...)
+	tamperedSig[0] ^= 0xFF
+	assert.False(
+		t,
+		ed25519.Verify(issuerPubKey, signed, tamperedSig),
+		"tampered signature must not verify",
+	)
 }
 
 // TestByronBlockSignatureFormats tests different block signature formats
@@ -1508,18 +1203,30 @@ func TestByronBlockSignatureFormats(t *testing.T) {
 	// Structure: [2, [[omega, issuerVK, delegateVK, certSig], blockSig]]
 	innerArray, ok := header.ConsensusData.BlockSig[1].([]any)
 	if !ok {
-		t.Fatalf("expected []any for BlockSig[1], got %T", header.ConsensusData.BlockSig[1])
+		t.Fatalf(
+			"expected []any for BlockSig[1], got %T",
+			header.ConsensusData.BlockSig[1],
+		)
 	}
 	if len(innerArray) < 2 {
-		t.Fatalf("innerArray too short: expected at least 2 elements, got %d", len(innerArray))
+		t.Fatalf(
+			"innerArray too short: expected at least 2 elements, got %d",
+			len(innerArray),
+		)
 	}
 
 	cert, ok := innerArray[0].([]any)
 	if !ok {
-		t.Fatalf("expected []any for innerArray[0] (cert), got %T", innerArray[0])
+		t.Fatalf(
+			"expected []any for innerArray[0] (cert), got %T",
+			innerArray[0],
+		)
 	}
 	if len(cert) < 3 {
-		t.Fatalf("cert too short: expected at least 3 elements, got %d", len(cert))
+		t.Fatalf(
+			"cert too short: expected at least 3 elements, got %d",
+			len(cert),
+		)
 	}
 
 	issuerVK, ok := cert[1].([]byte)
@@ -1532,7 +1239,10 @@ func TestByronBlockSignatureFormats(t *testing.T) {
 	}
 	blockSig, ok := innerArray[1].([]byte)
 	if !ok {
-		t.Fatalf("expected []byte for innerArray[1] (blockSig), got %T", innerArray[1])
+		t.Fatalf(
+			"expected []byte for innerArray[1] (blockSig), got %T",
+			innerArray[1],
+		)
 	}
 
 	t.Logf("IssuerVK (64 bytes): %x", issuerVK)

@@ -51,6 +51,24 @@ func makeConwayRewardAddress(
 	return addr
 }
 
+// makeConwayBaseAddress builds a mainnet base address (payment + staking key
+// hash, AddressTypeKeyKey) sharing the given key hash for both credentials.
+// Unlike a reward address, this carries a staking payload but is not itself
+// a valid reward_account per the CDDL.
+func makeConwayBaseAddress(
+	t *testing.T,
+	keyHash common.Blake2b224,
+) common.Address {
+	t.Helper()
+	addrBytes := make([]byte, 0, 57)
+	addrBytes = append(addrBytes, 0x01)
+	addrBytes = append(addrBytes, keyHash.Bytes()...)
+	addrBytes = append(addrBytes, keyHash.Bytes()...)
+	addr, err := common.NewAddressFromBytes(addrBytes)
+	require.NoError(t, err)
+	return addr
+}
+
 func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
 	rewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
