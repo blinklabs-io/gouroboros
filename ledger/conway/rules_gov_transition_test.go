@@ -719,6 +719,36 @@ func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
 		var unkErr conway.UnknownGovActionIdError
 		require.ErrorAs(t, err, &unkErr)
 	})
+
+	// A LedgerState implementation that does not model gov-action expiry
+	// leaves ExpirySlot at its zero value. That must be treated as
+	// "expiry not modeled" rather than "expired at slot 0", which would
+	// otherwise reject every vote at any slot > 0 (the production bug this
+	// case pins).
+	t.Run("unset ExpirySlot is treated as not modeled", func(t *testing.T) {
+		unexpiringActionId := common.GovActionId{
+			TransactionId: common.Blake2b256{0x02},
+		}
+		unexpiringGovActions := map[string]*common.GovActionState{
+			govActionKey(unexpiringActionId): {
+				ActionId:   unexpiringActionId,
+				ActionType: common.GovActionTypeInfo,
+			},
+		}
+		unexpiringLs := mockledger.NewLedgerStateBuilder().
+			WithGovActions(unexpiringGovActions).
+			Build()
+		tx := mkVoteTx(voter, unexpiringActionId, common.GovVoteYes)
+		require.NoError(
+			t,
+			conway.UtxoValidateVotingOnExpiredGovAction(
+				tx,
+				1_000_000,
+				unexpiringLs,
+				pp,
+			),
+		)
+	})
 }
 
 // NOTE: this deliberately does not add a PV11 (ProtocolVersionVanRossem)

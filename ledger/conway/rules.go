@@ -622,6 +622,14 @@ func UtxoValidateHardForkCanFollow(
 // of that purpose exists that isn't this proposal's ancestor). GovState in
 // this codebase does not expose per-purpose root tracking, so this rule is
 // limited to existence and purpose-type matching.
+//
+// This also means the rule's safety (rejecting when an ancestor isn't
+// found) implicitly depends on the LedgerState implementation keeping
+// enacted governance actions queryable via GovActionById rather than
+// pruning them once enacted, since the current root of a purpose chain is
+// normally an already-enacted action; the LedgerState interface does not
+// explicitly promise this, so a backend that prunes enacted proposals would
+// start incorrectly rejecting valid proposals.
 func UtxoValidateProposalAncestry(
 	tx common.Transaction,
 	slot uint64,
@@ -3193,6 +3201,14 @@ func UtxoValidateVotingOnExpiredGovAction(
 			}
 			actionState, err := ls.GovActionById(*actionId)
 			if err != nil || actionState == nil {
+				continue
+			}
+			// ExpirySlot is optional in the LedgerState contract: a
+			// state provider that does not model gov-action expiry
+			// leaves it zero. Treat that as "expiry not modeled"
+			// rather than "expired at slot 0", which would reject
+			// every vote at any slot > 0.
+			if actionState.ExpirySlot == 0 {
 				continue
 			}
 			if slot > actionState.ExpirySlot {
