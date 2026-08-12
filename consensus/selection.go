@@ -91,17 +91,30 @@ func (p *PraosChainSelector) Compare(a, b ChainTip) int {
 	return 0
 }
 
-// CompareWithDensity compares chains considering density for deep forks.
-// This should be used when the fork point is older than k slots.
+// CompareWithDensity compares two chains using the Ouroboros Genesis rule,
+// branching explicitly on how deep the fork is relative to the security
+// parameter k:
+//
+//   - Forks no deeper than k slots (see IsDeepFork) are not considered
+//     "deep" and are resolved using the ordinary longest-chain rule
+//     (Compare), exactly as ordinary Praos selection would.
+//   - Forks deeper than k slots must be resolved using chain density
+//     over the window since the fork point *first*; the longest-chain
+//     rule is only used as a tiebreaker when densities are equal. This
+//     prevents a longer but sparser (and therefore potentially
+//     adversarial) deep fork from beating a shorter, denser one.
 //
 // Parameters:
 //   - a, b: the chain tips to compare
 //   - forkSlot: the slot where the chains diverged
+//   - currentSlot: the slot used to measure fork depth against forkSlot
+//     (typically the current tip/wallclock slot)
 //
 // Returns the same values as Compare.
 func (p *PraosChainSelector) CompareWithDensity(
 	a, b ChainTip,
 	forkSlot uint64,
+	currentSlot uint64,
 ) int {
 	if a == nil && b == nil {
 		return 0
@@ -113,13 +126,13 @@ func (p *PraosChainSelector) CompareWithDensity(
 		return 1
 	}
 
-	// First try standard comparison
-	result := p.Compare(a, b)
-	if result != 0 {
-		return result
+	// Shallow forks (at most k deep) use ordinary longest-chain selection;
+	// density is not considered per the Genesis rule.
+	if !p.IsDeepFork(forkSlot, currentSlot) {
+		return p.Compare(a, b)
 	}
 
-	// For deep forks, compare density
+	// Deep forks (more than k slots old): compare density first.
 	aDensity := a.Density(forkSlot)
 	bDensity := b.Density(forkSlot)
 
@@ -130,7 +143,8 @@ func (p *PraosChainSelector) CompareWithDensity(
 		return -1
 	}
 
-	return 0
+	// Equal density - fall back to the ordinary rule as a tiebreaker.
+	return p.Compare(a, b)
 }
 
 // selectPreferred returns the preferred chain using the given comparison function.
@@ -160,13 +174,15 @@ func (p *PraosChainSelector) Preferred(candidates []ChainTip) ChainTip {
 }
 
 // PreferredWithDensity returns the preferred chain considering density.
-// Use this when some candidates may represent deep forks.
+// Use this when some candidates may represent deep forks; see
+// CompareWithDensity for the exact rule applied.
 func (p *PraosChainSelector) PreferredWithDensity(
 	candidates []ChainTip,
 	forkSlot uint64,
+	currentSlot uint64,
 ) ChainTip {
 	return p.selectPreferred(candidates, func(a, b ChainTip) int {
-		return p.CompareWithDensity(a, b, forkSlot)
+		return p.CompareWithDensity(a, b, forkSlot, currentSlot)
 	})
 }
 

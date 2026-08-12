@@ -193,10 +193,102 @@ func TestCompareWithDensity(t *testing.T) {
 		t.Error("standard compare should show equal chains")
 	}
 
-	// With density comparison, chain A should be preferred (higher density)
-	result = selector.CompareWithDensity(chainA, chainB, 1000)
+	// With density comparison for a deep fork (fork at 1000, current
+	// slot far beyond k=2160 past the fork), chain A should be
+	// preferred (higher density).
+	result = selector.CompareWithDensity(chainA, chainB, 1000, 5000)
 	if result <= 0 {
 		t.Error("chain with higher density should be preferred")
+	}
+}
+
+// TestCompareWithDensityShallowForkIgnoresDensity verifies that forks no
+// deeper than k use the ordinary longest-chain rule and do NOT consult
+// density, per the Genesis rule: density-first selection only applies to
+// forks deeper than k.
+func TestCompareWithDensityShallowForkIgnoresDensity(t *testing.T) {
+	selector := NewPraosChainSelector(2160)
+
+	vrf := make([]byte, 64)
+
+	// Chain A: fewer blocks, but much higher density.
+	chainA := NewSimpleChainTipWithDensity(1100, 90, vrf, 90, 100)
+	// Chain B: more blocks (longer chain), lower density.
+	chainB := NewSimpleChainTipWithDensity(1200, 100, vrf, 100, 500)
+
+	// Fork at slot 1000, current slot 1200: only 200 slots deep, which
+	// is well within k=2160, so this is NOT a deep fork.
+	if selector.IsDeepFork(1000, 1200) {
+		t.Fatal("fork should not be considered deep for this test")
+	}
+
+	result := selector.CompareWithDensity(chainA, chainB, 1000, 1200)
+	if result >= 0 {
+		t.Error(
+			"shallow fork must use longest-chain rule; the longer " +
+				"(but sparser) chain B should be preferred over A",
+		)
+	}
+}
+
+// TestCompareWithDensityDeepForkLongerButSparserLoses is the regression
+// test for issue #1936: for forks deeper than k, a longer chain with
+// strictly lower density must lose to a shorter chain with higher
+// density.
+func TestCompareWithDensityDeepForkLongerButSparserLoses(t *testing.T) {
+	selector := NewPraosChainSelector(2160)
+
+	vrf := make([]byte, 64)
+
+	forkSlot := uint64(1000)
+	// currentSlot is far enough past forkSlot to make this a deep fork
+	// (more than k=2160 slots past the fork point).
+	currentSlot := uint64(10000)
+
+	// Chain A ("honest"): shorter chain, but denser (100 blocks in 200
+	// slots => density 0.5).
+	chainA := NewSimpleChainTipWithDensity(1200, 100, vrf, 100, 200)
+
+	// Chain B ("adversarial"): longer chain (more blocks than A), but
+	// much sparser (150 blocks in 3000 slots => density 0.05).
+	chainB := NewSimpleChainTipWithDensity(4000, 150, vrf, 150, 3000)
+
+	if !selector.IsDeepFork(forkSlot, currentSlot) {
+		t.Fatal("fork should be considered deep for this test")
+	}
+
+	// Sanity check: under the ordinary (non-density) rule, the longer
+	// chain B would win purely on block count.
+	if selector.Compare(chainA, chainB) >= 0 {
+		t.Fatal("expected chain B to have more blocks than chain A")
+	}
+
+	// Under the Genesis density-first rule for deep forks, the denser
+	// (but shorter) chain A must win.
+	result := selector.CompareWithDensity(
+		chainA,
+		chainB,
+		forkSlot,
+		currentSlot,
+	)
+	if result <= 0 {
+		t.Error(
+			"denser chain A must be preferred over longer but " +
+				"sparser deep-fork chain B",
+		)
+	}
+
+	// And PreferredWithDensity must select the denser chain too.
+	preferred := selector.PreferredWithDensity(
+		[]ChainTip{chainB, chainA},
+		forkSlot,
+		currentSlot,
+	)
+	if preferred != chainA {
+		t.Error(
+			"PreferredWithDensity must select the denser chain " +
+				"for a deep fork, not the longer/sparser one",
+		)
 	}
 }
 
@@ -246,7 +338,10 @@ func TestPreferredWithDensity(t *testing.T) {
 		NewSimpleChainTipWithDensity(1300, 100, vrf, 100, 300), // density 0.33
 	}
 
-	preferred := selector.PreferredWithDensity(candidates, 1000)
+	// currentSlot = 5000 puts the fork (slot 1000) more than k=2160
+	// slots in the past, making this a deep fork subject to
+	// density-first comparison.
+	preferred := selector.PreferredWithDensity(candidates, 1000, 5000)
 	if preferred == nil {
 		t.Fatal("expected non-nil preferred chain")
 	}
