@@ -15,13 +15,13 @@
 package shelley
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"math/big"
 	"os"
-	"reflect"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -45,6 +45,21 @@ type ShelleyGenesis struct {
 	GenDelegs          map[string]map[string]string `json:"genDelegs"`
 	InitialFunds       map[string]uint64            `json:"initialFunds"`
 	Staking            GenesisStaking               `json:"staking"`
+	// ExtraConfig carries the Musashi/Leios prototype genesis injection block.
+	// On that network the top-level initialFunds/staking are empty and the
+	// initial UTxOs, stake delegations and pool registrations are provided
+	// here instead. It is merged at read time by GenesisUtxos/InitialPools and is
+	// deliberately not folded into the marshalled fields, so the genesis hash is
+	// unaffected by parsing.
+	ExtraConfig *ShelleyGenesisExtraConfig `json:"extraConfig,omitempty" cbor:"-"`
+	// rawInitialFunds/rawStaking snapshot the values exactly as they appeared in
+	// the source document, before any extraConfig injection is folded in. CBOR
+	// encoding uses these so that parsing a genesis containing extraConfig never
+	// changes the bytes MarshalCBOR emits, and therefore never changes the
+	// genesis hash or the derived initial nonce.
+	rawInitialFunds map[string]uint64
+	rawStaking      GenesisStaking
+	rawCaptured     bool
 }
 
 type GenesisStaking struct {
@@ -52,7 +67,206 @@ type GenesisStaking struct {
 	Stake map[string]string                             `json:"stake"`
 }
 
+// ShelleyGenesisExtraConfig models the Leios prototype's genesis "extraConfig"
+// injection. Every field is captured so the strict genesis decoder accepts the
+// block; pool sub-fields not needed for ledger bootstrap are kept as raw JSON.
+type ShelleyGenesisExtraConfig struct {
+	InitialFunds     shelleyExtraFunds `json:"initialFunds"`
+	StakeCredentials shelleyExtraCreds `json:"stakeCredentials"`
+	StakePools       shelleyExtraPools `json:"stakePools"`
+}
+
+type shelleyExtraFunds struct {
+	Data map[string]uint64 `json:"data"`
+}
+
+type shelleyExtraCreds struct {
+	Data map[string]string `json:"data"`
+}
+
+type shelleyExtraPools struct {
+	Data map[string]ShelleyGenesisExtraPool `json:"data"`
+}
+
+type ShelleyGenesisExtraPool struct {
+	Vrf            string                      `json:"vrf"`
+	Pledge         uint64                      `json:"pledge"`
+	Cost           uint64                      `json:"cost"`
+	Margin         json.RawMessage             `json:"margin"`
+	LeiosKey       json.RawMessage             `json:"leiosKey"`
+	Metadata       json.RawMessage             `json:"metadata"`
+	Owners         json.RawMessage             `json:"owners"`
+	Relays         json.RawMessage             `json:"relays"`
+	PoolId         string                      `json:"poolId"`
+	AccountAddress shelleyExtraPoolAccountAddr `json:"accountAddress"`
+	// Unknown retains any pool property this package does not model, so an
+	// upstream addition does not break parsing under DisallowUnknownFields.
+	Unknown map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON decodes the pool fields this package uses and retains every
+// other property verbatim. The genesis decoder runs with DisallowUnknownFields,
+// so without this a new pool field added upstream would fail the whole parse;
+// keeping the remainder as raw JSON also means nothing is silently discarded.
+func (p *ShelleyGenesisExtraPool) UnmarshalJSON(data []byte) error {
+	type alias ShelleyGenesisExtraPool
+	var known alias
+	dec := json.NewDecoder(bytes.NewReader(data))
+	// no DisallowUnknownFields here: unknown properties are captured below
+	if err := dec.Decode(&known); err != nil {
+		return err
+	}
+	*p = ShelleyGenesisExtraPool(known)
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	for _, k := range []string{
+		"vrf", "pledge", "cost", "margin", "leiosKey",
+		"metadata", "owners", "relays", "poolId", "accountAddress",
+	} {
+		delete(all, k)
+	}
+	if len(all) > 0 {
+		p.Unknown = all
+	}
+	return nil
+}
+
+type shelleyExtraPoolAccountAddr struct {
+	Credential shelleyExtraPoolCredential `json:"credential"`
+	Network    string                     `json:"network"`
+}
+
+type shelleyExtraPoolCredential struct {
+	KeyHash    string `json:"keyHash"`
+	ScriptHash string `json:"scriptHash"`
+}
+
+// effectiveInitialFunds returns the initial funds the ledger should bootstrap
+// from: the standard top-level map, plus any carried in the extraConfig
+// injection block. It deliberately does NOT write into g.InitialFunds, because
+// that field is emitted by MarshalCBOR and mutating it would change the
+// re-encoded genesis bytes and therefore the genesis hash / initial nonce.
+// captureRaw snapshots the as-parsed maps so MarshalCBOR can reproduce the
+// source encoding regardless of any extraConfig folding done afterwards.
+func (g *ShelleyGenesis) captureRaw() {
+	g.rawInitialFunds = g.InitialFunds
+	g.rawStaking = g.Staking
+	g.rawCaptured = true
+}
+
+// applyExtraConfig folds the prototype extraConfig injection into the standard
+// InitialFunds/Staking fields so every existing consumer of those fields works
+// unchanged. captureRaw must have run first; MarshalCBOR uses the snapshot.
+func (g *ShelleyGenesis) applyExtraConfig() error {
+	if g.ExtraConfig == nil {
+		return nil
+	}
+	if f := g.effectiveInitialFunds(); len(f) > 0 {
+		g.InitialFunds = f
+	}
+	if st := g.effectiveStake(); len(st) > 0 {
+		g.Staking.Stake = st
+	}
+	pools, err := g.effectivePools()
+	if err != nil {
+		return err
+	}
+	if len(pools) > 0 {
+		g.Staking.Pools = pools
+	}
+	return nil
+}
+
+func (g *ShelleyGenesis) effectiveInitialFunds() map[string]uint64 {
+	if g.ExtraConfig == nil || len(g.ExtraConfig.InitialFunds.Data) == 0 {
+		return g.InitialFunds
+	}
+	out := make(map[string]uint64, len(g.InitialFunds)+len(g.ExtraConfig.InitialFunds.Data))
+	for k, v := range g.InitialFunds {
+		out[k] = v
+	}
+	for k, v := range g.ExtraConfig.InitialFunds.Data {
+		out[k] = v
+	}
+	return out
+}
+
+// effectiveStake returns the stake-credential -> pool delegations to bootstrap,
+// merging the extraConfig injection over the standard staking map. Same
+// no-mutation rule as effectiveInitialFunds.
+func (g *ShelleyGenesis) effectiveStake() map[string]string {
+	if g.ExtraConfig == nil || len(g.ExtraConfig.StakeCredentials.Data) == 0 {
+		return g.Staking.Stake
+	}
+	out := make(map[string]string, len(g.Staking.Stake)+len(g.ExtraConfig.StakeCredentials.Data))
+	for k, v := range g.Staking.Stake {
+		out[k] = v
+	}
+	for k, v := range g.ExtraConfig.StakeCredentials.Data {
+		out[k] = v
+	}
+	return out
+}
+
+// effectivePools returns the genesis pool registrations to bootstrap, merging
+// the extraConfig injection over the standard staking pools. Same no-mutation
+// rule as effectiveInitialFunds.
+func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCertificate, error) {
+	if g.ExtraConfig == nil || len(g.ExtraConfig.StakePools.Data) == 0 {
+		return g.Staking.Pools, nil
+	}
+	out := make(map[string]common.PoolRegistrationCertificate, len(g.Staking.Pools)+len(g.ExtraConfig.StakePools.Data))
+	for k, v := range g.Staking.Pools {
+		out[k] = v
+	}
+	for poolId, ep := range g.ExtraConfig.StakePools.Data {
+		opBytes, err := hex.DecodeString(poolId)
+		if err != nil {
+			return nil, err
+		}
+		if len(opBytes) != common.Blake2b224Size {
+			return nil, errors.New("invalid extraConfig pool operator length")
+		}
+		vrfBytes, err := hex.DecodeString(ep.Vrf)
+		if err != nil {
+			return nil, err
+		}
+		if len(vrfBytes) != common.Blake2b256Size {
+			return nil, errors.New("invalid extraConfig pool vrf length")
+		}
+		var reward common.AddrKeyHash
+		if kh := ep.AccountAddress.Credential.KeyHash; kh != "" {
+			rewardBytes, err := hex.DecodeString(kh)
+			if err != nil {
+				return nil, err
+			}
+			if len(rewardBytes) != common.Blake2b224Size {
+				return nil, errors.New("invalid extraConfig pool reward account length")
+			}
+			reward = common.Blake2b224(rewardBytes)
+		}
+		out[poolId] = common.PoolRegistrationCertificate{
+			Operator:      common.Blake2b224(opBytes),
+			VrfKeyHash:    common.NewBlake2b256(vrfBytes),
+			Pledge:        ep.Pledge,
+			Cost:          ep.Cost,
+			Margin:        common.NewGenesisRat(0, 1),
+			RewardAccount: reward,
+		}
+	}
+	return out, nil
+}
+
 func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
+	// Encode the genesis exactly as parsed. Any extraConfig injection folded
+	// into InitialFunds/Staking is bootstrap-only state and must not alter the
+	// encoded form, or the genesis hash (and initial nonce) would change.
+	if g.rawCaptured {
+		g.InitialFunds = g.rawInitialFunds
+		g.Staking = g.rawStaking
+	}
 	genDelegs := map[cbor.ByteString][]cbor.ByteString{}
 	for k, v := range g.GenDelegs {
 		keyBytes, err := hex.DecodeString(k)
@@ -213,7 +427,7 @@ func convertPoolRelays(relays []common.PoolRelay) []any {
 
 func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 	ret := []common.Utxo{}
-	for address, amount := range g.InitialFunds {
+	for address, amount := range g.effectiveInitialFunds() {
 		addrBytes, err := hex.DecodeString(address)
 		if err != nil {
 			return nil, err
@@ -254,7 +468,12 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 	pools := make(map[string]common.PoolRegistrationCertificate)
 	poolStake := make(map[string][]common.Address)
 
-	if reflect.DeepEqual(g.Staking, GenesisStaking{}) {
+	effStake := g.effectiveStake()
+	effPools, err := g.effectivePools()
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(effStake) == 0 && len(effPools) == 0 {
 		return pools, poolStake, nil
 	}
 
@@ -264,7 +483,7 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 	}
 
 	// Process all stake addresses
-	for stakeAddr, poolId := range g.Staking.Stake {
+	for stakeAddr, poolId := range effStake {
 		stakeKey, err := hex.DecodeString(stakeAddr)
 		if err != nil {
 			return nil, nil, errors.New("failed to decode stake key")
@@ -284,7 +503,7 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 	}
 
 	// Process all stake pools
-	for poolId, pool := range g.Staking.Pools {
+	for poolId, pool := range effPools {
 		operatorBytes, err := hex.DecodeString(poolId)
 		if err != nil {
 			return nil, nil, errors.New("failed to decode pool ID")
@@ -424,6 +643,10 @@ func NewShelleyGenesisFromReader(r io.Reader) (ShelleyGenesis, error) {
 	dec := json.NewDecoder(r)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&ret); err != nil {
+		return ret, err
+	}
+	ret.captureRaw()
+	if err := ret.applyExtraConfig(); err != nil {
 		return ret, err
 	}
 	return ret, nil
