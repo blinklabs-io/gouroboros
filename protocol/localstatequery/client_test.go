@@ -1385,3 +1385,65 @@ func TestGenesisConfigJSON(t *testing.T) {
 		t.Logf("Successfully validated the GenesisConfigResult after JSON marshalling and unmarshalling.")
 	}
 }
+
+// TestDebugChainDepState drives the real client against a mocked node answer,
+// which is the layer where the QueryIfCurrent unwrap lives.
+//
+// The unit tests in chain_dep_state_test.go hand DebugChainDepStateResult's
+// UnmarshalCBOR the inner encodeVersion envelope directly, so the decoder looked
+// correct in isolation while DebugChainDepState never unwrapped the one-element
+// array the node actually sends. GetOpCertCounters therefore failed against any
+// conformant node with "cbor: cannot unmarshal array into Go value of type
+// struct { Version uint64; Inner RawMessage }". Only a test that goes through
+// the client catches that, which is why this one lives here rather than beside
+// the decoder tests.
+func TestDebugChainDepState(t *testing.T) {
+	var expectedPool ledger.Blake2b224
+	for i := range expectedPool {
+		expectedPool[i] = 0x11
+	}
+
+	conversation := append(
+		conversationCurrentEra,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  localstatequery.ProtocolId,
+			MessageType: localstatequery.MessageTypeQuery,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: localstatequery.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				localstatequery.NewMsgResult(
+					// [[1, [slot, {pool: 3}, nonces...]]] — the Praos
+					// chain-dep-state inside the QueryIfCurrent wrapper the node
+					// puts on the wire.
+					test.DecodeHexString(
+						"8182008882011a0012d687a1581c111111111111111111111111" +
+							"1111111111111111111111111111111103820158200000000000" +
+							"0000000000000000000000000000000000000000000000000000" +
+							"0081008201582000000000000000000000000000000000000000" +
+							"00000000000000000000000000810081008100",
+					),
+				),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			counters, err := oConn.LocalStateQuery().
+				Client.GetOpCertCounters()
+			// Without the QueryIfCurrent unwrap this is where the decode of the
+			// node's answer fails, so name it: the error is the whole signal.
+			require.NoError(t, err, "GetOpCertCounters against a mocked node")
+			require.Contains(
+				t,
+				counters,
+				expectedPool,
+				"pool must survive the unwrap into the counter map",
+			)
+			require.Equal(t, uint64(3), counters[expectedPool])
+		},
+	)
+}
