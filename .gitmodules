@@ -58,3 +58,30 @@
 [submodule "repos/docker-mithril-signer"]
 	path = repos/docker-mithril-signer
 	url = git@github.com:blinklabs-io/docker-mithril-signer.git
+[submodule "repos/docker-mithril-client"]
+	path = repos/docker-mithril-client
+	url = git@github.com:blinklabs-io/docker-mithril-client.git
+[submodule "repos/docker-haskell"]
+	path = repos/docker-haskell
+	url = git@github.com:blinklabs-io/docker-haskell.git
+[submodule "repos/docker-kupo"]
+	path = repos/docker-kupo
+	url = git@github.com:blinklabs-io/docker-kupo.git
+[submodule "repos/docker-ogmios"]
+	path = repos/docker-ogmios
+	url = git@github.com:blinklabs-io/docker-ogmios.git
+[submodule "repos/adder"]
+	path = repos/adder
+	url = git@github.com:blinklabs-io/adder.git
+[submodule "repos/adder-mobile"]
+	path = repos/adder-mobile
+	url = git@github.com:blinklabs-io/adder-mobile.git
+[submodule "repos/cardano-compose-stacks"]
+	path = repos/cardano-compose-stacks
+	url = git@github.com:blinklabs-io/cardano-compose-stacks.git
+[submodule "repos/cardano-up"]
+	path = repos/cardano-up
+	url = git@github.com:blinklabs-io/cardano-up.git
+[submodule "repos/cardano-up-packages"]
+	path = repos/cardano-up-packages
+	url = git@github.com:blinklabs-io/cardano-up-packages.git
