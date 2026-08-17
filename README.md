@@ -30,6 +30,22 @@ After cloning, read the repository-level [AGENTS.md](AGENTS.md) and any
 working on. A submodule's local instructions take precedence for work within
 that submodule.
 
+## Contributing
+
+The organization-wide contribution guidance is checked out in
+[`repos/.github/CONTRIBUTING.md`](repos/.github/CONTRIBUTING.md), with the
+corresponding [security policy](repos/.github/SECURITY.md). Read those files
+before contributing to this workspace or any of its projects.
+
+At the workspace level:
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  for every commit.
+- Sign off every commit for the [Developer Certificate of Origin](https://developercertificate.org/)
+  with `git commit -s` or `git commit --signoff`.
+- Check the applicable `CODEOWNERS` file and project-specific contribution
+  instructions before opening a pull request.
+
 ## Planned layout
 
 The exact layout will evolve as projects and tooling are added. The intended
@@ -42,6 +58,7 @@ top-level organization is:
 ├── docs/         # Shared documentation and design notes
 ├── scripts/      # Workspace-level development and maintenance scripts
 └── repos/        # Blink Labs repositories tracked as Git submodules
+    └── .github/  # Organization-wide contribution and security defaults
 ```
 
 Directories may be introduced incrementally; their presence is not required

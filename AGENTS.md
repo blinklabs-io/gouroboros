@@ -40,6 +40,18 @@ documentation, and workspace-level automation.
 - Do not commit credentials, tokens, private configuration, build artifacts, or
   generated files unless the project explicitly tracks them.
 
+## Commits and contributions
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  for every commit. For example: `docs: clarify submodule workflow`.
+- Sign off commits with `git commit -s` to satisfy the Developer Certificate of
+  Origin requirement.
+- Read [`repos/.github/CONTRIBUTING.md`](repos/.github/CONTRIBUTING.md) and
+  [`repos/.github/SECURITY.md`](repos/.github/SECURITY.md) for the current
+  organization-wide contribution and security guidance.
+- Check the relevant `CODEOWNERS` file and any local contribution instructions
+  before preparing a pull request.
+
 ## Validation
 
 Run the narrowest relevant checks after making a change. For changes to a
