@@ -1,0 +1,64 @@
+# Agent instructions
+
+This file contains repository-wide guidance for coding agents working in the
+Blink Labs monorepo.
+
+## Repository purpose
+
+This repository coordinates Blink Labs projects and shared agentic-coding
+assets. It is expected to contain Git submodules alongside skills, plugins,
+documentation, and workspace-level automation.
+
+## Before making changes
+
+1. Inspect the repository status and identify the requested change's scope.
+2. Read this file and any more specific `AGENTS.md` files in the directory you
+   will modify.
+3. If the change is inside a Git submodule, read that project's contributor
+   documentation and follow its build, test, and formatting instructions.
+4. Keep unrelated existing changes intact.
+
+## Scope and repository boundaries
+
+- Treat each submodule as an independently owned repository with its own Git
+  history, tooling, and release process.
+- Make source changes inside the relevant submodule, not in the monorepo around
+  it. The parent repository should normally record only the resulting
+  submodule pointer update and related workspace documentation.
+- Do not rewrite, remove, or re-pin submodules unless the task explicitly asks
+  for it.
+- Shared skills, plugins, scripts, and documentation should be placed in their
+  designated top-level directories as those directories are established.
+
+## Implementation guidance
+
+- Prefer small, focused changes that match the existing conventions.
+- Avoid adding dependencies or workspace-wide automation without documenting
+  why it belongs at the monorepo level.
+- Keep agent instructions clear, actionable, and narrowly scoped. More local
+  instructions may refine or override these rules for their directory.
+- Do not commit credentials, tokens, private configuration, build artifacts, or
+  generated files unless the project explicitly tracks them.
+
+## Validation
+
+Run the narrowest relevant checks after making a change. For changes to a
+submodule, use that submodule's documented checks. For workspace-level changes,
+at minimum verify the resulting Git diff and, when applicable, validate the
+affected Markdown, scripts, or plugin metadata.
+
+When reporting results, include the checks that were run and note anything that
+could not be run because the relevant project or tooling is not yet present.
+
+## Git and submodules
+
+When work changes a submodule:
+
+1. Make and validate the change in the submodule repository.
+2. Commit or otherwise preserve the submodule's intended revision according to
+   the user's request.
+3. Update and review the parent repository's submodule pointer.
+
+Do not make a parent-repository commit on the user's behalf unless explicitly
+asked. Keep submodule changes and parent-repository changes easy to distinguish
+in the final summary.
