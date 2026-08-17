@@ -54,6 +54,11 @@ and Cubic when configured, address their actionable findings, and only then
 request human review. Human review is mandatory and may be AI-assisted; bot
 approval or silence is not human approval.
 
+If a human reviewer requests changes, implement and validate the fixes, record
+the response and changed paths on the pull request, and use GitHub's review
+request action to request another review from that same reviewer. A pushed fix
+or review-thread reply does not replace the explicit follow-up review.
+
 ## Common Go baseline
 
 Across the Blink Go repositories, the usual local targets are:

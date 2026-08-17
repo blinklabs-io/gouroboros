@@ -144,6 +144,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - Run CodeRabbit and Cubic before human review, address actionable findings,
   and then obtain the required human review. Human review may be AI-assisted,
   but bot approval is not a substitute for it.
+- If a human reviewer requests changes, validate and push the fixes, summarize
+  them on the pull request, and use GitHub to request another review from that
+  same reviewer.
 
 These patterns are implemented first as the
 [`blink-repo-maintainer`](../skills/blink-repo-maintainer/SKILL.md) skill. A

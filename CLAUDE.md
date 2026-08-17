@@ -44,6 +44,11 @@ and Cubic when configured, address their actionable findings, and only then
 request human review. A human review is mandatory and may be AI-assisted, but
 bot approval or silence never counts as human approval.
 
+When a human reviewer requests changes, implement and validate the fixes,
+summarize the changes on the pull request, and explicitly request another
+review from that same person through GitHub. Do not assume that replying to
+the review or pushing commits automatically completes the review loop.
+
 ## Go and Cardano work
 
 Use repository-native Makefile targets and inspect every nested `go.mod`.

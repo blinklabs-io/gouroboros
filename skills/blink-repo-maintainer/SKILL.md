@@ -93,6 +93,9 @@ Cardano/CBOR review invariants, and a per-repository orientation table.
 - Follow the review order: run configured CodeRabbit/Cubic checks, address
   actionable findings, then obtain required human review. Human review may be
   AI-assisted, but bot approval or silence is never sufficient by itself.
+- If a human reviewer requests changes, validate and push the fixes, summarize
+  them on the pull request, and explicitly request another review from that
+  same reviewer through GitHub.
 
 ## Historical session context
 
