@@ -30,6 +30,8 @@ under `repos/` as an independently versioned project.
 6. Preserve unrelated changes, generated files, credentials, local agent
    state, and untracked worktrees. Do not commit changes inside a submodule from
    the parent repository.
+7. Keep plans and planning files local and ephemeral; never commit them. Use a
+   repository issue for durable work tracking, acceptance criteria, and follow-up.
 
 ## Validation by project family
 

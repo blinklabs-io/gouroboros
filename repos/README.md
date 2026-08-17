@@ -11,6 +11,8 @@ that belongs in a workspace checkout.
 | --- | --- | --- |
 | [`.github`](.github) | [`blinklabs-io/.github`](https://github.com/blinklabs-io/.github) | Organization-wide contribution, security, and community defaults |
 | [`actions`](actions) | [`blinklabs-io/actions`](https://github.com/blinklabs-io/actions) | Reusable GitHub Actions workflows and repository governance engine |
+| [`docs`](docs) | [`blinklabs-io/docs-site`](https://github.com/blinklabs-io/docs-site) | Public Blink Labs documentation site |
+| [`kb`](kb) | [`blinklabs-io/kb`](https://github.com/blinklabs-io/kb) | Long-form engineering training and reference books |
 | [`adder`](adder) | [`blinklabs-io/adder`](https://github.com/blinklabs-io/adder) | Cardano chain-sync event tailer |
 | [`adder-mobile`](adder-mobile) | [`blinklabs-io/adder-mobile`](https://github.com/blinklabs-io/adder-mobile) | Mobile app for Adder notifications |
 | [`cardano-compose-stacks`](cardano-compose-stacks) | [`blinklabs-io/cardano-compose-stacks`](https://github.com/blinklabs-io/cardano-compose-stacks) | Cardano service Docker Compose environment |

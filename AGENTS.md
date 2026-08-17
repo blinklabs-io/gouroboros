@@ -18,6 +18,10 @@ documentation, and workspace-level automation.
    documentation and follow its build, test, and formatting instructions.
 4. Keep unrelated existing changes intact.
 
+Planning notes and plan files are local, ephemeral working artifacts. Do not
+commit them. When work needs durable tracking, create or update an issue with
+the scope, acceptance criteria, and relevant context.
+
 ## Scope and repository boundaries
 
 - Treat each submodule as an independently owned repository with its own Git

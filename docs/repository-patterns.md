@@ -6,13 +6,17 @@ not a replacement for any project's local documentation.
 
 ## Workspace architecture
 
-The workspace has three repository roles:
+The workspace has five repository roles:
 
 1. `repos/.github` supplies organization-wide community, contribution, and
    security defaults.
 2. `repos/actions` supplies reusable GitHub Actions workflows and the
    organization governance engine.
-3. The 27 project submodules contain applications, services, package
+3. `repos/docs` publishes user-facing product and DevOps documentation at
+   `docs.blinklabs.io`.
+4. `repos/kb` contains long-form developer training and engineering reference
+   books, with a policy of linking published material to pinned public sources.
+5. The 27 project submodules contain applications, services, package
    definitions, and Docker images.
 
 The parent repository pins source revisions for reproducible inspection and
@@ -28,6 +32,8 @@ their individual release processes.
 | Mobile | `adder-mobile` | Conventional Commits plus Flutter/mobile-specific PR and publish workflows |
 | Package definitions | `cardano-up-packages` | Conventional Commits, upstream version checks, package validation |
 | Compose/integration | `cardano-compose-stacks` | Upstream version checks for a Docker Compose environment |
+| Public documentation | `docs` | Next.js/Nextra site with MDX product and DevOps documentation |
+| Engineering knowledge base | `kb` | Numbered training books with references, glossaries, and source maps |
 
 The authoritative profile and per-project exceptions live in
 `repos/actions/repos-config.yaml`. Generated wrapper files in each project's
@@ -64,6 +70,18 @@ Downstream generated wrappers currently reference reusable workflows with
 local source snapshot, not a runtime version pin for consumers. A future
 reproducibility/security improvement would be to consume release tags or commit
 SHAs and define an update policy for them.
+
+## Documentation boundaries
+
+Use `docs` for concise, navigable public documentation: installation,
+configuration, quickstarts, product concepts, and DevOps operation. Use `kb`
+for durable onboarding and deep technical learning: architecture walkthroughs,
+protocol primers, package maps, debugging, testing, and contribution context.
+
+When documenting a project, prefer linking between the public site, the
+appropriate knowledge-base book, and the project's README rather than copying
+large explanations into multiple locations. Preserve `kb`'s pinned-source-link
+policy so training examples remain reproducible.
 
 ## Session-derived reusable knowledge
 

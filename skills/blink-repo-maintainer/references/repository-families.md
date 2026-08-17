@@ -61,6 +61,12 @@ module or test commands.
   ownership files.
 - `cardano-up-packages`: declarative package definitions consumed by
   `cardano-up`; version checks and package validation are its primary CI.
+- `docs`: Next.js/Nextra public documentation site. Prefer concise MDX pages,
+  preserve navigation metadata, and validate the package manager/build scripts
+  before changing the site.
+- `kb`: long-form engineering knowledge base organized into numbered books.
+  Preserve its source-map, glossary, and pinned-public-source conventions when
+  extending training material.
 
 ## Historical patterns worth checking
 
