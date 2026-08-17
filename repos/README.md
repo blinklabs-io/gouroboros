@@ -10,9 +10,32 @@ that belongs in a workspace checkout.
 | Path | Repository | Purpose |
 | --- | --- | --- |
 | [`.github`](.github) | [`blinklabs-io/.github`](https://github.com/blinklabs-io/.github) | Organization-wide contribution, security, and community defaults |
+| [`actions`](actions) | [`blinklabs-io/actions`](https://github.com/blinklabs-io/actions) | Reusable GitHub Actions workflows and repository governance engine |
 
 Additional project repositories should be added to this table when they are
 added as submodules.
+
+## Actions and workspace workflows
+
+[`actions`](actions) is shared infrastructure for the Blink Labs organization,
+not a normal application dependency. It provides reusable `workflow_call`
+workflows for testing, linting, publishing, version checks, and Conventional
+Commit validation.
+
+It also contains the governance engine and its `repos-config.yaml`. That file
+is the operational source of truth for the repositories it manages: the sync
+workflow reconciles repository settings, collaborators, branch protection, and
+generated workflow wrappers, writing changes directly to each target's default
+branch. The `actions` repository manages other repositories and is intentionally
+not part of its own managed set.
+
+The submodule here gives this workspace a reproducible checkout for inspecting
+and developing the shared workflows and governance code. It does not pin the
+workflow version consumed by downstream repositories: those workflow wrappers
+currently reference paths such as
+`blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main`. Changes to
+the `actions` repository can therefore affect consumers independently of this
+monorepo's submodule pointer.
 
 ## Adding a repository
 

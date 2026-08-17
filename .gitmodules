@@ -1,3 +1,6 @@
 [submodule "repos/.github"]
 	path = repos/.github
 	url = git@github.com:blinklabs-io/.github.git
+[submodule "repos/actions"]
+	path = repos/actions
+	url = git@github.com:blinklabs-io/actions.git
