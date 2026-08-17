@@ -136,9 +136,6 @@
 [submodule "repos/terraform-modules"]
 	path = repos/terraform-modules
 	url = git@github.com:blinklabs-io/terraform-modules.git
-[submodule "repos/apollo"]
-	path = repos/apollo
-	url = git@github.com:blinklabs-io/apollo.git
 [submodule "repos/merkle-patricia-forestry"]
 	path = repos/merkle-patricia-forestry
 	url = git@github.com:blinklabs-io/merkle-patricia-forestry.git

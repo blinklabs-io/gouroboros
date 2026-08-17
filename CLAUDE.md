@@ -51,6 +51,11 @@ Do not claim that a check ran when it required unavailable live GitHub,
 registry, Cardano devnet, conformance, or Antithesis infrastructure. Record
 the exact skipped check and reason in the handoff.
 
+Use canonical upstream repositories and Go modules for source dependencies.
+Blink Labs forks are emergency-only exceptions that require explicit approval,
+an issue, and an exit plan; Apollo must use `Salvionied/apollo` under normal
+circumstances.
+
 ## Commits
 
 Use Conventional Commits and DCO sign-off (`git commit -s`). Keep workspace

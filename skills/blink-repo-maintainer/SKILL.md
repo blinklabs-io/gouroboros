@@ -86,6 +86,10 @@ Cardano/CBOR review invariants, and a per-repository orientation table.
 - Treat `repos/actions` as shared infrastructure: it supplies reusable
   workflows and a governance engine that can write generated wrappers and
   repository settings directly to managed repositories' default branches.
+- Use canonical upstream repositories and Go modules for source dependencies.
+  Blink Labs forks are emergency-only exceptions requiring explicit approval,
+  issue tracking, and an exit plan; Apollo is upstream-only under normal
+  circumstances.
 
 ## Historical session context
 

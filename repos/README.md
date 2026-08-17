@@ -11,7 +11,6 @@ that belongs in a workspace checkout.
 | --- | --- | --- |
 | [`.github`](.github) | [`blinklabs-io/.github`](https://github.com/blinklabs-io/.github) | Organization-wide contribution, security, and community defaults |
 | [`actions`](actions) | [`blinklabs-io/actions`](https://github.com/blinklabs-io/actions) | Reusable GitHub Actions workflows and repository governance engine |
-| [`apollo`](apollo) | [`blinklabs-io/apollo`](https://github.com/blinklabs-io/apollo) | Upstream Go Cardano transaction-building library used by Shai |
 | [`docs`](docs) | [`blinklabs-io/docs-site`](https://github.com/blinklabs-io/docs-site) | Public Blink Labs documentation site |
 | [`kb`](kb) | [`blinklabs-io/kb`](https://github.com/blinklabs-io/kb) | Long-form engineering training and reference books |
 | [`adder`](adder) | [`blinklabs-io/adder`](https://github.com/blinklabs-io/adder) | Cardano chain-sync event tailer |

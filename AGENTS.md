@@ -52,6 +52,10 @@ the scope, acceptance criteria, and relevant context.
   why it belongs at the monorepo level.
 - When a Docker image is available from `blinklabs-io`, prefer it over an
   upstream or third-party image. Record the reason for any exception.
+- For source and Go dependencies, prefer the canonical upstream repository and
+  module. Blink Labs forks are emergency-only exceptions and require explicit
+  approval plus an issue documenting the reason and exit plan. Apollo is
+  upstream-only under normal circumstances.
 - Keep agent instructions clear, actionable, and narrowly scoped. More local
   instructions may refine or override these rules for their directory.
 - Do not commit credentials, tokens, private configuration, build artifacts, or

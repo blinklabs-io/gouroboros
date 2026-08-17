@@ -82,6 +82,14 @@ The recurring quality contract is:
 - use Conventional Commits and DCO sign-off for commits;
 - keep Docker image choices aligned with `blinklabs-io` images when available.
 
+## Dependency provenance
+
+Use the canonical upstream repository and Go module for source dependencies.
+Blink Labs forks are emergency-only exceptions: they require explicit approval,
+an issue recording the reason and exit plan, and a clear handoff for returning
+to upstream. Apollo is always upstream under normal circumstances:
+`github.com/Salvionied/apollo/v2` from `Salvionied/apollo`.
+
 ## Dependency spine
 
 Use the checked-out module graph as the source of truth; this map is an
@@ -91,7 +99,7 @@ orientation aid for deciding where a fix or fixture belongs:
 | --- | --- |
 | Ledger and protocol core | [`gouroboros`](../repos/gouroboros) provides Cardano ledger types, CBOR, crypto, and Ouroboros mini-protocols; [`plutigo`](../repos/plutigo) provides UPLC evaluation; [`cardano-models`](../repos/cardano-models), [`go-bip39`](../repos/go-bip39), [`go-scls`](../repos/go-scls), and [`merkle-patricia-forestry`](../repos/merkle-patricia-forestry) provide focused data or format libraries |
 | Shared test surface | [`ouroboros-mock`](../repos/ouroboros-mock) provides network conversations, ledger state, protocol parameters, consensus scenarios, and conformance fixtures for downstream projects |
-| Wallet and transactions | [`bursa`](../repos/bursa) provides wallet/key and transaction functionality; [`apollo`](../repos/apollo) provides transaction construction and backend adapters |
+| Wallet and transactions | [`bursa`](../repos/bursa) provides wallet/key and transaction functionality; external upstream [`Salvionied/apollo`](https://github.com/Salvionied/apollo) provides transaction construction and backend adapters |
 | Node and chain services | [`dingo`](../repos/dingo) is the Go Cardano node; [`adder`](../repos/adder) provides chain-sync event processing; [`bark`](../repos/bark) defines Dingo operations APIs |
 | Applications and APIs | [`shai`](../repos/shai), [`bluefin`](../repos/bluefin), [`cardano-node-api`](../repos/cardano-node-api), [`tx-submit-api`](../repos/tx-submit-api), [`tx-submit-api-mirror`](../repos/tx-submit-api-mirror), [`nview`](../repos/nview), and [`txtop`](../repos/txtop) consume the protocol and service layers |
 | Packaging and governance | [`cardano-up`](../repos/cardano-up) manages packages and contexts; [`actions`](../repos/actions) defines the shared CI/governance behavior |
@@ -168,12 +176,12 @@ workflow before making a root-module assumption. The examples under
 `gouroboros/examples` intentionally replace the checked-out parent module for
 local development; `go-scls/cmd/scls` does the same for its library.
 
-The Apollo checkout intentionally declares the upstream module path
-`github.com/Salvionied/apollo/v2`. Shai is transitioning back to that upstream
-dependency from its Blink Labs module path. Until the Shai repository completes
-that transition, do not add a local replacement or rewrite either submodule's
-module metadata from the parent workspace; treat any temporary build failure as
-an issue for the Shai dependency update.
+Apollo is intentionally not a workspace submodule. It declares the upstream
+module path `github.com/Salvionied/apollo/v2`, and Shai is transitioning back to
+that upstream dependency from its Blink Labs module path. Until the Shai
+repository completes that transition, do not add a local replacement or
+rewrite its module metadata from the parent workspace; treat any temporary
+build failure as an issue for the Shai dependency update.
 
 ## Repository pointers
 
@@ -181,7 +189,7 @@ an issue for the Shai dependency update.
 | --- | --- | --- |
 | [`actions`](../repos/actions) | `README.md`, `repos-config.yaml` | Reusable workflow inputs, generated wrapper ownership, and direct writes to downstream default branches |
 | [`adder`](../repos/adder) | `README.md`, `Makefile`, `openapi/README.md` | Chainsync/mempool inputs, event filtering, library examples, and generated API clients |
-| [`apollo`](../repos/apollo) | `AGENTS.md`, `CONTRIBUTING.md`, `backend/base.go` | Transaction builder, `ChainContext` backends, deterministic fixed backend tests, CBOR, and module identity |
+| [Apollo upstream](https://github.com/Salvionied/apollo) | upstream `AGENTS.md`, `CONTRIBUTING.md`, `backend/base.go` | External transaction builder, `ChainContext` backends, deterministic fixed backend tests, and CBOR; not tracked as a submodule |
 | [`bark`](../repos/bark) | `README.md`, `PROTOCOL_DESIGN.md` | Proto source, Buf formatting/lint/generation, ConnectRPC compatibility, and Dingo integration |
 | [`bluefin`](../repos/bluefin) | `README.md`, `Makefile` | Miner/indexer transaction flow, OpenCL build path, benchmarks, and its Adder/Bursa/model dependencies |
 | [`bursa`](../repos/bursa) | `README.md`, `Makefile`, `ui/`, `openapi/` | Wallet/key handling, API generation, nested UI module, mobile workflow, and sensitive seed material |

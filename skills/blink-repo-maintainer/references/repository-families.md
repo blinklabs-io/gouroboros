@@ -60,8 +60,8 @@ native tests and specialized checks:
 
 - `bark` — protobuf/ConnectRPC protocol definitions; use Buf formatting,
   generation, and linting alongside Go tests.
-- `apollo`, `bluefin`, `bursa`, `dingo`, and `nview` — Cardano applications or
-  services; inspect Docker, runtime configuration, and integration expectations.
+- `bluefin`, `bursa`, `dingo`, and `nview` — Cardano applications or services;
+  inspect Docker, runtime configuration, and integration expectations.
 - `cardano-models`, `go-bip39`, `go-scls`, `gouroboros`,
   `merkle-patricia-forestry`, `ouroboros-mock`, and `plutigo` — protocol,
   cryptographic, serialization, or interpreter libraries; preserve
