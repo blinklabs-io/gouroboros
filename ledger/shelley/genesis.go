@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
@@ -189,16 +190,72 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			return nil, errors.New("invalid extraConfig pool vrf length")
 		}
 
-		var rewardAccount common.AddrKeyHash
-		if keyHash := extraPool.AccountAddress.Credential.KeyHash; keyHash != "" {
-			reward, err := hex.DecodeString(keyHash)
-			if err != nil {
-				return nil, err
+		credential := extraPool.AccountAddress.Credential
+		if credential.ScriptHash != "" {
+			return nil, errors.New(
+				"extraConfig pool reward account script credentials are not supported",
+			)
+		}
+		if credential.KeyHash == "" {
+			return nil, errors.New(
+				"extraConfig pool reward account key hash is required",
+			)
+		}
+		reward, err := hex.DecodeString(credential.KeyHash)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"invalid extraConfig pool reward account key hash: %w",
+				err,
+			)
+		}
+		if len(reward) != common.Blake2b224Size {
+			return nil, errors.New("invalid extraConfig pool reward account length")
+		}
+		rewardAccount := common.Blake2b224(reward)
+
+		var leiosKey *common.LeiosKey
+		if err := decodeExtraPoolField(
+			extraPool.LeiosKey,
+			"leiosKey",
+			&leiosKey,
+		); err != nil {
+			return nil, err
+		}
+
+		var metadata *common.PoolMetadata
+		if err := decodeExtraPoolField(
+			extraPool.Metadata,
+			"metadata",
+			&metadata,
+		); err != nil {
+			return nil, err
+		}
+
+		var owners []common.AddrKeyHash
+		if err := decodeExtraPoolField(
+			extraPool.Owners,
+			"owners",
+			&owners,
+		); err != nil {
+			return nil, err
+		}
+
+		var relays []common.PoolRelay
+		if err := decodeExtraPoolField(
+			extraPool.Relays,
+			"relays",
+			&relays,
+		); err != nil {
+			return nil, err
+		}
+		for idx := range relays {
+			if err := validateExtraPoolRelay(relays[idx]); err != nil {
+				return nil, fmt.Errorf(
+					"invalid extraConfig pool relays[%d]: %w",
+					idx,
+					err,
+				)
 			}
-			if len(reward) != common.Blake2b224Size {
-				return nil, errors.New("invalid extraConfig pool reward account length")
-			}
-			rewardAccount = common.Blake2b224(reward)
 		}
 
 		margin := common.NewGenesisRat(0, 1)
@@ -211,13 +268,73 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		out[poolID] = common.PoolRegistrationCertificate{
 			Operator:      common.Blake2b224(operator),
 			VrfKeyHash:    common.NewBlake2b256(vrf),
+			LeiosKey:      leiosKey,
 			Pledge:        extraPool.Pledge,
 			Cost:          extraPool.Cost,
 			Margin:        margin,
 			RewardAccount: rewardAccount,
+			PoolOwners:    owners,
+			Relays:        relays,
+			PoolMetadata:  metadata,
 		}
 	}
 	return out, nil
+}
+
+func decodeExtraPoolField(
+	raw json.RawMessage,
+	name string,
+	dest any,
+) error {
+	data := bytes.TrimSpace(raw)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dest); err != nil {
+		return fmt.Errorf(
+			"invalid extraConfig pool %s: %w",
+			name,
+			err,
+		)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf(
+			"invalid extraConfig pool %s: trailing JSON value",
+			name,
+		)
+	}
+	return nil
+}
+
+func validateExtraPoolRelay(relay common.PoolRelay) error {
+	switch relay.Type {
+	case common.PoolRelayTypeSingleHostAddress:
+		if relay.Hostname != nil {
+			return errors.New("single-host-address relay cannot have hostname")
+		}
+	case common.PoolRelayTypeSingleHostName:
+		if relay.Hostname == nil || *relay.Hostname == "" {
+			return errors.New("single-host-name relay requires hostname")
+		}
+		if relay.Ipv4 != nil || relay.Ipv6 != nil {
+			return errors.New("single-host-name relay cannot have IP addresses")
+		}
+	case common.PoolRelayTypeMultiHostName:
+		if relay.Hostname == nil || *relay.Hostname == "" {
+			return errors.New("multi-host-name relay requires hostname")
+		}
+		if relay.Port != nil || relay.Ipv4 != nil || relay.Ipv6 != nil {
+			return errors.New(
+				"multi-host-name relay cannot have port or IP addresses",
+			)
+		}
+	default:
+		return fmt.Errorf("unsupported relay type %d", relay.Type)
+	}
+	return nil
 }
 
 func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
@@ -466,6 +583,7 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 		pools[poolId] = common.PoolRegistrationCertificate{
 			Operator:      common.Blake2b224(operatorBytes),
 			VrfKeyHash:    pool.VrfKeyHash,
+			LeiosKey:      pool.LeiosKey,
 			Pledge:        pool.Pledge,
 			Cost:          pool.Cost,
 			Margin:        pool.Margin,
@@ -530,6 +648,7 @@ func (g *ShelleyGenesis) PoolById(
 	return &common.PoolRegistrationCertificate{
 		Operator:      common.Blake2b224(operatorBytes),
 		VrfKeyHash:    pool.VrfKeyHash,
+		LeiosKey:      pool.LeiosKey,
 		Pledge:        pool.Pledge,
 		Cost:          pool.Cost,
 		Margin:        pool.Margin,

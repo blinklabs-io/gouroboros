@@ -282,6 +282,236 @@ func TestGenesisExtraConfig(t *testing.T) {
 	assert.Equal(t, baseCbor, extraCbor)
 }
 
+func TestGenesisExtraConfigPoolFields(t *testing.T) {
+	const (
+		poolID = "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		vrf    = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+		owner  = "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36"
+	)
+	publicKey := strings.Repeat("A", common.LeiosBlsPublicKeySize)
+	proof := strings.Repeat("B", common.LeiosBlsPossessionProofSize)
+	metadataHash := common.NewBlake2b256(
+		[]byte(strings.Repeat("M", common.Blake2b256Size)),
+	)
+	poolJSON := map[string]any{
+		"vrf":    vrf,
+		"pledge": uint64(1_000_000),
+		"cost":   uint64(340_000_000),
+		"margin": 0.05,
+		"accountAddress": map[string]any{
+			"credential": map[string]any{"keyHash": reward},
+			"network":    "Mainnet",
+		},
+		"leiosKey": map[string]any{
+			"publicKey":       []byte(publicKey),
+			"possessionProof": []byte(proof),
+		},
+		"metadata": map[string]any{
+			"url":  "https://example.com/pool.json",
+			"hash": metadataHash,
+		},
+		"owners": []string{owner},
+		"relays": []map[string]any{
+			{
+				"type": 0,
+				"port": 3001,
+				"ipv4": "192.0.2.1",
+				"ipv6": "2001:db8::1",
+			},
+			{"type": 1, "port": 3002, "hostname": "relay.example.com"},
+			{"type": 2, "hostname": "_pool._tcp.example.com"},
+		},
+	}
+
+	genesis, err := genesisWithExtraPool(poolID, poolJSON)
+	require.NoError(t, err)
+	pools, _, err := genesis.InitialPools()
+	require.NoError(t, err)
+	require.Contains(t, pools, poolID)
+	pool := pools[poolID]
+	require.NotNil(t, pool.LeiosKey)
+	assert.Equal(t, []byte(publicKey), pool.LeiosKey.PublicKey)
+	assert.Equal(t, []byte(proof), pool.LeiosKey.PossessionProof)
+	assert.Equal(t, common.NewBlake2b224(mustHex(t, reward)), pool.RewardAccount)
+	assert.Equal(
+		t,
+		[]common.AddrKeyHash{common.NewBlake2b224(mustHex(t, owner))},
+		pool.PoolOwners,
+	)
+	require.Len(t, pool.Relays, 3)
+	assert.Equal(t, common.PoolRelayTypeSingleHostAddress, pool.Relays[0].Type)
+	require.NotNil(t, pool.Relays[0].Port)
+	assert.Equal(t, uint32(3001), *pool.Relays[0].Port)
+	require.NotNil(t, pool.Relays[0].Ipv4)
+	assert.Equal(t, "192.0.2.1", pool.Relays[0].Ipv4.String())
+	require.NotNil(t, pool.Relays[0].Ipv6)
+	assert.Equal(t, "2001:db8::1", pool.Relays[0].Ipv6.String())
+	assert.Equal(t, common.PoolRelayTypeSingleHostName, pool.Relays[1].Type)
+	require.NotNil(t, pool.Relays[1].Hostname)
+	assert.Equal(t, "relay.example.com", *pool.Relays[1].Hostname)
+	assert.Equal(t, common.PoolRelayTypeMultiHostName, pool.Relays[2].Type)
+	require.NotNil(t, pool.Relays[2].Hostname)
+	assert.Equal(t, "_pool._tcp.example.com", *pool.Relays[2].Hostname)
+	require.NotNil(t, pool.PoolMetadata)
+	assert.Equal(t, "https://example.com/pool.json", pool.PoolMetadata.Url)
+	assert.Equal(t, metadataHash, pool.PoolMetadata.Hash)
+
+	poolByID, _, err := genesis.PoolById(poolID)
+	require.NoError(t, err)
+	assert.Equal(t, pool.LeiosKey, poolByID.LeiosKey)
+	assert.Equal(t, pool.PoolOwners, poolByID.PoolOwners)
+	assert.Equal(t, pool.Relays, poolByID.Relays)
+	assert.Equal(t, pool.PoolMetadata, poolByID.PoolMetadata)
+}
+
+func TestGenesisExtraConfigPoolFieldValidation(t *testing.T) {
+	const (
+		poolID = "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+		vrf    = "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e"
+		reward = "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+	)
+	validPool := func() map[string]any {
+		return map[string]any{
+			"vrf": vrf,
+			"accountAddress": map[string]any{
+				"credential": map[string]any{"keyHash": reward},
+				"network":    "Mainnet",
+			},
+		}
+	}
+	tests := []struct {
+		name      string
+		mutate    func(map[string]any)
+		errString string
+	}{
+		{
+			name: "script reward credential",
+			mutate: func(pool map[string]any) {
+				pool["accountAddress"] = map[string]any{
+					"credential": map[string]any{"scriptHash": reward},
+					"network":    "Mainnet",
+				}
+			},
+			errString: "script credentials are not supported",
+		},
+		{
+			name: "missing reward credential",
+			mutate: func(pool map[string]any) {
+				pool["accountAddress"] = map[string]any{
+					"credential": map[string]any{},
+					"network":    "Mainnet",
+				}
+			},
+			errString: "reward account key hash is required",
+		},
+		{
+			name: "invalid reward key hash",
+			mutate: func(pool map[string]any) {
+				pool["accountAddress"] = map[string]any{
+					"credential": map[string]any{"keyHash": "01"},
+					"network":    "Mainnet",
+				}
+			},
+			errString: "invalid extraConfig pool reward account length",
+		},
+		{
+			name: "invalid Leios key length",
+			mutate: func(pool map[string]any) {
+				pool["leiosKey"] = map[string]any{
+					"publicKey":       []byte{1},
+					"possessionProof": make([]byte, common.LeiosBlsPossessionProofSize),
+				}
+			},
+			errString: "invalid Leios BLS public key length",
+		},
+		{
+			name: "invalid metadata hash",
+			mutate: func(pool map[string]any) {
+				pool["metadata"] = map[string]any{
+					"url":  "https://example.com",
+					"hash": "01",
+				}
+			},
+			errString: "invalid blake2b-256 hash",
+		},
+		{
+			name: "invalid owner hash",
+			mutate: func(pool map[string]any) {
+				pool["owners"] = []string{"01"}
+			},
+			errString: "invalid blake2b-224 hash",
+		},
+		{
+			name: "unsupported relay type",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{"type": 3}}
+			},
+			errString: "unsupported relay type 3",
+		},
+		{
+			name: "invalid single-host-address fields",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{
+					"type": 0, "hostname": "example.com",
+				}}
+			},
+			errString: "single-host-address relay cannot have hostname",
+		},
+		{
+			name: "missing single-host-name hostname",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{"type": 1}}
+			},
+			errString: "single-host-name relay requires hostname",
+		},
+		{
+			name: "invalid multi-host relay fields",
+			mutate: func(pool map[string]any) {
+				pool["relays"] = []map[string]any{{
+					"type": 2, "hostname": "example.com", "port": 3001,
+				}}
+			},
+			errString: "multi-host-name relay cannot have port",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pool := validPool()
+			test.mutate(pool)
+			genesis, err := genesisWithExtraPool(poolID, pool)
+			require.NoError(t, err)
+			_, _, err = genesis.InitialPools()
+			require.ErrorContains(t, err, test.errString)
+		})
+	}
+}
+
+func genesisWithExtraPool(
+	poolID string,
+	pool map[string]any,
+) (shelley.ShelleyGenesis, error) {
+	extraConfig, err := json.Marshal(map[string]any{
+		"stakePools": map[string]any{
+			"data": map[string]any{poolID: pool},
+		},
+	})
+	if err != nil {
+		return shelley.ShelleyGenesis{}, err
+	}
+	baseConfig := strings.TrimSpace(shelleyGenesisConfig)
+	config := strings.TrimSuffix(baseConfig, "}") +
+		`,"extraConfig":` + string(extraConfig) + `}`
+	return shelley.NewShelleyGenesisFromReader(strings.NewReader(config))
+}
+
+func mustHex(t *testing.T, value string) []byte {
+	t.Helper()
+	decoded, err := hex.DecodeString(value)
+	require.NoError(t, err)
+	return decoded
+}
+
 func TestGenesisMarshalCBORReflectsPostParseMutation(t *testing.T) {
 	genesis, err := shelley.NewShelleyGenesisFromReader(
 		strings.NewReader(shelleyGenesisConfig),
