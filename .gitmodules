@@ -91,3 +91,27 @@
 [submodule "repos/kb"]
 	path = repos/kb
 	url = git@github.com:blinklabs-io/kb.git
+[submodule "repos/ansible-cardano"]
+	path = repos/ansible-cardano
+	url = git@github.com:blinklabs-io/ansible-cardano.git
+[submodule "repos/bark"]
+	path = repos/bark
+	url = git@github.com:blinklabs-io/bark.git
+[submodule "repos/bluefin"]
+	path = repos/bluefin
+	url = git@github.com:blinklabs-io/bluefin.git
+[submodule "repos/bursa"]
+	path = repos/bursa
+	url = git@github.com:blinklabs-io/bursa.git
+[submodule "repos/dingo"]
+	path = repos/dingo
+	url = git@github.com:blinklabs-io/dingo.git
+[submodule "repos/go-bip39"]
+	path = repos/go-bip39
+	url = git@github.com:blinklabs-io/go-bip39.git
+[submodule "repos/go-scls"]
+	path = repos/go-scls
+	url = git@github.com:blinklabs-io/go-scls.git
+[submodule "repos/gouroboros"]
+	path = repos/gouroboros
+	url = git@github.com:blinklabs-io/gouroboros.git
