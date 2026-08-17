@@ -85,9 +85,9 @@
 [submodule "repos/cardano-up-packages"]
 	path = repos/cardano-up-packages
 	url = git@github.com:blinklabs-io/cardano-up-packages.git
-[submodule "repos/docs"]
-	path = repos/docs
-	url = git@github.com:blinklabs-io/docs-site.git
+[submodule "repos/docs-site"]
+	path = repos/docs-site
+	url = git@github.com:blinklabs-io/docs.git
 [submodule "repos/kb"]
 	path = repos/kb
 	url = git@github.com:blinklabs-io/kb.git

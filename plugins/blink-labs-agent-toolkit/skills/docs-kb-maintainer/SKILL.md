@@ -1,13 +1,13 @@
 ---
 name: docs-kb-maintainer
-description: Maintain Blink Labs public documentation and the engineering knowledge base with correct content boundaries, navigation, source links, Markdown/MDX structure, and reproducible references. Use when changing repos/docs, repos/kb, shared project documentation, onboarding material, or generated documentation pointers.
+description: Maintain Blink Labs public documentation and the engineering knowledge base with correct content boundaries, navigation, source links, Markdown/MDX structure, and reproducible references. Use when changing repos/docs-site, repos/kb, shared project documentation, onboarding material, or generated documentation pointers.
 ---
 
 # Docs and Knowledge Base Maintainer
 
 Use this skill when documentation is part of a cross-repository change. Read
 the [content boundaries reference](references/content-boundaries.md), then
-the local instructions in `repos/docs` or `repos/kb`.
+the local instructions in `repos/docs-site` or `repos/kb`.
 
 ## Workflow
 

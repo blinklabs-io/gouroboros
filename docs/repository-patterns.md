@@ -12,7 +12,7 @@ The workspace has five repository roles:
    security defaults.
 2. `repos/actions` supplies reusable GitHub Actions workflows and the
    organization governance engine.
-3. `repos/docs` publishes user-facing product and DevOps documentation at
+3. `repos/docs-site` publishes user-facing product and DevOps documentation at
    `docs.blinklabs.io`.
 4. `repos/kb` contains long-form developer training and engineering reference
    books, with a policy of linking published material to pinned public sources.
@@ -40,7 +40,7 @@ until documentation-specific profiles and checks are defined.
 | Mobile | `adder-mobile` | Conventional Commits plus Flutter/mobile-specific PR and publish workflows |
 | Package definitions | `cardano-up-packages` | Conventional Commits, upstream version checks, package validation |
 | Compose/integration | `cardano-compose-stacks` | Upstream version checks for a Docker Compose environment |
-| Public documentation | `docs` | Next.js/Nextra site with MDX product and DevOps documentation |
+| Public documentation | `docs-site` | Next.js/Nextra site with MDX product and DevOps documentation |
 | Engineering knowledge base | `kb` | Numbered training books with references, glossaries, and source maps |
 | Ansible automation | `ansible-cardano` | Ansible Galaxy collection with role tests and release workflow |
 | Helm packaging | `helm-charts` | Many chart-specific publish workflows plus chart testing and image-version checks |
