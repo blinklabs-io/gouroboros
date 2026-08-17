@@ -115,3 +115,24 @@
 [submodule "repos/gouroboros"]
 	path = repos/gouroboros
 	url = git@github.com:blinklabs-io/gouroboros.git
+[submodule "repos/cardano-models"]
+	path = repos/cardano-models
+	url = git@github.com:blinklabs-io/cardano-models.git
+[submodule "repos/helm-charts"]
+	path = repos/helm-charts
+	url = git@github.com:blinklabs-io/helm-charts.git
+[submodule "repos/issues"]
+	path = repos/issues
+	url = git@github.com:blinklabs-io/issues.git
+[submodule "repos/nview"]
+	path = repos/nview
+	url = git@github.com:blinklabs-io/nview.git
+[submodule "repos/ouroboros-mock"]
+	path = repos/ouroboros-mock
+	url = git@github.com:blinklabs-io/ouroboros-mock.git
+[submodule "repos/plutigo"]
+	path = repos/plutigo
+	url = git@github.com:blinklabs-io/plutigo.git
+[submodule "repos/terraform-modules"]
+	path = repos/terraform-modules
+	url = git@github.com:blinklabs-io/terraform-modules.git
