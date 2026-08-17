@@ -4,3 +4,30 @@
 [submodule "repos/actions"]
 	path = repos/actions
 	url = git@github.com:blinklabs-io/actions.git
+[submodule "repos/tx-submit-api"]
+	path = repos/tx-submit-api
+	url = git@github.com:blinklabs-io/tx-submit-api.git
+[submodule "repos/tx-submit-api-mirror"]
+	path = repos/tx-submit-api-mirror
+	url = git@github.com:blinklabs-io/tx-submit-api-mirror.git
+[submodule "repos/txtop"]
+	path = repos/txtop
+	url = git@github.com:blinklabs-io/txtop.git
+[submodule "repos/docker-go"]
+	path = repos/docker-go
+	url = git@github.com:blinklabs-io/docker-go.git
+[submodule "repos/cardano-node-api"]
+	path = repos/cardano-node-api
+	url = git@github.com:blinklabs-io/cardano-node-api.git
+[submodule "repos/shai"]
+	path = repos/shai
+	url = git@github.com:blinklabs-io/shai.git
+[submodule "repos/docker-cardano-configs"]
+	path = repos/docker-cardano-configs
+	url = git@github.com:blinklabs-io/docker-cardano-configs.git
+[submodule "repos/docker-minio"]
+	path = repos/docker-minio
+	url = git@github.com:blinklabs-io/docker-minio.git
+[submodule "repos/docker-openvpn"]
+	path = repos/docker-openvpn
+	url = git@github.com:blinklabs-io/docker-openvpn.git
