@@ -23,20 +23,55 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+// testPrec is the big.Float mantissa precision used by these test helpers.
+// It matches the working precision oneMinusFPowerSigmaBounds uses at the
+// baseline (unescalated) seriesTargetBits target.
+const testPrec = seriesTargetBits + intervalGuardBits
+
+// checkBelowThreshold reports whether v, interpreted as a bits-bit
+// big-endian leader value, is classified as eligible (below threshold)
+// under the given consensus mode. For TPraos, IsVRFOutputBelowThresholdWithMode
+// compares the raw bytes directly, so the exact boundary value v can be
+// driven through the public API as-is. For CPraos, the public API hashes
+// its input first (BLAKE2b-256 with "L" prefix) before comparing, so this
+// instead replicates the same comparison the implementation performs
+// internally after hashing (VRFOutputToInt(leaderValue).Cmp(threshold) < 0),
+// treating v as if it were already the post-hash leader value. Shared by
+// the boundary-value tests in this file and in threshold_boundary_test.go.
+func checkBelowThreshold(
+	t *testing.T,
+	bits int,
+	mode ConsensusMode,
+	threshold *big.Int,
+	v *big.Int,
+) bool {
+	t.Helper()
+	buf := make([]byte, bits/8)
+	v.FillBytes(buf)
+	if mode == ConsensusModeTPraos {
+		below, err := IsVRFOutputBelowThresholdWithMode(buf, threshold, mode)
+		require.NoError(t, err)
+		return below
+	}
+	return VRFOutputToInt(buf).Cmp(threshold) < 0
+}
+
 // lnOneMinus computes ln(1-x) for 0 < x < 1 using Taylor series.
-// Test helper wrapping lnOneMinusFloat with big.Rat conversion.
+// Test helper wrapping lnPositiveFloatAtTarget with big.Rat conversion.
 func lnOneMinus(x *big.Rat) *big.Rat {
-	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
-	result := lnOneMinusFloat(xf)
+	one := new(big.Float).SetPrec(testPrec).SetInt64(1)
+	xf := new(big.Float).SetPrec(testPrec).SetRat(x)
+	y := new(big.Float).SetPrec(testPrec).Sub(one, xf)
+	result := lnPositiveFloatAtTarget(y, seriesTargetBits)
 	rat, _ := result.Rat(nil)
 	return rat
 }
 
 // expRational computes exp(x) for a rational x using Taylor series.
-// Test helper wrapping expFloat with big.Rat conversion.
+// Test helper wrapping expFloatAtTarget with big.Rat conversion.
 func expRational(x *big.Rat) *big.Rat {
-	xf := new(big.Float).SetPrec(thresholdPrecision).SetRat(x)
-	result := expFloat(xf)
+	xf := new(big.Float).SetPrec(testPrec).SetRat(x)
+	result := expFloatAtTarget(xf, seriesTargetBits)
 	rat, _ := result.Rat(nil)
 	return rat
 }
@@ -168,19 +203,25 @@ func TestIsVRFOutputBelowThreshold(t *testing.T) {
 	// Test with threshold just above the leader value
 	thresholdAbove := new(big.Int).Add(leaderValueInt, big.NewInt(1))
 	if !IsVRFOutputBelowThreshold(vrfOutput, thresholdAbove) {
-		t.Error("VRF output should be below threshold when threshold > leader value")
+		t.Error(
+			"VRF output should be below threshold when threshold > leader value",
+		)
 	}
 
 	// Test with threshold equal to the leader value (should not be below)
 	if IsVRFOutputBelowThreshold(vrfOutput, leaderValueInt) {
-		t.Error("VRF output should not be below threshold when threshold == leader value")
+		t.Error(
+			"VRF output should not be below threshold when threshold == leader value",
+		)
 	}
 
 	// Test with threshold below the leader value
 	if leaderValueInt.Sign() > 0 {
 		thresholdBelow := new(big.Int).Sub(leaderValueInt, big.NewInt(1))
 		if IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
-			t.Error("VRF output should not be below threshold when threshold < leader value")
+			t.Error(
+				"VRF output should not be below threshold when threshold < leader value",
+			)
 		}
 	}
 
@@ -352,7 +393,10 @@ func TestZeroOutputLeaderValue(t *testing.T) {
 
 	// The leader value should be 32 bytes
 	if len(leaderValue) != 32 {
-		t.Errorf("expected 32-byte leader value, got %d bytes", len(leaderValue))
+		t.Errorf(
+			"expected 32-byte leader value, got %d bytes",
+			len(leaderValue),
+		)
 	}
 
 	// The leader value should be deterministic
@@ -379,7 +423,9 @@ func TestZeroOutputLeaderValue(t *testing.T) {
 	)
 
 	if eligible != eligibleFromFunc {
-		t.Error("IsSlotLeaderFromComponents result should match manual comparison")
+		t.Error(
+			"IsSlotLeaderFromComponents result should match manual comparison",
+		)
 	}
 }
 
@@ -403,8 +449,11 @@ func TestMaxOutputNeverEligible(t *testing.T) {
 		activeSlotCoeff,
 	)
 
-	require.False(t, eligible,
-		"maximum VRF output should not be eligible with the deterministic hash result")
+	require.False(
+		t,
+		eligible,
+		"maximum VRF output should not be eligible with the deterministic hash result",
+	)
 }
 
 func TestVRFOutputOrder(t *testing.T) {
@@ -494,7 +543,10 @@ func TestVrfLeaderValueReturns32Bytes(t *testing.T) {
 
 			result := VrfLeaderValue(input)
 			if len(result) != 32 {
-				t.Errorf("VrfLeaderValue should return 32 bytes, got %d", len(result))
+				t.Errorf(
+					"VrfLeaderValue should return 32 bytes, got %d",
+					len(result),
+				)
 			}
 		})
 	}
@@ -521,7 +573,11 @@ func TestVrfLeaderValueAppliesLPrefix(t *testing.T) {
 	expected := hasher.Sum(nil)
 
 	if !bytes.Equal(result, expected) {
-		t.Errorf("VrfLeaderValue did not apply 'L' (0x4C) prefix correctly\nexpected: %x\ngot: %x", expected, result)
+		t.Errorf(
+			"VrfLeaderValue did not apply 'L' (0x4C) prefix correctly\nexpected: %x\ngot: %x",
+			expected,
+			result,
+		)
 	}
 }
 
@@ -542,7 +598,11 @@ func TestVrfLeaderValueKnownVector(t *testing.T) {
 
 	result := VrfLeaderValue(zeroInput)
 	if !bytes.Equal(result, expected) {
-		t.Errorf("VrfLeaderValue failed for known vector\nexpected: %x\ngot: %x", expected, result)
+		t.Errorf(
+			"VrfLeaderValue failed for known vector\nexpected: %x\ngot: %x",
+			expected,
+			result,
+		)
 	}
 
 	// The result should be deterministic
@@ -563,7 +623,9 @@ func TestVrfLeaderValueDifferentInputsProduceDifferentOutputs(t *testing.T) {
 	result2 := VrfLeaderValue(input2)
 
 	if bytes.Equal(result1, result2) {
-		t.Error("different inputs should produce different VrfLeaderValue outputs")
+		t.Error(
+			"different inputs should produce different VrfLeaderValue outputs",
+		)
 	}
 }
 
@@ -572,13 +634,19 @@ func TestVrfLeaderValueEmptyInput(t *testing.T) {
 	// Empty input should still work - BLAKE2b-256(0x4C)
 	result := VrfLeaderValue(nil)
 	if len(result) != 32 {
-		t.Errorf("VrfLeaderValue(nil) should return 32 bytes, got %d", len(result))
+		t.Errorf(
+			"VrfLeaderValue(nil) should return 32 bytes, got %d",
+			len(result),
+		)
 	}
 
 	// Also test empty slice
 	result2 := VrfLeaderValue([]byte{})
 	if len(result2) != 32 {
-		t.Errorf("VrfLeaderValue(empty) should return 32 bytes, got %d", len(result2))
+		t.Errorf(
+			"VrfLeaderValue(empty) should return 32 bytes, got %d",
+			len(result2),
+		)
 	}
 
 	// nil and empty slice should produce the same result
@@ -617,7 +685,10 @@ func TestCertifiedNatThreshold256BitBased(t *testing.T) {
 
 	// Verify it's NOT in the 512-bit range
 	if bitLen > 300 {
-		t.Errorf("threshold appears to be 512-bit based, not 256-bit (bitLen=%d)", bitLen)
+		t.Errorf(
+			"threshold appears to be 512-bit based, not 256-bit (bitLen=%d)",
+			bitLen,
+		)
 	}
 }
 
@@ -654,9 +725,16 @@ func TestCertifiedNatThresholdWith32ByteLeaderValue(t *testing.T) {
 // TestThreshold256BitUpperBound verifies the threshold never exceeds 2^256.
 func TestThreshold256BitUpperBound(t *testing.T) {
 	// Even with 100% stake and high active slot coefficient, threshold should be < 2^256
-	highActiveSlotCoeff := big.NewRat(9, 10) // 0.9 (90% - unrealistic but good for testing)
+	highActiveSlotCoeff := big.NewRat(
+		9,
+		10,
+	) // 0.9 (90% - unrealistic but good for testing)
 
-	threshold := CertifiedNatThreshold(1000000000, 1000000000, highActiveSlotCoeff)
+	threshold := CertifiedNatThreshold(
+		1000000000,
+		1000000000,
+		highActiveSlotCoeff,
+	)
 
 	twoTo256 := new(big.Int).Exp(big.NewInt(2), big.NewInt(256), nil)
 	if threshold.Cmp(twoTo256) >= 0 {
@@ -691,12 +769,17 @@ func TestIsVRFOutputBelowThresholdHashesFirst(t *testing.T) {
 
 	// Should be below when threshold is above
 	if !IsVRFOutputBelowThreshold(vrfOutput, thresholdAbove) {
-		t.Error("VRF output should be below threshold when threshold > leader value")
+		t.Error(
+			"VRF output should be below threshold when threshold > leader value",
+		)
 	}
 
 	// Should NOT be below when threshold is below
-	if leaderValueInt.Sign() > 0 && IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
-		t.Error("VRF output should not be below threshold when threshold < leader value")
+	if leaderValueInt.Sign() > 0 &&
+		IsVRFOutputBelowThreshold(vrfOutput, thresholdBelow) {
+		t.Error(
+			"VRF output should not be below threshold when threshold < leader value",
+		)
 	}
 }
 
@@ -706,7 +789,9 @@ func TestIsVRFOutputBelowThresholdNilThreshold(t *testing.T) {
 
 	result := IsVRFOutputBelowThreshold(vrfOutput, nil)
 	if result {
-		t.Error("IsVRFOutputBelowThreshold should return false for nil threshold")
+		t.Error(
+			"IsVRFOutputBelowThreshold should return false for nil threshold",
+		)
 	}
 }
 
@@ -717,7 +802,9 @@ func TestIsVRFOutputBelowThresholdEmptyOutput(t *testing.T) {
 	// Empty output should return false (invalid input)
 	result := IsVRFOutputBelowThreshold([]byte{}, threshold)
 	if result {
-		t.Error("IsVRFOutputBelowThreshold should return false for empty output")
+		t.Error(
+			"IsVRFOutputBelowThreshold should return false for empty output",
+		)
 	}
 
 	// Nil output should also return false
@@ -734,7 +821,9 @@ func TestIsVRFOutputBelowThresholdZeroThreshold(t *testing.T) {
 	// Zero threshold - nothing should be below it (leader value is always >= 0)
 	result := IsVRFOutputBelowThreshold(vrfOutput, big.NewInt(0))
 	if result {
-		t.Error("IsVRFOutputBelowThreshold should return false for zero threshold")
+		t.Error(
+			"IsVRFOutputBelowThreshold should return false for zero threshold",
+		)
 	}
 }
 
@@ -753,7 +842,11 @@ func TestIsVRFOutputBelowThresholdMaxThreshold(t *testing.T) {
 	// a 256-bit value. This value will always be < 2^256 - 1 (the max threshold),
 	// so the result should always be true.
 	result := IsVRFOutputBelowThreshold(vrfOutput, maxThreshold)
-	require.True(t, result, "leader value should always be below max 256-bit threshold")
+	require.True(
+		t,
+		result,
+		"leader value should always be below max 256-bit threshold",
+	)
 }
 
 // TestIsVRFOutputBelowThresholdDeterminism verifies deterministic behavior.
@@ -798,16 +891,27 @@ func TestCPRAOSLeaderElectionIntegration(t *testing.T) {
 		poolStake := stakePercent * 10000
 		totalStake := uint64(1000000)
 
-		threshold := CertifiedNatThreshold(poolStake, totalStake, activeSlotCoeff)
+		threshold := CertifiedNatThreshold(
+			poolStake,
+			totalStake,
+			activeSlotCoeff,
+		)
 
 		// Threshold should be positive for non-zero stake
 		if threshold.Sign() <= 0 {
-			t.Errorf("threshold should be positive for %d%% stake", stakePercent)
+			t.Errorf(
+				"threshold should be positive for %d%% stake",
+				stakePercent,
+			)
 		}
 
 		// Threshold bit length should be in 256-bit range
 		if threshold.BitLen() > 256 {
-			t.Errorf("threshold bit length %d exceeds 256 for %d%% stake", threshold.BitLen(), stakePercent)
+			t.Errorf(
+				"threshold bit length %d exceeds 256 for %d%% stake",
+				threshold.BitLen(),
+				stakePercent,
+			)
 		}
 
 		// Step 3: Check if leader value is below threshold
@@ -817,7 +921,10 @@ func TestCPRAOSLeaderElectionIntegration(t *testing.T) {
 		// Verify IsVRFOutputBelowThreshold matches manual comparison
 		isLeaderFunc := IsVRFOutputBelowThreshold(vrfOutput, threshold)
 		if isLeader != isLeaderFunc {
-			t.Errorf("IsVRFOutputBelowThreshold result mismatch for %d%% stake", stakePercent)
+			t.Errorf(
+				"IsVRFOutputBelowThreshold result mismatch for %d%% stake",
+				stakePercent,
+			)
 		}
 	}
 }
@@ -832,7 +939,11 @@ func TestCPRAOSZeroOutputLeaderValueComparison(t *testing.T) {
 
 	// Any pool with non-zero stake should have a positive threshold
 	threshold := CertifiedNatThreshold(1, 1000000000000, activeSlotCoeff)
-	require.True(t, threshold.Sign() > 0, "threshold should be positive for tiny but non-zero stake")
+	require.True(
+		t,
+		threshold.Sign() > 0,
+		"threshold should be positive for tiny but non-zero stake",
+	)
 
 	// The leader value for zero VRF output (deterministic hash result)
 	leaderValue := VrfLeaderValue(vrfOutput)
@@ -843,7 +954,12 @@ func TestCPRAOSZeroOutputLeaderValueComparison(t *testing.T) {
 	// Verify the comparison works without panic and produces a deterministic result
 	cmpResult := leaderValueInt.Cmp(threshold)
 	// Run again to verify determinism
-	require.Equal(t, cmpResult, leaderValueInt.Cmp(threshold), "comparison should be deterministic")
+	require.Equal(
+		t,
+		cmpResult,
+		leaderValueInt.Cmp(threshold),
+		"comparison should be deterministic",
+	)
 }
 
 // TestCPRAOSHighStakeIncreasesEligibility verifies higher stake increases election probability.
@@ -854,8 +970,16 @@ func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
 	// Generate many VRF outputs and count how many are eligible at different stake levels
 	// Note: This is a statistical test - we use a deterministic seed for reproducibility
 
-	lowStakeThreshold := CertifiedNatThreshold(100000000, totalStake, activeSlotCoeff)  // 10%
-	highStakeThreshold := CertifiedNatThreshold(500000000, totalStake, activeSlotCoeff) // 50%
+	lowStakeThreshold := CertifiedNatThreshold(
+		100000000,
+		totalStake,
+		activeSlotCoeff,
+	) // 10%
+	highStakeThreshold := CertifiedNatThreshold(
+		500000000,
+		totalStake,
+		activeSlotCoeff,
+	) // 50%
 
 	// Higher stake should have higher threshold (more likely to be eligible)
 	if highStakeThreshold.Cmp(lowStakeThreshold) <= 0 {
@@ -887,8 +1011,11 @@ func TestCPRAOSHighStakeIncreasesEligibility(t *testing.T) {
 
 	// High stake should have at least as many eligible slots as low stake
 	if highStakeEligible < lowStakeEligible {
-		t.Errorf("high stake eligibility (%d) should be >= low stake eligibility (%d)",
-			highStakeEligible, lowStakeEligible)
+		t.Errorf(
+			"high stake eligibility (%d) should be >= low stake eligibility (%d)",
+			highStakeEligible,
+			lowStakeEligible,
+		)
 	}
 }
 
@@ -1005,8 +1132,7 @@ func TestThresholdAccuracyPartialStake(t *testing.T) {
 		thresholdF05.String(), upperBound.String())
 }
 
-// TestLnOneMinusConvergence verifies that lnOneMinus converges for x=0.5,
-// which is the boundary case that required increasing the term count.
+// TestLnOneMinusConvergence verifies that lnOneMinus converges for x=0.5.
 func TestLnOneMinusConvergence(t *testing.T) {
 	// ln(1-0.5) = ln(0.5) = -0.693147...
 	x := big.NewRat(1, 2)
@@ -1016,7 +1142,437 @@ func TestLnOneMinusConvergence(t *testing.T) {
 	approx, _ := result.Float64()
 
 	// ln(0.5) ≈ -0.693147180559945...
-	// With 100 terms the relative error should be negligible
 	require.InDelta(t, -0.693147180559945, approx, 1e-10,
 		"lnOneMinus(0.5) should be approximately ln(0.5)")
+}
+
+// =============================================================================
+// activeSlotCoeff domain guard tests (f <= 0, f == 1, f > 1)
+// =============================================================================
+
+// TestCertifiedNatThresholdActiveSlotCoeffZero verifies that f == 0 produces
+// an exact zero threshold: 1-(1-0)^sigma == 0 for any sigma, so a pool can
+// never be a leader when the active slot coefficient is zero.
+func TestCertifiedNatThresholdActiveSlotCoeffZero(t *testing.T) {
+	f := big.NewRat(0, 1)
+
+	for _, mode := range []ConsensusMode{ConsensusModeCPraos, ConsensusModeTPraos} {
+		threshold, err := CertifiedNatThresholdWithMode(
+			500_000_000,
+			1_000_000_000,
+			f,
+			mode,
+		)
+		require.NoError(t, err)
+		require.Equal(t, big.NewInt(0), threshold,
+			"f=0 must produce an exact zero threshold")
+	}
+}
+
+// TestCertifiedNatThresholdActiveSlotCoeffNegative verifies that a negative
+// (invalid) active slot coefficient is treated the same as f == 0, rather
+// than being fed into the ln/exp pipeline (which assumes 1-f > 0).
+func TestCertifiedNatThresholdActiveSlotCoeffNegative(t *testing.T) {
+	f := big.NewRat(-1, 20)
+
+	threshold, err := CertifiedNatThresholdWithMode(
+		500_000_000,
+		1_000_000_000,
+		f,
+		ConsensusModeCPraos,
+	)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(0), threshold,
+		"negative activeSlotCoeff must produce a zero threshold, not an error")
+}
+
+// TestCertifiedNatThresholdActiveSlotCoeffOne verifies that f == 1 (certain
+// leadership) produces an exact threshold equal to the mode's upper bound
+// for any pool with positive stake, without going through the ln/exp
+// pipeline (which is only valid for 1-f > 0).
+func TestCertifiedNatThresholdActiveSlotCoeffOne(t *testing.T) {
+	f := big.NewRat(1, 1)
+
+	cases := []struct {
+		name       string
+		mode       ConsensusMode
+		upperBound *big.Int
+	}{
+		{"CPraos", ConsensusModeCPraos, twoTo256},
+		{"TPraos", ConsensusModeTPraos, twoTo512},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(
+				500_000_000,
+				1_000_000_000,
+				f,
+				c.mode,
+			)
+			require.NoError(t, err)
+			require.Equal(t, 0, threshold.Cmp(c.upperBound),
+				"f=1 must produce a threshold exactly equal to the "+
+					"upper bound: got %s, want %s",
+				threshold.String(), c.upperBound.String())
+		})
+	}
+
+	// A pool with zero stake can never lead, even at f=1 (sigma=0 means
+	// (1-f)^sigma = 0^0 = 1, so probability = 0).
+	threshold, err := CertifiedNatThresholdWithMode(
+		0,
+		1_000_000_000,
+		f,
+		ConsensusModeCPraos,
+	)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(0), threshold,
+		"zero pool stake must yield a zero threshold even at f=1")
+}
+
+// TestCertifiedNatThresholdActiveSlotCoeffAboveOne verifies that an
+// activeSlotCoeff greater than 1 (not a valid probability) is rejected with
+// an error rather than silently producing a wrong threshold.
+func TestCertifiedNatThresholdActiveSlotCoeffAboveOne(t *testing.T) {
+	f := big.NewRat(3, 2) // 1.5, invalid
+
+	threshold, err := CertifiedNatThresholdWithMode(
+		500_000_000,
+		1_000_000_000,
+		f,
+		ConsensusModeCPraos,
+	)
+	require.Error(t, err)
+	require.Nil(t, threshold)
+}
+
+// TestCertifiedNatThresholdLegacyAPIAboveOneNeverNil verifies that the
+// legacy no-error CertifiedNatThreshold wrapper never returns nil, even for
+// an out-of-domain activeSlotCoeff (f > 1). CertifiedNatThresholdWithMode
+// returns an error in that case, and the wrapper must not silently
+// propagate that as a nil *big.Int, since callers routinely call
+// .Cmp/.Sign/.Bytes/etc. on the result without a nil check. Instead it must
+// conservatively fall back to big.NewInt(0), the same "never lead" default
+// used for other degenerate input.
+func TestCertifiedNatThresholdLegacyAPIAboveOneNeverNil(t *testing.T) {
+	f := big.NewRat(3, 2) // 1.5, invalid
+
+	threshold := CertifiedNatThreshold(
+		500_000_000,
+		1_000_000_000,
+		f,
+	)
+	require.NotNil(t, threshold,
+		"CertifiedNatThreshold must never return nil, even for invalid input")
+	require.Equal(t, big.NewInt(0), threshold,
+		"out-of-domain activeSlotCoeff must fall back to a zero threshold")
+	// Confirm the result is actually safe to use without a nil check.
+	require.Equal(t, 0, threshold.Sign())
+}
+
+// TestCertifiedNatThresholdFullStakeExactHalf verifies the previously
+// mis-rounded exact-rational cutoff: a full-stake pool (sigma=1) with
+// f=1/2 has an exact mathematical threshold of upperBound/2 (since
+// (1-f)^sigma = 1-f = 0.5 exactly), and the result must land exactly on
+// that value rather than one below it due to residual floating-point error.
+func TestCertifiedNatThresholdFullStakeExactHalf(t *testing.T) {
+	f := big.NewRat(1, 2)
+
+	cases := []struct {
+		name       string
+		mode       ConsensusMode
+		upperBound *big.Int
+	}{
+		{"CPraos", ConsensusModeCPraos, twoTo256},
+		{"TPraos", ConsensusModeTPraos, twoTo512},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(
+				1_000_000_000,
+				1_000_000_000,
+				f,
+				c.mode,
+			)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Rsh(c.upperBound, 1) // upperBound / 2
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"full-stake f=1/2 threshold must be exactly "+
+					"upperBound/2: got %s, want %s",
+				threshold.String(), expected.String())
+		})
+	}
+}
+
+// =============================================================================
+// Maintainer-reported partial-stake precision regressions (PR #1963 review)
+// =============================================================================
+
+// TestCertifiedNatThresholdPartialStakeExactCutoff reproduces the first
+// blocking review finding: f=3/4 with sigma=1/2 (e.g. poolStake=1,
+// totalStake=2) has (1-f)^sigma = (1/4)^(1/2) = 1/2 exactly, so the
+// mathematically exact threshold is precisely 2^(N-1) for an N-bit upper
+// bound. Feeding an *approximate* big.Float into the final floor()
+// previously produced 2^(N-1)-1 instead -- one integer below the exact
+// cutoff -- which, combined with the strict "<" eligibility comparison,
+// incorrectly rejected the valid leader value 2^(N-1)-1.
+func TestCertifiedNatThresholdPartialStakeExactCutoff(t *testing.T) {
+	f := big.NewRat(3, 4)
+
+	cases := []struct {
+		name string
+		mode ConsensusMode
+		bits int
+	}{
+		{"CPraos", ConsensusModeCPraos, vrfOutputBitsCPraos},
+		{"TPraos", ConsensusModeTPraos, vrfOutputBitsTPraos},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(1, 2, f, c.mode)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Lsh(big.NewInt(1), uint(c.bits-1))
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"f=3/4,sigma=1/2 threshold must be exactly 2^(N-1): "+
+					"got %s, want %s",
+				threshold.String(), expected.String())
+
+			// For TPraos, IsVRFOutputBelowThresholdWithMode compares the
+			// raw bytes directly, so the exact boundary values can be
+			// driven through the public API. For CPraos, the public API
+			// hashes the input first (BLAKE2b-256 with "L" prefix), so
+			// checkBelowThreshold instead replicates the same comparison
+			// the implementation performs internally after hashing, using
+			// the exact boundary values as if they were already the
+			// post-hash leader value.
+
+			// The leader value immediately below the exact cutoff
+			// (2^(N-1)-1) must be classified eligible: it is strictly
+			// less than the threshold.
+			belowCutoff := new(big.Int).Sub(expected, big.NewInt(1))
+			require.True(
+				t,
+				checkBelowThreshold(t, c.bits, c.mode, threshold, belowCutoff),
+				"leader value 2^(N-1)-1 must be eligible (below "+
+					"the exact threshold 2^(N-1))",
+			)
+
+			// The cutoff value itself must NOT be eligible.
+			require.False(
+				t,
+				checkBelowThreshold(
+					t,
+					c.bits,
+					c.mode,
+					threshold,
+					new(big.Int).Set(expected),
+				),
+				"leader value exactly at the cutoff must not be eligible",
+			)
+		})
+	}
+}
+
+// TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss reproduces the
+// second blocking review finding: f=(2^2000-1)/2^2000 is a valid
+// probability strictly less than 1, but is close enough to 1 that
+// converting it directly to a big.Float at the (fixed, comparatively low)
+// working precision used elsewhere in this file rounds it to *exactly*
+// 1.0, before any 1-f subtraction ever happens. That silently produces a
+// materially wrong (too-small) threshold instead of the correct
+// near-upperBound value, and the domain guard (which checks the original
+// exact *big.Rat) does not catch it, since the *rational* value is validly
+// < 1 -- only its lossy float rounding is not.
+//
+// With sigma=1/2, 1-f = 2^-2000 is a perfect square, so
+// (1-f)^sigma = 2^-1000 exactly, giving an exact mathematical threshold of
+// upperBound*(1-2^-1000) = upperBound - 2^(N-1000). Since N (256 or 512)
+// is far smaller than 1000, that fractional term is far less than 1, so
+// floor(exact threshold) = upperBound-1 for both consensus modes.
+func TestCertifiedNatThresholdNearOneDenominatorPrecisionLoss(t *testing.T) {
+	denomExp := int64(2000)
+	den := new(big.Int).Exp(big.NewInt(2), big.NewInt(denomExp), nil)
+	num := new(big.Int).Sub(den, big.NewInt(1))
+	f := new(big.Rat).SetFrac(num, den)
+
+	// sigma = 1/2 via poolStake=1, totalStake=2.
+	cases := []struct {
+		name       string
+		mode       ConsensusMode
+		upperBound *big.Int
+	}{
+		{"CPraos", ConsensusModeCPraos, twoTo256},
+		{"TPraos", ConsensusModeTPraos, twoTo512},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(1, 2, f, c.mode)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Sub(c.upperBound, big.NewInt(1))
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"f=(2^2000-1)/2^2000,sigma=1/2 threshold must be "+
+					"exactly upperBound-1: got %s, want %s",
+				threshold.String(), expected.String())
+		})
+	}
+}
+
+// TestCertifiedNatThresholdSigmaDenominatorAboveExactRootCap reproduces a
+// cubic-dev-ai review finding on this PR: exactOneMinusFPowerSigma used to
+// bail out immediately (before even attempting a root check) whenever
+// sigma's reduced denominator m exceeded a *fixed* constant
+// (maxExactRootDegree, 4096), deferring to the escalating-precision
+// interval computation in thresholdFromBoundedProbability instead. For an
+// exact-rational cutoff whose true value lands precisely on an integer
+// boundary, that interval never actually converges no matter how much
+// precision is thrown at it (lo approaches the boundary from below, hi
+// from above, forever straddling it), so the loop always ran all the way
+// to maxThresholdEscalationBits and returned its unproven lower bound --
+// silently wrong by exactly one, rejecting the valid leader value
+// immediately below the true cutoff.
+//
+// f=1-2^-4097 with sigma=1/4097 (poolStake=1, totalStake=4097) triggers
+// exactly this: sigma's reduced denominator is 4097, one past the old
+// fixed cap. 1-f = 2^-4097 is nonetheless a trivially-detectable perfect
+// 4097th power (numerator 1 = 1^4097, denominator 2^4097 = (2^1)^4097), so
+// (1-f)^sigma = (1/2)^1 = 1/2 exactly, and the mathematically exact
+// threshold is precisely upperBound/2 -- the same reduction as the
+// existing full-stake and partial-stake f=1/2-equivalent tests.
+//
+// The fix removes the fixed cutoff entirely: exactIntegerNthRoot is now a
+// complete decision procedure for any root degree, however large, so this
+// case (and any other sigma denominator, no matter how it is chosen) is
+// caught by the exact-rational fast path before the escalation loop is
+// ever consulted.
+func TestCertifiedNatThresholdSigmaDenominatorAboveExactRootCap(t *testing.T) {
+	den := new(big.Int).Exp(big.NewInt(2), big.NewInt(4097), nil)
+	num := new(big.Int).Sub(den, big.NewInt(1))
+	f := new(big.Rat).SetFrac(num, den)
+
+	// sigma = 1/4097 via poolStake=1, totalStake=4097. 4097 is one past
+	// the old maxExactRootDegree=4096 cap.
+	cases := []struct {
+		name string
+		mode ConsensusMode
+		bits int
+	}{
+		{"CPraos", ConsensusModeCPraos, vrfOutputBitsCPraos},
+		{"TPraos", ConsensusModeTPraos, vrfOutputBitsTPraos},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			threshold, err := CertifiedNatThresholdWithMode(
+				1,
+				4097,
+				f,
+				c.mode,
+			)
+			require.NoError(t, err)
+
+			expected := new(big.Int).Lsh(big.NewInt(1), uint(c.bits-1))
+			require.Equal(t, 0, threshold.Cmp(expected),
+				"f=1-2^-4097,sigma=1/4097 threshold must be exactly "+
+					"upperBound/2: got %s, want %s",
+				threshold.String(), expected.String())
+
+			// Same eligibility-boundary check as
+			// TestCertifiedNatThresholdPartialStakeExactCutoff: checkBelowThreshold
+			// replicates the post-hash comparison directly for CPraos,
+			// since the public API hashes its input first.
+			belowCutoff := new(big.Int).Sub(expected, big.NewInt(1))
+			require.True(
+				t,
+				checkBelowThreshold(t, c.bits, c.mode, threshold, belowCutoff),
+				"leader value immediately below the exact cutoff "+
+					"upperBound/2 must be eligible",
+			)
+			require.False(
+				t,
+				checkBelowThreshold(
+					t,
+					c.bits,
+					c.mode,
+					threshold,
+					new(big.Int).Set(expected),
+				),
+				"leader value exactly at the cutoff upperBound/2 "+
+					"must not be eligible",
+			)
+		})
+	}
+}
+
+// TestEscalateThresholdCapReachedReturnsError verifies the cubic-dev-ai
+// review finding on this PR (Finding 1, blocking): if
+// CertifiedNatThresholdWithMode's precision-escalation loop reaches its
+// cap without resolving an integer-boundary ambiguity, it must return an
+// explicit error rather than silently returning the unproven lower bound
+// computed at the highest precision tried. Returning that unproven value
+// used to be the old behavior, and is exactly the "off-by-one on the
+// boundary leader" regression the review flagged: lowering
+// maxThresholdEscalationBits from 1<<20 to 1<<14 (for bounded worst-case
+// CPU time) made an unresolved cap-reached outcome, while still
+// astronomically unlikely, cheaper to hit than before -- so silently
+// trusting an unproven value there is no longer an acceptable trade-off.
+//
+// No known (activeSlotCoeff, poolStake, totalStake) input actually drives
+// CertifiedNatThresholdWithMode's real escalation loop as far as
+// maxThresholdEscalationBits (16,384 bits) without resolving: any *exact
+// rational* cutoff is caught first by the exact-rational fast path
+// (exactOneMinusFPowerSigmaThreshold), and a genuinely irrational
+// (1-f)^sigma landing closer to an integer boundary than 2^-16384 has no
+// known constructive example and is not practically searchable. So this
+// test exercises escalateThreshold -- the internal function that
+// implements the loop -- directly, with an artificially low startBits/
+// capBits pair, rather than driving the cap via the public API with a
+// real input. That is sufficient to prove the error-path logic itself
+// (the "reached cap without resolving -> explicit error, not a value"
+// branch) is correct in isolation, which is what this fix actually
+// changed; it does not (and cannot, absent a constructive counterexample)
+// prove that the real, production-sized cap is reachable at all -- see
+// maxThresholdEscalationBits' doc comment for why that's expected.
+func TestEscalateThresholdCapReachedReturnsError(t *testing.T) {
+	// f=1/3, sigma=1/2: (1-f)^sigma = (2/3)^(1/2) is irrational (2/3 is
+	// not a perfect square of a rational), so the exact-rational fast
+	// path never applies and thresholdFromBoundedProbability's interval
+	// genuinely needs real precision to resolve against a 2^256-magnitude
+	// upperBound. At a deliberately tiny targetBits=8, the resulting
+	// interval spans far more than a single integer in threshold units,
+	// so it is unresolved; capping at the same 8 bits forces the loop to
+	// hit its cap on the very first iteration.
+	oneMinusF := big.NewRat(2, 3)
+
+	threshold, err := escalateThreshold(oneMinusF, 1, 2, twoTo256, 8, 8)
+	require.Error(t, err,
+		"escalateThreshold must return an error when the cap is reached "+
+			"without resolving, not a silently-unproven value")
+	require.Nil(t, threshold,
+		"escalateThreshold must not return a non-nil value alongside an "+
+			"error, to avoid callers accidentally using an unproven result")
+	require.Contains(t, err.Error(), "escalation")
+
+	// Sanity check the other end: with a realistic startBits/capBits pair
+	// (matching seriesTargetBits/maxThresholdEscalationBits), the same
+	// (f, sigma) input resolves without error, confirming the artificial
+	// cap above -- not the input itself -- is what triggers the error.
+	threshold, err = escalateThreshold(
+		oneMinusF,
+		1,
+		2,
+		twoTo256,
+		seriesTargetBits,
+		maxThresholdEscalationBits,
+	)
+	require.NoError(t, err,
+		"the same (f, sigma) input must resolve without error at the "+
+			"real, production-sized startBits/capBits")
+	require.NotNil(t, threshold)
 }
