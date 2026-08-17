@@ -29,6 +29,9 @@ documentation, and workspace-level automation.
   for it.
 - Shared skills, plugins, scripts, and documentation should be placed in their
   designated top-level directories as those directories are established.
+- For repository-aware work, use the local
+  [`blink-repo-maintainer`](skills/blink-repo-maintainer/SKILL.md) skill and
+  its repository-family reference.
 
 ## Implementation guidance
 

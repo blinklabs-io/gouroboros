@@ -64,6 +64,11 @@ top-level organization is:
 Directories may be introduced incrementally; their presence is not required
 for a checkout to be useful.
 
+The current repository families, validation matrix, and governance findings are
+documented in [docs/repository-patterns.md](docs/repository-patterns.md). The
+shared repository-maintenance skill lives at
+[skills/blink-repo-maintainer](skills/blink-repo-maintainer/SKILL.md).
+
 ## Working with submodules
 
 Submodules are pinned intentionally so that a workspace checkout is reproducible.
