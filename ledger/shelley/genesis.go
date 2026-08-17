@@ -15,13 +15,13 @@
 package shelley
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"math/big"
 	"os"
-	"reflect"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -45,11 +45,179 @@ type ShelleyGenesis struct {
 	GenDelegs          map[string]map[string]string `json:"genDelegs"`
 	InitialFunds       map[string]uint64            `json:"initialFunds"`
 	Staking            GenesisStaking               `json:"staking"`
+	// ExtraConfig carries the Musashi genesis injection block. Its values are
+	// applied by the bootstrap helpers, but are not part of the Shelley genesis
+	// CBOR encoding.
+	ExtraConfig *ShelleyGenesisExtraConfig `json:"extraConfig,omitempty" cbor:"-"`
 }
 
 type GenesisStaking struct {
 	Pools map[string]common.PoolRegistrationCertificate `json:"pools"`
 	Stake map[string]string                             `json:"stake"`
+}
+
+// ShelleyGenesisExtraConfig contains the bootstrap values injected by the
+// Musashi Leios prototype genesis.
+type ShelleyGenesisExtraConfig struct {
+	InitialFunds     shelleyExtraFunds `json:"initialFunds"`
+	StakeCredentials shelleyExtraCreds `json:"stakeCredentials"`
+	StakePools       shelleyExtraPools `json:"stakePools"`
+}
+
+type shelleyExtraFunds struct {
+	Data map[string]uint64 `json:"data"`
+}
+
+type shelleyExtraCreds struct {
+	Data map[string]string `json:"data"`
+}
+
+type shelleyExtraPools struct {
+	Data map[string]ShelleyGenesisExtraPool `json:"data"`
+}
+
+// ShelleyGenesisExtraPool is an injected initial pool registration.
+type ShelleyGenesisExtraPool struct {
+	Vrf            string                      `json:"vrf"`
+	Pledge         uint64                      `json:"pledge"`
+	Cost           uint64                      `json:"cost"`
+	Margin         json.RawMessage             `json:"margin"`
+	LeiosKey       json.RawMessage             `json:"leiosKey"`
+	Metadata       json.RawMessage             `json:"metadata"`
+	Owners         json.RawMessage             `json:"owners"`
+	Relays         json.RawMessage             `json:"relays"`
+	PoolId         string                      `json:"poolId"`
+	AccountAddress shelleyExtraPoolAccountAddr `json:"accountAddress"`
+	Unknown        map[string]json.RawMessage  `json:"-"`
+}
+
+// UnmarshalJSON retains unmodelled pool properties. This lets the strict
+// top-level genesis decoder continue to accept future Musashi pool fields.
+func (p *ShelleyGenesisExtraPool) UnmarshalJSON(data []byte) error {
+	type extraPool ShelleyGenesisExtraPool
+	var known extraPool
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&known); err != nil {
+		return err
+	}
+	*p = ShelleyGenesisExtraPool(known)
+
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	for _, key := range []string{
+		"vrf", "pledge", "cost", "margin", "leiosKey", "metadata",
+		"owners", "relays", "poolId", "accountAddress",
+	} {
+		delete(all, key)
+	}
+	if len(all) > 0 {
+		p.Unknown = all
+	}
+	return nil
+}
+
+type shelleyExtraPoolAccountAddr struct {
+	Credential shelleyExtraPoolCredential `json:"credential"`
+	Network    string                     `json:"network"`
+}
+
+type shelleyExtraPoolCredential struct {
+	KeyHash    string `json:"keyHash"`
+	ScriptHash string `json:"scriptHash"`
+}
+
+func (g *ShelleyGenesis) effectiveInitialFunds() map[string]uint64 {
+	if g.ExtraConfig == nil || len(g.ExtraConfig.InitialFunds.Data) == 0 {
+		return g.InitialFunds
+	}
+	out := make(
+		map[string]uint64,
+		len(g.InitialFunds)+len(g.ExtraConfig.InitialFunds.Data),
+	)
+	for key, amount := range g.InitialFunds {
+		out[key] = amount
+	}
+	for key, amount := range g.ExtraConfig.InitialFunds.Data {
+		out[key] = amount
+	}
+	return out
+}
+
+func (g *ShelleyGenesis) effectiveStake() map[string]string {
+	if g.ExtraConfig == nil || len(g.ExtraConfig.StakeCredentials.Data) == 0 {
+		return g.Staking.Stake
+	}
+	out := make(
+		map[string]string,
+		len(g.Staking.Stake)+len(g.ExtraConfig.StakeCredentials.Data),
+	)
+	for credential, poolID := range g.Staking.Stake {
+		out[credential] = poolID
+	}
+	for credential, poolID := range g.ExtraConfig.StakeCredentials.Data {
+		out[credential] = poolID
+	}
+	return out
+}
+
+func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCertificate, error) {
+	if g.ExtraConfig == nil || len(g.ExtraConfig.StakePools.Data) == 0 {
+		return g.Staking.Pools, nil
+	}
+	out := make(
+		map[string]common.PoolRegistrationCertificate,
+		len(g.Staking.Pools)+len(g.ExtraConfig.StakePools.Data),
+	)
+	for poolID, pool := range g.Staking.Pools {
+		out[poolID] = pool
+	}
+	for poolID, extraPool := range g.ExtraConfig.StakePools.Data {
+		operator, err := hex.DecodeString(poolID)
+		if err != nil {
+			return nil, err
+		}
+		if len(operator) != common.Blake2b224Size {
+			return nil, errors.New("invalid extraConfig pool operator length")
+		}
+		vrf, err := hex.DecodeString(extraPool.Vrf)
+		if err != nil {
+			return nil, err
+		}
+		if len(vrf) != common.Blake2b256Size {
+			return nil, errors.New("invalid extraConfig pool vrf length")
+		}
+
+		var rewardAccount common.AddrKeyHash
+		if keyHash := extraPool.AccountAddress.Credential.KeyHash; keyHash != "" {
+			reward, err := hex.DecodeString(keyHash)
+			if err != nil {
+				return nil, err
+			}
+			if len(reward) != common.Blake2b224Size {
+				return nil, errors.New("invalid extraConfig pool reward account length")
+			}
+			rewardAccount = common.Blake2b224(reward)
+		}
+
+		margin := common.NewGenesisRat(0, 1)
+		if marginJSON := bytes.TrimSpace(extraPool.Margin); len(marginJSON) > 0 &&
+			!bytes.Equal(marginJSON, []byte("null")) {
+			if err := margin.UnmarshalJSON(extraPool.Margin); err != nil {
+				return nil, err
+			}
+		}
+		out[poolID] = common.PoolRegistrationCertificate{
+			Operator:      common.Blake2b224(operator),
+			VrfKeyHash:    common.NewBlake2b256(vrf),
+			Pledge:        extraPool.Pledge,
+			Cost:          extraPool.Cost,
+			Margin:        margin,
+			RewardAccount: rewardAccount,
+		}
+	}
+	return out, nil
 }
 
 func (g ShelleyGenesis) MarshalCBOR() ([]byte, error) {
@@ -213,7 +381,7 @@ func convertPoolRelays(relays []common.PoolRelay) []any {
 
 func (g *ShelleyGenesis) GenesisUtxos() ([]common.Utxo, error) {
 	ret := []common.Utxo{}
-	for address, amount := range g.InitialFunds {
+	for address, amount := range g.effectiveInitialFunds() {
 		addrBytes, err := hex.DecodeString(address)
 		if err != nil {
 			return nil, err
@@ -254,7 +422,12 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 	pools := make(map[string]common.PoolRegistrationCertificate)
 	poolStake := make(map[string][]common.Address)
 
-	if reflect.DeepEqual(g.Staking, GenesisStaking{}) {
+	effectiveStake := g.effectiveStake()
+	effectivePools, err := g.effectivePools()
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(effectiveStake) == 0 && len(effectivePools) == 0 {
 		return pools, poolStake, nil
 	}
 
@@ -264,7 +437,7 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 	}
 
 	// Process all stake addresses
-	for stakeAddr, poolId := range g.Staking.Stake {
+	for stakeAddr, poolId := range effectiveStake {
 		stakeKey, err := hex.DecodeString(stakeAddr)
 		if err != nil {
 			return nil, nil, errors.New("failed to decode stake key")
@@ -284,7 +457,7 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 	}
 
 	// Process all stake pools
-	for poolId, pool := range g.Staking.Pools {
+	for poolId, pool := range effectivePools {
 		operatorBytes, err := hex.DecodeString(poolId)
 		if err != nil {
 			return nil, nil, errors.New("failed to decode pool ID")
@@ -313,7 +486,11 @@ func (g *ShelleyGenesis) PoolById(
 		return nil, nil, errors.New("invalid pool ID length")
 	}
 
-	pool, exists := g.Staking.Pools[poolId]
+	effectivePools, err := g.effectivePools()
+	if err != nil {
+		return nil, nil, err
+	}
+	pool, exists := effectivePools[poolId]
 	if !exists {
 		return nil, nil, errors.New("pool  not found")
 	}
@@ -324,7 +501,7 @@ func (g *ShelleyGenesis) PoolById(
 	}
 
 	var delegators []common.Address
-	for stakeAddr, pId := range g.Staking.Stake {
+	for stakeAddr, pId := range g.effectiveStake() {
 		if pId == poolId {
 			stakeKey, err := hex.DecodeString(stakeAddr)
 			if err != nil {

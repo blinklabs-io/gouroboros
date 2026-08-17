@@ -203,6 +203,110 @@ func TestGenesisFromJson(t *testing.T) {
 	}
 }
 
+func TestGenesisExtraConfig(t *testing.T) {
+	const extraConfig = `,
+  "extraConfig": {
+    "initialFunds": {
+      "data": {
+        "000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad": 120000000000000
+      }
+    },
+    "stakeCredentials": {
+      "data": {
+        "24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"
+      }
+    },
+    "stakePools": {
+      "data": {
+        "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195": {
+          "vrf": "eb53a17fbad9b7ea0bcf1e1ea89355305600d593b426dfc3084a924d8877d47e",
+          "pledge": 1000000,
+          "cost": 340000000,
+          "margin": 0.05,
+          "accountAddress": {
+            "credential": {
+              "keyHash": "6079cde665c2035b8d9ac8929307bdd7f20a51e678e9d4a5e39ace3a"
+            },
+            "network": "Mainnet"
+          },
+          "futurePoolField": true
+        }
+      }
+    }
+  }
+}`
+
+	baseConfig := strings.TrimSpace(shelleyGenesisConfig)
+	extraConfigGenesis := strings.TrimSuffix(baseConfig, "}") + extraConfig
+	genesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(extraConfigGenesis),
+	)
+	require.NoError(t, err)
+
+	// The injection is effective for bootstrap consumers without changing the
+	// public Shelley fields that determine the standard genesis CBOR encoding.
+	require.Empty(t, genesis.InitialFunds)
+	require.Empty(t, genesis.Staking.Pools)
+	require.Empty(t, genesis.Staking.Stake)
+
+	utxos, err := genesis.GenesisUtxos()
+	require.NoError(t, err)
+	require.Len(t, utxos, 1)
+	assert.Equal(t, "120000000000000", utxos[0].Output.Amount().String())
+
+	pools, delegators, err := genesis.InitialPools()
+	require.NoError(t, err)
+	require.Len(t, pools, 1)
+	require.Len(
+		t,
+		delegators["0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"],
+		1,
+	)
+	pool := pools["0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195"]
+	assert.Zero(t, pool.Margin.Rat.Cmp(big.NewRat(1, 20)))
+
+	poolByID, _, err := genesis.PoolById(
+		"0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195",
+	)
+	require.NoError(t, err)
+	assert.Zero(t, poolByID.Margin.Rat.Cmp(big.NewRat(1, 20)))
+
+	baseGenesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(shelleyGenesisConfig),
+	)
+	require.NoError(t, err)
+	baseCbor, err := baseGenesis.MarshalCBOR()
+	require.NoError(t, err)
+	extraCbor, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	assert.Equal(t, baseCbor, extraCbor)
+}
+
+func TestGenesisMarshalCBORReflectsPostParseMutation(t *testing.T) {
+	genesis, err := shelley.NewShelleyGenesisFromReader(
+		strings.NewReader(shelleyGenesisConfig),
+	)
+	require.NoError(t, err)
+
+	before, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	genesis.InitialFunds = map[string]uint64{
+		"000045183c1dcaeb0ca5cf583a68b9e31a6301bcbde487065bd35b955a98ba9d3061e1bd15749cc857e94b30583c120e3255adb93b44681bad": 1,
+	}
+	after, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	assert.NotEqual(t, before, after)
+
+	genesis.Staking = shelley.GenesisStaking{
+		Stake: map[string]string{
+			"24632b71152f31516054075897d0d4ababc33204f8a8661136d49e36": "0aedc455785463235311c990f68742c9043cd79af09ab31c2ba5e195",
+		},
+	}
+	afterStakingMutation, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	assert.NotEqual(t, after, afterStakingMutation)
+}
+
 // Guards against a regression where an unrecognized NetworkId silently
 // encoded as testnet instead of returning an error.
 func TestGenesisMarshalCBORInvalidNetworkId(t *testing.T) {

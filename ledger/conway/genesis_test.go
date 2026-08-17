@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const conwayGenesisConfig = `
@@ -544,4 +545,12 @@ func TestNewConwayGenesisFromReader(t *testing.T) {
 			actual,
 		)
 	}
+}
+
+func TestNewConwayGenesisAcceptsExtraConfig(t *testing.T) {
+	genesis, err := conway.NewConwayGenesisFromReader(
+		strings.NewReader(`{"extraConfig":{"delegs":{},"initialDReps":{}}}`),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, genesis.ExtraConfig)
 }
