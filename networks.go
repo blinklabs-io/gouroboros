@@ -28,10 +28,6 @@ var (
 				Port:    3001,
 			},
 			{
-				Address: "backbone.mainnet.emurgornd.com",
-				Port:    3001,
-			},
-			{
 				Address: "backbone.mainnet.cardanofoundation.org",
 				Port:    3001,
 			},
