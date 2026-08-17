@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1368,6 +1369,330 @@ func TestValidateBodyHash_RealMainnetBlock(t *testing.T) {
 			}
 		}
 	}
+}
+
+// withRealSscProof returns a copy of the real mainnet fixture's CBOR with
+// its header ssc_proof (body-proof element 1) replaced, preserving the
+// unmodified (empty) SSC payload and every other component -- including
+// the transaction, delegation, and update proofs -- byte for byte. This
+// exercises ValidateBodyHash's ssc_proof success path with a synthetic
+// (but locally consistent) proof value, without needing to fabricate a
+// whole valid block.
+func withRealSscProof(t *testing.T, sscProof []byte) []byte {
+	t.Helper()
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+
+	var block []cbor.RawMessage
+	_, err = cbor.Decode(blockBytes, &block)
+	require.NoError(t, err)
+	require.Len(t, block, 3)
+
+	var header []cbor.RawMessage
+	_, err = cbor.Decode(block[0], &header)
+	require.NoError(t, err)
+	require.Len(t, header, 5)
+
+	var bodyProof []cbor.RawMessage
+	_, err = cbor.Decode(header[2], &bodyProof)
+	require.NoError(t, err)
+	require.Len(t, bodyProof, 4)
+	bodyProof[1] = sscProof
+
+	newBodyProof, err := cbor.Encode(bodyProof)
+	require.NoError(t, err)
+	header[2] = newBodyProof
+
+	newHeader, err := cbor.Encode(header)
+	require.NoError(t, err)
+	block[0] = newHeader
+
+	tampered, err := cbor.Encode(block)
+	require.NoError(t, err)
+	return tampered
+}
+
+// TestValidateBodyHash_SscProofSuccess confirms ValidateBodyHash's ssc_proof
+// success path: when the header's ssc_proof actually matches
+// byron.ByronEpochSscState's canonical hash of the block's own (empty)
+// CertificatesPayload, ValidateBodyHash returns nil when the caller opts
+// into the full hash comparison via
+// common.VerifyConfig.EnableByronSscProofHashValidation (see
+// ValidateBodyHash's doc comment for why that comparison is opt-in rather
+// than run by default). This isolates ValidateBodyHash's own ssc_proof
+// check from the (separately documented, and separately tested in
+// ledger/byron) question of whether that canonical hash matches
+// cardano-ledger's real mainnet encoding.
+func TestValidateBodyHash_SscProofSuccess(t *testing.T) {
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+	block, err := byron.NewByronMainBlockFromCbor(blockBytes)
+	require.NoError(t, err)
+
+	sscState := byron.NewByronEpochSscState()
+	require.NoError(t, sscState.AccumulateBlock(block))
+
+	realProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		sscState.CertificatesHash().Bytes(),
+	})
+	require.NoError(t, err)
+
+	patchedBytes := withRealSscProof(t, realProof)
+	patchedBlock, err := byron.NewByronMainBlockFromCbor(patchedBytes)
+	require.NoError(t, err)
+
+	assert.NoError(t, ValidateBodyHash(
+		patchedBlock,
+		common.VerifyConfig{EnableByronSscProofHashValidation: true},
+	))
+}
+
+// withSscPayloadAndProof returns a copy of the real mainnet fixture's CBOR
+// with its SSC payload (body element 1) and ssc_proof (header body-proof
+// element 1) both replaced, preserving every other component -- including
+// the transaction, delegation, and update proofs -- byte for byte. Unlike
+// withRealSscProof (which only ever replaces the proof, keeping the
+// fixture's own empty CertificatesPayload body untouched), this lets a test
+// substitute a differently-shaped SSC payload as well.
+func withSscPayloadAndProof(
+	t *testing.T,
+	sscPayload []byte,
+	sscProof []byte,
+) []byte {
+	t.Helper()
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+
+	var block []cbor.RawMessage
+	_, err = cbor.Decode(blockBytes, &block)
+	require.NoError(t, err)
+	require.Len(t, block, 3)
+
+	var header []cbor.RawMessage
+	_, err = cbor.Decode(block[0], &header)
+	require.NoError(t, err)
+	require.Len(t, header, 5)
+
+	var bodyProof []cbor.RawMessage
+	_, err = cbor.Decode(header[2], &bodyProof)
+	require.NoError(t, err)
+	require.Len(t, bodyProof, 4)
+	bodyProof[1] = sscProof
+
+	newBodyProof, err := cbor.Encode(bodyProof)
+	require.NoError(t, err)
+	header[2] = newBodyProof
+
+	newHeader, err := cbor.Encode(header)
+	require.NoError(t, err)
+	block[0] = newHeader
+
+	var body []cbor.RawMessage
+	_, err = cbor.Decode(block[1], &body)
+	require.NoError(t, err)
+	require.Len(t, body, 4)
+	body[1] = sscPayload
+
+	newBody, err := cbor.Encode(body)
+	require.NoError(t, err)
+	block[1] = newBody
+
+	tampered, err := cbor.Encode(block)
+	require.NoError(t, err)
+	return tampered
+}
+
+// TestValidateBodyHash_DefaultLeniencyOnHashMismatch confirms that, under
+// the default VerifyConfig (EnableByronSscProofHashValidation off), a
+// structurally-valid ssc_proof whose hash value does NOT match the block's
+// own (real, empty) CertificatesPayload is still accepted by both layers:
+// ledger.byron's ValidateBodyProof (exercised indirectly through
+// byron.NewByronMainBlockFromCbor's decode-time call) and this package's
+// ValidateBodyHash. This pins down the leniency the opt-in redesign
+// intentionally grants by default -- see ValidateBodyHash's and
+// common.VerifyConfig.EnableByronSscProofHashValidation's doc comments --
+// which no test previously asserted.
+//
+// This test alone does not catch the B1 regression (ValidateBodyHash
+// dropping the ledger-side shape gate entirely when the flag is off):
+// dropping that gate has no effect on a *hash-wrong-but-shape-valid* input,
+// since neither the thin local shape check nor the full
+// ledger.ByronMainBlock.ValidateSscProofShape one compares hash values
+// unless opted in. See
+// TestValidateBodyHash_DefaultRejectsMalformedSscShape for the regression
+// test that does distinguish the two.
+func TestValidateBodyHash_DefaultLeniencyOnHashMismatch(t *testing.T) {
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+	genuineBlock, err := byron.NewByronMainBlockFromCbor(blockBytes)
+	require.NoError(t, err)
+
+	sscState := byron.NewByronEpochSscState()
+	require.NoError(t, sscState.AccumulateBlock(genuineBlock))
+	realHash := sscState.CertificatesHash()
+
+	// A 32-byte value that is not the block's real certificates hash.
+	wrongHash := realHash
+	wrongHash[0] ^= 0xff
+	require.NotEqual(t, realHash, wrongHash)
+
+	wrongProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		wrongHash.Bytes(),
+	})
+	require.NoError(t, err)
+
+	patchedBytes := withRealSscProof(t, wrongProof)
+
+	// Decoding with the default config must succeed: the ledger package's
+	// decode-time call to ValidateBodyProof runs only the always-on
+	// structural check by default, not the hash comparison.
+	patchedBlock, err := byron.NewByronMainBlockFromCbor(patchedBytes)
+	require.NoError(
+		t, err,
+		"a hash-wrong but structurally-valid ssc_proof must still decode "+
+			"under the default, structural-only check",
+	)
+
+	// The ledger package's own ValidateBodyProof, called explicitly with no
+	// config, agrees.
+	assert.NoError(t, patchedBlock.ValidateBodyProof())
+
+	// This package's ValidateBodyHash, called with no config, must agree
+	// too -- it genuinely delegates to
+	// ledger.ByronMainBlock.ValidateSscProofShape for the structural check
+	// rather than silently doing nothing, so this also confirms that
+	// delegation runs (and tolerates the hash mismatch) rather than being
+	// skipped outright.
+	assert.NoError(t, ValidateBodyHash(patchedBlock))
+}
+
+// TestValidateBodyHash_OptInRejectsHashMismatch confirms that the same
+// hash-wrong ssc_proof from TestValidateBodyHash_DefaultLeniencyOnHashMismatch
+// is correctly rejected -- by both ledger.byron's ValidateBodyProof and this
+// package's ValidateBodyHash -- once the caller explicitly opts in via
+// common.VerifyConfig{EnableByronSscProofHashValidation: true}. This proves
+// the opt-in flag genuinely re-enables the full hash comparison rather than
+// being inert.
+func TestValidateBodyHash_OptInRejectsHashMismatch(t *testing.T) {
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+	genuineBlock, err := byron.NewByronMainBlockFromCbor(blockBytes)
+	require.NoError(t, err)
+
+	sscState := byron.NewByronEpochSscState()
+	require.NoError(t, sscState.AccumulateBlock(genuineBlock))
+	realHash := sscState.CertificatesHash()
+
+	wrongHash := realHash
+	wrongHash[0] ^= 0xff
+	require.NotEqual(t, realHash, wrongHash)
+
+	wrongProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCertificates),
+		wrongHash.Bytes(),
+	})
+	require.NoError(t, err)
+
+	patchedBytes := withRealSscProof(t, wrongProof)
+
+	// Decoding with the opt-in flag set must fail, since the ledger
+	// package's decode-time call now runs the full hash comparison.
+	optInCfg := common.VerifyConfig{EnableByronSscProofHashValidation: true}
+	_, err = byron.NewByronMainBlockFromCbor(patchedBytes, optInCfg)
+	require.Error(
+		t, err,
+		"a hash-wrong ssc_proof must fail to decode once the opt-in hash "+
+			"comparison is enabled",
+	)
+
+	// Decode without validation so ValidateBodyProof/ValidateBodyHash can be
+	// exercised directly against the tampered bytes.
+	patchedBlock, err := byron.NewByronMainBlockFromCbor(
+		patchedBytes, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = patchedBlock.ValidateBodyProof(optInCfg)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+
+	err = ValidateBodyHash(patchedBlock, optInCfg)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
+}
+
+// TestValidateBodyHash_DefaultRejectsMalformedSscShape is the regression
+// test for B1: before this test's fix, ValidateBodyHash's ssc_proof check,
+// when the opt-in hash comparison is off (the default), called only the
+// local, much-thinner validateSscProof -- which checks the proof's declared
+// type and hash count against the payload's own type, but never inspects
+// the wire shape of the fields it hashes -- with no fallback to the ledger
+// package's real shape gate (tag-258 set enforcement, pubkey byte-string
+// major-type checks, empty-pubkey rejection, and the rest of the chain
+// ledger.ByronMainBlock.ValidateSscProofShape runs). That gap meant a block
+// whose commitments field is a plain, untagged CBOR array -- a shape the
+// real Byron wire format could never produce -- passed ValidateBodyHash
+// cleanly by default, exactly the failure mode a caller relying on
+// SkipBodyHashValidation plus ValidateBodyHash for body binding (as this
+// test file's own TestValidateBodyHash_RealMainnetBlock and
+// TestValidateBodyHash_SscProofSuccess already do) would hit in practice.
+//
+// This is the test TestValidateBodyHash_DefaultLeniencyOnHashMismatch
+// cannot be, precisely because it targets the shape gate rather than the
+// hash comparison: reverting ValidateBodyHash's fix (dropping its
+// `else if err := block.ValidateSscProofShape(); err != nil` branch) makes
+// this test fail, while leaving the hash-mismatch tests above passing
+// unchanged.
+func TestValidateBodyHash_DefaultRejectsMalformedSscShape(t *testing.T) {
+	// An untagged (rather than tag-258-wrapped) commitments array: the
+	// exact malformed shape the real Byron wire format could never
+	// produce, per ledger.byron's decodeIdentitySet.
+	untaggedComms, err := cbor.Encode([]any{})
+	require.NoError(t, err)
+	// A well-formed, empty tag-258 VSS certificates set, so the only
+	// malformed field is the commitments one.
+	emptyCertSet, err := cbor.Encode(cbor.Set{})
+	require.NoError(t, err)
+
+	sscPayload, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCommitments),
+		cbor.RawMessage(untaggedComms),
+		cbor.RawMessage(emptyCertSet),
+	})
+	require.NoError(t, err)
+
+	// A structurally-consistent (proof type matches payload type, hash
+	// count matches) but otherwise arbitrary ssc_proof: the local
+	// validateSscProof this scenario exists to show is insufficient asks
+	// for nothing more than that.
+	sscProof, err := cbor.Encode([]any{
+		uint64(byron.SscTypeCommitments),
+		make([]byte, common.Blake2b256Size),
+		make([]byte, common.Blake2b256Size),
+	})
+	require.NoError(t, err)
+
+	tampered := withSscPayloadAndProof(t, sscPayload, sscProof)
+
+	// Decoding requires SkipBodyHashValidation: the ledger package's own
+	// decode-time structural check already rejects this malformed shape --
+	// this test is specifically about a caller who bypasses that (as the
+	// reviewer's confirmed failure scenario does) and relies on
+	// ValidateBodyHash alone for body binding.
+	block, err := byron.NewByronMainBlockFromCbor(
+		tampered, common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+
+	err = ValidateBodyHash(block)
+	require.Error(
+		t, err,
+		"ValidateBodyHash must reject an untagged commitments field by "+
+			"default, even with the opt-in hash comparison off",
+	)
+	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
 }
 
 // Test genesis config similar to mainnet for NewByronConfigFromGenesis test

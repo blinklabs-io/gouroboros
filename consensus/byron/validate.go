@@ -980,8 +980,11 @@ type ByronBodyProof struct {
 //	         / [2, hash, hash]  ; SharesProof (shares hash, vss certs hash)
 //	         / [3, hash]        ; CertificatesProof (vss certs hash only)
 //
-// The hashes are merkle roots computed over the epoch-accumulated SSC data,
-// not just the current block's payload.
+// The hashes are plain blake2b-256 hashes (not merkle roots) computed
+// entirely from the current block's own SSC payload -- not epoch-
+// accumulated data. See ValidateBodyHash's doc comment, and
+// ledger/byron's checkSscProofLocal doc comment, for how this was
+// confirmed against real, non-empty mainnet data.
 type ByronSscProof struct {
 	// Type indicates the SSC payload type:
 	// 0 = CommitmentsPayload, 1 = OpeningsPayload, 2 = SharesPayload, 3 = CertificatesPayload
@@ -1009,11 +1012,46 @@ const (
 //   - EBB blocks: BodyProof = hash of the body (list of stakeholder IDs)
 //
 // This function validates main blocks by:
-// 1. Parsing the BodyProof structure from the header
-// 2. Computing the merkle roots from transaction bodies and witnesses
-// 3. Hashing the delegation and update payloads
-// 4. Comparing computed values against the header's body proof
-func ValidateBodyHash(block *byron.ByronMainBlock) error {
+//  1. Parsing the BodyProof structure from the header
+//  2. Computing the merkle roots from transaction bodies and witnesses
+//  3. Hashing the delegation and update payloads
+//  4. Comparing computed values against the header's body proof
+//  5. Validating the ssc_proof structurally: its declared type and hash
+//     count must match the payload's own type (via the local
+//     validateSscProof), and every field it would hash has the wire shape
+//     the real Byron format requires -- tag-258 set vs. genuine CBOR map
+//     (via byron.ByronMainBlock.ValidateSscProofShape in the ledger
+//     package)
+//
+// tx_proof/dlg_proof/upd_proof (steps 2-4) are always checked by full hash
+// comparison. ssc_proof's hash comparison is different: by default this
+// function only checks ssc_proof structurally (step 5, both halves of it)
+// and does NOT compare its hash values against the header. Pass a
+// common.VerifyConfig with EnableByronSscProofHashValidation set to true to
+// additionally run the full comparison, via byron.ByronMainBlock.
+// ValidateSscProof in the ledger package, against the real hashes of the
+// block's own SSC payload.
+//
+// ssc_proof's hash construction is entirely block-local -- every hash it
+// carries is a plain blake2b-256 hash of this same block's own SSC payload
+// content, not of any epoch-wide accumulated state (an earlier version of
+// this function believed the real hash check was unavoidably out of reach
+// for that reason, but real, non-empty mainnet vectors disproved it; see
+// the ledger package's byron.checkSscProofLocal doc comment) -- but unlike
+// tx_proof/dlg_proof/upd_proof, that construction has no upstream reference
+// implementation to cross-check against, and is confirmed only against a
+// handful of real mainnet blocks so far. See
+// common.VerifyConfig.EnableByronSscProofHashValidation's doc comment for
+// the full reasoning behind leaving the hash comparison opt-in here, and
+// checkSscProofCore's (ledger/byron) for the shared implementation.
+func ValidateBodyHash(
+	block *byron.ByronMainBlock,
+	config ...common.VerifyConfig,
+) error {
+	var cfg common.VerifyConfig
+	if len(config) > 0 {
+		cfg = config[0]
+	}
 	if block == nil {
 		return &common.ValidationError{
 			Type:    common.ValidationErrorTypeBodyHash,
@@ -1063,12 +1101,30 @@ func ValidateBodyHash(block *byron.ByronMainBlock) error {
 		}
 	}
 
-	// Validate SSC proof
-	// Note: Full SSC proof validation requires epoch-accumulated state that cannot
-	// be verified from a single block alone. We validate structural consistency
-	// between the proof type and payload type.
+	// Validate SSC proof structurally: confirms the proof's declared type
+	// and hash count match the payload's own type. This always runs.
 	if err := validateSscProof(headerBodyProof.SscProof, block.Body.SscPayload); err != nil {
 		return err
+	}
+
+	// Validate the ssc_proof's actual hashes against the block's own SSC
+	// payload -- opt-in only (EnableByronSscProofHashValidation). See this
+	// function's doc comment for why the hash comparison, specifically, is
+	// not run by default.
+	if cfg.EnableByronSscProofHashValidation {
+		if err := block.ValidateSscProof(); err != nil {
+			return &common.ValidationError{
+				Type:    common.ValidationErrorTypeBodyHash,
+				Message: "ssc_proof validation failed",
+				Cause:   err,
+			}
+		}
+	} else if err := block.ValidateSscProofShape(); err != nil {
+		return &common.ValidationError{
+			Type:    common.ValidationErrorTypeBodyHash,
+			Message: "ssc_proof shape validation failed",
+			Cause:   err,
+		}
 	}
 
 	return nil
@@ -1143,19 +1199,25 @@ func parseSscProof(proof any) (*ByronSscProof, error) {
 	return result, nil
 }
 
-// validateSscProof validates the SSC proof against the SSC payload.
+// validateSscProof performs the structural half of ssc_proof validation:
+// it checks the proof's shape, not its hash values.
 //
-// The SSC (Shared Seed Computation) protocol was used in Byron's Ouroboros Classic
-// for generating randomness. The proof hashes are computed from epoch-accumulated
-// data (commitments, openings, shares, certificates), not just the current block's
-// payload.
-//
-// What we CAN validate:
-//   - The proof structure matches the expected format for its type
+// The SSC (Shared Seed Computation) protocol was used in Byron's Ouroboros
+// Classic for generating randomness. This function only validates that:
 //   - The proof type is consistent with the payload type
+//   - The proof structure (number of hashes present) matches what its type
+//     requires
 //
-// What we CANNOT validate without epoch state:
-//   - The actual hash values (these depend on accumulated epoch state)
+// It deliberately does not check the actual hash values here, and this
+// structural check always runs regardless of configuration. The actual
+// hash values are, when a caller opts in via
+// common.VerifyConfig.EnableByronSscProofHashValidation, checked
+// afterward in ValidateBodyHash via block.ValidateSscProof (ledger
+// package), which recomputes the proof's hashes from this same block's
+// own SSC payload and compares them against the header. See
+// ValidateBodyHash's doc comment and ByronSscProof's doc comment for why
+// that hash check is entirely block-local (and so requires no epoch-wide
+// state) but is opt-in rather than run unconditionally here.
 func validateSscProof(proof ByronSscProof, payload cbor.Value) error {
 	// Extract the payload type from the SSC payload
 	// SSC payload structure: [type, data]

@@ -480,7 +480,31 @@ func TestRegressionCBOR(t *testing.T) {
 
 	// Expected allocation limits by era (measured 2026-02-10 + 10% headroom)
 	limits := map[string]int64{
-		"Byron":   550,  // Baseline: 500
+		// Byron baseline moved from 500 to 557 on 2026-08-06 (decoding a
+		// Byron main block began fully validating ssc_proof's real hashes
+		// unconditionally -- see ledger/byron's checkSscProofLocal), then
+		// to 561 on 2026-08-11: that unconditional hash comparison was
+		// reverted to structural-only-by-default (see ledger/common's
+		// VerifyConfig.EnableByronSscProofHashValidation and
+		// ledger/byron's checkSscProofCore), since ssc_proof, unlike
+		// tx_proof/dlg_proof/upd_proof, has no upstream reference
+		// implementation to cross-check its hash construction against, so
+		// making it decode-gating by default risked rejecting real mainnet
+		// blocks on an as-yet-undiscovered edge case. The real hash
+		// comparison (checkSscProofLocal) is still available, just opt-in
+		// now. That reversion did not lower allocations back toward 500,
+		// and in fact ticked slightly up from 557 to 561: checkSscProofCore
+		// still eagerly evaluates the hash-computation arguments (e.g.
+		// common.Blake2b256Hash, localCertificatesHash) even when the
+		// structural-only path doesn't compare them, so the hashing cost is
+		// still paid either way, plus a little extra for the added
+		// branching. This baseline reflects the always-on structural check
+		// (proof type, element counts, and wire shape) alone, not zero SSC
+		// validation at all -- hence still somewhat above the original,
+		// pre-SSC-validation-at-all 500. See
+		// TestByronEpochSscStateRealMainnet in ledger/byron for the
+		// opt-in hash check's own correctness evidence.
+		"Byron":   620,  // Baseline: 561
 		"Shelley": 485,  // Baseline: 441
 		"Allegra": 1180, // Baseline: 1072
 		"Mary":    1230, // Baseline: 1116

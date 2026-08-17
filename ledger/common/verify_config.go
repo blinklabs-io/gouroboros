@@ -122,6 +122,42 @@ type VerifyConfig struct {
 	// no-op when ProtocolParameters is nil or the block has neither
 	// transactions nor raw CBOR available.
 	SkipBlockLimitsValidation bool
+	// EnableByronSscProofHashValidation opts into recomputing and comparing
+	// a Byron main block's ssc_proof hashes against its header, in addition
+	// to the always-on structural check of that field (proof type, element
+	// counts, and the wire shape -- tag-258 set vs. genuine CBOR map -- of
+	// every field it hashes).
+	//
+	// Default false: unlike tx_proof/dlg_proof/upd_proof, ssc_proof has no
+	// upstream reference implementation to cross-check this package's own
+	// hash construction against. Modern cardano-ledger decodes SscProof as
+	// a unit type and re-encodes a hardcoded placeholder regardless of the
+	// block's actual SSC content, so cardano-node itself would accept a
+	// block whose ssc_proof this check might reject -- the "mainnet has run
+	// on cardano-node for years" safety net that justifies enforcing
+	// tx_proof/dlg_proof/upd_proof unconditionally does not apply here. The
+	// hash construction itself (see ledger/byron's checkSscProofCore) is
+	// confirmed against a small number of real mainnet blocks -- roughly
+	// 4-5 blocks, covering only two of the four SSC payload types
+	// (CommitmentsPayload and OpeningsPayload) but exercising three of the
+	// four distinct hash constructions those payloads use (the
+	// commitments-field, openings-field, and certificates-field hashes;
+	// the CommitmentsPayload vector happens to also carry a non-empty
+	// certificate set). SharesPayload's hash construction has no
+	// confirmed non-empty vector and is inferred only by code-path
+	// identity with the proven Openings case -- see ledger/byron's
+	// checkSscProofLocal doc comment -- out of Byron's
+	// ~5,000,000 total blocks and 208 epochs -- and two real encoding bugs
+	// were found and fixed in it during the same development round that
+	// produced those vectors, which is evidence the construction is subtle
+	// rather than settled. Making that comparison decode-gating by default
+	// would mean any undiscovered edge case turns into a real, unrelated
+	// mainnet block failing to decode. Set this to true to opt into the
+	// full hash comparison once broader evidence justifies treating a
+	// mismatch as fatal for real blocks; until then, decode-gating callers
+	// (e.g. NewByronMainBlockFromCbor) leave it off and rely on the
+	// structural check alone.
+	EnableByronSscProofHashValidation bool
 	// LedgerState provides the current ledger state for transaction validation.
 	// Required if SkipTransactionValidation or SkipStakePoolValidation is false.
 	LedgerState LedgerState
