@@ -59,6 +59,10 @@ the response and changed paths on the pull request, and use GitHub's review
 request action to request another review from that same reviewer. A pushed fix
 or review-thread reply does not replace the explicit follow-up review.
 
+An authorized human reviewer may dismiss another human review through GitHub
+when appropriate. Record the rationale on the pull request; dismissal does not
+eliminate the requirement for appropriate human review.
+
 ## Common Go baseline
 
 Across the Blink Go repositories, the usual local targets are:

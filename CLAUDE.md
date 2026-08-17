@@ -49,6 +49,10 @@ summarize the changes on the pull request, and explicitly request another
 review from that same person through GitHub. Do not assume that replying to
 the review or pushing commits automatically completes the review loop.
 
+An authorized human reviewer may dismiss another human review through GitHub
+when appropriate. Record the rationale on the pull request, and do not treat
+dismissal as eliminating the requirement for appropriate human review.
+
 ## Go and Cardano work
 
 Use repository-native Makefile targets and inspect every nested `go.mod`.

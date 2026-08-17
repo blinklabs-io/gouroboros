@@ -79,6 +79,9 @@ the scope, acceptance criteria, and relevant context.
   summarize them on the pull request, and use GitHub to request another review
   from that same reviewer. Do not treat a reply or code update alone as a
   replacement for the requested follow-up review.
+- An authorized human reviewer may dismiss another human review through
+  GitHub when appropriate. Record the rationale on the pull request; dismissal
+  does not remove the requirement for appropriate human review.
 
 ## Validation
 

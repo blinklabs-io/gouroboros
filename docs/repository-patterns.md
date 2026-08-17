@@ -147,6 +147,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - If a human reviewer requests changes, validate and push the fixes, summarize
   them on the pull request, and use GitHub to request another review from that
   same reviewer.
+- An authorized human reviewer may dismiss another human review through
+  GitHub when appropriate; record the rationale on the pull request and retain
+  the required human-review coverage.
 
 These patterns are implemented first as the
 [`blink-repo-maintainer`](../skills/blink-repo-maintainer/SKILL.md) skill. A

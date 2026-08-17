@@ -96,6 +96,8 @@ Cardano/CBOR review invariants, and a per-repository orientation table.
 - If a human reviewer requests changes, validate and push the fixes, summarize
   them on the pull request, and explicitly request another review from that
   same reviewer through GitHub.
+- An authorized human reviewer may dismiss another human review through
+  GitHub when appropriate, with the rationale recorded on the pull request.
 
 ## Historical session context
 
