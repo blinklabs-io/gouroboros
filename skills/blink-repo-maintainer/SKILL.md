@@ -56,6 +56,12 @@ under `repos/` as an independently versioned project.
 - Protocol/library repositories: use the repository's `Makefile` and Go tests;
   run `buf lint`/`buf generate` for protobuf repositories, and preserve fuzz or
   benchmark coverage where the project defines it.
+- Dingo: also apply the dedicated
+  [dingo-maintainer](../dingo-maintainer/SKILL.md) skill. Isolate work in a
+  worktree, preserve local agent state, avoid `time.Sleep()` in synchronization
+  tests, reuse `ouroboros-mock` fixtures, and run race, architecture-boundary,
+  conformance, and devnet checks for consensus or protocol changes. Treat
+  `DATABASE.md` and `ARCHITECTURE.md` as required change-bar documents.
 - Infrastructure repositories: use `ansible-test`/`ansible-lint` for Ansible,
   `helm lint`/`helm template` for charts, and `terraform fmt -check` plus
   `terraform validate` per Terraform module. Do not substitute a generic Go or

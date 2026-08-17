@@ -128,6 +128,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - Review Docker publish workflows as a complete pipeline: architecture image
   tags, manifest creation, release tags, and the conditions that update
   `latest` must agree.
+- For Dingo, treat race-enabled tests, architecture-boundary checks, shared
+  `ouroboros-mock` fixtures, Cardano conformance/devnet validation, and
+  `DATABASE.md`/`ARCHITECTURE.md` review as one change bar for node-level work.
 - Prefer `docker build --check .` and `actionlint` before expensive builds or
   live registry validation.
 - Separate merge blockers from non-blocking findings and explicitly report

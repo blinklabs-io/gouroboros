@@ -11,6 +11,7 @@ that belongs in a workspace checkout.
 | --- | --- | --- |
 | [`.github`](.github) | [`blinklabs-io/.github`](https://github.com/blinklabs-io/.github) | Organization-wide contribution, security, and community defaults |
 | [`actions`](actions) | [`blinklabs-io/actions`](https://github.com/blinklabs-io/actions) | Reusable GitHub Actions workflows and repository governance engine |
+| [`apollo`](apollo) | [`blinklabs-io/apollo`](https://github.com/blinklabs-io/apollo) | Go Cardano protocol and ledger library used by Shai |
 | [`docs`](docs) | [`blinklabs-io/docs-site`](https://github.com/blinklabs-io/docs-site) | Public Blink Labs documentation site |
 | [`kb`](kb) | [`blinklabs-io/kb`](https://github.com/blinklabs-io/kb) | Long-form engineering training and reference books |
 | [`adder`](adder) | [`blinklabs-io/adder`](https://github.com/blinklabs-io/adder) | Cardano chain-sync event tailer |
@@ -47,6 +48,7 @@ that belongs in a workspace checkout.
 | [`gouroboros`](gouroboros) | [`blinklabs-io/gouroboros`](https://github.com/blinklabs-io/gouroboros) | Go Ouroboros/Cardano protocol library |
 | [`helm-charts`](helm-charts) | [`blinklabs-io/helm-charts`](https://github.com/blinklabs-io/helm-charts) | Blink Labs Kubernetes Helm charts |
 | [`issues`](issues) | [`blinklabs-io/issues`](https://github.com/blinklabs-io/issues) | Shared repository for uncategorized issues |
+| [`merkle-patricia-forestry`](merkle-patricia-forestry) | [`blinklabs-io/merkle-patricia-forestry`](https://github.com/blinklabs-io/merkle-patricia-forestry) | Merkle Patricia Forestry data structure library used by Bluefin |
 | [`nview`](nview) | [`blinklabs-io/nview`](https://github.com/blinklabs-io/nview) | Cardano node monitoring TUI |
 | [`ouroboros-mock`](ouroboros-mock) | [`blinklabs-io/ouroboros-mock`](https://github.com/blinklabs-io/ouroboros-mock) | Go Ouroboros protocol mock library |
 | [`plutigo`](plutigo) | [`blinklabs-io/plutigo`](https://github.com/blinklabs-io/plutigo) | Pure-Go Plutus interpreter |

@@ -69,6 +69,13 @@ native tests and specialized checks:
 `gouroboros` contains a nested submodule; use recursive submodule commands and
 keep its nested repository boundary intact.
 
+`dingo` has stricter node-level validation than a normal Go service. Read its
+local `AGENTS.md` and `CLAUDE.md`, work in an isolated worktree, preserve
+existing agent state, and use the Dingo maintainer skill for architecture
+boundaries, EventBus usage, plugin composition, shared `ouroboros-mock`
+fixtures, race-enabled tests, conformance/devnet testing, and the
+`DATABASE.md`/`ARCHITECTURE.md` documentation bar.
+
 ## Special-purpose repositories
 
 - `adder-mobile`: Flutter/mobile application with app-specific PR and release
