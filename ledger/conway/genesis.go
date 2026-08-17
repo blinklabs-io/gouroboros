@@ -41,9 +41,9 @@ type ConwayGenesis struct {
 	Committee                  ConwayGenesisCommittee            `json:"committee"`
 	Delegs                     ConwayGenesisDelegs               `json:"delegs"`
 	InitialDReps               ConwayGenesisInitialDReps         `json:"initialDReps"`
-	// ExtraConfig carries the Leios prototype's Conway genesis injection
-	// (delegs/initialDReps overrides); captured raw so the strict decoder
-	// accepts it. Empty on the current Musashi network.
+	// ExtraConfig carries the optional prototype genesis injection. Conway's
+	// current Musashi configuration leaves it empty, but it must be accepted by
+	// the strict decoder when present.
 	ExtraConfig json.RawMessage `json:"extraConfig,omitempty"`
 }
 
