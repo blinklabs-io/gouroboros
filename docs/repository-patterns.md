@@ -16,8 +16,10 @@ The workspace has five repository roles:
    `docs.blinklabs.io`.
 4. `repos/kb` contains long-form developer training and engineering reference
    books, with a policy of linking published material to pinned public sources.
-5. The 27 project submodules contain applications, services, package
+5. The 27 managed project submodules contain applications, services, package
    definitions, and Docker images.
+6. Additional ecosystem submodules contain protocol libraries, deployment
+   automation, infrastructure modules, Helm charts, and shared issue context.
 
 The parent repository pins source revisions for reproducible inspection and
 cross-repository work. It does not merge the projects' histories or replace
@@ -34,12 +36,16 @@ until documentation-specific profiles and checks are defined.
 | Family | Projects | Shared workflow shape |
 | --- | --- | --- |
 | Standard Docker | 16 `docker-*` projects, excluding `docker-wireguard` | Conventional Commits, native multi-arch Docker CI, publish |
-| Go/service | `adder`, `cardano-node-api`, `cardano-up`, `docker-wireguard`, `shai`, `tx-submit-api`, `tx-submit-api-mirror`, `txtop` | Conventional Commits, Go test/lint/NilAway, Docker CI, publish; individual projects may omit or add jobs |
+| Go/service/library | `adder`, `bark`, `bluefin`, `bursa`, `cardano-models`, `cardano-node-api`, `cardano-up`, `dingo`, `docker-wireguard`, `go-bip39`, `go-scls`, `gouroboros`, `nview`, `ouroboros-mock`, `plutigo`, `shai`, `tx-submit-api`, `tx-submit-api-mirror`, `txtop` | Go tests, lint/NilAway, and publishing where configured; protocol repositories may add Buf, fuzz, benchmark, or generated-code checks |
 | Mobile | `adder-mobile` | Conventional Commits plus Flutter/mobile-specific PR and publish workflows |
 | Package definitions | `cardano-up-packages` | Conventional Commits, upstream version checks, package validation |
 | Compose/integration | `cardano-compose-stacks` | Upstream version checks for a Docker Compose environment |
 | Public documentation | `docs` | Next.js/Nextra site with MDX product and DevOps documentation |
 | Engineering knowledge base | `kb` | Numbered training books with references, glossaries, and source maps |
+| Ansible automation | `ansible-cardano` | Ansible Galaxy collection with role tests and release workflow |
+| Helm packaging | `helm-charts` | Many chart-specific publish workflows plus chart testing and image-version checks |
+| Terraform infrastructure | `terraform-modules` | Terraform module validation and release workflows |
+| Shared issue context | `issues` | Content-only repository with no build workflow |
 
 The authoritative profile and per-project exceptions live in
 `repos/actions/repos-config.yaml`. Generated wrapper files in each project's
@@ -55,6 +61,11 @@ The authoritative profile and per-project exceptions live in
 | GitHub workflow | `actionlint` | Review permissions, triggers, reusable workflow inputs, and generated-source ownership |
 | Docker publish/tag logic | Inspect architecture-specific tags and manifest job | Validate tag and `latest` semantics in CI; do not push registries locally without authorization |
 | Package definitions | Repository validation command and version consistency checks | Upstream release/version workflow |
+| Go protocol/library | `go test ./...` and repository `Makefile` targets | `buf lint/generate`, fuzzing, benchmarks, NilAway, or generated-code checks as applicable |
+| Ansible collection | `ansible-test` for affected roles | `ansible-lint` and release packaging |
+| Helm chart | `helm lint` and `helm template` for affected charts | chart-testing and registry/release workflow |
+| Terraform module | `terraform fmt -check` and `terraform validate` per module | provider-aware plan or integration checks |
+| Issue/content repository | Review Markdown and repository links | No code build unless the repository adds one |
 | Public documentation | `pnpm install --frozen-lockfile`, then `pnpm build` | Review MDX links and update `pages/_meta.json` when adding navigation entries |
 | Knowledge base | Check book structure, Markdown links, and pinned source URLs | Run a link checker when available; preserve each book's README, start page, glossary, and source map |
 | Parent submodule change | `git diff --check`, `git diff --submodule=log` | `git submodule status --recursive` and parent commit review |

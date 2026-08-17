@@ -15,10 +15,16 @@ that belongs in a workspace checkout.
 | [`kb`](kb) | [`blinklabs-io/kb`](https://github.com/blinklabs-io/kb) | Long-form engineering training and reference books |
 | [`adder`](adder) | [`blinklabs-io/adder`](https://github.com/blinklabs-io/adder) | Cardano chain-sync event tailer |
 | [`adder-mobile`](adder-mobile) | [`blinklabs-io/adder-mobile`](https://github.com/blinklabs-io/adder-mobile) | Mobile app for Adder notifications |
+| [`ansible-cardano`](ansible-cardano) | [`blinklabs-io/ansible-cardano`](https://github.com/blinklabs-io/ansible-cardano) | Ansible collection for Cardano services |
+| [`bark`](bark) | [`blinklabs-io/bark`](https://github.com/blinklabs-io/bark) | gRPC protocol for Dingo operations |
+| [`bluefin`](bluefin) | [`blinklabs-io/bluefin`](https://github.com/blinklabs-io/bluefin) | Cardano TUNA miner |
+| [`bursa`](bursa) | [`blinklabs-io/bursa`](https://github.com/blinklabs-io/bursa) | Programmatic Cardano wallet |
 | [`cardano-compose-stacks`](cardano-compose-stacks) | [`blinklabs-io/cardano-compose-stacks`](https://github.com/blinklabs-io/cardano-compose-stacks) | Cardano service Docker Compose environment |
+| [`cardano-models`](cardano-models) | [`blinklabs-io/cardano-models`](https://github.com/blinklabs-io/cardano-models) | Go models for Cardano on-chain data structures |
 | [`cardano-node-api`](cardano-node-api) | [`blinklabs-io/cardano-node-api`](https://github.com/blinklabs-io/cardano-node-api) | Cardano node API service |
 | [`cardano-up`](cardano-up) | [`blinklabs-io/cardano-up`](https://github.com/blinklabs-io/cardano-up) | Cardano package and service manager |
 | [`cardano-up-packages`](cardano-up-packages) | [`blinklabs-io/cardano-up-packages`](https://github.com/blinklabs-io/cardano-up-packages) | Package definitions consumed by `cardano-up` |
+| [`dingo`](dingo) | [`blinklabs-io/dingo`](https://github.com/blinklabs-io/dingo) | Cardano node implementation in Go |
 | [`docker-amaru`](docker-amaru) | [`blinklabs-io/docker-amaru`](https://github.com/blinklabs-io/docker-amaru) | Amaru Docker image |
 | [`docker-cardano-cli`](docker-cardano-cli) | [`blinklabs-io/docker-cardano-cli`](https://github.com/blinklabs-io/docker-cardano-cli) | Cardano CLI Docker image |
 | [`docker-cardano-configs`](docker-cardano-configs) | [`blinklabs-io/docker-cardano-configs`](https://github.com/blinklabs-io/docker-cardano-configs) | Cardano configuration Docker image |
@@ -36,7 +42,16 @@ that belongs in a workspace checkout.
 | [`docker-openvpn`](docker-openvpn) | [`blinklabs-io/docker-openvpn`](https://github.com/blinklabs-io/docker-openvpn) | OpenVPN Docker image |
 | [`docker-parity-subkey`](docker-parity-subkey) | [`blinklabs-io/docker-parity-subkey`](https://github.com/blinklabs-io/docker-parity-subkey) | Parity Subkey Docker image |
 | [`docker-wireguard`](docker-wireguard) | [`blinklabs-io/docker-wireguard`](https://github.com/blinklabs-io/docker-wireguard) | WireGuard VPN service and Docker image |
+| [`go-bip39`](go-bip39) | [`blinklabs-io/go-bip39`](https://github.com/blinklabs-io/go-bip39) | Go BIP-0039 mnemonic library |
+| [`go-scls`](go-scls) | [`blinklabs-io/go-scls`](https://github.com/blinklabs-io/go-scls) | Go Standard Canonical Ledger State library |
+| [`gouroboros`](gouroboros) | [`blinklabs-io/gouroboros`](https://github.com/blinklabs-io/gouroboros) | Go Ouroboros/Cardano protocol library |
+| [`helm-charts`](helm-charts) | [`blinklabs-io/helm-charts`](https://github.com/blinklabs-io/helm-charts) | Blink Labs Kubernetes Helm charts |
+| [`issues`](issues) | [`blinklabs-io/issues`](https://github.com/blinklabs-io/issues) | Shared repository for uncategorized issues |
+| [`nview`](nview) | [`blinklabs-io/nview`](https://github.com/blinklabs-io/nview) | Cardano node monitoring TUI |
+| [`ouroboros-mock`](ouroboros-mock) | [`blinklabs-io/ouroboros-mock`](https://github.com/blinklabs-io/ouroboros-mock) | Go Ouroboros protocol mock library |
+| [`plutigo`](plutigo) | [`blinklabs-io/plutigo`](https://github.com/blinklabs-io/plutigo) | Pure-Go Plutus interpreter |
 | [`shai`](shai) | [`blinklabs-io/shai`](https://github.com/blinklabs-io/shai) | Cardano Multi-DEX matcher and oracle |
+| [`terraform-modules`](terraform-modules) | [`blinklabs-io/terraform-modules`](https://github.com/blinklabs-io/terraform-modules) | Reusable cloud and infrastructure Terraform modules |
 | [`tx-submit-api`](tx-submit-api) | [`blinklabs-io/tx-submit-api`](https://github.com/blinklabs-io/tx-submit-api) | Cardano transaction submission API |
 | [`tx-submit-api-mirror`](tx-submit-api-mirror) | [`blinklabs-io/tx-submit-api-mirror`](https://github.com/blinklabs-io/tx-submit-api-mirror) | Cardano transaction submission API mirror |
 | [`txtop`](txtop) | [`blinklabs-io/txtop`](https://github.com/blinklabs-io/txtop) | Cardano mempool inspector |
@@ -67,10 +82,10 @@ the `actions` repository can therefore affect consumers independently of this
 monorepo's submodule pointer.
 
 The governance engine currently manages the 27 project repositories listed in
-`repos/actions/repos-config.yaml`. The `docs` and `kb` repositories are
-intentionally outside that set for now and do not currently contain generated
-CI workflows. Define appropriate documentation profiles and checks before
-adding them to the governance set.
+`repos/actions/repos-config.yaml`. The other ecosystem repositories in this
+workspace are outside that set for now; some have their own CI while `docs` and
+`kb` do not currently contain repository-local workflows. Define an appropriate
+profile and checks before adding any of them to the governance set.
 
 The scan findings and validation patterns are recorded in
 [`docs/repository-patterns.md`](../docs/repository-patterns.md).

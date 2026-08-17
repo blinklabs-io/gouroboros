@@ -52,6 +52,23 @@ Cardano protocol adapters are common sources of compile, lint, and NilAway
 failures; validate generated packages independently when they have their own
 module or test commands.
 
+## Go protocol and library repositories
+
+These repositories are reusable building blocks rather than deployable
+services. Preserve their API and generated-code contracts while using their
+native tests and specialized checks:
+
+- `bark` — protobuf/ConnectRPC protocol definitions; use Buf formatting,
+  generation, and linting alongside Go tests.
+- `bluefin`, `bursa`, `dingo`, and `nview` — Cardano applications or services;
+  inspect Docker, runtime configuration, and integration expectations.
+- `cardano-models`, `go-bip39`, `go-scls`, `gouroboros`, `ouroboros-mock`, and
+  `plutigo` — protocol, cryptographic, serialization, or interpreter
+  libraries; preserve conformance, fuzz, benchmark, and nested-module checks.
+
+`gouroboros` contains a nested submodule; use recursive submodule commands and
+keep its nested repository boundary intact.
+
 ## Special-purpose repositories
 
 - `adder-mobile`: Flutter/mobile application with app-specific PR and release
@@ -61,6 +78,14 @@ module or test commands.
   ownership files.
 - `cardano-up-packages`: declarative package definitions consumed by
   `cardano-up`; version checks and package validation are its primary CI.
+- `ansible-cardano`: Ansible Galaxy collection. Validate affected roles with
+  `ansible-test` and `ansible-lint` before release changes.
+- `helm-charts`: chart collection with chart-specific publishing workflows.
+  Use `helm lint`, `helm template`, and chart-testing for affected charts.
+- `terraform-modules`: reusable cloud modules. Run formatting and validation
+  in each affected module and respect provider/version constraints.
+- `issues`: content-only issue repository; review links and Markdown without
+  inventing a code build.
 - `docs`: Next.js/Nextra public documentation site. Prefer concise MDX pages,
   preserve navigation metadata, and validate with `pnpm install --frozen-lockfile`
   and `pnpm build` when the package manager is available.

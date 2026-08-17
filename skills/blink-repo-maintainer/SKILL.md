@@ -53,6 +53,13 @@ under `repos/` as an independently versioned project.
 - Knowledge base: treat Markdown structure as the build contract. Preserve
   each book's README, `00-start-here.md`, glossary, source map, and pinned
   public GitHub source links; use a link checker when one is available.
+- Protocol/library repositories: use the repository's `Makefile` and Go tests;
+  run `buf lint`/`buf generate` for protobuf repositories, and preserve fuzz or
+  benchmark coverage where the project defines it.
+- Infrastructure repositories: use `ansible-test`/`ansible-lint` for Ansible,
+  `helm lint`/`helm template` for charts, and `terraform fmt -check` plus
+  `terraform validate` per Terraform module. Do not substitute a generic Go or
+  Docker check for the project's native validation.
 - Workspace or submodule changes: run `git diff --check`, review
   `git diff --submodule=log`, and verify `git submodule status --recursive`.
 
