@@ -16,6 +16,9 @@ documentation, and workspace-level automation.
    will modify.
 3. If the change is inside a Git submodule, read that project's contributor
    documentation and follow its build, test, and formatting instructions.
+   `CLAUDE.md` provides the equivalent shared orientation for Claude-based
+   work; Codex and review bots should use the same repository guide and local
+   source-of-truth files.
 4. Keep unrelated existing changes intact.
 
 Planning notes and plan files are local, ephemeral working artifacts. Do not
@@ -36,6 +39,11 @@ the scope, acceptance criteria, and relevant context.
 - For repository-aware work, use the local
   [`blink-repo-maintainer`](skills/blink-repo-maintainer/SKILL.md) skill and
   its repository-family reference.
+- For Go repository work or code reviews, start with the shared
+  [Go repository common ground](docs/go-repository-guide.md), then follow the
+  target repository's local instructions. The guide maps module boundaries,
+  generated interfaces, shared fixtures, review invariants, and repository
+  pointers.
 
 ## Implementation guidance
 

@@ -26,9 +26,10 @@ git submodule update --init --recursive
 ```
 
 After cloning, read the repository-level [AGENTS.md](AGENTS.md) and any
-`AGENTS.md` or equivalent contributor documentation inside the project you are
+`CLAUDE.md` or equivalent contributor documentation inside the project you are
 working on. A submodule's local instructions take precedence for work within
-that submodule.
+that submodule. For Go work and cross-repository reviews, start with the
+[common-ground guide](docs/go-repository-guide.md).
 
 ## Contributing
 
@@ -68,6 +69,8 @@ The current repository families, validation matrix, and governance findings are
 documented in [docs/repository-patterns.md](docs/repository-patterns.md). The
 shared repository-maintenance skill lives at
 [skills/blink-repo-maintainer](skills/blink-repo-maintainer/SKILL.md).
+For Go work and cross-repository code reviews, use the
+[Go repository common-ground guide](docs/go-repository-guide.md).
 
 ## Working with submodules
 

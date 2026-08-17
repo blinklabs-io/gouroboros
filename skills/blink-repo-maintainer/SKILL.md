@@ -9,6 +9,11 @@ Use this skill to make repository-aware changes across the Blink Labs project
 family. Treat the parent `clanker` repository as a workspace and each entry
 under `repos/` as an independently versioned project.
 
+For Go repositories or cross-repository code reviews, read the shared
+[Go repository common-ground guide](../../docs/go-repository-guide.md). It
+contains the current module-boundary map, generated-interface pointers, shared
+Cardano/CBOR review invariants, and a per-repository orientation table.
+
 ## Workflow
 
 1. Establish the boundary. Run `git status --short`, identify the repository
@@ -17,6 +22,8 @@ under `repos/` as an independently versioned project.
 2. Read local guidance before editing: `AGENTS.md`, `CONTRIBUTING.md`,
    `CODEOWNERS`, `README.md`, and relevant package or deployment documentation.
    Local instructions refine this skill.
+   For Go work, also inspect every nested `go.mod` under the target repository;
+   a root test does not automatically cover those modules.
 3. Classify the project using
    [repository-families.md](references/repository-families.md). Select checks
    from the project itself; do not infer that a similar name means identical

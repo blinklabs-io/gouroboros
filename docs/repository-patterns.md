@@ -36,7 +36,7 @@ until documentation-specific profiles and checks are defined.
 | Family | Projects | Shared workflow shape |
 | --- | --- | --- |
 | Standard Docker | 16 `docker-*` projects, excluding `docker-wireguard` | Conventional Commits, native multi-arch Docker CI, publish |
-| Go/service/library | `adder`, `bark`, `bluefin`, `bursa`, `cardano-models`, `cardano-node-api`, `cardano-up`, `dingo`, `docker-wireguard`, `go-bip39`, `go-scls`, `gouroboros`, `nview`, `ouroboros-mock`, `plutigo`, `shai`, `tx-submit-api`, `tx-submit-api-mirror`, `txtop` | Go tests, lint/NilAway, and publishing where configured; protocol repositories may add Buf, fuzz, benchmark, or generated-code checks |
+| Go/service/library | `adder`, `apollo`, `bark`, `bluefin`, `bursa`, `cardano-models`, `cardano-node-api`, `cardano-up`, `dingo`, `docker-wireguard`, `go-bip39`, `go-scls`, `gouroboros`, `merkle-patricia-forestry`, `nview`, `ouroboros-mock`, `plutigo`, `shai`, `tx-submit-api`, `tx-submit-api-mirror`, `txtop` | Go tests, lint/NilAway, and publishing where configured; protocol repositories may add Buf, fuzz, benchmark, or generated-code checks |
 | Mobile | `adder-mobile` | Conventional Commits plus Flutter/mobile-specific PR and publish workflows |
 | Package definitions | `cardano-up-packages` | Conventional Commits, upstream version checks, package validation |
 | Compose/integration | `cardano-compose-stacks` | Upstream version checks for a Docker Compose environment |
@@ -142,3 +142,12 @@ separate plugin is not warranted yet: the current findings are procedural and
 local, while a plugin should add a concrete external integration or app
 capability. Revisit a plugin once the team chooses a standard GitHub or issue
 tracking integration for this workspace.
+
+For Go-specific orientation, module boundaries, review invariants, generated
+API pointers, and the dependency relationship between protocol libraries and
+applications, use the [Go repository common-ground guide](go-repository-guide.md).
+
+The Apollo checkout intentionally declares the upstream
+`github.com/Salvionied/apollo/v2` module path. Shai is transitioning back to
+that upstream dependency; do not add a parent-workspace replacement or rewrite
+either submodule's module metadata while that transition is in flight.
