@@ -11,9 +11,36 @@ that belongs in a workspace checkout.
 | --- | --- | --- |
 | [`.github`](.github) | [`blinklabs-io/.github`](https://github.com/blinklabs-io/.github) | Organization-wide contribution, security, and community defaults |
 | [`actions`](actions) | [`blinklabs-io/actions`](https://github.com/blinklabs-io/actions) | Reusable GitHub Actions workflows and repository governance engine |
+| [`adder`](adder) | [`blinklabs-io/adder`](https://github.com/blinklabs-io/adder) | Cardano chain-sync event tailer |
+| [`adder-mobile`](adder-mobile) | [`blinklabs-io/adder-mobile`](https://github.com/blinklabs-io/adder-mobile) | Mobile app for Adder notifications |
+| [`cardano-compose-stacks`](cardano-compose-stacks) | [`blinklabs-io/cardano-compose-stacks`](https://github.com/blinklabs-io/cardano-compose-stacks) | Cardano service Docker Compose environment |
+| [`cardano-node-api`](cardano-node-api) | [`blinklabs-io/cardano-node-api`](https://github.com/blinklabs-io/cardano-node-api) | Cardano node API service |
+| [`cardano-up`](cardano-up) | [`blinklabs-io/cardano-up`](https://github.com/blinklabs-io/cardano-up) | Cardano package and service manager |
+| [`cardano-up-packages`](cardano-up-packages) | [`blinklabs-io/cardano-up-packages`](https://github.com/blinklabs-io/cardano-up-packages) | Package definitions consumed by `cardano-up` |
+| [`docker-amaru`](docker-amaru) | [`blinklabs-io/docker-amaru`](https://github.com/blinklabs-io/docker-amaru) | Amaru Docker image |
+| [`docker-cardano-cli`](docker-cardano-cli) | [`blinklabs-io/docker-cardano-cli`](https://github.com/blinklabs-io/docker-cardano-cli) | Cardano CLI Docker image |
+| [`docker-cardano-configs`](docker-cardano-configs) | [`blinklabs-io/docker-cardano-configs`](https://github.com/blinklabs-io/docker-cardano-configs) | Cardano configuration Docker image |
+| [`docker-cardano-db-sync`](docker-cardano-db-sync) | [`blinklabs-io/docker-cardano-db-sync`](https://github.com/blinklabs-io/docker-cardano-db-sync) | Cardano DB-Sync Docker image |
+| [`docker-cardano-node`](docker-cardano-node) | [`blinklabs-io/docker-cardano-node`](https://github.com/blinklabs-io/docker-cardano-node) | Cardano node Docker image |
+| [`docker-cardano-wallet`](docker-cardano-wallet) | [`blinklabs-io/docker-cardano-wallet`](https://github.com/blinklabs-io/docker-cardano-wallet) | Cardano wallet Docker image |
+| [`docker-go`](docker-go) | [`blinklabs-io/docker-go`](https://github.com/blinklabs-io/docker-go) | Go toolchain Docker image |
+| [`docker-haskell`](docker-haskell) | [`blinklabs-io/docker-haskell`](https://github.com/blinklabs-io/docker-haskell) | Haskell toolchain Docker image |
+| [`docker-hydra-node`](docker-hydra-node) | [`blinklabs-io/docker-hydra-node`](https://github.com/blinklabs-io/docker-hydra-node) | Hydra node Docker image |
+| [`docker-kupo`](docker-kupo) | [`blinklabs-io/docker-kupo`](https://github.com/blinklabs-io/docker-kupo) | Kupo Docker image |
+| [`docker-minio`](docker-minio) | [`blinklabs-io/docker-minio`](https://github.com/blinklabs-io/docker-minio) | MinIO Docker image |
+| [`docker-mithril-client`](docker-mithril-client) | [`blinklabs-io/docker-mithril-client`](https://github.com/blinklabs-io/docker-mithril-client) | Mithril client Docker image |
+| [`docker-mithril-signer`](docker-mithril-signer) | [`blinklabs-io/docker-mithril-signer`](https://github.com/blinklabs-io/docker-mithril-signer) | Mithril signer Docker image |
+| [`docker-ogmios`](docker-ogmios) | [`blinklabs-io/docker-ogmios`](https://github.com/blinklabs-io/docker-ogmios) | Ogmios Docker image |
+| [`docker-openvpn`](docker-openvpn) | [`blinklabs-io/docker-openvpn`](https://github.com/blinklabs-io/docker-openvpn) | OpenVPN Docker image |
+| [`docker-parity-subkey`](docker-parity-subkey) | [`blinklabs-io/docker-parity-subkey`](https://github.com/blinklabs-io/docker-parity-subkey) | Parity Subkey Docker image |
+| [`docker-wireguard`](docker-wireguard) | [`blinklabs-io/docker-wireguard`](https://github.com/blinklabs-io/docker-wireguard) | WireGuard VPN service and Docker image |
+| [`shai`](shai) | [`blinklabs-io/shai`](https://github.com/blinklabs-io/shai) | Cardano Multi-DEX matcher and oracle |
+| [`tx-submit-api`](tx-submit-api) | [`blinklabs-io/tx-submit-api`](https://github.com/blinklabs-io/tx-submit-api) | Cardano transaction submission API |
+| [`tx-submit-api-mirror`](tx-submit-api-mirror) | [`blinklabs-io/tx-submit-api-mirror`](https://github.com/blinklabs-io/tx-submit-api-mirror) | Cardano transaction submission API mirror |
+| [`txtop`](txtop) | [`blinklabs-io/txtop`](https://github.com/blinklabs-io/txtop) | Cardano mempool inspector |
 
-Additional project repositories should be added to this table when they are
-added as submodules.
+Keep this table synchronized with `.gitmodules` and add a purpose or category
+when a new project repository is introduced.
 
 ## Actions and workspace workflows
 
@@ -36,6 +63,9 @@ currently reference paths such as
 `blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main`. Changes to
 the `actions` repository can therefore affect consumers independently of this
 monorepo's submodule pointer.
+
+The scan findings and validation patterns are recorded in
+[`docs/repository-patterns.md`](../docs/repository-patterns.md).
 
 ## Adding a repository
 
