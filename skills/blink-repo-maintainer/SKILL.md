@@ -90,6 +90,9 @@ Cardano/CBOR review invariants, and a per-repository orientation table.
   Blink Labs forks are emergency-only exceptions requiring explicit approval,
   issue tracking, and an exit plan; Apollo is upstream-only under normal
   circumstances.
+- Follow the review order: run configured CodeRabbit/Cubic checks, address
+  actionable findings, then obtain required human review. Human review may be
+  AI-assisted, but bot approval or silence is never sufficient by itself.
 
 ## Historical session context
 

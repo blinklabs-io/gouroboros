@@ -49,6 +49,11 @@ issue without verification. Durable documentation should explain the
 repository behavior and point to the owning source file, test, workflow, or
 specification.
 
+The review sequence is bot review first, human review second. Run CodeRabbit
+and Cubic when configured, address their actionable findings, and only then
+request human review. Human review is mandatory and may be AI-assisted; bot
+approval or silence is not human approval.
+
 ## Common Go baseline
 
 Across the Blink Go repositories, the usual local targets are:

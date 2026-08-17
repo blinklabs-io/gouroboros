@@ -141,6 +141,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   live registry validation.
 - Separate merge blockers from non-blocking findings and explicitly report
   checks that require live GitHub, registry, or Cardano integration access.
+- Run CodeRabbit and Cubic before human review, address actionable findings,
+  and then obtain the required human review. Human review may be AI-assisted,
+  but bot approval is not a substitute for it.
 
 These patterns are implemented first as the
 [`blink-repo-maintainer`](../skills/blink-repo-maintainer/SKILL.md) skill. A

@@ -72,6 +72,9 @@ the scope, acceptance criteria, and relevant context.
   organization-wide contribution and security guidance.
 - Check the relevant `CODEOWNERS` file and any local contribution instructions
   before preparing a pull request.
+- Run the configured review bots before requesting human review and address
+  their actionable findings first. Human review is still required; it may be
+  AI-assisted, but bot approval or silence is not human approval.
 
 ## Validation
 

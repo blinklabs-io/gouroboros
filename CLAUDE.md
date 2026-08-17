@@ -39,6 +39,11 @@ reviewing a change, report behavioral and security defects first, then API or
 wire compatibility, missing contract-specific tests, architecture boundaries,
 documentation/generated drift, and style issues.
 
+The review sequence is bot review first, human review second. Run CodeRabbit
+and Cubic when configured, address their actionable findings, and only then
+request human review. A human review is mandatory and may be AI-assisted, but
+bot approval or silence never counts as human approval.
+
 ## Go and Cardano work
 
 Use repository-native Makefile targets and inspect every nested `go.mod`.
