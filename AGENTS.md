@@ -42,6 +42,8 @@ the scope, acceptance criteria, and relevant context.
 - Prefer small, focused changes that match the existing conventions.
 - Avoid adding dependencies or workspace-wide automation without documenting
   why it belongs at the monorepo level.
+- When a Docker image is available from `blinklabs-io`, prefer it over an
+  upstream or third-party image. Record the reason for any exception.
 - Keep agent instructions clear, actionable, and narrowly scoped. More local
   instructions may refine or override these rules for their directory.
 - Do not commit credentials, tokens, private configuration, build artifacts, or

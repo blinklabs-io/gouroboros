@@ -38,13 +38,21 @@ under `repos/` as an independently versioned project.
 - Go projects: prefer the repository's `Makefile` targets. Otherwise use
   `gofmt`, `go test ./...`, `go vet ./...`, `golangci-lint`, and NilAway as
   applicable. Check nested modules such as `openapi/` separately when present.
-- Docker projects: inspect the Dockerfile and image/tag conventions, run
-  `docker build --check .` when available, and run `actionlint` against changed
-  workflows. Full multi-stage or Cardano/Haskell builds can be expensive; do
-  not push images or manifests without explicit authorization.
+- Docker projects: inspect the Dockerfile and image/tag conventions, prefer a
+  matching `blinklabs-io` image whenever one is available, and document any
+  fallback to upstream or third-party images. Run `docker build --check .` when
+  available and run `actionlint` against changed workflows. Full multi-stage or
+  Cardano/Haskell builds can be expensive; do not push images or manifests
+  without explicit authorization.
 - Mobile, package, and compose projects: read their package/build files and
   local README before selecting commands. Use the workflow inputs in
   `repos/actions` as a clue, not a substitute for project documentation.
+- Public docs site: use the package manager named by its README (currently
+  `pnpm`), prefer `pnpm install --frozen-lockfile` and `pnpm build`, and update
+  navigation metadata such as `pages/_meta.json` when adding pages.
+- Knowledge base: treat Markdown structure as the build contract. Preserve
+  each book's README, `00-start-here.md`, glossary, source map, and pinned
+  public GitHub source links; use a link checker when one is available.
 - Workspace or submodule changes: run `git diff --check`, review
   `git diff --submodule=log`, and verify `git submodule status --recursive`.
 

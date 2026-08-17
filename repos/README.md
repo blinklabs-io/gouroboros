@@ -66,6 +66,12 @@ currently reference paths such as
 the `actions` repository can therefore affect consumers independently of this
 monorepo's submodule pointer.
 
+The governance engine currently manages the 27 project repositories listed in
+`repos/actions/repos-config.yaml`. The `docs` and `kb` repositories are
+intentionally outside that set for now and do not currently contain generated
+CI workflows. Define appropriate documentation profiles and checks before
+adding them to the governance set.
+
 The scan findings and validation patterns are recorded in
 [`docs/repository-patterns.md`](../docs/repository-patterns.md).
 

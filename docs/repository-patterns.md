@@ -23,6 +23,12 @@ The parent repository pins source revisions for reproducible inspection and
 cross-repository work. It does not merge the projects' histories or replace
 their individual release processes.
 
+The governance engine currently covers the 27 application, service, package,
+and container repositories in `repos/actions/repos-config.yaml`. The `docs`
+and `kb` submodules are not in that configuration and currently have no
+repository-local GitHub workflows. Treat that as an intentional coverage gap
+until documentation-specific profiles and checks are defined.
+
 ## Project families
 
 | Family | Projects | Shared workflow shape |
@@ -49,12 +55,23 @@ The authoritative profile and per-project exceptions live in
 | GitHub workflow | `actionlint` | Review permissions, triggers, reusable workflow inputs, and generated-source ownership |
 | Docker publish/tag logic | Inspect architecture-specific tags and manifest job | Validate tag and `latest` semantics in CI; do not push registries locally without authorization |
 | Package definitions | Repository validation command and version consistency checks | Upstream release/version workflow |
+| Public documentation | `pnpm install --frozen-lockfile`, then `pnpm build` | Review MDX links and update `pages/_meta.json` when adding navigation entries |
+| Knowledge base | Check book structure, Markdown links, and pinned source URLs | Run a link checker when available; preserve each book's README, start page, glossary, and source map |
 | Parent submodule change | `git diff --check`, `git diff --submodule=log` | `git submodule status --recursive` and parent commit review |
 
 Full Cardano/Haskell image builds can take a long time. Report when they are
 not run rather than substituting a misleading partial result. Existing static
 analysis findings should be identified by path and ownership before deciding
 whether they are in scope.
+
+For Docker dependencies, prefer `blinklabs-io` images whenever an equivalent
+image is available. Verify the image's tag, architecture support, and source
+before using it; document any intentional upstream or third-party fallback.
+
+The current audit found a concrete follow-up in `cardano-compose-stacks`:
+Kupo and Ogmios use third-party image names even though Blink Labs maintains
+`docker-kupo` and `docker-ogmios`. Track that as an issue and update it only
+after confirming tag compatibility and the desired release policy.
 
 ## Governance implications
 
@@ -82,6 +99,12 @@ When documenting a project, prefer linking between the public site, the
 appropriate knowledge-base book, and the project's README rather than copying
 large explanations into multiple locations. Preserve `kb`'s pinned-source-link
 policy so training examples remain reproducible.
+
+The docs site currently uses Next.js/Nextra with 41 MDX pages and `pnpm`
+scripts, while the knowledge base is Markdown-only with five numbered books
+and no build manifest. The audit also found that `kb` has no root `LICENSE` or
+`CONTRIBUTING.md`; track explicit licensing and contribution metadata as a
+separate issue rather than assuming the parent repository's license applies.
 
 ## Session-derived reusable knowledge
 
