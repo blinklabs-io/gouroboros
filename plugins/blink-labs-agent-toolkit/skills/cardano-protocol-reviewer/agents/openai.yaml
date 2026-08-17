@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cardano Protocol Reviewer"
+  short_description: "Review Cardano protocol changes"
+  default_prompt: "Use $cardano-protocol-reviewer to review ledger, CBOR, protocol, Plutus, consensus, and conformance changes."

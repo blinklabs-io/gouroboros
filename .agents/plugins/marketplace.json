@@ -1,0 +1,20 @@
+{
+  "name": "blink-labs-team",
+  "interface": {
+    "displayName": "Blink Labs Team"
+  },
+  "plugins": [
+    {
+      "name": "blink-labs-agent-toolkit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/blink-labs-agent-toolkit"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
