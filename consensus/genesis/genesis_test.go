@@ -40,6 +40,59 @@ func TestComputeGenesisWindow(t *testing.T) {
 	}
 }
 
+// TestComputeGenesisWindowCeiling pins the rounding to CEILING division,
+// matching cardano-ledger's computeStabilityWindow
+// ("ceiling $ (3 * fromIntegral k) /. f"): whenever 3k/f is not integral,
+// the window rounds up, never down.
+func TestComputeGenesisWindowCeiling(t *testing.T) {
+	// k=2160, f=7/100: 3*2160*100/7 = 648000/7 = 92571.43... -> 92572.
+	window := ComputeGenesisWindow(2160, big.NewRat(7, 100))
+	if window != 92572 {
+		t.Errorf(
+			"expected ceiling(648000/7) = 92572, got %d",
+			window,
+		)
+	}
+
+	// Exact division is unaffected: k=10, f=1/2 -> 3*10*2 = 60.
+	window = ComputeGenesisWindow(10, big.NewRat(1, 2))
+	if window != 60 {
+		t.Errorf("expected 60, got %d", window)
+	}
+}
+
+// TestComputeGenesisWindowDegenerateCoefficients pins the guard: nil, zero,
+// and negative active-slot coefficients all yield a zero window rather than
+// a garbage value.
+func TestComputeGenesisWindowDegenerateCoefficients(t *testing.T) {
+	if got := ComputeGenesisWindow(2160, nil); got != 0 {
+		t.Errorf("nil coefficient: expected 0, got %d", got)
+	}
+	if got := ComputeGenesisWindow(2160, big.NewRat(0, 1)); got != 0 {
+		t.Errorf("zero coefficient: expected 0, got %d", got)
+	}
+	if got := ComputeGenesisWindow(2160, big.NewRat(-1, 20)); got != 0 {
+		t.Errorf("negative coefficient: expected 0, got %d", got)
+	}
+}
+
+// TestNewGenesisSelectorDerivedWindowCeiling pins the derived-window path
+// through NewGenesisSelector with a non-integral 3k/f, so the constructor
+// inherits the ceiling semantics too.
+func TestNewGenesisSelectorDerivedWindowCeiling(t *testing.T) {
+	selector := NewGenesisSelector(GenesisConfig{
+		SecurityParam:   2160,
+		ActiveSlotCoeff: big.NewRat(7, 100),
+	})
+	// 3*2160*100/7 = 648000/7 = 92571.43... -> 92572.
+	if selector.config.GenesisWindow != 92572 {
+		t.Errorf(
+			"expected derived window 92572, got %d",
+			selector.config.GenesisWindow,
+		)
+	}
+}
+
 func TestGenesisConfig(t *testing.T) {
 	config := testGenesisConfig()
 

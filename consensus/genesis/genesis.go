@@ -26,6 +26,16 @@
 //
 // The genesis window is defined as 3k/f slots, matching the forecast range.
 // Once a node finishes syncing, it gracefully converges to standard Praos selection.
+//
+// Relationship to the consensus package: the tip-level ordering surface for
+// candidate chains is consensus.PraosChainSelector.CompareWithDensity, which
+// applies the same windowed block-count rule to ChainTip values and falls
+// through to the ordinary Praos comparison on equal density. This package's
+// GenesisSelector operates on fragment-level data (ChainFragment) and breaks
+// density ties by total block count instead; its Density and ExpectedDensity
+// float helpers predate the integer windowed-count metric and are retained
+// for compatibility. Derive the window itself with ComputeGenesisWindow in
+// both cases so the 3k/f ceiling semantics stay single-sourced.
 package genesis
 
 import (
@@ -51,8 +61,11 @@ func ComputeGenesisWindow(
 	securityParam uint64,
 	activeSlotCoeff *big.Rat,
 ) uint64 {
-	// Guard against nil or zero activeSlotCoeff to avoid division by zero
-	if activeSlotCoeff == nil || activeSlotCoeff.Sign() == 0 {
+	// Guard against nil, zero, or negative activeSlotCoeff: zero would
+	// divide by zero, and a negative coefficient is meaningless for an
+	// active-slot probability (and would otherwise produce a garbage
+	// window via truncated negative division).
+	if activeSlotCoeff == nil || activeSlotCoeff.Sign() <= 0 {
 		return 0
 	}
 	// Genesis window = 3k/f
@@ -63,11 +76,22 @@ func ComputeGenesisWindow(
 	threeK := new(big.Rat).SetInt(new(big.Int).Mul(three, k))
 	window := new(big.Rat).Quo(threeK, activeSlotCoeff)
 
-	// Convert to uint64 using integer division for deterministic, precise behavior
-	// Num/Denom gives exact integer division result
+	// Convert to uint64 with CEILING division, matching cardano-ledger's
+	// computeStabilityWindow ("ceiling $ (3 * fromIntegral k) /. f",
+	// eras/shelley/impl/src/Cardano/Ledger/Shelley/StabilityWindow.hs) —
+	// ouroboros-consensus uses that value as the Shelley-era genesis window
+	// (shelleyEraParams: eraGenesisWin = GenesisWindow stabilityWindow).
+	// Floor vs ceiling differs whenever 3k/f is not integral; the window is
+	// consensus-relevant, so the rounding must match exactly. On mainnet
+	// (k=2160, f=1/20) 3k/f = 129600 exactly, so both roundings agree.
 	num := window.Num()
 	denom := window.Denom()
-	result := new(big.Int).Div(num, denom)
+	result, remainder := new(big.Int).QuoRem(
+		num, denom, new(big.Int),
+	)
+	if remainder.Sign() != 0 {
+		result.Add(result, big.NewInt(1))
+	}
 
 	// Clamp to uint64 max if result overflows
 	if !result.IsUint64() {

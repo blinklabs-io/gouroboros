@@ -16,6 +16,9 @@ package consensus
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewPraosChainSelector(t *testing.T) {
@@ -193,10 +196,15 @@ func TestCompareWithDensity(t *testing.T) {
 		t.Error("standard compare should show equal chains")
 	}
 
-	// With density comparison for a deep fork (fork at 1000, current
-	// slot far beyond k=2160 past the fork), chain A should be
+	// With density comparison for a deep fork (fork at block 0, current
+	// tip far beyond k=2160 blocks past the fork), chain A should be
 	// preferred (higher density).
-	result = selector.CompareWithDensity(chainA, chainB, 1000, 5000)
+	result = selector.CompareWithDensity(
+		chainA,
+		chainB,
+		ForkPoint{Slot: 1000, BlockNumber: 0},
+		5000,
+	)
 	if result <= 0 {
 		t.Error("chain with higher density should be preferred")
 	}
@@ -216,13 +224,14 @@ func TestCompareWithDensityShallowForkIgnoresDensity(t *testing.T) {
 	// Chain B: more blocks (longer chain), lower density.
 	chainB := NewSimpleChainTipWithDensity(1200, 100, vrf, 100, 500)
 
-	// Fork at slot 1000, current slot 1200: only 200 slots deep, which
-	// is well within k=2160, so this is NOT a deep fork.
-	if selector.IsDeepFork(1000, 1200) {
+	// Fork at block 1000, current tip block 1200: only 200 blocks deep,
+	// which is well within k=2160, so this is NOT a deep fork.
+	fork := ForkPoint{Slot: 1000, BlockNumber: 1000}
+	if selector.IsDeepFork(fork, 1200) {
 		t.Fatal("fork should not be considered deep for this test")
 	}
 
-	result := selector.CompareWithDensity(chainA, chainB, 1000, 1200)
+	result := selector.CompareWithDensity(chainA, chainB, fork, 1200)
 	if result >= 0 {
 		t.Error(
 			"shallow fork must use longest-chain rule; the longer " +
@@ -240,10 +249,10 @@ func TestCompareWithDensityDeepForkLongerButSparserLoses(t *testing.T) {
 
 	vrf := make([]byte, 64)
 
-	forkSlot := uint64(1000)
-	// currentSlot is far enough past forkSlot to make this a deep fork
-	// (more than k=2160 slots past the fork point).
-	currentSlot := uint64(10000)
+	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
+	// tipBlockNumber is far enough past the fork point to make this a
+	// deep fork (more than k=2160 blocks would be rolled back).
+	tipBlockNumber := uint64(10000)
 
 	// Chain A ("honest"): shorter chain, but denser (100 blocks in 200
 	// slots => density 0.5).
@@ -253,7 +262,7 @@ func TestCompareWithDensityDeepForkLongerButSparserLoses(t *testing.T) {
 	// much sparser (150 blocks in 3000 slots => density 0.05).
 	chainB := NewSimpleChainTipWithDensity(4000, 150, vrf, 150, 3000)
 
-	if !selector.IsDeepFork(forkSlot, currentSlot) {
+	if !selector.IsDeepFork(fork, tipBlockNumber) {
 		t.Fatal("fork should be considered deep for this test")
 	}
 
@@ -268,8 +277,8 @@ func TestCompareWithDensityDeepForkLongerButSparserLoses(t *testing.T) {
 	result := selector.CompareWithDensity(
 		chainA,
 		chainB,
-		forkSlot,
-		currentSlot,
+		fork,
+		tipBlockNumber,
 	)
 	if result <= 0 {
 		t.Error(
@@ -281,8 +290,8 @@ func TestCompareWithDensityDeepForkLongerButSparserLoses(t *testing.T) {
 	// And PreferredWithDensity must select the denser chain too.
 	preferred := selector.PreferredWithDensity(
 		[]ChainTip{chainB, chainA},
-		forkSlot,
-		currentSlot,
+		fork,
+		tipBlockNumber,
 	)
 	if preferred != chainA {
 		t.Error(
@@ -292,33 +301,92 @@ func TestCompareWithDensityDeepForkLongerButSparserLoses(t *testing.T) {
 	}
 }
 
+// TestIsDeepFork pins the routing predicate's unit and boundary: depth is
+// measured in BLOCKS, k blocks is still shallow, and k+1 blocks is deep.
 func TestIsDeepFork(t *testing.T) {
-	selector := NewPraosChainSelector(2160) // k = 2160
+	selector := NewPraosChainSelector(2160) // k = 2160 blocks
 
-	// Fork at slot 1000, current slot 2000 - not deep (1000 slots)
-	if selector.IsDeepFork(1000, 2000) {
-		t.Error("fork 1000 slots ago should not be deep (k=2160)")
+	fork := func(blockNumber uint64) ForkPoint {
+		return ForkPoint{Slot: blockNumber * 20, BlockNumber: blockNumber}
 	}
 
-	// Fork at slot 1000, current slot 5000 - deep (4000 slots)
-	if !selector.IsDeepFork(1000, 5000) {
-		t.Error("fork 4000 slots ago should be deep (k=2160)")
-	}
+	// Rollback of 1000 blocks - not deep
+	assert.False(
+		t,
+		selector.IsDeepFork(fork(1000), 2000),
+		"rollback of 1000 blocks should not be deep (k=2160)",
+	)
 
-	// Fork at slot 1000, current slot 3161 - exactly at boundary (2161 slots)
-	if !selector.IsDeepFork(1000, 3161) {
-		t.Error("fork 2161 slots ago should be deep (k=2160)")
-	}
+	// Rollback of 4000 blocks - deep
+	assert.True(
+		t,
+		selector.IsDeepFork(fork(1000), 5000),
+		"rollback of 4000 blocks should be deep (k=2160)",
+	)
 
-	// Fork at slot 1000, current slot 3160 - just under boundary (2160 slots)
-	if selector.IsDeepFork(1000, 3160) {
-		t.Error("fork exactly 2160 slots ago should not be deep")
-	}
+	// Rollback of exactly k+1 = 2161 blocks - deep
+	assert.True(
+		t,
+		selector.IsDeepFork(fork(1000), 3161),
+		"rollback of k+1=2161 blocks should be deep",
+	)
 
-	// Edge case: current slot before fork slot
-	if selector.IsDeepFork(2000, 1000) {
-		t.Error("fork in future should not be deep")
-	}
+	// Rollback of exactly k = 2160 blocks - still shallow
+	assert.False(
+		t,
+		selector.IsDeepFork(fork(1000), 3160),
+		"rollback of exactly k=2160 blocks should not be deep",
+	)
+
+	// Edge case: fork point ahead of the tip requires no rollback.
+	assert.False(
+		t,
+		selector.IsDeepFork(fork(2000), 1000),
+		"fork ahead of the tip should not be deep",
+	)
+
+	// Edge case: fork point equal to the tip requires no rollback.
+	assert.False(
+		t,
+		selector.IsDeepFork(fork(1000), 1000),
+		"fork at the tip should not be deep",
+	)
+}
+
+// TestIsDeepForkUint64Boundary checks the depth subtraction near the uint64
+// maximum: it must not underflow or wrap.
+func TestIsDeepForkUint64Boundary(t *testing.T) {
+	selector := NewPraosChainSelector(2160)
+
+	maxUint64 := ^uint64(0)
+
+	// Tip at the uint64 maximum, fork k blocks back - still shallow.
+	assert.False(
+		t,
+		selector.IsDeepFork(
+			ForkPoint{Slot: 0, BlockNumber: maxUint64 - 2160},
+			maxUint64,
+		),
+		"rollback of exactly k blocks at the uint64 max is not deep",
+	)
+
+	// Tip at the uint64 maximum, fork k+1 blocks back - deep.
+	assert.True(
+		t,
+		selector.IsDeepFork(
+			ForkPoint{Slot: 0, BlockNumber: maxUint64 - 2161},
+			maxUint64,
+		),
+		"rollback of k+1 blocks at the uint64 max is deep",
+	)
+
+	// Fork at the uint64 maximum with a tip at zero must not wrap into a
+	// huge positive depth.
+	assert.False(
+		t,
+		selector.IsDeepFork(ForkPoint{Slot: 0, BlockNumber: maxUint64}, 0),
+		"fork far ahead of the tip must not underflow into deep",
+	)
 }
 
 func TestPreferredWithDensity(t *testing.T) {
@@ -338,10 +406,14 @@ func TestPreferredWithDensity(t *testing.T) {
 		NewSimpleChainTipWithDensity(1300, 100, vrf, 100, 300), // density 0.33
 	}
 
-	// currentSlot = 5000 puts the fork (slot 1000) more than k=2160
-	// slots in the past, making this a deep fork subject to
-	// density-first comparison.
-	preferred := selector.PreferredWithDensity(candidates, 1000, 5000)
+	// A tip at block 5000 puts the fork (block 0) more than k=2160 blocks
+	// in the past, making this a deep fork subject to density-first
+	// comparison.
+	preferred := selector.PreferredWithDensity(
+		candidates,
+		ForkPoint{Slot: 1000, BlockNumber: 0},
+		5000,
+	)
 	if preferred == nil {
 		t.Fatal("expected non-nil preferred chain")
 	}
@@ -431,4 +503,317 @@ func TestPreferredManyChains(t *testing.T) {
 	if preferred.BlockNumber() != 100 {
 		t.Errorf("expected block 100, got %d", preferred.BlockNumber())
 	}
+}
+
+// --- Genesis window metric (WindowBlockCounter) ---------------------------
+
+// mainnetWindow is the mainnet genesis window sgen = 3k/f with k=2160 and
+// f=1/20: 3*2160*20 = 129600 slots.
+const mainnetWindow = uint64(129600)
+
+// deepFork returns a fork point and a tip block number that are deep for
+// k=2160: the tip is k+1 blocks ahead of the fork point.
+func deepFork(forkSlot uint64) (ForkPoint, uint64) {
+	return ForkPoint{Slot: forkSlot, BlockNumber: 0}, 2161
+}
+
+// TestCompareWithDensityShallowForkShorterDenserLoses is the regression
+// requested in review: with a genesis window configured and a denser but
+// SHORTER candidate, a shallow fork must still be decided by the ordinary
+// longest-chain rule, so the longer chain wins.
+func TestCompareWithDensityShallowForkShorterDenserLoses(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+
+	vrf := make([]byte, 64)
+
+	// Chain A: shorter (90 blocks) but every block inside the window.
+	denseSlots := make([]uint64, 0, 90)
+	for i := uint64(1); i <= 90; i++ {
+		denseSlots = append(denseSlots, 1000+i)
+	}
+	chainA := NewSimpleChainTipWithBlockSlots(1090, 90, vrf, denseSlots)
+
+	// Chain B: longer (100 blocks) but only 5 of them fall inside the
+	// window, so B is strictly SPARSER than A by the window metric. If
+	// density were (incorrectly) consulted here, A would win; the shallow
+	// rule must still pick the longer chain B.
+	sparseSlots := make([]uint64, 0, 100)
+	for i := uint64(1); i <= 5; i++ {
+		sparseSlots = append(sparseSlots, 1000+i*100)
+	}
+	for i := uint64(1); i <= 95; i++ {
+		sparseSlots = append(sparseSlots, 1000+mainnetWindow+i*100)
+	}
+	chainB := NewSimpleChainTipWithBlockSlots(200000, 100, vrf, sparseSlots)
+
+	// Guard the premise: A really is denser than B inside the window.
+	require.Greater(
+		t,
+		chainA.BlocksInWindow(1000, mainnetWindow),
+		chainB.BlocksInWindow(1000, mainnetWindow),
+		"premise: chain A must be denser in the window than chain B",
+	)
+
+	// Rollback of only 100 blocks - shallow for k=2160.
+	fork := ForkPoint{Slot: 1000, BlockNumber: 900}
+
+	require.False(
+		t,
+		selector.IsDeepFork(fork, 1000),
+		"fork must be shallow for this test",
+	)
+
+	// A is strictly denser in the window, but the fork is shallow, so the
+	// ordinary rule must apply and the LONGER chain B must win.
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(chainA, chainB, fork, 1000),
+		"shallow fork must use longest-chain rule: longer chain B wins "+
+			"even though A is denser",
+	)
+
+	// The same contract must hold through the public selection entry
+	// point, in both candidate orders.
+	assert.Same(
+		t,
+		chainB,
+		selector.PreferredWithDensity(
+			[]ChainTip{chainA, chainB},
+			fork,
+			1000,
+		),
+		"PreferredWithDensity must pick the longer chain on a shallow fork",
+	)
+	assert.Same(
+		t,
+		chainB,
+		selector.PreferredWithDensity(
+			[]ChainTip{chainB, chainA},
+			fork,
+			1000,
+		),
+		"shallow-fork selection must not depend on candidate order",
+	)
+}
+
+// TestCompareWithDensityDeepForkUsesWindowCount is the issue #1936
+// regression under the canonical integer window metric: a longer but
+// sparser deep fork must lose to a shorter, denser one, in both argument
+// orders.
+func TestCompareWithDensityDeepForkUsesWindowCount(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+
+	vrf := make([]byte, 64)
+	fork, tip := deepFork(1000)
+
+	// Honest chain: 50 blocks, all within the window.
+	honestSlots := make([]uint64, 0, 50)
+	for i := uint64(1); i <= 50; i++ {
+		honestSlots = append(honestSlots, 1000+i*100)
+	}
+	honest := NewSimpleChainTipWithBlockSlots(6000, 50, vrf, honestSlots)
+
+	// Adversarial chain: 80 blocks total (longer), but only 10 of them
+	// fall inside the window; the rest are far beyond it.
+	advSlots := make([]uint64, 0, 80)
+	for i := uint64(1); i <= 10; i++ {
+		advSlots = append(advSlots, 1000+i*100)
+	}
+	for i := uint64(1); i <= 70; i++ {
+		advSlots = append(advSlots, 1000+mainnetWindow+i*100)
+	}
+	adversarial := NewSimpleChainTipWithBlockSlots(900000, 80, vrf, advSlots)
+
+	// Sanity: the adversarial chain really is longer.
+	assert.Negative(
+		t,
+		selector.Compare(honest, adversarial),
+		"adversarial chain should be longer under the ordinary rule",
+	)
+
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(honest, adversarial, fork, tip),
+		"denser honest chain must win a deep fork",
+	)
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(adversarial, honest, fork, tip),
+		"deep-fork density comparison must be order-independent",
+	)
+
+	// End-to-end through the public selection entry point.
+	assert.Same(
+		t,
+		honest,
+		selector.PreferredWithDensity(
+			[]ChainTip{adversarial, honest},
+			fork,
+			tip,
+		),
+		"PreferredWithDensity must select the denser chain on a deep fork",
+	)
+}
+
+// TestCompareWithDensityEqualDensityFallsThrough checks the tie rule: equal
+// block counts in the window fall through to the ordinary comparison.
+func TestCompareWithDensityEqualDensityFallsThrough(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+
+	vrf := make([]byte, 64)
+	fork, tip := deepFork(1000)
+
+	// Both chains have exactly 3 blocks inside the window, but B is
+	// longer overall, so the ordinary rule must pick B.
+	inWindow := []uint64{1100, 1200, 1300}
+
+	shortChain := NewSimpleChainTipWithBlockSlots(1300, 10, vrf, inWindow)
+	longChain := NewSimpleChainTipWithBlockSlots(1300, 20, vrf, inWindow)
+
+	assert.Negative(
+		t,
+		selector.CompareWithDensity(shortChain, longChain, fork, tip),
+		"equal window density must fall through to the ordinary rule",
+	)
+
+	// Equal density AND equal length: the VRF tiebreaker decides.
+	lowVRF := make([]byte, 64)
+	lowVRF[0] = 0x01
+	highVRF := make([]byte, 64)
+	highVRF[0] = 0x02
+
+	lowTip := NewSimpleChainTipWithBlockSlots(1300, 10, lowVRF, inWindow)
+	highTip := NewSimpleChainTipWithBlockSlots(1300, 10, highVRF, inWindow)
+
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(lowTip, highTip, fork, tip),
+		"equal density and length must fall through to the VRF tiebreak",
+	)
+}
+
+// TestCompareWithDensityWindowBoundary pins the exact window bound: a block
+// at forkSlot+windowSlots is inside, forkSlot+windowSlots+1 is outside, and
+// a block at forkSlot itself is outside.
+func TestCompareWithDensityWindowBoundary(t *testing.T) {
+	const forkSlot = uint64(1000)
+	const window = uint64(100)
+
+	tip := NewSimpleChainTipWithBlockSlots(
+		2000,
+		4,
+		make([]byte, 64),
+		[]uint64{
+			forkSlot,              // at the fork point: outside
+			forkSlot + 1,          // first slot in the window: inside
+			forkSlot + window,     // last slot in the window: inside
+			forkSlot + window + 1, // first slot past the window: outside
+		},
+	)
+
+	assert.Equal(
+		t,
+		uint64(2),
+		tip.BlocksInWindow(forkSlot, window),
+		"only forkSlot+1 and forkSlot+window fall inside the window",
+	)
+
+	// A zero window counts nothing.
+	assert.Equal(
+		t,
+		uint64(0),
+		tip.BlocksInWindow(forkSlot, 0),
+		"a zero window must count no blocks",
+	)
+}
+
+// TestBlocksInWindowUint64Boundary checks that the window bound is
+// evaluated without wrapping near the uint64 maximum.
+func TestBlocksInWindowUint64Boundary(t *testing.T) {
+	maxUint64 := ^uint64(0)
+	forkSlot := maxUint64 - 10
+
+	tip := NewSimpleChainTipWithBlockSlots(
+		maxUint64,
+		2,
+		make([]byte, 64),
+		[]uint64{forkSlot + 1, maxUint64},
+	)
+
+	// forkSlot+windowSlots would overflow; the subtraction form must not.
+	assert.Equal(
+		t,
+		uint64(2),
+		tip.BlocksInWindow(forkSlot, maxUint64),
+		"a window spanning past the uint64 max must not wrap",
+	)
+}
+
+// TestCompareWithDensityZeroWindowFallsBack checks the misconfiguration
+// path: with no genesis window, a deep fork still resolves (via the legacy
+// density ratio) rather than failing or silently preferring nothing.
+func TestCompareWithDensityZeroWindowFallsBack(t *testing.T) {
+	// No window configured.
+	selector := NewPraosChainSelector(2160)
+	fork, tip := deepFork(1000)
+
+	vrf := make([]byte, 64)
+	dense := NewSimpleChainTipWithDensity(1200, 100, vrf, 100, 200)
+	sparse := NewSimpleChainTipWithDensity(1500, 100, vrf, 100, 500)
+
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(dense, sparse, fork, tip),
+		"with no window the legacy density ratio still decides deep forks",
+	)
+}
+
+// TestCompareWithDensityFallsBackWithoutCounter checks the compatibility
+// path: a tip that does not implement WindowBlockCounter keeps working via
+// ChainTip.Density even when a window is configured.
+func TestCompareWithDensityFallsBackWithoutCounter(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	fork, tip := deepFork(1000)
+
+	dense := legacyTip{blockNumber: 100, density: 0.5}
+	sparse := legacyTip{blockNumber: 100, density: 0.2}
+
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(dense, sparse, fork, tip),
+		"tips without WindowBlockCounter must still compare by density",
+	)
+}
+
+// legacyTip implements only ChainTip - no WindowBlockCounter - modelling a
+// downstream implementation written against the pre-existing interface.
+type legacyTip struct {
+	blockNumber uint64
+	density     float64
+}
+
+func (l legacyTip) Slot() uint64             { return l.blockNumber * 20 }
+func (l legacyTip) BlockNumber() uint64      { return l.blockNumber }
+func (l legacyTip) VRFOutput() []byte        { return make([]byte, 64) }
+func (l legacyTip) Density(_ uint64) float64 { return l.density }
+
+// TestSimpleChainTipImplementsWindowBlockCounter is a compile-time style
+// check that the shipped tip satisfies the optional extension.
+func TestSimpleChainTipImplementsWindowBlockCounter(t *testing.T) {
+	var tip ChainTip = NewSimpleChainTipWithBlockSlots(
+		1000,
+		10,
+		make([]byte, 64),
+		[]uint64{1001},
+	)
+	_, ok := tip.(WindowBlockCounter)
+	assert.True(t, ok, "SimpleChainTip must implement WindowBlockCounter")
+
+	var legacy ChainTip = legacyTip{blockNumber: 10}
+	_, ok = legacy.(WindowBlockCounter)
+	assert.False(
+		t,
+		ok,
+		"a ChainTip-only implementation must remain valid",
+	)
 }
