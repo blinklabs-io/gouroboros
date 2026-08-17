@@ -31,3 +31,30 @@
 [submodule "repos/docker-openvpn"]
 	path = repos/docker-openvpn
 	url = git@github.com:blinklabs-io/docker-openvpn.git
+[submodule "repos/docker-cardano-cli"]
+	path = repos/docker-cardano-cli
+	url = git@github.com:blinklabs-io/docker-cardano-cli.git
+[submodule "repos/docker-cardano-node"]
+	path = repos/docker-cardano-node
+	url = git@github.com:blinklabs-io/docker-cardano-node.git
+[submodule "repos/docker-cardano-wallet"]
+	path = repos/docker-cardano-wallet
+	url = git@github.com:blinklabs-io/docker-cardano-wallet.git
+[submodule "repos/docker-cardano-db-sync"]
+	path = repos/docker-cardano-db-sync
+	url = git@github.com:blinklabs-io/docker-cardano-db-sync.git
+[submodule "repos/docker-parity-subkey"]
+	path = repos/docker-parity-subkey
+	url = git@github.com:blinklabs-io/docker-parity-subkey.git
+[submodule "repos/docker-wireguard"]
+	path = repos/docker-wireguard
+	url = git@github.com:blinklabs-io/docker-wireguard.git
+[submodule "repos/docker-hydra-node"]
+	path = repos/docker-hydra-node
+	url = git@github.com:blinklabs-io/docker-hydra-node.git
+[submodule "repos/docker-amaru"]
+	path = repos/docker-amaru
+	url = git@github.com:blinklabs-io/docker-amaru.git
+[submodule "repos/docker-mithril-signer"]
+	path = repos/docker-mithril-signer
+	url = git@github.com:blinklabs-io/docker-mithril-signer.git
