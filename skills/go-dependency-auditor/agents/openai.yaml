@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go Dependency Auditor"
+  short_description: "Audit Go modules and dependencies"
+  default_prompt: "Use $go-dependency-auditor to audit nested Go modules, replacements, missing checkouts, and dependency provenance."

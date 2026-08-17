@@ -11,6 +11,11 @@ reviews, read the [Go repository common-ground guide](docs/go-repository-guide.m
 Then read the target submodule's local `AGENTS.md`, `CLAUDE.md`,
 `CONTRIBUTING.md`, README, and Makefile.
 
+The shared `skills/*/SKILL.md` files are tool-neutral and are compatible with
+Claude as well as Codex. Load the relevant `SKILL.md` directly; the adjacent
+`agents/openai.yaml` file is optional OpenAI UI metadata and is not a Claude
+runtime dependency.
+
 The parent repository is a workspace of independently versioned submodules.
 Source changes belong in the relevant submodule; the parent normally records
 the resulting pointer and workspace documentation. Do not modify nested

@@ -71,6 +71,8 @@ shared repository-maintenance skill lives at
 [skills/blink-repo-maintainer](skills/blink-repo-maintainer/SKILL.md).
 For Go work and cross-repository code reviews, use the
 [Go repository common-ground guide](docs/go-repository-guide.md).
+Focused protocol, API, dependency, Docker, application, docs, and GitHub review
+skills are linked from the repository-level [AGENTS.md](AGENTS.md).
 
 ## Working with submodules
 

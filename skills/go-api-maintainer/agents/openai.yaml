@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go API Maintainer"
+  short_description: "Maintain generated Go API surfaces"
+  default_prompt: "Use $go-api-maintainer to review OpenAPI, protobuf, ConnectRPC, sqlc, and nested-module API changes."

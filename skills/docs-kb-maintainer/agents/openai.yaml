@@ -1,0 +1,4 @@
+interface:
+  display_name: "Docs and KB Maintainer"
+  short_description: "Maintain docs and knowledge base"
+  default_prompt: "Use $docs-kb-maintainer to maintain public docs, engineering KB content, navigation, and reproducible source links."

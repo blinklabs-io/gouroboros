@@ -151,12 +151,19 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   GitHub when appropriate; record the rationale on the pull request and retain
   the required human-review coverage.
 
-These patterns are implemented first as the
-[`blink-repo-maintainer`](../skills/blink-repo-maintainer/SKILL.md) skill. A
-separate plugin is not warranted yet: the current findings are procedural and
-local, while a plugin should add a concrete external integration or app
-capability. Revisit a plugin once the team chooses a standard GitHub or issue
-tracking integration for this workspace.
+These patterns are implemented by the
+[`blink-repo-maintainer`](../skills/blink-repo-maintainer/SKILL.md) skill, with
+focused companion skills for [Cardano protocol review](../skills/cardano-protocol-reviewer/SKILL.md),
+[Go API maintenance](../skills/go-api-maintainer/SKILL.md), [Go dependency
+auditing](../skills/go-dependency-auditor/SKILL.md), [Docker release
+review](../skills/docker-release-reviewer/SKILL.md), [Cardano application
+review](../skills/cardano-app-reviewer/SKILL.md), [docs and KB
+maintenance](../skills/docs-kb-maintainer/SKILL.md), and [GitHub review
+coordination](../skills/github-review-coordinator/SKILL.md). A separate plugin
+is not warranted yet: the current findings are procedural and local, while a
+plugin should add a concrete external integration or app capability. Revisit a
+plugin once the team chooses a standard GitHub or issue tracking integration
+for this workspace.
 
 For Go-specific orientation, module boundaries, review invariants, generated
 API pointers, and the dependency relationship between protocol libraries and

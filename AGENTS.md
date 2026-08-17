@@ -44,6 +44,14 @@ the scope, acceptance criteria, and relevant context.
   target repository's local instructions. The guide maps module boundaries,
   generated interfaces, shared fixtures, review invariants, and repository
   pointers.
+- Use the focused skills when their scope applies: [Cardano protocol
+  reviewer](skills/cardano-protocol-reviewer/SKILL.md), [Go API
+  maintainer](skills/go-api-maintainer/SKILL.md), [Go dependency
+  auditor](skills/go-dependency-auditor/SKILL.md), [Docker release
+  reviewer](skills/docker-release-reviewer/SKILL.md), [Cardano application
+  reviewer](skills/cardano-app-reviewer/SKILL.md), [docs and KB
+  maintainer](skills/docs-kb-maintainer/SKILL.md), and [GitHub review
+  coordinator](skills/github-review-coordinator/SKILL.md).
 
 ## Implementation guidance
 

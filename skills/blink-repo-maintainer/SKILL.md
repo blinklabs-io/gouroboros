@@ -14,6 +14,23 @@ For Go repositories or cross-repository code reviews, read the shared
 contains the current module-boundary map, generated-interface pointers, shared
 Cardano/CBOR review invariants, and a per-repository orientation table.
 
+Use the focused skills when applicable:
+
+- [cardano-protocol-reviewer](../cardano-protocol-reviewer/SKILL.md) for
+  ledger, CBOR, Plutus, Ouroboros, consensus, and conformance work;
+- [go-api-maintainer](../go-api-maintainer/SKILL.md) for OpenAPI, protobuf,
+  ConnectRPC, sqlc, and generated Go surfaces;
+- [go-dependency-auditor](../go-dependency-auditor/SKILL.md) for module graph,
+  replacement, checkout, and provenance audits;
+- [docker-release-reviewer](../docker-release-reviewer/SKILL.md) for image,
+  multi-architecture, manifest, and publishing workflows;
+- [cardano-app-reviewer](../cardano-app-reviewer/SKILL.md) for wallet,
+  transaction, DEX, indexer, and node-integrated applications;
+- [docs-kb-maintainer](../docs-kb-maintainer/SKILL.md) for public docs and KB
+  boundaries; and
+- [github-review-coordinator](../github-review-coordinator/SKILL.md) for the
+  bot-first, human-required pull-request review loop.
+
 ## Workflow
 
 1. Establish the boundary. Run `git status --short`, identify the repository
@@ -101,9 +118,10 @@ Cardano/CBOR review invariants, and a per-repository orientation table.
 
 ## Historical session context
 
-When local Codex session records are available, search them by repository path
-and name for prior investigations, validation commands, and recurring failure
-modes. Use them as historical context only: verify every conclusion against the
-current checkout, and never copy credentials, untracked files, or stale fixes.
-Distill repeated, repository-independent procedures into this skill or its
-references; leave one-off bug details in the project repository.
+When local agent session records are available, including Codex or Claude
+sessions, search them by repository path and name for prior investigations,
+validation commands, and recurring failure modes. Use them as historical
+context only: verify every conclusion against the current checkout, and never
+copy credentials, untracked files, or stale fixes. Distill repeated,
+repository-independent procedures into this skill or its references; leave
+one-off bug details in the project repository.

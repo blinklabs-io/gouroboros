@@ -1,0 +1,4 @@
+interface:
+  display_name: "Docker Release Reviewer"
+  short_description: "Review Docker release workflows"
+  default_prompt: "Use $docker-release-reviewer to review Dockerfiles, multi-architecture builds, tags, manifests, and release workflows."
