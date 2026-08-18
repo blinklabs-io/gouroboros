@@ -29,9 +29,34 @@ After cloning, read the repository-level [AGENTS.md](AGENTS.md) and any
 `CLAUDE.md` or equivalent contributor documentation inside the project you are
 working on. A submodule's local instructions take precedence for work within
 that submodule. For Go work and cross-repository reviews, start with the
-[common-ground guide](docs/go-repository-guide.md). The shared toolkit is
-packaged for both clients; see the [agent toolkit installation
-guide](docs/agent-toolkit-installation.md) for Codex and Claude Code setup.
+[common-ground guide](docs/go-repository-guide.md).
+
+## Agent toolkit
+
+Shared agentic-coding assets live in `plugins/blink-labs-agent-toolkit/` and
+cover Cardano, Go, Docker, documentation, and infrastructure work across every
+project in the workspace:
+
+- **Skills** that load automatically when a task matches them, from protocol and
+  application review to dependency auditing and validation discipline.
+- **Slash commands** — `/orient`, `/validate`, `/review`, `/dep-audit`,
+  `/release-check`, `/submodule-sync`.
+- **Subagents** for protocol, application, module, release, and validation
+  review, dispatchable in parallel across repositories.
+- **Workspace guards** that enforce DCO sign-off and Conventional Commits, warn
+  on submodule boundary crossings, and brief a new session on workspace state.
+
+`.claude/settings.json` registers the marketplace and enables the plugin, so a
+fresh clone is ready without manual setup. The complete catalog is in
+[docs/skill-catalog.md](docs/skill-catalog.md), and Claude Code and Codex
+installation, scopes, and guard bypasses are in the [agent toolkit installation
+guide](docs/agent-toolkit-installation.md).
+
+Validate any change to the toolkit with:
+
+```sh
+make validate
+```
 
 ## Contributing
 
@@ -49,32 +74,31 @@ At the workspace level:
 - Check the applicable `CODEOWNERS` file and project-specific contribution
   instructions before opening a pull request.
 
-## Planned layout
+## Repository layout
 
-The exact layout will evolve as projects and tooling are added. The intended
-top-level organization is:
+The workspace is organized as follows; it will keep evolving as projects and
+tooling are added:
 
 ```text
 .
-├── skills/       # Reusable agent skills
-├── plugins/      # Agent plugins and plugin metadata
-├── docs/         # Shared documentation and design notes
+├── .claude/      # Workspace Claude Code settings (marketplace, permissions)
+├── skills/       # Symlink into the toolkit's skills
+├── plugins/      # Agent plugins; the toolkit is the canonical source
+├── docs/         # Shared documentation and the toolkit catalog
 ├── scripts/      # Workspace-level development and maintenance scripts
 └── repos/        # Blink Labs repositories tracked as Git submodules
     └── .github/  # Organization-wide contribution and security defaults
 ```
 
-Directories may be introduced incrementally; their presence is not required
-for a checkout to be useful.
+`skills/`, `docs/go-repository-guide.md`, and `docs/repository-patterns.md` are
+symlinks into `plugins/blink-labs-agent-toolkit/`, which holds the only copy of
+each file. Edit the files under `plugins/`; never replace a symlink with a copy.
 
 The current repository families, validation matrix, and governance findings are
-documented in [docs/repository-patterns.md](docs/repository-patterns.md). The
-shared repository-maintenance skill lives at
-[skills/blink-repo-maintainer](skills/blink-repo-maintainer/SKILL.md).
-For Go work and cross-repository code reviews, use the
-[Go repository common-ground guide](docs/go-repository-guide.md).
-Focused protocol, API, dependency, Docker, application, docs, and GitHub review
-skills are linked from the repository-level [AGENTS.md](AGENTS.md).
+documented in [docs/repository-patterns.md](docs/repository-patterns.md). For Go
+work and cross-repository code reviews, use the [Go repository common-ground
+guide](docs/go-repository-guide.md). Every skill, command, subagent, and guard
+is listed in [docs/skill-catalog.md](docs/skill-catalog.md).
 
 ## Working with submodules
 
