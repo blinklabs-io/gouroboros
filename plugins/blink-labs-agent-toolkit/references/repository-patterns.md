@@ -162,6 +162,8 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - An authorized human reviewer may dismiss another human review through
   GitHub when appropriate; record the rationale on the pull request and retain
   the required human-review coverage.
+- Only the author merges their own pull request; the person who merges takes
+  responsibility for the code. `dependabot[bot]` is the sole exception.
 - Squash merge is allowed only with a human approval attached to the current PR
   head, passing required checks, and no actionable bot findings. Use one concise
   factual squash summary and preserve the DCO `Signed-off-by:` line. A review

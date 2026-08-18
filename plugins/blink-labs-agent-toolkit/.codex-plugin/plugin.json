@@ -1,6 +1,6 @@
 {
   "name": "blink-labs-agent-toolkit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Shared Blink Labs maintenance and review skills for Claude- and Codex-compatible agent workflows.",
   "author": {
     "name": "Blink Labs"

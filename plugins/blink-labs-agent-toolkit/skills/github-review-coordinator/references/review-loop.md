@@ -26,6 +26,11 @@ Stop when the PR is ready for human review.
 
 ## Squash merge gate
 
+Only the author merges their own pull request. Whoever presses merge takes
+responsibility for the code, so approving a change is not the same as owning
+it — hand an approved PR back to its author rather than merging it for them.
+The sole exception is `dependabot[bot]`, which cannot merge its own PRs.
+
 Squash merge is allowed when GitHub shows a human `APPROVED` review attached to
 the current head SHA, required checks pass, and configured bots have no
 actionable findings. Use one concise factual squash summary and preserve the

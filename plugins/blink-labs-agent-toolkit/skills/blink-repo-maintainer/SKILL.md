@@ -154,6 +154,8 @@ Use the focused skills when applicable:
   same reviewer through GitHub.
 - An authorized human reviewer may dismiss another human review through
   GitHub when appropriate, with the rationale recorded on the pull request.
+- Only the author merges their own pull request; whoever merges owns the code.
+  `dependabot[bot]` is the sole exception, since it cannot merge its own.
 - A squash merge is allowed only with human approval for the current head SHA,
   passing required checks, and no actionable bot findings. Use one concise
   factual squash summary and preserve the DCO `Signed-off-by:` line.

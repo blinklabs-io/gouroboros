@@ -56,6 +56,15 @@ judgment. Bot findings are review inputs, never conclusions.
    actionable findings, rerun affected checks, then request the required human
    review through GitHub. Bot approval or silence is never human approval.
 
+   Reply to every bot thread, including already-fixed and rejected ones, and
+   expect one more bot pass after you push — check for it before reporting the
+   work finished.
+
+   Do not merge someone else's PR. Whoever presses merge takes responsibility
+   for the code, so an approval is not ownership: report an approved PR back to
+   its author. `dependabot[bot]` is the sole exception, since it cannot merge
+   its own.
+
 ## Report
 
 Order findings: behavioral and security defects, then API or wire

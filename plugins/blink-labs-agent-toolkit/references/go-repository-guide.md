@@ -78,6 +78,9 @@ An authorized human reviewer may dismiss another human review through GitHub
 when appropriate. Record the rationale on the pull request; dismissal does not
 eliminate the requirement for appropriate human review.
 
+Only the author merges their own pull request — whoever merges takes
+responsibility for the code — with `dependabot[bot]` the sole exception.
+
 Squash merge is allowed only when GitHub shows human approval for the current
 head SHA, required checks pass, and configured bots have no actionable findings.
 Use one concise factual squash summary and preserve the DCO

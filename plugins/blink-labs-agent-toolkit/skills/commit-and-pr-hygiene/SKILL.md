@@ -33,6 +33,15 @@ build: bump gouroboros to v0.x.y
 Wrong: `update stuff`, `WIP`, `fix: fixed the thing I broke earlier while
 investigating the chain selection issue we discussed`.
 
+## Stage explicitly
+
+Name the paths you are committing. Never `git add -A`, `git add .`, or
+`git commit -a`: a workspace checkout routinely carries changes that are not
+yours to commit — a submodule pointer moved by a checkout, another session's
+edits, local agent state — and a blanket add sweeps them in silently. Run
+`git status --short` first, add the files the change actually touches, and check
+`git diff --cached --stat` before committing.
+
 ## Never commit
 
 Plan files, planning notes, scratch analyses, session handoffs, agent state,
@@ -84,6 +93,10 @@ human review, not human approval or merge.
 
 ## Squash merge
 
+- **Merge only your own pull requests.** Whoever presses merge takes
+  responsibility for the code, so an approval is not ownership: hand an approved
+  PR back to its author instead of merging it for them. The sole exception is
+  `dependabot[bot]`, which cannot merge its own.
 - Confirm GitHub shows a human `APPROVED` review whose commit SHA matches the
   current PR head. Approval of an earlier ref is stale after a new commit.
 - Confirm required checks pass and configured bots have no actionable findings.
