@@ -52,6 +52,26 @@ fresh clone is ready without manual setup. The complete catalog is in
 installation, scopes, and guard bypasses are in the [agent toolkit installation
 guide](docs/agent-toolkit-installation.md).
 
+### Install
+
+From the root of this checkout, register the local marketplace and install the
+toolkit in the client you use:
+
+```sh
+# Claude Code
+claude plugin marketplace add . --scope user
+claude plugin install blink-labs-agent-toolkit@blink-labs-team
+
+# Codex
+codex plugin marketplace add .
+codex plugin add blink-labs-agent-toolkit@blink-labs-team
+```
+
+Claude Code can reload an installed update with `/reload-plugins`. Start a new
+Codex session after installing or updating the plugin. Use
+`claude --plugin-dir ./plugins/blink-labs-agent-toolkit` for a Claude Code
+development checkout without installing it.
+
 Validate any change to the toolkit with:
 
 ```sh

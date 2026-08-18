@@ -25,7 +25,10 @@ The full catalog, including when each piece applies, is in
 
 ## Install
 
+Run these commands from the root of the `clanker` checkout:
+
 ```sh
+# Claude Code
 claude plugin marketplace add .
 claude plugin install blink-labs-agent-toolkit@blink-labs-team
 ```
@@ -43,7 +46,9 @@ codex plugin marketplace add .
 codex plugin add blink-labs-agent-toolkit@blink-labs-team
 ```
 
-See [`docs/agent-toolkit-installation.md`](../../docs/agent-toolkit-installation.md)
+Claude Code reloads an installed update with `/reload-plugins`. Start a new
+Codex session after installing or updating the plugin. See
+[`docs/agent-toolkit-installation.md`](../../docs/agent-toolkit-installation.md)
 for scopes, updates, and tool-neutral use.
 
 ## Guards
