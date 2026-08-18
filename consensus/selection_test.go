@@ -531,7 +531,7 @@ func TestCompareWithDensityShallowForkShorterDenserLoses(t *testing.T) {
 	for i := uint64(1); i <= 90; i++ {
 		denseSlots = append(denseSlots, 1000+i)
 	}
-	chainA := NewSimpleChainTipWithBlockSlots(1090, 90, vrf, denseSlots)
+	chainA := NewWindowedChainTip(1090, 90, vrf, denseSlots)
 
 	// Chain B: longer (100 blocks) but only 5 of them fall inside the
 	// window, so B is strictly SPARSER than A by the window metric. If
@@ -544,7 +544,7 @@ func TestCompareWithDensityShallowForkShorterDenserLoses(t *testing.T) {
 	for i := uint64(1); i <= 95; i++ {
 		sparseSlots = append(sparseSlots, 1000+mainnetWindow+i*100)
 	}
-	chainB := NewSimpleChainTipWithBlockSlots(200000, 100, vrf, sparseSlots)
+	chainB := NewWindowedChainTip(200000, 100, vrf, sparseSlots)
 
 	// Guard the premise: A really is denser than B inside the window.
 	require.Greater(
@@ -611,7 +611,7 @@ func TestCompareWithDensityDeepForkUsesWindowCount(t *testing.T) {
 	for i := uint64(1); i <= 50; i++ {
 		honestSlots = append(honestSlots, 1000+i*100)
 	}
-	honest := NewSimpleChainTipWithBlockSlots(6000, 50, vrf, honestSlots)
+	honest := NewWindowedChainTip(6000, 50, vrf, honestSlots)
 
 	// Adversarial chain: 80 blocks total (longer), but only 10 of them
 	// fall inside the window; the rest are far beyond it.
@@ -622,7 +622,7 @@ func TestCompareWithDensityDeepForkUsesWindowCount(t *testing.T) {
 	for i := uint64(1); i <= 70; i++ {
 		advSlots = append(advSlots, 1000+mainnetWindow+i*100)
 	}
-	adversarial := NewSimpleChainTipWithBlockSlots(900000, 80, vrf, advSlots)
+	adversarial := NewWindowedChainTip(900000, 80, vrf, advSlots)
 
 	// Sanity: the adversarial chain really is longer.
 	assert.Negative(
@@ -667,8 +667,8 @@ func TestCompareWithDensityEqualDensityFallsThrough(t *testing.T) {
 	// longer overall, so the ordinary rule must pick B.
 	inWindow := []uint64{1100, 1200, 1300}
 
-	shortChain := NewSimpleChainTipWithBlockSlots(1300, 10, vrf, inWindow)
-	longChain := NewSimpleChainTipWithBlockSlots(1300, 20, vrf, inWindow)
+	shortChain := NewWindowedChainTip(1300, 10, vrf, inWindow)
+	longChain := NewWindowedChainTip(1300, 20, vrf, inWindow)
 
 	assert.Negative(
 		t,
@@ -682,8 +682,8 @@ func TestCompareWithDensityEqualDensityFallsThrough(t *testing.T) {
 	highVRF := make([]byte, 64)
 	highVRF[0] = 0x02
 
-	lowTip := NewSimpleChainTipWithBlockSlots(1300, 10, lowVRF, inWindow)
-	highTip := NewSimpleChainTipWithBlockSlots(1300, 10, highVRF, inWindow)
+	lowTip := NewWindowedChainTip(1300, 10, lowVRF, inWindow)
+	highTip := NewWindowedChainTip(1300, 10, highVRF, inWindow)
 
 	assert.Positive(
 		t,
@@ -699,7 +699,7 @@ func TestCompareWithDensityWindowBoundary(t *testing.T) {
 	const forkSlot = uint64(1000)
 	const window = uint64(100)
 
-	tip := NewSimpleChainTipWithBlockSlots(
+	tip := NewWindowedChainTip(
 		2000,
 		4,
 		make([]byte, 64),
@@ -733,7 +733,7 @@ func TestBlocksInWindowUint64Boundary(t *testing.T) {
 	maxUint64 := ^uint64(0)
 	forkSlot := maxUint64 - 10
 
-	tip := NewSimpleChainTipWithBlockSlots(
+	tip := NewWindowedChainTip(
 		maxUint64,
 		2,
 		make([]byte, 64),
@@ -797,17 +797,19 @@ func (l legacyTip) BlockNumber() uint64      { return l.blockNumber }
 func (l legacyTip) VRFOutput() []byte        { return make([]byte, 64) }
 func (l legacyTip) Density(_ uint64) float64 { return l.density }
 
-// TestSimpleChainTipImplementsWindowBlockCounter is a compile-time style
-// check that the shipped tip satisfies the optional extension.
-func TestSimpleChainTipImplementsWindowBlockCounter(t *testing.T) {
-	var tip ChainTip = NewSimpleChainTipWithBlockSlots(
+// TestOnlyWindowedTipClaimsWindowBlockCounter pins which types may claim the
+// optional extension. Only a tip that actually carries block slots may: a
+// tip that cannot count must not advertise the capability, because
+// selection cannot distinguish "answered zero" from "had no data".
+func TestOnlyWindowedTipClaimsWindowBlockCounter(t *testing.T) {
+	var windowed ChainTip = NewWindowedChainTip(
 		1000,
 		10,
 		make([]byte, 64),
 		[]uint64{1001},
 	)
-	_, ok := tip.(WindowBlockCounter)
-	assert.True(t, ok, "SimpleChainTip must implement WindowBlockCounter")
+	_, ok := windowed.(WindowBlockCounter)
+	assert.True(t, ok, "WindowedChainTip must implement WindowBlockCounter")
 
 	var legacy ChainTip = legacyTip{blockNumber: 10}
 	_, ok = legacy.(WindowBlockCounter)
@@ -815,5 +817,79 @@ func TestSimpleChainTipImplementsWindowBlockCounter(t *testing.T) {
 		t,
 		ok,
 		"a ChainTip-only implementation must remain valid",
+	)
+
+	// The tip built without block slots must NOT claim the capability.
+	var plain ChainTip = NewSimpleChainTipWithDensity(
+		1000, 10, make([]byte, 64), 5, 100,
+	)
+	_, ok = plain.(WindowBlockCounter)
+	assert.False(
+		t,
+		ok,
+		"a tip with no block slots must not claim WindowBlockCounter",
+	)
+}
+
+// TestDeepForkLegacyTipsStillDiscriminate is the regression for the silent
+// degradation this type split closes. With a window configured but both
+// tips built from the legacy constructor, the selector must fall back to
+// the density ratio and still prefer the denser chain on a deep fork.
+// Before the split both tips claimed WindowBlockCounter and answered zero,
+// so density was bypassed entirely and the longer-but-sparser chain won.
+func TestDeepForkLegacyTipsStillDiscriminate(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	fork, tip := deepFork(1000)
+
+	// dense is SHORTER (2000 < 2600) but four times denser.
+	dense := NewSimpleChainTipWithDensity(
+		3000, 2000, make([]byte, 64), 1000, 2000,
+	) // 0.5
+	sparse := NewSimpleChainTipWithDensity(
+		9000, 2600, make([]byte, 64), 1600, 8000,
+	) // 0.2
+
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(dense, sparse, fork, tip),
+		"deep fork: the denser chain must win even via the fallback ratio",
+	)
+	assert.Same(
+		t,
+		dense,
+		selector.PreferredWithDensity(
+			[]ChainTip{dense, sparse}, fork, tip,
+		),
+		"PreferredWithDensity must pick the denser chain on a deep fork",
+	)
+}
+
+// TestWindowedTipDensityFallback covers the mixed case: a windowed tip
+// compared against a ChainTip-only tip falls back to the ratio, so the
+// windowed tip must derive a meaningful ratio from its block slots rather
+// than reporting zero and losing by default.
+func TestWindowedTipDensityFallback(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	fork, tip := deepFork(1000)
+
+	// 10 blocks in the 100 slots after the fork: ratio 0.1.
+	slots := make([]uint64, 0, 10)
+	for i := uint64(1); i <= 10; i++ {
+		slots = append(slots, 1000+i*10)
+	}
+	windowed := NewWindowedChainTip(1100, 10, make([]byte, 64), slots)
+	assert.InDelta(
+		t,
+		0.1,
+		windowed.Density(1000),
+		1e-9,
+		"a windowed tip must derive its legacy ratio from its block slots",
+	)
+
+	sparse := legacyTip{blockNumber: 10, density: 0.05}
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(windowed, sparse, fork, tip),
+		"mixed comparison must fall back to a meaningful ratio",
 	)
 }

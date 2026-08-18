@@ -370,6 +370,10 @@ func (p *PraosChainSelector) PreferredWithDensity(
 }
 
 // SimpleChainTip is a simple implementation of ChainTip for testing.
+//
+// It deliberately does NOT implement WindowBlockCounter: it holds no
+// per-block slots, so it cannot answer a window count. See
+// WindowedChainTip for a tip that can.
 type SimpleChainTip struct {
 	slot        uint64
 	blockNumber uint64
@@ -377,9 +381,6 @@ type SimpleChainTip struct {
 	// For the legacy density ratio
 	blocksAfterFork uint64
 	slotsAfterFork  uint64
-	// blockSlots holds the slot of each block on this chain, used for the
-	// canonical window metric (see WindowBlockCounter).
-	blockSlots []uint64
 }
 
 // NewSimpleChainTip creates a new SimpleChainTip.
@@ -409,18 +410,31 @@ func NewSimpleChainTipWithDensity(
 	}
 }
 
-// NewSimpleChainTipWithBlockSlots creates a SimpleChainTip that supports
-// the canonical window metric, from the slots of the blocks on the chain.
-func NewSimpleChainTipWithBlockSlots(
+// WindowedChainTip is a chain tip that carries the slot of each of its
+// blocks and can therefore answer the canonical Genesis window count.
+//
+// It is a distinct type on purpose. WindowBlockCounter is satisfied by a
+// type, not by an instance, so a tip that holds no per-block slots must not
+// carry the method at all — otherwise it would claim the capability and
+// answer zero, which selection cannot distinguish from a chain that
+// genuinely has no blocks in the window. Keeping the capability and the
+// data in the same type makes that state unrepresentable.
+type WindowedChainTip struct {
+	*SimpleChainTip
+	// blockSlots holds the slot of each block on this chain.
+	blockSlots []uint64
+}
+
+// NewWindowedChainTip creates a tip that supports the canonical Genesis
+// window metric, from the slots of the blocks on the chain.
+func NewWindowedChainTip(
 	slot, blockNumber uint64,
 	vrfOutput []byte,
 	blockSlots []uint64,
-) *SimpleChainTip {
-	return &SimpleChainTip{
-		slot:        slot,
-		blockNumber: blockNumber,
-		vrfOutput:   vrfOutput,
-		blockSlots:  blockSlots,
+) *WindowedChainTip {
+	return &WindowedChainTip{
+		SimpleChainTip: NewSimpleChainTip(slot, blockNumber, vrfOutput),
+		blockSlots:     blockSlots,
 	}
 }
 
@@ -453,17 +467,39 @@ func (s *SimpleChainTip) Density(_ uint64) float64 {
 // BlocksInWindow implements WindowBlockCounter. A block at slot s counts
 // iff s > forkSlot && s-forkSlot <= windowSlots; the bound is evaluated in
 // that subtraction form so it cannot wrap near the uint64 maximum.
-func (s *SimpleChainTip) BlocksInWindow(
+func (w *WindowedChainTip) BlocksInWindow(
 	forkSlot, windowSlots uint64,
 ) uint64 {
 	if windowSlots == 0 {
 		return 0
 	}
 	var count uint64
-	for _, blockSlot := range s.blockSlots {
+	for _, blockSlot := range w.blockSlots {
 		if blockSlot > forkSlot && blockSlot-forkSlot <= windowSlots {
 			count++
 		}
 	}
 	return count
+}
+
+// Density overrides the embedded ratio, which would otherwise report zero
+// because a windowed tip carries block slots rather than precomputed
+// blocks/slots totals. It derives the legacy ratio from those slots so a
+// windowed tip stays comparable when the other side of a comparison
+// implements only ChainTip and the selector must fall back.
+func (w *WindowedChainTip) Density(forkSlot uint64) float64 {
+	var blocks, maxSlot uint64
+	for _, blockSlot := range w.blockSlots {
+		if blockSlot <= forkSlot {
+			continue
+		}
+		blocks++
+		if blockSlot > maxSlot {
+			maxSlot = blockSlot
+		}
+	}
+	if blocks == 0 {
+		return 0
+	}
+	return float64(blocks) / float64(maxSlot-forkSlot)
 }
