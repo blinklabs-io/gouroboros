@@ -1,0 +1,4 @@
+interface:
+  display_name: "Isolated Validation Runs"
+  short_description: "Run long checks safely and reproducibly"
+  default_prompt: "Use $isolated-validation-runs to set up an isolated worktree, unique resources, and disciplined background-task handling for this validation."

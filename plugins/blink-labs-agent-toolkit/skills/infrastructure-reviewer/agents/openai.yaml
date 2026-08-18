@@ -1,0 +1,4 @@
+interface:
+  display_name: "Infrastructure Reviewer"
+  short_description: "Review Helm, Terraform, Ansible, and cluster changes"
+  default_prompt: "Use $infrastructure-reviewer to review this deployment change for blast radius, state safety, secrets, and Cardano operational realism."

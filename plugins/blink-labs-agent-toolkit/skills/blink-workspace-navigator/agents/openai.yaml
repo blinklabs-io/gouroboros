@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blink Workspace Navigator"
+  short_description: "Find the repository that owns a change"
+  default_prompt: "Use $blink-workspace-navigator to locate the Blink Labs repository that owns this topic, trace its consumers, and state where the change belongs."

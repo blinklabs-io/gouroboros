@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evidence-Based Handoff"
+  short_description: "Report only what was actually verified"
+  default_prompt: "Use $evidence-based-handoff to produce the evidence ledger, skipped-check list, and severity-ordered findings for this work."

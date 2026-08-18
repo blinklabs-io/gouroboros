@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit and PR Hygiene"
+  short_description: "Conventional Commits, DCO, and the review loop"
+  default_prompt: "Use $commit-and-pr-hygiene to write this commit or pull request to Blink Labs policy and follow the bot-first review loop."

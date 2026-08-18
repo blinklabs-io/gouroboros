@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Toolkit Authoring"
+  short_description: "Add or change toolkit skills, commands, and hooks"
+  default_prompt: "Use $agent-toolkit-authoring to add or modify a Blink Labs toolkit skill, command, subagent, or hook and validate it."
