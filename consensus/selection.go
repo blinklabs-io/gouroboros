@@ -15,24 +15,127 @@
 package consensus
 
 import (
+	"log/slog"
 	"math/big"
+	"sync"
 )
 
-// PraosChainSelector implements Ouroboros Praos chain selection rules.
+// PraosChainSelector implements Ouroboros chain selection.
 //
-// Chain selection in Praos follows these rules:
-//  1. Prefer the chain with more blocks (higher block number)
-//  2. For equal length chains, prefer the one with lower VRF output (tiebreaker)
-//  3. For deep forks (diverging more than k slots ago), compare chain density
+// Selection is routed explicitly on how deep the fork is, and the two
+// regimes are kept separate:
+//
+//  1. Shallow forks (rollback of at most k blocks) use the ordinary
+//     longest-chain rule: prefer more blocks, then the lower VRF output
+//     as a tiebreaker. Density is never consulted here — a shorter but
+//     denser shallow candidate must NOT beat a longer chain.
+//  2. Deep forks (rollback of more than k blocks — the syncing regime the
+//     Genesis rule governs) compare density first: the candidate with MORE
+//     BLOCKS within the genesis window wins regardless of total length,
+//     and only an exact tie falls back to the ordinary rule. This is what
+//     stops a longer but sparser (adversarial) deep fork from winning.
+//
+// The routing predicate is IsDeepFork, and it is the only thing that
+// decides which regime applies; every density entry point takes the depth
+// inputs it needs, so a caller cannot reach the density rule for a shallow
+// fork.
+//
+// Units: the security parameter k bounds a number of BLOCKS, not slots.
+// Ouroboros.Consensus.Config.SecurityParam: "NOTE: This talks about the
+// number of /blocks/ we can roll back, not the number of /slots/". Fork
+// depth is therefore measured between block numbers, while the genesis
+// window is a span of SLOTS; ForkPoint carries both so the two units
+// cannot be transposed at a call site.
+//
+// NOTE: the density comparison here is an ORDERING derived from the
+// Genesis density rule; it is not the GDD governor. In
+// ouroboros-consensus (Ouroboros.Consensus.Genesis.Governor,
+// densityDisconnect) the rule disconnects sparser PEERS and an exact tie
+// disconnects both; an ordering cannot express "both lose", so an exact
+// tie falls through to the ordinary comparison here — the same adaptation
+// the Dingo node uses for fork resolution. Peer management remains the
+// caller's concern.
 type PraosChainSelector struct {
-	// SecurityParam is the security parameter k (max rollback depth)
+	// SecurityParam is the security parameter k: the maximum rollback
+	// depth, in BLOCKS (not slots).
 	SecurityParam uint64
+	// GenesisWindowSlots is the Ouroboros Genesis density window sgen, in
+	// SLOTS after the fork point. For Shelley-family eras this is 3k/f
+	// (see genesis.ComputeGenesisWindow; mainnet 129600). When it is zero,
+	// or when the tips being compared do not implement WindowBlockCounter,
+	// deep-fork comparison falls back to the legacy ChainTip.Density
+	// ratio; see compareDensity.
+	GenesisWindowSlots uint64
+
+	// warnFallbackDensity throttles the legacy-metric warning to once per
+	// selector.
+	warnFallbackDensity sync.Once
+}
+
+// ForkPoint identifies the intersection between the current selection and
+// the candidate chains being compared: the last block they share.
+//
+// Selection needs that point in two different units, so both are carried
+// explicitly rather than inferred from one another:
+//
+//   - Slot anchors the genesis window, which spans SLOTS.
+//   - BlockNumber measures rollback depth, which is what k bounds (BLOCKS).
+//
+// Naming the fields keeps the two from being transposed at call sites,
+// where both are plain uint64.
+type ForkPoint struct {
+	// Slot is the slot of the last block common to the chains compared.
+	Slot uint64
+	// BlockNumber is the block height of that same common block.
+	BlockNumber uint64
+}
+
+// WindowBlockCounter is an optional extension of ChainTip that supplies the
+// canonical Ouroboros Genesis density metric: an integer count of blocks
+// within a fixed window of slots after the fork point.
+//
+// ChainTip itself is unchanged, so existing implementations keep working;
+// a tip that also implements this interface gets the canonical metric
+// instead of the ChainTip.Density ratio (see compareDensity).
+type WindowBlockCounter interface {
+	// BlocksInWindow returns the number of blocks on this chain whose slot
+	// lies within the genesis window after forkSlot: a block at slot s
+	// counts iff s > forkSlot && s-forkSlot <= windowSlots. State the
+	// bound in that subtraction form in implementations too — computing
+	// forkSlot+windowSlots can wrap near the uint64 maximum.
+	//
+	// This matches densityDisconnect, which clips each candidate suffix at
+	// the first slot after the genesis window (succ(intersection) + sgen)
+	// and counts the headers that remain. Selection may call this once per
+	// pairwise comparison; implementations over large chains should
+	// precompute or index rather than rescan.
+	BlocksInWindow(forkSlot, windowSlots uint64) uint64
 }
 
 // NewPraosChainSelector creates a new Praos chain selector.
+//
+// The selector has no genesis window configured, so deep-fork comparison
+// uses the legacy ChainTip.Density ratio. Use
+// NewPraosChainSelectorWithWindow for the canonical Genesis metric.
 func NewPraosChainSelector(securityParam uint64) *PraosChainSelector {
 	return &PraosChainSelector{
 		SecurityParam: securityParam,
+	}
+}
+
+// NewPraosChainSelectorWithWindow creates a selector that applies the
+// canonical Genesis density metric, counting blocks within
+// genesisWindowSlots slots after the fork point.
+//
+// securityParam is k in BLOCKS; genesisWindowSlots is sgen in SLOTS,
+// derived with genesis.ComputeGenesisWindow(k, f).
+func NewPraosChainSelectorWithWindow(
+	securityParam uint64,
+	genesisWindowSlots uint64,
+) *PraosChainSelector {
+	return &PraosChainSelector{
+		SecurityParam:      securityParam,
+		GenesisWindowSlots: genesisWindowSlots,
 	}
 }
 
@@ -91,30 +194,110 @@ func (p *PraosChainSelector) Compare(a, b ChainTip) int {
 	return 0
 }
 
+// IsDeepFork reports whether adopting a candidate that branches at fork
+// would require rolling back more than k BLOCKS from the current
+// selection, whose tip is at tipBlockNumber.
+//
+// This is the routing predicate for chain selection: false selects the
+// ordinary longest-chain rule, true selects the Genesis density rule (see
+// CompareWithDensity).
+//
+// The unit is deliberate. k bounds blocks, not slots
+// (Ouroboros.Consensus.Config.SecurityParam: "NOTE: This talks about the
+// number of /blocks/ we can roll back, not the number of /slots/"), so
+// depth is measured between block numbers. Measuring it in slots
+// misclassifies forks by roughly 1/f — about 20x at mainnet f=0.05 —
+// treating ordinary shallow forks as deep.
+//
+// A fork point at or ahead of the tip requires no rollback and is never
+// deep; the subtraction below therefore cannot underflow.
+func (p *PraosChainSelector) IsDeepFork(
+	fork ForkPoint,
+	tipBlockNumber uint64,
+) bool {
+	if tipBlockNumber <= fork.BlockNumber {
+		return false
+	}
+	return tipBlockNumber-fork.BlockNumber > p.SecurityParam
+}
+
+// compareDensity compares the density of two tips over the genesis window
+// after fork. It returns a positive value if a is denser, a negative value
+// if b is denser, and zero if they are equal.
+//
+// The canonical Genesis metric is an integer count of blocks within the
+// window, which requires a configured window and both tips to implement
+// WindowBlockCounter. When either is missing this falls back to the legacy
+// ChainTip.Density ratio and warns once, because that ratio is measured
+// over the whole fork suffix rather than a fixed window and so is not the
+// Genesis metric.
+func (p *PraosChainSelector) compareDensity(
+	a, b ChainTip,
+	fork ForkPoint,
+) int {
+	aCounter, aOK := a.(WindowBlockCounter)
+	bCounter, bOK := b.(WindowBlockCounter)
+
+	if p.GenesisWindowSlots > 0 && aOK && bOK {
+		aBlocks := aCounter.BlocksInWindow(fork.Slot, p.GenesisWindowSlots)
+		bBlocks := bCounter.BlocksInWindow(fork.Slot, p.GenesisWindowSlots)
+		if aBlocks > bBlocks {
+			return 1
+		}
+		if bBlocks > aBlocks {
+			return -1
+		}
+		return 0
+	}
+
+	p.warnFallbackDensity.Do(func() {
+		slog.Warn(
+			"deep-fork comparison using legacy density ratio; configure a "+
+				"genesis window and implement WindowBlockCounter for the "+
+				"canonical Genesis metric",
+			"securityParam", p.SecurityParam,
+			"genesisWindowSlots", p.GenesisWindowSlots,
+		)
+	})
+
+	aDensity := a.Density(fork.Slot)
+	bDensity := b.Density(fork.Slot)
+	if aDensity > bDensity {
+		return 1
+	}
+	if bDensity > aDensity {
+		return -1
+	}
+	return 0
+}
+
 // CompareWithDensity compares two chains using the Ouroboros Genesis rule,
 // branching explicitly on how deep the fork is relative to the security
 // parameter k:
 //
-//   - Forks no deeper than k slots (see IsDeepFork) are not considered
-//     "deep" and are resolved using the ordinary longest-chain rule
-//     (Compare), exactly as ordinary Praos selection would.
-//   - Forks deeper than k slots must be resolved using chain density
-//     over the window since the fork point *first*; the longest-chain
-//     rule is only used as a tiebreaker when densities are equal. This
-//     prevents a longer but sparser (and therefore potentially
-//     adversarial) deep fork from beating a shorter, denser one.
+//   - Forks requiring a rollback of at most k blocks (see IsDeepFork) are
+//     not "deep" and are resolved using the ordinary longest-chain rule
+//     (Compare), exactly as ordinary Praos selection would. Density is not
+//     consulted, so a shorter but denser shallow candidate cannot win.
+//   - Forks requiring a rollback of more than k blocks are resolved by
+//     density over the genesis window *first*; the longest-chain rule is
+//     only used as a tiebreaker when densities are equal. This prevents a
+//     longer but sparser (and therefore potentially adversarial) deep fork
+//     from beating a shorter, denser one.
 //
 // Parameters:
 //   - a, b: the chain tips to compare
-//   - forkSlot: the slot where the chains diverged
-//   - currentSlot: the slot used to measure fork depth against forkSlot
-//     (typically the current tip/wallclock slot)
+//   - fork: the intersection the chains diverge at, carrying both the slot
+//     (which anchors the genesis window) and the block number (which
+//     measures rollback depth)
+//   - tipBlockNumber: block height of the current selection, against which
+//     rollback depth is measured
 //
 // Returns the same values as Compare.
 func (p *PraosChainSelector) CompareWithDensity(
 	a, b ChainTip,
-	forkSlot uint64,
-	currentSlot uint64,
+	fork ForkPoint,
+	tipBlockNumber uint64,
 ) int {
 	if a == nil && b == nil {
 		return 0
@@ -126,21 +309,15 @@ func (p *PraosChainSelector) CompareWithDensity(
 		return 1
 	}
 
-	// Shallow forks (at most k deep) use ordinary longest-chain selection;
-	// density is not considered per the Genesis rule.
-	if !p.IsDeepFork(forkSlot, currentSlot) {
+	// Shallow forks (at most k blocks deep) use ordinary longest-chain
+	// selection; density is not considered per the Genesis rule.
+	if !p.IsDeepFork(fork, tipBlockNumber) {
 		return p.Compare(a, b)
 	}
 
-	// Deep forks (more than k slots old): compare density first.
-	aDensity := a.Density(forkSlot)
-	bDensity := b.Density(forkSlot)
-
-	if aDensity > bDensity {
-		return 1
-	}
-	if bDensity > aDensity {
-		return -1
+	// Deep forks: density within the genesis window decides first.
+	if result := p.compareDensity(a, b, fork); result != 0 {
+		return result
 	}
 
 	// Equal density - fall back to the ordinary rule as a tiebreaker.
@@ -173,37 +350,35 @@ func (p *PraosChainSelector) Preferred(candidates []ChainTip) ChainTip {
 	return p.selectPreferred(candidates, p.Compare)
 }
 
-// PreferredWithDensity returns the preferred chain considering density.
-// Use this when some candidates may represent deep forks; see
-// CompareWithDensity for the exact rule applied.
+// PreferredWithDensity returns the preferred chain from a set of
+// candidates, applying exactly the contract CompareWithDensity documents:
+// shallow forks are resolved by the ordinary rule, and only forks deeper
+// than k blocks are resolved by density.
+//
+// fork is the candidates' common intersection — the youngest point shared
+// by ALL candidates, matching the anchor ouroboros-consensus derives via
+// sharedCandidatePrefix — and tipBlockNumber is the current selection's
+// height, so depth is measured on the same basis as CompareWithDensity.
 func (p *PraosChainSelector) PreferredWithDensity(
 	candidates []ChainTip,
-	forkSlot uint64,
-	currentSlot uint64,
+	fork ForkPoint,
+	tipBlockNumber uint64,
 ) ChainTip {
 	return p.selectPreferred(candidates, func(a, b ChainTip) int {
-		return p.CompareWithDensity(a, b, forkSlot, currentSlot)
+		return p.CompareWithDensity(a, b, fork, tipBlockNumber)
 	})
 }
 
-// IsDeepFork checks if a fork point is considered "deep" (older than k slots).
-// Deep forks use density-based comparison instead of simple length comparison.
-func (p *PraosChainSelector) IsDeepFork(
-	forkSlot uint64,
-	currentSlot uint64,
-) bool {
-	if currentSlot < forkSlot {
-		return false
-	}
-	return currentSlot-forkSlot > p.SecurityParam
-}
-
 // SimpleChainTip is a simple implementation of ChainTip for testing.
+//
+// It deliberately does NOT implement WindowBlockCounter: it holds no
+// per-block slots, so it cannot answer a window count. See
+// WindowedChainTip for a tip that can.
 type SimpleChainTip struct {
 	slot        uint64
 	blockNumber uint64
 	vrfOutput   []byte
-	// For density calculation
+	// For the legacy density ratio
 	blocksAfterFork uint64
 	slotsAfterFork  uint64
 }
@@ -235,6 +410,34 @@ func NewSimpleChainTipWithDensity(
 	}
 }
 
+// WindowedChainTip is a chain tip that carries the slot of each of its
+// blocks and can therefore answer the canonical Genesis window count.
+//
+// It is a distinct type on purpose. WindowBlockCounter is satisfied by a
+// type, not by an instance, so a tip that holds no per-block slots must not
+// carry the method at all — otherwise it would claim the capability and
+// answer zero, which selection cannot distinguish from a chain that
+// genuinely has no blocks in the window. Keeping the capability and the
+// data in the same type makes that state unrepresentable.
+type WindowedChainTip struct {
+	*SimpleChainTip
+	// blockSlots holds the slot of each block on this chain.
+	blockSlots []uint64
+}
+
+// NewWindowedChainTip creates a tip that supports the canonical Genesis
+// window metric, from the slots of the blocks on the chain.
+func NewWindowedChainTip(
+	slot, blockNumber uint64,
+	vrfOutput []byte,
+	blockSlots []uint64,
+) *WindowedChainTip {
+	return &WindowedChainTip{
+		SimpleChainTip: NewSimpleChainTip(slot, blockNumber, vrfOutput),
+		blockSlots:     blockSlots,
+	}
+}
+
 // Slot returns the tip slot.
 func (s *SimpleChainTip) Slot() uint64 {
 	return s.slot
@@ -259,4 +462,44 @@ func (s *SimpleChainTip) Density(_ uint64) float64 {
 		return 0
 	}
 	return float64(s.blocksAfterFork) / float64(s.slotsAfterFork)
+}
+
+// BlocksInWindow implements WindowBlockCounter. A block at slot s counts
+// iff s > forkSlot && s-forkSlot <= windowSlots; the bound is evaluated in
+// that subtraction form so it cannot wrap near the uint64 maximum.
+func (w *WindowedChainTip) BlocksInWindow(
+	forkSlot, windowSlots uint64,
+) uint64 {
+	if windowSlots == 0 {
+		return 0
+	}
+	var count uint64
+	for _, blockSlot := range w.blockSlots {
+		if blockSlot > forkSlot && blockSlot-forkSlot <= windowSlots {
+			count++
+		}
+	}
+	return count
+}
+
+// Density overrides the embedded ratio, which would otherwise report zero
+// because a windowed tip carries block slots rather than precomputed
+// blocks/slots totals. It derives the legacy ratio from those slots so a
+// windowed tip stays comparable when the other side of a comparison
+// implements only ChainTip and the selector must fall back.
+func (w *WindowedChainTip) Density(forkSlot uint64) float64 {
+	var blocks, maxSlot uint64
+	for _, blockSlot := range w.blockSlots {
+		if blockSlot <= forkSlot {
+			continue
+		}
+		blocks++
+		if blockSlot > maxSlot {
+			maxSlot = blockSlot
+		}
+	}
+	if blocks == 0 {
+		return 0
+	}
+	return float64(blocks) / float64(maxSlot-forkSlot)
 }

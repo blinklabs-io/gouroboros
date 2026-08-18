@@ -17,6 +17,8 @@ package genesis
 import (
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // testGenesisConfig returns a GenesisConfig for testing with mainnet-like parameters.
@@ -38,6 +40,58 @@ func TestComputeGenesisWindow(t *testing.T) {
 	if window != expected {
 		t.Errorf("expected genesis window %d, got %d", expected, window)
 	}
+}
+
+// TestComputeGenesisWindowCeiling pins the rounding to CEILING division,
+// matching cardano-ledger's computeStabilityWindow
+// ("ceiling $ (3 * fromIntegral k) /. f"): whenever 3k/f is not integral,
+// the window rounds up, never down.
+func TestComputeGenesisWindowCeiling(t *testing.T) {
+	// k=2160, f=7/100: 3*2160*100/7 = 648000/7 = 92571.43... -> 92572.
+	window := ComputeGenesisWindow(2160, big.NewRat(7, 100))
+	assert.Equal(
+		t, uint64(92572), window, "expected ceiling(648000/7) = 92572",
+	)
+
+	// Exact division is unaffected: k=10, f=1/2 -> 3*10*2 = 60.
+	window = ComputeGenesisWindow(10, big.NewRat(1, 2))
+	assert.Equal(t, uint64(60), window, "expected exact division 60")
+}
+
+// TestComputeGenesisWindowDegenerateCoefficients pins the guard: nil, zero,
+// and negative active-slot coefficients all yield a zero window rather than
+// a garbage value.
+func TestComputeGenesisWindowDegenerateCoefficients(t *testing.T) {
+	assert.Zero(
+		t,
+		ComputeGenesisWindow(2160, nil),
+		"nil coefficient: expected 0",
+	)
+	assert.Zero(
+		t,
+		ComputeGenesisWindow(2160, big.NewRat(0, 1)),
+		"zero coefficient: expected 0",
+	)
+	assert.Zero(
+		t,
+		ComputeGenesisWindow(2160, big.NewRat(-1, 20)),
+		"negative coefficient: expected 0",
+	)
+}
+
+// TestNewGenesisSelectorDerivedWindowCeiling pins the derived-window path
+// through NewGenesisSelector with a non-integral 3k/f, so the constructor
+// inherits the ceiling semantics too.
+func TestNewGenesisSelectorDerivedWindowCeiling(t *testing.T) {
+	selector := NewGenesisSelector(GenesisConfig{
+		SecurityParam:   2160,
+		ActiveSlotCoeff: big.NewRat(7, 100),
+	})
+	// 3*2160*100/7 = 648000/7 = 92571.43... -> 92572.
+	assert.Equal(
+		t, uint64(92572), selector.config.GenesisWindow,
+		"expected derived window 92572",
+	)
 }
 
 func TestGenesisConfig(t *testing.T) {
