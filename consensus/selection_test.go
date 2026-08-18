@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -796,6 +797,161 @@ func (l legacyTip) Slot() uint64             { return l.blockNumber * 20 }
 func (l legacyTip) BlockNumber() uint64      { return l.blockNumber }
 func (l legacyTip) VRFOutput() []byte        { return make([]byte, 64) }
 func (l legacyTip) Density(_ uint64) float64 { return l.density }
+
+// randomWindowedTip builds a tip whose blocks are scattered at random over
+// span slots after forkSlot, from a seeded source so the sweep below is
+// reproducible.
+func randomWindowedTip(
+	rng *rand.Rand,
+	forkSlot, blocks, span uint64,
+) *WindowedChainTip {
+	slots := make([]uint64, 0, blocks)
+	var maxSlot uint64
+	for range blocks {
+		s := forkSlot + 1 + uint64(rng.Int63n(int64(span)))
+		slots = append(slots, s)
+		if s > maxSlot {
+			maxSlot = s
+		}
+	}
+	return NewWindowedChainTip(maxSlot, 1000+blocks, make([]byte, 64), slots)
+}
+
+// TestShallowForkNeverConsultsDensity states the review's central property
+// as an invariant rather than a single example: for ANY fork within k
+// blocks, the density entry point must return exactly what the ordinary
+// longest-chain rule returns. The sweep includes pathologically sparse
+// candidates, which are the only shape that could make a windowed count
+// disagree with block count.
+func TestShallowForkNeverConsultsDensity(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	rng := rand.New(rand.NewSource(19360000))
+	const forkSlot = 1_000_000
+
+	for range 2000 {
+		// Any depth from 0 to exactly k blocks is shallow.
+		depth := uint64(rng.Int63n(2161))
+		fork := ForkPoint{Slot: forkSlot, BlockNumber: 500_000}
+		tipBlockNumber := fork.BlockNumber + depth
+		require.False(
+			t,
+			selector.IsDeepFork(fork, tipBlockNumber),
+			"a rollback of %d blocks must be shallow for k=2160", depth,
+		)
+
+		a := randomWindowedTip(
+			rng, forkSlot, 1+uint64(rng.Int63n(200)),
+			1+uint64(rng.Int63n(600_000)),
+		)
+		b := randomWindowedTip(
+			rng, forkSlot, 1+uint64(rng.Int63n(200)),
+			1+uint64(rng.Int63n(600_000)),
+		)
+
+		require.Equal(
+			t,
+			sign(selector.Compare(a, b)),
+			sign(selector.CompareWithDensity(a, b, fork, tipBlockNumber)),
+			"shallow fork must be decided by the ordinary rule alone",
+		)
+	}
+}
+
+func sign(v int) int {
+	switch {
+	case v > 0:
+		return 1
+	case v < 0:
+		return -1
+	}
+	return 0
+}
+
+// TestPreferredWithDensityGenesisScenario is the end-to-end selection test
+// requested in review: a mainnet-shaped adversarial fork driven entirely
+// through the exported selection entry point, asserted in both candidate
+// orders so the result cannot depend on arrival order.
+func TestPreferredWithDensityGenesisScenario(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	const forkSlot = 50_000_000
+	fork := ForkPoint{Slot: forkSlot, BlockNumber: 2_500_000}
+	// The local chain is k+500 blocks past the fork: deep, so the Genesis
+	// rule governs.
+	tipBlockNumber := fork.BlockNumber + 2660
+
+	// Honest chain: steady mainnet density (one block per 20 slots) filling
+	// the genesis window.
+	honestSlots := make([]uint64, 0, 6480)
+	for i := uint64(1); i <= 6480; i++ {
+		honestSlots = append(honestSlots, forkSlot+i*20)
+	}
+	honest := NewWindowedChainTip(
+		forkSlot+mainnetWindow, fork.BlockNumber+6480,
+		make([]byte, 64), honestSlots,
+	)
+
+	// Adversarial chain: strictly LONGER, but nearly all of its blocks fall
+	// beyond the genesis window, so it is sparse where the rule looks.
+	advSlots := []uint64{forkSlot + 10, forkSlot + 20}
+	for i := uint64(1); i <= 8000; i++ {
+		advSlots = append(advSlots, forkSlot+mainnetWindow+i*20)
+	}
+	adversarial := NewWindowedChainTip(
+		forkSlot+mainnetWindow+160_000, fork.BlockNumber+8002,
+		make([]byte, 64), advSlots,
+	)
+
+	require.Negative(
+		t,
+		selector.Compare(honest, adversarial),
+		"setup: the ordinary rule alone would take the longer adversarial chain",
+	)
+
+	for _, candidates := range [][]ChainTip{
+		{honest, adversarial},
+		{adversarial, honest},
+	} {
+		assert.Same(
+			t,
+			honest,
+			selector.PreferredWithDensity(candidates, fork, tipBlockNumber),
+			"the Genesis rule must select the chain dense in the window",
+		)
+	}
+}
+
+// TestDeepForkZeroBlocksInWindowLoses guards the meaning of a zero count: a
+// chain with no blocks inside the genesis window is the adversarial shape
+// the rule demotes, not a chain we failed to measure. It must lose to a tip
+// with blocks there even when it is vastly longer.
+func TestDeepForkZeroBlocksInWindowLoses(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	fork, tipBlockNumber := deepFork(1000)
+
+	beyond := make([]uint64, 0, 50)
+	for i := uint64(1); i <= 50; i++ {
+		beyond = append(beyond, 1000+mainnetWindow+i*20)
+	}
+	longButOutside := NewWindowedChainTip(
+		1000+mainnetWindow+1000, 5000, make([]byte, 64), beyond,
+	)
+	shortButInside := NewWindowedChainTip(
+		1500, 10, make([]byte, 64), []uint64{1100, 1200},
+	)
+
+	require.Zero(
+		t,
+		longButOutside.BlocksInWindow(1000, mainnetWindow),
+		"setup: the long chain must have no blocks inside the window",
+	)
+	assert.Positive(
+		t,
+		selector.CompareWithDensity(
+			shortButInside, longButOutside, fork, tipBlockNumber,
+		),
+		"a chain with blocks in the window must beat one with none",
+	)
+}
 
 // TestOnlyWindowedTipClaimsWindowBlockCounter pins which types may claim the
 // optional extension. Only a tip that actually carries block slots may: a
