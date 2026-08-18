@@ -1,4 +1,0 @@
-interface:
-  display_name: "Dingo Maintainer"
-  short_description: "Maintain Dingo Cardano node changes safely"
-  default_prompt: "Use $dingo-maintainer to inspect and validate Dingo changes across architecture boundaries, tests, conformance, devnet, and documentation."

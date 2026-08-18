@@ -1,4 +1,0 @@
-interface:
-  display_name: "Cardano Application Reviewer"
-  short_description: "Review Cardano application changes"
-  default_prompt: "Use $cardano-app-reviewer to review wallets, keys, transactions, DEX services, indexers, and node integrations."

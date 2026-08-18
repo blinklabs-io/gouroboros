@@ -1,4 +1,0 @@
-interface:
-  display_name: "Blink Repository Maintainer"
-  short_description: "Inspect and validate Blink Labs repositories"
-  default_prompt: "Use $blink-repo-maintainer to inspect this Blink Labs repository, classify its workflow family, follow local instructions, and run the narrowest relevant validation."
