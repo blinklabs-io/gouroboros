@@ -76,6 +76,11 @@ The sequence is bots first, humans second, and it does not compress:
 Do not claim a review, approval, re-request, or dismissal happened unless GitHub
 shows it.
 
+When asked to resolve an issue, continue through the initial implementation and
+PR update, configured bot reviews, valid bot fixes, validation, and bot re-runs
+until no actionable bot findings remain. The stopping point is readiness for
+human review, not human approval or merge.
+
 ## Squash merge
 
 - Confirm GitHub shows a human `APPROVED` review whose commit SHA matches the

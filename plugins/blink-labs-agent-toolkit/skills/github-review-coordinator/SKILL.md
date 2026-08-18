@@ -34,6 +34,11 @@ and the target repository's contribution guidance.
    appropriate. Record the rationale on the PR and retain appropriate human
    review coverage.
 
+When the user asks to resolve an issue, iterate after the initial PR update:
+wait for CodeRabbit and Cubic, verify each finding against the current head,
+fix valid findings, validate, push, and repeat until both bots have no
+actionable findings. Stop at human-review readiness.
+
 ## Squash merge gate
 
 Squash merge is allowed only when GitHub shows a human `APPROVED` review for the

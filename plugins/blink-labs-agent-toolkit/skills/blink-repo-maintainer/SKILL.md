@@ -155,6 +155,8 @@ Use the focused skills when applicable:
 - A squash merge is allowed only with human approval for the current head SHA,
   passing required checks, and no actionable bot findings. Use one concise
   factual squash summary and preserve the DCO `Signed-off-by:` line.
+- Issue resolution continues through bot review responses and valid follow-up
+  fixes until configured bots are clear and the PR is ready for human review.
 
 ## Historical session context
 

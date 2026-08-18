@@ -129,6 +129,9 @@ the scope, acceptance criteria, and relevant context.
 - Run the configured review bots before requesting human review and address
   their actionable findings first. Human review is still required; it may be
   AI-assisted, but bot approval or silence is not human approval.
+- When asked to resolve an issue, carry it through implementation, PR update,
+  bot review responses, valid fixes, validation, and bot re-runs until no
+  actionable bot findings remain and the PR is ready for human review.
 - When a human reviewer requests changes, implement and validate the fixes,
   summarize them on the pull request, and use GitHub to request another review
   from that same reviewer. Do not treat a reply or code update alone as a

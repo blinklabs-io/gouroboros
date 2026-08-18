@@ -165,6 +165,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   head, passing required checks, and no actionable bot findings. Use one concise
   factual squash summary and preserve the DCO `Signed-off-by:` line. A review
   for an earlier head is stale after a push.
+- Issue resolution includes the bot loop after the initial PR update: verify
+  CodeRabbit and Cubic findings against the current head, fix valid findings,
+  validate, and repeat until the bots are clear for human review.
 - Keep commits, PR descriptions, and reviews concise and evidence-based. Use
   short factual statements tied to the changed code, tests, and review state;
   place code-specific feedback inline and keep PR-level text to summaries,

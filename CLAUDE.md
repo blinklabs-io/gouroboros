@@ -77,6 +77,10 @@ UI changes require screenshots in the pull request. Include the affected
 states at the relevant viewport or platform, with secrets and user data
 redacted.
 
+When asked to resolve an issue, carry it through implementation, PR update,
+bot review responses, valid fixes, validation, and bot re-runs until no
+actionable bot findings remain and the PR is ready for human review.
+
 When a human reviewer requests changes, implement and validate the fixes,
 summarize the changes on the pull request, and explicitly request another
 review from that same person through GitHub. Do not assume that replying to

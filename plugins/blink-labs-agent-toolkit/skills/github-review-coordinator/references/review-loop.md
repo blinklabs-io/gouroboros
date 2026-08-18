@@ -16,6 +16,11 @@
 7. An authorized human may dismiss another human review when appropriate;
    record why on the pull request and retain appropriate human coverage.
 
+An issue-resolution request includes the bot loop after the initial PR update:
+wait for CodeRabbit and Cubic, verify findings against the current head, fix
+valid findings, validate, push, and repeat until no actionable bot findings
+remain. Stop when the PR is ready for human review.
+
 ## Squash merge gate
 
 Squash merge is allowed when GitHub shows a human `APPROVED` review attached to

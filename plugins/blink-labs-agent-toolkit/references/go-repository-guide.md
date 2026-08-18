@@ -82,6 +82,11 @@ head SHA, required checks pass, and configured bots have no actionable findings.
 Use one concise factual squash summary and preserve the DCO
 `Signed-off-by:` line; an approval for an earlier head is stale after a push.
 
+An issue-resolution request includes the post-update bot loop: verify CodeRabbit
+and Cubic findings against each current head, fix valid findings, validate, and
+repeat until no actionable bot findings remain and the PR is ready for human
+review.
+
 ## Common Go baseline
 
 Across the Blink Go repositories, the usual local targets are:
