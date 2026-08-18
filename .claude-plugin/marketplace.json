@@ -1,0 +1,13 @@
+{
+  "name": "blink-labs-team",
+  "owner": {
+    "name": "Blink Labs"
+  },
+  "plugins": [
+    {
+      "name": "blink-labs-agent-toolkit",
+      "source": "./plugins/blink-labs-agent-toolkit",
+      "description": "Shared Blink Labs repository maintenance and review skills for Claude Code and Codex."
+    }
+  ]
+}

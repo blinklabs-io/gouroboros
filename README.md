@@ -29,7 +29,9 @@ After cloning, read the repository-level [AGENTS.md](AGENTS.md) and any
 `CLAUDE.md` or equivalent contributor documentation inside the project you are
 working on. A submodule's local instructions take precedence for work within
 that submodule. For Go work and cross-repository reviews, start with the
-[common-ground guide](docs/go-repository-guide.md).
+[common-ground guide](docs/go-repository-guide.md). The shared toolkit is
+packaged for both clients; see the [agent toolkit installation
+guide](docs/agent-toolkit-installation.md) for Codex and Claude Code setup.
 
 ## Contributing
 

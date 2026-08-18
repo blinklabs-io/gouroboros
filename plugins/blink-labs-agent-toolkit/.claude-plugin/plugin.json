@@ -1,0 +1,10 @@
+{
+  "name": "blink-labs-agent-toolkit",
+  "version": "0.1.0",
+  "description": "Shared Blink Labs repository maintenance and review skills for Claude Code and Codex-compatible workflows.",
+  "author": {
+    "name": "Blink Labs"
+  },
+  "repository": "https://github.com/blinklabs-io/clanker",
+  "license": "MIT"
+}

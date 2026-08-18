@@ -139,3 +139,36 @@
 [submodule "repos/merkle-patricia-forestry"]
 	path = repos/merkle-patricia-forestry
 	url = git@github.com:blinklabs-io/merkle-patricia-forestry.git
+[submodule "repos/buidler-fest-2024-workshop"]
+	path = repos/buidler-fest-2024-workshop
+	url = git@github.com:blinklabs-io/buidler-fest-2024-workshop.git
+[submodule "repos/cdnsd"]
+	path = repos/cdnsd
+	url = git@github.com:blinklabs-io/cdnsd.git
+[submodule "repos/dingo-operator"]
+	path = repos/dingo-operator
+	url = git@github.com:blinklabs-io/dingo-operator.git
+[submodule "repos/dingoctl"]
+	path = repos/dingoctl
+	url = git@github.com:blinklabs-io/dingoctl.git
+[submodule "repos/dns-cli"]
+	path = repos/dns-cli
+	url = git@github.com:blinklabs-io/dns-cli.git
+[submodule "repos/dns-frontend"]
+	path = repos/dns-frontend
+	url = git@github.com:blinklabs-io/dns-frontend.git
+[submodule "repos/handshake-node"]
+	path = repos/handshake-node
+	url = git@github.com:blinklabs-io/handshake-node.git
+[submodule "repos/infrastructure"]
+	path = repos/infrastructure
+	url = git@github.com:blinklabs-io/infrastructure.git
+[submodule "repos/utxorpc-example"]
+	path = repos/utxorpc-example
+	url = git@github.com:blinklabs-io/utxorpc-example.git
+[submodule "repos/vpn-frontend"]
+	path = repos/vpn-frontend
+	url = git@github.com:blinklabs-io/vpn-frontend.git
+[submodule "repos/vpn-indexer"]
+	path = repos/vpn-indexer
+	url = git@github.com:blinklabs-io/vpn-indexer.git
