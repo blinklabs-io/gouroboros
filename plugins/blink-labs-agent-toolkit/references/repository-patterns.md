@@ -148,8 +148,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   the negative case: eligibility, equal-height selection, lifecycle
   cancellation, mutually exclusive flags, gate absence, and script argument or
   port handling are recurring failure surfaces.
-- Prefer `docker build --check .` and `actionlint` before expensive builds or
-  live registry validation.
+- When Docker is available and useful, prefer `docker build --check .` and a
+  targeted local reproduction before expensive builds or live registry
+  validation. Report when Docker is unavailable or not useful for the check.
 - Separate merge blockers from non-blocking findings and explicitly report
   checks that require live GitHub, registry, or Cardano integration access.
 - Run CodeRabbit and Cubic before human review, address actionable findings,

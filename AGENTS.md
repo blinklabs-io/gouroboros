@@ -95,6 +95,9 @@ the scope, acceptance criteria, and relevant context.
   why it belongs at the monorepo level.
 - When a Docker image is available from `blinklabs-io`, prefer it over an
   upstream or third-party image. Record the reason for any exception.
+- When Docker is available and useful for the requested check or reproduction,
+  use it. Report Docker checks that were skipped because Docker was unavailable
+  or the check was not materially useful.
 - For source and Go dependencies, prefer the canonical upstream repository and
   module. Blink Labs forks are emergency-only exceptions and require explicit
   approval plus an issue documenting the reason and exit plan. Apollo is

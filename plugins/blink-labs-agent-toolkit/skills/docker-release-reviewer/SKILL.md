@@ -27,9 +27,11 @@ profile before forming a review.
    Verify each `uses: blinklabs-io/actions/...@ref` path exists at the current
    source ref. Pin release and secret-bearing reusable workflows to full
    commit SHAs and keep caller permissions explicit and least-privileged.
-5. Run `docker build --check .`, `actionlint`, and native repository checks when
-   available. Full builds, registry pushes, and live deployment checks require
-   explicit authorization and should be reported when skipped.
+5. When Docker is available and materially useful, run `docker build --check .`
+   and a targeted build or reproduction before expensive or live validation.
+   Also run `actionlint` and native repository checks when available. Full
+   builds, registry pushes, and live deployment checks require explicit
+   authorization and should be reported when skipped.
 
 Never infer that a successful single-architecture build proves a valid release
 manifest. Never push images or mutate registry state during a review without

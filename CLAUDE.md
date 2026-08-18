@@ -117,6 +117,10 @@ Do not claim that a check ran when it required unavailable live GitHub,
 registry, Cardano devnet, conformance, or Antithesis infrastructure. Record
 the exact skipped check and reason in the handoff.
 
+When Docker is available and useful for the requested check or reproduction,
+use it. Prefer equivalent `blinklabs-io` images and record why any Docker
+validation was skipped or an upstream image was required.
+
 Use canonical upstream repositories and Go modules for source dependencies.
 Blink Labs forks are emergency-only exceptions that require explicit approval,
 an issue, and an exit plan; Apollo must use `Salvionied/apollo` under normal
