@@ -76,6 +76,16 @@ The sequence is bots first, humans second, and it does not compress:
 Do not claim a review, approval, re-request, or dismissal happened unless GitHub
 shows it.
 
+## Squash merge
+
+- Confirm GitHub shows a human `APPROVED` review whose commit SHA matches the
+  current PR head. Approval of an earlier ref is stale after a new commit.
+- Confirm required checks pass and configured bots have no actionable findings.
+- Use one concise factual squash summary. Do not concatenate commit bodies,
+  review threads, or chat history.
+- Preserve the DCO `Signed-off-by:` line in the squash commit. Do not use a
+  merge path that drops the sign-off.
+
 ## Submodule work
 
 1. Make and validate the change in the submodule.

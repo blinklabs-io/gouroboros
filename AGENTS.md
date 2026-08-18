@@ -136,6 +136,10 @@ the scope, acceptance criteria, and relevant context.
 - An authorized human reviewer may dismiss another human review through
   GitHub when appropriate. Record the rationale on the pull request; dismissal
   does not remove the requirement for appropriate human review.
+- A pull request may be squash-merged when GitHub shows human approval for the
+  current head SHA, required checks pass, and configured bots have no
+  actionable findings. Use one concise factual squash summary and preserve the
+  DCO `Signed-off-by:` line.
 
 ## Validation
 

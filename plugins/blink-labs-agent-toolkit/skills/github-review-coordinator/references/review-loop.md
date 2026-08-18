@@ -16,6 +16,13 @@
 7. An authorized human may dismiss another human review when appropriate;
    record why on the pull request and retain appropriate human coverage.
 
+## Squash merge gate
+
+Squash merge is allowed when GitHub shows a human `APPROVED` review attached to
+the current head SHA, required checks pass, and configured bots have no
+actionable findings. Use one concise factual squash summary and preserve the
+DCO `Signed-off-by:` line. A review for an earlier head is stale after a push.
+
 Useful read-only commands include:
 
 ```sh

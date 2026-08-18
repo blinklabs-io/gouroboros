@@ -152,6 +152,9 @@ Use the focused skills when applicable:
   same reviewer through GitHub.
 - An authorized human reviewer may dismiss another human review through
   GitHub when appropriate, with the rationale recorded on the pull request.
+- A squash merge is allowed only with human approval for the current head SHA,
+  passing required checks, and no actionable bot findings. Use one concise
+  factual squash summary and preserve the DCO `Signed-off-by:` line.
 
 ## Historical session context
 

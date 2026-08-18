@@ -34,6 +34,13 @@ and the target repository's contribution guidance.
    appropriate. Record the rationale on the PR and retain appropriate human
    review coverage.
 
+## Squash merge gate
+
+Squash merge is allowed only when GitHub shows a human `APPROVED` review for the
+current head SHA, required checks pass, and configured bots have no actionable
+findings. Use one concise factual squash summary and preserve the DCO
+`Signed-off-by:` line. An approval for an earlier head is stale after a push.
+
 ## Keeping the loop short
 
 Bot review is iterative: every push earns another pass, and the fixes you make

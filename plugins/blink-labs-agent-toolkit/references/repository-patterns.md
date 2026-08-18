@@ -161,6 +161,10 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - An authorized human reviewer may dismiss another human review through
   GitHub when appropriate; record the rationale on the pull request and retain
   the required human-review coverage.
+- Squash merge is allowed only with a human approval attached to the current PR
+  head, passing required checks, and no actionable bot findings. Use one concise
+  factual squash summary and preserve the DCO `Signed-off-by:` line. A review
+  for an earlier head is stale after a push.
 - Keep commits, PR descriptions, and reviews concise and evidence-based. Use
   short factual statements tied to the changed code, tests, and review state;
   place code-specific feedback inline and keep PR-level text to summaries,
