@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cross-Boundary Changes"
+  short_description: "Trace consumers before changing a shape"
+  default_prompt: "Use $cross-boundary-changes to find every consumer of this contract and check what each does with the change before editing."

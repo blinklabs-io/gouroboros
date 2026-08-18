@@ -1,0 +1,4 @@
+interface:
+  display_name: "Regression Test Discipline"
+  short_description: "Prove the test fails without the fix"
+  default_prompt: "Use $regression-test-discipline to write a test for this fix and verify it fails against the pre-fix code."

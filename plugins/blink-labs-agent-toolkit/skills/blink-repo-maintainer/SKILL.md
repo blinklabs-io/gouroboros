@@ -35,6 +35,10 @@ Use the focused skills when applicable:
   boundaries;
 - [github-review-coordinator](../github-review-coordinator/SKILL.md) for the
   bot-first, human-required pull-request review loop;
+- [cross-boundary-changes](../cross-boundary-changes/SKILL.md) before changing
+  any shape a component you are not editing depends on;
+- [regression-test-discipline](../regression-test-discipline/SKILL.md) when
+  adding a test alongside a fix;
 - [commit-and-pr-hygiene](../commit-and-pr-hygiene/SKILL.md) for Conventional
   Commits, DCO sign-off, and message and description scope;
 - [isolated-validation-runs](../isolated-validation-runs/SKILL.md) for

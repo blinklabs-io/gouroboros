@@ -61,6 +61,8 @@ the same `SKILL.md` files.
 
 | Skill | Use it when |
 |---|---|
+| `cross-boundary-changes` | Changing a shape something else depends on — response bodies, error paths, public fields, ID formats, persisted keys |
+| `regression-test-discipline` | Adding a test alongside a fix, or a test asserts something the test itself performed |
 | `isolated-validation-runs` | A check is slow, stateful, networked, or concurrent — worktrees, unique resources, flake triage |
 | `evidence-based-handoff` | Finishing work: evidence ledger, skipped-check list, findings in severity order |
 | `commit-and-pr-hygiene` | Writing a commit, PR description, or review comment |
