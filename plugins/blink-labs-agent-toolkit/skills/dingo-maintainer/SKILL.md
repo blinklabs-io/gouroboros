@@ -88,7 +88,14 @@ Antithesis validation unless it was actually run.
 
 For long-running or background checks, inspect the complete output and exit
 code after the task finishes and verify that the intended test or gate was
-actually exercised. A task notification is not a test result. Use unique ports,
+actually exercised. A task notification is not a test result: a completion
+notice can report success for a run whose log ends in `FAIL` with a non-zero
+exit.
+
+Size the timeout before reading a timeout as a failure. `ledger` runs roughly
+9-13 minutes under `-race`, past `go test`'s 10-minute default, and CI uses
+`-timeout 20m`. A default-timeout kill reports `panic: test timed out` and names
+whichever test was running when the alarm fired, which is not the cause. Use unique ports,
 temporary paths, and `GOCACHE` values; keep sync/from-genesis runs serialized,
 and compare suspicious failures with an `origin/main` baseline. Do not stop or
 reconfigure a live node or validation run while diagnosing it unless the task

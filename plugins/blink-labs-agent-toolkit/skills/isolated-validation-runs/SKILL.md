@@ -35,13 +35,28 @@ Serialize the runs that cannot be parallelized: sync-from-genesis, devnet, and
 anything binding a fixed port or writing a fixed database path. Two of those at
 once produce failures that describe the collision, not the code.
 
+## Give slow suites a timeout that fits
+
+`go test` defaults to a 10-minute per-package timeout, and packages in this
+workspace exceed it: Dingo's `ledger` package runs 9-13 minutes under `-race`,
+and its CI uses `-timeout 20m` for the whole tree. A run killed by the default
+timeout reports `panic: test timed out` and a non-zero exit that looks exactly
+like a real failure, and the test named in the panic is merely the one running
+when the alarm fired — not the cause.
+
+Pass an explicit `-timeout` sized to the suite before concluding anything from a
+timeout, and match CI's value when you have it. Then confirm the failure
+reproduces on an `origin/main` baseline before attributing it to the change.
+
 ## Background task discipline
 
 A completion notification is not a result. For every backgrounded or long check:
 
 1. Wait for the process to finish.
 2. Read the complete output, not the tail.
-3. Confirm the exit code.
+3. Confirm the exit code **in the log**. A completion notice can report success
+   for a run whose log ends in `FAIL` and a non-zero exit; the notice reports on
+   the process, not on the tests.
 4. Confirm the intended test or gate actually ran — a suite that skipped
    everything exits zero.
 

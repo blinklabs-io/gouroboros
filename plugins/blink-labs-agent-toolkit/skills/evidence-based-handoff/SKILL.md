@@ -37,6 +37,15 @@ actually tested. A green single-architecture Docker build says nothing about the
 manifest. A backgrounded suite that exits zero without running anything is a
 skip, not a pass.
 
+Read the log, not the notification. A task-completion notice can report success
+for a run whose own output ends in `FAIL` and a non-zero exit — the notification
+describes the process, the log describes the tests. Open the log, find the exit
+code, and confirm the package you changed appears with `ok`.
+
+The same rule applies to a verification you perform on yourself: a regression
+check that failed to compile did not check anything, and a test run that
+reported a build failure is not evidence that the test would have failed.
+
 ## Findings order
 
 Report in this order, so the reader hits the blockers first:

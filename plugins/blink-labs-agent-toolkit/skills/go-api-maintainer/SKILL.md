@@ -24,6 +24,12 @@ after reading local repository instructions.
    tests, race tests where configured, and compatibility-focused tests.
 6. For API removals or wire changes, document migration impact and verify
    clients, examples, fixtures, and downstream users in the workspace.
+7. Read the consumer before changing a response shape. An HTTP surface in this
+   workspace usually ends at a TypeScript client helper and then a screen: a
+   field the shared helper does not parse is unreachable no matter what the
+   handler sends, and a client that hardcodes a value the server also asserts
+   will mask the server's answer. See
+   [cross-boundary-changes](../cross-boundary-changes/SKILL.md).
 
 Keep generated output, API documentation, and runtime behavior synchronized.
 Treat stale generated files as a correctness issue, not a formatting detail.

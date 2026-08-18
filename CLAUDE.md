@@ -118,3 +118,16 @@ rather than working around it. Details are in the
 Before reporting work as complete, produce the evidence ledger and skipped-check
 list described in
 [`evidence-based-handoff`](skills/evidence-based-handoff/SKILL.md).
+
+## Review findings
+
+Check a finding against the branch's current head before acting on it: on an
+active branch most open findings are already fixed and the thread is merely
+unanswered. When one is real, fix the cause rather than the sentence — read the
+consumer before changing a shape
+([`cross-boundary-changes`](skills/cross-boundary-changes/SKILL.md)), decide the
+contract once and hold it under push-back, and prove any new test fails without
+the fix
+([`regression-test-discipline`](skills/regression-test-discipline/SKILL.md)).
+Reply to every bot thread, including already-fixed and rejected ones, and expect
+another bot pass after each push.

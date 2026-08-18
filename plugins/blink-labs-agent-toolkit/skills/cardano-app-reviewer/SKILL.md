@@ -27,6 +27,13 @@ target repository's local guidance and the relevant upstream library docs.
    checks appropriate to the changed node or provider boundary. Never include
    secrets or live credentials in fixtures, logs, or review artifacts.
 
+Choose the failure rule for the path you are on. An indexer, browser, or
+dashboard reading data another component owns degrades per record: one value
+this build does not understand is logged and skipped, never turned into an error
+that blanks the whole view. A migration or anything that advances durable state
+fails the batch instead, because continuing past an unprocessable record risks
+committing a partial state or deleting the only other copy.
+
 Review user-visible failure behavior as carefully as the happy path. A change
 that builds and submits a transaction can still be unsafe if it selects the
 wrong network, signs the wrong body, or loses rollback state.

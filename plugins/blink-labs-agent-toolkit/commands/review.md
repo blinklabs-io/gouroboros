@@ -29,22 +29,30 @@ judgment. Bot findings are review inputs, never conclusions.
    - `blink-repo-scout` when the diff's callers or fixtures need to be traced
      across repositories.
 
-3. **Reconcile bot findings.** For each CodeRabbit or Cubic comment: locate the
-   exact current path and symbol, check the repository's local rules and existing
-   tests, then reproduce or disprove it with a focused test or a direct
-   control-flow reading. Classify as merge blocker, non-blocking recommendation,
-   false positive, or already addressed. Do not copy bot prose into durable
-   documentation.
+3. **Reconcile bot findings.** Check each one against the branch's current head
+   first — on an active branch most open findings are already fixed and the
+   thread is simply unanswered. For the rest: locate the exact current path and
+   symbol, check the repository's local rules and existing tests, then reproduce
+   or disprove it with a focused test or a direct control-flow reading. Classify
+   as merge blocker, non-blocking recommendation, false positive, or already
+   addressed. Do not copy bot prose into durable documentation.
 
-4. **Verify the negative case.** For every confirmed behavioral finding, check
-   that a test exists for both the reported behavior and its absence case.
+4. **Fix the cause, not the sentence.** A finding names a symptom at one
+   location; the defect is often the boundary it sits on. Before changing a
+   response shape, an error path, or a return contract, read the consumer —
+   `cross-boundary-changes`. Decide the contract once and hold it: reshaping the
+   code on each round of feedback costs a review cycle every time.
 
-5. **Check the change bar.** For Dingo, `DATABASE.md` and `ARCHITECTURE.md` are
+5. **Verify the negative case.** For every confirmed behavioral finding, check
+   that a test exists for both the reported behavior and its absence case, and
+   that the new test fails without the fix — `regression-test-discipline`.
+
+6. **Check the change bar.** For Dingo, `DATABASE.md` and `ARCHITECTURE.md` are
    part of the change; state whether they were updated or checked and unaffected.
    For API changes, check generated output, docs, and downstream callers in the
    workspace.
 
-6. **Sequence the humans last.** Run or wait for configured bot reviews, address
+7. **Sequence the humans last.** Run or wait for configured bot reviews, address
    actionable findings, rerun affected checks, then request the required human
    review through GitHub. Bot approval or silence is never human approval.
 

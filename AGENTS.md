@@ -68,6 +68,14 @@ the scope, acceptance criteria, and relevant context.
   reviewer](skills/infrastructure-reviewer/SKILL.md), [docs and KB
   maintainer](skills/docs-kb-maintainer/SKILL.md), and [GitHub review
   coordinator](skills/github-review-coordinator/SKILL.md).
+- Before changing a shape another component depends on — a response body, an
+  error path, a public field, an ID format, or a persisted key — read the
+  consumer first:
+  [`cross-boundary-changes`](skills/cross-boundary-changes/SKILL.md). Fixing one
+  side of a contract and shipping it is the most expensive mistake available
+  here.
+- When adding a test alongside a fix, prove it fails without the fix:
+  [`regression-test-discipline`](skills/regression-test-discipline/SKILL.md).
 - For process discipline, use
   [`isolated-validation-runs`](skills/isolated-validation-runs/SKILL.md) for
   slow, stateful, or concurrent checks,
