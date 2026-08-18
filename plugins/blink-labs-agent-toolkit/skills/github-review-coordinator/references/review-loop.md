@@ -22,3 +22,11 @@ gh pr checks <number>
 Use the GitHub UI or API for reviewer requests and dismissals. Verify the PR
 state afterward; never infer that a request, approval, or dismissal happened
 from a local commit or comment.
+
+## Writing standard
+
+Keep commit messages, PR descriptions, and review comments short, factual, and
+scoped to the changed code, tests, and review state. Do not include storytelling,
+chat transcripts, roadmaps, future plans, or unrelated context. Put
+code-specific feedback in inline comments; use PR-level text only for concise
+summaries, checks, or dispositions.

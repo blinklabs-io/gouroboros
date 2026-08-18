@@ -161,6 +161,10 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - An authorized human reviewer may dismiss another human review through
   GitHub when appropriate; record the rationale on the pull request and retain
   the required human-review coverage.
+- Keep commits, PR descriptions, and reviews concise and evidence-based. Use
+  short factual statements tied to the changed code, tests, and review state;
+  place code-specific feedback inline and keep PR-level text to summaries,
+  checks, and dispositions.
 
 These patterns are implemented by the
 [`blink-repo-maintainer`](../skills/blink-repo-maintainer/SKILL.md) skill, with

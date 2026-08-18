@@ -100,6 +100,13 @@ Use the focused skills when applicable:
 - Follow the organization guidance in `repos/.github/CONTRIBUTING.md` and
   `repos/.github/SECURITY.md`.
 - Use Conventional Commits. Use `git commit -s` for the DCO sign-off.
+- Keep commit subjects short and factual. If a body is needed, use only short
+  factual lines directly tied to the changed code, tests, or review; omit
+  storytelling, chat transcripts, roadmaps, future plans, and unrelated
+  context.
+- Keep PR descriptions and review comments concise, factual, and scoped to the
+  current change. Put code-specific feedback in inline comments; reserve
+  PR-level comments for concise summaries, checks, or dispositions.
 - Keep a submodule pointer update separate from source changes made in the
   nested repository unless the user explicitly requests a different workflow.
 - Treat `repos/actions` as shared infrastructure: it supplies reusable

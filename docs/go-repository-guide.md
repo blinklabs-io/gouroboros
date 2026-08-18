@@ -49,6 +49,12 @@ issue without verification. Durable documentation should explain the
 repository behavior and point to the owning source file, test, workflow, or
 specification.
 
+Commit messages, PR descriptions, and review comments are review evidence.
+Keep them short, factual, and scoped to the changed code and checks. Do not
+include storytelling, chat transcripts, roadmaps, future plans, or unrelated
+context. Put code-specific feedback in inline comments; use PR-level text only
+for concise summaries, validation, or disposition.
+
 The review sequence is bot review first, human review second. Run CodeRabbit
 and Cubic when configured, address their actionable findings, and only then
 request human review. Human review is mandatory and may be AI-assisted; bot

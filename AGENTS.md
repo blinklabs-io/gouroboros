@@ -78,6 +78,13 @@ the scope, acceptance criteria, and relevant context.
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
   for every commit. For example: `docs: clarify submodule workflow`.
+- Keep commit subjects short and factual. If a body is needed, use only short
+  factual lines directly tied to the changed code, tests, or review; do not use
+  it for storytelling, chat transcripts, roadmaps, future plans, or unrelated
+  context.
+- Keep PR descriptions and review comments short, factual, and scoped to the
+  current change. Put code-specific feedback in inline comments; reserve
+  PR-level comments for concise summaries, checks, or dispositions.
 - Sign off commits with `git commit -s` to satisfy the Developer Certificate of
   Origin requirement.
 - Read [`repos/.github/CONTRIBUTING.md`](repos/.github/CONTRIBUTING.md) and

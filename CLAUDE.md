@@ -44,6 +44,13 @@ reviewing a change, report behavioral and security defects first, then API or
 wire compatibility, missing contract-specific tests, architecture boundaries,
 documentation/generated drift, and style issues.
 
+Commit messages, PR descriptions, and review comments must be short, factual,
+and scoped to the current change. If a commit body or longer description is
+needed, use only concise facts directly supported by the changed code, tests,
+or review. Do not include storytelling, chat transcripts, roadmaps, future
+plans, or unrelated context. Put code-specific feedback in inline comments;
+keep PR-level comments to concise summaries, checks, and dispositions.
+
 The review sequence is bot review first, human review second. Run CodeRabbit
 and Cubic when configured, address their actionable findings, and only then
 request human review. A human review is mandatory and may be AI-assisted, but

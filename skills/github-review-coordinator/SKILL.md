@@ -30,3 +30,9 @@ Use GitHub's UI or API for reviewer requests and dismissal. Do not claim a
 review, approval, re-request, or dismissal occurred unless GitHub shows it.
 Separate bot findings, human findings, unresolved risks, skipped checks, and
 final approval state in the handoff.
+
+## Writing standard
+
+- Keep commit subjects short and factual. If a body is needed, use short factual lines directly tied to the changed code, tests, or review.
+- Keep PR descriptions and review comments concise, factual, and scoped to the current change. Do not include storytelling, chat transcripts, roadmaps, future plans, or unrelated context.
+- Put code-specific feedback in inline comments. Use PR-level comments only for concise summaries, checks, or dispositions.
