@@ -1,0 +1,39 @@
+{
+  "description": "Blink Labs workspace guards: enforce DCO sign-off and Conventional Commits on git commit, warn when a plan file is about to be staged or committed, remind about submodule boundaries when editing inside repos/, and brief the session on workspace state.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/git-commit-guard.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/submodule-boundary-notice.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/workspace-brief.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
