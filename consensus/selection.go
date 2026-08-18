@@ -16,6 +16,7 @@ package consensus
 
 import (
 	"log/slog"
+	"math"
 	"math/big"
 	"sync"
 )
@@ -69,7 +70,14 @@ type PraosChainSelector struct {
 
 	// warnFallbackDensity throttles the legacy-metric warning to once per
 	// selector.
-	warnFallbackDensity sync.Once
+	//
+	// It is a POINTER deliberately. A sync.Once value would make
+	// PraosChainSelector non-copyable, and `go vet` copylocks would then
+	// fail any downstream code that passes or stores the selector by
+	// value — which it could do before this field existed. A nil pointer
+	// (zero-value selector) simply skips the warning; see
+	// warnLegacyDensity.
+	warnFallbackDensity *sync.Once
 }
 
 // ForkPoint identifies the intersection between the current selection and
@@ -119,7 +127,8 @@ type WindowBlockCounter interface {
 // NewPraosChainSelectorWithWindow for the canonical Genesis metric.
 func NewPraosChainSelector(securityParam uint64) *PraosChainSelector {
 	return &PraosChainSelector{
-		SecurityParam: securityParam,
+		SecurityParam:       securityParam,
+		warnFallbackDensity: new(sync.Once),
 	}
 }
 
@@ -134,8 +143,9 @@ func NewPraosChainSelectorWithWindow(
 	genesisWindowSlots uint64,
 ) *PraosChainSelector {
 	return &PraosChainSelector{
-		SecurityParam:      securityParam,
-		GenesisWindowSlots: genesisWindowSlots,
+		SecurityParam:       securityParam,
+		GenesisWindowSlots:  genesisWindowSlots,
+		warnFallbackDensity: new(sync.Once),
 	}
 }
 
@@ -225,31 +235,72 @@ func (p *PraosChainSelector) IsDeepFork(
 // after fork. It returns a positive value if a is denser, a negative value
 // if b is denser, and zero if they are equal.
 //
-// The canonical Genesis metric is an integer count of blocks within the
-// window, which requires a configured window and both tips to implement
-// WindowBlockCounter. When either is missing this falls back to the legacy
-// ChainTip.Density ratio and warns once, because that ratio is measured
-// over the whole fork suffix rather than a fixed window and so is not the
-// Genesis metric.
+// Which metric applies is decided by the SELECTOR's configuration, never by
+// the pair of tips in hand. That distinction is load-bearing: selection
+// scans a candidate set pairwise, so a metric chosen per pair can order one
+// pair by an integer block count and the next by a [0,1] ratio. Those are
+// different scales, the resulting relation is not transitive, and a
+// non-transitive comparator makes the selected chain depend on the order
+// candidates happen to arrive in — two honest nodes holding the same
+// candidates would disagree.
+//
+// So: with a genesis window configured every candidate is ordered by the
+// canonical integer count, including one that does not implement
+// WindowBlockCounter — its legacy ratio is projected onto the window by
+// windowBlocks so it lands on the same scale. With no window configured
+// every candidate is ordered by the legacy ratio. One scale either way.
 func (p *PraosChainSelector) compareDensity(
 	a, b ChainTip,
 	fork ForkPoint,
 ) int {
-	aCounter, aOK := a.(WindowBlockCounter)
-	bCounter, bOK := b.(WindowBlockCounter)
-
-	if p.GenesisWindowSlots > 0 && aOK && bOK {
-		aBlocks := aCounter.BlocksInWindow(fork.Slot, p.GenesisWindowSlots)
-		bBlocks := bCounter.BlocksInWindow(fork.Slot, p.GenesisWindowSlots)
-		if aBlocks > bBlocks {
-			return 1
-		}
-		if bBlocks > aBlocks {
-			return -1
-		}
-		return 0
+	if p.GenesisWindowSlots > 0 {
+		return compareUint64(
+			p.windowBlocks(a, fork),
+			p.windowBlocks(b, fork),
+		)
 	}
 
+	p.warnLegacyDensity()
+
+	return compareFloat64(a.Density(fork.Slot), b.Density(fork.Slot))
+}
+
+// windowBlocks returns the tip's block count within the genesis window.
+//
+// A tip implementing WindowBlockCounter answers directly. A tip that does
+// not is projected onto the window from its legacy ratio — density times
+// window length, rounded — so that it is ordered on the same scale as the
+// rest of the candidate set rather than being compared on a different one.
+// The projection is an approximation of a metric the tip cannot supply
+// exactly, which is why it warns; it is not a substitute for implementing
+// WindowBlockCounter.
+func (p *PraosChainSelector) windowBlocks(
+	tip ChainTip,
+	fork ForkPoint,
+) uint64 {
+	if counter, ok := tip.(WindowBlockCounter); ok {
+		return counter.BlocksInWindow(fork.Slot, p.GenesisWindowSlots)
+	}
+
+	p.warnLegacyDensity()
+
+	density := tip.Density(fork.Slot)
+	if density <= 0 || math.IsNaN(density) {
+		return 0
+	}
+	projected := math.Round(density * float64(p.GenesisWindowSlots))
+	if math.IsInf(projected, 1) || projected > math.MaxUint64 {
+		return math.MaxUint64
+	}
+	return uint64(projected)
+}
+
+// warnLegacyDensity reports once per selector that a comparison could not
+// use the canonical Genesis metric, so the degraded metric is never silent.
+func (p *PraosChainSelector) warnLegacyDensity() {
+	if p.warnFallbackDensity == nil {
+		return
+	}
 	p.warnFallbackDensity.Do(func() {
 		slog.Warn(
 			"deep-fork comparison using legacy density ratio; configure a "+
@@ -259,13 +310,23 @@ func (p *PraosChainSelector) compareDensity(
 			"genesisWindowSlots", p.GenesisWindowSlots,
 		)
 	})
+}
 
-	aDensity := a.Density(fork.Slot)
-	bDensity := b.Density(fork.Slot)
-	if aDensity > bDensity {
+func compareUint64(a, b uint64) int {
+	switch {
+	case a > b:
 		return 1
+	case b > a:
+		return -1
 	}
-	if bDensity > aDensity {
+	return 0
+}
+
+func compareFloat64(a, b float64) int {
+	switch {
+	case a > b:
+		return 1
+	case b > a:
 		return -1
 	}
 	return 0
@@ -418,7 +479,12 @@ func NewSimpleChainTipWithDensity(
 // carry the method at all — otherwise it would claim the capability and
 // answer zero, which selection cannot distinguish from a chain that
 // genuinely has no blocks in the window. Keeping the capability and the
-// data in the same type makes that state unrepresentable.
+// data in the same type removes that hazard from the constructors.
+//
+// It does not make the state impossible: the struct and its embedded field
+// are exported, so a composite literal can still produce a
+// WindowedChainTip with no block slots, and the zero value has a nil
+// embedded tip that panics on access. Use NewWindowedChainTip.
 type WindowedChainTip struct {
 	*SimpleChainTip
 	// blockSlots holds the slot of each block on this chain.

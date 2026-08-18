@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 
@@ -1020,32 +1021,224 @@ func TestDeepForkLegacyTipsStillDiscriminate(t *testing.T) {
 	)
 }
 
-// TestWindowedTipDensityFallback covers the mixed case: a windowed tip
-// compared against a ChainTip-only tip falls back to the ratio, so the
-// windowed tip must derive a meaningful ratio from its block slots rather
-// than reporting zero and losing by default.
-func TestWindowedTipDensityFallback(t *testing.T) {
+// TestWindowedTipComparedOnTheWindowScale covers the mixed case: a windowed
+// tip against a ChainTip-only tip.
+//
+// An earlier revision of this test asserted the opposite outcome, because it
+// compared the windowed tip's ratio measured over 100 slots against the
+// legacy tip's ratio measured over its own span — two different
+// denominators. That is precisely the incommensurable comparison that made
+// the comparator intransitive. Both candidates are now placed on the one
+// scale the selector is configured for, and the expectation follows from
+// that rather than from whichever ratio looked larger.
+func TestWindowedTipComparedOnTheWindowScale(t *testing.T) {
 	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
 	fork, tip := deepFork(1000)
 
-	// 10 blocks in the 100 slots after the fork: ratio 0.1.
+	// 10 blocks, all in the first 100 slots after the fork. Across the
+	// whole 129,600-slot genesis window that is a very sparse chain.
 	slots := make([]uint64, 0, 10)
 	for i := uint64(1); i <= 10; i++ {
 		slots = append(slots, 1000+i*10)
 	}
-	windowed := NewWindowedChainTip(1100, 10, make([]byte, 64), slots)
-	assert.InDelta(
+	burst := NewWindowedChainTip(1100, 10, make([]byte, 64), slots)
+	require.Equal(t, uint64(10), burst.BlocksInWindow(1000, mainnetWindow))
+
+	// A tip sustaining mainnet density over the window projects to
+	// 0.05 * 129600 = 6480 blocks there, so it is far denser and must win.
+	sustained := legacyTip{blockNumber: 10, density: 0.05}
+	require.Equal(
+		t, uint64(6480), selector.windowBlocks(sustained, fork),
+	)
+	assert.Negative(
 		t,
-		0.1,
-		windowed.Density(1000),
-		1e-9,
-		"a windowed tip must derive its legacy ratio from its block slots",
+		selector.CompareWithDensity(burst, sustained, fork, tip),
+		"a short burst must lose to a chain dense across the whole window",
 	)
 
-	sparse := legacyTip{blockNumber: 10, density: 0.05}
+	// The converse, so the direction is not an artefact: a windowed tip
+	// with more blocks in the window than the projection wins.
+	dense := make([]uint64, 0, 8000)
+	for i := uint64(1); i <= 8000; i++ {
+		dense = append(dense, 1000+i*15)
+	}
+	rich := NewWindowedChainTip(1000+8000*15, 8000, make([]byte, 64), dense)
+	require.Greater(
+		t,
+		rich.BlocksInWindow(1000, mainnetWindow),
+		selector.windowBlocks(sustained, fork),
+	)
 	assert.Positive(
 		t,
-		selector.CompareWithDensity(windowed, sparse, fork, tip),
-		"mixed comparison must fall back to a meaningful ratio",
+		selector.CompareWithDensity(rich, sustained, fork, tip),
+		"a windowed tip with more blocks in the window must win",
 	)
+}
+
+// --- Mixed candidate sets: one metric must order the whole set -----------
+
+// TestMixedCandidateSetIsTransitive is the regression for the defect this
+// change fixes. When the metric was chosen per pair, a set mixing
+// WindowBlockCounter tips with ChainTip-only tips was ordered on two
+// incommensurable scales — an unbounded block count against a [0,1] ratio —
+// and the relation cycled. These three candidates produced A > B > C > A.
+//
+// All three carry the same block number, so the fallthrough to Compare
+// cannot be what orders them: density alone must, and it must be a total
+// order.
+func TestMixedCandidateSetIsTransitive(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	vrf := make([]byte, 64)
+	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
+	tipBlockNumber := uint64(100000)
+	require.True(t, selector.IsDeepFork(fork, tipBlockNumber))
+
+	a := NewWindowedChainTip(
+		1050, 100, vrf, []uint64{1010, 1020, 1030, 1040, 1050},
+	)
+	b := NewWindowedChainTip(1002, 100, vrf, []uint64{1001, 1002})
+	c := NewSimpleChainTipWithDensity(1010, 100, vrf, 5, 10)
+
+	candidates := []ChainTip{a, b, c}
+	for _, x := range candidates {
+		for _, y := range candidates {
+			for _, z := range candidates {
+				xy := sign(selector.CompareWithDensity(x, y, fork, tipBlockNumber))
+				yz := sign(selector.CompareWithDensity(y, z, fork, tipBlockNumber))
+				xz := sign(selector.CompareWithDensity(x, z, fork, tipBlockNumber))
+				if xy > 0 && yz > 0 {
+					require.Positive(
+						t, xz,
+						"transitivity: x>y and y>z requires x>z",
+					)
+				}
+			}
+		}
+	}
+}
+
+// TestMixedCandidateSetSelectionIsOrderIndependent pins the consequence a
+// user actually sees: PreferredWithDensity returned three different winners
+// over rotations of this one candidate set while the comparator cycled.
+func TestMixedCandidateSetSelectionIsOrderIndependent(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
+	tipBlockNumber := uint64(100000)
+
+	// Distinct VRF outputs on purpose. With a shared one these candidates
+	// tie all the way down to Compare's tiebreak, and selectPreferred's
+	// keep-the-incumbent rule would make the sweep pass for a reason that
+	// has nothing to do with the ordering being total.
+	a := NewWindowedChainTip(
+		1050, 100, vrfByte(0x11), []uint64{1010, 1020, 1030, 1040, 1050},
+	)
+	b := NewWindowedChainTip(1002, 100, vrfByte(0x22), []uint64{1001, 1002})
+	c := NewSimpleChainTipWithDensity(1010, 100, vrfByte(0x33), 5, 10)
+
+	assertSelectionIsOrderIndependent(t, selector, fork, tipBlockNumber, a, b, c)
+}
+
+// TestWindowedCandidateSetSelectionIsOrderIndependent is the control for the
+// test above: the same three shapes with NO mixing, so every candidate is
+// ordered by the window count. It bounds the claim - selection is
+// order-independent here both before and after the change - and it fails if
+// a future edit makes the ordering non-total for reasons unrelated to mixing.
+func TestWindowedCandidateSetSelectionIsOrderIndependent(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
+	tipBlockNumber := uint64(100000)
+
+	a := NewWindowedChainTip(
+		1050, 100, vrfByte(0x11), []uint64{1010, 1020, 1030, 1040, 1050},
+	)
+	b := NewWindowedChainTip(1002, 100, vrfByte(0x22), []uint64{1001, 1002})
+	c := NewWindowedChainTip(
+		1010, 100, vrfByte(0x33), []uint64{1002, 1004, 1006, 1008, 1010},
+	)
+
+	assertSelectionIsOrderIndependent(t, selector, fork, tipBlockNumber, a, b, c)
+}
+
+// vrfByte returns a VRF output distinguishable from any other produced here.
+func vrfByte(n byte) []byte {
+	v := make([]byte, 64)
+	v[0] = n
+	return v
+}
+
+// assertSelectionIsOrderIndependent runs all six arrival orders of three
+// candidates through PreferredWithDensity and requires one winner. Fixed
+// orders, no randomisation - this runs on every CI build.
+func assertSelectionIsOrderIndependent(
+	t *testing.T,
+	selector *PraosChainSelector,
+	fork ForkPoint,
+	tipBlockNumber uint64,
+	a, b, c ChainTip,
+) {
+	t.Helper()
+	orders := [][]ChainTip{
+		{a, b, c}, {a, c, b}, {b, a, c},
+		{b, c, a}, {c, a, b}, {c, b, a},
+	}
+	want := selector.PreferredWithDensity(orders[0], fork, tipBlockNumber)
+	for _, order := range orders[1:] {
+		assert.Same(
+			t,
+			want,
+			selector.PreferredWithDensity(order, fork, tipBlockNumber),
+			"selection must not depend on candidate arrival order",
+		)
+	}
+}
+
+// TestLegacyTipProjectedOntoWindow documents the mechanism: with a window
+// configured, a tip that cannot count is ordered by its ratio projected onto
+// the window, so it shares one scale with the tips that can count.
+func TestLegacyTipProjectedOntoWindow(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, 1000)
+	fork := ForkPoint{Slot: 1000, BlockNumber: 0}
+
+	// ratio 0.5 over a 1000-slot window projects to 500 blocks.
+	legacy := legacyTip{blockNumber: 10, density: 0.5}
+	assert.Equal(t, uint64(500), selector.windowBlocks(legacy, fork))
+
+	// A windowed tip answers exactly, with no projection.
+	windowed := NewWindowedChainTip(
+		1300, 10, make([]byte, 64), []uint64{1100, 1200, 1300},
+	)
+	assert.Equal(t, uint64(3), selector.windowBlocks(windowed, fork))
+
+	// Degenerate ratios project to zero rather than to a wrapped value.
+	assert.Zero(t, selector.windowBlocks(
+		legacyTip{blockNumber: 1, density: 0}, fork,
+	))
+	assert.Zero(t, selector.windowBlocks(
+		legacyTip{blockNumber: 1, density: math.NaN()}, fork,
+	))
+	assert.Equal(t, uint64(math.MaxUint64), selector.windowBlocks(
+		legacyTip{blockNumber: 1, density: math.Inf(1)}, fork,
+	))
+}
+
+// TestSelectorRemainsCopyable guards the copylocks regression: the selector
+// was freely copyable before a throttle field was added, so downstream code
+// that passes or stores it by value must keep compiling and keep passing
+// `go vet`. A sync.Once VALUE here would break both.
+func TestSelectorRemainsCopyable(t *testing.T) {
+	selector := NewPraosChainSelectorWithWindow(2160, mainnetWindow)
+	byValue := *selector
+	assert.Equal(t, uint64(2160), byValue.SecurityParam)
+	assert.Equal(t, mainnetWindow, byValue.GenesisWindowSlots)
+
+	// A zero-value selector must not panic on the warning path.
+	var zero PraosChainSelector
+	assert.NotPanics(t, func() {
+		zero.CompareWithDensity(
+			NewSimpleChainTip(1, 1, nil),
+			NewSimpleChainTip(2, 2, nil),
+			ForkPoint{Slot: 0, BlockNumber: 0},
+			10,
+		)
+	})
 }
