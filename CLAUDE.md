@@ -66,8 +66,9 @@ keep PR-level comments to concise summaries, checks, and dispositions.
 
 The review sequence is bot review first, human review second. Run CodeRabbit
 and Cubic when configured, address their actionable findings, and only then
-request human review. A human review is mandatory and may be AI-assisted, but
-bot approval or silence never counts as human approval.
+request human review. If CodeRabbit is rate-limited, document it; a completed
+Cubic review is sufficient for bot review. A human review is mandatory and may
+be AI-assisted, but bot approval or silence never counts as human approval.
 
 Do not review draft pull requests. When the user excludes Dependabot, omit
 pull requests authored by `dependabot[bot]` before inspecting diffs or posting

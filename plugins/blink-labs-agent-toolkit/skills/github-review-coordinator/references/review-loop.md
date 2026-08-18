@@ -5,7 +5,9 @@
 1. Confirm branch, changed paths, required checks, CODEOWNERS, and reviewers.
    Skip draft PRs. If Dependabot is excluded, skip PRs authored by
    `dependabot[bot]`.
-2. Run or wait for CodeRabbit and Cubic; address actionable findings.
+2. Run or wait for CodeRabbit and Cubic; address actionable findings. If
+   CodeRabbit is rate-limited, document it and use a completed Cubic review as
+   sufficient bot review.
 3. Re-run affected checks and document dispositions for false positives or
    accepted risks.
 4. For UI changes, verify that the PR includes screenshots of affected states
@@ -17,9 +19,10 @@
    record why on the pull request and retain appropriate human coverage.
 
 An issue-resolution request includes the bot loop after the initial PR update:
-wait for CodeRabbit and Cubic, verify findings against the current head, fix
-valid findings, validate, push, and repeat until no actionable bot findings
-remain. Stop when the PR is ready for human review.
+wait for CodeRabbit and Cubic, or document CodeRabbit rate limiting and use
+Cubic alone, then verify findings against the current head, fix valid findings,
+validate, push, and repeat until the available bots have no actionable findings.
+Stop when the PR is ready for human review.
 
 ## Squash merge gate
 

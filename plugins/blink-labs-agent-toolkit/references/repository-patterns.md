@@ -153,8 +153,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - Separate merge blockers from non-blocking findings and explicitly report
   checks that require live GitHub, registry, or Cardano integration access.
 - Run CodeRabbit and Cubic before human review, address actionable findings,
-  and then obtain the required human review. Human review may be AI-assisted,
-  but bot approval is not a substitute for it.
+  and then obtain the required human review. If CodeRabbit is rate-limited,
+  document it; a completed Cubic review is sufficient for bot review. Human
+  review may be AI-assisted, but bot approval is not a substitute for it.
 - If a human reviewer requests changes, validate and push the fixes, summarize
   them on the pull request, and use GitHub to request another review from that
   same reviewer.
@@ -166,8 +167,9 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   factual squash summary and preserve the DCO `Signed-off-by:` line. A review
   for an earlier head is stale after a push.
 - Issue resolution includes the bot loop after the initial PR update: verify
-  CodeRabbit and Cubic findings against the current head, fix valid findings,
-  validate, and repeat until the bots are clear for human review.
+  CodeRabbit and Cubic findings against the current head, or document CodeRabbit
+  rate limiting and use Cubic alone, fix valid findings, validate, and repeat
+  until the available bots are clear for human review.
 - Keep commits, PR descriptions, and reviews concise and evidence-based. Use
   short factual statements tied to the changed code, tests, and review state;
   place code-specific feedback inline and keep PR-level text to summaries,

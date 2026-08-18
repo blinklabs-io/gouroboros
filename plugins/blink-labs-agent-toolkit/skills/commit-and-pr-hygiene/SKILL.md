@@ -60,7 +60,8 @@ The sequence is bots first, humans second, and it does not compress:
    by `dependabot[bot]`.
 2. Verify the current PR head, requested reviewer, checks, and latest bot
    findings before reviewing. Run or wait for configured CodeRabbit and Cubic
-   reviews.
+   reviews. If CodeRabbit is rate-limited, document it; a completed Cubic
+   review is sufficient for bot review.
 3. Reproduce or disprove each finding against the current checkout, then
    classify it: merge blocker, non-blocking recommendation, false positive, or
    already addressed. Do not copy bot prose into durable documentation.

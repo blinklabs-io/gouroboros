@@ -136,8 +136,10 @@ Use the focused skills when applicable:
   issue tracking, and an exit plan; Apollo is upstream-only under normal
   circumstances.
 - Follow the review order: run configured CodeRabbit/Cubic checks, address
-  actionable findings, then obtain required human review. Human review may be
-  AI-assisted, but bot approval or silence is never sufficient by itself.
+  actionable findings, then obtain required human review. If CodeRabbit is
+  rate-limited, document it; a completed Cubic review is sufficient for bot
+  review. Human review may be AI-assisted, but bot approval or silence is
+  never sufficient by itself.
 - Do not review draft pull requests. If Dependabot is excluded, omit PRs
   authored by `dependabot[bot]` before inspecting changes.
 - UI changes require screenshots in the PR. Verify the affected states and
@@ -155,8 +157,8 @@ Use the focused skills when applicable:
 - A squash merge is allowed only with human approval for the current head SHA,
   passing required checks, and no actionable bot findings. Use one concise
   factual squash summary and preserve the DCO `Signed-off-by:` line.
-- Issue resolution continues through bot review responses and valid follow-up
-  fixes until configured bots are clear and the PR is ready for human review.
+- Issue resolution continues through available bot review responses and valid
+  follow-up fixes until the bots are clear and the PR is ready for human review.
 
 ## Historical session context
 

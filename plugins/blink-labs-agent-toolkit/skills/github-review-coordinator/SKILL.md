@@ -20,7 +20,9 @@ and the target repository's contribution guidance.
    marked outdated, or one whose commit range includes a "fix: address review"
    commit, is a verification task, not a work item.
 2. Run or wait for configured CodeRabbit and Cubic reviews before requesting
-   human review. Reproduce findings against the current checkout.
+   human review. If CodeRabbit is rate-limited, document it; a completed Cubic
+   review is sufficient for bot review. Reproduce findings against the current
+   checkout.
 3. Address actionable bot findings, document false positives or accepted
    risks, rerun affected checks, and update the PR.
 4. For UI changes, verify that the PR includes screenshots of affected states
@@ -35,8 +37,9 @@ and the target repository's contribution guidance.
    review coverage.
 
 When the user asks to resolve an issue, iterate after the initial PR update:
-wait for CodeRabbit and Cubic, verify each finding against the current head,
-fix valid findings, validate, push, and repeat until both bots have no
+wait for CodeRabbit and Cubic, or document CodeRabbit rate limiting and use
+Cubic alone, then verify each finding against the current head, fix valid
+findings, validate, push, and repeat until the available bots have no
 actionable findings. Stop at human-review readiness.
 
 ## Squash merge gate

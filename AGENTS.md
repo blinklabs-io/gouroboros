@@ -127,8 +127,10 @@ the scope, acceptance criteria, and relevant context.
 - Do not review draft pull requests. When the user excludes Dependabot, omit
   pull requests authored by `dependabot[bot]` from the review set.
 - Run the configured review bots before requesting human review and address
-  their actionable findings first. Human review is still required; it may be
-  AI-assisted, but bot approval or silence is not human approval.
+  their actionable findings first. If CodeRabbit is rate-limited, document it
+  and a completed Cubic review is sufficient for bot review. Human review is
+  still required; it may be AI-assisted, but bot approval or silence is not
+  human approval.
 - When asked to resolve an issue, carry it through implementation, PR update,
   bot review responses, valid fixes, validation, and bot re-runs until no
   actionable bot findings remain and the PR is ready for human review.

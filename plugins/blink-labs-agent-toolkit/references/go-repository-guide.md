@@ -57,8 +57,9 @@ for concise summaries, validation, or disposition.
 
 The review sequence is bot review first, human review second. Run CodeRabbit
 and Cubic when configured, address their actionable findings, and only then
-request human review. Human review is mandatory and may be AI-assisted; bot
-approval or silence is not human approval.
+request human review. If CodeRabbit is rate-limited, document it; a completed
+Cubic review is sufficient for bot review. Human review is mandatory and may be
+AI-assisted; bot approval or silence is not human approval.
 
 Review scope is explicit: do not review draft PRs. If Dependabot is excluded,
 filter `dependabot[bot]` before inspecting diffs. Verify the current head SHA,
@@ -83,9 +84,9 @@ Use one concise factual squash summary and preserve the DCO
 `Signed-off-by:` line; an approval for an earlier head is stale after a push.
 
 An issue-resolution request includes the post-update bot loop: verify CodeRabbit
-and Cubic findings against each current head, fix valid findings, validate, and
-repeat until no actionable bot findings remain and the PR is ready for human
-review.
+and Cubic findings against each current head, or document CodeRabbit rate
+limiting and use Cubic alone, fix valid findings, validate, and repeat until the
+available bots have no actionable findings and the PR is ready for human review.
 
 ## Common Go baseline
 
