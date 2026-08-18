@@ -3,6 +3,8 @@
 ## Required sequence
 
 1. Confirm branch, changed paths, required checks, CODEOWNERS, and reviewers.
+   Skip draft PRs. If Dependabot is excluded, skip PRs authored by
+   `dependabot[bot]`.
 2. Run or wait for CodeRabbit and Cubic; address actionable findings.
 3. Re-run affected checks and document dispositions for false positives or
    accepted risks.
@@ -22,6 +24,9 @@ gh pr checks <number>
 Use the GitHub UI or API for reviewer requests and dismissals. Verify the PR
 state afterward; never infer that a request, approval, or dismissal happened
 from a local commit or comment.
+
+Before posting, verify the current head SHA and re-check older findings against
+the current diff. A changed head requires a fresh review decision.
 
 ## Writing standard
 

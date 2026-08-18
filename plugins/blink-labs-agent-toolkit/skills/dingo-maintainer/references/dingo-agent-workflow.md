@@ -73,6 +73,24 @@ checkout remains the source of truth for commands and behavior.
   select the intended producer/reference node, honor configured ports, and
   fail if a named gate silently stops exercising its target test.
 
+For Dingo cache and decoder reviews, inspect hot-entry TTL enforcement,
+bounded retained memory, in-flight waiter wakeup, panic cleanup, and benchmark
+error handling. A passing race run does not replace checking those contracts.
+
+For Koios/account reviews, inspect exact amount validation before equality,
+duplicate reference-row handling, coverage error classification, account
+defaults through every composition path, and cancellation of remaining API
+chunks after the first failure.
+
+For Dingo cache and decoder reviews, inspect hot-entry TTL enforcement,
+bounded retained memory, in-flight waiter wakeup, panic cleanup, and benchmark
+error handling. A passing race run does not replace checking those contracts.
+
+For Koios/account reviews, inspect exact amount validation before equality,
+duplicate reference-row handling, coverage error classification, account
+defaults through every composition path, and cancellation of remaining API
+chunks after the first failure.
+
 ## Leave durable follow-up
 
 - Update `ARCHITECTURE.md` for component, lifecycle, event, plugin, or

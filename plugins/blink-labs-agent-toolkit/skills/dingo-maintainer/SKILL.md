@@ -101,6 +101,16 @@ mutually exclusive flags, persisted-gate absence, script argument/port
 handling, and concurrent test state. File an issue for confirmed flakes or
 dropped events instead of filtering them away.
 
+For cache or decoder changes, verify the size bound, TTL behavior on hot reads,
+in-flight waiter cleanup, panic/error cleanup, direct waiter result delivery,
+and retained-object memory cost. Concurrent benchmarks must not call
+`Fatalf`/`FailNow` from `RunParallel` worker goroutines.
+
+For Koios/account or configuration changes, verify programmatic defaults and
+composition wiring, CLI/YAML/environment precedence, cancellation after the
+first failed chunk, duplicate-row preservation, malformed and negative amount
+handling, and propagation of non-`sql.ErrNoRows` database errors.
+
 ## Documentation and delivery
 
 Treat `DATABASE.md` and `ARCHITECTURE.md` as part of the change bar. Update

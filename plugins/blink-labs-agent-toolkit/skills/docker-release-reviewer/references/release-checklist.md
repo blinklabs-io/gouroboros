@@ -11,6 +11,11 @@ Trace these values end to end:
 7. `latest`, semver, commit, and architecture-tag behavior.
 8. Generated wrapper source in `repos/actions/repos-config.yaml`.
 
+For reusable workflow wrappers, verify the referenced workflow file exists in
+the current `repos/actions` checkout and that the ref is appropriate. Treat
+missing workflow paths, mutable `@main` refs on release or secret-bearing
+jobs, and broad unneeded token permissions as merge blockers.
+
 Prefer `blinklabs-io/<image>` when an equivalent image exists. Verify its tag,
 architecture support, and release policy. Third-party images require a written
 reason and fallback plan.

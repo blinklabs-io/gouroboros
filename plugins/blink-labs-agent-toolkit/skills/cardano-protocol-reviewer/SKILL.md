@@ -31,6 +31,14 @@ choose the relevant invariants and validation.
 7. Report behavioral, wire/API, conformance, architecture, and documentation
    findings before style suggestions. Identify skipped live validation.
 
+For public Go serialization APIs, treat receiver changes as compatibility
+changes: a pointer `MarshalJSON` receiver is not used for a non-addressable
+value passed to `json.Marshal`. Trace value call sites and add value and
+pointer regression tests. For type switches, guard typed-nil pointers before
+dereferencing. Check the module's Go directive before accepting or rejecting
+range-variable findings; Go 1.22 and later changed per-iteration variable
+semantics.
+
 Never trade protocol correctness for a convenient local replacement or a
 re-encoded fixture. Follow the workspace's bot-first, human-required review
 sequence when this skill is used for a pull request.

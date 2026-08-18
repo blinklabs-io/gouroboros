@@ -11,10 +11,23 @@ reviews, read the [Go repository common-ground guide](docs/go-repository-guide.m
 Then read the target submodule's local `AGENTS.md`, `CLAUDE.md`,
 `CONTRIBUTING.md`, README, and Makefile.
 
-The shared `skills/*/SKILL.md` files are tool-neutral and are compatible with
-Claude as well as Codex. Load the relevant `SKILL.md` directly; the adjacent
-`agents/openai.yaml` file is optional OpenAI UI metadata and is not a Claude
-runtime dependency.
+The shared toolkit lives in `plugins/blink-labs-agent-toolkit/` and is enabled
+for this repository through `.claude/settings.json`. It provides skills, the
+`/orient`, `/validate`, `/review`, `/dep-audit`, `/release-check`, and
+`/submodule-sync` commands, review subagents, and three workspace guards. The
+catalog is [docs/skill-catalog.md](docs/skill-catalog.md).
+
+Start a cross-repository task with `/orient`, or with the
+[`blink-workspace-navigator`](skills/blink-workspace-navigator/SKILL.md) skill,
+to establish which repository owns the change before editing anything.
+
+The `skills/*/SKILL.md` files are tool-neutral and work for Claude and Codex
+alike. Load the relevant `SKILL.md` directly; the adjacent `agents/openai.yaml`
+file is optional Codex UI metadata and is not a Claude runtime dependency.
+
+`skills/` is a symlink into the plugin, as are the two shared guides under
+`docs/`. Edit the files under `plugins/blink-labs-agent-toolkit/`, and run
+`make validate` after any toolkit change.
 
 The parent repository is a workspace of independently versioned submodules.
 Source changes belong in the relevant submodule; the parent normally records
@@ -56,6 +69,10 @@ and Cubic when configured, address their actionable findings, and only then
 request human review. A human review is mandatory and may be AI-assisted, but
 bot approval or silence never counts as human approval.
 
+Do not review draft pull requests. When the user excludes Dependabot, omit
+pull requests authored by `dependabot[bot]` before inspecting diffs or posting
+reviews.
+
 When a human reviewer requests changes, implement and validate the fixes,
 summarize the changes on the pull request, and explicitly request another
 review from that same person through GitHub. Do not assume that replying to
@@ -89,4 +106,11 @@ circumstances.
 ## Commits
 
 Use Conventional Commits and DCO sign-off (`git commit -s`). Keep workspace
-documentation, skill, and submodule-pointer changes easy to distinguish.
+documentation, skill, and submodule-pointer changes easy to distinguish. A
+workspace guard denies a commit that is missing either, so fix the command
+rather than working around it. Details are in the
+[`commit-and-pr-hygiene`](skills/commit-and-pr-hygiene/SKILL.md) skill.
+
+Before reporting work as complete, produce the evidence ledger and skipped-check
+list described in
+[`evidence-based-handoff`](skills/evidence-based-handoff/SKILL.md).

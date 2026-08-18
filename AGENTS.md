@@ -6,8 +6,15 @@ Blink Labs monorepo.
 ## Repository purpose
 
 This repository coordinates Blink Labs projects and shared agentic-coding
-assets. It is expected to contain Git submodules alongside skills, plugins,
-documentation, and workspace-level automation.
+assets. It contains Git submodules for every project alongside the shared
+skills, plugin, documentation, and workspace-level automation that agents use
+across them.
+
+The canonical location for shared agent assets is
+`plugins/blink-labs-agent-toolkit/`. The top-level `skills/` directory and the
+`docs/go-repository-guide.md` and `docs/repository-patterns.md` files are
+symlinks into it. Never replace a symlink with a copy; a second copy drifts
+silently.
 
 ## Before making changes
 
@@ -36,9 +43,12 @@ the scope, acceptance criteria, and relevant context.
   for it.
 - Shared skills, plugins, scripts, and documentation should be placed in their
   designated top-level directories as those directories are established.
-- For repository-aware work, use the local
-  [`blink-repo-maintainer`](skills/blink-repo-maintainer/SKILL.md) skill and
-  its repository-family reference.
+- Before editing, find the owning repository with
+  [`blink-workspace-navigator`](skills/blink-workspace-navigator/SKILL.md). Names
+  are similar across families; a wrong guess costs a review cycle.
+- For repository-aware work, use
+  [`blink-repo-maintainer`](skills/blink-repo-maintainer/SKILL.md) and its
+  repository-family reference.
 - For Go repository work or code reviews, start with the shared
   [Go repository common ground](docs/go-repository-guide.md), then follow the
   target repository's local instructions. The guide maps module boundaries,
@@ -50,13 +60,25 @@ the scope, acceptance criteria, and relevant context.
   background gate's output, and turn confirmed flakes or dropped events into
   issues rather than silently filtering them.
 - Use the focused skills when their scope applies: [Cardano protocol
-  reviewer](skills/cardano-protocol-reviewer/SKILL.md), [Go API
+  reviewer](skills/cardano-protocol-reviewer/SKILL.md), [Cardano application
+  reviewer](skills/cardano-app-reviewer/SKILL.md), [Go API
   maintainer](skills/go-api-maintainer/SKILL.md), [Go dependency
   auditor](skills/go-dependency-auditor/SKILL.md), [Docker release
-  reviewer](skills/docker-release-reviewer/SKILL.md), [Cardano application
-  reviewer](skills/cardano-app-reviewer/SKILL.md), [docs and KB
+  reviewer](skills/docker-release-reviewer/SKILL.md), [infrastructure
+  reviewer](skills/infrastructure-reviewer/SKILL.md), [docs and KB
   maintainer](skills/docs-kb-maintainer/SKILL.md), and [GitHub review
   coordinator](skills/github-review-coordinator/SKILL.md).
+- For process discipline, use
+  [`isolated-validation-runs`](skills/isolated-validation-runs/SKILL.md) for
+  slow, stateful, or concurrent checks,
+  [`commit-and-pr-hygiene`](skills/commit-and-pr-hygiene/SKILL.md) before
+  committing, and
+  [`evidence-based-handoff`](skills/evidence-based-handoff/SKILL.md) before
+  reporting work as done.
+- The full catalog of skills, slash commands, subagents, and workspace guards is
+  in [docs/skill-catalog.md](docs/skill-catalog.md). Changes to the toolkit
+  itself follow
+  [`agent-toolkit-authoring`](skills/agent-toolkit-authoring/SKILL.md).
 
 ## Implementation guidance
 
@@ -92,6 +114,8 @@ the scope, acceptance criteria, and relevant context.
   organization-wide contribution and security guidance.
 - Check the relevant `CODEOWNERS` file and any local contribution instructions
   before preparing a pull request.
+- Do not review draft pull requests. When the user excludes Dependabot, omit
+  pull requests authored by `dependabot[bot]` from the review set.
 - Run the configured review bots before requesting human review and address
   their actionable findings first. Human review is still required; it may be
   AI-assisted, but bot approval or silence is not human approval.
@@ -109,6 +133,11 @@ Run the narrowest relevant checks after making a change. For changes to a
 submodule, use that submodule's documented checks. For workspace-level changes,
 at minimum verify the resulting Git diff and, when applicable, validate the
 affected Markdown, scripts, or plugin metadata.
+
+For any change under `plugins/`, `skills/`, `docs/`, or `scripts/`, run
+`make validate`. It checks manifest JSON, skill front matter, command and
+subagent metadata, hook syntax and behavior, symlink integrity, and internal
+link resolution.
 
 When reporting results, include the checks that were run and note anything that
 could not be run because the relevant project or tooling is not yet present.

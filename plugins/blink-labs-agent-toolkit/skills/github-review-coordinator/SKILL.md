@@ -12,7 +12,8 @@ and the target repository's contribution guidance.
 ## Review sequence
 
 1. Confirm the PR, base branch, changed repositories, checks, CODEOWNERS, and
-   required reviewers.
+   required reviewers. Exclude draft PRs. If the user excludes Dependabot,
+   exclude PRs authored by `dependabot[bot]`.
 2. Run or wait for configured CodeRabbit and Cubic reviews before requesting
    human review. Reproduce findings against the current checkout.
 3. Address actionable bot findings, document false positives or accepted
@@ -30,6 +31,11 @@ Use GitHub's UI or API for reviewer requests and dismissal. Do not claim a
 review, approval, re-request, or dismissal occurred unless GitHub shows it.
 Separate bot findings, human findings, unresolved risks, skipped checks, and
 final approval state in the handoff.
+
+Before posting a review, verify the current head SHA, author, draft state,
+requested-reviewer state, required checks, and latest bot findings. Re-evaluate
+older human findings against the current head; do not reuse a stale review
+without checking the intervening commits.
 
 ## Writing standard
 

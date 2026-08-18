@@ -10,26 +10,39 @@ family. Treat the parent `clanker` repository as a workspace and each entry
 under `repos/` as an independently versioned project.
 
 For Go repositories or cross-repository code reviews, read the shared
-[Go repository common-ground guide](../../docs/go-repository-guide.md). It
+[Go repository common-ground guide](../../references/go-repository-guide.md). It
 contains the current module-boundary map, generated-interface pointers, shared
 Cardano/CBOR review invariants, and a per-repository orientation table.
 
 Use the focused skills when applicable:
 
+- [blink-workspace-navigator](../blink-workspace-navigator/SKILL.md) to find
+  which repository owns a topic, symbol, fixture, or workflow;
 - [cardano-protocol-reviewer](../cardano-protocol-reviewer/SKILL.md) for
   ledger, CBOR, Plutus, Ouroboros, consensus, and conformance work;
+- [cardano-app-reviewer](../cardano-app-reviewer/SKILL.md) for wallet,
+  transaction, DEX, indexer, and node-integrated applications;
+- [dingo-maintainer](../dingo-maintainer/SKILL.md) for the Dingo node;
 - [go-api-maintainer](../go-api-maintainer/SKILL.md) for OpenAPI, protobuf,
   ConnectRPC, sqlc, and generated Go surfaces;
 - [go-dependency-auditor](../go-dependency-auditor/SKILL.md) for module graph,
   replacement, checkout, and provenance audits;
 - [docker-release-reviewer](../docker-release-reviewer/SKILL.md) for image,
   multi-architecture, manifest, and publishing workflows;
-- [cardano-app-reviewer](../cardano-app-reviewer/SKILL.md) for wallet,
-  transaction, DEX, indexer, and node-integrated applications;
+- [infrastructure-reviewer](../infrastructure-reviewer/SKILL.md) for Helm,
+  Terraform, Ansible, operator, and compose deployment changes;
 - [docs-kb-maintainer](../docs-kb-maintainer/SKILL.md) for public docs and KB
-  boundaries; and
+  boundaries;
 - [github-review-coordinator](../github-review-coordinator/SKILL.md) for the
-  bot-first, human-required pull-request review loop.
+  bot-first, human-required pull-request review loop;
+- [commit-and-pr-hygiene](../commit-and-pr-hygiene/SKILL.md) for Conventional
+  Commits, DCO sign-off, and message and description scope;
+- [isolated-validation-runs](../isolated-validation-runs/SKILL.md) for
+  worktrees, unique resources, background tasks, and flake triage;
+- [evidence-based-handoff](../evidence-based-handoff/SKILL.md) for the final
+  evidence ledger, skipped-check list, and findings order; and
+- [agent-toolkit-authoring](../agent-toolkit-authoring/SKILL.md) when changing
+  the toolkit's own skills, commands, subagents, or hooks.
 
 ## Workflow
 
@@ -91,7 +104,9 @@ Use the focused skills when applicable:
 - Infrastructure repositories: use `ansible-test`/`ansible-lint` for Ansible,
   `helm lint`/`helm template` for charts, and `terraform fmt -check` plus
   `terraform validate` per Terraform module. Do not substitute a generic Go or
-  Docker check for the project's native validation.
+  Docker check for the project's native validation. Use
+  [infrastructure-reviewer](../infrastructure-reviewer/SKILL.md) for blast
+  radius, state safety, and secret handling.
 - Workspace or submodule changes: run `git diff --check`, review
   `git diff --submodule=log`, and verify `git submodule status --recursive`.
 
@@ -119,6 +134,12 @@ Use the focused skills when applicable:
 - Follow the review order: run configured CodeRabbit/Cubic checks, address
   actionable findings, then obtain required human review. Human review may be
   AI-assisted, but bot approval or silence is never sufficient by itself.
+- Do not review draft pull requests. If Dependabot is excluded, omit PRs
+  authored by `dependabot[bot]` before inspecting changes.
+- For generated workflow changes, verify every called workflow exists in the
+  current `repos/actions` source at the referenced ref. Pin release and
+  security-sensitive reusable workflows to full commit SHAs and keep token
+  permissions explicit and minimal.
 - If a human reviewer requests changes, validate and push the fixes, summarize
   them on the pull request, and explicitly request another review from that
   same reviewer through GitHub.
@@ -127,10 +148,11 @@ Use the focused skills when applicable:
 
 ## Historical session context
 
-When local agent session records are available, including Codex or Claude
-sessions, search them by repository path and name for prior investigations,
-validation commands, and recurring failure modes. Use them as historical
-context only: verify every conclusion against the current checkout, and never
-copy credentials, untracked files, or stale fixes. Distill repeated,
-repository-independent procedures into this skill or its references; leave
-one-off bug details in the project repository.
+Local Codex and Claude session records can be searched by repository path and
+name for prior investigations, validation commands, and recurring failure
+modes. Use them as history only: verify every conclusion against the current
+checkout, and never copy credentials, untracked files, or stale fixes. Distill
+repeated, repository-independent procedures into this skill or its references;
+leave one-off bug details in the project repository. See
+[blink-workspace-navigator](../blink-workspace-navigator/SKILL.md) for locating
+the owning repository first.
