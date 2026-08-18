@@ -1,10 +1,20 @@
 {
   "name": "blink-labs-agent-toolkit",
-  "version": "0.1.0",
-  "description": "Shared Blink Labs repository maintenance and review skills for Claude Code and Codex-compatible workflows.",
+  "version": "0.2.0",
+  "description": "Blink Labs repository maintenance, Cardano protocol and application review, Go API and dependency auditing, Docker release review, infrastructure review, and GitHub review-loop coordination for the clanker workspace.",
   "author": {
     "name": "Blink Labs"
   },
+  "homepage": "https://github.com/blinklabs-io/clanker",
   "repository": "https://github.com/blinklabs-io/clanker",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "blink-labs",
+    "cardano",
+    "go",
+    "docker",
+    "code-review",
+    "monorepo",
+    "submodules"
+  ]
 }

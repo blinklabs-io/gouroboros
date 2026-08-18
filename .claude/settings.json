@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "blink-labs-team": {
+      "source": {
+        "source": "github",
+        "repo": "blinklabs-io/clanker"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "blink-labs-agent-toolkit@blink-labs-team": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote -v)",
+      "Bash(git submodule status:*)",
+      "Bash(git worktree list)",
+      "Bash(gofmt:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go list:*)",
+      "Bash(go mod graph:*)",
+      "Bash(go mod why:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(nilaway:*)",
+      "Bash(make help:*)",
+      "Bash(make test:*)",
+      "Bash(make lint:*)",
+      "Bash(make validate:*)",
+      "Bash(scripts/validate-toolkit.sh:*)",
+      "Bash(actionlint:*)",
+      "Bash(shellcheck:*)",
+      "Bash(buf lint:*)",
+      "Bash(docker build --check:*)",
+      "Bash(docker compose config:*)",
+      "Bash(helm lint:*)",
+      "Bash(helm template:*)",
+      "Bash(terraform fmt -check:*)",
+      "Bash(terraform validate:*)",
+      "Bash(ansible-lint:*)",
+      "Bash(npm run check:*)",
+      "Bash(npm run build:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr review:*)",
+      "Bash(kubectl apply:*)",
+      "Bash(terraform apply:*)",
+      "Bash(helmfile apply:*)",
+      "Bash(docker build:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(docker push:*)",
+      "Bash(docker manifest push:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(helmfile destroy:*)",
+      "Bash(kubectl delete:*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/id_rsa*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets/**)",
+      "Read(**/*.kubeconfig)"
+    ]
+  }
+}

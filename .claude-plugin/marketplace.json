@@ -1,5 +1,7 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "blink-labs-team",
+  "description": "Blink Labs agentic-coding toolkit for the clanker workspace: Cardano, Go, Docker, and infrastructure maintenance and review.",
   "owner": {
     "name": "Blink Labs"
   },
@@ -7,7 +9,22 @@
     {
       "name": "blink-labs-agent-toolkit",
       "source": "./plugins/blink-labs-agent-toolkit",
-      "description": "Shared Blink Labs repository maintenance and review skills for Claude Code and Codex."
+      "version": "0.2.0",
+      "description": "Repository maintenance, Cardano protocol and application review, Go API and dependency auditing, Docker release and infrastructure review, and GitHub review-loop coordination for Blink Labs. Includes slash commands, review subagents, and workspace guards.",
+      "author": {
+        "name": "Blink Labs"
+      },
+      "homepage": "https://github.com/blinklabs-io/clanker",
+      "category": "development",
+      "keywords": [
+        "blink-labs",
+        "cardano",
+        "go",
+        "docker",
+        "code-review",
+        "monorepo",
+        "submodules"
+      ]
     }
   ]
 }

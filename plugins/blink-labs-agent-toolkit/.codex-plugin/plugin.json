@@ -1,7 +1,7 @@
 {
   "name": "blink-labs-agent-toolkit",
-  "version": "0.1.0",
-  "description": "Shared Blink Labs repository maintenance and review skills for Claude- and Codex-compatible agent workflows.",
+  "version": "0.2.0",
+  "description": "Shared Blink Labs maintenance and review skills for Claude- and Codex-compatible agent workflows.",
   "author": {
     "name": "Blink Labs"
   },
@@ -9,6 +9,7 @@
     "blink-labs",
     "cardano",
     "go",
+    "docker",
     "reviews",
     "repositories"
   ],
@@ -16,7 +17,7 @@
   "interface": {
     "displayName": "Blink Labs Agent Toolkit",
     "shortDescription": "Shared Blink Labs maintenance skills",
-    "longDescription": "Repository-aware maintenance, review, dependency, Docker, documentation, and GitHub workflow skills for Claude and Codex.",
+    "longDescription": "Repository-aware maintenance, Cardano protocol and application review, Go API and dependency auditing, Docker release, infrastructure, documentation, and GitHub workflow skills for Claude and Codex.",
     "developerName": "Blink Labs",
     "category": "Developer Tools",
     "capabilities": [],

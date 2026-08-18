@@ -1,0 +1,16 @@
+# Local, per-developer agent configuration
+.claude/settings.local.json
+.claude/*.local.json
+.codex/*.local.*
+
+# Local, ephemeral planning artifacts. Durable scope belongs in an issue.
+PLAN.md
+PLANS.md
+HANDOFF.md
+/plans/
+/scratch/
+*.plan.md
+
+# Editor and OS noise
+.DS_Store
+*.swp
