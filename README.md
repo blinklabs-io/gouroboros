@@ -45,6 +45,8 @@ project in the workspace:
   review, dispatchable in parallel across repositories.
 - **Workspace guards** that enforce DCO sign-off and Conventional Commits, warn
   on submodule boundary crossings, and brief a new session on workspace state.
+- **Workspace scripts** for repeatable maintenance, including `make scan-prs`
+  for current-head pull-request review and merge-gate scans.
 
 `.claude/settings.json` registers the marketplace and enables the plugin, so a
 fresh clone is ready without manual setup. The complete catalog is in
@@ -77,6 +79,15 @@ Validate any change to the toolkit with:
 ```sh
 make validate
 ```
+
+Scan organization pull requests without changing GitHub state:
+
+```sh
+make scan-prs
+```
+
+See [pull request operations](docs/pr-operations.md) for filters and JSON
+output.
 
 ## Contributing
 

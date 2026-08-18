@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""Scan open GitHub pull requests for review and merge-gate state.
+
+The scan deliberately uses GitHub's REST API through ``gh`` so it can inspect
+review records and checks for the exact current head SHA. It never writes to
+GitHub.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
+
+
+BOT_USERS = {"coderabbitai[bot]", "cubic-dev-ai[bot]"}
+PASS_CONCLUSIONS = {"success", "neutral", "skipped"}
+
+
+def gh_json(args: list[str]) -> Any:
+    result = subprocess.run(
+        ["gh", *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"gh {' '.join(args)}: {detail}")
+    return json.loads(result.stdout)
+
+
+def review_summary(body: str) -> str:
+    for line in body.splitlines():
+        line = line.strip()
+        if re.search(
+            r"\*\*.*(?:issues found|Actionable comments posted|No issues found|"
+            r"All reported issues were addressed)",
+            line,
+            re.IGNORECASE,
+        ):
+            return re.sub(r"<[^>]+>", "", line)
+    return ""
+
+
+def bot_has_actionable_findings(body: str) -> bool:
+    if re.search(
+        r"\*\*(?:No issues found|All reported issues were addressed)",
+        body,
+        re.IGNORECASE,
+    ):
+        return False
+    if re.search(r"\*\*Actionable comments posted:\s*[1-9]\d*", body):
+        return True
+    if re.search(r"\*\*[1-9]\d* issues? found\*\*", body):
+        return True
+    return bool(re.search(r"unresolved issues.*violation|P[123]:", body, re.IGNORECASE))
+
+
+def latest_reviews(reviews: list[dict[str, Any]], head: str) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for review in reviews:
+        user = (review.get("user") or {}).get("login", "unknown")
+        if not latest.get(user) or review.get("submitted_at", "") > latest[user].get(
+            "submitted_at", ""
+        ):
+            latest[user] = review
+
+    current: dict[str, dict[str, Any]] = {}
+    for user, review in latest.items():
+        if review.get("commit_id") != head:
+            continue
+        body = review.get("body") or ""
+        current[user] = {
+            "state": review.get("state", ""),
+            "submitted_at": review.get("submitted_at", ""),
+            "summary": review_summary(body),
+            "actionable": user in BOT_USERS and bot_has_actionable_findings(body),
+        }
+    return current
+
+
+def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
+    repo = pr["repository"]["nameWithOwner"]
+    number = pr["number"]
+    prefix = f"repos/{repo}"
+    try:
+        metadata = gh_json(["api", f"{prefix}/pulls/{number}"])
+        head = metadata["head"]["sha"]
+        reviews = gh_json(["api", f"{prefix}/pulls/{number}/reviews?per_page=100"])
+        checks = gh_json(
+            [
+                "api",
+                f"{prefix}/commits/{head}/check-runs?per_page=100",
+            ]
+        ).get("check_runs", [])
+        current_reviews = latest_reviews(reviews, head)
+        problem_checks = [
+            {
+                "name": check.get("name", ""),
+                "status": check.get("status", ""),
+                "conclusion": check.get("conclusion"),
+                "details_url": check.get("details_url", ""),
+            }
+            for check in checks
+            if check.get("status") != "completed"
+            or str(check.get("conclusion", "")).lower() not in PASS_CONCLUSIONS
+        ]
+        return {
+            "repository": repo,
+            "number": number,
+            "title": pr["title"],
+            "url": pr["url"],
+            "author": pr["author"]["login"],
+            "updated_at": pr["updatedAt"],
+            "head": head,
+            "mergeable_state": metadata.get("mergeable_state", ""),
+            "requested_reviewers": [
+                reviewer.get("login", "")
+                for reviewer in metadata.get("requested_reviewers", [])
+            ],
+            "requested_teams": [team.get("name", "") for team in metadata.get("requested_teams", [])],
+            "current_reviews": current_reviews,
+            "problem_checks": problem_checks,
+            "error": None,
+        }
+    except (KeyError, RuntimeError, json.JSONDecodeError) as error:
+        return {
+            "repository": repo,
+            "number": number,
+            "title": pr["title"],
+            "url": pr["url"],
+            "author": pr["author"]["login"],
+            "updated_at": pr["updatedAt"],
+            "error": str(error),
+        }
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--owner", default=os.environ.get("GITHUB_ORG", "blinklabs-io"))
+    parser.add_argument("--user", default=None, help="login used for ownership/review-request summaries")
+    parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--include-drafts", action="store_true")
+    parser.add_argument("--include-dependabot", action="store_true")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
+    return parser.parse_args()
+
+
+def scan(args: argparse.Namespace) -> list[dict[str, Any]]:
+    prs = gh_json(
+        [
+            "search",
+            "prs",
+            "--owner",
+            args.owner,
+            "--state",
+            "open",
+            "--limit",
+            str(args.limit),
+            "--json",
+            "repository,number,title,author,isDraft,updatedAt,url",
+        ]
+    )
+    prs = [
+        pr
+        for pr in prs
+        if (args.include_drafts or not pr["isDraft"])
+        and (args.include_dependabot or pr["author"]["login"] != "dependabot[bot]")
+    ]
+    results: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        futures = {pool.submit(inspect_pr, pr): pr for pr in prs}
+        for future in as_completed(futures):
+            results.append(future.result())
+    return sorted(results, key=lambda item: (item["repository"], item["number"]))
+
+
+def is_human(user: str) -> bool:
+    return not user.endswith("[bot]")
+
+
+def print_text(results: list[dict[str, Any]], user: str | None) -> None:
+    owned = [item for item in results if user and item.get("author") == user]
+    bot_findings = [
+        (item, reviewer, review)
+        for item in results
+        for reviewer, review in item.get("current_reviews", {}).items()
+        if review.get("actionable")
+    ]
+    failures = [item for item in results if item.get("problem_checks")]
+    changes = [
+        (item, reviewer)
+        for item in results
+        for reviewer, review in item.get("current_reviews", {}).items()
+        if is_human(reviewer) and review.get("state") == "CHANGES_REQUESTED"
+    ]
+    approvals = [
+        (item, reviewer)
+        for item in results
+        for reviewer, review in item.get("current_reviews", {}).items()
+        if is_human(reviewer) and review.get("state") == "APPROVED"
+    ]
+    requested = [
+        item
+        for item in results
+        if user and user in item.get("requested_reviewers", [])
+    ]
+
+    print(
+        f"PR scan: {len(results)} open PRs "
+        f"({len(owned)} authored by {user or 'selected user'})"
+    )
+
+    def section(title: str, lines: list[str]) -> None:
+        print(f"\n{title}")
+        print("\n".join(lines) if lines else "none")
+
+    section(
+        "CURRENT BOT FINDINGS",
+        [
+            f"- {item['repository']}#{item['number']} {bot}: {review.get('summary') or 'actionable review content'}"
+            f"\n  {item['url']}"
+            for item, bot, review in bot_findings
+        ],
+    )
+    section(
+        "FAILING OR PENDING CHECKS",
+        [
+            f"- {item['repository']}#{item['number']}: "
+            + ", ".join(
+                f"{check['name']} ({check['conclusion'] or check['status']})"
+                for check in item["problem_checks"]
+            )
+            + f"\n  {item['url']}"
+            for item in failures
+        ],
+    )
+    section(
+        "CURRENT HUMAN CHANGES REQUESTED",
+        [f"- {item['repository']}#{item['number']} by {reviewer}\n  {item['url']}" for item, reviewer in changes],
+    )
+    section(
+        "CURRENT HUMAN APPROVALS",
+        [
+            f"- {item['repository']}#{item['number']} by {reviewer} ({item.get('mergeable_state', 'unknown')})\n  {item['url']}"
+            for item, reviewer in approvals
+        ],
+    )
+    section(
+        f"DIRECT REVIEW REQUESTS FOR {user or 'SELECTED USER'}",
+        [f"- {item['repository']}#{item['number']}\n  {item['url']}" for item in requested],
+    )
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        user = args.user or gh_json(["api", "user"])["login"]
+        results = scan(args)
+    except (RuntimeError, json.JSONDecodeError, OSError) as error:
+        print(f"scan failed: {error}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        print(json.dumps({"user": user, "pull_requests": results}, indent=2))
+    else:
+        print_text(results, user)
+    return 0 if not any(item.get("error") for item in results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

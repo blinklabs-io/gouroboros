@@ -214,6 +214,14 @@ if require_cmd shellcheck "shell linting"; then
 	done
 fi
 
+echo "== Workspace scripts =="
+if python3 -c "import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read())" \
+	 scripts/scan-prs.py 2>/dev/null; then
+	pass "scripts/scan-prs.py parses"
+else
+	fail "scripts/scan-prs.py has a syntax error"
+fi
+
 echo
 if [ "$failures" -eq 0 ]; then
 	echo "toolkit validation passed"
