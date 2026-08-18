@@ -1,6 +1,6 @@
 {
   "name": "blink-labs-agent-toolkit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Blink Labs repository maintenance, Cardano protocol and application review, Go API and dependency auditing, Docker release review, infrastructure review, and GitHub review-loop coordination for the clanker workspace.",
   "author": {
     "name": "Blink Labs"
