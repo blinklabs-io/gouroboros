@@ -64,7 +64,11 @@ Use repository-native Makefile targets and inspect every nested `go.mod`.
 Preserve generated-code provenance, shared `ouroboros-mock` fixtures, raw CBOR
 bytes, Cardano era semantics, and conformance vectors. For Dingo, also follow
 the [Dingo maintainer skill](skills/dingo-maintainer/SKILL.md) and its local
-architecture/database documentation.
+architecture/database documentation. For live incidents, long validation runs,
+or review findings, also read the [Dingo agent workflow](skills/dingo-maintainer/references/dingo-agent-workflow.md):
+start from current `origin/main`, use isolated worktrees and unique resources,
+inspect complete background-task output, preserve live evidence, and test
+negative/absence cases rather than accepting a plausible path.
 
 Do not claim that a check ran when it required unavailable live GitHub,
 registry, Cardano devnet, conformance, or Antithesis infrastructure. Record

@@ -23,6 +23,10 @@ package-local test.
 4. Identify whether the change belongs in Dingo or in a shared dependency. Put
    reusable protocol fixtures in `ouroboros-mock`; do not duplicate them in
    Dingo.
+5. For live incidents, long validation runs, or review findings, read
+   [the Dingo agent workflow](references/dingo-agent-workflow.md). Preserve
+   evidence, isolate worktrees and resources, and check current `origin/main`
+   before editing.
 
 ## Architecture boundaries
 
@@ -82,6 +86,21 @@ Antithesis workflows are dispatch-oriented and should remain isolated from
 ordinary local CI. Do not claim live devnet, conformance, registry, or
 Antithesis validation unless it was actually run.
 
+For long-running or background checks, inspect the complete output and exit
+code after the task finishes and verify that the intended test or gate was
+actually exercised. A task notification is not a test result. Use unique ports,
+temporary paths, and `GOCACHE` values; keep sync/from-genesis runs serialized,
+and compare suspicious failures with an `origin/main` baseline. Do not stop or
+reconfigure a live node or validation run while diagnosing it unless the task
+explicitly authorizes that intervention.
+
+When reviewing a finding, verify the current control flow and add a focused
+test for the reported behavior and its negative case. In particular, check
+incumbent eligibility, equal-height selection, lifecycle cancellation,
+mutually exclusive flags, persisted-gate absence, script argument/port
+handling, and concurrent test state. File an issue for confirmed flakes or
+dropped events instead of filtering them away.
+
 ## Documentation and delivery
 
 Treat `DATABASE.md` and `ARCHITECTURE.md` as part of the change bar. Update
@@ -97,3 +116,6 @@ use Conventional Commits, and create commits with `git commit -s`.
 Dingo's README currently limits operational claims to testnet, preview, and
 devnet contexts; do not describe it as mainnet-ready without an explicit
 project decision.
+
+For the full investigation and review checklist, use
+`references/dingo-agent-workflow.md`.

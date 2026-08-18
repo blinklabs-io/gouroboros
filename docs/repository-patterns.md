@@ -139,6 +139,15 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 - For Dingo, treat race-enabled tests, architecture-boundary checks, shared
   `ouroboros-mock` fixtures, Cardano conformance/devnet validation, and
   `DATABASE.md`/`ARCHITECTURE.md` review as one change bar for node-level work.
+- Dingo investigations should begin from current `origin/main` in an isolated
+  worktree, preserve live-run evidence, use unique ports and temporary paths,
+  and verify the complete output of every background gate. Confirmed flakes,
+  dropped events, and infrastructure limitations belong in issues rather than
+  filtered logs or committed plan files.
+- Dingo review findings require control-flow validation and a focused test for
+  the negative case: eligibility, equal-height selection, lifecycle
+  cancellation, mutually exclusive flags, gate absence, and script argument or
+  port handling are recurring failure surfaces.
 - Prefer `docker build --check .` and `actionlint` before expensive builds or
   live registry validation.
 - Separate merge blockers from non-blocking findings and explicitly report

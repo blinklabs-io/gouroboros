@@ -211,7 +211,7 @@ build failure as an issue for the Shai dependency update.
 | [`cardano-models`](../repos/cardano-models) | `README.md`, `Makefile` | Stable model/API compatibility and gouroboros type usage |
 | [`cardano-node-api`](../repos/cardano-node-api) | `README.md`, `Makefile`, `openapi/` | Node protocol adapters, generated REST surface, and nested OpenAPI tests |
 | [`cardano-up`](../repos/cardano-up) | `README.md`, `packages/` | CLI/package-manager behavior, contexts, package definitions, and version consistency |
-| [`dingo`](../repos/dingo) | `AGENTS.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `DATABASE.md`, `Makefile` | Architecture boundaries, EventBus, plugin composition, storage migrations, race tests, conformance, and devnet |
+| [`dingo`](../repos/dingo) | `AGENTS.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `DATABASE.md`, `Makefile` | Architecture boundaries, EventBus, plugin composition, storage migrations, race tests, conformance, and devnet; use the [Dingo agent workflow](../skills/dingo-maintainer/references/dingo-agent-workflow.md) for live investigations and review findings |
 | [`cdnsd`](../repos/cdnsd) | `README.md`, `Makefile`, `handshake/`, `internal/indexer/` | DNS and Handshake validation, recursive DNSSEC behavior, peer safety, and generated/runtime checks |
 | [`dingo-operator`](../repos/dingo-operator) | `AGENTS.md`, `CLAUDE.md`, `README.md`, `Makefile` | CRD reconciliation, envtest, non-root containers, Dingo lifecycle, and Helm packaging |
 | [`dingoctl`](../repos/dingoctl) | `README.md`, `Makefile` | TLS on every command, mTLS for resource-consuming RPCs, and Bark compatibility |

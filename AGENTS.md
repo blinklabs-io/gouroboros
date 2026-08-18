@@ -44,6 +44,11 @@ the scope, acceptance criteria, and relevant context.
   target repository's local instructions. The guide maps module boundaries,
   generated interfaces, shared fixtures, review invariants, and repository
   pointers.
+- For Dingo work, also read the [Dingo agent workflow](skills/dingo-maintainer/references/dingo-agent-workflow.md).
+  Start from current `origin/main` in an isolated worktree, preserve live
+  validation evidence, use unique ports and temporary paths, verify every
+  background gate's output, and turn confirmed flakes or dropped events into
+  issues rather than silently filtering them.
 - Use the focused skills when their scope applies: [Cardano protocol
   reviewer](skills/cardano-protocol-reviewer/SKILL.md), [Go API
   maintainer](skills/go-api-maintainer/SKILL.md), [Go dependency
