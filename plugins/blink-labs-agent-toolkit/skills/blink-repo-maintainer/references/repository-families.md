@@ -39,6 +39,7 @@ golangci-lint, NilAway, Docker CI, and publishing. Some omit or customize a
 workflow based on their scope.
 
 - `adder`
+- `cdnsd`, `dingo-operator`, `dingoctl`, `handshake-node`, and `vpn-indexer`
 - `cardano-node-api`
 - `cardano-up`
 - `shai`
@@ -94,9 +95,11 @@ fixtures, race-enabled tests, conformance/devnet testing, and the
   in each affected module and respect provider/version constraints.
 - `issues`: content-only issue repository; review links and Markdown without
   inventing a code build.
-- `docs`: Next.js/Nextra public documentation site. Prefer concise MDX pages,
-  preserve navigation metadata, and validate with `pnpm install --frozen-lockfile`
-  and `pnpm build` when the package manager is available.
+- `docs-site`: active `blinklabs-io/docs` Astro/Starlight public documentation
+  site. Prefer concise Markdown pages under `src/content/docs/`, preserve
+  navigation metadata, and validate with `npm ci`, `npm run check`, and
+  `npm run build` when the package manager is available. The archived
+  `blinklabs-io/docs-site` repository is not the workspace docs checkout.
 - `kb`: long-form engineering knowledge base organized into numbered books.
   Preserve its source-map, glossary, and pinned-public-source conventions when
   extending training material. It currently has no package manifest or CI

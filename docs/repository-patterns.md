@@ -40,7 +40,7 @@ until documentation-specific profiles and checks are defined.
 | Mobile | `adder-mobile` | Conventional Commits plus Flutter/mobile-specific PR and publish workflows |
 | Package definitions | `cardano-up-packages` | Conventional Commits, upstream version checks, package validation |
 | Compose/integration | `cardano-compose-stacks` | Upstream version checks for a Docker Compose environment |
-| Public documentation | `docs-site` | Next.js/Nextra site with MDX product and DevOps documentation |
+| Public documentation | `docs-site` | Astro/Starlight site with Markdown and localized product and DevOps documentation |
 | Engineering knowledge base | `kb` | Numbered training books with references, glossaries, and source maps |
 | Ansible automation | `ansible-cardano` | Ansible Galaxy collection with role tests and release workflow |
 | Helm packaging | `helm-charts` | Many chart-specific publish workflows plus chart testing and image-version checks |
@@ -66,7 +66,7 @@ The authoritative profile and per-project exceptions live in
 | Helm chart | `helm lint` and `helm template` for affected charts | chart-testing and registry/release workflow |
 | Terraform module | `terraform fmt -check` and `terraform validate` per module | provider-aware plan or integration checks |
 | Issue/content repository | Review Markdown and repository links | No code build unless the repository adds one |
-| Public documentation | `pnpm install --frozen-lockfile`, then `pnpm build` | Review MDX links and update `pages/_meta.json` when adding navigation entries |
+| Public documentation | `npm ci`, then `npm run check` and `npm run build` | Review Markdown links and update Starlight navigation when adding pages under `src/content/docs/` |
 | Knowledge base | Check book structure, Markdown links, and pinned source URLs | Run a link checker when available; preserve each book's README, start page, glossary, and source map |
 | Parent submodule change | `git diff --check`, `git diff --submodule=log` | `git submodule status --recursive` and parent commit review |
 
@@ -117,9 +117,11 @@ appropriate knowledge-base book, and the project's README rather than copying
 large explanations into multiple locations. Preserve `kb`'s pinned-source-link
 policy so training examples remain reproducible.
 
-The docs site currently uses Next.js/Nextra with 41 MDX pages and `pnpm`
-scripts, while the knowledge base is Markdown-only with five numbered books
-and no build manifest. The audit also found that `kb` has no root `LICENSE` or
+The active docs site at `repos/docs-site` is the `blinklabs-io/docs`
+repository. It uses Astro/Starlight, npm scripts, and localized content under
+`src/content/docs/`; it is not the archived `blinklabs-io/docs-site` repository.
+The knowledge base is Markdown-only with five numbered books and no build
+manifest. The audit also found that `kb` has no root `LICENSE` or
 `CONTRIBUTING.md`; track explicit licensing and contribution metadata as a
 separate issue rather than assuming the parent repository's license applies.
 

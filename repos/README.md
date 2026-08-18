@@ -15,6 +15,7 @@ that belongs in a workspace checkout.
 | [`kb`](kb) | [`blinklabs-io/kb`](https://github.com/blinklabs-io/kb) | Long-form engineering training and reference books |
 | [`adder`](adder) | [`blinklabs-io/adder`](https://github.com/blinklabs-io/adder) | Cardano chain-sync event tailer |
 | [`adder-mobile`](adder-mobile) | [`blinklabs-io/adder-mobile`](https://github.com/blinklabs-io/adder-mobile) | Mobile app for Adder notifications |
+| [`buidler-fest-2024-workshop`](buidler-fest-2024-workshop) | [`blinklabs-io/buidler-fest-2024-workshop`](https://github.com/blinklabs-io/buidler-fest-2024-workshop) | Cardano workshop examples |
 | [`ansible-cardano`](ansible-cardano) | [`blinklabs-io/ansible-cardano`](https://github.com/blinklabs-io/ansible-cardano) | Ansible collection for Cardano services |
 | [`bark`](bark) | [`blinklabs-io/bark`](https://github.com/blinklabs-io/bark) | gRPC protocol for Dingo operations |
 | [`bluefin`](bluefin) | [`blinklabs-io/bluefin`](https://github.com/blinklabs-io/bluefin) | Cardano TUNA miner |
@@ -24,7 +25,12 @@ that belongs in a workspace checkout.
 | [`cardano-node-api`](cardano-node-api) | [`blinklabs-io/cardano-node-api`](https://github.com/blinklabs-io/cardano-node-api) | Cardano node API service |
 | [`cardano-up`](cardano-up) | [`blinklabs-io/cardano-up`](https://github.com/blinklabs-io/cardano-up) | Cardano package and service manager |
 | [`cardano-up-packages`](cardano-up-packages) | [`blinklabs-io/cardano-up-packages`](https://github.com/blinklabs-io/cardano-up-packages) | Package definitions consumed by `cardano-up` |
+| [`cdnsd`](cdnsd) | [`blinklabs-io/cdnsd`](https://github.com/blinklabs-io/cdnsd) | Cardano DNS daemon |
 | [`dingo`](dingo) | [`blinklabs-io/dingo`](https://github.com/blinklabs-io/dingo) | Cardano node implementation in Go |
+| [`dingo-operator`](dingo-operator) | [`blinklabs-io/dingo-operator`](https://github.com/blinklabs-io/dingo-operator) | Kubernetes operator for Dingo nodes |
+| [`dingoctl`](dingoctl) | [`blinklabs-io/dingoctl`](https://github.com/blinklabs-io/dingoctl) | Dingo node lifecycle CLI |
+| [`dns-cli`](dns-cli) | [`blinklabs-io/dns-cli`](https://github.com/blinklabs-io/dns-cli) | Cardano DNS command-line client |
+| [`dns-frontend`](dns-frontend) | [`blinklabs-io/dns-frontend`](https://github.com/blinklabs-io/dns-frontend) | Cardano DNS web frontend |
 | [`docker-amaru`](docker-amaru) | [`blinklabs-io/docker-amaru`](https://github.com/blinklabs-io/docker-amaru) | Amaru Docker image |
 | [`docker-cardano-cli`](docker-cardano-cli) | [`blinklabs-io/docker-cardano-cli`](https://github.com/blinklabs-io/docker-cardano-cli) | Cardano CLI Docker image |
 | [`docker-cardano-configs`](docker-cardano-configs) | [`blinklabs-io/docker-cardano-configs`](https://github.com/blinklabs-io/docker-cardano-configs) | Cardano configuration Docker image |
@@ -45,7 +51,9 @@ that belongs in a workspace checkout.
 | [`go-bip39`](go-bip39) | [`blinklabs-io/go-bip39`](https://github.com/blinklabs-io/go-bip39) | Go BIP-0039 mnemonic library |
 | [`go-scls`](go-scls) | [`blinklabs-io/go-scls`](https://github.com/blinklabs-io/go-scls) | Go Standard Canonical Ledger State library |
 | [`gouroboros`](gouroboros) | [`blinklabs-io/gouroboros`](https://github.com/blinklabs-io/gouroboros) | Go Ouroboros/Cardano protocol library |
+| [`handshake-node`](handshake-node) | [`blinklabs-io/handshake-node`](https://github.com/blinklabs-io/handshake-node) | Handshake full node |
 | [`helm-charts`](helm-charts) | [`blinklabs-io/helm-charts`](https://github.com/blinklabs-io/helm-charts) | Blink Labs Kubernetes Helm charts |
+| [`infrastructure`](infrastructure) | [`blinklabs-io/infrastructure`](https://github.com/blinklabs-io/infrastructure) | Ansible, Helmfile, and Terraform deployment automation |
 | [`issues`](issues) | [`blinklabs-io/issues`](https://github.com/blinklabs-io/issues) | Shared repository for uncategorized issues |
 | [`merkle-patricia-forestry`](merkle-patricia-forestry) | [`blinklabs-io/merkle-patricia-forestry`](https://github.com/blinklabs-io/merkle-patricia-forestry) | Merkle Patricia Forestry data structure library used by Bluefin |
 | [`nview`](nview) | [`blinklabs-io/nview`](https://github.com/blinklabs-io/nview) | Cardano node monitoring TUI |
@@ -56,9 +64,21 @@ that belongs in a workspace checkout.
 | [`tx-submit-api`](tx-submit-api) | [`blinklabs-io/tx-submit-api`](https://github.com/blinklabs-io/tx-submit-api) | Cardano transaction submission API |
 | [`tx-submit-api-mirror`](tx-submit-api-mirror) | [`blinklabs-io/tx-submit-api-mirror`](https://github.com/blinklabs-io/tx-submit-api-mirror) | Cardano transaction submission API mirror |
 | [`txtop`](txtop) | [`blinklabs-io/txtop`](https://github.com/blinklabs-io/txtop) | Cardano mempool inspector |
+| [`utxorpc-example`](utxorpc-example) | [`blinklabs-io/utxorpc-example`](https://github.com/blinklabs-io/utxorpc-example) | UTxO RPC example service |
+| [`vpn-frontend`](vpn-frontend) | [`blinklabs-io/vpn-frontend`](https://github.com/blinklabs-io/vpn-frontend) | VPN web frontend |
+| [`vpn-indexer`](vpn-indexer) | [`blinklabs-io/vpn-indexer`](https://github.com/blinklabs-io/vpn-indexer) | VPN indexer service |
 
 Keep this table synchronized with `.gitmodules` and add a purpose or category
 when a new project repository is introduced.
+
+## Repository intake policy
+
+New submodules are added only when all of these are true: the repository is in
+the `blinklabs-io` organization, it is not a fork or archived, it is not
+effectively empty, and the user has an open pull request there. This is an
+active-workspace boundary, not a complete organization inventory. Repositories
+such as `dns-bridge` and `dns-protocol` are intentionally omitted until they
+contain meaningful project content.
 
 ## Actions and workspace workflows
 

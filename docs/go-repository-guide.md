@@ -114,8 +114,8 @@ orientation aid for deciding where a fix or fixture belongs:
 | Ledger and protocol core | [`gouroboros`](../repos/gouroboros) provides Cardano ledger types, CBOR, crypto, and Ouroboros mini-protocols; [`plutigo`](../repos/plutigo) provides UPLC evaluation; [`cardano-models`](../repos/cardano-models), [`go-bip39`](../repos/go-bip39), [`go-scls`](../repos/go-scls), and [`merkle-patricia-forestry`](../repos/merkle-patricia-forestry) provide focused data or format libraries |
 | Shared test surface | [`ouroboros-mock`](../repos/ouroboros-mock) provides network conversations, ledger state, protocol parameters, consensus scenarios, and conformance fixtures for downstream projects |
 | Wallet and transactions | [`bursa`](../repos/bursa) provides wallet/key and transaction functionality; external upstream [`Salvionied/apollo`](https://github.com/Salvionied/apollo) provides transaction construction and backend adapters |
-| Node and chain services | [`dingo`](../repos/dingo) is the Go Cardano node; [`adder`](../repos/adder) provides chain-sync event processing; [`bark`](../repos/bark) defines Dingo operations APIs |
-| Applications and APIs | [`shai`](../repos/shai), [`bluefin`](../repos/bluefin), [`cardano-node-api`](../repos/cardano-node-api), [`tx-submit-api`](../repos/tx-submit-api), [`tx-submit-api-mirror`](../repos/tx-submit-api-mirror), [`nview`](../repos/nview), and [`txtop`](../repos/txtop) consume the protocol and service layers |
+| Node and chain services | [`dingo`](../repos/dingo) is the Go Cardano node; [`adder`](../repos/adder) provides chain-sync event processing; [`bark`](../repos/bark) defines Dingo operations APIs; [`cdnsd`](../repos/cdnsd) implements Cardano DNS; [`handshake-node`](../repos/handshake-node) is a security-sensitive Handshake node |
+| Applications and APIs | [`shai`](../repos/shai), [`bluefin`](../repos/bluefin), [`cardano-node-api`](../repos/cardano-node-api), [`tx-submit-api`](../repos/tx-submit-api), [`tx-submit-api-mirror`](../repos/tx-submit-api-mirror), [`nview`](../repos/nview), [`txtop`](../repos/txtop), [`dingoctl`](../repos/dingoctl), [`dns-cli`](../repos/dns-cli), and [`vpn-indexer`](../repos/vpn-indexer) consume the protocol and service layers |
 | Packaging and governance | [`cardano-up`](../repos/cardano-up) manages packages and contexts; [`actions`](../repos/actions) defines the shared CI/governance behavior |
 
 When a change appears to need a new mock, protocol type, transaction model, or
@@ -181,6 +181,7 @@ Nested modules are deliberate isolation boundaries, not ordinary packages:
 - `bursa/openapi` and `bursa/ui`
 - `cardano-node-api/openapi`
 - `dingo/examples/dingo-gov-lens` and `dingo/internal/test/antithesis`
+- `vpn-indexer/openapi`
 - `go-scls/cmd/scls`
 - `gouroboros/examples/*`
 - `tx-submit-api/openapi`
@@ -211,6 +212,10 @@ build failure as an issue for the Shai dependency update.
 | [`cardano-node-api`](../repos/cardano-node-api) | `README.md`, `Makefile`, `openapi/` | Node protocol adapters, generated REST surface, and nested OpenAPI tests |
 | [`cardano-up`](../repos/cardano-up) | `README.md`, `packages/` | CLI/package-manager behavior, contexts, package definitions, and version consistency |
 | [`dingo`](../repos/dingo) | `AGENTS.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `DATABASE.md`, `Makefile` | Architecture boundaries, EventBus, plugin composition, storage migrations, race tests, conformance, and devnet |
+| [`cdnsd`](../repos/cdnsd) | `README.md`, `Makefile`, `handshake/`, `internal/indexer/` | DNS and Handshake validation, recursive DNSSEC behavior, peer safety, and generated/runtime checks |
+| [`dingo-operator`](../repos/dingo-operator) | `AGENTS.md`, `CLAUDE.md`, `README.md`, `Makefile` | CRD reconciliation, envtest, non-root containers, Dingo lifecycle, and Helm packaging |
+| [`dingoctl`](../repos/dingoctl) | `README.md`, `Makefile` | TLS on every command, mTLS for resource-consuming RPCs, and Bark compatibility |
+| [`handshake-node`](../repos/handshake-node) | `README.md`, `go.mod`, `hnsutil/` | P2P/RPC security, consensus-sensitive validation, nested modules, and fork/upstream boundaries |
 | [`docker-wireguard`](../repos/docker-wireguard) | `README.md`, `Makefile` | API/security behavior, Docker image checks, JWT handling, and NilAway |
 | [`go-bip39`](../repos/go-bip39) | `AGENTS.md`, `README.md`, `Makefile` | BIP-39 vectors, wordlists, cryptographic compatibility, and seed-handling security |
 | [`go-scls`](../repos/go-scls) | `AGENTS.md`, `CLAUDE.md`, `spec/RECONCILIATION.md` | Wire-format invariants, cross-implementation vectors, fuzzing, conformance, and nested CLI module |
@@ -223,6 +228,7 @@ build failure as an issue for the Shai dependency update.
 | [`tx-submit-api`](../repos/tx-submit-api) | `README.md`, `Makefile`, `openapi/` | Submission semantics, node connection, generated API, and Docker runtime |
 | [`tx-submit-api-mirror`](../repos/tx-submit-api-mirror) | `README.md`, `Makefile` | Mirror/failover behavior, submission semantics, generated/runtime parity, and Docker image |
 | [`txtop`](../repos/txtop) | `README.md`, `Makefile`, `main.go` | Mempool inspection, Cardano metrics/model compatibility, and CLI output stability |
+| [`vpn-indexer`](../repos/vpn-indexer) | `README.md`, `Makefile`, `openapi/` | Go API/indexer behavior, generated OpenAPI module, and service configuration |
 
 ## Review report baseline
 

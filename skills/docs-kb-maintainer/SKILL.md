@@ -1,6 +1,6 @@
 ---
 name: docs-kb-maintainer
-description: Maintain Blink Labs public documentation and the engineering knowledge base with correct content boundaries, navigation, source links, Markdown/MDX structure, and reproducible references. Use when changing repos/docs-site, repos/kb, shared project documentation, onboarding material, or generated documentation pointers.
+description: Maintain Blink Labs public documentation and the engineering knowledge base with correct content boundaries, navigation, source links, Markdown structure, and reproducible references. Use when changing repos/docs-site, repos/kb, shared project documentation, onboarding material, or generated documentation pointers.
 ---
 
 # Docs and Knowledge Base Maintainer
@@ -21,9 +21,11 @@ the local instructions in `repos/docs-site` or `repos/kb`.
    pinned public commit over copied explanations. Keep examples reproducible.
 4. Preserve existing terminology, headings, front matter, and link style.
    Update navigation metadata whenever a public page is added or moved.
-5. Run `pnpm install --frozen-lockfile` and `pnpm build` for the docs site when
-   available. For the knowledge base, validate Markdown structure and links;
-   do not invent a build system it does not have.
+5. For `repos/docs-site` (the active `blinklabs-io/docs` checkout), run
+   `npm ci`, `npm run check`, and `npm run build` when available. Content lives
+   under `src/content/docs/` and uses Astro/Starlight navigation. For the
+   knowledge base, validate Markdown structure and links; do not invent a
+   build system it does not have.
 6. Report stale claims, missing source links, and unresolved cross-repository
    documentation as issues rather than hiding them in a plan file.
 

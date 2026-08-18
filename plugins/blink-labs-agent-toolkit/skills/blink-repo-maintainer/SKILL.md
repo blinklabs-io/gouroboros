@@ -71,9 +71,11 @@ Use the focused skills when applicable:
 - Mobile, package, and compose projects: read their package/build files and
   local README before selecting commands. Use the workflow inputs in
   `repos/actions` as a clue, not a substitute for project documentation.
-- Public docs site: use the package manager named by its README (currently
-  `pnpm`), prefer `pnpm install --frozen-lockfile` and `pnpm build`, and update
-  navigation metadata such as `pages/_meta.json` when adding pages.
+- Public docs site: use the active `repos/docs-site` checkout of
+  `blinklabs-io/docs`, which uses Astro/Starlight and npm. Prefer `npm ci`,
+  `npm run check`, and `npm run build`; add content under `src/content/docs/`
+  and preserve Starlight navigation metadata. The archived
+  `blinklabs-io/docs-site` repository is not the workspace docs site.
 - Knowledge base: treat Markdown structure as the build contract. Preserve
   each book's README, `00-start-here.md`, glossary, source map, and pinned
   public GitHub source links; use a link checker when one is available.

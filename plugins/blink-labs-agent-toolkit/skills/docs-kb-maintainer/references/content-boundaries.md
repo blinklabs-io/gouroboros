@@ -2,7 +2,7 @@
 
 | Destination | Use for | Preserve |
 | --- | --- | --- |
-| `repos/docs-site` | Public installation, configuration, quickstarts, concepts, and operations | MDX structure, navigation metadata, links, package-manager/build contract |
+| `repos/docs-site` | Public installation, configuration, quickstarts, concepts, and operations | Astro/Starlight Markdown under `src/content/docs/`, navigation metadata, links, and npm build contract |
 | `repos/kb` | Deep engineering training, architecture, protocol, testing, debugging, and contribution context | Numbered books, each README, `00-start-here.md`, glossary, source map, pinned public sources |
 | Project README/docs | Repository-local commands, API details, architecture, and release facts | Local source of truth and version-specific instructions |
 | Parent `docs/` | Cross-repository patterns and workspace policy | Links to owning repositories; no duplicated large explanations |
