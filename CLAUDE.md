@@ -73,6 +73,10 @@ Do not review draft pull requests. When the user excludes Dependabot, omit
 pull requests authored by `dependabot[bot]` before inspecting diffs or posting
 reviews.
 
+UI changes require screenshots in the pull request. Include the affected
+states at the relevant viewport or platform, with secrets and user data
+redacted.
+
 When a human reviewer requests changes, implement and validate the fixes,
 summarize the changes on the pull request, and explicitly request another
 review from that same person through GitHub. Do not assume that replying to

@@ -107,6 +107,8 @@ the scope, acceptance criteria, and relevant context.
 - Keep PR descriptions and review comments short, factual, and scoped to the
   current change. Put code-specific feedback in inline comments; reserve
   PR-level comments for concise summaries, checks, or dispositions.
+- UI changes must include screenshots in the pull request. Capture the affected
+  states at the relevant viewport or platform and redact secrets or user data.
 - Sign off commits with `git commit -s` to satisfy the Developer Certificate of
   Origin requirement.
 - Read [`repos/.github/CONTRIBUTING.md`](repos/.github/CONTRIBUTING.md) and

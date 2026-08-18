@@ -8,10 +8,12 @@
 2. Run or wait for CodeRabbit and Cubic; address actionable findings.
 3. Re-run affected checks and document dispositions for false positives or
    accepted risks.
-4. Request human review. Human review is mandatory and may be AI-assisted.
-5. After requested changes, push validated fixes and request re-review from the
+4. For UI changes, verify that the PR includes screenshots of affected states
+   at the relevant viewport or platform, with secrets and user data redacted.
+5. Request human review. Human review is mandatory and may be AI-assisted.
+6. After requested changes, push validated fixes and request re-review from the
    same human through GitHub.
-6. An authorized human may dismiss another human review when appropriate;
+7. An authorized human may dismiss another human review when appropriate;
    record why on the pull request and retain appropriate human coverage.
 
 Useful read-only commands include:

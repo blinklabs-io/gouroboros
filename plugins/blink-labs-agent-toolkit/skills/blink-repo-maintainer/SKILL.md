@@ -136,6 +136,9 @@ Use the focused skills when applicable:
   AI-assisted, but bot approval or silence is never sufficient by itself.
 - Do not review draft pull requests. If Dependabot is excluded, omit PRs
   authored by `dependabot[bot]` before inspecting changes.
+- UI changes require screenshots in the PR. Verify the affected states and
+  relevant viewport or platform are represented, with secrets and user data
+  redacted.
 - For generated workflow changes, verify every called workflow exists in the
   current `repos/actions` source at the referenced ref. Pin release and
   security-sensitive reusable workflows to full commit SHAs and keep token

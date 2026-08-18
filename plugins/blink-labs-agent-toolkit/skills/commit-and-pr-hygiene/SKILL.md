@@ -45,6 +45,8 @@ criteria, and context.
 
 - Description: short, factual, scoped to this change. What changed, why, what
   was validated, what was deliberately not validated.
+- UI changes require screenshots in the PR. Include the affected states and
+  relevant viewport or platform; redact secrets and user data.
 - Put code-specific feedback in inline comments. Reserve PR-level comments for
   concise summaries, check results, and dispositions.
 - List skipped checks explicitly. An unavailable devnet, registry, or CI

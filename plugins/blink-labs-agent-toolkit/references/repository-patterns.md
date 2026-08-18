@@ -167,6 +167,8 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   checks, and dispositions.
 - Review current PR heads, not stale bot or human findings. Skip drafts and
   apply an explicit Dependabot exclusion before reading diffs.
+- UI changes are not review-complete without screenshots of the affected states
+  in the PR at the relevant viewport or platform; redact secrets and user data.
 - Go API reviews must cover value-versus-pointer serialization behavior and
   typed-nil type switches. Confirm the module Go version before accepting
   range-variable alias findings.

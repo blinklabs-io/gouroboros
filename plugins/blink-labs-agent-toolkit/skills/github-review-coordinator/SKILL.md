@@ -18,12 +18,14 @@ and the target repository's contribution guidance.
    human review. Reproduce findings against the current checkout.
 3. Address actionable bot findings, document false positives or accepted
    risks, rerun affected checks, and update the PR.
-4. Request the required human review. Human review is mandatory and may be
+4. For UI changes, verify that the PR includes screenshots of affected states
+   at the relevant viewport or platform, with secrets and user data redacted.
+5. Request the required human review. Human review is mandatory and may be
    AI-assisted; bot approval or silence is never sufficient.
-5. If a human reviewer requests changes, implement and validate the fixes,
+6. If a human reviewer requests changes, implement and validate the fixes,
    summarize changed paths and tests on the PR, and explicitly request another
    review from that same person through GitHub.
-6. An authorized human reviewer may dismiss another human review when
+7. An authorized human reviewer may dismiss another human review when
    appropriate. Record the rationale on the PR and retain appropriate human
    review coverage.
 
