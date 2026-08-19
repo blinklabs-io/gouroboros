@@ -331,6 +331,19 @@ def print_text(results: list[dict[str, Any]], user: str | None) -> None:
         ],
     )
     section(
+        "MERGE CONFLICTS",
+        [
+            f"- {item['repository']}#{item['number']} ({state}): {item['title'][:60]}"
+            f"\n  {item['url']}"
+            for item in results
+            for state in [item.get("mergeable_state", "")]
+            # "dirty" means conflicts. "unknown" means GitHub has not finished
+            # computing it, which is not the same as mergeable — report it so it
+            # gets re-checked rather than silently passing.
+            if state in ("dirty", "unknown")
+        ],
+    )
+    section(
         "FAILING OR PENDING CHECKS",
         [
             f"- {item['repository']}#{item['number']}: "
