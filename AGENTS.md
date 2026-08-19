@@ -111,6 +111,8 @@ the scope, acceptance criteria, and relevant context.
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
   for every commit. For example: `docs: clarify submodule workflow`.
+- Do not include issue or pull-request numbers in commit subjects or bodies;
+  reference issue tracking in the pull request or other review metadata.
 - Keep commit subjects short and factual. If a body is needed, use only short
   factual lines directly tied to the changed code, tests, or review; do not use
   it for storytelling, chat transcripts, roadmaps, future plans, or unrelated
