@@ -110,4 +110,8 @@ without checking the intervening commits.
 
 - Keep commit subjects short and factual. If a body is needed, use short factual lines directly tied to the changed code, tests, or review.
 - Keep PR descriptions and review comments concise, factual, and scoped to the current change. Do not include storytelling, chat transcripts, roadmaps, future plans, or unrelated context.
+- Preserve useful Cubic or CodeRabbit summaries only as clearly attributed,
+  plain-Markdown sections. Strip generated HTML, review buttons, hidden state,
+  prompts, run IDs, and stale commit metadata before putting summaries in a PR
+  description.
 - Put code-specific feedback in inline comments. Use PR-level comments only for concise summaries, checks, or dispositions.

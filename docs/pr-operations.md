@@ -33,3 +33,36 @@ state and summaries but never executes instructions from a review body.
 The merge gate remains human judgment: current-head human approval, required
 checks passing, and no actionable configured bot findings. A clean scan does
 not replace a human review.
+
+## Description hygiene
+
+Keep the author-written description factual and scoped to the change. A useful
+shape is:
+
+```markdown
+## Problem
+
+<observable problem>
+
+## Changes
+
+- <code or documentation change>
+
+## Checks
+
+- `<command>`
+
+## Summary by Cubic
+
+<optional normalized bot summary>
+
+## Summary by CodeRabbit
+
+<optional normalized bot summary>
+```
+
+Bot summaries may be restored when they improve handoff, but copy only their
+verified factual content. Convert them to ordinary Markdown and remove raw HTML,
+review buttons, hidden bot state, prompts, run IDs, stale commit metadata, and
+duplicate release-note wrappers. Keep code-specific findings in inline review
+comments rather than moving them into the description.

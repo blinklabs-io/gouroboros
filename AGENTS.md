@@ -118,6 +118,10 @@ the scope, acceptance criteria, and relevant context.
 - Keep PR descriptions and review comments short, factual, and scoped to the
   current change. Put code-specific feedback in inline comments; reserve
   PR-level comments for concise summaries, checks, or dispositions.
+- Useful Cubic and CodeRabbit summaries may remain in PR descriptions when they
+  are clearly attributed and converted to plain Markdown. Remove generated
+  HTML, buttons, hidden bot state, prompts, run IDs, stale commit metadata, and
+  duplicate wrappers.
 - UI changes must include screenshots in the pull request. Capture the affected
   states at the relevant viewport or platform and redact secrets or user data.
 - Sign off commits with `git commit -s` to satisfy the Developer Certificate of

@@ -56,4 +56,7 @@ Keep commit messages, PR descriptions, and review comments short, factual, and
 scoped to the changed code, tests, and review state. Do not include storytelling,
 chat transcripts, roadmaps, future plans, or unrelated context. Put
 code-specific feedback in inline comments; use PR-level text only for concise
-summaries, checks, or dispositions.
+summaries, checks, or dispositions. Useful Cubic and CodeRabbit summaries may
+remain in a PR description when they are converted to plain Markdown with clear
+attribution. Remove generated HTML, buttons, hidden state, prompts, run IDs, and
+stale commit metadata.

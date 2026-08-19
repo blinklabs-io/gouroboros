@@ -54,6 +54,11 @@ criteria, and context.
 
 - Description: short, factual, scoped to this change. What changed, why, what
   was validated, what was deliberately not validated.
+- Keep useful bot summaries when they improve handoff, but normalize them into
+  plain Markdown under explicit attribution such as `Summary by Cubic` or
+  `Summary by CodeRabbit`. Preserve factual Problem/Changes/Checks sections;
+  remove raw HTML, buttons, hidden bot state, prompts, run IDs, and stale
+  commit metadata from the description.
 - UI changes require screenshots in the PR. Include the affected states and
   relevant viewport or platform; redact secrets and user data.
 - Put code-specific feedback in inline comments. Reserve PR-level comments for

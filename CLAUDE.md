@@ -62,7 +62,11 @@ and scoped to the current change. If a commit body or longer description is
 needed, use only concise facts directly supported by the changed code, tests,
 or review. Do not include storytelling, chat transcripts, roadmaps, future
 plans, or unrelated context. Put code-specific feedback in inline comments;
-keep PR-level comments to concise summaries, checks, and dispositions.
+keep PR-level comments to concise summaries, checks, and dispositions. Useful
+Cubic and CodeRabbit summaries may remain in PR descriptions when clearly
+attributed and converted to plain Markdown; remove generated HTML, buttons,
+hidden bot state, prompts, run IDs, stale commit metadata, and duplicate
+wrappers.
 
 The review sequence is bot review first, human review second. Run CodeRabbit
 and Cubic when configured, address their actionable findings, and only then
