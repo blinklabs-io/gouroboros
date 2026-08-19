@@ -83,6 +83,18 @@ cost of doing business. Round three on one file means the first two fixes
 addressed the instance a bot named instead of the class it belonged to. Before
 pushing a fix, do the pass the bot would do:
 
+- **Read the contract of everything you call, wrap, or cite as precedent.** Do
+  this first; it is the step that pays. Three consecutive rounds on one PR found
+  a defect already written down in the neighbouring code: that callers add the
+  component prefix, that the sibling path clears its state when exhausted, that
+  the function releases its mutex around the network request. None of it needed
+  inferring. Look in all three places, because obligations live in all three: the
+  doc comment above the declaration, the leading comment inside the body, and —
+  for a thin wrapper — the function it delegates to. And when you cite a
+  precedent, read the whole of it: copying the half that sets a field and missing
+  the half that clears it is its own review round. The `callee-contract-notice`
+  hook reprints these sentences at commit time, but the hook only reads Go doc and
+  body comments one delegation deep; the reading is still yours.
 - **Grep for the class.** A bug fixed in one function is usually a pattern
   present in siblings. After fixing a bounded wait that mishandled simultaneous
   readiness, search every other `select` on a done-channel plus `ctx.Done()` in

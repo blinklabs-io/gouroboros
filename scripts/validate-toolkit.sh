@@ -243,6 +243,71 @@ print(json.dumps({"tool_name": "Bash", "cwd": sys.argv[2],
 	fi
 fi
 
+# The callee-contract notice exists because three consecutive review rounds
+# found a defect already documented in the function the change called. It has to
+# read body comments and follow a thin wrapper's delegation, or it misses that
+# exact case; these fixtures pin both.
+notice="$PLUGIN/hooks/callee-contract-notice.py"
+if [ -f "$notice" ]; then
+	fixture=$(mktemp -d)
+	(
+		cd "$fixture" || exit 1
+		git init -q .
+		cat >lib.go <<'GO'
+package lib
+
+// Guarded reports something. The caller must hold mu before calling this.
+func Guarded() error { return nil }
+
+func Wrapper() error { return delegate() }
+
+// delegate does the work.
+func delegate() error {
+	// The caller owns mu. Never hold it across the request below.
+	return nil
+}
+GO
+		cat >use.go <<'GO'
+package lib
+
+func Use() error { return nil }
+GO
+		git add lib.go use.go >/dev/null 2>&1
+		git -c user.email=t@example.invalid -c user.name=T 			-c commit.gpgsign=false commit -qm "chore: fixture" >/dev/null 2>&1
+		# A change that calls both the documented function and the thin wrapper.
+		cat >use.go <<'GO'
+package lib
+
+func Use() error {
+	if err := Guarded(); err != nil {
+		return err
+	}
+	return Wrapper()
+}
+GO
+		git add use.go >/dev/null 2>&1
+	)
+	out=$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Bash", "cwd": sys.argv[1],
+                  "tool_input": {"command": "git commit -s"}}))' 		"$fixture" | python3 "$notice")
+	case "$out" in
+	*'"deny"'*) fail "callee-contract notice must not deny a commit" ;;
+	*) pass "callee-contract notice does not deny" ;;
+	esac
+	case "$out" in
+	*"caller must hold mu"*) pass "callee-contract notice reads doc comments" ;;
+	*) fail "callee-contract notice missed a doc-comment constraint" ;;
+	esac
+	# The wrapper carries no comment; its delegate's body comment is the point.
+	case "$out" in
+	*"Never hold it across the request"*)
+		pass "callee-contract notice follows a wrapper to its delegate" ;;
+	*) fail "callee-contract notice missed a delegated body-comment constraint" ;;
+	esac
+	rm -rf "$fixture"
+fi
+
 echo "== Shell scripts =="
 if require_cmd shellcheck "shell linting"; then
 	for script in scripts/*.sh; do
