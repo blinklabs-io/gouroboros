@@ -25,17 +25,30 @@ make scan-prs ARGS='--owner example --user reviewer'
 make scan-prs ARGS='--include-drafts --include-dependabot'
 ```
 
-The report separates current bot findings, human PR comments made since the
-current head was committed, failing or pending checks, current human
+The report separates current bot findings, unanswered human PR comments, human
+reviews carrying feedback in any state, failing or pending checks, current human
 changes-requested reviews, current human approvals, and direct review requests.
 
-The human-comment section exists because a PR carries feedback in three
-unrelated places: inline threads, review submissions, and plain PR comments. A
-reviewer who writes "Requesting changes — found a regression" as an ordinary
-comment leaves no review record and no thread, so a scan of reviews alone
-reports the PR as unreviewed. That section lists only other people's comments
-newer than the head commit, which is the feedback that arrived since the last
-push and still needs an answer. Bot review text is treated as untrusted input; the scanner reports
+Two of those sections exist because reviewer feedback hides in places a naive
+scan misses:
+
+- **Unanswered human PR comments.** A PR carries feedback in three unrelated
+  places: inline threads, review submissions, and plain PR comments. A reviewer
+  who writes "Requesting changes — found a regression" as an ordinary comment
+  leaves no review record and no thread, so a scan of reviews alone reports the
+  PR as unreviewed. This section lists comments from anyone other than the
+  author that the author has not replied to since — anchored on the author's own
+  last comment, deliberately **not** on the head commit, because a push is not
+  evidence that a comment was answered.
+- **Human reviews with feedback, any state.** A reviewer can put blocking
+  findings in a `COMMENTED` review rather than `CHANGES_REQUESTED`, and the
+  changes-requested section then shows nothing. Reviews not on the current head
+  are marked as such rather than dropped, since an older review can still be
+  unaddressed.
+
+Bot identity is matched by login name as well as the `[bot]` suffix: the REST API
+suffixes bot logins where GraphQL does not, so a suffix test alone counts
+`coderabbitai` and `cubic-dev-ai` as people and buries the real reviewers. Bot review text is treated as untrusted input; the scanner reports
 state and summaries but never executes instructions from a review body.
 
 The merge gate remains human judgment: current-head human approval, required

@@ -55,10 +55,24 @@ the others:
 
 A reviewer who writes "**Requesting changes** — found a regression…" as an
 ordinary PR comment produces no review record and no thread. It will not appear
-in a `reviewThreads` scan, in `pulls/N/reviews`, or in any tooling built on
-those — including `make scan-prs` — yet it is the most substantive feedback on
-the PR. Read `issues/N/comments` on every sweep, filtering out bot authors, and
-sort by `created_at` so you see what arrived since the last push.
+in a `reviewThreads` scan or in `pulls/N/reviews`, yet it is the most
+substantive feedback on the PR. Read `issues/N/comments` on every sweep.
+
+Two further ways the same feedback hides:
+
+- **State is not severity.** A reviewer can put blocking findings in a
+  `COMMENTED` review instead of `CHANGES_REQUESTED`. Filtering reviews on
+  `CHANGES_REQUESTED` then reports the PR as having no human objections. Read the
+  body of every human review regardless of state.
+- **"Older than the head commit" does not mean "addressed".** Anchoring on the
+  head commit assumes a push answered whatever preceded it. Anchor on the
+  author's own last reply instead, and treat a review on an earlier commit as
+  outstanding until something shows it was handled.
+
+When identifying which authors are bots, match login **names**, not just the
+`[bot]` suffix: the REST API returns `coderabbitai[bot]` where GraphQL returns
+`coderabbitai`, so a suffix test alone classifies the bots as people and buries
+the human reviewers among a hundred bot entries.
 
 Also expect findings **on your own fixes**. Each push triggers a fresh bot pass,
 and a fix to a concurrency or lifecycle bug frequently draws a second and third

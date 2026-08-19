@@ -19,6 +19,19 @@ from typing import Any
 
 
 BOT_USERS = {"coderabbitai[bot]", "cubic-dev-ai[bot]"}
+
+# The REST API suffixes bot logins with "[bot]" but GraphQL does not, and some
+# integrations never carry the suffix, so a suffix test alone counts them as
+# people. Match on both.
+BOT_LOGINS = {
+    "coderabbitai",
+    "cubic-dev-ai",
+    "github-advanced-security",
+    "dependabot",
+    "sg-doc-holiday",
+    "codecov",
+    "sonarcloud",
+}
 PASS_CONCLUSIONS = {"success", "neutral", "skipped"}
 
 
@@ -114,16 +127,34 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
             ]
         ).get("check_runs", [])
         current_reviews = latest_reviews(reviews, head)
-        # The PR payload carries head.sha but not the commit itself, so the
-        # head's timestamp needs its own lookup. Without it every comment
-        # compares as newer and the report loses its "since the last push"
-        # meaning.
-        head_commit = gh_json(["api", f"{prefix}/commits/{head}"])
-        head_date = (
-            ((head_commit.get("commit") or {}).get("committer") or {}).get(
-                "date", ""
-            )
-        )
+        # Anchored on the author's own last comment, not on the head commit: a
+        # push is not evidence that a reviewer's comment was answered, so a
+        # head-relative cutoff silently drops feedback that predates it.
+        pr_author = pr["author"]["login"]
+        author_replies = [
+            comment.get("created_at", "")
+            for comment in issue_comments
+            if (comment.get("user") or {}).get("login") == pr_author
+        ]
+        last_author_reply = max(author_replies) if author_replies else ""
+        # Human reviews carrying a body, at any state. A reviewer can put
+        # blocking feedback in a COMMENTED review, which the changes-requested
+        # section below never shows.
+        human_reviews = [
+            {
+                "user": (review.get("user") or {}).get("login", "unknown"),
+                "state": review.get("state", ""),
+                "submitted_at": review.get("submitted_at", ""),
+                "on_head": review.get("commit_id") == head,
+                "excerpt": comment_excerpt(review.get("body") or ""),
+                "url": review.get("html_url", ""),
+            }
+            for review in reviews
+            if is_human((review.get("user") or {}).get("login", ""))
+            and (review.get("user") or {}).get("login") != pr_author
+            and (review.get("body") or "").strip()
+        ]
+        human_reviews.sort(key=lambda item: item["submitted_at"])
         human_comments = [
             {
                 "user": (comment.get("user") or {}).get("login", "unknown"),
@@ -162,7 +193,8 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
             "requested_teams": [team.get("name", "") for team in metadata.get("requested_teams", [])],
             "current_reviews": current_reviews,
             "human_comments": human_comments,
-            "head_committed_at": head_date,
+            "human_reviews": human_reviews,
+            "last_author_reply": last_author_reply,
             "problem_checks": problem_checks,
             "error": None,
         }
@@ -220,7 +252,7 @@ def scan(args: argparse.Namespace) -> list[dict[str, Any]]:
 
 
 def is_human(user: str) -> bool:
-    return not user.endswith("[bot]")
+    return bool(user) and not user.endswith("[bot]") and user not in BOT_LOGINS
 
 
 def print_text(results: list[dict[str, Any]], user: str | None) -> None:
@@ -255,11 +287,9 @@ def print_text(results: list[dict[str, Any]], user: str | None) -> None:
         (item, comment)
         for item in results
         for comment in item.get("human_comments", [])
-        if comment.get("created_at", "")
-        > (item.get("head_committed_at") or "")
-        # Not the scanning user's own status updates: the point of this
-        # section is feedback from someone else that carries no review record.
-        and comment.get("user") != user
+        # Anything the PR author has not answered yet, however old.
+        if comment.get("created_at", "") > (item.get("last_author_reply") or "")
+        and comment.get("user") != item.get("author")
     ]
     fresh_comments.sort(key=lambda pair: pair[1].get("created_at", ""))
 
@@ -281,12 +311,23 @@ def print_text(results: list[dict[str, Any]], user: str | None) -> None:
         ],
     )
     section(
-        "HUMAN PR COMMENTS SINCE THE CURRENT HEAD",
+        "HUMAN PR COMMENTS THE AUTHOR HAS NOT ANSWERED",
         [
             f"- {item['repository']}#{item['number']} {comment['user']} "
             f"({comment['created_at']}): {comment['excerpt']}"
             f"\n  {comment['url'] or item['url']}"
             for item, comment in fresh_comments
+        ],
+    )
+    section(
+        "HUMAN REVIEWS WITH FEEDBACK (ANY STATE)",
+        [
+            f"- {item['repository']}#{item['number']} {review['user']} "
+            f"{review['state']}"
+            + ("" if review["on_head"] else " (not on current head)")
+            + f": {review['excerpt']}\n  {review['url'] or item['url']}"
+            for item in results
+            for review in item.get("human_reviews", [])
         ],
     )
     section(
