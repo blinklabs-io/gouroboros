@@ -118,6 +118,35 @@ composition wiring, CLI/YAML/environment precedence, cancellation after the
 first failed chunk, duplicate-row preservation, malformed and negative amount
 handling, and propagation of non-`sql.ErrNoRows` database errors.
 
+## Component lifecycle conventions
+
+Two patterns recur across Dingo's components, and both have bitten recently.
+
+**A component's `Stop` returns an unprefixed error; the caller adds the name.**
+`node_shutdown.go` and `node_lifecycle.go` wrap roughly thirty components as
+`fmt.Errorf("<component> shutdown: %w", stopErr)`. A `Stop` that also prefixes
+itself produces `peer governor shutdown: peer governor shutdown: …` in the
+joined error. When a review flags the doubled prefix, fix the component rather
+than the call site, so it matches its siblings.
+
+**A `Stop` that takes a context must bound every wait inside it.** An
+unbounded `UnsubscribeAndWait`, a `wg.Wait()`, or a listener close placed before
+the context-aware wait lets one stuck handler overrun the shutdown deadline.
+Use the context-aware variant (`EventBus.UnsubscribeAndWaitContext`), and keep
+the unsubscribe itself unconditional so future deliveries stop even when the
+wait is cut short.
+
+Related, and still open as issue #3217: the API servers call `net.Listen` and
+hand the listener to `Serve` in a goroutine nobody waits for, while `Stop` calls
+only `srv.Shutdown` — which closes only listeners `Serve` has already
+registered. Stopping inside that window returns with the port still bound, and
+`reinitializeAPIServers` then fails to rebind on a live Restore/Truncate. Fixed
+in `api/mesh`; `api/blockfrost` and `api/utxorpc` still have it. The shape that
+works: record the listener, detach it with the server under one lock, close it
+after `Shutdown` (tolerating `net.ErrClosed`), publish it only while the
+call's server is still current, and make `Stop` wait for an in-flight bind and
+for a teardown another caller won.
+
 ## Documentation and delivery
 
 Treat `DATABASE.md` and `ARCHITECTURE.md` as part of the change bar. Update

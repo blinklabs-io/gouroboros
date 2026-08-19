@@ -48,6 +48,20 @@ Pass an explicit `-timeout` sized to the suite before concluding anything from a
 timeout, and match CI's value when you have it. Then confirm the failure
 reproduces on an `origin/main` baseline before attributing it to the change.
 
+## Match CI's build tags
+
+Build tags decide which files exist. A package can compile and pass with no
+tags and fail to build with the repository's default set, so a run without them
+is not the run CI performs. Dingo's Makefile defaults to
+`BUILD_TAGS=dingo_extra_plugins` and threads it into every `go` invocation;
+`go test ./...` on its own silently checks a different program.
+
+Read the Makefile for the tag set before running anything by hand, and prefer
+the repository's own targets. This matters most right after a merge or rebase: a
+signature change on one side and a call site on the other can compile cleanly
+under one tag set and break under another, so the error appears only when the
+tags match CI's.
+
 ## Background task discipline
 
 A completion notification is not a result. For every backgrounded or long check:
@@ -59,6 +73,13 @@ A completion notification is not a result. For every backgrounded or long check:
    the process, not on the tests.
 4. Confirm the intended test or gate actually ran — a suite that skipped
    everything exits zero.
+5. Check the run started **after** your last edit. A background job compiles the
+   tree as it found it, so its log describes that tree, not the current one.
+   Editing a file mid-run makes the output stale in a way nothing in it
+   announces — and the trap runs both directions: a stale failure invites
+   dismissing a real defect, and a stale pass invites shipping one. When in
+   doubt, stop the run and start it again rather than reasoning about which
+   files it saw.
 
 Do not stop, restart, or reconfigure a live node or an in-flight validation run
 while diagnosing it unless the task explicitly authorizes that intervention.

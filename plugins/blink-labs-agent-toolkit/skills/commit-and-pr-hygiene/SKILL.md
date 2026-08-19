@@ -21,6 +21,17 @@ round trip, and in a submodule it can cost a bad pointer.
   narrative, roadmap, future plan, or unrelated context.
 - One logical change per commit. Keep a submodule pointer update in its own
   commit, separate from source changes made inside the nested repository.
+- Let the repository's own `git config user.name` / `user.email` set the author.
+  Do not pass `-c user.email=` or `--author=` on a hunch about which address is
+  "the user's": the DCO trailer has to match the other commits on the branch,
+  and a mismatch is only fixable by rewriting and force-pushing. Check with
+  `git log -3 --format='%an <%ae>'` if unsure. A workspace guard warns on an
+  override that disagrees with the configured identity.
+- Merge commits need a Conventional Commit subject too. Git's default
+  `Merge remote-tracking branch 'origin/main' into <branch>` is rejected by the
+  workspace guard; use `chore: merge origin/main into <branch>` and put the
+  conflict resolutions in the body. GitHub's Conventional Commits check may
+  exempt merges where the guard does not — write for the guard.
 
 Correct:
 

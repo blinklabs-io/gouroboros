@@ -48,6 +48,13 @@ def review_summary(body: str) -> str:
     return ""
 
 
+def comment_excerpt(body: str, limit: int = 140) -> str:
+    """Return a one-line excerpt of a comment body for the report."""
+    text = re.sub(r"<[^>]+>", "", body)
+    text = " ".join(text.split())
+    return text[: limit - 1] + "\u2026" if len(text) > limit else text
+
+
 def bot_has_actionable_findings(body: str) -> bool:
     if re.search(
         r"\*\*(?:No issues found|All reported issues were addressed)",
@@ -93,6 +100,13 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
         metadata = gh_json(["api", f"{prefix}/pulls/{number}"])
         head = metadata["head"]["sha"]
         reviews = gh_json(["api", f"{prefix}/pulls/{number}/reviews?per_page=100"])
+        # Plain PR comments are a separate surface from reviews and inline
+        # threads. A reviewer can request changes in an ordinary comment, which
+        # produces no review record and no thread, so a scan that reads only
+        # reviews reports the PR as unreviewed.
+        issue_comments = gh_json(
+            ["api", f"{prefix}/issues/{number}/comments?per_page=100"]
+        )
         checks = gh_json(
             [
                 "api",
@@ -100,6 +114,27 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
             ]
         ).get("check_runs", [])
         current_reviews = latest_reviews(reviews, head)
+        # The PR payload carries head.sha but not the commit itself, so the
+        # head's timestamp needs its own lookup. Without it every comment
+        # compares as newer and the report loses its "since the last push"
+        # meaning.
+        head_commit = gh_json(["api", f"{prefix}/commits/{head}"])
+        head_date = (
+            ((head_commit.get("commit") or {}).get("committer") or {}).get(
+                "date", ""
+            )
+        )
+        human_comments = [
+            {
+                "user": (comment.get("user") or {}).get("login", "unknown"),
+                "created_at": comment.get("created_at", ""),
+                "excerpt": comment_excerpt(comment.get("body") or ""),
+                "url": comment.get("html_url", ""),
+            }
+            for comment in issue_comments
+            if is_human((comment.get("user") or {}).get("login", ""))
+        ]
+        human_comments.sort(key=lambda item: item["created_at"])
         problem_checks = [
             {
                 "name": check.get("name", ""),
@@ -126,6 +161,8 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
             ],
             "requested_teams": [team.get("name", "") for team in metadata.get("requested_teams", [])],
             "current_reviews": current_reviews,
+            "human_comments": human_comments,
+            "head_committed_at": head_date,
             "problem_checks": problem_checks,
             "error": None,
         }
@@ -212,6 +249,19 @@ def print_text(results: list[dict[str, Any]], user: str | None) -> None:
         for item in results
         if user and user in item.get("requested_reviewers", [])
     ]
+    # Human PR comments made after the current head was committed: feedback
+    # that arrived since the last push and has no review record behind it.
+    fresh_comments = [
+        (item, comment)
+        for item in results
+        for comment in item.get("human_comments", [])
+        if comment.get("created_at", "")
+        > (item.get("head_committed_at") or "")
+        # Not the scanning user's own status updates: the point of this
+        # section is feedback from someone else that carries no review record.
+        and comment.get("user") != user
+    ]
+    fresh_comments.sort(key=lambda pair: pair[1].get("created_at", ""))
 
     print(
         f"PR scan: {len(results)} open PRs "
@@ -228,6 +278,15 @@ def print_text(results: list[dict[str, Any]], user: str | None) -> None:
             f"- {item['repository']}#{item['number']} {bot}: {review.get('summary') or 'actionable review content'}"
             f"\n  {item['url']}"
             for item, bot, review in bot_findings
+        ],
+    )
+    section(
+        "HUMAN PR COMMENTS SINCE THE CURRENT HEAD",
+        [
+            f"- {item['repository']}#{item['number']} {comment['user']} "
+            f"({comment['created_at']}): {comment['excerpt']}"
+            f"\n  {comment['url'] or item['url']}"
+            for item, comment in fresh_comments
         ],
     )
     section(

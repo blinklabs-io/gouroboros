@@ -37,10 +37,79 @@ cannot catch a regression in the code it names. The shapes to watch for:
 - The assertion is satisfied by a guard *earlier* than the one under test — a
   push refused by a later signature check passes a test that meant to prove an
   earlier depth check ran.
+- The assertion already held **before** the action under test ran, so it says
+  nothing about the action. See below.
 
 When several rules could reject the same input, assert on **which** rule
 rejected it: the log line, the specific error, or an observable that only the
 rule under test produces. Otherwise the test passes with the fix removed.
+
+## Check the assertion's starting state
+
+Before trusting an assertion, ask what it would have reported *before* the
+action under test. If it would already have passed, it is not testing anything.
+
+The common shape is a counter or flag that the test's own setup already put into
+the expected state:
+
+```go
+// handled is already 1 from the in-flight event, so this passes on its first
+// poll and never observes whether the publish below was delivered.
+eb.Publish(evtType, event.NewEvent(evtType, "after-unsubscribe"))
+require.Eventually(t, func() bool { return handled.Load() == 1 }, ...)
+```
+
+`Eventually` proves a state is *reached*. When the point is that a state does
+not change, that is `Never` on the negation:
+
+```go
+require.Never(t, func() bool { return handled.Load() != 1 }, ...)
+```
+
+Same rule for `assert.Nil` on something never populated, or a "no error"
+assertion on a path that cannot error yet. Reverting the fix catches most of
+these — an assertion that was already true stays true — which is another reason
+the revert step is not optional.
+
+## A failing test must fail, not hang
+
+A test that blocks a goroutine to create a window has to release it on every
+exit path, including the failing one. Otherwise the deferred `Close` waits on
+the still-blocked handler, and instead of a legible failure the run dies on the
+package timeout — which reads as infrastructure trouble rather than the defect
+the test just caught.
+
+Register the release **after** the deferred teardown so it runs before it, and
+make it idempotent:
+
+```go
+defer eb.Close()
+var releaseOnce sync.Once
+release := func() { releaseOnce.Do(func() { close(releaseCh) }) }
+defer release() // runs before eb.Close()
+```
+
+`t.Cleanup` does not solve this: cleanups run after the test function's defers,
+so a deferred `Close` still blocks first.
+
+## Assert at the moment the contract promises
+
+When a fix moves work into a goroutine or a later call, the test has to check
+the state at the instant the contract claims it holds — not eventually. "`Stop`
+returned" and "the port is free" are two different moments, and a fix that only
+starts the release before returning has narrowed the window, not closed it.
+
+Write the assertion immediately after the call, with no polling and no sleep:
+
+```go
+require.NoError(t, srv.Stop(ctx))
+require.False(t, portAccepts(addr)) // not Eventually: Stop returning must mean released
+```
+
+If that cannot hold without the caller waiting for another goroutine, the fix is
+incomplete — the release needs to be something the call itself waits for. A
+loop of many iterations is worth it here: these races surface at a few percent
+per attempt, so a single pass passes on a broken build.
 
 ## Sequencing concurrency tests
 

@@ -199,6 +199,48 @@ EOF
 		'git commit --amend --no-edit' allow "$ROOT"
 	check_guard "an amend with a bad new subject" \
 		'git commit --amend -s -m "wip"' deny "$ROOT"
+
+	# The identity warning is a note, not a denial: it must not block a commit,
+	# but it has to fire when an override disagrees with the repository's
+	# configured author, and stay quiet when nothing is overridden.
+	check_note() {
+		local label=$1 command=$2 expect=$3 out
+		out=$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Bash", "cwd": sys.argv[2],
+                  "tool_input": {"command": sys.argv[1]}}))' "$command" "$ROOT" |
+			python3 "$guard")
+		case "$out" in
+		*'"deny"'*) fail "guard should not deny $label" ;;
+		*overrides*)
+			if [ "$expect" = note ]; then
+				pass "guard warns on $label"
+			else
+				fail "guard should stay quiet on $label"
+			fi
+			;;
+		*)
+			if [ "$expect" = quiet ]; then
+				pass "guard stays quiet on $label"
+			else
+				fail "guard should warn on $label"
+			fi
+			;;
+		esac
+	}
+	configured=$(git -C "$ROOT" config user.email || true)
+	if [ -n "$configured" ]; then
+		check_note "a mismatched -c user.email override" \
+			"git -c user.email=someone-else@example.invalid commit -s -m \"docs: x\"" note
+		check_note "a mismatched --author override" \
+			"git commit -s --author=\"A B <someone-else@example.invalid>\" -m \"docs: x\"" note
+		check_note "an override matching the configured identity" \
+			"git -c user.email=$configured commit -s -m \"docs: x\"" quiet
+		check_note "a commit with no identity override" \
+			'git commit -s -m "docs: x"' quiet
+	else
+		printf 'SKIP  no configured user.email; skipping guard identity warning\n'
+	fi
 fi
 
 echo "== Shell scripts =="

@@ -80,6 +80,39 @@ read path.
   everything already stored under the old one; check whether anything persists
   it before changing it.
 
+## Merging a diverged branch is a boundary too
+
+When `main` and a long-lived branch both touched the same contract, the merge is
+where the two sides of that boundary meet — and git resolves text, not meaning.
+Two failure modes, neither of which shows up as a conflict marker:
+
+**A clean auto-merge that does not compile.** One side changed a signature and
+the other added a call site. Both hunks apply, and the break appears only at
+build time — possibly only under CI's build tags. So after every merge or
+rebase, build and test with the repository's tag set before pushing. A clean
+`git status` says nothing about whether the result compiles.
+
+**A real conflict where both sides are right.** If each side hardened the same
+code differently, "take ours" silently drops the other's fix. This is the
+dangerous one, because the result compiles and the tests pass:
+
+> A branch extracted VRF and opcert loading into a helper. Meanwhile `main`
+> hardened the same read from `bursa.LoadKeyFromFile` to `loadSecretKeyFromFile`,
+> adding regular-file, permission, and size checks for the secret key. Taking the
+> branch's side kept the refactor and lost the hardening; taking `main`'s side
+> kept the hardening and lost the refactor. The resolution had to be both: the
+> extracted helper calling the hardened loader.
+
+So for each conflict, read what *each* side was trying to accomplish before
+choosing, and treat "one side is a security or correctness fix" as the signal to
+combine rather than choose. Then state in the merge commit body which side each
+resolution came from and why — a reviewer cannot see a resolution in the diff.
+
+Prefer a merge to a rebase when the branch already contains merges from `main`,
+when it will be squash-merged anyway, or when a rebase would replay many
+commits: one resolution to reason about beats the same conflict re-appearing per
+commit, and no force-push is needed.
+
 ## Report what you traced
 
 State which consumers you read and what each does with the changed field. "The

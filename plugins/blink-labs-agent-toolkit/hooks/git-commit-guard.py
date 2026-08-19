@@ -3,7 +3,9 @@
 
 Blink Labs requires Conventional Commits and a DCO sign-off (`git commit -s`)
 in every repository. This hook denies a `git commit` that would violate either
-rule, and warns when a local plan or scratch file is about to be committed.
+rule, and warns when a local plan or scratch file is about to be committed or
+when an explicit identity override would make the sign-off inconsistent with
+the repository's configured author.
 
 Set BLINK_SKIP_COMMIT_GUARD=1 to disable it for a session.
 """
@@ -160,6 +162,51 @@ def head_message(cwd):
     return result.stdout if result.returncode == 0 else ""
 
 
+def configured_email(cwd):
+    """Return the repository's configured user.email, or "" when unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "config", "user.email"],
+            cwd=cwd or None,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+AUTHOR_EMAIL = re.compile(r"<([^<>]+)>")
+
+
+def identity_overrides(command):
+    """Return emails this command forces, via -c user.email= or --author=.
+
+    These are the ways a commit ends up attributed to an address other than the
+    repository's own configured one, which puts the DCO trailer out of step with
+    every other commit on the branch.
+    """
+    emails = []
+    try:
+        tokens = shlex.split(command, comments=False)
+    except ValueError:
+        return emails
+    for index, token in enumerate(tokens):
+        value = ""
+        if token.startswith("user.email="):
+            value = token.partition("=")[2]
+        elif token.startswith("--author="):
+            value = token.partition("=")[2]
+        elif token == "--author" and index + 1 < len(tokens):
+            value = tokens[index + 1]
+        if not value:
+            continue
+        match = AUTHOR_EMAIL.search(value)
+        emails.append(match.group(1) if match else value)
+    return [email for email in emails if email]
+
+
 def staged_plan_files(cwd):
     try:
         result = subprocess.run(
@@ -247,13 +294,39 @@ def main():
             "when the user has explicitly asked to bypass this policy."
         )
 
-    plans = staged_plan_files(event.get("cwd", ""))
+    notes = []
+
+    cwd = event.get("cwd", "")
+    configured = configured_email(cwd)
+    mismatched = [
+        email
+        for email in identity_overrides(command)
+        if configured and email != configured
+    ]
+    if mismatched:
+        notes.append(
+            "this command overrides the commit identity to "
+            + ", ".join(dict.fromkeys(mismatched))
+            + f" while the repository is configured as {configured}. The DCO "
+            "trailer then differs from every other commit on the branch, which "
+            "means an amend and a force-push later. Drop the override unless "
+            "the user asked for that address specifically."
+        )
+
+    plans = staged_plan_files(cwd)
     if plans:
-        allow_with_note(
-            "Blink Labs: these staged paths look like local planning artifacts, "
-            "which are never committed — "
+        notes.append(
+            "these staged paths look like local planning artifacts, which are "
+            "never committed — "
             + ", ".join(plans[:10])
             + ". Unstage them, or use a repository issue for durable tracking."
+        )
+
+    if notes:
+        allow_with_note(
+            "Blink Labs: " + " Also: ".join(notes)
+            if len(notes) > 1
+            else "Blink Labs: " + notes[0]
         )
     sys.exit(0)
 

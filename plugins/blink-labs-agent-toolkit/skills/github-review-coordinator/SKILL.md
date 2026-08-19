@@ -42,6 +42,51 @@ Cubic alone, then verify each finding against the current head, fix valid
 findings, validate, push, and repeat until the available bots have no
 actionable findings. Stop at human-review readiness.
 
+## Find every review, not just the review threads
+
+A GitHub PR carries feedback in three separate places, and querying one misses
+the others:
+
+| Where | API |
+|---|---|
+| Inline threads | `reviewThreads` (GraphQL), `pulls/N/comments` |
+| Review submissions | `pulls/N/reviews` |
+| Plain PR comments | `issues/N/comments` |
+
+A reviewer who writes "**Requesting changes** — found a regression…" as an
+ordinary PR comment produces no review record and no thread. It will not appear
+in a `reviewThreads` scan, in `pulls/N/reviews`, or in any tooling built on
+those — including `make scan-prs` — yet it is the most substantive feedback on
+the PR. Read `issues/N/comments` on every sweep, filtering out bot authors, and
+sort by `created_at` so you see what arrived since the last push.
+
+Also expect findings **on your own fixes**. Each push triggers a fresh bot pass,
+and a fix to a concurrency or lifecycle bug frequently draws a second and third
+round narrowing what the first attempt missed.
+
+But treat a repeat round as a signal about your own review, not as the normal
+cost of doing business. Round three on one file means the first two fixes
+addressed the instance a bot named instead of the class it belonged to. Before
+pushing a fix, do the pass the bot would do:
+
+- **Grep for the class.** A bug fixed in one function is usually a pattern
+  present in siblings. After fixing a bounded wait that mishandled simultaneous
+  readiness, search every other `select` on a done-channel plus `ctx.Done()` in
+  the change — the second and third copies are where the next finding comes from.
+- **Prefer one implementation to a repeated pattern.** Two copies of a
+  bounded-wait helper will eventually disagree. Collapsing them so the subtle
+  part exists once removes the whole class rather than one member of it.
+- **Enumerate the actors and the shared state.** For lifecycle or concurrency
+  work, list every goroutine that touches each field and every ordering between
+  them, and check the field-clearing paths are symmetric. This reading is what
+  finds the unflagged sibling.
+- **Ask what the caller observes at the instant the call returns.** A fix that
+  starts a release rather than completing it has narrowed a window, not closed
+  it, and the next round will say so.
+- **Check that a stress test can actually fail.** Run it against the revision
+  you just fixed. If it passes there, it is coverage of something else — say so
+  in its doc comment rather than letting a green run imply coverage it lacks.
+
 ## Squash merge gate
 
 Only the author merges their own pull request. Whoever presses merge takes
