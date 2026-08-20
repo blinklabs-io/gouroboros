@@ -86,6 +86,35 @@ criteria, and context.
 - List skipped checks explicitly. An unavailable devnet, registry, or CI
   dependency is a fine answer; a silent omission is not.
 
+### Never leak the conversation into a PR or issue
+
+Anything posted to GitHub is a technical record for whoever reads it months from
+now. It is not a reply to whoever asked for the work, and the chat that produced
+it must not show through. Write about the code, not about the exchange.
+
+Cut all of these before posting:
+
+| Do not write | Why |
+|---|---|
+| "The decision is yours", "let me know", "want me to take it?" | Addresses a person who is not the audience. On our own PR the second person refers to nobody — the author is the account posting. |
+| "Fixing this now", "next I'll…", "I'll follow up" | Status of a working session, not a property of the change. Post the fix, not the intention. |
+| "I ran…", "I only checked…", "I was wrong about…" | Narrating the agent's process. State what holds about the code; attribute evidence to a command and its result. |
+| "Correcting my own review", "as I said above" | Conversation bookkeeping. Edit the wrong text or post the corrected fact plainly. |
+| "Good catch", "you're right", "great question" | Pleasantries carry no information. |
+
+A finding reads as: the observation, the evidence, the disposition. Evidence is a
+command and its output, or a `file:line` and what the code does there — not a
+first-person account of looking for it. When something needs deciding, state the
+options and the constraint that discriminates them, and then decide; do not hand
+the decision to an unnamed reader.
+
+Check the PR's author before writing a single word of second person. On a PR the
+posting account authored, there is no "you" — describe the change, not a request
+to its author.
+
+This is the same standard as the no-storytelling rule for commit bodies. Prefer
+editing a comment that broke it over posting another one that explains the first.
+
 ## Review loop
 
 The sequence is bots first, humans second, and it does not compress:
