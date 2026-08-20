@@ -57,6 +57,32 @@ Cubic alone, then verify each finding against the current head, fix valid
 findings, validate, push, and repeat until the available bots have no
 actionable findings. Stop at human-review readiness.
 
+## Do not push what you have not verified
+
+CI minutes and bot review passes are shared, and a push spends both. Pushing to
+find out whether a change works offloads your uncertainty onto the pipeline and
+onto whoever reads the resulting bot findings, so the local check comes first —
+even when it is slower than a CI run, and especially when someone is waiting.
+
+Verify the specific thing the change claims, with the tool that decides it:
+
+- A lint fix is not done when the directive is written, it is done when the
+  linter agrees. `//nolint` binds to the line the diagnostic is *reported* on,
+  which for a multi-line call or a `k := string(key)` conversion is often not
+  the line a reader would pick. One scoped run settles it:
+  `golangci-lint run --default=none -E <linter> ./pkg/...`.
+- Match the tool version CI uses. A finding that only exists under the newer
+  release cannot be reproduced or cleared with the older binary, and a formatter
+  bundled in the linter is not the one on your PATH.
+- Scope the run to the packages you touched. A whole-tree run from a cold cache
+  can take an order of magnitude longer than CI's warm one, which is what
+  tempts the premature push in the first place.
+- State the gap when one remains. "Verified on these packages, whole-tree
+  confirmation comes from CI" is honest; pushing and calling it verified is not.
+
+If a check is genuinely too slow to complete locally, say so and let the user
+decide whether to spend the CI cycle — that is their call, not a default.
+
 ## Find every review, not just the review threads
 
 A GitHub PR carries feedback in three separate places, and querying one misses
