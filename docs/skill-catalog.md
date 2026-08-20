@@ -53,6 +53,7 @@ the same `SKILL.md` files.
 
 | Skill | Use it when |
 |---|---|
+| `dingo-block-producer-operator` | Operating or troubleshooting an existing Dingo block producer: lifecycle, forging health, KES/opcert rotation, HA, and incident evidence |
 | `docker-release-reviewer` | Docker images, multi-architecture builds, manifests, registry publication |
 | `infrastructure-reviewer` | Helm, Terraform, Ansible, Kubernetes operators, helmfile, compose stacks |
 | `docs-kb-maintainer` | Public documentation site content and knowledge-base structure |

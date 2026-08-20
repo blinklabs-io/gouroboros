@@ -59,7 +59,9 @@ the scope, acceptance criteria, and relevant context.
   validation evidence, use unique ports and temporary paths, verify every
   background gate's output, and turn confirmed flakes or dropped events into
   issues rather than silently filtering them.
-- Use the focused skills when their scope applies: [Cardano protocol
+- Use the focused skills when their scope applies: [Dingo block-producer
+  operator](skills/dingo-block-producer-operator/SKILL.md) for operating an
+  existing producer, [Cardano protocol
   reviewer](skills/cardano-protocol-reviewer/SKILL.md), [Cardano application
   reviewer](skills/cardano-app-reviewer/SKILL.md), [Go API
   maintainer](skills/go-api-maintainer/SKILL.md), [Go dependency

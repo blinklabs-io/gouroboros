@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dingo Block Producer Operator"
+  short_description: "Operate and troubleshoot Dingo block producers"
+  default_prompt: "Use $dingo-block-producer-operator to operate or troubleshoot an existing Dingo block producer."
