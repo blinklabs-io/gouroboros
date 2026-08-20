@@ -114,6 +114,42 @@ Go 1.26.0, and generated, example, UI, and OpenAPI modules can have different
 directives. Read each module's `go` directive and honor its toolchain floor;
 do not lower it to make a local build pass.
 
+### CI toolchain and scanner versions float on purpose
+
+Workflow `go-version` values are floating minors (`1.25.x`, `1.26.x`), and
+`golangci-lint-action` is pinned by SHA but takes no `version:` input so it
+installs the latest release. This is deliberate: a floating version forces a new
+advisory or a stricter check to be fixed when it lands, instead of sitting
+unnoticed behind a stale pin.
+
+Two consequences to hold onto:
+
+- **Never pin a version to make a check pass.** A red check under a floating
+  version is the system working. Fix the underlying problem, and reject review
+  suggestions that propose a pin as the remedy — including bot suggestions that
+  name a specific patch release. That pin is stale by the next release, which is
+  how the failure arose in the first place.
+- **Scanners may run ahead of the toolchain we ship, and that is intended.** We
+  want the scan against the newest stdlib and the newest advisory data, so a
+  `govulncheck` job on `1.26.x` while `publish.yml` builds `1.25.x` is correct.
+  Do not pull a scanner back to match the release toolchain.
+
+What protects a release is that `publish.yml` floats too, so the shipped stdlib
+is always the latest patch of its minor. An exact pin in `publish.yml` is the
+real defect: cdnsd shipped on a pinned `1.25.12` carrying five advisories that
+`1.25.13` had already fixed. Float the publish job; leave the scanner ahead.
+
+Know the residual gap so you can describe it accurately: `govulncheck` reports
+standard-library advisories against the toolchain it runs under, so a scanner on
+a newer minor will not flag an advisory that is still live on the older minor the
+release builds with. A floating `publish.yml` is what closes that, since Go
+backports security fixes across supported minors — aligning the scanner
+downward would only trade newer coverage for older.
+
+Exact patch pins rot into failures on diffs that have nothing to do with them —
+see "A failing check the diff cannot explain" in the
+[github-review-coordinator skill](../skills/github-review-coordinator/SKILL.md).
+
 The recurring quality contract is:
 
 - format with the repository's target, including `golines` where configured;

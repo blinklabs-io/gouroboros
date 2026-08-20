@@ -60,17 +60,46 @@ responsibility for the code, so approving a change is not the same as owning
 it — hand an approved PR back to its author rather than merging it for them.
 The sole exception is `dependabot[bot]`, which cannot merge its own PRs.
 
-Squash merge is allowed when GitHub shows a human `APPROVED` review attached to
-the current head SHA, required checks pass, and configured bots have no
-actionable findings. Use one concise factual squash summary and preserve the
-DCO `Signed-off-by:` line. A review for an earlier head is stale after a push.
+Squash merge is allowed when the PR's author is us, GitHub shows a human
+`APPROVED` review attached to the current head SHA, required checks pass, and
+configured bots have no actionable findings. Use one concise factual squash
+summary and preserve the DCO `Signed-off-by:` line. A review for an earlier head
+is stale after a push.
+
+Check authorship per PR, from the PR record, immediately before merging. Do not
+infer it from the branch name, from having authored the change, or from a general
+statement that approved PRs may be merged.
 
 Useful read-only commands include:
 
 ```sh
 gh pr view <number> --json reviews,reviewDecision,statusCheckRollup,files
 gh pr checks <number>
+gh pr view <number> --json author,headRefOid,mergeStateStatus
 ```
+
+`gh api --jq` does not accept `--arg`, so the obvious one-liner for "is the
+approval on the current head" fails with `accepts 1 arg(s), received 4`. In a
+loop that error is swallowed and every PR reports the same wrong answer. Pipe to
+a separate `jq`:
+
+```sh
+head=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '.head.sha')
+gh api "repos/$OWNER/$REPO/pulls/$N/reviews" > /tmp/reviews.json
+jq -r --arg h "$head" '
+  [.[] | select(.state == "APPROVED" and .commit_id == $h) | .user.login]
+  | unique | join(",")' /tmp/reviews.json
+```
+
+Filter bots by login **name**, not the `[bot]` suffix — REST returns
+`coderabbitai[bot]` where GraphQL returns `coderabbitai`. When a batch check
+reports the same verdict for every PR, treat that as a probable query bug and
+verify one PR by hand before acting on the batch.
+
+Note that `gh pr edit` and any `--json` field naming a login or team can fail on
+a token without `read:org`. Fall back to
+`gh api -X PATCH repos/OWNER/REPO/pulls/N --input body.json` for edits, and to
+plain REST reads for reviewer state.
 
 Use the GitHub UI or API for reviewer requests and dismissals. Verify the PR
 state afterward; never infer that a request, approval, or dismissal happened

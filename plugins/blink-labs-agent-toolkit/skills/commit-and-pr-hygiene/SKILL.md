@@ -14,7 +14,16 @@ round trip, and in a submodule it can cost a bad pointer.
   every commit: `type(scope): summary`, where type is one of `build`, `chore`,
   `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`.
 - DCO sign-off on every commit: `git commit -s`.
-- GPG signing is required in every repository except `skunkworks/`.
+- GPG signing is required in every repository except `skunkworks/`. When signing
+  fails because pinentry cannot prompt — `gpg: signing failed: No passphrase
+  given` — stop and report it. Suggest the user unlock the key in the session
+  (`! echo test | gpg --clearsign > /dev/null`). Never reach for
+  `--no-gpg-sign` on your own: dropping a required signature is the user's call,
+  and an unsigned commit on a branch of signed ones has to be rewritten to fix.
+  If the user does authorize skipping, say so in the handoff and note that the
+  commits will need re-signing before merge. The same applies to `git rebase`,
+  which fails the same way mid-operation and leaves the rebase half-applied;
+  `-c commit.gpgsign=false` is available but is subject to the same permission.
 - Subjects stay short and factual — the change, not the story.
 - A body is optional. When present, it holds only short factual lines tied
   directly to the changed code, tests, or review. Never a chat transcript,

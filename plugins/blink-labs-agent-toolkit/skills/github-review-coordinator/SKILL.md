@@ -87,6 +87,68 @@ Verify the specific thing the change claims, with the tool that decides it:
 If a check is genuinely too slow to complete locally, say so and let the user
 decide whether to spend the CI cycle — that is their call, not a default.
 
+## Never rewrite pushed history without being asked
+
+Do not rebase, amend, or force-push a branch that has already been pushed —
+not on anyone else's PR, not on our own, and not when the rewrite is provably
+identical in content and is the obvious way to clear a check.
+
+A task-level authorization does not cover it. "Do a PR sweep", "act on the clear
+ones", or "fix the failing checks" is not permission to rewrite published
+history; that needs approval for that branch, at that time, and approval on one
+branch never carries to the next.
+
+`--force-with-lease` is not a safety net for this. It only proves nobody else
+pushed in the meantime, so it succeeds in exactly the case that upsets people.
+The guard is judgment, not tooling.
+
+The tempting case is a stale check, so know why re-running does not help:
+re-running an old workflow run replays that run's **original** merge ref, so it
+never picks up a new base. A fix that landed on the base branch afterwards will
+not appear, and the check keeps failing on code that is already fixed. That is a
+reason to explain the situation and let the branch owner decide — not a licence
+to rebase. State plainly that the branch needs a fresh push or a merge-queue run,
+and stop there.
+
+## A failing check the diff cannot explain
+
+When a check fails on a PR whose diff could not plausibly cause it —
+`govulncheck` red on a `.gitignore`-only change, `gofumpt` red on a
+workflow-only change — do not start fixing the PR. Reproduce the check on
+`origin/main` first.
+
+Both cases in one sweep were drift on the base branch, not regressions: an exact
+`go-version` pin went stale as advisories landed, and an unpinned
+`golangci-lint-action` picked up a stricter bundled formatter. The flagged code
+had been untouched for months. "Fixing the PR" would have fixed nothing.
+
+The sequence that works:
+
+1. **Read the version CI actually resolved**, from the job log — `Installing
+   golangci-lint binary v2.13.0` — not the version on your PATH. A formatter
+   bundled in a linter is not the standalone binary, and a finding that only
+   exists under the newer release cannot be cleared with the older one.
+2. **Run the same check on `origin/main`.** If main fails too, the fix is its own
+   PR against main that unblocks every open PR, not a commit buried in whichever
+   branch happened to surface it.
+3. **Check whether a sibling open PR already fixes it** before writing your own.
+   Grep the open PRs' diffs for the file and line. One sweep opened a redundant
+   PR for a formatting fix another open PR already carried in its second commit;
+   merging that PR would have unblocked the same branch with no new work.
+4. **Audit the class across sibling repositories** before reporting. Toolchain
+   drift is never one repository. After fixing the first two, the same unpinned
+   action was found latent in fourteen — visible only because their last green
+   run predated the release.
+5. **File one issue for the organization-wide part**, rather than a one-off
+   change to whichever file was touched. Confirm at least one repository with the
+   real linter before asserting the list; enumerate the rest with the standalone
+   formatter and say which method produced which number.
+
+Repository exclusions decide what CI reports, so read them before counting:
+`run.tests: false` hides every `_test.go` finding, and
+`exclusions.generated: lax` hides generated trees. A raw formatter run over the
+whole repository will overcount against what `lint` actually fails on.
+
 ## Find every review, not just the review threads
 
 A GitHub PR carries feedback in three separate places, and querying one misses
@@ -165,10 +227,38 @@ responsibility for the code, so approving a change is not the same as owning
 it — hand an approved PR back to its author rather than merging it for them.
 The sole exception is `dependabot[bot]`, which cannot merge its own PRs.
 
-Squash merge is allowed only when GitHub shows a human `APPROVED` review for the
-current head SHA, required checks pass, and configured bots have no actionable
-findings. Use one concise factual squash summary and preserve the DCO
-`Signed-off-by:` line. An approval for an earlier head is stale after a push.
+Squash merge is allowed only when **all four** hold:
+
+1. The PR's author is us. Read `.user.login` (REST) or `.author.login` (GraphQL)
+   for that specific PR and compare it to the authenticated account. Do not infer
+   it from the branch name, from having worked on the change, or from having
+   opened a sibling PR in the same sweep.
+2. GitHub shows a human `APPROVED` review for the current head SHA. An approval
+   for an earlier head is stale after a push.
+3. Required checks pass.
+4. Configured bots have no actionable findings.
+
+Use one concise factual squash summary and preserve the DCO `Signed-off-by:`
+line.
+
+"Approved and green" is not the gate; "ours, approved, and green" is. The first
+three conditions are easy to verify and the ownership one is easy to skip, so
+verify it last and explicitly, immediately before the merge call.
+
+A general statement of merge policy does not convert someone else's PR into
+ours. "Anyone here can merge an approved PR", or a reviewer confirming that we
+are the author of the PR under discussion, resolves per PR against condition 1 —
+it never widens the set. When a broad-sounding grant would have you merge a PR
+someone else authored, confirm that specific PR before pressing merge; the cost
+of asking is one message, and the merge cannot be un-pressed.
+
+Beware the tooling trap in condition 2: `gh api --jq` does **not** accept `--arg`.
+`gh api ... --jq --arg h "$sha" '...'` fails with `accepts 1 arg(s), received 4`,
+and inside a loop that error is easy to swallow — every PR then reports no
+approval on head, or, with inverted logic, every PR reports one. Pipe the JSON to
+a separate `jq --arg` invocation and check that at least one row came back
+non-empty before trusting a batch verdict. See the
+[review loop reference](references/review-loop.md).
 
 ## Keeping the loop short
 
