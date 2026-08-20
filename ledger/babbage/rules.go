@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/syn"
@@ -241,92 +242,82 @@ func UtxoValidateCostModelsPresent(
 
 // UtxoValidateInlineDatumsWithPlutusV1 rejects transactions that use inline datums with PlutusV1 scripts
 // Inline datums are a Babbage-era feature and are only supported with PlutusV2+
+// UtxoValidateInlineDatumsWithPlutusV1 rejects a transaction that requires a
+// PlutusV1 script while using a feature the PlutusV1 script context cannot
+// represent. PlutusV1 predates inline datums and reference scripts, so a
+// transaction that needs a V1 script and carries either is invalid.
+//
+// Two properties matter, and getting either wrong diverges from cardano-node:
+//
+//   - Only a *needed* script constrains the transaction. A V1 script that is
+//     merely reachable -- sitting in the witness set, or as a reference script
+//     on some UTxO being spent -- but required by no script purpose does not
+//     make the transaction invalid. Rejecting on availability turns an ordinary
+//     transaction that happens to spend a UTxO carrying an unrelated V1
+//     reference script into a permanent validation failure.
+//   - The disqualifying feature is transaction-wide. An inline datum counts
+//     wherever the V1 context would have to represent it: on a consumed input,
+//     on a reference input, or on one of this transaction's own outputs.
+//
+// Datum presence is read through the TransactionOutput interface rather than a
+// concrete Babbage type assertion, so outputs wrapped by a later era are still
+// inspected. Datum-*hash* outputs are correctly not treated as inline, because
+// Datum() reports nil for them.
 func UtxoValidateInlineDatumsWithPlutusV1(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	// Check if transaction spends any UTxOs with inline datums
-	hasInlineDatums := false
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Input not found in ledger state, skip
-			continue
+	view, err := script.NewTxScriptView(tx, ls)
+	if err != nil {
+		if errors.Is(err, common.ErrInputResolution) ||
+			errors.Is(err, common.ErrReferenceInputResolution) {
+			// UtxoValidateBadInputsUtxo reports an unresolvable input with the
+			// right error; reporting it here as well would make this rule a
+			// second, competing source of input-resolution failures.
+			return nil
 		}
-		babbageOutput, ok := utxo.Output.(*BabbageTransactionOutput)
-		if !ok {
-			continue
-		}
-		if babbageOutput.DatumOption != nil &&
-			babbageOutput.DatumOption.data != nil {
-			hasInlineDatums = true
-			break
-		}
+		return err
 	}
-
-	if !hasInlineDatums {
+	needsV1 := view.NeedsAny(func(s common.Script) bool {
+		_, ok := s.(common.PlutusV1Script)
+		return ok
+	})
+	if !needsV1 {
 		return nil
 	}
-
-	// Check if transaction uses PlutusV1 scripts in witnesses
-	witnesses := tx.Witnesses()
-	if witnesses != nil {
-		v1Scripts := witnesses.PlutusV1Scripts()
-		if len(v1Scripts) > 0 {
+	for _, utxo := range view.AllResolvedInputs() {
+		if utxo.Output != nil && utxo.Output.Datum() != nil {
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
 		}
 	}
-
-	// Check reference scripts on reference inputs
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
+	for _, output := range tx.Outputs() {
+		if output == nil {
+			continue
+		}
+		if output.Datum() != nil {
+			return common.InlineDatumsNotSupportedError{
+				PlutusVersion: "PlutusV1",
 			}
 		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
+		// A reference script on a produced output is equally unrepresentable in
+		// the V1 context.
+		if output.ScriptRef() != nil {
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
 		}
 	}
-
-	// Per CIP-33, also check reference scripts on regular (spent) inputs
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			// Skip errors - BadInputsUtxo will catch this
-			continue
-		}
-		if utxo.Output == nil {
-			continue
-		}
-		script := utxo.Output.ScriptRef()
-		if script == nil {
-			continue
-		}
-		switch script.(type) {
-		case common.PlutusV1Script:
-			return common.InlineDatumsNotSupportedError{
-				PlutusVersion: "PlutusV1",
-			}
-		}
-	}
-
+	// Deliberately no restriction on the mere presence of reference inputs.
+	// Asserting one here failed the Conway conformance vector
+	// "UTXOS/can use reference scripts" (tx 3), which expects success for a
+	// transaction that requires a PlutusV1 script and carries reference
+	// inputs. The vector is authoritative; a reading of the V1 context
+	// translation that forbids reference inputs outright is not what the
+	// reference implementation does at this protocol version.
 	return nil
 }
 
