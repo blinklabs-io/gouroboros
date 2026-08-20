@@ -55,6 +55,25 @@ The merge gate remains human judgment: current-head human approval, required
 checks passing, and no actionable configured bot findings. A clean scan does
 not replace a human review.
 
+## Posting an authorized review
+
+The scanner is read-only, but an explicitly authorized review action should be
+attempted directly through GitHub. Do not run `gh auth status` as a precondition:
+it may inspect a stale or different environment token even when the review
+operation is available. If the write itself reports a network failure, retry
+through the approved elevated network path. If it reports an authorization
+failure, report that failure and do not claim the review was posted.
+
+For a review with no merge-blocking findings, post an approval with no body:
+
+```sh
+gh pr review <number> --repo <owner>/<repo> --approve
+```
+
+Use `CHANGES_REQUESTED` only for actionable blockers and put code-specific
+findings in inline comments through GitHub's UI or API. After any write, verify
+the review record, state, body, reviewer, and current head SHA through GitHub.
+
 ## Description hygiene
 
 Keep the author-written description factual and scoped to the change. A useful

@@ -18,6 +18,32 @@
 7. An authorized human may dismiss another human review when appropriate;
    record why on the pull request and retain appropriate human coverage.
 
+## Posting the review
+
+When the user authorizes a review write, try the requested operation before
+diagnosing credentials. `gh auth status` can report an invalid environment token
+even when `gh pr review` can use another available credential. A failed write is
+the signal to diagnose; if the failure is network connectivity, retry with the
+approved elevated network path. Do not claim success until GitHub shows the
+review.
+
+For a clean review with only non-blocking recommendations, submit an empty-body
+approval:
+
+```sh
+gh pr review <number> --repo <owner>/<repo> --approve
+```
+
+For actionable blockers, request changes and attach each code-specific finding
+inline through GitHub's UI or API. Keep the review body empty when approving;
+do not turn a trivial test or accessibility recommendation into a blocking
+changes-requested review.
+
+After posting, verify the review list against the current head SHA and confirm
+the reviewer login, state, and body. If the authenticated `gh` read path cannot
+connect, use a read-only GitHub API request through the approved network path
+for verification.
+
 An issue-resolution request includes the bot loop after the initial PR update:
 wait for CodeRabbit and Cubic, or document CodeRabbit rate limiting and use
 Cubic alone, then verify findings against the current head, fix valid findings,

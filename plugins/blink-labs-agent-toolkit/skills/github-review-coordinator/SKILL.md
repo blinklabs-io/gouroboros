@@ -36,6 +36,21 @@ and the target repository's contribution guidance.
    appropriate. Record the rationale on the PR and retain appropriate human
    review coverage.
 
+When the user authorizes a review action, attempt the requested GitHub write
+directly. Do not make `gh auth status`, a stale `GITHUB_TOKEN`, or another
+preflight diagnostic a gate: the diagnostic may inspect a different credential
+or transport from the operation that is actually available. If the write itself
+fails because of network connectivity, retry through the approved elevated
+network path. If it fails authorization, report that actual failure and do not
+claim the review was posted.
+
+Choose the review disposition from the findings. Use an approval-only review
+with an empty body when there are no merge-blocking findings; do not turn
+trivial recommendations into `CHANGES_REQUESTED`. Use `CHANGES_REQUESTED`
+only for actionable blockers and put those findings in inline comments through
+GitHub's UI or API. After every write, verify the review record, reviewer, state,
+empty or non-empty body as intended, and current head SHA through GitHub.
+
 When the user asks to resolve an issue, iterate after the initial PR update:
 wait for CodeRabbit and Cubic, or document CodeRabbit rate limiting and use
 Cubic alone, then verify each finding against the current head, fix valid
