@@ -396,7 +396,7 @@ func scriptPurposeBuilder(
 				return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
 			}
 			return ScriptPurposeVoting{
-				Voter: *(votes[redeemerKey.Index].Key),
+				Voter: *votes[redeemerKey.Index].Key,
 			}, nil
 		case lcommon.RedeemerTagProposing:
 			if int(redeemerKey.Index) >= len(proposalProcedures) {

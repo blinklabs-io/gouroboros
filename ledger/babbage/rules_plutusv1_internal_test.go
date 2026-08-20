@@ -323,9 +323,11 @@ func TestInlineDatumsPlutusV1_NeededScriptFromReferenceScriptRejected(
 		utxo(spend, inlineDatumOutput(scriptAddr(t, v1))),
 		utxo(ref, scriptRefOutput(keyAddr(t), v1)),
 	})
-	require.Error(
+	var want common.InlineDatumsNotSupportedError
+	require.ErrorAs(
 		t,
 		err,
+		&want,
 		"a needed PlutusV1 script supplied by a reference script must be detected",
 	)
 }
