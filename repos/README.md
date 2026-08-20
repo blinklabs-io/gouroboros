@@ -53,6 +53,7 @@ that belongs in a workspace checkout.
 | [`gouroboros`](gouroboros) | [`blinklabs-io/gouroboros`](https://github.com/blinklabs-io/gouroboros) | Go Ouroboros/Cardano protocol library |
 | [`handshake-node`](handshake-node) | [`blinklabs-io/handshake-node`](https://github.com/blinklabs-io/handshake-node) | Handshake full node |
 | [`helm-charts`](helm-charts) | [`blinklabs-io/helm-charts`](https://github.com/blinklabs-io/helm-charts) | Blink Labs Kubernetes Helm charts |
+| [`homebrew-cardano`](homebrew-cardano) | [`blinklabs-io/homebrew-cardano`](https://github.com/blinklabs-io/homebrew-cardano) | Homebrew tap for Blink Labs Cardano formulae |
 | [`infrastructure`](infrastructure) | [`blinklabs-io/infrastructure`](https://github.com/blinklabs-io/infrastructure) | Ansible, Helmfile, and Terraform deployment automation |
 | [`issues`](issues) | [`blinklabs-io/issues`](https://github.com/blinklabs-io/issues) | Shared repository for uncategorized issues |
 | [`merkle-patricia-forestry`](merkle-patricia-forestry) | [`blinklabs-io/merkle-patricia-forestry`](https://github.com/blinklabs-io/merkle-patricia-forestry) | Merkle Patricia Forestry data structure library used by Bluefin |

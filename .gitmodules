@@ -172,3 +172,6 @@
 [submodule "repos/vpn-indexer"]
 	path = repos/vpn-indexer
 	url = git@github.com:blinklabs-io/vpn-indexer.git
+[submodule "repos/homebrew-cardano"]
+	path = repos/homebrew-cardano
+	url = git@github.com:blinklabs-io/homebrew-cardano.git
