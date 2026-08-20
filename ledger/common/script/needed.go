@@ -128,6 +128,9 @@ func availableScripts(
 		for _, s := range witnesses.PlutusV3Scripts() {
 			out[s.Hash()] = s
 		}
+		for _, s := range lcommon.PlutusV4ScriptsFromWitnessSet(witnesses) {
+			out[s.Hash()] = s
+		}
 	}
 	for _, utxo := range resolved {
 		if utxo.Output == nil {
@@ -138,6 +141,25 @@ func availableScripts(
 		}
 	}
 	return out
+}
+
+// voterUsesScriptCredential reports whether a voter votes under a script
+// credential rather than a key hash.
+//
+// ScriptPurposeVoting.ScriptHash returns Blake2b224(Voter.Hash) unconditionally,
+// with no check on the voter type, so a key-hash voter yields its key hash typed
+// as a script hash. Filtering here keeps a key hash from being looked up as a
+// script and, on a collision, entered as a script this transaction requires.
+// ScriptPurposeCertifying already performs the equivalent check internally, so
+// certificates need no filter.
+func voterUsesScriptCredential(voter lcommon.Voter) bool {
+	switch voter.Type {
+	case lcommon.VoterTypeConstitutionalCommitteeHotScriptHash,
+		lcommon.VoterTypeDRepScriptHash:
+		return true
+	default:
+		return false
+	}
 }
 
 // neededScripts walks every script purpose the transaction requires and keeps
@@ -209,7 +231,7 @@ func neededScripts(
 		})
 	}
 	for voter := range tx.VotingProcedures() {
-		if voter == nil {
+		if voter == nil || !voterUsesScriptCredential(*voter) {
 			continue
 		}
 		keep(ScriptPurposeVoting{Voter: *voter})

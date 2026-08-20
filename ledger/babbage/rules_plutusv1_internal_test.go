@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
+	"github.com/stretchr/testify/require"
 )
 
 // UtxoValidateInlineDatumsWithPlutusV1 had no test coverage at all, which is
@@ -63,9 +64,7 @@ func keyAddr(t *testing.T) common.Address {
 		make([]byte, common.AddressHashSize),
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("build key address: %v", err)
-	}
+	require.NoError(t, err, "build key address")
 	return addr
 }
 
@@ -77,9 +76,7 @@ func scriptAddr(t *testing.T, s common.Script) common.Address {
 		s.Hash().Bytes(),
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("build script address: %v", err)
-	}
+	require.NoError(t, err, "build script address")
 	return addr
 }
 
@@ -173,12 +170,10 @@ func TestInlineDatumsPlutusV1_UnneededReferenceScriptAccepted(t *testing.T) {
 			TxInputs: inputSet(inlineIn, refScriptIn),
 		},
 	}
-	if err := runRule(t, tx, []common.Utxo{
+	require.NoError(t, runRule(t, tx, []common.Utxo{
 		utxo(inlineIn, inlineDatumOutput(key)),
 		utxo(refScriptIn, scriptRefOutput(key, v1)),
-	}); err != nil {
-		t.Fatalf("expected accept, got %v", err)
-	}
+	}), "expected accept")
 }
 
 // The same script, now actually required to spend its own script-locked UTxO.
@@ -196,9 +191,7 @@ func TestInlineDatumsPlutusV1_NeededSpendingScriptRejected(t *testing.T) {
 		utxo(in, inlineDatumOutput(scriptAddr(t, v1))),
 	})
 	var want common.InlineDatumsNotSupportedError
-	if !errors.As(err, &want) {
-		t.Fatalf("expected InlineDatumsNotSupportedError, got %v", err)
-	}
+	require.ErrorAs(t, err, &want)
 }
 
 // The inline datum sits on a produced output rather than a spent one.
@@ -219,9 +212,7 @@ func TestInlineDatumsPlutusV1_DatumOnProducedOutputRejected(t *testing.T) {
 		utxo(in, plainOutput(scriptAddr(t, v1))),
 	})
 	var want common.InlineDatumsNotSupportedError
-	if !errors.As(err, &want) {
-		t.Fatalf("expected InlineDatumsNotSupportedError, got %v", err)
-	}
+	require.ErrorAs(t, err, &want)
 }
 
 // A reference script on a produced output is equally unrepresentable in V1.
@@ -244,9 +235,7 @@ func TestInlineDatumsPlutusV1_ScriptRefOnProducedOutputRejected(t *testing.T) {
 		utxo(in, plainOutput(scriptAddr(t, v1))),
 	})
 	var want common.InlineDatumsNotSupportedError
-	if !errors.As(err, &want) {
-		t.Fatalf("expected InlineDatumsNotSupportedError, got %v", err)
-	}
+	require.ErrorAs(t, err, &want)
 }
 
 // The mere presence of a reference input must NOT disqualify a transaction that
@@ -271,12 +260,10 @@ func TestInlineDatumsPlutusV1_ReferenceInputPresentAccepted(t *testing.T) {
 			WsPlutusV1Scripts: []common.PlutusV1Script{v1},
 		},
 	}
-	if err := runRule(t, tx, []common.Utxo{
+	require.NoError(t, runRule(t, tx, []common.Utxo{
 		utxo(in, plainOutput(scriptAddr(t, v1))),
 		utxo(ref, plainOutput(keyAddr(t))),
-	}); err != nil {
-		t.Fatalf("expected accept with a reference input present, got %v", err)
-	}
+	}), "expected accept with a reference input present")
 }
 
 // A datum *hash* output is not an inline datum and must be accepted.
@@ -293,9 +280,7 @@ func TestInlineDatumsPlutusV1_DatumHashOutputAccepted(t *testing.T) {
 			WsPlutusV1Scripts: []common.PlutusV1Script{v1},
 		},
 	}
-	if err := runRule(t, tx, []common.Utxo{utxo(in, out)}); err != nil {
-		t.Fatalf("expected accept for datum-hash output, got %v", err)
-	}
+	require.NoError(t, runRule(t, tx, []common.Utxo{utxo(in, out)}), "expected accept for datum-hash output")
 }
 
 // An unresolvable input is UtxoValidateBadInputsUtxo's finding, not this rule's.
@@ -304,7 +289,43 @@ func TestInlineDatumsPlutusV1_UnresolvableInputSkipped(t *testing.T) {
 	tx := &BabbageTransaction{
 		Body: BabbageTransactionBody{TxInputs: inputSet(in)},
 	}
-	if err := runRule(t, tx, nil); err != nil {
-		t.Fatalf("expected nil for unresolvable input, got %v", err)
+	require.NoError(
+		t,
+		runRule(t, tx, nil),
+		"an unresolvable input is BadInputsUtxo's finding, not this rule's",
+	)
+}
+
+// TestInlineDatumsPlutusV1_NeededScriptFromReferenceScriptRejected settles
+// whether a needed PlutusV1 script supplied only by a reference script -- never
+// present in the witness set -- is detected. availableScripts collects script
+// refs from every resolved input, so it is.
+func TestInlineDatumsPlutusV1_NeededScriptFromReferenceScriptRejected(
+	t *testing.T,
+) {
+	v1 := common.PlutusV1Script([]byte{0x0d, 0x0e})
+	spend := testInput(0xa, 0)
+	ref := testInput(0xb, 0)
+
+	tx := &BabbageTransaction{
+		Body: BabbageTransactionBody{
+			TxInputs: inputSet(spend),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{ref},
+				false,
+			),
+		},
+		// Deliberately no witness scripts: the only copy of the V1 script is
+		// the reference script on the reference input below.
 	}
+	err := runRule(t, tx, []common.Utxo{
+		// Spending a UTxO locked by the V1 script, carrying an inline datum.
+		utxo(spend, inlineDatumOutput(scriptAddr(t, v1))),
+		utxo(ref, scriptRefOutput(keyAddr(t), v1)),
+	})
+	require.Error(
+		t,
+		err,
+		"a needed PlutusV1 script supplied by a reference script must be detected",
+	)
 }
