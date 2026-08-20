@@ -189,6 +189,8 @@ When work changes a submodule:
    the user's request.
 3. Update and review the parent repository's submodule pointer.
 
-Do not make a parent-repository commit on the user's behalf unless explicitly
-asked. Keep submodule changes and parent-repository changes easy to distinguish
-in the final summary.
+For changes made directly in `clanker`, commit and push validated work as part
+of the same task unless the user says not to. This standing authorization does
+not include unrelated existing changes or submodule pointer moves outside the
+requested scope. Keep submodule changes and parent-repository changes easy to
+distinguish in the final summary.

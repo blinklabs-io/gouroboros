@@ -143,6 +143,10 @@ workspace guard denies a commit that is missing either, so fix the command
 rather than working around it. Details are in the
 [`commit-and-pr-hygiene`](skills/commit-and-pr-hygiene/SKILL.md) skill.
 
+For changes made directly in `clanker`, commit and push validated work as part
+of the same task unless the user says not to. Do not include unrelated existing
+changes or submodule pointer moves outside the requested scope.
+
 Before reporting work as complete, produce the evidence ledger and skipped-check
 list described in
 [`evidence-based-handoff`](skills/evidence-based-handoff/SKILL.md).
