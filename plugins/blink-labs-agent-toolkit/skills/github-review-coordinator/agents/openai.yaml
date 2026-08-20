@@ -1,4 +1,4 @@
 interface:
   display_name: "GitHub Review Coordinator"
-  short_description: "Coordinate GitHub review workflows"
-  default_prompt: "Use $github-review-coordinator to coordinate bot-first reviews, human review, reviewer re-requests, and documented dismissal."
+  short_description: "Discover and coordinate GitHub reviews"
+  default_prompt: "Use $github-review-coordinator to find direct and team review requests, then coordinate bot-first reviews, human review, reviewer re-requests, and documented dismissal."

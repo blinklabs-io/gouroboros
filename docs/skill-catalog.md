@@ -67,7 +67,7 @@ the same `SKILL.md` files.
 | `isolated-validation-runs` | A check is slow, stateful, networked, or concurrent — worktrees, unique resources, flake triage |
 | `evidence-based-handoff` | Finishing work: evidence ledger, skipped-check list, findings in severity order |
 | `commit-and-pr-hygiene` | Writing a commit, PR description, or review comment |
-| `github-review-coordinator` | Sequencing bot review, fix loops, reviewer re-requests, and dismissal |
+| `github-review-coordinator` | Discovering direct and team review requests, sequencing bot review, fix loops, reviewer re-requests, and dismissal |
 | `agent-toolkit-authoring` | Changing the toolkit itself: skills, commands, subagents, hooks, manifests |
 
 ## Workspace guards (hooks)

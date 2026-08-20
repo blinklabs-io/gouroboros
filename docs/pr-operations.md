@@ -18,8 +18,10 @@ Useful variants:
 # Machine-readable output for an agent or a follow-up script.
 make scan-prs ARGS='--format json'
 
-# Scan another organization or use a different review identity.
-make scan-prs ARGS='--owner example --user reviewer'
+# Scan another organization or use a different review identity. Supply that
+# identity's known teams because GitHub only exposes the authenticated user's
+# memberships.
+make scan-prs ARGS='--owner example --user reviewer --team example/reviewers'
 
 # Include drafts or Dependabot only when explicitly needed.
 make scan-prs ARGS='--include-drafts --include-dependabot'
@@ -27,7 +29,17 @@ make scan-prs ARGS='--include-drafts --include-dependabot'
 
 The report separates current bot findings, unanswered human PR comments, human
 reviews carrying feedback in any state, failing or pending checks, current human
-changes-requested reviews, current human approvals, and direct review requests.
+changes-requested reviews, current human approvals, and direct or team review
+requests. Team requests are matched against the authenticated user's memberships
+in the scanned organization. Use repeatable `--team` flags to supply known team
+slugs explicitly; an unqualified slug uses `--owner`.
+
+If GitHub does not expose team memberships to the active token, or `--user`
+selects someone other than the authenticated user without corresponding
+`--team` flags, the report marks the team lookup incomplete and exits nonzero.
+It does not silently report that no team reviews are waiting. JSON output adds
+the selected `review_teams`, a nullable `team_lookup_error`, each pull request's
+qualified `requested_team_slugs`, and its matching `review_request_sources`.
 
 Two of those sections exist because reviewer feedback hides in places a naive
 scan misses:

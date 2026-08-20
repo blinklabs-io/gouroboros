@@ -78,6 +78,11 @@ Do not review draft pull requests. When the user excludes Dependabot, omit
 pull requests authored by `dependabot[bot]` before inspecting diffs or posting
 reviews.
 
+When asked to check for reviews or review requests, include pull requests
+assigned to any team the authenticated user belongs to, not only requests made
+directly to the user's account. If team memberships cannot be queried, report
+the scan as incomplete instead of claiming that no requests exist.
+
 UI changes require screenshots in the pull request. Include the affected
 states at the relevant viewport or platform, with secrets and user data
 redacted.

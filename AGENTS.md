@@ -137,6 +137,10 @@ the scope, acceptance criteria, and relevant context.
   before preparing a pull request.
 - Do not review draft pull requests. When the user excludes Dependabot, omit
   pull requests authored by `dependabot[bot]` from the review set.
+- When asked to check for reviews or review requests, include pull requests
+  assigned to any team the authenticated user belongs to, not only requests
+  made directly to the user's account. If team memberships cannot be queried,
+  report the scan as incomplete instead of claiming that no requests exist.
 - Run the configured review bots before requesting human review and address
   their actionable findings first. If CodeRabbit is rate-limited, document it
   and a completed Cubic review is sufficient for bot review. Human review is

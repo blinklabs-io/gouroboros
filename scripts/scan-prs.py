@@ -48,6 +48,68 @@ def gh_json(args: list[str]) -> Any:
     return json.loads(result.stdout)
 
 
+def authenticated_review_teams(owner: str) -> list[str]:
+    """Return qualified team slugs for the authenticated user in ``owner``."""
+    teams: set[str] = set()
+    page = 1
+    while True:
+        batch = gh_json(["api", f"user/teams?per_page=100&page={page}"])
+        if not isinstance(batch, list):
+            raise RuntimeError("gh api user/teams: expected a JSON array")
+        for team in batch:
+            organization = (team.get("organization") or {}).get("login", "")
+            slug = team.get("slug", "")
+            if organization.casefold() == owner.casefold() and slug:
+                teams.add(f"{organization}/{slug}")
+        if len(batch) < 100:
+            break
+        page += 1
+    return sorted(teams, key=str.casefold)
+
+
+def normalize_review_teams(teams: list[str], owner: str) -> list[str]:
+    """Qualify explicit team slugs with the scan owner and remove duplicates."""
+    normalized: dict[str, str] = {}
+    for team in teams:
+        qualified = team.strip().removeprefix("@")
+        if not qualified:
+            continue
+        if "/" not in qualified:
+            qualified = f"{owner}/{qualified}"
+        normalized.setdefault(qualified.casefold(), qualified)
+    return sorted(normalized.values(), key=str.casefold)
+
+
+def review_request_sources(
+    item: dict[str, Any], user: str | None, review_teams: list[str]
+) -> list[str]:
+    """Describe why a pull request is assigned to the selected reviewer."""
+    sources: list[str] = []
+    requested_reviewers = {
+        reviewer.casefold() for reviewer in item.get("requested_reviewers", [])
+    }
+    if user and user.casefold() in requested_reviewers:
+        sources.append("direct")
+
+    requested_teams = {
+        team.casefold() for team in item.get("requested_team_slugs", [])
+    }
+    for team in review_teams:
+        if team.casefold() in requested_teams:
+            sources.append(f"team:{team}")
+    return sources
+
+
+def annotate_review_requests(
+    results: list[dict[str, Any]], user: str | None, review_teams: list[str]
+) -> None:
+    """Add direct and team review-request reasons to each scan result."""
+    for item in results:
+        item["review_request_sources"] = review_request_sources(
+            item, user, review_teams
+        )
+
+
 def review_summary(body: str) -> str:
     for line in body.splitlines():
         line = line.strip()
@@ -190,7 +252,15 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
                 reviewer.get("login", "")
                 for reviewer in metadata.get("requested_reviewers", [])
             ],
-            "requested_teams": [team.get("name", "") for team in metadata.get("requested_teams", [])],
+            "requested_teams": [
+                team.get("name", "")
+                for team in metadata.get("requested_teams", [])
+            ],
+            "requested_team_slugs": [
+                f"{repo.split('/', 1)[0]}/{team.get('slug', '')}"
+                for team in metadata.get("requested_teams", [])
+                if team.get("slug")
+            ],
             "current_reviews": current_reviews,
             "human_comments": human_comments,
             "human_reviews": human_reviews,
@@ -213,7 +283,20 @@ def inspect_pr(pr: dict[str, Any]) -> dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owner", default=os.environ.get("GITHUB_ORG", "blinklabs-io"))
-    parser.add_argument("--user", default=None, help="login used for ownership/review-request summaries")
+    parser.add_argument(
+        "--user",
+        default=None,
+        help="login used for ownership and review-request summaries",
+    )
+    parser.add_argument(
+        "--team",
+        action="append",
+        default=None,
+        help=(
+            "team slug used for review requests; repeatable and defaults to the "
+            "authenticated user's teams in --owner"
+        ),
+    )
     parser.add_argument("--limit", type=int, default=200)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--include-drafts", action="store_true")
@@ -255,7 +338,11 @@ def is_human(user: str) -> bool:
     return bool(user) and not user.endswith("[bot]") and user not in BOT_LOGINS
 
 
-def print_text(results: list[dict[str, Any]], user: str | None) -> None:
+def print_text(
+    results: list[dict[str, Any]],
+    user: str | None,
+    team_lookup_error: str | None = None,
+) -> None:
     owned = [item for item in results if user and item.get("author") == user]
     bot_findings = [
         (item, reviewer, review)
@@ -279,7 +366,7 @@ def print_text(results: list[dict[str, Any]], user: str | None) -> None:
     requested = [
         item
         for item in results
-        if user and user in item.get("requested_reviewers", [])
+        if item.get("review_request_sources")
     ]
     # Human PR comments made after the current head was committed: feedback
     # that arrived since the last push and has no review record behind it.
@@ -366,25 +453,68 @@ def print_text(results: list[dict[str, Any]], user: str | None) -> None:
             for item, reviewer in approvals
         ],
     )
+    if team_lookup_error:
+        section(
+            "TEAM REVIEW REQUEST LOOKUP",
+            [f"- incomplete: {team_lookup_error}"],
+        )
     section(
-        f"DIRECT REVIEW REQUESTS FOR {user or 'SELECTED USER'}",
-        [f"- {item['repository']}#{item['number']}\n  {item['url']}" for item in requested],
+        f"DIRECT OR TEAM REVIEW REQUESTS FOR {user or 'SELECTED USER'}",
+        [
+            f"- {item['repository']}#{item['number']} "
+            f"({', '.join(item['review_request_sources'])})\n  {item['url']}"
+            for item in requested
+        ],
     )
 
 
 def main() -> int:
     args = parse_args()
     try:
-        user = args.user or gh_json(["api", "user"])["login"]
+        authenticated_user = gh_json(["api", "user"])["login"]
+        user = args.user or authenticated_user
+    except (KeyError, RuntimeError, json.JSONDecodeError, OSError) as error:
+        print(f"scan failed: {error}", file=sys.stderr)
+        return 1
+
+    team_lookup_error = None
+    if args.team is not None:
+        review_teams = normalize_review_teams(args.team, args.owner)
+    elif user.casefold() == authenticated_user.casefold():
+        try:
+            review_teams = authenticated_review_teams(args.owner)
+        except (RuntimeError, json.JSONDecodeError, OSError) as error:
+            review_teams = []
+            team_lookup_error = str(error)
+    else:
+        review_teams = []
+        team_lookup_error = (
+            f"cannot discover memberships for --user {user} while authenticated "
+            f"as {authenticated_user}; pass --team for each known team"
+        )
+
+    try:
         results = scan(args)
     except (RuntimeError, json.JSONDecodeError, OSError) as error:
         print(f"scan failed: {error}", file=sys.stderr)
         return 1
+    annotate_review_requests(results, user, review_teams)
     if args.format == "json":
-        print(json.dumps({"user": user, "pull_requests": results}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "user": user,
+                    "review_teams": review_teams,
+                    "team_lookup_error": team_lookup_error,
+                    "pull_requests": results,
+                },
+                indent=2,
+            )
+        )
     else:
-        print_text(results, user)
-    return 0 if not any(item.get("error") for item in results) else 1
+        print_text(results, user, team_lookup_error)
+    incomplete = team_lookup_error or any(item.get("error") for item in results)
+    return 1 if incomplete else 0
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 ---
 name: github-review-coordinator
-description: Coordinate Blink Labs pull-request reviews across CodeRabbit, Cubic, and required human reviewers, including bot-first sequencing, fix loops, reviewer re-requests, and documented review dismissal. Use when preparing, updating, or handing off a GitHub pull request.
+description: Discover Blink Labs pull-request review work, including direct and team requests, and coordinate CodeRabbit, Cubic, and required human reviews. Use when checking for reviews or preparing, updating, or handing off a GitHub pull request.
 ---
 
 # GitHub Review Coordinator
@@ -11,9 +11,13 @@ and the target repository's contribution guidance.
 
 ## Review sequence
 
-1. Confirm the PR, base branch, changed repositories, checks, CODEOWNERS, and
-   required reviewers. Exclude draft PRs. If the user excludes Dependabot,
-   exclude PRs authored by `dependabot[bot]`.
+1. When discovering review work, include pull requests assigned directly to the
+   authenticated account and pull requests assigned to any of its teams. If
+   team memberships cannot be queried, report the search as incomplete rather
+   than claiming no review requests exist. Then confirm the PR, base branch,
+   changed repositories, checks, CODEOWNERS, and required reviewers. Exclude
+   draft PRs. If the user excludes Dependabot, exclude PRs authored by
+   `dependabot[bot]`.
 1a. Before acting on any finding, check it against the branch's current head.
    Most open findings on an active branch are already fixed — the thread stays
    open because nobody replied, not because the code is unchanged. A thread

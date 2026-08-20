@@ -46,7 +46,8 @@ project in the workspace:
 - **Workspace guards** that enforce DCO sign-off and Conventional Commits, warn
   on submodule boundary crossings, and brief a new session on workspace state.
 - **Workspace scripts** for repeatable maintenance, including `make scan-prs`
-  for current-head pull-request review and merge-gate scans.
+  for current-head pull-request review, direct and team review requests, and
+  merge-gate scans.
 
 `.claude/settings.json` registers the marketplace and enables the plugin, so a
 fresh clone is ready without manual setup. The complete catalog is in

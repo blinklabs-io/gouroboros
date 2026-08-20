@@ -2,7 +2,10 @@
 
 ## Required sequence
 
-1. Confirm branch, changed paths, required checks, CODEOWNERS, and reviewers.
+1. Discover pull requests requested directly from the authenticated account and
+   from any of its teams. If team memberships cannot be queried, report the
+   search as incomplete rather than claiming there are no review requests.
+   Confirm branch, changed paths, required checks, CODEOWNERS, and reviewers.
    Skip draft PRs. If Dependabot is excluded, skip PRs authored by
    `dependabot[bot]`.
 2. Run or wait for CodeRabbit and Cubic; address actionable findings. If

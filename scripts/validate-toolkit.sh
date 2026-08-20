@@ -328,6 +328,14 @@ if python3 -c "import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').rea
 else
 	fail "scripts/scan-prs.py has a syntax error"
 fi
+if PYTHONDONTWRITEBYTECODE=1 \
+	python3 -m unittest discover -s scripts -p 'test_scan_prs.py' >/dev/null; then
+	pass "scripts/scan-prs.py tests pass"
+else
+	fail "scripts/scan-prs.py tests failed"
+	PYTHONDONTWRITEBYTECODE=1 \
+		python3 -m unittest discover -s scripts -p 'test_scan_prs.py' || true
+fi
 
 echo
 if [ "$failures" -eq 0 ]; then
