@@ -138,3 +138,26 @@ human review, not human approval or merge.
 
 Do not create a parent-repository commit on the user's behalf unless explicitly
 asked, and never re-pin submodules the task did not name.
+
+### Read the submodule status codes before reacting
+
+`git status --short` reports submodules with a leading space and a second-column
+code, and they do not mean what the same letters mean for a file:
+
+| Code | Meaning |
+|---|---|
+| ` M` | Tracked content differs — usually a moved pointer |
+| ` ?` | The submodule contains **untracked files**; the gitlink is fine |
+| ` m` | Modified content inside, not the pointer |
+
+` ?` is not "the submodule is broken" or "the gitlink is gone", and it is not
+something to repair. It routinely appears because someone has local worktrees or
+build output inside the submodule — `repos/cdnsd/.worktrees/` is a real example,
+and cdnsd has an open PR to gitignore exactly that. Settle it with
+`git ls-files --stage <path>`: a `160000` line means the gitlink is present and
+correct, whatever the status column says. `git -C <path> status --short` then
+shows what the untracked content actually is.
+
+Leave that content alone. Local worktrees belong to whoever made them, and a
+stray directory inside a submodule is not yours to delete just because it makes
+the parent's status noisy.

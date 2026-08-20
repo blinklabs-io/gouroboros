@@ -149,6 +149,46 @@ Repository exclusions decide what CI reports, so read them before counting:
 `exclusions.generated: lax` hides generated trees. A raw formatter run over the
 whole repository will overcount against what `lint` actually fails on.
 
+## Two things a feature diff hides
+
+**A merge commit can revert work without anyone intending it.** When a PR's diff
+deletes CI hardening, a permissions grant, a timeout, or a version pin that has
+nothing to do with its stated purpose, suspect a merge resolution against the
+base branch before suspecting the author. Confirm it with git rather than the
+API diff, comparing all three points:
+
+```sh
+MB=$(git merge-base origin/main pr<N>)
+for ref in "$MB" pr<N> origin/main; do
+  git show "$ref":path/to/file | grep -c 'the removed line'
+done
+```
+
+Present-in-merge-base, absent-in-head, present-in-main is a dropped merge
+resolution — a blocker, because it silently reverts a colleague's change, but a
+mechanical one rather than a judgment error. Say which PR added the line and
+what its rationale was, so the author can restore it without re-litigating.
+
+Keep the mechanical and substantive questions apart when they point different
+ways. A pin that this PR should not be touching can still be a pin the
+organization does not want; that belongs in its own PR, argued against the
+rationale in its comment, not resolved as a side effect.
+
+**A default-off flag can leave the new path with no end-to-end coverage.** The
+required suite passing proves the *old* path did not regress. Before treating
+that as validation of the feature, grep the integration environment for the new
+flag or environment variable:
+
+```sh
+grep -rn "NEW_FLAG\|new-flag" internal/test/devnet/
+```
+
+No hits means the suite ran the feature switched off. Unit tests may cover the
+new code thoroughly and the required run still tells you nothing about it. Say
+that explicitly in the review — "conformance and devnet pass, both with the flag
+off, so the validate stage has no end-to-end coverage" — rather than letting a
+green required suite imply the feature was exercised.
+
 ## Find every review, not just the review threads
 
 A GitHub PR carries feedback in three separate places, and querying one misses

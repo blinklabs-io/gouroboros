@@ -20,6 +20,27 @@ Antithesis are frequently unavailable. Never describe any of them as having run
 when they did not. Naming the exact skipped check and the blocking reason is a
 complete, acceptable answer; implying coverage is not.
 
+### Try a required check before declaring it skipped
+
+The skipped list is for checks you established you cannot run — not for checks
+you decided not to attempt. When a repository's guidance says a change of this
+class requires a suite, attempt the suite. Only after it actually fails to start
+do you get to record it, and then the reason must name the missing thing
+("no Docker daemon", "registry unreachable"), not the category it belongs to.
+
+"Owed", "flagged as still needed", or "left for CI" is not a disposition for a
+required check. It reads as diligence while shifting the work to the reviewer,
+and it is wrong whenever the check would in fact have run. Assume it would have:
+suites that sound heavyweight often are not. Dingo's conformance vectors default
+to an in-memory SQLite backend and need no setup at all — the whole suite is
+`go test ./internal/test/conformance/`, about six seconds. Deferring that one as
+infrastructure-dependent was simply a failure to read its README.
+
+Check what a suite needs before judging its cost: a README, a `docker-compose.yml`,
+or a `--help` on the runner script settles it in one command. If a required suite
+genuinely is too slow to finish locally, say so with the measured or documented
+duration and let the user decide — that is their call, not a default.
+
 ## Evidence ledger
 
 Record for every check:

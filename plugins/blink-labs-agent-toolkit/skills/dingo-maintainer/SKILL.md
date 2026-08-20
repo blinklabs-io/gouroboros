@@ -82,6 +82,23 @@ compatibility with `cardano-node` matters, and run the conformance tests in
 integration fixtures under `internal/integration/` and
 `database/immutable/testdata/` where applicable.
 
+Run these rather than listing them as owed. Neither is as expensive as it sounds:
+
+- `go test ./internal/test/conformance/` needs **no setup**. It defaults to an
+  in-memory SQLite backend and completes in seconds; PostgreSQL and MySQL are
+  opt-in backends for the same vectors, not prerequisites. There is no excuse for
+  deferring this one.
+- `internal/test/devnet/run-tests.sh` needs a Docker daemon and builds images on
+  first run. `--accelerated` runs the bounded event-driven timeline instead of
+  the canonical-timing full suite, which is the right choice for a review pass;
+  add `--conformance` to bring up the dingo + `cardano-node` reference topology
+  when wire or era compatibility is in question.
+
+Check whether the devnet actually exercises the code under review. Its compose
+environment does not enable new opt-in flags on its own, so a feature behind a
+default-off flag runs switched off and a green devnet says nothing about it —
+grep `internal/test/devnet/` for the flag before treating the run as coverage.
+
 Antithesis workflows are dispatch-oriented and should remain isolated from
 ordinary local CI. Do not claim live devnet, conformance, registry, or
 Antithesis validation unless it was actually run.

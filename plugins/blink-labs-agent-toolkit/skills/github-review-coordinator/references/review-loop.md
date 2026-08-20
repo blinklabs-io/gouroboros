@@ -101,6 +101,28 @@ a token without `read:org`. Fall back to
 `gh api -X PATCH repos/OWNER/REPO/pulls/N --input body.json` for edits, and to
 plain REST reads for reviewer state.
 
+### Always `--paginate` when verifying a write
+
+`gh api` list endpoints return **30 items per page** by default and give no hint
+that more exist. On a PR with an active bot, 30 comments is a single review's
+worth, so a verification read of `pulls/N/comments` can show none of your own
+and look exactly like a silent failure.
+
+That misreading is expensive: it invites re-posting comments that already landed.
+A submitted review's inline comments are attached to it and cannot be un-posted,
+so the duplicates have to be deleted one by one afterwards
+(`gh api -X DELETE repos/OWNER/REPO/pulls/comments/ID`).
+
+Two habits avoid it:
+
+- Pass `--paginate` on every verification read, and prefer the identifiers the
+  write already returned. A `POST .../reviews` response carries the review `id`;
+  filter on `.pull_request_review_id == <id>` rather than re-deriving the set.
+- Treat "my write is missing" as a query bug until proven otherwise. Before
+  re-posting anything, confirm with a second query shaped differently — by id,
+  paginated, or unfiltered with a count. A write that returned a non-error
+  response with an id almost certainly succeeded.
+
 Use the GitHub UI or API for reviewer requests and dismissals. Verify the PR
 state afterward; never infer that a request, approval, or dismissal happened
 from a local commit or comment.
