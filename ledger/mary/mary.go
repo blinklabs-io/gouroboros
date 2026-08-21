@@ -724,7 +724,7 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 		return errors.New("empty Mary transaction output value")
 	}
 	if (data[0] & cbor.CborTypeMask) != cbor.CborTypeArray {
-		if _, err := cbor.Decode(data, &(v.Amount)); err != nil {
+		if _, err := cbor.Decode(data, &v.Amount); err != nil {
 			return err
 		}
 		v.Assets = nil

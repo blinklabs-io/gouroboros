@@ -276,7 +276,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 		// Modern map form — clear any stale legacy state
 		r.legacy = false
 		r.legacyRedeemers = alonzo.AlonzoRedeemers{}
-		if _, err := cbor.Decode(cborData, &(r.Redeemers)); err != nil {
+		if _, err := cbor.Decode(cborData, &r.Redeemers); err != nil {
 			if !cbor.IsDuplicateMapKeyError(err) {
 				return err
 			}
@@ -290,7 +290,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 			// the stored raw CBOR (SetCbor above), so lenient struct decoding
 			// never changes them.
 			r.Redeemers = nil
-			if _, err := cbor.DecodeLenient(cborData, &(r.Redeemers)); err != nil {
+			if _, err := cbor.DecodeLenient(cborData, &r.Redeemers); err != nil {
 				return err
 			}
 		}
@@ -298,7 +298,7 @@ func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
 	}
 	// Legacy array form — clear any stale map state
 	r.Redeemers = nil
-	_, err := cbor.Decode(cborData, &(r.legacyRedeemers))
+	_, err := cbor.Decode(cborData, &r.legacyRedeemers)
 	if err != nil {
 		return err
 	}
