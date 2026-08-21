@@ -387,21 +387,21 @@ func TestUtxoValidateHardForkCanFollow(t *testing.T) {
 	})
 
 	t.Run(
-		"proposal with an ancestor defers the numeric check",
+		"a version jump is rejected even with an ancestor",
 		func(t *testing.T) {
 			pp := mkConwayPp(9, 0)
 			ancestor := common.GovActionId{
 				TransactionId: common.Blake2b256{0x01},
 			}
-			// This version jump would be invalid if compared against the
-			// current protocol version, but since an ancestor is referenced we
-			// document that we cannot verify the chain without the ancestor's
-			// proposed version, so no error is raised here.
+			// preceedingHardFork compares against the enacted protocol
+			// version once the proposed major version is more than one
+			// above it, whatever the proposal's predecessor is.
 			tx := mkHfTx(&ancestor, 99, 0)
-			require.NoError(
-				t,
-				conway.UtxoValidateHardForkCanFollow(tx, 0, nil, pp),
-			)
+			err := conway.UtxoValidateHardForkCanFollow(tx, 0, nil, pp)
+			var hfErr conway.BadHardForkProtocolVersionError
+			require.ErrorAs(t, err, &hfErr)
+			assert.Equal(t, uint(99), hfErr.Supplied.Major)
+			assert.Equal(t, uint(9), hfErr.Expected.Major)
 		},
 	)
 }
@@ -887,14 +887,13 @@ func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
 		)
 	})
 
-	// See the NOTE on UtxoValidateStakePoolVotingRestrictions: the ledger
-	// spec also restricts SPO votes on ParameterChange proposals that
-	// don't touch "security group" parameters, but this codebase does not
-	// classify ParameterChange fields into security-relevant groups, so
-	// that narrower restriction is intentionally unenforced. This pins
-	// that documented behavior rather than leaving it untested.
+	// The security-group restriction on SPO votes over ParameterChange
+	// needs the proposed parameter update. This ledger state records only
+	// the action type, so the restriction stays unenforced for it; see
+	// TestUtxoValidateStakePoolVotingRestrictionsParameterChange for the
+	// enforced cases.
 	t.Run(
-		"SPO vote on ParameterChange is unenforced (documented gap)",
+		"SPO vote on an opaque ParameterChange is not classified",
 		func(t *testing.T) {
 			tx := mkVoteTx(spoVoter, paramChangeId, common.GovVoteYes)
 			require.NoError(
@@ -910,5 +909,381 @@ func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
 		var spoErr conway.StakePoolVotingRestrictionError
 		require.ErrorAs(t, err, &spoErr)
 		assert.Equal(t, common.GovActionId{}, spoErr.ActionId)
+	})
+}
+
+// The tests below close https://github.com/blinklabs-io/gouroboros/issues/1986:
+// hard-fork protocol version succession against a referenced ancestor,
+// purpose-root ancestry, and the Conway security-group restriction on stake
+// pool votes over parameter changes.
+
+func mkHfAction(
+	actionId *common.GovActionId,
+	major, minor uint,
+) *common.HardForkInitiationGovAction {
+	action := &common.HardForkInitiationGovAction{ActionId: actionId}
+	action.ProtocolVersion.Major = major
+	action.ProtocolVersion.Minor = minor
+	return action
+}
+
+// mkProposalsTx builds a transaction carrying several proposal procedures in
+// order, so a later proposal can reference an earlier one in the same
+// transaction by its (txid, index) governance action id.
+func mkProposalsTx(actions ...common.GovAction) *conway.ConwayTransaction {
+	tx := &conway.ConwayTransaction{}
+	for _, action := range actions {
+		tx.Body.TxProposalProcedures = append(
+			tx.Body.TxProposalProcedures,
+			conway.ConwayProposalProcedure{
+				PPGovAction: conway.ConwayGovAction{Action: action},
+			},
+		)
+	}
+	return tx
+}
+
+// rootedLedgerState decorates a ledger state with the optional
+// GovPurposeRootsState capability.
+type rootedLedgerState struct {
+	common.LedgerState
+	roots *common.GovPurposeRoots
+	err   error
+}
+
+func (l rootedLedgerState) GovPurposeRoots() (*common.GovPurposeRoots, error) {
+	return l.roots, l.err
+}
+
+func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
+	// Current protocol version is 9.0 throughout.
+	pp := mkConwayPp(9, 0)
+	pendingId := common.GovActionId{TransactionId: common.Blake2b256{0x11}}
+	opaqueId := common.GovActionId{TransactionId: common.Blake2b256{0x12}}
+	govActions := map[string]*common.GovActionState{
+		// A pending hard-fork proposal for 10.0 whose contents the ledger
+		// state exposes.
+		govActionKey(pendingId): {
+			ActionId:   pendingId,
+			ActionType: common.GovActionTypeHardForkInitiation,
+			Action:     mkHfAction(nil, 10, 0),
+		},
+		// The same proposal from a state provider that only records the
+		// action type.
+		govActionKey(opaqueId): {
+			ActionId:   opaqueId,
+			ActionType: common.GovActionTypeHardForkInitiation,
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().WithGovActions(govActions).Build()
+
+	t.Run(
+		"minor bump on the ancestor's version is allowed",
+		func(t *testing.T) {
+			tx := mkProposalsTx(mkHfAction(&pendingId, 10, 1))
+			require.NoError(
+				t,
+				conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
+			)
+		},
+	)
+
+	t.Run("gap from the ancestor's version is rejected", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(&pendingId, 10, 5))
+		err := conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp)
+		var hfErr conway.BadHardForkProtocolVersionError
+		require.ErrorAs(t, err, &hfErr)
+		assert.Equal(t, uint(10), hfErr.Supplied.Major)
+		assert.Equal(t, uint(5), hfErr.Supplied.Minor)
+		assert.Equal(t, uint(10), hfErr.Expected.Major)
+		assert.Equal(t, uint(0), hfErr.Expected.Minor)
+	})
+
+	// preceedingHardFork compares against the *current* protocol version,
+	// not the ancestor's, once the proposed major version is more than one
+	// above the current one. A chain of pending proposals therefore cannot
+	// be used to jump ahead.
+	t.Run(
+		"major version too high is rejected via an ancestor",
+		func(t *testing.T) {
+			tx := mkProposalsTx(mkHfAction(&pendingId, 11, 0))
+			err := conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp)
+			var hfErr conway.BadHardForkProtocolVersionError
+			require.ErrorAs(t, err, &hfErr)
+			assert.Equal(t, uint(11), hfErr.Supplied.Major)
+			assert.Equal(t, uint(9), hfErr.Expected.Major)
+		},
+	)
+
+	t.Run("ancestor in the same transaction", func(t *testing.T) {
+		first := mkHfAction(nil, 10, 0)
+		tx := mkProposalsTx(first, nil)
+		firstId := common.GovActionId{
+			TransactionId: tx.Hash(),
+			GovActionIdx:  0,
+		}
+		// Rebuild with the second proposal pointing at the first.
+		tx = mkProposalsTx(first, mkHfAction(&firstId, 10, 1))
+		require.NoError(
+			t,
+			conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
+		)
+
+		bad := mkProposalsTx(first, mkHfAction(&firstId, 10, 4))
+		err := conway.UtxoValidateHardForkCanFollow(bad, 0, ls, pp)
+		var hfErr conway.BadHardForkProtocolVersionError
+		require.ErrorAs(t, err, &hfErr)
+		assert.Equal(t, uint(10), hfErr.Expected.Major)
+		assert.Equal(t, uint(0), hfErr.Expected.Minor)
+	})
+
+	// A state provider that does not expose the ancestor's proposed
+	// protocol version cannot support the comparison; the check is skipped
+	// rather than run against the wrong reference version.
+	t.Run("ancestor without contents defers the check", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(&opaqueId, 10, 7))
+		require.NoError(
+			t,
+			conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
+		)
+	})
+}
+
+func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
+	pp := mkConwayPp(common.ProtocolVersionConway, 0)
+	rootId := common.GovActionId{TransactionId: common.Blake2b256{0x21}}
+	pendingId := common.GovActionId{TransactionId: common.Blake2b256{0x22}}
+	expiredId := common.GovActionId{TransactionId: common.Blake2b256{0x23}}
+	govActions := map[string]*common.GovActionState{
+		govActionKey(rootId): {
+			ActionId:   rootId,
+			ActionType: common.GovActionTypeHardForkInitiation,
+		},
+		govActionKey(pendingId): {
+			ActionId:   pendingId,
+			ActionType: common.GovActionTypeHardForkInitiation,
+			ExpirySlot: 100,
+		},
+		govActionKey(expiredId): {
+			ActionId:   expiredId,
+			ActionType: common.GovActionTypeHardForkInitiation,
+			ExpirySlot: 10,
+		},
+	}
+	base := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govActions).
+		Build()
+	withRoot := rootedLedgerState{
+		LedgerState: base,
+		roots:       &common.GovPurposeRoots{HardFork: &rootId},
+	}
+	emptyRoots := rootedLedgerState{
+		LedgerState: base,
+		roots:       &common.GovPurposeRoots{},
+	}
+
+	t.Run("predecessor is the purpose root", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(&rootId, 10, 0))
+		require.NoError(
+			t,
+			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
+		)
+	})
+
+	t.Run("predecessor is a pending proposal", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(&pendingId, 10, 0))
+		require.NoError(
+			t,
+			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
+		)
+	})
+
+	t.Run("no predecessor while a root exists is rejected", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(nil, 10, 0))
+		err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
+		var ancErr conway.InvalidGovActionAncestorError
+		require.ErrorAs(t, err, &ancErr)
+		assert.Equal(t, rootId, ancErr.ActionId)
+	})
+
+	t.Run("no predecessor with an empty root is allowed", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(nil, 10, 0))
+		require.NoError(
+			t,
+			conway.UtxoValidateProposalAncestry(tx, 50, emptyRoots, pp),
+		)
+	})
+
+	t.Run("expired predecessor is rejected", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(&expiredId, 10, 0))
+		err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
+		var ancErr conway.InvalidGovActionAncestorError
+		require.ErrorAs(t, err, &ancErr)
+		assert.Equal(t, expiredId, ancErr.ActionId)
+	})
+
+	t.Run("predecessor in the same transaction", func(t *testing.T) {
+		first := mkHfAction(&rootId, 10, 0)
+		tx := mkProposalsTx(first, nil)
+		firstId := common.GovActionId{
+			TransactionId: tx.Hash(),
+			GovActionIdx:  0,
+		}
+		tx = mkProposalsTx(first, mkHfAction(&firstId, 10, 1))
+		require.NoError(
+			t,
+			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
+		)
+	})
+
+	// Only an earlier proposal of the same transaction is a candidate
+	// predecessor: cardano-ledger folds the proposals in order, so a
+	// proposal cannot name itself or a later proposal.
+	t.Run(
+		"self reference in the same transaction is rejected",
+		func(t *testing.T) {
+			tx := mkProposalsTx(mkHfAction(&rootId, 10, 0))
+			selfId := common.GovActionId{
+				TransactionId: tx.Hash(),
+				GovActionIdx:  0,
+			}
+			tx = mkProposalsTx(mkHfAction(&selfId, 10, 0))
+			err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
+			var ancErr conway.InvalidGovActionAncestorError
+			require.ErrorAs(t, err, &ancErr)
+			assert.Equal(t, selfId, ancErr.ActionId)
+		},
+	)
+
+	// A ledger state that cannot report purpose roots keeps the looser
+	// existence-and-purpose behavior, so a syncing node backed by such a
+	// state is not wedged by the stricter rule.
+	t.Run("no roots capability keeps existence checks", func(t *testing.T) {
+		tx := mkProposalsTx(mkHfAction(nil, 10, 0))
+		require.NoError(
+			t,
+			conway.UtxoValidateProposalAncestry(tx, 50, base, pp),
+		)
+		missing := common.GovActionId{TransactionId: common.Blake2b256{0xFE}}
+		bad := mkProposalsTx(mkHfAction(&missing, 10, 0))
+		err := conway.UtxoValidateProposalAncestry(bad, 50, base, pp)
+		var ancErr conway.InvalidGovActionAncestorError
+		require.ErrorAs(t, err, &ancErr)
+	})
+}
+
+func TestUtxoValidateStakePoolVotingRestrictionsParameterChange(t *testing.T) {
+	pp := mkConwayPp(common.ProtocolVersionPlomin, 0)
+	securityId := common.GovActionId{TransactionId: common.Blake2b256{0x31}}
+	nonSecurityId := common.GovActionId{TransactionId: common.Blake2b256{0x32}}
+	emptyId := common.GovActionId{TransactionId: common.Blake2b256{0x33}}
+	maxBlockBodySize := uint(90112)
+	keyDeposit := uint(2_000_000)
+
+	securityUpdate := conway.ConwayProtocolParameterUpdate{
+		MaxBlockBodySize: &maxBlockBodySize,
+	}
+	nonSecurityUpdate := conway.ConwayProtocolParameterUpdate{
+		KeyDeposit: &keyDeposit,
+	}
+	govActions := map[string]*common.GovActionState{
+		govActionKey(securityId): {
+			ActionId:   securityId,
+			ActionType: common.GovActionTypeParameterChange,
+			Action: &conway.ConwayParameterChangeGovAction{
+				ParamUpdate: securityUpdate,
+			},
+		},
+		govActionKey(nonSecurityId): {
+			ActionId:   nonSecurityId,
+			ActionType: common.GovActionTypeParameterChange,
+			Action: &conway.ConwayParameterChangeGovAction{
+				ParamUpdate: nonSecurityUpdate,
+			},
+		},
+		govActionKey(emptyId): {
+			ActionId:   emptyId,
+			ActionType: common.GovActionTypeParameterChange,
+			Action:     &conway.ConwayParameterChangeGovAction{},
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().WithGovActions(govActions).Build()
+	spoVoter := common.Voter{
+		Type: common.VoterTypeStakingPoolKeyHash,
+		Hash: common.Blake2b224{0x01},
+	}
+	drepVoter := common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{0x02},
+	}
+
+	t.Run("SPO may vote on a security group change", func(t *testing.T) {
+		tx := mkVoteTx(spoVoter, securityId, common.GovVoteYes)
+		require.NoError(
+			t,
+			conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp),
+		)
+	})
+
+	t.Run("SPO may not vote on a non-security change", func(t *testing.T) {
+		tx := mkVoteTx(spoVoter, nonSecurityId, common.GovVoteYes)
+		err := conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp)
+		var spoErr conway.StakePoolVotingRestrictionError
+		require.ErrorAs(t, err, &spoErr)
+		assert.Equal(t, nonSecurityId, spoErr.ActionId)
+	})
+
+	t.Run("SPO may not vote on an empty parameter change", func(t *testing.T) {
+		tx := mkVoteTx(spoVoter, emptyId, common.GovVoteYes)
+		err := conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp)
+		var spoErr conway.StakePoolVotingRestrictionError
+		require.ErrorAs(t, err, &spoErr)
+	})
+
+	t.Run(
+		"DRep vote on a non-security change is unaffected",
+		func(t *testing.T) {
+			tx := mkVoteTx(drepVoter, nonSecurityId, common.GovVoteYes)
+			require.NoError(
+				t,
+				conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp),
+			)
+		},
+	)
+
+	// A vote may refer to an action proposed by its own transaction, whose
+	// contents are then available whatever the ledger state records.
+	t.Run("action proposed by the voting transaction", func(t *testing.T) {
+		mkTx := func(
+			update conway.ConwayProtocolParameterUpdate,
+		) *conway.ConwayTransaction {
+			tx := mkProposalsTx(&conway.ConwayParameterChangeGovAction{
+				ParamUpdate: update,
+			})
+			actionId := common.GovActionId{
+				TransactionId: tx.Hash(),
+				GovActionIdx:  0,
+			}
+			v := spoVoter
+			tx.Body.TxVotingProcedures = common.VotingProcedures{
+				&v: {
+					&actionId: common.VotingProcedure{
+						Vote: common.GovVoteYes,
+					},
+				},
+			}
+			return tx
+		}
+		require.NoError(
+			t,
+			conway.UtxoValidateStakePoolVotingRestrictions(
+				mkTx(securityUpdate), 0, ls, pp,
+			),
+		)
+		err := conway.UtxoValidateStakePoolVotingRestrictions(
+			mkTx(nonSecurityUpdate), 0, ls, pp,
+		)
+		var spoErr conway.StakePoolVotingRestrictionError
+		require.ErrorAs(t, err, &spoErr)
 	})
 }
