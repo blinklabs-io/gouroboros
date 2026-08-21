@@ -65,6 +65,15 @@ type StateMapEntry struct {
 	Timeout                 time.Duration        // Fixed timeout for this state (0 = no timeout)
 	TimeoutFunc             func() time.Duration // Dynamic timeout; if set, overrides Timeout
 	PendingMessageByteLimit int                  // Maximum pending message bytes allowed in this state (0 = no limit)
+	// AllowPipelinedSend permits the role that does NOT hold agency in this
+	// state to write queued messages to the wire while the state is active.
+	// The state transition for such a message is deferred until agency
+	// returns, so the local state machine still applies exactly one
+	// transition per message, in send order. This is how mini-protocols that
+	// are pipelined on the wire (block-fetch MsgRequestRange, for example)
+	// keep the remote peer busy across response boundaries. Leaving this
+	// false preserves the strict "send only while holding agency" behavior.
+	AllowPipelinedSend bool
 }
 
 // StateMap represents the state machine definition for a mini-protocol

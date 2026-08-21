@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -37,26 +38,93 @@ const (
 	clientStateStopped
 )
 
+// errNoBlocks is the error reported for a range the peer answered with
+// MsgNoBlocks. The message is part of the client's observable behavior;
+// consumers match on it.
+var errNoBlocks = errors.New("block(s) not found")
+
+// ErrRequestPipeliningDisabled is returned by RequestRange when the client
+// was not configured with RequestPipelining.
+var ErrRequestPipeliningDisabled = errors.New(
+	"block-fetch request pipelining is not enabled on this client",
+)
+
+// requestDelivery selects how a queued range request delivers its blocks.
+type requestDelivery uint8
+
+const (
+	// deliveryCallback delivers blocks through the configured block
+	// callbacks or the block processing pipeline (GetBlockRange,
+	// RequestRange).
+	deliveryCallback requestDelivery = iota
+	// deliveryChannel delivers a single decoded block through the request's
+	// own channel (GetBlock).
+	deliveryChannel
+)
+
+// rangeRequest tracks one MsgRequestRange that has been sent and not yet
+// resolved. Block-fetch responses are ordered, so an entry's position in the
+// client's FIFO queue identifies the response it will receive; the head entry
+// owns the next MsgStartBatch, MsgNoBlocks, MsgBlock, and MsgBatchDone.
+type rangeRequest struct {
+	id             uint64
+	delivery       requestDelivery
+	pipelined      bool
+	reservedBytes  uint64
+	busyToken      uint64
+	hasBusyToken   bool
+	started        bool
+	blockDelivered bool
+	// startChan carries the MsgStartBatch outcome to a synchronous caller.
+	startChan chan error
+	// blockChan carries the single block of a deliveryChannel request.
+	blockChan chan ledger.Block
+	// doneChan carries the terminal outcome of the request.
+	doneChan chan error
+	// resolveOnce ensures a request is resolved exactly once, whichever of
+	// the response path and the shutdown path reaches it first.
+	resolveOnce sync.Once
+}
+
+// RangeRequest describes a single block range request queued through
+// Client.RequestRange.
+type RangeRequest struct {
+	Start pcommon.Point // Start point of the range (inclusive)
+	End   pcommon.Point // End point of the range (inclusive)
+	// ExpectedBytes is the caller's estimate of the total serialized size of
+	// the blocks in this range, used for the client's in-flight byte bound.
+	// A caller driving block-fetch from chain-sync headers has this from the
+	// header block body sizes. Zero means DefaultRequestExpectedBytes.
+	ExpectedBytes uint64
+}
+
 // Client implements the Block Fetch protocol client, which requests blocks from a server.
 type Client struct {
 	*protocol.Protocol
-	protocolMu           sync.RWMutex
-	config               *Config           // Protocol configuration
-	callbackContext      CallbackContext   // Callback context for client
-	blockChan            chan ledger.Block // Channel for received blocks
-	startBatchResultChan chan error        // Channel for batch start results
-	batchDoneChan        chan struct{}     // Channel to signal batch completion in GetBlock mode
-	busyMutex            sync.Mutex        // Mutex for busy state
-	busyStateMutex       sync.Mutex        // Protects busy lock ownership
-	busyLocked           bool
-	busyToken            uint64
-	busyDoneChan         chan struct{}
-	lifecycleMutex       sync.Mutex // Mutex for lifecycle state
-	lifecycleState       clientLifecycleState
-	startingDone         chan struct{}
-	protoOptions         protocol.ProtocolOptions
-	blockUseCallback     bool // Whether to use callback for blocks
-	protoStarted         bool // Whether Protocol.Start() was called
+	protocolMu      sync.RWMutex
+	config          *Config         // Protocol configuration
+	callbackContext CallbackContext // Callback context for client
+	busyMutex       sync.Mutex      // Mutex for busy state
+	busyStateMutex  sync.Mutex      // Protects busy lock ownership
+	busyLocked      bool
+	busyToken       uint64
+	busyDoneChan    chan struct{}
+	lifecycleMutex  sync.Mutex // Mutex for lifecycle state
+	lifecycleState  clientLifecycleState
+	startingDone    chan struct{}
+	protoOptions    protocol.ProtocolOptions
+	protoStarted    bool // Whether Protocol.Start() was called
+	// queueMutex protects the outstanding request queue and the in-flight
+	// byte accounting. It is held across the MsgRequestRange send so the
+	// order of the queue always matches the order of the requests on the
+	// wire.
+	queueMutex    sync.Mutex
+	queue         []*rangeRequest
+	nextRequestId uint64
+	inFlightBytes uint64
+	// bytesFreed is closed and replaced every time in-flight bytes are
+	// released, to broadcast to callers waiting for admission.
+	bytesFreed chan struct{}
 }
 
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
@@ -69,6 +137,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		config:         cfg,
 		protoOptions:   protoOptions,
 		lifecycleState: clientStateNew,
+		bytesFreed:     make(chan struct{}),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -79,21 +148,31 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 }
 
 func (c *Client) initProtocol() {
-	// Recreate channels
-	c.blockChan = make(chan ledger.Block)
-	c.startBatchResultChan = make(chan error)
-	c.batchDoneChan = make(chan struct{})
 	c.protoStarted = false
 
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {
 		entry.Timeout = c.config.BatchStartTimeout
+		if c.config.RequestPipelining {
+			// The client may send the next MsgRequestRange while the peer is
+			// still answering the previous one.
+			entry.AllowPipelinedSend = true
+		}
 		stateMap[StateBusy] = entry
 	}
 	if entry, ok := stateMap[StateStreaming]; ok {
 		entry.Timeout = c.config.BlockTimeout
+		if c.config.RequestPipelining {
+			entry.AllowPipelinedSend = true
+		}
 		stateMap[StateStreaming] = entry
+	}
+	if c.config.RequestPipelining {
+		if entry, ok := stateMap[StateIdle]; ok {
+			entry.PendingMessageByteLimit = PipelinedIdleMaxPendingMessageBytes
+			stateMap[StateIdle] = entry
+		}
 	}
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
@@ -249,6 +328,9 @@ func (c *Client) Start() {
 			c.Protocol.Start()
 			c.protoStarted = true
 			c.lifecycleState = clientStateRunning
+			// Resolve any request left outstanding when the protocol shuts
+			// down, so no caller and no callback consumer is left waiting.
+			go c.failOutstandingOnProtocolDone(c.DoneChan())
 			if c.startingDone == ch {
 				close(ch)
 				c.startingDone = nil
@@ -272,6 +354,7 @@ func (c *Client) Stop() error {
 
 	switch c.lifecycleState {
 	case clientStateNew, clientStateStopped:
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
 		c.releaseCurrentBusy()
 		return nil
 	case clientStateStarting:
@@ -282,6 +365,7 @@ func (c *Client) Stop() error {
 			close(c.startingDone)
 			c.startingDone = nil
 		}
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
 		c.releaseCurrentBusy()
 		return nil
 	case clientStateRunning:
@@ -307,40 +391,21 @@ func (c *Client) Stop() error {
 	}
 
 	// Stop/unregister the underlying protocol instance first, then wait for
-	// message handlers to finish before closing channels to avoid send-on-closed panics.
+	// message handlers to finish before resolving outstanding requests.
 	doneChan := c.DoneChan()
 	c.Protocol.Stop()
 	c.lifecycleState = clientStateStopped
 
-	// Capture channel references before releasing lock to avoid closing
-	// channels recreated by a concurrent Start().
-	blockChanToClose := c.blockChan
-	startBatchResultChanToClose := c.startBatchResultChan
-	batchDoneChanToClose := c.batchDoneChan
-
 	// Release lock while waiting for protocol shutdown to avoid deadlock.
-	// Do NOT set channels to nil yet - message handlers may still be running
-	// and sending to nil channels would block forever.
 	c.lifecycleMutex.Unlock()
 	<-doneChan
+	// Every queued request is resolved with a terminal error. Each request
+	// owns its own buffered channels, so a handler that is still running
+	// cannot send on a closed channel and no waiter is stranded.
+	c.failOutstanding(protocol.ErrProtocolShuttingDown)
 	c.releaseCurrentBusy()
 
-	// Now safe to close captured channels - message handlers have stopped
-	if blockChanToClose != nil {
-		close(blockChanToClose)
-	}
-	if startBatchResultChanToClose != nil {
-		close(startBatchResultChanToClose)
-	}
-	if batchDoneChanToClose != nil {
-		close(batchDoneChanToClose)
-	}
-
-	// Now safe to nil out channels and clean up
 	c.lifecycleMutex.Lock()
-	c.blockChan = nil
-	c.startBatchResultChan = nil
-	c.batchDoneChan = nil
 	// Unblock any goroutine waiting for an in-progress start.
 	if c.startingDone != nil {
 		close(c.startingDone)
@@ -351,6 +416,10 @@ func (c *Client) Stop() error {
 
 // GetBlockRange starts an async process to fetch all blocks in the specified range (inclusive).
 // The provided callbacks are used for each block and when the batch is done.
+//
+// Only one GetBlockRange or GetBlock call is in progress at a time; a second
+// call blocks until the first batch completes. Use RequestRange to keep
+// multiple requests outstanding.
 func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 	c.Protocol.Logger().
 		Debug(
@@ -366,27 +435,23 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	token, busyDone := c.acquireBusy()
-	c.blockUseCallback = true
 	protocolDone := c.DoneChan()
-	msg := NewMsgRequestRange(start, end)
-	if err := c.SendMessage(msg); err != nil {
+	req, err := c.sendRequestRange(
+		start,
+		end,
+		deliveryCallback,
+		false,
+		0,
+		token,
+	)
+	if err != nil {
 		c.releaseBusy(token)
 		return err
 	}
 	// Wait for batch start
-	select {
-	case err, ok := <-c.startBatchResultChan:
-		if !ok {
-			c.releaseBusy(token)
-			return protocol.ErrProtocolShuttingDown
-		}
-		if err != nil {
-			c.releaseBusy(token)
-			return err
-		}
-	case <-protocolDone:
+	if err := c.waitForBatchStart(req, protocolDone); err != nil {
 		c.releaseBusy(token)
-		return protocol.ErrProtocolShuttingDown
+		return err
 	}
 	go c.releaseBusyOnProtocolDone(token, busyDone, protocolDone)
 	return nil
@@ -404,54 +469,353 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	token, _ := c.acquireBusy()
-	c.blockUseCallback = false
 	protocolDone := c.DoneChan()
-	msg := NewMsgRequestRange(point, point)
-	if err := c.SendMessage(msg); err != nil {
+	req, err := c.sendRequestRange(
+		point,
+		point,
+		deliveryChannel,
+		false,
+		0,
+		token,
+	)
+	if err != nil {
 		c.releaseBusy(token)
 		return nil, err
 	}
 	// Wait for batch start
+	if err := c.waitForBatchStart(req, protocolDone); err != nil {
+		c.releaseBusy(token)
+		return nil, err
+	}
+	// Wait for the block. Both the block and the completion can already be
+	// buffered by the time we get here, and a select over two ready cases
+	// picks at random, so a completed batch is only believed after checking
+	// for a delivered block.
+	var block ledger.Block
+	var batchDone error
+	var batchIsDone bool
 	select {
-	case err, ok := <-c.startBatchResultChan:
-		if !ok {
-			c.releaseBusy(token)
-			return nil, protocol.ErrProtocolShuttingDown
-		}
-		if err != nil {
-			c.releaseBusy(token)
-			return nil, err
+	case b := <-req.blockChan:
+		block = b
+	case err := <-req.doneChan:
+		batchDone, batchIsDone = err, true
+		select {
+		case b := <-req.blockChan:
+			block = b
+		default:
 		}
 	case <-protocolDone:
 		c.releaseBusy(token)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	// Wait for block
-	var block ledger.Block
-	select {
-	case b, ok := <-c.blockChan:
-		if !ok {
-			c.releaseBusy(token)
-			return nil, protocol.ErrProtocolShuttingDown
-		}
-		block = b
-	case <-protocolDone:
+	if batchIsDone {
 		c.releaseBusy(token)
-		return nil, protocol.ErrProtocolShuttingDown
+		if batchDone != nil {
+			return nil, batchDone
+		}
+		if block == nil {
+			// The peer completed the batch without sending a block
+			return nil, errNoBlocks
+		}
+		return block, nil
 	}
 	// Wait for BatchDone before returning to ensure the protocol state machine
 	// completes the batch properly (transitions back to Idle state).
-	// handleBatchDone signals batchDoneChan in GetBlock mode instead of unlocking.
 	select {
-	case <-c.batchDoneChan:
-		// BatchDone was processed successfully
+	case err := <-req.doneChan:
 		c.releaseBusy(token)
+		if err != nil {
+			return nil, err
+		}
 		return block, nil
 	case <-protocolDone:
 		// Shutdown while waiting for BatchDone
 		c.releaseBusy(token)
 		return nil, protocol.ErrProtocolShuttingDown
 	}
+}
+
+// RequestRange queues a request for the given block range without waiting for
+// previously queued requests to complete, so the peer always has work in hand
+// at a batch boundary. It returns the request ID, which the client reports in
+// CallbackContext.RequestId for every block of the range and in the
+// RangeDoneFunc call that completes it. Blocks are delivered through the same
+// callbacks GetBlockRange uses.
+//
+// It blocks while the expected size of the outstanding requests would exceed
+// the configured MaxInFlightBytes, and returns the context's error if the
+// caller gives up first. A request larger than the whole bound is admitted
+// once the queue is empty, so an oversized range cannot stall forever.
+//
+// The client must be configured with RequestPipelining and a RangeDoneFunc.
+func (c *Client) RequestRange(
+	ctx context.Context,
+	req RangeRequest,
+) (uint64, error) {
+	if !c.config.RequestPipelining {
+		return 0, ErrRequestPipeliningDisabled
+	}
+	if c.config.RangeDoneFunc == nil {
+		return 0, errors.New(
+			"block-fetch RequestRange requires a RangeDoneFunc callback",
+		)
+	}
+	c.Protocol.Logger().
+		Debug(
+			fmt.Sprintf("calling RequestRange(start: {Slot: %d, Hash: %x}, end: {Slot: %d, Hash: %x})",
+				req.Start.Slot,
+				req.Start.Hash,
+				req.End.Slot,
+				req.End.Hash,
+			),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	expectedBytes := req.ExpectedBytes
+	if expectedBytes == 0 {
+		expectedBytes = DefaultRequestExpectedBytes
+	}
+	if err := c.awaitInFlightCapacity(ctx, expectedBytes); err != nil {
+		return 0, err
+	}
+	sent, err := c.sendRequestRange(
+		req.Start,
+		req.End,
+		deliveryCallback,
+		true,
+		expectedBytes,
+		0,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return sent.id, nil
+}
+
+// maxInFlightBytes returns the configured in-flight byte bound, treating an
+// unset value as the default. Config is built directly by some consumers, so
+// the default cannot only be applied in NewConfig.
+func (c *Client) maxInFlightBytes() uint64 {
+	if c.config.MaxInFlightBytes == 0 {
+		return DefaultMaxInFlightBytes
+	}
+	return c.config.MaxInFlightBytes
+}
+
+// awaitInFlightCapacity blocks until the given request size fits within the
+// in-flight byte bound. The reservation itself is made by sendRequestRange
+// under the same lock that appends to the queue.
+func (c *Client) awaitInFlightCapacity(
+	ctx context.Context,
+	expectedBytes uint64,
+) error {
+	limit := c.maxInFlightBytes()
+	protocolDone := c.DoneChan()
+	for {
+		c.queueMutex.Lock()
+		// An empty queue always admits, so a range larger than the whole
+		// bound still makes progress instead of deadlocking.
+		if len(c.queue) == 0 ||
+			c.inFlightBytes+expectedBytes <= limit {
+			c.queueMutex.Unlock()
+			return nil
+		}
+		waitChan := c.bytesFreed
+		c.queueMutex.Unlock()
+		select {
+		case <-waitChan:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-protocolDone:
+			return protocol.ErrProtocolShuttingDown
+		}
+	}
+}
+
+// sendRequestRange appends a request to the outstanding queue and sends its
+// MsgRequestRange. The queue lock is held across the send so queue order
+// always matches wire order.
+func (c *Client) sendRequestRange(
+	start pcommon.Point,
+	end pcommon.Point,
+	delivery requestDelivery,
+	pipelined bool,
+	expectedBytes uint64,
+	busyToken uint64,
+) (*rangeRequest, error) {
+	c.queueMutex.Lock()
+	c.nextRequestId++
+	req := &rangeRequest{
+		id:            c.nextRequestId,
+		delivery:      delivery,
+		pipelined:     pipelined,
+		reservedBytes: expectedBytes,
+		busyToken:     busyToken,
+		hasBusyToken:  busyToken != 0,
+		startChan:     make(chan error, 1),
+		blockChan:     make(chan ledger.Block, 1),
+		doneChan:      make(chan error, 1),
+	}
+	c.queue = append(c.queue, req)
+	c.inFlightBytes += expectedBytes
+	err := c.SendMessage(NewMsgRequestRange(start, end))
+	if err != nil {
+		// The request never reached the wire, so it can be removed without
+		// disturbing the position of any other entry.
+		c.removeLocked(req)
+		c.queueMutex.Unlock()
+		return nil, err
+	}
+	c.queueMutex.Unlock()
+	return req, nil
+}
+
+// waitForBatchStart waits for the peer to accept a request, for the
+// synchronous GetBlockRange and GetBlock paths.
+func (c *Client) waitForBatchStart(
+	req *rangeRequest,
+	protocolDone <-chan struct{},
+) error {
+	select {
+	case err := <-req.startChan:
+		return err
+	case <-protocolDone:
+		return protocol.ErrProtocolShuttingDown
+	}
+}
+
+// removeLocked removes a request from the queue and releases its reserved
+// bytes. The caller must hold queueMutex.
+func (c *Client) removeLocked(req *rangeRequest) {
+	for i, queued := range c.queue {
+		if queued == req {
+			c.queue = slices.Delete(c.queue, i, i+1)
+			c.releaseBytesLocked(req.reservedBytes)
+			return
+		}
+	}
+}
+
+// releaseBytesLocked returns reserved bytes to the in-flight budget and wakes
+// every caller waiting for admission. The caller must hold queueMutex.
+func (c *Client) releaseBytesLocked(reserved uint64) {
+	if reserved > c.inFlightBytes {
+		c.inFlightBytes = 0
+	} else {
+		c.inFlightBytes -= reserved
+	}
+	if c.bytesFreed != nil {
+		close(c.bytesFreed)
+	}
+	c.bytesFreed = make(chan struct{})
+}
+
+// headForResponse returns the queue entry a response belongs to. Block-fetch
+// responses are ordered, so that is always the head entry, and it must be in
+// the state the response implies: streaming for MsgBlock and MsgBatchDone,
+// not yet started for MsgStartBatch and MsgNoBlocks. Anything else is a peer
+// that is talking out of turn, and is reported rather than applied to the
+// following entry. The caller must hold queueMutex.
+func (c *Client) headForResponse(
+	msgName string,
+	wantStarted bool,
+) (*rangeRequest, error) {
+	if len(c.queue) == 0 {
+		return nil, fmt.Errorf(
+			"%s: received %s with no outstanding range request",
+			ProtocolName,
+			msgName,
+		)
+	}
+	req := c.queue[0]
+	if req.started != wantStarted {
+		return nil, fmt.Errorf(
+			"%s: received %s for range request %d in the wrong order",
+			ProtocolName,
+			msgName,
+			req.id,
+		)
+	}
+	return req, nil
+}
+
+// drainLocked empties the queue and clears the in-flight byte accounting,
+// returning the entries the caller must resolve. The caller must hold
+// queueMutex.
+func (c *Client) drainLocked() []*rangeRequest {
+	pending := c.queue
+	c.queue = nil
+	if len(pending) > 0 {
+		c.inFlightBytes = 0
+		close(c.bytesFreed)
+		c.bytesFreed = make(chan struct{})
+	}
+	return pending
+}
+
+// resolve delivers a request's terminal outcome. It must be called without
+// queueMutex held, because it can invoke a user callback.
+func (c *Client) resolve(req *rangeRequest, err error) error {
+	var callbackErr error
+	req.resolveOnce.Do(func() {
+		if err != nil {
+			// Release a caller that is still waiting for the batch to start.
+			select {
+			case req.startChan <- err:
+			default:
+			}
+		}
+		select {
+		case req.doneChan <- err:
+		default:
+		}
+		if req.hasBusyToken {
+			c.releaseBusy(req.busyToken)
+		}
+		if req.pipelined && c.config.RangeDoneFunc != nil {
+			callbackErr = c.config.RangeDoneFunc(
+				c.callbackContextFor(req),
+				err,
+			)
+		}
+	})
+	return callbackErr
+}
+
+// failOutstanding resolves every queued request with the given error.
+func (c *Client) failOutstanding(err error) {
+	c.queueMutex.Lock()
+	pending := c.drainLocked()
+	c.queueMutex.Unlock()
+	for _, req := range pending {
+		if resolveErr := c.resolve(req, err); resolveErr != nil {
+			c.Protocol.Logger().
+				Warn("range done callback failed during shutdown",
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "client",
+					"connection_id", c.callbackContext.ConnectionId.String(),
+					"error", resolveErr.Error(),
+				)
+		}
+	}
+}
+
+// failOutstandingOnProtocolDone resolves outstanding requests once the
+// protocol shuts down.
+func (c *Client) failOutstandingOnProtocolDone(done <-chan struct{}) {
+	<-done
+	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+}
+
+// callbackContextFor returns the callback context for a request, carrying its
+// FIFO identity.
+func (c *Client) callbackContextFor(req *rangeRequest) CallbackContext {
+	ctx := c.callbackContext
+	ctx.RequestId = req.id
+	return ctx
 }
 
 // messageHandler handles incoming protocol messages for the client.
@@ -485,13 +849,18 @@ func (c *Client) handleStartBatch() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
+	c.queueMutex.Lock()
+	req, err := c.headForResponse("StartBatch", false)
+	if err != nil {
+		c.queueMutex.Unlock()
+		return err
+	}
+	req.started = true
+	c.queueMutex.Unlock()
 	select {
-	case <-c.DoneChan():
-		return protocol.ErrProtocolShuttingDown
+	case req.startChan <- nil:
 	default:
 	}
-	c.startBatchResultChan <- nil
 	return nil
 }
 
@@ -504,15 +873,15 @@ func (c *Client) handleNoBlocks() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Check for shutdown
-	select {
-	case <-c.DoneChan():
-		return protocol.ErrProtocolShuttingDown
-	default:
+	c.queueMutex.Lock()
+	req, err := c.headForResponse("NoBlocks", false)
+	if err != nil {
+		c.queueMutex.Unlock()
+		return err
 	}
-	err := errors.New("block(s) not found")
-	c.startBatchResultChan <- err
-	return nil
+	c.removeLocked(req)
+	c.queueMutex.Unlock()
+	return c.resolve(req, errNoBlocks)
 }
 
 // handleBlock handles the Block message from the server.
@@ -524,23 +893,44 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	msg := msgGeneric.(*MsgBlock)
+	msg, ok := msgGeneric.(*MsgBlock)
+	if !ok {
+		return fmt.Errorf("%s: unexpected message type", ProtocolName)
+	}
+	c.queueMutex.Lock()
+	req, err := c.headForResponse("Block", true)
+	if err != nil {
+		c.queueMutex.Unlock()
+		return err
+	}
+	if req.delivery == deliveryChannel {
+		if req.blockDelivered {
+			c.queueMutex.Unlock()
+			return fmt.Errorf(
+				"%s: received more than one block for single-block request %d",
+				ProtocolName,
+				req.id,
+			)
+		}
+		req.blockDelivered = true
+	}
+	c.queueMutex.Unlock()
 	// Decode only enough to get the block type value
 	var wrappedBlock WrappedBlock
 	if _, err := cbor.Decode(msg.WrappedBlock, &wrappedBlock); err != nil {
-		if c.blockUseCallback {
-			c.releaseCurrentBusy()
-		}
-		return fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+		return c.failRequest(
+			req,
+			fmt.Errorf("%s: decode error: %w", ProtocolName, err),
+		)
 	}
 	// If pipeline is configured, submit to pipeline
-	// Only use pipeline if we are in callback mode (GetBlockRange), preserving GetBlock functionality.
-	if c.config.Pipeline != nil && c.blockUseCallback {
+	// Only use pipeline if we are in callback mode (GetBlockRange, RequestRange),
+	// preserving GetBlock functionality.
+	if c.config.Pipeline != nil && req.delivery == deliveryCallback {
 		// Check for shutdown
 		select {
 		case <-c.DoneChan():
-			c.releaseCurrentBusy()
-			return protocol.ErrProtocolShuttingDown
+			return c.failRequest(req, protocol.ErrProtocolShuttingDown)
 		default:
 		}
 
@@ -564,13 +954,12 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 		)
 		cancel() // Ensure goroutine exits promptly
 		if err != nil {
-			c.releaseCurrentBusy()
-			return err
+			return c.failRequest(req, err)
 		}
 		return nil
 	}
 	var block ledger.Block
-	if !c.blockUseCallback || c.config.BlockFunc != nil {
+	if req.delivery == deliveryChannel || c.config.BlockFunc != nil {
 		var err error
 		block, err = ledger.NewBlockFromCbor(
 			wrappedBlock.Type,
@@ -580,41 +969,61 @@ func (c *Client) handleBlock(msgGeneric protocol.Message) error {
 			},
 		)
 		if err != nil {
-			if c.blockUseCallback {
-				c.releaseCurrentBusy()
-			}
-			return err
+			return c.failRequest(req, err)
 		}
 	}
 	// Check for shutdown
 	select {
 	case <-c.DoneChan():
-		if c.blockUseCallback {
-			c.releaseCurrentBusy()
-		}
-		return protocol.ErrProtocolShuttingDown
+		return c.failRequest(req, protocol.ErrProtocolShuttingDown)
 	default:
 	}
-	// We use the callback when requesting ranges and the internal channel for a single block
-	if c.blockUseCallback {
-		if c.config.BlockRawFunc != nil {
-			if err := c.config.BlockRawFunc(c.callbackContext, wrappedBlock.Type, wrappedBlock.RawBlock); err != nil {
-				c.releaseCurrentBusy()
-				return err
+	// We use the callbacks when requesting ranges and the request's own
+	// channel for a single block
+	if req.delivery == deliveryCallback {
+		cbCtx := c.callbackContextFor(req)
+		switch {
+		case c.config.BlockRawFunc != nil:
+			if err := c.config.BlockRawFunc(cbCtx, wrappedBlock.Type, wrappedBlock.RawBlock); err != nil {
+				return c.failRequest(req, err)
 			}
-		} else if c.config.BlockFunc != nil {
-			if err := c.config.BlockFunc(c.callbackContext, wrappedBlock.Type, block); err != nil {
-				c.releaseCurrentBusy()
-				return err
+		case c.config.BlockFunc != nil:
+			if err := c.config.BlockFunc(cbCtx, wrappedBlock.Type, block); err != nil {
+				return c.failRequest(req, err)
 			}
-		} else {
-			c.releaseCurrentBusy()
-			return errors.New("received block-fetch Block message but no callback function is defined")
+		default:
+			return c.failRequest(
+				req,
+				errors.New(
+					"received block-fetch Block message but no callback function is defined",
+				),
+			)
 		}
-	} else {
-		c.blockChan <- block
+		return nil
+	}
+	select {
+	case req.blockChan <- block:
+	default:
 	}
 	return nil
+}
+
+// failRequest retires a request that cannot be completed and returns the
+// error so the protocol is torn down, matching the previous behavior of
+// releasing the busy lock before returning a handler error.
+func (c *Client) failRequest(req *rangeRequest, err error) error {
+	c.queueMutex.Lock()
+	retired := len(c.queue) > 0 && c.queue[0] == req
+	if retired {
+		c.removeLocked(req)
+	}
+	c.queueMutex.Unlock()
+	if retired {
+		if resolveErr := c.resolve(req, err); resolveErr != nil {
+			return errors.Join(err, resolveErr)
+		}
+	}
+	return err
 }
 
 // handleBatchDone handles the BatchDone message from the server.
@@ -626,23 +1035,27 @@ func (c *Client) handleBatchDone() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	// Notify the user if requested
-	if c.blockUseCallback && c.config.BatchDoneFunc != nil {
-		if err := c.config.BatchDoneFunc(c.callbackContext); err != nil {
+	c.queueMutex.Lock()
+	req, err := c.headForResponse("BatchDone", true)
+	if err != nil {
+		c.queueMutex.Unlock()
+		return err
+	}
+	c.removeLocked(req)
+	c.queueMutex.Unlock()
+	// Notify the user if requested. A pipelined request reports completion
+	// through RangeDoneFunc in resolve() instead, so it gets exactly one
+	// completion callback.
+	if !req.pipelined && req.delivery == deliveryCallback &&
+		c.config.BatchDoneFunc != nil {
+		if err := c.config.BatchDoneFunc(c.callbackContextFor(req)); err != nil {
+			// The request is already retired; still resolve it so no caller
+			// is left waiting for a batch that will not be reported.
+			if resolveErr := c.resolve(req, err); resolveErr != nil {
+				return errors.Join(err, resolveErr)
+			}
 			return err
 		}
 	}
-	if c.blockUseCallback {
-		c.releaseCurrentBusy()
-	} else {
-		// In GetBlock mode, signal completion so GetBlock can unlock and return.
-		// This avoids a double-unlock race during shutdown where GetBlock might
-		// unlock via DoneChan before handleBatchDone runs.
-		select {
-		case c.batchDoneChan <- struct{}{}:
-		case <-c.DoneChan():
-			// Protocol is shutting down, GetBlock will handle cleanup
-		}
-	}
-	return nil
+	return c.resolve(req, nil)
 }

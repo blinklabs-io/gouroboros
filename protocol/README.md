@@ -43,6 +43,17 @@ The Ouroboros protocol uses an agency model where only one party can send messag
 - **Server Agency**: Server sends, client waits
 - **None**: Terminal state (Done)
 
+### Pipelining
+
+A state may set `StateMapEntry.AllowPipelinedSend`, which lets the party
+*without* agency in that state write already-queued messages to the wire. The
+state transition for such a message is deferred until agency returns, so the
+local state machine still applies exactly one transition per message, in send
+order. This is how a protocol that is pipelined on the wire keeps the remote
+peer busy across response boundaries; block-fetch uses it for
+`MsgRequestRange`. States that leave the field false keep the strict "send only
+while holding agency" behavior.
+
 ### Common Patterns
 
 **Acquire/Release Pattern** (LocalStateQuery, LocalTxMonitor):
