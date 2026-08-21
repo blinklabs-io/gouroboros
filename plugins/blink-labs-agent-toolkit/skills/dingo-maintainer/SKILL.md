@@ -103,6 +103,47 @@ Antithesis workflows are dispatch-oriented and should remain isolated from
 ordinary local CI. Do not claim live devnet, conformance, registry, or
 Antithesis validation unless it was actually run.
 
+## Get the chain fact, do not document the gap
+
+Dingo questions bottom out in what a real chain carries, and the repository's
+fixtures cover a narrow slice: `database/immutable/testdata` is preview and
+starts in Alonzo at slot 0, so nothing there spans a Byron boundary. When an
+answer needs bytes the repository does not hold, fetch them. Ask for the
+sandbox escape if the sandbox blocks it; a written-up open question is worth
+nothing next to the block.
+
+A small gouroboros blockfetch client is the tool: `blockfetch.NewConfig` with
+`WithBlockFunc`, an `ouroboros.NewConnection` carrying `WithNodeToNode(true)`
+and the network magic, then `BlockFetch().Client.GetBlockRange(start, end)`.
+Public relays are `preprod-node.play.dev.cardano.org:3001`,
+`preview-node.play.dev.cardano.org:3001`, and
+`backbone.cardano.iog.io:3001`; magics are 1, 2, and 764824073. It returns raw
+CBOR, which decodes to an authoritative answer and doubles as a regression
+fixture — four blocks totalling 3.3 KB pinned the Byron-to-Shelley boundary
+shape for both networks that have one.
+
+Two things to get right:
+
+- **Range endpoints are points, not slots.** Locate them with Koios
+  (`{net}.koios.rest/api/v1/blocks?abs_slot=eq.N`), then read the bytes from
+  the relay. Do not answer from Koios alone: its block table omits Byron epoch
+  boundary blocks, so a dense `block_height` sequence is not evidence that no
+  EBB exists, and `tx_info` returns empty `inputs` without the paid tier.
+- **Pair an absence claim with a control.** "No EBB at the fork boundary" only
+  means something alongside a range that does contain one — mainnet slot 21600
+  has an EBB at block number 21586, sharing its parent's number. Without the
+  control, the absence could be an artifact of the fetch.
+
+For reference-implementation questions, fetch the era's own file from
+`raw.githubusercontent.com/IntersectMBO/cardano-ledger/master/eras/<era>/impl/src/...`.
+A later era may shadow an earlier one's function: Conway defines its own
+`transTxOutV1` that drops Babbage's `ReferenceScriptsNotSupported`, and
+replaces Babbage's blanket `ReferenceInputsNotSupported` with a `mapM_`
+translation that rejects only an inline datum. Reading the Babbage file for a
+Conway rule gives the opposite answer. Also beware writing two fetches to the
+same basename — `TxInfo.hs` exists in every era directory, and the second
+`curl -o` silently wins.
+
 For long-running or background checks, inspect the complete output and exit
 code after the task finishes and verify that the intended test or gate was
 actually exercised. A task notification is not a test result: a completion
