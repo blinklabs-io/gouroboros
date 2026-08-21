@@ -1,6 +1,6 @@
 ---
 name: evidence-based-handoff
-description: Report Blink Labs work so the result can be trusted without repeating it — an evidence ledger of commands and exit codes, an explicit skipped-check list with reasons, findings ordered by severity, and no claim that unavailable live infrastructure was exercised. Use before finishing a task, opening a pull request, or handing off to a reviewer.
+description: Report Blink Labs work to the requester so the result can be trusted without repeating it — an evidence ledger of commands and exit codes, an explicit skipped-check list with reasons, findings ordered by severity, and no claim that unavailable live infrastructure was exercised. Use before finishing a task or handing work back; do not use the ledger as a pull-request template.
 ---
 
 # Evidence-Based Handoff
@@ -42,6 +42,12 @@ genuinely is too slow to finish locally, say so with the measured or documented
 duration and let the user decide — that is their call, not a default.
 
 ## Evidence ledger
+
+The ledger is task-handoff material for the requester. Do not copy it, its
+command list, or its skipped-check list into a pull request description or
+review comment. A PR is for the problem, code, and resulting behavior. Include
+an individual validation fact there only when it materially affects the code
+review or merge-risk decision.
 
 Record for every check:
 

@@ -72,19 +72,24 @@ criteria, and context.
 
 ## Pull requests
 
-- Description: short, factual, scoped to this change. What changed, why, what
-  was validated, what was deliberately not validated.
-- Keep useful bot summaries when they improve handoff, but normalize them into
-  plain Markdown under explicit attribution such as `Summary by Cubic` or
-  `Summary by CodeRabbit`. Preserve factual Problem/Changes/Checks sections;
-  remove raw HTML, buttons, hidden bot state, prompts, run IDs, and stale
-  commit metadata from the description.
+- The description is a code-review brief, not an agent handoff. State the
+  defect or requirement, what the code changes, and the resulting behavior or
+  guarantee. Prefer a few concrete bullets over process prose.
+- Do not paste a command inventory, evidence ledger, or skipped-check list into
+  the description. Those belong in the task handoff. Mention a validation
+  result only when it materially changes how a reviewer should judge the code
+  or its risk.
+- Keep a bot summary only when it adds concise code facts that are missing from
+  the authored description. Normalize those facts into plain Markdown and
+  remove attribution wrappers, raw HTML, buttons, hidden bot state, prompts,
+  run IDs, and stale commit metadata.
 - UI changes require screenshots in the PR. Include the affected states and
   relevant viewport or platform; redact secrets and user data.
 - Put code-specific feedback in inline comments. Reserve PR-level comments for
-  concise summaries, check results, and dispositions.
-- List skipped checks explicitly. An unavailable devnet, registry, or CI
-  dependency is a fine answer; a silent omission is not.
+  concise code summaries and review dispositions.
+- Do not list out-of-scope work or checks that were not run. If a missing
+  required check creates a concrete merge risk, state that risk in one factual
+  sentence instead of adding a generic `Skipped` section.
 
 ### Never leak the conversation into a PR or issue
 
