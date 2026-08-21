@@ -37,17 +37,31 @@ type TxScriptView struct {
 	ResolvedReferenceInputs []lcommon.Utxo
 	Available               map[lcommon.ScriptHash]lcommon.Script
 	Needed                  map[lcommon.ScriptHash]lcommon.Script
+
+	// allResolvedInputs caches the concatenation NewTxScriptView already had to
+	// build, so repeated AllResolvedInputs calls on the hot path do not each
+	// allocate a fresh len(inputs)+len(referenceInputs) slice. A view assembled
+	// field-by-field rather than through NewTxScriptView leaves this nil, and
+	// AllResolvedInputs falls back to building the slice on demand.
+	allResolvedInputs []lcommon.Utxo
 }
 
 // AllResolvedInputs returns the consumed and reference inputs together.
 func (v TxScriptView) AllResolvedInputs() []lcommon.Utxo {
+	if v.allResolvedInputs != nil {
+		return v.allResolvedInputs
+	}
+	return concatResolvedInputs(v.ResolvedInputs, v.ResolvedReferenceInputs)
+}
+
+func concatResolvedInputs(inputs, refInputs []lcommon.Utxo) []lcommon.Utxo {
 	out := make(
 		[]lcommon.Utxo,
 		0,
-		len(v.ResolvedInputs)+len(v.ResolvedReferenceInputs),
+		len(inputs)+len(refInputs),
 	)
-	out = append(out, v.ResolvedInputs...)
-	out = append(out, v.ResolvedReferenceInputs...)
+	out = append(out, inputs...)
+	out = append(out, refInputs...)
 	return out
 }
 
@@ -103,7 +117,11 @@ func NewTxScriptView(
 			utxo,
 		)
 	}
-	view.Available = availableScripts(tx, view.AllResolvedInputs())
+	view.allResolvedInputs = concatResolvedInputs(
+		view.ResolvedInputs,
+		view.ResolvedReferenceInputs,
+	)
+	view.Available = availableScripts(tx, view.allResolvedInputs)
 	view.Needed = neededScripts(tx, view)
 	return view, nil
 }
@@ -165,16 +183,26 @@ func voterUsesScriptCredential(voter lcommon.Voter) bool {
 // neededScripts walks every script purpose the transaction requires and keeps
 // the available script each one resolves to.
 //
-// The walk order matches the canonical redeemer order per tag, so a caller that
-// also cares about redeemer indices sees the same sequence: spending inputs
-// (sorted), minting policies (sorted), certificates, withdrawals (sorted),
-// voters (sorted), proposal procedures. Eras without voting or proposing simply
-// produce none of those.
+// The result is a map, so the walk order is not observable and no order is
+// promised. Concretely: spending inputs and minting policies are walked in
+// canonical order, but withdrawals and voting procedures come from Go maps and
+// so are walked in randomized order. A future caller that wants redeemer
+// indices must impose an order on those two itself; Transaction.Withdrawals and
+// Transaction.VotingProcedures are both keyed by pointer, so that means
+// deriving a canonical key rather than sorting the keys in place.
 func neededScripts(
 	tx lcommon.Transaction,
 	view TxScriptView,
 ) map[lcommon.ScriptHash]lcommon.Script {
 	out := make(map[lcommon.ScriptHash]lcommon.Script)
+	if len(view.Available) == 0 {
+		// keep only ever admits a hash present in Available, so with nothing
+		// available the walk cannot produce anything. Skipping it keeps a
+		// script-free transaction -- the overwhelming majority during a sync --
+		// off the input sort, the by-id map build, and one script-hash
+		// computation per purpose.
+		return out
+	}
 	byId := make(map[string]lcommon.Utxo, len(view.ResolvedInputs))
 	for _, utxo := range view.ResolvedInputs {
 		if utxo.Id != nil {

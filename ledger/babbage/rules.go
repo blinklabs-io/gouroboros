@@ -240,14 +240,13 @@ func UtxoValidateCostModelsPresent(
 	return nil
 }
 
-// UtxoValidateInlineDatumsWithPlutusV1 rejects transactions that use inline datums with PlutusV1 scripts
-// Inline datums are a Babbage-era feature and are only supported with PlutusV2+
 // UtxoValidateInlineDatumsWithPlutusV1 rejects a transaction that requires a
-// PlutusV1 script while using a feature the PlutusV1 script context cannot
-// represent. PlutusV1 predates inline datums and reference scripts, so a
-// transaction that needs a V1 script and carries either is invalid.
+// PlutusV1 script while carrying an inline datum. Inline datums are a Babbage
+// feature the PlutusV1 script context cannot represent, so translating an output
+// that carries one into the V1 context fails.
 //
-// Two properties matter, and getting either wrong diverges from cardano-node:
+// Three properties matter, and getting any of them wrong diverges from
+// cardano-node:
 //
 //   - Only a *needed* script constrains the transaction. A V1 script that is
 //     merely reachable -- sitting in the witness set, or as a reference script
@@ -255,14 +254,32 @@ func UtxoValidateCostModelsPresent(
 //     make the transaction invalid. Rejecting on availability turns an ordinary
 //     transaction that happens to spend a UTxO carrying an unrelated V1
 //     reference script into a permanent validation failure.
-//   - The disqualifying feature is transaction-wide. An inline datum counts
-//     wherever the V1 context would have to represent it: on a consumed input,
-//     on a reference input, or on one of this transaction's own outputs.
+//   - The inline datum is disqualifying wherever the V1 context would have to
+//     represent it: on a consumed input, on a reference input, or on one of this
+//     transaction's own outputs. cardano-ledger's Conway PlutusV1 instance runs
+//     transTxOutV1 over all three -- inputs via transTxInInfoV1, reference
+//     inputs via the same function under mapM_, and outputs directly
+//     (eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs, instance
+//     EraPlutusTxInfo 'PlutusV1 ConwayEra).
+//   - A reference script is *not* disqualifying, anywhere. Conway's
+//     transTxOutV1 checks only the inline datum; unlike the Babbage-era
+//     transTxOutV1 it shadows, it has no ReferenceScriptsNotSupported branch.
+//     So neither a reference script on a consumed or reference input nor one on
+//     a produced output invalidates a V1-needing transaction.
 //
 // Datum presence is read through the TransactionOutput interface rather than a
 // concrete Babbage type assertion, so outputs wrapped by a later era are still
 // inspected. Datum-*hash* outputs are correctly not treated as inline, because
 // Datum() reports nil for them.
+//
+// Conway semantics are applied uniformly, including for the Babbage era that
+// also registers this rule and for Dijkstra, which delegates to it through
+// Conway. cardano-ledger's Babbage-era PlutusV1 instance is stricter than
+// Conway's on both counts above: its transTxOutV1 does carry a
+// ReferenceScriptsNotSupported branch, and it rejects a transaction that needs a
+// V1 script and carries any reference input at all. Splitting the rule per era
+// needs Babbage-era conformance vectors, which the suite does not contain, so
+// the divergence stays here rather than in untested era-specific code.
 func UtxoValidateInlineDatumsWithPlutusV1(
 	tx common.Transaction,
 	slot uint64,
@@ -287,6 +304,11 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 	if !needsV1 {
 		return nil
 	}
+	// Datum() only, deliberately: ScriptRef() is not consulted on a resolved
+	// input, nor on a produced output below. The Conway conformance vector
+	// "UTXOS/can use regular inputs for reference" expects success for a
+	// transaction that needs a PlutusV1 script and spends a regular input
+	// carrying a reference script, so rejecting that shape fails the suite.
 	for _, utxo := range view.AllResolvedInputs() {
 		if utxo.Output != nil && utxo.Output.Datum() != nil {
 			return common.InlineDatumsNotSupportedError{
@@ -299,13 +321,6 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 			continue
 		}
 		if output.Datum() != nil {
-			return common.InlineDatumsNotSupportedError{
-				PlutusVersion: "PlutusV1",
-			}
-		}
-		// A reference script on a produced output is equally unrepresentable in
-		// the V1 context.
-		if output.ScriptRef() != nil {
 			return common.InlineDatumsNotSupportedError{
 				PlutusVersion: "PlutusV1",
 			}
