@@ -508,6 +508,79 @@ func txProposalActions(
 	return ret
 }
 
+// govActionResolver answers questions about the governance action a voting
+// procedure names, consulting the proposals of the transaction under
+// validation before the ledger state.
+//
+// cardano-ledger's conwayGovTransition folds the transaction's proposals into
+// the proposal set before checking its votes
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs at commit
+// 08773e9a8f911f67209560a4e401369cbb21a0cb), so a vote may name an action its
+// own transaction proposes. A rule that only consults the ledger state either
+// rejects such a vote as unknown or leaves its restriction unenforced.
+//
+// The proposal index is built lazily, so a transaction with no voting
+// procedures or no proposals pays nothing.
+type govActionResolver struct {
+	tx        common.Transaction
+	ls        common.LedgerState
+	proposals map[common.GovActionId]txGovProposal
+	loaded    bool
+}
+
+// txProposal returns the proposal of the transaction under validation that
+// receives actionId once the transaction is accepted.
+func (r *govActionResolver) txProposal(
+	actionId common.GovActionId,
+) (txGovProposal, bool) {
+	if !r.loaded {
+		r.proposals = txProposalActions(r.tx)
+		r.loaded = true
+	}
+	proposal, ok := r.proposals[actionId]
+	return proposal, ok
+}
+
+// exists reports whether actionId names a governance action the ledger state
+// records or the transaction under validation proposes. A proposal whose
+// action contents are absent still counts as existing: a proposal procedure
+// always carries an action on the wire, and cardano-ledger adds the proposal
+// to the folded proposal set regardless of what it proposes.
+func (r *govActionResolver) exists(actionId common.GovActionId) bool {
+	if r.ls != nil && r.ls.GovActionExists(actionId) {
+		return true
+	}
+	_, ok := r.txProposal(actionId)
+	return ok
+}
+
+// resolve returns the type and, where available, the contents of the
+// governance action named by actionId. ok is false when neither the
+// transaction nor the ledger state can classify the action, which leaves a
+// type-dependent restriction unenforced rather than guessed at.
+func (r *govActionResolver) resolve(
+	actionId common.GovActionId,
+) (actionType common.GovActionType, action common.GovAction, ok bool) {
+	if proposal, found := r.txProposal(actionId); found {
+		if proposal.action == nil {
+			return 0, nil, false
+		}
+		resolvedType, err := conwayGovActionType(proposal.action)
+		if err != nil {
+			return 0, nil, false
+		}
+		return common.GovActionType(resolvedType), proposal.action, true
+	}
+	if r.ls == nil {
+		return 0, nil, false
+	}
+	actionState, err := r.ls.GovActionById(actionId)
+	if err != nil || actionState == nil {
+		return 0, nil, false
+	}
+	return actionState.ActionType, actionState.Action, true
+}
+
 // hardForkProposedVersion returns the protocol version proposed by a
 // HardForkInitiation action. ok is false for any other action type, matching
 // the pattern match on HardForkInitiation in cardano-ledger's
@@ -3254,16 +3327,26 @@ func PoolValidateVrfKeyUniqueness(
 }
 
 // UtxoValidateUnknownGovActionIds rejects voting procedures that reference a
-// governance action id that does not exist in the ledger state
+// governance action id that neither the ledger state records nor the
+// transaction under validation proposes
 // (ConwayGovPredFailure.GovActionsDoNotExist). This is the rule referenced
 // by the "unknown action ID is handled by other validation rules" comment
 // in UtxoValidateCCVotingRestrictions.
+//
+// An action proposed by the transaction under validation counts as existing:
+// cardano-ledger folds the transaction's proposals into the proposal set
+// before checking its votes, so a transaction that proposes an action and
+// votes on it is not voting on an unknown action. Rejecting it here would
+// also make the same-transaction resolution in
+// UtxoValidateStakePoolVotingRestrictions unreachable, since this rule runs
+// first in UtxoValidationRules.
 func UtxoValidateUnknownGovActionIds(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	resolver := govActionResolver{tx: tx, ls: ls}
 	var unknown []common.GovActionId
 	for _, actionVotes := range tx.VotingProcedures() {
 		for actionId := range actionVotes {
@@ -3276,7 +3359,7 @@ func UtxoValidateUnknownGovActionIds(
 				unknown = append(unknown, common.GovActionId{})
 				continue
 			}
-			if !ls.GovActionExists(*actionId) {
+			if !resolver.exists(*actionId) {
 				unknown = append(unknown, *actionId)
 			}
 		}
@@ -3444,6 +3527,10 @@ func UtxoValidateVotingOnExpiredGovAction(
 // InfoAction). A nil action id is rejected directly here (matching
 // UtxoValidateCCVotingRestrictions's convention) rather than silently
 // skipped.
+//
+// The action type is resolved from the transaction's own proposals when the
+// vote names an action that transaction proposes, so a same-transaction
+// propose-and-vote does not escape the restriction.
 func UtxoValidateBootstrapVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3468,6 +3555,7 @@ func UtxoValidateBootstrapVotingRestrictions(
 			return false
 		}
 	}
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range tx.VotingProcedures() {
 		if voter == nil {
 			continue
@@ -3480,16 +3568,16 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil || actionState == nil {
+			actionType, _, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 			var allowed bool
 			switch voter.Type {
 			case common.VoterTypeDRepKeyHash, common.VoterTypeDRepScriptHash:
-				allowed = actionState.ActionType == common.GovActionTypeInfo
+				allowed = actionType == common.GovActionTypeInfo
 			default:
-				allowed = isBootstrapAction(actionState.ActionType)
+				allowed = isBootstrapAction(actionType)
 			}
 			if !allowed {
 				return BootstrapVotingRestrictionError{
@@ -3498,7 +3586,7 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: fmt.Sprintf(
 						"voter type %d cannot vote on action type %d during bootstrap phase",
 						voter.Type,
-						actionState.ActionType,
+						actionType,
 					),
 				}
 			}
@@ -3534,8 +3622,7 @@ func UtxoValidateStakePoolVotingRestrictions(
 	if len(votes) == 0 {
 		return nil
 	}
-	var txProposals map[common.GovActionId]txGovProposal
-	txProposalsLoaded := false
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range votes {
 		if voter == nil || voter.Type != common.VoterTypeStakingPoolKeyHash {
 			continue
@@ -3548,32 +3635,9 @@ func UtxoValidateStakePoolVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			if !txProposalsLoaded {
-				txProposals = txProposalActions(tx)
-				txProposalsLoaded = true
-			}
-			var actionType common.GovActionType
-			var action common.GovAction
-			if txProposal, ok := txProposals[*actionId]; ok {
-				if txProposal.action == nil {
-					continue
-				}
-				action = txProposal.action
-				resolvedType, err := conwayGovActionType(action)
-				if err != nil {
-					continue
-				}
-				actionType = common.GovActionType(resolvedType)
-			} else {
-				if ls == nil {
-					continue
-				}
-				actionState, err := ls.GovActionById(*actionId)
-				if err != nil || actionState == nil {
-					continue
-				}
-				actionType = actionState.ActionType
-				action = actionState.Action
+			actionType, action, ok := resolver.resolve(*actionId)
+			if !ok {
+				continue
 			}
 			var restriction string
 			switch actionType {
@@ -3614,6 +3678,10 @@ func UtxoValidateStakePoolVotingRestrictions(
 // UtxoValidateCCVotingRestrictions validates CC voting restrictions per cardano-ledger spec.
 // Constitutional Committee members cannot vote on NoConfidence or UpdateCommittee actions.
 // Enforced at ledger level for PV11+ (ProtocolVersionVanRossem).
+//
+// The action type is resolved from the transaction's own proposals when the
+// vote names an action that transaction proposes, so a same-transaction
+// propose-and-vote does not escape the restriction.
 func UtxoValidateCCVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3635,6 +3703,7 @@ func UtxoValidateCCVotingRestrictions(
 		return nil
 	}
 
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range votes {
 		// Only check CC voters
 		if voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
@@ -3652,22 +3721,19 @@ func UtxoValidateCCVotingRestrictions(
 				}
 			}
 
-			// Look up the action type from governance state
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil {
-				// If we can't look up the action, skip this check
-				// (unknown action ID is handled by other validation rules)
-				continue
-			}
-			if actionState == nil {
+			// Resolve the action type from the transaction's own proposals
+			// or, failing that, from governance state. An action neither
+			// names is reported by UtxoValidateUnknownGovActionIds.
+			actionType, _, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 
 			// CC members cannot vote on NoConfidence or UpdateCommittee
-			if actionState.ActionType == common.GovActionTypeNoConfidence ||
-				actionState.ActionType == common.GovActionTypeUpdateCommittee {
+			if actionType == common.GovActionTypeNoConfidence ||
+				actionType == common.GovActionTypeUpdateCommittee {
 				restriction := "CC cannot vote on NoConfidence"
-				if actionState.ActionType == common.GovActionTypeUpdateCommittee {
+				if actionType == common.GovActionTypeUpdateCommittee {
 					restriction = "CC cannot vote on UpdateCommittee"
 				}
 				return CCVotingRestrictionError{

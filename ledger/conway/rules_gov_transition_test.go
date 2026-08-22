@@ -534,6 +534,40 @@ func TestUtxoValidateUnknownGovActionIds(t *testing.T) {
 		assert.Equal(t, common.GovActionId{}, unkErr.ActionIds[0])
 	})
 
+	// cardano-ledger folds the transaction's proposals into the proposal set
+	// before checking its votes, so an action the voting transaction
+	// proposes is not an unknown action.
+	t.Run("action proposed by the voting transaction", func(t *testing.T) {
+		tx := mkProposalsTx(t, &common.InfoGovAction{})
+		actionId := selfActionId(tx, 0)
+		require.False(t, ls.GovActionExists(actionId))
+		addVote(tx, voter, actionId, common.GovVoteYes)
+		require.NoError(
+			t,
+			conway.UtxoValidateUnknownGovActionIds(tx, 0, ls, pp),
+		)
+	})
+
+	// An action id that names another transaction is still unknown, so the
+	// same-transaction allowance is keyed on the transaction id and not on
+	// the proposal index alone.
+	t.Run("action proposed by another transaction", func(t *testing.T) {
+		other := mkProposalsTx(t, &common.InfoGovAction{})
+		tx := mkProposalsTx(
+			t,
+			&common.InfoGovAction{},
+			&common.InfoGovAction{},
+		)
+		requireDistinctTxIds(t, other, tx)
+		otherId := selfActionId(other, 0)
+		addVote(tx, voter, otherId, common.GovVoteYes)
+		err := conway.UtxoValidateUnknownGovActionIds(tx, 0, ls, pp)
+		var unkErr conway.UnknownGovActionIdError
+		require.ErrorAs(t, err, &unkErr)
+		require.Len(t, unkErr.ActionIds, 1)
+		assert.Equal(t, otherId, unkErr.ActionIds[0])
+	})
+
 	t.Run(
 		"multiple unknown action ids sort deterministically",
 		func(t *testing.T) {
@@ -835,6 +869,89 @@ func TestUtxoValidateBootstrapVotingRestrictions(t *testing.T) {
 		assert.Equal(t, common.GovActionId{}, bootErr.ActionId)
 	})
 
+	// A vote on an action the same transaction proposes is classified from
+	// that proposal, so a propose-and-vote does not escape the restriction
+	// by being absent from the ledger state.
+	t.Run(
+		"PV9 DRep cannot vote on a self-proposed hard fork",
+		func(t *testing.T) {
+			tx := mkProposalsTx(t, mkHfAction(nil, 10, 0))
+			actionId := selfActionId(tx, 0)
+			require.False(t, ls.GovActionExists(actionId))
+			addVote(tx, drepVoter, actionId, common.GovVoteYes)
+			err := conway.UtxoValidateBootstrapVotingRestrictions(
+				tx, 0, ls, pv9,
+			)
+			var bootErr conway.BootstrapVotingRestrictionError
+			require.ErrorAs(t, err, &bootErr)
+			assert.Equal(t, actionId, bootErr.ActionId)
+		},
+	)
+
+	t.Run(
+		"PV9 DRep can vote on a self-proposed InfoAction",
+		func(t *testing.T) {
+			tx := mkProposalsTx(t, &common.InfoGovAction{})
+			addVote(tx, drepVoter, selfActionId(tx, 0), common.GovVoteYes)
+			require.NoError(
+				t,
+				conway.UtxoValidateBootstrapVotingRestrictions(
+					tx, 0, ls, pv9,
+				),
+			)
+		},
+	)
+}
+
+// A CC vote on an action its own transaction proposes is classified from that
+// proposal. The ledger state records none of these actions, so a verdict can
+// only come from the transaction's proposal procedures.
+func TestUtxoValidateCCVotingRestrictionsSameTransactionProposal(
+	t *testing.T,
+) {
+	pp := mkConwayPp(common.ProtocolVersionVanRossem, 0)
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	ccVoter := common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: common.Blake2b224{0x01},
+	}
+
+	t.Run("CC cannot vote on a self-proposed NoConfidence", func(t *testing.T) {
+		tx := mkProposalsTx(t, &common.NoConfidenceGovAction{})
+		actionId := selfActionId(tx, 0)
+		require.False(t, ls.GovActionExists(actionId))
+		addVote(tx, ccVoter, actionId, common.GovVoteYes)
+		err := conway.UtxoValidateCCVotingRestrictions(tx, 0, ls, pp)
+		var ccErr conway.CCVotingRestrictionError
+		require.ErrorAs(t, err, &ccErr)
+		assert.Equal(t, actionId, ccErr.ActionId)
+	})
+
+	t.Run("CC can vote on a self-proposed InfoAction", func(t *testing.T) {
+		tx := mkProposalsTx(t, &common.InfoGovAction{})
+		addVote(tx, ccVoter, selfActionId(tx, 0), common.GovVoteYes)
+		require.NoError(
+			t,
+			conway.UtxoValidateCCVotingRestrictions(tx, 0, ls, pp),
+		)
+	})
+
+	// The same vote against another transaction's action id is not resolved
+	// from this transaction's proposals.
+	t.Run("CC vote on another transaction's NoConfidence", func(t *testing.T) {
+		other := mkProposalsTx(t, &common.NoConfidenceGovAction{})
+		tx := mkProposalsTx(
+			t,
+			&common.NoConfidenceGovAction{},
+			&common.NoConfidenceGovAction{},
+		)
+		requireDistinctTxIds(t, other, tx)
+		addVote(tx, ccVoter, selfActionId(other, 0), common.GovVoteYes)
+		require.NoError(
+			t,
+			conway.UtxoValidateCCVotingRestrictions(tx, 0, ls, pp),
+		)
+	})
 }
 
 func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
