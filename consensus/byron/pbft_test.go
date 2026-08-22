@@ -70,31 +70,50 @@ func TestValidatePBFTHeaderRealMainnet(t *testing.T) {
 	require.Equal(t, expectedIssuer, issuer)
 }
 
+func TestValidateProxySignatureUsesWireTypeTag(t *testing.T) {
+	header, config, _ := realPBFTHeaderFixture(t)
+	blockSig := append([]any(nil), header.ConsensusData.BlockSig...)
+	blockSig[0] = uint64(byronSigTypeLight)
+	input := &ValidateHeaderInput{
+		Slot:          header.SlotNumber(),
+		BlockNumber:   header.BlockNumber(),
+		ProtocolMagic: header.ProtocolMagic,
+		IssuerPubKey:  header.ConsensusData.PubKey[:32],
+		BlockSig:      blockSig,
+		HeaderCbor:    header.Cbor(),
+	}
+
+	err := NewHeaderValidator(config).validateBlockSignature(input)
+	require.ErrorContains(t, err, "block signature verification failed")
+}
+
 func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 	tests := []struct {
 		name      string
-		mutate    func(*ledgerbyron.ByronMainBlockHeader, *ByronConfig)
+		mutate    func(*testing.T, *ledgerbyron.ByronMainBlockHeader, *ByronConfig)
 		wantError string
 	}{
 		{
 			name: "protocol magic",
-			mutate: func(header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
+			mutate: func(_ *testing.T, header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
 				header.ProtocolMagic++
 			},
 			wantError: "protocol magic",
 		},
 		{
 			name: "block signature",
-			mutate: func(header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
-				inner := header.ConsensusData.BlockSig[1].([]any)
-				signature := inner[1].([]byte)
+			mutate: func(t *testing.T, header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
+				inner, ok := header.ConsensusData.BlockSig[1].([]any)
+				require.True(t, ok)
+				signature, ok := inner[1].([]byte)
+				require.True(t, ok)
 				signature[0] ^= 0xff
 			},
 			wantError: "block signature",
 		},
 		{
 			name: "unknown genesis issuer",
-			mutate: func(_ *ledgerbyron.ByronMainBlockHeader, config *ByronConfig) {
+			mutate: func(_ *testing.T, _ *ledgerbyron.ByronMainBlockHeader, config *ByronConfig) {
 				unknown := common.Blake2b224Hash([]byte("unknown genesis issuer"))
 				config.GenesisKeyHashes = [][]byte{unknown.Bytes()}
 			},
@@ -102,7 +121,7 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 		},
 		{
 			name: "replaced or revoked delegate",
-			mutate: func(header *ledgerbyron.ByronMainBlockHeader, config *ByronConfig) {
+			mutate: func(t *testing.T, header *ledgerbyron.ByronMainBlockHeader, config *ByronConfig) {
 				genesisHash, err := PBFTVerificationKeyHash(
 					header.ConsensusData.PubKey,
 				)
@@ -115,16 +134,18 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 		},
 		{
 			name: "unsupported lightweight delegation",
-			mutate: func(header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
+			mutate: func(_ *testing.T, header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
 				header.ConsensusData.BlockSig[0] = uint64(byronSigTypeLight)
 			},
 			wantError: "unsupported Byron PBFT signature type",
 		},
 		{
 			name: "delegation certificate activates after header epoch",
-			mutate: func(header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
-				inner := header.ConsensusData.BlockSig[1].([]any)
-				certificate := inner[0].([]any)
+			mutate: func(t *testing.T, header *ledgerbyron.ByronMainBlockHeader, _ *ByronConfig) {
+				inner, ok := header.ConsensusData.BlockSig[1].([]any)
+				require.True(t, ok)
+				certificate, ok := inner[0].([]any)
+				require.True(t, ok)
 				certificate[0] = header.ConsensusData.SlotId.Epoch + 1
 			},
 			wantError: "not active",
@@ -134,7 +155,7 @@ func TestValidatePBFTHeaderRejectsInvalidVectors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			header, config, _ := realPBFTHeaderFixture(t)
-			test.mutate(header, &config)
+			test.mutate(t, header, &config)
 			_, err := ValidatePBFTHeader(header, config)
 			require.ErrorContains(t, err, test.wantError)
 		})
@@ -189,7 +210,7 @@ func TestPBFTStateTransitionVectors(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, issuer := range []common.Blake2b224{issuerA, issuerB, issuerA} {
-		state, err = state.Transition(issuer, 10)
+		state, err = state.Transition(issuer)
 		require.NoError(t, err)
 	}
 	require.Equal(
@@ -198,7 +219,7 @@ func TestPBFTStateTransitionVectors(t *testing.T) {
 		state.SignatureHistory(),
 	)
 
-	_, err = state.Transition(issuerA, 10)
+	_, err = state.Transition(issuerA)
 	require.ErrorContains(t, err, "signature threshold")
 	require.Equal(
 		t,
@@ -208,7 +229,7 @@ func TestPBFTStateTransitionVectors(t *testing.T) {
 	)
 
 	for range 8 {
-		state, err = state.Observe(issuerC, 10)
+		state, err = state.Observe(issuerC)
 		require.NoError(t, err)
 	}
 	require.Len(t, state.SignatureHistory(), 10)
@@ -224,6 +245,28 @@ func TestPBFTStateRejectsInvalidState(t *testing.T) {
 		2,
 	)
 	require.ErrorContains(t, err, "issuer history")
+	_, err = (PBFTState{}).Observe(issuer)
+	require.ErrorContains(t, err, "security parameter")
+}
+
+func TestPBFTMaxSignatures(t *testing.T) {
+	tests := []struct {
+		securityParam uint64
+		want          uint64
+	}{
+		{securityParam: 1, want: 0},
+		{securityParam: 4, want: 0},
+		{securityParam: 5, want: 1},
+		{securityParam: 100, want: 22},
+		{securityParam: 2160, want: 475},
+	}
+	for _, test := range tests {
+		require.Equal(
+			t,
+			test.want,
+			pbftMaxSignatures(test.securityParam),
+		)
+	}
 }
 
 func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
@@ -247,4 +290,43 @@ func TestNewByronConfigFromGenesisBuildsPBFTDelegationView(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, delegateHash, config.GenesisDelegations[genesisHash])
 	}
+}
+
+func TestGenesisDerivedConfigValidatesRealPBFTHeader(t *testing.T) {
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	config, err := NewByronConfigFromGenesis(&genesis)
+	require.NoError(t, err)
+
+	blockBytes, err := hex.DecodeString(testByronMainBlockHex)
+	require.NoError(t, err)
+	block, err := ledgerbyron.NewByronMainBlockFromCbor(
+		blockBytes,
+		common.VerifyConfig{SkipBodyHashValidation: true},
+	)
+	require.NoError(t, err)
+	issuer, err := ValidatePBFTHeader(block.BlockHeader, config)
+	require.NoError(t, err)
+	require.Contains(t, config.GenesisKeyHashes, issuer.GenesisKeyHash.Bytes())
+	require.Equal(
+		t,
+		issuer.DelegateKeyHash,
+		config.GenesisDelegations[issuer.GenesisKeyHash],
+	)
+}
+
+func TestNewByronConfigFromGenesisRejectsInvalidDelegationCertificate(t *testing.T) {
+	genesis, err := ledgerbyron.NewByronGenesisFromReader(
+		strings.NewReader(testByronGenesisJSON),
+	)
+	require.NoError(t, err)
+	const genesisHash = "af2800c124e599d6dec188a75f8bfde397ebb778163a18240371f2d1"
+	delegation := genesis.HeavyDelegation[genesisHash]
+	delegation.Cert = "00" + delegation.Cert[2:]
+	genesis.HeavyDelegation[genesisHash] = delegation
+
+	_, err = NewByronConfigFromGenesis(&genesis)
+	require.ErrorContains(t, err, "validate delegation certificate")
 }

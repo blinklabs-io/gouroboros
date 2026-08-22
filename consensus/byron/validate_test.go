@@ -1735,7 +1735,8 @@ const testByronGenesisJSON = `{
     "heavyDelegation": {
         "1deb82908402c7ee3efeb16f369d97fba316ee621d09b32b8969e54b":{"cert":"c8b39f094dc00608acb2d20ff274cb3e0c022ccb0ce558ea7c1a2d3a32cd54b42cc30d32406bcfbb7f2f86d05d2032848be15b178e3ad776f8b1bc56a671400d","delegatePk":"6MA6A8Cy3b6kGVyvOfQeZp99JR7PIh+7LydcCl1+BdGQ3MJG9WyOM6wANwZuL2ZN2qmF6lKECCZDMI3eT1v+3w==","issuerPk":"UHMxYf2vtsjLb64OJb35VVEFs2eO+wjxd1uekN5PXHe8yM7/+NkBHLJ4so/dyG2bqwmWVtd6eFbHYZEIy/ZXUg==","omega":0},
         "65904a89e6d0e5f881513d1736945e051b76f095eca138ee869d543d":{"cert":"552741f728196e62f218047b944b24ce4d374300d04b9b281426f55aa000d53ded66989ad5ea0908e6ff6492001ff18ece6c7040a934060759e9ae09863bf203","delegatePk":"X93u2t4nFNbbL54RBHQ9LY2Bjs3cMG4XYQjbFMqt1EG0V9WEDGD4hAuZyPeMKQriKdT4Qx5ni6elRcNWB7lN2w==","issuerPk":"C9sfXvPZlAN1k/ImYlXxNKVkZYuy34FLO5zvuW2jT6nIiFkchbdw/TZybV89mRxmiCiv/Hu+CHL9aZE25mTZ2A==","omega":0},
-        "5411c7bf87c252609831a337a713e4859668cba7bba70a9c3ef7c398":{"cert":"c946fd596bdb31949aa435390de19a549c9698cad1813e34ff2431bc06190188188f4e84001380713e3f916c7526096e7c4855904bff40385007b81e1e657d0e","delegatePk":"i1Mgdin5ow5LIBUETzN8AXNavmckPBlHDJ2ujHtzJ5gJiHufQg1vcO4enVDBYFKHjlRLZctdRL1pF1ayhM2Cmw==","issuerPk":"mm+jQ8jGw23ho1Vv60Eb/fhwjVr4jehibQ/Gv6Tuu22Zq4PZDWZTGtkSLT+ctLydBbJkSGclMqaNp5b5MoQx/Q==","omega":0}
+        "5411c7bf87c252609831a337a713e4859668cba7bba70a9c3ef7c398":{"cert":"c946fd596bdb31949aa435390de19a549c9698cad1813e34ff2431bc06190188188f4e84001380713e3f916c7526096e7c4855904bff40385007b81e1e657d0e","delegatePk":"i1Mgdin5ow5LIBUETzN8AXNavmckPBlHDJ2ujHtzJ5gJiHufQg1vcO4enVDBYFKHjlRLZctdRL1pF1ayhM2Cmw==","issuerPk":"mm+jQ8jGw23ho1Vv60Eb/fhwjVr4jehibQ/Gv6Tuu22Zq4PZDWZTGtkSLT+ctLydBbJkSGclMqaNp5b5MoQx/Q==","omega":0},
+        "af2800c124e599d6dec188a75f8bfde397ebb778163a18240371f2d1":{"cert":"e03e62f083df5576360e60a32e22bbb07b3c8df4fcab8079f1d6f61af3954d242ba8a06516c395939f24096f3df14e103a7d9c2b80a68a9363cf1f27c7a4e307","delegatePk":"YSYalbdhPua/IGfa13twNJcpsMUNV7wc8w3g20oec6iF0AVK98I/xsN5GdukHGAqV+LQ+TKaeVS4ZzONb7LJRQ==","issuerPk":"G8l6L+AsKXiAzo7P2Zf+TB7AnuEP7u6faGdgFmsFKB1ig0aP/ZO+ywyVbM3dZC35sSRMkVkRGF+kk1X28iv6uQ==","omega":0}
     },
     "nonAvvmBalances": {},
     "vssCerts": {}
@@ -1780,14 +1781,14 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 	}
 
 	// Verify number of genesis keys
-	if config.NumGenesisKeys != 3 {
-		t.Errorf("NumGenesisKeys: got %d, want 3", config.NumGenesisKeys)
+	if config.NumGenesisKeys != 4 {
+		t.Errorf("NumGenesisKeys: got %d, want 4", config.NumGenesisKeys)
 	}
 
 	// Verify key hashes are populated
-	if len(config.GenesisKeyHashes) != 3 {
+	if len(config.GenesisKeyHashes) != 4 {
 		t.Errorf(
-			"GenesisKeyHashes length: got %d, want 3",
+			"GenesisKeyHashes length: got %d, want 4",
 			len(config.GenesisKeyHashes),
 		)
 	}
@@ -1801,7 +1802,7 @@ func TestNewByronConfigFromGenesis(t *testing.T) {
 
 	// Verify slot leader calculation works
 	for slot := range uint64(6) {
-		expectedIndex := int(slot % 3)
+		expectedIndex := int(slot % 4)
 		index, keyHash := config.SlotLeader(slot)
 		if index != expectedIndex {
 			t.Errorf(
