@@ -258,7 +258,11 @@ func TestInFlightCapacityDoesNotOverflow(t *testing.T) {
 	require.False(t, c.hasInFlightCapacityLocked(1))
 }
 
-func TestRequestRangeAdmissionAndReservationAreAtomic(t *testing.T) {
+// TestConcurrentAdmissionRespectsInFlightBound pins the recheck under the send
+// token: two callers released into the admission path together both pass the
+// capacity check made before the token, so without the recheck the second is
+// admitted past MaxInFlightBytes.
+func TestConcurrentAdmissionRespectsInFlightBound(t *testing.T) {
 	c := newStartedQueueTestClient(t, &Config{
 		RequestPipelining: true,
 		MaxInFlightBytes:  1,
@@ -270,7 +274,7 @@ func TestRequestRangeAdmissionAndReservationAreAtomic(t *testing.T) {
 	var arrived sync.WaitGroup
 	arrived.Add(2)
 	release := make(chan struct{})
-	c.beforeRequestReservation = func() {
+	c.beforeRequestAdmission = func() {
 		arrived.Done()
 		<-release
 	}

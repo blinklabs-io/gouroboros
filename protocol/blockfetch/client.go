@@ -130,9 +130,13 @@ type Client struct {
 	// FIFO queue order always matches wire order. Unlike a mutex, acquiring
 	// the token can be canceled by RequestRange's context.
 	rangeSendToken chan struct{}
-	// beforeRequestReservation is a test synchronization point immediately
-	// before the atomic admission and reservation step.
-	beforeRequestReservation func()
+	// beforeRequestAdmission is a test synchronization point at the start of
+	// the admission path, before the in-flight wait and before the send token.
+	// It exists to release two callers into that path together, which is what
+	// makes the recheck under the token observable: the capacity check and the
+	// reservation are already atomic by construction, sharing one queueMutex
+	// hold, so no hook placed between them could observe anything.
+	beforeRequestAdmission func()
 	// beforeInFlightWait is a test synchronization point immediately before a
 	// pipelined caller parks on the in-flight byte bound. The park is
 	// otherwise unobservable, and the ordering it establishes is what proves
@@ -595,8 +599,8 @@ func (c *Client) RequestRange(
 	if expectedBytes == 0 {
 		expectedBytes = DefaultRequestExpectedBytes
 	}
-	if c.beforeRequestReservation != nil {
-		c.beforeRequestReservation()
+	if c.beforeRequestAdmission != nil {
+		c.beforeRequestAdmission()
 	}
 	sent, err := c.sendRequestRange(
 		ctx,
