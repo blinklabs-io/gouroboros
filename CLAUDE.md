@@ -161,5 +161,10 @@ consumer before changing a shape
 contract once and hold it under push-back, and prove any new test fails without
 the fix
 ([`regression-test-discipline`](skills/regression-test-discipline/SKILL.md)).
+Before pushing, audit the class the finding belongs to rather than the single
+location it named, including any member the fix creates by making a path
+reachable
+([`github-review-coordinator`](skills/github-review-coordinator/SKILL.md)); a
+class that turns out to be complete is a result worth stating, not a null one.
 Reply to every bot thread, including already-fixed and rejected ones, and expect
 another bot pass after each push.

@@ -104,6 +104,38 @@ Verify the specific thing the change claims, with the tool that decides it:
 If a check is genuinely too slow to complete locally, say so and let the user
 decide whether to spend the CI cycle — that is their call, not a default.
 
+### Audit the class before pushing, not the instance
+
+A finding names one location. The fix is not done until you have looked for the
+other members of the class it belongs to, because the named instance is rarely
+the only one. This is a pre-push step in its own right, not a way to avoid the
+next bot round — it pays exactly the same when no bot is going to run.
+
+Three shapes the audit takes, all of which found something in one sweep:
+
+- **The same defect at sibling call sites.** A typed-nil guard had been added to
+  the `ValidateTx` path in three eras while the `CertDeposit` function beside it
+  in each of those files kept an `ok`-only assertion and dereferenced straight
+  after. One site per file was fixed; three were not, and the era that *was*
+  complete had both a guard and a test, which is what identified the rest as
+  members rather than a separate issue.
+- **Members the fix itself creates.** Correcting a validator that rejected a
+  self-proposed governance action made two further validators reachable for the
+  first time; both had classified the action from ledger state alone and would
+  now be escaped. Audit what a fix *unblocks*, not only what resembles it. This
+  one is invisible to a grep for the original symptom.
+- **A class that turns out to be complete.** That is a result, not a null one.
+  Say so and say why the boundary falls where it does: a duplicate-input rule
+  that never reads the ledger state it is passed cannot be fixed by replaying
+  history, while a bad-inputs rule that does read it can, so the two belong to
+  different classes however similar the errors look.
+
+When the class is complete because the root cause is upstream, check the
+reference runs **both** ways. A downstream workaround usually cites the upstream
+issue; the upstream issue rarely cites the workaround, and it is the upstream
+fix that later strands it. Machinery whose last reachable member has been
+removed outlives everyone who knew why it existed.
+
 ### Bot silence is not a clean bill of health
 
 An exhausted quota produces exactly the same evidence as a flawless change: no
@@ -289,6 +321,9 @@ pushing a fix, do the pass the bot would do:
   present in siblings. After fixing a bounded wait that mishandled simultaneous
   readiness, search every other `select` on a done-channel plus `ctx.Done()` in
   the change — the second and third copies are where the next finding comes from.
+  The full discipline, including the members a fix creates by making paths
+  reachable, is under
+  [Audit the class before pushing](#audit-the-class-before-pushing-not-the-instance).
 - **Prefer one implementation to a repeated pattern.** Two copies of a
   bounded-wait helper will eventually disagree. Collapsing them so the subtle
   part exists once removes the whole class rather than one member of it.
