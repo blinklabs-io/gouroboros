@@ -131,6 +131,11 @@ type Client struct {
 	// beforeRequestReservation is a test synchronization point immediately
 	// before the atomic admission and reservation step.
 	beforeRequestReservation func()
+	// beforeInFlightWait is a test synchronization point immediately before a
+	// pipelined caller parks on the in-flight byte bound. The park is
+	// otherwise unobservable, and the ordering it establishes is what proves
+	// a parked caller holds nothing another caller needs.
+	beforeInFlightWait func()
 }
 
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
@@ -630,9 +635,41 @@ func (c *Client) hasInFlightCapacityLocked(expectedBytes uint64) bool {
 		expectedBytes <= limit-c.inFlightBytes
 }
 
+// waitForInFlightCapacity blocks until the in-flight byte budget can admit
+// expectedBytes. It is called without rangeSendToken held, so a caller parked
+// on the byte bound never delays another caller's queue append and send.
+func (c *Client) waitForInFlightCapacity(
+	ctx context.Context,
+	protocolDone <-chan struct{},
+	expectedBytes uint64,
+) error {
+	for {
+		c.queueMutex.Lock()
+		if c.hasInFlightCapacityLocked(expectedBytes) {
+			c.queueMutex.Unlock()
+			return nil
+		}
+		waitChan := c.bytesFreed
+		c.queueMutex.Unlock()
+		if c.beforeInFlightWait != nil {
+			c.beforeInFlightWait()
+		}
+		select {
+		case <-waitChan:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-protocolDone:
+			return protocol.ErrProtocolShuttingDown
+		}
+	}
+}
+
 // sendRequestRange appends a request to the outstanding queue and sends its
-// MsgRequestRange. A context-aware send token keeps queue and wire order in
-// sync without holding queueMutex while a full protocol send queue blocks.
+// MsgRequestRange. A context-aware send token covers only the queue append and
+// the MsgRequestRange enqueue, so FIFO queue order always matches wire order
+// without holding queueMutex while a full protocol send queue blocks. Waiting
+// for in-flight capacity happens outside the token; the reservation is
+// rechecked under it, and the token is handed back before parking again.
 func (c *Client) sendRequestRange(
 	ctx context.Context,
 	start pcommon.Point,
@@ -647,48 +684,56 @@ func (c *Client) sendRequestRange(
 	}
 	proto := c.ProtocolInstance()
 	protocolDone := proto.DoneChan()
-	select {
-	case <-c.rangeSendToken:
-		defer func() {
-			c.rangeSendToken <- struct{}{}
-		}()
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-protocolDone:
-		return nil, protocol.ErrProtocolShuttingDown
-	}
+	var req *rangeRequest
 	for {
-		c.queueMutex.Lock()
-		if pipelined && !c.hasInFlightCapacityLocked(expectedBytes) {
-			waitChan := c.bytesFreed
-			c.queueMutex.Unlock()
-			select {
-			case <-waitChan:
-				continue
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-protocolDone:
-				return nil, protocol.ErrProtocolShuttingDown
+		if pipelined {
+			if err := c.waitForInFlightCapacity(
+				ctx,
+				protocolDone,
+				expectedBytes,
+			); err != nil {
+				return nil, err
 			}
 		}
+		select {
+		case <-c.rangeSendToken:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-protocolDone:
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		c.queueMutex.Lock()
+		if pipelined && !c.hasInFlightCapacityLocked(expectedBytes) {
+			// Another caller took the capacity between the wait and the
+			// token. Hand the token back before parking again so no other
+			// caller is held behind this one.
+			c.queueMutex.Unlock()
+			c.rangeSendToken <- struct{}{}
+			continue
+		}
+		c.nextRequestId++
+		req = &rangeRequest{
+			id:            c.nextRequestId,
+			protocol:      proto,
+			delivery:      delivery,
+			pipelined:     pipelined,
+			reservedBytes: expectedBytes,
+			busyToken:     busyToken,
+			hasBusyToken:  busyToken != 0,
+			startChan:     make(chan error, 1),
+			blockChan:     make(chan ledger.Block, 1),
+			doneChan:      make(chan error, 1),
+		}
+		c.queue = append(c.queue, req)
+		c.inFlightBytes += expectedBytes
+		c.queueMutex.Unlock()
 		break
 	}
-	c.nextRequestId++
-	req := &rangeRequest{
-		id:            c.nextRequestId,
-		protocol:      proto,
-		delivery:      delivery,
-		pipelined:     pipelined,
-		reservedBytes: expectedBytes,
-		busyToken:     busyToken,
-		hasBusyToken:  busyToken != 0,
-		startChan:     make(chan error, 1),
-		blockChan:     make(chan ledger.Block, 1),
-		doneChan:      make(chan error, 1),
-	}
-	c.queue = append(c.queue, req)
-	c.inFlightBytes += expectedBytes
-	c.queueMutex.Unlock()
+	// The token is held from the queue append through the MsgRequestRange
+	// enqueue, which is what keeps queue order equal to wire order.
+	defer func() {
+		c.rangeSendToken <- struct{}{}
+	}()
 	err := proto.SendMessageContext(ctx, NewMsgRequestRange(start, end))
 	if err != nil {
 		// The request never reached the wire, so it can be removed without

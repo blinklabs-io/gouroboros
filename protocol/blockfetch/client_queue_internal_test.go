@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -311,6 +312,80 @@ func TestRequestRangeAdmissionAndReservationAreAtomic(t *testing.T) {
 	defer c.queueMutex.Unlock()
 	require.Len(t, c.queue, 1)
 	require.Equal(t, uint64(1), c.inFlightBytes)
+}
+
+// TestInFlightWaitDoesNotBlockOtherCallers covers the wedge: a pipelined
+// caller parked on the in-flight byte bound must not hold the send token,
+// because every other request path shares it. GetBlockRange and GetBlock pass
+// context.Background(), so a caller wedged behind the parked request would
+// only be released by protocol shutdown.
+func TestInFlightWaitDoesNotBlockOtherCallers(t *testing.T) {
+	c := newStartedQueueTestClient(t, &Config{
+		RequestPipelining: true,
+		MaxInFlightBytes:  1,
+		RangeDoneFunc: func(CallbackContext, error) error {
+			return nil
+		},
+	})
+	waiting := make(chan struct{})
+	var waitingOnce sync.Once
+	c.beforeInFlightWait = func() {
+		waitingOnce.Do(func() { close(waiting) })
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// The first request takes the whole bound. The test peer never answers,
+	// so nothing retires it and nothing releases capacity.
+	_, err := c.RequestRange(ctx, RangeRequest{ExpectedBytes: 1})
+	require.NoError(t, err)
+
+	// The second request cannot be admitted and parks on the byte bound.
+	blocked := make(chan error, 1)
+	go func() {
+		_, err := c.RequestRange(ctx, RangeRequest{ExpectedBytes: 1})
+		blocked <- err
+	}()
+	select {
+	case <-waiting:
+	case err := <-blocked:
+		t.Fatalf("second request was not held by the byte bound: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("second request never reached the in-flight wait")
+	}
+
+	// A concurrent GetBlockRange must still reach the wire. It blocks
+	// afterwards waiting for MsgStartBatch, which the test peer never sends,
+	// so the observable is its queue entry rather than its return.
+	go func() {
+		_ = c.GetBlockRange(pcommon.Point{}, pcommon.Point{})
+	}()
+	require.Eventually(t, func() bool {
+		c.queueMutex.Lock()
+		defer c.queueMutex.Unlock()
+		for _, queued := range c.queue {
+			if !queued.pipelined {
+				return true
+			}
+		}
+		return false
+	}, time.Second, time.Millisecond,
+		"GetBlockRange never queued its request: it is wedged behind a RequestRange parked on the in-flight byte bound",
+	)
+
+	// The parked request is still parked, holding nothing.
+	select {
+	case err := <-blocked:
+		t.Fatalf("second request was admitted past the bound: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-blocked:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("parked RequestRange did not return after cancellation")
+	}
 }
 
 func TestRequestRangeContextCancelsBlockedSend(t *testing.T) {
