@@ -150,6 +150,39 @@ For every rule a fix adds, test both that the valid input is accepted and that
 the invalid one is refused. A fix that only proves the happy path still works
 has not been tested at all.
 
+## A test that measures duration is measuring the machine
+
+An assertion on elapsed time states something about the host as much as the
+code, so say which part is the claim.
+
+**Never assert an absolute threshold or a raw growth ratio.** One sweep asserting
+`ratio < 1.5` produced 2.6x on CI and 0.45x on a developer machine from the same
+commit: it was measuring page cache and commit behaviour, not the index under
+test. Compare against a control built in the same process that differs only in
+the thing being tested, and read the comparison where the signal is widest —
+usually the largest input, not the smallest, because that is where the effect
+clears the timing floor by the largest margin.
+
+**A ratio of two noisy samples is noise.** A first-to-last ratio of one store's
+own measurements lands either side of 1 from run to run. Take both terms at the
+same position so both carry whatever contention the run is under; a maximum
+taken across phases imports the single most contended phase into a comparison
+against a term measured elsewhere.
+
+**Handle a clock too coarse to resolve the work.** On a platform whose timer
+granularity exceeds the operation, every sample is zero, a ratio of zeroes is
+NaN, and an ordering assertion reports something like
+`Can not compare type "float64"` — which reads as a type bug rather than as an
+unmeasurable run. Detect the zero sample and skip, naming the input size and the
+samples. Raising the workload until every platform clears its floor slows the
+suite everywhere to keep one platform honest, and asserting anyway reports a
+timer resolution as a regression in the code.
+
+**Run the whole package, not the filtered test.** A `-run` filter is quiet in a
+way the real suite is not: sibling `t.Parallel()` tests are the contention these
+measurements pick up, and a threshold calibrated without them is calibrated
+against a machine nobody has.
+
 ## Do not weaken a test to make it pass
 
 When an existing test fails after a fix, decide which is wrong. If the fix is

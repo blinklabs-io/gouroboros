@@ -2,6 +2,11 @@
 
 ## Required sequence
 
+Adding a job to the required set is a base-branch operation: checks run against
+the merge ref, so requiring a job while the base is red blocks every open pull
+request at once. Land the fix, confirm the base is green, then require it, using
+the rendered context string from a run.
+
 1. Discover pull requests requested directly from the authenticated account and
    from any of its teams. If team memberships cannot be queried, report the
    search as incomplete rather than claiming there are no review requests.

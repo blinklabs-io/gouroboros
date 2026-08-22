@@ -168,6 +168,39 @@ comments on the author's last reply instead, because a head-relative cutoff
 silently drops feedback that predates a push. The ad-hoc sweep that dropped the
 SHA was re-implementing that script, worse, next to it.
 
+### A push can land while the pull request keeps the old head
+
+`git push` updates the ref and GitHub advances the pull request's head as a
+separate step, and the second can fail. The symptom set is distinctive: the push
+prints `! [remote rejected] ... cannot lock ref ...: is at <new> but expected
+<old>`, which reads as a failure while naming the new commit as already present;
+`git ls-remote origin refs/heads/<branch>` shows the new SHA; and the pull
+request still reports the old head, the old commit count, and **green checks for
+the commit before the fix**. Reading those checks as validation of the pushed
+work is the whole hazard.
+
+`ls-remote` is the authority for the ref, the API is the authority for what the
+pull request believes. When they disagree, wait and re-read once: ordinary lag
+resolves in seconds and needs nothing. Only a disagreement that persists is a
+desync, and closing and reopening the pull request forces GitHub to re-read the
+ref. Do not push again to nudge it — the ref is already correct, so there is
+nothing to push, and an empty commit pollutes history to work around a display
+problem.
+
+### Two green pull requests can merge red
+
+Checks run against the **merge ref**, not the branch, so a pull request is tested
+against a base it does not contain. A test added on the base that constrains
+something the branch introduces fails only in that combination, and both sides
+are honestly green alone: an exhaustiveness test requiring every config field to
+carry a log class merged at one hour, and a branch adding three such fields
+turned red at the next run without either changing.
+
+Read such a failure as a base interaction before treating it as a branch defect,
+especially when the failing test lives in a file the branch never touched. The
+fix is to merge the base in and satisfy the new constraint, not to argue with the
+test.
+
 ### Bot silence is not a clean bill of health
 
 An exhausted quota produces exactly the same evidence as a flawless change: no
@@ -369,6 +402,24 @@ pushing a fix, do the pass the bot would do:
 - **Check that a stress test can actually fail.** Run it against the revision
   you just fixed. If it passes there, it is coverage of something else — say so
   in its doc comment rather than letting a green run imply coverage it lacks.
+
+## Do not add a required check while the base is red
+
+Making a job required is the right response to breakage that went unnoticed, and
+the wrong thing to do at the moment you notice it. Checks run against the merge
+ref, so every open pull request inherits the base's failure; requiring the job
+while the base is broken turns all of them red and unmergeable at once,
+including ones whose own code is fine. `strict: false` does not help, because
+the merge ref still carries the base.
+
+Land the fix, confirm the base is green, then require the job. Read the exact
+context string from a run rather than composing it from the workflow — a matrix
+job's context is its rendered name, `go-test (windows-latest) (1.26.x)`, not the
+workflow name — and add it to the existing list rather than replacing it.
+
+A job that is not required is where cross-platform breakage accumulates: one
+repository's Windows job stayed red across several commits and collected a
+second, unrelated failure on top before anyone looked.
 
 ## Squash merge gate
 

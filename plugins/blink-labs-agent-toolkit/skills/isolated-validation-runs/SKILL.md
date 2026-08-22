@@ -62,6 +62,18 @@ signature change on one side and a call site on the other can compile cleanly
 under one tag set and break under another, so the error appears only when the
 tags match CI's.
 
+Two CI jobs can also disagree with each other. Dingo's `go-test (Linux)` passes
+`-tags dingo_extra_plugins` while `go-test-windows` runs bare `go test ./...`,
+so a test file that omits the constraint carried by the file it tests compiles
+in both jobs and only fails in the one without the tag. That is how
+`undefined: NewWithOptions` kept `go-test-windows` red across several commits
+while every Linux run stayed green.
+
+A test file belongs to the same build as its subject: if `database.go` is behind
+`//go:build dingo_extra_plugins`, so is its test. Reproduce that class without
+the other platform by dropping the tag — `go vet ./...` with no tags is the
+Windows job's shape, and it names the undefined symbol immediately.
+
 ## Background task discipline
 
 A completion notification is not a result. For every backgrounded or long check:
@@ -80,6 +92,14 @@ A completion notification is not a result. For every backgrounded or long check:
    dismissing a real defect, and a stale pass invites shipping one. When in
    doubt, stop the run and start it again rather than reasoning about which
    files it saw.
+
+A pipeline can manufacture both halves of a false result. `go test ... | grep -E
+… | head -20` reports **`head`'s** exit status, not the suite's, and closes the
+stream early so the log stops before the failures and before the trailing
+`ok`/`FAIL` line. The output then shows a run of passes and an exit code of
+zero for a suite that never finished. Redirect to a file and read that, or put
+the filter after the status check — never let `head`, `tail` or an early-closing
+consumer sit at the end of a pipeline whose exit code is being trusted.
 
 Do not stop, restart, or reconfigure a live node or an in-flight validation run
 while diagnosing it unless the task explicitly authorizes that intervention.
@@ -100,6 +120,12 @@ The running state is usually the only evidence.
 Never use `time.Sleep()` to synchronize a test. Use the repository's wait
 helpers — in Dingo, `internal/test/testutil/WaitForCondition` and
 `RequireReceive` — or a context with a timeout.
+
+Synchronising on time and *asserting* on it are separate problems. For a test
+that measures elapsed time and compares it, see
+[regression-test-discipline](../regression-test-discipline/SKILL.md): such a
+test states something about the host as much as the code, and needs a control
+and a guard for a clock too coarse to resolve the work.
 
 ## Preserve the evidence
 
