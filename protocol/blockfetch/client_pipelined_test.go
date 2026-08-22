@@ -16,6 +16,7 @@ package blockfetch_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -391,7 +392,7 @@ func TestGetBlockRangeUnaffectedByPipelining(t *testing.T) {
 	select {
 	case res := <-h.done:
 		t.Fatalf("unexpected RangeDoneFunc call for request %d", res.requestId)
-	default:
+	case <-time.After(testTimeout):
 	}
 }
 
@@ -573,6 +574,10 @@ func TestRequestRangeInFlightByteBound(t *testing.T) {
 	}
 	firstBlockEntered := make(chan struct{})
 	releaseFirstBlock := make(chan struct{})
+	var releaseFirstBlockOnce sync.Once
+	release := func() {
+		releaseFirstBlockOnce.Do(func() { close(releaseFirstBlock) })
+	}
 	blocks := make(chan deliveredBlock, 16)
 	h := newPipelineHarness(
 		t,
@@ -592,7 +597,10 @@ func TestRequestRangeInFlightByteBound(t *testing.T) {
 			},
 		),
 	)
-	defer h.close(t)
+	defer func() {
+		release()
+		h.close(t)
+	}()
 	nextBlock := func() deliveredBlock {
 		t.Helper()
 		select {
@@ -640,7 +648,7 @@ func TestRequestRangeInFlightByteBound(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		// Still blocked, as required
 	}
-	close(releaseFirstBlock)
+	release()
 	require.Equal(t, deliveredBlock{requestId: 1, slot: 100}, nextBlock())
 	first := h.nextDone(t)
 	require.Equal(t, uint64(1), first.requestId)

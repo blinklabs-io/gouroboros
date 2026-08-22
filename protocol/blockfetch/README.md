@@ -131,10 +131,11 @@ if err := client.GetBlockRange(startPoint, endPoint); err != nil {
 
 ## Request Pipelining
 
-`MsgBlock` is the pipelined message of this mini-protocol, and `cardano-node`
-runs up to 100 outstanding requests per peer. A client that waits for a batch
-to finish before sending the next request idles the peer for a round trip at
-every batch boundary.
+`MsgRequestRange` is the pipelined client message of this mini-protocol, while
+`MsgBlock` is the server response that streams blocks back. `cardano-node` runs
+up to 100 outstanding requests per peer. A client that waits for a batch to
+finish before sending the next request idles the peer for a round trip at every
+batch boundary.
 
 A client configured with `RequestPipelining` keeps a FIFO queue of outstanding
 `MsgRequestRange`. Responses are ordered, so queue position identifies the

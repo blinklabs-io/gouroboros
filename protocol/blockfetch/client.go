@@ -582,7 +582,7 @@ func (c *Client) RequestRange(
 			"block-fetch RequestRange requires a RangeDoneFunc callback",
 		)
 	}
-	c.Protocol.Logger().
+	c.ProtocolInstance().Logger().
 		Debug(
 			fmt.Sprintf("calling RequestRange(start: {Slot: %d, Hash: %x}, end: {Slot: %d, Hash: %x})",
 				req.Start.Slot,
@@ -869,9 +869,10 @@ func (c *Client) failOutstanding(err error) {
 	c.queueMutex.Lock()
 	pending := c.drainLocked()
 	c.queueMutex.Unlock()
+	logger := c.ProtocolInstance().Logger()
 	for _, req := range pending {
 		if resolveErr := c.resolve(req, err); resolveErr != nil {
-			c.Protocol.Logger().
+			logger.
 				Warn("range done callback failed during shutdown",
 					"component", "network",
 					"protocol", ProtocolName,

@@ -46,13 +46,22 @@ func newQueueTestClient(cfg *Config) *Client {
 	}, cfg)
 }
 
-// newStartedQueueTestClient provides a live protocol send queue while draining
-// the other side of an in-memory connection. It deliberately sends no peer
-// responses, leaving accepted requests outstanding for queue assertions.
-func newStartedQueueTestClient(t *testing.T, cfg *Config) *Client {
+// newInMemoryPeer is the shared transport fixture for queue tests that need a
+// live muxer. ouroboros-mock emits one muxer segment per message, so it cannot
+// inject the multi-segment oversized messages exercised by the Idle ingress
+// tests below.
+func newInMemoryPeer(
+	t *testing.T,
+	cfg *Config,
+	startMuxer bool,
+	errorChan chan error,
+) *idlePeer {
 	t.Helper()
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
+	if startMuxer {
+		m.Start()
+	}
 	peerDone := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(io.Discard, peerConn)
@@ -63,8 +72,9 @@ func newStartedQueueTestClient(t *testing.T, cfg *Config) *Client {
 			LocalAddr:  localConn.LocalAddr(),
 			RemoteAddr: localConn.RemoteAddr(),
 		},
-		Muxer: m,
-		Mode:  protocol.ProtocolModeNodeToNode,
+		Muxer:     m,
+		ErrorChan: errorChan,
+		Mode:      protocol.ProtocolModeNodeToNode,
 	}, cfg)
 	c.Start()
 	t.Cleanup(func() {
@@ -84,7 +94,15 @@ func newStartedQueueTestClient(t *testing.T, cfg *Config) *Client {
 			t.Error("peer drain did not stop")
 		}
 	})
-	return c
+	return &idlePeer{client: c, conn: peerConn, errorChan: errorChan}
+}
+
+// newStartedQueueTestClient provides a live protocol send queue while draining
+// the other side of an in-memory connection. It deliberately sends no peer
+// responses, leaving accepted requests outstanding for queue assertions.
+func newStartedQueueTestClient(t *testing.T, cfg *Config) *Client {
+	t.Helper()
+	return newInMemoryPeer(t, cfg, false, nil).client
 }
 
 func (c *Client) appendTestRequest(reservedBytes uint64) *rangeRequest {
@@ -364,8 +382,9 @@ func TestInFlightWaitDoesNotBlockOtherCallers(t *testing.T) {
 	// A concurrent GetBlockRange must still reach the wire. It blocks
 	// afterwards waiting for MsgStartBatch, which the test peer never sends,
 	// so the observable is its queue entry rather than its return.
+	legacyDone := make(chan error, 1)
 	go func() {
-		_ = c.GetBlockRange(pcommon.Point{}, pcommon.Point{})
+		legacyDone <- c.GetBlockRange(pcommon.Point{}, pcommon.Point{})
 	}()
 	require.Eventually(t, func() bool {
 		c.queueMutex.Lock()
@@ -392,6 +411,13 @@ func TestInFlightWaitDoesNotBlockOtherCallers(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(time.Second):
 		t.Fatal("parked RequestRange did not return after cancellation")
+	}
+	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	select {
+	case err := <-legacyDone:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("GetBlockRange was not released by shutdown")
 	}
 }
 
@@ -466,6 +492,10 @@ func TestOldProtocolShutdownDoesNotFailRestartedRequests(t *testing.T) {
 		protocol.ErrProtocolShuttingDown,
 	)
 	require.Equal(t, []uint64{req.id}, completions)
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.Empty(t, c.queue)
+	require.Zero(t, c.inFlightBytes)
 }
 
 // idleLimitObservationWindow bounds both halves of the Idle-state ingress
@@ -486,43 +516,8 @@ type idlePeer struct {
 
 func newIdlePeer(t *testing.T, cfg *Config) *idlePeer {
 	t.Helper()
-	localConn, peerConn := net.Pipe()
-	m := muxer.New(localConn)
-	m.Start()
-	peerDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(io.Discard, peerConn)
-		close(peerDone)
-	}()
 	errorChan := make(chan error, 10)
-	c := NewClient(protocol.ProtocolOptions{
-		ConnectionId: connection.ConnectionId{
-			LocalAddr:  localConn.LocalAddr(),
-			RemoteAddr: localConn.RemoteAddr(),
-		},
-		Muxer:     m,
-		ErrorChan: errorChan,
-		Mode:      protocol.ProtocolModeNodeToNode,
-	}, cfg)
-	c.Start()
-	t.Cleanup(func() {
-		proto := c.ProtocolInstance()
-		proto.Stop()
-		select {
-		case <-proto.DoneChan():
-		case <-time.After(time.Second):
-			t.Error("protocol did not stop")
-		}
-		c.failOutstanding(protocol.ErrProtocolShuttingDown)
-		m.Stop()
-		_ = peerConn.Close()
-		select {
-		case <-peerDone:
-		case <-time.After(time.Second):
-			t.Error("peer drain did not stop")
-		}
-	})
-	return &idlePeer{client: c, conn: peerConn, errorChan: errorChan}
+	return newInMemoryPeer(t, cfg, true, errorChan)
 }
 
 // send writes a message to the client as raw muxer segments, splitting it
