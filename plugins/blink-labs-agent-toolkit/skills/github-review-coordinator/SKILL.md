@@ -340,7 +340,10 @@ Mechanics worth knowing:
   configure. Check whether the rule exists here before complying with it.
 - A finding about a pre-existing, organization-wide condition raised on an
   unrelated diff belongs in an issue for the whole organization, not in a
-  one-off change to the file that happened to be touched.
+  one-off change to the file that happened to be touched. Open it with no
+  milestone: milestones here track an on-chain governance commitment scoped to
+  block production, so assigning one is a scope decision a human makes. See
+  [`commit-and-pr-hygiene`](../commit-and-pr-hygiene/SKILL.md).
 
 Use GitHub's UI or API for reviewer requests and dismissal. Do not claim a
 review, approval, re-request, or dismissal occurred unless GitHub shows it.

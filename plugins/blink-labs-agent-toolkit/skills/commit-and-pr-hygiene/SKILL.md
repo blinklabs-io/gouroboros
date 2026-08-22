@@ -1,6 +1,6 @@
 ---
 name: commit-and-pr-hygiene
-description: Write Blink Labs commits, pull request descriptions, and review comments that meet organization policy — Conventional Commits, DCO sign-off, short factual messages, no committed plan files, and submodule pointer updates kept separate from source changes. Use before every commit, when opening or updating a pull request, or when writing review comments.
+description: Write Blink Labs commits, pull request descriptions, issues, and review comments that meet organization policy — Conventional Commits, DCO sign-off, short factual messages, no committed plan files, milestones left off new issues because they carry an on-chain governance commitment, and submodule pointer updates kept separate from source changes. Use before every commit, when opening or updating a pull request, when opening or triaging an issue, or when writing review comments.
 ---
 
 # Commit and PR Hygiene
@@ -119,6 +119,39 @@ to its author.
 
 This is the same standard as the no-storytelling rule for commit bodies. Prefer
 editing a comment that broke it over posting another one that explains the first.
+
+## Milestones are a governance commitment, not a backlog label
+
+**Open new issues with no milestone.** Leave the field empty unless the issue is
+required by a milestone's already-committed scope.
+
+Milestones in this organization are linked to the Dingo treasury withdrawal
+governance action on Cardano. Their scope is fixed and was committed on chain,
+and it covers **block production**. A milestone is therefore a statement about
+what was funded, not a bucket for related work. Adding an issue to one restates
+that commitment, so the default is to leave it off and let a human decide.
+
+Out of scope for the block-production commitment, however plausibly related the
+work looks:
+
+| Out of scope | Notes |
+|---|---|
+| API mode | Serving APIs is not block production. |
+| Cloud storage backends | S3, GCS, and other remote blob or snapshot stores. |
+| Anything a block producer does not need to forge and diffuse blocks | The test is necessity, not adjacency. |
+
+Rules that follow from this:
+
+- The same milestone titles appear in more than one repository and feed the same
+  commitment. `gouroboros` milestones are not a separate, looser namespace.
+- Do not infer scope from a sibling issue. An existing issue carrying a
+  milestone is not evidence that a new one belongs there; it may predate the
+  commitment or have been placed deliberately by a human.
+- Do not remove a milestone a human set. Adding and removing are both scope
+  decisions.
+- When an issue looks like it genuinely belongs, still open it unmilestoned and
+  say so in the handoff, naming the milestone and why. One sentence to a person
+  is cheap; an unasked-for change to committed scope is not.
 
 ## Review loop
 

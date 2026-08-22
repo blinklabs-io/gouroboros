@@ -41,6 +41,30 @@ or a `--help` on the runner script settles it in one command. If a required suit
 genuinely is too slow to finish locally, say so with the measured or documented
 duration and let the user decide — that is their call, not a default.
 
+### Ask for network before writing up the gap
+
+The same rule applies to a fact the sandbox blocks. When an investigation stalls
+on something that needs the network, a live service, or a public relay, ask for
+the permission and get the fact. Do not write the gap up as an open question and
+hand it back.
+
+A comment saying "blocked on preprod blocks around slot 86400" is worth nothing
+next to the blocks themselves. `dangerouslyDisableSandbox: true` on Bash prompts
+the user, which is the point — one prompt beats a paragraph of hedging. An
+earlier sandboxed attempt dying on `socket: operation not permitted` is a signal
+to ask, not a finding to report.
+
+For Cardano facts specifically:
+
+| Need | Source |
+|---|---|
+| Raw block CBOR, authoritative and reusable as a fixture | A small gouroboros blockfetch client against a public relay: `preprod-node.play.dev.cardano.org:3001`, `preview-node.play.dev.cardano.org:3001`, `backbone.cardano.iog.io:3001` |
+| Locating a block by `abs_slot` | Koios, `{net}.koios.rest/api/v1` — but it omits Byron EBBs and gates some `tx_info` fields, so use it to find points and the relay to read bytes |
+| Reference-implementation behavior | `raw.githubusercontent.com/IntersectMBO/cardano-ledger`, fetching the era's own file, since a later era may shadow the function |
+
+Pair every absence claim with a control proving the method would have shown the
+thing had it been there.
+
 ## Evidence ledger
 
 The ledger is task-handoff material for the requester. Do not copy it, its

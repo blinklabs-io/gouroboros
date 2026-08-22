@@ -114,6 +114,27 @@ Use the focused skills when applicable:
 - Workspace or submodule changes: run `git diff --check`, review
   `git diff --submodule=log`, and verify `git submodule status --recursive`.
 
+## Float Go toolchain and scanner versions
+
+Blink Labs floats Go toolchains and Go scanners on purpose — `1.25.x`, and
+`golangci-lint-action` with no `version:` input, along with govulncheck and
+nilaway. A floating version forces a problem to be fixed when it arises; a pin
+defers it and hides it behind a stale toolchain.
+
+- Never propose pinning a version to make a check pass, and reject bot
+  suggestions that do. Cubic proposed pinning go1.26.6 on cdnsd#633; floating
+  was the fix.
+- Scanners may run ahead of the toolchain that ships, and should. The scan is
+  wanted against the newest stdlib and the newest advisory data, so do not pull
+  a scanner back to match `publish.yml`.
+- What protects a release is that `publish.yml` floats too. An exact pin *there*
+  is the real defect: cdnsd shipped on `1.25.12` carrying five advisories that
+  `1.25.13` had already fixed.
+- Exact pins rot into failures on diffs that touch nothing related. A check
+  failing for no reason the diff explains is usually base-branch toolchain
+  drift — reproduce it on `origin/main` with CI's resolved tool version before
+  touching the pull request.
+
 ## Governance and commits
 
 - Follow the organization guidance in `repos/.github/CONTRIBUTING.md` and
