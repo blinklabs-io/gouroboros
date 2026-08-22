@@ -48,14 +48,30 @@ All limits are based on the [Ouroboros Network Specification](https://ouroboros-
 - `BusyTimeout = 5s` - Timeout for server to start batch or respond no blocks
 - `StreamingTimeout = 60s` - Timeout for server to send next block in batch
 
+**Request pipelining constants:**
+- `DefaultMaxInFlightBytes = 9011200` - Bound on the expected size of
+  outstanding pipelined range requests, matching `cardano-node`'s
+  `blockFetchProtocolLimits`: `blockFetchPipeliningMax` (100) times the maximum
+  block body size (88 KiB)
+- `DefaultRequestExpectedBytes = 90112` - Size charged to a request whose
+  caller supplied no estimate (one maximum-size block body), which makes the
+  default bound degrade to 100 outstanding requests
+- `PipelinedIdleMaxPendingMessageBytes` - Idle-state ingress limit for a
+  pipelining client, which must admit a block because the peer's response to
+  the next request can arrive while the state machine is momentarily back in
+  Idle
+
 **Enforcement:**
 - Configuration validation with panic on invalid values
 - Queue size limits enforced by protocol framework
 - Per-state pending message byte limits enforced with connection teardown on violation
 - State transition timeouts enforced with connection teardown on timeout
+- Outstanding pipelined requests bounded in bytes, blocking the caller of
+  `Client.RequestRange` rather than terminating the connection
 
 **Files modified:**
 - `protocol/blockfetch/blockfetch.go` - Added constants, validation, and documentation
+- `protocol/blockfetch/client.go` - Outstanding request queue and in-flight byte bound
 
 ### TxSubmission Protocol
 
