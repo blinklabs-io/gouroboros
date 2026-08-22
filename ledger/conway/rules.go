@@ -2354,30 +2354,23 @@ func UtxoValidatePlutusScripts(
 	}
 
 	// Resolve all inputs (regular + reference) for building script context
-	inputCount := len(tx.Inputs()) + len(tx.ReferenceInputs())
-	resolvedInputs := make([]common.Utxo, 0, inputCount)
-	resolvedInputsMap := make(map[string]common.Utxo)
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			return common.InputResolutionError{
-				Input: input,
-				Err:   err,
-			}
-		}
-		resolvedInputs = append(resolvedInputs, utxo)
-		resolvedInputsMap[input.String()] = utxo
+	inputsResolved, refInputsResolved, err := script.ResolveTxInputs(tx, ls)
+	if err != nil {
+		return err
 	}
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		resolvedInputs = append(resolvedInputs, utxo)
-		resolvedInputsMap[refInput.String()] = utxo
+	resolvedInputs := script.ConcatResolvedInputs(
+		inputsResolved,
+		refInputsResolved,
+	)
+	resolvedInputsMap := make(
+		map[string]common.Utxo,
+		len(inputsResolved)+len(refInputsResolved),
+	)
+	for i, input := range tx.Inputs() {
+		resolvedInputsMap[input.String()] = inputsResolved[i]
+	}
+	for i, refInput := range tx.ReferenceInputs() {
+		resolvedInputsMap[refInput.String()] = refInputsResolved[i]
 	}
 
 	// Build TxInfo lazily based on script version
@@ -2387,33 +2380,7 @@ func UtxoValidatePlutusScripts(
 	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
 
 	// Collect all available scripts (witness scripts + reference scripts)
-	availableScripts := make(map[common.ScriptHash]common.Script)
-
-	// Add witness scripts
-	for _, s := range witnesses.PlutusV1Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range witnesses.PlutusV2Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range witnesses.PlutusV3Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range common.PlutusV4ScriptsFromWitnessSet(witnesses) {
-		availableScripts[s.Hash()] = s
-	}
-
-	// Add reference scripts from resolved inputs
-	for _, utxo := range resolvedInputs {
-		if utxo.Output == nil {
-			continue
-		}
-		scriptRef := utxo.Output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-		availableScripts[scriptRef.Hash()] = scriptRef
-	}
+	availableScripts := script.AvailablePlutusScripts(tx, resolvedInputs)
 
 	// Get sorted inputs for redeemer index mapping.
 	// The Cardano ledger spec requires spend redeemer indices to
