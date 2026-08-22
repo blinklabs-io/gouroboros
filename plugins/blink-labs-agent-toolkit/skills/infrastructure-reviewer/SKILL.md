@@ -12,6 +12,17 @@ lint, and still take a node down, expose a secret, or destroy a volume.
 Read [deployment-checklist.md](references/deployment-checklist.md), then the
 target repository's own instructions.
 
+For implementation, use the focused source skill:
+
+- [blink-helm-chart-maintainer](../blink-helm-chart-maintainer/SKILL.md) for
+  public or private chart code and packaging;
+- [blink-terraform-module-maintainer](../blink-terraform-module-maintainer/SKILL.md)
+  for reusable modules and consumer pins;
+- [blink-ansible-cardano-maintainer](../blink-ansible-cardano-maintainer/SKILL.md)
+  for the Cardano collection and role contract; or
+- [blink-infrastructure-operator](../blink-infrastructure-operator/SKILL.md)
+  for live configuration, explicitly authorized remote reads, and rollouts.
+
 ## Method
 
 1. **Identify the blast radius.** Which environments, clusters, hosts, or

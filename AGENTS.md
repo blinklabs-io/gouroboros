@@ -67,8 +67,12 @@ the scope, acceptance criteria, and relevant context.
   maintainer](skills/go-api-maintainer/SKILL.md), [Go dependency
   auditor](skills/go-dependency-auditor/SKILL.md), [Docker release
   reviewer](skills/docker-release-reviewer/SKILL.md), [infrastructure
-  reviewer](skills/infrastructure-reviewer/SKILL.md), [docs and KB
-  maintainer](skills/docs-kb-maintainer/SKILL.md), and [GitHub review
+  reviewer](skills/infrastructure-reviewer/SKILL.md), [live infrastructure
+  operator](skills/blink-infrastructure-operator/SKILL.md), [Helm chart
+  maintainer](skills/blink-helm-chart-maintainer/SKILL.md), [Terraform module
+  maintainer](skills/blink-terraform-module-maintainer/SKILL.md), [Cardano
+  Ansible maintainer](skills/blink-ansible-cardano-maintainer/SKILL.md), [docs
+  and KB maintainer](skills/docs-kb-maintainer/SKILL.md), and [GitHub review
   coordinator](skills/github-review-coordinator/SKILL.md).
 - Before changing a shape another component depends on — a response body, an
   error path, a public field, an ID format, or a persisted key — read the

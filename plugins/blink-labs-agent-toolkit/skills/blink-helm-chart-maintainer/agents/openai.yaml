@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blink Helm Chart Maintainer"
+  short_description: "Maintain Blink Helm chart contracts and releases"
+  default_prompt: "Use $blink-helm-chart-maintainer to update and validate this Blink Labs Helm chart and its consumers."

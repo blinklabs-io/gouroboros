@@ -79,7 +79,9 @@ forging from more than one signal before declaring it healthy.
    anything skipped. Redact key values, tokens, kubeconfigs, and private
    endpoints. If the evidence points to a Dingo or operator defect, stop at
    evidence collection and switch to `dingo-maintainer` or
-   `infrastructure-reviewer` for implementation.
+   `infrastructure-reviewer` for implementation. Use
+   [blink-infrastructure-operator](../blink-infrastructure-operator/SKILL.md)
+   when the fix is an explicitly authorized live deployment change.
 
 ## Detailed runbook
 

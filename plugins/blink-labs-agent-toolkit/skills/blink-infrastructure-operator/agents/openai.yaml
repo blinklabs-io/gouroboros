@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blink Infrastructure Operator"
+  short_description: "Operate Blink live infrastructure safely"
+  default_prompt: "Use $blink-infrastructure-operator to prepare and safely execute this Blink Labs infrastructure change."

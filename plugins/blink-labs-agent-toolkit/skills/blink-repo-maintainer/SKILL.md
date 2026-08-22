@@ -31,6 +31,14 @@ Use the focused skills when applicable:
   multi-architecture, manifest, and publishing workflows;
 - [infrastructure-reviewer](../infrastructure-reviewer/SKILL.md) for Helm,
   Terraform, Ansible, operator, and compose deployment changes;
+- [blink-infrastructure-operator](../blink-infrastructure-operator/SKILL.md)
+  for live configuration, plans, diffs, approved rollouts, and verification;
+- [blink-helm-chart-maintainer](../blink-helm-chart-maintainer/SKILL.md) for
+  public and private chart source, packaging, releases, and consumer pins;
+- [blink-terraform-module-maintainer](../blink-terraform-module-maintainer/SKILL.md)
+  for reusable Terraform contracts, module tags, and consumer upgrades;
+- [blink-ansible-cardano-maintainer](../blink-ansible-cardano-maintainer/SKILL.md)
+  for the Cardano collection, role releases, and live collection pins;
 - [docs-kb-maintainer](../docs-kb-maintainer/SKILL.md) for public docs and KB
   boundaries;
 - [github-review-coordinator](../github-review-coordinator/SKILL.md) for the
@@ -110,7 +118,8 @@ Use the focused skills when applicable:
   `terraform validate` per Terraform module. Do not substitute a generic Go or
   Docker check for the project's native validation. Use
   [infrastructure-reviewer](../infrastructure-reviewer/SKILL.md) for blast
-  radius, state safety, and secret handling.
+  radius, state safety, and secret handling, then the focused Helm, Terraform,
+  Ansible, or live-infrastructure skill for implementation and operation.
 - Workspace or submodule changes: run `git diff --check`, review
   `git diff --submodule=log`, and verify `git submodule status --recursive`.
 

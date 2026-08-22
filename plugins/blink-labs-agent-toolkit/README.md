@@ -2,7 +2,7 @@
 
 Shared agentic-coding assets for the Blink Labs `clanker` workspace: skills,
 slash commands, review subagents, and workspace guards for Cardano, Go, Docker,
-documentation, and infrastructure work.
+documentation, infrastructure-as-code maintenance, and live operations.
 
 This directory is the canonical source. The workspace `skills/` directory and
 the two guides under `docs/` are symlinks into it, so there is exactly one copy

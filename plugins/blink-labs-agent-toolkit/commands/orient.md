@@ -38,7 +38,9 @@ fixing.
 5. **Select the applicable skills** and say which ones you are loading:
    `cardano-protocol-reviewer`, `cardano-app-reviewer`, `dingo-maintainer`,
    `go-api-maintainer`, `go-dependency-auditor`, `docker-release-reviewer`,
-   `infrastructure-reviewer`, `docs-kb-maintainer`,
+   `infrastructure-reviewer`, `blink-infrastructure-operator`,
+   `blink-helm-chart-maintainer`, `blink-terraform-module-maintainer`,
+   `blink-ansible-cardano-maintainer`, `docs-kb-maintainer`,
    `github-review-coordinator`, `isolated-validation-runs`,
    `evidence-based-handoff`.
 

@@ -56,6 +56,10 @@ the same `SKILL.md` files.
 | `dingo-block-producer-operator` | Operating or troubleshooting an existing Dingo block producer: lifecycle, forging health, KES/opcert rotation, HA, and incident evidence |
 | `docker-release-reviewer` | Docker images, multi-architecture builds, manifests, registry publication |
 | `infrastructure-reviewer` | Helm, Terraform, Ansible, Kubernetes operators, helmfile, compose stacks |
+| `blink-infrastructure-operator` | Live configuration, plans, diffs, approved rollouts, secrets, and post-deploy verification in `infrastructure` and `vpn-infrastructure` |
+| `blink-helm-chart-maintainer` | Public and private Helm chart contracts, rendering, CRD/RBAC sync, OCI releases, and consumer pins |
+| `blink-terraform-module-maintainer` | Reusable Terraform input/output contracts, provider and state safety, module tags, and consumer upgrades |
+| `blink-ansible-cardano-maintainer` | Cardano collection role contracts, idempotence, Galaxy releases, and the pinned live consumer |
 | `docs-kb-maintainer` | Public documentation site content and knowledge-base structure |
 
 ### Process discipline
@@ -90,6 +94,10 @@ All guards fail open: unparseable input exits without blocking.
 | `skills/blink-workspace-navigator/references/ownership-map.md` | Topic-to-repository map, dependency spine, disambiguation traps |
 | `skills/dingo-maintainer/references/dingo-agent-workflow.md` | Dingo investigation, live-run, and review checklist |
 | `skills/infrastructure-reviewer/references/deployment-checklist.md` | Terraform, Helm, Ansible, Kubernetes, and compose review checks |
+| `skills/blink-infrastructure-operator/references/change-workflow.md` | Live repository boundaries, authorization gates, plan/diff commands, and post-change verification |
+| `skills/blink-helm-chart-maintainer/references/chart-contract.md` | Helm values, selector, stateful workload, CRD/RBAC, render-matrix, and release checks |
+| `skills/blink-terraform-module-maintainer/references/module-contract.md` | Terraform API, state-address, provider-family, validation, release-tag, and consumer checks |
+| `skills/blink-ansible-cardano-maintainer/references/collection-contract.md` | Ansible role anatomy, idempotence, lifecycle, validation, Galaxy release, and live pin checks |
 
 ## Validating a toolkit change
 

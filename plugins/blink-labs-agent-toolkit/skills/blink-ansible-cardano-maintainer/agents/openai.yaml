@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blink Ansible Cardano Maintainer"
+  short_description: "Maintain Blink Cardano Ansible roles"
+  default_prompt: "Use $blink-ansible-cardano-maintainer to update this Cardano role, validate the collection, and prepare its pinned consumer upgrade."

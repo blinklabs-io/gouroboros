@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blink Terraform Module Maintainer"
+  short_description: "Maintain Blink Terraform module contracts"
+  default_prompt: "Use $blink-terraform-module-maintainer to evolve this Terraform module and its pinned Blink Labs consumers safely."
