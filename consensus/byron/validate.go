@@ -259,14 +259,16 @@ func (v *HeaderValidator) validateProtocolMagic(
 	return nil
 }
 
-// Byron signature types from CDDL:
+// Byron signature types from the legacy wire format. The pinned
+// cardano-ledger Byron implementation only decodes type 2 for current blocks;
+// types 0 and 1 are retained here for the older OBFT compatibility validator.
 // - Type 0: BlockPSignatureSimple - simple signature [0, signature]
-// - Type 1: BlockPSignatureHeavy - heavy delegation [1, [[epoch, issuerVK, delegateVK, cert], signature]]
-// - Type 2: BlockPSignatureLight - lightweight delegation [2, [[omega, issuerVK, delegateVK, cert], signature]]
+// - Type 1: BlockPSignatureLight - lightweight delegation
+// - Type 2: BlockPSignatureHeavy - heavyweight delegation
 const (
 	byronSigTypeSimple = 0
-	byronSigTypeHeavy  = 1
-	byronSigTypeLight  = 2
+	byronSigTypeLight  = 1
+	byronSigTypeHeavy  = 2
 )
 
 // validateBlockSignature verifies the block signature based on its type.
