@@ -104,7 +104,7 @@ Verify the specific thing the change claims, with the tool that decides it:
 If a check is genuinely too slow to complete locally, say so and let the user
 decide whether to spend the CI cycle — that is their call, not a default.
 
-### Audit the class before pushing, not the instance
+## Audit the class before pushing, not the instance
 
 A finding names one location. The fix is not done until you have looked for the
 other members of the class it belongs to, because the named instance is rarely
@@ -135,6 +135,11 @@ reference runs **both** ways. A downstream workaround usually cites the upstream
 issue; the upstream issue rarely cites the workaround, and it is the upstream
 fix that later strands it. Machinery whose last reachable member has been
 removed outlives everyone who knew why it existed.
+
+## Read the state you are acting on
+
+Every decision below rests on a reading of GitHub's state, and each of these
+is a way that reading is wrong while looking right.
 
 ### Anchor every status to the head SHA, and read identifiers rather than infer them
 
@@ -186,20 +191,6 @@ desync, and closing and reopening the pull request forces GitHub to re-read the
 ref. Do not push again to nudge it — the ref is already correct, so there is
 nothing to push, and an empty commit pollutes history to work around a display
 problem.
-
-### Two green pull requests can merge red
-
-Checks run against the **merge ref**, not the branch, so a pull request is tested
-against a base it does not contain. A test added on the base that constrains
-something the branch introduces fails only in that combination, and both sides
-are honestly green alone: an exhaustiveness test requiring every config field to
-carry a log class merged at one hour, and a branch adding three such fields
-turned red at the next run without either changing.
-
-Read such a failure as a base interaction before treating it as a branch defect,
-especially when the failing test lives in a file the branch never touched. The
-fix is to merge the base in and satisfy the new constraint, not to argue with the
-test.
 
 ### Bot silence is not a clean bill of health
 
@@ -288,6 +279,20 @@ Repository exclusions decide what CI reports, so read them before counting:
 `run.tests: false` hides every `_test.go` finding, and
 `exclusions.generated: lax` hides generated trees. A raw formatter run over the
 whole repository will overcount against what `lint` actually fails on.
+
+### Two green pull requests can merge red
+
+Checks run against the **merge ref**, not the branch, so a pull request is tested
+against a base it does not contain. A test added on the base that constrains
+something the branch introduces fails only in that combination, and both sides
+are honestly green alone: an exhaustiveness test requiring every config field to
+carry a log class merged at one hour, and a branch adding three such fields
+turned red at the next run without either changing.
+
+Read such a failure as a base interaction before treating it as a branch defect,
+especially when the failing test lives in a file the branch never touched. The
+fix is to merge the base in and satisfy the new constraint, not to argue with the
+test.
 
 ## Two things a feature diff hides
 
