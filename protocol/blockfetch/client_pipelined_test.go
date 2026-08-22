@@ -193,11 +193,17 @@ func (h *pipelineHarness) nextDone(t *testing.T) rangeResult {
 	return rangeResult{}
 }
 
-// TestRequestRangePipelinedOutstandingRequests is the acceptance test: three
-// MsgRequestRange are outstanding at once, and the responses are attributed
-// to them in request order. The mock peer answers nothing until it has
-// received all three requests, so a client that serializes requests cannot
-// get past the second conversation entry.
+// TestRequestRangePipelinedOutstandingRequests covers request accounting with
+// three MsgRequestRange outstanding at once: the responses are attributed to
+// them in request order. The mock peer answers nothing until it has received
+// all three requests, so a client that waits for each response before sending
+// the next cannot get past the second conversation entry.
+//
+// It does not prove the pipelined send path ran. sendLoop batches messages
+// that are already queued into a single segment and defers their state
+// transitions, so which path carries the second and third request depends on
+// scheduling. TestRequestRangeInFlightByteBound covers the pipelined send
+// path deterministically.
 func TestRequestRangePipelinedOutstandingRequests(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	wrapped1, point1 := testBlock(t, 100)
@@ -533,6 +539,11 @@ func TestRequestRangeShutdownResolvesOutstanding(t *testing.T) {
 // open by blocking inside its block callback, which runs on the protocol
 // receive goroutine, so nothing can retire it and release capacity until the
 // test says so. While it is pinned, a third request cannot be admitted.
+//
+// This also covers the pipelined send path deterministically: the third
+// request is admitted only once the first retires, with the state machine
+// mid-batch for the second, so its MsgRequestRange can only reach the wire
+// while the peer holds agency.
 func TestRequestRangeInFlightByteBound(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	wrapped1, point1 := testBlock(t, 100)
