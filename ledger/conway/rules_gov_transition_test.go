@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -833,6 +834,7 @@ func TestUtxoValidateBootstrapVotingRestrictions(t *testing.T) {
 		require.ErrorAs(t, err, &bootErr)
 		assert.Equal(t, common.GovActionId{}, bootErr.ActionId)
 	})
+
 }
 
 func TestUtxoValidateStakePoolVotingRestrictions(t *testing.T) {
@@ -928,9 +930,14 @@ func mkHfAction(
 }
 
 // mkProposalsTx builds a transaction carrying several proposal procedures in
-// order, so a later proposal can reference an earlier one in the same
-// transaction by its (txid, index) governance action id.
-func mkProposalsTx(actions ...common.GovAction) *conway.ConwayTransaction {
+// order and fixes its transaction id, so a later proposal or a vote can
+// reference an earlier proposal of the same transaction by the
+// (txid, index) governance action id selfActionId reports.
+func mkProposalsTx(
+	t *testing.T,
+	actions ...common.GovAction,
+) *conway.ConwayTransaction {
+	t.Helper()
 	tx := &conway.ConwayTransaction{}
 	for _, action := range actions {
 		tx.Body.TxProposalProcedures = append(
@@ -940,7 +947,72 @@ func mkProposalsTx(actions ...common.GovAction) *conway.ConwayTransaction {
 			},
 		)
 	}
+	fixTxId(t, tx)
 	return tx
+}
+
+// fixTxId gives tx a transaction id derived from the body as built.
+//
+// ConwayTransactionBody.Id() hashes the body's stored CBOR, and a body built
+// in Go stores none, so without this every hand-built transaction shares the
+// hash of an empty byte string: a governance action id derived from tx.Hash()
+// would resolve against any transaction, and a test could not tell an id that
+// belongs to the transaction under validation from one that belongs to
+// another.
+//
+// A proposal or vote that names an action proposed by its own transaction
+// cannot be built by hashing the finished body, because the referenced
+// governance action id contains the hash of the body that carries the
+// reference. The id is therefore fixed here from the body as first built, and
+// the reference is patched into the action afterwards; the stored CBOR keeps
+// the id stable across that mutation, which the rules under test rely on
+// because they read the body fields rather than its CBOR.
+func fixTxId(t *testing.T, tx *conway.ConwayTransaction) {
+	t.Helper()
+	tx.Body.SetCbor(nil)
+	encoded, err := cbor.Encode(&tx.Body)
+	require.NoError(t, err)
+	tx.Body.SetCbor(encoded)
+}
+
+// selfActionId returns the governance action id that proposal idx of tx
+// receives once tx is accepted.
+func selfActionId(
+	tx *conway.ConwayTransaction,
+	idx uint32,
+) common.GovActionId {
+	return common.GovActionId{TransactionId: tx.Hash(), GovActionIdx: idx}
+}
+
+// requireDistinctTxIds asserts that two hand-built transactions carry
+// different transaction ids, so a governance action id built from one cannot
+// resolve against the other.
+//
+// GovActionId.TransactionId is a bare [32]byte while Transaction.Hash()
+// returns common.Blake2b256, so comparing the two through testify's untyped
+// assertions reports them as different whatever the bytes are. The
+// conversion is what makes the assertion mean anything.
+func requireDistinctTxIds(t *testing.T, a, b *conway.ConwayTransaction) {
+	t.Helper()
+	require.NotEqual(t, [32]byte(a.Hash()), [32]byte(b.Hash()))
+}
+
+// addVote attaches a voting procedure to tx without disturbing the
+// transaction id fixed by mkProposalsTx.
+func addVote(
+	tx *conway.ConwayTransaction,
+	voter common.Voter,
+	actionId common.GovActionId,
+	vote uint8,
+) {
+	v := voter
+	aid := actionId
+	if tx.Body.TxVotingProcedures == nil {
+		tx.Body.TxVotingProcedures = common.VotingProcedures{}
+	}
+	tx.Body.TxVotingProcedures[&v] = map[*common.GovActionId]common.VotingProcedure{
+		&aid: {Vote: vote},
+	}
 }
 
 // rootedLedgerState decorates a ledger state with the optional
@@ -980,7 +1052,7 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 	t.Run(
 		"minor bump on the ancestor's version is allowed",
 		func(t *testing.T) {
-			tx := mkProposalsTx(mkHfAction(&pendingId, 10, 1))
+			tx := mkProposalsTx(t, mkHfAction(&pendingId, 10, 1))
 			require.NoError(
 				t,
 				conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
@@ -989,7 +1061,7 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 	)
 
 	t.Run("gap from the ancestor's version is rejected", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(&pendingId, 10, 5))
+		tx := mkProposalsTx(t, mkHfAction(&pendingId, 10, 5))
 		err := conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp)
 		var hfErr conway.BadHardForkProtocolVersionError
 		require.ErrorAs(t, err, &hfErr)
@@ -1006,7 +1078,7 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 	t.Run(
 		"major version too high is rejected via an ancestor",
 		func(t *testing.T) {
-			tx := mkProposalsTx(mkHfAction(&pendingId, 11, 0))
+			tx := mkProposalsTx(t, mkHfAction(&pendingId, 11, 0))
 			err := conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp)
 			var hfErr conway.BadHardForkProtocolVersionError
 			require.ErrorAs(t, err, &hfErr)
@@ -1016,32 +1088,50 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 	)
 
 	t.Run("ancestor in the same transaction", func(t *testing.T) {
-		first := mkHfAction(nil, 10, 0)
-		tx := mkProposalsTx(first, nil)
-		firstId := common.GovActionId{
-			TransactionId: tx.Hash(),
-			GovActionIdx:  0,
-		}
-		// Rebuild with the second proposal pointing at the first.
-		tx = mkProposalsTx(first, mkHfAction(&firstId, 10, 1))
+		// The second proposal names the first proposal of its own
+		// transaction, so the reference is patched in after the
+		// transaction id is fixed.
+		second := mkHfAction(nil, 10, 1)
+		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0), second)
+		firstId := selfActionId(tx, 0)
+		second.ActionId = &firstId
 		require.NoError(
 			t,
 			conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
 		)
 
-		bad := mkProposalsTx(first, mkHfAction(&firstId, 10, 4))
+		badSecond := mkHfAction(nil, 10, 4)
+		bad := mkProposalsTx(t, mkHfAction(nil, 10, 0), badSecond)
+		badFirstId := selfActionId(bad, 0)
+		badSecond.ActionId = &badFirstId
 		err := conway.UtxoValidateHardForkCanFollow(bad, 0, ls, pp)
 		var hfErr conway.BadHardForkProtocolVersionError
 		require.ErrorAs(t, err, &hfErr)
 		assert.Equal(t, uint(10), hfErr.Expected.Major)
 		assert.Equal(t, uint(0), hfErr.Expected.Minor)
+		assert.Equal(t, uint(4), hfErr.Supplied.Minor)
+	})
+
+	// An ancestor id that carries another transaction's id is not a
+	// same-transaction ancestor, whatever its index: the numeric check is
+	// deferred to the ledger state, which does not record it.
+	t.Run("ancestor id of another transaction", func(t *testing.T) {
+		other := mkProposalsTx(t, mkHfAction(nil, 10, 0))
+		otherId := selfActionId(other, 0)
+		second := mkHfAction(&otherId, 10, 4)
+		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0), second)
+		requireDistinctTxIds(t, other, tx)
+		require.NoError(
+			t,
+			conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
+		)
 	})
 
 	// A state provider that does not expose the ancestor's proposed
 	// protocol version cannot support the comparison; the check is skipped
 	// rather than run against the wrong reference version.
 	t.Run("ancestor without contents defers the check", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(&opaqueId, 10, 7))
+		tx := mkProposalsTx(t, mkHfAction(&opaqueId, 10, 7))
 		require.NoError(
 			t,
 			conway.UtxoValidateHardForkCanFollow(tx, 0, ls, pp),
@@ -1083,7 +1173,7 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	}
 
 	t.Run("predecessor is the purpose root", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(&rootId, 10, 0))
+		tx := mkProposalsTx(t, mkHfAction(&rootId, 10, 0))
 		require.NoError(
 			t,
 			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
@@ -1091,7 +1181,7 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	})
 
 	t.Run("predecessor is a pending proposal", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(&pendingId, 10, 0))
+		tx := mkProposalsTx(t, mkHfAction(&pendingId, 10, 0))
 		require.NoError(
 			t,
 			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
@@ -1099,7 +1189,7 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	})
 
 	t.Run("no predecessor while a root exists is rejected", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(nil, 10, 0))
+		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0))
 		err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
 		var ancErr conway.InvalidGovActionAncestorError
 		require.ErrorAs(t, err, &ancErr)
@@ -1107,7 +1197,7 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	})
 
 	t.Run("no predecessor with an empty root is allowed", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(nil, 10, 0))
+		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0))
 		require.NoError(
 			t,
 			conway.UtxoValidateProposalAncestry(tx, 50, emptyRoots, pp),
@@ -1115,7 +1205,7 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	})
 
 	t.Run("expired predecessor is rejected", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(&expiredId, 10, 0))
+		tx := mkProposalsTx(t, mkHfAction(&expiredId, 10, 0))
 		err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
 		var ancErr conway.InvalidGovActionAncestorError
 		require.ErrorAs(t, err, &ancErr)
@@ -1123,17 +1213,32 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	})
 
 	t.Run("predecessor in the same transaction", func(t *testing.T) {
-		first := mkHfAction(&rootId, 10, 0)
-		tx := mkProposalsTx(first, nil)
-		firstId := common.GovActionId{
-			TransactionId: tx.Hash(),
-			GovActionIdx:  0,
-		}
-		tx = mkProposalsTx(first, mkHfAction(&firstId, 10, 1))
+		second := mkHfAction(nil, 10, 1)
+		tx := mkProposalsTx(t, mkHfAction(&rootId, 10, 0), second)
+		firstId := selfActionId(tx, 0)
+		second.ActionId = &firstId
 		require.NoError(
 			t,
 			conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp),
 		)
+	})
+
+	// The same reference against another transaction's id is not a
+	// same-transaction predecessor and is not recorded by the ledger
+	// state either, so it is rejected as nonexistent.
+	t.Run("predecessor id of another transaction", func(t *testing.T) {
+		other := mkProposalsTx(t, mkHfAction(&rootId, 10, 0))
+		otherId := selfActionId(other, 0)
+		tx := mkProposalsTx(
+			t,
+			mkHfAction(&rootId, 10, 0),
+			mkHfAction(&otherId, 10, 1),
+		)
+		requireDistinctTxIds(t, other, tx)
+		err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
+		var ancErr conway.InvalidGovActionAncestorError
+		require.ErrorAs(t, err, &ancErr)
+		assert.Equal(t, otherId, ancErr.ActionId)
 	})
 
 	// Only an earlier proposal of the same transaction is a candidate
@@ -1142,12 +1247,10 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	t.Run(
 		"self reference in the same transaction is rejected",
 		func(t *testing.T) {
-			tx := mkProposalsTx(mkHfAction(&rootId, 10, 0))
-			selfId := common.GovActionId{
-				TransactionId: tx.Hash(),
-				GovActionIdx:  0,
-			}
-			tx = mkProposalsTx(mkHfAction(&selfId, 10, 0))
+			only := mkHfAction(&rootId, 10, 0)
+			tx := mkProposalsTx(t, only)
+			selfId := selfActionId(tx, 0)
+			only.ActionId = &selfId
 			err := conway.UtxoValidateProposalAncestry(tx, 50, withRoot, pp)
 			var ancErr conway.InvalidGovActionAncestorError
 			require.ErrorAs(t, err, &ancErr)
@@ -1159,13 +1262,13 @@ func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
 	// existence-and-purpose behavior, so a syncing node backed by such a
 	// state is not wedged by the stricter rule.
 	t.Run("no roots capability keeps existence checks", func(t *testing.T) {
-		tx := mkProposalsTx(mkHfAction(nil, 10, 0))
+		tx := mkProposalsTx(t, mkHfAction(nil, 10, 0))
 		require.NoError(
 			t,
 			conway.UtxoValidateProposalAncestry(tx, 50, base, pp),
 		)
 		missing := common.GovActionId{TransactionId: common.Blake2b256{0xFE}}
-		bad := mkProposalsTx(mkHfAction(&missing, 10, 0))
+		bad := mkProposalsTx(t, mkHfAction(&missing, 10, 0))
 		err := conway.UtxoValidateProposalAncestry(bad, 50, base, pp)
 		var ancErr conway.InvalidGovActionAncestorError
 		require.ErrorAs(t, err, &ancErr)
@@ -1257,33 +1360,58 @@ func TestUtxoValidateStakePoolVotingRestrictionsParameterChange(t *testing.T) {
 		mkTx := func(
 			update conway.ConwayProtocolParameterUpdate,
 		) *conway.ConwayTransaction {
-			tx := mkProposalsTx(&conway.ConwayParameterChangeGovAction{
+			tx := mkProposalsTx(t, &conway.ConwayParameterChangeGovAction{
 				ParamUpdate: update,
 			})
-			actionId := common.GovActionId{
-				TransactionId: tx.Hash(),
-				GovActionIdx:  0,
-			}
-			v := spoVoter
-			tx.Body.TxVotingProcedures = common.VotingProcedures{
-				&v: {
-					&actionId: common.VotingProcedure{
-						Vote: common.GovVoteYes,
-					},
-				},
-			}
+			addVote(tx, spoVoter, selfActionId(tx, 0), common.GovVoteYes)
 			return tx
 		}
+		securityTx := mkTx(securityUpdate)
+		nonSecurityTx := mkTx(nonSecurityUpdate)
+		// The ledger state records neither transaction's proposal, so a
+		// verdict here can only come from the transaction's own proposals.
+		require.False(t, ls.GovActionExists(selfActionId(securityTx, 0)))
+		require.False(t, ls.GovActionExists(selfActionId(nonSecurityTx, 0)))
 		require.NoError(
 			t,
 			conway.UtxoValidateStakePoolVotingRestrictions(
-				mkTx(securityUpdate), 0, ls, pp,
+				securityTx, 0, ls, pp,
 			),
 		)
 		err := conway.UtxoValidateStakePoolVotingRestrictions(
-			mkTx(nonSecurityUpdate), 0, ls, pp,
+			nonSecurityTx, 0, ls, pp,
 		)
 		var spoErr conway.StakePoolVotingRestrictionError
 		require.ErrorAs(t, err, &spoErr)
+		assert.Equal(t, selfActionId(nonSecurityTx, 0), spoErr.ActionId)
+	})
+
+	// A vote naming an action that another transaction proposes is not
+	// resolved from this transaction's proposals; the SPO restriction is
+	// left to the ledger state, which does not record it.
+	t.Run("action proposed by another transaction", func(t *testing.T) {
+		// Both transactions propose the same non-security parameter
+		// change at index 0, so only the transaction id in the action id
+		// distinguishes them. other carries a second proposal purely to
+		// give it a different body, and therefore a different id.
+		other := mkProposalsTx(
+			t,
+			&conway.ConwayParameterChangeGovAction{
+				ParamUpdate: nonSecurityUpdate,
+			},
+			&conway.ConwayParameterChangeGovAction{
+				ParamUpdate: nonSecurityUpdate,
+			},
+		)
+		tx := mkProposalsTx(t, &conway.ConwayParameterChangeGovAction{
+			ParamUpdate: nonSecurityUpdate,
+		})
+		requireDistinctTxIds(t, other, tx)
+		otherId := selfActionId(other, 0)
+		addVote(tx, spoVoter, otherId, common.GovVoteYes)
+		require.NoError(
+			t,
+			conway.UtxoValidateStakePoolVotingRestrictions(tx, 0, ls, pp),
+		)
 	})
 }
