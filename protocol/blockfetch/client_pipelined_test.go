@@ -699,7 +699,7 @@ func TestRequestRangeNoBlocksResolvesOnlyItsOwnRequest(t *testing.T) {
 
 	first := h.nextDone(t)
 	require.Equal(t, id1, first.requestId)
-	require.ErrorContains(t, first.err, "block(s) not found")
+	require.ErrorIs(t, first.err, blockfetch.ErrNoBlocks)
 
 	require.Equal(t, deliveredBlock{requestId: id2, slot: 200}, h.nextBlock(t))
 	second := h.nextDone(t)
@@ -736,7 +736,7 @@ func TestGetBlockEmptyBatch(t *testing.T) {
 	select {
 	case res := <-results:
 		require.Nil(t, res.block)
-		require.ErrorContains(t, res.err, "block(s) not found")
+		require.ErrorIs(t, res.err, blockfetch.ErrNoBlocks)
 	case err := <-h.connErrs:
 		t.Fatalf("unexpected connection error: %s", err)
 	case <-time.After(testTimeout):

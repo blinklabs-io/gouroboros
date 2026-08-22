@@ -38,10 +38,12 @@ const (
 	clientStateStopped
 )
 
-// errNoBlocks is the error reported for a range the peer answered with
-// MsgNoBlocks. The message is part of the client's observable behavior;
-// consumers match on it.
-var errNoBlocks = errors.New("block(s) not found")
+// ErrNoBlocks is the error reported for a range the peer answered with
+// MsgNoBlocks: through RangeDoneFunc for a request made with RequestRange,
+// and as the return value of GetBlock. Consumers match on it with errors.Is.
+// The message is unchanged because it was previously the only thing to match
+// on.
+var ErrNoBlocks = errors.New("block(s) not found")
 
 // ErrRequestPipeliningDisabled is returned by RequestRange when the client
 // was not configured with RequestPipelining.
@@ -531,7 +533,7 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		}
 		if block == nil {
 			// The peer completed the batch without sending a block
-			return nil, errNoBlocks
+			return nil, ErrNoBlocks
 		}
 		return block, nil
 	}
@@ -989,7 +991,7 @@ func (c *Client) handleNoBlocks() error {
 	}
 	c.removeLocked(req)
 	c.queueMutex.Unlock()
-	return c.resolve(req, errNoBlocks)
+	return c.resolve(req, ErrNoBlocks)
 }
 
 // handleBlock handles the Block message from the server.
