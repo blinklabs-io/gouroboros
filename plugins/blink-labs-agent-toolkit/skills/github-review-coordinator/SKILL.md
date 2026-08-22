@@ -136,6 +136,38 @@ issue; the upstream issue rarely cites the workaround, and it is the upstream
 fix that later strands it. Machinery whose last reachable member has been
 removed outlives everyone who knew why it existed.
 
+### Anchor every status to the head SHA, and read identifiers rather than infer them
+
+A check result, a review, a thread count and a mergeable flag are all facts
+about one commit. Reported without that commit, they cannot be told apart from
+current ones, and the first thing done with them is usually to brief work on a
+world that has moved.
+
+Carry the head SHA and the head branch in the output of any sweep, next to the
+facts they describe:
+
+```sh
+gh pr view N -R OWNER/REPO --json headRefOid,headRefName,mergeable,statusCheckRollup
+```
+
+A sweep that drops the SHA to keep its rows short produces exactly the failure
+it was written to prevent: a red `lint` row survived a re-push that fixed it,
+and the follow-up work was briefed to fix something already green. Re-read the
+head immediately before acting on any row, however recent the sweep.
+
+Read every identifier from the API too. `headRefName` is the branch; a branch
+inferred from the PR title or the issue it fixes is a guess that
+`git push origin HEAD:refs/heads/<wrong-name>` will not reject — it **creates**
+the ref, leaving a stray branch attached to no pull request and the real one
+untouched.
+
+Before hand-rolling any of this, use `scripts/scan-prs.py` in the workspace. It
+already reads review records and check runs against `/commits/{head}/check-runs`
+for the exact head, marks each review `on_head`, and deliberately anchors human
+comments on the author's last reply instead, because a head-relative cutoff
+silently drops feedback that predates a push. The ad-hoc sweep that dropped the
+SHA was re-implementing that script, worse, next to it.
+
 ### Bot silence is not a clean bill of health
 
 An exhausted quota produces exactly the same evidence as a flawless change: no

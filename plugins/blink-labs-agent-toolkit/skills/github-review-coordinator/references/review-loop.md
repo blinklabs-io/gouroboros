@@ -5,7 +5,10 @@
 1. Discover pull requests requested directly from the authenticated account and
    from any of its teams. If team memberships cannot be queried, report the
    search as incomplete rather than claiming there are no review requests.
-   Confirm branch, changed paths, required checks, CODEOWNERS, and reviewers.
+   Confirm branch, changed paths, required checks, CODEOWNERS, and reviewers,
+   each read against the current head SHA and reported with it. Prefer
+   `scripts/scan-prs.py`, which already anchors reviews and check runs to
+   that head, over an ad-hoc query.
    Skip draft PRs. If Dependabot is excluded, skip PRs authored by
    `dependabot[bot]`.
 2. Run or wait for CodeRabbit and Cubic; address actionable findings. If
