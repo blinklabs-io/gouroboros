@@ -1,6 +1,6 @@
 ---
 name: github-review-coordinator
-description: Discover Blink Labs pull-request review work, including direct and team requests, and coordinate CodeRabbit, Cubic, and required human reviews. Use when checking for reviews or preparing, updating, or handing off a GitHub pull request.
+description: Discover Blink Labs pull-request review work, including direct and team requests, and coordinate CodeRabbit, Cubic, and required human reviews. Bot reviews are a metered monthly quota, so verify locally before pushing and never read bot silence as a clean review. Use when checking for reviews or preparing, updating, or handing off a GitHub pull request.
 ---
 
 # GitHub Review Coordinator
@@ -25,8 +25,11 @@ and the target repository's contribution guidance.
    commit, is a verification task, not a work item.
 2. Run or wait for configured CodeRabbit and Cubic reviews before requesting
    human review. If CodeRabbit is rate-limited, document it; a completed Cubic
-   review is sufficient for bot review. Reproduce findings against the current
-   checkout.
+   review is sufficient for bot review. Cubic's monthly allowance also runs out,
+   so neither may have run: confirm which bots actually reviewed the current head
+   rather than inferring it from an empty thread list, and when none did, say so
+   and record the local review that stands in its place. Reproduce findings
+   against the current checkout.
 3. Address actionable bot findings, document false positives or accepted
    risks, rerun affected checks, and update the PR.
 4. For UI changes, verify that the PR includes screenshots of affected states
@@ -63,10 +66,24 @@ actionable findings. Stop at human-review readiness.
 
 ## Do not push what you have not verified
 
-CI minutes and bot review passes are shared, and a push spends both. Pushing to
-find out whether a change works offloads your uncertainty onto the pipeline and
-onto whoever reads the resulting bot findings, so the local check comes first —
-even when it is slower than a CI run, and especially when someone is waiting.
+CI minutes are shared and bot reviews are a **metered monthly quota**, and a push
+spends both. Cubic's allowance for the organization does run out, and when it
+does no review is posted on anything for the rest of the period. Every
+speculative push therefore takes a review away from a later change that may need
+it more, and the loss is not recoverable by waiting a few minutes.
+
+That makes local verification the cheap resource and the bot pass the scarce one,
+which is the opposite of how it feels in the moment. Review the change yourself,
+to the standard a bot would, *before* pushing: read the contract of everything
+you call, grep for the class the fix belongs to, and run the tests and linter
+that decide the claim. Pushing to find out whether a change works offloads your
+uncertainty onto the pipeline and onto a finite quota, so the local check comes
+first — even when it is slower than a CI run, and especially when someone is
+waiting.
+
+Batch what you can. Several verified fixes in one push consume one review pass;
+the same fixes pushed one at a time consume several, and each intermediate state
+draws findings on code you were about to change anyway.
 
 Verify the specific thing the change claims, with the tool that decides it:
 
@@ -86,6 +103,32 @@ Verify the specific thing the change claims, with the tool that decides it:
 
 If a check is genuinely too slow to complete locally, say so and let the user
 decide whether to spend the CI cycle — that is their call, not a default.
+
+### Bot silence is not a clean bill of health
+
+An exhausted quota produces exactly the same evidence as a flawless change: no
+threads, no findings, nothing to answer. "Zero unresolved bot threads" is
+therefore not a review result, and treating it as one reports an unreviewed
+change as ready.
+
+Distinguish *did not run* from *found nothing* before claiming either. The
+thread list cannot tell them apart; the review record can:
+
+```sh
+gh api "repos/OWNER/REPO/pulls/N/reviews" \
+  --jq '[.[]|select(.user.login|test("coderabbitai|cubic-dev-ai"))|.user.login]|unique'
+```
+
+An empty result means no bot reviewed that head. A bot's *check* completing is
+also not a review — cubic's check can report success while posting nothing,
+either because it found nothing or because the allowance is gone.
+
+When a bot did not run, say which one and that its pass is missing, then let
+local review stand in for it explicitly: name the packages tested, the linter
+run, and the reading done. That is a weaker guarantee than a bot pass and the
+handoff should say so rather than let a green check imply coverage. Do not push
+again merely to try to trigger a review — that spends CI on the hope that a
+quota has reset.
 
 ## Never rewrite pushed history without being asked
 

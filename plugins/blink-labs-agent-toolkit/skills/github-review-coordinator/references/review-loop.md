@@ -10,7 +10,10 @@
    `dependabot[bot]`.
 2. Run or wait for CodeRabbit and Cubic; address actionable findings. If
    CodeRabbit is rate-limited, document it and use a completed Cubic review as
-   sufficient bot review.
+   sufficient bot review. Cubic's monthly allowance also runs out, so check the
+   review record for which bots reviewed the current head instead of reading an
+   empty thread list as a clean pass, and record the local review standing in
+   for any that did not run.
 3. Re-run affected checks and document dispositions for false positives or
    accepted risks.
 4. For UI changes, verify that the PR includes screenshots of affected states
@@ -51,6 +54,8 @@ An issue-resolution request includes the bot loop after the initial PR update:
 wait for CodeRabbit and Cubic, or document CodeRabbit rate limiting and use
 Cubic alone, then verify findings against the current head, fix valid findings,
 validate, push, and repeat until the available bots have no actionable findings.
+Batch verified fixes into one push: each push spends a metered review pass, and
+neither bot may be available to spend.
 Stop when the PR is ready for human review.
 
 ## Squash merge gate

@@ -1,4 +1,4 @@
 interface:
   display_name: "GitHub Review Coordinator"
-  short_description: "Discover and coordinate GitHub reviews"
-  default_prompt: "Use $github-review-coordinator to find direct and team review requests, then coordinate bot-first reviews, human review, reviewer re-requests, and documented dismissal."
+  short_description: "Coordinate reviews and conserve metered bot quota"
+  default_prompt: "Use $github-review-coordinator to find direct and team review requests, then coordinate bot-first reviews, human review, reviewer re-requests, and documented dismissal. Verify locally before pushing, since bot reviews are a metered monthly quota, and never read bot silence as a clean review."
