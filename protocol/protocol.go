@@ -17,6 +17,7 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -338,7 +339,13 @@ func (p *Protocol) pipelinedSendAllowed() bool {
 
 // SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
-	return p.enqueueMessage(msg, nil)
+	return p.enqueueMessage(context.Background(), msg, nil)
+}
+
+// SendMessageContext appends a message to the send queue, or returns the
+// context's error if the message cannot be queued before the context ends.
+func (p *Protocol) SendMessageContext(ctx context.Context, msg Message) error {
+	return p.enqueueMessage(ctx, msg, nil)
 }
 
 // SendMessageAndWait queues a message and waits until its final muxer segment
@@ -346,7 +353,11 @@ func (p *Protocol) SendMessage(msg Message) error {
 // fails or the protocol shuts down before delivery completes.
 func (p *Protocol) SendMessageAndWait(msg Message) error {
 	deliveryChan := make(chan error, 1)
-	if err := p.enqueueMessage(msg, deliveryChan); err != nil {
+	if err := p.enqueueMessage(
+		context.Background(),
+		msg,
+		deliveryChan,
+	); err != nil {
 		return err
 	}
 	return p.waitForMessageDelivery(deliveryChan)
@@ -376,7 +387,14 @@ func deliveryResultOrShutdown(deliveryChan <-chan error) error {
 	}
 }
 
-func (p *Protocol) enqueueMessage(msg Message, deliveryChan chan error) error {
+func (p *Protocol) enqueueMessage(
+	ctx context.Context,
+	msg Message,
+	deliveryChan chan error,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Immediately return if we're already shutting down
 	select {
 	case <-p.stopChan:
@@ -424,9 +442,12 @@ func (p *Protocol) enqueueMessage(msg Message, deliveryChan chan error) error {
 		message:      msg,
 		deliveryChan: deliveryChan,
 	}
+	var enqueueErr error
 	select {
 	case p.sendQueueChan <- outbound:
 		return nil
+	case <-ctx.Done():
+		enqueueErr = ctx.Err()
 	case <-p.stopChan:
 	case <-p.doneChan:
 	case <-p.muxerDoneChan:
@@ -438,6 +459,9 @@ func (p *Protocol) enqueueMessage(msg Message, deliveryChan chan error) error {
 	p.pendingBytesMu.Lock()
 	p.pendingSendBytes -= msgLen
 	p.pendingBytesMu.Unlock()
+	if enqueueErr != nil {
+		return enqueueErr
+	}
 	return ErrProtocolShuttingDown
 }
 

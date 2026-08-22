@@ -146,6 +146,11 @@ cs.Client.Start()
 cs.Client.RequestNext()
 ```
 
+The embedded common protocol also exposes `SendMessageContext` for operations
+that must stop waiting when a full send queue outlives the caller's context.
+Cancellation applies only until the message enters the queue; a successful
+return means the protocol accepted responsibility for sending it.
+
 ## Common Configuration
 
 All protocols support these common options:

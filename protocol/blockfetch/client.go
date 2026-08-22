@@ -68,6 +68,7 @@ const (
 // owns the next MsgStartBatch, MsgNoBlocks, MsgBlock, and MsgBatchDone.
 type rangeRequest struct {
 	id             uint64
+	protocol       *protocol.Protocol
 	delivery       requestDelivery
 	pipelined      bool
 	reservedBytes  uint64
@@ -115,9 +116,7 @@ type Client struct {
 	protoOptions    protocol.ProtocolOptions
 	protoStarted    bool // Whether Protocol.Start() was called
 	// queueMutex protects the outstanding request queue and the in-flight
-	// byte accounting. It is held across the MsgRequestRange send so the
-	// order of the queue always matches the order of the requests on the
-	// wire.
+	// byte accounting.
 	queueMutex    sync.Mutex
 	queue         []*rangeRequest
 	nextRequestId uint64
@@ -125,6 +124,13 @@ type Client struct {
 	// bytesFreed is closed and replaced every time in-flight bytes are
 	// released, to broadcast to callers waiting for admission.
 	bytesFreed chan struct{}
+	// rangeSendToken serializes queue append and MsgRequestRange enqueue so
+	// FIFO queue order always matches wire order. Unlike a mutex, acquiring
+	// the token can be canceled by RequestRange's context.
+	rangeSendToken chan struct{}
+	// beforeRequestReservation is a test synchronization point immediately
+	// before the atomic admission and reservation step.
+	beforeRequestReservation func()
 }
 
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
@@ -138,7 +144,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		protoOptions:   protoOptions,
 		lifecycleState: clientStateNew,
 		bytesFreed:     make(chan struct{}),
+		rangeSendToken: make(chan struct{}, 1),
 	}
+	c.rangeSendToken <- struct{}{}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
@@ -325,12 +333,13 @@ func (c *Client) Start() {
 					"protocol", ProtocolName,
 					"connection_id", c.callbackContext.ConnectionId.String(),
 				)
-			c.Protocol.Start()
+			proto := c.ProtocolInstance()
+			proto.Start()
 			c.protoStarted = true
 			c.lifecycleState = clientStateRunning
 			// Resolve any request left outstanding when the protocol shuts
 			// down, so no caller and no callback consumer is left waiting.
-			go c.failOutstandingOnProtocolDone(c.DoneChan())
+			go c.failOutstandingOnProtocolDone(proto)
 			if c.startingDone == ch {
 				close(ch)
 				c.startingDone = nil
@@ -437,6 +446,7 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 	token, busyDone := c.acquireBusy()
 	protocolDone := c.DoneChan()
 	req, err := c.sendRequestRange(
+		context.Background(),
 		start,
 		end,
 		deliveryCallback,
@@ -471,6 +481,7 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 	token, _ := c.acquireBusy()
 	protocolDone := c.DoneChan()
 	req, err := c.sendRequestRange(
+		context.Background(),
 		point,
 		point,
 		deliveryChannel,
@@ -577,10 +588,11 @@ func (c *Client) RequestRange(
 	if expectedBytes == 0 {
 		expectedBytes = DefaultRequestExpectedBytes
 	}
-	if err := c.awaitInFlightCapacity(ctx, expectedBytes); err != nil {
-		return 0, err
+	if c.beforeRequestReservation != nil {
+		c.beforeRequestReservation()
 	}
 	sent, err := c.sendRequestRange(
+		ctx,
 		req.Start,
 		req.End,
 		deliveryCallback,
@@ -604,40 +616,25 @@ func (c *Client) maxInFlightBytes() uint64 {
 	return c.config.MaxInFlightBytes
 }
 
-// awaitInFlightCapacity blocks until the given request size fits within the
-// in-flight byte bound. The reservation itself is made by sendRequestRange
-// under the same lock that appends to the queue.
-func (c *Client) awaitInFlightCapacity(
-	ctx context.Context,
-	expectedBytes uint64,
-) error {
-	limit := c.maxInFlightBytes()
-	protocolDone := c.DoneChan()
-	for {
-		c.queueMutex.Lock()
+// hasInFlightCapacityLocked reports whether a pipelined request can reserve
+// expectedBytes. Subtraction avoids wrapping at the top of the uint64 range.
+// The caller must hold queueMutex.
+func (c *Client) hasInFlightCapacityLocked(expectedBytes uint64) bool {
+	if len(c.queue) == 0 {
 		// An empty queue always admits, so a range larger than the whole
 		// bound still makes progress instead of deadlocking.
-		if len(c.queue) == 0 ||
-			c.inFlightBytes+expectedBytes <= limit {
-			c.queueMutex.Unlock()
-			return nil
-		}
-		waitChan := c.bytesFreed
-		c.queueMutex.Unlock()
-		select {
-		case <-waitChan:
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-protocolDone:
-			return protocol.ErrProtocolShuttingDown
-		}
+		return true
 	}
+	limit := c.maxInFlightBytes()
+	return c.inFlightBytes <= limit &&
+		expectedBytes <= limit-c.inFlightBytes
 }
 
 // sendRequestRange appends a request to the outstanding queue and sends its
-// MsgRequestRange. The queue lock is held across the send so queue order
-// always matches wire order.
+// MsgRequestRange. A context-aware send token keeps queue and wire order in
+// sync without holding queueMutex while a full protocol send queue blocks.
 func (c *Client) sendRequestRange(
+	ctx context.Context,
 	start pcommon.Point,
 	end pcommon.Point,
 	delivery requestDelivery,
@@ -645,10 +642,41 @@ func (c *Client) sendRequestRange(
 	expectedBytes uint64,
 	busyToken uint64,
 ) (*rangeRequest, error) {
-	c.queueMutex.Lock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	proto := c.ProtocolInstance()
+	protocolDone := proto.DoneChan()
+	select {
+	case <-c.rangeSendToken:
+		defer func() {
+			c.rangeSendToken <- struct{}{}
+		}()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-protocolDone:
+		return nil, protocol.ErrProtocolShuttingDown
+	}
+	for {
+		c.queueMutex.Lock()
+		if pipelined && !c.hasInFlightCapacityLocked(expectedBytes) {
+			waitChan := c.bytesFreed
+			c.queueMutex.Unlock()
+			select {
+			case <-waitChan:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-protocolDone:
+				return nil, protocol.ErrProtocolShuttingDown
+			}
+		}
+		break
+	}
 	c.nextRequestId++
 	req := &rangeRequest{
 		id:            c.nextRequestId,
+		protocol:      proto,
 		delivery:      delivery,
 		pipelined:     pipelined,
 		reservedBytes: expectedBytes,
@@ -660,15 +688,16 @@ func (c *Client) sendRequestRange(
 	}
 	c.queue = append(c.queue, req)
 	c.inFlightBytes += expectedBytes
-	err := c.SendMessage(NewMsgRequestRange(start, end))
+	c.queueMutex.Unlock()
+	err := proto.SendMessageContext(ctx, NewMsgRequestRange(start, end))
 	if err != nil {
 		// The request never reached the wire, so it can be removed without
 		// disturbing the position of any other entry.
+		c.queueMutex.Lock()
 		c.removeLocked(req)
 		c.queueMutex.Unlock()
 		return nil, err
 	}
-	c.queueMutex.Unlock()
 	return req, nil
 }
 
@@ -803,11 +832,45 @@ func (c *Client) failOutstanding(err error) {
 	}
 }
 
+// failOutstandingForProtocol resolves only requests owned by proto. A delayed
+// shutdown watcher from an earlier client start must not resolve requests
+// queued after the client has restarted with a new protocol instance.
+func (c *Client) failOutstandingForProtocol(
+	proto *protocol.Protocol,
+	err error,
+) {
+	c.queueMutex.Lock()
+	pending := make([]*rangeRequest, 0)
+	remaining := make([]*rangeRequest, 0, len(c.queue))
+	for _, req := range c.queue {
+		if req.protocol == proto {
+			pending = append(pending, req)
+			c.releaseBytesLocked(req.reservedBytes)
+			continue
+		}
+		remaining = append(remaining, req)
+	}
+	c.queue = remaining
+	c.queueMutex.Unlock()
+	for _, req := range pending {
+		if resolveErr := c.resolve(req, err); resolveErr != nil {
+			proto.Logger().
+				Warn("range done callback failed during shutdown",
+					"component", "network",
+					"protocol", ProtocolName,
+					"role", "client",
+					"connection_id", c.callbackContext.ConnectionId.String(),
+					"error", resolveErr.Error(),
+				)
+		}
+	}
+}
+
 // failOutstandingOnProtocolDone resolves outstanding requests once the
 // protocol shuts down.
-func (c *Client) failOutstandingOnProtocolDone(done <-chan struct{}) {
-	<-done
-	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+func (c *Client) failOutstandingOnProtocolDone(proto *protocol.Protocol) {
+	<-proto.DoneChan()
+	c.failOutstandingForProtocol(proto, protocol.ErrProtocolShuttingDown)
 }
 
 // callbackContextFor returns the callback context for a request, carrying its

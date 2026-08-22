@@ -257,7 +257,7 @@ func (c *Client) BlockRequest(
 		return nil, err
 	}
 	msg := NewMsgBlockRequest(point)
-	if err := c.SendMessage(msg); err != nil {
+	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockSlot.release(w)
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func (c *Client) BlockTxsRequest(
 		return nil, err
 	}
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
-	if err := c.SendMessage(msg); err != nil {
+	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockTxsSlot.release(w)
 		return nil, err
 	}

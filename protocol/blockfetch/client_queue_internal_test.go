@@ -16,11 +16,16 @@ package blockfetch
 
 import (
 	"context"
+	"io"
+	"math"
 	"net"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
@@ -37,12 +42,54 @@ func newQueueTestClient(cfg *Config) *Client {
 	}, cfg)
 }
 
+// newStartedQueueTestClient provides a live protocol send queue while draining
+// the other side of an in-memory connection. It deliberately sends no peer
+// responses, leaving accepted requests outstanding for queue assertions.
+func newStartedQueueTestClient(t *testing.T, cfg *Config) *Client {
+	t.Helper()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	peerDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, peerConn)
+		close(peerDone)
+	}()
+	c := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  localConn.LocalAddr(),
+			RemoteAddr: localConn.RemoteAddr(),
+		},
+		Muxer: m,
+		Mode:  protocol.ProtocolModeNodeToNode,
+	}, cfg)
+	c.Start()
+	t.Cleanup(func() {
+		proto := c.ProtocolInstance()
+		proto.Stop()
+		select {
+		case <-proto.DoneChan():
+		case <-time.After(time.Second):
+			t.Error("protocol did not stop")
+		}
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		m.Stop()
+		_ = peerConn.Close()
+		select {
+		case <-peerDone:
+		case <-time.After(time.Second):
+			t.Error("peer drain did not stop")
+		}
+	})
+	return c
+}
+
 func (c *Client) appendTestRequest(reservedBytes uint64) *rangeRequest {
 	c.queueMutex.Lock()
 	defer c.queueMutex.Unlock()
 	c.nextRequestId++
 	req := &rangeRequest{
 		id:            c.nextRequestId,
+		protocol:      c.ProtocolInstance(),
 		delivery:      deliveryCallback,
 		pipelined:     true,
 		reservedBytes: reservedBytes,
@@ -156,45 +203,185 @@ func TestQueueRetiredBytesAreReleased(t *testing.T) {
 	require.Equal(t, 0, queueLen)
 }
 
-// TestAwaitInFlightCapacityAdmitsOversizedRequestOnEmptyQueue verifies a range
+// TestInFlightCapacityAdmitsOversizedRequestOnEmptyQueue verifies a range
 // whose expected size exceeds the whole bound is still admitted when nothing
 // else is outstanding, so an oversized range cannot stall forever.
-func TestAwaitInFlightCapacityAdmitsOversizedRequestOnEmptyQueue(t *testing.T) {
+func TestInFlightCapacityAdmitsOversizedRequestOnEmptyQueue(t *testing.T) {
 	c := newQueueTestClient(&Config{
 		RequestPipelining: true,
 		MaxInFlightBytes:  1024,
 	})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	require.NoError(t, c.awaitInFlightCapacity(ctx, 1024*1024))
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.True(t, c.hasInFlightCapacityLocked(1024*1024))
 }
 
-// TestAwaitInFlightCapacityBlocksAtBound verifies that a request which does
-// not fit is held, and that the wait is released by the caller's context
-// rather than being admitted anyway.
-func TestAwaitInFlightCapacityBlocksAtBound(t *testing.T) {
+// TestInFlightCapacityBlocksAtBound verifies that a request which does not fit
+// is held until the existing request retires.
+func TestInFlightCapacityBlocksAtBound(t *testing.T) {
 	c := newQueueTestClient(&Config{
 		RequestPipelining: true,
 		MaxInFlightBytes:  1024,
 	})
 	req := c.appendTestRequest(1024)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	require.ErrorIs(t, c.awaitInFlightCapacity(ctx, 1024), context.Canceled)
+	c.queueMutex.Lock()
+	require.False(t, c.hasInFlightCapacityLocked(1024))
+	c.queueMutex.Unlock()
 
 	// Releasing the outstanding request makes room again
 	c.queueMutex.Lock()
 	c.removeLocked(req)
+	require.True(t, c.hasInFlightCapacityLocked(1024))
 	c.queueMutex.Unlock()
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
-	require.NoError(t, c.awaitInFlightCapacity(ctx2, 1024))
 }
 
-// TestAwaitInFlightCapacityDefaultsBound verifies an unset MaxInFlightBytes
+// TestInFlightCapacityDefaultsBound verifies an unset MaxInFlightBytes
 // resolves to the documented default rather than to zero, which would admit
 // nothing.
-func TestAwaitInFlightCapacityDefaultsBound(t *testing.T) {
+func TestInFlightCapacityDefaultsBound(t *testing.T) {
 	c := newQueueTestClient(&Config{RequestPipelining: true})
 	require.Equal(t, DefaultMaxInFlightBytes, c.maxInFlightBytes())
+}
+
+func TestInFlightCapacityDoesNotOverflow(t *testing.T) {
+	c := newQueueTestClient(&Config{
+		RequestPipelining: true,
+		MaxInFlightBytes:  math.MaxUint64,
+	})
+	c.appendTestRequest(math.MaxUint64)
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.False(t, c.hasInFlightCapacityLocked(1))
+}
+
+func TestRequestRangeAdmissionAndReservationAreAtomic(t *testing.T) {
+	c := newStartedQueueTestClient(t, &Config{
+		RequestPipelining: true,
+		MaxInFlightBytes:  1,
+		RangeDoneFunc: func(CallbackContext, error) error {
+			return nil
+		},
+	})
+
+	var arrived sync.WaitGroup
+	arrived.Add(2)
+	release := make(chan struct{})
+	c.beforeRequestReservation = func() {
+		arrived.Done()
+		<-release
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := c.RequestRange(ctx, RangeRequest{ExpectedBytes: 1})
+			results <- err
+		}()
+	}
+	arrived.Wait()
+	close(release)
+
+	// Both callers reached the admission boundary while the queue was empty.
+	// Exactly one may reserve the entire bound; the other must be held back by
+	// the recheck under the same lock as reservation.
+	select {
+	case err := <-results:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("no request was admitted")
+	}
+	select {
+	case err := <-results:
+		t.Fatalf("second request was admitted past the bound: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	c.queueMutex.Lock()
+	require.Len(t, c.queue, 1)
+	require.Equal(t, uint64(1), c.inFlightBytes)
+	c.queueMutex.Unlock()
+	cancel()
+	select {
+	case err := <-results:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("waiting RequestRange did not return after cancellation")
+	}
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.Len(t, c.queue, 1)
+	require.Equal(t, uint64(1), c.inFlightBytes)
+}
+
+func TestRequestRangeContextCancelsBlockedSend(t *testing.T) {
+	c := newQueueTestClient(&Config{
+		RequestPipelining: true,
+		MaxInFlightBytes:  1,
+		RangeDoneFunc: func(CallbackContext, error) error {
+			return nil
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	results := make(chan error, 1)
+	go func() {
+		_, err := c.RequestRange(ctx, RangeRequest{ExpectedBytes: 1})
+		results <- err
+	}()
+
+	// A protocol that has not started has no send queue, so the request is
+	// guaranteed to be blocked after reservation rather than already sent.
+	require.Eventually(t, func() bool {
+		c.queueMutex.Lock()
+		defer c.queueMutex.Unlock()
+		return len(c.queue) == 1 && c.inFlightBytes == 1
+	}, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case err := <-results:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("RequestRange remained blocked after cancellation")
+	}
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.Empty(t, c.queue)
+	require.Zero(t, c.inFlightBytes)
+}
+
+func TestOldProtocolShutdownDoesNotFailRestartedRequests(t *testing.T) {
+	var completions []uint64
+	c := newQueueTestClient(&Config{
+		RequestPipelining: true,
+		RangeDoneFunc: func(ctx CallbackContext, _ error) error {
+			completions = append(completions, ctx.RequestId)
+			return nil
+		},
+	})
+	oldProto := c.ProtocolInstance()
+	c.initProtocol()
+	newProto := c.ProtocolInstance()
+	req := c.appendTestRequest(1)
+
+	c.failOutstandingForProtocol(
+		oldProto,
+		protocol.ErrProtocolShuttingDown,
+	)
+	c.queueMutex.Lock()
+	require.Len(t, c.queue, 1)
+	require.Same(t, req, c.queue[0])
+	require.Equal(t, uint64(1), c.inFlightBytes)
+	c.queueMutex.Unlock()
+	require.Empty(t, completions)
+	select {
+	case err := <-req.doneChan:
+		t.Fatalf("old protocol shutdown resolved restarted request: %v", err)
+	default:
+	}
+
+	c.failOutstandingForProtocol(
+		newProto,
+		protocol.ErrProtocolShuttingDown,
+	)
+	require.Equal(t, []uint64{req.id}, completions)
 }

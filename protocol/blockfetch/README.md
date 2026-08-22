@@ -92,7 +92,7 @@ The BlockFetch protocol retrieves blocks by hash from a peer node. It is used in
 | Busy Max Pending Bytes | 2.5 MB | Matches Streaming; a block can arrive before the state machine leaves Busy |
 | Idle Max Pending Bytes | 64 KB | Only control messages are sent in Idle |
 | Idle Max Pending Bytes (pipelining client) | 2.5 MB | A block for the next request can arrive while the state machine is momentarily back in Idle |
-| Default Max In-Flight Bytes | 8.6 MB | Expected size of outstanding pipelined requests: 100 x 88 KiB, as in `cardano-node`'s `blockFetchProtocolLimits` |
+| Default Max In-Flight Bytes | 9.0 MB | Expected size of outstanding pipelined requests: 100 x 88 KiB = 9,011,200 bytes, as in `cardano-node`'s `blockFetchProtocolLimits` |
 | Default Request Expected Bytes | 88 KiB | Size assumed for a request whose caller gave no estimate (one maximum-size block body) |
 
 ## Configuration Options
