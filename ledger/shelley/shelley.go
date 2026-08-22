@@ -382,7 +382,8 @@ func (b *ShelleyTransactionBody) Utxorpc() (*utxorpc.Tx, error) {
 }
 
 type ShelleyTransactionInputSet struct {
-	items []ShelleyTransactionInput
+	items    []ShelleyTransactionInput
+	cborData []byte
 }
 
 func NewShelleyTransactionInputSet(
@@ -405,18 +406,30 @@ func (s *ShelleyTransactionInputSet) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
 	}
-	s.items = tmpData
+	s.items = uniqueShelleyTransactionInputs(tmpData)
+	s.cborData = append(s.cborData[:0], data...)
 	return nil
 }
 
 func (s *ShelleyTransactionInputSet) MarshalCBOR() ([]byte, error) {
+	if s.cborData != nil {
+		return s.cborData, nil
+	}
 	return cbor.Encode(s.items)
 }
 
 func (s *ShelleyTransactionInputSet) Items() []ShelleyTransactionInput {
-	ret := make([]ShelleyTransactionInput, 0, len(s.items))
-	seen := make(map[string]struct{}, len(s.items))
-	for _, item := range s.items {
+	ret := make([]ShelleyTransactionInput, len(s.items))
+	copy(ret, s.items)
+	return ret
+}
+
+func uniqueShelleyTransactionInputs(
+	items []ShelleyTransactionInput,
+) []ShelleyTransactionInput {
+	ret := make([]ShelleyTransactionInput, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
 		key := item.String()
 		if _, exists := seen[key]; exists {
 			continue
@@ -430,6 +443,7 @@ func (s *ShelleyTransactionInputSet) Items() []ShelleyTransactionInput {
 func (s *ShelleyTransactionInputSet) SetItems(items []ShelleyTransactionInput) {
 	s.items = make([]ShelleyTransactionInput, len(items))
 	copy(s.items, items)
+	s.cborData = nil
 }
 
 type ShelleyTransactionInput struct {

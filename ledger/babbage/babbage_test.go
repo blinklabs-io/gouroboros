@@ -38,9 +38,18 @@ func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T)
 		"0202020202020202020202020202020202020202020202020202020202020202",
 		1,
 	)
+	var signer common.Blake2b224
+	signer[0] = 3
+	collateralSet := cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{input1, input2, input1},
+		false,
+	)
+	collateralWire, err := cbor.Encode(&collateralSet)
+	require.NoError(t, err)
 	bodyCbor, err := cbor.Encode(map[uint]any{
 		0:  []shelley.ShelleyTransactionInput{input2, input1, input2},
-		13: cbor.NewSetType([]shelley.ShelleyTransactionInput{input1, input2, input1}, false),
+		13: collateralSet,
+		14: cbor.NewSetType([]common.Blake2b224{signer, signer}, false),
 		18: cbor.NewSetType([]shelley.ShelleyTransactionInput{input2, input1, input2}, false),
 	})
 	require.NoError(t, err)
@@ -51,6 +60,10 @@ func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T)
 	assert.Equal(t, []common.TransactionInput{input2, input1}, body.Inputs())
 	assert.Equal(t, []common.TransactionInput{input1, input2}, body.Collateral())
 	assert.Equal(t, []common.TransactionInput{&input2, &input1}, body.ReferenceInputs())
+	assert.Equal(t, []common.Blake2b224{signer, signer}, body.RequiredSigners())
+	decodedCollateralWire, err := cbor.Encode(&body.TxCollateral)
+	require.NoError(t, err)
+	assert.Equal(t, collateralWire, decodedCollateralWire)
 
 	tx := &BabbageTransaction{Body: body}
 	assert.NoError(t, shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil))

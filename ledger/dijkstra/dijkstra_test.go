@@ -601,6 +601,63 @@ func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	require.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestDijkstraTransactionBodyRejectsDuplicateTaggedInputSets(t *testing.T) {
+	input := testShelleyInput()
+	for _, tt := range []struct {
+		name  string
+		field uint
+	}{
+		{name: "collateral", field: 13},
+		{name: "reference", field: 18},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				tt.field: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			})
+			require.NoError(t, err)
+
+			var body DijkstraTransactionBody
+			err = body.UnmarshalCBOR(bodyCbor)
+			require.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
+func TestDijkstraUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
+	input := testShelleyInput()
+	for _, tt := range []struct {
+		name  string
+		field uint
+	}{
+		{name: "regular", field: 0},
+		{name: "collateral", field: 13},
+		{name: "reference", field: 18},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				tt.field: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					false,
+				),
+			})
+			require.NoError(t, err)
+
+			var body DijkstraTransactionBody
+			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+			tx := &DijkstraTransaction{Body: body}
+			require.Error(t, shelley.UtxoValidateNoDuplicateInputs(
+				tx,
+				0,
+				nil,
+				nil,
+			))
+		})
+	}
+}
+
 func TestDijkstraTransactionBodyRejectsDuplicateSubTransactionInputs(t *testing.T) {
 	input := testShelleyInput()
 	subTx := []any{

@@ -259,9 +259,9 @@ func TestSetTypeWithoutTag(t *testing.T) {
 	}
 }
 
-func TestSetTypeWithoutTagCoalescesItems(t *testing.T) {
-	// [2, 1, 2, 3, 1], with the second 2 encoded non-canonically, matching
-	// Set.fromList while retaining the first-seen order of unique members.
+func TestSetTypeWithoutTagRetainsItems(t *testing.T) {
+	// [2, 1, 2, 3, 1], with the second 2 encoded non-canonically. Generic
+	// SetType consumers decide whether their era and field coalesce duplicates.
 	origHex := "85020118020301"
 	orig, err := hex.DecodeString(origHex)
 	require.NoError(t, err)
@@ -269,11 +269,34 @@ func TestSetTypeWithoutTagCoalescesItems(t *testing.T) {
 	var setType cbor.SetType[uint64]
 	_, err = cbor.Decode(orig, &setType)
 	require.NoError(t, err)
-	assert.Equal(t, []uint64{2, 1, 3}, setType.Items())
+	assert.Equal(t, []uint64{2, 1, 2, 3, 1}, setType.Items())
 
 	wire, err := cbor.Encode(&setType)
 	require.NoError(t, err)
 	assert.Equal(t, orig, wire, "decoded SetType must preserve original CBOR")
+}
+
+type countingSetItem struct {
+	marshalCalls *int
+}
+
+func (i countingSetItem) MarshalCBOR() ([]byte, error) {
+	(*i.marshalCalls)++
+	return []byte{0}, nil
+}
+
+func TestSetTypeItemsDoesNotEncodeMembers(t *testing.T) {
+	marshalCalls := 0
+	setType := cbor.NewSetType(
+		[]countingSetItem{
+			{marshalCalls: &marshalCalls},
+			{marshalCalls: &marshalCalls},
+		},
+		false,
+	)
+
+	assert.Len(t, setType.Items(), 2)
+	assert.Zero(t, marshalCalls)
 }
 
 func TestSetTypeTaggedItemsRetainDuplicates(t *testing.T) {

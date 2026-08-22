@@ -273,9 +273,37 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
 	*b = AlonzoTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func coalesceUntaggedTransactionInputs(
+	set cbor.SetType[shelley.ShelleyTransactionInput],
+) cbor.SetType[shelley.ShelleyTransactionInput] {
+	wire := set.Cbor()
+	if wire == nil {
+		return set
+	}
+	var tag cbor.RawTag
+	if _, err := cbor.Decode(wire, &tag); err == nil {
+		return set
+	}
+	items := set.Items()
+	seen := make(map[string]struct{}, len(items))
+	uniqueItems := make([]shelley.ShelleyTransactionInput, 0, len(items))
+	for _, item := range items {
+		key := item.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		uniqueItems = append(uniqueItems, item)
+	}
+	ret := cbor.NewSetType(uniqueItems, false)
+	ret.SetCbor(wire)
+	return ret
 }
 
 func (b *AlonzoTransactionBody) Inputs() []common.TransactionInput {

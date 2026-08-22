@@ -223,6 +223,39 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
+func TestConwayUntaggedInputSetsRetainDuplicatesForValidation(t *testing.T) {
+	input := testConwayShelleyInput()
+	tests := []struct {
+		name  string
+		field uint
+	}{
+		{name: "regular", field: 0},
+		{name: "collateral", field: 13},
+		{name: "reference", field: 18},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{
+				tt.field: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					false,
+				),
+			})
+			require.NoError(t, err)
+
+			var body ConwayTransactionBody
+			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+			tx := &ConwayTransaction{Body: body}
+			require.Error(t, shelley.UtxoValidateNoDuplicateInputs(
+				tx,
+				0,
+				nil,
+				nil,
+			))
+		})
+	}
+}
+
 func TestConwayTransactionBodyRejectsDuplicateMultiAssetKeys(t *testing.T) {
 	tests := []struct {
 		name string

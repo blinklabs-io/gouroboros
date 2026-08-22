@@ -12,25 +12,40 @@ import (
 )
 
 func TestShelleyTransactionInputSetCoalescesUntaggedDuplicates(t *testing.T) {
-	input1 := shelley.NewShelleyTransactionInput(
+	txId := make([]byte, common.Blake2b256Size)
+	txId[0] = 1
+	// The first index is the non-minimal encoding 0x1800. The second copy is
+	// canonical, so normalization must not be used for wire round-tripping.
+	wire := []byte{0x82, 0x82, 0x58, 0x20}
+	wire = append(wire, txId...)
+	wire = append(wire, 0x18, 0x00, 0x82, 0x58, 0x20)
+	wire = append(wire, txId...)
+	wire = append(wire, 0x00)
+
+	var set shelley.ShelleyTransactionInputSet
+	_, err := cbor.Decode(wire, &set)
+	require.NoError(t, err)
+	expected := shelley.ShelleyTransactionInput{
+		TxId:        common.Blake2b256(txId),
+		OutputIndex: 0,
+	}
+	assert.Equal(t, []shelley.ShelleyTransactionInput{expected}, set.Items())
+
+	encoded, err := cbor.Encode(&set)
+	require.NoError(t, err)
+	assert.Equal(t, wire, encoded)
+}
+
+func TestShelleyTransactionInputSetOnlyCoalescesOnDecode(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
 	)
-	input2 := shelley.NewShelleyTransactionInput(
-		"0202020202020202020202020202020202020202020202020202020202020202",
-		1,
+	set := shelley.NewShelleyTransactionInputSet(
+		[]shelley.ShelleyTransactionInput{input, input},
 	)
-	wire, err := cbor.Encode([]shelley.ShelleyTransactionInput{
-		input2,
-		input1,
-		input2,
-	})
-	require.NoError(t, err)
 
-	var set shelley.ShelleyTransactionInputSet
-	_, err = cbor.Decode(wire, &set)
-	require.NoError(t, err)
-	assert.Equal(t, []shelley.ShelleyTransactionInput{input2, input1}, set.Items())
+	assert.Equal(t, []shelley.ShelleyTransactionInput{input, input}, set.Items())
 }
 
 func TestShelleyTransactionOutputString(t *testing.T) {
