@@ -157,7 +157,36 @@ type GovActionState struct {
 	ActionId   GovActionId
 	ActionType GovActionType
 	ExpirySlot uint64
+	// Action is the governance action itself, as proposed. It is optional
+	// in the LedgerState contract: a state provider that only records the
+	// action type leaves it nil. Rules that need the proposal's contents
+	// (a hard-fork proposal's proposed protocol version, a parameter
+	// change's modified parameters) skip their content-dependent check
+	// when it is nil rather than guessing.
+	Action GovAction
 	// Add more fields as needed for validation
+}
+
+// GovPurposeRoots holds the current root of each governance-action purpose
+// chain: the most recently enacted action of that purpose, or nil when
+// nothing of that purpose has been enacted yet. It mirrors the GovRelation
+// record reachable through pRootsL/toPrevGovActionIds in cardano-ledger's
+// Cardano.Ledger.Conway.Governance.Proposals.
+type GovPurposeRoots struct {
+	PParamUpdate *GovActionId
+	HardFork     *GovActionId
+	Committee    *GovActionId
+	Constitution *GovActionId
+}
+
+// GovPurposeRootsState is the optional ledger-state capability exposing the
+// current root of each governance-action purpose chain. A ledger state that
+// implements it gets the full Conway ancestry rule enforced (a proposal's
+// predecessor must be the purpose root or a pending proposal of the same
+// purpose); one that does not is limited to ancestor existence and purpose
+// matching.
+type GovPurposeRootsState interface {
+	GovPurposeRoots() (*GovPurposeRoots, error)
 }
 
 // GovState defines the interface for querying governance state

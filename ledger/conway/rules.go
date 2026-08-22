@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"slices"
 
@@ -467,6 +468,169 @@ func protocolVersionCanFollow(
 	return newMajor == curMajor && newMinor == curMinor+1
 }
 
+// txGovProposal is a governance action proposed by the transaction under
+// validation, together with its position in the transaction's proposal
+// procedures.
+type txGovProposal struct {
+	idx    int
+	action common.GovAction
+}
+
+// txProposalActions indexes the governance actions proposed by tx itself by
+// the governance action id each one receives once the transaction is
+// accepted, (transaction id, proposal index).
+//
+// cardano-ledger's conwayGovTransition folds processProposal over the
+// proposal procedures in order and threads the accumulated Proposals through
+// every subsequent check, so a proposal may name an earlier proposal of the
+// same transaction as its predecessor, and a vote may refer to an action
+// proposed by its own transaction. Rules that only consult the ledger state
+// would reject those as unknown.
+func txProposalActions(
+	tx common.Transaction,
+) map[common.GovActionId]txGovProposal {
+	proposals := tx.ProposalProcedures()
+	if len(proposals) == 0 {
+		return nil
+	}
+	txId := tx.Hash()
+	ret := make(map[common.GovActionId]txGovProposal, len(proposals))
+	for idx, proposal := range proposals {
+		if idx > math.MaxUint32 {
+			break
+		}
+		actionId := common.GovActionId{
+			TransactionId: txId,
+			GovActionIdx:  uint32(idx), // #nosec G115 -- bounded above
+		}
+		ret[actionId] = txGovProposal{idx: idx, action: proposal.GovAction()}
+	}
+	return ret
+}
+
+// govActionResolver answers questions about the governance action a voting
+// procedure names, consulting the proposals of the transaction under
+// validation before the ledger state.
+//
+// cardano-ledger's conwayGovTransition folds the transaction's proposals into
+// the proposal set before checking its votes
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs at commit
+// 08773e9a8f911f67209560a4e401369cbb21a0cb), so a vote may name an action its
+// own transaction proposes. A rule that only consults the ledger state either
+// rejects such a vote as unknown or leaves its restriction unenforced.
+//
+// The proposal index is built lazily, so a transaction with no voting
+// procedures or no proposals pays nothing.
+type govActionResolver struct {
+	tx        common.Transaction
+	ls        common.LedgerState
+	proposals map[common.GovActionId]txGovProposal
+	loaded    bool
+}
+
+// txProposal returns the proposal of the transaction under validation that
+// receives actionId once the transaction is accepted.
+func (r *govActionResolver) txProposal(
+	actionId common.GovActionId,
+) (txGovProposal, bool) {
+	if !r.loaded {
+		r.proposals = txProposalActions(r.tx)
+		r.loaded = true
+	}
+	proposal, ok := r.proposals[actionId]
+	return proposal, ok
+}
+
+// exists reports whether actionId names a governance action the ledger state
+// records or the transaction under validation proposes. A proposal whose
+// action contents are absent still counts as existing: a proposal procedure
+// always carries an action on the wire, and cardano-ledger adds the proposal
+// to the folded proposal set regardless of what it proposes.
+func (r *govActionResolver) exists(actionId common.GovActionId) bool {
+	if r.ls != nil && r.ls.GovActionExists(actionId) {
+		return true
+	}
+	_, ok := r.txProposal(actionId)
+	return ok
+}
+
+// resolve returns the type and, where available, the contents of the
+// governance action named by actionId. ok is false when neither the
+// transaction nor the ledger state can classify the action, which leaves a
+// type-dependent restriction unenforced rather than guessed at.
+func (r *govActionResolver) resolve(
+	actionId common.GovActionId,
+) (actionType common.GovActionType, action common.GovAction, ok bool) {
+	if proposal, found := r.txProposal(actionId); found {
+		if proposal.action == nil {
+			return 0, nil, false
+		}
+		resolvedType, err := conwayGovActionType(proposal.action)
+		if err != nil {
+			return 0, nil, false
+		}
+		return common.GovActionType(resolvedType), proposal.action, true
+	}
+	if r.ls == nil {
+		return 0, nil, false
+	}
+	actionState, err := r.ls.GovActionById(actionId)
+	if err != nil || actionState == nil {
+		return 0, nil, false
+	}
+	return actionState.ActionType, actionState.Action, true
+}
+
+// hardForkProposedVersion returns the protocol version proposed by a
+// HardForkInitiation action. ok is false for any other action type, matching
+// the pattern match on HardForkInitiation in cardano-ledger's
+// preceedingHardFork.
+func hardForkProposedVersion(
+	action common.GovAction,
+) (major, minor uint, ok bool) {
+	hf, isHardFork := action.(*common.HardForkInitiationGovAction)
+	if !isHardFork {
+		return 0, 0, false
+	}
+	return hf.ProtocolVersion.Major, hf.ProtocolVersion.Minor, true
+}
+
+// govPurposeRoots returns the current root of each governance-action purpose
+// chain when the ledger state implements the optional
+// common.GovPurposeRootsState capability, and nil when it does not.
+func govPurposeRoots(
+	ls common.LedgerState,
+) (*common.GovPurposeRoots, error) {
+	rootsState, ok := ls.(common.GovPurposeRootsState)
+	if !ok {
+		return nil, nil
+	}
+	return rootsState.GovPurposeRoots()
+}
+
+// govPurposeRootId returns the root governance action id recorded for a
+// purpose, or nil when nothing of that purpose has been enacted yet.
+func govPurposeRootId(
+	roots *common.GovPurposeRoots,
+	purpose govActionPurpose,
+) *common.GovActionId {
+	if roots == nil {
+		return nil
+	}
+	switch purpose {
+	case govPurposePParamUpdate:
+		return roots.PParamUpdate
+	case govPurposeHardFork:
+		return roots.HardFork
+	case govPurposeCommittee:
+		return roots.Committee
+	case govPurposeConstitution:
+		return roots.Constitution
+	default:
+		return nil
+	}
+}
+
 // UtxoValidateGovActionWellFormedness performs structural well-formedness
 // checks on governance actions beyond the ParameterChange-specific checks in
 // UtxoValidateProposalProcedures (ConwayGovPredFailure.MalformedProposal),
@@ -560,19 +724,33 @@ func UtxoValidateGovActionWellFormedness(
 }
 
 // UtxoValidateHardForkCanFollow checks that a HardForkInitiation governance
-// action's proposed protocol version can legally follow the current
-// protocol version (ConwayGovPredFailure.ProposalCantFollow).
+// action's proposed protocol version can legally follow the protocol version
+// it succeeds (ConwayGovPredFailure.ProposalCantFollow).
 //
-// NOTE: the ledger spec compares against the *referenced ancestor's*
-// proposed protocol version when the proposal has a PrevGovActionId,
-// falling back to the currently enacted protocol version only when there is
-// no ancestor (or the proposed major version already exceeds the current
-// major's direct successor). GovActionState in this codebase only records
-// ActionType and ExpirySlot, not the ancestor's proposed ProtVer, so when an
-// ancestor is referenced this rule intentionally defers the numeric version
-// check (ancestor existence/purpose is validated separately by
-// UtxoValidateProposalAncestry) rather than comparing against the wrong
-// reference version.
+// This mirrors preceedingHardFork plus the pvCanFollow guard in
+// cardano-ledger's conwayGovTransition
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs lines 488-499 and
+// 673-695 at commit 08773e9a8f911f67209560a4e401369cbb21a0cb):
+//
+//   - a proposed major version more than one above the currently enacted
+//     major version is compared against the enacted version, so a chain of
+//     pending proposals cannot be used to jump ahead;
+//   - otherwise a proposal with a predecessor is compared against that
+//     predecessor's proposed protocol version, taken from the transaction
+//     itself for a predecessor proposed by the same transaction, or from the
+//     ledger state's record of the referenced action;
+//   - a proposal with no predecessor is compared against the enacted
+//     version. The enacted protocol version is always the version proposed
+//     by the hard-fork action that is the current root of the hard-fork
+//     purpose chain, since a ParameterChange action cannot alter the
+//     protocol version, so comparing against the recorded proposed version
+//     of a predecessor that is the root gives the same verdict as the
+//     reference implementation's comparison against the enacted version.
+//
+// A predecessor whose contents the ledger state does not record (see
+// common.GovActionState.Action) leaves the numeric check deferred rather
+// than run against the wrong reference version; the predecessor's existence
+// and purpose are validated by UtxoValidateProposalAncestry.
 func UtxoValidateHardForkCanFollow(
 	tx common.Transaction,
 	slot uint64,
@@ -583,21 +761,58 @@ func UtxoValidateHardForkCanFollow(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	for _, proposal := range tx.ProposalProcedures() {
+	curPV := conwayPp.ProtocolVersion
+	var txProposals map[common.GovActionId]txGovProposal
+	txProposalsLoaded := false
+	for idx, proposal := range tx.ProposalProcedures() {
 		hf, ok := proposal.GovAction().(*common.HardForkInitiationGovAction)
 		if !ok {
 			continue
 		}
-		if hf.ActionId != nil {
-			// See NOTE above: cannot verify the exact version chain without
-			// the ancestor's proposed protocol version.
-			continue
-		}
-		curPV := conwayPp.ProtocolVersion
 		newPV := hf.ProtocolVersion
+		// Equivalent to `Just (pvMajor newProtVer) > succVersion (pvMajor
+		// current)` without risking an overflow on curPV.Major+1.
+		majorTooHigh := newPV.Major > curPV.Major &&
+			newPV.Major-curPV.Major > 1
+		refMajor, refMinor := curPV.Major, curPV.Minor
+		if hf.ActionId != nil && !majorTooHigh {
+			if !txProposalsLoaded {
+				txProposals = txProposalActions(tx)
+				txProposalsLoaded = true
+			}
+			var ancestorAction common.GovAction
+			if txProposal, ok := txProposals[*hf.ActionId]; ok {
+				if txProposal.idx >= idx {
+					// Only an earlier proposal of the same transaction has
+					// been folded into the proposal set at this point; a
+					// forward or self reference is reported by
+					// UtxoValidateProposalAncestry.
+					continue
+				}
+				ancestorAction = txProposal.action
+			} else if ls != nil {
+				ancestorState, err := ls.GovActionById(*hf.ActionId)
+				if err != nil || ancestorState == nil {
+					// A missing predecessor is reported by
+					// UtxoValidateProposalAncestry.
+					continue
+				}
+				ancestorAction = ancestorState.Action
+			}
+			if ancestorAction == nil {
+				continue
+			}
+			major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
+			if !isHardFork {
+				// A predecessor of another purpose is reported by
+				// UtxoValidateProposalAncestry.
+				continue
+			}
+			refMajor, refMinor = major, minor
+		}
 		if !protocolVersionCanFollow(
-			curPV.Major,
-			curPV.Minor,
+			refMajor,
+			refMinor,
 			newPV.Major,
 			newPV.Minor,
 		) {
@@ -606,7 +821,10 @@ func UtxoValidateHardForkCanFollow(
 					Major: newPV.Major,
 					Minor: newPV.Minor,
 				},
-				Expected: curPV,
+				Expected: common.ProtocolParametersProtocolVersion{
+					Major: refMajor,
+					Minor: refMinor,
+				},
 			}
 		}
 	}
@@ -614,36 +832,90 @@ func UtxoValidateHardForkCanFollow(
 }
 
 // UtxoValidateProposalAncestry checks that a governance action's optional
-// PrevGovActionId, if present, references an existing governance action
-// belonging to the same purpose chain (ConwayGovPredFailure.InvalidPrevGovActionId).
+// PrevGovActionId names a valid predecessor in its purpose chain
+// (ConwayGovPredFailure.InvalidPrevGovActionId).
 //
-// NOTE: the ledger spec additionally verifies that the referenced ancestor
-// is the *current* root of its purpose chain (i.e., no other pending action
-// of that purpose exists that isn't this proposal's ancestor). GovState in
-// this codebase does not expose per-purpose root tracking, so this rule is
-// limited to existence and purpose-type matching.
+// cardano-ledger accepts a proposal only when runProposalsAddAction can
+// attach it to the purpose's tree
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Governance/Proposals.hs lines
+// 305-334 at commit 08773e9a8f911f67209560a4e401369cbb21a0cb, reached from
+// the proposalsAddAction call in conwayGovTransition,
+// eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Gov.hs lines 550-556):
+// the proposal's predecessor must either equal the current root of that
+// purpose chain, including the case where both are absent, or be a proposal
+// of that purpose that is still pending.
 //
-// This also means the rule's safety (rejecting when an ancestor isn't
-// found) implicitly depends on the LedgerState implementation keeping
-// enacted governance actions queryable via GovActionById rather than
-// pruning them once enacted, since the current root of a purpose chain is
-// normally an already-enacted action; the LedgerState interface does not
-// explicitly promise this, so a backend that prunes enacted proposals would
-// start incorrectly rejecting valid proposals.
+// The current root is only available when the ledger state implements the
+// optional common.GovPurposeRootsState capability. Without it this rule
+// stays limited to ancestor existence and purpose matching, so a ledger
+// state that cannot report roots is not made to reject proposals it has no
+// way to judge.
 func UtxoValidateProposalAncestry(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	for _, proposal := range tx.ProposalProcedures() {
+	proposals := tx.ProposalProcedures()
+	if len(proposals) == 0 {
+		return nil
+	}
+	roots, err := govPurposeRoots(ls)
+	if err != nil {
+		return fmt.Errorf("governance purpose roots lookup failed: %w", err)
+	}
+	txProposals := txProposalActions(tx)
+	for idx, proposal := range proposals {
 		govAction := proposal.GovAction()
 		if govAction == nil {
 			continue
 		}
 		ancestorId, purpose, hasPurpose := govActionAncestor(govAction)
-		if !hasPurpose || ancestorId == nil {
+		if !hasPurpose {
 			continue
+		}
+		rootId := govPurposeRootId(roots, purpose)
+		if ancestorId == nil {
+			// A proposal without a predecessor is only valid while the
+			// purpose chain has no root. Skip the check entirely when the
+			// roots are unknown.
+			if roots == nil || rootId == nil {
+				continue
+			}
+			return InvalidGovActionAncestorError{
+				ActionId: *rootId,
+				Reason: "proposal has no predecessor but the purpose chain " +
+					"root is set",
+			}
+		}
+		// The predecessor is the current root of its purpose chain.
+		if rootId != nil && rootId.Equal(*ancestorId) {
+			continue
+		}
+		// The predecessor is an earlier proposal of the same purpose in this
+		// same transaction.
+		if txProposal, ok := txProposals[*ancestorId]; ok {
+			if txProposal.idx < idx && txProposal.action != nil {
+				_, txPurpose, txHasPurpose := govActionAncestor(
+					txProposal.action,
+				)
+				if txHasPurpose && txPurpose == purpose {
+					continue
+				}
+			}
+			return InvalidGovActionAncestorError{
+				ActionId: *ancestorId,
+				Reason: "referenced ancestor governance action is not an " +
+					"earlier proposal of the same purpose in this transaction",
+			}
+		}
+		// Otherwise the predecessor must be a pending proposal of the same
+		// purpose recorded in the ledger state.
+		if ls == nil {
+			return InvalidGovActionAncestorError{
+				ActionId: *ancestorId,
+				Reason:   "no ledger state available to resolve the ancestor",
+			}
 		}
 		ancestorState, err := ls.GovActionById(*ancestorId)
 		if err != nil {
@@ -663,6 +935,20 @@ func UtxoValidateProposalAncestry(
 			return InvalidGovActionAncestorError{
 				ActionId: *ancestorId,
 				Reason:   "referenced ancestor governance action has a mismatched purpose",
+			}
+		}
+		// An expired proposal is no longer in the purpose tree, so it cannot
+		// be a predecessor. ExpirySlot is optional in the LedgerState
+		// contract (see UtxoValidateVotingOnExpiredGovAction): a state
+		// provider that does not model expiry leaves it zero, which is
+		// treated as "expiry not modeled" rather than "expired at slot 0".
+		if ancestorState.ExpirySlot != 0 && slot > ancestorState.ExpirySlot {
+			return InvalidGovActionAncestorError{
+				ActionId: *ancestorId,
+				Reason: fmt.Sprintf(
+					"referenced ancestor governance action expired at slot %d",
+					ancestorState.ExpirySlot,
+				),
 			}
 		}
 	}
@@ -3041,16 +3327,26 @@ func PoolValidateVrfKeyUniqueness(
 }
 
 // UtxoValidateUnknownGovActionIds rejects voting procedures that reference a
-// governance action id that does not exist in the ledger state
+// governance action id that neither the ledger state records nor the
+// transaction under validation proposes
 // (ConwayGovPredFailure.GovActionsDoNotExist). This is the rule referenced
 // by the "unknown action ID is handled by other validation rules" comment
 // in UtxoValidateCCVotingRestrictions.
+//
+// An action proposed by the transaction under validation counts as existing:
+// cardano-ledger folds the transaction's proposals into the proposal set
+// before checking its votes, so a transaction that proposes an action and
+// votes on it is not voting on an unknown action. Rejecting it here would
+// also make the same-transaction resolution in
+// UtxoValidateStakePoolVotingRestrictions unreachable, since this rule runs
+// first in UtxoValidationRules.
 func UtxoValidateUnknownGovActionIds(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	resolver := govActionResolver{tx: tx, ls: ls}
 	var unknown []common.GovActionId
 	for _, actionVotes := range tx.VotingProcedures() {
 		for actionId := range actionVotes {
@@ -3063,7 +3359,7 @@ func UtxoValidateUnknownGovActionIds(
 				unknown = append(unknown, common.GovActionId{})
 				continue
 			}
-			if !ls.GovActionExists(*actionId) {
+			if !resolver.exists(*actionId) {
 				unknown = append(unknown, *actionId)
 			}
 		}
@@ -3231,6 +3527,10 @@ func UtxoValidateVotingOnExpiredGovAction(
 // InfoAction). A nil action id is rejected directly here (matching
 // UtxoValidateCCVotingRestrictions's convention) rather than silently
 // skipped.
+//
+// The action type is resolved from the transaction's own proposals when the
+// vote names an action that transaction proposes, so a same-transaction
+// propose-and-vote does not escape the restriction.
 func UtxoValidateBootstrapVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3255,6 +3555,7 @@ func UtxoValidateBootstrapVotingRestrictions(
 			return false
 		}
 	}
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range tx.VotingProcedures() {
 		if voter == nil {
 			continue
@@ -3267,16 +3568,16 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil || actionState == nil {
+			actionType, _, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 			var allowed bool
 			switch voter.Type {
 			case common.VoterTypeDRepKeyHash, common.VoterTypeDRepScriptHash:
-				allowed = actionState.ActionType == common.GovActionTypeInfo
+				allowed = actionType == common.GovActionTypeInfo
 			default:
-				allowed = isBootstrapAction(actionState.ActionType)
+				allowed = isBootstrapAction(actionType)
 			}
 			if !allowed {
 				return BootstrapVotingRestrictionError{
@@ -3285,7 +3586,7 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: fmt.Sprintf(
 						"voter type %d cannot vote on action type %d during bootstrap phase",
 						voter.Type,
-						actionState.ActionType,
+						actionType,
 					),
 				}
 			}
@@ -3295,17 +3596,22 @@ func UtxoValidateBootstrapVotingRestrictions(
 }
 
 // UtxoValidateStakePoolVotingRestrictions validates stake pool (SPO) voting
-// restrictions per the Conway ledger's isStakePoolVotingAllowed: SPOs may
-// never vote on NewConstitution or TreasuryWithdrawal actions. A nil action
-// id is rejected directly here (matching UtxoValidateCCVotingRestrictions's
+// restrictions per isStakePoolVotingAllowed and
+// votingStakePoolThresholdInternal in cardano-ledger
+// (eras/conway/impl/src/Cardano/Ledger/Conway/Governance/Internal.hs lines
+// 353-405 at commit 08773e9a8f911f67209560a4e401369cbb21a0cb): SPOs may
+// never vote on NewConstitution or TreasuryWithdrawal actions, and may vote
+// on a ParameterChange only when at least one of the parameters it modifies
+// belongs to the security group (see
+// ConwayProtocolParameterUpdate.SecurityGroupFields). A nil action id is
+// rejected directly here (matching UtxoValidateCCVotingRestrictions's
 // convention) rather than silently skipped.
 //
-// NOTE: the ledger spec also disallows SPO votes on ParameterChange
-// proposals that don't touch "security group" parameters. This codebase
-// does not currently classify ParameterChange fields into security-relevant
-// groups (distinct from the bootstrap-restricted-fields classification), so
-// that narrower restriction is intentionally left unenforced here rather
-// than guessed at.
+// Classifying a ParameterChange requires the proposed parameter update. It
+// is read from the transaction itself when the action is proposed by the
+// same transaction, otherwise from common.GovActionState.Action. A ledger
+// state that does not record the action contents leaves the parameter-group
+// restriction unenforced rather than guessed at.
 func UtxoValidateStakePoolVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3316,6 +3622,7 @@ func UtxoValidateStakePoolVotingRestrictions(
 	if len(votes) == 0 {
 		return nil
 	}
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range votes {
 		if voter == nil || voter.Type != common.VoterTypeStakingPoolKeyHash {
 			continue
@@ -3328,18 +3635,29 @@ func UtxoValidateStakePoolVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil || actionState == nil {
+			actionType, action, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 			var restriction string
-			switch actionState.ActionType {
+			switch actionType {
 			case common.GovActionTypeNewConstitution:
 				restriction = "stake pools cannot vote on NewConstitution"
 			case common.GovActionTypeTreasuryWithdrawal:
 				restriction = "stake pools cannot vote on TreasuryWithdrawal"
-			case common.GovActionTypeParameterChange,
-				common.GovActionTypeHardForkInitiation,
+			case common.GovActionTypeParameterChange:
+				paramChange, ok := action.(*ConwayParameterChangeGovAction)
+				if !ok {
+					// The action contents are not available, so the
+					// parameter groups it modifies are unknown.
+					continue
+				}
+				if len(paramChange.ParamUpdate.SecurityGroupFields()) > 0 {
+					continue
+				}
+				restriction = "stake pools cannot vote on a parameter change " +
+					"that does not modify security group parameters"
+			case common.GovActionTypeHardForkInitiation,
 				common.GovActionTypeNoConfidence,
 				common.GovActionTypeUpdateCommittee,
 				common.GovActionTypeInfo:
@@ -3360,6 +3678,10 @@ func UtxoValidateStakePoolVotingRestrictions(
 // UtxoValidateCCVotingRestrictions validates CC voting restrictions per cardano-ledger spec.
 // Constitutional Committee members cannot vote on NoConfidence or UpdateCommittee actions.
 // Enforced at ledger level for PV11+ (ProtocolVersionVanRossem).
+//
+// The action type is resolved from the transaction's own proposals when the
+// vote names an action that transaction proposes, so a same-transaction
+// propose-and-vote does not escape the restriction.
 func UtxoValidateCCVotingRestrictions(
 	tx common.Transaction,
 	slot uint64,
@@ -3381,6 +3703,7 @@ func UtxoValidateCCVotingRestrictions(
 		return nil
 	}
 
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range votes {
 		// Only check CC voters
 		if voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
@@ -3398,22 +3721,19 @@ func UtxoValidateCCVotingRestrictions(
 				}
 			}
 
-			// Look up the action type from governance state
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil {
-				// If we can't look up the action, skip this check
-				// (unknown action ID is handled by other validation rules)
-				continue
-			}
-			if actionState == nil {
+			// Resolve the action type from the transaction's own proposals
+			// or, failing that, from governance state. An action neither
+			// names is reported by UtxoValidateUnknownGovActionIds.
+			actionType, _, ok := resolver.resolve(*actionId)
+			if !ok {
 				continue
 			}
 
 			// CC members cannot vote on NoConfidence or UpdateCommittee
-			if actionState.ActionType == common.GovActionTypeNoConfidence ||
-				actionState.ActionType == common.GovActionTypeUpdateCommittee {
+			if actionType == common.GovActionTypeNoConfidence ||
+				actionType == common.GovActionTypeUpdateCommittee {
 				restriction := "CC cannot vote on NoConfidence"
-				if actionState.ActionType == common.GovActionTypeUpdateCommittee {
+				if actionType == common.GovActionTypeUpdateCommittee {
 					restriction = "CC cannot vote on UpdateCommittee"
 				}
 				return CCVotingRestrictionError{

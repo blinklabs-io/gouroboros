@@ -1162,19 +1162,22 @@ func TestConwayProtocolParameterUpdate_BootstrapRestrictedFields(t *testing.T) {
 		}
 	})
 
-	t.Run("DRepDeposit and MinCommitteeSize are restricted", func(t *testing.T) {
-		dep := uint64(500_000_000)
-		size := uint(7)
-		u := &conway.ConwayProtocolParameterUpdate{
-			DRepDeposit:      &dep,
-			MinCommitteeSize: &size,
-		}
-		fields := u.BootstrapRestrictedFields()
-		want := []string{"MinCommitteeSize", "DRepDeposit"}
-		if !reflect.DeepEqual(fields, want) {
-			t.Fatalf("want %v, got %v", want, fields)
-		}
-	})
+	t.Run(
+		"DRepDeposit and MinCommitteeSize are restricted",
+		func(t *testing.T) {
+			dep := uint64(500_000_000)
+			size := uint(7)
+			u := &conway.ConwayProtocolParameterUpdate{
+				DRepDeposit:      &dep,
+				MinCommitteeSize: &size,
+			}
+			fields := u.BootstrapRestrictedFields()
+			want := []string{"MinCommitteeSize", "DRepDeposit"}
+			if !reflect.DeepEqual(fields, want) {
+				t.Fatalf("want %v, got %v", want, fields)
+			}
+		},
+	)
 
 	t.Run("non-restricted fields are ignored", func(t *testing.T) {
 		fee := uint(44)
@@ -1182,6 +1185,89 @@ func TestConwayProtocolParameterUpdate_BootstrapRestrictedFields(t *testing.T) {
 		fields := u.BootstrapRestrictedFields()
 		if len(fields) != 0 {
 			t.Fatalf("want empty for MinFeeA-only update, got %v", fields)
+		}
+	})
+}
+
+// TestConwayProtocolParameterUpdate_SecurityGroupFields pins the Conway
+// security group: the set of protocol parameters annotated 'SecurityGroup in
+// the ConwayPParams record of cardano-ledger
+// eras/conway/impl/src/Cardano/Ledger/Conway/PParams.hs (lines 644-711 at
+// commit 08773e9a8f911f67209560a4e401369cbb21a0cb). Every other parameter is
+// 'NoStakePoolGroup, and cppProtocolVersion is HKDNoUpdate (it is not
+// changeable by a ParameterChange action at all).
+func TestConwayProtocolParameterUpdate_SecurityGroupFields(t *testing.T) {
+	t.Run("empty update touches no security parameter", func(t *testing.T) {
+		u := &conway.ConwayProtocolParameterUpdate{}
+		if fields := u.SecurityGroupFields(); len(fields) != 0 {
+			t.Fatalf("want empty, got %v", fields)
+		}
+	})
+
+	t.Run("every security group parameter is reported", func(t *testing.T) {
+		val := uint(1)
+		val64 := uint64(1)
+		rat := &cbor.Rat{Rat: big.NewRat(1, 2)}
+		u := &conway.ConwayProtocolParameterUpdate{
+			MinFeeA:                    &val,
+			MinFeeB:                    &val,
+			MaxBlockBodySize:           &val,
+			MaxTxSize:                  &val,
+			MaxBlockHeaderSize:         &val,
+			AdaPerUtxoByte:             &val64,
+			MaxBlockExUnits:            &common.ExUnits{Memory: 1, Steps: 1},
+			MaxValueSize:               &val,
+			GovActionDeposit:           &val64,
+			MinFeeRefScriptCostPerByte: rat,
+		}
+		want := []string{
+			"MinFeeA",
+			"MinFeeB",
+			"MaxBlockBodySize",
+			"MaxTxSize",
+			"MaxBlockHeaderSize",
+			"AdaPerUtxoByte",
+			"MaxBlockExUnits",
+			"MaxValueSize",
+			"GovActionDeposit",
+			"MinFeeRefScriptCostPerByte",
+		}
+		if fields := u.SecurityGroupFields(); !reflect.DeepEqual(fields, want) {
+			t.Fatalf("want %v, got %v", want, fields)
+		}
+	})
+
+	t.Run("non-security parameters are ignored", func(t *testing.T) {
+		val := uint(1)
+		val64 := uint64(1)
+		rat := &cbor.Rat{Rat: big.NewRat(1, 2)}
+		u := &conway.ConwayProtocolParameterUpdate{
+			KeyDeposit:  &val,
+			PoolDeposit: &val,
+			MaxEpoch:    &val,
+			NOpt:        &val,
+			A0:          rat,
+			Rho:         rat,
+			Tau:         rat,
+			ProtocolVersion: &common.ProtocolParametersProtocolVersion{
+				Major: 10,
+			},
+			MinPoolCost:             &val64,
+			CostModels:              map[uint][]int64{0: {1}},
+			ExecutionCosts:          &common.ExUnitPrice{},
+			MaxTxExUnits:            &common.ExUnits{Memory: 1, Steps: 1},
+			CollateralPercentage:    &val,
+			MaxCollateralInputs:     &val,
+			PoolVotingThresholds:    &conway.PoolVotingThresholds{},
+			DRepVotingThresholds:    &conway.DRepVotingThresholds{},
+			MinCommitteeSize:        &val,
+			CommitteeTermLimit:      &val64,
+			GovActionValidityPeriod: &val64,
+			DRepDeposit:             &val64,
+			DRepInactivityPeriod:    &val64,
+		}
+		if fields := u.SecurityGroupFields(); len(fields) != 0 {
+			t.Fatalf("want empty, got %v", fields)
 		}
 	})
 }
