@@ -52,6 +52,42 @@ func ValidatePBFTHeader(
 	header *ledgerbyron.ByronMainBlockHeader,
 	config ByronConfig,
 ) (PBFTIssuer, error) {
+	if len(config.GenesisDelegations) == 0 {
+		return PBFTIssuer{}, errors.New(
+			"byron PBFT active delegation state is empty",
+		)
+	}
+	issuer, err := ValidatePBFTHeaderCrypto(header, config)
+	if err != nil {
+		return PBFTIssuer{}, err
+	}
+	activeDelegate, ok := config.GenesisDelegations[issuer.GenesisKeyHash]
+	if !ok {
+		return PBFTIssuer{}, fmt.Errorf(
+			"byron PBFT genesis issuer %s has no active delegate",
+			issuer.GenesisKeyHash.String(),
+		)
+	}
+	if activeDelegate != issuer.DelegateKeyHash {
+		return PBFTIssuer{}, fmt.Errorf(
+			"byron PBFT active delegate mismatch for genesis issuer %s: got %s, expected %s",
+			issuer.GenesisKeyHash.String(),
+			issuer.DelegateKeyHash.String(),
+			activeDelegate.String(),
+		)
+	}
+	return issuer, nil
+}
+
+// ValidatePBFTHeaderCrypto validates the cryptographic and configured-genesis
+// parts of a Byron PBFT main-block header without consulting the active
+// delegation map. Callers may use it for parallel stateless pre-validation,
+// but must still call ValidatePBFTHeader against the ordered delegation-ledger
+// view before committing the block.
+func ValidatePBFTHeaderCrypto(
+	header *ledgerbyron.ByronMainBlockHeader,
+	config ByronConfig,
+) (PBFTIssuer, error) {
 	if header == nil {
 		return PBFTIssuer{}, errors.New("nil byron PBFT header")
 	}
@@ -60,14 +96,15 @@ func ValidatePBFTHeader(
 			"byron PBFT genesis issuer set is empty",
 		)
 	}
-	if len(config.GenesisDelegations) == 0 {
-		return PBFTIssuer{}, errors.New(
-			"byron PBFT active delegation state is empty",
-		)
-	}
 
-	issuer, err := pbftIssuerFromHeader(header)
+	issuer, activationEpoch, err := parsePBFTIssuerFromHeader(header)
 	if err != nil {
+		return PBFTIssuer{}, err
+	}
+	if err := validatePBFTCertificateEpoch(
+		activationEpoch,
+		header.ConsensusData.SlotId.Epoch,
+	); err != nil {
 		return PBFTIssuer{}, err
 	}
 	input := &ValidateHeaderInput{
@@ -101,32 +138,33 @@ func ValidatePBFTHeader(
 			issuer.GenesisKeyHash.String(),
 		)
 	}
-	activeDelegate, ok := config.GenesisDelegations[issuer.GenesisKeyHash]
-	if !ok {
-		return PBFTIssuer{}, fmt.Errorf(
-			"byron PBFT genesis issuer %s has no active delegate",
-			issuer.GenesisKeyHash.String(),
-		)
-	}
-	if !bytes.Equal(
-		activeDelegate.Bytes(),
-		issuer.DelegateKeyHash.Bytes(),
-	) {
-		return PBFTIssuer{}, fmt.Errorf(
-			"byron PBFT active delegate mismatch for genesis issuer %s: got %s, expected %s",
-			issuer.GenesisKeyHash.String(),
-			issuer.DelegateKeyHash.String(),
-			activeDelegate.String(),
-		)
-	}
 	return issuer, nil
 }
 
-func pbftIssuerFromHeader(
+// PBFTIssuerFromHeader parses the PBFT identities carried by a Byron main
+// block header without verifying either signature or consulting the active
+// delegation ledger view. ConsensusData.PubKey is the genesis issuer's
+// extended verification key; element 2 of the heavyweight proxy certificate
+// is the delegate extended verification key that signed the block.
+//
+// This is intended for replay of already-trusted canonical headers. New or
+// otherwise untrusted headers must use ValidatePBFTHeaderCrypto and then
+// ValidatePBFTHeader against the ordered active-delegation view.
+func PBFTIssuerFromHeader(
 	header *ledgerbyron.ByronMainBlockHeader,
 ) (PBFTIssuer, error) {
+	issuer, _, err := parsePBFTIssuerFromHeader(header)
+	return issuer, err
+}
+
+func parsePBFTIssuerFromHeader(
+	header *ledgerbyron.ByronMainBlockHeader,
+) (PBFTIssuer, uint64, error) {
+	if header == nil {
+		return PBFTIssuer{}, 0, errors.New("nil byron PBFT header")
+	}
 	if len(header.ConsensusData.PubKey) != 64 {
-		return PBFTIssuer{}, fmt.Errorf(
+		return PBFTIssuer{}, 0, fmt.Errorf(
 			"invalid Byron PBFT genesis issuer key length: got %d, expected 64",
 			len(header.ConsensusData.PubKey),
 		)
@@ -135,20 +173,20 @@ func pbftIssuerFromHeader(
 		header.ConsensusData.PubKey,
 	)
 	if err != nil {
-		return PBFTIssuer{}, err
+		return PBFTIssuer{}, 0, err
 	}
 	issuer := PBFTIssuer{
 		GenesisKeyHash: genesisKeyHash,
 	}
 	if len(header.ConsensusData.BlockSig) != 2 {
-		return PBFTIssuer{}, fmt.Errorf(
+		return PBFTIssuer{}, 0, fmt.Errorf(
 			"invalid Byron PBFT signature shape: got %d elements, expected 2",
 			len(header.ConsensusData.BlockSig),
 		)
 	}
 	signatureType, err := extractUint64(header.ConsensusData.BlockSig[0])
 	if err != nil {
-		return PBFTIssuer{}, fmt.Errorf(
+		return PBFTIssuer{}, 0, fmt.Errorf(
 			"decode Byron PBFT signature type: %w",
 			err,
 		)
@@ -157,7 +195,7 @@ func pbftIssuerFromHeader(
 	case byronSigTypeHeavy:
 		inner, ok := header.ConsensusData.BlockSig[1].([]any)
 		if !ok || len(inner) != 2 {
-			return PBFTIssuer{}, fmt.Errorf(
+			return PBFTIssuer{}, 0, fmt.Errorf(
 				"invalid Byron PBFT proxy signature payload: got %T with %d elements",
 				header.ConsensusData.BlockSig[1],
 				len(inner),
@@ -165,7 +203,7 @@ func pbftIssuerFromHeader(
 		}
 		certificate, ok := inner[0].([]any)
 		if !ok || len(certificate) != 4 {
-			return PBFTIssuer{}, fmt.Errorf(
+			return PBFTIssuer{}, 0, fmt.Errorf(
 				"invalid Byron PBFT proxy certificate: got %T with %d elements",
 				inner[0],
 				len(certificate),
@@ -173,20 +211,14 @@ func pbftIssuerFromHeader(
 		}
 		activationEpoch, err := extractUint64(certificate[0])
 		if err != nil {
-			return PBFTIssuer{}, fmt.Errorf(
+			return PBFTIssuer{}, 0, fmt.Errorf(
 				"decode Byron PBFT delegation activation epoch: %w",
 				err,
 			)
 		}
-		if err := validatePBFTCertificateEpoch(
-			activationEpoch,
-			header.ConsensusData.SlotId.Epoch,
-		); err != nil {
-			return PBFTIssuer{}, err
-		}
 		delegateKey, ok := certificate[2].([]byte)
 		if !ok || len(delegateKey) != 64 {
-			return PBFTIssuer{}, fmt.Errorf(
+			return PBFTIssuer{}, 0, fmt.Errorf(
 				"invalid Byron PBFT delegate key: got %T with length %d",
 				certificate[2],
 				len(delegateKey),
@@ -197,22 +229,22 @@ func pbftIssuerFromHeader(
 			certificateIssuerKey,
 			header.ConsensusData.PubKey,
 		) {
-			return PBFTIssuer{}, errors.New(
+			return PBFTIssuer{}, 0, errors.New(
 				"byron PBFT proxy certificate genesis issuer does not match header issuer",
 			)
 		}
 		issuer.DelegateKeyHash, err = PBFTVerificationKeyHash(delegateKey)
 		if err != nil {
-			return PBFTIssuer{}, err
+			return PBFTIssuer{}, 0, err
 		}
-		return issuer, nil
+		return issuer, activationEpoch, nil
 	case byronSigTypeSimple, byronSigTypeLight:
-		return PBFTIssuer{}, fmt.Errorf(
+		return PBFTIssuer{}, 0, fmt.Errorf(
 			"unsupported Byron PBFT signature type: %d; heavyweight delegation is required",
 			signatureType,
 		)
 	default:
-		return PBFTIssuer{}, fmt.Errorf(
+		return PBFTIssuer{}, 0, fmt.Errorf(
 			"unknown Byron PBFT signature type: %d",
 			signatureType,
 		)
@@ -259,6 +291,7 @@ func PBFTVerificationKeyHash(
 // main-block headers. Values are immutable: every update returns a new state.
 type PBFTState struct {
 	signatureHistory []common.Blake2b224
+	securityParam    uint64
 }
 
 // NewPBFTState constructs state from an already ordered oldest-to-newest
@@ -284,6 +317,7 @@ func NewPBFTState(
 			[]common.Blake2b224(nil),
 			signatureHistory...,
 		),
+		securityParam: securityParam,
 	}, nil
 }
 
@@ -298,32 +332,34 @@ func (s PBFTState) SignatureHistory() []common.Blake2b224 {
 // explicitly chosen to trust, such as its persisted historical chain.
 func (s PBFTState) Observe(
 	issuer common.Blake2b224,
-	securityParam uint64,
 ) (PBFTState, error) {
-	if securityParam == 0 {
+	if s.securityParam == 0 {
 		return PBFTState{}, errors.New(
-			"byron PBFT security parameter must be greater than zero",
+			"invalid Byron PBFT issuer state: security parameter must be greater than zero",
 		)
 	}
-	if uint64(len(s.signatureHistory)) > securityParam {
+	if uint64(len(s.signatureHistory)) > s.securityParam {
 		return PBFTState{}, fmt.Errorf(
 			"invalid Byron PBFT issuer state: history has %d entries, security parameter is %d",
 			len(s.signatureHistory),
-			securityParam,
+			s.securityParam,
 		)
 	}
 	history := make(
 		[]common.Blake2b224,
 		0,
-		min(uint64(len(s.signatureHistory))+1, securityParam),
+		min(uint64(len(s.signatureHistory))+1, s.securityParam),
 	)
-	if uint64(len(s.signatureHistory)) >= securityParam {
+	if uint64(len(s.signatureHistory)) >= s.securityParam {
 		history = append(history, s.signatureHistory[1:]...)
 	} else {
 		history = append(history, s.signatureHistory...)
 	}
 	history = append(history, issuer)
-	return PBFTState{signatureHistory: history}, nil
+	return PBFTState{
+		signatureHistory: history,
+		securityParam:    s.securityParam,
+	}, nil
 }
 
 // Transition applies the pinned Byron SIGCNT rule: append the genesis issuer,
@@ -331,9 +367,8 @@ func (s PBFTState) Observe(
 // than floor(0.22*k) times in the resulting window.
 func (s PBFTState) Transition(
 	issuer common.Blake2b224,
-	securityParam uint64,
 ) (PBFTState, error) {
-	next, err := s.Observe(issuer, securityParam)
+	next, err := s.Observe(issuer)
 	if err != nil {
 		return PBFTState{}, err
 	}
@@ -343,13 +378,13 @@ func (s PBFTState) Transition(
 			issuerCount++
 		}
 	}
-	maxSignatures := pbftMaxSignatures(securityParam)
+	maxSignatures := pbftMaxSignatures(s.securityParam)
 	if issuerCount > maxSignatures {
 		return PBFTState{}, fmt.Errorf(
 			"byron PBFT signature threshold exceeded for genesis issuer %s: got %d signatures in the last %d, maximum is %d",
 			issuer.String(),
 			issuerCount,
-			securityParam,
+			s.securityParam,
 			maxSignatures,
 		)
 	}

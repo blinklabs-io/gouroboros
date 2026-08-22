@@ -399,9 +399,8 @@ func (v *HeaderValidator) validateBlockSignatureWithProxy(
 // 1. Validating the delegation certificate structure (issuer -> delegate)
 // 2. Verifying the block signature (delegate signed the ToSign data)
 //
-// Note: Full certificate signature verification requires the exact Cardano cryptographic
-// signing format which is complex and involves extended Ed25519 keys. For now, we validate
-// the structure and verify the delegate signed the block correctly.
+// Both the delegation certificate and the delegated block signature are
+// verified using Byron's domain-separated signing format.
 func (v *HeaderValidator) validateProxySignature(
 	input *ValidateHeaderInput,
 	sigType uint64,
@@ -543,10 +542,19 @@ func (v *HeaderValidator) validateProxySignature(
 		return fmt.Errorf("failed to build ToSign data: %w", err)
 	}
 
-	// Get the signing tag
-	// Both light and heavy delegation use MainBlockHeavy tag for block signing
-	// (the light/heavy distinction is about the delegation certificate, not the block signature)
-	signingTag := byte(byronSignTagMainBlockHeavy) // 0x09
+	// Select the proxy-signature tag encoded by the wire-level signature type.
+	var signingTag byte
+	switch sigType {
+	case byronSigTypeLight:
+		signingTag = byronSignTagMainBlockLight
+	case byronSigTypeHeavy:
+		signingTag = byronSignTagMainBlockHeavy
+	default:
+		return fmt.Errorf(
+			"unsupported Byron proxy signature type: %d",
+			sigType,
+		)
+	}
 
 	// Encode protocol magic
 	pmBytes, err := cbor.Encode(v.config.ProtocolMagic)
