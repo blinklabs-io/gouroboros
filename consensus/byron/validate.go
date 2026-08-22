@@ -259,14 +259,16 @@ func (v *HeaderValidator) validateProtocolMagic(
 	return nil
 }
 
-// Byron signature types from CDDL:
+// Byron signature types from the legacy wire format. The pinned
+// cardano-ledger Byron implementation only decodes type 2 for current blocks;
+// types 0 and 1 are retained here for the older OBFT compatibility validator.
 // - Type 0: BlockPSignatureSimple - simple signature [0, signature]
-// - Type 1: BlockPSignatureHeavy - heavy delegation [1, [[epoch, issuerVK, delegateVK, cert], signature]]
-// - Type 2: BlockPSignatureLight - lightweight delegation [2, [[omega, issuerVK, delegateVK, cert], signature]]
+// - Type 1: BlockPSignatureLight - lightweight delegation
+// - Type 2: BlockPSignatureHeavy - heavyweight delegation
 const (
 	byronSigTypeSimple = 0
-	byronSigTypeHeavy  = 1
-	byronSigTypeLight  = 2
+	byronSigTypeLight  = 1
+	byronSigTypeHeavy  = 2
 )
 
 // validateBlockSignature verifies the block signature based on its type.
@@ -397,9 +399,8 @@ func (v *HeaderValidator) validateBlockSignatureWithProxy(
 // 1. Validating the delegation certificate structure (issuer -> delegate)
 // 2. Verifying the block signature (delegate signed the ToSign data)
 //
-// Note: Full certificate signature verification requires the exact Cardano cryptographic
-// signing format which is complex and involves extended Ed25519 keys. For now, we validate
-// the structure and verify the delegate signed the block correctly.
+// Both the delegation certificate and the delegated block signature are
+// verified using Byron's domain-separated signing format.
 func (v *HeaderValidator) validateProxySignature(
 	input *ValidateHeaderInput,
 	sigType uint64,
@@ -541,10 +542,19 @@ func (v *HeaderValidator) validateProxySignature(
 		return fmt.Errorf("failed to build ToSign data: %w", err)
 	}
 
-	// Get the signing tag
-	// Both light and heavy delegation use MainBlockHeavy tag for block signing
-	// (the light/heavy distinction is about the delegation certificate, not the block signature)
-	signingTag := byte(byronSignTagMainBlockHeavy) // 0x09
+	// Select the proxy-signature tag encoded by the wire-level signature type.
+	var signingTag byte
+	switch sigType {
+	case byronSigTypeLight:
+		signingTag = byronSignTagMainBlockLight
+	case byronSigTypeHeavy:
+		signingTag = byronSignTagMainBlockHeavy
+	default:
+		return fmt.Errorf(
+			"unsupported Byron proxy signature type: %d",
+			sigType,
+		)
+	}
 
 	// Encode protocol magic
 	pmBytes, err := cbor.Encode(v.config.ProtocolMagic)
