@@ -144,6 +144,56 @@ func TestPBFTDelegationStateActivationAndRevocation(t *testing.T) {
 	)
 }
 
+func TestNewPBFTDelegationStateUsesFinalGenesisView(t *testing.T) {
+	issuerAKey, _ := deterministicPBFTVerificationKey(0x31)
+	issuerBKey, _ := deterministicPBFTVerificationKey(0x32)
+	delegateKey, _ := deterministicPBFTVerificationKey(0x33)
+	issuerA, err := PBFTVerificationKeyHash(issuerAKey)
+	require.NoError(t, err)
+	issuerB, err := PBFTVerificationKeyHash(issuerBKey)
+	require.NoError(t, err)
+	delegate, err := PBFTVerificationKeyHash(delegateKey)
+	require.NoError(t, err)
+	config := ByronConfig{
+		ProtocolMagic:    42,
+		SecurityParam:    10,
+		GenesisKeyHashes: [][]byte{issuerA.Bytes(), issuerB.Bytes()},
+		GenesisDelegations: map[common.Blake2b224]common.Blake2b224{
+			issuerA: issuerB,
+			issuerB: delegate,
+		},
+	}
+
+	for range 100 {
+		state, err := NewPBFTDelegationState(config)
+		require.NoError(t, err)
+		require.Equal(t, config.GenesisDelegations, state.ActiveDelegations())
+	}
+}
+
+func TestNewPBFTDelegationStateRejectsFinalDelegateCollision(t *testing.T) {
+	issuerAKey, _ := deterministicPBFTVerificationKey(0x34)
+	issuerBKey, _ := deterministicPBFTVerificationKey(0x35)
+	delegateKey, _ := deterministicPBFTVerificationKey(0x36)
+	issuerA, err := PBFTVerificationKeyHash(issuerAKey)
+	require.NoError(t, err)
+	issuerB, err := PBFTVerificationKeyHash(issuerBKey)
+	require.NoError(t, err)
+	delegate, err := PBFTVerificationKeyHash(delegateKey)
+	require.NoError(t, err)
+
+	_, err = NewPBFTDelegationState(ByronConfig{
+		ProtocolMagic:    42,
+		SecurityParam:    10,
+		GenesisKeyHashes: [][]byte{issuerA.Bytes(), issuerB.Bytes()},
+		GenesisDelegations: map[common.Blake2b224]common.Blake2b224{
+			issuerA: delegate,
+			issuerB: delegate,
+		},
+	})
+	require.ErrorContains(t, err, "is active for both")
+}
+
 func TestPBFTDelegationStateRejectsInvalidPayloadAtomically(t *testing.T) {
 	const protocolMagic = uint32(42)
 	issuerKey, issuerPrivateKey := deterministicPBFTVerificationKey(0x41)

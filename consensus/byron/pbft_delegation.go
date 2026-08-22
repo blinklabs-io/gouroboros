@@ -109,17 +109,26 @@ func NewPBFTDelegationState(
 				delegator.String(),
 			)
 		}
-		if state.delegateIsActiveForOther(delegator, delegate) {
-			return PBFTDelegationState{}, fmt.Errorf(
-				"byron PBFT genesis delegate %s is already active",
-				delegate.String(),
-			)
-		}
 		state.activeDelegations[delegator] = delegate
 		state.keyEpochDelegations[pbftDelegationKeyEpoch{
 			epoch:     0,
 			delegator: delegator,
 		}] = struct{}{}
+	}
+	activeDelegators := make(
+		map[common.Blake2b224]common.Blake2b224,
+		len(state.activeDelegations),
+	)
+	for delegator, delegate := range state.activeDelegations {
+		if otherDelegator, exists := activeDelegators[delegate]; exists {
+			return PBFTDelegationState{}, fmt.Errorf(
+				"byron PBFT genesis delegate %s is active for both %s and %s",
+				delegate.String(),
+				otherDelegator.String(),
+				delegator.String(),
+			)
+		}
+		activeDelegators[delegate] = delegator
 	}
 	return state, nil
 }
