@@ -16,6 +16,8 @@ package blockfetch
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -23,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/muxer"
@@ -459,4 +462,173 @@ func TestOldProtocolShutdownDoesNotFailRestartedRequests(t *testing.T) {
 		protocol.ErrProtocolShuttingDown,
 	)
 	require.Equal(t, []uint64{req.id}, completions)
+}
+
+// idleLimitObservationWindow bounds both halves of the Idle-state ingress
+// limit pair below: the non-pipelining client must report the oversized
+// message within it, and the pipelining client must not.
+const idleLimitObservationWindow = time.Second
+
+// idlePeer drives a client attached to a real muxer over an in-memory
+// connection. The ouroboros-mock conversation harness cannot express these
+// cases: it puts each message in a single muxer segment, and a segment
+// payload is capped at muxer.SegmentMaxPayloadLength, so it cannot deliver a
+// mainnet-sized block at all.
+type idlePeer struct {
+	client    *Client
+	conn      net.Conn
+	errorChan chan error
+}
+
+func newIdlePeer(t *testing.T, cfg *Config) *idlePeer {
+	t.Helper()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	m.Start()
+	peerDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, peerConn)
+		close(peerDone)
+	}()
+	errorChan := make(chan error, 10)
+	c := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  localConn.LocalAddr(),
+			RemoteAddr: localConn.RemoteAddr(),
+		},
+		Muxer:     m,
+		ErrorChan: errorChan,
+		Mode:      protocol.ProtocolModeNodeToNode,
+	}, cfg)
+	c.Start()
+	t.Cleanup(func() {
+		proto := c.ProtocolInstance()
+		proto.Stop()
+		select {
+		case <-proto.DoneChan():
+		case <-time.After(time.Second):
+			t.Error("protocol did not stop")
+		}
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		m.Stop()
+		_ = peerConn.Close()
+		select {
+		case <-peerDone:
+		case <-time.After(time.Second):
+			t.Error("peer drain did not stop")
+		}
+	})
+	return &idlePeer{client: c, conn: peerConn, errorChan: errorChan}
+}
+
+// send writes a message to the client as raw muxer segments, splitting it
+// across segments the way Protocol.sendLoop does for an oversized payload.
+// net.Pipe is unbuffered, so this returns only once the client's muxer has
+// read every byte.
+func (p *idlePeer) send(t *testing.T, msg protocol.Message) {
+	t.Helper()
+	data, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+	for len(data) > 0 {
+		chunkLen := min(len(data), muxer.SegmentMaxPayloadLength)
+		segment := muxer.NewSegment(ProtocolId, data[:chunkLen], true)
+		require.NotNil(t, segment)
+		require.NoError(
+			t,
+			binary.Write(p.conn, binary.BigEndian, segment.SegmentHeader),
+		)
+		_, err := p.conn.Write(segment.Payload)
+		require.NoError(t, err)
+		data = data[chunkLen:]
+	}
+}
+
+// completeOneEmptyBatch drives a single pipelined request to completion so the
+// client's state machine returns to Idle through MsgBatchDone, which is the
+// state a peer's next MsgBlock can arrive in.
+func (p *idlePeer) completeOneEmptyBatch(t *testing.T, done chan error) {
+	t.Helper()
+	_, err := p.client.RequestRange(
+		context.Background(),
+		RangeRequest{ExpectedBytes: 1},
+	)
+	require.NoError(t, err)
+	p.send(t, NewMsgStartBatch())
+	p.send(t, NewMsgBatchDone())
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case err := <-p.errorChan:
+		t.Fatalf("unexpected protocol error before the batch completed: %s", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first range request never completed")
+	}
+}
+
+// bigBlockMsg returns a MsgBlock whose encoded size exceeds
+// IdleMaxPendingMessageBytes. Its body is one maximum-size mainnet block body,
+// which is what a real peer streams during catch-up sync.
+func bigBlockMsg(t *testing.T) protocol.Message {
+	t.Helper()
+	msg := NewMsgBlock(make([]byte, DefaultRequestExpectedBytes))
+	encoded, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	require.Greater(t, len(encoded), IdleMaxPendingMessageBytes)
+	require.LessOrEqual(t, len(encoded), PipelinedIdleMaxPendingMessageBytes)
+	return msg
+}
+
+// TestPipelinedIdleLimitAdmitsMainnetSizedBlock covers the Idle-state ingress
+// limit for a pipelining client. With more than one request outstanding, the
+// peer's MsgBlock for the next request can arrive while the state machine is
+// momentarily back in Idle after a MsgBatchDone, so the Idle limit has to
+// admit a block. A limit of IdleMaxPendingMessageBytes tears the connection
+// down instead, which only shows up against a real peer because the blocks in
+// the mock conversations are tiny.
+func TestPipelinedIdleLimitAdmitsMainnetSizedBlock(t *testing.T) {
+	done := make(chan error, 4)
+	p := newIdlePeer(t, &Config{
+		RequestPipelining: true,
+		RangeDoneFunc: func(_ CallbackContext, err error) error {
+			done <- err
+			return nil
+		},
+	})
+	p.completeOneEmptyBatch(t, done)
+
+	// The state machine is back in Idle and the block is larger than the
+	// unpipelined Idle limit. It must be admitted rather than rejected as
+	// oversized; nothing consumes it, because the client has agency in Idle.
+	p.send(t, bigBlockMsg(t))
+	select {
+	case err := <-p.errorChan:
+		t.Fatalf(
+			"a mainnet-sized block was rejected while the state machine was in Idle: %s",
+			err,
+		)
+	case <-p.client.ProtocolInstance().DoneChan():
+		t.Fatal("the protocol was torn down by a mainnet-sized block in Idle")
+	case <-time.After(idleLimitObservationWindow):
+	}
+}
+
+// TestUnpipelinedIdleLimitRejectsMainnetSizedBlock is the paired positive
+// case. It keeps the unpipelined Idle limit honest, and it proves the
+// observation window above is long enough to see the rejection when the limit
+// does produce one.
+func TestUnpipelinedIdleLimitRejectsMainnetSizedBlock(t *testing.T) {
+	p := newIdlePeer(t, &Config{})
+	p.send(t, bigBlockMsg(t))
+	select {
+	case err := <-p.errorChan:
+		require.ErrorContains(t, err, "received oversized message")
+		require.ErrorContains(
+			t,
+			err,
+			fmt.Sprintf("exceeding limit (%d bytes)", IdleMaxPendingMessageBytes),
+		)
+	case <-time.After(idleLimitObservationWindow):
+		t.Fatal("an oversized block in Idle was not rejected")
+	}
 }
