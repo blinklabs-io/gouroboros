@@ -23,9 +23,38 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) {
+	input1 := shelley.NewShelleyTransactionInput(
+		"0101010101010101010101010101010101010101010101010101010101010101",
+		0,
+	)
+	input2 := shelley.NewShelleyTransactionInput(
+		"0202020202020202020202020202020202020202020202020202020202020202",
+		1,
+	)
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		0:  []shelley.ShelleyTransactionInput{input2, input1, input2},
+		13: cbor.NewSetType([]shelley.ShelleyTransactionInput{input1, input2, input1}, false),
+		18: cbor.NewSetType([]shelley.ShelleyTransactionInput{input2, input1, input2}, false),
+	})
+	require.NoError(t, err)
+
+	var body BabbageTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	assert.Equal(t, bodyCbor, body.Cbor())
+	assert.Equal(t, []common.TransactionInput{input2, input1}, body.Inputs())
+	assert.Equal(t, []common.TransactionInput{input1, input2}, body.Collateral())
+	assert.Equal(t, []common.TransactionInput{&input2, &input1}, body.ReferenceInputs())
+
+	tx := &BabbageTransaction{Body: body}
+	assert.NoError(t, shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil))
+}
 
 func TestBabbageBlockTransactions(t *testing.T) {
 	b := &BabbageBlock{}

@@ -414,7 +414,17 @@ func (s *ShelleyTransactionInputSet) MarshalCBOR() ([]byte, error) {
 }
 
 func (s *ShelleyTransactionInputSet) Items() []ShelleyTransactionInput {
-	return s.items
+	ret := make([]ShelleyTransactionInput, 0, len(s.items))
+	seen := make(map[string]struct{}, len(s.items))
+	for _, item := range s.items {
+		key := item.String()
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		ret = append(ret, item)
+	}
+	return ret
 }
 
 func (s *ShelleyTransactionInputSet) SetItems(items []ShelleyTransactionInput) {

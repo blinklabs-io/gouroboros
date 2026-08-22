@@ -259,6 +259,34 @@ func TestSetTypeWithoutTag(t *testing.T) {
 	}
 }
 
+func TestSetTypeWithoutTagCoalescesItems(t *testing.T) {
+	// [2, 1, 2, 3, 1], with the second 2 encoded non-canonically, matching
+	// Set.fromList while retaining the first-seen order of unique members.
+	origHex := "85020118020301"
+	orig, err := hex.DecodeString(origHex)
+	require.NoError(t, err)
+
+	var setType cbor.SetType[uint64]
+	_, err = cbor.Decode(orig, &setType)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{2, 1, 3}, setType.Items())
+
+	wire, err := cbor.Encode(&setType)
+	require.NoError(t, err)
+	assert.Equal(t, orig, wire, "decoded SetType must preserve original CBOR")
+}
+
+func TestSetTypeTaggedItemsRetainDuplicates(t *testing.T) {
+	orig, err := hex.DecodeString("d9010283010201")
+	require.NoError(t, err)
+
+	var setType cbor.SetType[uint64]
+	_, err = cbor.Decode(orig, &setType)
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 1}, setType.Items())
+	assert.ErrorContains(t, setType.CheckForDuplicates(), "duplicate member in set")
+}
+
 func TestSetTypeMarshalCBOR(t *testing.T) {
 	// Create SetType with tag
 	setType := cbor.NewSetType([]uint64{1, 2, 3}, true)

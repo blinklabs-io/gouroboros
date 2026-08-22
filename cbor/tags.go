@@ -250,8 +250,36 @@ func (t *SetType[T]) MarshalCBOR() ([]byte, error) {
 }
 
 func (t *SetType[T]) Items() []T {
-	ret := make([]T, len(t.items))
-	copy(ret, t.items)
+	if t.useTag {
+		ret := make([]T, len(t.items))
+		copy(ret, t.items)
+		return ret
+	}
+	// Pre-Conway set fields were encoded as plain arrays. cardano-ledger
+	// decodes those arrays with Set.fromList semantics, so preserve the first
+	// occurrence of each member while retaining the wire order of unique items.
+	return uniqueSetItems(t.items)
+}
+
+func uniqueSetItems[T any](items []T) []T {
+	ret := make([]T, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		encoded, err := Encode(item)
+		if err != nil {
+			// Items decoded from CBOR should always be encodable. Keep an item
+			// if a caller constructed an unsupported value, since Items cannot
+			// return an encoding error.
+			ret = append(ret, item)
+			continue
+		}
+		key := string(encoded)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		ret = append(ret, item)
+	}
 	return ret
 }
 
