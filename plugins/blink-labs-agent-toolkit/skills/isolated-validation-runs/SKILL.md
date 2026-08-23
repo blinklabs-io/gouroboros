@@ -74,6 +74,27 @@ A test file belongs to the same build as its subject: if `database.go` is behind
 the other platform by dropping the tag — `go vet ./...` with no tags is the
 Windows job's shape, and it names the undefined symbol immediately.
 
+## Prefer published Blink toolchain images
+
+When Docker is useful, look for the exact toolchain under
+`ghcr.io/blinklabs-io` before building a local image. Record the requested tag,
+resolved manifest digest, image ID, and platform in the validation evidence;
+tags alone are mutable and an amd64 image under emulation is not equivalent to
+a native arm64 run.
+
+For Go validation, prefer `ghcr.io/blinklabs-io/go:<exact-tag>` and set
+`GOTOOLCHAIN=local` so the command proves the image's toolchain rather than
+silently downloading another one. Mount or create writable, run-owned
+`GOCACHE`, `GOMODCACHE`, and temporary paths, and test each nested module or
+example under its own `go.mod`/declared dependency graph.
+
+If no suitable published image exists, give a locally built fallback a unique
+audit/run name and label. Record its base, Dockerfile or build context, image
+ID, and platform, then remove it with the rest of the run-owned artifacts.
+If cross-architecture emulation crashes, hangs, or stops making progress,
+terminate it and report the check as not run. Static review or reference vectors
+do not turn an emulation failure into executable conformance evidence.
+
 ## Background task discipline
 
 A completion notification is not a result. For every backgrounded or long check:
@@ -133,3 +154,22 @@ Keep the command line, working directory, environment overrides, exit code, log
 path, and relevant output for every run. Preserve failing artifacts — logs,
 databases, cores, captured chain state — before retrying, because the retry
 usually destroys them. Report what you kept and where it is.
+
+## Clean up run-owned artifacts
+
+Create an ownership manifest as the run starts: worktrees, temporary roots,
+ports, containers, images, volumes, networks, caches, logs, and downloaded
+fixtures. Clean those artifacts after their evidence has been summarized and
+hashed. Cleanup is part of the run's definition of done, not an unbounded
+workspace purge.
+
+Before deletion, check process command lines, container status, worktree status,
+and current paths. Remove a clean temporary Git worktree through `git worktree
+remove`, not by deleting its directory. Go module caches can contain read-only
+files; make only the exact run-owned cache user-writable before removing it.
+
+Never delete a live devnet/node, a concurrent run's cache or worktree, user
+changes, credentials, or a shared/pre-existing Docker image merely because it
+is reclaimable. Prefer exact paths or a reviewed run-specific prefix over broad
+globs. Report the artifacts removed, the evidence deliberately preserved, live
+services checked afterward, and disk usage before and after cleanup.

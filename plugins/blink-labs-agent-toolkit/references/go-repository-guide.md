@@ -160,6 +160,36 @@ The recurring quality contract is:
 - use Conventional Commits and DCO sign-off for commits;
 - keep Docker image choices aligned with `blinklabs-io` images when available.
 
+## Exhaustive review denominators
+
+Do not claim that every function, method, or test was reviewed from a file list
+or a scanner total alone. Build a reproducible manifest and reconcile it to
+zero unassigned rows.
+
+- Enumerate `FuncDecl` functions and methods, every `TypeSpec` (including named
+  aliases and non-struct/interface types), and `FuncLit` values. A scanner that
+  records only functions, methods, structs, and interfaces silently omits named
+  integer, byte-slice, map, function, and alias types.
+- Partition production, generated, test, example, and support-program code.
+  Recursively discover nested `go.mod` files and inventory each module under its
+  own build graph.
+- Reconcile the AST manifest against the physical Go-file manifest. Record
+  files with zero emitted declarations; otherwise a declaration total can be
+  exact while a build-tagged or assignment-only file is never opened.
+- Keep executable declarations separate from static word lists, schemas,
+  golden fixtures, and specification prose. Review those assets for shape,
+  integrity, bounds, provenance, and consumers without counting them as
+  functions.
+- Record the revision, module root, manifest hash, count by kind and partition,
+  owner/review slice, and any intentionally excluded class. Regenerate a sample
+  independently before deleting temporary inventories.
+
+In a long review ledger, distinguish raw finding headings from unique defects.
+Cross-slice rediscoveries, baseline/current-head comparisons, test-assurance
+notes, and later validation can all produce multiple headings for one subject.
+Give each subject a controlling disposition, preserve the evidence trail, and
+machine-check the final crosswalk for missing, extra, and duplicate IDs.
+
 ## Dependency provenance
 
 Use the canonical upstream repository and Go module for source dependencies.
