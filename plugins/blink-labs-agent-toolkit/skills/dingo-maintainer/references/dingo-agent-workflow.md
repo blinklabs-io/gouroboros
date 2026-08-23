@@ -82,14 +82,106 @@ duplicate reference-row handling, coverage error classification, account
 defaults through every composition path, and cancellation of remaining API
 chunks after the first failure.
 
-For Dingo cache and decoder reviews, inspect hot-entry TTL enforcement,
-bounded retained memory, in-flight waiter wakeup, panic cleanup, and benchmark
-error handling. A passing race run does not replace checking those contracts.
+## Run a defensive whole-repository audit
 
-For Koios/account reviews, inspect exact amount validation before equality,
-duplicate reference-row handling, coverage error classification, account
-defaults through every composition path, and cancellation of remaining API
-chunks after the first failure.
+For an audit that promises every declaration rather than a change review, use a
+single append-only evidence ledger and an exact machine manifest. Include
+functions, methods, every named type, function literals, generated code, tests,
+examples, and nested support modules. Reconcile declaration rows to physical
+files so build-tagged and zero-declaration files cannot disappear. Assign each
+row to one review slice and close the manifest with zero unassigned rows before
+making an exhaustive-coverage claim.
+
+Verify every Dingo dependency pin by commit/tag identity and by the source root
+recorded in its inventory. Directory names such as `pinned`, an existing
+checkout, and a green maintained-head suite are not proof of the build pin.
+Review the exact pin first and label maintained-head behavior as a separate
+compatibility delta. Exercise nested/example modules under their own Go graphs.
+
+Use later validation as a controlling disposition rather than erasing earlier
+evidence. For consensus or ledger behavior, include a valid control, the
+malformed or boundary case, and the opposite direction of any flag or state
+transition. Distinguish rule-level proof, running-Dingo proof, and differential
+proof against `cardano-node`; say explicitly when a funded or otherwise usable
+devnet was unavailable.
+
+Treat raw severity headings as evidence records, not unique defect counts.
+Machine-check finding IDs and any prior issue/quality-ledger crosswalk for
+duplicates and omissions, and list the controlling unresolved subjects in the
+handoff. Check issues and pull requests read-only unless the task authorizes
+tracker changes. Keep private findings out of shared skills, public docs, logs,
+image labels, and command-line arguments.
+
+Prefer exact `ghcr.io/blinklabs-io` toolchain and Cardano images, with their
+resolved digests recorded. Use unique run-owned worktrees, caches, paths, ports,
+and Docker names. After the evidence is durable, remove only those owned
+artifacts and verify the live producer/devnet and unrelated concurrent work are
+unchanged.
+
+## Prove consensus behavior against a reference
+
+A claimed divergence is only as good as its oracle. Rank the proof: rule-level
+(drive the exact exported gouroboros/plutigo API the pinned Dingo links, via a
+`replace` directive in a throwaway module), running-Dingo (in-process apply
+path, or a live node), and differential against `cardano-node`. State which one
+each finding rests on.
+
+- The reference oracle is local. `internal/test/devnet/run-tests.sh
+  --conformance` brings Dingo up beside real `cardano-node`; the same
+  `ghcr.io/blinklabs-io/cardano-node` image's `cardano-cli` decodes and
+  validates crafted scripts, certs, and transactions on its own, which settles
+  "does the network accept these bytes" without a full devnet. Record the image
+  digest and the cardano-cli version.
+- Submit identical bytes to both nodes over LocalTxSubmission and diff the
+  verdicts; `cardano-node`'s error names the exact rule. Always run the honest
+  control (well-formed input accepted by both) so a rejection is attributable
+  to the crafted input, not a broken harness. Devnet genesis funds are
+  finite — a single UTxO-consuming run can strand the network, so budget
+  funding or fall back to the rule-level proof rather than rebuilding.
+- 32-bit narrowing claims are testable without a 32-bit host when
+  `qemu-*-static` is registered in binfmt_misc: `GOARCH=386 go test` builds and
+  executes real 386 binaries. If the node itself will not compile for the
+  target, the narrowing is library-only for third-party consumers — say so and
+  scope the severity down rather than leaving it theoretical.
+- A reproduction task is defensive robustness testing of first-party code, not
+  offense. Frame it that way (a regression test that fails without the fix, an
+  input the decoder should reject); "prove a remote process kill" phrasing can
+  trip content safeguards and stall the work with nothing gained.
+
+## Recurring risk classes to check first
+
+These invariants have repeatedly failed to hold across Dingo and its
+dependencies; verify each one holds rather than assuming it, and phrase notes as
+invariants to confirm, not as disclosed exploits.
+
+- Panic reachability is decided by the goroutine, not the panic. `net/http`
+  recovers a panic on its own handler goroutine (the connection dies, the
+  process lives); a goroutine the handler *spawns* is not covered, and neither
+  are the per-connection Ouroboros loops or the ledger/forge goroutines. Audit
+  request- and network-reachable paths for a panic on an unrecovered goroutine.
+- A trust anchor must fail closed. A missing or empty genesis key, verification
+  key, genesis hash, or protocol coefficient must halt or hard-error, never
+  silently downgrade or disable the check.
+- Judge a listener's default posture as a set: bind address, auth, TLS, and
+  CORS. Public + unauthenticated + wildcard CORS + a mutating endpoint is the
+  compound risk, and the defaults are often shared across several listeners
+  through one config layer — fix them at that layer once.
+- Enforce lengths and counts at decode. Wire- or chain-derived bytes copied
+  into fixed-size arrays silently pad or truncate (a reflection-decoded fixed
+  hash type with no explicit length check is the usual source); cross-array
+  count invariants (for example witness sets versus transaction bodies) must be
+  checked before any accessor indexes them, because a body-hash check does not
+  catch a count mismatch.
+- A consensus decoder must be exactly as strict as the reference: reject the
+  non-canonical CBOR the reference rejects, and never let a non-shortest-form
+  length header be read as a union discriminant.
+- Re-run, do not trust, a declared outcome. A validating node must re-evaluate
+  phase-2 scripts and reject a block whose declared validity flag disagrees with
+  the actual result in either direction, and must not gate whole rule sets on a
+  flag the peer controls.
+- Bound per-peer retention by bytes and by connection lifetime, not by entry
+  count alone, and charge script/CPU budgets against the real protocol limit
+  rather than a placeholder maximum.
 
 ## Leave durable follow-up
 
