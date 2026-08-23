@@ -51,6 +51,21 @@ fails because of network connectivity, retry through the approved elevated
 network path. If it fails authorization, report that actual failure and do not
 claim the review was posted.
 
+`gh pr edit` uses GraphQL for some operations and can fail with a missing
+`read:org` scope once team reviewers are present even when the token still has
+permission to update the pull request. Treat the failed write as the fact, then
+use the narrower REST endpoint for the authorized operation rather than asking
+for an unrelated scope:
+
+```sh
+gh api -X PATCH repos/OWNER/REPO/pulls/N -F body=@/tmp/pr-body.md
+gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers \
+  -f 'team_reviewers[]=core'
+```
+
+Read the body or requested teams back through REST before claiming the update
+landed. Keep the temporary body file run-owned and remove it after verification.
+
 Choose the review disposition from the findings. Use an approval-only review
 with an empty body when there are no merge-blocking findings; do not turn
 trivial recommendations into `CHANGES_REQUESTED`. Use `CHANGES_REQUESTED`
@@ -84,6 +99,12 @@ waiting.
 Batch what you can. Several verified fixes in one push consume one review pass;
 the same fixes pushed one at a time consume several, and each intermediate state
 draws findings on code you were about to change anyway.
+
+When a rate-limited review slot becomes available, spend it deliberately on the
+highest-risk current-head change that has already passed local review — prefer a
+security or production-behavior change over a test-only or documentation PR.
+Do not retrigger every rate-limited PR merely because the timer expired. Record
+which lower-risk PRs relied on local review and still require human review.
 
 Verify the specific thing the change claims, with the tool that decides it:
 
@@ -529,4 +550,7 @@ without checking the intervening commits.
   plain-Markdown sections. Strip generated HTML, review buttons, hidden state,
   prompts, run IDs, and stale commit metadata before putting summaries in a PR
   description.
+- Bot description edits are asynchronous. Read the live body again after the
+  bot check or review settles; an authored body verified at PR creation can
+  acquire a generated wrapper seconds later.
 - Put code-specific feedback in inline comments. Use PR-level comments only for concise summaries, checks, or dispositions.

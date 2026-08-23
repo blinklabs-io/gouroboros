@@ -20,10 +20,15 @@ round trip, and in a submodule it can cost a bad pointer.
   (`! echo test | gpg --clearsign > /dev/null`). Never reach for
   `--no-gpg-sign` on your own: dropping a required signature is the user's call,
   and an unsigned commit on a branch of signed ones has to be rewritten to fix.
-  If the user does authorize skipping, say so in the handoff and note that the
-  commits will need re-signing before merge. The same applies to `git rebase`,
-  which fails the same way mid-operation and leaves the rebase half-applied;
-  `-c commit.gpgsign=false` is available but is subject to the same permission.
+  If the user does authorize skipping, record it only in the private task
+  handoff when it is operationally useful. Do not put the signing mode,
+  exception, unsigned-commit status, or re-signing instructions in a pull
+  request description, issue, or review comment unless the user explicitly
+  asks or a repository check exposes it as a concrete blocker. Those are
+  session mechanics, not code-review facts. The same authorization rule applies
+  to `git rebase`, which fails the same way mid-operation and leaves the rebase
+  half-applied; `-c commit.gpgsign=false` is available but is subject to the
+  same permission.
 - Subjects stay short and factual — the change, not the story.
 - A body is optional. When present, it holds only short factual lines tied
   directly to the changed code, tests, or review. Never a chat transcript,
@@ -83,6 +88,11 @@ criteria, and context.
   the authored description. Normalize those facts into plain Markdown and
   remove attribution wrappers, raw HTML, buttons, hidden bot state, prompts,
   run IDs, and stale commit metadata.
+- Re-read the live description through GitHub after creating or editing the PR,
+  after requesting reviewers, and after each bot pass. Cubic and CodeRabbit can
+  append generated HTML after the authored body was already verified, so a
+  clean local body file or pre-bot read is not evidence that the live body is
+  still clean. Strip new wrappers and read the result back again.
 - UI changes require screenshots in the PR. Include the affected states and
   relevant viewport or platform; redact secrets and user data. Determine this
   from rendered behavior, not merely from a file living under `src/`: a data

@@ -184,6 +184,21 @@ and current paths. Remove a clean temporary Git worktree through `git worktree
 remove`, not by deleting its directory. Go module caches can contain read-only
 files; make only the exact run-owned cache user-writable before removing it.
 
+For a worktree that produced a pull request, deletion has an additional durable
+publication gate:
+
+1. `git status --short` is empty;
+2. the local `HEAD` exactly matches the live pull request head, or the commit is
+   present in a merged pull request;
+3. the remote branch or merged commit still exists; and
+4. no unresolved investigation or open issue still depends on local evidence.
+
+Only then remove the worktree, delete its local branch, and remove regenerable
+run-owned caches. The remote PR branch or merged commit preserves the code; do
+not delete the remote branch as part of local cleanup. Preserve logs, fixtures,
+archives, and extracted state when an open issue still cites them, even if the
+implementation PR is already published.
+
 Never delete a live devnet/node, a concurrent run's cache or worktree, user
 changes, credentials, or a shared/pre-existing Docker image merely because it
 is reclaimable. Prefer exact paths or a reviewed run-specific prefix over broad
