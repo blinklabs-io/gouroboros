@@ -35,6 +35,15 @@ Serialize the runs that cannot be parallelized: sync-from-genesis, devnet, and
 anything binding a fixed port or writing a fixed database path. Two of those at
 once produce failures that describe the collision, not the code.
 
+Before starting a Compose or shell-driven container harness, inspect both the
+live Docker resources and the fully expanded harness. Look for explicit
+`container_name` values, fixed networks/subnets, direct `docker ... <name>`
+calls, fixed volumes and temporary paths, and cleanup commands that address a
+resource outside the Compose project. `COMPOSE_PROJECT_NAME` and host-port
+overrides do not isolate any of those resources. If an explicit name, subnet,
+or cleanup target overlaps a live run, do not start the harness; record the
+collision and use a genuinely isolated harness or leave that check unrun.
+
 ## Give slow suites a timeout that fits
 
 `go test` defaults to a 10-minute per-package timeout, and packages in this
@@ -137,6 +146,13 @@ The running state is usually the only evidence.
    `-race` before concluding anything.
 5. Never quiet a flake by filtering, skipping, retrying, or sleeping. Confirmed
    flakes and dropped events become issues in the owning repository.
+
+Benchmark suites need the same treatment. An early package panic or fatal can
+prevent every later benchmark from running, so enumerate the declared
+benchmarks and rerun them individually before claiming benchmark coverage.
+Use a bounded smoke setting such as `-run '^$' -bench . -benchtime=1x` first;
+then classify setup failures separately from behavior reached through the
+production constructors and call graph.
 
 Never use `time.Sleep()` to synchronize a test. Use the repository's wait
 helpers — in Dingo, `internal/test/testutil/WaitForCondition` and

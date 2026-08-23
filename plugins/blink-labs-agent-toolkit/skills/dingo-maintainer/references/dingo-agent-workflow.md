@@ -25,6 +25,17 @@ checkout remains the source of truth for commands and behavior.
 - Use unique ports, temporary directories, profiling databases, logs, and
   `GOCACHE` values for concurrent runs. Fixed `/tmp` names and hard-coded
   ports create false failures and can corrupt another run.
+- Before starting a Docker-backed Dingo harness, render its Compose model and
+  read the wrapper scripts through cleanup. Check running containers and
+  networks for explicit names, fixed subnets, direct Docker name references,
+  fixed volumes, and fixed temporary paths. A unique Compose project and host
+  ports do not isolate those resources; leave the check unrun when they overlap
+  a live devnet rather than risking the live evidence.
+- Preflight generated-genesis conservation before waiting on a devnet: the
+  configured maximum lovelace supply must cover every generated allocation,
+  including delegated pool supply and generated wallets. Treat a startup that
+  stops on this invariant as a fixture/harness failure, not as protocol or
+  interoperability evidence.
 - Do not run more than one Dingo sync or from-genesis load at once. Independent
   live `serve` checks may run concurrently when their ports and data paths are
   isolated. Remap every dependent NtN/NtC or metrics port, not just the main
@@ -38,6 +49,14 @@ checkout remains the source of truth for commands and behavior.
 - Prefer the narrowest deterministic test first, then the repository-required
   race, lint, boundary, SQL/docs parity, conformance, and devnet checks. Keep
   baseline failures separate from regressions introduced by the branch.
+- Include a bounded benchmark smoke gate when performance fixtures are in
+  scope. If one benchmark aborts its package, enumerate the declared benchmark
+  functions and run exact-name cases individually so later cases are not
+  silently absent. A benchmark labeled "real data" must assert that it seeded
+  non-empty, relevant data; chain fixtures must preserve real block numbers and
+  contiguity; hand-built ledger states must publish the snapshots required by
+  the production path. Classify setup failures as benchmark debt unless the
+  same panic or error is reachable through production construction and calls.
 
 ## Diagnose live and performance failures
 
