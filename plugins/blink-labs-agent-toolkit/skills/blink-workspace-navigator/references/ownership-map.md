@@ -54,6 +54,7 @@ keep that boundary intact.
 | Helm charts | `helm-charts` (private app charts in `infrastructure/helmfile-app/charts/`) |
 | Terraform modules (AWS, Cloudflare, …) | `terraform-modules` |
 | Live deployment configuration, helmfile, Grafana, ops runbooks | `infrastructure` |
+| Corporate website, partner pages, and customer marketing content | `www` |
 | Public product documentation (Astro/Starlight) | `docs-site` (the active `blinklabs-io/docs`) |
 | Long-form engineering knowledge base | `kb` |
 | Organization defaults, CONTRIBUTING, SECURITY | `.github` |

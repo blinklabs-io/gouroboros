@@ -84,7 +84,10 @@ criteria, and context.
   remove attribution wrappers, raw HTML, buttons, hidden bot state, prompts,
   run IDs, and stale commit metadata.
 - UI changes require screenshots in the PR. Include the affected states and
-  relevant viewport or platform; redact secrets and user data.
+  relevant viewport or platform; redact secrets and user data. Determine this
+  from rendered behavior, not merely from a file living under `src/`: a data
+  edit to fields no UI consumer renders does not require screenshots. Trace the
+  consumers before claiming the rendered site is unchanged.
 - Put code-specific feedback in inline comments. Reserve PR-level comments for
   concise code summaries and review dispositions.
 - Do not list out-of-scope work or checks that were not run. If a missing

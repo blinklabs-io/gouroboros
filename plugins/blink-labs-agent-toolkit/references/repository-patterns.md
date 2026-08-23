@@ -40,6 +40,7 @@ until documentation-specific profiles and checks are defined.
 | Mobile | `adder-mobile` | Conventional Commits plus Flutter/mobile-specific PR and publish workflows |
 | Package definitions | `cardano-up-packages` | Conventional Commits, upstream version checks, package validation |
 | Compose/integration | `cardano-compose-stacks` | Upstream version checks for a Docker Compose environment |
+| Corporate website | `www` | React/Vite/TypeScript build, tests, lint, formatting, prerendering, and public-link health |
 | Public documentation | `docs-site` | Astro/Starlight site with Markdown and localized product and DevOps documentation |
 | Engineering knowledge base | `kb` | Numbered training books with references, glossaries, and source maps |
 | Ansible automation | `ansible-cardano` | Ansible Galaxy collection with role tests and release workflow |
@@ -65,6 +66,7 @@ The authoritative profile and per-project exceptions live in
 | Ansible collection | `ansible-test` for affected roles | `ansible-lint` and release packaging |
 | Helm chart | `helm lint` and `helm template` for affected charts | chart-testing and registry/release workflow |
 | Terraform module | `terraform fmt -check` and `terraform validate` per module | provider-aware plan or integration checks |
+| React/Vite website | `npm ci`, typecheck, ESLint, Prettier, build, and tests | Run the repository's public-link checker for URL changes; capture screenshots only when rendered behavior changes |
 | Issue/content repository | Review Markdown and repository links | No code build unless the repository adds one |
 | Public documentation | `npm ci`, then `npm run check` and `npm run build` | Review Markdown links and update Starlight navigation when adding pages under `src/content/docs/` |
 | Knowledge base | Check book structure, Markdown links, and pinned source URLs | Run a link checker when available; preserve each book's README, start page, glossary, and source map |
@@ -179,6 +181,11 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   checks, and dispositions.
 - Review current PR heads, not stale bot or human findings. Skip drafts and
   apply an explicit Dependabot exclusion before reading diffs.
+- Keep static website cleanup proportional to the behavior changed. Trace data
+  consumers, preserve valid customer or partner records, and use existing
+  type, build, and link checks when rendered behavior is unchanged. Do not add
+  tests that merely forbid a deleted literal from returning; reserve new
+  regression coverage for durable behavior or contracts.
 - UI changes are not review-complete without screenshots of the affected states
   in the PR at the relevant viewport or platform; redact secrets and user data.
 - Go API reviews must cover value-versus-pointer serialization behavior and

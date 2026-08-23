@@ -80,6 +80,12 @@ fixtures, race-enabled tests, conformance/devnet testing, and the
 
 ## Special-purpose repositories
 
+- `www`: React/Vite/TypeScript corporate website. Match its Node 22 CI with
+  `npm ci`, `npx tsc --noEmit`, `npx eslint src`,
+  `npx prettier --check src`, `npm run build`, and `npm test`. For public URL
+  changes, also run `node scripts/check-public-links.mjs`. Trace consumers of
+  edited data before deciding whether rendered UI changed and therefore needs
+  screenshots.
 - `adder-mobile`: Flutter/mobile application with app-specific PR and release
   workflows.
 - `cardano-compose-stacks`: Docker Compose integration environment; its

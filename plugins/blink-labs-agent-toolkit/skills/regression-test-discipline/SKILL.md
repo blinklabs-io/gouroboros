@@ -1,6 +1,6 @@
 ---
 name: regression-test-discipline
-description: Write a test that actually fails without the fix, and prove it. Use when adding a test for a bug fix or review finding, when a test asserts something the test itself just performed, when sequencing a concurrency test, or before claiming a fix is covered.
+description: Decide whether a fix warrants new coverage and, when it does, write a test that actually fails without the fix and prove it. Use when adding a test for a bug fix or review finding, when a proposed test would only forbid a deleted static value, when a test asserts something the test itself just performed, when sequencing a concurrency test, or before claiming a fix is covered.
 ---
 
 # Regression Test Discipline
@@ -8,6 +8,20 @@ description: Write a test that actually fails without the fix, and prove it. Use
 A test added alongside a fix has one job: fail without the fix. Most tests that
 fail that job still pass, which is why the job has to be checked rather than
 assumed.
+
+## Decide whether a new test is warranted
+
+A fix does not automatically require a new test. Do not add a source assertion
+whose only purpose is to forbid a deleted URL, string, customer, or other static
+content value from returning. That turns a one-off content decision into a
+permanent product invariant and tests the current source text instead of
+behavior.
+
+For static content cleanup, preserve the valid surrounding data and run the
+repository's existing type, format, build, link, and content validation. Add a
+regression test only when the change establishes durable behavior or a contract
+that existing checks do not cover. If rendered behavior and public contracts
+are unchanged, existing validation can be the complete test plan.
 
 ## Prove it fails
 
