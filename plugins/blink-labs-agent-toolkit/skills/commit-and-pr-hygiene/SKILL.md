@@ -8,6 +8,20 @@ description: Write Blink Labs commits, pull request descriptions, issues, and re
 Policy in this organization is narrow and enforced. Getting it wrong costs a
 round trip, and in a submodule it can cost a bad pointer.
 
+## Direct pushes are clanker-only; product repos need a PR
+
+Push straight to `main` in the **clanker workspace superrepo only** — and only
+for its own workspace docs, the `plugins/` toolkit, and submodule-pointer
+updates. **Every other repository requires a pull request and the full review
+loop for any source change.** The `repos/*` product submodules (Dingo,
+gouroboros, txtop, cardano-up, bursa, plutigo, and the rest — all public) are
+never committed or pushed to directly, their branch protection is never
+bypassed, and this holds however small, urgent, or "obvious" the change is.
+A release blocked on a code fix waits on that PR through bot-then-mandatory-
+human review; it does not get a shortcut to a product repo's `main`. When a
+release or re-release needs a source change (a Makefile, a workflow, a build
+tag), open a PR for it — do not hand a subagent a direct-push instruction.
+
 ## Commits
 
 - [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for
