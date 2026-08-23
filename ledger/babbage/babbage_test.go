@@ -69,6 +69,57 @@ func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T)
 	assert.NoError(t, shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil))
 }
 
+func TestBabbageTransactionBodyRejectsDuplicateTaggedSets(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"0101010101010101010101010101010101010101010101010101010101010101",
+		0,
+	)
+	var signer common.Blake2b224
+	signer[0] = 3
+	tests := []struct {
+		name string
+		body map[uint]any
+	}{
+		{
+			name: "collateral",
+			body: map[uint]any{
+				13: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			},
+		},
+		{
+			name: "required signers",
+			body: map[uint]any{
+				14: cbor.NewSetType(
+					[]common.Blake2b224{signer, signer},
+					true,
+				),
+			},
+		},
+		{
+			name: "reference inputs",
+			body: map[uint]any{
+				18: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(test.body)
+			require.NoError(t, err)
+
+			var body BabbageTransactionBody
+			err = body.UnmarshalCBOR(bodyCbor)
+			require.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
 func TestBabbageBlockTransactions(t *testing.T) {
 	b := &BabbageBlock{}
 

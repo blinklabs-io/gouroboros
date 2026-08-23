@@ -274,6 +274,12 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
+	if err := tmp.TxCollateral.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("collateral inputs: %w", err)
+	}
+	if err := tmp.TxRequiredSigners.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("required signers: %w", err)
+	}
 	*b = AlonzoTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil

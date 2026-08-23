@@ -62,6 +62,48 @@ func TestAlonzoUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) 
 	assert.NoError(t, shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil))
 }
 
+func TestAlonzoTransactionBodyRejectsDuplicateTaggedSets(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"0101010101010101010101010101010101010101010101010101010101010101",
+		0,
+	)
+	var signer common.Blake2b224
+	signer[0] = 3
+	tests := []struct {
+		name string
+		body map[uint]any
+	}{
+		{
+			name: "collateral",
+			body: map[uint]any{
+				13: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			},
+		},
+		{
+			name: "required signers",
+			body: map[uint]any{
+				14: cbor.NewSetType(
+					[]common.Blake2b224{signer, signer},
+					true,
+				),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(test.body)
+			require.NoError(t, err)
+
+			var body AlonzoTransactionBody
+			err = body.UnmarshalCBOR(bodyCbor)
+			require.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
+
 func TestAlonzoTransactionOutputToPlutusDataCoinOnly(t *testing.T) {
 	testAddr := "addr_test1vqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygxrcya6"
 	var testAmount uint64 = 123_456_789

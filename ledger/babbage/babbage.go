@@ -386,6 +386,15 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	tmp.TxReferenceInputs = coalesceUntaggedTransactionInputs(
 		tmp.TxReferenceInputs,
 	)
+	if err := tmp.TxCollateral.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("collateral inputs: %w", err)
+	}
+	if err := tmp.TxRequiredSigners.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("required signers: %w", err)
+	}
+	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
+		return fmt.Errorf("reference inputs: %w", err)
+	}
 	*b = BabbageTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
