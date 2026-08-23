@@ -175,3 +175,6 @@
 [submodule "repos/homebrew-cardano"]
 	path = repos/homebrew-cardano
 	url = git@github.com:blinklabs-io/homebrew-cardano.git
+[submodule "repos/www"]
+	path = repos/www
+	url = git@github.com:blinklabs-io/www.git
