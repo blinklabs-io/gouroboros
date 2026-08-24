@@ -545,6 +545,68 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+func (p PoolRelay) MarshalCBOR() ([]byte, error) {
+	switch p.Type {
+	case PoolRelayTypeSingleHostAddress:
+		ipv4 := p.Ipv4
+		if ipv4 != nil {
+			normalized := ipv4.To4()
+			if normalized == nil {
+				return nil, errors.New("invalid IPv4 relay address")
+			}
+			ipv4 = &normalized
+		}
+		ipv6 := p.Ipv6
+		if ipv6 != nil {
+			normalized := ipv6.To16()
+			if normalized == nil {
+				return nil, errors.New("invalid IPv6 relay address")
+			}
+			ipv6 = &normalized
+		}
+		return cbor.Encode(struct {
+			cbor.StructAsArray
+			Type uint
+			Port *uint32
+			Ipv4 *net.IP
+			Ipv6 *net.IP
+		}{
+			Type: uint(p.Type),
+			Port: p.Port,
+			Ipv4: ipv4,
+			Ipv6: ipv6,
+		})
+	case PoolRelayTypeSingleHostName:
+		if p.Hostname == nil {
+			return nil, errors.New("single-host-name relay requires hostname")
+		}
+		return cbor.Encode(struct {
+			cbor.StructAsArray
+			Type     uint
+			Port     *uint32
+			Hostname *string
+		}{
+			Type:     uint(p.Type),
+			Port:     p.Port,
+			Hostname: p.Hostname,
+		})
+	case PoolRelayTypeMultiHostName:
+		if p.Hostname == nil {
+			return nil, errors.New("multi-host-name relay requires hostname")
+		}
+		return cbor.Encode(struct {
+			cbor.StructAsArray
+			Type     uint
+			Hostname *string
+		}{
+			Type:     uint(p.Type),
+			Hostname: p.Hostname,
+		})
+	default:
+		return nil, fmt.Errorf("invalid relay type: %d", p.Type)
+	}
+}
+
 func (p *PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 	ret := &utxorpc.Relay{}
 	if p.Port != nil {
