@@ -23,9 +23,102 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) {
+	input1 := shelley.NewShelleyTransactionInput(
+		"0101010101010101010101010101010101010101010101010101010101010101",
+		0,
+	)
+	input2 := shelley.NewShelleyTransactionInput(
+		"0202020202020202020202020202020202020202020202020202020202020202",
+		1,
+	)
+	var signer common.Blake2b224
+	signer[0] = 3
+	collateralSet := cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{input1, input2, input1},
+		false,
+	)
+	collateralWire, err := cbor.Encode(&collateralSet)
+	require.NoError(t, err)
+	bodyCbor, err := cbor.Encode(map[uint]any{
+		0:  []shelley.ShelleyTransactionInput{input2, input1, input2},
+		13: collateralSet,
+		14: cbor.NewSetType([]common.Blake2b224{signer, signer}, false),
+		18: cbor.NewSetType([]shelley.ShelleyTransactionInput{input2, input1, input2}, false),
+	})
+	require.NoError(t, err)
+
+	var body BabbageTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+	assert.Equal(t, bodyCbor, body.Cbor())
+	assert.Equal(t, []common.TransactionInput{input2, input1}, body.Inputs())
+	assert.Equal(t, []common.TransactionInput{input1, input2}, body.Collateral())
+	assert.Equal(t, []common.TransactionInput{&input2, &input1}, body.ReferenceInputs())
+	assert.Equal(t, []common.Blake2b224{signer, signer}, body.RequiredSigners())
+	decodedCollateralWire, err := cbor.Encode(&body.TxCollateral)
+	require.NoError(t, err)
+	assert.Equal(t, collateralWire, decodedCollateralWire)
+
+	tx := &BabbageTransaction{Body: body}
+	assert.NoError(t, shelley.UtxoValidateNoDuplicateInputs(tx, 0, nil, nil))
+}
+
+func TestBabbageTransactionBodyRejectsDuplicateTaggedSets(t *testing.T) {
+	input := shelley.NewShelleyTransactionInput(
+		"0101010101010101010101010101010101010101010101010101010101010101",
+		0,
+	)
+	var signer common.Blake2b224
+	signer[0] = 3
+	tests := []struct {
+		name string
+		body map[uint]any
+	}{
+		{
+			name: "collateral",
+			body: map[uint]any{
+				13: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			},
+		},
+		{
+			name: "required signers",
+			body: map[uint]any{
+				14: cbor.NewSetType(
+					[]common.Blake2b224{signer, signer},
+					true,
+				),
+			},
+		},
+		{
+			name: "reference inputs",
+			body: map[uint]any{
+				18: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{input, input},
+					true,
+				),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(test.body)
+			require.NoError(t, err)
+
+			var body BabbageTransactionBody
+			err = body.UnmarshalCBOR(bodyCbor)
+			require.ErrorContains(t, err, "duplicate member in set")
+		})
+	}
+}
 
 func TestBabbageBlockTransactions(t *testing.T) {
 	b := &BabbageBlock{}
