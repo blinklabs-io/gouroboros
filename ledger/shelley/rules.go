@@ -29,6 +29,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
@@ -613,7 +614,9 @@ func UtxoValidateDelegation(
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
 // Before Dijkstra, every withdrawal must drain a registered reward account's
-// current balance exactly. Dijkstra permits partial withdrawals.
+// current balance exactly. Dijkstra permits partial withdrawals when the
+// transaction does not use Plutus V1-V3, but no withdrawal may exceed the
+// account balance.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
@@ -629,8 +632,17 @@ func UtxoValidateWithdrawals(
 	if versionedPparams, ok := pp.(interface {
 		ProtocolMajorVersion() uint
 	}); ok {
-		requireExactAmount = versionedPparams.ProtocolMajorVersion() <
-			common.ProtocolVersionDijkstra
+		if versionedPparams.ProtocolMajorVersion() >=
+			common.ProtocolVersionDijkstra {
+			view, err := script.NewTxScriptView(tx, ls)
+			if err != nil {
+				return err
+			}
+			requireExactAmount = view.NeedsAny(func(s common.Script) bool {
+				version, ok := common.PlutusScriptVersion(s)
+				return ok && version <= 2
+			})
+		}
 	}
 
 	for addr, amount := range withdrawals {
@@ -639,15 +651,6 @@ func UtxoValidateWithdrawals(
 			continue
 		}
 
-		// Check if reward account is registered
-		if !ls.IsRewardAccountRegistered(cred) {
-			return WithdrawalFromUnregisteredRewardAccountError{
-				RewardAddress: *addr,
-			}
-		}
-		if !requireExactAmount {
-			continue
-		}
 		balance, err := ls.RewardAccountBalance(cred)
 		if err != nil {
 			return err
@@ -657,8 +660,15 @@ func UtxoValidateWithdrawals(
 				RewardAddress: *addr,
 			}
 		}
-		expected := new(big.Int).SetUint64(*balance)
-		if amount == nil || amount.Cmp(expected) != 0 {
+		amountValid := amount != nil && amount.IsUint64()
+		if amountValid {
+			if requireExactAmount {
+				amountValid = amount.Uint64() == *balance
+			} else {
+				amountValid = amount.Uint64() <= *balance
+			}
+		}
+		if !amountValid {
 			var provided *big.Int
 			if amount != nil {
 				provided = new(big.Int).Set(amount)

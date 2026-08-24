@@ -1405,6 +1405,15 @@ func (t DijkstraTransaction) Witnesses() common.TransactionWitnessSet {
 	return t.WitnessSet
 }
 
+func (t DijkstraTransaction) SubTransactionWitnessSets() []common.TransactionWitnessSet {
+	subTxs := t.Body.TxSubTransactions.Items()
+	ret := make([]common.TransactionWitnessSet, 0, len(subTxs))
+	for _, subTx := range subTxs {
+		ret = append(ret, subTx.WitnessSet)
+	}
+	return ret
+}
+
 func (t *DijkstraTransaction) MarshalCBOR() ([]byte, error) {
 	if cborData := t.DecodeStoreCbor.Cbor(); cborData != nil {
 		return cborData, nil

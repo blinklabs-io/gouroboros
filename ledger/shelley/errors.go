@@ -227,8 +227,8 @@ func (e WithdrawalFromUnregisteredRewardAccountError) Error() string {
 	return "withdrawal from unregistered reward account: " + e.RewardAddress.String()
 }
 
-// IncorrectWithdrawalAmountError indicates that a withdrawal does not drain
-// the reward account's current balance exactly.
+// IncorrectWithdrawalAmountError indicates that a withdrawal violates the
+// active era's required relationship to the reward account's current balance.
 type IncorrectWithdrawalAmountError struct {
 	RewardAddress common.Address
 	Provided      *big.Int

@@ -174,6 +174,25 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		))
 	})
 
+	t.Run("PV11 rejects a partial withdrawal", func(t *testing.T) {
+		partialTx := *tx
+		partialTx.Body.TxWithdrawals = map[*common.Address]uint64{
+			&rewardAddr: 500_000,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionVanRossem,
+			},
+		}
+		var target shelley.IncorrectWithdrawalAmountError
+		require.ErrorAs(t, conway.UtxoValidateWithdrawals(
+			&partialTx,
+			0,
+			baseState,
+			pp,
+		), &target)
+	})
+
 	for _, major := range []uint{
 		common.ProtocolVersionPlomin,
 		common.ProtocolVersionVanRossem,
