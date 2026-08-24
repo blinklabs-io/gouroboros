@@ -15,10 +15,13 @@
 package peersharing
 
 import (
+	"io"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
@@ -42,6 +45,85 @@ func TestClientGetPeersRefusesWhenRemoteDisabled(t *testing.T) {
 	peers, err := client.GetPeers(5)
 	require.ErrorIs(t, err, ErrRemotePeerSharingDisabled)
 	require.Nil(t, peers)
+}
+
+// TestClientGetPeersReturnsAfterBusyTimeout verifies that the protocol's
+// Busy-state timeout releases a caller when the peer accepts the request but
+// never sends SharePeers.
+func TestClientGetPeersReturnsAfterBusyTimeout(t *testing.T) {
+	localConn, remoteConn := net.Pipe()
+	m := muxer.New(localConn)
+	errorChan := make(chan error, 1)
+	peerDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, remoteConn)
+		close(peerDone)
+	}()
+
+	cfg := NewConfig(WithTimeout(10 * time.Millisecond))
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: connection.ConnectionId{
+				LocalAddr:  localConn.LocalAddr(),
+				RemoteAddr: localConn.RemoteAddr(),
+			},
+			Muxer:     m,
+			ErrorChan: errorChan,
+			Mode:      protocol.ProtocolModeNodeToNode,
+		},
+		&cfg,
+	)
+	client.Start()
+	m.Start()
+	t.Cleanup(func() {
+		client.Protocol.Stop()
+		m.Stop()
+		_ = remoteConn.Close()
+		select {
+		case <-peerDone:
+		case <-time.After(time.Second):
+			t.Error("peer drain did not stop")
+		}
+	})
+
+	resultChan := make(chan error, 1)
+	go func() {
+		_, err := client.GetPeers(5)
+		resultChan <- err
+	}()
+
+	select {
+	case err := <-errorChan:
+		require.ErrorContains(t, err, "timeout waiting on transition")
+	case <-time.After(time.Second):
+		t.Fatal("protocol did not report the Busy-state timeout")
+	}
+
+	select {
+	case err := <-resultChan:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		// Release the pre-fix caller so a fail-before run does not leave a
+		// goroutine behind after reporting the regression.
+		select {
+		case client.sharePeersChan <- nil:
+		case <-time.After(time.Second):
+			t.Fatal("GetPeers remained blocked and could not be released")
+		}
+		<-resultChan
+		t.Fatal("GetPeers remained blocked after the protocol timed out")
+	}
+
+	lateHandlerDone := make(chan struct{})
+	go func() {
+		client.handleSharePeers(NewMsgSharePeers(nil))
+		close(lateHandlerDone)
+	}()
+	select {
+	case <-lateHandlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("late SharePeers handler remained blocked after shutdown")
+	}
 }
 
 // TestConfigDefaultsArePermissive guards the inverted-flag contract: the zero

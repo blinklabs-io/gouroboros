@@ -66,6 +66,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
+// GetPeers requests peers and waits for either the response or protocol
+// shutdown. When the configured Busy-state timeout expires, the protocol
+// reports the timeout through its error channel and this method returns
+// protocol.ErrProtocolShuttingDown.
 func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 	if c.config.RemoteDisabled {
 		return nil, ErrRemotePeerSharingDisabled
@@ -81,11 +85,15 @@ func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
 	if err := c.SendMessage(msg); err != nil {
 		return nil, err
 	}
-	peers, ok := <-c.sharePeersChan
-	if !ok {
+	select {
+	case peers, ok := <-c.sharePeersChan:
+		if !ok {
+			return nil, protocol.ErrProtocolShuttingDown
+		}
+		return peers, nil
+	case <-c.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
 	}
-	return peers, nil
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
@@ -112,5 +120,8 @@ func (c *Client) handleSharePeers(msg protocol.Message) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	msgSharePeers := msg.(*MsgSharePeers)
-	c.sharePeersChan <- msgSharePeers.PeerAddresses
+	select {
+	case <-c.DoneChan():
+	case c.sharePeersChan <- msgSharePeers.PeerAddresses:
+	}
 }
