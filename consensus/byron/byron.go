@@ -23,11 +23,15 @@
 package byron
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"time"
 
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // ByronConfig contains Byron-specific consensus configuration.
@@ -39,7 +43,13 @@ type ByronConfig struct {
 	SecurityParam    uint64
 	NumGenesisKeys   int
 	GenesisKeyHashes [][]byte // Hashes of genesis delegate keys
-	TxFeePolicy      ByronTxFeePolicy
+	// GenesisDelegations maps each genesis verification-key hash to the
+	// verification-key hash of its currently active block-signing delegate.
+	// NewByronConfigFromGenesis initializes this from the genesis heavy
+	// delegation certificates. Callers that track later Byron delegation
+	// updates must replace entries with their active ledger view.
+	GenesisDelegations map[common.Blake2b224]common.Blake2b224
+	TxFeePolicy        ByronTxFeePolicy
 }
 
 // ByronTxFeePolicy contains the transaction fee policy parameters.
@@ -160,6 +170,8 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	if genesis.ProtocolConsts.ProtocolMagic < 0 || int64(genesis.ProtocolConsts.ProtocolMagic) > math.MaxUint32 {
 		return ByronConfig{}, fmt.Errorf("invalid protocol magic: %d (must be 0 to %d)", genesis.ProtocolConsts.ProtocolMagic, uint32(math.MaxUint32))
 	}
+	// #nosec G115 -- ProtocolMagic is validated to fit in uint32 above
+	protocolMagic := uint32(genesis.ProtocolConsts.ProtocolMagic)
 
 	// Extract genesis delegate key hashes
 	keyHashes, err := genesis.GenesisDelegateKeyHashes()
@@ -171,6 +183,99 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	keyHashBytes := make([][]byte, len(keyHashes))
 	for i, h := range keyHashes {
 		keyHashBytes[i] = h.Bytes()
+	}
+	genesisDelegations := make(
+		map[common.Blake2b224]common.Blake2b224,
+		len(genesis.HeavyDelegation),
+	)
+	genesisValidator := NewHeaderValidator(ByronConfig{
+		ProtocolMagic: protocolMagic,
+	})
+	for genesisHashHex, delegation := range genesis.HeavyDelegation {
+		genesisHashBytes, err := hex.DecodeString(genesisHashHex)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode genesis delegation key hash %q: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		if len(genesisHashBytes) != common.Blake2b224Size {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid genesis delegation key hash length for %q: got %d, expected %d",
+				genesisHashHex,
+				len(genesisHashBytes),
+				common.Blake2b224Size,
+			)
+		}
+		issuerKey, err := base64.StdEncoding.DecodeString(delegation.IssuerPk)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode issuer verification key for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		issuerHash, err := PBFTVerificationKeyHash(issuerKey)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"derive issuer verification key hash for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		if !bytes.Equal(issuerHash.Bytes(), genesisHashBytes) {
+			return ByronConfig{}, fmt.Errorf(
+				"issuer verification key hash mismatch for genesis key %s: got %s",
+				genesisHashHex,
+				issuerHash.String(),
+			)
+		}
+		delegateKey, err := base64.StdEncoding.DecodeString(delegation.DelegatePk)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode delegate verification key for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		delegateHash, err := PBFTVerificationKeyHash(delegateKey)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"derive delegate verification key hash for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		if delegation.Omega < 0 {
+			return ByronConfig{}, fmt.Errorf(
+				"invalid delegation omega for genesis key %s: %d",
+				genesisHashHex,
+				delegation.Omega,
+			)
+		}
+		certificateSignature, err := hex.DecodeString(delegation.Cert)
+		if err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"decode delegation certificate signature for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		if err := genesisValidator.validateDelegationCertSignature(
+			issuerKey,
+			delegateKey,
+			certificateSignature,
+			uint64(delegation.Omega),
+		); err != nil {
+			return ByronConfig{}, fmt.Errorf(
+				"validate delegation certificate for genesis key %s: %w",
+				genesisHashHex,
+				err,
+			)
+		}
+		genesisHash := common.NewBlake2b224(genesisHashBytes)
+		genesisDelegations[genesisHash] = delegateHash
 	}
 
 	// Byron slots per epoch = 10 * K (security parameter)
@@ -189,13 +294,13 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 
 	return ByronConfig{
-		// #nosec G115 -- ProtocolMagic is validated to fit in uint32 above
-		ProtocolMagic:    uint32(genesis.ProtocolConsts.ProtocolMagic),
-		SlotsPerEpoch:    slotsPerEpoch,
-		SlotDuration:     slotDuration,
-		SecurityParam:    k,
-		NumGenesisKeys:   len(keyHashes),
-		GenesisKeyHashes: keyHashBytes,
-		TxFeePolicy:      feePolicy,
+		ProtocolMagic:      protocolMagic,
+		SlotsPerEpoch:      slotsPerEpoch,
+		SlotDuration:       slotDuration,
+		SecurityParam:      k,
+		NumGenesisKeys:     len(keyHashes),
+		GenesisKeyHashes:   keyHashBytes,
+		GenesisDelegations: genesisDelegations,
+		TxFeePolicy:        feePolicy,
 	}, nil
 }
