@@ -233,6 +233,9 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	*b = MaryTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
@@ -734,6 +737,9 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 	var tmp tMaryTransactionOutputValue
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
+	}
+	if err := tmp.Assets.ValidateOutputQuantities(); err != nil {
+		return fmt.Errorf("multiasset value: %w", err)
 	}
 	*v = MaryTransactionOutputValue(tmp)
 	return nil

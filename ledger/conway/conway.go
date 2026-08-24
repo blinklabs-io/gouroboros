@@ -631,6 +631,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := checkMultiAssetDuplicateKeys(tmp.TxMint); err != nil {
 		return err
 	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	for idx := range tmp.TxOutputs {
 		if err := checkMultiAssetDuplicateKeys(tmp.TxOutputs[idx].Assets()); err != nil {
 			return fmt.Errorf("transaction output %d: %w", idx, err)

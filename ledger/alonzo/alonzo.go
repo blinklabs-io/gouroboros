@@ -280,6 +280,9 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxRequiredSigners.CheckForDuplicates(); err != nil {
 		return fmt.Errorf("required signers: %w", err)
 	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	*b = AlonzoTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil

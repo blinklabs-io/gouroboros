@@ -36,6 +36,13 @@ func TestDijkstraLeiosW30PoolKeyGoldenTransaction(t *testing.T) {
 	require.NoError(t, err)
 	txCbor, err := hex.DecodeString(strings.TrimSpace(string(hexData)))
 	require.NoError(t, err)
+	// The upstream golden uses the bytes "{}" as a placeholder for each
+	// 32-byte pool metadata hash. Expand those placeholders so the fixture
+	// satisfies the transaction CDDL before testing the Leios key shape.
+	placeholder := []byte{0x42, 0x7b, 0x7d}
+	validHash := append([]byte{0x58, 0x20}, make([]byte, 32)...)
+	require.Equal(t, 4, bytes.Count(txCbor, placeholder))
+	txCbor = bytes.ReplaceAll(txCbor, placeholder, validHash)
 
 	tx, err := NewDijkstraTransactionFromCbor(txCbor)
 	require.NoError(t, err)

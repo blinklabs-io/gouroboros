@@ -395,6 +395,9 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxReferenceInputs.CheckForDuplicates(); err != nil {
 		return fmt.Errorf("reference inputs: %w", err)
 	}
+	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
+		return fmt.Errorf("mint: %w", err)
+	}
 	*b = BabbageTransactionBody(tmp)
 	b.SetCborReference(cborData)
 	return nil
