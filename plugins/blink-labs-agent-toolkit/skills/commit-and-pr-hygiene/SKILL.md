@@ -107,6 +107,18 @@ file after the live record is verified.
 
 ## Pull requests
 
+- A PR description may contain only facts needed to review the current diff:
+  the defect or requirement (or a link to its issue), what the code changes,
+  the resulting behavior or guarantee, and a validation fact only when it
+  materially changes the risk assessment. Delete every other sentence.
+- Omit release and tag chronology, branch or base movement, work-session
+  history, signing choices, bot status, rollout sequencing, and future
+  follow-up notes. In particular, never explain that a PR is a follow-up to,
+  predates, or will land after a release tag; the commit graph already records
+  that history, and it does not help review the diff.
+- Do not mechanically add `Summary`, `Testing`, or other template sections. If
+  the title, diff, and linked issue provide all necessary context, use an empty
+  body instead of filler.
 - The description is a code-review brief, not an agent handoff. State the
   defect or requirement, what the code changes, and the resulting behavior or
   guarantee. Prefer a few concrete bullets over process prose.

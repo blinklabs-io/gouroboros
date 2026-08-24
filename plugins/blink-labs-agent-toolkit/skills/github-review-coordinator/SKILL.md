@@ -546,6 +546,11 @@ without checking the intervening commits.
 
 - Keep commit subjects short and factual. If a body is needed, use short factual lines directly tied to the changed code, tests, or review.
 - Keep PR descriptions and review comments concise, factual, and scoped to the current change. Do not include storytelling, chat transcripts, roadmaps, future plans, or unrelated context.
+- Before creating, updating, or handing off a PR, apply the content boundary in
+  [`commit-and-pr-hygiene`](../commit-and-pr-hygiene/SKILL.md): retain only
+  facts about the current code or its related issue. Remove release or tag
+  chronology, branch timing, session history, signing or process notes, bot
+  status, and future follow-up prose. Prefer an empty body to template filler.
 - Preserve useful Cubic or CodeRabbit summaries only as clearly attributed,
   plain-Markdown sections. Strip generated HTML, review buttons, hidden state,
   prompts, run IDs, and stale commit metadata before putting summaries in a PR
