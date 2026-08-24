@@ -483,9 +483,11 @@ func (p *PoolMetadata) Utxorpc() (*utxorpc.PoolMetadata, error) {
 }
 
 const (
-	PoolRelayTypeSingleHostAddress = 0
-	PoolRelayTypeSingleHostName    = 1
-	PoolRelayTypeMultiHostName     = 2
+	PoolRelayTypeSingleHostAddress        = 0
+	PoolRelayTypeSingleHostName           = 1
+	PoolRelayTypeMultiHostName            = 2
+	poolRelayMaxPort               uint32 = 65535
+	poolRelayMaxHostnameLen               = 128
 )
 
 type PoolRelay struct {
@@ -494,6 +496,28 @@ type PoolRelay struct {
 	Ipv4     *net.IP `json:"ipv4,omitempty"`
 	Ipv6     *net.IP `json:"ipv6,omitempty"`
 	Hostname *string `json:"hostname,omitempty"`
+}
+
+func (p PoolRelay) validateCBORBounds() error {
+	switch p.Type {
+	case PoolRelayTypeSingleHostAddress, PoolRelayTypeSingleHostName:
+		if p.Port != nil && *p.Port > poolRelayMaxPort {
+			return fmt.Errorf(
+				"pool relay port must not exceed %d",
+				poolRelayMaxPort,
+			)
+		}
+	}
+	switch p.Type {
+	case PoolRelayTypeSingleHostName, PoolRelayTypeMultiHostName:
+		if p.Hostname != nil && len(*p.Hostname) > poolRelayMaxHostnameLen {
+			return fmt.Errorf(
+				"pool relay hostname must not exceed %d bytes",
+				poolRelayMaxHostnameLen,
+			)
+		}
+	}
+	return nil
 }
 
 func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
@@ -542,10 +566,13 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 	default:
 		return fmt.Errorf("invalid relay type: %d", tmpId)
 	}
-	return nil
+	return p.validateCBORBounds()
 }
 
 func (p PoolRelay) MarshalCBOR() ([]byte, error) {
+	if err := p.validateCBORBounds(); err != nil {
+		return nil, err
+	}
 	switch p.Type {
 	case PoolRelayTypeSingleHostAddress:
 		ipv4 := p.Ipv4
