@@ -388,6 +388,38 @@ func TestPoolRelayCBORMarshalFreshValues(t *testing.T) {
 	}
 }
 
+func TestPoolRelayCBORMarshalRejectsMissingHostname(t *testing.T) {
+	tests := []struct {
+		name    string
+		relay   PoolRelay
+		wantErr string
+	}{
+		{
+			name: "single host name",
+			relay: PoolRelay{
+				Type: PoolRelayTypeSingleHostName,
+			},
+			wantErr: "single-host-name relay requires hostname",
+		},
+		{
+			name: "multi host name",
+			relay: PoolRelay{
+				Type: PoolRelayTypeMultiHostName,
+			},
+			wantErr: "multi-host-name relay requires hostname",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := cbor.Encode(test.relay)
+			require.ErrorContains(t, err, test.wantErr)
+
+			_, err = cbor.Encode(&test.relay)
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
 func TestPoolRegistrationCertificateRejectsShortOperatorKey(t *testing.T) {
 	var cert PoolRegistrationCertificate
 	err := json.Unmarshal([]byte(`{"publicKey":"01"}`), &cert)

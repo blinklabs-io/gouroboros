@@ -577,6 +577,9 @@ func (p PoolRelay) MarshalCBOR() ([]byte, error) {
 			Ipv6: ipv6,
 		})
 	case PoolRelayTypeSingleHostName:
+		if p.Hostname == nil {
+			return nil, errors.New("single-host-name relay requires hostname")
+		}
 		return cbor.Encode(struct {
 			cbor.StructAsArray
 			Type     uint
@@ -588,6 +591,9 @@ func (p PoolRelay) MarshalCBOR() ([]byte, error) {
 			Hostname: p.Hostname,
 		})
 	case PoolRelayTypeMultiHostName:
+		if p.Hostname == nil {
+			return nil, errors.New("multi-host-name relay requires hostname")
+		}
 		return cbor.Encode(struct {
 			cbor.StructAsArray
 			Type     uint
