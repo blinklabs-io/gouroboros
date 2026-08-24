@@ -19,6 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	test "github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,9 +63,9 @@ func TestCommonDispatchersAcceptListLengthEncodings(t *testing.T) {
 			t.Run(encoding.Name, func(t *testing.T) {
 				var decoded PoolRelay
 				require.NoError(t, decoded.UnmarshalCBOR(encoding.Data))
-				require.Equal(t, PoolRelayTypeSingleHostName, decoded.Type)
+				assert.Equal(t, PoolRelayTypeSingleHostName, decoded.Type)
 				require.NotNil(t, decoded.Hostname)
-				require.Equal(t, "relay.example", *decoded.Hostname)
+				assert.Equal(t, "relay.example", *decoded.Hostname)
 			})
 		}
 	})

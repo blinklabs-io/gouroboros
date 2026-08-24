@@ -19,6 +19,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	test "github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,9 +65,9 @@ func TestLocalStateQueryDispatchersAcceptListLengthEncodings(t *testing.T) {
 			decode: func(t *testing.T, data []byte) {
 				var decoded RelayAccessPoint
 				require.NoError(t, decoded.UnmarshalCBOR(data))
-				require.Equal(t, RelayKindSRV, decoded.Kind)
+				assert.Equal(t, RelayKindSRV, decoded.Kind)
 				require.NotNil(t, decoded.Domain)
-				require.Equal(t, "relay.example", *decoded.Domain)
+				assert.Equal(t, "relay.example", *decoded.Domain)
 			},
 		},
 	}

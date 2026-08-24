@@ -21,6 +21,7 @@ import (
 	test "github.com/blinklabs-io/gouroboros/internal/test"
 	"github.com/blinklabs-io/gouroboros/ledger/byron"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,8 +35,8 @@ func TestByronTransactionInputAcceptsListLengthEncodings(t *testing.T) {
 		t.Run(encoding.Name, func(t *testing.T) {
 			var decoded byron.ByronTransactionInput
 			require.NoError(t, decoded.UnmarshalCBOR(encoding.Data))
-			require.Equal(t, hash, decoded.TxId)
-			require.Equal(t, uint32(7), decoded.OutputIndex)
+			assert.Equal(t, hash, decoded.TxId)
+			assert.Equal(t, uint32(7), decoded.OutputIndex)
 		})
 	}
 }

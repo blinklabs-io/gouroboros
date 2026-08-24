@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	test "github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,8 +31,8 @@ func TestPeerAddressAcceptsListLengthEncodings(t *testing.T) {
 		t.Run(encoding.Name, func(t *testing.T) {
 			var decoded PeerAddress
 			require.NoError(t, decoded.UnmarshalCBOR(encoding.Data))
-			require.True(t, decoded.IP.Equal(expected.IP))
-			require.Equal(t, expected.Port, decoded.Port)
+			assert.True(t, decoded.IP.Equal(expected.IP))
+			assert.Equal(t, expected.Port, decoded.Port)
 		})
 	}
 }
