@@ -178,7 +178,7 @@ func TestHandleBlockRequest_NilCallback(t *testing.T) {
 		cfg,
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 	)
-	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
+	require.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
 
 func TestHandleBlockRequest_NilConfig(t *testing.T) {
@@ -187,7 +187,7 @@ func TestHandleBlockRequest_NilConfig(t *testing.T) {
 		Config{},
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 	)
-	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
+	require.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
 
 func TestHandleBlockRequest_CallbackError(t *testing.T) {
@@ -284,7 +284,7 @@ func TestHandleBlockTxsRequestNotFoundSendsMsgNoBlockTxs(t *testing.T) {
 		cfg,
 		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
 	)
-	assert.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
+	require.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
 }
 
 func TestHandleBlockRequest_NonNotFoundErrorPropagates(t *testing.T) {
@@ -399,7 +399,7 @@ func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 func TestHandleVotesRequest_NilCallback(t *testing.T) {
 	cfg := NewConfig()
 	msgType := sendNotFoundTest(t, cfg, NewMsgVotesRequest(nil))
-	assert.Equal(t, uint(MessageTypeVotes), msgType)
+	require.Equal(t, uint(MessageTypeVotes), msgType)
 }
 
 func TestHandleBlockRangeRequest_Callback(t *testing.T) {
@@ -441,7 +441,7 @@ func TestHandleBlockRangeRequest_NilCallback(t *testing.T) {
 		cfg,
 		NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{}),
 	)
-	assert.Equal(t, uint(MessageTypeLastBlockAndTxsInRange), msgType)
+	require.Equal(t, uint(MessageTypeLastBlockAndTxsInRange), msgType)
 }
 
 func TestServerMessageHandler_UnexpectedType(t *testing.T) {

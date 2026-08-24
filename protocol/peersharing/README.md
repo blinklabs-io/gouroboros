@@ -59,9 +59,10 @@ be overridden per connection via `peersharing.WithTimeout`.
 
 PeerSharing is gated by the handshake's `PeerSharing` mode field. Each side
 advertises one of the modes below. The protocol channel is multiplexed onto the
-connection for any version 11+ regardless of the advertised modes, but
-gouroboros refuses to send or honour `ShareRequest` messages when either side
-opted out.
+connection for any version 11+ regardless of the advertised modes. The client
+refuses to send `ShareRequest` when the remote opted out. If the local side
+opted out but still receives an invalid request, the server returns an empty
+`SharePeers` response so the request does not close the shared connection.
 
 ### Mode values per version
 
