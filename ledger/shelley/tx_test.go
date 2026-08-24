@@ -21,6 +21,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -75,72 +78,55 @@ func TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 		},
 	}
 	wireBytes, err := cbor.Encode(rawBody)
-	if err != nil {
-		t.Fatalf("unexpected error encoding wire bytes: %s", err)
-	}
+	require.NoError(t, err, "unexpected error encoding wire bytes")
 
 	body, err := shelley.NewShelleyTransactionBodyFromCbor(wireBytes)
-	if err != nil {
-		t.Fatalf("unexpected error decoding transaction body: %s", err)
-	}
-	if body.Update == nil || len(body.Update.ProtocolParamUpdates) != 1 {
-		t.Fatalf(
-			"expected a single protocol param update, got %#v",
-			body.Update,
-		)
-	}
+	require.NoError(t, err, "unexpected error decoding transaction body")
+	require.NotNil(t, body.Update, "expected a protocol param update")
+	require.Len(
+		t,
+		body.Update.ProtocolParamUpdates,
+		1,
+		"expected a single protocol param update",
+	)
 	update, ok := body.Update.ProtocolParamUpdates[genesisHash]
-	if !ok {
-		t.Fatalf("expected update entry for genesis hash %s", genesisHash)
-	}
-	if update.MinFeeA == nil || *update.MinFeeA != 44 {
-		t.Fatalf("expected MinFeeA == 44, got %#v", update.MinFeeA)
-	}
-	if update.MinFeeB != nil {
-		t.Fatalf("expected MinFeeB to remain unset, got %#v", update.MinFeeB)
-	}
+	require.True(t, ok, "expected update entry for genesis hash %s", genesisHash)
+	require.NotNil(t, update.MinFeeA, "expected MinFeeA to be set")
+	assert.Equal(t, uint(44), *update.MinFeeA)
+	assert.Nil(t, update.MinFeeB, "expected MinFeeB to remain unset")
 
 	marshaled, err := body.MarshalCBOR()
-	if err != nil {
-		t.Fatalf("unexpected error marshaling body: %s", err)
-	}
-	if !bytes.Equal(marshaled, wireBytes) {
-		t.Fatalf(
-			"MarshalCBOR() did not return preserved wire bytes: got %d bytes, wanted %d bytes",
-			len(marshaled),
-			len(wireBytes),
-		)
-	}
+	require.NoError(t, err, "unexpected error marshaling body")
+	assert.Equal(
+		t,
+		wireBytes,
+		marshaled,
+		"MarshalCBOR() did not return preserved wire bytes",
+	)
 
 	// Rebuilding a transaction from the decoded body and an empty
 	// witness set -- the same pattern ShelleyBlock.Transactions() uses
 	// -- must not inflate the encoded transaction size.
 	wsBytes, err := cbor.Encode(map[uint64]any{})
-	if err != nil {
-		t.Fatalf("unexpected error encoding witness set: %s", err)
-	}
+	require.NoError(t, err, "unexpected error encoding witness set")
 	var witnessSet shelley.ShelleyTransactionWitnessSet
-	if _, err := cbor.Decode(wsBytes, &witnessSet); err != nil {
-		t.Fatalf("unexpected error decoding witness set: %s", err)
-	}
+	_, err = cbor.Decode(wsBytes, &witnessSet)
+	require.NoError(t, err, "unexpected error decoding witness set")
 
 	wireTxBytes, err := cbor.Encode(
 		[]any{cbor.RawMessage(wireBytes), cbor.RawMessage(wsBytes), nil},
 	)
-	if err != nil {
-		t.Fatalf("unexpected error encoding wire transaction: %s", err)
-	}
+	require.NoError(t, err, "unexpected error encoding wire transaction")
 
 	rebuilt := &shelley.ShelleyTransaction{
 		Body:       *body,
 		WitnessSet: witnessSet,
 	}
 	rebuiltBytes := rebuilt.Cbor()
-	if !bytes.Equal(rebuiltBytes, wireTxBytes) {
-		t.Fatalf(
-			"rebuilt transaction CBOR does not match wire bytes: got %d bytes, wanted %d bytes",
-			len(rebuiltBytes),
-			len(wireTxBytes),
-		)
-	}
+	assert.Equal(
+		t,
+		wireTxBytes,
+		rebuiltBytes,
+		"rebuilt transaction CBOR does not match wire bytes",
+	)
 }
