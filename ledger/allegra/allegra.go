@@ -234,6 +234,13 @@ func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *AllegraTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return cbor.EncodeGeneric(b)
+}
+
 func (b *AllegraTransactionBody) Inputs() []common.TransactionInput {
 	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
 	for _, input := range b.TxInputs.Items() {

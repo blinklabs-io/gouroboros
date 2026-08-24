@@ -318,6 +318,13 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return cbor.EncodeGeneric(b)
+}
+
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
 	items := b.TxInputs.Items()
 	ret := make([]common.TransactionInput, len(items))
@@ -610,6 +617,13 @@ func (w *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	*w = ShelleyTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil
+}
+
+func (w *ShelleyTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
+	if w.Cbor() != nil {
+		return w.Cbor(), nil
+	}
+	return cbor.EncodeGeneric(w)
 }
 
 func (w ShelleyTransactionWitnessSet) Vkey() []common.VkeyWitness {
