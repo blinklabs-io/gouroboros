@@ -420,6 +420,150 @@ func TestPoolRelayCBORMarshalRejectsMissingHostname(t *testing.T) {
 	}
 }
 
+func TestPoolRelayCBORBounds(t *testing.T) {
+	maxPort := uint32(65535)
+	overPort := uint32(65536)
+	ipv4 := net.IPv4(10, 0, 0, 1).To4()
+	hostname := "relay.example"
+	maxHostname := strings.Repeat("a", 128)
+	overHostname := strings.Repeat("a", 129)
+	tests := []struct {
+		name    string
+		relay   PoolRelay
+		raw     []any
+		wantErr string
+	}{
+		{
+			name: "address max port",
+			relay: PoolRelay{
+				Type: PoolRelayTypeSingleHostAddress,
+				Port: &maxPort,
+				Ipv4: &ipv4,
+			},
+			raw: []any{
+				uint(PoolRelayTypeSingleHostAddress),
+				maxPort,
+				[]byte(ipv4),
+				nil,
+			},
+		},
+		{
+			name: "address over max port",
+			relay: PoolRelay{
+				Type: PoolRelayTypeSingleHostAddress,
+				Port: &overPort,
+				Ipv4: &ipv4,
+			},
+			raw: []any{
+				uint(PoolRelayTypeSingleHostAddress),
+				overPort,
+				[]byte(ipv4),
+				nil,
+			},
+			wantErr: "pool relay port must not exceed 65535",
+		},
+		{
+			name: "single host name max port",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeSingleHostName,
+				Port:     &maxPort,
+				Hostname: &hostname,
+			},
+			raw: []any{
+				uint(PoolRelayTypeSingleHostName),
+				maxPort,
+				hostname,
+			},
+		},
+		{
+			name: "single host name over max port",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeSingleHostName,
+				Port:     &overPort,
+				Hostname: &hostname,
+			},
+			raw: []any{
+				uint(PoolRelayTypeSingleHostName),
+				overPort,
+				hostname,
+			},
+			wantErr: "pool relay port must not exceed 65535",
+		},
+		{
+			name: "single host name max length",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeSingleHostName,
+				Hostname: &maxHostname,
+			},
+			raw: []any{
+				uint(PoolRelayTypeSingleHostName),
+				nil,
+				maxHostname,
+			},
+		},
+		{
+			name: "single host name over max length",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeSingleHostName,
+				Hostname: &overHostname,
+			},
+			raw: []any{
+				uint(PoolRelayTypeSingleHostName),
+				nil,
+				overHostname,
+			},
+			wantErr: "pool relay hostname must not exceed 128 bytes",
+		},
+		{
+			name: "multi host name max length",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeMultiHostName,
+				Hostname: &maxHostname,
+			},
+			raw: []any{
+				uint(PoolRelayTypeMultiHostName),
+				maxHostname,
+			},
+		},
+		{
+			name: "multi host name over max length",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeMultiHostName,
+				Hostname: &overHostname,
+			},
+			raw: []any{
+				uint(PoolRelayTypeMultiHostName),
+				overHostname,
+			},
+			wantErr: "pool relay hostname must not exceed 128 bytes",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Run("marshal", func(t *testing.T) {
+				_, err := cbor.Encode(test.relay)
+				if test.wantErr == "" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, test.wantErr)
+				}
+			})
+
+			t.Run("unmarshal", func(t *testing.T) {
+				raw, err := cbor.Encode(test.raw)
+				require.NoError(t, err)
+				var decoded PoolRelay
+				_, err = cbor.Decode(raw, &decoded)
+				if test.wantErr == "" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, test.wantErr)
+				}
+			})
+		})
+	}
+}
+
 func TestPoolRegistrationCertificateRejectsShortOperatorKey(t *testing.T) {
 	var cert PoolRegistrationCertificate
 	err := json.Unmarshal([]byte(`{"publicKey":"01"}`), &cert)
