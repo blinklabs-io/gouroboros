@@ -197,6 +197,9 @@ func (b *ConwayBlock) Era() common.Era {
 }
 
 func (b *ConwayBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
@@ -204,7 +207,7 @@ func (b *ConwayBlock) Transactions() []common.Transaction {
 
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
-	for idx := range b.TransactionBodies {
+	for idx := range ret {
 		tx := &ConwayTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],

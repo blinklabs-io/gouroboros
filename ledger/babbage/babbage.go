@@ -195,6 +195,9 @@ func (b *BabbageBlock) Era() common.Era {
 }
 
 func (b *BabbageBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
@@ -202,7 +205,7 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
-	for idx := range b.TransactionBodies {
+	for idx := range ret {
 		tx := &BabbageTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],

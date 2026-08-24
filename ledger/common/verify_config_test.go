@@ -141,3 +141,115 @@ func TestBlockBodySizeFromCbor(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestValidateBlockBodyHashTransactionWitnessCounts(t *testing.T) {
+	tests := []struct {
+		name         string
+		eraName      string
+		minRawLength int
+	}{
+		{name: "Shelley", eraName: "Shelley", minRawLength: 4},
+		{name: "Allegra", eraName: "Allegra", minRawLength: 4},
+		{name: "Mary", eraName: "Mary", minRawLength: 4},
+		{name: "Alonzo", eraName: "Alonzo", minRawLength: 5},
+		{name: "Babbage", eraName: "Babbage", minRawLength: 5},
+		{name: "Conway", eraName: "Conway", minRawLength: 5},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Run("matching counts", func(t *testing.T) {
+				blockCbor, expectedHash := blockWithTransactionCounts(
+					t,
+					2,
+					2,
+					test.minRawLength,
+				)
+				require.NoError(t, common.ValidateBlockBodyHash(
+					blockCbor,
+					expectedHash,
+					test.eraName,
+					test.minRawLength,
+				))
+			})
+
+			mismatches := []struct {
+				name         string
+				witnessCount int
+			}{
+				{name: "missing witness", witnessCount: 1},
+				{name: "extra witness", witnessCount: 3},
+			}
+			for _, mismatch := range mismatches {
+				t.Run(mismatch.name, func(t *testing.T) {
+					blockCbor, expectedHash := blockWithTransactionCounts(
+						t,
+						2,
+						mismatch.witnessCount,
+						test.minRawLength,
+					)
+					err := common.ValidateBlockBodyHash(
+						blockCbor,
+						expectedHash,
+						test.eraName,
+						test.minRawLength,
+					)
+					require.Error(t, err)
+					var validationErr *common.ValidationError
+					require.ErrorAs(t, err, &validationErr)
+					assert.Equal(
+						t,
+						2,
+						validationErr.Details["transaction_body_count"],
+					)
+					assert.Equal(
+						t,
+						mismatch.witnessCount,
+						validationErr.Details["transaction_witness_set_count"],
+					)
+				})
+			}
+		})
+	}
+}
+
+func blockWithTransactionCounts(
+	t *testing.T,
+	bodyCount int,
+	witnessCount int,
+	minRawLength int,
+) ([]byte, common.Blake2b256) {
+	t.Helper()
+
+	bodyItems := make([]cbor.RawMessage, bodyCount)
+	for i := range bodyItems {
+		bodyItems[i] = cbor.RawMessage{0xa0}
+	}
+	witnessItems := make([]cbor.RawMessage, witnessCount)
+	for i := range witnessItems {
+		witnessItems[i] = cbor.RawMessage{0xa0}
+	}
+	txBodies, err := cbor.Encode(bodyItems)
+	require.NoError(t, err)
+	txWitnesses, err := cbor.Encode(witnessItems)
+	require.NoError(t, err)
+
+	components := []cbor.RawMessage{
+		{0xf6},
+		txBodies,
+		txWitnesses,
+		{0xa0},
+	}
+	if minRawLength == 5 {
+		components = append(components, cbor.RawMessage{0x80})
+	}
+	blockCbor, err := cbor.Encode(components)
+	require.NoError(t, err)
+
+	var bodyHashes []byte
+	for _, component := range components[1:] {
+		componentHash := common.Blake2b256Hash(component)
+		bodyHashes = append(bodyHashes, componentHash[:]...)
+	}
+	return blockCbor, common.Blake2b256Hash(bodyHashes)
+}
