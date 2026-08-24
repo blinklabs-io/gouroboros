@@ -442,14 +442,11 @@ func validateGuardingPlutusScripts(
 		scriptHash := purpose.ScriptHash()
 		plutusScript, ok := availableScripts[scriptHash]
 		if !ok {
-			nativeGuard, err := dijkstraGuardResolvesToNativeScript(
+			nativeGuard := dijkstraGuardResolvesToNativeScriptFromResolved(
 				tx,
-				ls,
+				resolvedInputs,
 				redeemerKey.Index,
 			)
-			if err != nil {
-				return err
-			}
 			if nativeGuard {
 				return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
@@ -1428,20 +1425,12 @@ func dijkstraGuardResolvesToNativeScript(
 	ls common.LedgerState,
 	index uint32,
 ) (bool, error) {
-	guard, ok := dijkstraGuardCredentialAt(tx, index)
-	if !ok || guard.CredType != common.CredentialTypeScriptHash {
+	scriptHash, ok := dijkstraGuardScriptHash(tx, index)
+	if !ok {
 		return false, nil
 	}
-	scriptHash := common.ScriptHash(guard.Credential)
-	if witnessSetHasNativeScript(tx.Witnesses(), scriptHash) {
+	if dijkstraGuardWitnessesHaveNativeScript(tx, scriptHash) {
 		return true, nil
-	}
-	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
-		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
-			if witnessSetHasNativeScript(subTx.WitnessSet, scriptHash) {
-				return true, nil
-			}
-		}
 	}
 	if ls == nil {
 		return false, nil
@@ -1469,6 +1458,65 @@ func dijkstraGuardResolvesToNativeScript(
 		}
 	}
 	return false, nil
+}
+
+// dijkstraGuardResolvesToNativeScriptFromResolved is
+// dijkstraGuardResolvesToNativeScript's check for a caller that already
+// resolved the transaction's inputs -- validateGuardingPlutusScripts, via
+// resolvedInputsForGuardingPlutus -- so it does not repeat those UtxoById
+// calls.
+func dijkstraGuardResolvesToNativeScriptFromResolved(
+	tx common.Transaction,
+	resolvedInputs []common.Utxo,
+	index uint32,
+) bool {
+	scriptHash, ok := dijkstraGuardScriptHash(tx, index)
+	if !ok {
+		return false
+	}
+	if dijkstraGuardWitnessesHaveNativeScript(tx, scriptHash) {
+		return true
+	}
+	for _, utxo := range resolvedInputs {
+		if utxo.Output != nil &&
+			scriptRefIsNativeHash(utxo.Output.ScriptRef(), scriptHash) {
+			return true
+		}
+	}
+	return false
+}
+
+// dijkstraGuardScriptHash resolves the guard credential at index to a script
+// hash, reporting false if it is absent or not a script credential.
+func dijkstraGuardScriptHash(
+	tx common.Transaction,
+	index uint32,
+) (common.ScriptHash, bool) {
+	guard, ok := dijkstraGuardCredentialAt(tx, index)
+	if !ok || guard.CredType != common.CredentialTypeScriptHash {
+		return common.ScriptHash{}, false
+	}
+	return common.ScriptHash(guard.Credential), true
+}
+
+// dijkstraGuardWitnessesHaveNativeScript checks the transaction's own witness
+// set and every sub-transaction's witness set for a native script matching
+// scriptHash.
+func dijkstraGuardWitnessesHaveNativeScript(
+	tx common.Transaction,
+	scriptHash common.ScriptHash,
+) bool {
+	if witnessSetHasNativeScript(tx.Witnesses(), scriptHash) {
+		return true
+	}
+	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
+		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
+			if witnessSetHasNativeScript(subTx.WitnessSet, scriptHash) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func witnessSetHasNativeScript(
