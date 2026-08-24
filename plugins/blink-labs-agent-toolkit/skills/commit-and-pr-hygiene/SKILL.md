@@ -89,6 +89,22 @@ the project does not track. Plans are local, ephemeral working artifacts. When
 work needs durable tracking, open or update an issue with scope, acceptance
 criteria, and context.
 
+## Write multiline GitHub bodies through files
+
+For a multiline issue, pull-request, review, or comment body, write real
+Markdown to a run-owned `.md` file and pass that file with `--body-file` or a
+REST input file. Do not pass JSON-stringified Markdown or escaped newlines as a
+shell argument: the literal `\n` characters can be stored in the public body
+instead of becoming line breaks.
+
+After every create or edit, read the complete live record back through GitHub.
+Check the title, body, and requested metadata such as assignees, labels, and
+milestone; verifying one field is not verification of the others. Confirm that
+headings and lists have real line breaks and that the body contains no literal
+newline escapes before claiming the write succeeded. Correct the same record
+when verification fails, then read it back again. Remove the run-owned body
+file after the live record is verified.
+
 ## Pull requests
 
 - The description is a code-review brief, not an agent handoff. State the
