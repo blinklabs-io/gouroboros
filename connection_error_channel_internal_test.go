@@ -217,6 +217,66 @@ func TestConnectionClosesInternalErrorChannel(t *testing.T) {
 	}
 }
 
+func TestCloseWaitsForErrorForwardersBeforeCallerClosesChannel(t *testing.T) {
+	errorChan := make(chan error, 1)
+	conn := &Connection{
+		errorChan:      errorChan,
+		doneChan:       make(chan any),
+		connClosedChan: make(chan struct{}),
+	}
+	go func() {
+		<-conn.doneChan
+		conn.shutdown()
+	}()
+
+	forwarderStarted := make(chan struct{})
+	releaseForwarder := make(chan struct{})
+	forwarderDone := make(chan struct{})
+	conn.waitGroup.Go(func() {
+		defer close(forwarderDone)
+		close(forwarderStarted)
+		<-releaseForwarder
+		conn.forwardError(errors.New("late connection error"))
+	})
+	requireChannelSignal(
+		t,
+		forwarderStarted,
+		"error forwarder did not start",
+	)
+
+	closeResult := make(chan error, 1)
+	go func() {
+		closeResult <- conn.Close()
+	}()
+	requireChannelSignal(t, conn.doneChan, "connection shutdown did not start")
+	select {
+	case <-conn.connClosedChan:
+		close(releaseForwarder)
+		err := <-closeResult
+		conn.shutdown()
+		require.NoError(t, err)
+		t.Fatal("shutdown signaled completion before error forwarding stopped")
+	case <-time.After(100 * time.Millisecond):
+		// Shutdown must remain blocked while the tracked forwarder is blocked.
+	}
+
+	close(releaseForwarder)
+	select {
+	case err := <-closeResult:
+		require.NoError(t, err)
+	case <-time.After(errorForwardingTestTimeout):
+		t.Fatal("Close did not return after error forwarding stopped")
+	}
+	select {
+	case <-forwarderDone:
+	default:
+		t.Fatal("Close returned before the error forwarder finished")
+	}
+	require.NotPanics(t, func() {
+		close(errorChan)
+	})
+}
+
 func TestConnectionErrorForwardingDeliversNormally(t *testing.T) {
 	testCases := []struct {
 		name    string

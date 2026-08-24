@@ -151,9 +151,13 @@ func TestPingNode_Integration(t *testing.T) {
 		Network:    network,
 	}
 
-	conn, err := NewConnection(cfg)
+	errorChan := make(chan error, 1)
+	conn, err := NewConnection(cfg, errorChan)
 	require.NoError(t, err, "failed to create connection")
-	defer conn.Close()
+	defer func() {
+		require.NoError(t, conn.Close())
+		close(errorChan)
+	}()
 
 	resultChan := make(chan PingResult, 1)
 	go func() {
