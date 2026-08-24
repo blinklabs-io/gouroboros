@@ -177,9 +177,9 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	if len(cborData) < 2 {
 		return 0, errors.New("CBOR data too short for list with ID")
 	}
-	// If the list length is <= the max simple uint and the first list value
-	// is <= the max simple uint, then we can extract the value straight from
-	// the byte slice
+	// If both the list header and first value use their canonical one-byte
+	// forms, then we can extract the value straight from the byte slice.
+	// A non-shortest list header puts its length at byte one instead.
 	listLen, err := ListLength(cborData)
 	if err != nil {
 		return 0, err
@@ -187,10 +187,10 @@ func DecodeIdFromList(cborData []byte) (int, error) {
 	if listLen == 0 {
 		return 0, errors.New("cannot return first item from empty list")
 	}
-	if listLen < int(CborMaxUintSimple) {
-		if cborData[1] <= CborMaxUintSimple {
-			return int(cborData[1]), nil
-		}
+	if cborData[0] >= CborTypeArray &&
+		cborData[0] <= (CborTypeArray+CborMaxUintSimple) &&
+		cborData[1] <= CborMaxUintSimple {
+		return int(cborData[1]), nil
 	}
 	// If we couldn't use the shortcut above, actually decode the list
 	var tmp Value
