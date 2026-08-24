@@ -15,7 +15,6 @@
 package leiosvotes
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
@@ -114,9 +113,11 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 		)
 	}
 	if s.config == nil || s.config.RequestNextFunc == nil {
-		return errors.New(
-			"received leios-votes VotesRequestNext message but no callback function is defined",
-		)
+		// There is no valid empty Vote message: each response is validated as
+		// a signed vote and the state machine requires exactly Count of them.
+		// End the optional responder cleanly rather than fabricating data or
+		// propagating a connection-level protocol error.
+		return s.SendMessage(NewMsgDone())
 	}
 	votes, err := s.config.RequestNextFunc(
 		s.callbackContext,

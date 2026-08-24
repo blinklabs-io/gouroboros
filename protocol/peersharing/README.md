@@ -78,7 +78,7 @@ disables peer sharing is `NoPeerSharing`.
 | Local advertised | Remote advertised | Client may send `ShareRequest`? | Server honours incoming `ShareRequest`? |
 |---|---|---|---|
 | any | NoPeerSharing | no — `ErrRemotePeerSharingDisabled` | yes (if local advertised active) |
-| NoPeerSharing | active | no — would be a self-protocol violation; client should not be calling `GetPeers` | no — `ErrLocalPeerSharingDisabled` |
+| NoPeerSharing | active | no — would be a self-protocol violation; client should not be calling `GetPeers` | yes — an empty `SharePeers` response |
 | active | active | yes | yes |
 
 Operators flip the local advertisement with `ouroboros.WithPeerSharing(true)`
@@ -172,10 +172,10 @@ oConn, err := ouroboros.New(
 ```
 
 When the local node advertises `NoPeerSharing` (the default,
-`WithPeerSharing(false)`), incoming `ShareRequest` messages are refused with
-`ErrLocalPeerSharingDisabled`, which surfaces as a protocol error and closes
-the connection. A spec-compliant peer would not send `ShareRequest` in that
-case.
+`WithPeerSharing(false)`), an unexpected incoming `ShareRequest` receives an
+empty `SharePeers` response. A spec-compliant peer would not send the request,
+but the defensive response keeps this optional mini-protocol from closing the
+shared connection if it does.
 
 ## Peer Address Format
 

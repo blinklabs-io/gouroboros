@@ -15,7 +15,6 @@
 package peersharing
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
@@ -91,7 +90,11 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 
 func (s *Server) handleShareRequest(msg protocol.Message) error {
 	if s.config != nil && s.config.LocalDisabled {
-		return ErrLocalPeerSharingDisabled
+		// A disabled peer-sharing responder still has server agency after a
+		// request arrives. Return an empty response so the mini-protocol can
+		// return to Idle without turning an optional feature into a bearer
+		// failure.
+		return s.SendMessage(NewMsgSharePeers(nil))
 	}
 	s.Protocol.Logger().
 		Debug("share request",
@@ -101,9 +104,10 @@ func (s *Server) handleShareRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.ShareRequestFunc == nil {
-		return errors.New(
-			"received peer-sharing ShareRequest message but no callback function is defined",
-		)
+		// Direct users may leave peer sharing unconfigured. An empty response
+		// is the protocol-defined zero-result response and preserves the
+		// shared connection for the other mini-protocols.
+		return s.SendMessage(NewMsgSharePeers(nil))
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
 	peers, err := s.config.ShareRequestFunc(

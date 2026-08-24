@@ -77,6 +77,15 @@ func sendNotFoundTest(
 	request protocol.Message,
 ) uint {
 	t.Helper()
+	return sendNotFoundTestWithConfig(t, &cfg, request)
+}
+
+func sendNotFoundTestWithConfig(
+	t *testing.T,
+	cfg *Config,
+	request protocol.Message,
+) uint {
+	t.Helper()
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
@@ -90,7 +99,7 @@ func sendNotFoundTest(
 	server := NewServer(protocol.ProtocolOptions{
 		ConnectionId: connId,
 		Muxer:        m,
-	}, &cfg)
+	}, cfg)
 	server.Start()
 	defer server.Protocol.Stop()
 	m.Start()
@@ -170,42 +179,21 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleBlockRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
-	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
-	err := server.handleBlockRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(
+		t,
+		NewConfig(),
+		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
 
 func TestHandleBlockRequest_NilConfig(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
-	server := &Server{
-		config:          nil,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
-	err := server.handleBlockRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTestWithConfig(
+		t,
+		nil,
+		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
 
 func TestHandleBlockRequest_CallbackError(t *testing.T) {
@@ -371,23 +359,12 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
-	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil)
-	err := server.handleBlockTxsRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(
+		t,
+		NewConfig(),
+		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
 }
 
 func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
@@ -425,23 +402,8 @@ func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleVotesRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
-	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgVotesRequest(nil)
-	err := server.handleVotesRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(t, NewConfig(), NewMsgVotesRequest(nil))
+	assert.Equal(t, uint(MessageTypeVotes), msgType)
 }
 
 func TestHandleBlockRangeRequest_Callback(t *testing.T) {
@@ -477,23 +439,12 @@ func TestHandleBlockRangeRequest_Callback(t *testing.T) {
 }
 
 func TestHandleBlockRangeRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
-	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{})
-	err := server.handleBlockRangeRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(
+		t,
+		NewConfig(),
+		NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{}),
+	)
+	assert.Equal(t, uint(MessageTypeLastBlockAndTxsInRange), msgType)
 }
 
 func TestServerMessageHandler_UnexpectedType(t *testing.T) {

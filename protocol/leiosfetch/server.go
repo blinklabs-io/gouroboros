@@ -102,9 +102,10 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockRequest message but no callback function is defined",
-		)
+		// An optional fetch responder declines an unavailable block with the
+		// normal response, returning the state machine to Idle without
+		// terminating the shared bearer.
+		return s.SendMessage(NewMsgNoBlock())
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
@@ -151,9 +152,7 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockTxsRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockTxsRequest message but no callback function is defined",
-		)
+		return s.SendMessage(NewMsgNoBlockTxs())
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
@@ -201,9 +200,9 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.VotesRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch VotesRequest message but no callback function is defined",
-		)
+		// An empty Votes response is valid for the batch-shaped fetch
+		// protocol and returns agency to the client.
+		return s.SendMessage(NewMsgVotes(nil))
 	}
 	msgVotesRequest := msg.(*MsgVotesRequest)
 	resp, err := s.config.VotesRequestFunc(
@@ -233,9 +232,10 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRangeRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockRangeRequest message but no callback function is defined",
-		)
+		// A range with no available blocks completes with the terminal range
+		// response, which is the only response that returns this state to
+		// Idle.
+		return s.SendMessage(NewMsgLastBlockAndTxsInRange(nil, nil))
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)
 	err := s.config.BlockRangeRequestFunc(

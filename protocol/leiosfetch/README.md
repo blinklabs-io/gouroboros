@@ -186,6 +186,12 @@ whole node-to-node connection.
   error to the caller, who can distinguish "not available" from a real protocol
   error with `errors.Is`.
 
+If a responder is created without one of the request callbacks, it uses the
+corresponding empty or unavailable response (`NoBlock`, `NoBlockTxs`, an empty
+`Votes`, or an empty terminal range response). This returns the mini-protocol
+to a valid state without turning an optional Leios feature into a bearer-fatal
+error.
+
 ## Notes
 
 - Part of the experimental Leios protocol suite

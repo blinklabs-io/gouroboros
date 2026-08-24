@@ -41,6 +41,7 @@ CIP-0164 design:
 Idle --VotesRequestNext(N)--> Busy(tokens=N)
 Busy --Vote, tokens > 1--> Busy(tokens-1)
 Busy --Vote, tokens = 1--> Idle
+Busy --Done (no responder configured)--> Done
 Idle --Done--> Done
 ```
 
@@ -51,6 +52,10 @@ Idle --Done--> Done
 | **Idle** | 1 | Client | Waiting for a vote request or termination |
 | **Busy** | 2 | Server | Delivering the requested vote batch |
 | **Done** | 3 | None | Terminal state |
+
+If no `RequestNextFunc` is configured, the responder sends `Done` while it has
+server agency. This terminates only the optional `leios-votes` mini-protocol;
+it does not report a protocol error that would close the shared bearer.
 
 ## Usage
 

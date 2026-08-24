@@ -16,8 +16,11 @@ package leiosvotes
 
 import (
 	"errors"
+	"net"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,29 +61,43 @@ func TestHandleRequestNextCallbackIsCalled(t *testing.T) {
 
 func TestHandleRequestNextNilCallback(t *testing.T) {
 	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: testConnectionId()},
-	}
-	server.initProtocol()
-
-	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: testConnectionId(),
+		Muxer:        m,
+	}, &cfg)
+	server.Start()
+	defer server.Protocol.Stop()
+	m.Start()
+	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
+	require.NoError(t, err)
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+	segment := requireReadTestSegment(t, connB)
+	assert.Equal(t, []uint8{MessageTypeDone}, decodeTestMessageTypes(t, segment.Payload))
 }
 
 func TestHandleRequestNextNilConfig(t *testing.T) {
-	server := &Server{
-		config:          nil,
-		callbackContext: CallbackContext{ConnectionId: testConnectionId()},
-	}
-	server.initProtocol()
-
-	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	defer m.Stop()
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: testConnectionId(),
+		Muxer:        m,
+	}, nil)
+	server.Start()
+	defer server.Protocol.Stop()
+	m.Start()
+	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
+	require.NoError(t, err)
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+	segment := requireReadTestSegment(t, connB)
+	assert.Equal(t, []uint8{MessageTypeDone}, decodeTestMessageTypes(t, segment.Payload))
 }
 
 func TestHandleRequestNextInvalidCount(t *testing.T) {
