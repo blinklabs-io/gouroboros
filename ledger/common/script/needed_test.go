@@ -157,10 +157,13 @@ func refOutput(s common.Script) common.TransactionOutput {
 // AvailablePlutusScripts backs conway.UtxoValidatePlutusScripts' and
 // dijkstra's guarding-redeemer execution's script-availability maps. Both
 // key an unmatched redeemer's "no script" branch on a hash's absence here,
-// and Dijkstra's native-script guard fallback (see rules_test.go's
-// TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard) depends on a
-// native script -- witness or reference -- staying absent rather than
-// present-but-unexecutable.
+// and Dijkstra's native-script guard fallback depends on a native script --
+// witness or reference -- staying absent rather than
+// present-but-unexecutable. dijkstra/rules_test.go's
+// TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard pins the witness
+// case at the rule level;
+// TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard pins the
+// reference case there.
 func TestAvailablePlutusScriptsExcludesNativeScripts(t *testing.T) {
 	v1 := common.PlutusV1Script([]byte{0x01})
 	v2 := common.PlutusV2Script([]byte{0x02})

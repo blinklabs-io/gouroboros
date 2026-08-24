@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	commontestdata "github.com/blinklabs-io/gouroboros/ledger/common/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
@@ -136,6 +137,70 @@ func TestUtxoValidateGuardingRedeemerRejectsNativeScriptGuard(t *testing.T) {
 		tx,
 		0,
 		mockledger.NewLedgerStateBuilder().Build(),
+		&DijkstraProtocolParameters{},
+	)
+	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
+}
+
+// The witness case above pins the guard's native script arriving through the
+// witness set. A native script arriving as a *reference* script on a
+// resolved input exercises a different path -- script.AvailablePlutusScripts
+// filters it out by PlutusScriptVersion, not by TransactionWitnessSet.
+// NativeScripts -- so it needs its own rule-level case rather than assuming
+// the witness test covers it too.
+func TestUtxoValidateGuardingRedeemerRejectsNativeReferenceScriptGuard(
+	t *testing.T,
+) {
+	guardCred := testGuardCredential()
+	nativeScript := testRequireGuardNativeScript(t, guardCred)
+	nativeScriptCred := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: nativeScript.Hash(),
+	}
+	refInput := shelley.NewShelleyTransactionInput(
+		"4444444444444444444444444444444444444444444444444444444444444444",
+		0,
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxGuards: &DijkstraGuards{
+				Credentials: []common.Credential{
+					nativeScriptCred,
+					guardCred,
+				},
+			},
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{refInput},
+				false,
+			),
+		},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagGuarding, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			},
+		},
+		TxIsValid: true,
+	}
+	refOutput := babbage.BabbageTransactionOutput{
+		TxOutScriptRef: &common.ScriptRef{
+			Type:   common.ScriptRefTypeNativeScript,
+			Script: nativeScript,
+		},
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{Id: input, Output: &refOutput}, nil
+		}).
+		Build()
+
+	err := UtxoValidatePlutusScripts(
+		tx,
+		0,
+		ls,
 		&DijkstraProtocolParameters{},
 	)
 	require.ErrorAs(t, err, &conway.ExtraRedeemerError{})
