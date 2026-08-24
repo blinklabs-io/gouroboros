@@ -69,6 +69,7 @@ type Connection struct {
 	logger                *slog.Logger
 	muxer                 *muxer.Muxer
 	errorChan             chan error
+	ownsErrorChan         bool
 	protoErrorChan        chan error
 	handshakeFinishedChan chan any
 	handshakeVersion      uint16
@@ -136,6 +137,7 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 	}
 	if c.errorChan == nil {
 		c.errorChan = make(chan error, 10)
+		c.ownsErrorChan = true
 	}
 	if c.conn != nil {
 		if err := c.setupConnection(); err != nil {
@@ -160,7 +162,9 @@ func (c *Connection) Muxer() *muxer.Muxer {
 	return c.muxer
 }
 
-// ErrorChan returns the channel for asynchronous errors
+// ErrorChan returns the channel for asynchronous errors. A channel created by
+// the Connection is closed during shutdown; a channel supplied with
+// WithErrorChan remains open and caller-owned.
 func (c *Connection) ErrorChan() chan error {
 	return c.errorChan
 }
@@ -310,9 +314,22 @@ func (c *Connection) shutdown() {
 		close(c.connClosedChan)
 		// Wait for other goroutines to finish
 		c.waitGroup.Wait()
-		// Close consumer error channel to signify connection shutdown
-		close(c.errorChan)
+		// Signal shutdown only on the channel created by this connection.
+		// A channel supplied with WithErrorChan remains caller-owned.
+		if c.ownsErrorChan {
+			close(c.errorChan)
+		}
 	})
+}
+
+// forwardError attempts immediate delivery without allowing an undrained
+// consumer channel to prevent connection shutdown.
+func (c *Connection) forwardError(err error) {
+	select {
+	case c.errorChan <- err:
+	case <-c.doneChan:
+	default:
+	}
 }
 
 // allProtocolsIdle returns true if every active protocol is in a terminal or
@@ -492,10 +509,10 @@ func (c *Connection) setupConnection() error {
 			}
 			if errors.As(err, &connErr) {
 				// Pass through ConnectionClosedError from muxer
-				c.errorChan <- err
+				c.forwardError(err)
 			} else {
 				// Wrap error message to denote it comes from the muxer
-				c.errorChan <- fmt.Errorf("muxer error: %w", err)
+				c.forwardError(fmt.Errorf("muxer error: %w", err))
 			}
 			// Close connection on muxer errors
 			c.Close()
@@ -600,7 +617,7 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
-			c.errorChan <- fmt.Errorf("protocol error: %w", err)
+			c.forwardError(fmt.Errorf("protocol error: %w", err))
 			// Close connection on mini-protocol errors
 			c.Close()
 		}
