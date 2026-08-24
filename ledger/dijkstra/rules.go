@@ -413,28 +413,16 @@ func validateGuardingPlutusScripts(
 		return nil
 	}
 
-	availableScripts := make(map[common.ScriptHash]common.Script)
-	addPlutusScriptsFromWitnessSet(availableScripts, wits)
-	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
-		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
-			addPlutusScriptsFromWitnessSet(availableScripts, subTx.WitnessSet)
-		}
-	}
-
 	resolvedInputs, err := resolvedInputsForGuardingPlutus(tx, ls)
 	if err != nil {
 		return err
 	}
-	for _, utxo := range resolvedInputs {
-		if utxo.Output == nil {
-			continue
-		}
-		scriptRef := utxo.Output.ScriptRef()
-		if scriptRef == nil {
-			continue
-		}
-		if _, ok := common.PlutusScriptVersion(scriptRef); ok {
-			availableScripts[scriptRef.Hash()] = scriptRef
+	availableScripts := script.AvailablePlutusScripts(tx, resolvedInputs)
+	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
+		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
+			for hash, s := range script.PlutusWitnessScripts(subTx.WitnessSet) {
+				availableScripts[hash] = s
+			}
 		}
 	}
 
@@ -454,14 +442,11 @@ func validateGuardingPlutusScripts(
 		scriptHash := purpose.ScriptHash()
 		plutusScript, ok := availableScripts[scriptHash]
 		if !ok {
-			nativeGuard, err := dijkstraGuardResolvesToNativeScript(
+			nativeGuard := dijkstraGuardResolvesToNativeScriptFromResolved(
 				tx,
-				ls,
+				resolvedInputs,
 				redeemerKey.Index,
 			)
-			if err != nil {
-				return err
-			}
 			if nativeGuard {
 				return conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
 			}
@@ -616,33 +601,11 @@ func validateGuardingPlutusScripts(
 	return nil
 }
 
-func addPlutusScriptsFromWitnessSet(
-	availableScripts map[common.ScriptHash]common.Script,
-	wits common.TransactionWitnessSet,
-) {
-	if wits == nil {
-		return
-	}
-	for _, s := range wits.PlutusV1Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range wits.PlutusV2Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range wits.PlutusV3Scripts() {
-		availableScripts[s.Hash()] = s
-	}
-	for _, s := range common.PlutusV4ScriptsFromWitnessSet(wits) {
-		availableScripts[s.Hash()] = s
-	}
-}
-
 func resolvedInputsForGuardingPlutus(
 	tx common.Transaction,
 	ls common.LedgerState,
 ) ([]common.Utxo, error) {
-	inputCount := len(tx.Inputs()) + len(tx.ReferenceInputs())
-	if inputCount == 0 {
+	if len(tx.Inputs())+len(tx.ReferenceInputs()) == 0 {
 		return nil, nil
 	}
 	if ls == nil {
@@ -650,28 +613,11 @@ func resolvedInputsForGuardingPlutus(
 			"ledger state is required for Dijkstra guarding Plutus validation",
 		)
 	}
-	resolvedInputs := make([]common.Utxo, 0, inputCount)
-	for _, input := range tx.Inputs() {
-		utxo, err := ls.UtxoById(input)
-		if err != nil {
-			return nil, common.InputResolutionError{
-				Input: input,
-				Err:   err,
-			}
-		}
-		resolvedInputs = append(resolvedInputs, utxo)
+	inputs, refInputs, err := script.ResolveTxInputs(tx, ls)
+	if err != nil {
+		return nil, err
 	}
-	for _, refInput := range tx.ReferenceInputs() {
-		utxo, err := ls.UtxoById(refInput)
-		if err != nil {
-			return nil, common.ReferenceInputResolutionError{
-				Input: refInput,
-				Err:   err,
-			}
-		}
-		resolvedInputs = append(resolvedInputs, utxo)
-	}
-	return resolvedInputs, nil
+	return script.ConcatResolvedInputs(inputs, refInputs), nil
 }
 
 func dijkstraGuardingPurpose(
@@ -1479,20 +1425,12 @@ func dijkstraGuardResolvesToNativeScript(
 	ls common.LedgerState,
 	index uint32,
 ) (bool, error) {
-	guard, ok := dijkstraGuardCredentialAt(tx, index)
-	if !ok || guard.CredType != common.CredentialTypeScriptHash {
+	scriptHash, ok := dijkstraGuardScriptHash(tx, index)
+	if !ok {
 		return false, nil
 	}
-	scriptHash := common.ScriptHash(guard.Credential)
-	if witnessSetHasNativeScript(tx.Witnesses(), scriptHash) {
+	if dijkstraGuardWitnessesHaveNativeScript(tx, scriptHash) {
 		return true, nil
-	}
-	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
-		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
-			if witnessSetHasNativeScript(subTx.WitnessSet, scriptHash) {
-				return true, nil
-			}
-		}
 	}
 	if ls == nil {
 		return false, nil
@@ -1520,6 +1458,65 @@ func dijkstraGuardResolvesToNativeScript(
 		}
 	}
 	return false, nil
+}
+
+// dijkstraGuardResolvesToNativeScriptFromResolved is
+// dijkstraGuardResolvesToNativeScript's check for a caller that already
+// resolved the transaction's inputs -- validateGuardingPlutusScripts, via
+// resolvedInputsForGuardingPlutus -- so it does not repeat those UtxoById
+// calls.
+func dijkstraGuardResolvesToNativeScriptFromResolved(
+	tx common.Transaction,
+	resolvedInputs []common.Utxo,
+	index uint32,
+) bool {
+	scriptHash, ok := dijkstraGuardScriptHash(tx, index)
+	if !ok {
+		return false
+	}
+	if dijkstraGuardWitnessesHaveNativeScript(tx, scriptHash) {
+		return true
+	}
+	for _, utxo := range resolvedInputs {
+		if utxo.Output != nil &&
+			scriptRefIsNativeHash(utxo.Output.ScriptRef(), scriptHash) {
+			return true
+		}
+	}
+	return false
+}
+
+// dijkstraGuardScriptHash resolves the guard credential at index to a script
+// hash, reporting false if it is absent or not a script credential.
+func dijkstraGuardScriptHash(
+	tx common.Transaction,
+	index uint32,
+) (common.ScriptHash, bool) {
+	guard, ok := dijkstraGuardCredentialAt(tx, index)
+	if !ok || guard.CredType != common.CredentialTypeScriptHash {
+		return common.ScriptHash{}, false
+	}
+	return common.ScriptHash(guard.Credential), true
+}
+
+// dijkstraGuardWitnessesHaveNativeScript checks the transaction's own witness
+// set and every sub-transaction's witness set for a native script matching
+// scriptHash.
+func dijkstraGuardWitnessesHaveNativeScript(
+	tx common.Transaction,
+	scriptHash common.ScriptHash,
+) bool {
+	if witnessSetHasNativeScript(tx.Witnesses(), scriptHash) {
+		return true
+	}
+	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
+		for _, subTx := range dijkstraTx.Body.TxSubTransactions.Items() {
+			if witnessSetHasNativeScript(subTx.WitnessSet, scriptHash) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func witnessSetHasNativeScript(
