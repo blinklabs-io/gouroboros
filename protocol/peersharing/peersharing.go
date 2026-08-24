@@ -30,9 +30,10 @@ var ErrRemotePeerSharingDisabled = errors.New(
 	"peer sharing: remote peer advertised NoPeerSharing during handshake",
 )
 
-// ErrLocalPeerSharingDisabled is returned by the server when a peer sends a
-// ShareRequest but we advertised NoPeerSharing during the handshake. A
-// spec-compliant peer must not send ShareRequest in that case.
+// ErrLocalPeerSharingDisabled is retained for compatibility with callers that
+// classified the previous server-side behavior. The server now answers an
+// unexpected ShareRequest with an empty SharePeers message so it cannot tear
+// down the shared bearer.
 var ErrLocalPeerSharingDisabled = errors.New(
 	"peer sharing: received ShareRequest but local node advertised NoPeerSharing during handshake",
 )
@@ -156,8 +157,8 @@ func WithTimeout(timeout time.Duration) PeerSharingOptionFunc {
 }
 
 // WithLocalDisabled records that this node advertised NoPeerSharing during
-// the handshake. The server uses this to refuse incoming ShareRequest
-// messages with ErrLocalPeerSharingDisabled.
+// the handshake. The server answers incoming ShareRequest messages with an
+// empty SharePeers response while this flag is set.
 func WithLocalDisabled(disabled bool) PeerSharingOptionFunc {
 	return func(c *Config) {
 		c.LocalDisabled = disabled

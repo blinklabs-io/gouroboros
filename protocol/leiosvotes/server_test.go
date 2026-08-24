@@ -16,12 +16,79 @@ package leiosvotes
 
 import (
 	"errors"
+	"net"
 	"testing"
+	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUnconfiguredRequestDoesNotTearDownBearer(t *testing.T) {
+	connA, connB := net.Pipe()
+	m := muxer.New(connA)
+	errs := make(chan error, 1)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connection.ConnectionId{
+				LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+				RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+			},
+			ErrorChan: errs,
+			Muxer:     m,
+		},
+		&Config{Timeout: time.Millisecond},
+	)
+	peerSharingCfg := peersharing.NewConfig()
+	peerSharingServer := peersharing.NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: server.callbackContext.ConnectionId,
+			Muxer:        m,
+		},
+		&peerSharingCfg,
+	)
+	server.Start()
+	peerSharingServer.Start()
+	m.Start()
+	t.Cleanup(func() {
+		server.Stop()
+		peerSharingServer.Stop()
+		m.Stop()
+		connA.Close()
+		connB.Close()
+	})
+
+	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
+	require.NoError(t, err)
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+
+	peerData, err := cbor.Encode(peersharing.NewMsgShareRequest(1))
+	require.NoError(t, err)
+	require.NoError(t, connB.SetWriteDeadline(time.Now().Add(time.Second)))
+	writeTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(peersharing.ProtocolId, peerData, false),
+	)
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	peerResponse := requireReadTestSegment(t, connB)
+	require.True(t, peerResponse.IsResponse())
+	require.Equal(t, uint16(peersharing.ProtocolId), peerResponse.GetProtocolId())
+
+	require.Never(t, func() bool {
+		select {
+		case <-errs:
+			return true
+		default:
+			return false
+		}
+	}, 50*time.Millisecond, time.Millisecond)
+}
 
 func TestNewServer(t *testing.T) {
 	cfg := NewConfig()
@@ -66,8 +133,7 @@ func TestHandleRequestNextNilCallback(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	assert.NoError(t, err)
 }
 
 func TestHandleRequestNextNilConfig(t *testing.T) {
@@ -79,8 +145,7 @@ func TestHandleRequestNextNilConfig(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	assert.NoError(t, err)
 }
 
 func TestHandleRequestNextInvalidCount(t *testing.T) {

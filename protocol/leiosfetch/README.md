@@ -186,6 +186,16 @@ whole node-to-node connection.
   error to the caller, who can distinguish "not available" from a real protocol
   error with `errors.Is`.
 
+## Optional server responders
+
+Leios fetch is optional, but its server responder is available on every
+node-to-node connection that supports the mini-protocol. If a callback is not
+configured, the server declines each request with a state-machine-valid empty
+response: `NoBlock`, `NoBlockTxs`, an empty `Votes`, or an empty
+`LastBlockAndTxsInRange`, respectively. These responses return the protocol to
+`Idle` without producing a connection-level error. Errors from configured
+callbacks and transport failures are still propagated.
+
 ## Notes
 
 - Part of the experimental Leios protocol suite

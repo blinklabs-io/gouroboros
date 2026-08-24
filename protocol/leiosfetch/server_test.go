@@ -67,10 +67,10 @@ func writeLeiosFetchTestSegment(
 	require.NoError(t, err)
 }
 
-// sendNotFoundTest drives a real server over a muxer, sending it the given
-// request and returning the message type of the server's response segment. It
-// is used to verify that a not-found callback signal produces the graceful
-// MsgNoBlock/MsgNoBlockTxs response instead of tearing down the connection.
+// sendNotFoundTest drives a real server over a muxer, sends the given request
+// twice, and returns the message type of the server's response segments. The
+// second exchange proves that the fallback returns the protocol to Idle and
+// leaves the bearer usable.
 func sendNotFoundTest(
 	t *testing.T,
 	cfg Config,
@@ -95,26 +95,28 @@ func sendNotFoundTest(
 	defer server.Protocol.Stop()
 	m.Start()
 
-	requestData, err := cbor.Encode(request)
-	require.NoError(t, err)
-	writeLeiosFetchTestSegment(
-		t,
-		connB,
-		muxer.NewSegment(ProtocolId, requestData, false),
-	)
-	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
-	segment, err := readLeiosFetchTestSegment(t, connB)
-	require.NoError(t, err)
-	assert.True(t, segment.IsResponse())
-	assert.Equal(t, ProtocolId, segment.GetProtocolId())
-
-	var elems []cbor.RawMessage
-	_, err = cbor.Decode(segment.Payload, &elems)
-	require.NoError(t, err)
-	require.NotEmpty(t, elems)
 	var msgType uint
-	_, err = cbor.Decode(elems[0], &msgType)
-	require.NoError(t, err)
+	for range 2 {
+		requestData, err := cbor.Encode(request)
+		require.NoError(t, err)
+		writeLeiosFetchTestSegment(
+			t,
+			connB,
+			muxer.NewSegment(ProtocolId, requestData, false),
+		)
+		require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+		segment, err := readLeiosFetchTestSegment(t, connB)
+		require.NoError(t, err)
+		assert.True(t, segment.IsResponse())
+		assert.Equal(t, ProtocolId, segment.GetProtocolId())
+
+		var elems []cbor.RawMessage
+		_, err = cbor.Decode(segment.Payload, &elems)
+		require.NoError(t, err)
+		require.NotEmpty(t, elems)
+		_, err = cbor.Decode(elems[0], &msgType)
+		require.NoError(t, err)
+	}
 	return msgType
 }
 
@@ -170,42 +172,22 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleBlockRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
 	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
-	err := server.handleBlockRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(
+		t,
+		cfg,
+		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
 
 func TestHandleBlockRequest_NilConfig(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
-	server := &Server{
-		config:          nil,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}))
-	err := server.handleBlockRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(
+		t,
+		Config{},
+		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlock), msgType)
 }
 
 func TestHandleBlockRequest_CallbackError(t *testing.T) {
@@ -371,23 +353,13 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
 	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil)
-	err := server.handleBlockTxsRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(
+		t,
+		cfg,
+		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
+	)
+	assert.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
 }
 
 func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
@@ -425,23 +397,9 @@ func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleVotesRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
 	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgVotesRequest(nil)
-	err := server.handleVotesRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(t, cfg, NewMsgVotesRequest(nil))
+	assert.Equal(t, uint(MessageTypeVotes), msgType)
 }
 
 func TestHandleBlockRangeRequest_Callback(t *testing.T) {
@@ -477,23 +435,13 @@ func TestHandleBlockRangeRequest_Callback(t *testing.T) {
 }
 
 func TestHandleBlockRangeRequest_NilCallback(t *testing.T) {
-	connId := connection.ConnectionId{
-		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-	}
-
 	cfg := NewConfig()
-	server := &Server{
-		config:          &cfg,
-		callbackContext: CallbackContext{ConnectionId: connId},
-	}
-	server.initProtocol()
-
-	msg := NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{})
-	err := server.handleBlockRangeRequest(msg)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	msgType := sendNotFoundTest(
+		t,
+		cfg,
+		NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{}),
+	)
+	assert.Equal(t, uint(MessageTypeLastBlockAndTxsInRange), msgType)
 }
 
 func TestServerMessageHandler_UnexpectedType(t *testing.T) {

@@ -102,9 +102,10 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockRequest message but no callback function is defined",
-		)
+		// Leios is optional and its server responder is registered for every
+		// node-to-node connection. An unconfigured responder declines the
+		// request without treating it as a bearer-level protocol error.
+		return s.SendMessage(NewMsgNoBlock())
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
@@ -151,9 +152,7 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockTxsRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockTxsRequest message but no callback function is defined",
-		)
+		return s.SendMessage(NewMsgNoBlockTxs())
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
@@ -201,9 +200,7 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.VotesRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch VotesRequest message but no callback function is defined",
-		)
+		return s.SendMessage(NewMsgVotes(nil))
 	}
 	msgVotesRequest := msg.(*MsgVotesRequest)
 	resp, err := s.config.VotesRequestFunc(
@@ -233,9 +230,7 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRangeRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockRangeRequest message but no callback function is defined",
-		)
+		return s.SendMessage(NewMsgLastBlockAndTxsInRange(nil, nil))
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)
 	err := s.config.BlockRangeRequestFunc(
