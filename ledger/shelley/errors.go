@@ -226,3 +226,24 @@ type WithdrawalFromUnregisteredRewardAccountError struct {
 func (e WithdrawalFromUnregisteredRewardAccountError) Error() string {
 	return "withdrawal from unregistered reward account: " + e.RewardAddress.String()
 }
+
+// IncorrectWithdrawalAmountError indicates that a withdrawal does not drain
+// the reward account's current balance exactly.
+type IncorrectWithdrawalAmountError struct {
+	RewardAddress common.Address
+	Provided      *big.Int
+	Balance       uint64
+}
+
+func (e IncorrectWithdrawalAmountError) Error() string {
+	provided := "<nil>"
+	if e.Provided != nil {
+		provided = e.Provided.String()
+	}
+	return fmt.Sprintf(
+		"incorrect withdrawal amount for %s: provided %s, balance %d",
+		e.RewardAddress.String(),
+		provided,
+		e.Balance,
+	)
+}

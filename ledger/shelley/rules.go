@@ -612,7 +612,8 @@ func UtxoValidateDelegation(
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
-// It checks that reward accounts are registered.
+// Before Dijkstra, every withdrawal must drain a registered reward account's
+// current balance exactly. Dijkstra permits partial withdrawals.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
@@ -624,7 +625,15 @@ func UtxoValidateWithdrawals(
 		return nil
 	}
 
-	for addr := range withdrawals {
+	requireExactAmount := true
+	if versionedPparams, ok := pp.(interface {
+		ProtocolMajorVersion() uint
+	}); ok {
+		requireExactAmount = versionedPparams.ProtocolMajorVersion() <
+			common.ProtocolVersionDijkstra
+	}
+
+	for addr, amount := range withdrawals {
 		cred, ok := addr.StakeCredential()
 		if !ok {
 			continue
@@ -634,6 +643,30 @@ func UtxoValidateWithdrawals(
 		if !ls.IsRewardAccountRegistered(cred) {
 			return WithdrawalFromUnregisteredRewardAccountError{
 				RewardAddress: *addr,
+			}
+		}
+		if !requireExactAmount {
+			continue
+		}
+		balance, err := ls.RewardAccountBalance(cred)
+		if err != nil {
+			return err
+		}
+		if balance == nil {
+			return WithdrawalFromUnregisteredRewardAccountError{
+				RewardAddress: *addr,
+			}
+		}
+		expected := new(big.Int).SetUint64(*balance)
+		if amount == nil || amount.Cmp(expected) != 0 {
+			var provided *big.Int
+			if amount != nil {
+				provided = new(big.Int).Set(amount)
+			}
+			return IncorrectWithdrawalAmountError{
+				RewardAddress: *addr,
+				Provided:      provided,
+				Balance:       *balance,
 			}
 		}
 	}
