@@ -76,8 +76,26 @@ type Muxer struct {
 }
 
 type segmentChannel struct {
-	mu sync.Mutex
-	ch chan *Segment
+	mu       sync.Mutex
+	ch       chan *Segment
+	done     chan struct{}
+	onceStop sync.Once
+}
+
+func (s *segmentChannel) stop() {
+	// Wake a delivery that is waiting for channel capacity before taking the
+	// mutex needed to close the receiver. Otherwise unregistration can wait
+	// forever behind that delivery while the protocol waits for
+	// unregistration to finish.
+	s.onceStop.Do(func() {
+		close(s.done)
+	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ch != nil {
+		close(s.ch)
+		s.ch = nil
+	}
 }
 
 type ConnectionClosedError struct {
@@ -198,7 +216,10 @@ func (m *Muxer) RegisterProtocol(
 	// Generate channels
 	senderChan := make(chan *Segment, 10)
 	receiver := make(chan *Segment, 10)
-	receiverChan := &segmentChannel{ch: receiver}
+	receiverChan := &segmentChannel{
+		ch:   receiver,
+		done: make(chan struct{}),
+	}
 	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
 	if _, ok := m.protocolSenders[protocolId]; !ok {
@@ -251,12 +272,7 @@ func (m *Muxer) UnregisterProtocol(
 	}
 	// Signal shutdown to protocol
 
-	recvChan.mu.Lock()
-	defer recvChan.mu.Unlock()
-	if recvChan.ch != nil {
-		close(recvChan.ch)
-		recvChan.ch = nil
-	}
+	recvChan.stop()
 
 	// Remove mapping
 	delete(protocolRoles, protocolRole)
@@ -297,12 +313,7 @@ func (m *Muxer) readLoop() {
 		for _, protocolRoles := range m.protocolReceivers {
 			for protocolRole, recvChan := range protocolRoles {
 				// Signal shutdown to protocol
-				recvChan.mu.Lock()
-				if recvChan.ch != nil {
-					close(recvChan.ch)
-					recvChan.ch = nil
-				}
-				recvChan.mu.Unlock()
+				recvChan.stop()
 
 				// Remove mapping
 				delete(protocolRoles, protocolRole)
@@ -429,13 +440,16 @@ func (m *Muxer) readLoop() {
 		recvChan.mu.Lock()
 		if recvChan.ch == nil {
 			recvChan.mu.Unlock()
-			return
+			continue
 		}
 
 		select {
 		case <-m.doneChan:
 			recvChan.mu.Unlock()
 			return
+		case <-recvChan.done:
+			recvChan.mu.Unlock()
+			continue
 		case recvChan.ch <- msg:
 			recvChan.mu.Unlock()
 		}
