@@ -17,16 +17,20 @@ the local instructions in `repos/docs-site` or `repos/kb`.
    context.
 2. Inspect navigation metadata, book structure, glossary, source map, and
    existing cross-links before adding content.
-3. Prefer links to the owning README, source file, issue, specification, or
-   pinned public commit over copied explanations. Keep examples reproducible.
-4. Preserve existing terminology, headings, front matter, and link style.
+3. Keep durable documentation self-contained offline. Describe the behavior and
+   rationale in the page; omit bare issue or pull-request numbers and never use
+   issue history as the explanation. When a source reference materially helps,
+   add a descriptive link after the complete statement.
+4. Prefer links to the owning README, source file, specification, or pinned
+   public commit over copied explanations. Keep examples reproducible.
+5. Preserve existing terminology, headings, front matter, and link style.
    Update navigation metadata whenever a public page is added or moved.
-5. For `repos/docs-site` (the active `blinklabs-io/docs` checkout), run
+6. For `repos/docs-site` (the active `blinklabs-io/docs` checkout), run
    `npm ci`, `npm run check`, and `npm run build` when available. Content lives
    under `src/content/docs/` and uses Astro/Starlight navigation. For the
    knowledge base, validate Markdown structure and links; do not invent a
    build system it does not have.
-6. Report stale claims, missing source links, and unresolved cross-repository
+7. Report stale claims, missing source links, and unresolved cross-repository
    documentation as issues rather than hiding them in a plan file.
 
 Plans remain local and ephemeral. Durable documentation work belongs in the
