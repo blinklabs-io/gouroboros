@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
@@ -273,6 +274,118 @@ func TestPoolRegistrationCertificateLeiosKey(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, encoded, reencoded)
 	})
+}
+
+func TestPoolRelayCBORRoundTrip(t *testing.T) {
+	port := uint32(3001)
+	ipv4 := net.IPv4(10, 0, 0, 1).To4()
+	ipv6 := net.ParseIP("2001:db8::1")
+	hostname := "relay.example"
+	tests := []struct {
+		name string
+		raw  string
+		want PoolRelay
+	}{
+		{
+			name: "single host address",
+			raw:  "8400190bb9440a000001f6",
+			want: PoolRelay{
+				Type: PoolRelayTypeSingleHostAddress,
+				Port: &port,
+				Ipv4: &ipv4,
+			},
+		},
+		{
+			name: "single host name",
+			raw:  "8301190bb96d72656c61792e6578616d706c65",
+			want: PoolRelay{
+				Type:     PoolRelayTypeSingleHostName,
+				Port:     &port,
+				Hostname: &hostname,
+			},
+		},
+		{
+			name: "multi host name",
+			raw:  "82026d72656c61792e6578616d706c65",
+			want: PoolRelay{
+				Type:     PoolRelayTypeMultiHostName,
+				Hostname: &hostname,
+			},
+		},
+		{
+			name: "single host address with ipv6",
+			raw:  "8400190bb9f65020010db8000000000000000000000001",
+			want: PoolRelay{
+				Type: PoolRelayTypeSingleHostAddress,
+				Port: &port,
+				Ipv6: &ipv6,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := hex.DecodeString(test.raw)
+			require.NoError(t, err)
+
+			var decoded PoolRelay
+			_, err = cbor.Decode(raw, &decoded)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, decoded)
+
+			reencoded, err := cbor.Encode(decoded)
+			require.NoError(t, err)
+			assert.Equal(t, raw, reencoded)
+		})
+	}
+}
+
+func TestPoolRelayCBORMarshalFreshValues(t *testing.T) {
+	port := uint32(3001)
+	ipv4 := net.ParseIP("10.0.0.1")
+	hostname := "relay.example"
+	tests := []struct {
+		name  string
+		relay PoolRelay
+		want  string
+	}{
+		{
+			name: "single host address",
+			relay: PoolRelay{
+				Type: PoolRelayTypeSingleHostAddress,
+				Port: &port,
+				Ipv4: &ipv4,
+			},
+			want: "8400190bb9440a000001f6",
+		},
+		{
+			name: "single host name",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeSingleHostName,
+				Port:     &port,
+				Hostname: &hostname,
+			},
+			want: "8301190bb96d72656c61792e6578616d706c65",
+		},
+		{
+			name: "multi host name",
+			relay: PoolRelay{
+				Type:     PoolRelayTypeMultiHostName,
+				Hostname: &hostname,
+			},
+			want: "82026d72656c61792e6578616d706c65",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(test.relay)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, hex.EncodeToString(encoded))
+
+			encoded, err = cbor.Encode(&test.relay)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, hex.EncodeToString(encoded))
+		})
+	}
 }
 
 func TestPoolRegistrationCertificateRejectsShortOperatorKey(t *testing.T) {
