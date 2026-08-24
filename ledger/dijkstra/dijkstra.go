@@ -761,6 +761,9 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
 	// Reject duplicate members in any tag-258 set field on the transaction body.
 	type duplicateChecker interface {
 		CheckForDuplicates() error
@@ -787,6 +790,25 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	}
 	*b = DijkstraTransactionBody(tmp)
 	b.SetCborReference(cborData)
+	return nil
+}
+
+func validateDijkstraCertificateTypes(
+	certificates []common.CertificateWrapper,
+) error {
+	for idx, certificate := range certificates {
+		certType := common.CertificateType(certificate.Type)
+		if certType == common.CertificateTypeStakeRegistration ||
+			certType == common.CertificateTypeStakeDeregistration ||
+			certType == common.CertificateTypeGenesisKeyDelegation ||
+			certType == common.CertificateTypeMoveInstantaneousRewards {
+			return fmt.Errorf(
+				"certificate type is not valid in Dijkstra: index %d type %d",
+				idx,
+				certificate.Type,
+			)
+		}
+	}
 	return nil
 }
 
@@ -997,6 +1019,9 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tDijkstraSubTransactionBody DijkstraSubTransactionBody
 	var tmp tDijkstraSubTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := validateDijkstraCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
 	if err := tmp.TxInputs.CheckForDuplicates(); err != nil {

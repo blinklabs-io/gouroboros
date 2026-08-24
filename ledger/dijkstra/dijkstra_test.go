@@ -17,6 +17,7 @@ package dijkstra
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -32,6 +33,153 @@ import (
 
 func testPlutusInteger(v int64) data.PlutusData {
 	return data.NewInteger(big.NewInt(v))
+}
+
+func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
+	decoders := []struct {
+		name   string
+		decode func([]byte) ([]common.CertificateWrapper, error)
+	}{
+		{
+			name: "top level",
+			decode: func(encoded []byte) ([]common.CertificateWrapper, error) {
+				var body DijkstraTransactionBody
+				err := body.UnmarshalCBOR(encoded)
+				return body.TxCertificates, err
+			},
+		},
+		{
+			name: "sub transaction",
+			decode: func(encoded []byte) ([]common.CertificateWrapper, error) {
+				var body DijkstraSubTransactionBody
+				err := body.UnmarshalCBOR(encoded)
+				return body.TxCertificates, err
+			},
+		},
+	}
+	certificates := certificateFixturesByType()
+	testCases := make([]struct {
+		name     string
+		certType common.CertificateType
+		wantErr  bool
+	}, 0, len(certificates))
+	for certType := common.CertificateTypeStakeRegistration; certType <= common.CertificateTypeUpdateDrep; certType++ {
+		testCases = append(testCases, struct {
+			name     string
+			certType common.CertificateType
+			wantErr  bool
+		}{
+			name:     fmt.Sprintf("type %d", certType),
+			certType: certType,
+			wantErr: certType <= common.CertificateTypeStakeDeregistration ||
+				certType == common.CertificateTypeGenesisKeyDelegation ||
+				certType == common.CertificateTypeMoveInstantaneousRewards,
+		})
+	}
+
+	for _, decoder := range decoders {
+		t.Run(decoder.name, func(t *testing.T) {
+			for _, tc := range testCases {
+				t.Run(tc.name, func(t *testing.T) {
+					encoded, err := cbor.Encode(map[uint]any{
+						4: []any{certificates[tc.certType]},
+					})
+					require.NoError(t, err)
+
+					certificates, err := decoder.decode(encoded)
+					if tc.wantErr {
+						require.ErrorContains(
+							t,
+							err,
+							"certificate type is not valid in Dijkstra",
+						)
+						return
+					}
+					require.NoError(t, err)
+					require.Len(t, certificates, 1)
+					require.Equal(
+						t,
+						uint(tc.certType),
+						certificates[0].Type,
+					)
+				})
+			}
+		})
+	}
+}
+
+func certificateFixturesByType() map[common.CertificateType]any {
+	credential := common.Credential{
+		CredType: common.CredentialTypeAddrKeyHash,
+	}
+	return map[common.CertificateType]any{
+		common.CertificateTypeStakeRegistration: &common.StakeRegistrationCertificate{
+			CertType: uint(common.CertificateTypeStakeRegistration),
+		},
+		common.CertificateTypeStakeDeregistration: &common.StakeDeregistrationCertificate{
+			CertType: uint(common.CertificateTypeStakeDeregistration),
+		},
+		common.CertificateTypeStakeDelegation: &common.StakeDelegationCertificate{
+			CertType:        uint(common.CertificateTypeStakeDelegation),
+			StakeCredential: &credential,
+		},
+		common.CertificateTypePoolRegistration: &common.PoolRegistrationCertificate{
+			CertType: uint(common.CertificateTypePoolRegistration),
+			Margin:   cbor.Rat{Rat: big.NewRat(0, 1)},
+		},
+		common.CertificateTypePoolRetirement: &common.PoolRetirementCertificate{
+			CertType: uint(common.CertificateTypePoolRetirement),
+		},
+		common.CertificateTypeGenesisKeyDelegation: &common.GenesisKeyDelegationCertificate{
+			CertType: uint(common.CertificateTypeGenesisKeyDelegation),
+		},
+		common.CertificateTypeMoveInstantaneousRewards: []any{
+			uint(common.CertificateTypeMoveInstantaneousRewards),
+			[]any{uint(0), uint64(0)},
+		},
+		common.CertificateTypeRegistration: &common.RegistrationCertificate{
+			CertType: uint(common.CertificateTypeRegistration),
+		},
+		common.CertificateTypeDeregistration: &common.DeregistrationCertificate{
+			CertType: uint(common.CertificateTypeDeregistration),
+		},
+		common.CertificateTypeVoteDelegation: &common.VoteDelegationCertificate{
+			CertType: uint(common.CertificateTypeVoteDelegation),
+			Drep:     common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeStakeVoteDelegation: &common.StakeVoteDelegationCertificate{
+			CertType: uint(common.CertificateTypeStakeVoteDelegation),
+			Drep:     common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeStakeRegistrationDelegation: &common.StakeRegistrationDelegationCertificate{
+			CertType: uint(common.CertificateTypeStakeRegistrationDelegation),
+		},
+		common.CertificateTypeVoteRegistrationDelegation: &common.VoteRegistrationDelegationCertificate{
+			CertType: uint(common.CertificateTypeVoteRegistrationDelegation),
+			Drep:     common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeStakeVoteRegistrationDelegation: &common.StakeVoteRegistrationDelegationCertificate{
+			CertType: uint(
+				common.CertificateTypeStakeVoteRegistrationDelegation,
+			),
+			Drep: common.Drep{Type: common.DrepTypeAbstain},
+		},
+		common.CertificateTypeAuthCommitteeHot: &common.AuthCommitteeHotCertificate{
+			CertType: uint(common.CertificateTypeAuthCommitteeHot),
+		},
+		common.CertificateTypeResignCommitteeCold: &common.ResignCommitteeColdCertificate{
+			CertType: uint(common.CertificateTypeResignCommitteeCold),
+		},
+		common.CertificateTypeRegistrationDrep: &common.RegistrationDrepCertificate{
+			CertType: uint(common.CertificateTypeRegistrationDrep),
+		},
+		common.CertificateTypeDeregistrationDrep: &common.DeregistrationDrepCertificate{
+			CertType: uint(common.CertificateTypeDeregistrationDrep),
+		},
+		common.CertificateTypeUpdateDrep: &common.UpdateDrepCertificate{
+			CertType: uint(common.CertificateTypeUpdateDrep),
+		},
+	}
 }
 
 func minimalTxBody() map[uint]any {

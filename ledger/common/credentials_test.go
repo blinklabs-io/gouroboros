@@ -17,11 +17,58 @@ package common_test
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCredentialUnmarshalCBORValidTypes(t *testing.T) {
+	for _, credentialType := range []uint{
+		common.CredentialTypeAddrKeyHash,
+		common.CredentialTypeScriptHash,
+	} {
+		t.Run(fmt.Sprintf("type_%d", credentialType), func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				credentialType,
+				make([]byte, common.Blake2b224Size),
+			})
+			require.NoError(t, err)
+
+			var credential common.Credential
+			_, err = cbor.Decode(encoded, &credential)
+			require.NoError(t, err)
+			assert.Equal(t, credentialType, credential.CredType)
+		})
+	}
+}
+
+func TestCredentialUnmarshalCBORRejectsInvalidTypes(t *testing.T) {
+	for _, credentialType := range []uint{2, 255} {
+		t.Run(fmt.Sprintf("type_%d", credentialType), func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				credentialType,
+				make([]byte, common.Blake2b224Size),
+			})
+			require.NoError(t, err)
+
+			var credential common.Credential
+			_, err = cbor.Decode(encoded, &credential)
+			require.ErrorContains(t, err, "invalid credential type")
+		})
+	}
+}
+
+func TestCredentialUnmarshalCBORRejectsNullAndUndefined(t *testing.T) {
+	for _, cborData := range [][]byte{{0xf6}, {0xf7}} {
+		var credential common.Credential
+		require.Error(t, credential.UnmarshalCBOR(cborData))
+	}
+}
 
 func TestCredentialFromJson(t *testing.T) {
 	testDefs := []struct {
