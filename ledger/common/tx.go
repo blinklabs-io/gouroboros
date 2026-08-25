@@ -106,6 +106,13 @@ type TransactionWitnessSetWithPlutusV4 interface {
 	PlutusV4Scripts() []PlutusV4Script
 }
 
+// TransactionWithSubTransactionWitnessSets exposes witness sets whose scripts
+// are available to the top-level transaction. Dijkstra sub-transactions can
+// provide a script needed by a top-level script purpose.
+type TransactionWithSubTransactionWitnessSets interface {
+	SubTransactionWitnessSets() []TransactionWitnessSet
+}
+
 func PlutusV4ScriptsFromWitnessSet(
 	w TransactionWitnessSet,
 ) []PlutusV4Script {
@@ -117,6 +124,19 @@ func PlutusV4ScriptsFromWitnessSet(
 		return nil
 	}
 	return w4.PlutusV4Scripts()
+}
+
+func SubTransactionWitnessSetsFromTransaction(
+	t Transaction,
+) []TransactionWitnessSet {
+	if t == nil {
+		return nil
+	}
+	withSubTxs, ok := t.(TransactionWithSubTransactionWitnessSets)
+	if !ok {
+		return nil
+	}
+	return withSubTxs.SubTransactionWitnessSets()
 }
 
 type TransactionWitnessRedeemers interface {

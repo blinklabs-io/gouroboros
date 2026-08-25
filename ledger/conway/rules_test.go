@@ -156,6 +156,43 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		))
 	})
 
+	t.Run("PV12 permits a partial withdrawal", func(t *testing.T) {
+		partialTx := *tx
+		partialTx.Body.TxWithdrawals = map[*common.Address]uint64{
+			&rewardAddr: 500_000,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionDijkstra,
+			},
+		}
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			&partialTx,
+			0,
+			baseState,
+			pp,
+		))
+	})
+
+	t.Run("PV11 rejects a partial withdrawal", func(t *testing.T) {
+		partialTx := *tx
+		partialTx.Body.TxWithdrawals = map[*common.Address]uint64{
+			&rewardAddr: 500_000,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionVanRossem,
+			},
+		}
+		var target shelley.IncorrectWithdrawalAmountError
+		require.ErrorAs(t, conway.UtxoValidateWithdrawals(
+			&partialTx,
+			0,
+			baseState,
+			pp,
+		), &target)
+	})
+
 	for _, major := range []uint{
 		common.ProtocolVersionPlomin,
 		common.ProtocolVersionVanRossem,
@@ -165,6 +202,9 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 			zeroTx.Body.TxWithdrawals = map[*common.Address]uint64{
 				&rewardAddr: 0,
 			}
+			zeroBalanceState := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountBalance(stakeKeyHash, 0).
+				Build()
 			pp := &conway.ConwayProtocolParameters{
 				ProtocolVersion: common.ProtocolParametersProtocolVersion{
 					Major: major,
@@ -173,7 +213,7 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 			require.NoError(t, conway.UtxoValidateWithdrawals(
 				&zeroTx,
 				0,
-				struct{ common.LedgerState }{LedgerState: baseState},
+				struct{ common.LedgerState }{LedgerState: zeroBalanceState},
 				pp,
 			))
 		})
@@ -190,7 +230,7 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 			&otherRewardAddr: 1_000_000,
 		}
 		mixedState := mockledger.NewLedgerStateBuilder().
-			WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+			WithRewardAccountBalance(stakeKeyHash, 0).
 			WithRewardAccountBalance(otherStakeKeyHash, 1_000_000).
 			WithDRepDelegation(func(
 				credential common.Credential,

@@ -64,6 +64,186 @@ func testRequireGuardNativeScript(
 	return script
 }
 
+func testDijkstraWitnessSet(
+	t *testing.T,
+	script common.Script,
+) DijkstraTransactionWitnessSet {
+	t.Helper()
+	var witnesses DijkstraTransactionWitnessSet
+	if script != nil {
+		switch script := script.(type) {
+		case common.NativeScript:
+			witnesses.WsNativeScripts = cbor.NewSetType(
+				[]common.NativeScript{script},
+				false,
+			)
+		case common.PlutusV1Script:
+			witnesses.WsPlutusV1Scripts = cbor.NewSetType(
+				[]common.PlutusV1Script{script},
+				false,
+			)
+		case common.PlutusV2Script:
+			witnesses.WsPlutusV2Scripts = cbor.NewSetType(
+				[]common.PlutusV2Script{script},
+				false,
+			)
+		case common.PlutusV3Script:
+			witnesses.WsPlutusV3Scripts = cbor.NewSetType(
+				[]common.PlutusV3Script{script},
+				false,
+			)
+		case common.PlutusV4Script:
+			witnesses.WsPlutusV4Scripts = cbor.NewSetType(
+				[]common.PlutusV4Script{script},
+				false,
+			)
+		default:
+			t.Fatalf("unsupported withdrawal script type %T", script)
+		}
+	}
+	return witnesses
+}
+
+func testDijkstraWithdrawalTx(
+	t *testing.T,
+	withdrawal uint64,
+	withdrawalScript common.Script,
+) (*DijkstraTransaction, common.Credential) {
+	t.Helper()
+	credentialHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
+	addressType := uint8(common.AddressTypeNoneKey)
+	if withdrawalScript != nil {
+		credentialHash = withdrawalScript.Hash()
+		addressType = common.AddressTypeNoneScript
+	}
+	rewardAddr, err := common.NewAddressFromParts(
+		addressType,
+		common.AddressNetworkTestnet,
+		nil,
+		credentialHash.Bytes(),
+	)
+	require.NoError(t, err)
+	credential, ok := rewardAddr.StakeCredential()
+	require.True(t, ok)
+	return &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxWithdrawals: map[*common.Address]uint64{
+				&rewardAddr: withdrawal,
+			},
+		},
+		WitnessSet: testDijkstraWitnessSet(t, withdrawalScript),
+		TxIsValid:  true,
+	}, credential
+}
+
+func TestUtxoValidateWithdrawalsDijkstraAmountModes(t *testing.T) {
+	const balance = uint64(1_000_000)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+
+	for _, tc := range []struct {
+		name                 string
+		withdrawalScript     common.Script
+		scriptInSubTx        bool
+		unrelatedSubTxScript common.Script
+		partialAllowed       bool
+	}{
+		{name: "key withdrawal", partialAllowed: true},
+		{
+			name:             "native script withdrawal",
+			withdrawalScript: testRequireGuardNativeScript(t, testGuardCredential()),
+			partialAllowed:   true,
+		},
+		{
+			name:             "Plutus V1 withdrawal",
+			withdrawalScript: common.PlutusV1Script{0x41, 0x00},
+		},
+		{
+			name:             "Plutus V2 withdrawal",
+			withdrawalScript: common.PlutusV2Script{0x41, 0x00},
+		},
+		{
+			name:             "Plutus V3 withdrawal",
+			withdrawalScript: common.PlutusV3Script{0x41, 0x00},
+		},
+		{
+			name:             "Plutus V4 withdrawal",
+			withdrawalScript: common.PlutusV4Script{0x41, 0x00},
+			partialAllowed:   true,
+		},
+		{
+			name:             "Plutus V1 supplied by sub-transaction",
+			withdrawalScript: common.PlutusV1Script{0x41, 0x00},
+			scriptInSubTx:    true,
+		},
+		{
+			name:             "Plutus V4 supplied by sub-transaction",
+			withdrawalScript: common.PlutusV4Script{0x41, 0x00},
+			scriptInSubTx:    true,
+			partialAllowed:   true,
+		},
+		{
+			name:                 "unrelated Plutus V1 in sub-transaction",
+			unrelatedSubTxScript: common.PlutusV1Script{0x41, 0x00},
+			partialAllowed:       true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, credential := testDijkstraWithdrawalTx(
+				t,
+				balance/2,
+				tc.withdrawalScript,
+			)
+			if tc.scriptInSubTx {
+				subTxWitnesses := tx.WitnessSet
+				tx.WitnessSet = DijkstraTransactionWitnessSet{}
+				tx.Body.TxSubTransactions = cbor.NewSetType(
+					[]DijkstraSubTransaction{{
+						WitnessSet: subTxWitnesses,
+					}},
+					false,
+				)
+			} else if tc.unrelatedSubTxScript != nil {
+				tx.Body.TxSubTransactions = cbor.NewSetType(
+					[]DijkstraSubTransaction{{
+						WitnessSet: testDijkstraWitnessSet(
+							t,
+							tc.unrelatedSubTxScript,
+						),
+					}},
+					false,
+				)
+			}
+			ls := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountCredentialBalance(credential, balance).
+				Build()
+
+			err := conway.UtxoValidateWithdrawals(tx, 0, ls, pp)
+			if tc.partialAllowed {
+				require.NoError(t, err)
+			} else {
+				var target shelley.IncorrectWithdrawalAmountError
+				require.ErrorAs(t, err, &target)
+			}
+
+			for rewardAddr := range tx.Body.TxWithdrawals {
+				tx.Body.TxWithdrawals[rewardAddr] = balance + 1
+			}
+			var target shelley.IncorrectWithdrawalAmountError
+			require.ErrorAs(
+				t,
+				conway.UtxoValidateWithdrawals(tx, 0, ls, pp),
+				&target,
+			)
+
+			for rewardAddr := range tx.Body.TxWithdrawals {
+				tx.Body.TxWithdrawals[rewardAddr] = balance
+			}
+			require.NoError(t, conway.UtxoValidateWithdrawals(tx, 0, ls, pp))
+		})
+	}
+}
+
 func testGuardScriptCredential(script common.PlutusV4Script) common.Credential {
 	return common.Credential{
 		CredType:   common.CredentialTypeScriptHash,

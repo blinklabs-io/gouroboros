@@ -128,6 +128,23 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
+func validateConwayCertificateTypes(
+	certificates []common.CertificateWrapper,
+) error {
+	for idx, certificate := range certificates {
+		certType := common.CertificateType(certificate.Type)
+		if certType == common.CertificateTypeGenesisKeyDelegation ||
+			certType == common.CertificateTypeMoveInstantaneousRewards {
+			return fmt.Errorf(
+				"certificate type is not valid in Conway: index %d type %d",
+				idx,
+				certificate.Type,
+			)
+		}
+	}
+	return nil
+}
+
 func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 	// Return stored CBOR if available
 	if b.Cbor() != nil {
@@ -615,6 +632,9 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tConwayTransactionBody ConwayTransactionBody
 	var tmp tConwayTransactionBody
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := validateConwayCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
 	// Reject duplicate members in any tag-258 set field on the transaction body.
