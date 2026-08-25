@@ -48,6 +48,13 @@ being changed. Record `go list -m all` or `go mod graph` before and after the
 update so a transitive fixture, mock, or conformance-module change is visible
 instead of being attributed only to the direct dependency named in `go.mod`.
 
+When adopting a release that contains a protocol, ledger, serialization, or
+wire-format fix, inspect every commit in the selected version delta. Search
+consumers for compatibility shims, local workarounds, and tests or comments
+that encode the old behavior. Validate the relevant canonical bytes or boundary
+behavior against both versions; a green test for the named fix does not prove
+the rest of the release delta is compatible.
+
 When the updated graph changes behavior, use isolated worktrees or temporary
 modules to test the smallest useful matrix: old direct/old transitive, new
 direct/new transitive, and mixed pairs when module constraints allow them. A

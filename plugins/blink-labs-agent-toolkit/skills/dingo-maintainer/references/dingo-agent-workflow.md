@@ -13,6 +13,11 @@ checkout remains the source of truth for commands and behavior.
   then adopt it in a separate dependency-only Dingo pull request. Do not ship a
   Dingo-side compatibility workaround for an upstream protocol defect or mix
   the dependency bump with unrelated Dingo code.
+- Before consuming the release, inspect the complete upstream tag delta and
+  search Dingo for workarounds, compatibility shims, and tests or comments that
+  describe the previous behavior. For ledger, CBOR, or protocol changes, keep a
+  regression fixture for canonical bytes and the opposite credential or state
+  boundary, and test affected consumers rather than only the named fix.
 - Start implementation or review work in a fresh worktree based on the
   intended remote base. Keep the main checkout, other worktrees, and existing
   `.claude/` or other agent state intact.

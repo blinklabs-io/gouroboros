@@ -148,6 +148,12 @@ a token without `read:org`. Fall back to
 `gh api -X PATCH repos/OWNER/REPO/pulls/N --input body.json` for edits, and to
 plain REST reads for reviewer state.
 
+GraphQL `reviewRequests` and reviewer or team fields can fail without
+`read:org` even when REST reviewer reads and writes are permitted. Do not treat
+that failure as evidence that no request exists: verify
+`repos/OWNER/REPO/pulls/N/requested_reviewers` through REST. Report review
+discovery as incomplete when organization membership still cannot be read.
+
 Treat local formatting as separate from the GitHub mutation. For example, a
 `POST .../requested_reviewers` can succeed and then make `gh api --jq` exit
 non-zero because the response shape was not what the filter expected. Before
