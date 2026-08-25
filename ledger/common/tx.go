@@ -237,7 +237,7 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	if !present || upperBound != 0 {
 		return cborData, nil
 	}
-	var bodyFields map[uint]cbor.RawMessage
+	bodyFields := make(map[uint]cbor.RawMessage)
 	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
 		return nil, err
 	}
