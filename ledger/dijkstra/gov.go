@@ -146,6 +146,9 @@ func (a *DijkstraParameterChangeGovAction) ToPlutusData() data.PlutusData {
 }
 
 func (a *DijkstraParameterChangeGovAction) GetPolicyHash() []byte {
+	if a == nil {
+		return nil
+	}
 	return a.PolicyHash
 }
 
