@@ -198,6 +198,20 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   in-flight waiter and panic cleanup, and benchmark worker error handling.
   Koios/account reviews must cover exact amount validation, duplicate rows,
   coverage errors, composition defaults, and first-failure cancellation.
+- Treat host disk recovery as a reviewed artifact cleanup: measure before and
+  after, select exact cache paths, and exclude symlinks, mountpoints, registered
+  or dirty worktrees, live process paths, container mounts, and retained
+  evidence. Inspect descendant ownership because a host-owned cache root can
+  contain files written by a root-running container.
+- Inspect Docker's default builder and every named Buildx builder separately;
+  `docker system df` does not necessarily account for `docker-container` builder
+  cache. Prune only idle build cache by default. Reclaimable images, volumes,
+  networks, and containers need separate run ownership and evidence checks.
+- A merged temporary branch is safe to delete only after its exact head is an
+  ancestor of `origin/main` or present in the merged pull request. This matters
+  in submodules whose primary checkout is detached or behind the remote: after
+  the explicit ancestry proof, remove the clean worktree through Git and delete
+  only that local branch, preserving dirty trees and remote refs.
 
 These patterns are implemented by the
 [`blink-repo-maintainer`](../skills/blink-repo-maintainer/SKILL.md) skill, with
@@ -207,7 +221,9 @@ auditing](../skills/go-dependency-auditor/SKILL.md), [Docker release
 review](../skills/docker-release-reviewer/SKILL.md), [Cardano application
 review](../skills/cardano-app-reviewer/SKILL.md), [docs and KB
 maintenance](../skills/docs-kb-maintainer/SKILL.md), and [GitHub review
-coordination](../skills/github-review-coordinator/SKILL.md). A separate plugin
+coordination](../skills/github-review-coordinator/SKILL.md), plus
+[isolated validation runs](../skills/isolated-validation-runs/SKILL.md) for
+worktree and host-resource lifecycle. A separate plugin
 is not warranted yet: the current findings are procedural and local, while a
 plugin should add a concrete external integration or app capability. Revisit a
 plugin once the team chooses a standard GitHub or issue tracking integration

@@ -184,6 +184,23 @@ and current paths. Remove a clean temporary Git worktree through `git worktree
 remove`, not by deleting its directory. Go module caches can contain read-only
 files; make only the exact run-owned cache user-writable before removing it.
 
+Host disk cleanup is an inventory exercise, not permission for a broad purge.
+Record filesystem usage before starting, measure top-level temporary roots, and
+build a reviewed list of exact cache paths. For every candidate, check that it
+is not a symlink, mountpoint, registered Git tree, live process path, or active
+container mount. Check descendant ownership as well as the top directory: a
+host-owned cache can contain files written by a root-running container. Leave a
+small foreign-owned residue in place rather than flooding the log with failed
+`chmod` or `rm` calls or widening privileges merely to remove it.
+
+Docker has more than one cache namespace. `docker system df` can omit cache held
+by a `docker-container` Buildx builder, so inspect `docker buildx ls` and each
+builder's disk usage separately. After proving that no build is active, prune
+the named Buildx builders and the default builder explicitly, then re-run
+`docker system df`. Reclaimable images, volumes, networks, and stopped
+containers are not build cache; retain them unless they are run-owned and pass
+their own publication or evidence gate.
+
 For a worktree that produced a pull request, deletion has an additional durable
 publication gate:
 
@@ -198,6 +215,14 @@ run-owned caches. The remote PR branch or merged commit preserves the code; do
 not delete the remote branch as part of local cleanup. Preserve logs, fixtures,
 archives, and extracted state when an open issue still cites them, even if the
 implementation PR is already published.
+
+A clean worktree containing a nested submodule may require `git worktree remove
+--force`; use that only after the cleanliness and publication gates above pass.
+In an absorbed submodule whose main checkout is detached or behind
+`origin/main`, `git branch -d` may also reject a safely merged branch. Verify the
+exact head with `git merge-base --is-ancestor <head> origin/main` before deleting
+that one local ref with `git branch -D`. Never infer merge safety from a branch
+name, a missing worktree, or a stale local `HEAD`.
 
 Never delete a live devnet/node, a concurrent run's cache or worktree, user
 changes, credentials, or a shared/pre-existing Docker image merely because it
