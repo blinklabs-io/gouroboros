@@ -58,7 +58,10 @@ func (v *Value) unmarshalCBOR(
 		return 0, io.ErrUnexpectedEOF
 	}
 	if depth > cborMaxNestedLevels {
-		return 0, fmt.Errorf("exceeded maximum CBOR nesting depth: %d", cborMaxNestedLevels)
+		return 0, fmt.Errorf(
+			"exceeded maximum CBOR nesting depth: %d",
+			cborMaxNestedLevels,
+		)
 	}
 	if retainCbor {
 		// Save the original CBOR
