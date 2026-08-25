@@ -15,6 +15,7 @@
 package peersharing
 
 import (
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -123,6 +124,66 @@ func TestClientGetPeersReturnsAfterBusyTimeout(t *testing.T) {
 	case <-lateHandlerDone:
 	case <-time.After(time.Second):
 		t.Fatal("late SharePeers handler remained blocked after shutdown")
+	}
+}
+
+// TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel verifies that
+// best-effort error reporting cannot prevent the timeout from stopping the
+// protocol and releasing the caller.
+func TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel(t *testing.T) {
+	localConn, remoteConn := net.Pipe()
+	m := muxer.New(localConn)
+	errorChan := make(chan error, 1)
+	errorChan <- errors.New("undrained error")
+	peerDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, remoteConn)
+		close(peerDone)
+	}()
+
+	cfg := NewConfig(WithTimeout(10 * time.Millisecond))
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: connection.ConnectionId{
+				LocalAddr:  localConn.LocalAddr(),
+				RemoteAddr: localConn.RemoteAddr(),
+			},
+			Muxer:     m,
+			ErrorChan: errorChan,
+			Mode:      protocol.ProtocolModeNodeToNode,
+		},
+		&cfg,
+	)
+	client.Start()
+	m.Start()
+	t.Cleanup(func() {
+		client.Protocol.Stop()
+		m.Stop()
+		_ = remoteConn.Close()
+		select {
+		case <-peerDone:
+		case <-time.After(time.Second):
+			t.Error("peer drain did not stop")
+		}
+	})
+
+	resultChan := make(chan error, 1)
+	go func() {
+		_, err := client.GetPeers(5)
+		resultChan <- err
+	}()
+
+	select {
+	case err := <-resultChan:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		client.Protocol.Stop()
+		select {
+		case <-resultChan:
+		case <-time.After(time.Second):
+			t.Fatal("GetPeers remained blocked after explicit protocol stop")
+		}
+		t.Fatal("a full error channel prevented timeout shutdown")
 	}
 }
 
