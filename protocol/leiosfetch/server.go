@@ -234,7 +234,8 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 		)
 	if s.config == nil || s.config.BlockRangeRequestFunc == nil {
 		// The protocol has no empty range response. Keep server agency in
-		// StateBlockRange instead of fabricating a payload or failing the bearer.
+		// StateBlockRange instead of fabricating a payload or failing the
+		// bearer.
 		return nil
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)

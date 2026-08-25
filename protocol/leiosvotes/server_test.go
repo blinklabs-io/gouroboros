@@ -134,14 +134,16 @@ func TestUnconfiguredInvalidRequestReportsStateError(t *testing.T) {
 	data, err := cbor.Encode(NewMsgVotesRequestNext(0))
 	require.NoError(t, err)
 	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+	var protocolErr error
 	require.Eventually(t, func() bool {
 		select {
-		case err := <-errs:
-			return assert.ErrorContains(t, err, "state transition")
+		case protocolErr = <-errs:
+			return true
 		default:
 			return false
 		}
 	}, time.Second, time.Millisecond)
+	assert.ErrorContains(t, protocolErr, "state transition")
 }
 
 func TestNewServer(t *testing.T) {
