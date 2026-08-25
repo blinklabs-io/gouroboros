@@ -274,8 +274,10 @@ func (m *Muxer) UnregisterProtocol(
 
 	recvChan.stop()
 
-	// Remove mapping
-	delete(protocolRoles, protocolRole)
+	// Keep the stopped receiver as a tombstone until a subsequent registration
+	// replaces it. Segments already queued for a protocol that is restarting can
+	// then be discarded without treating the brief registration gap as an
+	// unknown-protocol error and closing the shared connection.
 }
 
 // Send takes a populated Segment and writes it to the connection. A mutex is used to prevent more than

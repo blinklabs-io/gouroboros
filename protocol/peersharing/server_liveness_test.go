@@ -107,34 +107,22 @@ func TestRepeatedDoneDoesNotStallSharedMuxer(t *testing.T) {
 		writeDone <- writeLivenessSegment(remoteConn, probe)
 	}()
 
-	probeDelivered := false
-	connectionClosed := false
 	select {
 	case segment, ok := <-probeRecv:
 		require.True(t, ok, "probe receiver closed before delivery")
 		require.Equal(t, uint16(probeProtocolId), segment.GetProtocolId())
-		probeDelivered = true
 	case err := <-protocolErrors:
 		require.NoError(t, err)
-	case err := <-m.ErrorChan():
-		require.EqualError(
-			t,
-			err,
-			"received message for unknown protocol ID 10",
-		)
-		connectionClosed = true
+	case err, ok := <-m.ErrorChan():
+		require.True(t, ok, "muxer error channel closed before probe delivery")
+		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("shared muxer stalled after repeated peer-sharing Done messages")
 	}
-	writerErr := <-writeDone
-	if probeDelivered {
-		require.NoError(t, writerErr)
-		select {
-		case err := <-protocolErrors:
-			require.NoError(t, err)
-		default:
-		}
-	} else if connectionClosed {
-		require.Error(t, writerErr)
+	require.NoError(t, <-writeDone)
+	select {
+	case err := <-protocolErrors:
+		require.NoError(t, err)
+	default:
 	}
 }
