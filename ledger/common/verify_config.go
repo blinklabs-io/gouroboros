@@ -169,10 +169,8 @@ type VerifyConfig struct {
 	ProtocolParameters ProtocolParameters
 }
 
-// ValidateBlockBodyHash validates the block body hash during parsing. For
-// segmented pre-Dijkstra blocks, it also requires one witness set for each
-// transaction body. It takes the raw CBOR data, expected body hash, and
-// era-specific parameters.
+// ValidateBlockBodyHash validates the block body hash during parsing.
+// It takes the raw CBOR data, expected body hash, and era-specific parameters.
 func ValidateBlockBodyHash(
 	data []byte,
 	expectedBodyHash Blake2b256,
@@ -205,9 +203,6 @@ func ValidateBlockBodyHash(
 			nil,
 		)
 	}
-	if err := validateBlockTransactionWitnessCounts(raw, eraName); err != nil {
-		return err
-	}
 	// Compute body hash as per Cardano spec: blake2b_256(hash_tx || hash_wit || hash_aux [|| hash_invalid])
 	var bodyHashes []byte
 	for i := 1; i < minRawLength; i++ {
@@ -224,59 +219,6 @@ func ValidateBlockBodyHash(
 				"era":           eraName,
 				"expected_hash": expectedBodyHash.String(),
 				"actual_hash":   hex.EncodeToString(actualBodyHash[:]),
-			},
-			nil,
-		)
-	}
-	return nil
-}
-
-func validateBlockTransactionWitnessCounts(
-	raw []cbor.RawMessage,
-	eraName string,
-) error {
-	if len(raw) < 3 {
-		return NewValidationError(
-			ValidationErrorTypeBodyHash,
-			"block is missing transaction body or witness set components",
-			map[string]any{
-				"era":           eraName,
-				"actual_length": len(raw),
-			},
-			nil,
-		)
-	}
-
-	var transactionBodies []cbor.RawMessage
-	if _, err := cbor.Decode(raw[1], &transactionBodies); err != nil {
-		return NewValidationError(
-			ValidationErrorTypeBodyHash,
-			"failed to decode block transaction bodies",
-			map[string]any{
-				"era": eraName,
-			},
-			err,
-		)
-	}
-	var transactionWitnessSets []cbor.RawMessage
-	if _, err := cbor.Decode(raw[2], &transactionWitnessSets); err != nil {
-		return NewValidationError(
-			ValidationErrorTypeBodyHash,
-			"failed to decode block transaction witness sets",
-			map[string]any{
-				"era": eraName,
-			},
-			err,
-		)
-	}
-	if len(transactionBodies) != len(transactionWitnessSets) {
-		return NewValidationError(
-			ValidationErrorTypeBodyHash,
-			eraName+" block transaction body and witness set counts do not match",
-			map[string]any{
-				"era":                           eraName,
-				"transaction_body_count":        len(transactionBodies),
-				"transaction_witness_set_count": len(transactionWitnessSets),
 			},
 			nil,
 		)

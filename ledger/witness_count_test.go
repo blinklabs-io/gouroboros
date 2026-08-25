@@ -170,7 +170,7 @@ func TestBlockTransactionsRejectsMismatchedWitnessCounts(t *testing.T) {
 	}
 }
 
-func TestBlockConstructorsRejectMismatchedWitnessCountsWhenBodyHashValidationSkipped(
+func TestBlockConstructorsRejectMismatchedWitnessCounts(
 	t *testing.T,
 ) {
 	type blockConstructor func(
@@ -243,7 +243,21 @@ func TestBlockConstructorsRejectMismatchedWitnessCountsWhenBodyHashValidationSki
 			minRawLength: 5,
 		},
 	}
-	config := common.VerifyConfig{SkipBodyHashValidation: true}
+	skipConfig := common.VerifyConfig{SkipBodyHashValidation: true}
+
+	// The count check lives in ExtractAndSetTransactionCbor, which every
+	// decode runs, so a mismatch is rejected identically whether or not
+	// body-hash validation is enabled. Both configurations are exercised to
+	// keep that shared rejection path visible; the positive case can only use
+	// the skipping config, because these synthetic blocks carry no header or
+	// real body hash.
+	configs := []struct {
+		name   string
+		config []common.VerifyConfig
+	}{
+		{name: "default config", config: nil},
+		{name: "skip body hash", config: []common.VerifyConfig{skipConfig}},
+	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -254,7 +268,7 @@ func TestBlockConstructorsRejectMismatchedWitnessCountsWhenBodyHashValidationSki
 					2,
 					test.minRawLength,
 				)
-				block, err := test.constructor(blockCbor, config)
+				block, err := test.constructor(blockCbor, skipConfig)
 				require.NoError(t, err)
 				require.Len(t, block.Transactions(), 2)
 			})
@@ -268,20 +282,27 @@ func TestBlockConstructorsRejectMismatchedWitnessCountsWhenBodyHashValidationSki
 				{name: "extra witness", bodyCount: 1, witnessCount: 2},
 			} {
 				t.Run(mismatch.name, func(t *testing.T) {
-					blockCbor := blockCborWithTransactionCounts(
-						t,
-						mismatch.bodyCount,
-						mismatch.witnessCount,
-						test.minRawLength,
-					)
-					block, err := test.constructor(blockCbor, config)
-					require.Error(t, err)
-					assert.Nil(t, block)
-					assert.ErrorContains(
-						t,
-						err,
-						"transaction body and witness set counts do not match",
-					)
+					for _, cfg := range configs {
+						t.Run(cfg.name, func(t *testing.T) {
+							blockCbor := blockCborWithTransactionCounts(
+								t,
+								mismatch.bodyCount,
+								mismatch.witnessCount,
+								test.minRawLength,
+							)
+							block, err := test.constructor(
+								blockCbor,
+								cfg.config...,
+							)
+							require.Error(t, err)
+							assert.Nil(t, block)
+							assert.ErrorContains(
+								t,
+								err,
+								"transaction body and witness set counts do not match",
+							)
+						})
+					}
 				})
 			}
 		})

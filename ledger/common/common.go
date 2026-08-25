@@ -863,7 +863,7 @@ func ExtractAndSetTransactionCbor(
 	if expectedBodies != expectedWitnesses {
 		return fmt.Errorf(
 			"transaction body and witness set counts do not match: "+
-				"%d bodies, %d witness sets",
+				"body count %d, witness set count %d",
 			expectedBodies,
 			expectedWitnesses,
 		)

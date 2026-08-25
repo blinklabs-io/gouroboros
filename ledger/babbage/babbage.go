@@ -205,7 +205,7 @@ func (b *BabbageBlock) Transactions() []common.Transaction {
 
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
-	for idx := range ret {
+	for idx := range b.TransactionBodies {
 		tx := &BabbageTransaction{
 			Body:       b.TransactionBodies[idx],
 			WitnessSet: b.TransactionWitnessSets[idx],
