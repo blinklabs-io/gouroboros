@@ -148,6 +148,13 @@ a token without `read:org`. Fall back to
 `gh api -X PATCH repos/OWNER/REPO/pulls/N --input body.json` for edits, and to
 plain REST reads for reviewer state.
 
+Treat local formatting as separate from the GitHub mutation. For example, a
+`POST .../requested_reviewers` can succeed and then make `gh api --jq` exit
+non-zero because the response shape was not what the filter expected. Before
+retrying any write, re-read the pull request or requested-reviewer endpoint and
+verify the intended state. The command's final exit code alone does not prove
+the remote mutation failed.
+
 ### Always `--paginate` when verifying a write
 
 `gh api` list endpoints return **30 items per page** by default and give no hint
@@ -186,4 +193,6 @@ code-specific feedback in inline comments; use PR-level text only for concise
 summaries, checks, or dispositions. Useful Cubic and CodeRabbit summaries may
 remain in a PR description when they are converted to plain Markdown with clear
 attribution. Remove generated HTML, buttons, hidden state, prompts, run IDs, and
-stale commit metadata.
+stale commit metadata. Re-read the description after the final bot pass and
+after every later push: both reviewers can append a generated description or
+release-note block after an earlier cleanup.

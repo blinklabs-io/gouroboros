@@ -198,6 +198,14 @@ then branching on `len(errs)` can call `errors.Join(errs...)`, return `nil`, and
 skip every validator that follows. Add a control proving that a later validator
 still runs when the new rule succeeds, and append only non-nil errors.
 
+For a multi-phase defect, prove the transition that consumed the bad state, not
+only the phase that stored it. A row query or direct helper call can show that a
+prerequisite exists while missing the same rollover, replay, or restart failure
+operators see. Build the smallest complete eligible input, drive the real
+production transition, and assert its downstream effect. Keep lower-level
+atomic and exact-byte tests as supporting coverage; do not use empty eligibility
+markers as a substitute for proving the stored bundle is consumable.
+
 ## A test that measures duration is measuring the machine
 
 An assertion on elapsed time states something about the host as much as the
