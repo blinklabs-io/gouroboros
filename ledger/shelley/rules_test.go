@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -35,6 +36,17 @@ type shelleyTxWithRequired struct {
 }
 
 func (t shelleyTxWithRequired) RequiredSigners() []common.Blake2b224 { return t.req }
+
+type rewardBalanceErrorLedgerState struct {
+	common.LedgerState
+	err error
+}
+
+func (s rewardBalanceErrorLedgerState) RewardAccountBalance(
+	common.Credential,
+) (*uint64, error) {
+	return nil, s.err
+}
 
 func TestUtxoValidateWitnessRules_Shelley(t *testing.T) {
 	t.Run("no required signers", func(t *testing.T) {
@@ -1006,27 +1018,62 @@ func TestUtxoValidateWithdrawals(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("registered reward account passes", func(t *testing.T) {
-		keyHash := common.Blake2b224Hash([]byte("test-stake-key"))
-		rewardAddr := makeRewardAddress(t, keyHash)
+	keyHash := common.Blake2b224Hash([]byte("test-stake-key"))
+	rewardAddr := makeRewardAddress(t, keyHash)
 
-		tx := mockledger.NewTransactionBuilder().
-			WithWithdrawals(map[*common.Address]uint64{
-				&rewardAddr: 5_000_000,
-			})
+	for _, tc := range []struct {
+		name       string
+		balance    uint64
+		withdrawal uint64
+		wantError  bool
+	}{
+		{
+			name:       "exact reward balance passes",
+			balance:    5_000_000,
+			withdrawal: 5_000_000,
+		},
+		{
+			name:       "zero balance withdrawal passes",
+			balance:    0,
+			withdrawal: 0,
+		},
+		{
+			name:       "partial reward balance fails",
+			balance:    5_000_000,
+			withdrawal: 4_000_000,
+			wantError:  true,
+		},
+		{
+			name:       "excessive reward balance fails",
+			balance:    5_000_000,
+			withdrawal: 6_000_000,
+			wantError:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := mockledger.NewTransactionBuilder().
+				WithWithdrawals(map[*common.Address]uint64{
+					&rewardAddr: tc.withdrawal,
+				})
+			ls := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountBalance(keyHash, tc.balance).
+				Build()
 
-		ls := mockledger.NewLedgerStateBuilder().
-			WithStakeCredentialRegistered(keyHash, true).
-			Build()
-
-		err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
-		assert.NoError(t, err)
-	})
+			err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
+			if !tc.wantError {
+				require.NoError(t, err)
+				return
+			}
+			var target shelley.IncorrectWithdrawalAmountError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(t, rewardAddr, target.RewardAddress)
+			assert.Equal(t, tc.balance, target.Balance)
+			require.NotNil(t, target.Provided)
+			assert.Equal(t, tc.withdrawal, target.Provided.Uint64())
+		})
+	}
 
 	t.Run("unregistered reward account fails", func(t *testing.T) {
-		keyHash := common.Blake2b224Hash([]byte("test-stake-key"))
-		rewardAddr := makeRewardAddress(t, keyHash)
-
 		tx := mockledger.NewTransactionBuilder().
 			WithWithdrawals(map[*common.Address]uint64{
 				&rewardAddr: 1_000_000,
@@ -1037,5 +1084,23 @@ func TestUtxoValidateWithdrawals(t *testing.T) {
 		err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
 		require.Error(t, err)
 		assert.IsType(t, shelley.WithdrawalFromUnregisteredRewardAccountError{}, err)
+	})
+
+	t.Run("balance lookup error is propagated", func(t *testing.T) {
+		tx := mockledger.NewTransactionBuilder().
+			WithWithdrawals(map[*common.Address]uint64{
+				&rewardAddr: 1_000_000,
+			})
+		baseState := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountBalance(keyHash, 1_000_000).
+			Build()
+		lookupErr := errors.New("reward balance lookup failed")
+		ls := rewardBalanceErrorLedgerState{
+			LedgerState: baseState,
+			err:         lookupErr,
+		}
+
+		err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
+		require.ErrorIs(t, err, lookupErr)
 	})
 }
