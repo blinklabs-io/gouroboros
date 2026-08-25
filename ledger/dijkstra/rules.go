@@ -39,7 +39,12 @@ const minUtxoOverheadBytes = 160
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateMetadata,
 	UtxoValidateProposalProcedures,
+	conway.UtxoValidateGovActionWellFormedness,
+	UtxoValidateHardForkCanFollow,
+	conway.UtxoValidateProposalAncestry,
+	UtxoValidateProposalDeposit,
 	conway.UtxoValidateProposalNetworkIds,
+	conway.UtxoValidateProposalReturnAccounts,
 	conway.UtxoValidateEmptyTreasuryWithdrawals,
 	UtxoValidateBootstrapAllowedGovActions,
 	UtxoValidateBootstrapParameterGroups,
@@ -80,6 +85,11 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateDelegation,
 	conway.UtxoValidateWithdrawals,
 	conway.UtxoValidateCommitteeCertificates,
+	conway.UtxoValidateUnknownVoters,
+	conway.UtxoValidateUnknownGovActionIds,
+	conway.UtxoValidateVotingOnExpiredGovAction,
+	conway.UtxoValidateBootstrapVotingRestrictions,
+	conway.UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
 	UtxoValidateMalformedReferenceScripts,
 	UtxoValidateRefScriptSizePerTx,
@@ -143,6 +153,32 @@ func UtxoValidateProposalProcedures(
 		}
 	}
 	return nil
+}
+
+func UtxoValidateHardForkCanFollow(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	return conway.UtxoValidateHardForkCanFollow(tx, slot, ls, tmpPparams)
+}
+
+func UtxoValidateProposalDeposit(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	return conway.UtxoValidateProposalDeposit(tx, slot, ls, tmpPparams)
 }
 
 func UtxoValidateBootstrapAllowedGovActions(

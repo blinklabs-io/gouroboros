@@ -415,9 +415,12 @@ const (
 func govActionAncestor(
 	ga common.GovAction,
 ) (ancestor *common.GovActionId, purpose govActionPurpose, ok bool) {
+	if isNilGovAction(ga) {
+		return nil, 0, false
+	}
 	switch a := ga.(type) {
-	case *ConwayParameterChangeGovAction:
-		return a.ActionId, govPurposePParamUpdate, true
+	case common.ParameterChangeGovAction:
+		return a.PreviousGovActionId(), govPurposePParamUpdate, true
 	case *common.HardForkInitiationGovAction:
 		return a.ActionId, govPurposeHardFork, true
 	case *common.NoConfidenceGovAction:
@@ -565,11 +568,11 @@ func (r *govActionResolver) resolve(
 		if proposal.action == nil {
 			return 0, nil, false
 		}
-		resolvedType, err := conwayGovActionType(proposal.action)
-		if err != nil {
+		resolvedType, ok := govActionValidationType(proposal.action)
+		if !ok {
 			return 0, nil, false
 		}
-		return common.GovActionType(resolvedType), proposal.action, true
+		return resolvedType, proposal.action, true
 	}
 	if r.ls == nil {
 		return 0, nil, false
@@ -578,7 +581,30 @@ func (r *govActionResolver) resolve(
 	if err != nil || actionState == nil {
 		return 0, nil, false
 	}
-	return actionState.ActionType, actionState.Action, true
+	action = actionState.Action
+	if isNilGovAction(action) {
+		action = nil
+	}
+	return actionState.ActionType, action, true
+}
+
+// govActionValidationType classifies an action for shared governance rules.
+// Unlike the Conway wire constructor, validation accepts the era-independent
+// parameter-change action contract implemented by later eras.
+func govActionValidationType(
+	action common.GovAction,
+) (common.GovActionType, bool) {
+	if isNilGovAction(action) {
+		return 0, false
+	}
+	if _, ok := action.(common.ParameterChangeGovAction); ok {
+		return common.GovActionTypeParameterChange, true
+	}
+	actionType, err := conwayGovActionType(action)
+	if err != nil {
+		return 0, false
+	}
+	return common.GovActionType(actionType), true
 }
 
 // hardForkProposedVersion returns the protocol version proposed by a
@@ -643,8 +669,10 @@ func UtxoValidateGovActionWellFormedness(
 ) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
-			continue
+		if isNilGovAction(govAction) {
+			return MalformedGovActionError{
+				Reason: "governance action cannot be nil",
+			}
 		}
 
 		// A governance policy hash, when present, must be a 28-byte script
@@ -3613,13 +3641,13 @@ func UtxoValidateStakePoolVotingRestrictions(
 			case common.GovActionTypeTreasuryWithdrawal:
 				restriction = "stake pools cannot vote on TreasuryWithdrawal"
 			case common.GovActionTypeParameterChange:
-				paramChange, ok := action.(*ConwayParameterChangeGovAction)
+				paramChange, ok := action.(common.ParameterChangeGovAction)
 				if !ok {
 					// The action contents are not available, so the
 					// parameter groups it modifies are unknown.
 					continue
 				}
-				if len(paramChange.ParamUpdate.SecurityGroupFields()) > 0 {
+				if len(paramChange.SecurityGroupFields()) > 0 {
 					continue
 				}
 				restriction = "stake pools cannot vote on a parameter change " +

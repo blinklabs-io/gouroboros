@@ -113,6 +113,8 @@ type DijkstraParameterChangeGovAction struct {
 	PolicyHash  []byte
 }
 
+var _ common.ParameterChangeGovAction = (*DijkstraParameterChangeGovAction)(nil)
+
 func (a *DijkstraParameterChangeGovAction) ToPlutusData() data.PlutusData {
 	actionId := data.NewConstr(1)
 	if a.ActionId != nil {
@@ -134,4 +136,34 @@ func (a *DijkstraParameterChangeGovAction) ToPlutusData() data.PlutusData {
 
 func (a *DijkstraParameterChangeGovAction) GetPolicyHash() []byte {
 	return a.PolicyHash
+}
+
+// PreviousGovActionId returns the parameter-change action this action follows.
+func (a *DijkstraParameterChangeGovAction) PreviousGovActionId() *common.GovActionId {
+	if a == nil {
+		return nil
+	}
+	return a.ActionId
+}
+
+// SecurityGroupFields returns the security-group parameters changed by this
+// action.
+func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
+	if a == nil {
+		return nil
+	}
+	fields := a.ParamUpdate.conwayUpdate().SecurityGroupFields()
+	if a.ParamUpdate.MaxRefScriptSizePerBlock != nil {
+		fields = append(fields, "MaxRefScriptSizePerBlock")
+	}
+	if a.ParamUpdate.MaxRefScriptSizePerTx != nil {
+		fields = append(fields, "MaxRefScriptSizePerTx")
+	}
+	if a.ParamUpdate.RefScriptCostStride != nil {
+		fields = append(fields, "RefScriptCostStride")
+	}
+	if a.ParamUpdate.RefScriptCostMultiplier != nil {
+		fields = append(fields, "RefScriptCostMultiplier")
+	}
+	return fields
 }
