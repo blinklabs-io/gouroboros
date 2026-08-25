@@ -184,6 +184,19 @@ func TestNewUpdateCommitteeGovAction(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(t *testing.T) {
+	encoded, err := cbor.Encode(UpdateCommitteeGovAction{
+		Type:       uint(GovActionTypeUpdateCommittee),
+		CredEpochs: map[*Credential]uint{nil: 42},
+		Quorum:     cbor.Rat{Rat: big.NewRat(2, 3)},
+	})
+	require.NoError(t, err)
+
+	var action UpdateCommitteeGovAction
+	_, err = cbor.Decode(encoded, &action)
+	require.Error(t, err)
+}
+
 func TestNewNewConstitutionGovAction(t *testing.T) {
 	dataHash := make([]byte, 32)
 	anchor, err := NewGovAnchor("https://example.com/constitution.json", dataHash)

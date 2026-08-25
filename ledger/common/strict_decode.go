@@ -225,23 +225,6 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (v *Voter) UnmarshalCBOR(cborData []byte) error {
-	if v == nil {
-		return errors.New("nil Voter receiver")
-	}
-	var decoded struct {
-		cbor.StructAsArray
-		Type uint8
-		Hash Blake2b224
-	}
-	if _, err := cbor.Decode(cborData, &decoded); err != nil {
-		return fmt.Errorf("decode voter: %w", err)
-	}
-	v.Type = decoded.Type
-	copy(v.Hash[:], decoded.Hash[:])
-	return nil
-}
-
 func (a *GovAnchor) UnmarshalCBOR(cborData []byte) error {
 	if a == nil {
 		return errors.New("nil GovAnchor receiver")

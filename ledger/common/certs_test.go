@@ -28,6 +28,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStakeDelegationCertificateUnmarshalCBORCredential(t *testing.T) {
+	credential := Credential{
+		CredType: CredentialTypeAddrKeyHash,
+	}
+	testCases := []struct {
+		name       string
+		credential *Credential
+		wantErr    bool
+	}{
+		{
+			name:       "valid credential",
+			credential: &credential,
+		},
+		{
+			name:    "null credential",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				uint(CertificateTypeStakeDelegation),
+				tc.credential,
+				make([]byte, Blake2b224Size),
+			})
+			require.NoError(t, err)
+
+			var certificate StakeDelegationCertificate
+			_, err = cbor.Decode(encoded, &certificate)
+			if tc.wantErr {
+				require.ErrorContains(
+					t,
+					err,
+					"stake delegation contains a nil credential",
+				)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, certificate.StakeCredential)
+		})
+	}
+}
+
 // TestDrepString tests CIP-0129 bech32 encoding for DRep identifiers.
 func TestDrepString(t *testing.T) {
 	var zeroHash = make([]byte, 28)

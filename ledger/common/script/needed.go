@@ -151,7 +151,10 @@ func availableScripts(
 	resolved []lcommon.Utxo,
 ) map[lcommon.ScriptHash]lcommon.Script {
 	out := make(map[lcommon.ScriptHash]lcommon.Script)
-	if witnesses := tx.Witnesses(); witnesses != nil {
+	addWitnesses := func(witnesses lcommon.TransactionWitnessSet) {
+		if witnesses == nil {
+			return
+		}
 		for _, s := range witnesses.NativeScripts() {
 			out[s.Hash()] = s
 		}
@@ -167,6 +170,10 @@ func availableScripts(
 		for _, s := range lcommon.PlutusV4ScriptsFromWitnessSet(witnesses) {
 			out[s.Hash()] = s
 		}
+	}
+	addWitnesses(tx.Witnesses())
+	for _, witnesses := range lcommon.SubTransactionWitnessSetsFromTransaction(tx) {
+		addWitnesses(witnesses)
 	}
 	for _, utxo := range resolved {
 		if utxo.Output == nil {

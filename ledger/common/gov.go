@@ -29,6 +29,35 @@ import (
 // VotingProcedures is a convenience type to avoid needing to duplicate the full type definition everywhere
 type VotingProcedures map[*Voter]map[*GovActionId]VotingProcedure
 
+func (vps *VotingProcedures) UnmarshalCBOR(cborData []byte) error {
+	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
+		return errors.New("voting procedures cannot be CBOR null or undefined")
+	}
+	type tVotingProcedures VotingProcedures
+	var tmp tVotingProcedures
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if len(tmp) == 0 {
+		return errors.New("voting procedures cannot be empty")
+	}
+	for voter, procedures := range tmp {
+		if voter == nil {
+			return errors.New("voting procedures contain a nil voter")
+		}
+		if len(procedures) == 0 {
+			return errors.New("voting procedures contain an empty action map")
+		}
+		for actionId := range procedures {
+			if actionId == nil {
+				return errors.New("voting procedures contain a nil action id")
+			}
+		}
+	}
+	*vps = VotingProcedures(tmp)
+	return nil
+}
+
 // AddOrReplace adds or replaces a vote using Voter and GovActionId value
 // equality. It returns the map so callers can assign the result when adding to
 // a nil VotingProcedures value.
@@ -154,6 +183,29 @@ type Voter struct {
 	cbor.StructAsArray
 	Type uint8
 	Hash [28]byte
+}
+
+func (v *Voter) UnmarshalCBOR(cborData []byte) error {
+	if v == nil {
+		return errors.New("nil Voter receiver")
+	}
+	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
+		return errors.New("voter cannot be CBOR null or undefined")
+	}
+	var decoded struct {
+		cbor.StructAsArray
+		Type uint8
+		Hash Blake2b224
+	}
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return fmt.Errorf("decode voter: %w", err)
+	}
+	if decoded.Type > VoterTypeStakingPoolKeyHash {
+		return fmt.Errorf("invalid voter type: %d", decoded.Type)
+	}
+	v.Type = decoded.Type
+	copy(v.Hash[:], decoded.Hash[:])
+	return nil
 }
 
 // Equal reports whether two voters have the same logical value.
@@ -387,6 +439,22 @@ type VotingProcedure struct {
 	cbor.StructAsArray
 	Vote   uint8
 	Anchor *GovAnchor
+}
+
+func (vp *VotingProcedure) UnmarshalCBOR(cborData []byte) error {
+	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
+		return errors.New("voting procedure cannot be CBOR null or undefined")
+	}
+	type tVotingProcedure VotingProcedure
+	var tmp tVotingProcedure
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if tmp.Vote > GovVoteAbstain {
+		return fmt.Errorf("invalid vote type: %d", tmp.Vote)
+	}
+	*vp = VotingProcedure(tmp)
+	return nil
 }
 
 func cloneVotingProcedure(vp VotingProcedure) VotingProcedure {
@@ -652,6 +720,21 @@ type TreasuryWithdrawalGovAction struct {
 	PolicyHash  []byte
 }
 
+func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
+	type tTreasuryWithdrawalGovAction TreasuryWithdrawalGovAction
+	var tmp tTreasuryWithdrawalGovAction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	for address := range tmp.Withdrawals {
+		if address == nil {
+			return errors.New("treasury withdrawal contains a nil address")
+		}
+	}
+	*a = TreasuryWithdrawalGovAction(tmp)
+	return nil
+}
+
 func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	pairs := make([][2]data.PlutusData, 0, len(a.Withdrawals))
 	for addr, amount := range a.Withdrawals {
@@ -750,6 +833,21 @@ type UpdateCommitteeGovAction struct {
 	Credentials []Credential
 	CredEpochs  map[*Credential]uint
 	Quorum      cbor.Rat
+}
+
+func (a *UpdateCommitteeGovAction) UnmarshalCBOR(cborData []byte) error {
+	type tUpdateCommitteeGovAction UpdateCommitteeGovAction
+	var tmp tUpdateCommitteeGovAction
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	for credential := range tmp.CredEpochs {
+		if credential == nil {
+			return errors.New("update committee contains a nil credential")
+		}
+	}
+	*a = UpdateCommitteeGovAction(tmp)
+	return nil
 }
 
 func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {

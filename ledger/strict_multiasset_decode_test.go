@@ -33,7 +33,7 @@ import (
 func encodeMultiAsset(t *testing.T, quantity *big.Int) map[common.Blake2b224]map[cbor.ByteString]*big.Int {
 	t.Helper()
 	return map[common.Blake2b224]map[cbor.ByteString]*big.Int{
-		common.Blake2b224{0x11}: {
+		{0x11}: {
 			cbor.NewByteString([]byte("asset")): quantity,
 		},
 	}

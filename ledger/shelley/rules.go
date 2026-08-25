@@ -29,6 +29,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 )
 
 var UtxoValidationRules = []common.UtxoValidationRuleFunc{
@@ -612,7 +613,10 @@ func UtxoValidateDelegation(
 }
 
 // UtxoValidateWithdrawals validates withdrawals against ledger state.
-// It checks that reward accounts are registered.
+// Before Dijkstra, every withdrawal must drain a registered reward account's
+// current balance exactly. Dijkstra permits partial withdrawals when the
+// transaction does not use Plutus V1-V3, but no withdrawal may exceed the
+// account balance.
 func UtxoValidateWithdrawals(
 	tx common.Transaction,
 	slot uint64,
@@ -624,16 +628,55 @@ func UtxoValidateWithdrawals(
 		return nil
 	}
 
-	for addr := range withdrawals {
+	requireExactAmount := true
+	if versionedPparams, ok := pp.(interface {
+		ProtocolMajorVersion() uint
+	}); ok {
+		if versionedPparams.ProtocolMajorVersion() >=
+			common.ProtocolVersionDijkstra {
+			view, err := script.NewTxScriptView(tx, ls)
+			if err != nil {
+				return err
+			}
+			requireExactAmount = view.NeedsAny(func(s common.Script) bool {
+				version, ok := common.PlutusScriptVersion(s)
+				return ok && version <= 2
+			})
+		}
+	}
+
+	for addr, amount := range withdrawals {
 		cred, ok := addr.StakeCredential()
 		if !ok {
 			continue
 		}
 
-		// Check if reward account is registered
-		if !ls.IsRewardAccountRegistered(cred) {
+		balance, err := ls.RewardAccountBalance(cred)
+		if err != nil {
+			return err
+		}
+		if balance == nil {
 			return WithdrawalFromUnregisteredRewardAccountError{
 				RewardAddress: *addr,
+			}
+		}
+		amountValid := amount != nil && amount.IsUint64()
+		if amountValid {
+			if requireExactAmount {
+				amountValid = amount.Uint64() == *balance
+			} else {
+				amountValid = amount.Uint64() <= *balance
+			}
+		}
+		if !amountValid {
+			var provided *big.Int
+			if amount != nil {
+				provided = new(big.Int).Set(amount)
+			}
+			return IncorrectWithdrawalAmountError{
+				RewardAddress: *addr,
+				Provided:      provided,
+				Balance:       *balance,
 			}
 		}
 	}
