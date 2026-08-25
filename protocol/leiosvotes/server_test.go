@@ -18,6 +18,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/muxer"
@@ -25,6 +26,91 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const testProbeProtocolID uint16 = 0x7ffe
+
+func requireUnconfiguredRequestPending(t *testing.T, cfg *Config) {
+	t.Helper()
+	connA, connB := net.Pipe()
+	defer connA.Close()
+	defer connB.Close()
+	m := muxer.New(connA)
+	errorChan := make(chan error, 1)
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: testConnectionId(),
+		Muxer:        m,
+		ErrorChan:    errorChan,
+	}, cfg)
+	server.Start()
+	defer func() {
+		server.Protocol.Stop()
+		m.Stop()
+		select {
+		case <-m.ErrorChan():
+		case <-time.After(time.Second):
+			t.Error("muxer did not shut down")
+		}
+	}()
+	probeSend, probeRecv, _ := m.RegisterProtocol(
+		testProbeProtocolID,
+		muxer.ProtocolRoleResponder,
+	)
+	m.Start()
+
+	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
+	require.NoError(t, err)
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+	require.NoError(
+		t,
+		connB.SetReadDeadline(time.Now().Add(50*time.Millisecond)),
+	)
+	_, err = readTestSegment(t, connB)
+	require.Error(t, err, "unconfigured responder sent a wire message")
+	require.True(
+		t,
+		isTimeout(err),
+		"expected no LeiosVotes response, got %v",
+		err,
+	)
+
+	probeRequest := []byte{0x01}
+	writeTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(testProbeProtocolID, probeRequest, false),
+	)
+	select {
+	case err := <-errorChan:
+		require.NoError(t, err)
+	case segment := <-probeRecv:
+		require.Equal(t, probeRequest, segment.Payload)
+	case <-time.After(time.Second):
+		t.Fatal("probe request did not traverse shared muxer")
+	}
+
+	probeResponse := []byte{0x02}
+	select {
+	case err := <-errorChan:
+		require.NoError(t, err)
+	case probeSend <- muxer.NewSegment(
+		testProbeProtocolID,
+		probeResponse,
+		true,
+	):
+	case <-time.After(time.Second):
+		t.Fatal("probe response could not use shared muxer")
+	}
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	segment := requireReadTestSegment(t, connB)
+	require.Equal(t, testProbeProtocolID, segment.GetProtocolId())
+	require.True(t, segment.IsResponse())
+	require.Equal(t, probeResponse, segment.Payload)
+	select {
+	case err := <-errorChan:
+		require.NoError(t, err)
+	default:
+	}
+}
 
 func TestNewServer(t *testing.T) {
 	cfg := NewConfig()
@@ -60,44 +146,12 @@ func TestHandleRequestNextCallbackIsCalled(t *testing.T) {
 }
 
 func TestHandleRequestNextNilCallback(t *testing.T) {
-	cfg := NewConfig()
-	connA, connB := net.Pipe()
-	defer connA.Close()
-	defer connB.Close()
-	m := muxer.New(connA)
-	defer m.Stop()
-	server := NewServer(protocol.ProtocolOptions{
-		ConnectionId: testConnectionId(),
-		Muxer:        m,
-	}, &cfg)
-	server.Start()
-	defer server.Protocol.Stop()
-	m.Start()
-	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
-	require.NoError(t, err)
-	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
-	segment := requireReadTestSegment(t, connB)
-	assert.Equal(t, []uint8{MessageTypeDone}, decodeTestMessageTypes(t, segment.Payload))
+	cfg := NewConfig(WithTimeout(5 * time.Millisecond))
+	requireUnconfiguredRequestPending(t, &cfg)
 }
 
 func TestHandleRequestNextNilConfig(t *testing.T) {
-	connA, connB := net.Pipe()
-	defer connA.Close()
-	defer connB.Close()
-	m := muxer.New(connA)
-	defer m.Stop()
-	server := NewServer(protocol.ProtocolOptions{
-		ConnectionId: testConnectionId(),
-		Muxer:        m,
-	}, nil)
-	server.Start()
-	defer server.Protocol.Stop()
-	m.Start()
-	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
-	require.NoError(t, err)
-	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
-	segment := requireReadTestSegment(t, connB)
-	assert.Equal(t, []uint8{MessageTypeDone}, decodeTestMessageTypes(t, segment.Payload))
+	requireUnconfiguredRequestPending(t, nil)
 }
 
 func TestHandleRequestNextInvalidCount(t *testing.T) {

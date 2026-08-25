@@ -302,7 +302,7 @@ func TestStateTransitions(t *testing.T) {
 	assert.Equal(t, uint64(2), ctx.tokens)
 
 	busyEntry := StateMap[StateBusy]
-	require.Len(t, busyEntry.Transitions, 3)
+	require.Len(t, busyEntry.Transitions, 2)
 	assert.True(t, busyEntry.Transitions[0].MatchFunc(ctx, NewMsgVote(testVote())))
 	assert.Equal(t, uint64(1), ctx.tokens)
 	assert.True(t, busyEntry.Transitions[1].MatchFunc(ctx, NewMsgVote(testVote())))

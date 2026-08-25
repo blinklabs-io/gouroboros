@@ -231,12 +231,6 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 	switch msg.Type() {
 	case MessageTypeVote:
 		c.handleVote(msg)
-	case MessageTypeDone:
-		// An unconfigured responder may terminate the optional protocol while
-		// it has server agency. Stop locally after the state transition has
-		// reached Done so callers waiting on RequestNext are released without
-		// affecting the shared bearer.
-		c.Protocol.Stop()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",

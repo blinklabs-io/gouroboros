@@ -46,11 +46,16 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 func (s *Server) initProtocol() {
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {
-		timeout := DefaultTimeout
-		if s.config != nil && s.config.Timeout != 0 {
-			timeout = s.config.Timeout
+		// An unconfigured responder has no CIP-0164 message that can complete
+		// a pending vote request. Leave its Busy timeout disabled so waiting
+		// for a future vote source cannot become a bearer-fatal error.
+		if s.config != nil && s.config.RequestNextFunc != nil {
+			timeout := DefaultTimeout
+			if s.config.Timeout != 0 {
+				timeout = s.config.Timeout
+			}
+			entry.Timeout = timeout
 		}
-		entry.Timeout = timeout
 		stateMap[StateBusy] = entry
 	}
 	protoConfig := protocol.ProtocolConfig{
@@ -113,11 +118,10 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 		)
 	}
 	if s.config == nil || s.config.RequestNextFunc == nil {
-		// There is no valid empty Vote message: each response is validated as
-		// a signed vote and the state machine requires exactly Count of them.
-		// End the optional responder cleanly rather than fabricating data or
-		// propagating a connection-level protocol error.
-		return s.SendMessage(NewMsgDone())
+		// CIP-0164 gives the server agency in Busy but only permits Vote here;
+		// Done is a client message from Idle. Keep the request pending rather
+		// than fabricating a vote or raising a bearer-fatal protocol error.
+		return nil
 	}
 	votes, err := s.config.RequestNextFunc(
 		s.callbackContext,

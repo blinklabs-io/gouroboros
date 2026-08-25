@@ -70,13 +70,6 @@ var StateMap = protocol.StateMap{
 				NewState:  StateIdle,
 				MatchFunc: matchFinalVote,
 			},
-			{
-				// A responder without a vote source terminates this optional
-				// mini-protocol instead of fabricating invalid votes or raising
-				// a bearer-fatal error.
-				MsgType:  MessageTypeDone,
-				NewState: StateDone,
-			},
 		},
 	},
 	StateDone: protocol.StateMapEntry{

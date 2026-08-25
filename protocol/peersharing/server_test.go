@@ -40,6 +40,7 @@ func readPeerSharingTestSegment(t *testing.T, conn net.Conn) *muxer.Segment {
 
 func writePeerSharingTestSegment(t *testing.T, conn net.Conn, segment *muxer.Segment) {
 	t.Helper()
+	require.NotNil(t, segment)
 	buf := &bytes.Buffer{}
 	require.NoError(t, binary.Write(buf, binary.BigEndian, &segment.SegmentHeader))
 	_, err := buf.Write(segment.Payload)

@@ -37,6 +37,11 @@
 // protocol in Busy, and the final vote returns it to Idle. MsgDone terminates
 // the protocol from Idle.
 //
+// A server without a configured vote source keeps a request pending in Busy.
+// CIP-0164 defines no empty server response, and MsgDone remains a client-only
+// transition from Idle. The unconfigured responder disables its Busy timeout
+// so this optional protocol cannot close the shared bearer while it waits.
+//
 // # Vote Shape
 //
 // Votes contain the slot number, endorser block hash, voter ID, and vote
