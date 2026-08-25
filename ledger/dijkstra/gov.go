@@ -17,6 +17,7 @@ package dijkstra
 import (
 	"fmt"
 	"math/big"
+	"reflect"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -59,6 +60,16 @@ func (p DijkstraProposalProcedure) Anchor() common.GovAnchor {
 type DijkstraGovAction struct {
 	Type   uint
 	Action common.GovAction
+}
+
+// isNilGovAction reports whether action is nil, including an interface that
+// contains a typed-nil pointer.
+func isNilGovAction(action common.GovAction) bool {
+	if action == nil {
+		return true
+	}
+	rv := reflect.ValueOf(action)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 func (g DijkstraGovAction) ToPlutusData() data.PlutusData {

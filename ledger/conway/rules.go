@@ -209,7 +209,7 @@ func UtxoValidateProposalProcedures(
 ) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 
@@ -238,12 +238,13 @@ func UtxoValidateEmptyTreasuryWithdrawals(
 ) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 
 		// Check if this is a TreasuryWithdrawalGovAction with empty withdrawals
-		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok &&
+			twAction != nil {
 			if len(twAction.Withdrawals) == 0 {
 				return EmptyTreasuryWithdrawalsError{}
 			}
@@ -283,7 +284,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 	}
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		// NOTE: closed-set type-switch over the 7 GovActionType constants in
@@ -336,7 +337,7 @@ func UtxoValidateBootstrapParameterGroups(
 	}
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		paramChange, ok := govAction.(*ConwayParameterChangeGovAction)
@@ -371,12 +372,13 @@ func UtxoValidateProposalNetworkIds(
 
 		// Check addresses within governance actions
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 
 		// TreasuryWithdrawalGovAction contains withdrawal addresses
-		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok {
+		if twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction); ok &&
+			twAction != nil {
 			for addr := range twAction.Withdrawals {
 				if addr.NetworkId() != networkId {
 					badAddrs = append(badAddrs, *addr)
@@ -565,7 +567,7 @@ func (r *govActionResolver) resolve(
 	actionId common.GovActionId,
 ) (actionType common.GovActionType, action common.GovAction, ok bool) {
 	if proposal, found := r.txProposal(actionId); found {
-		if proposal.action == nil {
+		if isNilGovAction(proposal.action) {
 			return 0, nil, false
 		}
 		resolvedType, ok := govActionValidationType(proposal.action)
@@ -615,7 +617,7 @@ func hardForkProposedVersion(
 	action common.GovAction,
 ) (major, minor uint, ok bool) {
 	hf, isHardFork := action.(*common.HardForkInitiationGovAction)
-	if !isHardFork {
+	if !isHardFork || hf == nil {
 		return 0, 0, false
 	}
 	return hf.ProtocolVersion.Major, hf.ProtocolVersion.Minor, true
@@ -794,7 +796,7 @@ func UtxoValidateHardForkCanFollow(
 	txProposalsLoaded := false
 	for idx, proposal := range tx.ProposalProcedures() {
 		hf, ok := proposal.GovAction().(*common.HardForkInitiationGovAction)
-		if !ok {
+		if !ok || hf == nil {
 			continue
 		}
 		newPV := hf.ProtocolVersion
@@ -827,7 +829,7 @@ func UtxoValidateHardForkCanFollow(
 				}
 				ancestorAction = ancestorState.Action
 			}
-			if ancestorAction == nil {
+			if isNilGovAction(ancestorAction) {
 				continue
 			}
 			major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
@@ -895,7 +897,7 @@ func UtxoValidateProposalAncestry(
 	txProposals := txProposalActions(tx)
 	for idx, proposal := range proposals {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		ancestorId, purpose, hasPurpose := govActionAncestor(govAction)
@@ -1055,7 +1057,7 @@ func UtxoValidateProposalReturnAccounts(
 
 		govAction := proposal.GovAction()
 		twAction, ok := govAction.(*common.TreasuryWithdrawalGovAction)
-		if !ok {
+		if !ok || twAction == nil {
 			continue
 		}
 		var badAddrs []common.Address

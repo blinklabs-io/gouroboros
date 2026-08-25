@@ -88,7 +88,7 @@ var UtxoValidationRules = []common.UtxoValidationRuleFunc{
 	conway.UtxoValidateUnknownVoters,
 	conway.UtxoValidateUnknownGovActionIds,
 	conway.UtxoValidateVotingOnExpiredGovAction,
-	conway.UtxoValidateBootstrapVotingRestrictions,
+	UtxoValidateBootstrapVotingRestrictions,
 	conway.UtxoValidateStakePoolVotingRestrictions,
 	UtxoValidateCCVotingRestrictions,
 	UtxoValidateMalformedReferenceScripts,
@@ -139,7 +139,7 @@ func UtxoValidateProposalProcedures(
 ) error {
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		paramChangeAction, ok := govAction.(*DijkstraParameterChangeGovAction)
@@ -181,6 +181,24 @@ func UtxoValidateProposalDeposit(
 	return conway.UtxoValidateProposalDeposit(tx, slot, ls, tmpPparams)
 }
 
+func UtxoValidateBootstrapVotingRestrictions(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	return conway.UtxoValidateBootstrapVotingRestrictions(
+		tx,
+		slot,
+		ls,
+		tmpPparams,
+	)
+}
+
 func UtxoValidateBootstrapAllowedGovActions(
 	tx common.Transaction,
 	slot uint64,
@@ -196,7 +214,7 @@ func UtxoValidateBootstrapAllowedGovActions(
 	}
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		switch govAction.(type) {
@@ -241,7 +259,7 @@ func UtxoValidateBootstrapParameterGroups(
 	}
 	for _, proposal := range tx.ProposalProcedures() {
 		govAction := proposal.GovAction()
-		if govAction == nil {
+		if isNilGovAction(govAction) {
 			continue
 		}
 		switch paramChange := govAction.(type) {

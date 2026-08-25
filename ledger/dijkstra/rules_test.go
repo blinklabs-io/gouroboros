@@ -63,7 +63,7 @@ func TestDijkstraGovernanceValidationRules(t *testing.T) {
 		"ledger/conway.UtxoValidateUnknownVoters",
 		"ledger/conway.UtxoValidateUnknownGovActionIds",
 		"ledger/conway.UtxoValidateVotingOnExpiredGovAction",
-		"ledger/conway.UtxoValidateBootstrapVotingRestrictions",
+		"ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions",
 		"ledger/conway.UtxoValidateStakePoolVotingRestrictions",
 		"ledger/dijkstra.UtxoValidateCCVotingRestrictions",
 	}
@@ -96,16 +96,58 @@ func TestDijkstraGovernanceValidationRejectsTypedNilParameterChange(
 			PPGovAction: DijkstraGovAction{Action: action},
 		}},
 	}}
-	var malformedErr conway.MalformedGovActionError
-	require.ErrorAs(
-		t,
-		conway.UtxoValidateGovActionWellFormedness(tx, 0, nil, nil),
-		&malformedErr,
-	)
-
+	var err error
 	require.NotPanics(t, func() {
-		_ = conway.UtxoValidateProposalAncestry(tx, 0, nil, nil)
+		err = common.VerifyTransaction(
+			tx,
+			0,
+			nil,
+			&DijkstraProtocolParameters{},
+			UtxoValidationRules,
+		)
 	})
+	var malformedErr conway.MalformedGovActionError
+	require.ErrorAs(t, err, &malformedErr)
+}
+
+func TestDijkstraBootstrapVotingRestrictionsAreRegistered(t *testing.T) {
+	newTx := func(action common.GovAction) *DijkstraTransaction {
+		tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
+			TxProposalProcedures: []DijkstraProposalProcedure{{
+				PPGovAction: DijkstraGovAction{Action: action},
+			}},
+		}}
+		encodedBody, err := cbor.Encode(&tx.Body)
+		require.NoError(t, err)
+		tx.Body.SetCborReference(encodedBody)
+		actionId := common.GovActionId{TransactionId: tx.Hash()}
+		voter := common.Voter{
+			Type: common.VoterTypeDRepKeyHash,
+			Hash: common.Blake2b224{0x04},
+		}
+		tx.Body.TxVotingProcedures = common.VotingProcedures{
+			&voter: {
+				&actionId: {Vote: common.GovVoteYes},
+			},
+		}
+		return tx
+	}
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionConway,
+			},
+		},
+	}
+
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateBootstrapVotingRestrictions",
+	)
+	err := rule(newTx(&DijkstraParameterChangeGovAction{}), 0, nil, pp)
+	var bootstrapErr conway.BootstrapVotingRestrictionError
+	require.ErrorAs(t, err, &bootstrapErr)
+	require.NoError(t, rule(newTx(&common.InfoGovAction{}), 0, nil, pp))
 }
 
 func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
