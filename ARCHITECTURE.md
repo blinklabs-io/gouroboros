@@ -205,6 +205,8 @@ the remaining behavior is selected by the active major protocol version:
 | PV10 (Plomin) and PV11 (Van Rossem) | Yes |
 | PV12 (Dijkstra) and later | No, per CIP-181 |
 
+At PV10/PV11, every key-hash credential present in the withdrawal map is
+checked, including a zero withdrawal from a registered zero-balance account.
 Script-hash reward credentials never require a DRep vote delegation. They
 still undergo the Shelley reward-account registration and withdrawal-amount
 checks.

@@ -205,7 +205,8 @@ Error files: `ledger/{shelley,allegra,alonzo,babbage,conway,common}/errors.go`.
    Dijkstra, while Dijkstra permits qualifying partial withdrawals. At
    PV10/PV11, the DRep gate applies only to key-hash reward credentials;
    script-hash reward credentials still undergo registration and amount
-   validation.
+   validation. The DRep gate is amount-independent, so a zero withdrawal from
+   a registered zero-balance key-hash account still requires delegation.
 9. Read code before claiming "just delegates" or "missing check". `NOTE:` comments mark deliberate decisions.
 10. Mutating a decoded `DecodeStoreCbor`-embedding struct and re-marshaling does not pick up the change — `MarshalCBOR()` returns the stored bytes as-is. Call `SetCbor(nil)` first.
 
