@@ -21,6 +21,7 @@ import (
 	"io"
 	"math/big"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -186,6 +187,59 @@ func TestValueDecode(t *testing.T) {
 				testDef.expectedObject,
 			)
 		}
+	}
+}
+
+func TestValueDecodeNestedContainersDoesNotCopySubtrees(t *testing.T) {
+	const (
+		depth         = 64
+		payloadLength = 64 * 1024
+		iterations    = 5
+	)
+	payload := make([]byte, payloadLength)
+	payloadSize := uint32(payloadLength)
+	cborData := make([]byte, 0, depth+5+payloadLength)
+	for range depth {
+		cborData = append(cborData, 0x81)
+	}
+	cborData = append(
+		cborData,
+		0x5a,
+		byte(payloadSize>>24),
+		byte(payloadSize>>16),
+		byte(payloadSize>>8),
+		byte(payloadSize),
+	)
+	cborData = append(cborData, payload...)
+
+	var warmup cbor.Value
+	if _, err := cbor.Decode(cborData, &warmup); err != nil {
+		t.Fatalf("warm up nested value decoder: %v", err)
+	}
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range iterations {
+		var value cbor.Value
+		decodedLength, err := cbor.Decode(cborData, &value)
+		if err != nil {
+			t.Fatalf("decode nested value: %v", err)
+		}
+		if decodedLength != len(cborData) {
+			t.Fatalf("decoded %d bytes, want %d", decodedLength, len(cborData))
+		}
+	}
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	allocatedBytes := after.TotalAlloc - before.TotalAlloc
+	maxAllocatedBytes := uint64(len(cborData) * iterations * 12)
+	if allocatedBytes > maxAllocatedBytes {
+		t.Fatalf(
+			"nested Value decoding allocated %d bytes, want at most %d",
+			allocatedBytes,
+			maxAllocatedBytes,
+		)
 	}
 }
 

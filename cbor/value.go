@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"reflect"
 	"runtime"
@@ -44,56 +45,82 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty CBOR data")
 	}
-	// Save the original CBOR
-	v.cborData = string(data[:])
+	_, err := v.unmarshalCBOR(data, true, 0)
+	return err
+}
+
+func (v *Value) unmarshalCBOR(
+	data []byte,
+	retainCbor bool,
+	depth int,
+) (int, error) {
+	if len(data) == 0 {
+		return 0, io.ErrUnexpectedEOF
+	}
+	if depth > cborMaxNestedLevels {
+		return 0, fmt.Errorf("exceeded maximum CBOR nesting depth: %d", cborMaxNestedLevels)
+	}
+	if retainCbor {
+		// Save the original CBOR
+		v.cborData = string(data)
+	} else {
+		v.cborData = ""
+	}
 	cborType := data[0] & CborTypeMask
 	switch cborType {
 	case CborTypeMap:
-		return v.processMap(data)
+		return v.processMap(data, depth)
 	case CborTypeArray:
-		return v.processArray(data)
+		return v.processArray(data, depth)
 	case CborTypeTextString:
 		var tmpValue string
-		if _, err := Decode(data, &tmpValue); err != nil {
-			return err
+		decodedLength, err := Decode(data, &tmpValue)
+		if err != nil {
+			return 0, err
 		}
 		v.value = tmpValue
+		return decodedLength, nil
 	case CborTypeByteString:
 		// Use our custom type which stores the bytestring in a way that allows it to be used as a map key
 		var tmpValue ByteString
-		if _, err := Decode(data, &tmpValue); err != nil {
-			return err
+		decodedLength, err := Decode(data, &tmpValue)
+		if err != nil {
+			return 0, err
 		}
 		v.value = tmpValue
+		return decodedLength, nil
 	case CborTypeTag:
 		// Parse as a raw tag to get number and nested CBOR data
 		tmpTag := RawTag{}
-		if _, err := Decode(data, &tmpTag); err != nil {
-			return err
+		decodedLength, err := Decode(data, &tmpTag)
+		if err != nil {
+			return 0, err
 		}
 		if IsAlternativeTag(tmpTag.Number) {
 			// Constructors/alternatives
 			var tmpConstr ConstructorDecoder
 			if _, err := Decode(data, &tmpConstr); err != nil {
-				return err
+				return 0, err
 			}
 			v.value = tmpConstr
 		} else {
 			// Fall back to standard CBOR tag parsing for our supported types
 			var tmpTagDecode any
 			if _, err := Decode(data, &tmpTagDecode); err != nil {
-				return err
+				return 0, err
 			}
 			v.value = tmpTagDecode
 		}
+		return decodedLength, nil
 	default:
 		var tmpValue any
-		if _, err := Decode(data, &tmpValue); err != nil {
-			return err
+		decodedLength, err := Decode(data, &tmpValue)
+		if err != nil {
+			return 0, err
 		}
 		v.value = tmpValue
+		return decodedLength, nil
 	}
-	return nil
 }
 
 func (v Value) Cbor() []byte {
@@ -125,7 +152,7 @@ func (v Value) MarshalJSON() ([]byte, error) {
 	return []byte(tmpJson), nil
 }
 
-func (v *Value) processMap(data []byte) (err error) {
+func (v *Value) processMap(data []byte, depth int) (decodedLength int, err error) {
 	// There are certain types that cannot be used as map keys in Go but are valid in CBOR. Trying to
 	// parse CBOR containing a map with keys of one of those types will cause a panic. We setup this
 	// deferred function to recover from a possible panic and return an error
@@ -140,19 +167,43 @@ func (v *Value) processMap(data []byte) (err error) {
 			)
 		}
 	}()
-	tmpValue := map[*Value]Value{}
-	if _, err = Decode(data, &tmpValue); err != nil {
-		return err
+	itemCount, headerLength, indefinite := MapInfo(data)
+	if itemCount < 0 {
+		return 0, errors.New("invalid CBOR map header")
 	}
-	// Extract actual value from each child value
 	newValue := map[any]any{}
-	for key, value := range tmpValue {
+	position := int(headerLength)
+	for itemIndex := 0; indefinite || itemIndex < itemCount; itemIndex++ {
+		if position >= len(data) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		if indefinite && data[position] == 0xff {
+			position++
+			v.value = newValue
+			return position, nil
+		}
+
+		var key Value
+		keyLength, keyErr := key.unmarshalCBOR(data[position:], false, depth+1)
+		if keyErr != nil {
+			return 0, keyErr
+		}
+		position += keyLength
+		if position >= len(data) {
+			return 0, io.ErrUnexpectedEOF
+		}
+
+		var value Value
+		valueLength, valueErr := value.unmarshalCBOR(data[position:], false, depth+1)
+		if valueErr != nil {
+			return 0, valueErr
+		}
+		position += valueLength
+
 		// CBOR null/undefined map keys decode to a nil *Value, which is
 		// represented as a nil map key
 		var keyValue any
-		if key != nil {
-			keyValue = key.Value()
-		}
+		keyValue = key.Value()
 		// Use a pointer for unhashable key types
 		if keyValue != nil && !reflect.TypeOf(keyValue).Comparable() {
 			keyValue = &keyValue
@@ -160,21 +211,36 @@ func (v *Value) processMap(data []byte) (err error) {
 		newValue[keyValue] = value.Value()
 	}
 	v.value = newValue
-	return nil
+	return position, nil
 }
 
-func (v *Value) processArray(data []byte) error {
-	tmpValue := []Value{}
-	if _, err := Decode(data, &tmpValue); err != nil {
-		return err
+func (v *Value) processArray(data []byte, depth int) (int, error) {
+	itemCount, headerLength, indefinite := ArrayInfo(data)
+	if itemCount < 0 {
+		return 0, errors.New("invalid CBOR array header")
 	}
-	// Extract actual value from each child value
 	newValue := []any{}
-	for _, value := range tmpValue {
+	position := int(headerLength)
+	for itemIndex := 0; indefinite || itemIndex < itemCount; itemIndex++ {
+		if position >= len(data) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		if indefinite && data[position] == 0xff {
+			position++
+			v.value = newValue
+			return position, nil
+		}
+
+		var value Value
+		valueLength, err := value.unmarshalCBOR(data[position:], false, depth+1)
+		if err != nil {
+			return 0, err
+		}
+		position += valueLength
 		newValue = append(newValue, value.Value())
 	}
 	v.value = newValue
-	return nil
+	return position, nil
 }
 
 func isUnhashableMapKeyPanic(r any) bool {
