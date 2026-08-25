@@ -262,8 +262,13 @@ human review, not human approval or merge.
 - Confirm required checks pass and configured bots have no actionable findings.
 - Use one concise factual squash summary. Do not concatenate commit bodies,
   review threads, or chat history.
-- Preserve the DCO `Signed-off-by:` line in the squash commit. Do not use a
-  merge path that drops the sign-off.
+- Write the squash body as real Markdown in a run-owned file and pass it with
+  `--body-file`; never encode its line breaks as `\\n` in `--body`. Lock the
+  merge to the reviewed head with `--match-head-commit`.
+- Preserve the DCO `Signed-off-by:` line in the squash commit. After merging,
+  read the resulting commit message back and verify the sign-off is a standalone
+  trailer, not literal escaped text. Do not use a merge path that drops or
+  corrupts the sign-off.
 
 ## Submodule work
 
