@@ -42,10 +42,16 @@ type Credential struct {
 }
 
 func (c *Credential) UnmarshalCBOR(cborData []byte) error {
+	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
+		return errors.New("credential cannot be CBOR null or undefined")
+	}
 	type tCredential Credential
 	var tmp tCredential
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
+	}
+	if tmp.CredType > CredentialTypeScriptHash {
+		return fmt.Errorf("invalid credential type: %d", tmp.CredType)
 	}
 	*c = Credential(tmp)
 	c.SetCbor(cborData)

@@ -379,6 +379,9 @@ func (c *StakeDelegationCertificate) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if tmp.StakeCredential == nil {
+		return errors.New("stake delegation contains a nil credential")
+	}
 	*c = StakeDelegationCertificate(tmp)
 	c.SetCbor(cborData)
 	return nil
