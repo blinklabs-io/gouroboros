@@ -23,10 +23,13 @@ import (
 )
 
 // rewardAccountCBOR isolates reward addresses from the Blake2b224 decoder.
-// The ledger wire value is 29 bytes, while the exported certificate field
-// retains its historical 28-byte representation. Accept the repository's
-// legacy 28-byte encoding as well so existing constructed values round-trip.
-type rewardAccountCBOR [29]byte
+// The ledger wire value is a one-byte address header followed by a 28-byte
+// credential, while the exported certificate field retains only the
+// credential. Accept the repository's legacy 28-byte encoding as well so
+// existing constructed values round-trip.
+type rewardAccountCBOR struct {
+	credential AddrKeyHash
+}
 
 func unmarshalFixedLengthByteString(
 	cborData []byte,
@@ -61,7 +64,9 @@ func decodeByteString(cborData []byte) ([32]byte, uint64, error) {
 		}
 		payloadLength := int(length) // #nosec G115 -- bounded by decoded above
 		if payloadLength != len(cborData)-headerLength {
-			return decoded, 0, errors.New("byte string length does not match data")
+			return decoded, 0, errors.New(
+				"byte string length does not match data",
+			)
 		}
 		copy(decoded[:], cborData[headerLength:])
 		return decoded, length, nil
@@ -203,13 +208,20 @@ func (r *rewardAccountCBOR) UnmarshalCBOR(cborData []byte) error {
 	if err != nil {
 		return fmt.Errorf("decode reward account: %w", err)
 	}
-	if decodedLength != uint64(len(r)) && decodedLength != uint64(len(r)-1) {
+	if decodedLength != Blake2b224Size && decodedLength != Blake2b224Size+1 {
 		return fmt.Errorf(
 			"invalid reward account length: expected 28 or 29 bytes, got %d",
 			decodedLength,
 		)
 	}
-	copy(r[:], decoded[:decodedLength])
+	credentialOffset := 0
+	if decodedLength == Blake2b224Size+1 {
+		credentialOffset = 1
+	}
+	copy(
+		r.credential[:],
+		decoded[credentialOffset:credentialOffset+Blake2b224Size],
+	)
 	return nil
 }
 
