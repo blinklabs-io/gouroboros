@@ -189,7 +189,7 @@ func UtxoValidateTimeToLive(tx, slot, ls, pp) error {
 | Mary | Multi-asset support (native tokens) |
 | Alonzo | Plutus smart contracts, redeemers, datums |
 | Babbage | Reference scripts, inline datums |
-| Conway | Governance; PV10/PV11 DRep-gated reward withdrawals |
+| Conway | Governance; PV10/PV11 DRep-gated key-hash reward withdrawals |
 | Dijkstra | PV12; CIP-181 removes the reward-withdrawal DRep gate |
 
 ### Conway Reward Withdrawal Gate
@@ -199,16 +199,23 @@ withdrawal validation for phase-2-invalid transactions, then applies the
 Shelley reward-account registration check. For transactions with withdrawals,
 the remaining behavior is selected by the active major protocol version:
 
-| Protocol version | DRep vote delegation required? |
-|------------------|-------------------------------|
+| Protocol version | Key-hash DRep vote delegation required? |
+|------------------|----------------------------------------|
 | PV9 and earlier | No |
 | PV10 (Plomin) and PV11 (Van Rossem) | Yes |
 | PV12 (Dijkstra) and later | No, per CIP-181 |
 
+At PV10/PV11, every key-hash credential present in the withdrawal map is
+checked, including a zero withdrawal from a registered zero-balance account.
+Script-hash reward credentials never require a DRep vote delegation. They
+still undergo the Shelley reward-account registration and withdrawal-amount
+checks.
+
 The active protocol version comes from
 `conway.ConwayProtocolParameters.ProtocolMajorVersion`; Dijkstra protocol
-parameters inherit that method. At PV10/PV11, ledger states must additionally
-implement the optional `common.DRepDelegationState` capability:
+parameters inherit that method. At PV10/PV11, ledger states validating a
+key-hash reward withdrawal must additionally implement the optional
+`common.DRepDelegationState` capability:
 
 ```go
 type DRepDelegationState interface {

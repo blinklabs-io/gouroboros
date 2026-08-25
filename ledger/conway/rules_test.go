@@ -156,6 +156,123 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		))
 	})
 
+	for _, major := range []uint{
+		common.ProtocolVersionPlomin,
+		common.ProtocolVersionVanRossem,
+	} {
+		t.Run(fmt.Sprintf("PV%d script credential", major), func(t *testing.T) {
+			// cardano-ledger applies the PV10/PV11 DRep requirement only to
+			// key-hash reward credentials.
+			rewardAddr, err := common.NewAddress(
+				"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+			)
+			require.NoError(t, err)
+			credential, ok := rewardAddr.StakeCredential()
+			require.True(t, ok)
+			require.Equal(
+				t,
+				uint(common.CredentialTypeScriptHash),
+				credential.CredType,
+			)
+
+			state := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountCredentialBalance(credential, 1_000_000).
+				Build()
+			stateWithoutDRepDelegation := struct{ common.LedgerState }{
+				LedgerState: state,
+			}
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						&rewardAddr: 1_000_000,
+					},
+				},
+				TxIsValid: true,
+			}
+			pp := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: major,
+				},
+			}
+
+			require.NoError(t, conway.UtxoValidateWithdrawals(
+				tx,
+				0,
+				stateWithoutDRepDelegation,
+				pp,
+			))
+		})
+	}
+
+	t.Run(
+		"PV10 script and undelegated key check the key every time",
+		func(t *testing.T) {
+			scriptRewardAddr, err := common.NewAddress(
+				"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+			)
+			require.NoError(t, err)
+			scriptCredential, ok := scriptRewardAddr.StakeCredential()
+			require.True(t, ok)
+			keyRewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
+			mixedTx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						&scriptRewardAddr: 1_000_000,
+						&keyRewardAddr:    1_000_000,
+					},
+				},
+				TxIsValid: true,
+			}
+			state := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+				WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+				WithDRepDelegation(func(
+					common.Credential,
+				) (*common.Drep, error) {
+					return nil, nil
+				}).
+				Build()
+			pp := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: common.ProtocolVersionPlomin,
+				},
+			}
+
+			for range 100 {
+				err := conway.UtxoValidateWithdrawals(mixedTx, 0, state, pp)
+				var target conway.WithdrawalNotDelegatedToDRepError
+				require.ErrorAs(t, err, &target)
+				require.Equal(t, keyRewardAddr, target.RewardAddress)
+			}
+		},
+	)
+
+	t.Run("PV11 unregistered script credential", func(t *testing.T) {
+		rewardAddr, err := common.NewAddress(
+			"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+		)
+		require.NoError(t, err)
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					&rewardAddr: 1_000_000,
+				},
+			},
+			TxIsValid: true,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionVanRossem,
+			},
+		}
+		state := mockledger.NewLedgerStateBuilder().Build()
+
+		err = conway.UtxoValidateWithdrawals(tx, 0, state, pp)
+		var target shelley.WithdrawalFromUnregisteredRewardAccountError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, rewardAddr, target.RewardAddress)
+	})
+
 	t.Run("PV12 permits a partial withdrawal", func(t *testing.T) {
 		partialTx := *tx
 		partialTx.Body.TxWithdrawals = map[*common.Address]uint64{
@@ -197,29 +314,41 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		common.ProtocolVersionPlomin,
 		common.ProtocolVersionVanRossem,
 	} {
-		t.Run(fmt.Sprintf("PV%d zero amount", major), func(t *testing.T) {
+		t.Run(fmt.Sprintf("PV%d undelegated zero amount", major), func(t *testing.T) {
 			zeroTx := *tx
 			zeroTx.Body.TxWithdrawals = map[*common.Address]uint64{
 				&rewardAddr: 0,
 			}
+			lookups := 0
 			zeroBalanceState := mockledger.NewLedgerStateBuilder().
 				WithRewardAccountBalance(stakeKeyHash, 0).
+				WithDRepDelegation(func(
+					credential common.Credential,
+				) (*common.Drep, error) {
+					lookups++
+					assert.Equal(t, stakeKeyHash, credential.Credential)
+					return nil, nil
+				}).
 				Build()
 			pp := &conway.ConwayProtocolParameters{
 				ProtocolVersion: common.ProtocolParametersProtocolVersion{
 					Major: major,
 				},
 			}
-			require.NoError(t, conway.UtxoValidateWithdrawals(
+			err := conway.UtxoValidateWithdrawals(
 				&zeroTx,
 				0,
-				struct{ common.LedgerState }{LedgerState: zeroBalanceState},
+				zeroBalanceState,
 				pp,
-			))
+			)
+			var target conway.WithdrawalNotDelegatedToDRepError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(t, rewardAddr, target.RewardAddress)
+			assert.Equal(t, 1, lookups)
 		})
 	}
 
-	t.Run("PV10 mixed amounts checks non-zero withdrawal", func(t *testing.T) {
+	t.Run("PV10 mixed amounts check every key credential", func(t *testing.T) {
 		otherStakeKeyHash := common.Blake2b224Hash(
 			[]byte("other-withdrawal-stake-key"),
 		)
@@ -229,14 +358,15 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 			&rewardAddr:      0,
 			&otherRewardAddr: 1_000_000,
 		}
+		lookups := make(map[common.Blake2b224]int)
 		mixedState := mockledger.NewLedgerStateBuilder().
 			WithRewardAccountBalance(stakeKeyHash, 0).
 			WithRewardAccountBalance(otherStakeKeyHash, 1_000_000).
 			WithDRepDelegation(func(
 				credential common.Credential,
 			) (*common.Drep, error) {
-				assert.Equal(t, otherStakeKeyHash, credential.Credential)
-				return nil, nil
+				lookups[credential.Credential]++
+				return &common.Drep{}, nil
 			}).
 			Build()
 		pp := &conway.ConwayProtocolParameters{
@@ -244,15 +374,16 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 				Major: common.ProtocolVersionPlomin,
 			},
 		}
-		err := conway.UtxoValidateWithdrawals(
+		require.NoError(t, conway.UtxoValidateWithdrawals(
 			&mixedTx,
 			0,
 			mixedState,
 			pp,
-		)
-		var target conway.WithdrawalNotDelegatedToDRepError
-		require.ErrorAs(t, err, &target)
-		assert.Equal(t, otherRewardAddr, target.RewardAddress)
+		))
+		assert.Equal(t, map[common.Blake2b224]int{
+			stakeKeyHash:      1,
+			otherStakeKeyHash: 1,
+		}, lookups)
 	})
 
 	t.Run("PV10 requires delegation lookup support", func(t *testing.T) {
@@ -285,6 +416,86 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 			baseState,
 			pp,
 		))
+	})
+}
+
+func TestUtxoValidateWithdrawals_ScriptCredentialDRepBoundary(t *testing.T) {
+	stakeKeyHash := common.Blake2b224Hash([]byte("withdrawal-stake-key"))
+	keyRewardAddr := makeConwayRewardAddress(t, stakeKeyHash)
+	scriptRewardAddr, err := common.NewAddress(
+		"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+	)
+	require.NoError(t, err)
+	scriptCredential, ok := scriptRewardAddr.StakeCredential()
+	require.True(t, ok)
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: common.ProtocolVersionVanRossem,
+		},
+	}
+
+	t.Run("script credential needs no DRep state", func(t *testing.T) {
+		state := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+			Build()
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					&scriptRewardAddr: 1_000_000,
+				},
+			},
+			TxIsValid: true,
+		}
+
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			tx,
+			0,
+			struct{ common.LedgerState }{LedgerState: state},
+			pp,
+		))
+	})
+
+	t.Run("mixed script and undelegated key credentials", func(t *testing.T) {
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					&keyRewardAddr:    1_000_000,
+					&scriptRewardAddr: 1_000_000,
+				},
+			},
+			TxIsValid: true,
+		}
+		delegatedState := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+			WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+			WithDRepDelegation(func(
+				credential common.Credential,
+			) (*common.Drep, error) {
+				assert.Equal(t, stakeKeyHash, credential.Credential)
+				return &common.Drep{}, nil
+			}).
+			Build()
+		require.NoError(t, conway.UtxoValidateWithdrawals(
+			tx,
+			0,
+			delegatedState,
+			pp,
+		))
+
+		undelegatedState := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountBalance(stakeKeyHash, 1_000_000).
+			WithRewardAccountCredentialBalance(scriptCredential, 1_000_000).
+			WithDRepDelegation(func(
+				credential common.Credential,
+			) (*common.Drep, error) {
+				assert.Equal(t, stakeKeyHash, credential.Credential)
+				return nil, nil
+			}).
+			Build()
+		err = conway.UtxoValidateWithdrawals(tx, 0, undelegatedState, pp)
+		var target conway.WithdrawalNotDelegatedToDRepError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, keyRewardAddr, target.RewardAddress)
 	})
 }
 

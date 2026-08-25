@@ -143,7 +143,7 @@ type DRepRegistration struct {
 
 // DRepDelegationState is the optional ledger-state capability used to query
 // governance vote delegations. Ledger states used to validate PV10 or PV11
-// reward withdrawals must implement this interface.
+// key-hash reward withdrawals must implement this interface.
 type DRepDelegationState interface {
 	DRepDelegation(Credential) (*Drep, error)
 }
