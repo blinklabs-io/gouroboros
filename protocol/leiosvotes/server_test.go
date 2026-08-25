@@ -24,12 +24,11 @@ import (
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
-	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnconfiguredRequestDoesNotTearDownBearer(t *testing.T) {
+func TestUnconfiguredRequestReportsBearerError(t *testing.T) {
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
 	errs := make(chan error, 1)
@@ -44,20 +43,10 @@ func TestUnconfiguredRequestDoesNotTearDownBearer(t *testing.T) {
 		},
 		&Config{Timeout: time.Millisecond},
 	)
-	peerSharingCfg := peersharing.NewConfig()
-	peerSharingServer := peersharing.NewServer(
-		protocol.ProtocolOptions{
-			ConnectionId: server.callbackContext.ConnectionId,
-			Muxer:        m,
-		},
-		&peerSharingCfg,
-	)
 	server.Start()
-	peerSharingServer.Start()
 	m.Start()
 	t.Cleanup(func() {
 		server.Stop()
-		peerSharingServer.Stop()
 		m.Stop()
 		connA.Close()
 		connB.Close()
@@ -67,27 +56,14 @@ func TestUnconfiguredRequestDoesNotTearDownBearer(t *testing.T) {
 	require.NoError(t, err)
 	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
 
-	peerData, err := cbor.Encode(peersharing.NewMsgShareRequest(1))
-	require.NoError(t, err)
-	require.NoError(t, connB.SetWriteDeadline(time.Now().Add(time.Second)))
-	writeTestSegment(
-		t,
-		connB,
-		muxer.NewSegment(peersharing.ProtocolId, peerData, false),
-	)
-	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
-	peerResponse := requireReadTestSegment(t, connB)
-	require.True(t, peerResponse.IsResponse())
-	require.Equal(t, uint16(peersharing.ProtocolId), peerResponse.GetProtocolId())
-
-	require.Never(t, func() bool {
+	require.Eventually(t, func() bool {
 		select {
-		case <-errs:
-			return true
+		case err := <-errs:
+			return assert.ErrorContains(t, err, "no callback function is defined")
 		default:
 			return false
 		}
-	}, 50*time.Millisecond, time.Millisecond)
+	}, time.Second, time.Millisecond)
 }
 
 func TestNewServer(t *testing.T) {
@@ -133,7 +109,7 @@ func TestHandleRequestNextNilCallback(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.NoError(t, err)
+	assert.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestHandleRequestNextNilConfig(t *testing.T) {
@@ -145,7 +121,7 @@ func TestHandleRequestNextNilConfig(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.NoError(t, err)
+	assert.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestHandleRequestNextInvalidCount(t *testing.T) {

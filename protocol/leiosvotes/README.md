@@ -46,14 +46,11 @@ Idle --Done--> Done
 
 ## Optional server responder
 
-Leios votes is optional, but its server responder is available on every
-node-to-node connection that supports the mini-protocol. If `RequestNextFunc`
-is not configured, a request is accepted and remains in the server's `Busy`
-state without a timeout or connection-level error. This protocol has no empty
-batch response, so leaving the request pending avoids inventing a wire message
-and prevents an optional request from closing the shared bearer. Configured
-callbacks, callback errors, and transport failures retain the normal timeout
-and error behavior.
+Leios votes has no state-machine-valid empty batch response. Configure
+`RequestNextFunc` before accepting vote requests; an unconfigured responder
+returns a protocol error rather than leaving the shared bearer permanently
+stalled in `Busy`. The client and server retain the normal `Busy` timeout for
+callback and transport failures.
 
 ## States
 

@@ -62,7 +62,8 @@ advertises one of the modes below. The protocol channel is multiplexed onto the
 connection for any version 11+ regardless of the advertised modes. The client
 refuses to send `ShareRequest` when the remote opted out. If the local side
 opted out but still receives an invalid request, the server returns an empty
-`SharePeers` response so the request does not close the shared connection.
+`SharePeers` array (`[1, []]`) so the request does not close the shared
+connection.
 
 ### Mode values per version
 
@@ -174,10 +175,10 @@ oConn, err := ouroboros.New(
 
 When the local node advertises `NoPeerSharing` (the default,
 `WithPeerSharing(false)`), an unexpected incoming `ShareRequest` receives an
-empty `SharePeers` response. A spec-compliant peer would not send the request,
-but declining it at the mini-protocol boundary keeps an invalid optional
-request from closing the shared connection. The same empty response is used
-when no `ShareRequestFunc` is configured.
+empty `SharePeers` array (`[1, []]`). A spec-compliant peer would not send the
+request, but declining it at the mini-protocol boundary keeps an invalid
+optional request from closing the shared connection. The same empty response
+is used when no `ShareRequestFunc` is configured.
 
 ## Peer Address Format
 

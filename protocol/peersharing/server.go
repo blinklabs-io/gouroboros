@@ -89,23 +89,31 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 }
 
 func (s *Server) handleShareRequest(msg protocol.Message) error {
-	if s.config != nil && s.config.LocalDisabled {
-		// A peer that sends ShareRequest after we advertised NoPeerSharing is
-		// not following the handshake negotiation. Still answer with an empty
-		// response so an invalid optional request cannot tear down the bearer.
-		return s.SendMessage(NewMsgSharePeers(nil))
-	}
 	s.Protocol.Logger().
 		Debug("share request",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
+			"local_disabled", s.config != nil && s.config.LocalDisabled,
 		)
+	if s.config != nil && s.config.LocalDisabled {
+		s.Protocol.Logger().
+			Debug("peer sharing request violates negotiated mode",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+			)
+		// A peer that sends ShareRequest after we advertised NoPeerSharing is
+		// not following the handshake negotiation. Still answer with an empty
+		// response so an invalid optional request cannot tear down the bearer.
+		return s.SendMessage(NewMsgSharePeers([]PeerAddress{}))
+	}
 	if s.config == nil || s.config.ShareRequestFunc == nil {
 		// Peer sharing is optional. Keep the protocol in its normal request /
 		// response cycle when the application has no peer source configured.
-		return s.SendMessage(NewMsgSharePeers(nil))
+		return s.SendMessage(NewMsgSharePeers([]PeerAddress{}))
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
 	peers, err := s.config.ShareRequestFunc(

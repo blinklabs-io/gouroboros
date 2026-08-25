@@ -29,9 +29,17 @@ import (
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testLeiosFetchConnectionId() connection.ConnectionId {
+	return connection.ConnectionId{
+		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+		RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
+	}
+}
 
 func readLeiosFetchTestSegment(
 	t *testing.T,
@@ -75,7 +83,7 @@ func sendNotFoundTest(
 	t *testing.T,
 	cfg Config,
 	request protocol.Message,
-) uint {
+) (uint, []byte) {
 	t.Helper()
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
@@ -86,16 +94,36 @@ func sendNotFoundTest(
 	defer connB.Close()
 	m := muxer.New(connA)
 	defer m.Stop()
+	errs := make(chan error, 1)
 
 	server := NewServer(protocol.ProtocolOptions{
 		ConnectionId: connId,
+		ErrorChan:    errs,
 		Muxer:        m,
 	}, &cfg)
+	peerSharingCfg := peersharing.NewConfig(
+		peersharing.WithShareRequestFunc(
+			func(peersharing.CallbackContext, int) ([]peersharing.PeerAddress, error) {
+				return []peersharing.PeerAddress{}, nil
+			},
+		),
+	)
+	peerSharingServer := peersharing.NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			ErrorChan:    errs,
+			Muxer:        m,
+		},
+		&peerSharingCfg,
+	)
 	server.Start()
 	defer server.Protocol.Stop()
+	peerSharingServer.Start()
+	defer peerSharingServer.Protocol.Stop()
 	m.Start()
 
 	var msgType uint
+	var responsePayload []byte
 	for range 2 {
 		requestData, err := cbor.Encode(request)
 		require.NoError(t, err)
@@ -116,8 +144,30 @@ func sendNotFoundTest(
 		require.NotEmpty(t, elems)
 		_, err = cbor.Decode(elems[0], &msgType)
 		require.NoError(t, err)
+		responsePayload = append(responsePayload[:0], segment.Payload...)
 	}
-	return msgType
+
+	peerData, err := cbor.Encode(peersharing.NewMsgShareRequest(1))
+	require.NoError(t, err)
+	writeLeiosFetchTestSegment(
+		t,
+		connB,
+		muxer.NewSegment(peersharing.ProtocolId, peerData, false),
+	)
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	peerResponse, err := readLeiosFetchTestSegment(t, connB)
+	require.NoError(t, err)
+	require.True(t, peerResponse.IsResponse())
+	require.Equal(t, uint16(peersharing.ProtocolId), peerResponse.GetProtocolId())
+	require.Never(t, func() bool {
+		select {
+		case <-errs:
+			return true
+		default:
+			return false
+		}
+	}, 50*time.Millisecond, time.Millisecond)
+	return msgType, responsePayload
 }
 
 func TestNewServer(t *testing.T) {
@@ -173,21 +223,25 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 
 func TestHandleBlockRequest_NilCallback(t *testing.T) {
 	cfg := NewConfig()
-	msgType := sendNotFoundTest(
-		t,
-		cfg,
+	server := NewServer(
+		protocol.ProtocolOptions{ConnectionId: testLeiosFetchConnectionId()},
+		&cfg,
+	)
+	err := server.handleBlockRequest(
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 	)
-	require.Equal(t, uint(MessageTypeNoBlock), msgType)
+	require.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestHandleBlockRequest_NilConfig(t *testing.T) {
-	msgType := sendNotFoundTest(
-		t,
-		Config{},
+	server := NewServer(
+		protocol.ProtocolOptions{ConnectionId: testLeiosFetchConnectionId()},
+		nil,
+	)
+	err := server.handleBlockRequest(
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 	)
-	require.Equal(t, uint(MessageTypeNoBlock), msgType)
+	require.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestHandleBlockRequest_CallbackError(t *testing.T) {
@@ -247,7 +301,7 @@ func TestHandleBlockRequestNotFoundSendsMsgNoBlock(t *testing.T) {
 			return nil, ErrBlockNotFound
 		}),
 	)
-	msgType := sendNotFoundTest(
+	msgType, _ := sendNotFoundTest(
 		t,
 		cfg,
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
@@ -265,7 +319,7 @@ func TestHandleBlockRequestWrappedNotFoundSendsMsgNoBlock(t *testing.T) {
 			)
 		}),
 	)
-	msgType := sendNotFoundTest(
+	msgType, _ := sendNotFoundTest(
 		t,
 		cfg,
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
@@ -279,7 +333,7 @@ func TestHandleBlockTxsRequestNotFoundSendsMsgNoBlockTxs(t *testing.T) {
 			return nil, ErrBlockTxsNotFound
 		}),
 	)
-	msgType := sendNotFoundTest(
+	msgType, _ := sendNotFoundTest(
 		t,
 		cfg,
 		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
@@ -354,12 +408,14 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 
 func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
 	cfg := NewConfig()
-	msgType := sendNotFoundTest(
-		t,
-		cfg,
+	server := NewServer(
+		protocol.ProtocolOptions{ConnectionId: testLeiosFetchConnectionId()},
+		&cfg,
+	)
+	err := server.handleBlockTxsRequest(
 		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
 	)
-	assert.Equal(t, uint(MessageTypeNoBlockTxs), msgType)
+	require.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
@@ -398,8 +454,9 @@ func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 
 func TestHandleVotesRequest_NilCallback(t *testing.T) {
 	cfg := NewConfig()
-	msgType := sendNotFoundTest(t, cfg, NewMsgVotesRequest(nil))
+	msgType, responsePayload := sendNotFoundTest(t, cfg, NewMsgVotesRequest(nil))
 	require.Equal(t, uint(MessageTypeVotes), msgType)
+	require.Equal(t, []byte{0x82, MessageTypeVotes, 0x80}, responsePayload)
 }
 
 func TestHandleBlockRangeRequest_Callback(t *testing.T) {
@@ -436,12 +493,14 @@ func TestHandleBlockRangeRequest_Callback(t *testing.T) {
 
 func TestHandleBlockRangeRequest_NilCallback(t *testing.T) {
 	cfg := NewConfig()
-	msgType := sendNotFoundTest(
-		t,
-		cfg,
+	server := NewServer(
+		protocol.ProtocolOptions{ConnectionId: testLeiosFetchConnectionId()},
+		&cfg,
+	)
+	err := server.handleBlockRangeRequest(
 		NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{}),
 	)
-	require.Equal(t, uint(MessageTypeLastBlockAndTxsInRange), msgType)
+	require.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestServerMessageHandler_UnexpectedType(t *testing.T) {

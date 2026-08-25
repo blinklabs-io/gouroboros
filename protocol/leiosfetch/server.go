@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -102,10 +103,9 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRequestFunc == nil {
-		// Leios is optional and its server responder is registered for every
-		// node-to-node connection. An unconfigured responder declines the
-		// request without treating it as a bearer-level protocol error.
-		return s.SendMessage(NewMsgNoBlock())
+		return errors.New(
+			"received leios-fetch BlockRequest message but no callback function is defined",
+		)
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
@@ -152,7 +152,9 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockTxsRequestFunc == nil {
-		return s.SendMessage(NewMsgNoBlockTxs())
+		return errors.New(
+			"received leios-fetch BlockTxsRequest message but no callback function is defined",
+		)
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
@@ -200,7 +202,7 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.VotesRequestFunc == nil {
-		return s.SendMessage(NewMsgVotes(nil))
+		return s.SendMessage(NewMsgVotes([]cbor.RawMessage{}))
 	}
 	msgVotesRequest := msg.(*MsgVotesRequest)
 	resp, err := s.config.VotesRequestFunc(
@@ -230,7 +232,9 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRangeRequestFunc == nil {
-		return s.SendMessage(NewMsgLastBlockAndTxsInRange(nil, nil))
+		return errors.New(
+			"received leios-fetch BlockRangeRequest message but no callback function is defined",
+		)
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)
 	err := s.config.BlockRangeRequestFunc(

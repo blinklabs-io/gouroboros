@@ -31,9 +31,10 @@ var ErrRemotePeerSharingDisabled = errors.New(
 )
 
 // ErrLocalPeerSharingDisabled is retained for compatibility with callers that
-// classified the previous server-side behavior. The server now answers an
-// unexpected ShareRequest with an empty SharePeers message so it cannot tear
-// down the shared bearer.
+// classified the previous server-side behavior.
+//
+// Deprecated: the server now answers an unexpected ShareRequest with an empty
+// SharePeers message so it cannot tear down the shared bearer.
 var ErrLocalPeerSharingDisabled = errors.New(
 	"peer sharing: received ShareRequest but local node advertised NoPeerSharing during handshake",
 )

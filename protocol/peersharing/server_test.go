@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"log/slog"
 	"net"
 	"testing"
 	"time"
@@ -62,6 +63,7 @@ func sendPeerSharingRequest(t *testing.T, conn net.Conn, amount uint8) {
 
 func responsePeerCount(t *testing.T, segment *muxer.Segment) int {
 	t.Helper()
+	require.Equal(t, []byte{0x82, MessageTypeSharePeers, 0x80}, segment.Payload)
 	var values []cbor.RawMessage
 	_, err := cbor.Decode(segment.Payload, &values)
 	require.NoError(t, err)
@@ -72,7 +74,7 @@ func responsePeerCount(t *testing.T, segment *muxer.Segment) int {
 	return len(peers)
 }
 
-func testPeerSharingServer(t *testing.T, cfg *Config) net.Conn {
+func testPeerSharingServer(t *testing.T, cfg *Config) (net.Conn, *bytes.Buffer) {
 	t.Helper()
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
@@ -80,7 +82,19 @@ func testPeerSharingServer(t *testing.T, cfg *Config) net.Conn {
 	}
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
-	server := NewServer(protocol.ProtocolOptions{ConnectionId: connId, Muxer: m}, cfg)
+	errs := make(chan error, 1)
+	logs := &bytes.Buffer{}
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connId,
+			ErrorChan:    errs,
+			Logger: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{
+				Level: slog.LevelDebug,
+			})),
+			Muxer: m,
+		},
+		cfg,
+	)
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
@@ -89,7 +103,17 @@ func testPeerSharingServer(t *testing.T, cfg *Config) net.Conn {
 		connA.Close()
 		connB.Close()
 	})
-	return connB
+	t.Cleanup(func() {
+		require.Never(t, func() bool {
+			select {
+			case <-errs:
+				return true
+			default:
+				return false
+			}
+		}, 50*time.Millisecond, time.Millisecond)
+	})
+	return connB, logs
 }
 
 func TestServerDisabledRequestReturnsEmptyResponseAndRemainsUsable(t *testing.T) {
@@ -101,7 +125,7 @@ func TestServerDisabledRequestReturnsEmptyResponseAndRemainsUsable(t *testing.T)
 			return nil, nil
 		}),
 	)
-	connB := testPeerSharingServer(t, &cfg)
+	connB, _ := testPeerSharingServer(t, &cfg)
 
 	for range 2 {
 		sendPeerSharingRequest(t, connB, 5)
@@ -116,9 +140,21 @@ func TestServerDisabledRequestReturnsEmptyResponseAndRemainsUsable(t *testing.T)
 
 func TestServerUnconfiguredRequestReturnsEmptyResponse(t *testing.T) {
 	cfg := NewConfig()
-	connB := testPeerSharingServer(t, &cfg)
+	connB, _ := testPeerSharingServer(t, &cfg)
 	sendPeerSharingRequest(t, connB, 5)
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
 	segment := readPeerSharingSegment(t, connB)
 	require.Equal(t, 0, responsePeerCount(t, segment))
+}
+
+func TestServerDisabledRequestLogsNegotiationViolation(t *testing.T) {
+	cfg := NewConfig(WithLocalDisabled(true))
+	connB, logs := testPeerSharingServer(t, &cfg)
+	sendPeerSharingRequest(t, connB, 5)
+	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
+	_ = readPeerSharingSegment(t, connB)
+	require.Contains(t, logs.String(), "peer sharing request violates negotiated mode")
+	require.Contains(t, logs.String(), "local_disabled=true")
+	require.Contains(t, logs.String(), "protocol=peer-sharing")
+	require.Contains(t, logs.String(), "role=server")
 }

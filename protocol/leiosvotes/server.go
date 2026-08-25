@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -46,17 +47,11 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 func (s *Server) initProtocol() {
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {
-		// There is no empty-batch response in leios-votes. When no callback is
-		// configured, leave the request in Busy rather than timing out and
-		// tearing down the shared bearer. A configured responder retains the
-		// normal protocol timeout for callback and transport failures.
-		if s.config != nil && s.config.RequestNextFunc != nil {
-			timeout := DefaultTimeout
-			if s.config.Timeout != 0 {
-				timeout = s.config.Timeout
-			}
-			entry.Timeout = timeout
+		timeout := DefaultTimeout
+		if s.config != nil && s.config.Timeout != 0 {
+			timeout = s.config.Timeout
 		}
+		entry.Timeout = timeout
 		stateMap[StateBusy] = entry
 	}
 	protoConfig := protocol.ProtocolConfig{
@@ -119,10 +114,9 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 		)
 	}
 	if s.config == nil || s.config.RequestNextFunc == nil {
-		// Leios vote diffusion is optional and has no empty response message.
-		// Keep the request in Busy (with no timeout) so an unconfigured
-		// responder does not turn an optional request into a bearer error.
-		return nil
+		return errors.New(
+			"received leios-votes VotesRequestNext message but no callback function is defined",
+		)
 	}
 	votes, err := s.config.RequestNextFunc(
 		s.callbackContext,
