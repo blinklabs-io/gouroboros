@@ -22,6 +22,15 @@ human review; it does not get a shortcut to a product repo's `main`. When a
 release or re-release needs a source change (a Makefile, a workflow, a build
 tag), open a PR for it — do not hand a subagent a direct-push instruction.
 
+## Delegation does not lift a publication gate
+
+When delegated work is held for parent review, keep every named gate in force:
+no commit, push, issue or PR mutation, merge, tag, or release until the parent
+explicitly releases that action. Review feedback, requested test improvements,
+or a worker reporting completion authorizes only that requested work; it is not
+implicit approval to publish. The parent must inspect the shared-worktree diff
+and current remote state before issuing the publication instruction.
+
 ## Commits
 
 - [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for

@@ -41,6 +41,21 @@ Normalize semantic-major suffixes when mapping paths (`/v2` remains part of
 the module identity, not the checkout directory). Treat generated OpenAPI,
 UI, example, and Antithesis modules independently.
 
+## Dependency-update isolation
+
+Run graph inspection and consumer validation with `GOWORK=off` from the module
+being changed. Record `go list -m all` or `go mod graph` before and after the
+update so a transitive fixture, mock, or conformance-module change is visible
+instead of being attributed only to the direct dependency named in `go.mod`.
+
+When the updated graph changes behavior, use isolated worktrees or temporary
+modules to test the smallest useful matrix: old direct/old transitive, new
+direct/new transitive, and mixed pairs when module constraints allow them. A
+newer fixture may expose a defect that the older fixture accidentally hid. In
+that case, fix and release the owning rule, then consume released tags through
+the graph; do not restore green by pinning the stale fixture or by committing a
+diagnostic `replace`.
+
 Report missing or suspicious entries as a table with module, requiring file,
 expected source, current version, and recommended action. Do not silently add a
 fork, replacement, or submodule to make the graph appear complete.

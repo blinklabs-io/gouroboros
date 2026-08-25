@@ -21,10 +21,16 @@ normalization and reporting rules.
    module and report both paths.
 4. Check module identity, source URL, version, replacement direction, and
    whether a local replacement is active or commented out.
-5. Apply provenance policy: use canonical upstream repositories and modules.
+5. For a dependency update, inspect and test the complete selected module graph,
+   including transitive fixture and conformance modules. Use `GOWORK=off` in an
+   isolated worktree so the parent workspace cannot silently select a different
+   version. When a newly selected transitive version exposes a failure, isolate
+   it with the smallest useful old/new version matrix; do not pin an obsolete
+   fixture merely to recover a green result.
+6. Apply provenance policy: use canonical upstream repositories and modules.
    Blink Labs forks are emergency-only, requiring explicit approval, an issue,
    and an exit plan. Apollo is external upstream-only under normal conditions.
-6. Report a dependency graph and actionable follow-ups before editing. Do not
+7. Report a dependency graph and actionable follow-ups before editing. Do not
    run `go mod tidy`, rewrite module paths, or add submodules as a side effect
    of an audit unless the task explicitly includes that change.
 

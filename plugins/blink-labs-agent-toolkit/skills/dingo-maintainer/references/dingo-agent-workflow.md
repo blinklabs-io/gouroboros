@@ -16,6 +16,11 @@ checkout remains the source of truth for commands and behavior.
 - Start implementation or review work in a fresh worktree based on the
   intended remote base. Keep the main checkout, other worktrees, and existing
   `.claude/` or other agent state intact.
+- Recheck `origin/main`, the tracker, and overlapping pull requests after long
+  validation and immediately before publication. Unrelated main movement does
+  not invalidate a focused result, but a dependency change that touches the
+  same `go.mod` or `go.sum` requires a fresh graph selection, tidy, and focused
+  compatibility run on the new base.
 - Split unrelated fixes into separate, focused branches and PRs. Do not rewrite
   history to make the result look cleaner.
 - If a live node, devnet, or validation run is in progress, treat it as an
@@ -106,7 +111,12 @@ report as shared mutable state rather than a static input.
   preserve an incumbent peer after the selection code has filtered it out.
 - For memory reports, capture CPU/heap profiles and identify the retaining
   path before changing cache or CBOR behavior. Distinguish a bounded cache or
-  expected catch-up retention from an unbounded leak.
+  expected catch-up retention from an unbounded leak. When the fix replaces
+  retained decoded values with compact or lazily decoded data, measure the
+  adjacent recovery and lookup paths as well: a correct byte bound must not
+  turn repeated peer-controlled input into an unbounded decode or scan cost.
+  Keep a related CPU correction separately reviewable when it is not required
+  for the memory invariant itself.
 - For shutdown failures, trace the lifecycle context and reverse-order
   ownership of APIs, mempool, ledger/database, and storage. Reproduce with a
   focused test before changing timeouts or adding retries.

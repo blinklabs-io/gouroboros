@@ -133,6 +133,14 @@ Local Codex sessions show recurring work patterns that are worth preserving:
 
 - Review Go and generated OpenAPI changes in read-only issue-sized passes before
   editing, then validate nested modules before interpreting root lint results.
+- Validate a Go dependency update against the complete selected graph with
+  `GOWORK=off`, not only the direct module named by the change. If a transitive
+  fixture update changes conformance behavior, isolate old/new direct and
+  transitive pairs before assigning ownership; never pin a stale fixture solely
+  to make the consumer green.
+- Keep regression failures small enough to review. Aggregate counters, bytes,
+  or allocations and assert once after a large workload instead of emitting a
+  full value diff on every iteration of the fail-before run.
 - Use worktrees or isolated branches for parallel fixes and keep pre-existing
   `.claude/`, `CLAUDE.md`, and other agent state untouched.
 - Review Docker publish workflows as a complete pipeline: architecture image
@@ -198,6 +206,10 @@ Local Codex sessions show recurring work patterns that are worth preserving:
   in-flight waiter and panic cleanup, and benchmark worker error handling.
   Koios/account reviews must cover exact amount validation, duplicate rows,
   coverage errors, composition defaults, and first-failure cancellation.
+- After bounding retained memory through compact or lazy representation, review
+  the neighboring recovery path for repeated decode and scan cost. Memory and
+  CPU controls can be separate changes, but both costs must remain bounded and
+  their dependency explicit.
 - Treat host disk recovery as a reviewed artifact cleanup: measure before and
   after, select exact cache paths, and exclude symlinks, mountpoints, registered
   or dirty worktrees, live process paths, container mounts, and retained

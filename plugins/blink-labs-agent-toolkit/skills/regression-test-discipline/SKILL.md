@@ -54,6 +54,13 @@ behavior, document that separation, and leave shared fixtures unchanged. Then
 repeat the old-code run and reject the proof unless it reaches the intended
 assertion.
 
+Keep fail-before output bounded and diagnostic. For a cardinality, allocation,
+or retained-byte regression, aggregate the observed result and assert once
+after the workload. Do not place a large object equality or byte-slice assertion
+inside a long loop: the correct red run can otherwise emit megabytes of repeated
+diffs, obscure the first contract failure, and make useful baseline evidence
+hard to retain.
+
 ## The tautology trap
 
 A test that performs a sequence and then asserts that same sequence happened
