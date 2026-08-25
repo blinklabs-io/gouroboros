@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,57 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package shelley_test
+package allegra_test
 
 import (
 	"bytes"
-	"encoding/hex"
-	"math/big"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/data"
 )
 
-func TestShelleyTransactionInputToPlutusData(t *testing.T) {
-	testTxIdHex := "1639f61ed08f5e489dd64db20f86451a0db06e83d21ea39c73ea0a93b478a370"
-	testTxOutputIdx := 2
-	testInput := shelley.NewShelleyTransactionInput(
-		testTxIdHex,
-		testTxOutputIdx,
-	)
-	testTxId, err := hex.DecodeString(testTxIdHex)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
-	expectedData := data.NewConstr(
-		0,
-		data.NewByteString(testTxId),
-		data.NewInteger(big.NewInt(int64(testTxOutputIdx))),
-	)
-	tmpData := testInput.ToPlutusData()
-	if !reflect.DeepEqual(tmpData, expectedData) {
-		t.Fatalf(
-			"did not get expected PlutusData\n     got: %#v\n  wanted: %#v",
-			tmpData,
-			expectedData,
-		)
-	}
-}
-
-// TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes reproduces
-// https://github.com/blinklabs-io/gouroboros/issues/1990: a decoded
-// ShelleyTransactionBody carrying a protocol parameter update must
-// re-marshal to its preserved wire bytes instead of falling through to
-// the generic encoder, which would emit an explicit CBOR null for each
-// of the 15 unset ShelleyProtocolParameterUpdate fields.
-func TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
+// TestAllegraTransactionBody_MarshalCBOR_PreservesWireBytes reproduces
+// https://github.com/blinklabs-io/gouroboros/issues/1990 for Allegra: a
+// decoded AllegraTransactionBody carrying a protocol parameter update
+// must re-marshal to its preserved wire bytes instead of falling
+// through to the generic encoder, which would emit an explicit CBOR
+// null for each of the 15 unset ShelleyProtocolParameterUpdate fields.
+// It also rebuilds a transaction from the decoded body and a witness
+// set fixture whose generic encoding cannot reproduce its wire bytes
+// (see newIndefLengthWitnessSetFixture), the same pattern
+// AllegraBlock.Transactions() uses.
+func TestAllegraTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 	genesisHash := common.NewBlake2b224(bytes.Repeat([]byte{0xAB}, 28))
 	// Minimal wire-format body: a fee, a TTL, and a protocol param
 	// update proposal with only MinFeeA (key 0) populated, as a real
@@ -80,7 +55,7 @@ func TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 	wireBytes, err := cbor.Encode(rawBody)
 	require.NoError(t, err, "unexpected error encoding wire bytes")
 
-	body, err := shelley.NewShelleyTransactionBodyFromCbor(wireBytes)
+	body, err := allegra.NewAllegraTransactionBodyFromCbor(wireBytes)
 	require.NoError(t, err, "unexpected error decoding transaction body")
 	require.NotNil(t, body.Update, "expected a protocol param update")
 	require.Len(
@@ -105,12 +80,8 @@ func TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 	)
 
 	// Rebuilding a transaction from the decoded body and witness set --
-	// the same pattern ShelleyBlock.Transactions() uses -- must not
-	// inflate the encoded transaction size. The witness set fixture uses
-	// an indefinite-length VkeyWitnesses array, whose generic
-	// (re-)encoding as a Go slice can never reproduce the indefinite-
-	// length wire form, so this exercises
-	// ShelleyTransactionWitnessSet.MarshalCBOR as well as the body.
+	// the same pattern AllegraBlock.Transactions() uses -- must not
+	// inflate the encoded transaction size.
 	wsBytes, witnessSet := newIndefLengthWitnessSetFixture(t)
 
 	wireTxBytes, err := cbor.Encode(
@@ -118,7 +89,7 @@ func TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 	)
 	require.NoError(t, err, "unexpected error encoding wire transaction")
 
-	rebuilt := &shelley.ShelleyTransaction{
+	rebuilt := &allegra.AllegraTransaction{
 		Body:       *body,
 		WitnessSet: witnessSet,
 	}
@@ -132,12 +103,13 @@ func TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 }
 
 // newIndefLengthWitnessSetFixture builds wire bytes for a
-// ShelleyTransactionWitnessSet whose sole VkeyWitnesses entry is encoded
-// as an indefinite-length CBOR array, then decodes it. Re-encoding a
-// decoded []common.VkeyWitness generically always produces a
-// definite-length array, so this fixture's generic encoding necessarily
-// differs from its wire bytes -- making it load-bearing for verifying
-// that ShelleyTransactionWitnessSet.MarshalCBOR prefers preserved bytes.
+// shelley.ShelleyTransactionWitnessSet (shared by Allegra and Mary)
+// whose sole VkeyWitnesses entry is encoded as an indefinite-length
+// CBOR array, then decodes it. Re-encoding a decoded
+// []common.VkeyWitness generically always produces a definite-length
+// array, so this fixture's generic encoding necessarily differs from
+// its wire bytes -- making it load-bearing for verifying that
+// ShelleyTransactionWitnessSet.MarshalCBOR prefers preserved bytes.
 func newIndefLengthWitnessSetFixture(
 	t *testing.T,
 ) ([]byte, shelley.ShelleyTransactionWitnessSet) {
