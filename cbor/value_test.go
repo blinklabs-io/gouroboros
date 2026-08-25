@@ -21,11 +21,13 @@ import (
 	"io"
 	"math/big"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/test"
+	"github.com/stretchr/testify/require"
 )
 
 var testDefs = []struct {
@@ -187,6 +189,55 @@ func TestValueDecode(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestValueDecodeNestedContainersDoesNotCopySubtrees(t *testing.T) {
+	const (
+		depth         = 64
+		payloadLength = 64 * 1024
+		iterations    = 5
+	)
+	payload := make([]byte, payloadLength)
+	payloadSize := uint32(payloadLength)
+	cborData := make([]byte, 0, depth+5+payloadLength)
+	for range depth {
+		cborData = append(cborData, 0x81)
+	}
+	cborData = append(
+		cborData,
+		0x5a,
+		byte(payloadSize>>24),
+		byte(payloadSize>>16),
+		byte(payloadSize>>8),
+		byte(payloadSize),
+	)
+	cborData = append(cborData, payload...)
+
+	var warmup cbor.Value
+	_, err := cbor.Decode(cborData, &warmup)
+	require.NoError(t, err, "warm up nested value decoder")
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range iterations {
+		var value cbor.Value
+		decodedLength, err := cbor.Decode(cborData, &value)
+		require.NoError(t, err, "decode nested value")
+		require.Equal(t, len(cborData), decodedLength)
+	}
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	allocatedBytes := after.TotalAlloc - before.TotalAlloc
+	maxAllocatedBytes := uint64(len(cborData) * iterations * 12)
+	require.LessOrEqual(
+		t,
+		allocatedBytes,
+		maxAllocatedBytes,
+		"nested Value decoding allocated %d bytes, want at most %d",
+		allocatedBytes,
+		maxAllocatedBytes,
+	)
 }
 
 func TestValueDecodeMapWithUnhashableKeyIsWrapped(t *testing.T) {
