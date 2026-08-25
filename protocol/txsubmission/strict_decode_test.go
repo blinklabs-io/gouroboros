@@ -25,17 +25,22 @@ import (
 
 func TestTxIdRejectsWrongLength(t *testing.T) {
 	for _, size := range []int{31, 32, 33} {
-		t.Run(map[int]string{31: "short", 32: "exact", 33: "long"}[size], func(t *testing.T) {
-			wire, err := cbor.Encode([]any{uint16(6), bytes.Repeat([]byte{0xaa}, size)})
-			require.NoError(t, err)
+		t.Run(
+			map[int]string{31: "short", 32: "exact", 33: "long"}[size],
+			func(t *testing.T) {
+				wire, err := cbor.Encode(
+					[]any{uint16(6), bytes.Repeat([]byte{0xaa}, size)},
+				)
+				require.NoError(t, err)
 
-			var value TxId
-			_, err = cbor.Decode(wire, &value)
-			if size == 32 {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-			}
-		})
+				var value TxId
+				_, err = cbor.Decode(wire, &value)
+				if size == 32 {
+					assert.NoError(t, err)
+				} else {
+					assert.Error(t, err)
+				}
+			},
+		)
 	}
 }

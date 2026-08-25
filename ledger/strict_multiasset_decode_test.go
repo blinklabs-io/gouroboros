@@ -30,7 +30,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func encodeMultiAsset(t *testing.T, quantity *big.Int) map[common.Blake2b224]map[cbor.ByteString]*big.Int {
+func encodeMultiAsset(
+	t *testing.T,
+	quantity *big.Int,
+) map[common.Blake2b224]map[cbor.ByteString]*big.Int {
 	t.Helper()
 	return map[common.Blake2b224]map[cbor.ByteString]*big.Int{
 		{0x11}: {
