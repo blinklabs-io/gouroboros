@@ -156,6 +156,86 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		))
 	})
 
+	for _, major := range []uint{
+		common.ProtocolVersionPlomin,
+		common.ProtocolVersionVanRossem,
+	} {
+		t.Run(fmt.Sprintf("PV%d script credential", major), func(t *testing.T) {
+			// cardano-ledger applies the PV10/PV11 DRep requirement only to
+			// key-hash reward credentials.
+			rewardAddr, err := common.NewAddress(
+				"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+			)
+			require.NoError(t, err)
+			credential, ok := rewardAddr.StakeCredential()
+			require.True(t, ok)
+			require.Equal(
+				t,
+				uint(common.CredentialTypeScriptHash),
+				credential.CredType,
+			)
+
+			lookups := 0
+			state := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountCredentialBalance(credential, 1_000_000).
+				WithDRepDelegation(func(
+					common.Credential,
+				) (*common.Drep, error) {
+					lookups++
+					return nil, nil
+				}).
+				Build()
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxWithdrawals: map[*common.Address]uint64{
+						&rewardAddr: 1_000_000,
+					},
+				},
+				TxIsValid: true,
+			}
+			pp := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: major,
+				},
+			}
+
+			require.NoError(t, conway.UtxoValidateWithdrawals(
+				tx,
+				0,
+				state,
+				pp,
+			))
+			assert.Zero(t, lookups,
+				"script credentials must not enter the DRep lookup")
+		})
+	}
+
+	t.Run("PV11 unregistered script credential", func(t *testing.T) {
+		rewardAddr, err := common.NewAddress(
+			"stake17xt4n07cnlafzefqvne69mmxmnzu2t9gtd27jw9d9yvc7uscsd3d3",
+		)
+		require.NoError(t, err)
+		tx := &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					&rewardAddr: 1_000_000,
+				},
+			},
+			TxIsValid: true,
+		}
+		pp := &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionVanRossem,
+			},
+		}
+		state := mockledger.NewLedgerStateBuilder().Build()
+
+		err = conway.UtxoValidateWithdrawals(tx, 0, state, pp)
+		var target shelley.WithdrawalFromUnregisteredRewardAccountError
+		require.ErrorAs(t, err, &target)
+		assert.Equal(t, rewardAddr, target.RewardAddress)
+	})
+
 	t.Run("PV12 permits a partial withdrawal", func(t *testing.T) {
 		partialTx := *tx
 		partialTx.Body.TxWithdrawals = map[*common.Address]uint64{

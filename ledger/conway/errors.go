@@ -337,7 +337,7 @@ func (e InvalidDRepTypeError) Error() string {
 type WithdrawalFromUnregisteredRewardAccountError = shelley.WithdrawalFromUnregisteredRewardAccountError
 
 // WithdrawalNotDelegatedToDRepError indicates a PV10/PV11 reward withdrawal
-// whose stake credential has no governance vote delegation.
+// whose key-hash stake credential has no governance vote delegation.
 type WithdrawalNotDelegatedToDRepError struct {
 	RewardAddress common.Address
 }
