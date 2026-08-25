@@ -789,8 +789,18 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = DijkstraTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func validateDijkstraCertificateTypes(
@@ -835,6 +845,22 @@ func (b *DijkstraTransactionBody) Fee() *big.Int {
 
 func (b *DijkstraTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *DijkstraTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *DijkstraTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *DijkstraTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *DijkstraTransactionBody) ValidityIntervalStart() uint64 {
@@ -1034,8 +1060,18 @@ func (b *DijkstraSubTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*b = DijkstraSubTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func (b *DijkstraSubTransactionBody) Inputs() []common.TransactionInput {
@@ -1048,6 +1084,22 @@ func (b *DijkstraSubTransactionBody) Outputs() []common.TransactionOutput {
 
 func (b *DijkstraSubTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *DijkstraSubTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *DijkstraSubTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *DijkstraSubTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *DijkstraSubTransactionBody) ValidityIntervalStart() uint64 {
@@ -1313,6 +1365,10 @@ func (t DijkstraTransaction) Fee() *big.Int {
 
 func (t DijkstraTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t DijkstraTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t DijkstraTransaction) ValidityIntervalStart() uint64 {

@@ -601,8 +601,11 @@ func validityRangeInfo(
 ) (TimeRange, error) {
 	var ret TimeRange
 	startSlot := tx.ValidityIntervalStart()
-	endSlot := tx.TTL()
-	ret.lowerBoundPresent, ret.upperBoundPresent = validityBoundPresence(tx)
+	endSlot, upperBoundPresent := lcommon.TransactionValidityIntervalUpperBound(
+		tx,
+	)
+	ret.lowerBoundPresent = validityLowerBoundPresent(tx)
+	ret.upperBoundPresent = upperBoundPresent
 	if ret.lowerBoundPresent {
 		startTime, err := slotState.SlotToTime(startSlot)
 		if err != nil {
@@ -620,25 +623,23 @@ func validityRangeInfo(
 	return ret, nil
 }
 
-func validityBoundPresence(tx lcommon.Transaction) (bool, bool) {
+func validityLowerBoundPresent(tx lcommon.Transaction) bool {
 	startPresent := tx.ValidityIntervalStart() > 0
-	endPresent := tx.TTL() > 0
 	txCbor := tx.Cbor()
 	if len(txCbor) == 0 {
-		return startPresent, endPresent
+		return startPresent
 	}
 	var txFields []cbor.RawMessage
 	if _, err := cbor.Decode(txCbor, &txFields); err != nil ||
 		len(txFields) == 0 {
-		return startPresent, endPresent
+		return startPresent
 	}
 	var bodyFields map[uint]cbor.RawMessage
 	if _, err := cbor.Decode(txFields[0], &bodyFields); err != nil {
-		return startPresent, endPresent
+		return startPresent
 	}
 	_, startPresent = bodyFields[8]
-	_, endPresent = bodyFields[3]
-	return startPresent, endPresent
+	return startPresent
 }
 
 func withdrawalsInfo(

@@ -281,8 +281,18 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("required signers: %w", err)
 	}
 	*b = AlonzoTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b AlonzoTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func coalesceUntaggedTransactionInputs(
@@ -335,6 +345,22 @@ func (b *AlonzoTransactionBody) Fee() *big.Int {
 
 func (b *AlonzoTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *AlonzoTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *AlonzoTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *AlonzoTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *AlonzoTransactionBody) ValidityIntervalStart() uint64 {
@@ -917,6 +943,10 @@ func (t AlonzoTransaction) Fee() *big.Int {
 
 func (t AlonzoTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t AlonzoTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t AlonzoTransaction) ValidityIntervalStart() uint64 {

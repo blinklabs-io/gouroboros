@@ -2910,8 +2910,10 @@ func UtxoValidateNativeScripts(
 
 	// Get transaction validity interval
 	validityStart := tx.ValidityIntervalStart()
-	validityEnd := tx.TTL()
-	if validityEnd == 0 {
+	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
+		tx,
+	)
+	if !validityEndPresent {
 		validityEnd = ^uint64(0) // Max uint64 if not set
 	}
 

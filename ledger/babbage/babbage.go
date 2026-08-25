@@ -396,8 +396,18 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("reference inputs: %w", err)
 	}
 	*b = BabbageTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b BabbageTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func coalesceUntaggedTransactionInputs(
@@ -458,6 +468,24 @@ func (b *BabbageTransactionBody) Fee() *big.Int {
 
 func (b *BabbageTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *BabbageTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *BabbageTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.hash = nil
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *BabbageTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.hash = nil
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *BabbageTransactionBody) ValidityIntervalStart() uint64 {
@@ -1109,6 +1137,10 @@ func (t BabbageTransaction) Fee() *big.Int {
 
 func (t BabbageTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t BabbageTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t BabbageTransaction) ValidityIntervalStart() uint64 {

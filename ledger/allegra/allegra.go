@@ -230,15 +230,18 @@ func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*b = AllegraTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCbor(cborData)
 	return nil
 }
 
-func (b *AllegraTransactionBody) MarshalCBOR() ([]byte, error) {
+func (b AllegraTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return cbor.EncodeGeneric(b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func (b *AllegraTransactionBody) Inputs() []common.TransactionInput {
@@ -263,6 +266,22 @@ func (b *AllegraTransactionBody) Fee() *big.Int {
 
 func (b *AllegraTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *AllegraTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *AllegraTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *AllegraTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *AllegraTransactionBody) ValidityIntervalStart() uint64 {
@@ -418,6 +437,10 @@ func (t AllegraTransaction) Fee() *big.Int {
 
 func (t AllegraTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t AllegraTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t AllegraTransaction) ValidityIntervalStart() uint64 {
