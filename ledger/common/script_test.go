@@ -22,6 +22,9 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/plutigo/data"
+	"github.com/blinklabs-io/plutigo/lang"
+	"github.com/blinklabs-io/plutigo/syn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,6 +63,57 @@ func TestScriptRefDecodeEncode(t *testing.T) {
 			scriptRefCbor,
 			testCborHex,
 		)
+	}
+}
+
+func TestPlutusScriptWrapperTrailingBytes(t *testing.T) {
+	flatScript, err := syn.Encode(&syn.Program[syn.DeBruijn]{
+		Version: lang.LanguageVersionV3,
+		Term:    &syn.Error{},
+	})
+	require.NoError(t, err)
+	wrappedScript, err := cbor.Encode(flatScript)
+	require.NoError(t, err)
+	malformedScript := append(append([]byte(nil), wrappedScript...), 0)
+
+	context := &data.Constr{Tag: 0}
+	tests := []struct {
+		name       string
+		script     common.Script
+		wantReject bool
+	}{
+		{"PlutusV1 exact wrapper", common.PlutusV1Script(wrappedScript), false},
+		{"PlutusV2 exact wrapper", common.PlutusV2Script(wrappedScript), false},
+		{"PlutusV3 exact wrapper", common.PlutusV3Script(wrappedScript), false},
+		{"PlutusV4 exact wrapper", common.PlutusV4Script(wrappedScript), false},
+		{"PlutusV1", common.PlutusV1Script(malformedScript), false},
+		{"PlutusV2", common.PlutusV2Script(malformedScript), false},
+		{"PlutusV3", common.PlutusV3Script(malformedScript), true},
+		{"PlutusV4", common.PlutusV4Script(malformedScript), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			switch script := tt.script.(type) {
+			case common.PlutusV1Script:
+				_, err = script.Evaluate(context, context, context, common.ExUnits{}, nil)
+			case common.PlutusV2Script:
+				_, err = script.Evaluate(context, context, context, common.ExUnits{}, nil)
+			case common.PlutusV3Script:
+				_, err = script.Evaluate(context, common.ExUnits{}, nil)
+			case common.PlutusV4Script:
+				_, err = script.Evaluate(context, common.ExUnits{}, nil)
+			default:
+				t.Fatalf("unsupported script type %T", tt.script)
+			}
+			require.Error(t, err)
+			if tt.wantReject {
+				assert.Contains(t, err.Error(), "trailing bytes")
+			} else {
+				assert.NotContains(t, err.Error(), "trailing bytes")
+			}
+		})
 	}
 }
 
