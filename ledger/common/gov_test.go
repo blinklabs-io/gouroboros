@@ -16,6 +16,7 @@ package common
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"testing"
 
@@ -905,7 +906,7 @@ func TestGovActionIdToPlutusData(t *testing.T) {
 	pd := govActionId.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(0), constr.Tag)
+	assert.Equal(t, big.NewInt(0), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -925,7 +926,7 @@ func TestHardForkInitiationGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(1), constr.Tag)
+	assert.Equal(t, big.NewInt(1), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -943,7 +944,7 @@ func TestTreasuryWithdrawalGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(2), constr.Tag)
+	assert.Equal(t, big.NewInt(2), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -955,7 +956,7 @@ func TestNoConfidenceGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(3), constr.Tag)
+	assert.Equal(t, big.NewInt(3), constr.Tag)
 	assert.Len(t, constr.Fields, 1)
 }
 
@@ -983,11 +984,11 @@ func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
 
 		constr, ok := pd.(*data.Constr)
 		assert.True(t, ok)
-		assert.Equal(t, uint(4), constr.Tag)
+		assert.Equal(t, big.NewInt(4), constr.Tag)
 
 		innerConstr, ok := constr.Fields[3].(*data.Constr)
 		assert.True(t, ok)
-		assert.Equal(t, uint(0), innerConstr.Tag)
+		assert.Equal(t, big.NewInt(0), innerConstr.Tag)
 
 		// Verify default values were used
 		num, ok := innerConstr.Fields[0].(*data.Integer)
@@ -1018,7 +1019,7 @@ func TestNewConstitutionGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(5), constr.Tag)
+	assert.Equal(t, big.NewInt(5), constr.Tag)
 	assert.Len(t, constr.Fields, 2)
 }
 
@@ -1028,7 +1029,7 @@ func TestInfoGovActionToPlutusData(t *testing.T) {
 	pd := action.ToPlutusData()
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
-	assert.Equal(t, uint(6), constr.Tag)
+	assert.Equal(t, big.NewInt(6), constr.Tag)
 	assert.Len(t, constr.Fields, 0)
 }
 
