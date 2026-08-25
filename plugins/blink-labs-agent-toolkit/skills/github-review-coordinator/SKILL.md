@@ -96,6 +96,13 @@ uncertainty onto the pipeline and onto a finite quota, so the local check comes
 first — even when it is slower than a CI run, and especially when someone is
 waiting.
 
+When implementation is delegated to a lighter model, the implementer stops at a
+local candidate commit. A separate high-reasoning reviewer reads that exact diff,
+checks the governing specification or API contract, and validates the relevant
+production entry point before the first push. The implementer does not review its
+own candidate, and a later bot pass is not a substitute for this pre-push gate.
+Record the reviewed SHA; if the candidate changes, the review is stale.
+
 Batch what you can. Several verified fixes in one push consume one review pass;
 the same fixes pushed one at a time consume several, and each intermediate state
 draws findings on code you were about to change anyway.
@@ -231,6 +238,18 @@ gh api "repos/OWNER/REPO/pulls/N/reviews" \
 An empty result means no bot reviewed that head. A bot's *check* completing is
 also not a review — cubic's check can report success while posting nothing,
 either because it found nothing or because the allowance is gone.
+
+A CodeRabbit check that says incremental reviews are disabled is also a skip,
+not a clean review. After locally validating the new head, explicitly request a
+review (`@coderabbitai review` when that integration is configured), then verify
+that the resulting review record names the current head commit. Read the review
+body, inline comments, and plain PR comments; a green check alone does not show
+whether the bot confirmed the fix or posted another finding.
+
+For an addressed finding, reply with the fixing commit and validation, resolve
+the thread, and verify the bot's follow-up against the current head. A bot reply
+that explicitly confirms the finding is addressed plus a resolved thread is
+evidence; an outdated thread with no reply is not.
 
 When a bot did not run, say which one and that its pass is missing, then let
 local review stand in for it explicitly: name the packages tested, the linter

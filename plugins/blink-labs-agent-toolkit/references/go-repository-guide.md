@@ -21,6 +21,11 @@ Makefile; local guidance wins when it is more specific.
    rg --files repos/<repository> -g 'go.mod' -g '!**/.git/**'
    ```
 
+   In an isolated or `/tmp` worktree, also run `go env GOWORK GOMOD` before
+   validation. Go can inherit an unrelated workspace from a parent directory;
+   use `GOWORK=off` for an independent module that does not own a `go.work`, and
+   keep that choice consistent across tests, scanners, and Make targets.
+
 4. Check `repos/actions/repos-config.yaml` and the corresponding workflow
    files. The generated wrappers show the CI contract, while `actions` is the
    source of reusable workflow behavior.
@@ -34,6 +39,11 @@ Makefile; local guidance wins when it is more specific.
 Do not run `go mod tidy` from the workspace root or assume that a root-module
 test covers nested modules. A tidy operation can change dependency metadata;
 review `go.mod` and `go.sum` as part of the change.
+
+A workspace-membership error, read-only build cache, or sandbox-denied test
+socket is an environment failure, not a fail-before result. Correct the module
+selection or use exact writable run-owned caches, then rerun the intended gate
+before attributing the result to code.
 
 ## Review tooling common ground
 

@@ -13,7 +13,14 @@
 Guardrails:
 
 - Read the function body before claiming era delegation or a missing check.
+- For ledger intervals and thresholds, verify the equality case against the
+  specification and exercise the rule through the era's production validation
+  entry point. A helper-only test does not prove later rules remain reachable.
 - Hash preserved CBOR bytes, not a newly encoded approximation.
+- For an optional mini-protocol responder, preserve the protocol's state agency
+  while making disabled behavior non-fatal. Validate on a shared bearer with a
+  sibling protocol active and observe the real connection error channel; a
+  handler-only unit test cannot prove the bearer stays usable.
 - Treat `NOTE:` comments and reconciliation tables as load-bearing design
   decisions until verified against the specification.
 - Never add a local mock when the shared fixture library can own the case.

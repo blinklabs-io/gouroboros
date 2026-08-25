@@ -18,6 +18,27 @@ checkout remains the source of truth for commands and behavior.
   observation target. Do not stop, restart, reconfigure, or delete its data
   unless the task explicitly authorizes that intervention.
 
+## Coordinate a shared audit ledger
+
+When disclosure and the task scope authorize tracker writes, treat the audit
+report as shared mutable state rather than a static input.
+
+- Resolve the user-named canonical report at the start and again before
+  handoff. Another agent may create a consolidated report, rename the active
+  ledger, or revise severity while implementation is in progress.
+- If the workflow requires issue-before-work, make the successful issue write
+  the implementation gate. Assign the requested owner and mark the exact
+  finding row or section before editing source. Add the PR and head after they
+  exist.
+- Patch only the findings you own and re-read their surrounding text before
+  every update. Do not overwrite another agent's disposition, and do not commit
+  an otherwise local audit report unless the task explicitly asks for it.
+- Before handoff, reconcile the canonical report with live GitHub state:
+  issue assignment, PR head, required checks, bot review that actually ran,
+  unresolved findings, and human approval. If a later consolidation changes
+  severity, preserve the tracker and state the reclassification rather than
+  erasing the earlier work.
+
 ## Run validation reproducibly
 
 - Treat required checks as required. If a check cannot run, record the exact

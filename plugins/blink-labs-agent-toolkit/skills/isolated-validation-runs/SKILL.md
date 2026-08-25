@@ -22,6 +22,23 @@ the output.
 4. When finished, report where the worktree is rather than silently removing it
    if it still holds evidence the user may need.
 
+## Pin the intended Go workspace
+
+Before the first Go command in a worktree, run `go env GOWORK GOMOD`. Go finds a
+workspace by walking parent directories, so a worktree under `/tmp` can inherit
+an unrelated `/tmp/go.work` and fail before it analyzes the target module. That
+is an environment-selection failure, not a code failure.
+
+For a standalone module worktree that does not own a `go.work`, use
+`GOWORK=off` consistently for tests, scanners, and Make targets. Preserve a
+repository-owned workspace when the project intentionally declares one. Do not
+run focused tests under one module graph and the full suite under another.
+
+If the sandbox makes the normal Go caches read-only, use exact, run-owned
+`GOCACHE` and `GOMODCACHE` paths or the approved execution path. Record the
+environment correction and rerun the intended gate before classifying the
+result.
+
 ## Isolate the resources
 
 Every long-running check needs its own:

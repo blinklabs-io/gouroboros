@@ -79,15 +79,19 @@ Name the paths you are committing. Never `git add -A`, `git add .`, or
 yours to commit — a submodule pointer moved by a checkout, another session's
 edits, local agent state — and a blanket add sweeps them in silently. Run
 `git status --short` first, add the files the change actually touches, and check
-`git diff --cached --stat` before committing.
+`git diff --cached --stat` before committing. Then read
+`git diff --cached --name-status` and account for every staged path; a plausible
+stat total does not reveal an accidentally staged tracking report or gitlink.
 
 ## Never commit
 
-Plan files, planning notes, scratch analyses, session handoffs, agent state,
-credentials, tokens, private configuration, build artifacts, and generated files
-the project does not track. Plans are local, ephemeral working artifacts. When
-work needs durable tracking, open or update an issue with scope, acceptance
-criteria, and context.
+Plan files, planning notes, local audit or tracking reports, scratch analyses,
+session handoffs, agent state, credentials, tokens, private configuration, build
+artifacts, and generated files the project does not track. Plans and local
+tracking files are ephemeral working artifacts even when they contain public
+issue or pull-request links. When work needs durable tracking, open or update an
+issue with scope, acceptance criteria, and context. Commit one of these files
+only when the user explicitly identifies it as a deliverable.
 
 ## Write multiline GitHub bodies through files
 

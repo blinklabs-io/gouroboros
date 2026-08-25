@@ -38,6 +38,22 @@ not run — repair the revert so the package compiles, and do it again. The
 temptation to accept "it errored, close enough" is exactly where a useless test
 gets committed.
 
+### Fail-before must reach the intended assertion
+
+A fixture-selection failure, setup error, timeout, network error, or empty test
+filter is not fail-before evidence. Confirm the test reaches the action under
+review and fails at an observable contract mismatch whose message names the
+defect. Record that assertion and message; otherwise a later setup repair can
+silently turn the supposed regression into a test of something else.
+
+Do not respond to a sparse fixture corpus by scanning an ever-larger prefix in
+the regression itself. Prefer a bounded deterministic fixture plus a narrow
+injection seam. Preserve the identity and traversal fields that drive the
+production path, substitute only the minimal payload needed to expose the
+behavior, document that separation, and leave shared fixtures unchanged. Then
+repeat the old-code run and reject the proof unless it reaches the intended
+assertion.
+
 ## The tautology trap
 
 A test that performs a sequence and then asserts that same sequence happened
@@ -163,6 +179,17 @@ mistaken for indirection with no purpose.
 For every rule a fix adds, test both that the valid input is accepted and that
 the invalid one is refused. A fix that only proves the happy path still works
 has not been tested at all.
+
+For an interval, threshold, or era boundary, derive equality behavior from the
+governing specification or reference implementation before writing the test.
+Exercise the value below, exactly at, and above the boundary; otherwise a test
+can permanently encode the same guessed comparator as the bug.
+
+Also drive the rule through the production entry point that sequences validators,
+not only through its helper. In Go error aggregation, appending a `nil` error and
+then branching on `len(errs)` can call `errors.Join(errs...)`, return `nil`, and
+skip every validator that follows. Add a control proving that a later validator
+still runs when the new rule succeeds, and append only non-nil errors.
 
 ## A test that measures duration is measuring the machine
 

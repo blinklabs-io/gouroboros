@@ -16,6 +16,10 @@ the rendered context string from a run.
    that head, over an ad-hoc query.
    Skip draft PRs. If Dependabot is excluded, skip PRs authored by
    `dependabot[bot]`.
+1a. For a change implemented by a lighter delegated worker, stop at a local
+    candidate commit and have a separate high-reasoning reviewer inspect and
+    validate that exact SHA before its first push. Any edit after review makes
+    the approval stale and requires another local review.
 2. Run or wait for CodeRabbit and Cubic; address actionable findings. If
    CodeRabbit is rate-limited, document it and use a completed Cubic review as
    sufficient bot review. Cubic's monthly allowance also runs out, so check the
