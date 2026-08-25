@@ -860,6 +860,15 @@ func ExtractAndSetTransactionCbor(
 	expectedBodies int,
 	expectedWitnesses int,
 ) error {
+	if expectedBodies != expectedWitnesses {
+		return fmt.Errorf(
+			"transaction body and witness set counts do not match: "+
+				"body count %d, witness set count %d",
+			expectedBodies,
+			expectedWitnesses,
+		)
+	}
+
 	blockCount, blockHeaderSize, blockIndefinite := cborArrayInfo(cborData)
 	if blockCount < 0 && !blockIndefinite {
 		return errors.New("failed to decode block array: invalid CBOR array")

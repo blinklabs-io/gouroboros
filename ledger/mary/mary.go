@@ -147,6 +147,9 @@ func (b *MaryBlock) Era() common.Era {
 }
 
 func (b *MaryBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	ret := make([]common.Transaction, len(b.TransactionBodies))
 	// #nosec G115
 	for idx := range b.TransactionBodies {

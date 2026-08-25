@@ -214,6 +214,9 @@ func (b *ConwayBlock) Era() common.Era {
 }
 
 func (b *ConwayBlock) Transactions() []common.Transaction {
+	if len(b.TransactionBodies) != len(b.TransactionWitnessSets) {
+		return []common.Transaction{}
+	}
 	invalidTxMap := make(map[uint]bool, len(b.InvalidTransactions))
 	for _, invalidTxIdx := range b.InvalidTransactions {
 		invalidTxMap[invalidTxIdx] = true
