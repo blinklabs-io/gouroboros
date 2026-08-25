@@ -69,6 +69,21 @@ type ScriptRef struct {
 	Script Script
 }
 
+func decodePlutusScript(script []byte, rejectTrailing bool) ([]byte, error) {
+	var innerScript []byte
+	bytesRead, err := cbor.Decode(script, &innerScript)
+	if err != nil {
+		return nil, err
+	}
+	if rejectTrailing && bytesRead != len(script) {
+		return nil, fmt.Errorf(
+			"trailing bytes after CBOR script wrapper: %d",
+			len(script)-bytesRead,
+		)
+	}
+	return innerScript, nil
+}
+
 func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
 	// Unwrap outer CBOR tag
 	var tmpTag cbor.Tag
@@ -182,8 +197,8 @@ func (s PlutusV1Script) Evaluate(
 		}
 	}
 	// Decode raw script as bytestring to get actual script bytes
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), false)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
@@ -264,8 +279,8 @@ func (s PlutusV2Script) Evaluate(
 		}
 	}
 	// Decode raw script as bytestring to get actual script bytes
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), false)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
@@ -342,8 +357,8 @@ func (s PlutusV3Script) Evaluate(
 		}
 	}
 	// Decode raw script as bytestring to get actual script bytes
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), true)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
@@ -411,8 +426,8 @@ func (s PlutusV4Script) Evaluate(
 			Mem: budget.Memory,
 		}
 	}
-	var innerScript []byte
-	if _, err = cbor.Decode([]byte(s), &innerScript); err != nil {
+	innerScript, err := decodePlutusScript([]byte(s), true)
+	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	program, err = syn.Decode[syn.DeBruijn]([]byte(innerScript))
