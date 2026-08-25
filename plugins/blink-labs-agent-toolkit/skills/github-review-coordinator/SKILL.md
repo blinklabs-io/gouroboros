@@ -201,6 +201,13 @@ comments on the author's last reply instead, because a head-relative cutoff
 silently drops feedback that predates a push. The ad-hoc sweep that dropped the
 SHA was re-implementing that script, worse, next to it.
 
+The scanner is triage, not the final readiness gate. Its REST check-run and
+review inputs do not include every external status context, GraphQL review
+thread, or bot-specific completion signal. Before calling a pull request ready,
+also verify the full status rollup, zero unresolved review threads, and an
+actual current-head bot result as described in
+[the review loop reference](references/review-loop.md).
+
 ### A push can land while the pull request keeps the old head
 
 `git push` updates the ref and GitHub advances the pull request's head as a

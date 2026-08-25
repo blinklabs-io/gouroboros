@@ -36,6 +36,36 @@ the rendered context string from a run.
 7. An authorized human may dismiss another human review when appropriate;
    record why on the pull request and retain appropriate human coverage.
 
+## Strict readiness verification
+
+`scripts/scan-prs.py` is the discovery pass, not a complete merge gate. Before
+labeling a pull request ready for human review or merge:
+
+1. Re-read the live head SHA. Run `gh pr checks` or inspect
+   `statusCheckRollup` for that SHA, because the REST check-runs endpoint used by
+   the scanner can miss external status contexts such as DCO. Require the full
+   rollup to be complete and passing; a skipped check is not proof that its
+   underlying review ran.
+2. Query GraphQL `reviewThreads` and require zero unresolved threads. Paginate
+   when `pageInfo.hasNextPage` is true. REST review submissions, inline
+   comments, and issue comments are separate surfaces and none substitutes for
+   thread resolution.
+3. Inspect the bot result, not only its check conclusion. CodeRabbit can report
+   a green check while rate-limited or while incremental review is disabled;
+   Cubic can skip without reviewing. CodeRabbit may publish its verdict in an
+   issue comment, while Cubic may use a check and inline comments without a
+   REST review submission. Require an explicit completed result attached to or
+   naming the live head. When the result names a commit range, require that range
+   to end at the live head. An updated comment timestamp alone does not make an
+   old verdict current.
+4. Interpret mergeability precisely: `dirty` means a merge conflict, `blocked`
+   usually means branch-protection or review requirements remain, and `unknown`
+   means GitHub has not finished computing the state and must be rechecked.
+   Confirm the boolean `mergeable` value when the API supplies it.
+
+If CodeRabbit is rate-limited, a genuinely completed current-head Cubic review
+is sufficient bot coverage. A skipped or quota-exhausted Cubic check is not.
+
 ## Posting the review
 
 When the user authorizes a review write, try the requested operation before

@@ -9,6 +9,10 @@ checkout remains the source of truth for commands and behavior.
 
 - Check current `origin/main`, open issues, and open pull requests before
   proposing a fix. Reuse an existing issue or PR when the work overlaps.
+- Put a gouroboros or plutigo defect in the owning library, release it there,
+  then adopt it in a separate dependency-only Dingo pull request. Do not ship a
+  Dingo-side compatibility workaround for an upstream protocol defect or mix
+  the dependency bump with unrelated Dingo code.
 - Start implementation or review work in a fresh worktree based on the
   intended remote base. Keep the main checkout, other worktrees, and existing
   `.claude/` or other agent state intact.
@@ -70,6 +74,17 @@ report as shared mutable state rather than a static input.
 - Prefer the narrowest deterministic test first, then the repository-required
   race, lint, boundary, SQL/docs parity, conformance, and devnet checks. Keep
   baseline failures separate from regressions introduced by the branch.
+- Before dispatching a cross-platform workflow, read the workflow files on the
+  current base and confirm the selected workflow still has `workflow_dispatch`.
+  Dispatch the exact pull-request branch, then verify the run's head SHA and
+  rendered matrix job names. A retired workflow filename can resolve to stale
+  metadata and fail with a misleading dispatch error; a hand-composed check
+  context can differ from the matrix context GitHub actually reports.
+- Do not assert strict ordering between two calls to the host wall clock.
+  Windows can return equal timestamps for fast adjacent operations. For an
+  ordering invariant, inject the clock and use an explicit channel or hook to
+  prove the first event happened before the second; do not add a sleep to make
+  the clock advance.
 - Include a bounded benchmark smoke gate when performance fixtures are in
   scope. If one benchmark aborts its package, enumerate the declared benchmark
   functions and run exact-name cases individually so later cases are not

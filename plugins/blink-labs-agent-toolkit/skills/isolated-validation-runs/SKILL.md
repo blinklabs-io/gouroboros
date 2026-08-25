@@ -35,9 +35,15 @@ repository-owned workspace when the project intentionally declares one. Do not
 run focused tests under one module graph and the full suite under another.
 
 If the sandbox makes the normal Go caches read-only, use exact, run-owned
-`GOCACHE` and `GOMODCACHE` paths or the approved execution path. Record the
-environment correction and rerun the intended gate before classifying the
-result.
+`GOCACHE`, `GOMODCACHE`, and `GOLANGCI_LINT_CACHE` paths or the approved
+execution path. Create every override directory before starting; Go does not
+create a missing `GOTMPDIR`. Record the environment correction and rerun the
+intended gate before classifying the result.
+
+VCS stamping can fail in a linked worktree even when the code compiles. Using
+`-buildvcs=false` is acceptable for a local compile diagnostic, but it is not
+equivalent to the repository's normal build or CI gate. Report it as the
+diagnostic it is and still run the native target when available.
 
 ## Isolate the resources
 

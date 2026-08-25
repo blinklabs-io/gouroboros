@@ -67,6 +67,22 @@ The merge gate remains human judgment: current-head human approval, required
 checks passing, and no actionable configured bot findings. A clean scan does
 not replace a human review.
 
+The scanner is intentionally a first pass. Before calling a pull request ready:
+
+- Run `gh pr checks <number> --repo <owner>/<repo>` or inspect the current
+  head's `statusCheckRollup`. The scanner reads REST check runs, which can omit
+  external status contexts such as DCO, and it does not treat a skipped check as
+  proof that the underlying review happened.
+- Query GraphQL `reviewThreads`, paginate past 100 threads when necessary, and
+  require zero unresolved threads. Review submissions, inline comments, and
+  ordinary PR comments are separate feedback surfaces.
+- Read the bot result. A green CodeRabbit check can mean rate-limited or
+  incremental review disabled, and a Cubic check can be skipped. Confirm an
+  explicit completed result attached to or naming the live head SHA. If it
+  names a commit range, that range must end at the live head.
+- Treat `mergeable_state=dirty` as a conflict. `blocked` normally means an
+  unmet protection or review gate, while `unknown` must be rechecked.
+
 ## Posting an authorized review
 
 The scanner is read-only, but an explicitly authorized review action should be
@@ -88,33 +104,16 @@ the review record, state, body, reviewer, and current head SHA through GitHub.
 
 ## Description hygiene
 
-Keep the author-written description factual and scoped to the change. A useful
-shape is:
+Keep the author-written description factual and scoped to the current code or
+its related issue: the defect or requirement, the code change, and the resulting
+behavior. Include a validation fact only when it materially changes review risk.
+Use an empty body when the title, diff, and linked issue already provide that
+context; do not add template sections as filler.
 
-```markdown
-## Problem
-
-<observable problem>
-
-## Changes
-
-- <code or documentation change>
-
-## Checks
-
-- `<command>`
-
-## Summary by Cubic
-
-<optional normalized bot summary>
-
-## Summary by CodeRabbit
-
-<optional normalized bot summary>
-```
-
-Bot summaries may be restored when they improve handoff, but copy only their
-verified factual content. Convert them to ordinary Markdown and remove raw HTML,
-review buttons, hidden bot state, prompts, run IDs, stale commit metadata, and
-duplicate release-note wrappers. Keep code-specific findings in inline review
+Omit release chronology, branch timing, session history, signing choices, bot
+status, rollout sequencing, and future follow-up prose. Existing useful Cubic or
+CodeRabbit description sections may remain; do not remove them merely because a
+bot wrote them. When copying or editing a bot summary, retain only verified code
+facts in plain Markdown and remove raw HTML, buttons, hidden state, prompts, run
+IDs, and stale commit metadata. Keep code-specific findings in inline review
 comments rather than moving them into the description.
