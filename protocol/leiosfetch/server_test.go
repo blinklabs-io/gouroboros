@@ -75,6 +75,132 @@ func writeLeiosFetchTestSegment(
 	require.NoError(t, err)
 }
 
+func TestUnconfiguredRequestsRemainPendingAndPreserveSharedBearer(t *testing.T) {
+	tests := []struct {
+		name    string
+		request protocol.Message
+	}{
+		{
+			name: "block",
+			request: NewMsgBlockRequest(
+				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
+			),
+		},
+		{
+			name: "block transactions",
+			request: NewMsgBlockTxsRequest(
+				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
+				nil,
+			),
+		},
+		{
+			name: "block range",
+			request: NewMsgBlockRangeRequest(
+				pcommon.NewPoint(12345, []byte{0x01, 0x02}),
+				pcommon.NewPoint(23456, []byte{0x03, 0x04}),
+			),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			connId := testLeiosFetchConnectionId()
+			connA, connB := net.Pipe()
+			m := muxer.New(connA)
+			protocolErrors := make(chan error, 1)
+			leiosServer := NewServer(
+				protocol.ProtocolOptions{
+					ConnectionId: connId,
+					ErrorChan:    protocolErrors,
+					Muxer:        m,
+				},
+				nil,
+			)
+			peerSharingCfg := peersharing.NewConfig(
+				peersharing.WithShareRequestFunc(
+					func(
+						peersharing.CallbackContext,
+						int,
+					) ([]peersharing.PeerAddress, error) {
+						return []peersharing.PeerAddress{}, nil
+					},
+				),
+			)
+			peerSharingServer := peersharing.NewServer(
+				protocol.ProtocolOptions{
+					ConnectionId: connId,
+					ErrorChan:    protocolErrors,
+					Muxer:        m,
+				},
+				&peerSharingCfg,
+			)
+			leiosServer.Start()
+			peerSharingServer.Start()
+			m.Start()
+			t.Cleanup(func() {
+				leiosServer.Stop()
+				peerSharingServer.Stop()
+				m.Stop()
+				_ = connA.Close()
+				_ = connB.Close()
+			})
+
+			requestData, err := cbor.Encode(test.request)
+			require.NoError(t, err)
+			writeLeiosFetchTestSegment(
+				t,
+				connB,
+				muxer.NewSegment(ProtocolId, requestData, false),
+			)
+			require.Never(t, func() bool {
+				select {
+				case <-protocolErrors:
+					return true
+				default:
+					return false
+				}
+			}, 20*time.Millisecond, time.Millisecond,
+				"unconfigured request reported a protocol error",
+			)
+			require.Eventually(t, func() bool {
+				return !leiosServer.ProtocolInstance().
+					IsInTerminalOrIdleState()
+			}, time.Second, time.Millisecond,
+				"request did not enter its server-agency state",
+			)
+
+			peerRequestData, err := cbor.Encode(
+				peersharing.NewMsgShareRequest(1),
+			)
+			require.NoError(t, err)
+			writeLeiosFetchTestSegment(
+				t,
+				connB,
+				muxer.NewSegment(
+					peersharing.ProtocolId,
+					peerRequestData,
+					false,
+				),
+			)
+			require.NoError(
+				t,
+				connB.SetReadDeadline(time.Now().Add(time.Second)),
+			)
+			segment, err := readLeiosFetchTestSegment(t, connB)
+			require.NoError(t, err)
+			require.Equal(
+				t,
+				uint16(peersharing.ProtocolId),
+				segment.GetProtocolId(),
+			)
+			require.Equal(
+				t,
+				[]byte{0x82, peersharing.MessageTypeSharePeers, 0x80},
+				segment.Payload,
+			)
+		})
+	}
+}
+
 // sendNotFoundTest drives a real server over a muxer, sends the given request
 // twice, and returns the message type of the server's response segments. The
 // second exchange proves that the fallback returns the protocol to Idle and
@@ -230,7 +356,7 @@ func TestHandleBlockRequest_NilCallback(t *testing.T) {
 	err := server.handleBlockRequest(
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 	)
-	require.ErrorContains(t, err, "no callback function is defined")
+	require.NoError(t, err)
 }
 
 func TestHandleBlockRequest_NilConfig(t *testing.T) {
@@ -241,7 +367,7 @@ func TestHandleBlockRequest_NilConfig(t *testing.T) {
 	err := server.handleBlockRequest(
 		NewMsgBlockRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02})),
 	)
-	require.ErrorContains(t, err, "no callback function is defined")
+	require.NoError(t, err)
 }
 
 func TestHandleBlockRequest_CallbackError(t *testing.T) {
@@ -415,7 +541,7 @@ func TestHandleBlockTxsRequest_NilCallback(t *testing.T) {
 	err := server.handleBlockTxsRequest(
 		NewMsgBlockTxsRequest(pcommon.NewPoint(12345, []byte{0x01, 0x02}), nil),
 	)
-	require.ErrorContains(t, err, "no callback function is defined")
+	require.NoError(t, err)
 }
 
 func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
@@ -500,7 +626,7 @@ func TestHandleBlockRangeRequest_NilCallback(t *testing.T) {
 	err := server.handleBlockRangeRequest(
 		NewMsgBlockRangeRequest(pcommon.Point{}, pcommon.Point{}),
 	)
-	require.ErrorContains(t, err, "no callback function is defined")
+	require.NoError(t, err)
 }
 
 func TestServerMessageHandler_UnexpectedType(t *testing.T) {

@@ -190,11 +190,14 @@ whole node-to-node connection.
 
 Leios fetch is optional, but not every request has a safe empty response. An
 unconfigured `VotesRequestFunc` returns `Votes` with an empty CBOR array,
-returning the protocol to `Idle` without a connection-level error. The block,
-block-transactions, and block-range requests require their callbacks: their
-absence replies are either placeholder wire IDs or ambiguous with a real
-response. Errors from configured callbacks and transport failures are still
-propagated.
+returning the protocol to `Idle` without a connection-level error. When a
+block, block-transactions, or block-range callback is unconfigured, the server
+enters the corresponding server-agency state and leaves the request pending.
+It sends no response because the available absence replies are either
+placeholder wire IDs or ambiguous with a real response. The requester cannot
+start another Leios fetch exchange, but other mini-protocols on the bearer
+remain usable. Errors from configured callbacks and transport failures are
+still propagated.
 
 ## Notes
 
