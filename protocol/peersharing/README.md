@@ -59,9 +59,11 @@ be overridden per connection via `peersharing.WithTimeout`.
 
 PeerSharing is gated by the handshake's `PeerSharing` mode field. Each side
 advertises one of the modes below. The protocol channel is multiplexed onto the
-connection for any version 11+ regardless of the advertised modes, but
-gouroboros refuses to send or honour `ShareRequest` messages when either side
-opted out.
+connection for any version 11+ regardless of the advertised modes. The client
+refuses to send `ShareRequest` when the remote opted out. If the local side
+opted out but still receives an invalid request, the server returns an empty
+`SharePeers` array (`[1, []]`) so the request does not close the shared
+connection.
 
 ### Mode values per version
 
@@ -78,7 +80,7 @@ disables peer sharing is `NoPeerSharing`.
 | Local advertised | Remote advertised | Client may send `ShareRequest`? | Server honours incoming `ShareRequest`? |
 |---|---|---|---|
 | any | NoPeerSharing | no — `ErrRemotePeerSharingDisabled` | yes (if local advertised active) |
-| NoPeerSharing | active | no — would be a self-protocol violation; client should not be calling `GetPeers` | no — `ErrLocalPeerSharingDisabled` |
+| NoPeerSharing | active | no — would be a self-protocol violation; client should not be calling `GetPeers` | empty `SharePeers` response |
 | active | active | yes | yes |
 
 Operators flip the local advertisement with `ouroboros.WithPeerSharing(true)`
@@ -172,10 +174,11 @@ oConn, err := ouroboros.New(
 ```
 
 When the local node advertises `NoPeerSharing` (the default,
-`WithPeerSharing(false)`), incoming `ShareRequest` messages are refused with
-`ErrLocalPeerSharingDisabled`, which surfaces as a protocol error and closes
-the connection. A spec-compliant peer would not send `ShareRequest` in that
-case.
+`WithPeerSharing(false)`), an unexpected incoming `ShareRequest` receives an
+empty `SharePeers` array (`[1, []]`). A spec-compliant peer would not send the
+request, but declining it at the mini-protocol boundary keeps an invalid
+optional request from closing the shared connection. The same empty response
+is used when no `ShareRequestFunc` is configured.
 
 ## Peer Address Format
 

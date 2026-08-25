@@ -44,6 +44,14 @@ Busy --Vote, tokens = 1--> Idle
 Idle --Done--> Done
 ```
 
+## Optional server responder
+
+Leios votes has no state-machine-valid empty batch response. Configure
+`RequestNextFunc` before accepting vote requests; an unconfigured responder
+returns a protocol error rather than leaving the shared bearer permanently
+stalled in `Busy`. The client and server retain the normal `Busy` timeout for
+callback and transport failures.
+
 ## States
 
 | State | ID | Agency | Description |

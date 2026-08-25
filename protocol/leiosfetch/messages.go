@@ -315,6 +315,9 @@ type MsgVotes struct {
 }
 
 func NewMsgVotes(votes []cbor.RawMessage) *MsgVotes {
+	if votes == nil {
+		votes = []cbor.RawMessage{}
+	}
 	m := &MsgVotes{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeVotes,

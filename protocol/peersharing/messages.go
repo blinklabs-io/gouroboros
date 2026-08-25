@@ -78,6 +78,9 @@ type MsgSharePeers struct {
 }
 
 func NewMsgSharePeers(peerAddresses []PeerAddress) *MsgSharePeers {
+	if peerAddresses == nil {
+		peerAddresses = []PeerAddress{}
+	}
 	m := &MsgSharePeers{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeSharePeers,

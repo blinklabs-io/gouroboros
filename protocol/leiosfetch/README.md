@@ -186,6 +186,16 @@ whole node-to-node connection.
   error to the caller, who can distinguish "not available" from a real protocol
   error with `errors.Is`.
 
+## Optional server responders
+
+Leios fetch is optional, but not every request has a safe empty response. An
+unconfigured `VotesRequestFunc` returns `Votes` with an empty CBOR array,
+returning the protocol to `Idle` without a connection-level error. The block,
+block-transactions, and block-range requests require their callbacks: their
+absence replies are either placeholder wire IDs or ambiguous with a real
+response. Errors from configured callbacks and transport failures are still
+propagated.
+
 ## Notes
 
 - Part of the experimental Leios protocol suite

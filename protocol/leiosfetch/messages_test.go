@@ -501,3 +501,9 @@ func TestMsgVotesEmpty(t *testing.T) {
 	decodedMsg := decoded.(*MsgVotes)
 	assert.Equal(t, 0, len(decodedMsg.VotesRaw))
 }
+
+func TestMsgVotesNilUsesEmptyArray(t *testing.T) {
+	encoded, err := cbor.Encode(NewMsgVotes(nil))
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x82, MessageTypeVotes, 0x80}, encoded)
+}

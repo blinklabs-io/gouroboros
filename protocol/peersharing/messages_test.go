@@ -152,6 +152,12 @@ func TestEncode(t *testing.T) {
 	}
 }
 
+func TestMsgSharePeersNilUsesEmptyArray(t *testing.T) {
+	encoded, err := cbor.Encode(NewMsgSharePeers(nil))
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x82, MessageTypeSharePeers, 0x80}, encoded)
+}
+
 func TestNewMsgFromCborUnknownType(t *testing.T) {
 	msg, err := NewMsgFromCbor(999, []byte{0x80})
 	require.Error(t, err)

@@ -16,12 +16,55 @@ package leiosvotes
 
 import (
 	"errors"
+	"net"
 	"testing"
+	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUnconfiguredRequestReportsBearerError(t *testing.T) {
+	connA, connB := net.Pipe()
+	m := muxer.New(connA)
+	errs := make(chan error, 1)
+	server := NewServer(
+		protocol.ProtocolOptions{
+			ConnectionId: connection.ConnectionId{
+				LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+				RemoteAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
+			},
+			ErrorChan: errs,
+			Muxer:     m,
+		},
+		&Config{Timeout: time.Millisecond},
+	)
+	server.Start()
+	m.Start()
+	t.Cleanup(func() {
+		server.Stop()
+		m.Stop()
+		connA.Close()
+		connB.Close()
+	})
+
+	data, err := cbor.Encode(NewMsgVotesRequestNext(1))
+	require.NoError(t, err)
+	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, false))
+
+	require.Eventually(t, func() bool {
+		select {
+		case err := <-errs:
+			return assert.ErrorContains(t, err, "no callback function is defined")
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+}
 
 func TestNewServer(t *testing.T) {
 	cfg := NewConfig()
@@ -66,8 +109,7 @@ func TestHandleRequestNextNilCallback(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	assert.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestHandleRequestNextNilConfig(t *testing.T) {
@@ -79,8 +121,7 @@ func TestHandleRequestNextNilConfig(t *testing.T) {
 
 	err := server.handleRequestNext(NewMsgVotesRequestNext(1))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no callback function is defined")
+	assert.ErrorContains(t, err, "no callback function is defined")
 }
 
 func TestHandleRequestNextInvalidCount(t *testing.T) {

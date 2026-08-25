@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -201,9 +202,7 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.VotesRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch VotesRequest message but no callback function is defined",
-		)
+		return s.SendMessage(NewMsgVotes([]cbor.RawMessage{}))
 	}
 	msgVotesRequest := msg.(*MsgVotesRequest)
 	resp, err := s.config.VotesRequestFunc(
