@@ -829,7 +829,7 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		Pledge        uint64
 		Cost          uint64
 		Margin        GenesisRat
-		RewardAccount AddrKeyHash
+		RewardAccount rewardAccountCBOR
 		PoolOwners    []AddrKeyHash
 		Relays        []PoolRelay
 		PoolMetadata  *PoolMetadata
@@ -843,7 +843,7 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		Pledge        uint64
 		Cost          uint64
 		Margin        GenesisRat
-		RewardAccount AddrKeyHash
+		RewardAccount rewardAccountCBOR
 		PoolOwners    []AddrKeyHash
 		Relays        []PoolRelay
 		PoolMetadata  *PoolMetadata
@@ -866,7 +866,7 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount
+		c.RewardAccount = tmp.RewardAccount.credential
 		c.PoolOwners = tmp.PoolOwners
 		c.Relays = tmp.Relays
 		c.PoolMetadata = tmp.PoolMetadata
@@ -882,7 +882,7 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 		c.Pledge = tmp.Pledge
 		c.Cost = tmp.Cost
 		c.Margin = tmp.Margin
-		c.RewardAccount = tmp.RewardAccount
+		c.RewardAccount = tmp.RewardAccount.credential
 		c.PoolOwners = tmp.PoolOwners
 		c.Relays = tmp.Relays
 		c.PoolMetadata = tmp.PoolMetadata

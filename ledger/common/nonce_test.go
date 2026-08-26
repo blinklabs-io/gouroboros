@@ -33,7 +33,10 @@ func TestNonceUnmarshalCBOR(t *testing.T) {
 		},
 		{
 			name: "NonceTypeNonce",
-			data: []byte{0x82, 0x01, 0x42, 0x01, 0x02},
+			data: append(
+				[]byte{0x82, 0x01, 0x58, 0x20},
+				make([]byte, common.Blake2b256Size)...,
+			),
 		},
 		{
 			name:        "UnsupportedNonceType",

@@ -318,25 +318,34 @@ func pruneZeroAssets[T int64 | uint64 | *big.Int](
 
 func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 	var decoded map[Blake2b224]map[cbor.ByteString]T
-	m.duplicateMapKeys = false
-	if _, err := cbor.Decode(data, &decoded); err == nil {
-		m.data = pruneZeroAssets(decoded)
-		return nil
-	} else if !cbor.IsDuplicateMapKeyError(err) {
-		return err
+	duplicateMapKeys := false
+	if _, err := cbor.Decode(data, &decoded); err != nil {
+		if !cbor.IsDuplicateMapKeyError(err) {
+			return err
+		}
+		// Pre-Conway (protocol version < 9) cardano-ledger decodes value/mint
+		// maps with Map.fromList, accepting duplicate PolicyID / AssetName keys
+		// and keeping the last one. Such transactions exist on canonical
+		// pre-Conway chains, so keep lenient last-wins decoding while recording
+		// that Conway+ era decoders must reject this value.
+		duplicateMapKeys = true
+		decoded = nil
+		if _, err := cbor.DecodeLenient(data, &decoded); err != nil {
+			return err
+		}
 	}
-
-	// Pre-Conway (protocol version < 9) cardano-ledger decodes value/mint maps
-	// with Map.fromList, accepting duplicate PolicyID / AssetName keys and
-	// keeping the last one. Such transactions exist on canonical pre-Conway
-	// chains, so keep lenient last-wins decoding while recording that Conway+
-	// era decoders must reject this value.
-	m.duplicateMapKeys = true
-	decoded = nil
-	if _, err := cbor.DecodeLenient(data, &decoded); err != nil {
-		return err
+	for _, assets := range decoded {
+		for name := range assets {
+			if len(name.Bytes()) > 32 {
+				return fmt.Errorf(
+					"invalid asset name length: expected at most 32 bytes, got %d",
+					len(name.Bytes()),
+				)
+			}
+		}
 	}
 	m.data = pruneZeroAssets(decoded)
+	m.duplicateMapKeys = duplicateMapKeys
 	return nil
 }
 
@@ -349,6 +358,48 @@ func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 func (m *MultiAsset[T]) CheckForDuplicateKeys() error {
 	if m != nil && m.duplicateMapKeys {
 		return errors.New("duplicate map key in multiasset")
+	}
+	return nil
+}
+
+// ValidateOutputQuantities checks that retained output quantities are positive
+// and fit the unsigned 64-bit ledger domain. Zero entries are removed while
+// decoding to match cardano-ledger.
+func (m *MultiAsset[T]) ValidateOutputQuantities() error {
+	if m == nil {
+		return nil
+	}
+	for _, assets := range m.data {
+		for _, amount := range assets {
+			quantity := amountToBigInt(amount)
+			if quantity.Sign() <= 0 || !quantity.IsUint64() {
+				return fmt.Errorf(
+					"output asset quantity is outside uint64: %s",
+					quantity,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateMintQuantities checks that retained mint quantities fit the signed
+// 64-bit ledger domain. Zero entries are removed while decoding to match
+// cardano-ledger.
+func (m *MultiAsset[T]) ValidateMintQuantities() error {
+	if m == nil {
+		return nil
+	}
+	for _, assets := range m.data {
+		for _, amount := range assets {
+			quantity := amountToBigInt(amount)
+			if quantity.Sign() == 0 || !quantity.IsInt64() {
+				return fmt.Errorf(
+					"mint asset quantity is outside nonzero int64: %s",
+					quantity,
+				)
+			}
+		}
 	}
 	return nil
 }

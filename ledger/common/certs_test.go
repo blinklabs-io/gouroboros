@@ -320,6 +320,67 @@ func TestPoolRegistrationCertificateLeiosKey(t *testing.T) {
 	})
 }
 
+func TestPoolRegistrationCertificateRewardAccountDecode(t *testing.T) {
+	credential := make([]byte, Blake2b224Size)
+	for idx := range credential {
+		credential[idx] = byte(idx + 1)
+	}
+	tests := []struct {
+		name          string
+		rewardAccount []byte
+		wantErr       string
+	}{
+		{
+			name:          "short",
+			rewardAccount: bytes.Repeat([]byte{0x03}, Blake2b224Size-1),
+			wantErr:       "invalid reward account length",
+		},
+		{
+			name:          "legacy credential",
+			rewardAccount: credential,
+		},
+		{
+			name: "reward address",
+			rewardAccount: append(
+				[]byte{0xe1},
+				credential...,
+			),
+		},
+		{
+			name:          "long",
+			rewardAccount: bytes.Repeat([]byte{0x03}, Blake2b224Size+2),
+			wantErr:       "invalid reward account length",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := cbor.Encode([]any{
+				uint(CertificateTypePoolRegistration),
+				NewBlake2b224(bytes.Repeat([]byte{0x01}, Blake2b224Size)),
+				NewBlake2b256(bytes.Repeat([]byte{0x02}, Blake2b256Size)),
+				uint64(1_000_000),
+				uint64(340_000_000),
+				NewGenesisRat(1, 20),
+				test.rewardAccount,
+				[]AddrKeyHash{},
+				[]PoolRelay{},
+				nil,
+			})
+			require.NoError(t, err)
+
+			var decoded PoolRegistrationCertificate
+			_, err = cbor.Decode(encoded, &decoded)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, AddrKeyHash(credential), decoded.RewardAccount)
+			assert.Equal(t, encoded, decoded.Cbor())
+		})
+	}
+}
+
 func TestPoolRelayCBORRoundTrip(t *testing.T) {
 	port := uint32(3001)
 	ipv4 := net.IPv4(10, 0, 0, 1).To4()

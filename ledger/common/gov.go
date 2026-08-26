@@ -186,18 +186,25 @@ type Voter struct {
 }
 
 func (v *Voter) UnmarshalCBOR(cborData []byte) error {
+	if v == nil {
+		return errors.New("nil Voter receiver")
+	}
 	if len(cborData) == 1 && (cborData[0] == 0xf6 || cborData[0] == 0xf7) {
 		return errors.New("voter cannot be CBOR null or undefined")
 	}
-	type tVoter Voter
-	var tmp tVoter
-	if _, err := cbor.Decode(cborData, &tmp); err != nil {
-		return err
+	var decoded struct {
+		cbor.StructAsArray
+		Type uint8
+		Hash Blake2b224
 	}
-	if tmp.Type > VoterTypeStakingPoolKeyHash {
-		return fmt.Errorf("invalid voter type: %d", tmp.Type)
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return fmt.Errorf("decode voter: %w", err)
 	}
-	*v = Voter(tmp)
+	if decoded.Type > VoterTypeStakingPoolKeyHash {
+		return fmt.Errorf("invalid voter type: %d", decoded.Type)
+	}
+	v.Type = decoded.Type
+	copy(v.Hash[:], decoded.Hash[:])
 	return nil
 }
 
