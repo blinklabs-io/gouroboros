@@ -15,6 +15,7 @@
 package alonzo_test
 
 import (
+	"encoding/json"
 	"math/big"
 	"reflect"
 	"strings"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/plutigo/lang"
 )
 
 const alonzoGenesisConfig = `
@@ -430,4 +432,293 @@ func TestGenesisFromJson(t *testing.T) {
 			expectedGenesisObj,
 		)
 	}
+}
+
+func TestGenesisMapCostModelPreservesLegacyMainnetNames(t *testing.T) {
+	genesis, err := alonzo.NewAlonzoGenesisFromReader(
+		strings.NewReader(alonzoGenesisConfig),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	model := genesis.CostModels["PlutusV1"]
+	if len(model) != 166 {
+		t.Fatalf(
+			"legacy PlutusV1 cost model length = %d, want 166",
+			len(model),
+		)
+	}
+	for _, tc := range []struct {
+		name  string
+		index int
+		want  int64
+	}{
+		{name: "blake2b intercept", index: 14, want: 2477736},
+		{name: "blake2b slope", index: 15, want: 29175},
+		{name: "blake2b memory", index: 16, want: 4},
+		{name: "verifySignature intercept", index: 163, want: 3345831},
+		{name: "verifySignature slope", index: 164, want: 1},
+		{name: "verifySignature memory", index: 165, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := model[tc.index]; got != tc.want {
+				t.Fatalf("cost model[%d] = %d, want %d", tc.index, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGenesisMapCostModelsPreserveLegacyParameterTables(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		version     lang.LanguageVersion
+		wantLength  int
+		legacyStart int
+	}{
+		{
+			name:        "PlutusV1",
+			version:     lang.LanguageVersionV1,
+			wantLength:  328,
+			legacyStart: 319,
+		},
+		{
+			name:        "PlutusV2",
+			version:     lang.LanguageVersionV2,
+			wantLength:  328,
+			legacyStart: 319,
+		},
+		{
+			name:        "PlutusV3",
+			version:     lang.LanguageVersionV3,
+			wantLength:  346,
+			legacyStart: 337,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			paramNames := legacyCostModelParamNamesForTest(
+				lang.GetParamNamesForVersion(tc.version),
+			)
+			params := make(map[string]int64, len(paramNames))
+			want := make([]int64, len(paramNames))
+			for i, name := range paramNames {
+				want[i] = int64(i + 1)
+				params[name] = want[i]
+			}
+			// These zero-based boundary indices come from the exact upstream
+			// legacy tables at aee28e0467be0561de5c2f097f639914d8d7a294.
+			// Fixed sentinels keep this oracle independent of the helper's
+			// production-shaped 9-to-5 rewrite.
+			boundary := []struct {
+				name string
+				want int64
+			}{
+				{name: "valueData-cpu-arguments", want: 10_001},
+				{name: "valueData-memory-arguments", want: 10_002},
+				{
+					name: "unValueData-cpu-arguments-intercept",
+					want: 10_003,
+				},
+				{name: "unValueData-cpu-arguments-slope", want: 10_004},
+				{name: "unValueData-memory-arguments", want: 10_005},
+				{
+					name: "scaleValue-cpu-arguments-intercept",
+					want: 10_006,
+				},
+			}
+			for i, item := range boundary {
+				params[item.name] = item.want
+				want[tc.legacyStart+i] = item.want
+			}
+			data, err := json.Marshal(map[string]any{tc.name: params})
+			if err != nil {
+				t.Fatalf("marshal legacy cost model: %v", err)
+			}
+			var models alonzo.AlonzoGenesisCostModels
+			if err := json.Unmarshal(data, &models); err != nil {
+				t.Fatalf("unmarshal legacy cost model: %v", err)
+			}
+			got := models[tc.name]
+			if len(got) != tc.wantLength {
+				t.Fatalf(
+					"legacy cost model length = %d, want %d",
+					len(got),
+					tc.wantLength,
+				)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("legacy cost model values = %v, want %v", got, want)
+			}
+			for i, item := range boundary {
+				index := tc.legacyStart + i
+				if got[index] != item.want {
+					t.Fatalf(
+						"legacy cost model[%d] = %d, want %d for %s",
+						index,
+						got[index],
+						item.want,
+						item.name,
+					)
+				}
+			}
+		})
+	}
+}
+
+func TestGenesisMapCostModelsPreferCanonicalNames(t *testing.T) {
+	paramNames := lang.GetParamNamesForVersion(lang.LanguageVersionV1)
+	if len(paramNames) != 332 ||
+		paramNames[14] != "blake2b_256-cpu-arguments-intercept" {
+		t.Skip("Plutigo release exposes the legacy parameter table")
+	}
+	params := make(map[string]int64, len(paramNames)+11)
+	for i, name := range paramNames {
+		params[name] = int64(i + 1)
+	}
+	aliases := []struct {
+		canonical string
+		legacy    string
+		index     int
+		want      int64
+	}{
+		{
+			canonical: "blake2b_256-cpu-arguments-intercept",
+			legacy:    "blake2b-cpu-arguments-intercept",
+			index:     14,
+			want:      20_001,
+		},
+		{
+			canonical: "blake2b_256-cpu-arguments-slope",
+			legacy:    "blake2b-cpu-arguments-slope",
+			index:     15,
+			want:      20_002,
+		},
+		{
+			canonical: "blake2b_256-memory-arguments",
+			legacy:    "blake2b-memory-arguments",
+			index:     16,
+			want:      20_003,
+		},
+		{
+			canonical: "verifyEd25519Signature-cpu-arguments-intercept",
+			legacy:    "verifySignature-cpu-arguments-intercept",
+			index:     163,
+			want:      20_004,
+		},
+		{
+			canonical: "verifyEd25519Signature-cpu-arguments-slope",
+			legacy:    "verifySignature-cpu-arguments-slope",
+			index:     164,
+			want:      20_005,
+		},
+		{
+			canonical: "verifyEd25519Signature-memory-arguments",
+			legacy:    "verifySignature-memory-arguments",
+			index:     165,
+			want:      20_006,
+		},
+	}
+	for _, item := range aliases {
+		params[item.canonical] = item.want
+		params[item.legacy] = -item.want
+	}
+	// The exact canonical table at
+	// 3109dc1e6501ecbbed0b7ae27361c255d7a16173 uses nine Value entries.
+	// Supplying all five legacy names as well must not select their ordering.
+	for i, name := range []string{
+		"valueData-cpu-arguments",
+		"valueData-memory-arguments",
+		"unValueData-cpu-arguments-intercept",
+		"unValueData-cpu-arguments-slope",
+		"unValueData-memory-arguments",
+	} {
+		params[name] = -int64(30_001 + i)
+	}
+	data, err := json.Marshal(map[string]any{"PlutusV1": params})
+	if err != nil {
+		t.Fatalf("marshal mixed cost model: %v", err)
+	}
+	var models alonzo.AlonzoGenesisCostModels
+	if err := json.Unmarshal(data, &models); err != nil {
+		t.Fatalf("unmarshal mixed cost model: %v", err)
+	}
+	model := models["PlutusV1"]
+	if len(model) != 332 {
+		t.Fatalf("canonical cost model length = %d, want 332", len(model))
+	}
+	for _, item := range aliases {
+		if model[item.index] != item.want {
+			t.Fatalf(
+				"canonical cost model[%d] = %d, want %d for %s",
+				item.index,
+				model[item.index],
+				item.want,
+				item.canonical,
+			)
+		}
+	}
+	for i := 0; i < 9; i++ {
+		index := 319 + i
+		want := int64(index + 1)
+		if model[index] != want {
+			t.Fatalf(
+				"canonical Value cost model[%d] = %d, want %d",
+				index,
+				model[index],
+				want,
+			)
+		}
+	}
+	if got, want := model[328], int64(329); got != want {
+		t.Fatalf(
+			"first parameter after canonical Value span = %d, want %d",
+			got,
+			want,
+		)
+	}
+}
+
+func TestGenesisMapCostModelsAllowShorterLegacyModels(t *testing.T) {
+	const data = `{"PlutusV1":{"addInteger-cpu-arguments-intercept":123}}`
+	var models alonzo.AlonzoGenesisCostModels
+	if err := json.Unmarshal([]byte(data), &models); err != nil {
+		t.Fatalf("unmarshal short legacy cost model: %v", err)
+	}
+	want := []int64{123}
+	if got := models["PlutusV1"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("short legacy cost model = %v, want %v", got, want)
+	}
+}
+
+func legacyCostModelParamNamesForTest(paramNames []string) []string {
+	ret := make([]string, 0, len(paramNames))
+	for i := 0; i < len(paramNames); i++ {
+		switch paramNames[i] {
+		case "blake2b_256-cpu-arguments-intercept":
+			ret = append(ret, "blake2b-cpu-arguments-intercept")
+		case "blake2b_256-cpu-arguments-slope":
+			ret = append(ret, "blake2b-cpu-arguments-slope")
+		case "blake2b_256-memory-arguments":
+			ret = append(ret, "blake2b-memory-arguments")
+		case "verifyEd25519Signature-cpu-arguments-intercept":
+			ret = append(ret, "verifySignature-cpu-arguments-intercept")
+		case "verifyEd25519Signature-cpu-arguments-slope":
+			ret = append(ret, "verifySignature-cpu-arguments-slope")
+		case "verifyEd25519Signature-memory-arguments":
+			ret = append(ret, "verifySignature-memory-arguments")
+		case "valueData-cpu-arguments-intercept":
+			ret = append(ret,
+				"valueData-cpu-arguments",
+				"valueData-memory-arguments",
+				"unValueData-cpu-arguments-intercept",
+				"unValueData-cpu-arguments-slope",
+				"unValueData-memory-arguments",
+			)
+			// The canonical table replaces the five legacy entries above with
+			// nine entries ending at unValueData-memory-arguments-slope.
+			i += 8
+		default:
+			ret = append(ret, paramNames[i])
+		}
+	}
+	return ret
 }
