@@ -24,6 +24,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/lang"
+	"github.com/stretchr/testify/require"
 )
 
 const alonzoGenesisConfig = `
@@ -438,16 +439,9 @@ func TestGenesisMapCostModelPreservesLegacyMainnetNames(t *testing.T) {
 	genesis, err := alonzo.NewAlonzoGenesisFromReader(
 		strings.NewReader(alonzoGenesisConfig),
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
+	require.NoError(t, err)
 	model := genesis.CostModels["PlutusV1"]
-	if len(model) != 166 {
-		t.Fatalf(
-			"legacy PlutusV1 cost model length = %d, want 166",
-			len(model),
-		)
-	}
+	require.Len(t, model, 166, "legacy PlutusV1 cost model")
 	for _, tc := range []struct {
 		name  string
 		index int
@@ -461,9 +455,13 @@ func TestGenesisMapCostModelPreservesLegacyMainnetNames(t *testing.T) {
 		{name: "verifySignature memory", index: 165, want: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := model[tc.index]; got != tc.want {
-				t.Fatalf("cost model[%d] = %d, want %d", tc.index, got, tc.want)
-			}
+			require.Equal(
+				t,
+				tc.want,
+				model[tc.index],
+				"cost model[%d]",
+				tc.index,
+			)
 		})
 	}
 }
