@@ -1576,8 +1576,10 @@ func UtxoValidateNativeScripts(
 		keyHashes[common.Blake2b224Hash(bw.PublicKey)] = true
 	}
 	validityStart := tx.ValidityIntervalStart()
-	validityEnd := tx.TTL()
-	if validityEnd == 0 {
+	validityEnd, validityEndPresent := common.TransactionValidityIntervalUpperBound(
+		tx,
+	)
+	if !validityEndPresent {
 		validityEnd = ^uint64(0)
 	}
 	guardCredentials := nativeScriptGuardCredentials(tx)

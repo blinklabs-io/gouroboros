@@ -667,8 +667,18 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		}
 	}
 	*b = ConwayTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
+}
+
+func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
+	if b.Cbor() != nil {
+		return b.Cbor(), nil
+	}
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func checkMultiAssetDuplicateKeys[T int64 | uint64 | *big.Int](
@@ -702,6 +712,22 @@ func (b *ConwayTransactionBody) Fee() *big.Int {
 
 func (b *ConwayTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *ConwayTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *ConwayTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *ConwayTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *ConwayTransactionBody) ValidityIntervalStart() uint64 {
@@ -946,6 +972,10 @@ func (t ConwayTransaction) Fee() *big.Int {
 
 func (t ConwayTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t ConwayTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t ConwayTransaction) ValidityIntervalStart() uint64 {

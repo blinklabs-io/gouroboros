@@ -137,6 +137,14 @@ type TransactionBody interface {
 }
 ```
 
+`TTL()` is retained for compatibility, but its zero value cannot distinguish an
+absent upper validity bound from an explicitly encoded bound of zero. Consensus
+consumers use `common.TransactionValidityIntervalUpperBound`, which detects the
+additive `TransactionWithValidityIntervalUpperBound` capability and returns
+both the value and its presence. Allegra through Dijkstra transaction bodies
+record that presence during decode; their `SetValidityIntervalUpperBound` and
+`ClearValidityIntervalUpperBound` methods preserve it for constructed bodies.
+
 ### Era Hierarchy
 
 Post-Byron eras build on their predecessors and may delegate individual

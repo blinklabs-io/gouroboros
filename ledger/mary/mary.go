@@ -237,15 +237,18 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*b = MaryTransactionBody(tmp)
+	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
+		return err
+	}
 	b.SetCborReference(cborData)
 	return nil
 }
 
-func (b *MaryTransactionBody) MarshalCBOR() ([]byte, error) {
+func (b MaryTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return cbor.EncodeGeneric(b)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b)
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
@@ -270,6 +273,22 @@ func (b *MaryTransactionBody) Fee() *big.Int {
 
 func (b *MaryTransactionBody) TTL() uint64 {
 	return b.Ttl
+}
+
+func (b *MaryTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
+	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
+}
+
+func (b *MaryTransactionBody) SetValidityIntervalUpperBound(
+	upperBound uint64,
+) {
+	b.Ttl = upperBound
+	b.SetValidityIntervalUpperBoundPresence(true)
+}
+
+func (b *MaryTransactionBody) ClearValidityIntervalUpperBound() {
+	b.Ttl = 0
+	b.SetValidityIntervalUpperBoundPresence(false)
 }
 
 func (b *MaryTransactionBody) ValidityIntervalStart() uint64 {
@@ -446,6 +465,10 @@ func (t MaryTransaction) Fee() *big.Int {
 
 func (t MaryTransaction) TTL() uint64 {
 	return t.Body.TTL()
+}
+
+func (t MaryTransaction) ValidityIntervalUpperBound() (uint64, bool) {
+	return t.Body.ValidityIntervalUpperBound()
 }
 
 func (t MaryTransaction) ValidityIntervalStart() uint64 {

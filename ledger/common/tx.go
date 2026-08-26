@@ -70,6 +70,30 @@ type TransactionBody interface {
 	Utxorpc() (*utxorpc.Tx, error)
 }
 
+// TransactionWithValidityIntervalUpperBound is implemented by transactions
+// and transaction bodies that can distinguish an absent upper validity bound
+// from an explicitly encoded bound of zero.
+//
+// TTL predates optional validity intervals and cannot represent that
+// distinction by itself. Consumers should use
+// TransactionValidityIntervalUpperBound when presence affects validation.
+type TransactionWithValidityIntervalUpperBound interface {
+	ValidityIntervalUpperBound() (uint64, bool)
+}
+
+// TransactionValidityIntervalUpperBound returns the upper validity bound and
+// whether it is present. Implementations that do not expose presence retain the
+// legacy behavior where a non-zero TTL is treated as present.
+func TransactionValidityIntervalUpperBound(
+	tx TransactionBody,
+) (uint64, bool) {
+	if txWithUpperBound, ok := tx.(TransactionWithValidityIntervalUpperBound); ok {
+		return txWithUpperBound.ValidityIntervalUpperBound()
+	}
+	upperBound := tx.TTL()
+	return upperBound, upperBound != 0
+}
+
 type TransactionInput interface {
 	Id() Blake2b256
 	Index() uint32
@@ -156,7 +180,73 @@ type Utxo struct {
 // and storing/retrieving the original CBOR
 type TransactionBodyBase struct {
 	cbor.DecodeStoreCbor
-	hash *Blake2b256
+	hash                              *Blake2b256
+	validityIntervalUpperBoundPresent bool
+}
+
+// SetValidityIntervalUpperBoundPresence records whether transaction-body key 3
+// is present. Era-specific transaction body decoders use this to preserve the
+// distinction between an absent upper bound and an explicit zero. Calling it
+// for a programmatically constructed body invalidates any stored CBOR.
+func (b *TransactionBodyBase) SetValidityIntervalUpperBoundPresence(
+	present bool,
+) {
+	b.validityIntervalUpperBoundPresent = present
+	b.hash = nil
+	b.SetCbor(nil)
+}
+
+// ValidityIntervalUpperBoundPresent reports whether transaction-body key 3 is
+// present.
+func (b *TransactionBodyBase) ValidityIntervalUpperBoundPresent() bool {
+	return b.validityIntervalUpperBoundPresent
+}
+
+// DecodeValidityIntervalUpperBoundPresence records the presence of
+// transaction-body key 3 from decoded CBOR. It must be called by era-specific
+// body decoders after their typed decode succeeds.
+func (b *TransactionBodyBase) DecodeValidityIntervalUpperBoundPresence(
+	cborData []byte,
+	upperBound uint64,
+) error {
+	if upperBound != 0 {
+		b.validityIntervalUpperBoundPresent = true
+		return nil
+	}
+	var bodyFields map[uint]cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
+		return err
+	}
+	_, present := bodyFields[3]
+	b.validityIntervalUpperBoundPresent = present
+	return nil
+}
+
+// EncodeTransactionBodyWithValidityIntervalUpperBound encodes a constructed
+// transaction body while retaining an explicitly present zero upper bound.
+// Non-zero and absent bounds retain the normal generic transaction-body
+// encoding.
+func EncodeTransactionBodyWithValidityIntervalUpperBound(
+	body TransactionBody,
+) ([]byte, error) {
+	cborData, err := cbor.EncodeGeneric(body)
+	if err != nil {
+		return nil, err
+	}
+	upperBound, present := TransactionValidityIntervalUpperBound(body)
+	if !present || upperBound != 0 {
+		return cborData, nil
+	}
+	bodyFields := make(map[uint]cbor.RawMessage)
+	if _, err := cbor.Decode(cborData, &bodyFields); err != nil {
+		return nil, err
+	}
+	encodedUpperBound, err := cbor.Encode(upperBound)
+	if err != nil {
+		return nil, err
+	}
+	bodyFields[3] = encodedUpperBound
+	return cbor.Encode(bodyFields)
 }
 
 func (b *TransactionBodyBase) Id() Blake2b256 {
