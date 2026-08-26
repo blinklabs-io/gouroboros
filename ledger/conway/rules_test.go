@@ -3345,6 +3345,70 @@ func TestUtxoValidateDelegation_RejectsDuplicateStakeRegistrations(
 		})
 	}
 
+	t.Run(
+		"duplicate registration precedes delegatee validation",
+		func(t *testing.T) {
+			unregisteredPoolKeyHash := common.PoolKeyHash{0x04, 0x05, 0x06}
+			unregisteredDRepHash := common.Blake2b224Hash(
+				[]byte("unregistered-duplicate-registration-drep"),
+			)
+			orderingCases := []struct {
+				name string
+				cert func() common.Certificate
+			}{
+				{
+					name: "stake registration delegation",
+					cert: func() common.Certificate {
+						return &common.StakeRegistrationDelegationCertificate{
+							StakeCredential: stakeCred,
+							PoolKeyHash:     unregisteredPoolKeyHash,
+						}
+					},
+				},
+				{
+					name: "vote registration delegation",
+					cert: func() common.Certificate {
+						return &common.VoteRegistrationDelegationCertificate{
+							StakeCredential: stakeCred,
+							Drep: common.Drep{
+								Type:       common.DrepTypeAddrKeyHash,
+								Credential: unregisteredDRepHash.Bytes(),
+							},
+						}
+					},
+				},
+				{
+					name: "stake vote registration delegation",
+					cert: func() common.Certificate {
+						return &common.StakeVoteRegistrationDelegationCertificate{
+							StakeCredential: stakeCred,
+							PoolKeyHash:     unregisteredPoolKeyHash,
+							Drep: common.Drep{
+								Type:       common.DrepTypeAddrKeyHash,
+								Credential: unregisteredDRepHash.Bytes(),
+							},
+						}
+					},
+				},
+			}
+
+			for _, tc := range orderingCases {
+				t.Run(tc.name, func(t *testing.T) {
+					err := conway.UtxoValidateDelegation(
+						newTx(tc.cert()),
+						0,
+						newLedgerState(true),
+						&conway.ConwayProtocolParameters{},
+					)
+					require.Error(t, err)
+					var duplicateErr conway.StakeCredentialAlreadyRegisteredError
+					require.ErrorAs(t, err, &duplicateErr)
+					assert.Equal(t, stakeCred, duplicateErr.Credential)
+				})
+			}
+		},
+	)
+
 	t.Run("same hash distinct credential types", func(t *testing.T) {
 		scriptCred := stakeCred
 		scriptCred.CredType = common.CredentialTypeScriptHash
@@ -3388,6 +3452,93 @@ func TestUtxoValidateDelegation_RejectsDuplicateStakeRegistrations(
 		require.ErrorAs(t, err, &duplicateErr)
 		assert.Equal(t, scriptCred, duplicateErr.Credential)
 	})
+}
+
+func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
+	t *testing.T,
+) {
+	stakeKeyHash := common.Blake2b224Hash(
+		[]byte("deregistered-delegation-stake-key"),
+	)
+	stakeCred := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: stakeKeyHash,
+	}
+	poolKeyHash := common.PoolKeyHash{0x01, 0x02, 0x03}
+	poolCert := &common.PoolRegistrationCertificate{
+		Operator: poolKeyHash,
+	}
+	ls := mockledger.NewLedgerStateBuilder().
+		WithStakeCredentialRegistered(stakeKeyHash, true).
+		WithPools([]*common.PoolRegistrationCertificate{poolCert}).
+		Build()
+	newTx := func(certs ...common.Certificate) *conway.ConwayTransaction {
+		wrappers := make([]common.CertificateWrapper, len(certs))
+		for i, cert := range certs {
+			wrappers[i] = common.CertificateWrapper{Certificate: cert}
+		}
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxCertificates: wrappers,
+			},
+		}
+	}
+
+	delegationCases := []struct {
+		name string
+		cert func() common.Certificate
+	}{
+		{
+			name: "stake delegation",
+			cert: func() common.Certificate {
+				return &common.StakeDelegationCertificate{
+					StakeCredential: &stakeCred,
+					PoolKeyHash:     poolKeyHash,
+				}
+			},
+		},
+		{
+			name: "vote delegation",
+			cert: func() common.Certificate {
+				return &common.VoteDelegationCertificate{
+					StakeCredential: stakeCred,
+					Drep: common.Drep{
+						Type: common.DrepTypeAbstain,
+					},
+				}
+			},
+		},
+		{
+			name: "stake vote delegation",
+			cert: func() common.Certificate {
+				return &common.StakeVoteDelegationCertificate{
+					StakeCredential: stakeCred,
+					PoolKeyHash:     poolKeyHash,
+					Drep: common.Drep{
+						Type: common.DrepTypeNoConfidence,
+					},
+				}
+			},
+		},
+	}
+
+	for _, tc := range delegationCases {
+		t.Run(tc.name, func(t *testing.T) {
+			deregistration := &common.StakeDeregistrationCertificate{
+				StakeCredential: stakeCred,
+			}
+			err := conway.UtxoValidateDelegation(
+				newTx(deregistration, tc.cert()),
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			)
+			require.Error(t, err)
+			var delegationErr conway.DelegateUnregisteredStakeCredentialError
+			require.ErrorAs(t, err, &delegationErr)
+			assert.Equal(t, stakeCred, delegationErr.Credential)
+		})
+	}
 }
 
 func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
