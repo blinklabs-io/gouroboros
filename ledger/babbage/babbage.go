@@ -279,13 +279,45 @@ type BabbageBlockHeaderBody struct {
 	ProtoVersion  BabbageProtoVersion
 }
 
+type babbageBlockHeaderBodyWire struct {
+	cbor.StructAsArray
+	BlockNumber   uint64
+	Slot          uint64
+	PrevHash      cbor.RawMessage
+	IssuerVkey    common.IssuerVkey
+	VrfKey        []byte
+	VrfResult     common.VrfResult
+	BlockBodySize uint64
+	BlockBodyHash common.Blake2b256
+	OpCert        BabbageOpCert
+	ProtoVersion  BabbageProtoVersion
+}
+
 func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
-	type tBabbageBlockHeaderBody BabbageBlockHeaderBody
-	var tmp tBabbageBlockHeaderBody
+	var tmp babbageBlockHeaderBodyWire
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	*b = BabbageBlockHeaderBody(tmp)
+	var prevHash common.Blake2b256
+	// Origin headers encode prev_hash as null. Keep that compatibility scoped
+	// to this field while non-null hashes use the globally strict decoder.
+	if len(tmp.PrevHash) != 1 || tmp.PrevHash[0] != 0xf6 {
+		if _, err := cbor.Decode(tmp.PrevHash, &prevHash); err != nil {
+			return fmt.Errorf("decode previous hash: %w", err)
+		}
+	}
+	*b = BabbageBlockHeaderBody{
+		BlockNumber:   tmp.BlockNumber,
+		Slot:          tmp.Slot,
+		PrevHash:      prevHash,
+		IssuerVkey:    tmp.IssuerVkey,
+		VrfKey:        tmp.VrfKey,
+		VrfResult:     tmp.VrfResult,
+		BlockBodySize: tmp.BlockBodySize,
+		BlockBodyHash: tmp.BlockBodyHash,
+		OpCert:        tmp.OpCert,
+		ProtoVersion:  tmp.ProtoVersion,
+	}
 	b.SetCbor(cborData)
 	return nil
 }

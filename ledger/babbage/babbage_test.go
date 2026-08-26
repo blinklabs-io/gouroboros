@@ -15,6 +15,7 @@
 package babbage
 
 import (
+	"bytes"
 	"math/big"
 	"reflect"
 	"testing"
@@ -28,6 +29,86 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func encodeBabbageHeaderWithPrevHash(
+	t *testing.T,
+	prevHash cbor.RawMessage,
+) ([]byte, []byte) {
+	t.Helper()
+	bodyCbor, err := cbor.Encode([]any{
+		uint64(0),
+		uint64(0),
+		prevHash,
+		common.IssuerVkey{},
+		[]byte{0},
+		common.VrfResult{},
+		uint64(0),
+		common.Blake2b256{},
+		BabbageOpCert{},
+		BabbageProtoVersion{},
+	})
+	require.NoError(t, err)
+	headerCbor, err := cbor.Encode([]any{
+		cbor.RawMessage(bodyCbor),
+		[]byte{0},
+	})
+	require.NoError(t, err)
+	return headerCbor, bodyCbor
+}
+
+func TestBabbageBlockHeaderPreviousHashDecoding(t *testing.T) {
+	t.Run("origin null", func(t *testing.T) {
+		headerCbor, bodyCbor := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage{0xf6},
+		)
+		header, err := NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.NoError(t, err)
+		assert.Equal(t, common.Blake2b256{}, header.PrevHash())
+		assert.Equal(t, bodyCbor, header.Body.Cbor())
+		assert.Equal(t, headerCbor, header.Cbor())
+		assert.Equal(t, common.Blake2b256Hash(headerCbor), header.Hash())
+	})
+
+	t.Run("exact hash", func(t *testing.T) {
+		expected := common.Blake2b256(bytes.Repeat([]byte{0x42}, 32))
+		prevHash, err := cbor.Encode(expected)
+		require.NoError(t, err)
+		headerCbor, _ := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage(prevHash),
+		)
+		header, err := NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.NoError(t, err)
+		assert.Equal(t, expected, header.PrevHash())
+	})
+
+	t.Run("short hash", func(t *testing.T) {
+		prevHash, err := cbor.Encode([]byte{0x42})
+		require.NoError(t, err)
+		headerCbor, _ := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage(prevHash),
+		)
+		_, err = NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.ErrorContains(t, err, "expected 32 bytes, got 1")
+	})
+
+	t.Run("non-byte value", func(t *testing.T) {
+		headerCbor, _ := encodeBabbageHeaderWithPrevHash(
+			t,
+			cbor.RawMessage{0x00},
+		)
+		_, err := NewBabbageBlockHeaderFromCbor(headerCbor)
+		require.ErrorContains(t, err, "expected CBOR byte string")
+	})
+
+	t.Run("global hash remains strict", func(t *testing.T) {
+		var hash common.Blake2b256
+		_, err := cbor.Decode(cbor.RawMessage{0xf6}, &hash)
+		require.ErrorContains(t, err, "expected CBOR byte string")
+	})
+}
 
 func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) {
 	input1 := shelley.NewShelleyTransactionInput(
