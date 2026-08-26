@@ -31,6 +31,27 @@ or a worker reporting completion authorizes only that requested work; it is not
 implicit approval to publish. The parent must inspect the shared-worktree diff
 and current remote state before issuing the publication instruction.
 
+## Published branch history is immutable
+
+A branch becomes published history at its first push. After that point, never
+rebase it, amend its commits, reset it to a different history, or force-push it.
+This applies even when no review has arrived yet and even when force-with-lease
+would technically be safe.
+
+- Being behind `main` is not a defect. Check mergeability, the merge tree,
+  touched paths, and semantic overlap. If intervening commits do not affect the
+  change, leave the branch alone.
+- When a real conflict or direct compatibility dependency requires current-base
+  integration, merge the base branch into the feature branch with a normal
+  additive merge commit. Give it a Conventional Commit subject and DCO sign-off,
+  then push normally.
+- For stacked pull requests, merge the updated parent branch into the published
+  child branch; do not rebuild the child with a rebase.
+- Rebase only unpublished local work before its first push.
+
+Never trade reviewer continuity and durable commit references for a tidier
+published graph.
+
 ## Plan releases; do not tag every eligible merge
 
 Merge eligibility and dependency readiness are not release boundaries. Before

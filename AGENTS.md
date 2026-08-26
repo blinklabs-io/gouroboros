@@ -134,6 +134,11 @@ the scope, acceptance criteria, and relevant context.
   states at the relevant viewport or platform and redact secrets or user data.
 - Sign off commits with `git commit -s` to satisfy the Developer Certificate of
   Origin requirement.
+- Treat a branch as immutable after its first push. Do not rebase, amend, reset,
+  or force-push published history. Being behind `main` alone needs no update;
+  when a real conflict or direct compatibility dependency requires integration,
+  merge the base into the feature branch with a normal DCO-signed merge commit.
+  Rebase only unpublished local work before its first push.
 - Read [`repos/.github/CONTRIBUTING.md`](repos/.github/CONTRIBUTING.md) and
   [`repos/.github/SECURITY.md`](repos/.github/SECURITY.md) for the current
   organization-wide contribution and security guidance.
