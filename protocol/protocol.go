@@ -484,7 +484,6 @@ func (p *Protocol) SendError(err error) {
 		// Discard error if the buffer is full
 		// The connection will get closed on the first error, so any
 		// additional errors are unnecessary
-		return
 	}
 	// Stop the protocol on any error to prevent further errors from being generated
 	// and to ensure the connection is properly terminated
