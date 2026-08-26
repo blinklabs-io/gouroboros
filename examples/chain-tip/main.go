@@ -40,13 +40,7 @@ func main() {
 		panic(err)
 	}
 	// Create error channel
-	errorChan := make(chan error)
-	// start error handler
-	go func() {
-		for err := range errorChan {
-			panic(err)
-		}
-	}()
+	errorChan := make(chan error, 1)
 
 	isNtN := cfg.Address != ""
 	networkType := "unix"
@@ -63,8 +57,21 @@ func main() {
 		ouroboros.WithNodeToNode(isNtN),
 	)
 	if err != nil {
+		close(errorChan)
 		panic(err)
 	}
+	errorHandlerDone := make(chan struct{})
+	go func() {
+		defer close(errorHandlerDone)
+		for err := range errorChan {
+			panic(err)
+		}
+	}()
+	defer func() {
+		_ = o.Close()
+		close(errorChan)
+		<-errorHandlerDone
+	}()
 	// Connect to Node socket
 	if err = o.Dial(networkType, address); err != nil {
 		panic(err)

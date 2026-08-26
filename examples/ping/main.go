@@ -55,7 +55,10 @@ func GetConnectionDetails(cfg *Config) (string, string, bool) {
 	return "", "", false
 }
 
-func NewConnection(cfg *Config) (NodeConnection, error) {
+func NewConnection(
+	cfg *Config,
+	errorChan chan error,
+) (NodeConnection, error) {
 	if cfg.Magic == 0 {
 		network, ok := ouroboros.NetworkByName(cfg.Network)
 		if !ok {
@@ -63,13 +66,6 @@ func NewConnection(cfg *Config) (NodeConnection, error) {
 		}
 		cfg.Magic = network.NetworkMagic
 	}
-
-	errorChan := make(chan error)
-	go func() {
-		for err := range errorChan {
-			fmt.Printf("connection error: %v\n", err)
-		}
-	}()
 
 	_, _, isTcp := GetConnectionDetails(cfg)
 
@@ -124,12 +120,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	conn, err := NewConnection(&cfg)
+	errorChan := make(chan error, 1)
+	conn, err := NewConnection(&cfg, errorChan)
 	if err != nil {
+		close(errorChan)
 		fmt.Printf("Connection error: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	errorHandlerDone := make(chan struct{})
+	go func() {
+		defer close(errorHandlerDone)
+		for err := range errorChan {
+			fmt.Printf("connection error: %v\n", err)
+		}
+	}()
+	defer func() {
+		_ = conn.Close()
+		close(errorChan)
+		<-errorHandlerDone
+	}()
 
 	result := PingNode(conn, &cfg)
 	if result.Error != nil {

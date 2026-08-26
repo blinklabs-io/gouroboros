@@ -58,7 +58,12 @@ func WithNetworkMagic(networkMagic uint32) ConnectionOptionFunc {
 	}
 }
 
-// WithErrorChan specifies the error channel to use. If none is provided, one will be created
+// WithErrorChan specifies the caller-owned error channel to use. The Connection
+// sends errors to this channel but never closes it. Delivery is non-blocking;
+// use a channel with capacity of at least one for reliable delivery while the
+// connection is active. Errors may be dropped when the channel is full or has
+// no receiver ready. If none is provided, the Connection creates and closes
+// its own channel.
 func WithErrorChan(errorChan chan error) ConnectionOptionFunc {
 	return func(c *Connection) {
 		c.errorChan = errorChan
