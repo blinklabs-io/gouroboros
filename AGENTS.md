@@ -161,7 +161,8 @@ require.NoError(t, err)
 
 | Error | Rule | Cause |
 |-------|------|-------|
-| `OutsideValidityIntervalUtxoError` | `UtxoValidateValidityInterval` | slot outside validity range |
+| `OutsideValidityIntervalUtxoError` | `UtxoValidateOutsideValidityIntervalUtxo` | slot before lower validity bound |
+| `OutsideValidityIntervalUpperBoundUtxoError` | `UtxoValidateOutsideValidityIntervalUtxo` | slot at or after exclusive upper validity bound |
 | `NativeScriptFailedError` | script evaluation | native script failed |
 
 ### Alonzo

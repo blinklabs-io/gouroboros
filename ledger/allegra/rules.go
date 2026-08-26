@@ -65,7 +65,9 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 			Slot:                  slot,
 		}
 	}
-	validityIntervalEnd, validityIntervalEndPresent := common.TransactionValidityIntervalUpperBound(tx)
+	validityIntervalEnd, validityIntervalEndPresent := common.TransactionValidityIntervalUpperBound(
+		tx,
+	)
 	if validityIntervalEndPresent && slot >= validityIntervalEnd {
 		return OutsideValidityIntervalUpperBoundUtxoError{
 			End:  validityIntervalEnd,

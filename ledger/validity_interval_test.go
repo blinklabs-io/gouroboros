@@ -372,7 +372,11 @@ func TestUtxoValidateOutsideValidityInterval(t *testing.T) {
 					}
 					var intervalError allegra.OutsideValidityIntervalUtxoError
 					require.ErrorAs(t, err, &intervalError)
-					require.Equal(t, scenario.start, intervalError.ValidityIntervalStart)
+					require.Equal(
+						t,
+						scenario.start,
+						intervalError.ValidityIntervalStart,
+					)
 					require.Equal(t, scenario.slot, intervalError.Slot)
 				})
 			}
@@ -380,7 +384,9 @@ func TestUtxoValidateOutsideValidityInterval(t *testing.T) {
 	}
 }
 
-func TestUtxoValidateOutsideValidityIntervalDecodedZeroUpperBound(t *testing.T) {
+func TestUtxoValidateOutsideValidityIntervalDecodedZeroUpperBound(
+	t *testing.T,
+) {
 	testCases := []struct {
 		name      string
 		bodyCBOR  []byte
