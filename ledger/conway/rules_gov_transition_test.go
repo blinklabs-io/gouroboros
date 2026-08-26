@@ -89,6 +89,36 @@ func TestUtxoValidateProposalDeposit(t *testing.T) {
 	})
 }
 
+func TestUtxoValidateHardForkCanFollowSkipsTypedNilAncestor(t *testing.T) {
+	ancestorId := common.GovActionId{TransactionId: common.Blake2b256{0x01}}
+	var ancestorAction *common.HardForkInitiationGovAction
+	ls := mockledger.NewLedgerStateBuilder().WithGovActions(
+		map[string]*common.GovActionState{
+			govActionKey(ancestorId): {
+				ActionId:   ancestorId,
+				ActionType: common.GovActionTypeHardForkInitiation,
+				Action:     ancestorAction,
+			},
+		},
+	).Build()
+	tx := mkProposalsTx(
+		t,
+		mkHfAction(&ancestorId, common.ProtocolVersionPlomin, 0),
+	)
+
+	require.NotPanics(t, func() {
+		require.NoError(
+			t,
+			conway.UtxoValidateHardForkCanFollow(
+				tx,
+				0,
+				ls,
+				mkConwayPp(common.ProtocolVersionConway, 0),
+			),
+		)
+	})
+}
+
 func TestUtxoValidateProposalReturnAccounts(t *testing.T) {
 	registeredCred := common.Blake2b224Hash([]byte("registered-return"))
 	unregisteredCred := common.Blake2b224Hash([]byte("unregistered-return"))

@@ -17,6 +17,7 @@ package dijkstra
 import (
 	"fmt"
 	"math/big"
+	"reflect"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -59,6 +60,16 @@ func (p DijkstraProposalProcedure) Anchor() common.GovAnchor {
 type DijkstraGovAction struct {
 	Type   uint
 	Action common.GovAction
+}
+
+// isNilGovAction reports whether action is nil, including an interface that
+// contains a typed-nil pointer.
+func isNilGovAction(action common.GovAction) bool {
+	if action == nil {
+		return true
+	}
+	rv := reflect.ValueOf(action)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 func (g DijkstraGovAction) ToPlutusData() data.PlutusData {
@@ -113,6 +124,8 @@ type DijkstraParameterChangeGovAction struct {
 	PolicyHash  []byte
 }
 
+var _ common.ParameterChangeGovAction = (*DijkstraParameterChangeGovAction)(nil)
+
 func (a *DijkstraParameterChangeGovAction) ToPlutusData() data.PlutusData {
 	actionId := data.NewConstr(1)
 	if a.ActionId != nil {
@@ -133,5 +146,38 @@ func (a *DijkstraParameterChangeGovAction) ToPlutusData() data.PlutusData {
 }
 
 func (a *DijkstraParameterChangeGovAction) GetPolicyHash() []byte {
+	if a == nil {
+		return nil
+	}
 	return a.PolicyHash
+}
+
+// PreviousGovActionId returns the parameter-change action this action follows.
+func (a *DijkstraParameterChangeGovAction) PreviousGovActionId() *common.GovActionId {
+	if a == nil {
+		return nil
+	}
+	return a.ActionId
+}
+
+// SecurityGroupFields returns the security-group parameters changed by this
+// action.
+func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
+	if a == nil {
+		return nil
+	}
+	fields := a.ParamUpdate.conwayUpdate().SecurityGroupFields()
+	if a.ParamUpdate.MaxRefScriptSizePerBlock != nil {
+		fields = append(fields, "MaxRefScriptSizePerBlock")
+	}
+	if a.ParamUpdate.MaxRefScriptSizePerTx != nil {
+		fields = append(fields, "MaxRefScriptSizePerTx")
+	}
+	if a.ParamUpdate.RefScriptCostStride != nil {
+		fields = append(fields, "RefScriptCostStride")
+	}
+	if a.ParamUpdate.RefScriptCostMultiplier != nil {
+		fields = append(fields, "RefScriptCostMultiplier")
+	}
+	return fields
 }

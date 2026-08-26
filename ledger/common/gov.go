@@ -660,6 +660,14 @@ type GovActionWithPolicy interface {
 	GetPolicyHash() []byte
 }
 
+// ParameterChangeGovAction describes the era-independent parts of a
+// parameter-change governance action needed by shared validation rules.
+type ParameterChangeGovAction interface {
+	GovAction
+	PreviousGovActionId() *GovActionId
+	SecurityGroupFields() []string
+}
+
 type GovActionBase struct{}
 
 //nolint:unused
