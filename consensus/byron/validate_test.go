@@ -18,6 +18,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -600,19 +601,14 @@ func TestValidateGenesisDelegate(t *testing.T) {
 		})
 	}
 
-	// Test with no genesis keys configured (should skip check)
+	// An empty trust root must reject every issuer.
 	configNoKeys := testByronConfig()
 	validatorNoKeys := NewHeaderValidator(configNoKeys)
 	input := &ValidateHeaderInput{
 		IssuerPubKey: make([]byte, ed25519.PublicKeySize),
 	}
 	err = validatorNoKeys.validateGenesisDelegate(input)
-	if err != nil {
-		t.Errorf(
-			"expected no error when no genesis keys configured, got: %v",
-			err,
-		)
-	}
+	require.ErrorContains(t, err, "genesis issuer set is empty")
 }
 
 func TestValidateSlotLeader(t *testing.T) {
@@ -711,7 +707,7 @@ func TestValidateSlotLeader(t *testing.T) {
 		})
 	}
 
-	// Test with no genesis keys configured (should skip check)
+	// An empty trust root must not disable slot-leader authorization.
 	configNoKeys := testByronConfig()
 	validatorNoKeys := NewHeaderValidator(configNoKeys)
 	inputNoKeys := &ValidateHeaderInput{
@@ -719,7 +715,26 @@ func TestValidateSlotLeader(t *testing.T) {
 		IssuerPubKey: make([]byte, ed25519.PublicKeySize),
 	}
 	err := validatorNoKeys.validateSlotLeader(inputNoKeys)
-	require.NoError(t, err, "expected no error when no genesis keys configured")
+	require.ErrorContains(t, err, "genesis issuer set is empty")
+}
+
+func TestValidateHeaderRejectsEmptyGenesisIssuerSet(t *testing.T) {
+	validator := NewHeaderValidator(testByronConfig())
+	result := validator.ValidateHeader(&ValidateHeaderInput{
+		Slot:            1,
+		BlockNumber:     1,
+		ProtocolMagic:   testByronProtocolMagicMainnet,
+		IssuerPubKey:    make([]byte, ed25519.PublicKeySize),
+		PrevSlot:        0,
+		PrevBlockNumber: 0,
+	})
+
+	require.False(t, result.Valid)
+	require.ErrorContains(
+		t,
+		errors.Join(result.Errors...),
+		"genesis issuer set is empty",
+	)
 }
 
 func TestSlotLeader(t *testing.T) {
@@ -785,15 +800,18 @@ func TestSlotLeader(t *testing.T) {
 
 func TestValidateHeaderFull(t *testing.T) {
 	config := testByronConfig()
-	validator := NewHeaderValidator(config)
-	// Enable fallback since we're using raw test data, not real CBOR headers
-	validator.AllowSignatureFallback = true
 
 	// Generate test key pair
 	pubKey, privKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("ed25519.GenerateKey failed: %v", err)
 	}
+	config.GenesisKeyHashes = [][]byte{
+		common.Blake2b224Hash(pubKey).Bytes(),
+	}
+	validator := NewHeaderValidator(config)
+	// Enable fallback since we're using raw test data, not real CBOR headers
+	validator.AllowSignatureFallback = true
 	message := []byte("test header body")
 	signature := ed25519.Sign(privKey, message)
 	prevHash := make([]byte, 32)

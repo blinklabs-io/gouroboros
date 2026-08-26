@@ -18,6 +18,8 @@ package consensus
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
@@ -100,7 +102,51 @@ func NewNetworkConfigFromReader(r io.Reader) (NetworkConfig, error) {
 	if err := dec.Decode(&ret); err != nil {
 		return ret, err
 	}
+	if err := ret.validate(); err != nil {
+		return NetworkConfig{}, err
+	}
 	return ret, nil
+}
+
+func (c NetworkConfig) validate() error {
+	if c.SecurityParam == 0 {
+		return errors.New(
+			"network security parameter must be greater than zero",
+		)
+	}
+	if c.ActiveSlotCoeff.Rat == nil {
+		return errors.New("network active slot coefficient is required")
+	}
+	if c.ActiveSlotCoeff.Sign() <= 0 ||
+		c.ActiveSlotCoeff.Cmp(big.NewRat(1, 1)) > 0 {
+		return fmt.Errorf(
+			"network active slot coefficient must be greater than zero and at most one: got %s",
+			c.ActiveSlotCoeff.String(),
+		)
+	}
+	if c.SlotLength.Rat == nil {
+		return errors.New("network slot length is required")
+	}
+	if c.SlotLength.Sign() <= 0 {
+		return fmt.Errorf(
+			"network slot length must be greater than zero: got %s",
+			c.SlotLength.String(),
+		)
+	}
+	if c.EpochLength == 0 {
+		return errors.New("network epoch length must be greater than zero")
+	}
+	if c.SlotsPerKESPeriod == 0 {
+		return errors.New(
+			"network slots per KES period must be greater than zero",
+		)
+	}
+	if c.MaxKESEvolutions == 0 {
+		return errors.New(
+			"network maximum KES evolutions must be greater than zero",
+		)
+	}
+	return nil
 }
 
 // NewNetworkConfigFromFile creates a NetworkConfig from a Shelley genesis JSON file.

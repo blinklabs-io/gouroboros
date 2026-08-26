@@ -771,13 +771,13 @@ func TestByronFullHeaderValidation(t *testing.T) {
 	sigType, _ := header.ConsensusData.BlockSig[0].(uint64)
 	t.Logf("Signature type: %d", sigType)
 
-	// Create validator config
-	// Note: We don't have the genesis delegate keys, so we skip that validation
+	// Configure the fixture issuer as the test's trust root so the full header
+	// path exercises issuer authorization rather than disabling it.
 	config := byronConsensus.ByronConfig{
-		ProtocolMagic:  header.ProtocolMagic,
-		SlotsPerEpoch:  byron.ByronSlotsPerEpoch,
-		NumGenesisKeys: 7, // Mainnet had 7 genesis delegates
-		// GenesisKeyHashes not set - will skip delegate validation
+		ProtocolMagic:    header.ProtocolMagic,
+		SlotsPerEpoch:    byron.ByronSlotsPerEpoch,
+		NumGenesisKeys:   1,
+		GenesisKeyHashes: [][]byte{common.Blake2b224Hash(pubKey).Bytes()},
 	}
 
 	validator := byronConsensus.NewHeaderValidator(config)

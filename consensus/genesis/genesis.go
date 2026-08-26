@@ -39,6 +39,8 @@
 package genesis
 
 import (
+	"errors"
+	"fmt"
 	"math/big"
 )
 
@@ -121,15 +123,33 @@ type GenesisSelector struct {
 	config GenesisConfig
 }
 
-// NewGenesisSelector creates a new Genesis chain selector
-func NewGenesisSelector(config GenesisConfig) *GenesisSelector {
-	if config.GenesisWindow == 0 && config.ActiveSlotCoeff != nil {
+// NewGenesisSelector creates a validated Genesis chain selector.
+func NewGenesisSelector(config GenesisConfig) (*GenesisSelector, error) {
+	if config.SecurityParam == 0 {
+		return nil, errors.New(
+			"genesis security parameter must be greater than zero",
+		)
+	}
+	if config.ActiveSlotCoeff == nil {
+		return nil, errors.New("genesis active slot coefficient is required")
+	}
+	if config.ActiveSlotCoeff.Sign() <= 0 ||
+		config.ActiveSlotCoeff.Cmp(big.NewRat(1, 1)) > 0 {
+		return nil, fmt.Errorf(
+			"genesis active slot coefficient must be greater than zero and at most one: got %s",
+			config.ActiveSlotCoeff.String(),
+		)
+	}
+	if config.GenesisWindow == 0 {
 		config.GenesisWindow = ComputeGenesisWindow(
 			config.SecurityParam,
 			config.ActiveSlotCoeff,
 		)
 	}
-	return &GenesisSelector{config: config}
+	if config.GenesisWindow == 0 {
+		return nil, errors.New("genesis window must be greater than zero")
+	}
+	return &GenesisSelector{config: config}, nil
 }
 
 // Compare compares two chain fragments using Genesis rules

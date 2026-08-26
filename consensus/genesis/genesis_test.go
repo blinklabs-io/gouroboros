@@ -16,9 +16,11 @@ package genesis
 
 import (
 	"math/big"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testGenesisConfig returns a GenesisConfig for testing with mainnet-like parameters.
@@ -29,6 +31,16 @@ func testGenesisConfig() GenesisConfig {
 		ActiveSlotCoeff: f,
 		GenesisWindow:   ComputeGenesisWindow(2160, f),
 	}
+}
+
+func mustNewGenesisSelector(
+	t *testing.T,
+	config GenesisConfig,
+) *GenesisSelector {
+	t.Helper()
+	selector, err := NewGenesisSelector(config)
+	require.NoError(t, err)
+	return selector
 }
 
 func TestComputeGenesisWindow(t *testing.T) {
@@ -79,11 +91,101 @@ func TestComputeGenesisWindowDegenerateCoefficients(t *testing.T) {
 	)
 }
 
+// callNewGenesisSelector lets this regression exercise both the historical
+// one-result constructor and the validated two-result constructor. That keeps
+// the invalid-input assertions runnable against the exact pre-fix revision.
+func callNewGenesisSelector(
+	t *testing.T,
+	config GenesisConfig,
+) (*GenesisSelector, error) {
+	t.Helper()
+	results := reflect.ValueOf(NewGenesisSelector).Call(
+		[]reflect.Value{reflect.ValueOf(config)},
+	)
+	require.Contains(t, []int{1, 2}, len(results))
+	selector, _ := results[0].Interface().(*GenesisSelector)
+	if len(results) == 1 || results[1].IsNil() {
+		return selector, nil
+	}
+	err, ok := results[1].Interface().(error)
+	require.True(t, ok, "second constructor result must be an error")
+	return selector, err
+}
+
+func TestNewGenesisSelectorRejectsInvalidConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      GenesisConfig
+		expectError string
+	}{
+		{
+			name: "zero security parameter",
+			config: GenesisConfig{
+				ActiveSlotCoeff: big.NewRat(1, 20),
+				GenesisWindow:   1,
+			},
+			expectError: "security parameter",
+		},
+		{
+			name: "nil active slot coefficient",
+			config: GenesisConfig{
+				SecurityParam: 1,
+				GenesisWindow: 3,
+			},
+			expectError: "active slot coefficient",
+		},
+		{
+			name: "zero active slot coefficient",
+			config: GenesisConfig{
+				SecurityParam:   1,
+				ActiveSlotCoeff: big.NewRat(0, 1),
+				GenesisWindow:   3,
+			},
+			expectError: "active slot coefficient",
+		},
+		{
+			name: "negative active slot coefficient",
+			config: GenesisConfig{
+				SecurityParam:   1,
+				ActiveSlotCoeff: big.NewRat(-1, 20),
+				GenesisWindow:   3,
+			},
+			expectError: "active slot coefficient",
+		},
+		{
+			name: "active slot coefficient above one",
+			config: GenesisConfig{
+				SecurityParam:   1,
+				ActiveSlotCoeff: big.NewRat(2, 1),
+				GenesisWindow:   3,
+			},
+			expectError: "active slot coefficient",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			selector, err := callNewGenesisSelector(t, test.config)
+			require.Nil(t, selector)
+			require.ErrorContains(t, err, test.expectError)
+		})
+	}
+}
+
+func TestNewGenesisSelectorAcceptsBoundaryConfig(t *testing.T) {
+	selector, err := NewGenesisSelector(GenesisConfig{
+		SecurityParam:   1,
+		ActiveSlotCoeff: big.NewRat(1, 1),
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), selector.config.GenesisWindow)
+}
+
 // TestNewGenesisSelectorDerivedWindowCeiling pins the derived-window path
 // through NewGenesisSelector with a non-integral 3k/f, so the constructor
 // inherits the ceiling semantics too.
 func TestNewGenesisSelectorDerivedWindowCeiling(t *testing.T) {
-	selector := NewGenesisSelector(GenesisConfig{
+	selector := mustNewGenesisSelector(t, GenesisConfig{
 		SecurityParam:   2160,
 		ActiveSlotCoeff: big.NewRat(7, 100),
 	})
@@ -113,7 +215,7 @@ func TestGenesisConfig(t *testing.T) {
 
 func TestNewGenesisSelector(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	if selector == nil {
 		t.Fatal("expected non-nil selector")
@@ -133,7 +235,7 @@ func TestNewGenesisSelectorComputesWindow(t *testing.T) {
 		GenesisWindow:   0, // Will be computed
 	}
 
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	expectedWindow := uint64(129600)
 	if selector.config.GenesisWindow != expectedWindow {
@@ -144,7 +246,7 @@ func TestNewGenesisSelectorComputesWindow(t *testing.T) {
 
 func TestCompareByDensity(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	// Chain A: More blocks (higher density for same tip)
 	chainA := &SimpleChainFragment{
@@ -174,7 +276,7 @@ func TestCompareByDensity(t *testing.T) {
 
 func TestCompareByLength(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	// Same tip slot, different block counts - more blocks = higher density
 	chainA := &SimpleChainFragment{
@@ -197,7 +299,7 @@ func TestCompareByLength(t *testing.T) {
 
 func TestCompareEqual(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	// Equal chains
 	chain := &SimpleChainFragment{
@@ -214,7 +316,7 @@ func TestCompareEqual(t *testing.T) {
 
 func TestPreferred(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	candidates := []ChainFragment{
 		&SimpleChainFragment{
@@ -246,7 +348,7 @@ func TestPreferred(t *testing.T) {
 
 func TestPreferredEmpty(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	var candidates []ChainFragment
 	best := selector.Preferred(candidates)
@@ -257,7 +359,7 @@ func TestPreferredEmpty(t *testing.T) {
 
 func TestPreferredSingle(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	chain := &SimpleChainFragment{
 		Intersection: 0,
@@ -274,7 +376,7 @@ func TestPreferredSingle(t *testing.T) {
 
 func TestShouldUseGenesis(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	tests := []struct {
 		name           string
@@ -336,7 +438,7 @@ func TestShouldUseGenesis(t *testing.T) {
 
 func TestDefaultSyncThreshold(t *testing.T) {
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	threshold := selector.DefaultSyncThreshold()
 	if threshold != config.GenesisWindow {
@@ -431,7 +533,7 @@ func TestExpectedDensity(t *testing.T) {
 func TestGenesisVsPraosScenario(t *testing.T) {
 	// Scenario: Compare chains with different densities
 	config := testGenesisConfig()
-	selector := NewGenesisSelector(config)
+	selector := mustNewGenesisSelector(t, config)
 
 	// Honest chain: Higher density (more blocks per slot)
 	honestChain := &SimpleChainFragment{

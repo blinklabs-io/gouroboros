@@ -172,6 +172,9 @@ func (r *Rat) UnmarshalJSON(data []byte) error {
 		Denominator int64 `json:"denominator"`
 	}
 	if err := json.Unmarshal(data, &tmpData); err == nil {
+		if tmpData.Denominator == 0 {
+			return errors.New("invalid cbor.Rat: denominator cannot be zero")
+		}
 		r.Rat = big.NewRat(tmpData.Numerator, tmpData.Denominator)
 		return nil
 	}
