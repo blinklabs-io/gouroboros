@@ -15,7 +15,6 @@
 package leiosvotes
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
@@ -47,11 +46,16 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 func (s *Server) initProtocol() {
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[StateBusy]; ok {
-		timeout := DefaultTimeout
-		if s.config != nil && s.config.Timeout != 0 {
-			timeout = s.config.Timeout
+		// An unconfigured responder has no valid message that can complete a
+		// pending request. Leave its Busy timeout disabled so the optional
+		// protocol cannot turn that request into a bearer-level error.
+		if s.config != nil && s.config.RequestNextFunc != nil {
+			timeout := DefaultTimeout
+			if s.config.Timeout != 0 {
+				timeout = s.config.Timeout
+			}
+			entry.Timeout = timeout
 		}
-		entry.Timeout = timeout
 		stateMap[StateBusy] = entry
 	}
 	protoConfig := protocol.ProtocolConfig{
@@ -114,9 +118,10 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 		)
 	}
 	if s.config == nil || s.config.RequestNextFunc == nil {
-		return errors.New(
-			"received leios-votes VotesRequestNext message but no callback function is defined",
-		)
+		// CIP-0164 permits only Vote while the server has agency in Busy.
+		// Keep the request pending rather than inventing a response or failing
+		// the shared bearer.
+		return nil
 	}
 	votes, err := s.config.RequestNextFunc(
 		s.callbackContext,

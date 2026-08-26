@@ -103,9 +103,10 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockRequest message but no callback function is defined",
-		)
+		// The unconfirmed NoBlock wire ID cannot safely be emitted by default.
+		// Keep server agency in StateBlock so the optional protocol remains
+		// pending without terminating the shared bearer.
+		return nil
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
@@ -152,9 +153,9 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockTxsRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockTxsRequest message but no callback function is defined",
-		)
+		// The unconfirmed NoBlockTxs wire ID cannot safely be emitted by
+		// default. Keep server agency without failing the shared bearer.
+		return nil
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
@@ -232,9 +233,10 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.BlockRangeRequestFunc == nil {
-		return errors.New(
-			"received leios-fetch BlockRangeRequest message but no callback function is defined",
-		)
+		// The protocol has no empty range response. Keep server agency in
+		// StateBlockRange instead of fabricating a payload or failing the
+		// bearer.
+		return nil
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)
 	err := s.config.BlockRangeRequestFunc(
