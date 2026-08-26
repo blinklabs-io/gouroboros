@@ -6,10 +6,17 @@
         "source": "github",
         "repo": "blinklabs-io/clanker"
       }
+    },
+    "cardano-dev-skills": {
+      "source": {
+        "source": "github",
+        "repo": "cardano-foundation/cardano-dev-skills"
+      }
     }
   },
   "enabledPlugins": {
-    "blink-labs-agent-toolkit@blink-labs-team": true
+    "blink-labs-agent-toolkit@blink-labs-team": true,
+    "cardano-dev-skills@cardano-dev-skills": true
   },
   "permissions": {
     "allow": [

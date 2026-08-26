@@ -10,6 +10,12 @@ The canonical source is `plugins/blink-labs-agent-toolkit/`. The workspace
 `docs/repository-patterns.md` files are symlinks into it, so a `git clone`
 without symlink support will not give you a working toolkit.
 
+The workspace also enables the Cardano Foundation's
+[Cardano Dev Skills](https://github.com/cardano-foundation/cardano-dev-skills)
+as a companion plugin. It supplies current Cardano development skills and
+bundled upstream documentation while remaining maintained in its own
+repository.
+
 ## Claude Code
 
 Claude Code reads the marketplace metadata in `.claude-plugin/`:
@@ -17,6 +23,8 @@ Claude Code reads the marketplace metadata in `.claude-plugin/`:
 ```sh
 claude plugin marketplace add . --scope user
 claude plugin install blink-labs-agent-toolkit@blink-labs-team
+claude plugin marketplace add cardano-foundation/cardano-dev-skills --scope user
+claude plugin install cardano-dev-skills@cardano-dev-skills
 ```
 
 Use `--scope project` when the installation should be recorded for everyone
@@ -24,8 +32,8 @@ working in this repository, or `--scope local` for a private installation. After
 installing or updating a plugin in an interactive session, run
 `/reload-plugins`.
 
-This repository already registers the marketplace and enables the plugin in
-`.claude/settings.json`, so a fresh clone picks it up without any manual step.
+This repository already registers both marketplaces and enables both plugins in
+`.claude/settings.json`, so a fresh clone picks them up without any manual step.
 That file also carries a read-only permission allowlist for the workspace's
 usual inspection and validation commands, sends pushes and pull-request
 mutations to a prompt, and denies destructive registry, cluster, and Terraform
@@ -69,6 +77,17 @@ The Codex marketplace metadata is in `.agents/plugins/marketplace.json`. Codex
 uses the same `SKILL.md` files; the commands, subagents, and hooks are Claude
 Code features and are simply unused there.
 
+Cardano Dev Skills does not currently publish a Codex plugin manifest. Follow
+its tool-neutral installation from the root of this checkout instead:
+
+```sh
+git clone https://github.com/cardano-foundation/cardano-dev-skills.git ../cardano-dev-skills
+ln -s ../../cardano-dev-skills/skills .agents/skills
+```
+
+The clone remains outside this repository, and the untracked project-local
+symlink exposes the upstream skills to Codex without vendoring them here.
+
 ## Direct, tool-neutral use
 
 Both clients can read the source files directly without installing anything.
@@ -82,6 +101,7 @@ client-specific tools.
 git pull --ff-only
 git submodule update --init --recursive
 claude plugin marketplace update blink-labs-team
+claude plugin marketplace update cardano-dev-skills
 codex plugin marketplace update blink-labs-team
 ```
 

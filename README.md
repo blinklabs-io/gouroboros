@@ -49,11 +49,13 @@ project in the workspace:
   for current-head pull-request review, direct and team review requests, and
   merge-gate scans.
 
-`.claude/settings.json` registers the marketplace and enables the plugin, so a
-fresh clone is ready without manual setup. The complete catalog is in
-[docs/skill-catalog.md](docs/skill-catalog.md), and Claude Code and Codex
-installation, scopes, and guard bypasses are in the [agent toolkit installation
-guide](docs/agent-toolkit-installation.md).
+`.claude/settings.json` registers and enables both the Blink Labs toolkit and
+the Cardano Foundation's
+[Cardano Dev Skills](https://github.com/cardano-foundation/cardano-dev-skills),
+so Claude Code adopts both plugins automatically in a fresh clone. The complete
+Blink Labs catalog is in [docs/skill-catalog.md](docs/skill-catalog.md), and
+Claude Code and Codex installation, scopes, and guard bypasses are in the
+[agent toolkit installation guide](docs/agent-toolkit-installation.md).
 
 ### Install
 
@@ -64,6 +66,8 @@ toolkit in the client you use:
 # Claude Code
 claude plugin marketplace add . --scope user
 claude plugin install blink-labs-agent-toolkit@blink-labs-team
+claude plugin marketplace add cardano-foundation/cardano-dev-skills --scope user
+claude plugin install cardano-dev-skills@cardano-dev-skills
 
 # Codex
 codex plugin marketplace add .
