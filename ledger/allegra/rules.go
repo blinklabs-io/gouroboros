@@ -50,7 +50,8 @@ func UtxoValidateRequiredVKeyWitnesses(
 	return shelley.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
 }
 
-// UtxoValidateOutsideValidityIntervalUtxo ensures that the current tip slot has reached the specified validity interval
+// UtxoValidateOutsideValidityIntervalUtxo ensures that the current tip slot is
+// within the transaction's half-open validity interval.
 func UtxoValidateOutsideValidityIntervalUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -58,13 +59,20 @@ func UtxoValidateOutsideValidityIntervalUtxo(
 	_ common.ProtocolParameters,
 ) error {
 	validityIntervalStart := tx.ValidityIntervalStart()
-	if validityIntervalStart == 0 || slot >= validityIntervalStart {
-		return nil
+	if validityIntervalStart != 0 && slot < validityIntervalStart {
+		return OutsideValidityIntervalUtxoError{
+			ValidityIntervalStart: validityIntervalStart,
+			Slot:                  slot,
+		}
 	}
-	return OutsideValidityIntervalUtxoError{
-		ValidityIntervalStart: validityIntervalStart,
-		Slot:                  slot,
+	validityIntervalEnd, validityIntervalEndPresent := common.TransactionValidityIntervalUpperBound(tx)
+	if validityIntervalEndPresent && slot >= validityIntervalEnd {
+		return OutsideValidityIntervalUpperBoundUtxoError{
+			End:  validityIntervalEnd,
+			Slot: slot,
+		}
 	}
+	return nil
 }
 
 func UtxoValidateInputSetEmptyUtxo(

@@ -44,6 +44,12 @@ type validityUpperBoundTestCase struct {
 	newTx   func(validityUpperBoundBody) common.TransactionBody
 }
 
+type validityIntervalValidationTestCase struct {
+	name      string
+	newTx     func(uint64, *uint64) common.Transaction
+	validator common.UtxoValidationRuleFunc
+}
+
 func validityUpperBoundTestCases() []validityUpperBoundTestCase {
 	return []validityUpperBoundTestCase{
 		{
@@ -194,6 +200,238 @@ func TestTransactionValidityIntervalUpperBoundLegacyFallback(t *testing.T) {
 
 	body.Ttl = 42
 	requireValidityUpperBound(t, body, 42, true)
+}
+
+func TestUtxoValidateOutsideValidityInterval(t *testing.T) {
+	testCases := []validityIntervalValidationTestCase{
+		{
+			name: "Allegra",
+			newTx: func(start uint64, end *uint64) common.Transaction {
+				body := allegra.AllegraTransactionBody{
+					TxValidityIntervalStart: start,
+				}
+				setValidityIntervalUpperBound(&body, end)
+				return &allegra.AllegraTransaction{Body: body}
+			},
+			validator: allegra.UtxoValidateOutsideValidityIntervalUtxo,
+		},
+		{
+			name: "Mary",
+			newTx: func(start uint64, end *uint64) common.Transaction {
+				body := mary.MaryTransactionBody{}
+				if start != 0 {
+					body.TxValidityIntervalStart = &start
+				}
+				setValidityIntervalUpperBound(&body, end)
+				return &mary.MaryTransaction{Body: body}
+			},
+			validator: mary.UtxoValidateOutsideValidityIntervalUtxo,
+		},
+		{
+			name: "Alonzo",
+			newTx: func(start uint64, end *uint64) common.Transaction {
+				body := alonzo.AlonzoTransactionBody{
+					TxValidityIntervalStart: start,
+				}
+				setValidityIntervalUpperBound(&body, end)
+				return &alonzo.AlonzoTransaction{Body: body}
+			},
+			validator: alonzo.UtxoValidateOutsideValidityIntervalUtxo,
+		},
+		{
+			name: "Babbage",
+			newTx: func(start uint64, end *uint64) common.Transaction {
+				body := babbage.BabbageTransactionBody{
+					TxValidityIntervalStart: start,
+				}
+				setValidityIntervalUpperBound(&body, end)
+				return &babbage.BabbageTransaction{Body: body}
+			},
+			validator: babbage.UtxoValidateOutsideValidityIntervalUtxo,
+		},
+		{
+			name: "Conway",
+			newTx: func(start uint64, end *uint64) common.Transaction {
+				body := conway.ConwayTransactionBody{
+					TxValidityIntervalStart: start,
+				}
+				setValidityIntervalUpperBound(&body, end)
+				return &conway.ConwayTransaction{Body: body}
+			},
+			validator: conway.UtxoValidateOutsideValidityIntervalUtxo,
+		},
+		{
+			name: "Dijkstra",
+			newTx: func(start uint64, end *uint64) common.Transaction {
+				body := dijkstra.DijkstraTransactionBody{
+					TxValidityIntervalStart: start,
+				}
+				setValidityIntervalUpperBound(&body, end)
+				return &dijkstra.DijkstraTransaction{Body: body}
+			},
+			validator: conway.UtxoValidateOutsideValidityIntervalUtxo,
+		},
+	}
+	scenarios := []struct {
+		name        string
+		start       uint64
+		end         *uint64
+		slot        uint64
+		wantError   bool
+		wantUpper   bool
+		wantMessage string
+	}{
+		{
+			name: "absent upper bound at slot zero",
+			slot: 0,
+		},
+		{
+			name: "absent upper bound after slot zero",
+			slot: 123,
+		},
+		{
+			name:        "before lower bound",
+			start:       50,
+			slot:        49,
+			wantError:   true,
+			wantMessage: "outside validity interval: start 50, slot 49",
+		},
+		{
+			name:  "at lower bound",
+			start: 50,
+			slot:  50,
+		},
+		{
+			name:        "lower bound failure takes precedence",
+			start:       50,
+			end:         uint64Pointer(0),
+			slot:        0,
+			wantError:   true,
+			wantMessage: "outside validity interval: start 50, slot 0",
+		},
+		{
+			name: "before upper bound",
+			end:  uint64Pointer(100),
+			slot: 99,
+		},
+		{
+			name:        "at upper bound",
+			end:         uint64Pointer(100),
+			slot:        100,
+			wantError:   true,
+			wantUpper:   true,
+			wantMessage: "outside validity interval upper bound: end 100, slot 100",
+		},
+		{
+			name:        "after upper bound",
+			end:         uint64Pointer(100),
+			slot:        101,
+			wantError:   true,
+			wantUpper:   true,
+			wantMessage: "outside validity interval upper bound: end 100, slot 101",
+		},
+		{
+			name:  "inside bounded interval",
+			start: 50,
+			end:   uint64Pointer(100),
+			slot:  75,
+		},
+		{
+			name:        "explicit zero upper bound",
+			end:         uint64Pointer(0),
+			slot:        0,
+			wantError:   true,
+			wantUpper:   true,
+			wantMessage: "outside validity interval upper bound: end 0, slot 0",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			for _, scenario := range scenarios {
+				t.Run(scenario.name, func(t *testing.T) {
+					err := test.validator(
+						test.newTx(scenario.start, scenario.end),
+						scenario.slot,
+						nil,
+						nil,
+					)
+					if !scenario.wantError {
+						require.NoError(t, err)
+						return
+					}
+
+					require.Error(t, err)
+					require.Equal(t, scenario.wantMessage, err.Error())
+					if scenario.wantUpper {
+						var intervalError allegra.OutsideValidityIntervalUpperBoundUtxoError
+						require.ErrorAs(t, err, &intervalError)
+						require.Equal(t, *scenario.end, intervalError.End)
+						require.Equal(t, scenario.slot, intervalError.Slot)
+						return
+					}
+					var intervalError allegra.OutsideValidityIntervalUtxoError
+					require.ErrorAs(t, err, &intervalError)
+					require.Equal(t, scenario.start, intervalError.ValidityIntervalStart)
+					require.Equal(t, scenario.slot, intervalError.Slot)
+				})
+			}
+		})
+	}
+}
+
+func TestUtxoValidateOutsideValidityIntervalDecodedZeroUpperBound(t *testing.T) {
+	testCases := []struct {
+		name      string
+		bodyCBOR  []byte
+		wantError bool
+	}{
+		{
+			name:     "omitted key 3",
+			bodyCBOR: []byte{0xa0},
+		},
+		{
+			name:      "explicit key 3 zero",
+			bodyCBOR:  []byte{0xa1, 0x03, 0x00},
+			wantError: true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			var body allegra.AllegraTransactionBody
+			require.NoError(t, body.UnmarshalCBOR(test.bodyCBOR))
+			err := allegra.UtxoValidateOutsideValidityIntervalUtxo(
+				&allegra.AllegraTransaction{Body: body},
+				0,
+				nil,
+				nil,
+			)
+			if !test.wantError {
+				require.NoError(t, err)
+				return
+			}
+			var intervalError allegra.OutsideValidityIntervalUpperBoundUtxoError
+			require.ErrorAs(t, err, &intervalError)
+			require.Zero(t, intervalError.End)
+			require.Zero(t, intervalError.Slot)
+		})
+	}
+}
+
+func setValidityIntervalUpperBound(
+	body validityUpperBoundBody,
+	upperBound *uint64,
+) {
+	if upperBound == nil {
+		body.ClearValidityIntervalUpperBound()
+		return
+	}
+	body.SetValidityIntervalUpperBound(*upperBound)
+}
+
+func uint64Pointer(value uint64) *uint64 {
+	return &value
 }
 
 func requireValidityUpperBound(
