@@ -1,6 +1,6 @@
 ---
 name: commit-and-pr-hygiene
-description: Write Blink Labs commits, pull request descriptions, issues, and review comments that meet organization policy — Conventional Commits, DCO sign-off, short factual messages, no committed plan files, milestones left off new issues because they carry an on-chain governance commitment, and submodule pointer updates kept separate from source changes. Use before every commit, when opening or updating a pull request, when opening or triaging an issue, or when writing review comments.
+description: Write Blink Labs commits, pull request descriptions, issues, review comments, and release plans that meet organization policy — Conventional Commits, DCO sign-off, short factual messages, deliberate SemVer/tag boundaries, no committed plan files, milestones left off new issues because they carry an on-chain governance commitment, and submodule pointer updates kept separate from source changes. Use before every commit or release, when opening or updating a pull request, when opening or triaging an issue, or when writing review comments.
 ---
 
 # Commit and PR Hygiene
@@ -30,6 +30,34 @@ explicitly releases that action. Review feedback, requested test improvements,
 or a worker reporting completion authorizes only that requested work; it is not
 implicit approval to publish. The parent must inspect the shared-worktree diff
 and current remote state before issuing the publication instruction.
+
+## Plan releases; do not tag every eligible merge
+
+Merge eligibility and dependency readiness are not release boundaries. Before
+creating a tag, inspect the latest released version, classify the accumulated
+changes, list the intended release contents, check for other compatible changes
+that should land in the same release, and identify the consumers that will move
+to it. General authorization to create tags does not skip this planning step.
+
+- Bundle compatible fixes into a planned patch release instead of publishing
+  one version per merged pull request.
+- In pre-1.0 Go modules, use a patch bump for backward-compatible bug fixes,
+  tests, documentation, and internal refactors. Use a minor bump only for an
+  intentional additive feature/API boundary or a compatibility change, and
+  record that rationale in the private release handoff.
+- Prefer one released-tag consumer update for the planned contents. Do not make
+  downstream repositories chase a sequence of intermediate tags when they can
+  consume the completed patch release.
+- If a dependency fix is urgent enough to release alone, state that exception
+  and its version rationale before tagging; urgency does not automatically turn
+  a patch into a minor release.
+- A published tag or release is durable external state. Never delete, move, or
+  replace it without explicit user direction. Correct subsequent contents with
+  the next SemVer version.
+
+After publishing the planned tag, verify the tag target, release workflow,
+package/proxy publication, and consumer-visible version before calling the
+release usable.
 
 ## Commits
 

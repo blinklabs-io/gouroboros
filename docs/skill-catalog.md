@@ -70,7 +70,7 @@ the same `SKILL.md` files.
 | `regression-test-discipline` | Adding a test alongside a fix, or a test asserts something the test itself performed |
 | `isolated-validation-runs` | A check is slow, stateful, networked, or concurrent — worktrees, unique resources, flake triage |
 | `evidence-based-handoff` | Finishing work: evidence ledger, skipped-check list, findings in severity order |
-| `commit-and-pr-hygiene` | Writing a commit, PR description, or review comment |
+| `commit-and-pr-hygiene` | Writing commits and GitHub records, planning SemVer releases, or creating tags |
 | `github-review-coordinator` | Discovering direct and team review requests, sequencing bot review, fix loops, reviewer re-requests, and dismissal |
 | `agent-toolkit-authoring` | Changing the toolkit itself: skills, commands, subagents, hooks, manifests |
 

@@ -86,7 +86,7 @@ the scope, acceptance criteria, and relevant context.
   [`isolated-validation-runs`](skills/isolated-validation-runs/SKILL.md) for
   slow, stateful, or concurrent checks,
   [`commit-and-pr-hygiene`](skills/commit-and-pr-hygiene/SKILL.md) before
-  committing, and
+  committing, tagging, or releasing, and
   [`evidence-based-handoff`](skills/evidence-based-handoff/SKILL.md) before
   reporting work as done.
 - The full catalog of skills, slash commands, subagents, and workspace guards is
